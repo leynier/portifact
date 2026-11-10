@@ -246,6 +246,24 @@ Admins set up one OpenID Connect provider per Enterprise workspace on the Member
 - A customer who lost their identity provider can still sign in with an email code: single sign-on is an extra method, not a replacement, until "required" exists.
 - Removing the provider writes a `workspace_sso` tombstone, so a restore cannot bring it back (`apply-tombstones` deletes it and its linked identities again). A provider whose secret was sealed with a retired `SSO_KEY` stops signing in until an admin enters the secret again.
 
+### Workspace SCIM provisioning
+
+Admins create a SCIM token in the Directory sync section of the Members page and paste it, with the base URL `https://app.portifact.com/scim/v2`, into their identity provider ([decision 0017](decisions/0017-workspace-scim.md)). Switched off until `SCIM_ENABLED="true"` ([releasing.md](releasing.md), "SCIM").
+
+- Rows are global: `scim_tokens`, `scim_users` (the directory's copy of each person: the address, `externalId`, the names it sent, `active`, the linked account and `removed_at`), `workspace_scim` (whether provisioned people get the invitation email; off by default) and pending memberships in `workspace_invitations` with `source = 'directory'`. They go with the workspace.
+- A provisioned person without an account holds a seat until they sign in or for 90 days after the directory's last write (`SCIM.pendingDays`); the maintenance run then drops the pending row and, once nothing links it to an account, the directory's copy (`pruneDirectoryUsers`).
+- The directory deactivating someone removes them from the workspace, signs them out everywhere and blocks single sign-on (`workspace_removals`). An admin removing a SCIM-provisioned member by hand holds against the directory's routine syncs; the directory brings them back only by deactivating and reactivating them, or deleting and creating them again.
+- A directory that gets `403` on create is out of seats: grant more (`set-plan`) or free some. `400 mutability` on a deactivation is the last admin: another member must become admin first. `401` after it worked: the token was revoked or expired; the admin creates a new one.
+- The audit log names the directory by the token's label (`Okta (directory)`).
+
+## A leaked SCIM token
+
+A SCIM token (decision 0017) leaked. Whoever holds it can provision and deactivate the workspace's people at its verified domains (never create accounts, never change roles, never reach artifacts). Revoking it stops it at its next request.
+
+1. The workspace's admins revoke it in the Directory sync section of the Members page. If they cannot be reached: `printf '%s' "$SECRET" | bun run --cwd apps/jobs operator find-scim-token` (standard input, never the command line; it prints the token ID, label, workspace and expiry, never the secret), then `bun run --cwd apps/jobs operator revoke-scim-token <sc_…>`, which deletes the row and writes the `scim_token` tombstone.
+2. Check what it did: the workspace's audit events with `actor_type = 'directory'` and that `actor_id` (`select kind, target_id, at from audit_events where owner_id = '<ws_…>' and actor_id = '<sc_…>' order by at`). People it deactivated were signed out; an admin re-adds them or the directory re-provisions them.
+3. Tell the admins to create a new token and paste it into the identity provider.
+
 ## Workspace policies
 
 A workspace's admins set its policies on the dashboard's Policies page ([decision 0015](decisions/0015-workspace-policies.md)); there is no operator command to set them, only `export-policies` and `apply-policies` around a restore. A save that changes existing artifacts runs the `workspace_policy` outbox job, 50 rows of each kind per step until done. Every 15-minute run also scans: one global query reads up to 500 workspaces with a policy (from a cursor when there are more), one regional query finds those whose artifacts break their policy, and up to 20 of them get a step, public access first, so a violation is corrected within one run. The `maintenance` log line reports `workspacePolicies: {checked, corrected, failed}`; a failure logs `workspace_policy_enforce_failed` or `workspace_policy_unreadable` (a stored policy that no longer parses: fix the row, its workspace is skipped meanwhile) with the error's name only, and never stops the run. Each step records `policy.enforced` in the workspace's audit log with counts, and each changed artifact its own `access.changed` by the system. To see a workspace's policy: `npx wrangler d1 execute portifact-control --remote --command "select policy, policy_revision from workspaces where slug = '<slug>'"`. A customer whose plan ended keeps its policies; an admin loosens or removes them from the page, without the plan. After a restore of only the regional database (artifacts, readers and links rewound, policies kept), nothing needs running: the next scheduled run finds and corrects every workspace in violation; check its `workspacePolicies.corrected`.

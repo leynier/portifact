@@ -18,6 +18,11 @@ import {
   InvitationTokenInput,
   InvitationView,
   MemberRoleUpdate,
+  ScimOverview,
+  ScimSettingsUpdate,
+  ScimTokenCreate,
+  ScimTokenCreated,
+  ScimTokenId,
   ServiceTokenCreate,
   ServiceTokenCreated,
   ServiceTokenId,
@@ -56,6 +61,7 @@ import {
   addGroupMember,
   addWorkspaceDomain,
   changeMemberRole,
+  createScimToken,
   createServiceToken,
   createWorkspaceGroup,
   declineInvitation,
@@ -64,6 +70,7 @@ import {
   type GroupList,
   type GroupMemberRow,
   type GroupRow,
+  getScimOverview,
   getSsoSettings,
   getWorkspaceGroup,
   getWorkspacePolicy,
@@ -89,6 +96,7 @@ import {
   removeWorkspaceDomain,
   renameWorkspaceGroup,
   revokeInvitation,
+  revokeScimToken,
   revokeServiceToken,
   type SsoFetch,
   type SsoProviderRow,
@@ -98,6 +106,7 @@ import {
   ssoKeys,
   testSsoIssuer,
   type UserWorkspace,
+  updateScimSettings,
   verifyWorkspaceDomain,
   type WorkspaceDomainRow,
 } from "@portifact/services";
@@ -107,6 +116,7 @@ import type { EmailSender } from "../auth/email.ts";
 import { ssoEnabled } from "../auth/sso.ts";
 import type { Env } from "../env.ts";
 import { regionsOf } from "../regions.ts";
+import { scimBaseUrl, scimEnabled } from "../scim.ts";
 import { fromAppOrigin, hasSessionCookie, type SessionLookup } from "./access.ts";
 import { type Guarded, iso, readJson } from "./http.ts";
 
@@ -176,6 +186,7 @@ function invitationView(row: InvitationRow): InvitationView {
     invitedBy: row.invitedBy,
     createdAt: iso(row.createdAt),
     expiresAt: iso(row.expiresAt),
+    source: row.source,
   });
 }
 
@@ -433,6 +444,78 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
       const tokenId = ServiceTokenId.safeParse(c.req.param("tokenId"));
       if (!tokenId.success) return error(c, "not_found", "Service token not found.");
       const result = await revokeServiceToken(global(c), {
+        userId,
+        slug,
+        tokenId: tokenId.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.body(null, 204);
+    }),
+  );
+
+  // SCIM provisioning (decision 0017): admins only, through the dashboard session only, so no
+  // bearer token (a SCIM token included) can mint, list or revoke the directory's tokens.
+  // Switched off without SCIM_ENABLED.
+  const scimRoute = (
+    handler: (c: WorkspaceContext, userId: string, slug: string) => Promise<Response>,
+  ) =>
+    sessionOnly(async (c, userId) => {
+      if (!scimEnabled(c.env)) {
+        return error(c, "capacity_unavailable", "Directory sync is not available yet.");
+      }
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      return handler(c, userId, slug);
+    }, "Directory sync is managed from the dashboard.");
+  const scimOverview = async (c: WorkspaceContext, userId: string, slug: string) => {
+    const result = await getScimOverview(global(c), {
+      userId,
+      slug,
+      now: deps.now(),
+      baseUrl: scimBaseUrl(c.env),
+    });
+    if (!result.ok) return error(c, result.code, result.message);
+    return c.json(ScimOverview.parse(result.value));
+  };
+  routes.get("/api/v1/workspaces/:slug/scim", scimRoute(scimOverview));
+  routes.patch(
+    "/api/v1/workspaces/:slug/scim",
+    scimRoute(async (c, userId, slug) => {
+      const body = await readJson(c, ScimSettingsUpdate);
+      if (!body.ok) return body.response;
+      const result = await updateScimSettings(global(c), {
+        userId,
+        slug,
+        body: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return scimOverview(c, userId, slug);
+    }),
+  );
+  // No idempotency key: a stored replay would keep the secret, as for service tokens.
+  routes.post(
+    "/api/v1/workspaces/:slug/scim/tokens",
+    scimRoute(async (c, userId, slug) => {
+      const body = await readJson(c, ScimTokenCreate);
+      if (!body.ok) return body.response;
+      const result = await createScimToken(global(c), {
+        userId,
+        slug,
+        body: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(ScimTokenCreated.parse(result.value), 201);
+    }),
+  );
+  routes.delete(
+    "/api/v1/workspaces/:slug/scim/tokens/:tokenId",
+    scimRoute(async (c, userId, slug) => {
+      const tokenId = ScimTokenId.safeParse(c.req.param("tokenId"));
+      if (!tokenId.success) return error(c, "not_found", "SCIM token not found.");
+      const result = await revokeScimToken(global(c), {
         userId,
         slug,
         tokenId: tokenId.data,

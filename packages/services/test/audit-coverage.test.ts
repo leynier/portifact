@@ -60,6 +60,27 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   saveSsoProvider: ["sso.created", "sso.changed"],
   removeSsoProvider: ["sso.removed"],
   joinWorkspaceThroughSso: ["member.joined"],
+  // SCIM (decision 0017): the directory's token and settings by an admin, and what a directory
+  // changes, with the directory as the actor; a sign-in that claims a pending membership.
+  createScimToken: ["scim_token.created"],
+  revokeScimToken: ["scim_token.revoked"],
+  operatorRevokeScimToken: ["scim_token.revoked"],
+  updateScimSettings: ["scim.changed"],
+  createScimUser: ["member.provisioned", "member.joined"],
+  replaceScimUser: [
+    "member.provisioned",
+    "member.joined",
+    "member.removed",
+    "member.invitation_revoked",
+  ],
+  patchScimUser: [
+    "member.provisioned",
+    "member.joined",
+    "member.removed",
+    "member.invitation_revoked",
+  ],
+  deleteScimUser: ["member.removed", "member.invitation_revoked"],
+  claimDirectoryMemberships: ["member.joined"],
   // Workspace policies (decision 0015): a change records which fields and values, and each step
   // that applies one to existing artifacts records its counts and each changed artifact's own
   // access change, as the system.
@@ -114,7 +135,13 @@ reason("a claim before any DNS proof attaches nothing; verifying records it", [
 ]);
 reason("a token's use: what it changes is recorded as its own events, last use is a timestamp", [
   "authenticateServiceToken",
+  "authenticateScimToken",
+  "hitScimRateLimit",
 ]);
+reason(
+  "what a directory said about people who never got an account, once it lapsed (decision 0017)",
+  ["pruneDirectoryUsers"],
+);
 reason("readers, visitors and reviewers, not the owner side: the access log covers reads", [
   "openShareLink",
   "redeemShareHandoff",

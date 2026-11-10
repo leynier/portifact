@@ -44,6 +44,7 @@ import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded } from "./account.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { EmailDomainsPanel } from "./email-domains.tsx";
+import { ScimPanel } from "./scim.tsx";
 import { SpaceBadge } from "./space-parts.tsx";
 import { SsoPanel } from "./sso.tsx";
 
@@ -132,6 +133,7 @@ function WorkspaceMembers({ space }: { space: Extract<Space, { kind: "workspace"
                 </Loaded>
                 <EmailDomainsPanel space={space} />
                 <SsoPanel space={space} />
+                <ScimPanel space={space} />
               </>
             ) : null}
           </div>
@@ -554,13 +556,23 @@ function PendingInvitations({
                 className="flex flex-col gap-2 px-4 py-3 md:flex-row md:items-center md:gap-4"
               >
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <span className="text-sm font-medium break-all">{invitation.email}</span>
+                  <span className="flex flex-wrap items-center gap-2 text-sm font-medium break-all">
+                    {invitation.email}
+                    {invitation.source === "directory" ? (
+                      <Badge emphasis="subtle">{t("pending.directory")}</Badge>
+                    ) : null}
+                  </span>
                   <span className="text-xs text-text-muted">
-                    {t("pending.detail", {
-                      role: t(ROLE_LABELS[invitation.role]),
-                      inviter: invitation.invitedBy ?? t("pending.unknownInviter"),
-                      date: formatDate(invitation.expiresAt),
-                    })}
+                    {invitation.source === "directory"
+                      ? t("pending.directoryDetail", {
+                          role: t(ROLE_LABELS[invitation.role]),
+                          date: formatDate(invitation.expiresAt),
+                        })
+                      : t("pending.detail", {
+                          role: t(ROLE_LABELS[invitation.role]),
+                          inviter: invitation.invitedBy ?? t("pending.unknownInviter"),
+                          date: formatDate(invitation.expiresAt),
+                        })}
                   </span>
                 </div>
                 <div className="flex flex-wrap gap-2">

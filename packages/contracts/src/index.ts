@@ -29,6 +29,7 @@ export * from "./policies.ts";
 export * from "./publishing.ts";
 export * from "./read.ts";
 export * from "./review.ts";
+export * from "./scim.ts";
 export * from "./search.ts";
 export * from "./service-tokens.ts";
 export * from "./share-links.ts";

@@ -89,6 +89,8 @@ export const ROLE_ACTIONS = [
   "tokens",
   /** The workspace's single sign-on provider (decision 0016): who can sign in as its people. */
   "sso",
+  /** The workspace's SCIM provisioning (decision 0017): its tokens and settings. */
+  "scim",
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;
@@ -187,6 +189,11 @@ export const InvitationView = z.object({
   invitedBy: z.string().nullable(),
   createdAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
+  /**
+   * `directory` when the workspace's directory provisioned the person through SCIM (decision
+   * 0017): they become a member when they first sign in with that address.
+   */
+  source: z.enum(["admin", "directory"]),
 });
 export type InvitationView = z.infer<typeof InvitationView>;
 

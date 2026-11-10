@@ -794,7 +794,11 @@ export const tombstones = sqliteTable(
      * cannot revive them; `workspace` a deleted workspace; `workspace_domain` a removed or lapsed
      * verified email domain by its row ID (decision 0010); `workspace_group` a deleted group and
      * `workspace_group_member` a removed group membership by its row ID (decision 0014);
-     * `workspace_sso` a removed single sign-on provider by its row ID (decision 0016).
+     * `workspace_sso` a removed single sign-on provider by its row ID (decision 0016);
+     * `scim_token` a revoked SCIM token and `scim_user` a directory user the directory deleted,
+     * `workspace_invitation` a pending membership the directory withdrew by its row ID and
+     * `workspace_member` a membership the directory ended, as `<workspace>:<user>`, which a
+     * restore must not bring back if it was created before the tombstone (decision 0017).
      */
     kind: text("kind", {
       enum: [
@@ -808,6 +812,10 @@ export const tombstones = sqliteTable(
         "workspace_group",
         "workspace_group_member",
         "workspace_sso",
+        "scim_token",
+        "scim_user",
+        "workspace_invitation",
+        "workspace_member",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1641,6 +1649,14 @@ export const workspaceInvitations = sqliteTable(
     invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
+    /**
+     * `directory` when the workspace's directory provisioned the address through SCIM (decision
+     * 0017): it becomes a membership when the person first signs in with that verified address,
+     * without an accept step. Holds a seat like any invitation.
+     */
+    source: text("source", { enum: ["admin", "directory"] })
+      .notNull()
+      .default("admin"),
   },
   (t) => [
     uniqueIndex("workspace_invitations_token_idx").on(t.tokenHash),
@@ -1688,6 +1704,86 @@ export const serviceTokens = sqliteTable(
     ),
   ],
 );
+
+/**
+ * SCIM tokens (premium plan E2, decision 0017): the credential a workspace's directory uses at
+ * `/scim/v2`, and nothing else. Separate from service tokens so no actor resolution can ever give
+ * one a role on artifacts. Only the SHA-256 of the secret is stored. Revoking deletes the row and
+ * writes a `scim_token` tombstone; deleting the workspace deletes its tokens. `created_by` has no
+ * foreign key: deleting that account clears it.
+ */
+export const scimTokens = sqliteTable(
+  "scim_tokens",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    /** Written at most once an hour, like a service token's. */
+    lastUsedAt: timestamp("last_used_at"),
+  },
+  (t) => [
+    uniqueIndex("scim_tokens_hash_idx").on(t.tokenHash),
+    index("scim_tokens_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/**
+ * The directory's users of a workspace (decision 0017): the SCIM resource the directory created,
+ * by an unguessable ID. `email` is the directory's `userName`, lowercase, always in one of the
+ * workspace's verified email domains when written. `user_id` links the account once the person
+ * is a member through it (at once when an account had the address, or at their first sign-in);
+ * the membership itself is in `workspace_members`, the pending one in `workspace_invitations`
+ * with `source = 'directory'`. `removed_at` records that an admin removed the person, withdrew
+ * the pending membership or the person left by hand: a routine sync does not undo it, only an
+ * explicit reactivation or a new provisioning does. Global, next to the memberships; goes with the
+ * workspace, and the account link is cleared with the account.
+ */
+export const scimUsers = sqliteTable(
+  "scim_users",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    externalId: text("external_id"),
+    /** `displayName` and `name` as the directory sent them, JSON; echoed back to it only. */
+    names: text("names", { mode: "json" }),
+    active: integer("active", { mode: "boolean" }).notNull(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    removedAt: timestamp("removed_at"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    /**
+     * A per-request unique token each write sets in its guarded first statement; the rest of the
+     * batch is conditioned on it, so of two concurrent writes only the one that claimed the row
+     * applies its effects (AGENTS.md, D1 batches).
+     */
+    writeId: text("write_id").notNull(),
+  },
+  (t) => [
+    uniqueIndex("scim_users_workspace_email_idx").on(t.workspaceId, t.email),
+    index("scim_users_workspace_created_idx").on(t.workspaceId, t.createdAt, t.id),
+    index("scim_users_workspace_external_idx").on(t.workspaceId, t.externalId),
+    index("scim_users_user_idx").on(t.userId),
+  ],
+);
+
+/** A workspace's SCIM settings (decision 0017); no row means the defaults. */
+export const workspaceScim = sqliteTable("workspace_scim", {
+  workspaceId: text("workspace_id")
+    .primaryKey()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  /** Whether a person provisioned without an account gets the invitation email. Off by default. */
+  invitationEmails: integer("invitation_emails", { mode: "boolean" }).notNull().default(false),
+  updatedAt: timestamp("updated_at").notNull(),
+});
 
 /**
  * Email domains a workspace claims or verified (premium plan T2, decision 0010). Global, like the
@@ -1966,7 +2062,9 @@ export const auditEvents = sqliteTable(
     ownerId: text("owner_id").notNull(),
     at: timestamp("at").notNull(),
     kind: text("kind").notNull(),
-    actorType: text("actor_type", { enum: ["user", "operator", "system", "token"] }).notNull(),
+    actorType: text("actor_type", {
+      enum: ["user", "operator", "system", "token", "directory"],
+    }).notNull(),
     actorId: text("actor_id"),
     targetId: text("target_id"),
     artifactId: text("artifact_id"),

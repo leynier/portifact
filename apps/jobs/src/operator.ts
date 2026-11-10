@@ -17,6 +17,7 @@ import {
   OwnerPlanExport,
   PLAN_NAMES,
   PlanName,
+  ScimTokenId,
   ServiceTokenId,
   TombstoneMarker,
   WorkspacePolicyExport,
@@ -47,6 +48,7 @@ import {
   exportOwnerPlans,
   exportTombstones,
   exportWorkspacePolicies,
+  findScimToken,
   findServiceToken,
   getBudgetState,
   getOwnerPlan,
@@ -60,6 +62,7 @@ import {
   listEmailSuppressions,
   listStorageFindings,
   type OwnerPlanState,
+  operatorRevokeScimToken,
   operatorRevokeServiceToken,
   rebuildArtifactDirectory,
   reconcileCustomDomains,
@@ -92,6 +95,8 @@ Commands:
   find-share-link              (reads the reported link or token from standard input)
   find-service-token           (reads a leaked service token from standard input)
   revoke-service-token <service-token-id>
+  find-scim-token              (reads a leaked SCIM token from standard input)
+  revoke-scim-token <scim-token-id>
   suspend-artifact <artifact-id> --reason <reason> [--report <report-id>] [--note <text>]
   reinstate-artifact <artifact-id>
   suspend-account <user-id|email> --reason <reason> [--report <report-id>] [--note <text>]
@@ -678,6 +683,44 @@ export async function runOperator(
         output: revoked
           ? `Revoked ${tokenId}; its next request is refused. A tombstone keeps a restore from bringing it back.`
           : "No service token has this ID (already revoked, or its workspace was deleted).",
+      };
+    }
+    case "find-scim-token": {
+      // Like a service token (decision 0017): the secret comes from standard input and is never
+      // printed; only its hash is compared.
+      const global = regionsFromEnv({ DB: db.$client }).global;
+      const found = await findScimToken(global, await files.read("/dev/stdin"));
+      if (!found) return { exitCode: 1, output: "No SCIM token has this secret." };
+      const [workspace] = await global
+        .select({ slug: schema.workspaces.slug })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, found.workspaceId))
+        .limit(1);
+      return {
+        exitCode: 0,
+        output: [
+          `token      ${found.id}  ${found.label}`,
+          `workspace  ${workspace?.slug ?? found.workspaceId}`,
+          `expires    ${new Date(found.expiresAt).toISOString()}`,
+          `Revoke it with: revoke-scim-token ${found.id}`,
+        ].join("\n"),
+      };
+    }
+    case "revoke-scim-token": {
+      const [tokenId] = args;
+      if (!tokenId || !ScimTokenId.safeParse(tokenId).success) {
+        return usage("revoke-scim-token needs a SCIM token ID (sc_ and 32 hex characters).");
+      }
+      const revoked = await operatorRevokeScimToken(
+        regionsFromEnv({ DB: db.$client }).global,
+        tokenId,
+        now,
+      );
+      return {
+        exitCode: revoked ? 0 : 1,
+        output: revoked
+          ? `Revoked ${tokenId}; the directory's next request is refused. A tombstone keeps a restore from bringing it back.`
+          : "No SCIM token has this ID (already revoked, or its workspace was deleted).",
       };
     }
     case "suspend-artifact": {

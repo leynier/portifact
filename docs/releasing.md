@@ -218,6 +218,19 @@ Single sign-on for workspaces ships switched off ([decision 0016](decisions/0016
 
 Then add `sso` to `AVAILABLE_PLAN_FEATURES` in the same change that turns it on.
 
+### SCIM
+
+SCIM provisioning ships switched off ([decision 0017](decisions/0017-workspace-scim.md)). No secret is needed. Before setting `SCIM_ENABLED="true"` on `portifact-app` (never in `wrangler.jsonc`), run these checks on a staging deployment against a test tenant of each directory, with a staging Enterprise workspace that verified a domain you control, and record each result in decision 0017 with the date:
+
+1. **Validators.** Okta's SCIM 2.0 test suite (the Runscope-based "SCIM 2.0 Spec Test" in Okta's integration wizard) and Microsoft's SCIM Validator (`scimvalidator.microsoft.com`) pass for `Users` with the base URL and a token from the dashboard. Note each failure and whether it concerns `Groups` (not served yet).
+2. **Okta.** Provisioning to App with Create Users, Update User Attributes and Deactivate Users: assign a person with an account (member at once), one without (pending, joins at sign-in), change a name (PATCH), unassign (deactivate: removed, signed out), reassign (back). Push Groups stays off until the second delivery.
+3. **Microsoft Entra ID.** An enterprise app with automatic provisioning: "Test Connection" passes; a provisioning cycle creates, updates (Entra's PATCH with `"False"` and capitalized ops), and on unassignment or soft delete deactivates; a hard delete sends `DELETE`. Check the attribute mappings send `userName` as the user's mail (not the UPN when they differ) and that `externalId` maps to `objectId`.
+4. **Google Workspace.** Only where a SCIM connector applies (Google's pre-integrated apps do not take custom SCIM apps on every edition); record what Google supports, or that it does not.
+5. **Filters and pagination.** Each directory's lookup before create (`userName eq`, Entra's `externalId eq`) and a full import with `startIndex`/`count` over more than 100 users.
+6. **Rate of sync.** A full sync of the largest tenant you have against the limits (300 a minute per token, 600 per workspace): no `429` in a normal cycle; if there are, record the directory's retry behavior and raise the limits in `SCIM` before turning it on.
+7. **Deactivation ends sessions.** A person signed in on the dashboard and through the CLI is signed out of both after the directory deactivates them, and cannot sign in through the workspace's single sign-on until reactivated.
+8. **Seats and the last admin.** Provisioning past the seats shows the directory's error with the detail; deactivating the last admin is refused with its detail, and the directory surfaces it.
+
 ## Platforms
 
 `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64` and `windows-arm64`. Unix archives are `.tar.gz` and Windows archives are `.zip`; each holds a single executable that does not need Node or Bun.

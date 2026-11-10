@@ -74,6 +74,8 @@ export interface InvitationRow {
   invitedBy: string | null;
   createdAt: number;
   expiresAt: number;
+  /** `directory` for a pending membership the workspace's directory provisioned (decision 0017). */
+  source: "admin" | "directory";
 }
 
 function base64url(bytes: Uint8Array): string {
@@ -213,9 +215,10 @@ export async function inviteMember(
   const [inserted] = await global.batch([
     global
       .insert(inv)
-      // Columns in schema order: id, workspace, email, role, token hash, invited by, created, expires.
+      // Columns in schema order: id, workspace, email, role, token hash, invited by, created,
+      // expires, source.
       .select(
-        sql`select ${id}, ${workspace.id}, ${email}, ${input.role}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt} where ${seatsUsedSql(workspace.id, input.now, true)} - ${replaced} < ${limit} and ${stillAdmin(workspace.id, input.userId)} and ${planUnchanged}`,
+        sql`select ${id}, ${workspace.id}, ${email}, ${input.role}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt}, 'admin' where ${seatsUsedSql(workspace.id, input.now, true)} - ${replaced} < ${limit} and ${stillAdmin(workspace.id, input.userId)} and ${planUnchanged}`,
       )
       .onConflictDoUpdate({
         target: [inv.workspaceId, inv.email],
@@ -276,6 +279,7 @@ export async function inviteMember(
     invitedBy: inviter?.name ?? null,
     createdAt: input.now,
     expiresAt,
+    source: "admin" as const,
   };
   if (await isEmailSuppressed(global, email, input.now)) {
     notSent("suppressed");
@@ -323,6 +327,7 @@ export async function listInvitations(
       invitedBy: schema.users.name,
       createdAt: inv.createdAt,
       expiresAt: inv.expiresAt,
+      source: inv.source,
     })
     .from(inv)
     .leftJoin(schema.users, eq(schema.users.id, inv.invitedBy))
@@ -343,7 +348,15 @@ export async function revokeInvitation(
     eq(inv.workspaceId, scope.value.id),
     stillAdmin(scope.value.id, input.userId),
   ) as SQL;
-  const [, deleted] = await global.batch([
+  const [, , deleted] = await global.batch([
+    // Withdrawing a pending membership the directory provisioned holds against its routine sync
+    // (decision 0017), like removing a member does.
+    global
+      .update(schema.scimUsers)
+      .set({ removedAt: input.now ?? Date.now() })
+      .where(
+        sql`${schema.scimUsers.workspaceId} = ${scope.value.id} and ${schema.scimUsers.email} = (select ${inv.email} from ${inv} where ${where} and ${inv.source} = 'directory')`,
+      ),
     auditEvent(
       global,
       {

@@ -2243,4 +2243,68 @@ export const ptBR = {
   "policies.default.domainLapsed":
     "Nenhum domínio de e-mail está verificado, então artefatos novos começam compartilhados com o espaço de trabalho até que um seja verificado.",
   "audit.access.byPolicy": "pela política do espaço de trabalho",
+  "audit.actor.directory": "{label} (diretório)",
+  "audit.actor.directoryGone": "Diretório (token SCIM revogado)",
+  "audit.kind.memberJoinedDirectory": "{member} entrou como {role} pelo diretório",
+  "audit.kind.memberProvisioned":
+    "Provisionou alguém de {domain} como {role}; entra ao fazer login",
+  "audit.kind.scimTokenCreated": "Criou um token SCIM ({days, plural, one {# dia} other {# dias}})",
+  "audit.kind.scimTokenRevoked": "Revogou um token SCIM",
+  "audit.kind.scimEmailsOn": "Ativou os e-mails de convite para pessoas provisionadas",
+  "audit.kind.scimEmailsOff": "Desativou os e-mails de convite para pessoas provisionadas",
+  "pending.directory": "Do diretório",
+  "pending.directoryDetail":
+    "{role}, provisionado pelo diretório: entra no primeiro login, ocupa uma vaga até {date}",
+  "scim.title": "Sincronização de diretório (SCIM)",
+  "scim.description":
+    "Deixe seu provedor de identidade adicionar e remover as pessoas do espaço de trabalho. Ele provisiona endereços dos seus domínios de e-mail verificados; quem não tem conta no Portifact entra no primeiro login com esse endereço.",
+  "scim.loadFailed": "Não foi possível carregar a sincronização de diretório",
+  "scim.baseUrl": "URL base do SCIM",
+  "scim.baseUrlCopy": "Copiar URL",
+  "scim.baseUrlHint":
+    "Cole no seu provedor de identidade como URL base do SCIM ou URL do locatário, e um token abaixo como token de portador.",
+  "scim.planTitle": "Fora deste plano",
+  "scim.plan":
+    "A sincronização de diretório precisa do plano {plan}. Até lá as solicitações do diretório são recusadas; você ainda pode revogar os tokens.",
+  "scim.rules":
+    "Pessoas novas entram como membros. Desativar alguém no diretório remove a pessoa do espaço de trabalho e encerra todas as sessões dela; a conta e o espaço pessoal continuam dela. Quem for removido aqui manualmente não volta na próxima sincronização.",
+  "scim.lastSync": "Última sincronização",
+  "scim.lastSyncNever": "O diretório ainda não se conectou.",
+  "scim.pendingLabel": "Aguardando login",
+  "scim.pending":
+    "{count, plural, =0 {Ninguém} one {# pessoa, nos convites pendentes} other {# pessoas, nos convites pendentes}}",
+  "scim.tokens": "Tokens",
+  "scim.tokensEmpty": "Nenhum token ainda.",
+  "scim.tokenExpires": "Expira em {date}",
+  "scim.tokenExpired": "Expirou em {date}",
+  "scim.tokenUsed": "último uso em {date}",
+  "scim.tokenUnused": "nunca usado",
+  "scim.create": "Criar um token SCIM",
+  "scim.label": "Rótulo",
+  "scim.labelHint": "Por exemplo, o nome do provedor de identidade.",
+  "scim.labelRequired": "Digite um rótulo de até 80 caracteres.",
+  "scim.expiry": "Expira após",
+  "scim.days": "{count, plural, one {# dia} other {# dias}}",
+  "scim.limit":
+    "Um espaço de trabalho tem no máximo {count} tokens SCIM, para que um substitua outro sem interrupção. Revogue um para criar outro.",
+  "scim.secret.title": "Copie o token agora",
+  "scim.secret.body":
+    "Ele aparece só uma vez. Cole no seu provedor de identidade como token de portador.",
+  "scim.secret.label": "Token SCIM {label}",
+  "scim.secret.copy": "Copiar token",
+  "scim.secret.done": "Já salvei",
+  "scim.revoke": "Revogar",
+  "scim.revokeNamed": "Revogar: {label}",
+  "scim.confirmRevoke.title": "Revogar {label}?",
+  "scim.confirmRevoke.body":
+    "A próxima solicitação do diretório com ele é recusada. As pessoas que ele provisionou continuam como estão.",
+  "scim.confirmRevoke.action": "Revogar token",
+  "scim.revoked": "O token {label} foi revogado.",
+  "scim.created": "O token {label} foi criado. Copie agora.",
+  "scim.emails":
+    "Enviar o e-mail de convite para pessoas que o diretório provisiona sem conta no Portifact",
+  "scim.emailsHint":
+    "Desativado por padrão: os provedores de identidade costumam avisar sobre apps novos. De qualquer forma, a pessoa entra no primeiro login com esse endereço.",
+  "scim.emailsSaved": "Salvo.",
+  "scim.actionFailed": "A alteração não foi salva",
 } satisfies Catalog;

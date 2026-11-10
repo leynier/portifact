@@ -431,6 +431,59 @@ describe("operator service token commands", () => {
   });
 });
 
+describe("operator SCIM token commands", () => {
+  it("finds a leaked SCIM token from standard input and revokes it, never printing the secret", async () => {
+    const { id: adminId } = await owner();
+    const workspaceId = `ws_${"e".repeat(32)}`;
+    await db().insert(schema.workspaces).values({
+      id: workspaceId,
+      slug: "directory",
+      name: "Directory",
+      createdBy: adminId,
+      updatedAt: NOW,
+    });
+    // Built at run time so nothing committed matches the secret scanner's rule for the prefix.
+    const secret = ["pf", "sc_", "M".repeat(43)].join("");
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+    const tokenHash = [...new Uint8Array(digest)]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const tokenId = `sc_${"f".repeat(32)}`;
+    await db()
+      .insert(schema.scimTokens)
+      .values({
+        id: tokenId,
+        workspaceId,
+        label: "Okta",
+        tokenHash,
+        createdBy: adminId,
+        createdAt: NOW,
+        expiresAt: NOW + 86_400_000,
+      });
+    const stdin = (text: string) => memoryFiles({ "/dev/stdin": text });
+    const found = await runOperator(db(), ["find-scim-token"], NOW, stdin(`${secret}\n`));
+    expect(found.exitCode).toBe(0);
+    expect(found.output).toContain(`token      ${tokenId}  Okta`);
+    expect(found.output).toContain("workspace  directory");
+    expect(found.output).toContain(`revoke-scim-token ${tokenId}`);
+    expect(found.output).not.toContain(secret);
+    expect(await runOperator(db(), ["revoke-scim-token", "sc_bad"], NOW)).toMatchObject({
+      exitCode: 2,
+    });
+    expect((await runOperator(db(), ["revoke-scim-token", tokenId], NOW)).exitCode).toBe(0);
+    expect((await runOperator(db(), ["revoke-scim-token", tokenId], NOW)).exitCode).toBe(1);
+    expect(await runOperator(db(), ["find-scim-token"], NOW, stdin(secret))).toEqual({
+      exitCode: 1,
+      output: "No SCIM token has this secret.",
+    });
+    const [tombstone] = await db()
+      .select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, tokenId));
+    expect(tombstone?.kind).toBe("scim_token");
+  });
+});
+
 describe("brand commands", () => {
   async function branded() {
     const account = await owner();

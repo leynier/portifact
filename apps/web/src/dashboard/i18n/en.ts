@@ -2203,6 +2203,71 @@ export const en = {
   "policies.default.domainLapsed":
     "No email domain is verified, so new artifacts start shared with the workspace until one is verified again.",
   "audit.access.byPolicy": "by the workspace's policy",
+  "audit.actor.directory": "{label} (directory)",
+  "audit.actor.directoryGone": "Directory (revoked SCIM token)",
+  "audit.kind.memberJoinedDirectory": "{member} joined as {role} through the directory",
+  "audit.kind.memberProvisioned":
+    "Provisioned someone at {domain} as {role}; they join when they sign in",
+  "audit.kind.scimTokenCreated":
+    "Created a SCIM token ({days, plural, one {# day} other {# days}})",
+  "audit.kind.scimTokenRevoked": "Revoked a SCIM token",
+  "audit.kind.scimEmailsOn": "Turned on invitation emails for provisioned people",
+  "audit.kind.scimEmailsOff": "Turned off invitation emails for provisioned people",
+  "pending.directory": "From the directory",
+  "pending.directoryDetail":
+    "{role}, provisioned by the directory: joins at first sign-in, holds a seat until {date}",
+  "scim.title": "Directory sync (SCIM)",
+  "scim.description":
+    "Let your identity provider add and remove the workspace's people. It provisions addresses in your verified email domains; someone without a Portifact account joins when they first sign in with that address.",
+  "scim.loadFailed": "Directory sync could not be loaded",
+  "scim.baseUrl": "SCIM base URL",
+  "scim.baseUrlCopy": "Copy URL",
+  "scim.baseUrlHint":
+    "Paste it into your identity provider as the SCIM base URL or tenant URL, and a token below as the bearer token.",
+  "scim.planTitle": "Not on this plan",
+  "scim.plan":
+    "Directory sync needs the {plan} plan. Until then the directory's requests are refused; you can still revoke its tokens.",
+  "scim.rules":
+    "New people join as members. Deactivating someone in the directory removes them from the workspace and signs them out everywhere; their account and personal space stay theirs. Someone removed here by hand is not added back by the next sync.",
+  "scim.lastSync": "Last sync",
+  "scim.lastSyncNever": "The directory has not called yet.",
+  "scim.pendingLabel": "Waiting to sign in",
+  "scim.pending":
+    "{count, plural, =0 {No one} one {# person, listed with the pending invitations} other {# people, listed with the pending invitations}}",
+  "scim.tokens": "Tokens",
+  "scim.tokensEmpty": "No token yet.",
+  "scim.tokenExpires": "Expires on {date}",
+  "scim.tokenExpired": "Expired on {date}",
+  "scim.tokenUsed": "last used {date}",
+  "scim.tokenUnused": "never used",
+  "scim.create": "Create a SCIM token",
+  "scim.label": "Label",
+  "scim.labelHint": "For example the identity provider's name.",
+  "scim.labelRequired": "Enter a label of at most 80 characters.",
+  "scim.expiry": "Expires after",
+  "scim.days": "{count, plural, one {# day} other {# days}}",
+  "scim.limit":
+    "A workspace has at most {count} SCIM tokens, so one can replace another without a gap. Revoke one to create another.",
+  "scim.secret.title": "Copy the token now",
+  "scim.secret.body":
+    "It is shown only once. Paste it into your identity provider as the bearer token.",
+  "scim.secret.label": "SCIM token {label}",
+  "scim.secret.copy": "Copy token",
+  "scim.secret.done": "I saved it",
+  "scim.revoke": "Revoke",
+  "scim.revokeNamed": "Revoke: {label}",
+  "scim.confirmRevoke.title": "Revoke {label}?",
+  "scim.confirmRevoke.body":
+    "The directory's next request with it is refused. People it provisioned stay as they are.",
+  "scim.confirmRevoke.action": "Revoke token",
+  "scim.revoked": "The token {label} was revoked.",
+  "scim.created": "The token {label} was created. Copy it now.",
+  "scim.emails":
+    "Email the invitation to people the directory provisions without a Portifact account",
+  "scim.emailsHint":
+    "Off by default: identity providers usually tell people about new apps themselves. Either way, they join when they first sign in with that address.",
+  "scim.emailsSaved": "Saved.",
+  "scim.actionFailed": "The change was not saved",
 } as const;
 
 export type MessageId = keyof typeof en;

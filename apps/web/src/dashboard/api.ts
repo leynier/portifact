@@ -60,6 +60,10 @@ import {
   ReviewTabStart,
   type RollbackRequest,
   RolledBack,
+  ScimOverview,
+  type ScimSettingsUpdate,
+  type ScimTokenCreate,
+  ScimTokenCreated,
   SearchResults,
   type ServiceTokenCreate,
   ServiceTokenCreated,
@@ -191,6 +195,12 @@ export interface DashboardApi {
   /** Creates a service token; the answer holds its secret once. */
   createServiceToken(slug: string, body: ServiceTokenCreate): Promise<ServiceTokenCreated>;
   revokeServiceToken(slug: string, tokenId: string): Promise<void>;
+  /** A workspace's directory sync (SCIM), for its admins (session only, decision 0017). */
+  scim(slug: string): Promise<ScimOverview>;
+  saveScim(slug: string, body: ScimSettingsUpdate): Promise<ScimOverview>;
+  /** Creates a SCIM token; the answer holds its secret once. */
+  createScimToken(slug: string, body: ScimTokenCreate): Promise<ScimTokenCreated>;
+  revokeScimToken(slug: string, tokenId: string): Promise<void>;
   /** A workspace's groups: names and member counts (admins and editors, decision 0014). */
   groups(slug: string): Promise<WorkspaceGroupList>;
   /** One group with its members, for admins (session only). */
@@ -657,6 +667,22 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     createServiceToken(slug, body) {
       return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenCreated, "POST", body);
+    },
+    scim(slug) {
+      return call(`${workspacePath(slug)}/scim`, ScimOverview);
+    },
+    saveScim(slug, body) {
+      return call(`${workspacePath(slug)}/scim`, ScimOverview, "PATCH", body);
+    },
+    createScimToken(slug, body) {
+      return call(`${workspacePath(slug)}/scim/tokens`, ScimTokenCreated, "POST", body);
+    },
+    async revokeScimToken(slug, tokenId) {
+      await call(
+        `${workspacePath(slug)}/scim/tokens/${encodeURIComponent(tokenId)}`,
+        z.null(),
+        "DELETE",
+      );
     },
     policies(slug) {
       return call(`${workspacePath(slug)}/policies`, WorkspacePolicyView);

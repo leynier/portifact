@@ -82,6 +82,8 @@ const ADMIN: readonly RoleAction[] = [
   "tokens",
   // The workspace's single sign-on provider (decision 0016): it decides who signs in as its people.
   "sso",
+  // SCIM provisioning (decision 0017): a directory that adds and removes its people.
+  "scim",
 ];
 
 /**

@@ -22,7 +22,7 @@ import { reviewRoutes } from "./api/review.ts";
 import { apiRoutes } from "./api/routes.ts";
 import { shareOpenRoutes } from "./api/share-links.ts";
 import { tokenRoutes } from "./api/tokens.ts";
-import { workspaceRoutes } from "./api/workspaces.ts";
+import { invitationSender, workspaceRoutes } from "./api/workspaces.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
 import type { AuthDeps } from "./auth/deps.ts";
@@ -38,6 +38,7 @@ import type { Env } from "./env.ts";
 import { mcpRoutes } from "./mcp/routes.ts";
 import { readRoutes } from "./read.ts";
 import { artifactDb } from "./regions.ts";
+import { scimRoutes } from "./scim.ts";
 
 /**
  * Pages built by apps/web and served from static assets on this host only: the auth pages, the
@@ -365,6 +366,18 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       email: (env) => depsFor(env).email,
       dns: (env) => depsFor(env).emailDomains ?? null,
       ssoFetch: (env) => (input, init) => depsFor(env).ssoFetch(input, init),
+      now: () => Date.now(),
+    }),
+  );
+  // SCIM 2.0 for workspaces' directories (decision 0017), bearer-only with SCIM tokens.
+  app.route(
+    "/",
+    scimRoutes({
+      endSessions: (env) => async (userId) => {
+        // Through Better Auth, so the session hooks run (decision 0004, section 6).
+        await (await authFor(env).$context).internalAdapter.deleteUserSessions(userId);
+      },
+      invitations: (env) => invitationSender(env, depsFor(env).email),
       now: () => Date.now(),
     }),
   );

@@ -461,6 +461,14 @@ async function dropMember(
             sql`exists (select 1 from ${m} where ${where})`,
             by.now,
           ),
+          // The directory's copy of the person (decision 0017) is marked, so a routine SCIM sync
+          // does not bring back someone removed by hand or who left.
+          global
+            .update(schema.scimUsers)
+            .set({ removedAt: by.now })
+            .where(
+              sql`${schema.scimUsers.workspaceId} = ${workspaceId} and (${schema.scimUsers.userId} = ${memberId} or ${schema.scimUsers.email} = (select lower(${schema.users.email}) from ${schema.users} where ${schema.users.id} = ${memberId})) and exists (select 1 from ${m} where ${where})`,
+            ),
           // An admin's removal holds against single sign-on until they invite them again
           // (decision 0016); leaving by oneself records none.
           global
@@ -474,7 +482,7 @@ async function dropMember(
             }),
           global.delete(m).where(where).returning({ userId: m.userId }),
         ])
-      )[3],
+      )[4],
     () => checkRemoval("admin", 1, leaving) as Result<never>,
   );
   if (!removed.ok) return removed;

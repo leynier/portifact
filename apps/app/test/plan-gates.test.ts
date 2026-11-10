@@ -419,6 +419,28 @@ const GATED: GatedOperation[] = [
       return { api: { status: response.status, body: await response.json<unknown>() } };
     },
   },
+  // A SCIM token (decision 0017) is created only through the dashboard session, on a workspace;
+  // using one on a lapsed plan is refused by the SCIM endpoints (scim.test.ts).
+  {
+    feature: "scim",
+    name: "create a SCIM token",
+    scope: "owner",
+    space: "workspace",
+    run: async (who, id) => {
+      const [row] = await db()
+        .select({ slug: schema.workspaces.slug })
+        .from(schema.artifacts)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.artifacts.ownerId))
+        .where(eq(schema.artifacts.id, id));
+      if (!row) throw new Error("The SCIM line needs a workspace's artifact");
+      const response = await who.sessionCall(`/api/v1/workspaces/${row.slug}/scim/tokens`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "Gate", expiresInDays: 30 }),
+      });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
+  },
   // Setting or tightening workspace policies (decision 0015) is session-only, with no bearer
   // route, MCP tool or CLI command: the gate is `requireFeature` on the workspace's plan, and its
   // body is checked through the session in workspace-policies.test.ts.

@@ -2264,4 +2264,69 @@ export const es = {
   "policies.default.domainLapsed":
     "No hay ningún dominio de correo verificado, así que los artefactos nuevos empiezan compartidos con el espacio de trabajo hasta que se verifique uno.",
   "audit.access.byPolicy": "por la política del espacio de trabajo",
+  "audit.actor.directory": "{label} (directorio)",
+  "audit.actor.directoryGone": "Directorio (token SCIM revocado)",
+  "audit.kind.memberJoinedDirectory": "{member} se unió como {role} mediante el directorio",
+  "audit.kind.memberProvisioned":
+    "Aprovisionó a alguien de {domain} como {role}; se une al iniciar sesión",
+  "audit.kind.scimTokenCreated": "Creó un token SCIM ({days, plural, one {# día} other {# días}})",
+  "audit.kind.scimTokenRevoked": "Revocó un token SCIM",
+  "audit.kind.scimEmailsOn": "Activó los correos de invitación para las personas aprovisionadas",
+  "audit.kind.scimEmailsOff":
+    "Desactivó los correos de invitación para las personas aprovisionadas",
+  "pending.directory": "Del directorio",
+  "pending.directoryDetail":
+    "{role}, aprovisionado por el directorio: se une al iniciar sesión por primera vez, ocupa un puesto hasta el {date}",
+  "scim.title": "Sincronización de directorio (SCIM)",
+  "scim.description":
+    "Deja que tu proveedor de identidad agregue y quite a las personas del espacio de trabajo. Aprovisiona direcciones de tus dominios de correo verificados; quien no tiene cuenta de Portifact se une al iniciar sesión por primera vez con esa dirección.",
+  "scim.loadFailed": "No se pudo cargar la sincronización de directorio",
+  "scim.baseUrl": "URL base de SCIM",
+  "scim.baseUrlCopy": "Copiar URL",
+  "scim.baseUrlHint":
+    "Pégala en tu proveedor de identidad como URL base de SCIM o URL del inquilino, y un token de abajo como token de portador.",
+  "scim.planTitle": "No está en este plan",
+  "scim.plan":
+    "La sincronización de directorio necesita el plan {plan}. Hasta entonces se rechazan las solicitudes del directorio; igual puedes revocar sus tokens.",
+  "scim.rules":
+    "Las personas nuevas se unen como miembros. Desactivar a alguien en el directorio lo quita del espacio de trabajo y cierra todas sus sesiones; su cuenta y su espacio personal siguen siendo suyos. A quien quites aquí a mano, la próxima sincronización no lo vuelve a agregar.",
+  "scim.lastSync": "Última sincronización",
+  "scim.lastSyncNever": "El directorio todavía no se conectó.",
+  "scim.pendingLabel": "Esperando iniciar sesión",
+  "scim.pending":
+    "{count, plural, =0 {Nadie} one {# persona, en las invitaciones pendientes} other {# personas, en las invitaciones pendientes}}",
+  "scim.tokens": "Tokens",
+  "scim.tokensEmpty": "Todavía no hay tokens.",
+  "scim.tokenExpires": "Vence el {date}",
+  "scim.tokenExpired": "Venció el {date}",
+  "scim.tokenUsed": "último uso el {date}",
+  "scim.tokenUnused": "nunca usado",
+  "scim.create": "Crear un token SCIM",
+  "scim.label": "Etiqueta",
+  "scim.labelHint": "Por ejemplo, el nombre del proveedor de identidad.",
+  "scim.labelRequired": "Escribe una etiqueta de hasta 80 caracteres.",
+  "scim.expiry": "Vence después de",
+  "scim.days": "{count, plural, one {# día} other {# días}}",
+  "scim.limit":
+    "Un espacio de trabajo tiene como máximo {count} tokens SCIM, para que uno reemplace a otro sin cortes. Revoca uno para crear otro.",
+  "scim.secret.title": "Copia el token ahora",
+  "scim.secret.body":
+    "Se muestra una sola vez. Pégalo en tu proveedor de identidad como token de portador.",
+  "scim.secret.label": "Token SCIM {label}",
+  "scim.secret.copy": "Copiar token",
+  "scim.secret.done": "Ya lo guardé",
+  "scim.revoke": "Revocar",
+  "scim.revokeNamed": "Revocar: {label}",
+  "scim.confirmRevoke.title": "¿Revocar {label}?",
+  "scim.confirmRevoke.body":
+    "Se rechaza la próxima solicitud del directorio con él. Las personas que aprovisionó quedan como están.",
+  "scim.confirmRevoke.action": "Revocar token",
+  "scim.revoked": "Se revocó el token {label}.",
+  "scim.created": "Se creó el token {label}. Cópialo ahora.",
+  "scim.emails":
+    "Enviar el correo de invitación a las personas que el directorio aprovisiona sin cuenta de Portifact",
+  "scim.emailsHint":
+    "Desactivado por defecto: los proveedores de identidad suelen avisar ellos mismos de las apps nuevas. En cualquier caso, se unen al iniciar sesión por primera vez con esa dirección.",
+  "scim.emailsSaved": "Guardado.",
+  "scim.actionFailed": "No se guardó el cambio",
 } satisfies Catalog;

@@ -2289,4 +2289,70 @@ export const fr = {
   "policies.default.domainLapsed":
     "Aucun domaine de messagerie n’est vérifié : les nouveaux artefacts démarrent partagés avec l’espace de travail jusqu’à ce qu’un domaine soit de nouveau vérifié.",
   "audit.access.byPolicy": "par la règle de l’espace de travail",
+  "audit.actor.directory": "{label} (annuaire)",
+  "audit.actor.directoryGone": "Annuaire (jeton SCIM révoqué)",
+  "audit.kind.memberJoinedDirectory": "{member} a rejoint en tant que {role} via l’annuaire",
+  "audit.kind.memberProvisioned":
+    "A provisionné une personne de {domain} en tant que {role} ; elle rejoint à sa connexion",
+  "audit.kind.scimTokenCreated":
+    "A créé un jeton SCIM ({days, plural, one {# jour} other {# jours}})",
+  "audit.kind.scimTokenRevoked": "A révoqué un jeton SCIM",
+  "audit.kind.scimEmailsOn": "A activé les e-mails d’invitation pour les personnes provisionnées",
+  "audit.kind.scimEmailsOff":
+    "A désactivé les e-mails d’invitation pour les personnes provisionnées",
+  "pending.directory": "De l’annuaire",
+  "pending.directoryDetail":
+    "{role}, provisionné par l’annuaire : rejoint à sa première connexion, occupe une place jusqu’au {date}",
+  "scim.title": "Synchronisation de l’annuaire (SCIM)",
+  "scim.description":
+    "Laissez votre fournisseur d’identité ajouter et retirer les personnes de l’espace de travail. Il provisionne des adresses de vos domaines de messagerie vérifiés ; une personne sans compte Portifact rejoint à sa première connexion avec cette adresse.",
+  "scim.loadFailed": "La synchronisation de l’annuaire n’a pas pu être chargée",
+  "scim.baseUrl": "URL de base SCIM",
+  "scim.baseUrlCopy": "Copier l’URL",
+  "scim.baseUrlHint":
+    "Collez-la dans votre fournisseur d’identité comme URL de base SCIM ou URL du locataire, avec un jeton ci-dessous comme jeton porteur.",
+  "scim.planTitle": "Pas dans cette offre",
+  "scim.plan":
+    "La synchronisation de l’annuaire nécessite l’offre {plan}. D’ici là, les requêtes de l’annuaire sont refusées ; vous pouvez toujours révoquer ses jetons.",
+  "scim.rules":
+    "Les nouvelles personnes rejoignent en tant que membres. Désactiver une personne dans l’annuaire la retire de l’espace de travail et ferme toutes ses sessions ; son compte et son espace personnel restent les siens. Une personne retirée ici à la main n’est pas rajoutée par la synchronisation suivante.",
+  "scim.lastSync": "Dernière synchronisation",
+  "scim.lastSyncNever": "L’annuaire ne s’est pas encore connecté.",
+  "scim.pendingLabel": "En attente de connexion",
+  "scim.pending":
+    "{count, plural, =0 {Personne} one {# personne, dans les invitations en attente} other {# personnes, dans les invitations en attente}}",
+  "scim.tokens": "Jetons",
+  "scim.tokensEmpty": "Aucun jeton pour l’instant.",
+  "scim.tokenExpires": "Expire le {date}",
+  "scim.tokenExpired": "A expiré le {date}",
+  "scim.tokenUsed": "dernière utilisation le {date}",
+  "scim.tokenUnused": "jamais utilisé",
+  "scim.create": "Créer un jeton SCIM",
+  "scim.label": "Libellé",
+  "scim.labelHint": "Par exemple le nom du fournisseur d’identité.",
+  "scim.labelRequired": "Saisissez un libellé de 80 caractères au plus.",
+  "scim.expiry": "Expire après",
+  "scim.days": "{count, plural, one {# jour} other {# jours}}",
+  "scim.limit":
+    "Un espace de travail a au plus {count} jetons SCIM, pour qu’un jeton en remplace un autre sans interruption. Révoquez-en un pour en créer un autre.",
+  "scim.secret.title": "Copiez le jeton maintenant",
+  "scim.secret.body":
+    "Il n’est affiché qu’une fois. Collez-le dans votre fournisseur d’identité comme jeton porteur.",
+  "scim.secret.label": "Jeton SCIM {label}",
+  "scim.secret.copy": "Copier le jeton",
+  "scim.secret.done": "Je l’ai enregistré",
+  "scim.revoke": "Révoquer",
+  "scim.revokeNamed": "Révoquer : {label}",
+  "scim.confirmRevoke.title": "Révoquer {label} ?",
+  "scim.confirmRevoke.body":
+    "La prochaine requête de l’annuaire avec ce jeton est refusée. Les personnes qu’il a provisionnées restent telles quelles.",
+  "scim.confirmRevoke.action": "Révoquer le jeton",
+  "scim.revoked": "Le jeton {label} a été révoqué.",
+  "scim.created": "Le jeton {label} a été créé. Copiez-le maintenant.",
+  "scim.emails":
+    "Envoyer l’e-mail d’invitation aux personnes que l’annuaire provisionne sans compte Portifact",
+  "scim.emailsHint":
+    "Désactivé par défaut : les fournisseurs d’identité annoncent généralement eux-mêmes les nouvelles applications. Dans tous les cas, la personne rejoint à sa première connexion avec cette adresse.",
+  "scim.emailsSaved": "Enregistré.",
+  "scim.actionFailed": "La modification n’a pas été enregistrée",
 } satisfies Catalog;
