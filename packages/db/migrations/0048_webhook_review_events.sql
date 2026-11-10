@@ -8,10 +8,16 @@
 -- keeps foreign keys on and actions fire even when deferred), so both children are copied aside
 -- and dropped first, the parent is rebuilt with every row, and the children are recreated with
 -- their exact definitions and indexes and filled back. No trigger is defined on or writes these
--- tables. The migration runs in one transaction, so a failure leaves everything as it was.
+-- tables. `webhook_deliveries` is AUTOINCREMENT: dropping it resets its `sqlite_sequence` counter
+-- to the highest ID copied back, which would hand out again the IDs of deliveries of removed
+-- webhooks, so the old counter is saved first and written back after the rows are restored (the
+-- row may be missing when the table never had a delivery). The migration runs in one
+-- transaction, so a failure leaves everything as it was.
 CREATE TABLE `__keep_webhook_events` AS SELECT * FROM `webhook_events`;
 --> statement-breakpoint
 CREATE TABLE `__keep_webhook_deliveries` AS SELECT * FROM `webhook_deliveries`;
+--> statement-breakpoint
+CREATE TABLE `__keep_webhook_deliveries_seq` AS SELECT `seq` FROM `sqlite_sequence` WHERE `name` = 'webhook_deliveries';
 --> statement-breakpoint
 DROP TABLE `webhook_events`;
 --> statement-breakpoint
@@ -62,6 +68,10 @@ CREATE TABLE `webhook_deliveries` (
 --> statement-breakpoint
 INSERT INTO `webhook_deliveries`("id", "webhook_id", "owner_id", "delivery_id", "attempt", "at", "outcome", "status", "error") SELECT "id", "webhook_id", "owner_id", "delivery_id", "attempt", "at", "outcome", "status", "error" FROM `__keep_webhook_deliveries`;
 --> statement-breakpoint
+UPDATE `sqlite_sequence` SET `seq` = max(`seq`, (SELECT `seq` FROM `__keep_webhook_deliveries_seq`)) WHERE `name` = 'webhook_deliveries' AND EXISTS (SELECT 1 FROM `__keep_webhook_deliveries_seq`);
+--> statement-breakpoint
+INSERT INTO `sqlite_sequence` (`name`, `seq`) SELECT 'webhook_deliveries', `seq` FROM `__keep_webhook_deliveries_seq` WHERE NOT EXISTS (SELECT 1 FROM `sqlite_sequence` WHERE `name` = 'webhook_deliveries');
+--> statement-breakpoint
 CREATE INDEX `webhook_deliveries_webhook_idx` ON `webhook_deliveries` (`webhook_id`,`at`);
 --> statement-breakpoint
 CREATE INDEX `webhook_deliveries_owner_idx` ON `webhook_deliveries` (`owner_id`,`at`);
@@ -91,3 +101,5 @@ CREATE INDEX `webhook_events_first_idx` ON `webhook_events` (`webhook_id`,`first
 DROP TABLE `__keep_webhook_events`;
 --> statement-breakpoint
 DROP TABLE `__keep_webhook_deliveries`;
+--> statement-breakpoint
+DROP TABLE `__keep_webhook_deliveries_seq`;

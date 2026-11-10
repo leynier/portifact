@@ -82,6 +82,15 @@ describe("migration 0048: review events for webhooks", () => {
         )
         .bind(`wh_${"a".repeat(32)}`, `whd_${"c".repeat(32)}`, NOW),
     ]);
+    // A delivery of a removed webhook took ID 90 and is gone: the counter stays at 90, above
+    // every row that is copied back.
+    await D()
+      .prepare(
+        "INSERT INTO webhook_deliveries (id, webhook_id, owner_id, delivery_id, attempt, at, outcome) VALUES (90, ?, 'u_1', ?, 1, ?, 'delivered')",
+      )
+      .bind(`wh_${"a".repeat(32)}`, `whd_${"e".repeat(32)}`, NOW)
+      .run();
+    await D().prepare("DELETE FROM webhook_deliveries WHERE id = 90").run();
     for (const [table, order] of [
       ["webhooks", "id"],
       ["webhook_events", "webhook_id"],
@@ -120,7 +129,8 @@ describe("migration 0048: review events for webhooks", () => {
     const { results } = await D()
       .prepare("SELECT max(id) AS id FROM webhook_deliveries")
       .all<{ id: number }>();
-    expect(results[0]?.id).toBeGreaterThan(41);
+    // Never an ID a removed webhook's delivery already had: the counter survived the rebuild.
+    expect(results[0]?.id).toBe(91);
     await D()
       .prepare("DELETE FROM webhooks WHERE id = ?")
       .bind(`wh_${"a".repeat(32)}`)
