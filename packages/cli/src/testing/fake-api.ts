@@ -21,6 +21,8 @@ import {
   type ArtifactType,
   type CommentScope,
   type CommentVisibility,
+  CustomDomainAdd,
+  type CustomDomainView,
   ERROR_STATUS,
   type ErrorCode,
   IdempotencyKey,
@@ -145,6 +147,10 @@ export interface FakeApiState {
   shareTokens: string[];
   /** Whether the owner's plan includes share links. */
   shareLinksEnabled: boolean;
+  /** Custom domains and pending claims by hostname. */
+  domains: Map<string, CustomDomainView>;
+  /** Whether the owner's plan includes custom domains (one, like Pro). */
+  domainsEnabled: boolean;
   /** Objects the account already stores, by SHA-256. */
   stored: Map<string, Buffer>;
   /** Objects uploaded and not committed yet. */
@@ -203,6 +209,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     shareLinks: new Map(),
     shareTokens: [],
     shareLinksEnabled: true,
+    domains: new Map(),
+    domainsEnabled: true,
     stored: new Map(),
     uploaded: new Map(),
     sessions: new Map(),
@@ -1131,6 +1139,67 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     return error("not_found", "Not found.");
   }
 
+  function domainList(url: URL): Reply {
+    const artifactId = url.searchParams.get("artifactId");
+    const domains = [...state.domains.values()].filter(
+      (domain) => artifactId === null || domain.artifactId === artifactId,
+    );
+    return {
+      status: 200,
+      body: {
+        available: true,
+        enabled: state.domainsEnabled,
+        limit: state.domainsEnabled ? 1 : 0,
+        used: [...state.domains.values()].filter(
+          (d) => d.state === "active" || d.state === "provisioning",
+        ).length,
+        cnameTarget: "domains.portifact.dev",
+        domains,
+      },
+    };
+  }
+
+  function addDomain(id: string, raw: string): Reply {
+    const artifact = state.artifacts.get(id);
+    if (!artifact || artifact.state === "deleted") return error("not_found", "Artifact not found.");
+    if (!state.domainsEnabled) return planRequired("customDomains");
+    const parsed = CustomDomainAdd.safeParse(parseJson(raw));
+    if (!parsed.success) return error("invalid_input", "Invalid hostname.");
+    const hostname = parsed.data.hostname.toLowerCase();
+    const view: CustomDomainView = {
+      hostname,
+      artifactId: id,
+      state: "pending",
+      records: [
+        {
+          type: "TXT",
+          name: `_portifact.${hostname}`,
+          value: "portifact-verify=0123456789abcdef0123456789abcdef",
+        },
+        { type: "CNAME", name: hostname, value: "domains.portifact.dev" },
+      ],
+      claimExpiresAt: new Date(clock() + 7 * DAY_MS).toISOString(),
+      verifiedAt: null,
+      checkedAt: null,
+      missedChecks: 0,
+      problem: null,
+    };
+    state.domains.set(hostname, view);
+    return { status: 201, body: view };
+  }
+
+  function domain(method: string, hostname: string, verify: boolean): Reply {
+    const view = state.domains.get(hostname);
+    if (!view) return error("not_found", "Custom domain not found.");
+    if (method === "GET" && !verify) return { status: 200, body: view };
+    if (method === "POST" && verify) return { status: 200, body: view };
+    if (method === "DELETE" && !verify) {
+      state.domains.set(hostname, { ...view, state: "removing" });
+      return { status: 200, body: { hostname, removed: true } };
+    }
+    return error("not_found", "Not found.");
+  }
+
   function access(method: string, id: string, raw: string): Reply {
     const artifact = state.artifacts.get(id);
     if (!artifact || artifact.state === "deleted") return error("not_found", "Artifact not found.");
@@ -1207,6 +1276,12 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     const log = /^\/artifacts\/([^/]+)\/access-log$/.exec(path);
     if (log && method === "GET") return accessLog(decodeURIComponent(log[1] as string), url);
+    if (route === "GET /domains") return domainList(url);
+    const added = /^\/artifacts\/([^/]+)\/domain$/.exec(path);
+    if (added && method === "POST") return addDomain(added[1] as string, raw);
+    const named = /^\/domains\/([^/]+)(\/verify)?$/.exec(path);
+    if (named)
+      return domain(method, decodeURIComponent(named[1] as string), named[2] !== undefined);
     const shares = /^\/artifacts\/([^/]+)\/share-links(?:\/([^/]+))?$/.exec(path);
     if (shares) return shareLinks(method, shares[1] as string, shares[2], raw);
     const versions = versionRoute(method, path, url, key, raw);
@@ -1239,6 +1314,7 @@ export function scopeFor(method: string, path: string): string {
   if (path.startsWith("/api/v1/publishes")) return "artifacts:write";
   if (/\/access$/.test(path)) return method === "PATCH" ? "artifacts:share" : "artifacts:read";
   if (/\/share-links(\/|$)/.test(path)) return "artifacts:share";
+  if (/\/domain$|^\/api\/v1\/domains\//.test(path) && method !== "GET") return "artifacts:share";
   if (method === "DELETE") return "artifacts:delete";
   if (method === "POST") return "artifacts:write";
   return "artifacts:read";

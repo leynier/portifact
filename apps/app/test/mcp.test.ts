@@ -41,6 +41,13 @@ const TOOLS = [
   "unpin_artifact",
   ...["set_access", "add_reader", "remove_reader"],
   ...["create_share_link", "list_share_links", "revoke_share_link"],
+  ...[
+    "add_custom_domain",
+    "verify_custom_domain",
+    "list_custom_domains",
+    "get_custom_domain",
+    "remove_custom_domain",
+  ],
   ...["prepare_upload", "get_upload_status", "commit_upload", "read_artifact"],
   ...[
     "create_annotation",
@@ -138,6 +145,23 @@ describe("the MCP endpoint", () => {
     expect(byName.get("list_share_links")?.annotations?.readOnlyHint).toBe(true);
     expect(byName.get("revoke_share_link")?.annotations?.destructiveHint).toBe(true);
     expect(client.getInstructions()).toContain("creating a share link");
+    for (const name of ["add_custom_domain", "verify_custom_domain", "remove_custom_domain"]) {
+      expect(TOOL_SCOPES.get(name), name).toBe("artifacts:share");
+    }
+    for (const name of ["list_custom_domains", "get_custom_domain"]) {
+      expect(TOOL_SCOPES.get(name), name).toBe("artifacts:read");
+      expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
+    }
+    expect(byName.get("add_custom_domain")?.description).toContain(
+      "only call it after the user asked for this domain",
+    );
+    expect(byName.get("add_custom_domain")?.description).toContain("set_portifact_bar");
+    expect(byName.get("remove_custom_domain")?.annotations?.destructiveHint).toBe(true);
+    expect(byName.get("remove_custom_domain")?.inputSchema.required).toEqual([
+      "hostname",
+      "confirm",
+    ]);
+    expect(client.getInstructions()).toContain("adding a custom domain");
     for (const name of [
       "prepare_upload",
       "get_upload_status",

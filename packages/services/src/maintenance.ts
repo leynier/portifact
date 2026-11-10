@@ -9,6 +9,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
+import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
@@ -285,6 +286,9 @@ export async function deleteArtifactData(
   artifactId: string,
   now: number,
 ) {
+  // Its custom domains are global: detached first, so the name stops serving and Cloudflare's
+  // hostname is deleted by its own job whatever happens to this batch.
+  await releaseArtifactDomains(domainDbsOf(db), artifactId, "purged", now);
   const files = await db
     .select({ ownerId: schema.versionFiles.ownerId, sha256: schema.versionFiles.sha256 })
     .from(schema.versionFiles)

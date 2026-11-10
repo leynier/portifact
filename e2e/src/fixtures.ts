@@ -87,6 +87,14 @@ export async function grantPlan(ownerId: string, plan: "free" | "pro"): Promise<
   );
 }
 
+/** Publishes a TXT record in the stack's fake DNS, or reports a hostname active in its Cloudflare. */
+export function fakeDomains(input: {
+  txt?: { name: string; value: string };
+  activate?: string;
+}): Promise<{ ok: boolean }> {
+  return control("/domains", input);
+}
+
 /** A share link of the artifact, created by its owner; the URL holds the token. */
 export function createShareLink(input: {
   ownerId: string;

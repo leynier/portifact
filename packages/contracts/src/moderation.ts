@@ -151,6 +151,13 @@ export const ExportShareLink = z.strictObject({
   expiresAt: IsoOrNull,
 });
 
+/** A custom domain or pending claim of an exported artifact (decision 0006). */
+export const ExportCustomDomain = z.strictObject({
+  hostname: z.string(),
+  state: z.enum(["pending", "provisioning", "active", "removing"]),
+  verifiedAt: IsoOrNull,
+});
+
 export const ExportArtifact = z.object({
   id: z.string(),
   name: z.string(),
@@ -172,6 +179,7 @@ export const ExportArtifact = z.object({
   versions: z.array(ExportVersion),
   threads: z.array(ExportThread),
   shareLinks: z.array(ExportShareLink),
+  customDomains: z.array(ExportCustomDomain),
 });
 
 /** The account's data as JSON (plan section 5): offered before deletion, at any time. */

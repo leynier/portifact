@@ -1,6 +1,13 @@
 // Bindings of the portifact-app Worker. Non-secret values come from `vars` in wrangler.jsonc;
 // secrets are set with `wrangler secret put` (docs/releasing.md) and `.dev.vars` locally.
-export interface Env {
+import type { DomainEnv } from "@portifact/services";
+
+/**
+ * Custom domains (decision 0006) come from `DomainEnv`: `CUSTOM_DOMAINS_ENABLED` and
+ * `CF_CONTENT_ZONE_ID` in `vars`, and the secret `CF_HOSTNAMES_TOKEN`. Without all three the
+ * feature is unavailable and nothing calls Cloudflare.
+ */
+export interface Env extends DomainEnv {
   ASSETS: Fetcher;
   DB: D1Database;
   /** The access log database (`portifact-access`); the app only reads it, for the owner. */
