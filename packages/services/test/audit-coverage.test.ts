@@ -137,6 +137,7 @@ reason("a token's use: what it changes is recorded as its own events, last use i
   "authenticateServiceToken",
   "authenticateScimToken",
   "hitScimRateLimit",
+  "hitScimAuthFailure",
 ]);
 reason(
   "what a directory said about people who never got an account, once it lapsed (decision 0017)",
@@ -235,6 +236,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "runReviewNotice",
   "scheduleDomainNotices",
   "sendDomainNotice",
+  // The notice of being added by a directory (decision 0017): sending changes nothing.
+  "sendDirectoryNotice",
   "alignPlanLimits",
   "unpinLapsedPlans",
   // Content search (decision 0012): the index is derived data, kept by a job and two scans.

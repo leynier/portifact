@@ -681,7 +681,7 @@ describe("edges", () => {
     });
   });
 
-  it("accepts an invitation for someone already a member without changing their role", async () => {
+  it("gives a member (one a directory added) the role of an admin's invitation they accept", async () => {
     const t = await team();
     const { invitee, token } = await invited(t, "editor");
     await db()
@@ -690,8 +690,20 @@ describe("edges", () => {
     expect(
       value(await acceptInvitation(global(), { userId: invitee.id, key: { token }, now: NOW }))
         .role,
-    ).toBe("member");
+    ).toBe("editor");
     expect(await listIncomingInvitations(global(), { userId: invitee.id, now: NOW })).toEqual([]);
+  });
+
+  it("never lowers an existing member's role through an invitation", async () => {
+    const t = await team();
+    const { invitee, token } = await invited(t, "member");
+    await db()
+      .insert(schema.workspaceMembers)
+      .values({ workspaceId: t.id, userId: invitee.id, role: "editor", updatedAt: NOW });
+    expect(
+      value(await acceptInvitation(global(), { userId: invitee.id, key: { token }, now: NOW }))
+        .role,
+    ).toBe("editor");
   });
 
   it("counts seats as members plus invitations that have not expired", async () => {
