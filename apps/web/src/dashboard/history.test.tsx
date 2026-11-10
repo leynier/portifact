@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { PLANS } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { unzipSync } from "fflate";
@@ -331,5 +332,105 @@ describe("archive view", () => {
     expect(
       await screen.findByRole("heading", { name: "Artifact not found" }, { timeout: 3000 }),
     ).toBeTruthy();
+  });
+});
+
+describe("comparing versions", () => {
+  const onPro = () => {
+    server.usage.plan = {
+      ...server.usage.plan,
+      name: "pro",
+      limits: { ...PLANS.pro.limits },
+      features: [...PLANS.pro.features],
+    };
+  };
+
+  it("says that comparing and longer retention are part of a paid plan, from the owner's plan", async () => {
+    const { container } = renderDashboard(PATH, server);
+    expect(
+      await screen.findByText(
+        "The owner's plan keeps 2 previous versions for 7 days after each one is replaced.",
+      ),
+    ).toBeTruthy();
+    const panel = await screen.findByRole("region", { name: "Compare versions" });
+    expect(panel.textContent).toContain(
+      "Comparing versions and keeping more of them for longer are part of the Pro plan.",
+    );
+    expect(within(panel).queryByRole("button", { name: "Compare" })).toBeNull();
+    expect(server.requests.some((r) => r.path.includes("/diff/"))).toBe(false);
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("lists the files that differ and shows a text file's changes unified or side by side", async () => {
+    onPro();
+    const { container } = renderDashboard(PATH, server);
+    expect(
+      await screen.findByText(
+        "The owner's plan keeps 50 previous versions for 90 days after each one is replaced.",
+      ),
+    ).toBeTruthy();
+    const panel = await screen.findByRole("region", { name: "Compare versions" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Compare" }));
+    expect(
+      await within(panel).findByText(
+        "Version 1 compared with version 2. Added: 1. Removed: 1. Changed: 1. Unchanged: 0.",
+      ),
+    ).toBeTruthy();
+    const table = within(panel).getByRole("table", {
+      name: "Files that differ between version 1 and version 2",
+    });
+    const files = within(table)
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => row.textContent);
+    // Each cell's visible label comes first on narrow screens.
+    expect(files).toEqual([
+      "app.jsChangeAddedSizenone before, 1 byte afterShow changes",
+      "index.htmlChangeChangedSize11 bytes before, 11 bytes afterShow changes",
+      "src.zipSourceChangeRemovedSize9 bytes before, none afterShow changes",
+    ]);
+    expect(await axeViolations(container)).toEqual([]);
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Show changes to index.html" }));
+    const heading = await within(panel).findByRole("heading", { name: "Changes to index.html" });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    const diff = await within(panel).findByRole("table", {
+      name: "Changes to index.html from version 1 to version 2",
+    });
+    const lines = within(diff)
+      .getAllByRole("row")
+      .map((row) => row.textContent);
+    expect(lines).toContain("1-RemovedRemoved: <h1>v1</h1>(no line break at the end)");
+    expect(lines).toContain("1+AddedAdded: <h1>v2</h1>(no line break at the end)");
+    expect(within(panel).getByText("Lines added: 1. Lines removed: 1.")).toBeTruthy();
+    expect(await axeViolations(container)).toEqual([]);
+
+    fireEvent.click(within(panel).getByRole("radio", { name: "Side by side" }));
+    const split = within(panel).getByRole("table", {
+      name: "Changes to index.html from version 1 to version 2",
+    });
+    expect(
+      within(split)
+        .getAllByRole("columnheader")
+        .map((cell) => cell.textContent),
+    ).toEqual(["Before", "After"]);
+    expect(await axeViolations(container)).toEqual([]);
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Show changes to src.zip" }));
+    expect(
+      await within(panel).findByText(/This file is not text, so only its size is compared\./),
+    ).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("button", { name: "Hide changes" }));
+    expect(within(panel).queryByRole("heading", { name: "Changes to src.zip" })).toBeNull();
+  });
+
+  it("explains a refusal from the API", async () => {
+    onPro();
+    renderDashboard(PATH, server);
+    const panel = await screen.findByRole("region", { name: "Compare versions" });
+    server.usage.plan = { ...server.usage.plan, features: [] };
+    fireEvent.click(within(panel).getByRole("button", { name: "Compare" }));
+    const alert = await within(panel).findByRole("alert");
+    expect(alert.textContent).toContain("The versions could not be compared");
   });
 });

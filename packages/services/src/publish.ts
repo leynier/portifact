@@ -744,7 +744,8 @@ export async function commitPublish(
       ? [
           db
             .update(schema.versions)
-            .set({ expiresAt: input.now + LIMITS.previousVersionRetentionDays * DAY_MS })
+            // A previous version from now on, kept by the owner's plan (`retainedVersionSql`).
+            .set({ supersededAt: input.now })
             .where(and(eq(schema.versions.id, session.baseVersionId), switched)),
         ]
       : []),

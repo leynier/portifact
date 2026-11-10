@@ -236,8 +236,15 @@
     {
       "idx": 33,
       "version": "6",
-      "when": 1794294535395,
-      "tag": "0033_workspace_members_invitations",
+      "when": 1794296548513,
+      "tag": "0033_version_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1794302032282,
+      "tag": "0034_workspace_members_invitations",
       "breakpoints": true
     }
   ]

@@ -397,7 +397,7 @@ describe("commit", () => {
       .select()
       .from(schema.versions)
       .where(eq(schema.versions.id, first.versionId));
-    expect(previous?.expiresAt).toBe(NOW + 2 * 3_600_000 + 7 * DAY);
+    expect(previous?.supersededAt).toBe(NOW + 2 * 3_600_000);
   });
 
   it("renews the artifact for 30 days from an update and keeps its URL and access", async () => {

@@ -22,6 +22,7 @@ import {
   type ConnectedApp,
   DocumentPreviewRequest,
   type ErrorCode,
+  type FileChange,
   LIMITS,
   type ManifestFile,
   PLANS,
@@ -39,6 +40,7 @@ import {
   type VersionSummary,
   type ViewerInfo,
 } from "@portifact/contracts";
+import { diffText, textDiffEligibility } from "@portifact/domain";
 import { createMemoryHistory } from "@tanstack/react-router";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { HumanCheckWidget } from "../human-check/turnstile.ts";
@@ -325,6 +327,8 @@ export interface FakeServer {
   annotations: Record<string, FakeAnnotations>;
   /** Committed versions by artifact ID, newest first. */
   versions: Record<string, FakeVersion[]>;
+  /** The text of each seeded file by SHA-256, for the comparison routes. */
+  texts: Map<string, string>;
   uploads: FakeUpload[];
   storage: FakeStorage;
   /** How long upload URLs the fake API issues stay valid. */
@@ -404,6 +408,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     commentNotices: {},
     bodies: [],
     pageSize: 50,
+    texts: new Map(),
     requests: [],
     idempotencyKeys: [],
     fail(method, path, failure, times = 1) {
@@ -469,6 +474,7 @@ export async function seedVersion(
     const blob = new Blob([file.text]);
     const sha256 = await sha256OfBlob(blob);
     server.storage.objects.set(sha256, blob);
+    server.texts.set(sha256, file.text);
     manifest.push({
       path: file.path,
       kind: file.kind ?? "published",
@@ -655,6 +661,10 @@ function publishingRoute(
       rendererVersion: "1",
     });
   }
+  const diff = /^\/api\/v1\/artifacts\/([^/]+)\/versions\/([^/]+)\/diff\/([^/]+)(\/file)?$/.exec(
+    path,
+  );
+  if (diff && method === "GET") return diffRoute(server, diff, url);
   const versions =
     /^\/api\/v1\/artifacts\/([^/]+)\/(versions|rollback)(?:\/([^/]+))?(\/download)?$/.exec(path);
   if (!versions) return undefined;
@@ -699,6 +709,11 @@ function publishingRoute(
       artifactId: artifact.id,
       items: items.map((v) => summaryOf(v, artifact.currentVersionId)),
       nextCursor: next < list.length ? String(next) : null,
+      retention: {
+        previousVersions: server.usage.plan.limits.retainedPreviousVersions,
+        days: server.usage.plan.limits.previousVersionRetentionDays,
+      },
+      versionDiff: server.usage.plan.features.includes("versionDiff"),
     });
   }
   const ref = versions[3] === "current" ? artifact.currentVersionId : versions[3];
@@ -731,6 +746,67 @@ function publishingRoute(
       expiresAt: new Date(Date.now() + 300_000).toISOString(),
     })),
   });
+}
+
+/** The comparison routes, from the seeded files and the plan in `usage`, like the Worker. */
+function diffRoute(server: FakeServer, match: RegExpExecArray, url: URL): Response {
+  const artifact = server.artifacts.find((a) => a.id === match[1]);
+  if (!artifact) return apiError("not_found", 404);
+  if (!server.usage.plan.features.includes("versionDiff")) return apiError("plan_required", 403);
+  const list = server.versions[artifact.id] ?? [];
+  const find = (ref: string) =>
+    list.find((v) => v.id === (ref === "current" ? artifact.currentVersionId : ref));
+  const from = find(decodeURIComponent(match[2] as string));
+  const to = find(decodeURIComponent(match[3] as string));
+  if (!from || !to) return apiError("not_found", 404);
+  const key = (f: ManifestFile) => `${f.kind}\u0000${f.path}`;
+  const a = new Map(from.files.map((f) => [key(f), f]));
+  const b = new Map(to.files.map((f) => [key(f), f]));
+  const side = (f: ManifestFile | undefined) =>
+    f ? { sha256: f.sha256, size: f.size, contentType: f.contentType } : null;
+  const files = [...new Set([...a.keys(), ...b.keys()])].sort().map((k) => {
+    const before = a.get(k);
+    const after = b.get(k);
+    const any = (before ?? after) as ManifestFile;
+    const change: FileChange = !before
+      ? "added"
+      : !after
+        ? "removed"
+        : before.sha256 === after.sha256
+          ? "unchanged"
+          : "changed";
+    return { kind: any.kind, path: any.path, change, before: side(before), after: side(after) };
+  });
+  const versionsOf = {
+    from: { id: from.id, number: from.number },
+    to: { id: to.id, number: to.number },
+  };
+  if (!match[4]) {
+    const counts = { added: 0, removed: 0, changed: 0, unchanged: 0 };
+    for (const file of files) counts[file.change] += 1;
+    return json({
+      artifactId: artifact.id,
+      ...versionsOf,
+      counts,
+      files: files.filter((file) => file.change !== "unchanged"),
+      nextCursor: null,
+    });
+  }
+  const file = files.find(
+    (f) =>
+      f.kind === (url.searchParams.get("kind") ?? "published") &&
+      f.path === url.searchParams.get("path"),
+  );
+  if (!file) return apiError("not_found", 404);
+  const answer = (diff: unknown) => json({ artifactId: artifact.id, ...versionsOf, ...file, diff });
+  if (file.change === "unchanged") return answer({ status: "identical" });
+  if ([file.before, file.after].some((f) => textDiffEligibility(f) === "binary")) {
+    return answer({ status: "binary" });
+  }
+  const text = (f: { sha256: string } | null) => (f ? (server.texts.get(f.sha256) ?? "") : "");
+  const result = diffText(text(file.before), text(file.after));
+  if (result.status !== "text") return answer({ status: result.status });
+  return answer({ ...result, nextCursor: null });
 }
 
 function route(server: FakeServer, method: string, url: URL, headers: Headers): Response {

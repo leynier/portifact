@@ -3,37 +3,30 @@
 // roll back. A rollback is a new publish of retained content: a new version that references the
 // same stored objects, made current under the same base-version check as a commit. Access belongs
 // to the artifact, not to its versions, so a rollback never brings back a removed reader.
-import { CURRENT_VERSION, type DownloadKind, LIMITS, type RoleAction } from "@portifact/contracts";
+import { CURRENT_VERSION, type DownloadKind, type RoleAction } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   can,
   checkPublish,
+  type Entitlements,
   fail,
+  hasFeature,
   nextExpiry,
   normalizePath,
   ok,
+  previousVersionExpiry,
   type Result,
   type SourceOriginInput,
+  type VersionRetention,
+  versionRetention,
 } from "@portifact/domain";
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  exists,
-  gt,
-  inArray,
-  isNull,
-  lt,
-  or,
-  type SQL,
-  sql,
-} from "drizzle-orm";
+import { and, asc, desc, eq, exists, inArray, lt, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
+import { retainedVersionSql } from "./retention.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -58,6 +51,10 @@ export interface VersionInfo {
 export interface VersionPage {
   items: VersionInfo[];
   nextCursor: string | null;
+  /** What the owner's plan keeps of previous versions. */
+  retention: VersionRetention;
+  /** Whether the owner's plan includes comparing versions. */
+  versionDiff: boolean;
 }
 
 export interface VersionFileEntry {
@@ -105,9 +102,9 @@ export interface RollbackOutcome {
   fromVersionNumber: number;
 }
 
-type ArtifactRow = typeof schema.artifacts.$inferSelect;
+export type ArtifactRow = typeof schema.artifacts.$inferSelect;
 
-const missingVersion = () =>
+export const missingVersion = () =>
   fail<never>(
     "not_found",
     "This version does not exist, is no longer retained or your account cannot download it.",
@@ -117,21 +114,24 @@ const missingVersion = () =>
  * An artifact that still exists, for a user whose role on its owner allows `action`. An owner
  * the user has no role on looks the same as a missing artifact (`missing`).
  */
-async function managedArtifact(
+export async function managedArtifact(
   db: RegionalDb,
   userId: string,
   artifactId: string,
   action: RoleAction,
   missing: () => Result<never>,
-): Promise<Result<{ artifact: ArtifactRow; actor: Actor }>> {
+  now: number,
+): Promise<Result<{ artifact: ArtifactRow; actor: Actor; owner: Entitlements }>> {
   const artifact = await loadArtifact(db, artifactId);
   if (!artifact) return missing();
   const actor = await authorizeOn(db, userId, artifact.ownerId, action, missing);
   if (!actor.ok) return actor;
-  return ok({ artifact, actor: actor.value });
+  // Retention and paid features follow the owner's plan, a workspace's for a workspace.
+  const owner = await ownerEntitlements(db, artifact.ownerId, now);
+  return ok({ artifact, actor: actor.value, owner });
 }
 
-const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
+export const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
 
 async function loadArtifact(db: Db, artifactId: string): Promise<ArtifactRow | undefined> {
   const [artifact] = await db
@@ -144,18 +144,11 @@ async function loadArtifact(db: Db, artifactId: string): Promise<ArtifactRow | u
 }
 
 /**
- * Versions that can still be read: committed, and either current or inside their retention.
+ * Versions that can still be read: committed, and either current or inside the owner's retention.
  * `pruneVersions` deletes the others, but may not have run yet.
  */
-function retained(currentVersionId: string | null, now: number): SQL | undefined {
-  return and(
-    eq(schema.versions.state, "committed"),
-    or(
-      currentVersionId === null ? undefined : eq(schema.versions.id, currentVersionId),
-      isNull(schema.versions.expiresAt),
-      gt(schema.versions.expiresAt, now),
-    ),
-  );
+function retained(currentVersionId: string | null, retention: VersionRetention, now: number) {
+  return retainedVersionSql(sql`${currentVersionId}`, retention, now);
 }
 
 function fileCount(kind: DownloadKind) {
@@ -172,7 +165,7 @@ const versionColumns = {
   sourceFiles: fileCount("source"),
   rendererVersion: schema.versions.rendererVersion,
   committedAt: schema.versions.committedAt,
-  expiresAt: schema.versions.expiresAt,
+  supersededAt: schema.versions.supersededAt,
   originCommit: schema.sourceOrigins.commit,
   originBranch: schema.sourceOrigins.branch,
   originRemote: schema.sourceOrigins.remote,
@@ -191,14 +184,18 @@ type VersionRow = {
   sourceFiles: number;
   rendererVersion: string | null;
   committedAt: number | null;
-  expiresAt: number | null;
+  supersededAt: number | null;
   originCommit: string | null;
   originBranch: string | null;
   originRemote: string | null;
   originDirty: boolean | null;
 };
 
-function toInfo(row: VersionRow, currentVersionId: string | null): VersionInfo {
+function toInfo(
+  row: VersionRow,
+  currentVersionId: string | null,
+  retention: VersionRetention,
+): VersionInfo {
   const current = row.id === currentVersionId;
   return {
     id: row.id,
@@ -212,7 +209,10 @@ function toInfo(row: VersionRow, currentVersionId: string | null): VersionInfo {
     rendererVersion: row.rendererVersion,
     // Committed versions always have a commit time; the fallback keeps the type total.
     committedAt: row.committedAt ?? 0,
-    expiresAt: current ? null : row.expiresAt,
+    expiresAt:
+      current || row.supersededAt === null
+        ? null
+        : previousVersionExpiry(row.supersededAt, retention),
     // The join finds no row when the publisher declared no origin; `dirty` is never null in one.
     sourceOrigin:
       row.originDirty === null
@@ -226,11 +226,12 @@ function toInfo(row: VersionRow, currentVersionId: string | null): VersionInfo {
   };
 }
 
-/** A retained version of the artifact, by ID or `current`. */
-async function resolveVersion(
+/** A retained version of the artifact, by ID or `current`, under the owner's retention. */
+export async function resolveVersion(
   db: Db,
   artifact: ArtifactRow,
   ref: string,
+  retention: VersionRetention,
   now: number,
 ): Promise<VersionInfo | undefined> {
   const id = ref === CURRENT_VERSION ? artifact.currentVersionId : ref;
@@ -243,11 +244,11 @@ async function resolveVersion(
       and(
         eq(schema.versions.id, id),
         eq(schema.versions.artifactId, artifact.id),
-        retained(artifact.currentVersionId, now),
+        retained(artifact.currentVersionId, retention, now),
       ),
     )
     .limit(1);
-  return row ? toInfo(row, artifact.currentVersionId) : undefined;
+  return row ? toInfo(row, artifact.currentVersionId, retention) : undefined;
 }
 
 /** Cursor of the version list: the number of the last version on the page. */
@@ -272,9 +273,11 @@ export async function listVersions(
     input.artifactId,
     "versions",
     missingArtifact,
+    input.now,
   );
   if (!managed.ok) return managed;
-  const { artifact } = managed.value;
+  const { artifact, owner } = managed.value;
+  const retention = versionRetention(owner.limits);
   const before = input.cursor === undefined ? undefined : decodeVersionCursor(input.cursor);
   if (input.cursor !== undefined && before === undefined) {
     return fail("invalid_input", "Invalid cursor.");
@@ -286,17 +289,21 @@ export async function listVersions(
     .where(
       and(
         eq(schema.versions.artifactId, artifact.id),
-        retained(artifact.currentVersionId, input.now),
+        retained(artifact.currentVersionId, retention, input.now),
         before === undefined ? undefined : lt(schema.versions.number, before),
       ),
     )
     .orderBy(desc(schema.versions.number))
     .limit(input.limit + 1);
-  const items = rows.slice(0, input.limit).map((row) => toInfo(row, artifact.currentVersionId));
+  const items = rows
+    .slice(0, input.limit)
+    .map((row) => toInfo(row, artifact.currentVersionId, retention));
   const last = items.at(-1);
   return ok({
     items,
     nextCursor: rows.length > input.limit && last ? String(last.number) : null,
+    retention,
+    versionDiff: hasFeature(owner, "versionDiff"),
   });
 }
 
@@ -311,10 +318,17 @@ export async function getVersionManifest(
     input.artifactId,
     "versions",
     missingVersion,
+    input.now,
   );
   if (!managed.ok) return managed;
-  const { artifact } = managed.value;
-  const version = await resolveVersion(db, artifact, input.versionId, input.now);
+  const { artifact, owner } = managed.value;
+  const version = await resolveVersion(
+    db,
+    artifact,
+    input.versionId,
+    versionRetention(owner.limits),
+    input.now,
+  );
   if (!version) return missingVersion();
   const files = await db
     .select({
@@ -377,7 +391,14 @@ export async function getVersionDownload(
     });
     if (!access.ok) return missingVersion();
   }
-  const version = await resolveVersion(db, artifact, input.versionId, input.now);
+  const owner = await ownerEntitlements(db, artifact.ownerId, input.now);
+  const version = await resolveVersion(
+    db,
+    artifact,
+    input.versionId,
+    versionRetention(owner.limits),
+    input.now,
+  );
   if (!version) return missingVersion();
   const files = await db
     .select({
@@ -438,9 +459,11 @@ export async function rollbackArtifact(
     input.artifactId,
     "rollback",
     missingArtifact,
+    input.now,
   );
   if (!managed.ok) return managed;
-  const { artifact } = managed.value;
+  const { artifact, owner } = managed.value;
+  const retention = versionRetention(owner.limits);
   const ownerId = artifact.ownerId;
   if (artifact.state === "suspended") {
     return fail("forbidden", "This artifact is suspended; it cannot be rolled back.");
@@ -457,7 +480,7 @@ export async function rollbackArtifact(
       "The artifact changed since your last read. Fetch it and try again.",
     );
   }
-  const target = await resolveVersion(db, artifact, input.versionId, input.now);
+  const target = await resolveVersion(db, artifact, input.versionId, retention, input.now);
   if (!target) return missingVersion();
   if (target.current) {
     return fail("invalid_input", "That version is already the current one.");
@@ -472,7 +495,6 @@ export async function rollbackArtifact(
     .from(schema.accountUsage)
     .where(eq(schema.accountUsage.ownerId, ownerId))
     .limit(1);
-  const owner = await ownerEntitlements(db, ownerId, input.now);
   const admission = checkPublish(
     {
       activeArtifacts: usageRow?.activeArtifacts ?? 0,
@@ -506,8 +528,7 @@ export async function rollbackArtifact(
         and(
           eq(v.id, target.id),
           eq(v.artifactId, artifact.id),
-          eq(v.state, "committed"),
-          or(isNull(v.expiresAt), gt(v.expiresAt, input.now)),
+          retained(input.baseVersionId, retention, input.now),
         ),
       ),
   );
@@ -551,7 +572,7 @@ export async function rollbackArtifact(
           sourceBytes: v.sourceBytes,
           rendererVersion: v.rendererVersion,
           committedAt: sql<number>`${input.now}`.as("committed_at"),
-          expiresAt: sql<number | null>`null`.as("expires_at"),
+          supersededAt: sql<number | null>`null`.as("superseded_at"),
           createdAt: sql<number>`${input.now}`.as("created_at"),
         })
         .from(v)
@@ -584,10 +605,11 @@ export async function rollbackArtifact(
         .from(schema.sourceOrigins)
         .where(and(eq(schema.sourceOrigins.versionId, target.id), switched)),
     ),
-    // The version that stops being current is retained for seven days, like after a publish.
+    // The version that stops being current becomes a previous version, kept by the owner's plan
+    // from now on, like after a publish.
     db
       .update(v)
-      .set({ expiresAt: input.now + LIMITS.previousVersionRetentionDays * DAY_MS })
+      .set({ supersededAt: input.now })
       .where(and(eq(v.id, input.baseVersionId), switched)),
     // Annotations (plan section 8): when threads exist, move the open threads of the base
     // version to the owner's history here, conditioned on `switched` like the writes above,

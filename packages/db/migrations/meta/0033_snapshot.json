@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "4a916710-b109-473f-bf74-e37c01f35b95",
+  "id": "49e7c5e0-d02b-4010-bc3e-b1f3dcf2f799",
   "prevId": "91f10b6c-6765-4e1a-a48a-05cc4e581080",
   "tables": {
     "abuse_reports": {
@@ -1692,7 +1692,7 @@
         "objects_r2_key_idx": {
           "name": "objects_r2_key_idx",
           "columns": ["r2_key"],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {},
@@ -3445,8 +3445,8 @@
           "notNull": false,
           "autoincrement": false
         },
-        "expires_at": {
-          "name": "expires_at",
+        "superseded_at": {
+          "name": "superseded_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
@@ -3467,10 +3467,11 @@
           "columns": ["artifact_id", "number"],
           "isUnique": true
         },
-        "versions_state_expires_idx": {
-          "name": "versions_state_expires_idx",
-          "columns": ["state", "expires_at"],
-          "isUnique": false
+        "versions_superseded_idx": {
+          "name": "versions_superseded_idx",
+          "columns": ["superseded_at"],
+          "isUnique": false,
+          "where": "\"versions\".\"superseded_at\" is not null"
         },
         "versions_artifact_state_idx": {
           "name": "versions_artifact_state_idx",
@@ -3495,136 +3496,6 @@
         "versions_bytes_nonnegative": {
           "name": "versions_bytes_nonnegative",
           "value": "\"versions\".\"published_bytes\" >= 0 and \"versions\".\"source_bytes\" >= 0"
-        }
-      }
-    },
-    "workspace_deletions": {
-      "name": "workspace_deletions",
-      "columns": {
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "requested_at": {
-          "name": "requested_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "workspace_invitations": {
-      "name": "workspace_invitations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "invited_by": {
-          "name": "invited_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "workspace_invitations_token_idx": {
-          "name": "workspace_invitations_token_idx",
-          "columns": ["token_hash"],
-          "isUnique": true
-        },
-        "workspace_invitations_workspace_email_idx": {
-          "name": "workspace_invitations_workspace_email_idx",
-          "columns": ["workspace_id", "email"],
-          "isUnique": true
-        },
-        "workspace_invitations_email_idx": {
-          "name": "workspace_invitations_email_idx",
-          "columns": ["email"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "workspace_invitations_workspace_id_workspaces_id_fk": {
-          "name": "workspace_invitations_workspace_id_workspaces_id_fk",
-          "tableFrom": "workspace_invitations",
-          "tableTo": "workspaces",
-          "columnsFrom": ["workspace_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "workspace_invitations_invited_by_users_id_fk": {
-          "name": "workspace_invitations_invited_by_users_id_fk",
-          "tableFrom": "workspace_invitations",
-          "tableTo": "users",
-          "columnsFrom": ["invited_by"],
-          "columnsTo": ["id"],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "workspace_invitations_role": {
-          "name": "workspace_invitations_role",
-          "value": "\"workspace_invitations\".\"role\" in ('admin', 'editor', 'member')"
         }
       }
     },
