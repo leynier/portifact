@@ -30,6 +30,7 @@ const POLICY: AccessPolicyView = {
   commentVisibility: "owner",
   readerCommentVisibility: [],
   policyGeneration: 4,
+  audience: null,
 };
 
 let server: FakeServer;
@@ -540,6 +541,7 @@ describe("access helpers", () => {
       commentVisibility: "owner" as const,
       readerCommentVisibility: [],
       policyGeneration: 1,
+      audience: null,
     };
     const same = { mode: "restricted", indexable: false, embeddable: true, bar: true } as const;
     expect(settingsChange(policy, { ...same, commentVisibility: "owner" })).toBe(undefined);

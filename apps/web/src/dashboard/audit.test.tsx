@@ -90,6 +90,71 @@ describe("audit log page", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  it("names service tokens by their label, and email domains by what happened to them", async () => {
+    const tokenId = `st_${"0".repeat(32)}`;
+    const live = { type: "service_token", id: tokenId, label: "CI previews" } as const;
+    const gone = { type: "service_token", id: tokenId, label: null } as const;
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    server.audit.acme = [
+      event({ at: at(1), kind: "artifact.published", actor: live, detail: { version: 2 } }),
+      event({
+        at: at(2),
+        kind: "service_token.created",
+        target: { type: "service_token", id: tokenId, serviceToken: live },
+        artifact: null,
+        detail: { scopes: ["artifacts:read"], restriction: "none", days: 30 },
+      }),
+      event({
+        at: at(3),
+        kind: "service_token.revoked",
+        actor: { type: "operator" },
+        target: { type: "service_token", id: tokenId, serviceToken: gone },
+        artifact: null,
+      }),
+      event({ at: at(4), kind: "artifact.renewed", actor: gone }),
+      event({
+        at: at(5),
+        kind: "email_domain.verified",
+        target: { type: "email_domain", id: "wd_1" },
+        artifact: null,
+        detail: { domain: "corp.example" },
+      }),
+      ...(["removed", "claimed", "record_missing"] as const).map((reason, i) =>
+        event({
+          at: at(6 + i),
+          kind: "email_domain.removed",
+          actor:
+            reason === "removed"
+              ? { type: "member", id: "u_ada", name: "Ada" }
+              : { type: "system" },
+          target: { type: "email_domain", id: "wd_1" },
+          artifact: null,
+          detail: { domain: "corp.example", reason },
+        }),
+      ),
+    ];
+    renderDashboard("/audit?workspace=acme", server);
+    const rows = within(await table()).getAllByRole("row");
+    const text = (row: number) => rows[row]?.textContent ?? "";
+    expect(text(1)).toContain("CI previews (service token)");
+    expect(text(1)).toContain("Published version 2");
+    expect(text(2)).toContain("Created a service token that expires in 30 days");
+    expect(text(2)).toContain("CI previews (service token)");
+    expect(text(3)).toContain("Portifact operator");
+    expect(text(3)).toContain("Revoked a service token");
+    expect(text(3)).toContain("Revoked service token");
+    expect(text(4)).toContain("Revoked service token");
+    expect(text(5)).toContain("Verified the email domain corp.example");
+    expect(text(5)).toContain("This space");
+    expect(text(6)).toContain("Removed the email domain corp.example");
+    expect(text(7)).toContain(
+      "The email domain corp.example was removed because another workspace proved it",
+    );
+    expect(text(8)).toContain(
+      "The email domain corp.example was removed because its DNS record is missing",
+    );
+  });
+
   it("filters by kind of change, person and period from keyboard reachable controls", async () => {
     server.audit[""] = EVENTS;
     renderDashboard("/audit", server);
@@ -99,7 +164,7 @@ describe("audit log page", () => {
     for (const control of [kind, person, period]) expect(control?.tagName).toBe("BUTTON");
 
     fireEvent.click(kind as HTMLElement);
-    fireEvent.click(screen.getByRole("option", { name: "Members and plan" }));
+    fireEvent.click(screen.getByRole("option", { name: "Members, tokens and plan" }));
     await waitFor(() =>
       expect(requested().at(-1)).toContain("kind=member.invited&kind=member.invitation_revoked"),
     );

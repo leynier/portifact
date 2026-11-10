@@ -1587,13 +1587,15 @@ export const en = {
   "audit.group.access": "Access and sharing",
   "audit.group.lifecycle": "Publishing and lifecycle",
   "audit.group.integrations": "Domains, webhooks and brand",
-  "audit.group.members": "Members and plan",
+  "audit.group.members": "Members, tokens and plan",
   "audit.actor.all": "Anyone",
   "audit.period.day": "Last 24 hours",
   "audit.period.week": "Last 7 days",
   "audit.period.month": "Last 30 days",
   "audit.period.all": "Everything kept",
   "audit.actor.removed": "Removed member",
+  "audit.actor.token": "{label} (service token)",
+  "audit.actor.tokenGone": "Revoked service token",
   "audit.actor.operator": "Portifact operator",
   "audit.actor.system": "Portifact",
   "audit.artifact.gone": "Deleted artifact",
@@ -1654,6 +1656,156 @@ export const en = {
   "audit.kind.planGrantedUntil":
     "Set the plan to {plan} with {seats, plural, one {# seat} other {# seats}} until {until}",
   "audit.kind.planRemoved": "Removed the plan, so the space is back on Free",
+  "audit.kind.tokenCreated":
+    "Created a service token that expires in {days, plural, one {# day} other {# days}}",
+  "audit.kind.tokenRevoked": "Revoked a service token",
+  "audit.kind.emailDomainVerified": "Verified the email domain {domain}",
+  "audit.kind.emailDomainRemoved":
+    "{reason, select, removed {Removed the email domain {domain}} claimed {The email domain {domain} was removed because another workspace proved it} other {The email domain {domain} was removed because its DNS record is missing}}",
+  "shell.serviceTokensLink": "Service tokens",
+  "tokens.title": "Service tokens",
+  "tokens.description":
+    "Credentials that let automation such as CI publish to {workspace} without a person's login. Each token has a role, scopes and an expiry, and stops working when you revoke it.",
+  "tokens.personal.title": "Service tokens belong to a workspace",
+  "tokens.personal.body": "Switch to a workspace you administer to create tokens for it.",
+  "tokens.adminOnly.title": "Only admins manage service tokens",
+  "tokens.adminOnly.body": "Ask an admin of this workspace for a token.",
+  "tokens.planTitle": "Service tokens are not in this workspace's plan",
+  "tokens.planRequired":
+    "Creating service tokens is part of the {plan} plan. Existing tokens are listed and can be revoked, but they do not work until the plan includes them again.",
+  "tokens.list.title": "Tokens",
+  "tokens.loading": "Loading service tokens",
+  "tokens.loadFailed": "Service tokens did not load",
+  "tokens.empty.title": "No service tokens yet",
+  "tokens.empty.body":
+    "Create one for a CI job, set it as the PORTIFACT_TOKEN secret and run the portifact CLI.",
+  "tokens.secret.title": "Copy the token now",
+  "tokens.secret.body":
+    "This is the only time it is shown. Store it as a secret of your CI, such as PORTIFACT_TOKEN. Anyone who has it can do what its scopes allow until it expires or you revoke it.",
+  "tokens.secret.label": "Service token {label}",
+  "tokens.secret.copy": "Copy token",
+  "tokens.secret.done": "I saved it",
+  "tokens.create.title": "Create a token",
+  "tokens.create.hint": "It acts for the workspace, never for you, and is never a member.",
+  "tokens.create.limit":
+    "This workspace has the most tokens it can hold ({limit}). Revoke one to create another.",
+  "tokens.create.label": "Label",
+  "tokens.create.labelHint": "Where it is used, such as GitHub previews",
+  "tokens.create.labelError": "Enter a label of 1 to 80 characters.",
+  "tokens.create.scopes": "What it may do",
+  "tokens.create.scopesError": "Choose at least one.",
+  "tokens.create.expiry": "Expires after",
+  "tokens.create.expiryHint": "A new token replaces it when it expires.",
+  "tokens.create.days": "{days, plural, one {# day} other {# days}}",
+  "tokens.create.restriction": "Limit to",
+  "tokens.create.prefix": "Key prefix",
+  "tokens.create.prefixHint":
+    "Every artifact it publishes must have a key starting with this, such as pr-.",
+  "tokens.create.prefixError":
+    "Use letters, digits, dots, underscores, slashes or hyphens, starting with a letter or digit.",
+  "tokens.create.submit": "Create token",
+  "tokens.scope.read": "Read",
+  "tokens.scope.readHint": "List artifacts and their versions",
+  "tokens.scope.write": "Publish",
+  "tokens.scope.writeHint": "Publish new artifacts and versions, renew and archive",
+  "tokens.scope.share": "Share",
+  "tokens.scope.shareHint":
+    "Change who can open an artifact, including making it public. A leaked token could expose artifacts.",
+  "tokens.scope.delete": "Delete",
+  "tokens.scope.deleteHint":
+    "Delete artifacts permanently. A leaked token could destroy them; limit it to a key prefix.",
+  "tokens.restriction.none": "All the workspace's artifacts",
+  "tokens.restriction.noneHint": "The token can reach every artifact of the workspace.",
+  "tokens.restriction.own": "Artifacts it created",
+  "tokens.restriction.ownHint": "Anything published by people or other tokens looks missing to it.",
+  "tokens.restriction.key": "Artifacts with a key prefix",
+  "tokens.restriction.keyHint": "Only artifacts published with a key under the prefix you choose.",
+  "tokens.created": "Token {label} created",
+  "tokens.actionFailed": "That did not work",
+  "tokens.reach.none": "Reaches every artifact of the workspace",
+  "tokens.reach.own": "Reaches only the artifacts it created",
+  "tokens.reach.key": "Reaches only keys starting with {prefix}",
+  "tokens.expired": "Expired",
+  "tokens.revoke": "Revoke",
+  "tokens.revokeLabel": "Revoke {label}",
+  "tokens.scopes": "Scopes: {scopes}",
+  "tokens.expiresOn": "Expires {date}",
+  "tokens.expiredOn": "Expired {date}",
+  "tokens.lastUsed": "Last used {when}",
+  "tokens.neverUsed": "Never used",
+  "tokens.createdBy": "Created by {name} on {date}",
+  "tokens.createdOn": "Created on {date}",
+  "tokens.revoked": "Token {label} revoked",
+  "tokens.confirm.title": "Revoke {label}?",
+  "tokens.confirm.body":
+    "Anything that uses it stops working at the next request. This cannot be undone.",
+  "access.workspace": "Everyone in the workspace",
+  "access.domain": "The workspace and its email domains",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "Email domain",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {The # member of this workspace} other {All # members of this workspace}}, after signing in, whatever their role.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {The # member of this workspace} other {All # members of this workspace}}, and anyone signed in with a verified address at {domains}.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {The # member of this workspace} other {All # members of this workspace}}, and anyone signed in with a verified address at the workspace's email domains. No domain is verified yet: an admin adds one on the Members page.",
+  "accessSettings.mode.listOnlyRestricted":
+    "The people listed below can open it only while it is restricted.",
+  "accessSettings.mode.workspacePlan": "Part of the {plan} plan.",
+  "accessSettings.lapsed.title": "Only members can open this artifact for now",
+  "accessSettings.lapsed.body":
+    "The workspace's plan does not include sharing with email domains right now, so only its members can open this artifact until the plan includes it again. Nothing was changed.",
+  "emailDomains.title": "Email domains",
+  "emailDomains.description":
+    "Anyone signed in to Portifact with a verified address at one of these domains can open the workspace's artifacts shared with its email domains. Only the exact domain counts, not its subdomains.",
+  "emailDomains.loading": "Loading email domains",
+  "emailDomains.loadFailed": "Email domains did not load",
+  "emailDomains.rules":
+    "Prove each domain with a DNS record. Public email providers (such as gmail.com), shared suffixes and Portifact's own domains are refused. Portifact checks the record every day and removes a domain after 3 missed checks in a row.",
+  "emailDomains.addFailed": "The domain was not added",
+  "emailDomains.add": "Add domain",
+  "emailDomains.domain": "Domain",
+  "emailDomains.domainHint":
+    "Your organization's own domain, such as example.com. Up to {limit} domains.",
+  "emailDomains.domainRequired": "Enter a domain.",
+  "emailDomains.empty": "No email domain yet.",
+  "emailDomains.added": "{domain} was added. Create its TXT record, then verify it.",
+  "emailDomains.planTitle": "Email domains are part of a paid plan",
+  "emailDomains.plan":
+    "Verifying email domains is part of the {plan} plan. Domains already listed stay, and you can still remove them.",
+  "emailDomains.state.verified": "Verified",
+  "emailDomains.state.pending": "Waiting for the DNS record",
+  "emailDomains.verifiedOn": "Verified on {date}.",
+  "emailDomains.pendingUntil": "Create the record before {date}, or the claim is dropped.",
+  "emailDomains.failing.title": "The DNS record is missing",
+  "emailDomains.failing.body":
+    "{count, plural, one {The record was missing at the last daily check.} other {The record was missing at the last # daily checks in a row.}} {left, plural, one {After # more missed check the domain is removed.} other {After # more missed checks the domain is removed.}}",
+  "emailDomains.actionFailed": "The change was not saved",
+  "emailDomains.recordHint":
+    "Create this record at your DNS provider. It can take a while to appear.",
+  "emailDomains.verify": "Verify",
+  "emailDomains.verifyNamed": "Verify {domain}",
+  "emailDomains.remove": "Remove",
+  "emailDomains.removeNamed": "Remove {domain}",
+  "emailDomains.verified": "{domain} is verified.",
+  "emailDomains.removed": "{domain} was removed.",
+  "emailDomains.confirmRemove.title": "Remove {domain}?",
+  "emailDomains.confirmRemove.body":
+    "People who open artifacts only through this domain lose access within a minute. You can add it again later with a new record.",
+  "emailDomains.confirmRemove.action": "Remove domain",
+  "emailDomains.error.quota_exceeded":
+    "The workspace already has the most email domains it can have.",
+  "emailDomains.error.version_conflict":
+    "The domain changed meanwhile, or another workspace still proves it in its DNS. Reload and try again.",
+  "emailDomains.error.capacity_unavailable":
+    "DNS could not be checked right now. Try again shortly.",
+  "emailDomains.error.not_found": "That domain is no longer listed.",
+  "emailDomains.error.refused":
+    "This domain cannot be added. Use your organization's own domain: public email providers, shared suffixes, reserved names and Portifact's domains are refused.",
+  "emailDomains.error.recordMissing":
+    "The TXT record was not found with this domain's value yet. DNS changes can take a while to appear; try again later. A claim older than 7 days must be added again.",
+  "transfer.confirm.accessReset":
+    "It is shared with its workspace or an email domain now, so it becomes restricted: only the people on its reader list keep reading it.",
 } as const;
 
 export type MessageId = keyof typeof en;

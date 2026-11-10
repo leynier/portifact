@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUDIT_ACTOR_TYPES,
   AUDIT_DETAILS,
   AUDIT_KINDS,
   AUDIT_LIMITS,
@@ -9,6 +10,7 @@ import {
   AuditLogView,
   AuditQuery,
   DOMAIN_DETACH_REASONS,
+  EMAIL_DOMAIN_REMOVAL_REASONS,
   GetAuditLogInput,
 } from "./audit.ts";
 import { PLANS } from "./plans.ts";
@@ -128,7 +130,55 @@ describe("the catalog's exact shapes", () => {
       "member.left": "member",
       "plan.granted": "plan",
       "plan.removed": "plan",
+      "service_token.created": "service_token",
+      "service_token.revoked": "service_token",
+      "email_domain.verified": "email_domain",
+      "email_domain.removed": "email_domain",
     });
+  });
+
+  it("keeps a service token's event to what it may do", () => {
+    const created = AUDIT_DETAILS["service_token.created"];
+    const detail = { scopes: ["artifacts:read"], restriction: "key", days: 30 };
+    expect(created.safeParse(detail).success).toBe(true);
+    expect(created.safeParse({ ...detail, days: 366 }).success).toBe(true);
+    for (const wrong of [
+      { ...detail, scopes: [] },
+      { ...detail, scopes: ["credentials:manage"] },
+      { ...detail, scopes: Array.from({ length: 5 }, () => "artifacts:read") },
+      { ...detail, restriction: "prefix" },
+      { ...detail, days: 0 },
+      { ...detail, days: 367 },
+      { ...detail, days: 1.5 },
+      { ...detail, label: "CI previews" },
+      { ...detail, prefix: "pr-" },
+    ]) {
+      expect(created.safeParse(wrong).success, JSON.stringify(wrong)).toBe(false);
+    }
+    expect(AUDIT_DETAILS["service_token.revoked"].safeParse({}).success).toBe(true);
+    expect(AUDIT_DETAILS["service_token.revoked"].safeParse({ label: "x" }).success).toBe(false);
+  });
+
+  it("keeps an email domain's event to the domain and why it went", () => {
+    const verified = AUDIT_DETAILS["email_domain.verified"];
+    expect(verified.safeParse({ domain: "corp.example" }).success).toBe(true);
+    expect(verified.safeParse({ domain: "ada@corp.example" }).success).toBe(false);
+    expect(verified.safeParse({ domain: "corp.example", token: "abc" }).success).toBe(false);
+    const removed = AUDIT_DETAILS["email_domain.removed"];
+    for (const reason of EMAIL_DOMAIN_REMOVAL_REASONS) {
+      expect(removed.safeParse({ domain: "corp.example", reason }).success).toBe(true);
+    }
+    expect([...EMAIL_DOMAIN_REMOVAL_REASONS]).toEqual(["removed", "record_missing", "claimed"]);
+    expect(removed.safeParse({ domain: "corp.example", reason: "expired" }).success).toBe(false);
+    expect(removed.safeParse({ domain: "corp.example" }).success).toBe(false);
+  });
+
+  it("knows a service token as an actor and as a target", () => {
+    expect([...AUDIT_ACTOR_TYPES]).toEqual(["user", "operator", "system", "token"]);
+    const token = { type: "service_token", id: "st_1", label: null };
+    expect(AuditActorView.safeParse(token).success).toBe(true);
+    expect(AuditActorView.safeParse({ ...token, label: "CI" }).success).toBe(true);
+    expect(AuditActorView.safeParse({ type: "service_token", id: "st_1" }).success).toBe(false);
   });
 
   it("bounds counts, domains and identifiers", () => {

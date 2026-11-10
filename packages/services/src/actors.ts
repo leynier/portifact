@@ -3,7 +3,12 @@
 // gives the role. A user who is not a member of an owner gets exactly what a missing owner or
 // artifact gives. Adapters never decide a role: they pass the user and the owner (or the
 // artifact) and the services resolve the actor here.
-import { DEFAULT_REGION, isWorkspaceId, type RoleAction } from "@portifact/contracts";
+import {
+  DEFAULT_REGION,
+  isServiceTokenId,
+  isWorkspaceId,
+  type RoleAction,
+} from "@portifact/contracts";
 import {
   type GlobalDb,
   isRegion,
@@ -12,18 +17,50 @@ import {
   type Regions,
   schema,
 } from "@portifact/db";
-import { type Actor, authorize, fail, ok, personalActor, type Result } from "@portifact/domain";
+import {
+  type Actor,
+  authorize,
+  fail,
+  ok,
+  personalActor,
+  type Result,
+  restrictionAllows,
+  restrictionOf,
+  storedTokenScopes,
+} from "@portifact/domain";
 import { and, eq, inArray } from "drizzle-orm";
 
 /**
- * The actor for `userId` on `ownerId`, or null when the user has no role there. A personal space
- * needs no read; a workspace, one indexed read of the membership and the workspace's region.
+ * An artifact a role is asked about: its owner, and what a service token's restriction is checked
+ * against (decision 0011). Owner-scoped questions (listing, usage, a new artifact) pass the
+ * owner's ID instead.
+ */
+export interface ArtifactSubject {
+  ownerId: string;
+  createdBy: string | null;
+  externalKey: string | null;
+}
+
+export type ActorTarget = string | ArtifactSubject;
+
+function ownerOfTarget(target: ActorTarget): string {
+  return typeof target === "string" ? target : target.ownerId;
+}
+
+/**
+ * The actor for `userId` on an owner (or on an artifact's owner), or null when the user has no
+ * role there. A personal space needs no read; a workspace, one indexed read of the membership and
+ * the workspace's region. A service token's ID (decision 0011) has a role only on its own
+ * workspace, from its row, and only on the artifacts its restriction reaches; it has no personal
+ * space.
  */
 export async function actorOn(
   global: GlobalDb,
   userId: string,
-  ownerId: string,
+  target: ActorTarget,
 ): Promise<Actor | null> {
+  if (isServiceTokenId(userId)) return tokenActorOn(global, userId, target);
+  const ownerId = ownerOfTarget(target);
   if (!isWorkspaceId(ownerId)) return ownerId === userId ? personalActor(userId) : null;
   const [row] = await global
     .select({ role: schema.workspaceMembers.role, region: schema.workspaces.region })
@@ -41,6 +78,46 @@ export async function actorOn(
   return { userId, ownerId, role: row.role, region: row.region };
 }
 
+async function tokenActorOn(
+  global: GlobalDb,
+  tokenId: string,
+  target: ActorTarget,
+): Promise<Actor | null> {
+  const ownerId = ownerOfTarget(target);
+  if (!isWorkspaceId(ownerId)) return null;
+  const t = schema.serviceTokens;
+  const [row] = await global
+    .select({
+      role: t.role,
+      restriction: t.restriction,
+      keyPrefix: t.keyPrefix,
+      scopes: t.scopes,
+      createdAt: t.createdAt,
+      label: t.label,
+      region: schema.workspaces.region,
+    })
+    .from(t)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, t.workspaceId))
+    .where(and(eq(t.id, tokenId), eq(t.workspaceId, ownerId)))
+    .limit(1);
+  if (!row) return null;
+  if (!isRegion(row.region)) throw new Error(`Workspace ${ownerId} is in an unknown region`);
+  const restriction = restrictionOf(row.restriction, row.keyPrefix);
+  if (typeof target !== "string" && !restrictionAllows(tokenId, restriction, target)) return null;
+  return {
+    userId: tokenId,
+    ownerId,
+    role: row.role,
+    region: row.region,
+    token: {
+      restriction,
+      scopes: storedTokenScopes(row.scopes),
+      createdAt: row.createdAt,
+      label: row.label,
+    },
+  };
+}
+
 /**
  * The actor for `userId` on `ownerId`. `not_found` when the user has no role there, the same
  * answer as an owner that does not exist.
@@ -48,9 +125,9 @@ export async function actorOn(
 export async function resolveActor(
   global: GlobalDb,
   userId: string,
-  ownerId: string,
+  target: ActorTarget,
 ): Promise<Result<Actor>> {
-  const actor = await actorOn(global, userId, ownerId);
+  const actor = await actorOn(global, userId, target);
   return actor ? ok(actor) : fail("not_found", "Not found.");
 }
 
@@ -62,13 +139,35 @@ export async function resolveActor(
 export async function authorizeOn(
   db: RegionalDb,
   userId: string,
-  ownerId: string,
+  target: ActorTarget,
   action: RoleAction,
   missing: () => Result<never>,
 ): Promise<Result<Actor>> {
-  const actor = await actorOn(db.global, userId, ownerId);
+  const actor = await actorOn(db.global, userId, target);
   if (!actor) return missing();
   return authorize(actor, action);
+}
+
+/**
+ * `authorizeOn` for an upload session: a service token's restriction is checked against the
+ * artifact the upload publishes to (prepare already wrote its row), at the cost of one read that
+ * people's requests do not pay.
+ */
+export async function authorizeUploadOn(
+  db: RegionalDb,
+  userId: string,
+  session: { ownerId: string; artifactId: string },
+  action: RoleAction,
+  missing: () => Result<never>,
+): Promise<Result<Actor>> {
+  if (!isServiceTokenId(userId)) return authorizeOn(db, userId, session.ownerId, action, missing);
+  const [artifact] = await db
+    .select({ createdBy: schema.artifacts.createdBy, externalKey: schema.artifacts.externalKey })
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, session.artifactId))
+    .limit(1);
+  if (!artifact) return missing();
+  return authorizeOn(db, userId, { ownerId: session.ownerId, ...artifact }, action, missing);
 }
 
 /**

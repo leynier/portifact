@@ -1649,13 +1649,15 @@ export const fr = {
   "audit.group.access": "Accès et partage",
   "audit.group.lifecycle": "Publication et cycle de vie",
   "audit.group.integrations": "Domaines, webhooks et marque",
-  "audit.group.members": "Membres et offre",
+  "audit.group.members": "Membres, jetons et forfait",
   "audit.actor.all": "N'importe qui",
   "audit.period.day": "Dernières 24 heures",
   "audit.period.week": "7 derniers jours",
   "audit.period.month": "30 derniers jours",
   "audit.period.all": "Tout ce qui est conservé",
   "audit.actor.removed": "Membre retiré",
+  "audit.actor.token": "{label} (jeton de service)",
+  "audit.actor.tokenGone": "Jeton de service révoqué",
   "audit.actor.operator": "Opérateur de Portifact",
   "audit.actor.system": "Portifact",
   "audit.artifact.gone": "Artifact supprimé",
@@ -1719,4 +1721,156 @@ export const fr = {
   "audit.kind.planGrantedUntil":
     "A défini l'offre {plan} avec {seats, plural, one {# siège} other {# sièges}} jusqu'au {until}",
   "audit.kind.planRemoved": "A retiré l'offre : l'espace revient à Free",
+  "audit.kind.tokenCreated":
+    "A créé un jeton de service qui expire dans {days, plural, one {# jour} other {# jours}}",
+  "audit.kind.tokenRevoked": "A révoqué un jeton de service",
+  "audit.kind.emailDomainVerified": "A vérifié le domaine e-mail {domain}",
+  "audit.kind.emailDomainRemoved":
+    "{reason, select, removed {A retiré le domaine e-mail {domain}} claimed {Le domaine e-mail {domain} a été retiré, car un autre workspace l'a prouvé} other {Le domaine e-mail {domain} a été retiré, car son enregistrement DNS est absent}}",
+  "shell.serviceTokensLink": "Jetons de service",
+  "tokens.title": "Jetons de service",
+  "tokens.description":
+    "Des identifiants qui permettent à une automatisation, comme la CI, de publier dans {workspace} sans la connexion d'une personne. Chaque jeton a un rôle, des autorisations et une expiration, et cesse de fonctionner dès que vous le révoquez.",
+  "tokens.personal.title": "Les jetons de service appartiennent à un workspace",
+  "tokens.personal.body": "Passez à un workspace que vous administrez pour y créer des jetons.",
+  "tokens.adminOnly.title": "Seuls les admins gèrent les jetons de service",
+  "tokens.adminOnly.body": "Demandez un jeton à un admin de ce workspace.",
+  "tokens.planTitle": "Les jetons de service ne font pas partie du forfait de ce workspace",
+  "tokens.planRequired":
+    "Créer des jetons de service fait partie du forfait {plan}. Les jetons existants restent listés et peuvent être révoqués, mais ils ne fonctionnent plus tant que le forfait ne les inclut pas de nouveau.",
+  "tokens.list.title": "Jetons",
+  "tokens.loading": "Chargement des jetons de service",
+  "tokens.loadFailed": "Les jetons de service n'ont pas pu être chargés",
+  "tokens.empty.title": "Aucun jeton de service pour l'instant",
+  "tokens.empty.body":
+    "Créez-en un pour une tâche de CI, enregistrez-le comme secret PORTIFACT_TOKEN et lancez la CLI portifact.",
+  "tokens.secret.title": "Copiez le jeton maintenant",
+  "tokens.secret.body":
+    "C'est la seule fois qu'il est affiché. Enregistrez-le comme secret de votre CI, par exemple PORTIFACT_TOKEN. Quiconque le détient peut faire ce que ses autorisations permettent jusqu'à son expiration ou sa révocation.",
+  "tokens.secret.label": "Jeton de service {label}",
+  "tokens.secret.copy": "Copier le jeton",
+  "tokens.secret.done": "Je l'ai enregistré",
+  "tokens.create.title": "Créer un jeton",
+  "tokens.create.hint": "Il agit pour le workspace, jamais pour vous, et n'en est jamais membre.",
+  "tokens.create.limit":
+    "Ce workspace a atteint le nombre maximal de jetons ({limit}). Révoquez-en un pour en créer un autre.",
+  "tokens.create.label": "Libellé",
+  "tokens.create.labelHint": "Où il sert, par exemple les aperçus GitHub",
+  "tokens.create.labelError": "Saisissez un libellé de 1 à 80 caractères.",
+  "tokens.create.scopes": "Ce qu'il peut faire",
+  "tokens.create.scopesError": "Choisissez-en au moins une.",
+  "tokens.create.expiry": "Expire après",
+  "tokens.create.expiryHint": "À son expiration, un nouveau jeton le remplace.",
+  "tokens.create.days": "{days, plural, one {# jour} other {# jours}}",
+  "tokens.create.restriction": "Limiter à",
+  "tokens.create.prefix": "Préfixe de clé",
+  "tokens.create.prefixHint":
+    "Chaque artifact qu'il publie doit avoir une clé qui commence ainsi, par exemple pr-.",
+  "tokens.create.prefixError":
+    "Utilisez des lettres, des chiffres, des points, des tirets bas, des barres obliques ou des tirets, en commençant par une lettre ou un chiffre.",
+  "tokens.create.submit": "Créer le jeton",
+  "tokens.scope.read": "Lire",
+  "tokens.scope.readHint": "Lister les artifacts et leurs versions",
+  "tokens.scope.write": "Publier",
+  "tokens.scope.writeHint": "Publier des artifacts et des versions, renouveler et archiver",
+  "tokens.scope.share": "Partager",
+  "tokens.scope.shareHint":
+    "Changer qui peut ouvrir un artifact, y compris le rendre public. Un jeton divulgué pourrait exposer des artifacts.",
+  "tokens.scope.delete": "Supprimer",
+  "tokens.scope.deleteHint":
+    "Supprimer des artifacts définitivement. Un jeton divulgué pourrait les détruire ; limitez-le à un préfixe de clé.",
+  "tokens.restriction.none": "Tous les artifacts du workspace",
+  "tokens.restriction.noneHint": "Le jeton atteint chaque artifact du workspace.",
+  "tokens.restriction.own": "Les artifacts qu'il a créés",
+  "tokens.restriction.ownHint":
+    "Ce que publient des personnes ou d'autres jetons lui semble inexistant.",
+  "tokens.restriction.key": "Les artifacts avec un préfixe de clé",
+  "tokens.restriction.keyHint":
+    "Seulement les artifacts publiés avec une clé sous le préfixe choisi.",
+  "tokens.created": "Jeton {label} créé",
+  "tokens.actionFailed": "Cela n'a pas fonctionné",
+  "tokens.reach.none": "Atteint chaque artifact du workspace",
+  "tokens.reach.own": "Atteint seulement les artifacts qu'il a créés",
+  "tokens.reach.key": "Atteint seulement les clés qui commencent par {prefix}",
+  "tokens.expired": "Expiré",
+  "tokens.revoke": "Révoquer",
+  "tokens.revokeLabel": "Révoquer {label}",
+  "tokens.scopes": "Autorisations : {scopes}",
+  "tokens.expiresOn": "Expire le {date}",
+  "tokens.expiredOn": "A expiré le {date}",
+  "tokens.lastUsed": "Dernière utilisation {when}",
+  "tokens.neverUsed": "Jamais utilisé",
+  "tokens.createdBy": "Créé par {name} le {date}",
+  "tokens.createdOn": "Créé le {date}",
+  "tokens.revoked": "Jeton {label} révoqué",
+  "tokens.confirm.title": "Révoquer {label} ?",
+  "tokens.confirm.body":
+    "Tout ce qui l'utilise cesse de fonctionner dès la requête suivante. C'est irréversible.",
+  "access.workspace": "Tout le workspace",
+  "access.domain": "Le workspace et ses domaines e-mail",
+  "list.access.workspace": "Workspace",
+  "list.access.domain": "Domaine e-mail",
+  "accessSettings.mode.workspace":
+    "{count, plural, one {Le # membre de ce workspace} other {Les # membres de ce workspace}}, après connexion, quel que soit leur rôle.",
+  "accessSettings.mode.domain":
+    "{count, plural, one {Le # membre de ce workspace} other {Les # membres de ce workspace}} et toute personne connectée avec une adresse vérifiée chez {domains}.",
+  "accessSettings.mode.domainNone":
+    "{count, plural, one {Le # membre de ce workspace} other {Les # membres de ce workspace}} et toute personne connectée avec une adresse vérifiée dans les domaines e-mail du workspace. Aucun domaine n'est encore vérifié : un admin en ajoute un sur la page Membres.",
+  "accessSettings.mode.listOnlyRestricted":
+    "Les personnes listées ci-dessous ne peuvent l'ouvrir que tant qu'il est restreint.",
+  "accessSettings.mode.workspacePlan": "Inclus dans l'offre {plan}.",
+  "accessSettings.lapsed.title": "Pour l'instant, seuls les membres peuvent ouvrir cet artifact",
+  "accessSettings.lapsed.body":
+    "L'offre du workspace n'inclut plus le partage avec des domaines e-mail, donc seuls ses membres peuvent ouvrir cet artifact jusqu'à ce que l'offre l'inclue de nouveau. Rien n'a été modifié.",
+  "emailDomains.title": "Domaines e-mail",
+  "emailDomains.description":
+    "Toute personne connectée à Portifact avec une adresse vérifiée dans l'un de ces domaines peut ouvrir les artifacts du workspace partagés avec ses domaines e-mail. Seul le domaine exact compte, pas ses sous-domaines.",
+  "emailDomains.loading": "Chargement des domaines e-mail",
+  "emailDomains.loadFailed": "Les domaines e-mail n'ont pas pu être chargés",
+  "emailDomains.rules":
+    "Prouvez chaque domaine avec un enregistrement DNS. Les fournisseurs de messagerie publics (comme gmail.com), les suffixes partagés et les domaines de Portifact sont refusés. Portifact vérifie l'enregistrement chaque jour et retire un domaine après 3 vérifications manquées d'affilée.",
+  "emailDomains.addFailed": "Le domaine n'a pas été ajouté",
+  "emailDomains.add": "Ajouter le domaine",
+  "emailDomains.domain": "Domaine",
+  "emailDomains.domainHint":
+    "Le domaine de votre organisation, comme example.com. Jusqu'à {limit} domaines.",
+  "emailDomains.domainRequired": "Saisissez un domaine.",
+  "emailDomains.empty": "Aucun domaine e-mail pour l'instant.",
+  "emailDomains.added": "{domain} a été ajouté. Créez son enregistrement TXT, puis vérifiez-le.",
+  "emailDomains.planTitle": "Les domaines e-mail font partie d'une offre payante",
+  "emailDomains.plan":
+    "La vérification des domaines e-mail fait partie de l'offre {plan}. Les domaines déjà listés restent, et vous pouvez toujours les retirer.",
+  "emailDomains.state.verified": "Vérifié",
+  "emailDomains.state.pending": "En attente de l'enregistrement DNS",
+  "emailDomains.verifiedOn": "Vérifié le {date}.",
+  "emailDomains.pendingUntil":
+    "Créez l'enregistrement avant le {date}, sinon la demande est abandonnée.",
+  "emailDomains.failing.title": "L'enregistrement DNS est absent",
+  "emailDomains.failing.body":
+    "{count, plural, one {L'enregistrement était absent lors de la dernière vérification quotidienne.} other {L'enregistrement était absent lors des # dernières vérifications quotidiennes d'affilée.}} {left, plural, one {Après # vérification manquée de plus, le domaine est retiré.} other {Après # vérifications manquées de plus, le domaine est retiré.}}",
+  "emailDomains.actionFailed": "La modification n'a pas été enregistrée",
+  "emailDomains.recordHint":
+    "Créez cet enregistrement chez votre fournisseur DNS. Il peut mettre un moment à apparaître.",
+  "emailDomains.verify": "Vérifier",
+  "emailDomains.verifyNamed": "Vérifier {domain}",
+  "emailDomains.remove": "Retirer",
+  "emailDomains.removeNamed": "Retirer {domain}",
+  "emailDomains.verified": "{domain} est vérifié.",
+  "emailDomains.removed": "{domain} a été retiré.",
+  "emailDomains.confirmRemove.title": "Retirer {domain} ?",
+  "emailDomains.confirmRemove.body":
+    "Les personnes qui ouvrent des artifacts uniquement grâce à ce domaine perdent l'accès d'ici une minute. Vous pourrez l'ajouter de nouveau plus tard avec un nouvel enregistrement.",
+  "emailDomains.confirmRemove.action": "Retirer le domaine",
+  "emailDomains.error.quota_exceeded": "Le workspace a déjà le nombre maximal de domaines e-mail.",
+  "emailDomains.error.version_conflict":
+    "Le domaine a changé entre-temps, ou un autre workspace le prouve encore dans son DNS. Rechargez et réessayez.",
+  "emailDomains.error.capacity_unavailable":
+    "Le DNS n'a pas pu être vérifié pour l'instant. Réessayez dans un moment.",
+  "emailDomains.error.not_found": "Ce domaine n'est plus dans la liste.",
+  "emailDomains.error.refused":
+    "Ce domaine ne peut pas être ajouté. Utilisez le domaine de votre organisation : les fournisseurs de messagerie publics, les suffixes partagés, les noms réservés et les domaines de Portifact sont refusés.",
+  "emailDomains.error.recordMissing":
+    "L'enregistrement TXT avec la valeur de ce domaine n'a pas encore été trouvé. Les modifications DNS peuvent mettre du temps à apparaître ; réessayez plus tard. Une demande de plus de 7 jours doit être ajoutée de nouveau.",
+  "transfer.confirm.accessReset":
+    "Il est partagé avec son workspace ou un domaine e-mail, il devient donc restreint : seules les personnes de sa liste de lecteurs peuvent encore le lire.",
 } satisfies Catalog;

@@ -238,13 +238,18 @@ export async function getAccessLog(
   input: AccessLogInput,
 ): Promise<Result<AccessLogPage>> {
   const [artifact] = await db
-    .select({ ownerId: schema.artifacts.ownerId, state: schema.artifacts.state })
+    .select({
+      ownerId: schema.artifacts.ownerId,
+      state: schema.artifacts.state,
+      createdBy: schema.artifacts.createdBy,
+      externalKey: schema.artifacts.externalKey,
+    })
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
   const missing = () => fail<never>("not_found", "Artifact not found.");
   if (!artifact || artifact.state === "purging" || artifact.state === "deleted") return missing();
-  const allowed = await authorizeOn(db, input.userId, artifact.ownerId, "access_log", missing);
+  const allowed = await authorizeOn(db, input.userId, artifact, "access_log", missing);
   if (!allowed.ok) return allowed;
   const retentionDays = (await ownerEntitlements(db, artifact.ownerId, input.now)).limits
     .accessLogRetentionDays;

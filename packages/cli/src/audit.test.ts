@@ -164,6 +164,14 @@ describe("plain words for every kind", () => {
     "member.left": { role: "member" },
     "plan.granted": { plan: "team", seats: 1, validUntil: "2027-01-01T00:00:00.000Z" },
     "plan.removed": {},
+    "service_token.created": {
+      scopes: ["artifacts:read", "artifacts:write"],
+      restriction: "key",
+      days: 30,
+    },
+    "service_token.revoked": {},
+    "email_domain.verified": { domain: "corp.example" },
+    "email_domain.removed": { domain: "corp.example", reason: "removed" },
   };
   const expected: Record<AuditKind, string> = {
     "artifact.published": "Published version 3",
@@ -195,6 +203,10 @@ describe("plain words for every kind", () => {
     "member.left": "Grace left",
     "plan.granted": "Plan set to team with 1 seat until 2027-01-01 00:00 UTC",
     "plan.removed": "Plan removed (back to free)",
+    "service_token.created": "Created a service token (artifacts:read, artifacts:write; 30 days)",
+    "service_token.revoked": "Revoked a service token",
+    "email_domain.verified": "Verified the email domain corp.example",
+    "email_domain.removed": "Removed the email domain corp.example",
   };
 
   it.each(AUDIT_KINDS)("%s", (kind) => {
@@ -229,6 +241,30 @@ describe("plain words for every kind", () => {
         }),
       ),
     ).toBe("a member left");
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "service_token.created",
+          detail: { scopes: ["artifacts:read"], restriction: "none", days: 1 },
+        }),
+      ),
+    ).toBe("Created a service token (artifacts:read; 1 day)");
+    const lost = (reason: string) =>
+      auditSummary(
+        event(0, { kind: "email_domain.removed", detail: { domain: "corp.example", reason } }),
+      );
+    expect(lost("claimed")).toBe(
+      "The email domain corp.example was removed (another workspace proved it)",
+    );
+    expect(lost("record_missing")).toBe(
+      "The email domain corp.example was removed (its DNS record is missing)",
+    );
+    expect(auditActor({ type: "service_token", id: "st_1", label: "CI previews" })).toBe(
+      "CI previews (service token)",
+    );
+    expect(auditActor({ type: "service_token", id: "st_1", label: null })).toBe(
+      "Revoked service token",
+    );
     expect(auditActor({ type: "operator" })).toBe("Portifact operator");
     expect(auditActor({ type: "system" })).toBe("Portifact");
   });

@@ -6,7 +6,7 @@ import type { z } from "zod";
 import { CliError, isTransient } from "./errors.ts";
 import { messages } from "./messages.ts";
 import { readJson, send } from "./oauth.ts";
-import { type Session, withAccessToken } from "./session.ts";
+import { type Session, serviceTokenOf, withAccessToken } from "./session.ts";
 
 export interface ApiRequest<T> {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -35,6 +35,8 @@ export function callApi<T>(session: Session, request: ApiRequest<T>): Promise<T>
     }
     const response = await send(runtime, server, `${server.apiResource}${request.path}`, init);
     if (response.status === 401) {
+      // A refused service token says why (expired, revoked); a login is refreshed instead.
+      if (serviceTokenOf(runtime)) throw await apiError(session, response);
       await response.body?.cancel();
       return { kind: "unauthorized" };
     }

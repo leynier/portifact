@@ -55,6 +55,10 @@ export function auditActor(actor: AuditEventView["actor"]): string {
       return plain(actor.name);
     case "removed_member":
       return "Removed member";
+    case "service_token":
+      return actor.label === null
+        ? "Revoked service token"
+        : `${plain(actor.label)} (service token)`;
     case "operator":
       return "Portifact operator";
     case "system":
@@ -135,6 +139,16 @@ export function auditSummary(event: AuditEventView): string {
       return `Plan set to ${d.plan} with ${d.seats} seat${d.seats === 1 ? "" : "s"}${d.validUntil ? ` until ${formatDate(String(d.validUntil))}` : ""}`;
     case "plan.removed":
       return "Plan removed (back to free)";
+    case "service_token.created":
+      return `Created a service token (${(d.scopes as string[]).join(", ")}; ${d.days} day${d.days === 1 ? "" : "s"})`;
+    case "service_token.revoked":
+      return "Revoked a service token";
+    case "email_domain.verified":
+      return `Verified the email domain ${d.domain}`;
+    case "email_domain.removed":
+      return d.reason === "removed"
+        ? `Removed the email domain ${d.domain}`
+        : `The email domain ${d.domain} was removed (${d.reason === "claimed" ? "another workspace proved it" : "its DNS record is missing"})`;
   }
 }
 

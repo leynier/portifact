@@ -40,6 +40,12 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   setOwnerPlan: ["plan.granted"],
   applyOwnerPlans: ["plan.granted"],
   removeOwnerPlan: ["plan.removed"],
+  verifyWorkspaceDomain: ["email_domain.verified", "email_domain.removed"],
+  removeWorkspaceDomain: ["email_domain.removed"],
+  recheckEmailDomains: ["email_domain.removed"],
+  createServiceToken: ["service_token.created"],
+  revokeServiceToken: ["service_token.revoked"],
+  operatorRevokeServiceToken: ["service_token.revoked"],
   // The workspaces the account was in each record that the member is gone.
   requestAccountDeletion: ["member.left"],
 };
@@ -59,7 +65,13 @@ reason("upload steps: the publish is recorded when it commits", [
   "claimArtifactId",
   "claimNewArtifactId",
 ]);
-reason("a claim before any DNS proof attaches nothing; verifying records it", ["addCustomDomain"]);
+reason("a claim before any DNS proof attaches nothing; verifying records it", [
+  "addCustomDomain",
+  "addWorkspaceDomain",
+]);
+reason("a token's use: what it changes is recorded as its own events, last use is a timestamp", [
+  "authenticateServiceToken",
+]);
 reason("readers, visitors and reviewers, not the owner side: the access log covers reads", [
   "openShareLink",
   "redeemShareHandoff",
@@ -190,6 +202,10 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  "accessAudience",
+  "authorizeUploadOn",
+  "policyDomains",
+  "scoped",
   "checkReadAccess",
   "checkSignInEmail",
   "emailsSentInCycle",

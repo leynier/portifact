@@ -46,6 +46,7 @@ export async function prepareUpload(
       baseVersionId: body.baseVersionId,
       files: body.files,
       sourceOrigin: body.sourceOrigin,
+      key: body.key,
       now,
     },
     multipart,

@@ -42,7 +42,13 @@ type T = ReturnType<typeof useT>;
 
 /** Kinds of change as the filter groups them; each group is within the API's kinds per query. */
 export const AUDIT_GROUPS = {
-  access: ["access.changed", "share_link.created", "share_link.revoked"],
+  access: [
+    "access.changed",
+    "share_link.created",
+    "share_link.revoked",
+    "email_domain.verified",
+    "email_domain.removed",
+  ],
   lifecycle: [
     "artifact.published",
     "artifact.rolled_back",
@@ -73,6 +79,8 @@ export const AUDIT_GROUPS = {
     "member.left",
     "plan.granted",
     "plan.removed",
+    "service_token.created",
+    "service_token.revoked",
   ],
 } as const satisfies Record<string, readonly AuditKind[]>;
 type Group = "all" | keyof typeof AUDIT_GROUPS;
@@ -302,6 +310,10 @@ export function actorName(t: T, actor: AuditEventView["actor"]): string {
       return actor.name;
     case "removed_member":
       return t("audit.actor.removed");
+    case "service_token":
+      return actor.label === null
+        ? t("audit.actor.tokenGone")
+        : t("audit.actor.token", { label: actor.label });
     case "operator":
       return t("audit.actor.operator");
     case "system":
@@ -316,8 +328,11 @@ function targetName(t: T, event: AuditEventView): string {
       return event.target.member ? actorName(t, event.target.member) : "";
     case "invitation":
       return t("audit.target.invitation");
+    case "service_token":
+      return event.target.serviceToken ? actorName(t, event.target.serviceToken) : "";
     case "brand":
     case "plan":
+    case "email_domain":
       return t("audit.target.space");
     default:
       return "";
@@ -347,6 +362,7 @@ export function describeAuditEvent(
     "webhook.removed": "audit.kind.webhookRemoved",
     "member.invitation_revoked": "audit.kind.invitationRevoked",
     "plan.removed": "audit.kind.planRemoved",
+    "service_token.revoked": "audit.kind.tokenRevoked",
   };
   const message = simple[event.kind];
   if (message) return t(message);
@@ -404,6 +420,15 @@ export function describeAuditEvent(
       return t("audit.kind.memberRemoved", { member });
     case "member.left":
       return t("audit.kind.memberLeft", { member });
+    case "service_token.created":
+      return t("audit.kind.tokenCreated", { days: Number(d.days) });
+    case "email_domain.verified":
+      return t("audit.kind.emailDomainVerified", { domain: String(d.domain) });
+    case "email_domain.removed":
+      return t("audit.kind.emailDomainRemoved", {
+        domain: String(d.domain),
+        reason: String(d.reason),
+      });
     case "plan.granted": {
       const values = { plan: PLAN_LABELS[d.plan as PlanName], seats: Number(d.seats) };
       return typeof d.validUntil === "string"

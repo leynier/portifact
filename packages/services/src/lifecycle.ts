@@ -46,7 +46,7 @@ async function load(db: RegionalDb, input: LifecycleInput) {
     .limit(1);
   // An artifact of an owner the user has no role on looks the same as a missing one.
   if (!artifact) return missing();
-  const actor = await authorizeOn(db, input.userId, artifact.ownerId, "lifecycle", missing);
+  const actor = await authorizeOn(db, input.userId, artifact, "lifecycle", missing);
   if (!actor.ok) return actor;
   return ok(artifact);
 }

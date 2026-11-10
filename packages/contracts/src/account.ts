@@ -4,7 +4,7 @@
 // addresses) never appear in them. The CLI's view of the same connected apps
 // (`/api/v1/tokens`, bearer only with `credentials:manage`) is at the end.
 import { z } from "zod";
-import { AccessMode, CommentVisibility } from "./core.ts";
+import { CommentVisibility, PersonalAccessMode } from "./core.ts";
 import { LOCALE_CODES } from "./locales.ts";
 
 /** A signed-in browser on app.portifact.com. */
@@ -93,7 +93,7 @@ export type DefaultAnnotations = z.infer<typeof DefaultAnnotations>;
  */
 export const AccountSettings = z.object({
   /** `restricted` (private to the owner until readers are added) unless the owner chose another. */
-  defaultAccessMode: AccessMode,
+  defaultAccessMode: PersonalAccessMode,
   defaultAnnotations: DefaultAnnotations,
   defaultCommentVisibility: CommentVisibility,
   /** The Portifact bar on new artifacts. */
@@ -116,7 +116,7 @@ export type AccountSettings = z.infer<typeof AccountSettings>;
 /** A change to the defaults (`PATCH /api/v1/account/settings`): at least one of them. */
 export const AccountSettingsUpdate = z
   .strictObject({
-    defaultAccessMode: AccessMode.optional(),
+    defaultAccessMode: PersonalAccessMode.optional(),
     defaultAnnotations: DefaultAnnotations.optional(),
     defaultCommentVisibility: CommentVisibility.optional(),
     defaultBar: z.boolean().optional(),

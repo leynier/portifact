@@ -586,9 +586,9 @@ describe("transfer events", () => {
         event.kind,
         event.artifact,
       ]);
-    const [[, before]] = await named();
-    expect(before).toMatchObject({ id: artifactId });
-    expect((before as { name: string | null }).name).not.toBeNull();
+    const before = (await named())[0]?.[1] as { id: string; name: string | null };
+    expect(before.id).toBe(artifactId);
+    expect(before.name).not.toBeNull();
     value(
       await transferArtifact(db(), env.ARTIFACTS, {
         userId: t.admin.id,
@@ -1270,6 +1270,10 @@ describe("edges of reading and pruning", () => {
   it("lists which kinds live in the global database", () => {
     expect([...GLOBAL_AUDIT_KINDS].sort()).toEqual(
       [
+        "email_domain.verified",
+        "email_domain.removed",
+        "service_token.created",
+        "service_token.revoked",
         "domain.attached",
         "domain.removed",
         "member.invited",

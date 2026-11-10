@@ -19,6 +19,7 @@ import type { MultipartConfig } from "@portifact/domain";
 import {
   abortPublish,
   archiveArtifact,
+  authenticateServiceToken,
   commitPublish,
   type DomainDeps,
   deleteArtifact,
@@ -40,7 +41,14 @@ import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
 import { artifactListItem, artifactSummary } from "../mcp/present.ts";
-import { artifactDb, defaultDb, ownerOf, ownerScope, personalScope } from "../regions.ts";
+import {
+  artifactDb,
+  defaultDb,
+  ownerOf,
+  ownerScope,
+  personalScope,
+  regionsOf,
+} from "../regions.ts";
 import { authorizeAccountRequest, authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
 import { annotationRoutes } from "./annotations.ts";
@@ -100,6 +108,8 @@ export function apiRoutes(deps: ApiDeps) {
         introspect: deps.introspect(c.env),
         resource: deps.resource(c.env),
         session: deps.session(c.env),
+        serviceToken: (secret) =>
+          authenticateServiceToken(regionsOf(c.env).global, secret, deps.now()),
       },
       c.req.raw,
       scope,
@@ -238,12 +248,13 @@ export function apiRoutes(deps: ApiDeps) {
         type: param("type"),
         access: param("access"),
         annotations: param("annotations"),
+        key: param("key"),
       });
       if (!query.success) {
         return error(
           c,
           "invalid_input",
-          "Invalid cursor, limit, search, state, type, access or annotations.",
+          "Invalid cursor, limit, search, state, type, access, annotations or key.",
         );
       }
       const { cursor, limit, ...filters } = query.data;
@@ -299,7 +310,11 @@ export function apiRoutes(deps: ApiDeps) {
     "/api/v1/artifacts/:artifactId/access",
     guarded("artifacts:read", async (c, userId) => {
       const artifactId = c.req.param("artifactId") as string;
-      const result = await getAccess(await artifactDb(c.env, artifactId), { userId, artifactId });
+      const result = await getAccess(await artifactDb(c.env, artifactId), {
+        userId,
+        artifactId,
+        now: deps.now(),
+      });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(AccessPolicyView.parse(result.value));
     }),

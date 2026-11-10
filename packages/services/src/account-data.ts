@@ -30,6 +30,7 @@ import { listIncomingInvitations } from "./invitations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
+import { exportServiceTokens } from "./service-tokens.ts";
 import { exportWebhooks } from "./webhooks.ts";
 
 const IN_CHUNK = 80;
@@ -226,6 +227,8 @@ export async function exportAccount(
       webhooks: await exportWebhooks(db, input.userId),
       auditEvents: await exportAuditEvents(db, input.userId, input.now),
       brand: await exportedBrand(db, input.userId),
+      // The service tokens of the workspaces the account administers: never a secret or hash.
+      serviceTokens: await exportServiceTokens(db.global, input.userId, input.now),
     },
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,
@@ -282,19 +285,7 @@ export async function exportAccount(
         .filter((thread) => thread.artifactId === artifact.id)
         .map((thread) => threadView(thread, false)),
     })),
-    workspaces: (
-      await db.global
-        .select({
-          slug: schema.workspaces.slug,
-          name: schema.workspaces.name,
-          role: schema.workspaceMembers.role,
-          joinedAt: schema.workspaceMembers.createdAt,
-        })
-        .from(schema.workspaceMembers)
-        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
-        .where(eq(schema.workspaceMembers.userId, input.userId))
-        .orderBy(asc(schema.workspaces.slug))
-    ).map((row) => ({ ...row, joinedAt: iso(row.joinedAt) })),
+    workspaces: await exportWorkspaces(db.global, input.userId),
     invitations: (await listIncomingInvitations(db.global, input)).map((invitation) => ({
       workspace: invitation.workspace,
       role: invitation.role,
@@ -485,6 +476,11 @@ async function deletionBatch(db: Db, input: DeletionRequest, email: string, user
       .update(schema.webhooks)
       .set({ createdBy: null })
       .where(eq(schema.webhooks.createdBy, input.userId)),
+    // A workspace's service tokens stay with it (decision 0011); who created them goes.
+    db
+      .update(schema.serviceTokens)
+      .set({ createdBy: null })
+      .where(eq(schema.serviceTokens.createdBy, input.userId)),
     // The account's openings of other people's artifacts are in the access log database.
     eraseAccessEventsJob(db, "user", input.userId, userExists, input.now),
     // Each workspace the account is in records that the member is gone, before the cascade.
@@ -644,6 +640,10 @@ export async function advanceAccountDeletion(
       .update(schema.webhooks)
       .set({ createdBy: null })
       .where(eq(schema.webhooks.createdBy, userId)),
+    db
+      .update(schema.serviceTokens)
+      .set({ createdBy: null })
+      .where(eq(schema.serviceTokens.createdBy, userId)),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
     db.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
     // The audit log goes with its owner (the global copy, the plan's events, below).
@@ -681,4 +681,52 @@ export async function advanceAccountDeletion(
       .returning({ userId: schema.accountDeletions.userId }),
   ])) as unknown[];
   return (results.at(-1) as unknown[]).length === 1 ? "finished" : "pending";
+}
+
+/**
+ * The account's workspaces and role; for those it is an admin of, the verified email domains it
+ * manages (decision 0010), never their tokens. Other members see no domains.
+ */
+async function exportWorkspaces(global: GlobalDb, userId: string) {
+  const rows = await global
+    .select({
+      id: schema.workspaces.id,
+      slug: schema.workspaces.slug,
+      name: schema.workspaces.name,
+      role: schema.workspaceMembers.role,
+      joinedAt: schema.workspaceMembers.createdAt,
+    })
+    .from(schema.workspaceMembers)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
+    .where(eq(schema.workspaceMembers.userId, userId))
+    .orderBy(asc(schema.workspaces.slug));
+  const admin = rows.filter((row) => row.role === "admin").map((row) => row.id);
+  const domains =
+    admin.length === 0
+      ? []
+      : await global
+          .select({
+            workspaceId: schema.workspaceDomains.workspaceId,
+            domain: schema.workspaceDomains.domain,
+            state: schema.workspaceDomains.state,
+            verifiedAt: schema.workspaceDomains.verifiedAt,
+          })
+          .from(schema.workspaceDomains)
+          .where(inArray(schema.workspaceDomains.workspaceId, admin))
+          .orderBy(asc(schema.workspaceDomains.domain));
+  return rows.map(({ id, ...row }) => ({
+    ...row,
+    joinedAt: iso(row.joinedAt),
+    ...(row.role === "admin"
+      ? {
+          domains: domains
+            .filter((domain) => domain.workspaceId === id)
+            .map((domain) => ({
+              domain: domain.domain,
+              state: domain.state,
+              verifiedAt: domain.verifiedAt === null ? null : iso(domain.verifiedAt),
+            })),
+        }
+      : {}),
+  }));
 }

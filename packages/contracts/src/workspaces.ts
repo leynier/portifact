@@ -67,6 +67,8 @@ export const ROLE_ACTIONS = [
   "moderate",
   "access_log",
   "usage",
+  /** Custom domains (decision 0006): like `access`, but never a service token's (decision 0011). */
+  "domains",
   // Admins only.
   /** Moving an artifact out of the owner: a workspace's content leaves only with an admin. */
   "transfer_out",
@@ -78,6 +80,8 @@ export const ROLE_ACTIONS = [
   "brand",
   /** Reading the audit log (premium plan T10): what every member did. */
   "audit",
+  /** Service tokens of the workspace (decision 0011): creating, listing and revoking them. */
+  "tokens",
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;

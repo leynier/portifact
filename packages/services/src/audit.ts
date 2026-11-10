@@ -25,6 +25,7 @@ import {
   type AuditFilters,
   type AuditKind,
   type AuditLogView,
+  isServiceTokenId,
   isWorkspaceId,
 } from "@portifact/contracts";
 import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
@@ -63,10 +64,20 @@ export const GLOBAL_AUDIT_KINDS: readonly AuditKind[] = [
   "member.left",
   "plan.granted",
   "plan.removed",
+  // Service tokens are rows of the workspace, in the global database (decision 0011).
+  "service_token.created",
+  "service_token.revoked",
+  // A workspace's email domains are global rows too (decision 0010).
+  "email_domain.verified",
+  "email_domain.removed",
 ];
 const REGIONAL_AUDIT_KINDS = AUDIT_KINDS.filter((kind) => !GLOBAL_AUDIT_KINDS.includes(kind));
 
-/** Who acted: a signed-in account, the operator tool or a scheduled job. */
+/**
+ * Who acted: a signed-in account, the operator tool or a scheduled job. A service token acts
+ * with its ID where a user ID goes (decision 0011), so the writers pass it as `user` and
+ * `auditEvent` stores it as a token.
+ */
 export type AuditActor = { type: "user"; id: string } | { type: "operator" } | { type: "system" };
 
 export interface AuditEntry<K extends AuditKind> {
@@ -102,11 +113,12 @@ export function auditEvent<K extends AuditKind>(
     detail = sql`json_set(${detail}, ${`$.${field}`}, ${value})`;
   }
   const actorId = entry.actor.type === "user" ? entry.actor.id : null;
+  const actorType = actorId !== null && isServiceTokenId(actorId) ? "token" : entry.actor.type;
   // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail.
   return db
     .insert(ae)
     .select(
-      sql`select ${entry.id ?? newAuditEventId()}, ${entry.ownerId}, ${entry.now}, ${entry.kind}, ${entry.actor.type}, ${actorId}, ${entry.targetId}, ${entry.artifactId ?? null}, ${detail} where ${condition}`,
+      sql`select ${entry.id ?? newAuditEventId()}, ${entry.ownerId}, ${entry.now}, ${entry.kind}, ${actorType}, ${actorId}, ${entry.targetId}, ${entry.artifactId ?? null}, ${detail} where ${condition}`,
     );
 }
 
@@ -211,6 +223,19 @@ async function memberNames(
   return names;
 }
 
+/** Current labels of the workspace's service tokens that events name; a revoked one has none. */
+async function tokenLabels(global: GlobalDb, ownerId: string, tokenIds: readonly string[]) {
+  const labels = new Map<string, string>();
+  if (tokenIds.length === 0) return labels;
+  const st = schema.serviceTokens;
+  const rows = await global
+    .select({ id: st.id, label: st.label })
+    .from(st)
+    .where(and(eq(st.workspaceId, ownerId), sql`${st.id} in ${ids(tokenIds)}`));
+  for (const row of rows) labels.set(row.id, row.label);
+  return labels;
+}
+
 /**
  * Current names of the owner's artifacts that events name. One that is gone (purged or deleted)
  * or that moved to another owner has none: what its new owner calls it is not this owner's to see.
@@ -242,6 +267,15 @@ async function present(db: RegionalDb, ownerId: string, rows: readonly AuditRow[
     return found;
   });
   const names = await memberNames(db.global, ownerId, userIds);
+  const tokenIds = rows.flatMap((row) => {
+    const found: string[] = [];
+    if (row.actorType === "token" && row.actorId) found.push(row.actorId);
+    if (AUDIT_TARGETS[row.kind as AuditKind] === "service_token" && row.targetId) {
+      found.push(row.targetId);
+    }
+    return found;
+  });
+  const tokens = await tokenLabels(db.global, ownerId, tokenIds);
   const artifactIds = rows.flatMap((row) => (row.artifactId ? [row.artifactId] : []));
   const artifacts = await artifactNames(db, ownerId, artifactIds);
   return rows.map((row): AuditEventView => {
@@ -251,12 +285,15 @@ async function present(db: RegionalDb, ownerId: string, rows: readonly AuditRow[
       id: row.id,
       at: new Date(row.at).toISOString(),
       kind,
-      actor: auditActorView(row.actorType, row.actorId, names),
+      actor: auditActorView(row.actorType, row.actorId, names, tokens),
       target: {
         type: targetType,
         id: row.targetId,
         ...(targetType === "member" && row.targetId
           ? { member: auditActorView("user", row.targetId, names) }
+          : {}),
+        ...(targetType === "service_token" && row.targetId
+          ? { serviceToken: auditActorView("token", row.targetId, names, tokens) }
           : {}),
       },
       artifact: row.artifactId

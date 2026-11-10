@@ -109,14 +109,17 @@ export function decodeAuditCursor(cursor: string): Result<AuditPosition> {
 /**
  * How an event shows who acted: a current member (in a personal space, its user) by name, any
  * other account as a removed member, never by email. The opaque ID stays, so a reader can filter.
+ * A service token shows its current label (`tokens`), or none once it is gone.
  */
 export function auditActorView(
   type: AuditActorType,
   id: string | null,
   names: ReadonlyMap<string, string>,
+  tokens: ReadonlyMap<string, string> = new Map(),
 ): AuditActorView {
   if (type === "operator") return { type: "operator" };
   if (type === "system" || id === null) return { type: "system" };
+  if (type === "token") return { type: "service_token", id, label: tokens.get(id) ?? null };
   const name = names.get(id);
   return name === undefined ? { type: "removed_member", id } : { type: "member", id, name };
 }

@@ -4,6 +4,7 @@
 import {
   type AccessMode,
   type AuditDetail,
+  isServiceTokenId,
   WEBHOOK_LIMITS,
   WEBHOOK_TEST_EVENT,
   type WebhookCreate,
@@ -745,6 +746,23 @@ async function eventBodies(
             .where(inArray(schema.users.id, actorIds))
         ).map((user) => [user.id, user.name]),
   );
+  // A service token of the owner that acted alone is named by its label (decision 0011).
+  const tokenIds = [
+    ...new Set(
+      pending.flatMap((event) =>
+        event.actorId && isServiceTokenId(event.actorId) ? [event.actorId] : [],
+      ),
+    ),
+  ];
+  if (tokenIds.length > 0) {
+    const t = schema.serviceTokens;
+    for (const token of await db.global
+      .select({ id: t.id, label: t.label })
+      .from(t)
+      .where(and(inArray(t.id, tokenIds), eq(t.workspaceId, ownerId)))) {
+      names.set(token.id, `${token.label} (service token)`);
+    }
+  }
   const iso = (ms: number) => new Date(ms).toISOString();
   return pending.flatMap((event): WebhookEventBody[] => {
     const isTest = event.type === WEBHOOK_TEST_EVENT;

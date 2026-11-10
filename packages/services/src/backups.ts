@@ -241,6 +241,10 @@ export interface ApplyTombstonesResult {
   shareLinks: number;
   /** Webhooks removed before the restore that it brought back, removed again. */
   webhooks: number;
+  /** Service tokens revoked before the restore, or of deleted workspaces, deleted again. */
+  serviceTokens: number;
+  /** Workspace email domains removed or lapsed before the restore that it brought back. */
+  domains: number;
 }
 
 /**
@@ -281,7 +285,25 @@ export async function applyTombstones(
   const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}) or exists (select 1 from ${schema.ownerBrands} where ${schema.ownerBrands.ownerId} = ${t.id}))`;
 
   const l = schema.shareLinks;
-  const [, deletions, , workspaces, , artifacts, shareLinks, , , , , , webhooks] = await db.batch([
+  const st = schema.serviceTokens;
+  const [
+    ,
+    deletions,
+    ,
+    workspaces,
+    ,
+    artifacts,
+    shareLinks,
+    ,
+    ,
+    serviceTokens,
+    ,
+    ,
+    ,
+    ,
+    webhooks,
+    domains,
+  ] = await db.batch([
     db
       .insert(schema.outbox)
       .select(
@@ -330,9 +352,18 @@ export async function applyTombstones(
     db
       .delete(schema.deviceCodes)
       .where(sql`${schema.deviceCodes.userId} in (${tombstonedAccounts})`),
-    // Cascades to memberships and invitations.
+    // A revoked token, or one of a deleted workspace, must never authenticate again
+    // (decision 0011). Before the workspace rows go, so the count includes their tokens.
+    db
+      .delete(st)
+      .where(
+        sql`${st.id} in (select ${t.id} from ${t} where ${t.kind} = 'service_token') or ${st.workspaceId} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`,
+      )
+      .returning({ id: st.id }),
+    // Cascades to memberships, invitations and service tokens.
     db.delete(ws).where(sql`${ws.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`),
     db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${tombstonedAccounts})`),
+    db.update(st).set({ createdBy: null }).where(sql`${st.createdBy} in (${tombstonedAccounts})`),
     // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
     db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
     // Removed webhooks and those of deleted accounts and workspaces: a restored destination must
@@ -343,6 +374,14 @@ export async function applyTombstones(
         sql`${schema.webhooks.id} in (select ${t.id} from ${t} where ${t.kind} = 'webhook') or ${schema.webhooks.ownerId} in (${tombstonedOwners})`,
       )
       .returning({ id: schema.webhooks.id }),
+    // A removed or lapsed email domain must not grant again (decision 0010); rows of deleted
+    // workspaces went with the workspace above. By row ID, so a later claim of the name survives.
+    db
+      .delete(schema.workspaceDomains)
+      .where(
+        sql`${schema.workspaceDomains.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_domain')`,
+      )
+      .returning({ id: schema.workspaceDomains.id }),
     // The audit log of deleted accounts and workspaces (the restore brought it back).
     eraseAuditEventsOf(db, tombstonedOwners),
   ]);
@@ -353,6 +392,8 @@ export async function applyTombstones(
     workspaces: workspaces.length,
     shareLinks: shareLinks.length,
     webhooks: webhooks.length,
+    serviceTokens: serviceTokens.length,
+    domains: domains.length,
   };
 }
 

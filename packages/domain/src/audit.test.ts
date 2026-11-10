@@ -148,6 +148,31 @@ describe("who acted", () => {
     expect(auditActorView("operator", "u_1", names)).toEqual({ type: "operator" });
     expect(auditActorView("system", null, names)).toEqual({ type: "system" });
     expect(auditActorView("user", null, names)).toEqual({ type: "system" });
+    expect(auditActorView("token", null, names)).toEqual({ type: "system" });
+  });
+
+  it("shows a service token by its label while it exists, and without one after", () => {
+    const tokens = new Map([["st_1", "CI previews"]]);
+    expect(auditActorView("token", "st_1", names, tokens)).toEqual({
+      type: "service_token",
+      id: "st_1",
+      label: "CI previews",
+    });
+    expect(auditActorView("token", "st_2", names, tokens)).toEqual({
+      type: "service_token",
+      id: "st_2",
+      label: null,
+    });
+    // A member's name never stands for a token, and a token's label never for a member.
+    expect(auditActorView("token", "u_1", names)).toEqual({
+      type: "service_token",
+      id: "u_1",
+      label: null,
+    });
+    expect(auditActorView("user", "st_1", names, tokens)).toEqual({
+      type: "removed_member",
+      id: "st_1",
+    });
   });
 });
 

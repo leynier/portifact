@@ -264,11 +264,14 @@ export function handoffHost(input: {
  * theirs (decision 0006, "Codes on a custom host"). The domain owner controls that host's DNS and
  * may receive the code on a server of their own. An `authenticated` artifact is read by every
  * signed-in account, so a visitor who was merely sent there confirms first on the app (the read
- * entry), or stays on the `.dev` host (the viewer's frame and its review codes). A public artifact
- * needs no code to be read, and the readers of a restricted one are the owner's own choice.
+ * entry), or stays on the `.dev` host (the viewer's frame and its review codes). The same holds for
+ * `workspace` and `domain` (decision 0010): every member, or everyone with an address at a
+ * company, people the owner did not list one by one. A public artifact needs no code to be read,
+ * and the readers of a restricted one are the owner's own choice. It names the modes that go
+ * without a click, so a mode added later asks for one until someone decides otherwise.
  */
 export function customHostWithoutClick(accessMode: AccessMode): boolean {
-  return accessMode !== "authenticated";
+  return accessMode === "public" || accessMode === "restricted";
 }
 
 /**

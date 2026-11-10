@@ -53,6 +53,9 @@ import {
   ReviewTabStart,
   type RollbackRequest,
   RolledBack,
+  type ServiceTokenCreate,
+  ServiceTokenCreated,
+  ServiceTokenList,
   ShareLinkCreated,
   ShareLinkList,
   ShareLinkRevoked,
@@ -71,6 +74,8 @@ import {
   WebhookTestQueued,
   type WebhookUpdate,
   WebhookView,
+  WorkspaceDomainList,
+  WorkspaceDomainView,
   WorkspaceList,
   WorkspaceMemberList,
   WorkspaceMemberView,
@@ -163,6 +168,11 @@ export interface DashboardApi {
   workspaces(): Promise<WorkspaceList>;
   /** A workspace's members and seats (session only). */
   members(slug: string): Promise<WorkspaceMemberList>;
+  /** A workspace's service tokens, for its admins (session only, decision 0011). */
+  serviceTokens(slug: string): Promise<ServiceTokenList>;
+  /** Creates a service token; the answer holds its secret once. */
+  createServiceToken(slug: string, body: ServiceTokenCreate): Promise<ServiceTokenCreated>;
+  revokeServiceToken(slug: string, tokenId: string): Promise<void>;
   changeMemberRole(slug: string, userId: string, role: WorkspaceRole): Promise<WorkspaceMemberView>;
   removeMember(slug: string, userId: string): Promise<void>;
   leaveWorkspace(slug: string): Promise<void>;
@@ -171,6 +181,13 @@ export interface DashboardApi {
   /** Invites an address, or invites it again: a new invitation replaces the pending one. */
   invite(slug: string, email: string, role: WorkspaceRole): Promise<InvitationView>;
   revokeInvitation(slug: string, invitationId: string): Promise<void>;
+  /** A workspace's email domains, for its admins (decision 0010). */
+  workspaceDomains(slug: string): Promise<WorkspaceDomainList>;
+  /** Claims a domain: answers it with the TXT record to publish. */
+  addWorkspaceDomain(slug: string, domain: string): Promise<WorkspaceDomainView>;
+  /** Looks the TXT record up and verifies the claim. */
+  verifyWorkspaceDomain(slug: string, domainId: string): Promise<WorkspaceDomainView>;
+  removeWorkspaceDomain(slug: string, domainId: string): Promise<void>;
   /** The invitations addressed to the signed-in account. */
   incomingInvitations(): Promise<IncomingInvitationList>;
   /** Accepts (answering the workspace joined) or declines one of them. */
@@ -551,6 +568,19 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     members(slug) {
       return call(`${workspacePath(slug)}/members`, WorkspaceMemberList);
     },
+    serviceTokens(slug) {
+      return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenList);
+    },
+    createServiceToken(slug, body) {
+      return call(`${workspacePath(slug)}/service-tokens`, ServiceTokenCreated, "POST", body);
+    },
+    async revokeServiceToken(slug, tokenId) {
+      await call(
+        `${workspacePath(slug)}/service-tokens/${encodeURIComponent(tokenId)}`,
+        z.null(),
+        "DELETE",
+      );
+    },
     changeMemberRole(slug, userId, role) {
       return call(
         `${workspacePath(slug)}/members/${encodeURIComponent(userId)}`,
@@ -579,6 +609,26 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       await call(
         `${workspacePath(slug)}/invitations/${encodeURIComponent(invitationId)}`,
         z.null(),
+        "DELETE",
+      );
+    },
+    workspaceDomains(slug) {
+      return call(`${workspacePath(slug)}/domains`, WorkspaceDomainList);
+    },
+    addWorkspaceDomain(slug, domain) {
+      return call(`${workspacePath(slug)}/domains`, WorkspaceDomainView, "POST", { domain });
+    },
+    verifyWorkspaceDomain(slug, domainId) {
+      return call(
+        `${workspacePath(slug)}/domains/${encodeURIComponent(domainId)}/verify`,
+        WorkspaceDomainView,
+        "POST",
+      );
+    },
+    async removeWorkspaceDomain(slug, domainId) {
+      await call(
+        `${workspacePath(slug)}/domains/${encodeURIComponent(domainId)}`,
+        z.object({ id: z.string(), removed: z.literal(true) }),
         "DELETE",
       );
     },

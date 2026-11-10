@@ -7,6 +7,7 @@ import { z } from "zod";
 import { AccessMode, CommentVisibility } from "./core.ts";
 import { LIMITS } from "./limits.ts";
 import { PlanName } from "./plans.ts";
+import { SERVICE_TOKENS, ServiceTokenScope } from "./service-tokens.ts";
 import { WebhookEventType, WebhookFormat } from "./webhooks.ts";
 import { OwnerView, WorkspaceRole } from "./workspaces.ts";
 
@@ -27,6 +28,9 @@ export const AUDIT_LIMITS = {
    */
   pruneRounds: 50,
 } as const;
+
+export const EMAIL_DOMAIN_REMOVAL_REASONS = ["removed", "record_missing", "claimed"] as const;
+export type EmailDomainRemovalReason = (typeof EMAIL_DOMAIN_REMOVAL_REASONS)[number];
 
 const count = z.number().int().min(0).max(LIMITS.readersPerArtifact);
 const version = z.number().int().min(1);
@@ -116,6 +120,23 @@ export const AUDIT_DETAILS = {
     validUntil: z.iso.datetime().nullable(),
   }),
   "plan.removed": empty,
+  /** A service token (decision 0011): what it may do, never its label, secret or key prefix. */
+  "service_token.created": z.strictObject({
+    scopes: z.array(ServiceTokenScope).min(1).max(ServiceTokenScope.options.length),
+    restriction: z.enum(["none", "own", "key"]),
+    days: z.number().int().min(1).max(SERVICE_TOKENS.maxDays),
+  }),
+  "service_token.revoked": empty,
+  /**
+   * A workspace's email domain (decision 0010) once it grants access: proved, or gone again by an
+   * admin (`removed`), by the daily check finding its record missing (`record_missing`) or by
+   * another workspace proving it (`claimed`). A claim never proved records nothing.
+   */
+  "email_domain.verified": z.strictObject({ domain: DnsName }),
+  "email_domain.removed": z.strictObject({
+    domain: DnsName,
+    reason: z.enum(EMAIL_DOMAIN_REMOVAL_REASONS),
+  }),
 } as const;
 
 export type AuditKind = keyof typeof AUDIT_DETAILS;
@@ -131,6 +152,8 @@ export const AUDIT_TARGET_TYPES = [
   "member",
   "invitation",
   "plan",
+  "service_token",
+  "email_domain",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -165,19 +188,26 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "member.left": "member",
   "plan.granted": "plan",
   "plan.removed": "plan",
+  "service_token.created": "service_token",
+  "service_token.revoked": "service_token",
+  "email_domain.verified": "email_domain",
+  "email_domain.removed": "email_domain",
 };
 
 /**
  * Who acted. `user` events keep the account's opaque ID; readers show a current member by name
  * and anyone else as a removed member, never by email. `operator` is Portifact's operator tool
- * (plans), `system` a scheduled job. Service tokens will add their own type (T4).
+ * (plans), `system` a scheduled job, `token` a workspace's service token (decision 0011), kept
+ * by its ID and shown by its current label, or as a revoked token once it is gone.
  */
-export const AUDIT_ACTOR_TYPES = ["user", "operator", "system"] as const;
+export const AUDIT_ACTOR_TYPES = ["user", "operator", "system", "token"] as const;
 export type AuditActorType = (typeof AUDIT_ACTOR_TYPES)[number];
 
 export const AuditActorView = z.discriminatedUnion("type", [
   z.object({ type: z.literal("member"), id: z.string(), name: z.string() }),
   z.object({ type: z.literal("removed_member"), id: z.string() }),
+  /** `label` is null once the token is revoked or expired and removed. */
+  z.object({ type: z.literal("service_token"), id: z.string(), label: z.string().nullable() }),
   z.object({ type: z.literal("operator") }),
   z.object({ type: z.literal("system") }),
 ]);
@@ -193,6 +223,8 @@ export const AuditEventView = z.object({
     id: z.string().nullable(),
     /** A member target shown like an actor: their name while they are a member. */
     member: AuditActorView.optional(),
+    /** A service token target shown like an actor: its label while it exists. */
+    serviceToken: AuditActorView.optional(),
   }),
   /** The artifact the event is about, with its current name; null name once it is gone. */
   artifact: z.object({ id: z.string(), name: z.string().nullable() }).nullable(),

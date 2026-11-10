@@ -18,6 +18,7 @@ import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   Cable,
   Gauge,
+  KeySquare,
   Layers,
   Mail,
   Palette,
@@ -137,7 +138,15 @@ function MissingSpace() {
 }
 
 /** Pages that show one space: switching keeps the page, everything else goes to the list. */
-const SPACE_PAGES = new Set(["/", "/publish", "/usage", "/branding", "/members", "/audit"]);
+const SPACE_PAGES = new Set([
+  "/",
+  "/publish",
+  "/usage",
+  "/branding",
+  "/members",
+  "/audit",
+  "/service-tokens",
+]);
 
 /** The space menu above the navigation: Personal and each workspace, with the role there. */
 function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
@@ -148,7 +157,9 @@ function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
   const { space, workspaces } = state;
   const target = SPACE_PAGES.has(pathname) ? pathname : "/";
   const to = (slug: string | undefined) =>
-    (slug === undefined && target === "/members" ? "/" : target) as "/";
+    (slug === undefined && (target === "/members" || target === "/service-tokens")
+      ? "/"
+      : target) as "/";
   const personal = { name: t("space.personal"), detail: t("space.personalDetail") };
   const current =
     space.kind === "personal" ? personal : { name: space.name, detail: t(ROLE_LABELS[space.role]) };
@@ -193,8 +204,8 @@ function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
 /**
  * Frame of every dashboard screen/**
  * Frame of every dashboard screen: the space menu, the navigation (Artifacts, Publish, Apps,
- * Usage, Branding, Members in a workspace, Settings, each only where the role in the space allows
- * it), the signed-in account with its link to the profile and sign out, and announcements.
+ * Usage, Branding, Members and Service tokens in a workspace, Settings, each only where the role
+ * in the space allows it), the signed-in account with its link to the profile and sign out, and announcements.
  */
 export function Shell() {
   const t = useT();
@@ -288,6 +299,13 @@ export function Shell() {
       icon: <ScrollText className="size-4" />,
       render: (props) => <Link to="/audit" {...props} />,
     },
+    space?.kind === "workspace" &&
+      allowed("tokens") && {
+        key: "service-tokens",
+        label: t("shell.serviceTokensLink"),
+        icon: <KeySquare className="size-4" />,
+        render: (props) => <Link to="/service-tokens" {...props} />,
+      },
     {
       key: "settings",
       label: t("shell.settingsLink"),
