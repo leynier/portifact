@@ -18,8 +18,13 @@ export const AccessLogQuery = z.object({
 export type AccessLogQuery = z.infer<typeof AccessLogQuery>;
 
 export const AccessLogEntry = z.object({
-  /** The visitor's verified email when the opening was recorded. */
+  /**
+   * The visitor's verified email when the opening was recorded; empty for an opening through a
+   * share link, which names no one.
+   */
   email: z.string(),
+  /** The share link the opening went through (its label as the owner gave it), if any. */
+  shareLink: z.object({ id: z.string(), label: z.string().nullable() }).optional(),
   /** The first opening in the window, as far as the log knows it. */
   openedAt: z.iso.datetime(),
 });

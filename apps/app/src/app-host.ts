@@ -2,6 +2,7 @@
 // resource metadata and the auth pages. Every path not listed here answers 404.
 import {
   ArtifactId,
+  SHARE_ENTRY_PATH,
   TokenPrincipal,
   TURNSTILE_ORIGIN,
   TURNSTILE_SITE_KEY_META,
@@ -18,6 +19,7 @@ import { r2Presigner } from "./api/presign.ts";
 import { reportRoutes } from "./api/reports.ts";
 import { reviewRoutes } from "./api/review.ts";
 import { apiRoutes } from "./api/routes.ts";
+import { shareOpenRoutes } from "./api/share-links.ts";
 import { tokenRoutes } from "./api/tokens.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
@@ -103,6 +105,12 @@ export function withHumanCheck(policy: string): string {
 
 /** The login page's policy: the strict page policy plus the human check of new accounts. */
 export const LOGIN_CSP = withHumanCheck(PAGE_CSP);
+
+/** The share link entry page, built by apps/web as share.html and served at `/s`. */
+export const SHARE_PAGE = "/share";
+
+/** The share link entry's policy: the strict page policy plus the human check of passwords. */
+export const SHARE_CSP = withHumanCheck(PAGE_CSP);
 
 /** The S3 endpoint of the artifacts bucket, which the dashboard uploads to and downloads from. */
 export function storageOrigin(r2AccountId: string): string {
@@ -294,6 +302,10 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     }),
   );
   app.route("/", reportRoutes({ now: () => Date.now() }));
+  app.route(
+    "/",
+    shareOpenRoutes({ siteverify: (env) => depsFor(env).siteverify, now: () => Date.now() }),
+  );
   app.route("/", noticeRoutes({ now: () => Date.now() }));
   app.route("/", readRoutes(authFor));
   app.route(
@@ -382,6 +394,17 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       return withSiteKey(trustedPage(asset, LOGIN_CSP), c.env.TURNSTILE_SITE_KEY);
     });
   }
+
+  // The entry of share links (decision 0008). The token is in the fragment, which never reaches
+  // this Worker; the page must never redirect, or the browser would carry the fragment along.
+  app.get(SHARE_ENTRY_PATH, async (c) => {
+    const page = withSiteKey(
+      trustedPage(await c.env.ASSETS.fetch(new Request(new URL(SHARE_PAGE, c.req.url))), SHARE_CSP),
+      c.env.TURNSTILE_SITE_KEY,
+    );
+    page.headers.set("X-Robots-Tag", "noindex");
+    return page;
+  });
 
   for (const file of STATIC_FILES) {
     app.get(file, (c) => c.env.ASSETS.fetch(c.req.raw));

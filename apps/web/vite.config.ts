@@ -55,8 +55,8 @@ function themeScript(): Plugin {
 
 /**
  * HTML entries: the landing, the legal pages and the MCP compatibility page on portifact.com,
- * and the dashboard and auth pages, the public report page and the comment notice unsubscribe
- * page on app.portifact.com.
+ * and the dashboard and auth pages, the public report page, the comment notice unsubscribe page
+ * and the share link entry on app.portifact.com.
  */
 const pages = [
   "index",
@@ -70,6 +70,7 @@ const pages = [
   "consent",
   "report",
   "unsubscribe",
+  "share",
 ];
 
 export default defineConfig({

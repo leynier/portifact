@@ -136,6 +136,7 @@ describe("the isolate's log", () => {
         owner_id: "al_owner",
         email: "al_reader@example.com",
         opened_at: NOW,
+        link_id: null,
         // The owner is on free: kept 30 days.
         expires_at: NOW + 30 * 86_400_000,
       },

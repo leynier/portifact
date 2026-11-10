@@ -1,6 +1,7 @@
 -- Analytics per artifact (decision 0007): the daily view counters, WITHOUT ROWID (added by hand,
 -- Drizzle does not model it) so an upsert that only adds writes one row, and a per-row expiry on
--- the access log, backfilled with the free 30 days it was kept until now.
+-- the access log, backfilled with the free 30 days it was kept until now. The backfill covers
+-- every row, share-link openings (0001, `link_id` set) included.
 CREATE TABLE `artifact_views` (
 	`artifact_id` text NOT NULL,
 	`day` integer NOT NULL,

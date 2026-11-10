@@ -18,6 +18,7 @@ import { deleteArtifact } from "../src/lifecycle.ts";
 import { runJob } from "../src/outbox.ts";
 import { applyOwnerPlans, removeOwnerPlan, setOwnerPlan } from "../src/plans.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
+import { createShareLink } from "../src/share-links.ts";
 import { DAY, db, grantPlan, MINUTE, NOW, publishSite, sha256, user, value } from "./fixtures.ts";
 
 const access = () => createAccessDb(env.ACCESS_DB);
@@ -373,6 +374,37 @@ describe("retention by plan", () => {
     ]);
     expect((await openingsOf(paidArtifact))[0]?.expiresAt).toBe(NOW + 365 * DAY);
     expect((await openingsOf(freeArtifact))[0]?.expiresAt).toBe(NOW + 30 * DAY);
+  });
+
+  it("covers share-link openings: expiry from the plan, moved by a downgrade", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    await grantPlan(owner.id, "pro");
+    const created = value(
+      await createShareLink(db(), {
+        userId: owner.id,
+        artifactId,
+        label: "Board",
+        expiresAt: null,
+        password: undefined,
+        now: NOW,
+      }),
+    );
+    const linkId = created.link.id;
+    await recordOpenings(db(), access(), [
+      { artifactId, userId: linkId, linkId, at: NOW - 100 * DAY },
+      { artifactId, userId: linkId, linkId, at: NOW - 10 * DAY },
+    ]);
+    expect((await openingsOf(artifactId)).map((row) => [row.linkId, row.expiresAt])).toEqual([
+      [linkId, NOW + 265 * DAY],
+      [linkId, NOW + 355 * DAY],
+    ]);
+    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW }));
+    expect(await applyOwnerRetention(db(), access(), owner.id, NOW)).toBe("done");
+    await pruneAccessEvents(access(), NOW);
+    expect((await openingsOf(artifactId)).map((row) => [row.linkId, row.expiresAt])).toEqual([
+      [linkId, NOW + 20 * DAY],
+    ]);
   });
 
   it("never keeps past a plan's end more than the free plan would", async () => {

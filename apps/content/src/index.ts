@@ -20,6 +20,7 @@ import {
   entitlements,
   hasFeature,
   isArtifactId,
+  isLoggedLinkOpening,
   isLoggedOpening,
   normalizePath,
   pageView,
@@ -70,6 +71,7 @@ import {
   type ReviewStep,
   strayFrameCookie,
 } from "./review.ts";
+import { authorizeLink, handleLinkCallback, LINK_PATH, type LinkStep } from "./share-session.ts";
 import { type CountTraffic, TrafficMeter } from "./traffic.ts";
 import {
   isTopLevelVisit,
@@ -121,6 +123,7 @@ const PAGES: Record<
   unavailable: "Signing in to artifacts is temporarily unavailable. Try again later",
   browserRequired: "Open this artifact in a web browser to sign in",
   linkExpired: "This sign-in link has expired or was already used",
+  shareEnded: "This share link has expired or was revoked",
   methodNotAllowed: "Method not allowed",
   serviceWorker: "Service workers are not allowed on artifacts",
   fileUnavailable: "This file is temporarily unavailable",
@@ -135,7 +138,7 @@ const PAGES: Record<
 const FETCH_METADATA_VARY = "Sec-Fetch-Dest, Sec-Fetch-Mode, Sec-Fetch-Site";
 
 /** Pages where retrying from the artifact's root is the way forward. */
-const RETRY_PAGES = new Set<Page>(["signIn", "linkExpired"]);
+const RETRY_PAGES = new Set<Page>(["signIn", "linkExpired", "shareEnded"]);
 
 const HTML_PAGE = "text/html; charset=utf-8";
 
@@ -264,6 +267,9 @@ async function route(
   if (url.pathname === CALLBACK_PATH) {
     return decisionResponse(await handleCallback(request, env, db, id, now));
   }
+  if (url.pathname === LINK_PATH) {
+    return linkStepResponse(await handleLinkCallback(request, env, db, id, now));
+  }
   if (url.pathname === REVIEW_PATH) {
     return reviewStepResponse(await handleReviewExchange(request, env, db, id, now), env);
   }
@@ -317,9 +323,19 @@ async function route(
   if (artifact?.accessMode === "public") return serve(delivery, artifact, [], null);
   // Protected, unknown or not servable (in any mode): all go through sign-in, so an anonymous
   // visitor cannot tell an archived or expired artifact from one that never existed.
-  const decision = await authorizeRead(request, env, db, id, artifact, now);
+  // A read session wins; a share link's session is tried before sign-in starts (decision 0008).
+  const decision = await authorizeRead(request, env, db, id, artifact, now, () =>
+    authorizeLink(request, env, db, id, artifact, now),
+  );
   if (decision.kind !== "allow") return decisionResponse(decision);
-  return serve(delivery, decision.artifact, decision.setCookies, decision.userId);
+  return serve(
+    delivery,
+    decision.artifact,
+    decision.setCookies,
+    decision.userId,
+    undefined,
+    decision.linkId,
+  );
 }
 
 /** What serving a request needs besides the artifact. */
@@ -356,6 +372,8 @@ async function serve(
   setCookies: string[],
   visitorId: string | null,
   reviewSession?: ReviewServe,
+  /** The share link whose session authorized the request; it names no visitor. */
+  linkId?: string,
 ): Promise<Response> {
   const { request, cycle, now } = delivery;
   // The plan came with the artifact lookup, so the quota and the view count add no read.
@@ -377,6 +395,7 @@ async function serve(
     artifact,
     setCookies,
     reviewSession,
+    linkId !== undefined,
   );
   delivery.countTraffic({
     ownerId: artifact.ownerId,
@@ -391,7 +410,8 @@ async function serve(
     status: response.status,
     isPage: page,
     viewerRedirect: redirect,
-    visitorId,
+    // A share link's session names no visitor: its page loads are anonymous views.
+    visitorId: linkId === undefined ? visitorId : null,
     ownerId: artifact.ownerId,
     analytics: hasFeature(plan, "analytics"),
   });
@@ -414,6 +434,13 @@ async function serve(
     })
   ) {
     delivery.logOpening({ artifactId: artifact.id, userId: visitorId as string, at: now });
+  }
+  if (
+    linkId !== undefined &&
+    response.status < 400 &&
+    isLoggedLinkOpening({ navigation: isPageLoad(request), accessMode: artifact.accessMode })
+  ) {
+    delivery.logOpening({ artifactId: artifact.id, userId: linkId, linkId, at: now });
   }
   return response;
 }
@@ -461,6 +488,8 @@ async function serveFile(
   artifact: ServableArtifact,
   setCookies: string[],
   reviewSession?: ReviewServe,
+  /** Served through a share link: never the viewer, never referrers, framed only by itself. */
+  link = false,
 ): Promise<Served> {
   const review = reviewSession !== undefined;
   const resolved = await resolveFile(
@@ -475,7 +504,8 @@ async function serveFile(
   if (!resolved) return served(withCookies(notFound(), setCookies));
   const { file, role } = resolved;
   const page = isPage(file, role);
-  if (!review && opensInViewer(request, artifact, file, role)) {
+  // A link visitor has no account for the viewer to show: they get the artifact itself.
+  if (!review && !link && opensInViewer(request, artifact, file, role)) {
     const location = viewerLocation(env.APP_ORIGIN, artifact.id, url);
     // A redirect sends no file, so it charges the request and no bytes.
     if (location) {
@@ -484,7 +514,7 @@ async function serveFile(
   }
   const sent = (response: Response, bytes = 0): Served => ({ ...served(response, bytes), page });
 
-  const headers = contentHeaders(artifact, env, review);
+  const headers = contentHeaders(artifact, env, review, link);
   for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
   headers.set("Content-Type", file.contentType);
   const inject = review && role !== "original" && file.contentType.startsWith("text/html");
@@ -692,7 +722,12 @@ function hasExtension(path: string): boolean {
  * treated as protected whatever the access mode: only the viewer and the artifact itself may
  * frame them, no other origin may load them, and they are never indexed.
  */
-function contentHeaders(artifact: DeliveryArtifact, env: Env, review: boolean): Headers {
+function contentHeaders(
+  artifact: DeliveryArtifact,
+  env: Env,
+  review: boolean,
+  link = false,
+): Headers {
   const isPublic = artifact.accessMode === "public" && !review;
   const embeddable = isPublic && artifact.embeddable;
   const headers = new Headers({
@@ -710,6 +745,11 @@ function contentHeaders(artifact: DeliveryArtifact, env: Env, review: boolean): 
   });
   // Like embedding, indexing is an option of public artifacts only (plan section 4).
   if (!(isPublic && artifact.indexable)) headers.set("X-Robots-Tag", "noindex");
+  if (link) {
+    // A link visitor's pages send no referrer and are framed by nothing but the artifact itself.
+    headers.set("Referrer-Policy", "no-referrer");
+    headers.set("Content-Security-Policy", "frame-ancestors 'self'");
+  }
   return headers;
 }
 
@@ -744,6 +784,21 @@ function reviewStepResponse(step: ReviewStep, env: Env): Response {
       "Cross-Origin-Resource-Policy": "same-origin",
     },
   });
+  return withCookies(response, step.setCookies);
+}
+
+/** The share link callback: the artifact's root with a session, or one failure page. */
+function linkStepResponse(step: LinkStep): Response {
+  if (step.kind === "unavailable") return message(503, PAGES.unavailable);
+  const response =
+    step.kind === "redirect"
+      ? new Response(null, {
+          status: 303,
+          headers: { Location: step.location, "Cache-Control": "no-store" },
+        })
+      : message(step.status, PAGES.shareEnded);
+  response.headers.set("Referrer-Policy", "no-referrer");
+  response.headers.set("X-Robots-Tag", "noindex");
   return withCookies(response, step.setCookies);
 }
 

@@ -200,6 +200,92 @@ export const readSessions = sqliteTable(
 );
 
 /**
+ * Share links (premium plan P4, decision 0008): a link that lets anyone who holds it read one
+ * artifact without an account. Only the SHA-256 of its token is stored; the password, when there
+ * is one, as a PBKDF2 hash with its salt and iteration count. Revoked links stay until the
+ * artifact is purged: their label names old access log entries, and `exportTombstones` exports
+ * their revocation so a restore cannot bring them back.
+ */
+export const shareLinks = sqliteTable(
+  "share_links",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    label: text("label").notNull(),
+    expiresAt: timestamp("expires_at"),
+    passwordHash: text("password_hash"),
+    passwordSalt: text("password_salt"),
+    passwordIterations: integer("password_iterations"),
+    /**
+     * The user who created it; no foreign key (the table is regional). Account deletion clears it
+     * (`advanceAccountDeletion`), so a deleted account's ID does not stay on links of artifacts it
+     * did not own.
+     */
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    revokedAt: timestamp("revoked_at"),
+    /** Start of the UTC day the link was last opened. */
+    lastUsedAt: timestamp("last_used_at"),
+  },
+  (t) => [
+    uniqueIndex("share_links_token_idx").on(t.tokenHash),
+    index("share_links_artifact_idx").on(t.artifactId, t.createdAt),
+    check(
+      "share_links_password_complete",
+      sql`(${t.passwordHash} is null) = (${t.passwordSalt} is null) and (${t.passwordHash} is null) = (${t.passwordIterations} is null)`,
+    ),
+  ],
+);
+
+/**
+ * One-use codes that carry a share link's visitor from the app's entry page to the artifact
+ * origin's `/__portifact/link`. Only the SHA-256 of the code is stored.
+ */
+export const shareHandoffs = sqliteTable(
+  "share_handoffs",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => shareLinks.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    sessionId: text("session_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("share_handoffs_expires_idx").on(t.expiresAt)],
+);
+
+/**
+ * Link sessions behind the `__Host-pf_link` cookie of one artifact origin. They end with the
+ * link (revocation or expiry), never with a Better Auth session, and name no one.
+ */
+export const shareSessions = sqliteTable(
+  "share_sessions",
+  {
+    id: text("id").primaryKey(),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => shareLinks.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("share_sessions_expires_idx").on(t.expiresAt),
+    index("share_sessions_link_idx").on(t.linkId),
+  ],
+);
+
+/**
  * One-use codes that open review mode (plan section 4, "Modo revisión"): issued by the viewer's
  * API call on app.portifact.com and redeemed by the viewer's iframe on the artifact origin. Only
  * the SHA-256 of the code is stored. The code pins one version.
@@ -611,7 +697,8 @@ export const lifecycleEvents = sqliteTable(
 export const tombstones = sqliteTable(
   "tombstones",
   {
-    kind: text("kind", { enum: ["artifact", "account"] }).notNull(),
+    /** `share_link` marks a revoked share link (decision 0008), so a restore cannot revive it. */
+    kind: text("kind", { enum: ["artifact", "account", "share_link"] }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
   },

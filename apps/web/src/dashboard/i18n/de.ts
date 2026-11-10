@@ -1068,4 +1068,56 @@ export const de = {
     "Deine ersten Kommentare zu Artifacts anderer Personen brauchen eine kurze Prüfung, dass du ein Mensch bist. Schließ sie ab und sende dann erneut.",
   "error.plan_required":
     "Diese Funktion ist nicht im Plan des Eigentümers des Artifacts enthalten.",
+  "shareLinks.title": "Freigabelinks",
+  "shareLinks.description":
+    "Links, mit denen alle, die sie haben, dieses Artifact ohne Konto lesen können. Besucher lesen nur die aktuelle Version: Sie können nicht kommentieren und werden nie identifiziert.",
+  "shareLinks.loading": "Freigabelinks werden geladen",
+  "shareLinks.loadFailed": "Die Freigabelinks wurden nicht geladen",
+  "shareLinks.paidTitle": "Freigabelinks gehören zu einem kostenpflichtigen Tarif",
+  "shareLinks.paid":
+    "Dein Tarif enthält keine Freigabelinks. Personen hinzufügen und öffentlicher Zugriff funktionieren wie bisher.",
+  "shareLinks.paused":
+    "Dein Tarif enthält keine Freigabelinks mehr, daher öffnen sich diese Links nicht. Sie bleiben erhalten und funktionieren wieder, wenn der Tarif Freigabelinks enthält. Du kannst sie weiterhin widerrufen.",
+  "shareLinks.publicNote":
+    "Dieses Artifact ist öffentlich, also kann es schon jeder öffnen. Freigabelinks zählen, wenn du den Zugriff später einschränkst.",
+  "shareLinks.created.title": "Link „{label}“ erstellt",
+  "shareLinks.created.once":
+    "Kopiere ihn jetzt: Zu deiner Sicherheit wird er nur dieses eine Mal angezeigt. Alle mit diesem Link können das Artifact lesen.",
+  "shareLinks.created.label": "Freigabelink",
+  "shareLinks.created.copy": "Link kopieren",
+  "shareLinks.created.done": "Fertig",
+  "shareLinks.created.announce":
+    "Freigabelink erstellt. Kopiere ihn jetzt; er wird nur einmal angezeigt.",
+  "shareLinks.empty": "Noch keine Freigabelinks.",
+  "shareLinks.list": "Freigabelinks dieses Artifacts",
+  "shareLinks.expired": "Abgelaufen",
+  "shareLinks.noExpiry": "Ohne Ablauf",
+  "shareLinks.expires": "Läuft am {date} ab",
+  "shareLinks.withPassword": "Passwort",
+  "shareLinks.noPassword": "Ohne Passwort",
+  "shareLinks.neverUsed": "Noch nicht benutzt",
+  "shareLinks.lastUsed": "Zuletzt benutzt am {date}",
+  "shareLinks.revoke": "Widerrufen",
+  "shareLinks.revokeLabel": "Den Link {label} widerrufen",
+  "shareLinks.revoked": "Der Link {label} wurde widerrufen.",
+  "shareLinks.revokeFailed": "Der Link wurde nicht widerrufen",
+  "shareLinks.confirm.title": "„{label}“ widerrufen?",
+  "shareLinks.confirm.body":
+    "Alle mit diesem Link verlieren den Zugriff innerhalb einer Minute. Das lässt sich nicht rückgängig machen; ein neuer Link hat eine neue Adresse.",
+  "shareLinks.cancel": "Abbrechen",
+  "shareLinks.create": "Link erstellen",
+  "shareLinks.createFailed": "Der Link wurde nicht erstellt",
+  "shareLinks.full":
+    "Dieses Artifact hat {max} aktive Links, das Maximum. Widerrufe einen, um einen weiteren zu erstellen.",
+  "shareLinks.label.label": "Bezeichnung",
+  "shareLinks.label.hint": "Nur du siehst sie, zum Beispiel für wen der Link ist.",
+  "shareLinks.label.invalid": "Gib dem Link eine Bezeichnung mit 1 bis {max} Zeichen.",
+  "shareLinks.expiry.label": "Läuft ab nach",
+  "shareLinks.expiry.never": "Nie",
+  "shareLinks.expiry.days": "{count, plural, one {# Tag} other {# Tagen}}",
+  "shareLinks.password.label": "Passwort (optional)",
+  "shareLinks.password.hint":
+    "Mindestens {min} Zeichen. Besucher geben es ein, bevor sich das Artifact öffnet. Schick es getrennt vom Link.",
+  "shareLinks.password.short": "Verwende mindestens {min} Zeichen oder lass das Feld leer.",
+  "accessLog.shareLink": "Freigabelink: {label}",
 } satisfies Catalog;

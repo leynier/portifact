@@ -1,0 +1,1 @@
+ALTER TABLE `access_events` ADD `link_id` text;

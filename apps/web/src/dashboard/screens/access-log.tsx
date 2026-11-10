@@ -82,14 +82,20 @@ export function AccessLog({ artifact }: { artifact: ArtifactSummary }) {
             </TableHead>
             <TableBody>
               {entries.map((entry) => (
-                <TableRow key={`${entry.openedAt} ${entry.email}`}>
+                <TableRow key={`${entry.openedAt} ${entry.shareLink?.id ?? entry.email}`}>
                   <TableCell label={t("accessLog.column.opened")}>
                     <span className="whitespace-nowrap tabular-nums">
                       {formatDate(entry.openedAt, true)}
                     </span>
                   </TableCell>
                   <TableCell label={t("accessLog.column.visitor")}>
-                    <span className="break-all">{entry.email}</span>
+                    <span className="break-all">
+                      {entry.shareLink
+                        ? t("accessLog.shareLink", {
+                            label: entry.shareLink.label ?? entry.shareLink.id,
+                          })
+                        : entry.email}
+                    </span>
                   </TableCell>
                 </TableRow>
               ))}

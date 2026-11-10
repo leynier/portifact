@@ -161,4 +161,5 @@ P8 shipped the design in one change. Where it differs from the text above:
 - **Boundary.** Rows are kept through the instant they expire and pruned after, the access log's existing boundary.
 - **Budget.** The collector adds the access database's rows read and written to the control database's (`databaseId_in`). It does not watch the size of either database: the budget has no storage metric for D1 yet, so the alert before 10 GB is still open.
 - **Workspace deletion** does not exist yet, so only purges and account deletions erase.
+- **Share links** (decision 0008, which landed meanwhile): a page load through a link session is an anonymous view, never a signed-in one (the link names no visitor, and link visitors get the artifact itself, so they count at the top-level document). Share-link openings in the access log carry the same per-row expiry and move with the owner's plan like any other opening; the expiry migration became access migration 0002, after 0001's `link_id`.
 - **Dashboard** shows the series in the artifact page's Activity section, with no per-owner overview.

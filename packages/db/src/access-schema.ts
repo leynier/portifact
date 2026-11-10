@@ -29,6 +29,11 @@ export const accessEvents = sqliteTable(
     ownerId: text("owner_id").notNull(),
     email: text("email").notNull(),
     openedAt: timestamp("opened_at").notNull(),
+    /**
+     * Set for an opening through a share link (decision 0008): `user_id` then holds the link's ID
+     * too and `email` is empty, because a link names no one.
+     */
+    linkId: text("link_id"),
     expiresAt: timestamp("expires_at"),
   },
   (t) => [

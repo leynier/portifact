@@ -1065,4 +1065,56 @@ export const es = {
   "error.human_verification_required":
     "Tus primeros comentarios en artifacts de otras personas necesitan una verificación rápida de que eres humano. Complétala y luego publica de nuevo.",
   "error.plan_required": "Esta función no forma parte del plan del dueño del artifact.",
+  "shareLinks.title": "Enlaces para compartir",
+  "shareLinks.description":
+    "Enlaces que permiten a cualquiera que los tenga leer este artifact sin una cuenta. Los visitantes solo leen la versión actual: no pueden comentar y nunca se les identifica.",
+  "shareLinks.loading": "Cargando los enlaces para compartir",
+  "shareLinks.loadFailed": "No se cargaron los enlaces para compartir",
+  "shareLinks.paidTitle": "Los enlaces para compartir son parte de un plan de pago",
+  "shareLinks.paid":
+    "Tu plan no incluye enlaces para compartir. Agregar personas y el acceso público funcionan como siempre.",
+  "shareLinks.paused":
+    "Tu plan ya no incluye enlaces para compartir, así que estos enlaces no abren. Se conservan y vuelven a funcionar si el plan incluye enlaces para compartir. Aún puedes revocarlos.",
+  "shareLinks.publicNote":
+    "Este artifact es público, así que cualquiera ya puede abrirlo. Los enlaces para compartir importan si luego restringes el acceso.",
+  "shareLinks.created.title": 'Enlace "{label}" creado',
+  "shareLinks.created.once":
+    "Cópialo ahora: por seguridad solo se muestra esta vez. Cualquiera con este enlace puede leer el artifact.",
+  "shareLinks.created.label": "Enlace para compartir",
+  "shareLinks.created.copy": "Copiar enlace",
+  "shareLinks.created.done": "Listo",
+  "shareLinks.created.announce":
+    "Enlace para compartir creado. Cópialo ahora; solo se muestra una vez.",
+  "shareLinks.empty": "Todavía no hay enlaces para compartir.",
+  "shareLinks.list": "Enlaces para compartir de este artifact",
+  "shareLinks.expired": "Vencido",
+  "shareLinks.noExpiry": "Sin vencimiento",
+  "shareLinks.expires": "Vence el {date}",
+  "shareLinks.withPassword": "Contraseña",
+  "shareLinks.noPassword": "Sin contraseña",
+  "shareLinks.neverUsed": "Sin usar todavía",
+  "shareLinks.lastUsed": "Usado por última vez el {date}",
+  "shareLinks.revoke": "Revocar",
+  "shareLinks.revokeLabel": "Revocar el enlace {label}",
+  "shareLinks.revoked": "Se revocó el enlace {label}.",
+  "shareLinks.revokeFailed": "No se revocó el enlace",
+  "shareLinks.confirm.title": '¿Revocar "{label}"?',
+  "shareLinks.confirm.body":
+    "Quien tenga este enlace pierde el acceso en menos de un minuto. No se puede deshacer; un enlace nuevo tiene otra dirección.",
+  "shareLinks.cancel": "Cancelar",
+  "shareLinks.create": "Crear enlace",
+  "shareLinks.createFailed": "No se creó el enlace",
+  "shareLinks.full":
+    "Este artifact tiene {max} enlaces activos, el máximo posible. Revoca uno para crear otro.",
+  "shareLinks.label.label": "Etiqueta",
+  "shareLinks.label.hint": "Solo tú la ves, por ejemplo para quién es el enlace.",
+  "shareLinks.label.invalid": "Ponle al enlace una etiqueta de 1 a {max} caracteres.",
+  "shareLinks.expiry.label": "Vence después de",
+  "shareLinks.expiry.never": "Nunca",
+  "shareLinks.expiry.days": "{count, plural, one {# día} other {# días}}",
+  "shareLinks.password.label": "Contraseña (opcional)",
+  "shareLinks.password.hint":
+    "Al menos {min} caracteres. Los visitantes la escriben antes de que se abra el artifact. Envíala por separado del enlace.",
+  "shareLinks.password.short": "Usa al menos {min} caracteres o déjala vacía.",
+  "accessLog.shareLink": "Enlace para compartir: {label}",
 } satisfies Catalog;

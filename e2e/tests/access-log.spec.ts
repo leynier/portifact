@@ -66,12 +66,17 @@ test("the owner sees who opened a protected artifact, and only signed-in opening
   const csvFile = await csv;
   expect(csvFile.suggestedFilename()).toBe(`${artifactId}-access-log.csv`);
   const lines = (await readFile(await csvFile.path(), "utf8")).split("\r\n");
-  expect(lines[0]).toBe("openedAt,email");
-  const [openedAt, email] = (lines[1] ?? "").split(",");
+  expect(lines[0]).toBe("openedAt,email,shareLink");
+  const [openedAt, email, shareLink] = (lines[1] ?? "").split(",");
   expect(Number.isNaN(Date.parse(openedAt ?? ""))).toBe(false);
   expect(email).toBe(reader.email);
+  // A signed-in opening names the reader and no share link.
+  expect(shareLink).toBe("");
   expect(lines.slice(2)).toEqual([""]);
-  await expect(page.getByRole("status")).toHaveText("The access log was exported as CSV.");
+  // The page has other status notes (the share links section), so name this one.
+  await expect(
+    page.getByRole("status").filter({ hasText: "The access log was exported as CSV." }),
+  ).toBeVisible();
 
   const json = page.waitForEvent("download");
   await section.getByRole("button", { name: "Export as JSON" }).click();

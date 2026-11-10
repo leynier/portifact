@@ -38,6 +38,7 @@ const TOOLS = [
   "set_portifact_bar",
   "unpin_artifact",
   ...["set_access", "add_reader", "remove_reader"],
+  ...["create_share_link", "list_share_links", "revoke_share_link"],
   ...["prepare_upload", "get_upload_status", "commit_upload", "read_artifact"],
   ...[
     "create_annotation",
@@ -120,6 +121,16 @@ describe("the MCP endpoint", () => {
       "after the user asked for exactly that",
     );
     expect(byName.get("add_reader")?.inputSchema.required).toEqual(["artifactId", "emails"]);
+    for (const name of ["create_share_link", "list_share_links", "revoke_share_link"]) {
+      expect(TOOL_SCOPES.get(name), name).toBe("artifacts:share");
+    }
+    expect(byName.get("create_share_link")?.description).toContain(
+      "only call it after the user asked for a share link",
+    );
+    expect(byName.get("create_share_link")?.inputSchema.required).toEqual(["artifactId", "label"]);
+    expect(byName.get("list_share_links")?.annotations?.readOnlyHint).toBe(true);
+    expect(byName.get("revoke_share_link")?.annotations?.destructiveHint).toBe(true);
+    expect(client.getInstructions()).toContain("creating a share link");
     for (const name of [
       "prepare_upload",
       "get_upload_status",

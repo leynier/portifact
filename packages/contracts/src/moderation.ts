@@ -142,6 +142,15 @@ export const ExportThread = z.object({
   messages: z.array(ExportMessage),
 });
 
+/** A share link of an exported artifact: never its token or the token's hash. */
+export const ExportShareLink = z.strictObject({
+  label: z.string(),
+  state: z.enum(["active", "expired", "revoked"]),
+  hasPassword: z.boolean(),
+  createdAt: Iso,
+  expiresAt: IsoOrNull,
+});
+
 export const ExportArtifact = z.object({
   id: z.string(),
   name: z.string(),
@@ -162,6 +171,7 @@ export const ExportArtifact = z.object({
   purgeAt: IsoOrNull,
   versions: z.array(ExportVersion),
   threads: z.array(ExportThread),
+  shareLinks: z.array(ExportShareLink),
 });
 
 /** The account's data as JSON (plan section 5): offered before deletion, at any time. */

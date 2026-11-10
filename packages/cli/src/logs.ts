@@ -3,6 +3,7 @@
 // the owner plan's retention (30 days on free) and records one entry per visitor every 30
 // minutes; this follows the cursor to the last page.
 import { type AccessLogEntry, AccessLogView } from "@portifact/contracts";
+import { plain } from "./annotations.ts";
 import { callApi } from "./api.ts";
 import { parseArtifactId, table } from "./artifacts.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
@@ -72,7 +73,12 @@ export async function logs(
     io.stdout(
       table([
         ["OPENED", "VISITOR"],
-        ...entries.map((entry) => [formatDate(entry.openedAt), entry.email]),
+        ...entries.map((entry) => [
+          formatDate(entry.openedAt),
+          entry.shareLink
+            ? messages.logsShareLink(plain(entry.shareLink.label ?? entry.shareLink.id))
+            : entry.email,
+        ]),
       ]),
     );
   }

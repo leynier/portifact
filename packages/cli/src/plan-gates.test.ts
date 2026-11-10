@@ -42,6 +42,12 @@ const GATED: GatedCommand[] = [
     path: /^\/api\/v1\/artifacts\/[^/]+\/pin$/,
   },
   {
+    feature: "shareLinks",
+    args: (id) => ["share", "create", id, "--label", "Gate"],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/share-links$/,
+  },
+  {
     feature: "analytics",
     args: (id) => ["stats", id],
     method: "GET",
