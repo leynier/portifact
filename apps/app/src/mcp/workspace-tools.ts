@@ -52,7 +52,7 @@ export function registerWorkspaceTools(register: RegisterTool, context: ToolCont
     {
       title: "Move an artifact to another space",
       description:
-        "Move an artifact between the user's personal space and a workspace, or between two workspaces (workspace: a slug from list_workspaces, or null for the personal space). The user must be an admin or editor on both sides. The artifact keeps its ID, URL, versions, readers and comments; its active slot, storage and comment usage move to the target, which must have room. It changes who can manage the artifact, so ask the user before moving it.",
+        "Move an artifact between the user's personal space and a workspace, or between two workspaces (workspace: a slug from list_workspaces, or null for the personal space). Moving it into a space takes an admin or editor there; moving it out of a workspace takes an admin of that workspace. The artifact keeps its ID, URL, versions, readers and comments; its active slot, storage and comment usage move to the target, whose plan must have room for it (including the per-artifact size). Its access history moves too: the people who manage the target will see who opened it before the move. Open read, review and share link sessions end. It changes who can manage the artifact, so ask the user before moving it and tell them all of this.",
       inputSchema: TransferArtifactInput,
       outputSchema: ArtifactSummary,
       annotations: {
@@ -83,7 +83,10 @@ export function registerWorkspaceTools(register: RegisterTool, context: ToolCont
         body.owner.kind === "workspace"
           ? `the workspace ${body.owner.slug} "${body.owner.name}"`
           : "the user's personal space";
-      return success(`${body.id} "${body.name}" is in ${where}. URL: ${body.url}`, body);
+      return success(
+        `${body.id} "${body.name}" is in ${where}. URL: ${body.url}. The people who manage it there now also see who opened it before the move.`,
+        body,
+      );
     },
   );
 }

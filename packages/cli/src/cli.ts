@@ -607,6 +607,15 @@ export async function run(
     .description("Move an artifact to a workspace or to your personal space")
     .argument("<id>", "artifact ID")
     .requiredOption("--to <slug>", "a workspace slug, or personal")
+    .addHelpText(
+      "after",
+      `
+Moving an artifact into a workspace takes an admin or editor there; moving it out of a workspace
+takes an admin of that workspace. It keeps its ID, URL, versions, readers and comments; the target
+must have room for it under its plan. Its access history moves too: the people who manage the
+target will see who opened it before the move. Open read, review and share link sessions end.
+`,
+    )
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { to: string; json?: boolean }, id: string) =>

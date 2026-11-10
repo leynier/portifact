@@ -629,6 +629,7 @@ export const OUTBOX_TOPICS = [
   "comment_notice",
   "owner_retention",
   "workspace_deletion",
+  "access_history_move",
 ] as const;
 
 /**

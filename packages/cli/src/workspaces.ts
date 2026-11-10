@@ -157,6 +157,6 @@ export async function transfer(
     return;
   }
   io.stdout(
-    `${moved.id} is now in: ${ownerLabel(moved.owner)}. Its URL did not change: ${moved.url}\n`,
+    `${moved.id} is now in: ${ownerLabel(moved.owner)}. Its URL did not change: ${moved.url}\nThe people who manage it there now also see who opened it before the move.\n`,
   );
 }

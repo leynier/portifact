@@ -69,6 +69,7 @@ describe("job contracts", () => {
       "comment_notice",
       "owner_retention",
       "workspace_deletion",
+      "access_history_move",
     ]);
     for (const kind of ["artifact", "account", "share_link", "workspace"]) {
       expect(TombstoneMarker.parse({ ...marker, kind }).kind).toBe(kind);

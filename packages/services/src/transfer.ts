@@ -20,6 +20,7 @@ import {
 } from "@portifact/domain";
 import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
+import { accessHistoryMoveJob } from "./analytics.ts";
 import type { ArtifactRow } from "./artifacts.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { ownerEntitlements } from "./plans.ts";
@@ -190,6 +191,8 @@ export async function transferArtifact(
         .update(schema.annotationMessages)
         .set({ ownerId: to })
         .where(guarded(eq(schema.annotationMessages.artifactId, artifact.id))),
+      // The access history follows the artifact (the job re-owns its openings and views).
+      accessHistoryMoveJob(db, artifact.id, unchanged, input.now),
       db.insert(schema.lifecycleEvents).select(
         // Columns in schema order: id, artifact, actor, channel, event, details, at.
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'transferred', ${JSON.stringify({ from, to })}, ${input.now} where ${unchanged}`,

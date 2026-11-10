@@ -125,6 +125,7 @@ describe("portifact transfer", () => {
     const moved = await h.invoke("transfer", artifact.id, "--to", "acme");
     expect(moved.code).toBe(0);
     expect(moved.stdout).toContain(`${artifact.id} is now in: Acme Docs (workspace acme).`);
+    expect(moved.stdout).toContain("also see who opened it before the move");
     const json = await h.invoke("transfer", artifact.id, "--to", "personal", "--json");
     expect(JSON.parse(json.stdout)).toMatchObject({ id: artifact.id, owner: { kind: "personal" } });
     const unknown = await h.invoke("transfer", artifact.id, "--to", "nowhere");

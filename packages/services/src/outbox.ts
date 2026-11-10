@@ -14,7 +14,7 @@ import { type AccessDb, type Db, type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
-import { applyOwnerRetention } from "./analytics.ts";
+import { applyOwnerRetention, moveAccessHistory } from "./analytics.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
@@ -178,6 +178,9 @@ async function runRow(
     case "expiry_notice":
       if (!notifier) throw new Error("expiry_notice needs the notifier");
       return sendExpiryNotice(db, row, now, notifier);
+    case "access_history_move":
+      if (!access) throw new Error("access_history_move needs the access log database");
+      return moveAccessHistory(db, access, row.subject ?? "", now);
     case "workspace_deletion": {
       const state = await advanceWorkspaceDeletion(db, bucket, row.subject ?? "", now);
       return state === "absent" ? "stale" : state === "finished" ? "done" : "pending";

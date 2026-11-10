@@ -2,18 +2,20 @@
 // with other artifacts of the source, comments, retries, an open upload and the refusal when the
 // target has no room.
 import { env } from "cloudflare:test";
-import type { AnnotationTarget } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import type { AnnotationTarget, JobMessage } from "@portifact/contracts";
+import { type AccessDb, accessSchema, regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { getAccessLog } from "../src/access-log.ts";
 import { createAnnotationThread, type HumanCheck } from "../src/annotations.ts";
 import { getArtifact } from "../src/artifacts.ts";
 import { deleteArtifact } from "../src/lifecycle.ts";
+import { runJob } from "../src/outbox.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { readVersionFile } from "../src/read-file.ts";
 import { transferArtifact } from "../src/transfer.ts";
 import { createWorkspace } from "../src/workspaces.ts";
-import { db, grantPlan, NOW, sha256, user, value } from "./fixtures.ts";
+import { DAY, db, grantPlan, NOW, sha256, user, value } from "./fixtures.ts";
 
 const HUMAN: HumanCheck = { token: "solved", verify: async () => "passed" };
 const DOC: AnnotationTarget = { schema: 1, path: "index.html", anchor: { kind: "document" } };
@@ -464,5 +466,61 @@ describe("transferring an artifact", () => {
     const listed = await env.ARTIFACTS.list({ prefix: `objects/${ws.id}/` });
     const keys = new Set((await objectRows(ws.id)).map((row) => row.r2Key));
     expect(listed.objects.map((o) => o.key).filter((key) => !keys.has(key))).toEqual([]);
+  });
+
+  it("moves the access history with the artifact, kept by the target's plan", async () => {
+    const alice = await user();
+    const ws = await workspace(alice);
+    const id = await publish(alice.id, alice.id, { "index.html": "<p>watched</p>" });
+    const access = regionsFromEnv(env).get("default").accessDb as AccessDb;
+    const opened = NOW - DAY;
+    await access.insert(accessSchema.accessEvents).values({
+      artifactId: id,
+      windowStart: opened,
+      userId: "u_visitor",
+      ownerId: alice.id,
+      email: "visitor@example.test",
+      openedAt: opened,
+      expiresAt: opened + 30 * DAY,
+    });
+    await access.insert(accessSchema.artifactViews).values({
+      artifactId: id,
+      day: opened,
+      ownerId: alice.id,
+      views: 3,
+      signedInViews: 1,
+      expiresAt: opened + DAY + 30 * DAY,
+    });
+    value(await move(alice.id, id, ws.slug));
+    const jobs = await db()
+      .select()
+      .from(schema.outbox)
+      .where(and(eq(schema.outbox.topic, "access_history_move"), eq(schema.outbox.subject, id)));
+    expect(jobs).toHaveLength(1);
+    const job = jobs[0] as typeof schema.outbox.$inferSelect;
+    const run = () =>
+      runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic } as JobMessage, NOW, { access });
+    expect(await run()).toBe("done");
+    const [event] = await access
+      .select()
+      .from(accessSchema.accessEvents)
+      .where(eq(accessSchema.accessEvents.artifactId, id));
+    expect(event).toMatchObject({ ownerId: ws.id, expiresAt: opened + 365 * DAY });
+    const [view] = await access
+      .select()
+      .from(accessSchema.artifactViews)
+      .where(eq(accessSchema.artifactViews.artifactId, id));
+    expect(view).toMatchObject({ ownerId: ws.id, expiresAt: opened + DAY + 365 * DAY });
+    const log = value(
+      await getAccessLog(db(), access, {
+        userId: alice.id,
+        artifactId: id,
+        limit: 10,
+        now: NOW,
+      } as never),
+    );
+    expect(JSON.stringify(log)).toContain("visitor@example.test");
+    // Running it again changes nothing.
+    expect(await run()).toBe("done");
   });
 });
