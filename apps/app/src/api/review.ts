@@ -18,6 +18,7 @@ import {
   ReviewTabStart,
   ViewerInfo,
 } from "@portifact/contracts";
+import { viewerFrameOrigin } from "@portifact/domain";
 import {
   brandLogoUrl,
   getViewerArtifact,
@@ -123,8 +124,14 @@ export function reviewRoutes(deps: ReviewDeps) {
       now,
     });
     if (!found.ok) return error(c, found.code, found.message);
-    const origin = `https://${artifactId}.${c.env.CONTENT_DOMAIN}`;
-    const { brand, ...artifact } = found.value;
+    const { brand, customHost, ...artifact } = found.value;
+    // The visitor may read it (this is an answer): the custom host when one is active.
+    const origin = viewerFrameOrigin({
+      artifactId,
+      contentDomain: c.env.CONTENT_DOMAIN,
+      readable: true,
+      activeHost: customHost,
+    });
     return c.json(
       ViewerInfo.parse({
         artifactId,
@@ -196,14 +203,11 @@ async function issue(c: ReviewContext, deps: ReviewDeps, kind: ReviewKind): Prom
     authSessionId: session.sessionId,
     now,
     kind,
+    contentDomain: c.env.CONTENT_DOMAIN,
   });
   if (!issued.ok) return refuse(issued.code, issued.message);
-  return {
-    ok: true,
-    artifactId,
-    origin: `https://${artifactId}.${c.env.CONTENT_DOMAIN}`,
-    value: issued.value,
-  };
+  // The artifact's active custom host or its `.dev` host, chosen by the service from the tables.
+  return { ok: true, artifactId, origin: `https://${issued.value.host}`, value: issued.value };
 }
 
 /** The exchange URL on the artifact origin, built from the validated ID, never from input. */

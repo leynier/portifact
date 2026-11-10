@@ -7,6 +7,7 @@ import {
   cloudflareHostnames,
   cloudflareStatus,
   dohTxt,
+  dohZoneApex,
   domainDepsFromEnv,
   type Fetch,
 } from "../src/cloudflare-hostnames.ts";
@@ -279,5 +280,47 @@ describe("the client's details", () => {
 
   it("reads a DNS answer without an Answer section as no values", async () => {
     expect(await dohTxt(fakeFetch(() => json({ Status: 0, Answer: [] })).fetcher)("x")).toEqual([]);
+  });
+});
+
+describe("zone apexes over DNS over HTTPS", () => {
+  it("is an apex only when the SOA answer names the hostname itself", async () => {
+    const answer = (Answer: unknown[]) => fakeFetch(() => json({ Status: 0, Answer })).fetcher;
+    const { sent, fetcher } = fakeFetch(() =>
+      json({
+        Status: 0,
+        Answer: [{ name: "Example.co.uk.", type: 6, data: "ns. host. 1 2 3 4 5" }],
+      }),
+    );
+    expect(await dohZoneApex(fetcher)("example.co.uk")).toBe(true);
+    expect(sent[0]?.url).toBe("https://cloudflare-dns.com/dns-query?name=example.co.uk&type=SOA");
+    expect(sent[0]?.init?.redirect).toBe("manual");
+    // A name inside a zone gets no SOA answer of its own; a CNAME's target zone has another name.
+    expect(await dohZoneApex(answer([]))("docs.example.co.uk")).toBe(false);
+    expect(
+      await dohZoneApex(
+        answer([
+          { name: "docs.example.com.", type: 5, data: "domains.portifact.dev." },
+          { name: "portifact.dev.", type: 6, data: "x" },
+        ]),
+      )("docs.example.com"),
+    ).toBe(false);
+    expect(
+      await dohZoneApex(answer([{ name: "docs.example.com.", type: 5, data: "x" }]))(
+        "docs.example.com",
+      ),
+    ).toBe(false);
+    expect(await dohZoneApex(fakeFetch(() => json({ Status: 0 })).fetcher)("x.example")).toBe(
+      false,
+    );
+    expect(await dohZoneApex(fakeFetch(() => json({ Status: 3 })).fetcher)("x.example")).toBe(
+      false,
+    );
+    await expect(
+      dohZoneApex(fakeFetch(() => json({ Status: 2 })).fetcher)("x.example"),
+    ).rejects.toThrow("rcode 2");
+    await expect(dohZoneApex(fakeFetch(() => json({}, 500)).fetcher)("x.example")).rejects.toThrow(
+      "500",
+    );
   });
 });

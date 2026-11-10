@@ -5,7 +5,9 @@
 // artifact, the account, the policy generation and the nonce. Without a session they sign in
 // first and come back here. A missing artifact and a forbidden one look the same. The code is
 // also bound to the dashboard session, so signing out of the app ends the read sessions it
-// opened.
+// opened. A visitor who started on the artifact's custom host (decision 0006) comes with
+// `host=<hostname>`: the code goes back there only when that is the artifact's active custom host
+// from the tables, and is bound to it; any other host answers like an artifact they cannot open.
 import { ArtifactId, OpaqueToken } from "@portifact/contracts";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { issueReadHandoff } from "@portifact/services";
@@ -26,16 +28,24 @@ export function readRoutes(authFor: (env: Env) => Auth) {
   routes.on(["GET", "HEAD"], "/read/:id", async (c) => {
     if (c.req.method !== "GET") return redirect(UNAVAILABLE_URL);
     const id = c.req.param("id");
-    const states = new URL(c.req.url).searchParams.getAll("state");
+    const params = new URL(c.req.url).searchParams;
+    const states = params.getAll("state");
+    const hosts = params.getAll("host");
     const parsed = OpaqueToken.safeParse(states.length === 1 ? states[0] : undefined);
-    if (!ArtifactId.safeParse(id).success || !parsed.success) return redirect(UNAVAILABLE_URL);
+    if (!ArtifactId.safeParse(id).success || !parsed.success || hosts.length > 1) {
+      return redirect(UNAVAILABLE_URL);
+    }
     const state = parsed.data;
+    // Untrusted: only compared with the artifact's active custom host after the access check.
+    const requestedHost = hosts[0]?.slice(0, 253) ?? null;
 
     // The account always comes from the session cookie, never from the request.
     // An account that has not accepted the current terms accepts them on the login page first.
     const session = await authFor(c.env).api.getSession({ headers: c.req.raw.headers });
     if (!session || needsTermsAcceptance(session.user.termsVersion)) {
-      const back = `/read/${id}?${new URLSearchParams({ state })}`;
+      const back = `/read/${id}?${new URLSearchParams(
+        requestedHost === null ? { state } : { state, host: requestedHost },
+      )}`;
       return redirect(`/login?${new URLSearchParams({ next: back })}`);
     }
 
@@ -57,9 +67,12 @@ export function readRoutes(authFor: (env: Env) => Auth) {
       authSessionId: session.session.id,
       state,
       now,
+      requestedHost,
+      contentDomain: c.env.CONTENT_DOMAIN,
     });
     if (!issued.ok) return redirect(UNAVAILABLE_URL);
-    const callback = new URL(`https://${id}.${c.env.CONTENT_DOMAIN}/__portifact/callback`);
+    // The host comes from the service: the artifact's `.dev` host or its active custom host.
+    const callback = new URL(`https://${issued.value.host}/__portifact/callback`);
     callback.searchParams.set("code", issued.value.code);
     return redirect(callback.toString());
   });

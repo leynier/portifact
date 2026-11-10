@@ -98,6 +98,7 @@ export async function grantPlan(ownerId: string, plan: "free" | "pro"): Promise<
 export function fakeDomains(input: {
   txt?: { name: string; value: string };
   activate?: string;
+  attach?: { hostname: string; artifactId: string };
 }): Promise<{ ok: boolean }> {
   return control("/domains", input);
 }

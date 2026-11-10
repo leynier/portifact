@@ -115,7 +115,14 @@ describe("read handoff", () => {
 
     // The artifact origin redeems it once, for this browser's transaction only.
     const redeem = (state: string) =>
-      redeemReadHandoff(db(), { code, artifactId: ID, states: [state], now: Date.now() });
+      redeemReadHandoff(db(), {
+        code,
+        artifactId: ID,
+        states: [state],
+        now: Date.now(),
+        host: `${ID}.portifact.dev`,
+        devHost: `${ID}.portifact.dev`,
+      });
     expect((await redeem("x".repeat(43))).ok).toBe(false);
     expect(await redeem(STATE)).toMatchObject({
       ok: true,
@@ -136,6 +143,8 @@ describe("read handoff", () => {
       artifactId: ID,
       states: [STATE],
       now: Date.now(),
+      host: `${ID}.portifact.dev`,
+      devHost: `${ID}.portifact.dev`,
     });
     expect(redeemed.ok).toBe(false);
     expect(await db().select().from(schema.readSessions)).toHaveLength(0);

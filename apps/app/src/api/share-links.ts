@@ -198,16 +198,15 @@ export function shareOpenRoutes(deps: ShareOpenDeps) {
       regionsOf(c.env)
         .all()
         .map((handles) => handles.db),
-      { token, password, now },
+      { token, password, now, contentDomain: c.env.CONTENT_DOMAIN },
     );
     switch (outcome.kind) {
       case "opened": {
         // A right password is not a failure: it must not bring an honest visitor closer to the
         // human check or the lock.
         await attempts?.giveBack();
-        const location = new URL(
-          `https://${outcome.artifactId}.${c.env.CONTENT_DOMAIN}/__portifact/link`,
-        );
+        // The artifact's active custom host or its `.dev` host, from the tables.
+        const location = new URL(`https://${outcome.host}/__portifact/link`);
         location.searchParams.set("code", outcome.code);
         return c.json(ShareOpenResult.parse({ location: location.toString() }));
       }

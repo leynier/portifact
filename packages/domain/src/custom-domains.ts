@@ -24,7 +24,9 @@ export type HostnameError =
   | "reserved"
   | "lookalike"
   | "apex"
-  | "too_long";
+  | "too_long"
+  | "zone_apex"
+  | "blocked";
 
 export const HOSTNAME_MESSAGES: Readonly<Record<HostnameError, string>> = {
   invalid: "That is not a hostname. Type only the name, for example docs.example.com.",
@@ -34,6 +36,9 @@ export const HOSTNAME_MESSAGES: Readonly<Record<HostnameError, string>> = {
   lookalike: "A custom domain cannot contain the word portifact.",
   apex: "Use a subdomain such as docs.example.com: root domains like example.com are not supported.",
   too_long: "A hostname has at most 253 characters.",
+  zone_apex:
+    "That name is the root of its DNS zone, which cannot point at Portifact with a CNAME. Use a subdomain such as docs.example.com.",
+  blocked: "This hostname cannot be used as a custom domain.",
 };
 
 /** IPv4 in any of the forms the URL parser accepts ends as dotted digits; IPv6 in brackets. */
@@ -166,7 +171,8 @@ export type DetachReason =
   | "purged"
   | "account_deleted"
   | "reconciled"
-  | "operator";
+  | "operator"
+  | "blocked";
 
 /**
  * The daily check of a domain that is proven: three misses of the TXT proof in a row detach it,
@@ -207,4 +213,119 @@ export function provisioningExpired(verifiedAt: number, now: number): boolean {
 /** Whether `values` (TXT strings at the record's name) hold exactly the claim's value. */
 export function holdsTxt(values: readonly string[], expected: string): boolean {
   return values.some((value) => value.trim() === expected);
+}
+
+/** Whether `hostname` is a blocked name or under one (the operator's block list). */
+export function isBlockedHostname(hostname: string, blocked: readonly string[]): boolean {
+  return blocked.some((name) => hostname === name || hostname.endsWith(`.${name}`));
+}
+
+/** The refusal of a blocked name, a zone apex or another name `normalizeHostname` refused. */
+export function hostnameRefusal(error: "zone_apex" | "blocked"): Result<never> {
+  return fail("invalid_input", HOSTNAME_MESSAGES[error]);
+}
+
+/** The artifact's own Portifact origin host, whatever domain it has. */
+export function devHost(artifactId: string, contentDomain: string): string {
+  return `${artifactId}.${contentDomain}`;
+}
+
+/**
+ * Where a one-use code may be sent (read, review and share-link handoffs): the artifact's `.dev`
+ * host when nothing else was asked for, or its active custom host when that exact host was asked
+ * for. Any other requested host gives null, and the caller answers it like an artifact the
+ * visitor cannot open, so the answer reveals nothing about the artifact's domain.
+ */
+export function handoffHost(input: {
+  artifactId: string;
+  contentDomain: string;
+  requested: string | null;
+  activeHost: string | null;
+}): string | null {
+  if (input.requested === null) return devHost(input.artifactId, input.contentDomain);
+  return input.activeHost !== null && input.requested === input.activeHost
+    ? input.activeHost
+    : null;
+}
+
+/**
+ * The origin the viewer frames, for its `frame-src`, the review code's iframe URL and the page
+ * links it shows: the active custom host only when the visitor may read the artifact, otherwise
+ * the `.dev` origin, so the viewer page of a missing, protected or unavailable artifact is the
+ * same with or without a domain and never names it.
+ */
+export function viewerFrameOrigin(input: {
+  artifactId: string;
+  contentDomain: string;
+  readable: boolean;
+  activeHost: string | null;
+}): string {
+  return input.readable && input.activeHost !== null
+    ? `https://${input.activeHost}`
+    : `https://${devHost(input.artifactId, input.contentDomain)}`;
+}
+
+/**
+ * The canonical redirect of an old `.dev` link to the artifact's custom host (decision 0006,
+ * section 6): only for a top-level page visit served on the `.dev` host, after authorization,
+ * outside review mode, not through a share link (its session lives on the origin it opened on),
+ * and only with the bar off, because with the bar on the viewer wins and frames the custom host
+ * itself. The same path and query; null when nothing redirects.
+ */
+export function canonicalLocation(input: {
+  onDevHost: boolean;
+  customHost: string | null;
+  bar: boolean;
+  topLevelPage: boolean;
+  review: boolean;
+  link: boolean;
+  pathAndQuery: string;
+}): string | null {
+  if (!input.onDevHost || input.customHost === null || input.bar) return null;
+  if (!input.topLevelPage || input.review || input.link) return null;
+  return `https://${input.customHost}${input.pathAndQuery}`;
+}
+
+/**
+ * The downgrade notice (decision 0006, section 7): when the owner's plan already ended but the
+ * grace still keeps some of its domains, the ones the end of the grace will detach and when.
+ * Null when nothing is at risk or the owner was already told about this detach time.
+ */
+export function domainNotice(input: {
+  /** The owner's domains that count, with their proofs. */
+  domains: readonly { hostname: string; verifiedAt: number; noticeFor: number | null }[];
+  /** The plan's limit now and as the grace reads it (`domainLimitAt`). */
+  limitNow: number;
+  limitInGrace: number;
+  /** When the plan ended; the grace ends `downgradeGraceDays` later. */
+  validUntil: number | null;
+}): { hostnames: string[]; detachAt: number } | null {
+  if (input.validUntil === null || input.limitNow >= input.domains.length) return null;
+  const detachAt = input.validUntil + CUSTOM_DOMAINS.downgradeGraceDays * DAY_MS;
+  const hostnames = domainsOverLimit(input.domains, input.limitNow);
+  const due = input.domains.filter(
+    (domain) => hostnames.includes(domain.hostname) && domain.noticeFor !== detachAt,
+  );
+  return due.length > 0 && input.limitInGrace >= input.domains.length
+    ? { hostnames, detachAt }
+    : null;
+}
+
+/**
+ * A name for the operator's block list: lowercase ASCII (punycode), no trailing dot, any number of
+ * labels (a registrable domain blocks every name under it). Null when it is not a hostname.
+ */
+export function normalizeBlockName(input: string): string | null {
+  const trimmed = input.trim().toLowerCase().replace(/\.$/, "");
+  if (trimmed === "" || /[/\\@:?#%\s*[\]]/.test(trimmed)) return null;
+  let hostname: string;
+  try {
+    hostname = new URL(`https://${trimmed}/`).hostname;
+  } catch {
+    return null;
+  }
+  const labels = hostname.split(".");
+  if (labels.length < 2 || labels.some((label) => !LABEL.test(label))) return null;
+  if (/^[0-9]+$/.test(labels[labels.length - 1] as string)) return null;
+  return hostname;
 }

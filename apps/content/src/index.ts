@@ -1,4 +1,5 @@
-// Worker for artifact origins (`<id>.portifact.dev`). Serves user content only and holds no
+// Worker for artifact origins (`<id>.portifact.dev`, and while custom domains are switched on an
+// artifact's active custom host, decision 0006). Serves user content only and holds no
 // admin credentials; its only state changes are redeeming one-use sign-in codes under
 // /__portifact/, adding served traffic to the owner's counter, recording openings by signed-in
 // visitors in the owner's access log and counting page views for owners with analytics. See docs/security.md for the invariants enforced here.
@@ -20,7 +21,9 @@ import {
   regionsFromEnv,
 } from "@portifact/db";
 import {
+  canonicalLocation,
   chargedBytes,
+  classifyHost,
   effectiveState,
   entitlements,
   hasFeature,
@@ -45,6 +48,7 @@ import {
 } from "@portifact/services";
 import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
+import { isolateHosts, resolveCustomHost } from "./custom-hosts.ts";
 import { DIAGRAM_VERSION, diagramScript, isDiagramPath } from "./diagrams.ts";
 import {
   BRIDGE_PATH,
@@ -106,6 +110,17 @@ export interface Env extends BudgetEnv {
   APP_ORIGIN: string;
   /** HMAC key of read session cookies (secret, at least 32 characters). */
   READ_SESSION_SECRET?: string | undefined;
+  /**
+   * Exactly `"true"` serves artifacts on their active custom hosts and redirects old `.dev`
+   * links there (decision 0006). Anything else, or nothing, answers every other host 404 and
+   * serves exactly as before custom domains existed.
+   */
+  CUSTOM_DOMAINS_ENABLED?: string | undefined;
+}
+
+/** Whether this deployment serves custom hosts. */
+function customDomainsOn(env: Env): boolean {
+  return env.CUSTOM_DOMAINS_ENABLED === "true";
 }
 
 /** Reserved path that sends a visitor to the report form for this artifact. */
@@ -219,12 +234,15 @@ export async function handle(
   // Whatever a top-level page gets, a frame review cookie it carries was planted: clear it.
   const stray = strayFrameCookie(request);
   // Cookies siblings set on the shared domain: expired once they grow, on every answer, so the
-  // visitor recovers on the first request that still reaches the Worker.
-  const injected = injectedCookieCleanup(
-    request.headers.get("Cookie"),
-    new URL(request.url).pathname,
-    env.CONTENT_DOMAIN,
-  );
+  // visitor recovers on the first request that still reaches the Worker. Only on the content
+  // domain: on a custom host the other cookies are the customer's own sites', and without the
+  // Public Suffix List the Worker cannot name their registrable domain (they still grant nothing).
+  const url = new URL(request.url);
+  const onContentDomain =
+    url.hostname === env.CONTENT_DOMAIN || url.hostname.endsWith(`.${env.CONTENT_DOMAIN}`);
+  const injected = onContentDomain
+    ? injectedCookieCleanup(request.headers.get("Cookie"), url.pathname, env.CONTENT_DOMAIN)
+    : [];
   const clearing = stray ? [stray, ...injected] : injected;
   const answered = new Response(response.body, response);
   for (const cookie of clearing) answered.headers.append("Set-Cookie", cookie);
@@ -251,8 +269,32 @@ async function route(
   }
 
   const url = new URL(request.url);
-  const id = artifactIdFromHost(url.hostname, env.CONTENT_DOMAIN);
-  if (!id) return notFound();
+  const regions = regionsFromEnv(env);
+  const cycle = trafficCycle(now);
+  // `<id>.portifact.dev` as always; any other host only while custom domains are on.
+  let id = artifactIdFromHost(url.hostname, env.CONTENT_DOMAIN);
+  let db: RegionalDb;
+  let resolved: DeliveryArtifact | null | undefined;
+  if (id) {
+    // The region that holds the artifact, from the global directory (decision 0005).
+    db = ((await artifactHandles(regions, id)) ?? personalHandles(regions)).db;
+  } else {
+    const host = classifyHost(url.hostname, env.CONTENT_DOMAIN);
+    if (host.kind !== "custom" || !customDomainsOn(env)) return notFound();
+    // The customer's domain gets no HSTS from Portifact (it would outlive the attachment and
+    // could bind their other sites), so plain http is upgraded here, before anything else.
+    if (url.protocol === "http:") return httpsUpgrade(url);
+    // Portifact's own scripts need no artifact, like on `.dev`.
+    if (url.pathname === BRIDGE_PATH) return bridgeScript(request);
+    if (isDiagramPath(url.pathname)) return diagramScript(request);
+    const target = await resolveCustomHost(regions, isolateHosts(), url.hostname, cycle.start);
+    if (!target) return notFound();
+    id = target.artifact.id;
+    db = regions.get(target.region).db;
+    resolved = target.artifact;
+  }
+  // The exact host a one-use code must have been issued for, and the artifact's `.dev` host.
+  const hosts = { host: url.hostname, devHost: `${id}.${env.CONTENT_DOMAIN}` };
 
   if (url.pathname === REPORT_PATH) {
     // Every artifact has a predictable report link; the form lives on the app, where reports are
@@ -267,23 +309,26 @@ async function route(
     });
   }
 
-  // The region that holds the artifact, from the global directory (decision 0005).
-  const regions = regionsFromEnv(env);
-  const db = ((await artifactHandles(regions, id)) ?? personalHandles(regions)).db;
   if (url.pathname === CALLBACK_PATH) {
-    return decisionResponse(await handleCallback(request, env, db, id, now));
+    return decisionResponse(await handleCallback(request, env, db, id, now, hosts));
   }
   if (url.pathname === LINK_PATH) {
-    return linkStepResponse(await handleLinkCallback(request, env, db, id, now));
+    return linkStepResponse(await handleLinkCallback(request, env, db, id, now, hosts));
   }
   if (url.pathname === REVIEW_PATH) {
-    return reviewStepResponse(await handleReviewExchange(request, env, db, id, now), env);
+    return reviewStepResponse(
+      await handleReviewExchange(request, env, db, id, now, "frame", hosts),
+      env,
+    );
   }
   if (url.pathname === REVIEW_CHECK_PATH) {
     return reviewStepResponse(await handleReviewCheck(request, env, id, now), env);
   }
   if (url.pathname === REVIEW_TAB_PATH) {
-    return reviewStepResponse(await handleReviewExchange(request, env, db, id, now, "tab"), env);
+    return reviewStepResponse(
+      await handleReviewExchange(request, env, db, id, now, "tab", hosts),
+      env,
+    );
   }
   if (url.pathname === REVIEW_TAB_CHECK_PATH) {
     return reviewStepResponse(await handleReviewCheck(request, env, id, now, "tab"), env);
@@ -301,8 +346,7 @@ async function route(
     return response ?? message(400, PAGES.noBarRefused);
   }
 
-  const cycle = trafficCycle(now);
-  const found = await findDeliveryArtifact(db, id, cycle.start);
+  const found = resolved === undefined ? await findDeliveryArtifact(db, id, cycle.start) : resolved;
   const artifact = found && isServable(found, now) ? found : null;
   const delivery: Delivery = {
     request,
@@ -314,6 +358,8 @@ async function route(
     countTraffic,
     logOpening,
     countView,
+    onDevHost: resolved === undefined,
+    customDomains: customDomainsOn(env),
   };
   // Review mode first: the viewer's iframe reads the pinned version with the bridge, and a
   // review tab reads it with the review banner.
@@ -333,8 +379,16 @@ async function route(
   // Protected, unknown or not servable (in any mode): all go through sign-in, so an anonymous
   // visitor cannot tell an archived or expired artifact from one that never existed.
   // A read session wins; a share link's session is tried before sign-in starts (decision 0008).
-  const decision = await authorizeRead(request, env, db, id, artifact, now, () =>
-    authorizeLink(request, env, db, id, artifact, now),
+  const decision = await authorizeRead(
+    request,
+    env,
+    db,
+    id,
+    artifact,
+    now,
+    () => authorizeLink(request, env, db, id, artifact, now),
+    // Sign-in comes back to the host the visitor started on.
+    resolved === undefined ? null : url.hostname,
   );
   if (decision.kind !== "allow") return decisionResponse(decision);
   return serve(
@@ -358,6 +412,10 @@ interface Delivery {
   countTraffic: CountTraffic;
   logOpening: LogOpening;
   countView: CountView;
+  /** The request came on `<id>.portifact.dev`, not on a custom host. */
+  onDevHost: boolean;
+  /** Custom domains are switched on in this deployment. */
+  customDomains: boolean;
 }
 
 /**
@@ -399,7 +457,7 @@ async function serve(
     limited.headers.set("Retry-After", String(Math.max(1, Math.ceil((limitedUntil - now) / 1000))));
     return limited;
   }
-  const { response, bytes, page, redirect } = await serveFile(
+  const { response, bytes, page, redirect, canonical } = await serveFile(
     delivery,
     artifact,
     setCookies,
@@ -411,6 +469,9 @@ async function serve(
     cycleStart: cycle.start,
     bytes: chargedBytes(response.status, request.method, bytes),
   });
+  // The redirect of an old `.dev` link to the custom host is charged as a request but is neither a
+  // view nor an opening: the visit it leads to is, so nothing is counted twice.
+  if (canonical) return response;
   const view = pageView({
     method: request.method,
     fetchMode: request.headers.get("Sec-Fetch-Mode"),
@@ -479,6 +540,8 @@ interface Served {
   bytes: number;
   page: boolean;
   redirect: boolean;
+  /** The 308 of an old `.dev` link to the artifact's custom host. */
+  canonical?: boolean;
 }
 
 const served = (response: Response, bytes = 0): Served => ({
@@ -493,7 +556,7 @@ const served = (response: Response, bytes = 0): Served => ({
  * pinned version, with the bridge appended to its HTML.
  */
 async function serveFile(
-  { request, env, db, url }: Delivery,
+  { request, env, db, url, onDevHost, customDomains }: Delivery,
   artifact: ServableArtifact,
   setCookies: string[],
   reviewSession?: ReviewServe,
@@ -520,6 +583,23 @@ async function serveFile(
     if (location) {
       return { ...served(viewerRedirect(location, setCookies)), page, redirect: true };
     }
+  }
+  // With the bar off, an old `.dev` link to a page goes to the artifact's custom host: decided
+  // here, after authorization, so an anonymous visitor of a protected artifact never learns its
+  // domain; with the bar on the viewer above won and frames the custom host itself.
+  const location = canonicalLocation({
+    onDevHost,
+    customHost: customDomains ? artifact.customHost : null,
+    // The owner's setting, not this browser's opt-out: a visitor who left the viewer on `.dev`
+    // stays there, since the custom host would show them the viewer again.
+    bar: artifact.bar,
+    topLevelPage: isTopLevelVisit(request) && page,
+    review,
+    link,
+    pathAndQuery: `${url.pathname}${url.search}`,
+  });
+  if (location) {
+    return { ...served(canonicalRedirect(location, setCookies)), page, canonical: true };
   }
   const sent = (response: Response, bytes = 0): Served => ({ ...served(response, bytes), page });
 
@@ -843,6 +923,36 @@ function message(
       "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
       ...(options.allow ? { Allow: options.allow } : {}),
     },
+  });
+}
+
+/**
+ * An old `.dev` link to a page, sent to the same path on the custom host. Never cached: it
+ * depends on the visitor's access and on the domain staying attached. No HSTS on the custom host.
+ */
+function canonicalRedirect(location: string, setCookies: string[]): Response {
+  return withCookies(
+    new Response(null, {
+      status: 308,
+      headers: {
+        Location: location,
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        "X-Robots-Tag": "noindex",
+      },
+    }),
+    setCookies,
+  );
+}
+
+/** Plain `http` on a custom host: the same URL on `https`, without HSTS. */
+function httpsUpgrade(url: URL): Response {
+  const target = new URL(url);
+  target.protocol = "https:";
+  return new Response(null, {
+    status: 308,
+    headers: { Location: target.toString(), "Cache-Control": "no-store" },
   });
 }
 

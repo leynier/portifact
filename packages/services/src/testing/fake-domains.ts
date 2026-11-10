@@ -7,6 +7,7 @@ import {
   type CustomHostnames,
   type DomainDeps,
   type TxtLookup,
+  type ZoneApexLookup,
 } from "../cloudflare-hostnames.ts";
 
 /**
@@ -43,6 +44,15 @@ export class FakeDomains implements DomainDeps {
       this.#outage("list");
       return [...this.created].map(([id, entry]) => ({ id, hostname: entry.hostname }));
     },
+  };
+
+  /** Names that are the apex of their DNS zone. */
+  readonly apexes = new Set<string>();
+
+  readonly apex: ZoneApexLookup = async (hostname) => {
+    this.calls.push(`apex ${hostname}`);
+    if (this.failing.txt) throw new Error("DNS over HTTPS: 503");
+    return this.apexes.has(hostname);
   };
 
   readonly txt: TxtLookup = async (name) => {

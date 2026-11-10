@@ -7,6 +7,11 @@ export {
   commentNoticeEmail,
 } from "./comment-notice.ts";
 export {
+  DOMAIN_NOTICE_TEXT,
+  type DomainNoticeInput,
+  domainNoticeEmail,
+} from "./domain-notice.ts";
+export {
   type ExpiryNoticeArtifact,
   type ExpiryNoticeInput,
   expiryNoticeEmail,

@@ -299,7 +299,11 @@ describe("openShareLink", () => {
   it("opens a link without a password, stores only the code's hash and the day it was used", async () => {
     const { owner, artifactId } = await owned();
     const { link, token } = value(await create(owner.id, artifactId));
-    const opened = await openShareLink([db()], { token, now: NOW + 5 * 3_600_000 });
+    const opened = await openShareLink([db()], {
+      token,
+      now: NOW + 5 * 3_600_000,
+      contentDomain: "portifact.dev",
+    });
     if (opened.kind !== "opened") throw new Error(opened.kind);
     expect(opened.artifactId).toBe(artifactId);
     const [handoff] = await db()
@@ -314,13 +318,29 @@ describe("openShareLink", () => {
   it("asks for a password, refuses a wrong one and opens with the right one", async () => {
     const { owner, artifactId } = await owned();
     const { token } = value(await create(owner.id, artifactId, { password: "correct horse" }));
-    expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "password_required" });
-    expect(await openShareLink([db()], { token, password: "wrong horse", now: NOW })).toEqual({
+    expect(
+      await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" }),
+    ).toEqual({ kind: "password_required" });
+    expect(
+      await openShareLink([db()], {
+        token,
+        password: "wrong horse",
+        now: NOW,
+        contentDomain: "portifact.dev",
+      }),
+    ).toEqual({
       kind: "refused",
     });
-    expect((await openShareLink([db()], { token, password: "correct horse", now: NOW })).kind).toBe(
-      "opened",
-    );
+    expect(
+      (
+        await openShareLink([db()], {
+          token,
+          password: "correct horse",
+          now: NOW,
+          contentDomain: "portifact.dev",
+        })
+      ).kind,
+    ).toBe("opened");
   });
 
   it("answers unknown, expired, revoked and paused links exactly alike", async () => {
@@ -337,8 +357,17 @@ describe("openShareLink", () => {
     );
     const later = NOW + 10;
     for (const token of [MISSING_TOKEN, expired.token, revoked.token]) {
-      expect(await openShareLink([db()], { token, now: later })).toEqual({ kind: "unavailable" });
-      expect(await openShareLink([db()], { token, password: "longenough", now: later })).toEqual({
+      expect(
+        await openShareLink([db()], { token, now: later, contentDomain: "portifact.dev" }),
+      ).toEqual({ kind: "unavailable" });
+      expect(
+        await openShareLink([db()], {
+          token,
+          password: "longenough",
+          now: later,
+          contentDomain: "portifact.dev",
+        }),
+      ).toEqual({
         kind: "refused",
       });
     }
@@ -348,11 +377,17 @@ describe("openShareLink", () => {
     const { owner, artifactId } = await owned();
     const { token } = value(await create(owner.id, artifactId));
     await grantPlan(owner.id, "free");
-    expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "unavailable" });
+    expect(
+      await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" }),
+    ).toEqual({ kind: "unavailable" });
     await grantPlan(owner.id, "pro", { validUntil: NOW - 1 });
-    expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "unavailable" });
+    expect(
+      await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" }),
+    ).toEqual({ kind: "unavailable" });
     await grantPlan(owner.id, "pro");
-    expect((await openShareLink([db()], { token, now: NOW })).kind).toBe("opened");
+    expect(
+      (await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" })).kind,
+    ).toBe("opened");
   });
 
   it("refuses links of archived, suspended and expired artifacts", async () => {
@@ -364,7 +399,9 @@ describe("openShareLink", () => {
       const { owner, artifactId } = await owned();
       const { token } = value(await create(owner.id, artifactId));
       await db().update(schema.artifacts).set(change).where(eq(schema.artifacts.id, artifactId));
-      expect(await openShareLink([db()], { token, now: NOW })).toEqual({ kind: "unavailable" });
+      expect(
+        await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" }),
+      ).toEqual({ kind: "unavailable" });
     }
   });
 
@@ -375,14 +412,19 @@ describe("openShareLink", () => {
     const derive = vi.spyOn(crypto.subtle, "deriveBits");
     for (const token of [MISSING_TOKEN, plain.token, locked.token]) {
       derive.mockClear();
-      await openShareLink([db()], { token, password: "some guess", now: NOW });
+      await openShareLink([db()], {
+        token,
+        password: "some guess",
+        now: NOW,
+        contentDomain: "portifact.dev",
+      });
       expect(derive).toHaveBeenCalledTimes(1);
       expect(derive.mock.calls[0]?.[0]).toMatchObject({
         iterations: SHARE_LINKS.passwordIterations,
       });
     }
     derive.mockClear();
-    await openShareLink([db()], { token: MISSING_TOKEN, now: NOW });
+    await openShareLink([db()], { token: MISSING_TOKEN, now: NOW, contentDomain: "portifact.dev" });
     expect(derive).not.toHaveBeenCalled();
   });
 });
@@ -411,7 +453,7 @@ describe("redeemShareHandoff and refreshShareSession", () => {
   async function opened(extra: { expiresAt?: number | null } = {}) {
     const { owner, artifactId } = await owned();
     const { link, token } = value(await create(owner.id, artifactId, extra));
-    const result = await openShareLink([db()], { token, now: NOW });
+    const result = await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" });
     if (result.kind !== "opened") throw new Error(result.kind);
     return { owner, artifactId, link, code: result.code };
   }
@@ -420,12 +462,34 @@ describe("redeemShareHandoff and refreshShareSession", () => {
     const { artifactId, link, code } = await opened();
     const other = await owned();
     expect(
-      await redeemShareHandoff(db(), { code, artifactId: other.artifactId, now: NOW }),
+      await redeemShareHandoff(db(), {
+        code,
+        artifactId: other.artifactId,
+        now: NOW,
+        host: `${other.artifactId}.portifact.dev`,
+        devHost: `${other.artifactId}.portifact.dev`,
+      }),
     ).toMatchObject({ ok: false, code: "invalid_input" });
-    const session = value(await redeemShareHandoff(db(), { code, artifactId, now: NOW }));
+    const session = value(
+      await redeemShareHandoff(db(), {
+        code,
+        artifactId,
+        now: NOW,
+        host: `${artifactId}.portifact.dev`,
+        devHost: `${artifactId}.portifact.dev`,
+      }),
+    );
     expect(session.linkId).toBe(link.id);
     expect(session.expiresAt).toBe(NOW + SHARE_LINKS.sessionTtlSeconds * 1000);
-    expect(await redeemShareHandoff(db(), { code, artifactId, now: NOW })).toMatchObject({
+    expect(
+      await redeemShareHandoff(db(), {
+        code,
+        artifactId,
+        now: NOW,
+        host: `${artifactId}.portifact.dev`,
+        devHost: `${artifactId}.portifact.dev`,
+      }),
+    ).toMatchObject({
       ok: false,
       code: "invalid_input",
     });
@@ -443,6 +507,8 @@ describe("redeemShareHandoff and refreshShareSession", () => {
         code: first.code,
         artifactId: first.artifactId,
         now: NOW + SHARE_LINKS.handoffTtlSeconds * 1000,
+        host: `${first.artifactId}.portifact.dev`,
+        devHost: `${first.artifactId}.portifact.dev`,
       }),
     ).toMatchObject({ ok: false });
     const second = await opened();
@@ -459,13 +525,23 @@ describe("redeemShareHandoff and refreshShareSession", () => {
         code: second.code,
         artifactId: second.artifactId,
         now: NOW,
+        host: `${second.artifactId}.portifact.dev`,
+        devHost: `${second.artifactId}.portifact.dev`,
       }),
     ).toMatchObject({ ok: false });
   });
 
   it("ends the session with the link's expiry and renews it while the link lives", async () => {
     const { owner, artifactId, link, code } = await opened({ expiresAt: NOW + 3_600_000 });
-    const session = value(await redeemShareHandoff(db(), { code, artifactId, now: NOW }));
+    const session = value(
+      await redeemShareHandoff(db(), {
+        code,
+        artifactId,
+        now: NOW,
+        host: `${artifactId}.portifact.dev`,
+        devHost: `${artifactId}.portifact.dev`,
+      }),
+    );
     expect(session.expiresAt).toBe(NOW + 3_600_000);
     const input = { sessionId: session.sessionId, artifactId, linkId: link.id };
     expect(value(await refreshShareSession(db(), { ...input, now: NOW + 60_000 }))).toEqual({
@@ -497,9 +573,21 @@ describe("pruneShareLinks", () => {
       await create(owner.id, artifactId, { label: "expired", expiresAt: NOW + 1 }),
     ).link;
     const live = value(await create(owner.id, artifactId, { label: "live" }));
-    const opened = await openShareLink([db()], { token: live.token, now: NOW });
+    const opened = await openShareLink([db()], {
+      token: live.token,
+      now: NOW,
+      contentDomain: "portifact.dev",
+    });
     if (opened.kind !== "opened") throw new Error(opened.kind);
-    value(await redeemShareHandoff(db(), { code: opened.code, artifactId, now: NOW }));
+    value(
+      await redeemShareHandoff(db(), {
+        code: opened.code,
+        artifactId,
+        now: NOW,
+        host: `${artifactId}.portifact.dev`,
+        devHost: `${artifactId}.portifact.dev`,
+      }),
+    );
     value(
       await revokeShareLink(db(), { userId: owner.id, artifactId, linkId: revoked.id, now: NOW }),
     );
@@ -540,10 +628,14 @@ describe("restores, purges and the access log", () => {
       .update(schema.shareLinks)
       .set({ revokedAt: null })
       .where(eq(schema.shareLinks.id, link.id));
-    expect((await openShareLink([db()], { token, now: NOW })).kind).toBe("opened");
+    expect(
+      (await openShareLink([db()], { token, now: NOW, contentDomain: "portifact.dev" })).kind,
+    ).toBe("opened");
     const result = await applyTombstones(db(), markers, NOW + 1);
     expect(result.shareLinks).toBeGreaterThanOrEqual(1);
-    expect(await openShareLink([db()], { token, now: NOW + 2 })).toEqual({ kind: "unavailable" });
+    expect(
+      await openShareLink([db()], { token, now: NOW + 2, contentDomain: "portifact.dev" }),
+    ).toEqual({ kind: "unavailable" });
     expect((await applyTombstones(db(), markers, NOW + 3)).shareLinks).toBe(0);
   });
 
@@ -614,7 +706,11 @@ describe("links in another region", () => {
       createdAt: NOW,
     });
 
-    const opened = await openShareLink([db(), second], { token, now: NOW });
+    const opened = await openShareLink([db(), second], {
+      token,
+      now: NOW,
+      contentDomain: "portifact.dev",
+    });
     if (opened.kind !== "opened") throw new Error(opened.kind);
     expect(opened.artifactId).toBe(artifactId);
     const codeHash = await hashSecret(opened.code);
@@ -629,11 +725,25 @@ describe("links in another region", () => {
     expect(inSecond).toHaveLength(1);
     expect(inDefault).toEqual([]);
     // The artifact origin redeems it in the artifact's region.
-    expect((await redeemShareHandoff(second, { code: opened.code, artifactId, now: NOW })).ok).toBe(
-      true,
-    );
+    expect(
+      (
+        await redeemShareHandoff(second, {
+          code: opened.code,
+          artifactId,
+          now: NOW,
+          host: `${artifactId}.portifact.dev`,
+          devHost: `${artifactId}.portifact.dev`,
+        })
+      ).ok,
+    ).toBe(true);
     // A token no region holds still costs one derivation and answers like any other.
-    expect(await openShareLink([db(), second], { token: "Q".repeat(43), now: NOW })).toEqual({
+    expect(
+      await openShareLink([db(), second], {
+        token: "Q".repeat(43),
+        now: NOW,
+        contentDomain: "portifact.dev",
+      }),
+    ).toEqual({
       kind: "unavailable",
     });
   });

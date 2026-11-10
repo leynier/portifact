@@ -25,7 +25,12 @@ import {
 } from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
 import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
-import { commentNotifierFromEnv, expiryNotifierFromEnv, type NoticeEnv } from "./notices.ts";
+import {
+  commentNotifierFromEnv,
+  domainNotifierFromEnv,
+  expiryNotifierFromEnv,
+  type NoticeEnv,
+} from "./notices.ts";
 
 export interface Env extends AnalyticsEnv, NotifierEnv, NoticeEnv, DomainEnv {
   DB: D1Database;
@@ -149,6 +154,7 @@ export async function runQueue(
   if (batch.queue === EMAIL_EVENTS_QUEUE) return runEmailEvents(db, batch, now);
   const notifier = expiryNotifierFromEnv(env);
   const commentNotifier = commentNotifierFromEnv(env);
+  const domainNotifier = domainNotifierFromEnv(env);
   for (const message of batch.messages) {
     const parsed = JobMessage.safeParse(message.body);
     if (!parsed.success) {
@@ -163,6 +169,7 @@ export async function runQueue(
         notifier,
         commentNotifier,
         domains,
+        domainNotifier,
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });

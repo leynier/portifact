@@ -217,6 +217,7 @@ async function code(userId = READER, artifactId = ID, kind?: ReviewKind): Promis
     authSessionId: appSession(userId),
     now: NOW,
     ...(kind ? { kind } : {}),
+    contentDomain: "portifact.dev",
   });
   if (!issued.ok) throw new Error(issued.message);
   return issued.value.code;

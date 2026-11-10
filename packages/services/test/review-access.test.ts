@@ -98,6 +98,7 @@ async function issue(userId = READER, artifactId = ID, kind?: ReviewKind) {
     authSessionId: appSession(userId),
     now: NOW,
     ...(kind ? { kind } : {}),
+    contentDomain: "portifact.dev",
   });
   if (!result.ok) throw new Error(`issue failed: ${result.code}`);
   return result.value;
@@ -107,7 +108,15 @@ const redeem = (
   code: string,
   overrides: Partial<{ artifactId: string; now: number; kind: ReviewKind }> = {},
 ) =>
-  redeemReviewHandoff(db(), { code, artifactId: ID, kind: "frame", now: NOW + 1000, ...overrides });
+  redeemReviewHandoff(db(), {
+    code,
+    artifactId: ID,
+    kind: "frame",
+    now: NOW + 1000,
+    ...overrides,
+    host: `${ID}.portifact.dev`,
+    devHost: `${ID}.portifact.dev`,
+  });
 
 const sessionCount = async () => (await db().select().from(schema.reviewSessions)).length;
 
@@ -136,12 +145,14 @@ describe("review access", () => {
       userId: STRANGER,
       authSessionId: appSession(STRANGER),
       now: NOW,
+      contentDomain: "portifact.dev",
     });
     const missing = await issueReviewHandoff(db(), {
       artifactId: "zzzzzzzzzz",
       userId: READER,
       authSessionId: appSession(READER),
       now: NOW,
+      contentDomain: "portifact.dev",
     });
     expect(stranger).toEqual(missing);
     expect(stranger.ok).toBe(false);
@@ -156,6 +167,7 @@ describe("review access", () => {
         userId: OWNER,
         authSessionId: appSession(OWNER),
         now: NOW,
+        contentDomain: "portifact.dev",
       }),
     ).resolves.toMatchObject({ ok: false, code: "not_found" });
     await seed({ state: "archived", archivedAt: NOW - DAY });
@@ -165,6 +177,7 @@ describe("review access", () => {
         userId: OWNER,
         authSessionId: appSession(OWNER),
         now: NOW,
+        contentDomain: "portifact.dev",
       }),
     ).resolves.toMatchObject({ ok: false, code: "not_found" });
   });
@@ -315,6 +328,7 @@ describe("viewer artifact", () => {
         annotations: "off",
         role: "owner",
         brand: null,
+        customHost: null,
       },
     });
     const reader = await view(READER);
@@ -357,6 +371,7 @@ describe("open review codes", () => {
         userId: READER,
         authSessionId: appSession(READER),
         now: NOW + i,
+        contentDomain: "portifact.dev",
       });
       if (!result.ok) throw new Error(result.message);
       codes.push(result.value.code);
@@ -372,6 +387,8 @@ describe("open review codes", () => {
       artifactId: ID,
       kind: "frame",
       now: NOW + 100,
+      host: `${ID}.portifact.dev`,
+      devHost: `${ID}.portifact.dev`,
     });
     expect(newest.ok).toBe(true);
     const oldest = await redeemReviewHandoff(db(), {
@@ -379,6 +396,8 @@ describe("open review codes", () => {
       artifactId: ID,
       kind: "frame",
       now: NOW + 100,
+      host: `${ID}.portifact.dev`,
+      devHost: `${ID}.portifact.dev`,
     });
     expect(oldest.ok).toBe(false);
     // Another account's codes are never touched.
@@ -387,6 +406,7 @@ describe("open review codes", () => {
       userId: OWNER,
       authSessionId: appSession(OWNER),
       now: NOW,
+      contentDomain: "portifact.dev",
     });
     expect(
       await db()

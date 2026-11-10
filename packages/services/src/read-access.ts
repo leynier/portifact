@@ -4,10 +4,19 @@
 // artifact and a forbidden one give the same answer.
 import { READ_SESSION } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
-import { canRead, effectiveState, fail, ok, type Result } from "@portifact/domain";
+import {
+  canRead,
+  devHost,
+  effectiveState,
+  fail,
+  handoffHost,
+  ok,
+  type Result,
+} from "@portifact/domain";
 import { and, eq, exists, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { actorOn } from "./actors.ts";
+import { activeCustomHost } from "./custom-domains.ts";
 
 const SECOND_MS = 1000;
 /** Rows each prune deletes per run, like the other maintenance jobs. */
@@ -130,10 +139,28 @@ export async function checkReadAccess(
  */
 export async function issueReadHandoff(
   db: RegionalDb,
-  input: { artifactId: string; userId: string; authSessionId: string; state: string; now: number },
-): Promise<Result<{ code: string; expiresAt: number }>> {
+  input: {
+    artifactId: string;
+    userId: string;
+    authSessionId: string;
+    state: string;
+    now: number;
+    /** The custom host the visitor started on, or null for the `.dev` host. Untrusted input. */
+    requestedHost: string | null;
+    contentDomain: string;
+  },
+): Promise<Result<{ code: string; expiresAt: number; host: string }>> {
   const access = await checkReadAccess(db, input);
   if (!access.ok) return access;
+  // Only after the access check, and only the artifact's own hosts: a requested host that is not
+  // its active custom host answers exactly like an artifact the visitor cannot open.
+  const host = handoffHost({
+    artifactId: input.artifactId,
+    contentDomain: input.contentDomain,
+    requested: input.requestedHost,
+    activeHost: input.requestedHost === null ? null : await activeCustomHost(db, input.artifactId),
+  });
+  if (host === null) return unavailable();
   const code = randomToken();
   const expiresAt = input.now + READ_SESSION.handoffTtlSeconds * SECOND_MS;
   await db.insert(schema.readHandoffs).values({
@@ -145,8 +172,9 @@ export async function issueReadHandoff(
     policyGeneration: access.value.policyGeneration,
     expiresAt,
     createdAt: input.now,
+    host,
   });
-  return ok({ code, expiresAt });
+  return ok({ code, expiresAt, host });
 }
 
 /**
@@ -158,7 +186,15 @@ export async function issueReadHandoff(
  */
 export async function redeemReadHandoff(
   db: Db,
-  input: { code: string; artifactId: string; states: readonly string[]; now: number },
+  input: {
+    code: string;
+    artifactId: string;
+    states: readonly string[];
+    /** The host the request came on, and the artifact's `.dev` host (codes without a host). */
+    host: string;
+    devHost: string;
+    now: number;
+  },
 ): Promise<Result<RedeemedReadSession>> {
   const expired = fail<never>(
     "invalid_input",
@@ -181,6 +217,7 @@ export async function redeemReadHandoff(
           eq(handoff.codeHash, codeHash),
           eq(handoff.artifactId, input.artifactId),
           inArray(handoff.stateHash, [...stateHashes.keys()]),
+          sql`coalesce(${handoff.host}, ${input.devHost}) = ${input.host}`,
           isNull(handoff.usedAt),
           gt(handoff.expiresAt, input.now),
           liveAppSession(db, handoff.authSessionId, input.now),

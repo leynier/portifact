@@ -78,6 +78,8 @@ describe("review codes", () => {
       artifactId,
       kind: "tab",
       now: Date.now(),
+      host: `${artifactId}.portifact.dev`,
+      devHost: `${artifactId}.portifact.dev`,
     });
     expect(asTab.ok).toBe(false);
     const redeemed = await redeemReviewHandoff(db(), {
@@ -85,6 +87,8 @@ describe("review codes", () => {
       artifactId,
       kind: "frame",
       now: Date.now(),
+      host: `${artifactId}.portifact.dev`,
+      devHost: `${artifactId}.portifact.dev`,
     });
     expect(redeemed.ok).toBe(true);
   });
@@ -193,6 +197,8 @@ describe("review tab codes", () => {
       artifactId,
       kind: "frame",
       now: Date.now(),
+      host: `${artifactId}.portifact.dev`,
+      devHost: `${artifactId}.portifact.dev`,
     });
     expect(inFrame.ok).toBe(false);
     const inTab = await redeemReviewHandoff(db(), {
@@ -200,6 +206,8 @@ describe("review tab codes", () => {
       artifactId,
       kind: "tab",
       now: Date.now(),
+      host: `${artifactId}.portifact.dev`,
+      devHost: `${artifactId}.portifact.dev`,
     });
     expect(inTab.ok).toBe(true);
   });

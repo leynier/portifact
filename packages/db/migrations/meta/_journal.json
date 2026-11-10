@@ -253,6 +253,13 @@
       "when": 1794302605687,
       "tag": "0035_owner_brands",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1794304291370,
+      "tag": "0036_custom_domain_delivery",
+      "breakpoints": true
     }
   ]
 }

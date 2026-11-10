@@ -330,7 +330,7 @@ function summary(env: Env, row: ArtifactRow) {
     accessMode: row.accessMode,
     annotations: row.annotations,
     currentVersionId: row.currentVersionId,
-    url: contentUrl(env, row.id),
+    url: artifactUrl(env, row),
     expiresAt: row.expiresAt === null ? null : iso(row.expiresAt),
     archivedAt: row.archivedAt === null ? null : iso(row.archivedAt),
     purgeAt: row.purgeAt === null ? null : iso(row.purgeAt),
@@ -338,9 +338,18 @@ function summary(env: Env, row: ArtifactRow) {
     ...(row.state === "suspended" && row.suspensionReason
       ? { suspension: { reason: row.suspensionReason } }
       : {}),
+    ...(row.customHost ? { customHost: row.customHost } : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });
+}
+
+/**
+ * The address people should use: the artifact's custom host while one is active (decision 0006),
+ * otherwise its `.dev` origin.
+ */
+export function artifactUrl(env: Env, row: { id: string; customHost: string | null }): string {
+  return row.customHost ? `https://${row.customHost}/` : contentUrl(env, row.id);
 }
 
 export function contentUrl(env: Env, artifactId: string): string {

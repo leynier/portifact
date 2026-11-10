@@ -18,6 +18,7 @@ import { applyOwnerRetention } from "./analytics.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
 import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
+import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
@@ -130,6 +131,8 @@ export interface JobDeps {
   commentNotifier?: CommentNotifier | undefined;
   /** Cloudflare's custom hostnames, for `delete_custom_hostname` jobs; null while switched off. */
   domains?: DomainDeps | null | undefined;
+  /** Sends `domain_notice` emails. */
+  domainNotifier?: DomainNotifier | undefined;
 }
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
@@ -155,7 +158,7 @@ async function runRow(
   bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
-  { access, notifier, commentNotifier, domains }: JobDeps,
+  { access, notifier, commentNotifier, domains, domainNotifier }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
     case "purge_artifact":
@@ -187,6 +190,9 @@ async function runRow(
     case "delete_custom_hostname":
       // Written in the global batch that detached the domain (one database with one region).
       return runDeleteHostname(domainDbsOf(db), domains ?? null, row.subject ?? "");
+    case "domain_notice":
+      if (!domainNotifier) throw new Error("domain_notice needs the domain notifier");
+      return sendDomainNotice(db, row, now, domainNotifier);
   }
 }
 

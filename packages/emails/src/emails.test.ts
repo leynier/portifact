@@ -493,6 +493,8 @@ describe("previews", () => {
       "comment-notice-one",
       "comment-notice-without-names",
       ...translated.map((code) => `comment-notice-${code}`),
+      "domain-notice",
+      ...translated.map((code) => `domain-notice-${code}`),
       ...translated.map((code) => `expiry-notice-${code}`),
     ]);
     for (const { email } of previews()) {

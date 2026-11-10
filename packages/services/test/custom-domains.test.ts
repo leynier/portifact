@@ -205,7 +205,8 @@ describe("adding a domain", () => {
       problem: null,
     });
     expect(claim.token).toMatch(/^[0-9a-f]{32}$/);
-    expect(fake.calls).toEqual([]);
+    // Only DNS is asked whether the name is the apex of its zone; Cloudflare is not called.
+    expect(fake.calls).toEqual([`apex ${hostname}`]);
     // Adding again keeps the token, so a record already published stays valid.
     expect(value(await add(fake, owner.id, artifactId, hostname, NOW + DAY)).token).toBe(
       claim.token,
@@ -327,7 +328,11 @@ describe("the TXT proof", () => {
     fake.publishTxt(txtRecordName(hostname), txtRecordValue("0".repeat(32)));
     fake.publishTxt(hostname, txtRecordValue(claim.token));
     expect(value(await verify(fake, owner.id, hostname)).state).toBe("pending");
-    expect(fake.calls.filter((call) => call !== `txt ${txtRecordName(hostname)}`)).toEqual([]);
+    expect(
+      fake.calls.filter(
+        (call) => call !== `txt ${txtRecordName(hostname)}` && call !== `apex ${hostname}`,
+      ),
+    ).toEqual([]);
     expect(await domainRow(hostname)).toBeUndefined();
 
     publishProof(fake, claim);
@@ -534,9 +539,9 @@ describe("activation", () => {
     const b = value(await add(fake, two.owner.id, two.artifactId, host()));
     publishProof(fake, b);
     value(await verify(fake, two.owner.id, b.hostname));
-    await checkCustomDomains(dbs(), fake, NOW + 6 * DAY);
+    await checkCustomDomains(dbs(), fake, NOW + 2 * DAY - 1);
     expect((await domainRow(b.hostname))?.state).toBe("provisioning");
-    await checkCustomDomains(dbs(), fake, NOW + 7 * DAY);
+    await checkCustomDomains(dbs(), fake, NOW + 2 * DAY);
     expect(await domainRow(b.hostname)).toMatchObject({
       state: "detaching",
       detachReason: "provisioning_timeout",
@@ -903,6 +908,7 @@ describe("exact outcomes", () => {
       activated: 1,
       checked: 0,
       detached: 0,
+      notices: 0,
     });
     // Not due a moment before a day has passed, due at the day.
     expect((await checkCustomDomains(dbs(), fake, NOW + DAY - 1)).checked).toBe(0);
@@ -911,6 +917,7 @@ describe("exact outcomes", () => {
       activated: 0,
       checked: 1,
       detached: 0,
+      notices: 0,
     });
     fake.setStatus(a.hostname, "deleted");
     expect(await checkCustomDomains(dbs(), fake, NOW + 2 * DAY)).toEqual({
@@ -918,12 +925,14 @@ describe("exact outcomes", () => {
       activated: 0,
       checked: 1,
       detached: 1,
+      notices: 0,
     });
     const b = await provisioned(fake);
     fake.setStatus(b.hostname, "moved");
     expect(await checkCustomDomains(dbs(), fake, NOW + 2 * DAY)).toMatchObject({
       activated: 0,
       detached: 1,
+      notices: 0,
     });
     expect(await domainRow(b.hostname)).toMatchObject({ detachReason: "cloudflare_gone" });
   });
@@ -956,6 +965,7 @@ describe("exact outcomes", () => {
       activated: 0,
       checked: 3,
       detached: 2,
+      notices: 0,
     });
     for (const name of names) {
       expect(await domainRow(name), name).toMatchObject({
@@ -1129,6 +1139,7 @@ describe("exact outcomes", () => {
     publishProof(fake, claim);
     const racing = {
       txt: fake.txt,
+      apex: fake.apex,
       hostnames: {
         ...fake.hostnames,
         create: async (hostname: string) => {
@@ -1160,6 +1171,7 @@ describe("exact outcomes", () => {
     fake.activate(b.hostname);
     const racing = {
       txt: fake.txt,
+      apex: fake.apex,
       hostnames: {
         ...fake.hostnames,
         status: async (id: string) => {

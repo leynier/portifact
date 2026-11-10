@@ -249,6 +249,8 @@ async function issue(userId: string, state: string, artifactId = ID, now = NOW) 
     authSessionId: appSession(userId),
     state,
     now,
+    requestedHost: null,
+    contentDomain: "portifact.dev",
   });
   if (!result.ok) throw new Error(`no access for ${userId}: ${result.code}`);
   return result.value.code;
@@ -752,6 +754,8 @@ describe("read session claims", () => {
       authSessionId: appSession(READER),
       state: "state-nonce",
       now: NOW + 2,
+      requestedHost: null,
+      contentDomain: "portifact.dev",
     });
     expect(handoff.ok).toBe(false);
     // The owner too.
@@ -761,6 +765,8 @@ describe("read session claims", () => {
       authSessionId: appSession(OWNER),
       state: "state-nonce",
       now: NOW + 2,
+      requestedHost: null,
+      contentDomain: "portifact.dev",
     });
     expect(owner.ok).toBe(false);
   });

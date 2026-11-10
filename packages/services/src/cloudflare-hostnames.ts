@@ -19,9 +19,16 @@ export interface CustomHostnames {
 /** TXT strings at a name, from a resolver Portifact does not run. */
 export type TxtLookup = (name: string) => Promise<string[]>;
 
+/**
+ * Whether a name is the apex of its own DNS zone (it answers its own SOA record), which cannot
+ * hold the CNAME Cloudflare for SaaS needs. Throws when DNS could not be asked.
+ */
+export type ZoneApexLookup = (hostname: string) => Promise<boolean>;
+
 export interface DomainDeps {
   hostnames: CustomHostnames;
   txt: TxtLookup;
+  apex: ZoneApexLookup;
 }
 
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
@@ -154,6 +161,34 @@ export function dohTxt(fetcher: Fetch): TxtLookup {
   };
 }
 
+/**
+ * Zone apexes through DNS over HTTPS: a name is the apex of a zone exactly when an SOA query for
+ * it answers an SOA record of that same name (a name inside a zone gets its zone's SOA in the
+ * authority section instead, and a CNAME's target zone has another name). This is how names like
+ * `example.co.uk` are refused without the Public Suffix List: whatever the suffix, a registrable
+ * domain is the apex of its zone.
+ */
+export function dohZoneApex(fetcher: Fetch): ZoneApexLookup {
+  return async (hostname) => {
+    const url = `${DOH}?name=${encodeURIComponent(hostname)}&type=SOA`;
+    const response = await fetcher(url, {
+      headers: { accept: "application/dns-json" },
+      redirect: "manual",
+    });
+    if (!response.ok) throw new Error(`DNS over HTTPS: ${response.status}`);
+    const body = (await response.json()) as {
+      Status: number;
+      Answer?: { name: string; type: number }[];
+    };
+    if (body.Status === 3) return false;
+    if (body.Status !== 0) throw new Error(`DNS over HTTPS: rcode ${body.Status}`);
+    const name = hostname.toLowerCase();
+    return (body.Answer ?? []).some(
+      (answer) => answer.type === 6 && answer.name.toLowerCase().replace(/\.$/, "") === name,
+    );
+  };
+}
+
 /** The variables and secret a Worker reads to switch custom domains on. */
 export interface DomainEnv {
   /** Exactly `"true"` switches custom domains on; anything else leaves them unavailable. */
@@ -174,5 +209,9 @@ export function domainDepsFromEnv(env: DomainEnv, fetcher: Fetch): DomainDeps | 
   const zone = env.CF_CONTENT_ZONE_ID ?? "";
   const token = env.CF_HOSTNAMES_TOKEN ?? "";
   if (!ZONE_ID.test(zone) || token.length < 20) return null;
-  return { hostnames: cloudflareHostnames(fetcher, zone, token), txt: dohTxt(fetcher) };
+  return {
+    hostnames: cloudflareHostnames(fetcher, zone, token),
+    txt: dohTxt(fetcher),
+    apex: dohZoneApex(fetcher),
+  };
 }

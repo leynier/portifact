@@ -15,6 +15,7 @@ import {
 import { eq } from "drizzle-orm";
 import { actorOn } from "./actors.ts";
 import { type ViewerBrandFacts, viewerBrandFacts } from "./branding.ts";
+import { activeCustomHost } from "./custom-domains.ts";
 import { checkReadAccess } from "./read-access.ts";
 
 export interface ViewerArtifact {
@@ -26,6 +27,11 @@ export interface ViewerArtifact {
   role: ViewerRole;
   /** The owner's brand for the bar, or null for the default bar (premium plan P9). */
   brand: ViewerBrandFacts | null;
+  /**
+   * The artifact's active custom host, given only to a visitor who may read it (this answer is
+   * one): the viewer frames it instead of the `.dev` origin (`viewerFrameOrigin`).
+   */
+  customHost: string | null;
 }
 
 const unavailable = () =>
@@ -117,5 +123,6 @@ export async function getViewerArtifact(
         input.now,
       ),
     ),
+    customHost: await activeCustomHost(db, input.artifactId),
   });
 }

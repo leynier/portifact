@@ -23,7 +23,7 @@ export function artifactSummary(env: Env, row: ArtifactRow): ArtifactSummary {
     accessMode: row.accessMode,
     annotations: row.annotations,
     currentVersionId: row.currentVersionId,
-    url: contentUrl(env, row.id),
+    url: artifactUrl(env, row),
     expiresAt: isoOrNull(row.expiresAt),
     archivedAt: isoOrNull(row.archivedAt),
     purgeAt: isoOrNull(row.purgeAt),
@@ -31,6 +31,7 @@ export function artifactSummary(env: Env, row: ArtifactRow): ArtifactSummary {
     ...(row.state === "suspended" && row.suspensionReason
       ? { suspension: { reason: row.suspensionReason } }
       : {}),
+    ...(row.customHost ? { customHost: row.customHost } : {}),
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });
@@ -67,6 +68,11 @@ export function lifecycleResult(value: LifecycleOutcome): LifecycleResult {
     purgeAt: isoOrNull(value.purgeAt),
     pinned: value.pinned,
   });
+}
+
+/** The address people should use: the active custom host, otherwise the `.dev` origin. */
+function artifactUrl(env: Env, row: { id: string; customHost: string | null }): string {
+  return row.customHost ? `https://${row.customHost}/` : contentUrl(env, row.id);
 }
 
 function contentUrl(env: Env, artifactId: string): string {

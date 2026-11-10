@@ -12,8 +12,11 @@ import { ArtifactId } from "./core.ts";
 export const CUSTOM_DOMAINS = {
   /** A claim waits this long for its TXT record; it never reaches Cloudflare. */
   claimTtlDays: 7,
-  /** A domain whose certificate is not active this long after the proof is detached (billed). */
-  provisioningMaxDays: 7,
+  /**
+   * A domain whose certificate is not active this long after the proof is detached: Cloudflare
+   * bills a pending hostname, and HTTP validation takes minutes once the CNAME is in place.
+   */
+  provisioningMaxDays: 2,
   /** The TXT proof and Cloudflare's status are checked again this often. */
   recheckHours: 24,
   /** Re-checks the TXT proof may miss in a row before the domain is detached. */

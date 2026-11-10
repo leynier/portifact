@@ -104,6 +104,8 @@ async function issue(userId = READER, state = "state-nonce", artifactId = ID) {
     authSessionId: appSession(userId),
     state,
     now: NOW,
+    requestedHost: null,
+    contentDomain: "portifact.dev",
   });
   if (!result.ok) throw new Error(`issue failed: ${result.code}`);
   return result.value.code;
@@ -119,6 +121,8 @@ const redeem = (
     states: ["state-nonce"],
     now: NOW + 1000,
     ...overrides,
+    host: `${ID}.portifact.dev`,
+    devHost: `${ID}.portifact.dev`,
   });
 
 async function sessionCount(): Promise<number> {
@@ -251,6 +255,8 @@ describe("read handoffs", () => {
       authSessionId: appSession(STRANGER),
       state: "s",
       now: NOW,
+      requestedHost: null,
+      contentDomain: "portifact.dev",
     });
     expect(result).toMatchObject({ ok: false, code: "not_found" });
     expect(await db().select().from(schema.readHandoffs)).toHaveLength(0);

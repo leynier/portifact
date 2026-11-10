@@ -13,6 +13,7 @@ export const OutboxTopic = z.enum([
   "comment_notice",
   "owner_retention",
   "delete_custom_hostname",
+  "domain_notice",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -92,6 +93,16 @@ export const CommentNoticePayload = z.strictObject({
     .max(COMMENT_NOTICE_THREADS_MAX),
 });
 export type CommentNoticePayload = z.infer<typeof CommentNoticePayload>;
+
+/**
+ * Payload of a `domain_notice` job (its subject is the owner): the custom domains a plan that
+ * ended will stop covering, and when (decision 0006, section 7). Hostnames only.
+ */
+export const DomainNoticePayload = z.strictObject({
+  hostnames: z.array(z.string().min(1).max(253)).min(1).max(100),
+  detachAt: z.number().int().nonnegative(),
+});
+export type DomainNoticePayload = z.infer<typeof DomainNoticePayload>;
 
 /**
  * One purged or deleted artifact or account, or a revoked share link, that a restored backup must

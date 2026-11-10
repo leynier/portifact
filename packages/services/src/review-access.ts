@@ -5,8 +5,9 @@
 // revocation or signing out of the app ends review within the claims' lifetime.
 import { REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
-import { fail, ok, type Result } from "@portifact/domain";
+import { devHost, fail, ok, type Result } from "@portifact/domain";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
+import { activeCustomHost } from "./custom-domains.ts";
 import { checkReadAccess, hashSecret, liveAppSession, randomToken } from "./read-access.ts";
 
 const SECOND_MS = 1000;
@@ -34,6 +35,8 @@ export interface IssuedReviewHandoff {
   versionId: string;
   entrypoint: string;
   sessionTag: string;
+  /** Where the code works: the artifact's active custom host, or its `.dev` host. */
+  host: string;
 }
 
 const unavailable = () =>
@@ -78,10 +81,17 @@ export async function issueReviewHandoff(
     authSessionId: string;
     now: number;
     kind?: ReviewKind;
+    /** The deployment's content domain, for the artifact's `.dev` host. */
+    contentDomain: string;
   },
 ): Promise<Result<IssuedReviewHandoff>> {
   const access = await checkReadAccess(db, input);
   if (!access.ok) return access;
+  // The visitor may read the artifact, so the frame is its active custom host when it has one
+  // (`viewerFrameOrigin`), from the tables and never from input; the code works only there.
+  const host =
+    (await activeCustomHost(db, input.artifactId)) ??
+    devHost(input.artifactId, input.contentDomain);
   const [current] = await db
     .select({
       versionId: schema.versions.id,
@@ -108,6 +118,7 @@ export async function issueReviewHandoff(
       kind: input.kind ?? "frame",
       expiresAt,
       createdAt: input.now,
+      host,
     }),
     // Keeps the account's newest unredeemed codes only, the new one included; redeemed codes
     // stay until the maintenance job prunes them.
@@ -117,7 +128,7 @@ export async function issueReviewHandoff(
         sql`${handoff.codeHash} in (select code_hash from review_handoffs where user_id = ${input.userId} and used_at is null order by created_at desc, rowid desc limit -1 offset ${REVIEW_SESSION.openCodesPerUser})`,
       ),
   ]);
-  return ok({ code, expiresAt, sessionTag: await reviewSessionTag(code), ...current });
+  return ok({ code, expiresAt, sessionTag: await reviewSessionTag(code), host, ...current });
 }
 
 /**
@@ -129,7 +140,15 @@ export async function issueReviewHandoff(
  */
 export async function redeemReviewHandoff(
   db: Db,
-  input: { code: string; artifactId: string; kind: ReviewKind; now: number },
+  input: {
+    code: string;
+    artifactId: string;
+    kind: ReviewKind;
+    /** The host the request came on, and the artifact's `.dev` host (codes without a host). */
+    host: string;
+    devHost: string;
+    now: number;
+  },
 ): Promise<Result<RedeemedReview>> {
   const codeHash = await hashSecret(input.code);
   const sessionId = randomToken();
@@ -145,6 +164,7 @@ export async function redeemReviewHandoff(
           eq(handoff.codeHash, codeHash),
           eq(handoff.artifactId, input.artifactId),
           eq(handoff.kind, input.kind),
+          sql`coalesce(${handoff.host}, ${input.devHost}) = ${input.host}`,
           isNull(handoff.usedAt),
           gt(handoff.expiresAt, input.now),
           liveAppSession(db, handoff.authSessionId, input.now),

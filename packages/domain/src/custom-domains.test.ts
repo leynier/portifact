@@ -1,18 +1,26 @@
 import { CUSTOM_DOMAINS, PLANS } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  canonicalLocation,
   checkDomainCount,
   checkProvenDomain,
   claimExpiry,
   classifyHost,
+  devHost,
   domainLimit,
   domainLimitAt,
+  domainNotice,
   domainsOverLimit,
   HOSTNAME_MESSAGES,
+  handoffHost,
   holdsTxt,
+  hostnameRefusal,
+  isBlockedHostname,
+  normalizeBlockName,
   normalizeHostname,
   provisioningExpired,
   recheckDue,
+  viewerFrameOrigin,
 } from "./custom-domains.ts";
 import { entitlements } from "./plans.ts";
 
@@ -245,8 +253,8 @@ describe("the daily check", () => {
   it("is due once a day and gives provisioning a week", () => {
     expect(recheckDue(NOW - 24 * HOUR, NOW)).toBe(true);
     expect(recheckDue(NOW - 24 * HOUR + 1, NOW)).toBe(false);
-    expect(provisioningExpired(NOW - 7 * DAY, NOW)).toBe(true);
-    expect(provisioningExpired(NOW - 7 * DAY + 1, NOW)).toBe(false);
+    expect(provisioningExpired(NOW - 2 * DAY, NOW)).toBe(true);
+    expect(provisioningExpired(NOW - 2 * DAY + 1, NOW)).toBe(false);
     expect(claimExpiry(NOW)).toBe(NOW + 7 * DAY);
   });
 
@@ -255,5 +263,141 @@ describe("the daily check", () => {
     expect(holdsTxt(["portifact-verify=abcd"], "portifact-verify=abc")).toBe(false);
     expect(holdsTxt(["portifact-verify=ab"], "portifact-verify=abc")).toBe(false);
     expect(holdsTxt([], "portifact-verify=abc")).toBe(false);
+  });
+});
+
+describe("the block list", () => {
+  it("blocks a name and every name under it, never a lookalike suffix", () => {
+    const blocked = ["evil.example", "bad.co.uk"];
+    expect(isBlockedHostname("evil.example", blocked)).toBe(true);
+    expect(isBlockedHostname("login.evil.example", blocked)).toBe(true);
+    expect(isBlockedHostname("a.b.bad.co.uk", blocked)).toBe(true);
+    expect(isBlockedHostname("notevil.example", blocked)).toBe(false);
+    expect(isBlockedHostname("evil.example.org", blocked)).toBe(false);
+    expect(isBlockedHostname("docs.example.com", [])).toBe(false);
+    expect(hostnameRefusal("blocked")).toEqual({
+      ok: false,
+      code: "invalid_input",
+      message: HOSTNAME_MESSAGES.blocked,
+    });
+    expect(hostnameRefusal("zone_apex")).toMatchObject({ message: HOSTNAME_MESSAGES.zone_apex });
+  });
+
+  it("normalizes names to block, apex domains included", () => {
+    expect(normalizeBlockName(" Evil.Example. ")).toBe("evil.example");
+    expect(normalizeBlockName("bücher.example")).toBe("xn--bcher-kva.example");
+    expect(normalizeBlockName("a.b.c.example.co.uk")).toBe("a.b.c.example.co.uk");
+    for (const bad of [
+      "",
+      "localhost",
+      "https://x.example",
+      "x.example/path",
+      "1.2.3.4",
+      "[::1]",
+      "a..b",
+      "-a.example",
+      "*.example.com",
+    ]) {
+      expect(normalizeBlockName(bad), bad).toBeNull();
+    }
+  });
+});
+
+describe("where codes and frames may go", () => {
+  const base = { artifactId: "abcdefghij", contentDomain: "portifact.dev" };
+
+  it("sends a code to the `.dev` host or exactly the active custom host", () => {
+    expect(devHost("abcdefghij", "portifact.dev")).toBe("abcdefghij.portifact.dev");
+    expect(handoffHost({ ...base, requested: null, activeHost: "docs.example.com" })).toBe(
+      "abcdefghij.portifact.dev",
+    );
+    expect(
+      handoffHost({ ...base, requested: "docs.example.com", activeHost: "docs.example.com" }),
+    ).toBe("docs.example.com");
+    for (const requested of [
+      "evil.example.com",
+      "abcdefghij.portifact.dev",
+      "DOCS.example.com",
+      "",
+    ]) {
+      expect(
+        handoffHost({ ...base, requested, activeHost: "docs.example.com" }),
+        requested,
+      ).toBeNull();
+    }
+    expect(handoffHost({ ...base, requested: "docs.example.com", activeHost: null })).toBeNull();
+  });
+
+  it("frames the custom host only for a visitor who may read", () => {
+    expect(viewerFrameOrigin({ ...base, readable: true, activeHost: "docs.example.com" })).toBe(
+      "https://docs.example.com",
+    );
+    expect(viewerFrameOrigin({ ...base, readable: false, activeHost: "docs.example.com" })).toBe(
+      "https://abcdefghij.portifact.dev",
+    );
+    expect(viewerFrameOrigin({ ...base, readable: true, activeHost: null })).toBe(
+      "https://abcdefghij.portifact.dev",
+    );
+  });
+});
+
+describe("the canonical redirect", () => {
+  const visit = {
+    onDevHost: true,
+    customHost: "docs.example.com",
+    bar: false,
+    topLevelPage: true,
+    review: false,
+    link: false,
+    pathAndQuery: "/guide/?x=1",
+  };
+
+  it("sends an old `.dev` page visit to the same path on the custom host", () => {
+    expect(canonicalLocation(visit)).toBe("https://docs.example.com/guide/?x=1");
+  });
+
+  it.each([
+    ["the custom host itself", { onDevHost: false }],
+    ["no custom host", { customHost: null }],
+    ["the bar on: the viewer wins", { bar: true }],
+    ["frames, subresources and files", { topLevelPage: false }],
+    ["review mode", { review: true }],
+    ["a share link's session", { link: true }],
+  ])("never for %s", (_label, change) => {
+    expect(canonicalLocation({ ...visit, ...change })).toBeNull();
+  });
+});
+
+describe("the downgrade notice", () => {
+  const domains = [
+    { hostname: "a.example.com", verifiedAt: 1, noticeFor: null },
+    { hostname: "b.example.com", verifiedAt: 2, noticeFor: null },
+  ];
+  const ended = NOW - DAY;
+
+  it("names the domains the end of the grace will detach, and when", () => {
+    expect(domainNotice({ domains, limitNow: 1, limitInGrace: 5, validUntil: ended })).toEqual({
+      hostnames: ["b.example.com"],
+      detachAt: ended + 7 * DAY,
+    });
+    expect(domainNotice({ domains, limitNow: 0, limitInGrace: 2, validUntil: ended })).toEqual({
+      hostnames: ["a.example.com", "b.example.com"],
+      detachAt: ended + 7 * DAY,
+    });
+  });
+
+  it("says nothing when nothing is at risk, outside the grace or once told", () => {
+    expect(domainNotice({ domains, limitNow: 2, limitInGrace: 5, validUntil: ended })).toBeNull();
+    expect(domainNotice({ domains, limitNow: 1, limitInGrace: 1, validUntil: ended })).toBeNull();
+    expect(domainNotice({ domains, limitNow: 1, limitInGrace: 5, validUntil: null })).toBeNull();
+    const told = domains.map((d) => ({ ...d, noticeFor: ended + 7 * DAY }));
+    expect(
+      domainNotice({ domains: told, limitNow: 1, limitInGrace: 5, validUntil: ended }),
+    ).toBeNull();
+    // A notice about another detach time does not count.
+    const earlier = domains.map((d) => ({ ...d, noticeFor: ended }));
+    expect(
+      domainNotice({ domains: earlier, limitNow: 1, limitInGrace: 5, validUntil: ended }),
+    ).not.toBeNull();
   });
 });
