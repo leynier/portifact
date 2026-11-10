@@ -287,6 +287,9 @@ describe("the block list", () => {
     expect(normalizeBlockName(" Evil.Example. ")).toBe("evil.example");
     expect(normalizeBlockName("bücher.example")).toBe("xn--bcher-kva.example");
     expect(normalizeBlockName("a.b.c.example.co.uk")).toBe("a.b.c.example.co.uk");
+    // A last label with digits is a name unless it is only digits.
+    expect(normalizeBlockName("example.a1")).toBe("example.a1");
+    expect(normalizeBlockName("example.1a")).toBe("example.1a");
     for (const bad of [
       "",
       "localhost",
@@ -399,5 +402,13 @@ describe("the downgrade notice", () => {
     expect(
       domainNotice({ domains: earlier, limitNow: 1, limitInGrace: 5, validUntil: ended }),
     ).not.toBeNull();
+  });
+});
+
+describe("hostname messages", () => {
+  it("say something different for every refusal", () => {
+    const messages = Object.values(HOSTNAME_MESSAGES);
+    expect(messages.every((message) => message.length > 20)).toBe(true);
+    expect(new Set(messages).size).toBe(messages.length);
   });
 });

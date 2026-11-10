@@ -25,7 +25,12 @@ import {
   scheduleDomainNotices,
   sendDomainNotice,
 } from "../src/domain-notices.ts";
-import { emailsSentInCycle, suppressEmail } from "../src/email.ts";
+import {
+  emailsSentInCycle,
+  isEmailSuppressed,
+  RecipientSuppressedError,
+  suppressEmail,
+} from "../src/email.ts";
 import { runJob } from "../src/outbox.ts";
 import { issueReadHandoff, redeemReadHandoff } from "../src/read-access.ts";
 import { issueReviewHandoff, redeemReviewHandoff } from "../src/review-access.ts";
@@ -484,5 +489,98 @@ describe("the downgrade notice", () => {
     const { sent, send } = notifier();
     expect(await sendDomainNotice(db(), job, NOW, send)).toBe("stale");
     expect(sent).toEqual([]);
+  });
+
+  it("leaves out domains already detaching and ones removed before the job runs", async () => {
+    const { names } = await lapsed();
+    await db()
+      .update(schema.customDomains)
+      .set({ state: "detaching" })
+      .where(eq(schema.customDomains.hostname, names[2] as string));
+    await scheduleDomainNotices(db(), NOW);
+    const [job] = await jobs();
+    if (!job) throw new Error("no job");
+    expect(job.payload).toMatchObject({ hostnames: names.slice(0, 2) });
+    await db()
+      .delete(schema.customDomains)
+      .where(eq(schema.customDomains.hostname, names[0] as string));
+    const { sent, send } = notifier();
+    expect(await sendDomainNotice(db(), job, NOW, send)).toBe("done");
+    expect(sent.map((notice) => notice.hostnames)).toEqual([[names[1]]]);
+  });
+
+  it("schedules nothing for an owner whose domains are all detaching", async () => {
+    await lapsed();
+    await db().update(schema.customDomains).set({ state: "detaching" });
+    expect(await scheduleDomainNotices(db(), NOW)).toBe(0);
+    expect(await jobs()).toEqual([]);
+  });
+
+  it("logs only the reason it skips: a bad payload, an owner with nothing at risk, a provider suppression", async () => {
+    const { owner } = await lapsed();
+    await scheduleDomainNotices(db(), NOW);
+    const [job] = await jobs();
+    if (!job) throw new Error("no job");
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const reasons = () =>
+      log.mock.calls.map(
+        (call) => JSON.parse(String(call[0])) as { event: string; reason: string },
+      );
+    const { sent, send } = notifier();
+    try {
+      const put = async (row: Partial<typeof job>) => {
+        const [inserted] = await db()
+          .insert(schema.outbox)
+          .values({ ...job, id: undefined, ...row })
+          .returning();
+        return inserted as typeof job;
+      };
+      expect(
+        await sendDomainNotice(db(), await put({ payload: { hostnames: [] } }), NOW, send),
+      ).toBe("stale");
+      // A payload stored as text reads the same as one stored as JSON.
+      const text = await put({ payload: JSON.stringify(job.payload) });
+      expect(
+        await sendDomainNotice(db(), { ...text, payload: JSON.stringify(job.payload) }, NOW, send),
+      ).toBe("done");
+      expect(sent).toHaveLength(1);
+      expect(await sendDomainNotice(db(), await put({ subject: "nobody" }), NOW, send)).toBe(
+        "stale",
+      );
+      const refused: DomainNotifier = {
+        async send() {
+          throw new RecipientSuppressedError();
+        },
+      };
+      expect(await sendDomainNotice(db(), job, NOW, refused)).toBe("stale");
+      expect(await isEmailSuppressed(db(), owner.email, NOW)).toBe(true);
+      expect(await jobs()).toEqual([]);
+      expect(reasons()).toEqual([
+        { event: "domain_notice_skipped", reason: "renewed" },
+        { event: "domain_notice_skipped", reason: "renewed" },
+        { event: "domain_notice_skipped", reason: "suppressed" },
+      ]);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("logs the capacity as the reason when the cycle's emails run out", async () => {
+    await lapsed();
+    await scheduleDomainNotices(db(), NOW);
+    const [job] = await jobs();
+    if (!job) throw new Error("no job");
+    await db()
+      .insert(schema.emailCounters)
+      .values({ day: Date.UTC(2026, 10, 8), sent: 20_000 });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await sendDomainNotice(db(), job, NOW, notifier().send)).toBe("stale");
+      expect(log.mock.calls.map((call) => JSON.parse(String(call[0])))).toEqual([
+        { event: "domain_notice_skipped", reason: "capacity" },
+      ]);
+    } finally {
+      log.mockRestore();
+    }
   });
 });

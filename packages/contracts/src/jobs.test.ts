@@ -3,6 +3,7 @@ import {
   COMMENT_NOTICE_THREADS_MAX,
   CommentNoticePayload,
   DeleteObjectsPayload,
+  DomainNoticePayload,
   EXPIRY_NOTICE_ARTIFACTS_MAX,
   ExpiryNoticePayload,
   JobMessage,
@@ -99,5 +100,30 @@ describe("CommentNoticePayload", () => {
 
   it("is a topic of the outbox", () => {
     expect(OutboxTopic.parse("comment_notice")).toBe("comment_notice");
+  });
+});
+
+describe("DomainNoticePayload", () => {
+  const ok = { hostnames: ["docs.example.com"], detachAt: 1_800_000_000_000 };
+
+  it("carries hostnames and the detach time only", () => {
+    expect(DomainNoticePayload.parse(ok)).toEqual(ok);
+    expect(DomainNoticePayload.safeParse({ ...ok, text: "x" }).success).toBe(false);
+  });
+
+  it("refuses empty, oversized and malformed lists and times", () => {
+    for (const hostnames of [[], [""], ["a".repeat(254)], Array(101).fill("a.example")]) {
+      expect(DomainNoticePayload.safeParse({ ...ok, hostnames }).success).toBe(false);
+    }
+    expect(DomainNoticePayload.safeParse({ ...ok, hostnames: ["a".repeat(253)] }).success).toBe(
+      true,
+    );
+    expect(
+      DomainNoticePayload.safeParse({ ...ok, hostnames: Array(100).fill("a.example") }).success,
+    ).toBe(true);
+    for (const detachAt of [-1, 1.5]) {
+      expect(DomainNoticePayload.safeParse({ ...ok, detachAt }).success).toBe(false);
+    }
+    expect(DomainNoticePayload.safeParse({ ...ok, detachAt: 0 }).success).toBe(true);
   });
 });
