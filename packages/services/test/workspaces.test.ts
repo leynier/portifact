@@ -201,6 +201,7 @@ describe("resolveActor", () => {
         region: "default",
         // The policies come with the membership (decision 0015).
         policy: DEFAULT_POLICY,
+        domainVerified: true,
       });
     }
   });

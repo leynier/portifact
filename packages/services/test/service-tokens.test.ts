@@ -374,6 +374,7 @@ describe("the token's actor", () => {
       role: "editor",
       region: "default",
       policy: DEFAULT_POLICY,
+      domainVerified: true,
       token: {
         restriction: { kind: "none" },
         scopes: ["artifacts:read", "artifacts:write"],
