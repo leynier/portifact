@@ -145,6 +145,8 @@ export const INVITATION_LIMITS = {
   perWorkspacePerDay: { max: 50, windowSeconds: 86_400 },
   /** Invitations one admin sends in an hour, across workspaces. */
   perAdminPerHour: { max: 20, windowSeconds: 3_600 },
+  /** Invitations one address receives in a day, across workspaces (keyed by a hash of it). */
+  perRecipientPerDay: { max: 5, windowSeconds: 86_400 },
 } as const;
 
 export const InvitationCreate = z.strictObject({ email: Email, role: WorkspaceRole });

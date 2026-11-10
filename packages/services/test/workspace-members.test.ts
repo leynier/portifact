@@ -230,7 +230,9 @@ describe("members", () => {
       }),
     ]);
     const outcomes = [first, second].map((r) => (r.ok ? "ok" : r.code)).sort();
-    expect(outcomes).toEqual(["ok", "sole_workspace_admin"]);
+    // The second finds its caller demoted by the first (or, from the database, no admin left).
+    expect(outcomes.filter((o) => o === "ok")).toHaveLength(1);
+    expect(["forbidden", "sole_workspace_admin"]).toContain(outcomes.find((o) => o !== "ok"));
     const roles = [await roleOf(t, t.admin.id), await roleOf(t, t.editor.id)].sort();
     expect(roles).toEqual(["admin", "member"]);
   });
@@ -310,7 +312,7 @@ describe("invitations", () => {
     );
   });
 
-  it("refuse a member's address and a suppressed address, sending nothing", async () => {
+  it("refuse a member's address, and send nothing to a suppressed one while answering the same", async () => {
     const t = await team();
     const member = await invite(t, t.member.email.toUpperCase());
     expect(member.result).toEqual({
@@ -323,9 +325,11 @@ describe("invitations", () => {
       reason: "hard_bounce",
       now: NOW,
     });
+    const before = await sentEmails();
     const suppressed = await invite(t, "bounced@example.test");
-    expect(suppressed.result).toMatchObject({ ok: false, code: "email_suppressed" });
+    expect(suppressed.result).toMatchObject({ ok: true, value: { email: "bounced@example.test" } });
     expect([...member.sender.sent, ...suppressed.sender.sent]).toEqual([]);
+    expect(await sentEmails()).toBe(before);
   });
 
   it("stop with the month's email capacity, like expiry notices", async () => {
@@ -339,7 +343,7 @@ describe("invitations", () => {
     expect(sender.sent).toEqual([]);
   });
 
-  it("are withdrawn when the email cannot be sent", async () => {
+  it("are withdrawn when the email cannot be sent, and kept when the provider refuses the address", async () => {
     const t = await team();
     const failing: InvitationSender = {
       send: async () => Promise.reject(new Error("email delivery failed")),
@@ -351,14 +355,16 @@ describe("invitations", () => {
       send: async () => Promise.reject(new RecipientSuppressedError()),
     };
     const refused = await invite(t, "gone@example.test", "member", { sender: refusing });
-    expect(refused.result).toMatchObject({ ok: false, code: "email_suppressed" });
+    expect(refused.result).toMatchObject({ ok: true });
     expect(
-      value(await listInvitations(global(), { userId: t.admin.id, slug: t.slug, now: NOW })).items,
-    ).toEqual([]);
-    // The provider's refusal suppresses the address here too.
-    expect((await invite(t, "gone@example.test")).result).toMatchObject({
-      code: "email_suppressed",
-    });
+      value(
+        await listInvitations(global(), { userId: t.admin.id, slug: t.slug, now: NOW }),
+      ).items.map((i) => i.email),
+    ).toEqual(["gone@example.test"]);
+    // The provider's refusal suppresses the address here too: the next one sends nothing.
+    const again = await invite(t, "gone@example.test");
+    expect(again.result).toMatchObject({ ok: true });
+    expect(again.sender.sent).toEqual([]);
   });
 
   it("are limited per admin", async () => {

@@ -10,7 +10,7 @@ import {
   checkInvitee,
   checkNoticeCapacity,
   checkSeat,
-  EMAIL_SUPPRESSED_MESSAGE,
+  entitlements,
   fail,
   invitationExpiry,
   MISSING_INVITATION,
@@ -18,10 +18,11 @@ import {
   ok,
   type Result,
 } from "@portifact/domain";
-import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, lte, type SQL, sql } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn } from "./actors.ts";
 import {
+  emailHash,
   emailsSentInCycle,
   isEmailSuppressed,
   RecipientSuppressedError,
@@ -29,12 +30,12 @@ import {
   suppressEmail,
 } from "./email.ts";
 import { hex } from "./objects.ts";
-import { ownerEntitlements } from "./plans.ts";
 import {
   missingWorkspace,
   regionOf,
   type Seats,
   seatsUsedSql,
+  stillAdmin,
   type UserWorkspace,
   workspaceBySlug,
   workspaceSeats,
@@ -110,12 +111,49 @@ export interface InviteInput {
 }
 
 /**
+ * The seat limit of a workspace at `now`, with a condition that holds only while its plan row is
+ * the one read: a write that takes a seat is conditioned on it, so a plan lowered or removed
+ * between the read and the batch makes it a no-op instead of applying the old limit.
+ */
+async function seatLimit(global: GlobalDb, workspaceId: string, now: number) {
+  const p = schema.ownerPlans;
+  const [row] = await global
+    .select({
+      plan: p.plan,
+      seats: p.seats,
+      validUntil: p.validUntil,
+      overrides: p.overrides,
+      updatedAt: p.updatedAt,
+    })
+    .from(p)
+    .where(eq(p.ownerId, workspaceId))
+    .limit(1);
+  const guard = row
+    ? sql`exists (select 1 from ${p} where ${p.ownerId} = ${workspaceId} and ${p.updatedAt} = ${row.updatedAt})`
+    : sql`not exists (select 1 from ${p} where ${p.ownerId} = ${workspaceId})`;
+  return { limit: entitlements(row ?? null, now).seats, guard };
+}
+
+/** Pending invitations to this address that a new one would replace. */
+function replacedSql(workspaceId: string, email: string, now: number): SQL {
+  return sql`(select count(*) from ${inv} where ${inv.workspaceId} = ${workspaceId} and ${inv.email} = ${email} and ${inv.expiresAt} > ${now})`;
+}
+
+function notSent(reason: "suppressed") {
+  // Only the reason: never the address or the workspace.
+  console.log(JSON.stringify({ event: "invitation_not_sent", reason }));
+}
+
+/**
  * Invites an address to a workspace and emails it the link, for an admin. Refused for a member's
- * address, a suppressed address, a full month of emails (the same guard as expiry notices), a
- * workspace without a free seat and past the rate limits (per workspace and per admin). A new
- * invitation to the same address replaces the pending one. When the email cannot be sent the
- * invitation is withdrawn, so nothing pending exists that nobody received. Every email sent is
- * counted.
+ * address, a full month of emails (the same guard as expiry notices), a workspace without a free
+ * seat and past the rate limits (per workspace, per admin and per recipient, the last keyed by a
+ * hash of the address). A new invitation to the same address replaces the pending one in the
+ * same statement, so a refused one keeps the earlier. A suppressed address gets the same answer
+ * as any other, so admins cannot probe suppression: the invitation is stored, nothing is sent
+ * and it expires unanswered. A send that fails for another reason withdraws it. Every email sent
+ * is counted. The batch holds only while the caller is still an admin and the plan row is the
+ * one the seat limit came from.
  */
 export async function inviteMember(
   global: GlobalDb,
@@ -134,9 +172,6 @@ export async function inviteMember(
     .where(and(eq(m.workspaceId, workspace.id), sql`lower(${schema.users.email}) = ${email}`))
     .limit(1);
   if (member) return fail("invalid_input", "That address already belongs to a member.");
-  if (await isEmailSuppressed(global, email, input.now)) {
-    return fail("email_suppressed", EMAIL_SUPPRESSED_MESSAGE);
-  }
   if (!checkNoticeCapacity(await emailsSentInCycle(global, input.now)).ok) {
     return fail(
       "capacity_unavailable",
@@ -144,55 +179,79 @@ export async function inviteMember(
     );
   }
 
-  const limit = (await ownerEntitlements(global, workspace.id, input.now)).seats;
-  const replaced = sql`(select count(*) from ${inv} where ${inv.workspaceId} = ${workspace.id} and ${inv.email} = ${email} and ${inv.expiresAt} > ${input.now})`;
-  const [seat] = await global.all<{ used: number; replaced: number }>(
-    sql`select ${seatsUsedSql(workspace.id, input.now, true)} as used, ${replaced} as replaced`,
+  const { limit, guard: planUnchanged } = await seatLimit(global, workspace.id, input.now);
+  const replaced = replacedSql(workspace.id, email, input.now);
+  const [seat] = await global.all<{ used: number }>(
+    sql`select ${seatsUsedSql(workspace.id, input.now, true)} - ${replaced} as used`,
   );
-  const used = Number(seat?.used ?? 0) - Number(seat?.replaced ?? 0);
-  const free = checkSeat(used, limit);
+  const free = checkSeat(Number(seat?.used ?? 0), limit);
   if (!free.ok) return free;
 
   const client = global.$client;
-  const perWorkspace = INVITATION_LIMITS.perWorkspacePerDay;
-  const perAdmin = INVITATION_LIMITS.perAdminPerHour;
-  const workspaceHits = await hitRateLimit(
-    client,
-    `invitations:workspace:${workspace.id}`,
-    perWorkspace.windowSeconds * 1000,
-    input.now,
-  );
-  const adminHits = await hitRateLimit(
-    client,
-    `invitations:admin:${input.userId}`,
-    perAdmin.windowSeconds * 1000,
-    input.now,
-  );
-  if (workspaceHits.count > perWorkspace.max || adminHits.count > perAdmin.max) {
-    return fail("rate_limited", "Too many invitations. Wait a while and try again.");
+  const limits: [string, { max: number; windowSeconds: number }][] = [
+    [`invitations:workspace:${workspace.id}`, INVITATION_LIMITS.perWorkspacePerDay],
+    [`invitations:admin:${input.userId}`, INVITATION_LIMITS.perAdminPerHour],
+    [`invitations:recipient:${await emailHash(email)}`, INVITATION_LIMITS.perRecipientPerDay],
+  ];
+  let limited = false;
+  for (const [key, rule] of limits) {
+    const hits = await hitRateLimit(client, key, rule.windowSeconds * 1000, input.now);
+    if (hits.count > rule.max) limited = true;
   }
+  if (limited) return fail("rate_limited", "Too many invitations. Wait a while and try again.");
 
   const token = newInvitationToken();
   const id = newInvitationId();
   const expiresAt = invitationExpiry(input.now);
-  const [, inserted] = (await global.batch([
-    global.delete(inv).where(and(eq(inv.workspaceId, workspace.id), eq(inv.email, email))),
-    global
-      .insert(inv)
-      // Columns in schema order: id, workspace, email, role, token hash, invited by, created, expires.
-      .select(
-        sql`select ${id}, ${workspace.id}, ${email}, ${input.role}, ${await invitationTokenHash(token)}, ${input.userId}, ${input.now}, ${expiresAt} where ${seatsUsedSql(workspace.id, input.now, true)} < ${limit} and exists (select 1 from ${w} where ${w.id} = ${workspace.id})`,
-      )
-      .returning({ id: inv.id }),
-  ])) as [unknown, unknown[]];
-  if (inserted.length === 0) return checkSeat(limit, limit) as Result<never>;
+  const tokenHash = await invitationTokenHash(token);
+  const inserted = await global
+    .insert(inv)
+    // Columns in schema order: id, workspace, email, role, token hash, invited by, created, expires.
+    .select(
+      sql`select ${id}, ${workspace.id}, ${email}, ${input.role}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt} where ${seatsUsedSql(workspace.id, input.now, true)} - ${replaced} < ${limit} and ${stillAdmin(workspace.id, input.userId)} and ${planUnchanged}`,
+    )
+    .onConflictDoUpdate({
+      target: [inv.workspaceId, inv.email],
+      set: {
+        id: sql`excluded.id`,
+        role: sql`excluded.role`,
+        tokenHash: sql`excluded.token_hash`,
+        invitedBy: sql`excluded.invited_by`,
+        createdAt: sql`excluded.created_at`,
+        expiresAt: sql`excluded.expires_at`,
+      },
+    })
+    .returning({ id: inv.id });
+  if (inserted.length === 0) {
+    const again = await adminScope(global, input.userId, input.slug);
+    if (!again.ok) return again;
+    const now = await seatLimit(global, workspace.id, input.now);
+    const [current] = await global.all<{ used: number }>(
+      sql`select ${seatsUsedSql(workspace.id, input.now, true)} - ${replaced} as used`,
+    );
+    const seats = checkSeat(Number(current?.used ?? 0), now.limit);
+    return seats.ok
+      ? fail("version_conflict", "The workspace changed meanwhile. Try again.")
+      : (seats as Result<never>);
+  }
 
   const [inviter] = await global
     .select({ name: schema.users.name })
     .from(schema.users)
     .where(eq(schema.users.id, input.userId))
     .limit(1);
-  const withdraw = () => global.delete(inv).where(eq(inv.id, id));
+  const invitation = {
+    id,
+    email,
+    role: input.role,
+    invitedBy: inviter?.name ?? null,
+    createdAt: input.now,
+    expiresAt,
+  };
+  if (await isEmailSuppressed(global, email, input.now)) {
+    notSent("suppressed");
+    return ok(invitation);
+  }
   try {
     await sender.send({
       to: email,
@@ -204,22 +263,16 @@ export async function inviteMember(
       locale: (await loadSettings(global, input.userId)).locale,
     });
   } catch (error) {
-    await withdraw();
     if (error instanceof RecipientSuppressedError) {
       await suppressEmail(global, { email, reason: "provider", now: input.now });
-      return fail("email_suppressed", EMAIL_SUPPRESSED_MESSAGE);
+      notSent("suppressed");
+      return ok(invitation);
     }
+    await global.delete(inv).where(and(eq(inv.id, id), eq(inv.tokenHash, tokenHash)));
     throw error;
   }
   await recordEmailsSent(global, input.now);
-  return ok({
-    id,
-    email,
-    role: input.role,
-    invitedBy: inviter?.name ?? null,
-    createdAt: input.now,
-    expiresAt,
-  });
+  return ok(invitation);
 }
 
 /** A workspace's pending invitations and its seats, for an admin. */
@@ -254,9 +307,17 @@ export async function revokeInvitation(
   if (!scope.ok) return scope;
   const deleted = await global
     .delete(inv)
-    .where(and(eq(inv.id, input.invitationId), eq(inv.workspaceId, scope.value.id)))
+    .where(
+      and(
+        eq(inv.id, input.invitationId),
+        eq(inv.workspaceId, scope.value.id),
+        stillAdmin(scope.value.id, input.userId),
+      ),
+    )
     .returning({ id: inv.id });
-  return deleted.length === 1 ? ok({ revoked: true }) : fail("not_found", "Invitation not found.");
+  if (deleted.length === 1) return ok({ revoked: true });
+  const again = await adminScope(global, input.userId, input.slug);
+  return again.ok ? fail("not_found", "Invitation not found.") : again;
 }
 
 export interface IncomingInvitation {
@@ -348,7 +409,11 @@ export async function acceptInvitation(
   const found = await inviteeScope(global, input);
   if (!found.ok) return found;
   const invitation = found.value;
-  const limit = (await ownerEntitlements(global, invitation.workspaceId, input.now)).seats;
+  const { limit, guard: planUnchanged } = await seatLimit(
+    global,
+    invitation.workspaceId,
+    input.now,
+  );
   const pending = sql`exists (select 1 from ${inv} where ${inv.id} = ${invitation.id} and ${inv.expiresAt} > ${input.now})`;
   const member = sql`exists (select 1 from ${m} where ${m.workspaceId} = ${invitation.workspaceId} and ${m.userId} = ${input.userId})`;
   const active = sql`not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${input.userId})`;
@@ -357,7 +422,7 @@ export async function acceptInvitation(
       .insert(m)
       // Columns in schema order: workspace, user, role, created at, updated at.
       .select(
-        sql`select ${invitation.workspaceId}, ${input.userId}, ${invitation.role}, ${input.now}, ${input.now} where ${pending} and ${active} and not ${member} and ${seatsUsedSql(invitation.workspaceId, input.now, false)} < ${limit}`,
+        sql`select ${invitation.workspaceId}, ${input.userId}, ${invitation.role}, ${input.now}, ${input.now} where ${pending} and ${active} and not ${member} and ${seatsUsedSql(invitation.workspaceId, input.now, false)} < ${limit} and ${planUnchanged}`,
       )
       .onConflictDoNothing()
       .returning({ userId: m.userId }),
@@ -369,7 +434,15 @@ export async function acceptInvitation(
   if (inserted.length === 0 && deleted.length === 0) {
     const still = await findInvitation(global, { invitationId: invitation.id });
     if (!still || still.expiresAt <= input.now) return fail("not_found", MISSING_INVITATION);
-    return checkSeat(limit, limit) as Result<never>;
+    // The seats or the plan changed meanwhile: answer from what holds now.
+    const now = await seatLimit(global, invitation.workspaceId, input.now);
+    const [current] = await global.all<{ used: number }>(
+      sql`select ${seatsUsedSql(invitation.workspaceId, input.now, false)} as used`,
+    );
+    const seats = checkSeat(Number(current?.used ?? 0), now.limit);
+    return seats.ok
+      ? fail("version_conflict", "The workspace changed meanwhile. Try again.")
+      : (seats as Result<never>);
   }
   const [row] = await global
     .select({

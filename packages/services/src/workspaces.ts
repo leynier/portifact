@@ -264,6 +264,26 @@ async function membership(global: GlobalDb, workspaceId: string, userId: string)
  * conditioned on the role the request read, so of two concurrent changes the later one finds a
  * different role and is refused as a conflict, and the trigger refuses whatever leaves no admin.
  */
+/**
+ * The caller is still an admin of the workspace: member writes are conditioned on it inside their
+ * batch, so an admin demoted or removed after the read changes nothing.
+ */
+export function stillAdmin(workspaceId: string, userId: string): SQL {
+  return sql`exists (select 1 from ${m} as "caller" where "caller"."workspace_id" = ${workspaceId} and "caller"."user_id" = ${userId} and "caller"."role" = 'admin')`;
+}
+
+/** After a write that changed nothing: the caller's current answer, or a conflict. */
+async function refusedWrite(
+  global: GlobalDb,
+  userId: string,
+  slug: string,
+  action: Parameters<typeof authorize>[1],
+  conflict: () => Result<never>,
+): Promise<Result<never>> {
+  const again = await scoped(global, userId, slug, action);
+  return again.ok ? conflict() : again;
+}
+
 export async function changeMemberRole(
   global: GlobalDb,
   input: { userId: string; slug: string; memberId: string; role: WorkspaceRole; now: number },
@@ -286,6 +306,7 @@ export async function changeMemberRole(
               eq(m.workspaceId, workspace.id),
               eq(m.userId, input.memberId),
               eq(m.role, current.role),
+              stillAdmin(workspace.id, input.userId),
             ),
           )
           .returning({ userId: m.userId }),
@@ -293,7 +314,9 @@ export async function changeMemberRole(
     );
     if (!updated.ok) return updated;
     if (updated.value.length === 0) {
-      return fail("version_conflict", "The member changed meanwhile. Reload and try again.");
+      return refusedWrite(global, input.userId, input.slug, "members", () =>
+        fail("version_conflict", "The member changed meanwhile. Reload and try again."),
+      );
     }
   }
   const row = (await members(global, workspace.id)).find((one) => one.userId === input.memberId);
@@ -307,12 +330,17 @@ export async function removeMember(
 ): Promise<Result<{ removed: true }>> {
   const found = await scoped(global, input.userId, input.slug, "members");
   if (!found.ok) return found;
-  return dropMember(
+  const workspaceId = found.value.workspace.id;
+  const removed = await dropMember(
     global,
-    found.value.workspace.id,
+    workspaceId,
     input.memberId,
     input.memberId === input.userId,
+    stillAdmin(workspaceId, input.userId),
   );
+  if (removed.ok || removed.code !== "not_found") return removed;
+  // Nothing removed: the caller may have lost the role meanwhile.
+  return refusedWrite(global, input.userId, input.slug, "members", () => removed);
 }
 
 /** Leaves a workspace, for any member; the last admin cannot leave. */
@@ -322,7 +350,7 @@ export async function leaveWorkspace(
 ): Promise<Result<{ removed: true }>> {
   const found = await scoped(global, input.userId, input.slug, "read");
   if (!found.ok) return found;
-  return dropMember(global, found.value.workspace.id, input.userId, true);
+  return dropMember(global, found.value.workspace.id, input.userId, true, sql`1`);
 }
 
 async function dropMember(
@@ -330,6 +358,7 @@ async function dropMember(
   workspaceId: string,
   memberId: string,
   leaving: boolean,
+  callerGuard: SQL,
 ): Promise<Result<{ removed: true }>> {
   const current = await membership(global, workspaceId, memberId);
   if (!current) return missingMember();
@@ -339,7 +368,7 @@ async function dropMember(
     () =>
       global
         .delete(m)
-        .where(and(eq(m.workspaceId, workspaceId), eq(m.userId, memberId)))
+        .where(and(eq(m.workspaceId, workspaceId), eq(m.userId, memberId), callerGuard))
         .returning({ userId: m.userId }),
     () => checkRemoval("admin", 1, leaving) as Result<never>,
   );

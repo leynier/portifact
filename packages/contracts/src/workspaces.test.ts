@@ -124,6 +124,7 @@ describe("workspace contracts", () => {
       ttlDays: 7,
       perWorkspacePerDay: { max: 50, windowSeconds: 86_400 },
       perAdminPerHour: { max: 20, windowSeconds: 3_600 },
+      perRecipientPerDay: { max: 5, windowSeconds: 86_400 },
     });
   });
 
