@@ -1,8 +1,10 @@
 // Brazilian Portuguese messages of the dashboard, with "você", with the same keys as en.ts.
 // Titles and buttons have no trailing period; no em dashes.
+import { planTextPtBR } from "../../plans/i18n/pt-br.ts";
 import type { Catalog } from "./en.ts";
 
 export const ptBR = {
+  ...planTextPtBR,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Pular para o conteúdo",
@@ -1609,6 +1611,20 @@ export const ptBR = {
   "webhooks.personalOnly.title": "Os webhooks ficam no seu espaço pessoal",
   "webhooks.personalOnly.body":
     "Por enquanto, os webhooks só enviam eventos dos artifacts do seu espaço pessoal. Mude para ele para gerenciá-los.",
+  "shell.planLink": "Plano",
+  "plan.title": "Plano",
+  "plan.description": "O plano do seu espaço pessoal, seus limites e recursos, e os outros planos.",
+  "plan.descriptionWorkspace":
+    "O plano de {workspace}, seus limites e recursos, e os outros planos.",
+  "plan.current.hint": "O que este espaço tem agora. A página Uso mostra quanto disso está em uso.",
+  "plan.current.limits": "Limites do plano atual",
+  "plan.current.usageLink": "Ver o uso",
+  "plan.loading": "Carregando o plano",
+  "plan.error": "Não foi possível carregar o plano.",
+  "plan.compare.section": "Todos os planos",
+  "plan.requestNote": "Só os administradores de {workspace} podem solicitar outro plano.",
+  "plan.hidden": "O plano de {workspace} é mostrado aos editores e administradores.",
+  "usage.plan.compare": "Comparar planos",
   "shell.auditLink": "Auditoria",
   "audit.title": "Auditoria",
   "audit.description":

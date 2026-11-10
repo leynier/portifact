@@ -1,8 +1,10 @@
 // Spanish messages of the dashboard (neutral Latin American Spanish), with the same keys as en.ts.
 // Titles and buttons have no trailing period; no em dashes.
+import { planTextEs } from "../../plans/i18n/es.ts";
 import type { Catalog } from "./en.ts";
 
 export const es = {
+  ...planTextEs,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Saltar al contenido",
@@ -1626,6 +1628,21 @@ export const es = {
   "webhooks.personalOnly.title": "Los webhooks se configuran en tu espacio personal",
   "webhooks.personalOnly.body":
     "Por ahora, los webhooks solo envían eventos de los artifacts de tu espacio personal. Cambia a él para gestionarlos.",
+  "shell.planLink": "Plan",
+  "plan.title": "Plan",
+  "plan.description":
+    "El plan de tu espacio personal, sus límites y funciones, y los demás planes.",
+  "plan.descriptionWorkspace":
+    "El plan de {workspace}, sus límites y funciones, y los demás planes.",
+  "plan.current.hint": "Lo que tiene este espacio ahora. La página Uso muestra cuánto se usa.",
+  "plan.current.limits": "Límites del plan actual",
+  "plan.current.usageLink": "Ver el uso",
+  "plan.loading": "Cargando el plan",
+  "plan.error": "No se pudo cargar el plan.",
+  "plan.compare.section": "Todos los planes",
+  "plan.requestNote": "Solo los administradores de {workspace} pueden solicitar otro plan.",
+  "plan.hidden": "El plan de {workspace} se muestra a sus editores y administradores.",
+  "usage.plan.compare": "Comparar planes",
   "shell.auditLink": "Auditoría",
   "audit.title": "Auditoría",
   "audit.description": "Quién cambió qué en este espacio. Los cambios se guardan {days} días.",

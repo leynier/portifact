@@ -65,6 +65,7 @@ export { LoadingState, type LoadingStateProps } from "./components/loading-state
 export { Menu, type MenuItem, type MenuProps } from "./components/menu.tsx";
 export { Meter, type MeterProps } from "./components/meter.tsx";
 export { Panel, type PanelProps } from "./components/panel.tsx";
+export { PlanCard, type PlanCardProps } from "./components/plan-card.tsx";
 export { PreviewFrame, type PreviewFrameProps } from "./components/preview-frame.tsx";
 export { ProgressBar, type ProgressBarProps } from "./components/progress.tsx";
 export { ResizeHandle, type ResizeHandleProps } from "./components/resize-handle.tsx";
@@ -88,6 +89,7 @@ export {
   TableHeaderCell,
   type TableProps,
   TableRow,
+  TableRowHeader,
   type TableRowProps,
 } from "./components/table.tsx";
 export {

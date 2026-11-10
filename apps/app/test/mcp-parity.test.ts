@@ -2119,6 +2119,76 @@ describe("API and MCP parity for annotations", () => {
     ).toBe(200);
     expect((await b.apiCall(base)).status).toBe(404);
   });
+
+  it("lists a space's open feedback the same way: items, pages, filters, refusals and scope", async () => {
+    const { owner, reader, id, versionId, base } = await reviewed("parity-feedback");
+    await owner.apiCall(`${base}/mode`, json("PUT", { mode: "open" }));
+    const fromReader = await apiThread(reader, base, versionId, "From the reader");
+    nextMinute();
+    const fromOwner = await apiThread(owner, base, versionId, "From the owner");
+    const same = async (
+      who: Both,
+      query: Record<string, string>,
+      args: Record<string, unknown>,
+    ) => {
+      const viaApi = await fromApi(
+        await who.apiCall(`/api/v1/feedback?${new URLSearchParams(query)}`),
+      );
+      expect(fromTool(await who.tool("list_open_feedback", args))).toEqual(viaApi);
+      return viaApi;
+    };
+
+    const all = await same(owner, {}, {});
+    expect(all.body).toMatchObject({
+      owner: { kind: "personal" },
+      role: "owner",
+      nextCursor: null,
+      items: [
+        {
+          artifact: { id, name: "Plan", type: "markdown", url: `https://${id}.portifact.dev/` },
+          thread: { id: fromOwner.id },
+          counts: { messages: 1, artifactOpenThreads: 2 },
+        },
+        { thread: { id: fromReader.id } },
+      ],
+    });
+    // The thread is the per-artifact list's, field for field.
+    const perArtifact = (await (await owner.apiCall(base)).json()) as { threads: unknown[] };
+    const items = (all.body as { items: { thread: { id: string } }[] }).items;
+    expect(items.map((item) => item.thread)).toEqual([...perArtifact.threads].reverse());
+
+    const first = await same(owner, { limit: "1" }, { limit: 1 });
+    const cursor = (first.body as { nextCursor: string }).nextCursor;
+    expect(cursor).toEqual(expect.any(String));
+    await same(owner, { limit: "1", cursor }, { limit: 1, cursor });
+    const since = new Date(Date.now() - 30_000).toISOString();
+    const recent = await same(owner, { since }, { since });
+    expect((recent.body as { items: unknown[] }).items).toHaveLength(1);
+    await same(reader, { mine: "true" }, { mine: true });
+
+    // The reader's own space holds none of the owner's threads.
+    expect((await same(reader, {}, {})).body).toMatchObject({ items: [], role: "owner" });
+
+    // Refusals: a bad cursor, a workspace the caller is not in.
+    expect((await same(owner, { cursor: "nope" }, { cursor: "nope" })).body).toMatchObject({
+      error: { code: "invalid_input" },
+    });
+    expect(
+      (await same(owner, { workspace: "nobody-here" }, { workspace: "nobody-here" })).body,
+    ).toMatchObject({ error: { code: "not_found" } });
+
+    // Reading needs annotations:read at both.
+    const email = "parity-feedback-scope@example.test";
+    const scoped = await both(email, "artifacts:read offline_access");
+    const token = await mcpToken(scoped.h, email, "artifacts:read offline_access");
+    const apiDenied = await scoped.apiCall("/api/v1/feedback");
+    const mcpDenied = await rawCall(scoped.h, token, "list_open_feedback", {});
+    expect(apiDenied.status).toBe(403);
+    expect(mcpDenied.status).toBe(403);
+    expect(/scope="([^"]+)"/.exec(mcpDenied.headers.get("www-authenticate") ?? "")?.[1]).toBe(
+      /scope="([^"]+)"/.exec(apiDenied.headers.get("www-authenticate") ?? "")?.[1],
+    );
+  });
 });
 
 describe("API and MCP parity under budget protection", () => {

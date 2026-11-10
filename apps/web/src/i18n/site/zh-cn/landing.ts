@@ -299,4 +299,10 @@ export const landing: PageMessages = {
   "landing.footer.privacy": "隐私政策",
   "landing.footer.acceptableUse": "可接受使用政策",
   "landing.footer.report": "举报 artifact",
+  "landing.nav.plans": "方案",
+  "landing.plans.eyebrow": "方案",
+  "landing.plans.title": "免费开始，按需升级",
+  "landing.plans.lead":
+    "所有方案的发布、分享和审阅方式都相同。付费方案提高限额，并加入标为“包含”的功能；标为“即将推出”的功能目前还不可用。",
+  "landing.plans.compare": "比较限额",
 };

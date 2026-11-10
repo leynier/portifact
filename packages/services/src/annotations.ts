@@ -21,11 +21,9 @@
 // Bodies are untrusted plain text and are never logged.
 import {
   ANNOTATION_LIMITS,
-  type AnnotationAuthor,
   type AnnotationDeleteResult,
   type AnnotationEditResult,
   type AnnotationExport,
-  type AnnotationMessageView,
   type AnnotationPage,
   type AnnotationsState,
   type AnnotationTarget,
@@ -62,7 +60,6 @@ import {
   fail,
   type HumanVerdict,
   type ModerationAction,
-  messageBodyVisible,
   moderationTransition,
   needsHumanCheck,
   ok,
@@ -75,6 +72,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { actorOn, ownerSide } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
+import { type ThreadViewContext, threadViews } from "./thread-views.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { policyDomains } from "./workspace-domains.ts";
 
@@ -88,7 +86,6 @@ const WRITE_KINDS = sql.raw("('thread_created', 'message_created', 'message_edit
 
 type ArtifactRow = typeof schema.artifacts.$inferSelect;
 type ThreadRow = typeof schema.annotationThreads.$inferSelect;
-type MessageRow = typeof schema.annotationMessages.$inferSelect;
 type EventKind = (typeof schema.annotationEvents.$inferInsert)["kind"];
 
 interface Loaded {
@@ -361,7 +358,7 @@ async function threadIfVisible(
   const loaded = authorized.ok ? authorized.value : undefined;
   const thread = loaded ? await findThread(db, loaded, threadId) : undefined;
   if (!loaded || !thread) return ok({ threadId, thread: null });
-  const [view] = await threadViews(db, loaded, loaded.viewerId, [thread]);
+  const [view] = await threadViews(db, viewContext(loaded), loaded.viewerId, [thread]);
   return ok({ threadId, thread: view as AnnotationThreadView });
 }
 
@@ -1183,7 +1180,7 @@ async function threadResult(
 ): Promise<Result<AnnotationThreadView>> {
   const thread = await findThread(db, loaded, threadId);
   if (!thread) return missingThread();
-  const [view] = await threadViews(db, loaded, viewerId, [thread]);
+  const [view] = await threadViews(db, viewContext(loaded), viewerId, [thread]);
   return ok(view as AnnotationThreadView);
 }
 
@@ -1322,7 +1319,7 @@ export async function listAnnotations(
     humanCheck:
       loaded.role === "participant" &&
       needsHumanCheck(loaded.role, await commentsOnOthersArtifacts(db, input.userId)),
-    threads: await threadViews(db, loaded, input.userId, page.filter(matches)),
+    threads: await threadViews(db, viewContext(loaded), input.userId, page.filter(matches)),
     removed: [...removed],
     cursor: encodeAnnotationCursor(upper),
     hasMore,
@@ -1359,82 +1356,25 @@ export async function exportAnnotations(
       annotations: a.annotations,
       currentVersionId: a.currentVersionId,
     },
-    threads: await threadViews(db, loaded, input.userId, rows),
+    threads: await threadViews(db, viewContext(loaded), input.userId, rows),
   });
 }
 
 // Views
 
+/** How the caller sees the threads of one loaded artifact. */
+function viewContext(loaded: Authorized): ThreadViewContext {
+  return {
+    role: loaded.role,
+    ownerSide: loaded.ownerSide,
+    currentVersionOf: () => loaded.artifact.currentVersionId,
+  };
+}
+
 function chunks<T>(items: readonly T[]): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += IN_CHUNK) out.push(items.slice(i, i + IN_CHUNK));
   return out;
-}
-
-async function threadViews(
-  db: RegionalDb,
-  loaded: Authorized,
-  viewerId: string,
-  threads: readonly ThreadRow[],
-): Promise<AnnotationThreadView[]> {
-  if (threads.length === 0) return [];
-  const m = schema.annotationMessages;
-  const messages: MessageRow[] = [];
-  for (const ids of chunks(threads.map((thread) => thread.id))) {
-    messages.push(
-      ...(await db
-        .select()
-        .from(m)
-        .where(inArray(m.threadId, ids))
-        .orderBy(asc(m.createdAt), sql`${m}.rowid`)),
-    );
-  }
-  const authorIds = [
-    ...new Set([...threads.map((t) => t.authorId), ...messages.map((x) => x.authorId)]),
-  ];
-  const authors = new Map<string, AnnotationAuthor>();
-  for (const ids of chunks(authorIds)) {
-    const users = await db
-      .select({ id: schema.users.id, name: schema.users.name, image: schema.users.image })
-      .from(schema.users)
-      .where(inArray(schema.users.id, ids));
-    for (const user of users) authors.set(user.id, user);
-  }
-  const byThread = new Map<string, AnnotationMessageView[]>(
-    threads.map((thread) => [thread.id, []]),
-  );
-  for (const message of messages) {
-    byThread.get(message.threadId)?.push({
-      id: message.id,
-      author: authors.get(message.authorId) ?? null,
-      own: message.authorId === viewerId,
-      state: message.state,
-      body: messageBodyVisible(loaded.role, viewerId, message) ? message.body : null,
-      revision: message.revision,
-      createdAt: iso(message.createdAt),
-      editedAt: message.editedAt === null ? null : iso(message.editedAt),
-    });
-  }
-  return threads.map((thread) => ({
-    id: thread.id,
-    versionId: thread.versionId,
-    current: thread.versionId === loaded.artifact.currentVersionId,
-    path: thread.path,
-    target: JSON.parse(thread.target) as AnnotationTarget,
-    state: thread.state,
-    author: authors.get(thread.authorId) ?? null,
-    own: thread.authorId === viewerId,
-    byOwner: loaded.ownerSide.includes(thread.authorId),
-    revision: thread.revision,
-    createdAt: iso(thread.createdAt),
-    updatedAt: iso(thread.updatedAt),
-    resolvedAt: thread.resolvedAt === null ? null : iso(thread.resolvedAt),
-    messages: byThread.get(thread.id) as AnnotationMessageView[],
-  }));
-}
-
-function iso(ms: number): string {
-  return new Date(ms).toISOString();
 }
 
 /**

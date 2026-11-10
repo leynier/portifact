@@ -1,8 +1,10 @@
 // German messages of the dashboard (Germany, informal "du"), with the same keys as en.ts.
 // Titles and buttons have no trailing period; no em dashes.
+import { planTextDe } from "../../plans/i18n/de.ts";
 import type { Catalog } from "./en.ts";
 
 export const de = {
+  ...planTextDe,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Zum Inhalt springen",
@@ -1635,6 +1637,22 @@ export const de = {
   "webhooks.personalOnly.title": "Webhooks gehören zu deinem persönlichen Bereich",
   "webhooks.personalOnly.body":
     "Webhooks senden vorerst nur Ereignisse zu den Artifacts deines persönlichen Bereichs. Wechsle dorthin, um sie zu verwalten.",
+  "shell.planLink": "Plan",
+  "plan.title": "Plan",
+  "plan.description":
+    "Der Plan deines persönlichen Bereichs, seine Limits und Funktionen und die anderen Pläne.",
+  "plan.descriptionWorkspace":
+    "Der Plan von {workspace}, seine Limits und Funktionen und die anderen Pläne.",
+  "plan.current.hint":
+    "Was dieser Bereich jetzt hat. Die Seite Nutzung zeigt, wie viel davon genutzt wird.",
+  "plan.current.limits": "Limits des aktuellen Plans",
+  "plan.current.usageLink": "Nutzung ansehen",
+  "plan.loading": "Plan wird geladen",
+  "plan.error": "Der Plan konnte nicht geladen werden.",
+  "plan.compare.section": "Alle Pläne",
+  "plan.requestNote": "Nur die Admins von {workspace} können einen anderen Plan anfragen.",
+  "plan.hidden": "Der Plan von {workspace} wird seinen Editoren und Admins angezeigt.",
+  "usage.plan.compare": "Pläne vergleichen",
   "shell.auditLink": "Audit-Log",
   "audit.title": "Audit-Log",
   "audit.description":

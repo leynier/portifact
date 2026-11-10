@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9f16899c-94ab-4b60-90bb-e3d11acad8b0",
+  "id": "b5d12b06-7032-46c2-9d52-99705f66aa4d",
   "prevId": "1b7ba60e-c2b9-463d-82fa-506098cd0b11",
   "tables": {
     "abuse_reports": {
@@ -678,6 +678,11 @@
         "annotation_threads_author_idx": {
           "name": "annotation_threads_author_idx",
           "columns": ["author_id"],
+          "isUnique": false
+        },
+        "annotation_threads_owner_state_updated_idx": {
+          "name": "annotation_threads_owner_state_updated_idx",
+          "columns": ["owner_id", "state", "updated_at", "id"],
           "isUnique": false
         }
       },
@@ -3042,128 +3047,6 @@
           "tableTo": "sessions",
           "columnsFrom": ["auth_session_id"],
           "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "search_artifacts": {
-      "name": "search_artifacts",
-      "columns": {
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "owner_id": {
-          "name": "owner_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "version_id": {
-          "name": "version_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "text_bytes": {
-          "name": "text_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "partial": {
-          "name": "partial",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "indexed_at": {
-          "name": "indexed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "search_artifacts_owner_idx": {
-          "name": "search_artifacts_owner_idx",
-          "columns": ["owner_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "search_artifacts_artifact_id_artifacts_id_fk": {
-          "name": "search_artifacts_artifact_id_artifacts_id_fk",
-          "tableFrom": "search_artifacts",
-          "tableTo": "artifacts",
-          "columnsFrom": ["artifact_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "search_chunks": {
-      "name": "search_chunks",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "path": {
-          "name": "path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "seq": {
-          "name": "seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "search_chunks_artifact_path_seq_idx": {
-          "name": "search_chunks_artifact_path_seq_idx",
-          "columns": ["artifact_id", "path", "seq"],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "search_chunks_artifact_id_search_artifacts_artifact_id_fk": {
-          "name": "search_chunks_artifact_id_search_artifacts_artifact_id_fk",
-          "tableFrom": "search_chunks",
-          "tableTo": "search_artifacts",
-          "columnsFrom": ["artifact_id"],
-          "columnsTo": ["artifact_id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

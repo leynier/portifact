@@ -64,6 +64,7 @@ describe("settings page", () => {
       "Publish",
       "Apps",
       "Usage",
+      "Plan",
       "Webhooks",
       "Branding",
       "Audit log",

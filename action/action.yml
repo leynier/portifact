@@ -1,0 +1,113 @@
+name: Portifact pull request preview
+description: Publish a preview of a pull request with the Portifact CLI, comment its link and delete it when the pull request closes.
+author: Portifact
+branding:
+  icon: eye
+  color: gray-dark
+
+inputs:
+  path:
+    description: Folder or file to publish, relative to the workspace.
+    required: true
+  token:
+    description: The workspace's service token (pfst_...), from a secret. Empty on pull requests from forks, which are then skipped.
+    required: true
+  key:
+    description: Publish key of the preview. Defaults to pr-<pull request number>.
+    required: false
+    default: ""
+  name:
+    description: Name of the artifact. Defaults to "PR #<number>: <title>".
+    required: false
+    default: ""
+  comment:
+    description: Create or update one comment on the pull request with the preview's link.
+    required: false
+    default: "true"
+  delete-on-close:
+    description: Delete the preview when the pull request closes.
+    required: false
+    default: "true"
+  fail-without-token:
+    description: Fail instead of skipping with a warning when the token is empty.
+    required: false
+    default: "false"
+  cli-version:
+    description: Portifact CLI version to install, or latest. Defaults to the release this action's tag or commit belongs to.
+    required: false
+    default: ""
+  github-token:
+    description: Token for the pull request comment; needs pull-requests write.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  url:
+    description: URL of the published preview.
+    value: ${{ steps.publish.outputs.url }}
+  artifact-id:
+    description: ID of the preview's artifact.
+    value: ${{ steps.publish.outputs.artifact-id }}
+  version:
+    description: Version number just published.
+    value: ${{ steps.publish.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Plan the preview
+      id: plan
+      shell: bash
+      env:
+        PF_ACTION: ${{ github.event.action }}
+        PF_NUMBER: ${{ github.event.pull_request.number }}
+        PF_TOKEN_SET: ${{ inputs.token != '' && 'yes' || '' }}
+        PF_INPUT_KEY: ${{ inputs.key }}
+        PF_DELETE_ON_CLOSE: ${{ inputs.delete-on-close }}
+        PF_FAIL_WITHOUT_TOKEN: ${{ inputs.fail-without-token }}
+        PF_CLI_VERSION: ${{ inputs.cli-version }}
+      run: bash "$GITHUB_ACTION_PATH/preview.sh" plan
+
+    - name: Install the Portifact CLI
+      if: steps.plan.outputs.mode != 'skip' && runner.os != 'Windows'
+      shell: bash
+      env:
+        PF_CLI_VERSION: ${{ steps.plan.outputs.cli-version }}
+      run: bash "$GITHUB_ACTION_PATH/preview.sh" install
+
+    - name: Install the Portifact CLI (Windows)
+      if: steps.plan.outputs.mode != 'skip' && runner.os == 'Windows'
+      shell: pwsh
+      env:
+        PORTIFACT_VERSION: ${{ steps.plan.outputs.cli-version }}
+        PORTIFACT_NO_MODIFY_PATH: "1"
+      run: |
+        $env:PORTIFACT_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'portifact-cli'
+        & (Join-Path $env:GITHUB_ACTION_PATH '../scripts/install.ps1')
+
+    - name: Publish the preview
+      id: publish
+      if: steps.plan.outputs.mode == 'publish'
+      shell: bash
+      env:
+        PORTIFACT_TOKEN: ${{ inputs.token }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        PF_KEY: ${{ steps.plan.outputs.key }}
+        PF_PATH: ${{ inputs.path }}
+        PF_INPUT_NAME: ${{ inputs.name }}
+        PF_TITLE: ${{ github.event.pull_request.title }}
+        PF_NUMBER: ${{ github.event.pull_request.number }}
+        PF_SHA: ${{ github.event.pull_request.head.sha }}
+        PF_COMMENT: ${{ inputs.comment }}
+      run: bash "$GITHUB_ACTION_PATH/preview.sh" publish
+
+    - name: Delete the preview
+      if: steps.plan.outputs.mode == 'delete'
+      shell: bash
+      env:
+        PORTIFACT_TOKEN: ${{ inputs.token }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        PF_KEY: ${{ steps.plan.outputs.key }}
+        PF_NUMBER: ${{ github.event.pull_request.number }}
+        PF_COMMENT: ${{ inputs.comment }}
+      run: bash "$GITHUB_ACTION_PATH/preview.sh" delete

@@ -292,6 +292,26 @@ const GATED: GatedOperation[] = [
       },
     }),
   ),
+  {
+    feature: "workspaces",
+    name: "list a workspace's open feedback",
+    space: "workspace",
+    // The space is the artifact's workspace, named by slug; a personal space needs no feature.
+    run: async (who, id) => {
+      const [row] = await db()
+        .select({ slug: schema.workspaces.slug })
+        .from(schema.artifacts)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.artifacts.ownerId))
+        .where(eq(schema.artifacts.id, id));
+      if (!row) throw new Error("The feedback line needs a workspace's artifact");
+      const response = await who.apiCall(`/api/v1/feedback?workspace=${row.slug}`);
+      const result = await who.tool("list_open_feedback", { workspace: row.slug });
+      return {
+        api: { status: response.status, body: await response.json<unknown>() },
+        mcp: { ok: result.isError !== true, body: result.structuredContent },
+      };
+    },
+  },
   probe("sso"),
 ];
 

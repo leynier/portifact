@@ -1,6 +1,9 @@
 // English messages of the dashboard, in ICU MessageFormat for Lingui. Every user-facing string
 // of the dashboard lives here. Titles and buttons have no trailing period; no em dashes.
+import { planTextEn } from "../../plans/i18n/en.ts";
+
 export const en = {
+  ...planTextEn,
   "app.title": "Portifact",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Skip to content",
@@ -1575,6 +1578,21 @@ export const en = {
   "webhooks.personalOnly.title": "Webhooks are set in your personal space",
   "webhooks.personalOnly.body":
     "For now, webhooks send events about the artifacts of your personal space only. Switch to it to manage them.",
+  "shell.planLink": "Plan",
+  "plan.title": "Plan",
+  "plan.description":
+    "The plan of your personal space, its limits and features, and the other plans.",
+  "plan.descriptionWorkspace":
+    "The plan of {workspace}, its limits and features, and the other plans.",
+  "plan.current.hint": "What this space has now. The Usage page shows how much of it is used.",
+  "plan.current.limits": "Limits of the current plan",
+  "plan.current.usageLink": "See usage",
+  "plan.loading": "Loading the plan",
+  "plan.error": "The plan could not be loaded.",
+  "plan.compare.section": "All plans",
+  "plan.requestNote": "Only the admins of {workspace} can request another plan.",
+  "plan.hidden": "The plan of {workspace} is shown to its editors and admins.",
+  "usage.plan.compare": "Compare plans",
   "shell.auditLink": "Audit log",
   "audit.title": "Audit log",
   "audit.description": "Who changed what in this space. Changes are kept {days} days.",

@@ -108,6 +108,12 @@ const GATED: GatedCommand[] = [
     path: /^\/api\/v1\/artifacts\/[^/]+\/access$/,
   },
   {
+    feature: "workspaces",
+    args: () => ["feedback", "--workspace", "acme"],
+    method: "GET",
+    path: /^\/api\/v1\/feedback$/,
+  },
+  {
     feature: "customDomains",
     args: (id) => ["domains", "add", id, "docs.example.com"],
     method: "POST",

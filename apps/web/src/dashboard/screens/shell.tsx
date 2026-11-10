@@ -16,6 +16,7 @@ import {
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
+  BadgeCheck,
   Cable,
   Gauge,
   KeySquare,
@@ -142,6 +143,7 @@ const SPACE_PAGES = new Set([
   "/",
   "/publish",
   "/usage",
+  "/plan",
   "/branding",
   "/members",
   "/audit",
@@ -204,8 +206,9 @@ function SpaceMenu({ state }: { state: ReturnType<typeof useSpace> }) {
 /**
  * Frame of every dashboard screen/**
  * Frame of every dashboard screen: the space menu, the navigation (Artifacts, Publish, Apps,
- * Usage, Branding, Members and Service tokens in a workspace, Settings, each only where the role
- * in the space allows it), the signed-in account with its link to the profile and sign out, and announcements.
+ * Usage, Plan, Branding, Members and Service tokens in a workspace, Settings, each only where the
+ * role in the space allows it), the signed-in account with its link to the profile and sign out,
+ * and announcements.
  */
 export function Shell() {
   const t = useT();
@@ -274,6 +277,12 @@ export function Shell() {
       label: t("shell.usageLink"),
       icon: <Gauge className="size-4" />,
       render: (props) => <Link to="/usage" {...props} />,
+    },
+    {
+      key: "plan",
+      label: t("shell.planLink"),
+      icon: <BadgeCheck className="size-4" />,
+      render: (props) => <Link to="/plan" {...props} />,
     },
     space?.kind === "personal" && {
       key: "webhooks",
