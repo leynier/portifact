@@ -1,6 +1,6 @@
 {
   "name": "@portifact/cli",
-  "version": "0.25.0",
+  "version": "0.26.0",
   "private": true,
   "description": "Portifact command line interface.",
   "license": "AGPL-3.0-only",
