@@ -202,3 +202,17 @@ describe("bearer token parsing", () => {
     expect(bearerToken(null)).toBeUndefined();
   });
 });
+
+describe("custom domains in the Worker's dependencies", () => {
+  it("stay switched off without the variable, the zone and the token", () => {
+    expect(workerDeps(env).domains).toBeNull();
+    expect(
+      workerDeps({
+        ...env,
+        CUSTOM_DOMAINS_ENABLED: "true",
+        CF_CONTENT_ZONE_ID: "0123456789abcdef0123456789abcdef",
+        CF_HOSTNAMES_TOKEN: "test-token-not-a-credential",
+      }).domains,
+    ).not.toBeNull();
+  });
+});

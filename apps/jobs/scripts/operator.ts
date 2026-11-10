@@ -9,6 +9,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createDb } from "@portifact/db";
+import { domainDepsFromEnv } from "@portifact/services";
 import { getPlatformProxy } from "wrangler";
 import { OPERATOR_USAGE, operatorTarget, runOperator } from "../src/operator.ts";
 
@@ -39,10 +40,29 @@ const proxy = await getPlatformProxy<{ DB: D1Database }>(
       },
 );
 try {
-  const result = await runOperator(createDb(proxy.env.DB), args, Date.now(), {
-    read: (path) => readFile(path, "utf8"),
-    write: (path, text) => writeFile(path, text),
-  });
+  // Only reconcile-domains calls Cloudflare, with the zone and token from this shell's
+  // environment; no other command builds the client.
+  const domains =
+    args[0] === "reconcile-domains"
+      ? domainDepsFromEnv(
+          {
+            CUSTOM_DOMAINS_ENABLED: "true",
+            CF_CONTENT_ZONE_ID: process.env.CF_CONTENT_ZONE_ID,
+            CF_HOSTNAMES_TOKEN: process.env.CF_HOSTNAMES_TOKEN,
+          },
+          (input, init) => fetch(input, init),
+        )
+      : null;
+  const result = await runOperator(
+    createDb(proxy.env.DB),
+    args,
+    Date.now(),
+    {
+      read: (path) => readFile(path, "utf8"),
+      write: (path, text) => writeFile(path, text),
+    },
+    domains,
+  );
   console.log(result.output);
   process.exitCode = result.exitCode;
 } finally {

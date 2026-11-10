@@ -161,6 +161,7 @@ Deterministic races in Vitest complement this run: the `racing` helper (see Laye
 - `fixtures/artifacts/` holds sample sites, Markdown and TXT, including maximum-size and edge cases.
 - `fixtures/hostile/` holds malicious inputs: ZIP path traversal, symlinks, zip bombs, HTML that tries cookie tossing, forged `postMessage`, CSRF forms, service worker registration, script-injecting Markdown and oversized selectors.
 - Fixtures are small and deterministic. Large fixtures are generated in the test, not committed.
+- Outside services are fakes behind the same interfaces production injects: Cloudflare custom hostnames and DNS over HTTPS are `FakeDomains` (`@portifact/services/testing`), used by the services, app, jobs and e2e tests; the real clients are tested only against a fake `fetch`, and no test calls a real Cloudflare endpoint.
 
 ## CI gates
 

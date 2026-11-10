@@ -188,6 +188,38 @@ export const messages = {
   shareRevoked: (linkId: string, id: string) =>
     `Revoked share link ${linkId} of ${id}. Sessions opened with it end within a minute.`,
 
+  // Custom domains.
+  domainState: (hostname: string, id: string, state: string) =>
+    ({
+      pending: `${hostname} is waiting for its DNS records (artifact ${id}).`,
+      provisioning: `${hostname} is proven; Cloudflare is issuing its certificate (artifact ${id}).`,
+      active: `${hostname} serves artifact ${id}.`,
+      removing: `${hostname} is being removed (artifact ${id}).`,
+    })[state] ?? `${hostname}: ${state}`,
+  domainRecords:
+    "Create these records at your DNS provider. Keep the TXT record: it is checked every day.",
+  domainProblem: {
+    txt_missing:
+      "The TXT record does not hold this value yet. DNS changes can take a few minutes to appear.",
+    certificate_pending:
+      "The certificate is not ready yet. Check that the CNAME points at the target above, then check again in a few minutes.",
+    cloudflare_unavailable: "The certificate service did not answer. It is tried again shortly.",
+  },
+  domainClaimExpires: (date: string) => `Add the records before ${date}, or add the domain again.`,
+  domainMissedChecks: (count: number) =>
+    `The TXT record was missing at ${count} ${plural(count, "daily check", "daily checks")} in a row; after 3 the domain is removed.`,
+  domainNextVerify: (hostname: string) => `Then run \`portifact domains verify ${hostname}\`.`,
+  domainBarNote:
+    "While the artifact's Portifact bar is on, visits to the domain open in the viewer on app.portifact.com. Run `portifact access bar <id> off` to keep your domain in the address bar.",
+  domainsEmpty: "No custom domains.",
+  domainsUsed: (used: number, limit: number) =>
+    `Your plan allows ${limit} custom ${plural(limit, "domain", "domains")}; ${used} in use.`,
+  domainsUnavailable: "Custom domains are not available on this server yet.",
+  confirmDomainRemove: (hostname: string) =>
+    `${hostname} stops serving the artifact, and adding it again needs a new DNS check.\nType the hostname to confirm: `,
+  domainRemoved: (hostname: string) =>
+    `Removed ${hostname}. The artifact keeps its Portifact address.`,
+
   // Tokens.
   tokensEmpty: "No app holds tokens for your account.",
   tokensUnnamed: "Unnamed app",
@@ -237,6 +269,11 @@ export const messages = {
     shareRevokeConfirmationRequired: (id: string, linkId: string) =>
       `Revoking a share link cannot be undone. Run \`portifact share revoke ${id} ${linkId} --yes\` to confirm without a prompt.`,
     shareRevokeCancelled: 'Nothing was revoked: the confirmation was not "revoke".',
+    invalidHostname: (value: string) =>
+      `${JSON.stringify(value)} is not a hostname. Use a name like docs.example.com.`,
+    domainRemoveConfirmationRequired: (hostname: string) =>
+      `Removing a domain stops it serving at once. Run \`portifact domains remove ${hostname} --yes\` to confirm without a prompt.`,
+    domainRemoveCancelled: "Nothing was removed: the confirmation was not the hostname.",
     invalidExpiry: (value: string) =>
       `${JSON.stringify(value)} is not an expiry. Use a duration like 12h or 7d, or an ISO date like 2026-12-01T00:00:00Z.`,
     emptyPassword: "The password file is empty. Put the password on its first line.",

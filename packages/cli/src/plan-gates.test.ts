@@ -65,6 +65,12 @@ const GATED: GatedCommand[] = [
     method: "GET",
     path: /^\/api\/v1\/artifacts\/[^/]+\/versions\/current\/diff\/current\/file$/,
   },
+  {
+    feature: "customDomains",
+    args: (id) => ["domains", "add", id, "docs.example.com"],
+    method: "POST",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/domain$/,
+  },
 ];
 
 describe.each(GATED)("$feature through `$method $path`", (gated) => {
