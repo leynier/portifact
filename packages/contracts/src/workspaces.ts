@@ -70,6 +70,7 @@ export const ROLE_ACTIONS = [
   "plan",
   "policies",
   "delete_workspace",
+  "brand",
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;

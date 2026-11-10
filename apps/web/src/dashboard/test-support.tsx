@@ -16,6 +16,8 @@ import {
   ArtifactListQuery,
   type ArtifactStatsView,
   type ArtifactSummary,
+  type BrandSettings,
+  type BrandUpdate,
   type BrowserSession,
   type CommentNoticeMute,
   type CommentScope,
@@ -366,6 +368,10 @@ export interface FakeServer {
   domainsEnabled: boolean;
   /** Whether the deployment serves custom domains. */
   domainsAvailable: boolean;
+  /** The account's brand, as GET /api/v1/account/branding answers it. */
+  branding: BrandSettings;
+  /** Logo files sent to PUT /api/v1/account/branding/logo, in order. */
+  logoUploads: Blob[];
   /** JSON bodies of requests that sent one, in order. */
   bodies: unknown[];
   pageSize: number;
@@ -415,6 +421,8 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     domains: [],
     domainsEnabled: true,
     domainsAvailable: true,
+    branding: { available: true, lowestPlan: "pro", suspended: false, brand: null },
+    logoUploads: [],
     commentNotices: {},
     bodies: [],
     pageSize: 50,
@@ -435,6 +443,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       const idempotencyKey = new Headers(init.headers).get("idempotency-key");
       if (idempotencyKey) server.idempotencyKeys.push({ path: url.pathname, key: idempotencyKey });
       if (typeof init.body === "string") server.bodies.push(JSON.parse(init.body));
+      if (init.body instanceof Blob) server.logoUploads.push(init.body);
       const failure = failures.find((f) => f.key === `${method} ${url.pathname}` && f.times > 0);
       if (failure) {
         failure.times -= 1;
@@ -869,6 +878,7 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     server.settings = { ...server.settings, ...update };
     return Response.json(server.settings);
   }
+  if (path.startsWith("/api/v1/account/branding")) return brandingRoute(server, method, path);
   if (path === "/api/v1/account/delete" && method === "POST") {
     const body = server.bodies.at(-1) as { confirmEmail?: string } | undefined;
     if (body?.confirmEmail?.trim().toLowerCase() !== server.email) {
@@ -1101,6 +1111,74 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   });
 }
 
+/** The brand routes like the Worker: paid plans set it, every plan removes it. */
+function brandingRoute(server: FakeServer, method: string, path: string): Response {
+  const state = server.branding;
+  const refused = () =>
+    Response.json(
+      {
+        error: {
+          code: "plan_required",
+          message: "Branding the Portifact bar is part of the Pro plan.",
+        },
+      },
+      { status: 403 },
+    );
+  const now = new Date().toISOString();
+  if (path === "/api/v1/account/branding") {
+    if (method === "GET") return Response.json(state);
+    if (method === "DELETE") {
+      server.branding = { ...state, brand: null };
+      return Response.json(server.branding);
+    }
+    if (method === "PUT") {
+      if (!state.available) return refused();
+      const update = server.bodies.at(-1) as BrandUpdate;
+      if (/portifact/i.test(update.name)) return apiError("invalid_input", 400);
+      server.branding = {
+        ...state,
+        brand: {
+          name: update.name,
+          link: update.link,
+          accentColor: update.accentColor,
+          logo: state.brand?.logo ?? null,
+          updatedAt: now,
+        },
+      };
+      return Response.json(server.branding);
+    }
+  }
+  if (path === "/api/v1/account/branding/logo" && state.brand) {
+    if (method === "DELETE") {
+      server.branding = { ...state, brand: { ...state.brand, logo: null, updatedAt: now } };
+      return Response.json(server.branding);
+    }
+    if (method === "PUT") {
+      if (!state.available) return refused();
+      const file = server.logoUploads.at(-1);
+      if (!file || file.size > 100_000 || !/^image\/(png|jpeg|webp)$/.test(file.type)) {
+        return apiError("invalid_input", 400);
+      }
+      server.branding = {
+        ...state,
+        brand: {
+          ...state.brand,
+          logo: {
+            sha256: "b".repeat(64),
+            type: "image/png",
+            width: 64,
+            height: 32,
+            bytes: file.size,
+          },
+          updatedAt: now,
+        },
+      };
+      return Response.json(server.branding);
+    }
+  }
+  return apiError("invalid_input", 400);
+}
+
 const missing = () =>
   Response.json({ error: { code: "not_found", message: "x" } }, { status: 404 });
 
@@ -1122,6 +1200,7 @@ function viewerRoute(server: FakeServer, id: string): Response {
       accessMode: listed?.accessMode ?? "restricted",
       annotations: server.annotations[id]?.mode ?? "off",
       role: server.annotations[id]?.role === "participant" ? "reader" : "owner",
+      brand: null,
     });
   if (!info) return missing();
   if (server.email === null) {

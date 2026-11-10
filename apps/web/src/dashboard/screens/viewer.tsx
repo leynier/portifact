@@ -26,6 +26,7 @@ import { viewerHash, viewerPath } from "@portifact/domain";
 import {
   Avatar,
   Badge,
+  BrandMark,
   Button,
   buttonClasses,
   Callout,
@@ -33,6 +34,7 @@ import {
   Floating,
   FloatingPanel,
   FrameOverlay,
+  HostingNotice,
   IconButton,
   IconLink,
   LiveRegion,
@@ -387,16 +389,63 @@ function ViewerLayout({
     <ViewerShell
       skipLinkLabel={t("viewer.skipLink")}
       brand={
-        <a href="/" aria-label={t("viewer.brand")} className="no-underline">
-          <ThemedImage
-            src={symbol}
-            darkSrc={symbolDark}
-            alt=""
-            width={32}
-            height={32}
-            className="size-8"
+        info.brand ? (
+          // The owner's brand (premium plan P9): their text, logo and link, never markup.
+          <BrandMark
+            name={info.brand.name}
+            href={info.brand.link}
+            newTabLabel={t("viewer.brandNewTab")}
+            accent={info.brand.accentColor}
+            logo={
+              info.brand.logo
+                ? {
+                    src: info.brand.logo.url,
+                    width: info.brand.logo.width,
+                    height: info.brand.logo.height,
+                  }
+                : null
+            }
           />
-        </a>
+        ) : (
+          <a href="/" aria-label={t("viewer.brand")} className="no-underline">
+            <ThemedImage
+              src={symbol}
+              darkSrc={symbolDark}
+              alt=""
+              width={32}
+              height={32}
+              className="size-8"
+            />
+          </a>
+        )
+      }
+      notice={
+        info.brand ? (
+          // A brand never hides who hosts the page, where it really lives or how to report it.
+          <HostingNotice
+            mark={
+              <ThemedImage
+                src={symbol}
+                darkSrc={symbolDark}
+                alt=""
+                width={16}
+                height={16}
+                className="size-4"
+              />
+            }
+            poweredBy={t("viewer.hosting.poweredBy")}
+            originLabel={t("viewer.hosting.origin")}
+            origin={new URL(info.origin).host}
+            report={
+              info.role === "owner"
+                ? undefined
+                : {
+                    href: `/report?${new URLSearchParams({ artifact: info.artifactId })}`,
+                    label: t("review.report"),
+                  }
+            }
+          />
+        ) : undefined
       }
       artifact={{
         // The publisher's name for it, as plain text: never styled as a Portifact heading.

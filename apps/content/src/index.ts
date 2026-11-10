@@ -2,7 +2,12 @@
 // admin credentials; its only state changes are redeeming one-use sign-in codes under
 // /__portifact/, adding served traffic to the owner's counter, recording openings by signed-in
 // visitors in the owner's access log and counting page views for owners with analytics. See docs/security.md for the invariants enforced here.
-import { ERROR_STATUS, REVIEW_SESSION, type ReviewKind } from "@portifact/contracts";
+import {
+  BRAND_LOGO_PATH,
+  ERROR_STATUS,
+  REVIEW_SESSION,
+  type ReviewKind,
+} from "@portifact/contracts";
 import {
   type AccessDb,
   type DeliveryArtifact,
@@ -32,6 +37,7 @@ import {
 import { documentPolicy } from "@portifact/render/policy";
 import {
   artifactHandles,
+  findBrandLogo,
   personalHandles,
   recordOpenings,
   recordTraffic,
@@ -287,6 +293,9 @@ async function route(
   }
   if (url.pathname === BRIDGE_PATH) return bridgeScript(request);
   if (isDiagramPath(url.pathname)) return diagramScript(request);
+  if (url.pathname.startsWith(BRAND_LOGO_PATH)) {
+    return brandLogo(request, env, db, id, url.pathname.slice(BRAND_LOGO_PATH.length), now);
+  }
   if (url.pathname === NO_BAR_PATH) {
     const response = noBarRedirect(request);
     return response ?? message(400, PAGES.noBarRefused);
@@ -846,4 +855,41 @@ function defaultRegion(env: Env): RegionHandles {
 function accessDbOf(handles: RegionHandles): AccessDb {
   if (!handles.accessDb) throw new Error(`Region ${handles.region} has no access log binding`);
   return handles.accessDb;
+}
+
+/**
+ * The owner's logo for a branded viewer bar (premium plan P9), at
+ * `/__portifact/brand/<sha256>`: only for an image request (`Sec-Fetch-Dest: image`, so never a
+ * document, and nothing without fetch metadata), only the current logo of this artifact's owner
+ * while the artifact is servable and the brand is shown. The bytes were checked as a PNG, JPEG or
+ * WebP file when uploaded; it is sent with that exact type, `nosniff` and a policy that runs
+ * nothing, and it is immutable because its address is its SHA-256. It is Portifact's chrome
+ * around the artifact, not the artifact, so it is not charged as traffic (at most 100 KB, cached
+ * for a year).
+ */
+async function brandLogo(
+  request: Request,
+  env: Env,
+  db: RegionalDb,
+  artifactId: string,
+  sha256: string,
+  now: number,
+): Promise<Response> {
+  if (request.headers.get("Sec-Fetch-Dest") !== "image") return notFound();
+  const logo = await findBrandLogo(db, { artifactId, sha256, now });
+  const object = logo ? await env.ARTIFACTS.get(logo.key) : null;
+  if (!logo || !object) return notFound();
+  return new Response(request.method === "HEAD" ? null : object.body, {
+    headers: {
+      "Content-Type": logo.type,
+      "Content-Length": String(object.size),
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "default-src 'none'; sandbox",
+      // The viewer on the app's origin is another site, so it needs `cross-origin`.
+      "Cross-Origin-Resource-Policy": "cross-origin",
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Robots-Tag": "noindex",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
 }
