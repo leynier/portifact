@@ -2013,7 +2013,7 @@ export const ja = {
   "github.rule.live":
     "{count, plural, =0 {有効な認証情報はありません} one {有効な認証情報 # 件} other {有効な認証情報 # 件}}",
   "github.remove": "削除",
-  "github.removeLabel": "{repository} の信頼を解除",
+  "github.removeLabel": "削除 {repository}",
   "github.confirm.title": "{repository} の信頼を解除しますか?",
   "github.confirm.body":
     "このリポジトリのワークフローは公開できなくなり、実行に発行済みの認証情報もすぐに使えなくなります。",

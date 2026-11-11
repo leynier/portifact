@@ -127,7 +127,7 @@ describe("the GitHub Actions section", () => {
     server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
     server.workspaces.acme.githubTrust = [RULE];
     renderDashboard("/service-tokens?workspace=acme", server);
-    fireEvent.click(await screen.findByRole("button", { name: "Stop trusting acme/site" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove acme/site" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/credentials already issued/)).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
@@ -142,6 +142,6 @@ describe("the GitHub Actions section", () => {
     expect(await screen.findByRole("heading", { name: "acme/site" })).toBeTruthy();
     expect(screen.getByText(/not available on Portifact yet/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Trust repository" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Stop trusting acme/site" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove acme/site" })).toBeTruthy();
   });
 });

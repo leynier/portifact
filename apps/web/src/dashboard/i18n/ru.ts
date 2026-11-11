@@ -2050,7 +2050,7 @@ export const ru = {
   "github.rule.live":
     "{count, plural, =0 {Нет действующих учётных данных} one {# действующие учётные данные} few {# действующих учётных данных} many {# действующих учётных данных} other {# действующих учётных данных}}",
   "github.remove": "Удалить",
-  "github.removeLabel": "Перестать доверять {repository}",
+  "github.removeLabel": "Удалить {repository}",
   "github.confirm.title": "Перестать доверять {repository}?",
   "github.confirm.body":
     "Его workflow больше не смогут публиковать, а уже выданные запускам учётные данные сразу перестанут работать.",

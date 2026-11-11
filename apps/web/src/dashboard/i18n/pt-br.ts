@@ -2039,7 +2039,7 @@ export const ptBR = {
   "github.rule.live":
     "{count, plural, =0 {Nenhuma credencial ativa} one {# credencial ativa} other {# credenciais ativas}}",
   "github.remove": "Remover",
-  "github.removeLabel": "Deixar de confiar em {repository}",
+  "github.removeLabel": "Remover {repository}",
   "github.confirm.title": "Deixar de confiar em {repository}?",
   "github.confirm.body":
     "Os workflows dele não poderão mais publicar, e as credenciais já emitidas para as execuções param de funcionar na hora.",

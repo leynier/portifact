@@ -2057,7 +2057,7 @@ export const es = {
   "github.rule.live":
     "{count, plural, =0 {Ninguna credencial activa} one {# credencial activa} other {# credenciales activas}}",
   "github.remove": "Quitar",
-  "github.removeLabel": "Dejar de confiar en {repository}",
+  "github.removeLabel": "Quitar {repository}",
   "github.confirm.title": "¿Dejar de confiar en {repository}?",
   "github.confirm.body":
     "Sus workflows ya no podrán publicar, y las credenciales ya emitidas a sus ejecuciones dejan de funcionar al instante.",

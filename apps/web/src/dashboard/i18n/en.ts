@@ -1997,7 +1997,7 @@ export const en = {
   "github.rule.live":
     "{count, plural, =0 {No live credentials} one {# live credential} other {# live credentials}}",
   "github.remove": "Remove",
-  "github.removeLabel": "Stop trusting {repository}",
+  "github.removeLabel": "Remove {repository}",
   "github.confirm.title": "Stop trusting {repository}?",
   "github.confirm.body":
     "Its workflows can no longer publish, and credentials already issued to its runs stop working at once.",

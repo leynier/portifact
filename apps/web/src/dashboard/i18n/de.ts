@@ -2067,7 +2067,7 @@ export const de = {
   "github.rule.live":
     "{count, plural, =0 {Keine aktiven Zugangsdaten} one {# aktive Zugangsdaten} other {# aktive Zugangsdaten}}",
   "github.remove": "Entfernen",
-  "github.removeLabel": "{repository} nicht mehr vertrauen",
+  "github.removeLabel": "Entfernen {repository}",
   "github.confirm.title": "{repository} nicht mehr vertrauen?",
   "github.confirm.body":
     "Seine Workflows können nicht mehr veröffentlichen, und bereits ausgegebene Zugangsdaten seiner Läufe funktionieren sofort nicht mehr.",

@@ -2075,7 +2075,7 @@ export const fr = {
   "github.rule.live":
     "{count, plural, =0 {Aucun identifiant actif} one {# identifiant actif} other {# identifiants actifs}}",
   "github.remove": "Retirer",
-  "github.removeLabel": "Ne plus faire confiance à {repository}",
+  "github.removeLabel": "Retirer {repository}",
   "github.confirm.title": "Ne plus faire confiance à {repository} ?",
   "github.confirm.body":
     "Ses workflows ne peuvent plus publier, et les identifiants déjà émis pour ses exécutions cessent de fonctionner aussitôt.",

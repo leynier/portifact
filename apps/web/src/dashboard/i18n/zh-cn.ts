@@ -1868,7 +1868,7 @@ export const zhCN = {
   "github.rule.environment": "环境：{environment}",
   "github.rule.live": "{count, plural, =0 {没有有效凭据} one {# 个有效凭据} other {# 个有效凭据}}",
   "github.remove": "移除",
-  "github.removeLabel": "不再信任 {repository}",
+  "github.removeLabel": "移除 {repository}",
   "github.confirm.title": "不再信任 {repository}？",
   "github.confirm.body": "它的工作流将无法再发布，已发给其运行的凭据也会立即失效。",
   "github.removed": "已不再信任 {repository}。",
