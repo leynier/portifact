@@ -19,6 +19,11 @@ import { applyOwnerRetention, moveAccessHistory } from "./analytics.ts";
 import { type AuditStreamDeps, deliverAuditStream } from "./audit-streams.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
+import { writeCommentTombstones } from "./comment-retention.ts";
+import {
+  type CommentRetentionNotifier,
+  sendCommentRetentionNotice,
+} from "./comment-retention-notices.ts";
 import { runSearchIndex } from "./content-search.ts";
 import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
 import { type DirectoryNotifier, sendDirectoryNotice } from "./directory-notices.ts";
@@ -32,7 +37,11 @@ import { type RetentionNotifier, sendRetentionNotice } from "./retention-notices
 import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
 import { runThreadIssue, type ThreadIssueDeps } from "./thread-issues.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
-import { runWorkspacePolicyJob, workspaceRegionDb } from "./workspace-policies.ts";
+import {
+  runWorkspacePolicyJob,
+  workspaceRegionBucket,
+  workspaceRegionDb,
+} from "./workspace-policies.ts";
 import { advanceWorkspaceDeletion, type DeletionRegions, singleRegion } from "./workspaces.ts";
 
 /** A relayed job that is not done after this long is sent again. */
@@ -163,6 +172,8 @@ export interface JobDeps {
   directoryNotifier?: DirectoryNotifier | undefined;
   /** Sends `retention_notice` emails (decision 0023). */
   retentionNotifier?: RetentionNotifier | undefined;
+  /** Sends `comment_retention_notice` emails (decision 0023). */
+  commentRetentionNotifier?: CommentRetentionNotifier | undefined;
   /** Creates issues from threads for `thread_issue` jobs (decision 0018). */
   issues?: ThreadIssueDeps | undefined;
   /** Sends `plan_grace_notice` emails (decision 0022, third delivery). */
@@ -205,6 +216,7 @@ async function runRow(
     reviewNotifier,
     directoryNotifier,
     retentionNotifier,
+    commentRetentionNotifier,
     issues,
     graceNotifier,
     regions = singleRegion(db, bucket),
@@ -271,6 +283,21 @@ async function runRow(
       return runWorkspacePolicyJob(db, row, now, (workspaceId) =>
         workspaceRegionDb(regions, workspaceId),
       );
+    case "comment_retention_notice":
+      if (!commentRetentionNotifier) {
+        throw new Error("comment_retention_notice needs the comment retention notifier");
+      }
+      return sendCommentRetentionNotice(
+        db,
+        row,
+        now,
+        commentRetentionNotifier,
+        (workspaceId) => workspaceRegionDb(regions, workspaceId),
+        (workspaceId) => workspaceRegionBucket(regions, workspaceId),
+      );
+    case "comment_tombstones":
+      // Written in the regional batch that deleted the threads (a separate regional database).
+      return writeCommentTombstones(db, row);
     case "retention_notice":
       if (!retentionNotifier) throw new Error("retention_notice needs the retention notifier");
       return sendRetentionNotice(db, row, now, retentionNotifier, (workspaceId) =>

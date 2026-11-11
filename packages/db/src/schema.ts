@@ -726,6 +726,8 @@ export const OUTBOX_TOPICS = [
   "audit_stream",
   "retention_notice",
   "plan_grace_notice",
+  "comment_retention_notice",
+  "comment_tombstones",
 ] as const;
 
 /**
@@ -831,6 +833,7 @@ export const tombstones = sqliteTable(
         "workspace_member",
         "integration_connection",
         "audit_stream",
+        "comment_thread",
       ],
     }).notNull(),
     id: text("id").notNull(),

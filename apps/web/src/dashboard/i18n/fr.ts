@@ -2922,4 +2922,42 @@ export const fr = {
     "{count, plural, one {a rendu son temps à # artifact} other {a rendu leur temps à # artifacts}}",
   "transfer.confirm.maxLife":
     "{space} archive les artifacts {days} jours après leur dernière publication, restauration ou arrivée : déplacé maintenant, celui-ci est archivé au plus tard le {date} sauf si quelqu’un le republie, et il ne peut pas y être épinglé.",
+  "policies.comments.unavailable":
+    "La règle de conservation des commentaires n’a pas pu être modifiée pour le moment, donc rien n’a été enregistré. Réessaie dans quelques minutes.",
+  "policies.comments.legend": "Conservation des commentaires",
+  "policies.comments.hint":
+    "Supprime chaque fil de commentaires de l'espace de travail, avec tous ses messages, après un nombre de jours sans activité. Un fil ouvert sur la version actuelle d'un artefact est conservé, pour que ce qu'attendent les relecteurs ne soit jamais perdu ; quand une nouvelle version remplace cette version, le fil retrouve la période entière à partir de ce moment. Personne ne peut récupérer les fils supprimés, pas même Portifact.",
+  "policies.comments.any": "Conserver les commentaires",
+  "policies.comments.anyHint":
+    "Les fils restent jusqu’à ce que quelqu’un les supprime, ou que leur artifact soit supprimé.",
+  "policies.comments.only": "Supprimer les anciens fils",
+  "policies.comments.onlyHint":
+    "Un fil résolu est supprimé quand sa dernière activité est plus ancienne que la période. Un fil ouvert sur une version antérieure est supprimé quand la période est écoulée à la fois depuis sa dernière activité et depuis le remplacement de sa version. Une réponse relance la période.",
+  "policies.comments.days": "Jours après la dernière activité d’un fil",
+  "policies.comments.daysHint": "De {min} à {max} jours.",
+  "policies.comments.daysError": "Saisissez un nombre entier de jours entre {min} et {max}.",
+  "policies.comments.notice":
+    "Une conservation nouvelle ou plus courte s’applique {days} jours après l’enregistrement, et chaque administrateur reçoit un e-mail, puis un second peu avant la première suppression si elle arrive bien plus tard. Une conservation plus longue, ou aucune, s’applique tout de suite. Si le forfait du workspace expire, rien n’est supprimé et la conservation est retirée jusqu’à ce qu’un administrateur la fixe de nouveau.",
+  "policies.comments.pending": "La conservation des commentaires s’applique le {date}",
+  "policies.comments.active":
+    "Les fils de commentaires sont supprimés définitivement {days} jours après leur dernière activité ou, pour un fil ouvert, {days} jours après le remplacement de sa version si c'est plus tard. Les fils ouverts sur la version actuelle d'un artefact sont conservés.",
+  "policies.comments.notInForce":
+    "La conservation des commentaires est définie mais pas en vigueur",
+  "policies.comments.notInForceHint":
+    "Rien n'est supprimé en vertu de celle-ci : cela suit une restauration de sauvegarde, ou un enregistrement dont la règle n'a pas pu être consignée. Enregistrez de nouveau la règle pour la mettre en vigueur ; comme toute nouvelle règle, elle s'applique après la période de préavis.",
+  "policies.impact.threads":
+    "{count, plural, one {# fil de commentaires est supprimé définitivement le jour où la conservation s’applique} other {# fils de commentaires sont supprimés définitivement le jour où la conservation s’applique}}",
+  "policies.impact.messages":
+    "{count, plural, one {# message qu’ils contiennent est supprimé avec eux} other {# messages qu’ils contiennent sont supprimés avec eux}}",
+  "policies.impact.threadsSoon":
+    "{count, plural, one {# fil de plus est supprimé dans les 30 jours suivants} other {# fils de plus sont supprimés dans les 30 jours suivants}}",
+  "policies.impact.openThreads":
+    "Les fils ouverts sur la version actuelle d'un artefact ne sont pas comptés : ils sont conservés et, quand une nouvelle version la remplace, chacun retrouve la période entière à partir de ce moment.",
+  "audit.policy.comments":
+    "fils de commentaires supprimés {days} jours après leur dernière activité",
+  "audit.policy.commentsNone": "aucune conservation des commentaires",
+  "audit.policy.planLapsed": "(le forfait n’inclut plus les règles)",
+  "audit.policy.threadsDeleted":
+    "{count, plural, one {a supprimé # fil de commentaires} other {a supprimé # fils de commentaires}}",
+  "audit.policy.messagesDeleted": "{count, plural, one {avec # message} other {avec # messages}}",
 } satisfies Catalog;

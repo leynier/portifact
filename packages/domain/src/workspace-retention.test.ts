@@ -9,6 +9,9 @@ import {
   changedFields,
   checkPolicyImpact,
   checkPolicyPin,
+  commentRetentionOf,
+  commentRetentionTightened,
+  commentTiming,
   describePolicy,
   liftedFields,
   maxLifeDeadline,
@@ -22,7 +25,11 @@ import {
   policyTouchesArtifacts,
   replacedMaxLife,
   retentionTiming,
+  shownPolicy,
   storedPolicy,
+  threadClock,
+  threadDeadline,
+  threadDeletable,
   uncappedExpiry,
 } from "./workspace-policies.ts";
 
@@ -247,6 +254,9 @@ describe("the impact of a maximum life", () => {
     artifactsAtStart: 0,
     artifactsSoon: 0,
     pinsLifted: 0,
+    threadsAtStart: 0,
+    messagesAtStart: 0,
+    threadsSoon: 0,
   };
   it("is refused unconfirmed with every count, and again when a count grew", () => {
     const impact = { ...none, artifactsAtStart: 2, artifactsSoon: 5, pinsLifted: 1 };
@@ -267,5 +277,226 @@ describe("the impact of a maximum life", () => {
         message: POLICY_MESSAGES.impactChanged,
       });
     }
+  });
+});
+
+describe("comment retention (decision 0023)", () => {
+  const rule = (days: number, from = 0) =>
+    policy({ commentRetentionDays: days, commentRetentionFrom: from });
+
+  it("accepts 30 to 3,650 whole days, and is stored only while set", () => {
+    for (const days of [30, 365, 3650]) {
+      expect(WorkspacePolicy.safeParse(rule(days)).success).toBe(true);
+    }
+    for (const days of [29, 3651, 30.5]) {
+      expect(WorkspacePolicy.safeParse(rule(days)).success).toBe(false);
+    }
+    expect(storedPolicy(policy({ publicAccess: "forbidden" }))).not.toHaveProperty(
+      "commentRetentionDays",
+    );
+    expect(storedPolicy(rule(90, NOW))).toMatchObject({
+      commentRetentionDays: 90,
+      commentRetentionFrom: NOW,
+    });
+  });
+
+  it.each([
+    ["setting it", null, 90, true],
+    ["shortening it", 180, 90, true],
+    ["keeping it", 90, 90, false],
+    ["lengthening it", 90, 180, false],
+    ["removing it", 90, null, false],
+  ] as const)("%s: plan needed and tightened %#", (_, from, to, tightens) => {
+    const current = from === null ? DEFAULT_POLICY : rule(from, NOW);
+    const next = to === null ? DEFAULT_POLICY : rule(to, NOW);
+    expect(policyChangeNeedsPlan(current, next)).toBe(tightens);
+    expect(commentRetentionTightened(current, next)).toBe(tightens);
+    // apply-policies never holds back a longer or removed retention.
+    expect(liftedFields(current, next)).toEqual([]);
+  });
+
+  it("counts a change of the rule's date or token alone as a change of the field", () => {
+    const set = commentTiming(DEFAULT_POLICY, rule(90, 0), NOW, "t1");
+    expect(changedFields(set, { ...set, commentRetentionFrom: NOW + DAY })).toEqual([
+      "commentRetentionDays",
+    ]);
+    expect(changedFields(set, { ...set, commentRetentionToken: "t2" })).toEqual([
+      "commentRetentionDays",
+    ]);
+    expect(changedFields(set, set)).toEqual([]);
+  });
+
+  it("gives the restore guard a fresh token whenever the rule changes, and keeps it otherwise", () => {
+    const set = commentTiming(DEFAULT_POLICY, rule(90, 0), NOW, "t1");
+    expect(set.commentRetentionToken).toBe("t1");
+    // Another field saved, the rule as it was: the same token, no new guard write.
+    const same = commentTiming(set, { ...set, publicAccess: "forbidden" }, NOW + DAY, "t2");
+    expect(same.commentRetentionToken).toBe("t1");
+    // Lengthened (same date) or shortened (new date): a new token.
+    expect(commentTiming(set, rule(180, 0), NOW + DAY, "t3").commentRetentionToken).toBe("t3");
+    expect(commentTiming(set, rule(30, 0), NOW + DAY, "t4").commentRetentionToken).toBe("t4");
+    // Removed: none. A client's token is never kept, and a preview keeps the current one.
+    expect(commentTiming(set, DEFAULT_POLICY, NOW, "t5").commentRetentionToken).toBeNull();
+    expect(
+      commentTiming(set, { ...rule(30, 0), commentRetentionToken: "client" }, NOW, "t6")
+        .commentRetentionToken,
+    ).toBe("t6");
+    expect(commentTiming(set, rule(30, 0), NOW).commentRetentionToken).toBe("t1");
+    // Stored with the rule only, and never shown.
+    expect(storedPolicy(DEFAULT_POLICY)).toEqual(
+      storedPolicy({ ...DEFAULT_POLICY, commentRetentionToken: "x" }),
+    );
+    expect(storedPolicy(set)).toMatchObject({ commentRetentionToken: "t1" });
+    expect(shownPolicy(set, true).commentRetentionToken).toBeNull();
+  });
+
+  it("starts after the notice period, keeps its date when lengthened, and clears it when removed", () => {
+    expect(commentTiming(DEFAULT_POLICY, rule(90, 0), NOW).commentRetentionFrom).toBe(NOW + NOTICE);
+    expect(commentTiming(rule(90, NOW - DAY), rule(180, 0), NOW).commentRetentionFrom).toBe(
+      NOW - DAY,
+    );
+    expect(commentTiming(rule(180, NOW - DAY), rule(90, 0), NOW).commentRetentionFrom).toBe(
+      NOW + NOTICE,
+    );
+    expect(commentTiming(rule(90, NOW), DEFAULT_POLICY, NOW).commentRetentionFrom).toBeNull();
+  });
+
+  // [what, state, on current version, artifact state, last activity, moved in, version replaced,
+  //  deletable at NOW], ages in days before NOW
+  const cases: [
+    string,
+    "open" | "resolved",
+    boolean,
+    string,
+    number,
+    number | null,
+    number | null,
+    boolean,
+  ][] = [
+    ["a resolved thread past its period", "resolved", true, "active", 100, null, null, true],
+    ["an open thread on the current version", "open", true, "active", 400, null, null, false],
+    ["an open thread on a version replaced long ago", "open", false, "active", 100, null, 95, true],
+    [
+      "an open thread whose version was replaced yesterday",
+      "open",
+      false,
+      "active",
+      400,
+      null,
+      1,
+      false,
+    ],
+    [
+      "an open thread whose version was replaced 91 days ago",
+      "open",
+      false,
+      "active",
+      400,
+      null,
+      91,
+      true,
+    ],
+    [
+      "a resolved thread on a version replaced yesterday",
+      "resolved",
+      false,
+      "active",
+      400,
+      null,
+      1,
+      true,
+    ],
+    ["a recent thread", "resolved", true, "active", 20, null, null, false],
+    ["a thread on an archived artifact", "resolved", true, "archived", 100, null, null, true],
+    ["a thread on a suspended artifact", "resolved", true, "suspended", 100, null, null, false],
+    ["a thread moved in yesterday", "resolved", true, "active", 400, 1, null, false],
+    ["a thread moved in 8 days ago", "resolved", true, "active", 400, 8, null, true],
+  ];
+  it.each(cases)(
+    "%s",
+    (_, state, onCurrentVersion, artifactState, ago, movedAgo, replacedAgo, expected) => {
+      expect(
+        threadDeletable(
+          { days: 90, from: 0 },
+          {
+            state,
+            onCurrentVersion,
+            artifactState,
+            lastActivity: NOW - ago * DAY,
+            movedIn: movedAgo === null ? null : NOW - movedAgo * DAY,
+            leftCurrent: replacedAgo === null ? null : NOW - replacedAgo * DAY,
+          },
+          NOW,
+        ),
+      ).toBe(expected);
+    },
+  );
+
+  it("starts an open thread's clock when its version stopped being current, a resolved one's at its last activity", () => {
+    const at = { lastActivity: NOW - 400 * DAY, leftCurrent: NOW - DAY };
+    expect(threadClock({ state: "open", ...at })).toBe(NOW - DAY);
+    expect(threadClock({ state: "resolved", ...at })).toBe(NOW - 400 * DAY);
+    expect(threadClock({ state: "open", lastActivity: NOW, leftCurrent: NOW - DAY })).toBe(NOW);
+    expect(threadClock({ state: "open", lastActivity: NOW, leftCurrent: null })).toBe(NOW);
+  });
+
+  it("never puts a deadline before the rule takes effect or within the move notice", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 30, max: 3650 }),
+        fc.integer({ min: 0, max: 2 * NOW }),
+        fc.integer({ min: 0, max: 2 * NOW }),
+        fc.option(fc.integer({ min: 0, max: 2 * NOW })),
+        (days, from, lastActivity, movedIn) => {
+          const deadline = threadDeadline({ days, from }, lastActivity, movedIn);
+          expect(deadline).toBeGreaterThanOrEqual(from);
+          expect(deadline).toBeGreaterThanOrEqual(lastActivity + days * DAY);
+          if (movedIn !== null) {
+            expect(deadline).toBeGreaterThanOrEqual(
+              movedIn + WORKSPACE_POLICIES.commentMoveNoticeDays * DAY,
+            );
+          }
+        },
+      ),
+    );
+  });
+
+  it("counts threads and messages in the impact, and refuses a confirmation that grew", () => {
+    const none = {
+      publicArtifacts: 0,
+      readersOutside: 0,
+      linksRevoked: 0,
+      linksWithoutPassword: 0,
+      linksOverLifetime: 0,
+      artifactsAtStart: 0,
+      artifactsSoon: 0,
+      pinsLifted: 0,
+      threadsAtStart: 3,
+      messagesAtStart: 11,
+      threadsSoon: 2,
+    };
+    const refused = checkPolicyImpact(none, undefined);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.message).toContain(
+        "3 comment threads would be deleted for good when comment retention takes effect",
+      );
+      expect(refused.message).toContain("11 messages in them would be deleted with them");
+    }
+    expect(checkPolicyImpact(none, none).ok).toBe(true);
+    expect(checkPolicyImpact({ ...none, messagesAtStart: 12 }, none).ok).toBe(false);
+  });
+
+  it("is described to the CLI and MCP, and recorded in the audit detail", () => {
+    expect(describePolicy(rule(90, Date.UTC(2026, 10, 18)))).toEqual([
+      "comment threads are deleted 90 days after their last activity (an open one: after its version was replaced, when later), except open ones on the current version (from 2026-11-18)",
+    ]);
+    expect(policyChangeDetail(DEFAULT_POLICY, rule(90, NOW), true)).toMatchObject({
+      fields: ["commentRetentionDays"],
+      commentRetentionDays: 90,
+      commentRetentionFrom: NOW,
+    });
+    expect(commentRetentionOf(rule(90, NOW))).toEqual({ days: 90, from: NOW, token: null });
+    expect(commentRetentionOf(DEFAULT_POLICY)).toBeNull();
   });
 });

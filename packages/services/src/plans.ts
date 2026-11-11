@@ -38,6 +38,7 @@ import {
 } from "@portifact/db";
 import {
   alignedLimit,
+  commentRetentionOf,
   type Entitlements,
   entitlements,
   FREE_LIMIT_COLUMNS,
@@ -45,6 +46,7 @@ import {
   type GraceChange,
   graceAfterChange,
   graceScanStep,
+  hasFeature,
   type LimitColumns,
   limitColumns,
   liveGraceSlots,
@@ -54,6 +56,7 @@ import {
   ok,
   pinsLapse,
   planActive,
+  policyOf,
   type Result,
   readGrace,
   readGraceNotices,
@@ -65,6 +68,7 @@ import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ownerRetentionJob } from "./analytics.ts";
 import { auditEvent } from "./audit.ts";
+import { deleteGuardRecord } from "./comment-retention.ts";
 import {
   cursorFor,
   cursorRead,
@@ -461,6 +465,49 @@ function graceEventCount(change: GraceChange): number {
 
 function graceJson(slots: readonly GraceSlot[]): string | null {
   return slots.length === 0 ? null : JSON.stringify(slots);
+}
+
+/**
+ * Before a plan change that takes `policies` from a workspace whose policy sets a comment
+ * retention (the scan then removes the rule, decision 0023): the workspace's guard record is
+ * deleted first, so a restore of the global database to before the change brings back a rule that
+ * no longer agrees with R2. Called by the operator before `setOwnerPlan` or `removeOwnerPlan`
+ * (`plan` null for a removal). `none`: nothing to do (a personal space, a plan that keeps
+ * `policies`, no rule; no read for a personal space). `released`: deleted. `kept`: no bucket bound
+ * or R2 refused, and the operator is told what to do. An unreadable policy counts as one that sets
+ * it.
+ */
+export async function releaseGuardForPlan(
+  global: GlobalDb,
+  bucket: R2Bucket | undefined,
+  ownerId: string,
+  plan: Pick<SetOwnerPlanInput, "plan" | "seats" | "validUntil" | "overrides"> | null,
+  now: number,
+): Promise<"none" | "released" | "kept"> {
+  if (!isWorkspaceId(ownerId)) return "none";
+  let after: Entitlements;
+  if (plan === null) after = entitlements(null, now);
+  else {
+    const overrides = checkGrant({ ...plan, ownerId, grantedBy: "operator", note: null, now });
+    if (!overrides.ok) return "none";
+    after = entitlements({ ...plan, overrides: overrides.value }, now);
+  }
+  if (hasFeature(after, "policies")) return "none";
+  const w = schema.workspaces;
+  const [row] = await global
+    .select({ policy: sql<string | null>`${w.policy}` })
+    .from(w)
+    .where(eq(w.id, ownerId))
+    .limit(1);
+  if (!row) return "none";
+  let sets = true;
+  try {
+    sets = commentRetentionOf(policyOf(row.policy)) !== null;
+  } catch {
+    sets = true;
+  }
+  if (!sets) return "none";
+  return (await deleteGuardRecord(bucket, ownerId)) ? "released" : "kept";
 }
 
 /**

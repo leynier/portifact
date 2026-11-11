@@ -2613,4 +2613,38 @@ export const zhCN = {
     "{count, plural, one {恢复了 # 个 artifact 的期限} other {恢复了 # 个 artifact 的期限}}",
   "transfer.confirm.maxLife":
     "{space} 会在 artifact 最后一次发布、恢复或移入后 {days} 天将其归档:现在移动的话,除非有人重新发布,它最迟会在 {date} 归档,并且在那里不能固定。",
+  "policies.comments.unavailable": "目前无法更改评论保留规则，因此未保存任何内容。请几分钟后再试。",
+  "policies.comments.legend": "评论保留期限",
+  "policies.comments.hint":
+    "当工作区的评论会话在一定天数内没有活动时，将其连同所有消息一起删除。工件当前版本上的未解决会话会被保留，确保审阅者正在等待的内容不会丢失；当新版本替换该版本后，会话会从那一刻起重新获得完整的期限。已删除的会话任何人都无法恢复，包括 Portifact。",
+  "policies.comments.any": "保留评论",
+  "policies.comments.anyHint": "线程会一直保留,直到有人删除它或其 artifact 被删除。",
+  "policies.comments.only": "删除旧线程",
+  "policies.comments.onlyHint":
+    "已解决的会话在最后一次活动早于期限后被删除。较早版本上的未解决会话，要在距其最后一次活动和距其版本被替换都超过期限后才会被删除。回复会重新开始计算期限。",
+  "policies.comments.days": "线程最后一次活动后的天数",
+  "policies.comments.daysHint": "{min} 到 {max} 天。",
+  "policies.comments.daysError": "请输入 {min} 到 {max} 之间的整数天数。",
+  "policies.comments.notice":
+    "新的或更短的保留期限在保存 {days} 天后生效,每位管理员都会收到邮件;如果第一次删除晚得多,在删除前不久还会再收到一封。更长的保留期限或取消设置会立即生效。如果工作区套餐失效,不会删除任何内容,保留期限会被移除,直到管理员重新设置。",
+  "policies.comments.pending": "评论保留期限将于 {date} 生效",
+  "policies.comments.active":
+    "评论会话在最后一次活动 {days} 天后被永久删除；未解决的会话如果其版本被替换的时间更晚，则在替换 {days} 天后删除。工件当前版本上的未解决会话会被保留。",
+  "policies.comments.notInForce": "评论保留期限已设置，但未生效",
+  "policies.comments.notInForceHint":
+    "不会依据它删除任何内容：这发生在从备份恢复之后，或某次保存未能记录该规则时。再次保存该规则即可使其生效；与任何新规则一样，它会在通知期之后开始执行。",
+  "policies.impact.threads":
+    "{count, plural, one {# 个评论线程将在保留期限生效当天被永久删除} other {# 个评论线程将在保留期限生效当天被永久删除}}",
+  "policies.impact.messages":
+    "{count, plural, one {其中 # 条消息会一并删除} other {其中 # 条消息会一并删除}}",
+  "policies.impact.threadsSoon":
+    "{count, plural, one {另有 # 个线程将在之后 30 天内删除} other {另有 # 个线程将在之后 30 天内删除}}",
+  "policies.impact.openThreads":
+    "工件当前版本上的未解决会话不计入：它们会被保留，当新版本替换该版本后，每个会话从那一刻起获得完整的期限。",
+  "audit.policy.comments": "评论线程在最后一次活动 {days} 天后删除",
+  "audit.policy.commentsNone": "不设评论保留期限",
+  "audit.policy.planLapsed": "(套餐不再包含策略)",
+  "audit.policy.threadsDeleted":
+    "{count, plural, one {删除了 # 个评论线程} other {删除了 # 个评论线程}}",
+  "audit.policy.messagesDeleted": "{count, plural, one {包含 # 条消息} other {包含 # 条消息}}",
 } satisfies Catalog;

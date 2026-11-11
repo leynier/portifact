@@ -673,7 +673,7 @@ export async function pruneGroupTombstones(
       ? sql`and (${t.deletedAt}, ${t.kind}, ${t.id}) > (${cursor.deletedAt}, ${cursor.kind}, ${cursor.id})`
       : sql``;
     const rows: { kind: string; id: string; deleted_at: number }[] = await global.all(
-      sql`delete from ${t} where (${t.kind}, ${t.id}) in (select ${t.kind}, ${t.id} from ${t} where ${t.kind} in ('workspace_group', 'workspace_group_member') and ${t.deletedAt} < ${before} ${after} order by ${t.deletedAt}, ${t.kind}, ${t.id} limit ${limits.batch}) returning ${t.kind}, ${t.id}, ${t.deletedAt}`,
+      sql`delete from ${t} where (${t.kind}, ${t.id}) in (select ${t.kind}, ${t.id} from ${t} where ${t.kind} in ('workspace_group', 'workspace_group_member', 'comment_thread') and ${t.deletedAt} < ${before} ${after} order by ${t.deletedAt}, ${t.kind}, ${t.id} limit ${limits.batch}) returning ${t.kind}, ${t.id}, ${t.deletedAt}`,
     );
     queries++;
     deleted += rows.length;

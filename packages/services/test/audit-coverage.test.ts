@@ -143,6 +143,10 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   // An artifact that reached its workspace's maximum life is archived with the trail of a manual
   // archive, by the system (decision 0023); other expiries record nothing, as before.
   archiveExpired: ["artifact.archived"],
+  // Comment retention (decision 0023): each batch records `policy.enforced` with the threads and
+  // messages it deleted, by the system; a lapsed plan's suspension records `policy.changed`.
+  deleteDueThreads: ["policy.enforced"],
+  enforceCommentRetention: ["policy.enforced", "policy.changed"],
   // A read that records that it was asked for, before it streams (the one event outside a batch).
   exportAuditLog: ["audit.exported"],
   // Audit streams (decision 0019): an admin's changes; the delivery job records only the
@@ -294,7 +298,22 @@ reason(
 );
 reason("the email of a policy change already recorded as policy.changed (decision 0023)", [
   "sendRetentionNotice",
+  "sendCommentRetentionNotice",
 ]);
+reason(
+  "the restore guard's record in R2, beside a policy change or lapse recorded as policy.changed, or a read (decision 0023)",
+  [
+    "writeGuardRecord",
+    "deleteGuardRecord",
+    "releaseGuardForPlan",
+    "guardAgreement",
+    "confirmGuardRecord",
+  ],
+);
+reason(
+  "tombstones of threads whose deletion its batch already recorded as policy.enforced (decision 0023)",
+  ["writeCommentTombstones"],
+);
 reason("an issue request is recorded once the job creates the issue (issue.created)", [
   "requestThreadIssue",
 ]);
@@ -395,6 +414,8 @@ const READ_NAMES = new Set([
   "ssoReach",
   // What a maximum life would archive, counted for the preview and the save (0023).
   "maxLifeImpact",
+  // What comment retention would delete, counted for the preview, the save and the notice.
+  "commentRetentionImpact",
   "directoryGroupChoices",
   "directoryRoleHolders",
   "seatLimit",
