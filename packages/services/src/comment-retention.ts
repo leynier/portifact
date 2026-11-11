@@ -317,15 +317,38 @@ export function guardKey(workspaceId: string): string {
 /** What the scan, the notices and the Policies page learn from the record. */
 export type GuardAgreement = "agrees" | "missing" | "different" | "unreadable" | "unavailable";
 
+/** The rule a guard record vouches for: its token, and the days and date it was saved with. */
+export interface GuardedRule {
+  token?: string | null | undefined;
+  days: number;
+  from: number;
+}
+
+/** The record as stored: `{ token, days, from }`, or null when it cannot be read as one. */
+function guardRecordOf(text: string): { token: string; days: number; from: number } | null {
+  let stored: unknown;
+  try {
+    stored = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof stored !== "object" || stored === null) return null;
+  const { token, days, from } = stored as Record<string, unknown>;
+  if (typeof token !== "string" || token.length === 0) return null;
+  if (typeof days !== "number" || typeof from !== "number") return null;
+  return { token, days, from };
+}
+
 /**
- * Whether the workspace's guard record holds `token`: read now, never cached. Anything but
- * `agrees` (no record, another token, an unreadable record, no bucket, an R2 error) means the
- * rule is not in force.
+ * Whether the workspace's guard record vouches for `rule`: the same token, days and date, read
+ * now, never cached, so a token can never vouch for another rule (a file edited by hand, say).
+ * Anything but `agrees` (no record, another rule, an unreadable record, no bucket, an R2 error)
+ * means the rule is not in force.
  */
 export async function guardAgreement(
   bucket: R2Bucket | undefined,
   workspaceId: string,
-  token: string | null | undefined,
+  rule: GuardedRule,
 ): Promise<GuardAgreement> {
   if (!bucket) return "unavailable";
   let text: string;
@@ -336,18 +359,14 @@ export async function guardAgreement(
   } catch {
     return "unavailable";
   }
-  let stored: unknown;
-  try {
-    stored = JSON.parse(text);
-  } catch {
-    return "unreadable";
-  }
-  const held =
-    typeof stored === "object" && stored !== null && "token" in stored
-      ? (stored as { token: unknown }).token
-      : null;
-  if (typeof held !== "string" || held.length === 0) return "unreadable";
-  return typeof token === "string" && held === token ? "agrees" : "different";
+  const held = guardRecordOf(text);
+  if (held === null) return "unreadable";
+  return typeof rule.token === "string" &&
+    held.token === rule.token &&
+    held.days === rule.days &&
+    held.from === rule.from
+    ? "agrees"
+    : "different";
 }
 
 /** A fresh token for a save that sets or changes the rule. */
@@ -362,15 +381,51 @@ export function newGuardToken(): string {
 export async function writeGuardRecord(
   bucket: R2Bucket | undefined,
   workspaceId: string,
-  token: string,
+  rule: { token: string; days: number; from: number },
 ): Promise<boolean> {
   if (!bucket) return false;
   try {
-    await bucket.put(guardKey(workspaceId), JSON.stringify({ token }));
+    await bucket.put(
+      guardKey(workspaceId),
+      JSON.stringify({ token: rule.token, days: rule.days, from: rule.from }),
+    );
     return true;
   } catch (error) {
     logEvent("error", "comment_retention_guard_write_failed", { error: errorLabel(error) });
     return false;
+  }
+}
+
+/**
+ * After a new or shorter rule's R2 write (decision 0023, "Concurrent saves"): the policy is read
+ * again, and when it no longer holds this save's token (a removal or another save landed after
+ * this save's D1 write), the record is deleted if it still holds that token, so a late write can
+ * never arm a rule a later save replaced. Deleting can only pause.
+ */
+export async function confirmGuardRecord(
+  global: Db,
+  bucket: R2Bucket | undefined,
+  workspaceId: string,
+  token: string,
+): Promise<void> {
+  const [row] = await global
+    .select({ policy: sql<string | null>`${w.policy}` })
+    .from(w)
+    .where(eq(w.id, workspaceId))
+    .limit(1);
+  let held: string | null = null;
+  try {
+    held = row ? policyOf(row.policy).commentRetentionToken : null;
+  } catch {
+    held = null;
+  }
+  if (held === token || !bucket) return;
+  try {
+    const object = await bucket.get(guardKey(workspaceId));
+    const record = object ? guardRecordOf(await object.text()) : null;
+    if (record?.token === token) await bucket.delete(guardKey(workspaceId));
+  } catch (error) {
+    logEvent("error", "comment_retention_guard_write_failed", { error: errorLabel(error) });
   }
 }
 
@@ -527,7 +582,7 @@ export async function enforceCommentRetention(
         if (rule.from > now) continue;
         // R2 is read only for a workspace with something to delete in this run.
         if ((await db.all(dueThreadIds(row.id, rule, now, 1))).length === 0) continue;
-        const reason = await guardAgreement(bucket, row.id, rule.token);
+        const reason = await guardAgreement(bucket, row.id, rule);
         if (reason !== "agrees") {
           run.paused = true;
           run.heldBack += 1;

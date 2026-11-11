@@ -109,7 +109,7 @@ export async function sendCommentRetentionNotice(
   // guard record disagree, so it deletes nothing until an admin saves it again.
   const inForce =
     rule !== null &&
-    (await guardAgreement(await regionBucket?.(workspaceId), workspaceId, rule.token)) === "agrees";
+    (await guardAgreement(await regionBucket?.(workspaceId), workspaceId, rule)) === "agrees";
   const claimed = await db
     .delete(schema.outbox)
     .where(eq(schema.outbox.id, row.id))

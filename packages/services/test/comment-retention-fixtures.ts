@@ -214,7 +214,7 @@ export async function stored(t: Team) {
  */
 export function memoryBucket(
   fail: { get?: boolean; put?: boolean; delete?: boolean } = {},
-  hooks: { beforeWrite?: () => Promise<void> } = {},
+  hooks: { beforeWrite?: () => Promise<void>; afterWrite?: () => Promise<void> } = {},
 ) {
   const held = new Map<string, string>();
   let reads = 0;
@@ -236,6 +236,9 @@ export function memoryBucket(
       await hook();
       if (fail.put) throw new Error("r2 unavailable");
       held.set(key, text);
+      const after = hooks.afterWrite;
+      delete hooks.afterWrite;
+      if (after) await after();
       return {};
     },
     delete: async (key: string) => {
@@ -248,6 +251,7 @@ export function memoryBucket(
     held: (key: string) => held.get(key),
     reads: (key?: string) => (key === undefined ? reads : (readsByKey.get(key) ?? 0)),
     fail,
+    hooks,
   });
 }
 

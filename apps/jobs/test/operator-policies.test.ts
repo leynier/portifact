@@ -330,6 +330,30 @@ describe("listing the workspaces that require single sign-on (decision 0021)", (
 });
 
 describe("comment retention after apply-policies (decision 0023)", () => {
+  it("names the workspaces whose stricter comment retention it did not apply", async () => {
+    const id = await workspace({
+      ...POLICY,
+      commentRetentionDays: 365,
+      commentRetentionFrom: NOW,
+      commentRetentionToken: "t",
+    });
+    const line = JSON.stringify({
+      workspaceId: id,
+      policy: {
+        ...POLICY,
+        commentRetentionDays: 30,
+        commentRetentionFrom: NOW,
+        commentRetentionToken: "t",
+      },
+    });
+    const result = await runOperator(db(), ["apply-policies", "--file", "p"], NOW, {
+      read: async () => `${line}\n`,
+      write: async () => {},
+    });
+    expect(result.output).toContain("kept their comment retention because the file's is stricter");
+    expect(result.output).toContain(id);
+  });
+
   it("says it resumes by itself where the guard agrees, and that the export comes before the restore", async () => {
     const result = await runOperator(db(), ["apply-policies", "--file", "empty"], NOW, {
       read: async () => "",

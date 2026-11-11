@@ -460,6 +460,18 @@ async function ownerBucket(regions: Regions, ownerId: string): Promise<R2Bucket 
 }
 
 /**
+ * When the guard record was deleted but the plan change then failed: the workspace's comment
+ * retention no longer agrees with R2, so it deletes nothing until an admin saves it again.
+ */
+function guardReleasedLines(ownerId: string, guard: "none" | "released" | "kept"): string[] {
+  return guard === "released"
+    ? [
+        `The comment retention guard record of ${ownerId} was deleted before the plan change failed: its comment retention is now paused (it deletes nothing) until an admin saves it again on the Policies page.`,
+      ]
+    : [];
+}
+
+/**
  * What the operator is told when a plan change takes `policies` from a workspace with comment
  * retention and its guard record could not be deleted first (decision 0023, "Restores").
  */
@@ -515,7 +527,12 @@ async function setPlan(
     now,
     noGrace: options.has("no-grace"),
   });
-  if (!result.ok) return { exitCode: 1, output: result.message };
+  if (!result.ok) {
+    return {
+      exitCode: 1,
+      output: [result.message, ...guardReleasedLines(userId, guard)].join("\n"),
+    };
+  }
   if (guard === "kept") {
     return {
       exitCode: 1,
@@ -1121,7 +1138,12 @@ export async function runOperator(
         now,
         noGrace: options.has("no-grace"),
       });
-      if (!result.ok) return { exitCode: 1, output: result.message };
+      if (!result.ok) {
+        return {
+          exitCode: 1,
+          output: [result.message, ...guardReleasedLines(userId, guard)].join("\n"),
+        };
+      }
       if (guard === "kept") {
         return {
           exitCode: 1,
@@ -1217,6 +1239,12 @@ export async function runOperator(
         lines.push(
           `${result.retentionCleared.length} of them had a maximum life of artifacts or a comment retention the restore brought back (an admin had removed it after the restore point); it was removed again so it archives or deletes nothing:`,
           ...result.retentionCleared.map((id) => `  ${id}`),
+        );
+      }
+      if (result.commentHeld.length > 0) {
+        lines.push(
+          `${result.commentHeld.length} workspace(s) kept their comment retention because the file's is stricter (shorter, new, or taking effect earlier); apply-policies never tightens deletion, so an admin sets it again from the Policies page if it is wanted:`,
+          ...result.commentHeld.map((id) => `  ${id}`),
         );
       }
       lines.push(

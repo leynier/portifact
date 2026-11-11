@@ -22,6 +22,7 @@ import {
   applyWorkspacePolicies,
   exportWorkspacePolicies,
   getWorkspacePolicy,
+  previewWorkspacePolicy,
 } from "../src/workspace-policies.ts";
 import { deleteWorkspace } from "../src/workspaces.ts";
 import {
@@ -196,19 +197,25 @@ describe("each writer's order, and what each failure leaves", () => {
     });
   });
 
-  it("a longer rule or a removal: R2 first, and R2 refusing saves nothing", async () => {
+  it("a longer rule: R2 first, and R2 refusing saves nothing; a removal is never refused", async () => {
     const bucket = memoryBucket();
     const r = via(bucket);
-    const { t } = await ruled(r);
+    const { t, old } = await ruled(r);
     const before = await tokenOf(t);
     bucket.fail.put = true;
-    for (const next of [retention(180), retention(null)]) {
-      const refused = await save(t, next, { via: r, now: NOW + DAY });
-      expect(refused).toMatchObject({ ok: false, code: "capacity_unavailable" });
-    }
-    bucket.fail.put = false;
+    const refused = await save(t, retention(180), { via: r, now: NOW + DAY });
+    expect(refused).toMatchObject({ ok: false, code: "capacity_unavailable" });
     expect(await tokenOf(t)).toBe(before);
     expect(recordOf(bucket, t)).toBe(before);
+    // R2 refuses deletes too: the removal goes through; the record left behind is the window
+    // decision 0023 states (a restore to before it while R2 still holds it).
+    value(await save(t, retention(null), { via: r, now: NOW + DAY }));
+    bucket.fail.put = false;
+    expect((await stored(t)).commentRetentionDays).toBeNull();
+    expect(await survives(t, old, FROM + 100 * DAY, bucket)).toEqual({
+      threads: 0,
+      survives: true,
+    });
   });
 
   it("a longer rule or a removal whose D1 batch then fails leaves the stores disagreeing", async () => {
@@ -292,21 +299,25 @@ describe("each writer's order, and what each failure leaves", () => {
     expect(writes).toBe(0);
   });
 
-  it("holds back on every answer but agreement", async () => {
+  it("holds back on every answer but agreement on the whole rule", async () => {
     const t = await team();
-    expect(await guardAgreement(undefined, t.id, "x")).toBe("unavailable");
+    const rule = { token: "x", days: 90, from: FROM };
+    expect(await guardAgreement(undefined, t.id, rule)).toBe("unavailable");
     const bucket = memoryBucket();
-    expect(await guardAgreement(bucket, t.id, "x")).toBe("missing");
+    expect(await guardAgreement(bucket, t.id, rule)).toBe("missing");
     await bucket.put(guardKey(t.id), "{not json");
-    expect(await guardAgreement(bucket, t.id, "x")).toBe("unreadable");
-    await bucket.put(guardKey(t.id), JSON.stringify({ other: 1 }));
-    expect(await guardAgreement(bucket, t.id, "x")).toBe("unreadable");
-    await bucket.put(guardKey(t.id), JSON.stringify({ token: "y" }));
-    expect(await guardAgreement(bucket, t.id, "x")).toBe("different");
-    expect(await guardAgreement(bucket, t.id, null)).toBe("different");
-    expect(await guardAgreement(bucket, t.id, "y")).toBe("agrees");
+    expect(await guardAgreement(bucket, t.id, rule)).toBe("unreadable");
+    await bucket.put(guardKey(t.id), JSON.stringify({ token: "x" }));
+    expect(await guardAgreement(bucket, t.id, rule)).toBe("unreadable");
+    await bucket.put(guardKey(t.id), JSON.stringify(rule));
+    expect(await guardAgreement(bucket, t.id, rule)).toBe("agrees");
+    // The same token never vouches for another rule.
+    expect(await guardAgreement(bucket, t.id, { ...rule, days: 30 })).toBe("different");
+    expect(await guardAgreement(bucket, t.id, { ...rule, from: FROM - DAY })).toBe("different");
+    expect(await guardAgreement(bucket, t.id, { ...rule, token: "y" })).toBe("different");
+    expect(await guardAgreement(bucket, t.id, { ...rule, token: null })).toBe("different");
     bucket.fail.get = true;
-    expect(await guardAgreement(bucket, t.id, "y")).toBe("unavailable");
+    expect(await guardAgreement(bucket, t.id, rule)).toBe("unavailable");
     expect(await deleteGuardRecord(undefined, t.id)).toBe(false);
   });
 
@@ -439,9 +450,9 @@ describe("apply-policies writes no record", () => {
 describe("the edges of the writers", () => {
   it("writes no record without a bucket or when R2 refuses", async () => {
     const t = await team();
-    expect(await writeGuardRecord(undefined, t.id, "x")).toBe(false);
+    expect(await writeGuardRecord(undefined, t.id, { token: "x", days: 90, from: 0 })).toBe(false);
     const bucket = memoryBucket({ put: true });
-    expect(await writeGuardRecord(bucket, t.id, "x")).toBe(false);
+    expect(await writeGuardRecord(bucket, t.id, { token: "x", days: 90, from: 0 })).toBe(false);
     expect(await deleteGuardRecord(bucket, t.id)).toBe(false);
   });
 
@@ -504,18 +515,19 @@ describe("apply-policies' merge of a looser rule it must apply alone", () => {
     });
   });
 
-  it("keeps the stored token when the merge is the stored rule, and none for a rule neither had", async () => {
-    // Longer days in the file, a later date in the store: the merge is neither's rule.
+  it("holds a file's rule that is stricter in any way, and applies a later date with the file's token", async () => {
+    // Longer days in the file but an earlier date than the stored one: stricter for old threads.
     const t = await heldBack({ days: 30, from: FROM + 9 * DAY, token: "stored" });
-    await applyWorkspacePolicies(
+    const result = await applyWorkspacePolicies(
       g(),
       [{ workspaceId: t.id, policy: file(120, FROM + DAY, "file") }],
       NOW,
     );
+    expect(result).toMatchObject({ ok: true, commentHeld: [t.id] });
     expect(await stored(t)).toMatchObject({
-      commentRetentionDays: 120,
+      commentRetentionDays: 30,
       commentRetentionFrom: FROM + 9 * DAY,
-      commentRetentionToken: null,
+      commentRetentionToken: "stored",
     });
     // Same days, a later date in the file (still ahead): the file's rule and token.
     const u = await heldBack({ days: 90, from: FROM, token: "stored" });
@@ -525,6 +537,174 @@ describe("apply-policies' merge of a looser rule it must apply alone", () => {
       NOW,
     );
     expect((await stored(u)).commentRetentionToken).toBe("file");
+  });
+});
+
+describe("the save path decides a loosening against the stored rule (fourth check)", () => {
+  it("R1: a removal while R2 cannot be read removes the rule, and nothing deletes when R2 is back", async () => {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const { t, old } = await ruled(r);
+    bucket.fail.get = true;
+    const removed = value(await save(t, retention(null), { via: r, now: NOW + DAY }));
+    bucket.fail.get = false;
+    expect(removed.policy.commentRetentionDays).toBeNull();
+    expect((await stored(t)).commentRetentionDays).toBeNull();
+    expect(await survives(t, old, FROM + 100 * DAY, bucket)).toEqual({
+      threads: 0,
+      survives: true,
+    });
+  });
+
+  it("R2: a rule that is not in force can be removed", async () => {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const { t } = await ruled(r);
+    await bucket.delete(guardKey(t.id));
+    value(await save(t, retention(null), { via: r, now: NOW + DAY }));
+    expect((await stored(t)).commentRetentionDays).toBeNull();
+  });
+
+  it("R3: a removal racing a new rule's late R2 write is never lost", async () => {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const t = await team();
+    const artifact = await publishIn(t.editor.id, t.id);
+    const old = await thread(t, artifact, { agoDays: 400 });
+    // A sets the rule; its R2 write is in flight while B removes it (B reads R2 first).
+    bucket.hooks.beforeWrite = async () => {
+      value(await save(t, retention(null), { via: r, now: NOW + DAY }));
+    };
+    value(await save(t, retention(90), { via: r }));
+    expect((await stored(t)).commentRetentionDays).toBeNull();
+    expect(await survives(t, old, FROM + 100 * DAY, bucket)).toEqual({
+      threads: 0,
+      survives: true,
+    });
+  });
+
+  it("R4: a file whose rule was shortened by hand, token kept, is not applied and arms nothing", async () => {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const t = await team();
+    const artifact = await publishIn(t.editor.id, t.id);
+    value(await save(t, retention(365), { via: r }));
+    const recent = await thread(t, artifact, { agoDays: 40 });
+    const [exported] = (await exportWorkspacePolicies(g())).filter((i) => i.workspaceId === t.id);
+    if (!exported) throw new Error("no export");
+    const edited = { ...exported, policy: { ...exported.policy, commentRetentionDays: 30 } };
+    const result = await applyWorkspacePolicies(g(), [edited], NOW + DAY);
+    if (!result.ok) throw new Error(result.message);
+    expect(result.commentHeld).toEqual([t.id]);
+    expect((await stored(t)).commentRetentionDays).toBe(365);
+    // Even with the shorter rule in D1, the record vouches only for the rule it was written with.
+    await g()
+      .update(W)
+      .set({ policy: { ...(await stored(t)), commentRetentionDays: 30 } as never })
+      .where(eq(W.id, t.id));
+    expect(await survives(t, recent, FROM + DAY, bucket)).toEqual({ threads: 0, survives: true });
+  });
+
+  it("the preview follows the save: a change refused while R2 cannot be read, a removal shown", async () => {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const { t } = await ruled(r);
+    bucket.fail.get = true;
+    const preview = (next: ReturnType<typeof retention>) =>
+      previewWorkspacePolicy(r, { userId: t.admin.id, slug: t.slug, policy: next, now: NOW + DAY });
+    expect(await preview(retention(180))).toMatchObject({
+      ok: false,
+      code: "capacity_unavailable",
+    });
+    expect(await preview(retention(null))).toMatchObject({ ok: true });
+  });
+
+  it("refuses a change of the rule while R2 cannot be read, and leaves an unrelated save's rule as it was", async () => {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const { t } = await ruled(r);
+    const before = await stored(t);
+    bucket.fail.get = true;
+    const longer = await save(t, retention(180), { via: r, now: NOW + DAY });
+    expect(longer).toMatchObject({ ok: false, code: "capacity_unavailable" });
+    const other = value(
+      await save(t, { ...retention(90), publicAccess: "forbidden" }, { via: r, now: NOW + DAY }),
+    );
+    expect(other.policy.publicAccess).toBe("forbidden");
+    expect(await stored(t)).toMatchObject({
+      commentRetentionDays: 90,
+      commentRetentionFrom: before.commentRetentionFrom,
+      commentRetentionToken: before.commentRetentionToken,
+    });
+  });
+});
+
+describe('concurrent saves (decision 0023, "Concurrent saves")', () => {
+  /** A team with a thread long past any rule, and the bucket its saves write. */
+  async function racing() {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const t = await team();
+    const artifact = await publishIn(t.editor.id, t.id);
+    const old = await thread(t, artifact, { agoDays: 2000 });
+    return { bucket, r, t, old };
+  }
+  const later = FROM + 3000 * DAY;
+
+  it("A sets, B removes after A's record landed and before A confirms: the removal wins", async () => {
+    const { bucket, r, t, old } = await racing();
+    bucket.hooks.afterWrite = async () => {
+      value(await save(t, retention(null), { via: r, now: NOW + DAY }));
+    };
+    value(await save(t, retention(90), { via: r }));
+    expect((await stored(t)).commentRetentionDays).toBeNull();
+    expect(recordOf(bucket, t)).toBeNull();
+    expect(await survives(t, old, later, bucket)).toEqual({ threads: 0, survives: true });
+  });
+
+  it("A sets, B removes after A completed: the removal wins", async () => {
+    const { bucket, r, t, old } = await racing();
+    value(await save(t, retention(90), { via: r }));
+    value(await save(t, retention(null), { via: r, now: NOW + DAY }));
+    expect(recordOf(bucket, t)).toBeNull();
+    expect(await survives(t, old, later, bucket)).toEqual({ threads: 0, survives: true });
+  });
+
+  it("A shortens, B lengthens while A's record is in flight: nothing deletes until saved again", async () => {
+    const { bucket, r, t, old } = await racing();
+    value(await save(t, retention(180), { via: r }));
+    bucket.hooks.beforeWrite = async () => {
+      value(await save(t, retention(365), { via: r, now: NOW + 2 * DAY }));
+    };
+    value(await save(t, retention(90), { via: r, now: NOW + DAY }));
+    // B's rule is the one stored; A's late record was taken back, so they never agree on A's.
+    expect((await stored(t)).commentRetentionDays).toBe(365);
+    expect(await survives(t, old, later, bucket)).toEqual({ threads: 0, survives: true });
+  });
+
+  it("A shortens, B lengthens after A's record landed: B's rule is in force", async () => {
+    const { bucket, r, t, old } = await racing();
+    value(await save(t, retention(180), { via: r }));
+    bucket.hooks.afterWrite = async () => {
+      value(await save(t, retention(365), { via: r, now: NOW + 2 * DAY }));
+    };
+    value(await save(t, retention(90), { via: r, now: NOW + DAY }));
+    expect((await stored(t)).commentRetentionDays).toBe(365);
+    expect(recordOf(bucket, t)).toBe(await tokenOf(t));
+    expect((await scanWith(t, bucket, later)).threads).toBeGreaterThan(0);
+    expect(await exists(t, old)).toBe(false);
+  });
+
+  it("B lengthens, A shortens while B's record is in flight: B fails, A's rule stays not in force", async () => {
+    const { bucket, r, t, old } = await racing();
+    value(await save(t, retention(180), { via: r }));
+    bucket.hooks.beforeWrite = async () => {
+      value(await save(t, retention(90), { via: r, now: NOW + DAY }));
+    };
+    const b = await save(t, retention(365), { via: r, now: NOW + 2 * DAY });
+    expect(b).toMatchObject({ ok: false, code: "version_conflict" });
+    expect((await stored(t)).commentRetentionDays).toBe(90);
+    expect(await survives(t, old, later, bucket)).toEqual({ threads: 0, survives: true });
   });
 });
 

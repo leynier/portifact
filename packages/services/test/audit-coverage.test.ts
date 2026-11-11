@@ -302,7 +302,13 @@ reason("the email of a policy change already recorded as policy.changed (decisio
 ]);
 reason(
   "the restore guard's record in R2, beside a policy change or lapse recorded as policy.changed, or a read (decision 0023)",
-  ["writeGuardRecord", "deleteGuardRecord", "releaseGuardForPlan", "guardAgreement"],
+  [
+    "writeGuardRecord",
+    "deleteGuardRecord",
+    "releaseGuardForPlan",
+    "guardAgreement",
+    "confirmGuardRecord",
+  ],
 );
 reason(
   "tombstones of threads whose deletion its batch already recorded as policy.enforced (decision 0023)",
