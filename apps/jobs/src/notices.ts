@@ -25,6 +25,7 @@ import {
   domainNoticeEmail,
   expiryNoticeEmail,
   graceNoticeEmail,
+  retentionNoticeEmail,
   reviewNoticeEmail,
 } from "@portifact/emails";
 import {
@@ -37,6 +38,7 @@ import {
   isRecipientSuppressed,
   type NoticeArtifact,
   RecipientSuppressedError,
+  type RetentionNotifier,
   type ReviewNotifier,
   signUnsubscribeToken,
 } from "@portifact/services";
@@ -329,6 +331,34 @@ export function graceNotifierFromEnv(
     async send({ to, ...notice }) {
       try {
         await env.EMAIL.send({ from: NOTICE_SENDER, to, ...graceEmail(env, notice, region) });
+      } catch (error) {
+        // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+/**
+ * The admins' notice of a workspace's maximum life of artifacts (decision 0023), linking the
+ * workspace's Policies page. Counts, days and a date only, so it is the same in every region.
+ */
+export function retentionNotifierFromEnv(
+  env: Pick<NoticeEnv, "EMAIL" | "APP_ORIGIN">,
+): RetentionNotifier {
+  return {
+    async send({ to, workspaceSlug, days, from, atStart, soon, locale }) {
+      const email = retentionNoticeEmail({
+        days,
+        from,
+        atStart,
+        soon,
+        policiesUrl: `${env.APP_ORIGIN}/policies?workspace=${encodeURIComponent(workspaceSlug)}`,
+        locale: locale ?? undefined,
+      });
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
         if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();

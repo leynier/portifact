@@ -42,6 +42,7 @@ export * from "./invitation-lookup.ts";
 export * from "./invitations.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";
+export * from "./max-life.ts";
 export * from "./moderation.ts";
 export {
   abortSessionMultipart,
@@ -56,6 +57,7 @@ export * from "./plans.ts";
 export * from "./publish.ts";
 export * from "./read-access.ts";
 export * from "./read-file.ts";
+export * from "./retention-notices.ts";
 export * from "./review-access.ts";
 export { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
 export * from "./scim.ts";

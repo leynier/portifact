@@ -9,6 +9,7 @@ import { expiryNoticeEmail } from "./expiry-notice.ts";
 import { graceNoticeEmail } from "./grace-notice.ts";
 import { invitationEmail } from "./invitation.ts";
 import type { EmailContent } from "./message.ts";
+import { retentionNoticeEmail } from "./retention-notice.ts";
 import { reviewNoticeEmail } from "./review-notice.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
 
@@ -232,6 +233,27 @@ export function previews(): Preview[] {
         detachAt: CREATED_AT + 7 * 86_400_000,
         limit: 0,
         usageUrl: "https://app.portifact.com/usage",
+        locale,
+      }),
+    })),
+    {
+      name: "retention-notice",
+      email: retentionNoticeEmail({
+        days: 90,
+        from: CREATED_AT + 7 * 86_400_000,
+        atStart: 4,
+        soon: 12,
+        policiesUrl: "https://app.portifact.com/policies?workspace=acme",
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `retention-notice-${locale.toLowerCase()}`,
+      email: retentionNoticeEmail({
+        days: 90,
+        from: CREATED_AT + 7 * 86_400_000,
+        atStart: 1,
+        soon: 0,
+        policiesUrl: "https://app.portifact.com/policies?workspace=acme",
         locale,
       }),
     })),

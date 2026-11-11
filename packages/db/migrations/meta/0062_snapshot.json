@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "7c0ada28-296f-4338-9f42-1e6c44f67bc4",
+  "id": "c5c99ed4-4090-4242-a0e4-6b08e99cf209",
   "prevId": "72c465f3-7a8f-45e4-8605-54e8abd9db2e",
   "tables": {
     "abuse_reports": {
@@ -1139,6 +1139,20 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "life_started_at": {
+          "name": "life_started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "uncapped_expires_at": {
+          "name": "uncapped_expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1164,6 +1178,12 @@
           "columns": ["owner_id"],
           "isUnique": false,
           "where": "\"artifacts\".\"pinned\" = 1"
+        },
+        "artifacts_capped_owner_idx": {
+          "name": "artifacts_capped_owner_idx",
+          "columns": ["owner_id"],
+          "isUnique": false,
+          "where": "\"artifacts\".\"uncapped_expires_at\" is not null"
         },
         "artifacts_state_expires_idx": {
           "name": "artifacts_state_expires_idx",
@@ -2964,13 +2984,6 @@
         },
         "grace": {
           "name": "grace",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "grace_notices": {
-          "name": "grace_notices",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

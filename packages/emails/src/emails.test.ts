@@ -692,6 +692,8 @@ describe("previews", () => {
       ...translated.map((code) => `comment-notice-${code}`),
       "domain-notice",
       ...translated.map((code) => `domain-notice-${code}`),
+      "retention-notice",
+      ...translated.map((code) => `retention-notice-${code}`),
       "directory-notice",
       ...translated.map((code) => `directory-notice-${code}`),
       ...translated.map((code) => `expiry-notice-${code}`),

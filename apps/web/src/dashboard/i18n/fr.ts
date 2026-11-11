@@ -2883,4 +2883,39 @@ export const fr = {
     "L’authentification unique exigée s’applique de nouveau : le fournisseur peut connecter les personnes ({cause, select, domain {un domaine vérifié a changé} plan {l’offre a changé} provider {le fournisseur a changé} other {constaté par la vérification quotidienne}})",
   "policies.sso.switchedOff":
     "L’authentification unique est exigée, mais elle est désactivée sur ce Portifact : personne ne peut se connecter par le fournisseur ni agir sur cet espace tant que le support de Portifact n’a pas levé l’exigence ou réactivé l’authentification unique. Contactez le support de Portifact.",
+  "policies.maxLife.legend": "Durée de vie maximale des artifacts",
+  "policies.maxLife.hint":
+    "Archive chaque artifact du workspace un nombre de jours après sa dernière publication (un retour en arrière compte) ou restauration. Elle ne fait qu’avancer l’expiration : renouveler ne peut pas la dépasser, et un artifact archivé peut être restauré jusqu’à la fin de son archive. Rien n’est supprimé. Déplacer un artifact dans le workspace lui donne une nouvelle vie, comme une publication.",
+  "policies.maxLife.any": "Pas de maximum",
+  "policies.maxLife.anyHint":
+    "Les artifacts restent en ligne tant que quelqu’un les renouvelle ou les publie.",
+  "policies.maxLife.only": "Archiver après une durée de vie maximale",
+  "policies.maxLife.onlyHint":
+    "L’épinglage est désactivé tant qu’elle est fixée, et les artifacts épinglés sont désépinglés avec leur échéance.",
+  "policies.maxLife.days": "Jours après la dernière publication ou restauration",
+  "policies.maxLife.daysHint": "De {min} à {max} jours.",
+  "policies.maxLife.daysError": "Saisissez un nombre entier de jours entre {min} et {max}.",
+  "policies.maxLife.notice":
+    "Un maximum nouveau ou plus court s’applique {days} jours après l’enregistrement, et chaque administrateur reçoit un e-mail. D’ici là rien n’est archivé, mais chaque artifact affiche déjà sa nouvelle expiration et ses propriétaires reçoivent l’avis d’expiration habituel. Un maximum plus long, ou aucun, s’applique tout de suite.",
+  "policies.maxLife.pending": "Une durée de vie maximale s’applique le {date}",
+  "policies.maxLife.pendingBody":
+    "Ensuite, les artifacts sont archivés {days} jours après leur dernière publication ou restauration. Rien n’est archivé par elle avant cette date.",
+  "policies.maxLife.active":
+    "Les artifacts sont archivés {days} jours après leur dernière publication ou restauration et ne peuvent pas être épinglés.",
+  "policies.impact.atStart":
+    "{count, plural, one {# artifact actif est archivé le jour où la durée de vie maximale s’applique, sauf si quelqu’un le republie} other {# artifacts actifs sont archivés le jour où la durée de vie maximale s’applique, sauf si quelqu’un les republie}}",
+  "policies.impact.soon":
+    "{count, plural, one {# de plus est archivé dans les 30 jours suivants} other {# de plus sont archivés dans les 30 jours suivants}}",
+  "policies.impact.pins":
+    "{count, plural, one {# artifact épinglé est désépinglé} other {# artifacts épinglés sont désépinglés}}",
+  "detail.maxLife":
+    "Ce workspace archive les artifacts {days} jours après leur dernière publication ou restauration : l’expiration en tient compte, et l’épinglage est désactivé.",
+  "audit.policy.maxLife": "artifacts archivés {days} jours après leur dernière publication",
+  "audit.policy.maxLifeNone": "pas de durée de vie maximale des artifacts",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {a avancé l’expiration de # artifact} other {a avancé l’expiration de # artifacts}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {a rendu son temps à # artifact} other {a rendu leur temps à # artifacts}}",
+  "transfer.confirm.maxLife":
+    "{space} archive les artifacts {days} jours après leur dernière publication, restauration ou arrivée : déplacé maintenant, celui-ci est archivé au plus tard le {date} sauf si quelqu’un le republie, et il ne peut pas y être épinglé.",
 } satisfies Catalog;

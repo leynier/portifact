@@ -82,6 +82,7 @@ describe("job contracts", () => {
       "thread_issue",
       "plan_region",
       "audit_stream",
+      "retention_notice",
       "plan_grace_notice",
     ]);
     for (const kind of [

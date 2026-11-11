@@ -38,6 +38,11 @@ export {
 export { type Block, type EmailLayout, escapeHtml, type Inline, renderEmail } from "./layout.ts";
 export type { EmailContent } from "./message.ts";
 export {
+  RETENTION_NOTICE_TEXT,
+  type RetentionNoticeInput,
+  retentionNoticeEmail,
+} from "./retention-notice.ts";
+export {
   REVIEW_TEXT,
   type ReviewNoticeInput,
   type ReviewNoticeKind,

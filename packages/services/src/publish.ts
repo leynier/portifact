@@ -21,8 +21,10 @@ import {
   type MultipartConfig,
   nextExpiry,
   ok,
+  policyExpiry,
   type Result,
   type SourceOriginInput,
+  uncappedExpiry,
   validateManifestPaths,
 } from "@portifact/domain";
 import { and, eq, gte, inArray, type SQL, sql } from "drizzle-orm";
@@ -802,7 +804,11 @@ export async function commitPublish(
     rendering = rendered.value;
   }
   const renderedHashes = rendering?.files.map((file) => file.sha256) ?? [];
-  const expiresAt = nextExpiry(new Date(input.now)).getTime();
+  // A workspace's maximum life (decision 0023) caps it; a publish starts a new life, so the cap
+  // is computed from now with the policy that came with the actor: no read for it.
+  const planExpiry = nextExpiry(new Date(input.now)).getTime();
+  const expiresAt = policyExpiry(allowed.value.policy, planExpiry, input.now, input.now);
+  const uncappedExpiresAt = uncappedExpiry(planExpiry, expiresAt);
   // Every write after the switch applies only if this commit performed it: the artifact now
   // points at this version and the session is still open. The session is closed last, so a
   // concurrent or repeated commit of the same session cannot apply the effects twice.
@@ -817,6 +823,7 @@ export async function commitPublish(
         state: "active",
         // A pinned artifact stays pinned through a publish: it keeps no expiry.
         expiresAt: sql`case when ${schema.artifacts.pinned} then null else ${expiresAt} end`,
+        uncappedExpiresAt: sql`case when ${schema.artifacts.pinned} then null else ${uncappedExpiresAt} end`,
         archivedAt: null,
         purgeAt: null,
         lifecycleGeneration: sql`${schema.artifacts.lifecycleGeneration} + 1`,
