@@ -392,6 +392,36 @@ export type GraceSlot = z.infer<typeof GraceSlot>;
 export const GraceSlots = z.array(GraceSlot).max(PLAN_GRACE_MAX_SLOTS);
 
 /**
+ * The three emails of a hold (decision 0022, third delivery), from the first to the most urgent:
+ * when it starts, when 14 days or less are left, when 3 days or less are left.
+ */
+export const GRACE_NOTICE_MOMENTS = ["start", "two_weeks", "three_days"] as const;
+export const GraceNoticeMoment = z.enum(GRACE_NOTICE_MOMENTS);
+export type GraceNoticeMoment = z.infer<typeof GraceNoticeMoment>;
+
+/** Time left at which each later moment is due. */
+export const GRACE_NOTICE_LEAD_MS = {
+  two_weeks: 14 * 86_400_000,
+  three_days: 3 * 86_400_000,
+} as const;
+
+/** The latest email a hold got, identified by its `from` and `until` (a fold keeps both). */
+export const GraceNoticeMark = z.strictObject({
+  from: moment,
+  until: moment,
+  moment: GraceNoticeMoment,
+});
+export type GraceNoticeMark = z.infer<typeof GraceNoticeMark>;
+
+/** `owner_plans.grace_notices`: one mark per live hold that got an email. */
+export const GraceNoticeMarks = z.array(GraceNoticeMark).max(PLAN_GRACE_MAX_SLOTS);
+export type GraceNoticeMarks = z.infer<typeof GraceNoticeMarks>;
+
+/** Payload of a `plan_grace_notice` job (its subject is the owner): the hold and its moment. */
+export const GraceNoticePayload = GraceNoticeMark;
+export type GraceNoticePayload = GraceNoticeMark;
+
+/**
  * A running grace as the usage endpoint, `portifact usage`, `get_usage` and the account export
  * show it: until when, the highest plan held, what it keeps and the paid features whose data the
  * owner can still read and export (only those the plan it has now does not grant).
@@ -477,5 +507,7 @@ export const OwnerPlanExport = z.strictObject({
   note: z.string().max(500).nullable(),
   /** The drops still held (decision 0022); absent in exports made before graces existed. */
   grace: GraceSlots.nullable().optional(),
+  /** The grace emails already sent; absent in exports made before them. */
+  graceNotices: GraceNoticeMarks.nullable().optional(),
 });
 export type OwnerPlanExport = z.infer<typeof OwnerPlanExport>;

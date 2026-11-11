@@ -42,6 +42,7 @@ import {
   savedCursorSql,
 } from "./maintenance-cursors.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
+import { scheduleGraceNotices } from "./plan-grace-notices.ts";
 import {
   alignPlanLimits,
   maintainPlanGraces,
@@ -874,6 +875,7 @@ export async function runRegionalMaintenance(
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
     prunedTrafficCounters: await pruneTrafficCounters(db, now),
     redatedPlans: (await redateDatedPlans(db, now, region)).scheduled,
+    graceNotices: (await scheduleGraceNotices(db, now, region)).scheduled,
     alignedPlanLimits: (await alignPlanLimits(db, now, 50, region)).processed,
     unpinned: (await unpinLapsedPlans(db, now, 50, region)).processed,
     droppedSearchIndexes: (await dropLapsedSearchIndexes(db, now)).dropped,
@@ -925,6 +927,8 @@ export async function runMaintenance(
     // Plan graces (decision 0022) are global rows: stored and ended once, here, before the scans
     // that read them.
     planGraces: (await maintainPlanGraces(db.global, now)).processed,
+    // After the grace scan, so a natural expiry's hold it stored is announced in the same run.
+    graceNotices: (await scheduleGraceNotices(db, now)).scheduled,
     // Once after deploy (decision 0022): access log rows dated by the previous release's rule.
     redatedPlans: (await redateDatedPlans(db, now)).scheduled,
     alignedPlanLimits: (await alignPlanLimits(db, now)).processed,

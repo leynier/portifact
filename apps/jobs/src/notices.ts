@@ -9,7 +9,13 @@
 // the artifact in the viewer, the settings and a signed one-click unsubscribe link (the same one:
 // one setting covers both), also offered to mail clients through the `List-Unsubscribe` headers
 // (RFC 8058).
-import { DEFAULT_REGION, LIMITS } from "@portifact/contracts";
+import {
+  DEFAULT_REGION,
+  LIMITS,
+  PLAN_LABELS,
+  planRequestHref,
+  WorkspaceSlug,
+} from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
 import type { Region } from "@portifact/db";
 import { noticeNames } from "@portifact/domain";
@@ -18,6 +24,7 @@ import {
   directoryNoticeEmail,
   domainNoticeEmail,
   expiryNoticeEmail,
+  graceNoticeEmail,
   reviewNoticeEmail,
 } from "@portifact/emails";
 import {
@@ -26,6 +33,7 @@ import {
   type DomainNotifier,
   type ExpiringArtifact,
   type ExpiryNotifier,
+  type GraceNotifier,
   isRecipientSuppressed,
   type NoticeArtifact,
   RecipientSuppressedError,
@@ -270,6 +278,57 @@ export function domainNotifierFromEnv(
       });
       try {
         await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
+      } catch (error) {
+        // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+type GraceNotice = Parameters<GraceNotifier["send"]>[0];
+
+/**
+ * The grace email (decision 0022, third delivery), with the environment's addresses: the space's
+ * "Download your data" page, the `portifact export` command for it and the plan request. It names
+ * the workspace only in the default region (decision 0005). A service notice: no unsubscribe
+ * link or `List-Unsubscribe` header, since it announces the deletion of the recipient's data.
+ */
+export function graceEmail(
+  env: Pick<NoticeEnv, "APP_ORIGIN">,
+  notice: Omit<GraceNotice, "to">,
+  /** The owner's region: outside the default one, the workspace stays unnamed. */
+  region: Region = DEFAULT_REGION,
+) {
+  // Checked again here, since it goes into a shell command the reader may copy.
+  const slug = notice.space ? (WorkspaceSlug.safeParse(notice.space.slug).data ?? "<slug>") : null;
+  const query = slug === null ? "" : `?workspace=${encodeURIComponent(slug)}`;
+  return graceNoticeEmail({
+    moment: notice.moment,
+    until: notice.until,
+    plan: PLAN_LABELS[notice.plan],
+    kinds: notice.kinds,
+    workspace: notice.space?.name ?? null,
+    names: noticeNames(region),
+    downloadUrl: `${env.APP_ORIGIN}/data${query}`,
+    exportCommand:
+      slug === null
+        ? "portifact export ./portifact-export"
+        : `portifact export ./portifact-export --workspace ${slug}`,
+    requestUrl: planRequestHref(notice.plan),
+    locale: notice.locale ?? undefined,
+  });
+}
+
+export function graceNotifierFromEnv(
+  env: Pick<NoticeEnv, "EMAIL" | "APP_ORIGIN">,
+  region: Region = DEFAULT_REGION,
+): GraceNotifier {
+  return {
+    async send({ to, ...notice }) {
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...graceEmail(env, notice, region) });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
         if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();

@@ -24,6 +24,13 @@ export {
   formatExpiry,
 } from "./expiry-notice.ts";
 export {
+  GRACE_NOTICE_TEXT,
+  type GraceNoticeInput,
+  type GraceNoticeKind,
+  type GraceNoticeText,
+  graceNoticeEmail,
+} from "./grace-notice.ts";
+export {
   INVITATION_TEXT,
   type InvitationInput,
   invitationEmail,

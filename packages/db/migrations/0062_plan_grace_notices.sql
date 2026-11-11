@@ -1,0 +1,1 @@
+ALTER TABLE `owner_plans` ADD `grace_notices` text;

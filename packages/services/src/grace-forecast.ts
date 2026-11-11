@@ -59,7 +59,20 @@ export async function getGraceForecast(
     return fail("rate_limited", "Too many requests for this forecast. Try again in a minute.");
   }
   const ownerId = input.actor.ownerId;
-  const { now } = input;
+  return ok({ ownerId, ...(await graceForecastKinds(db, access, ownerId, input.now)) });
+}
+
+/**
+ * The counts behind the forecast, for one owner, without authorization or rate limit: the route
+ * above checks both, and the grace emails (decision 0022, third delivery) count the same way from
+ * their job. One bounded count per kind on the owner's rows, never a read per artifact.
+ */
+export async function graceForecastKinds(
+  db: RegionalDb,
+  access: AccessDb,
+  ownerId: string,
+  now: number,
+): Promise<Omit<GraceForecast, "ownerId">> {
   const record = await ownerPlanRecord(db.global, ownerId);
   const owner = entitlements(record, now);
   const own = ownEntitlements(record, now);
@@ -91,7 +104,7 @@ export async function getGraceForecast(
       kinds.push({ kind: "pins", count: await pinnedArtifacts(db, ownerId), from: step.from });
     }
   }
-  return ok({ ownerId, owner, kinds });
+  return { owner, kinds };
 }
 
 /** Previous versions retained now that the plan's own retention no longer keeps at `from`. */

@@ -12,6 +12,7 @@ import { applyTombstones } from "../src/backups.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "../src/content-search.ts";
 import { scheduleExpiryNotices } from "../src/expiry-notices.ts";
 import { pruneVersions, runMaintenance } from "../src/maintenance.ts";
+import { scheduleGraceNotices } from "../src/plan-grace-notices.ts";
 import {
   alignPlanLimits,
   getOwnerPlan,
@@ -54,7 +55,11 @@ const DEVELOP = {
   // cursor and its first page in one batch, nothing due here), the held row's page in the version
   // prune, and the re-dating pass's two calls on its first run (one on every later run).
   // Plus the one global read of "SSO required"'s suspension scan (`syncSsoRequirementStates`).
-  runMaintenance: 58,
+  // Plus the grace emails (decision 0022, third delivery): the scan's one read, and here one
+  // batch (the job and the mark) for the grantee whose removal above started a hold.
+  runMaintenance: 60,
+  // The grace email scan alone once nothing is due: one read.
+  scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads
   // the cursor with its first page in one call and marks itself done in another; every later run
   // costs one call, the cursor read.
@@ -133,6 +138,7 @@ describe("D1 calls of the scans and plan paths, one region", () => {
       ),
       runMaintenance: await counted((d) => runMaintenance(d, env.ARTIFACTS, NOW + DAY)),
       redateDatedPlansDone: await counted((d) => redateDatedPlans(d, NOW + DAY)),
+      scheduleGraceNotices: await counted((d) => scheduleGraceNotices(d, NOW + DAY)),
       maintainAuditStreams: await counted((d) => maintainAuditStreams(d, NOW)),
       rewrapAuditStreamKeys: await counted(async (d) =>
         rewrapAuditStreamKeys(d, await webhookKeys({ current: KEY })),

@@ -1,0 +1,708 @@
+// The grace emails (decision 0022, third delivery): the scan schedules one `plan_grace_notice`
+// job per owner and moment in the owner's region and marks it on the plan row, at most once under
+// concurrent scans; the job claims its row, checks the email is still due, and sends past
+// suppressions and the notices' capacity. The EU cases run with a separate regional database
+// under the strict region guard.
+import { env } from "cloudflare:test";
+import {
+  type GraceNoticeMark,
+  type GraceNoticeMoment,
+  type GraceSlot,
+  type JobMessage,
+  PLAN_GRACE_MS,
+  PLANS,
+} from "@portifact/contracts";
+import { createAccessDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
+import { graceNoticeDue, NOTICE_EMAILS_PER_CYCLE } from "@portifact/domain";
+import { and, eq } from "drizzle-orm";
+import { beforeEach, describe, expect, it } from "vitest";
+import { requestAccountDeletion } from "../src/account-data.ts";
+import {
+  emailsSentInCycle,
+  isEmailSuppressed,
+  RecipientSuppressedError,
+  recordEmailsSent,
+  suppressEmail,
+} from "../src/email.ts";
+import { runMaintenance, runRegionalMaintenance } from "../src/maintenance.ts";
+import { runJob } from "../src/outbox.ts";
+import {
+  GRACE_NOTICE_OWNERS_PER_RUN,
+  type GraceNotifier,
+  scheduleGraceNotices,
+} from "../src/plan-grace-notices.ts";
+import { applyOwnerPlans, exportOwnerPlans, removeOwnerPlan, setOwnerPlan } from "../src/plans.ts";
+import { createWorkspace } from "../src/workspaces.ts";
+import { DAY, db, MINUTE, NOW, racing, session, user, value } from "./fixtures.ts";
+import { raceGlobalBeforeFirstWrite } from "./race.ts";
+
+const regions = () => regionsFromEnv(env);
+const eu = () => regions().get("eu");
+const access = () => createAccessDb(env.ACCESS_DB);
+const euAccess = () => createAccessDb(env.ACCESS_DB_EU);
+
+function slot(from: number, until = from + PLAN_GRACE_MS): GraceSlot {
+  return {
+    plan: "pro",
+    reason: "lowered",
+    from,
+    until,
+    limits: {
+      archiveMonths: PLANS.pro.limits.archiveMonths,
+      retainedPreviousVersions: PLANS.pro.limits.retainedPreviousVersions,
+      previousVersionRetentionDays: PLANS.pro.limits.previousVersionRetentionDays,
+      accessLogRetentionDays: PLANS.pro.limits.accessLogRetentionDays,
+      auditRetentionDays: PLANS.pro.limits.auditRetentionDays,
+    },
+    features: ["pin"],
+  };
+}
+
+/** Writes an owner's plan row directly: free, holding `slots`, with `marks`. */
+async function holding(ownerId: string, slots: GraceSlot[] | string, marks: unknown = null) {
+  await regions()
+    .global.insert(schema.ownerPlans)
+    .values({
+      ownerId,
+      plan: "free",
+      seats: 1,
+      grantedBy: "test",
+      updatedAt: NOW,
+      grace: typeof slots === "string" ? slots : JSON.stringify(slots),
+      graceNotices: marks === null ? null : JSON.stringify(marks),
+    })
+    .onConflictDoUpdate({
+      target: schema.ownerPlans.ownerId,
+      set: {
+        grace: typeof slots === "string" ? slots : JSON.stringify(slots),
+        graceNotices: marks === null ? null : JSON.stringify(marks),
+      },
+    });
+}
+
+async function planRow(ownerId: string) {
+  const [row] = await regions()
+    .global.select()
+    .from(schema.ownerPlans)
+    .where(eq(schema.ownerPlans.ownerId, ownerId));
+  return row;
+}
+
+async function marksOf(ownerId: string): Promise<GraceNoticeMark[]> {
+  const row = await planRow(ownerId);
+  return row?.graceNotices ? (JSON.parse(row.graceNotices) as GraceNoticeMark[]) : [];
+}
+
+async function jobsFor(ownerId: string, database = db()) {
+  return database
+    .select()
+    .from(schema.outbox)
+    .where(and(eq(schema.outbox.topic, "plan_grace_notice"), eq(schema.outbox.subject, ownerId)));
+}
+
+async function onlyJob(ownerId: string, database = db()) {
+  const jobs = await jobsFor(ownerId, database);
+  expect(jobs).toHaveLength(1);
+  return jobs[0] as (typeof jobs)[number];
+}
+
+const message = (row: { id: number }, region?: "eu"): JobMessage => ({
+  id: row.id,
+  topic: "plan_grace_notice",
+  ...(region ? { region } : {}),
+});
+
+function fakeNotifier(error?: Error) {
+  const sent: Parameters<GraceNotifier["send"]>[0][] = [];
+  const graceNotifier: GraceNotifier = {
+    async send(notice) {
+      if (error) throw error;
+      sent.push(notice);
+    },
+  };
+  return { graceNotifier, sent };
+}
+
+function run(job: { id: number }, now: number, notifier: GraceNotifier, database = db()) {
+  return runJob(database, env.ARTIFACTS, message(job), now, {
+    access: access(),
+    graceNotifier: notifier,
+  });
+}
+
+/** A Pro account whose plan the operator removed at NOW: one 60-day hold. */
+async function removedPro() {
+  const owner = await user("Owner");
+  value(
+    await setOwnerPlan(db(), {
+      ownerId: owner.id,
+      plan: "pro",
+      seats: 1,
+      validUntil: null,
+      overrides: null,
+      grantedBy: "operator",
+      note: null,
+      now: NOW - DAY,
+    }),
+  );
+  value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW }));
+  return owner;
+}
+
+beforeEach(async () => {
+  // Every test starts with nothing held by earlier tests, nothing queued and nothing sent.
+  await env.DB.exec(
+    "UPDATE owner_plans SET grace = NULL, grace_notices = NULL; DELETE FROM outbox; DELETE FROM email_counters; DELETE FROM email_suppressions",
+  );
+  await env.DB_EU.exec("DELETE FROM outbox");
+});
+
+describe("scheduleGraceNotices", () => {
+  it("schedules a new hold's start once, in the owner's outbox, and marks it", async () => {
+    const owner = await removedPro();
+    const [held] = JSON.parse((await planRow(owner.id))?.grace ?? "[]") as GraceSlot[];
+    expect(held?.until).toBe(NOW + PLAN_GRACE_MS);
+
+    expect(await scheduleGraceNotices(db(), NOW + MINUTE)).toEqual({ scheduled: 1 });
+    const job = await onlyJob(owner.id);
+    expect(job.payload).toEqual({ from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start" });
+    expect(job.availableAt).toBe(NOW + MINUTE);
+    expect(await marksOf(owner.id)).toEqual([
+      { from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start" },
+    ]);
+    // The mark changes neither the grace nor `updated_at`, which other writers condition on.
+    expect((await planRow(owner.id))?.updatedAt).toBe(NOW);
+
+    expect(await scheduleGraceNotices(db(), NOW + 2 * MINUTE)).toEqual({ scheduled: 0 });
+    expect(await jobsFor(owner.id)).toHaveLength(1);
+  });
+
+  it("schedules each moment once over the hold, and nothing after it ends", async () => {
+    const owner = await user();
+    const held = slot(NOW);
+    await holding(owner.id, [held]);
+    const moments: GraceNoticeMoment[] = [];
+    for (let now = NOW; now <= held.until + DAY; now += 6 * 3_600_000) {
+      await scheduleGraceNotices(db(), now);
+      for (const job of await jobsFor(owner.id)) {
+        moments.push((job.payload as { moment: GraceNoticeMoment }).moment);
+        await db().delete(schema.outbox).where(eq(schema.outbox.id, job.id));
+      }
+    }
+    expect(moments).toEqual(["start", "two_weeks", "three_days"]);
+  });
+
+  it("sends only the most urgent moment after a late scan, and never the earlier ones", async () => {
+    const owner = await user();
+    const held = slot(NOW);
+    await holding(owner.id, [held]);
+    // The scan was down for 50 days: 10 days left, so the 14-day email, never the start.
+    await scheduleGraceNotices(db(), held.until - 10 * DAY);
+    expect((await onlyJob(owner.id)).payload).toMatchObject({ moment: "two_weeks" });
+    await db().delete(schema.outbox);
+    expect(await scheduleGraceNotices(db(), held.until - 5 * DAY)).toEqual({ scheduled: 0 });
+    // Down again until a day before the end: the 3-day email once.
+    await scheduleGraceNotices(db(), held.until - DAY);
+    await scheduleGraceNotices(db(), held.until - DAY / 2);
+    expect((await onlyJob(owner.id)).payload).toMatchObject({ moment: "three_days" });
+  });
+
+  it("gives a hold shorter than 14 days no late or second 14-day email", async () => {
+    const owner = await user();
+    const short = slot(NOW, NOW + 10 * DAY);
+    await holding(owner.id, [short]);
+    await scheduleGraceNotices(db(), NOW);
+    expect((await onlyJob(owner.id)).payload).toMatchObject({ moment: "two_weeks" });
+    await db().delete(schema.outbox);
+    for (const now of [NOW + DAY, NOW + 5 * DAY, NOW + 6 * DAY]) {
+      expect(await scheduleGraceNotices(db(), now)).toEqual({ scheduled: 0 });
+    }
+    await scheduleGraceNotices(db(), short.until - 3 * DAY);
+    expect((await onlyJob(owner.id)).payload).toMatchObject({ moment: "three_days" });
+  });
+
+  it("announces one hold per owner and run, the one ending first, keeping earlier marks", async () => {
+    const owner = await user();
+    const first = slot(NOW - 20 * DAY);
+    const second = slot(NOW);
+    await holding(owner.id, [second, first]);
+    await scheduleGraceNotices(db(), NOW);
+    expect((await onlyJob(owner.id)).payload).toMatchObject({ from: first.from, moment: "start" });
+    await db().delete(schema.outbox);
+    await scheduleGraceNotices(db(), NOW + MINUTE);
+    expect((await onlyJob(owner.id)).payload).toMatchObject({ from: second.from });
+    expect((await marksOf(owner.id)).map((mark) => mark.from)).toEqual([first.from, second.from]);
+  });
+
+  it("matches the domain rule row for row, and skips unreadable graces", async () => {
+    const now = NOW;
+    const cases: [GraceSlot[] | string, GraceNoticeMark[] | null][] = [
+      [[slot(NOW)], null],
+      [[slot(NOW)], [{ from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start" }]],
+      [[slot(NOW - 50 * DAY)], [{ from: NOW - 50 * DAY, until: NOW + 10 * DAY, moment: "start" }]],
+      [
+        [slot(NOW - 50 * DAY)],
+        [{ from: NOW - 50 * DAY, until: NOW + 10 * DAY, moment: "two_weeks" }],
+      ],
+      [[slot(NOW - 58 * DAY)], [{ from: NOW - 58 * DAY, until: NOW + 2 * DAY, moment: "start" }]],
+      [[slot(NOW - 70 * DAY)], null],
+      [[slot(NOW)], [{ from: 1, until: 2, moment: "three_days" }]],
+      ["not json", null],
+      [JSON.stringify([{ plan: "pro" }]), null],
+      [[slot(NOW + DAY)], null],
+    ];
+    const owners: string[] = [];
+    for (const [slots, marks] of cases) {
+      const owner = await user();
+      owners.push(owner.id);
+      await holding(owner.id, slots, marks);
+    }
+    const expected: string[] = [];
+    for (const ownerId of owners) {
+      const row = await planRow(ownerId);
+      if (row && graceNoticeDue(row, now)) expected.push(ownerId);
+    }
+    expect(expected).toHaveLength(5);
+    expect(await scheduleGraceNotices(db(), now)).toEqual({ scheduled: expected.length });
+    const scheduled = await db()
+      .select({ subject: schema.outbox.subject })
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, "plan_grace_notice"));
+    expect(scheduled.map((row) => row.subject).sort()).toEqual(expected.sort());
+  });
+
+  it("reads at most its page of owners per run", async () => {
+    expect(GRACE_NOTICE_OWNERS_PER_RUN).toBe(100);
+  });
+
+  it("announces a moment once when two scans run at once (one database)", async () => {
+    const owner = await user();
+    await holding(owner.id, [slot(NOW)]);
+    let inner: { scheduled: number } | null = null;
+    const outer = await scheduleGraceNotices(
+      racing(async () => {
+        inner = await scheduleGraceNotices(db(), NOW);
+      }),
+      NOW,
+    );
+    expect(inner).toEqual({ scheduled: 1 });
+    expect(outer).toEqual({ scheduled: 0 });
+    expect(await jobsFor(owner.id)).toHaveLength(1);
+  });
+
+  it("writes nothing when an operator's change lands between the read and the batch", async () => {
+    const owner = await removedPro();
+    const outer = await scheduleGraceNotices(
+      racing(async () => {
+        value(
+          await setOwnerPlan(db(), {
+            ownerId: owner.id,
+            plan: "pro",
+            seats: 1,
+            validUntil: null,
+            overrides: null,
+            grantedBy: "operator",
+            note: null,
+            now: NOW + MINUTE,
+          }),
+        );
+      }),
+      NOW + MINUTE,
+    );
+    expect(outer).toEqual({ scheduled: 0 });
+    expect(await jobsFor(owner.id)).toHaveLength(0);
+    expect(await marksOf(owner.id)).toEqual([]);
+  });
+
+  it("sends nothing for --no-grace and starts with the maintenance run", async () => {
+    const quiet = await user();
+    value(
+      await setOwnerPlan(db(), {
+        ownerId: quiet.id,
+        plan: "pro",
+        seats: 1,
+        validUntil: null,
+        overrides: null,
+        grantedBy: "operator",
+        note: null,
+        now: NOW - DAY,
+      }),
+    );
+    value(await removeOwnerPlan(db(), { ownerId: quiet.id, now: NOW, noGrace: true }));
+    const announced = await removedPro();
+    const summary = await runMaintenance(db(), env.ARTIFACTS, NOW + MINUTE);
+    expect(summary.graceNotices).toBe(1);
+    expect(await jobsFor(quiet.id)).toHaveLength(0);
+    expect(await jobsFor(announced.id)).toHaveLength(1);
+  });
+
+  it("announces a natural expiry in the same run the grace scan stores it", async () => {
+    const owner = await user();
+    await regions()
+      .global.insert(schema.ownerPlans)
+      .values({
+        ownerId: owner.id,
+        plan: "pro",
+        seats: 1,
+        validUntil: NOW,
+        grantedBy: "test",
+        updatedAt: NOW - DAY,
+      });
+    await runMaintenance(db(), env.ARTIFACTS, NOW + MINUTE);
+    expect((await onlyJob(owner.id)).payload).toEqual({
+      from: NOW,
+      until: NOW + PLAN_GRACE_MS,
+      moment: "start",
+    });
+  });
+});
+
+describe("sendGraceNotice", () => {
+  async function scheduled() {
+    const owner = await removedPro();
+    await scheduleGraceNotices(db(), NOW + MINUTE);
+    return { owner, job: await onlyJob(owner.id) };
+  }
+
+  it("sends the owner what is held, until when and what goes, once", async () => {
+    const { owner, job } = await scheduled();
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(job, NOW + 2 * MINUTE, graceNotifier)).toBe("done");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      to: owner.email,
+      locale: null,
+      moment: "start",
+      until: NOW + PLAN_GRACE_MS,
+      plan: "pro",
+      space: null,
+    });
+    expect(sent[0]?.kinds.map((kind) => kind.kind)).toEqual(
+      expect.arrayContaining(["versions", "accessLog", "analytics", "pins"]),
+    );
+    for (const kind of sent[0]?.kinds ?? []) expect(kind.from).toBe(NOW + PLAN_GRACE_MS);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(1);
+    // A second delivery of the same message finds its row claimed: nobody gets it twice.
+    expect(await run(job, NOW + 3 * MINUTE, graceNotifier)).toBe("done");
+    expect(sent).toHaveLength(1);
+    expect(await jobsFor(owner.id)).toHaveLength(0);
+  });
+
+  it("is sent once when two deliveries of the message run at once", async () => {
+    const { job } = await scheduled();
+    const { graceNotifier, sent } = fakeNotifier();
+    const outcomes = await Promise.all([
+      run(job, NOW + 2 * MINUTE, graceNotifier),
+      run(job, NOW + 2 * MINUTE, graceNotifier),
+    ]);
+    expect(outcomes).toEqual(["done", "done"]);
+    expect(sent).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      "the plan is granted again",
+      async (ownerId: string) =>
+        value(
+          await setOwnerPlan(db(), {
+            ownerId,
+            plan: "pro",
+            seats: 1,
+            validUntil: null,
+            overrides: null,
+            grantedBy: "operator",
+            note: null,
+            now: NOW + 2 * MINUTE,
+          }),
+        ),
+      NOW + 3 * MINUTE,
+    ],
+    [
+      "the operator ends the grace with --no-grace",
+      async (ownerId: string) =>
+        value(await removeOwnerPlan(db(), { ownerId, now: NOW + 2 * MINUTE, noGrace: true })),
+      NOW + 3 * MINUTE,
+    ],
+    ["a later moment is due by the time it runs", async () => {}, NOW + 50 * DAY],
+    ["the hold ended", async () => {}, NOW + PLAN_GRACE_MS + MINUTE],
+  ])("is moot when %s", async (_, change, at) => {
+    const { owner, job } = await scheduled();
+    await change(owner.id);
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(job, at, graceNotifier)).toBe("stale");
+    expect(sent).toHaveLength(0);
+    expect(await jobsFor(owner.id)).toHaveLength(0);
+  });
+
+  it("is moot once the account is deleted, and leaves nothing behind", async () => {
+    const { owner, job } = await scheduled();
+    const sessionId = await session(owner.id, NOW + 2 * MINUTE);
+    value(
+      await requestAccountDeletion(regions(), {
+        userId: owner.id,
+        sessionId,
+        confirmEmail: owner.email,
+        now: NOW + 2 * MINUTE,
+      }),
+    );
+    for (let i = 0; i < 3 && (await planRow(owner.id)); i += 1) {
+      await runMaintenance(db(), env.ARTIFACTS, NOW + (3 + i) * MINUTE);
+    }
+    expect(await planRow(owner.id)).toBeUndefined();
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(job, NOW + 10 * MINUTE, graceNotifier)).toBe("stale");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("skips a suppressed address and drops the job", async () => {
+    const { owner, job } = await scheduled();
+    await suppressEmail(db().global, { email: owner.email, reason: "hard_bounce", now: NOW });
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(job, NOW + 2 * MINUTE, graceNotifier)).toBe("stale");
+    expect(sent).toHaveLength(0);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(0);
+    expect(await jobsFor(owner.id)).toHaveLength(0);
+  });
+
+  it("records the provider's suppression when it refuses the address", async () => {
+    const { owner, job } = await scheduled();
+    const { graceNotifier } = fakeNotifier(new RecipientSuppressedError());
+    expect(await run(job, NOW + 2 * MINUTE, graceNotifier)).toBe("stale");
+    expect(await isEmailSuppressed(db().global, owner.email, NOW + 2 * MINUTE)).toBe(true);
+    expect(await jobsFor(owner.id)).toHaveLength(0);
+  });
+
+  it("stops on the expiry notices' rung of the capacity ladder and drops the job", async () => {
+    const { owner, job } = await scheduled();
+    await recordEmailsSent(db().global, NOW, NOTICE_EMAILS_PER_CYCLE);
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(job, NOW + 2 * MINUTE, graceNotifier)).toBe("stale");
+    expect(sent).toHaveLength(0);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(NOTICE_EMAILS_PER_CYCLE);
+    expect(await jobsFor(owner.id)).toHaveLength(0);
+  });
+
+  it("still sends one email below the rung", async () => {
+    const { job } = await scheduled();
+    await recordEmailsSent(db().global, NOW, NOTICE_EMAILS_PER_CYCLE - 1);
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(job, NOW + 2 * MINUTE, graceNotifier)).toBe("done");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("puts the job back when the first send fails, and the next delivery sends it", async () => {
+    const { owner, job } = await scheduled();
+    const failing = fakeNotifier(new Error("email delivery failed"));
+    await expect(run(job, NOW + 2 * MINUTE, failing.graceNotifier)).rejects.toThrow(
+      "email delivery failed",
+    );
+    const back = await onlyJob(owner.id);
+    expect(back.id).not.toBe(job.id);
+    expect(back.payload).toEqual(job.payload);
+    // The scan does not schedule it again meanwhile: the mark stays.
+    expect(await scheduleGraceNotices(db(), NOW + 3 * MINUTE)).toEqual({ scheduled: 0 });
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(back, NOW + 4 * MINUTE, graceNotifier)).toBe("done");
+    expect(sent).toHaveLength(1);
+  });
+
+  it("needs the notifier and the access log, and keeps the job without them", async () => {
+    const { owner, job } = await scheduled();
+    await expect(
+      runJob(db(), env.ARTIFACTS, message(job), NOW, { access: access() }),
+    ).rejects.toThrow("plan_grace_notice needs the grace notifier");
+    await expect(
+      runJob(db(), env.ARTIFACTS, message(job), NOW, {
+        graceNotifier: fakeNotifier().graceNotifier,
+      }),
+    ).rejects.toThrow("plan_grace_notice needs the access log database");
+    expect(await jobsFor(owner.id)).toHaveLength(1);
+  });
+
+  it("drops a malformed payload", async () => {
+    const owner = await user();
+    const [row] = await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "plan_grace_notice",
+        payload: { moment: "later" },
+        availableAt: NOW,
+        createdAt: NOW,
+        subject: owner.id,
+      })
+      .returning();
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(row as { id: number }, NOW, graceNotifier)).toBe("stale");
+    expect(sent).toHaveLength(0);
+  });
+
+  it("goes to each admin of a workspace in their language, never to its members", async () => {
+    const admin = await user("Admin");
+    const other = await user("Other admin");
+    const member = await user("Member");
+    const slug = `ws-${crypto.randomUUID().slice(0, 8)}`;
+    const ws = value(
+      await createWorkspace(regions().global, {
+        slug,
+        name: "Engines",
+        adminUserId: admin.id,
+        now: NOW,
+      }),
+    );
+    await regions()
+      .global.insert(schema.workspaceMembers)
+      .values([
+        { workspaceId: ws.id, userId: other.id, role: "admin", updatedAt: NOW },
+        { workspaceId: ws.id, userId: member.id, role: "member", updatedAt: NOW },
+      ]);
+    await regions()
+      .global.insert(schema.accountSettings)
+      .values({ userId: other.id, locale: "de", updatedAt: NOW });
+    await holding(ws.id, [slot(NOW)]);
+    await scheduleGraceNotices(db(), NOW);
+    const job = await onlyJob(ws.id);
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(job, NOW + MINUTE, graceNotifier)).toBe("done");
+    expect(sent.map((notice) => [notice.to, notice.locale]).sort()).toEqual(
+      [
+        [admin.email, null],
+        [other.email, "de"],
+      ].sort(),
+    );
+    for (const notice of sent) expect(notice.space).toEqual({ slug, name: "Engines" });
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(2);
+  });
+
+  it("drops the email for an admin when it failed after another admin got it", async () => {
+    const admin = await user("Admin");
+    const other = await user("Other admin");
+    const ws = value(
+      await createWorkspace(regions().global, {
+        slug: `ws-${crypto.randomUUID().slice(0, 8)}`,
+        name: "Engines",
+        adminUserId: admin.id,
+        now: NOW,
+      }),
+    );
+    await regions()
+      .global.insert(schema.workspaceMembers)
+      .values({ workspaceId: ws.id, userId: other.id, role: "admin", updatedAt: NOW });
+    await holding(ws.id, [slot(NOW)]);
+    await scheduleGraceNotices(db(), NOW);
+    const job = await onlyJob(ws.id);
+    let calls = 0;
+    const sent: string[] = [];
+    const graceNotifier: GraceNotifier = {
+      async send(notice) {
+        calls += 1;
+        if (calls === 2) throw new Error("email delivery failed");
+        sent.push(notice.to);
+      },
+    };
+    expect(await run(job, NOW + MINUTE, graceNotifier)).toBe("done");
+    expect(sent).toHaveLength(1);
+    expect(await jobsFor(ws.id)).toHaveLength(0);
+  });
+});
+
+describe("an EU workspace's grace emails (separate regional database)", () => {
+  async function euWorkspace() {
+    const admin = await user("Admin");
+    const created = value(
+      await createWorkspace(regions().global, {
+        slug: `eu-${crypto.randomUUID().slice(0, 8)}`,
+        name: "EU team",
+        adminUserId: admin.id,
+        now: NOW,
+        region: "eu",
+      }),
+    );
+    value(
+      await setOwnerPlan(eu().db, {
+        ownerId: created.id,
+        plan: "team",
+        seats: 2,
+        validUntil: null,
+        overrides: null,
+        grantedBy: "operator",
+        note: null,
+        now: NOW - DAY,
+      }),
+    );
+    value(await removeOwnerPlan(eu().db, { ownerId: created.id, now: NOW }));
+    return { admin, ws: created };
+  }
+
+  it("is scheduled by the EU region's maintenance only, in the EU outbox, and sent from it", async () => {
+    const { admin, ws } = await euWorkspace();
+    expect(await scheduleGraceNotices(db(), NOW + MINUTE)).toEqual({ scheduled: 0 });
+    const summary = await runRegionalMaintenance(eu().db, env.ARTIFACTS_EU, NOW + MINUTE, "eu");
+    expect(summary.graceNotices).toBe(1);
+    expect(await jobsFor(ws.id)).toHaveLength(0);
+    const job = await onlyJob(ws.id, eu().db);
+    expect(job.payload).toMatchObject({ moment: "start", until: NOW + PLAN_GRACE_MS });
+    expect((await marksOf(ws.id)).map((mark) => mark.moment)).toEqual(["start"]);
+
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(
+      await runJob(eu().db, env.ARTIFACTS_EU, message(job, "eu"), NOW + 2 * MINUTE, {
+        access: euAccess(),
+        graceNotifier,
+      }),
+    ).toBe("done");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: admin.email, plan: "team", moment: "start" });
+    expect(await scheduleGraceNotices(eu().db, NOW + 3 * MINUTE, "eu")).toEqual({ scheduled: 0 });
+  });
+
+  it("writes one job when two scans run at once: the mark first, the job only after it", async () => {
+    const { ws } = await euWorkspace();
+    let inner: { scheduled: number } | null = null;
+    const raced = regionalDb(
+      env.DB_EU,
+      raceGlobalBeforeFirstWrite(async () => {
+        inner = await scheduleGraceNotices(eu().db, NOW + MINUTE, "eu");
+      }),
+    );
+    const outer = await scheduleGraceNotices(raced, NOW + MINUTE, "eu");
+    expect(inner).toEqual({ scheduled: 1 });
+    expect(outer).toEqual({ scheduled: 0 });
+    expect(await jobsFor(ws.id, eu().db)).toHaveLength(1);
+  });
+});
+
+describe("a restore", () => {
+  it("carries the marks, so an email already sent is not sent again", async () => {
+    const owner = await removedPro();
+    await scheduleGraceNotices(db(), NOW + MINUTE);
+    const exported = await exportOwnerPlans(regions().global, NOW + 2 * MINUTE);
+    const mine = exported.filter((plan) => plan.ownerId === owner.id);
+    expect(mine[0]?.graceNotices).toEqual([
+      { from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start" },
+    ]);
+    // The restore rewinds the row to before the email.
+    await regions()
+      .global.update(schema.ownerPlans)
+      .set({ graceNotices: null })
+      .where(eq(schema.ownerPlans.ownerId, owner.id));
+    await db().delete(schema.outbox);
+    await applyOwnerPlans(regions(), mine, NOW + 3 * MINUTE);
+    expect(await marksOf(owner.id)).toEqual(mine[0]?.graceNotices);
+    expect(await scheduleGraceNotices(db(), NOW + 4 * MINUTE)).toEqual({ scheduled: 0 });
+  });
+
+  it("without marks in an older export, sends each hold's most urgent moment once", async () => {
+    const owner = await removedPro();
+    await scheduleGraceNotices(db(), NOW + MINUTE);
+    const [plan] = (await exportOwnerPlans(regions().global, NOW)).filter(
+      (row) => row.ownerId === owner.id,
+    );
+    if (!plan) throw new Error("no plan exported");
+    const { graceNotices: _, ...older } = plan;
+    await db().delete(schema.outbox);
+    await applyOwnerPlans(regions(), [older], NOW + 20 * DAY);
+    expect(await marksOf(owner.id)).toEqual([]);
+    expect(await scheduleGraceNotices(db(), NOW + 50 * DAY)).toEqual({ scheduled: 1 });
+    expect((await onlyJob(owner.id)).payload).toMatchObject({ moment: "two_weeks" });
+  });
+});

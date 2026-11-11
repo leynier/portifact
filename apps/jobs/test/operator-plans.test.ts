@@ -200,7 +200,7 @@ describe("operator plan commands", () => {
     const exported = await runOperator(db(), ["export-plans", "--out", "plans.jsonl"], NOW, files);
     expect(exported.output).toMatch(/^Wrote \d+ plan\(s\) to plans\.jsonl\.$/);
     expect(written.get("plans.jsonl")).toContain(
-      `{"ownerId":"${kept.id}","plan":"team","seats":3,"validUntil":null,"overrides":null,"grantedBy":"operator","note":"pilot","grace":null}`,
+      `{"ownerId":"${kept.id}","plan":"team","seats":3,"validUntil":null,"overrides":null,"grantedBy":"operator","note":"pilot","grace":null,"graceNotices":null}`,
     );
 
     // The restore rewinds to before the grants; one plan removed since comes back.
