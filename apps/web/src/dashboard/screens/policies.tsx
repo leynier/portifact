@@ -582,8 +582,10 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
             ? t("policies.conflict")
             : failure instanceof ApiFailure && failure.code === "policy_refused"
               ? t("policies.impact.stale")
-              : // The lock-out refusal names the admin's own address, in the API's words.
-                errorMessage(t, failure)}
+              : failure instanceof ApiFailure && failure.detail === "comment_retention_guard"
+                ? t("policies.comments.unavailable")
+                : // The lock-out refusal names the admin's own address, in the API's words.
+                  errorMessage(t, failure)}
         </Callout>
       ) : null}
       {applied && !failure ? (

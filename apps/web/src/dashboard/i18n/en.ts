@@ -2813,6 +2813,8 @@ export const en = {
     "{count, plural, one {gave # artifact its time back} other {gave # artifacts their time back}}",
   "transfer.confirm.maxLife":
     "{space} archives artifacts {days} days after their last publish, restore or move in: moved now, this one is archived by {date} at the latest unless someone publishes it again, and it cannot be pinned there.",
+  "policies.comments.unavailable":
+    "The comment retention rule could not be changed right now, so nothing was saved. Try again in a few minutes.",
   "policies.comments.legend": "Comment retention",
   "policies.comments.hint":
     "Delete each comment thread of the workspace, with every message in it, once it has been inactive for a number of days. An open thread on an artifact's current version is kept, so what reviewers are waiting on is never lost; when a new version replaces that version, the thread gets the whole period again from that moment. Deleted threads cannot be recovered by anyone, Portifact included.",

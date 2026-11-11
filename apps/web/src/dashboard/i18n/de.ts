@@ -2903,6 +2903,8 @@ export const de = {
     "{count, plural, one {# Artifact seine Zeit zurückgegeben} other {# Artifacts ihre Zeit zurückgegeben}}",
   "transfer.confirm.maxLife":
     "{space} archiviert Artifacts {days} Tage nach ihrer letzten Veröffentlichung, Wiederherstellung oder Verschiebung dorthin: Jetzt verschoben, wird dieses spätestens am {date} archiviert, außer jemand veröffentlicht es erneut, und es kann dort nicht angeheftet werden.",
+  "policies.comments.unavailable":
+    "Die Regel zur Aufbewahrung von Kommentaren konnte gerade nicht geändert werden, daher wurde nichts gespeichert. Versuche es in ein paar Minuten erneut.",
   "policies.comments.legend": "Aufbewahrung von Kommentaren",
   "policies.comments.hint":
     "Löscht jeden Kommentar-Thread des Arbeitsbereichs mit allen Nachrichten, sobald er eine Anzahl von Tagen inaktiv war. Ein offener Thread auf der aktuellen Version eines Artefakts bleibt erhalten, damit nie verloren geht, worauf Prüfende warten; ersetzt eine neue Version diese Version, erhält der Thread ab diesem Moment wieder den ganzen Zeitraum. Gelöschte Threads kann niemand wiederherstellen, auch Portifact nicht.",

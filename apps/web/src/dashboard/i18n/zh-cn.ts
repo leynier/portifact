@@ -2609,6 +2609,7 @@ export const zhCN = {
     "{count, plural, one {恢复了 # 个 artifact 的期限} other {恢复了 # 个 artifact 的期限}}",
   "transfer.confirm.maxLife":
     "{space} 会在 artifact 最后一次发布、恢复或移入后 {days} 天将其归档:现在移动的话,除非有人重新发布,它最迟会在 {date} 归档,并且在那里不能固定。",
+  "policies.comments.unavailable": "目前无法更改评论保留规则，因此未保存任何内容。请几分钟后再试。",
   "policies.comments.legend": "评论保留期限",
   "policies.comments.hint":
     "当工作区的评论会话在一定天数内没有活动时，将其连同所有消息一起删除。工件当前版本上的未解决会话会被保留，确保审阅者正在等待的内容不会丢失；当新版本替换该版本后，会话会从那一刻起重新获得完整的期限。已删除的会话任何人都无法恢复，包括 Portifact。",

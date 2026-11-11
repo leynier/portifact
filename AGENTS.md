@@ -157,7 +157,7 @@ Dependencies newer than 3 days are not installed (`minimumReleaseAge` in `bunfig
 
 - TypeScript in strict mode everywhere. No `any`; use `unknown` and narrow.
 - Code, comments, identifiers and docs are in English, except `docs/plan.md`. User-facing strings go through the i18n layer, never hardcoded in components, and every new or changed one is translated in every catalog in the same change: the dashboard's `i18n/<code>.ts`, the auth pages' `auth/i18n/<code>.ts`, the static pages' markers and `i18n/site/<code>.ts`, and the email templates' `TEXT`. The languages are `LOCALES` in `packages/contracts/src/locales.ts`; adding one is described in [docs/design.md](docs/design.md) ("Languages"). The CLI, MCP tool text, skills and the legal texts stay English.
-- Errors are typed and mapped to the documented error codes in `packages/contracts`.
+- Errors are typed and mapped to the documented error codes in `packages/contracts`. When a page must tell two refusals of one code apart, the service sets `detail` on its failure (a value of `ErrorDetail` in `packages/contracts/src/core.ts`), the API sends it as `error.details.reason` and the dashboard reads `ApiFailure.detail`; never match on a message.
 - Never log tokens, cookies, OTP codes, signed URLs or full comment bodies.
 - Keep functions small and named after what they do. Comment only on why, not what.
 

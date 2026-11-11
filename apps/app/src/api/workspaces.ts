@@ -10,6 +10,7 @@
 import {
   ERROR_STATUS,
   type ErrorCode,
+  type ErrorDetail,
   IncomingInvitationList,
   InvitationCreate,
   InvitationId,
@@ -124,8 +125,14 @@ import { type Guarded, iso, readJson } from "./http.ts";
 
 type WorkspaceContext = Context<{ Bindings: Env }>;
 
-function error(c: WorkspaceContext, code: ErrorCode, message: string): Response {
-  return c.json({ error: { code, message } }, ERROR_STATUS[code] as 400);
+function error(
+  c: WorkspaceContext,
+  code: ErrorCode,
+  message: string,
+  detail?: ErrorDetail,
+): Response {
+  const body = detail ? { code, message, details: { reason: detail } } : { code, message };
+  return c.json({ error: body }, ERROR_STATUS[code] as 400);
 }
 
 export function workspaceView(row: UserWorkspace): WorkspaceView {
@@ -823,9 +830,11 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
   /** Answers a service result: the error's status and body, or `done` with the value. */
   const reply = <T>(
     c: WorkspaceContext,
-    result: { ok: true; value: T } | { ok: false; code: ErrorCode; message: string },
+    result:
+      | { ok: true; value: T }
+      | { ok: false; code: ErrorCode; message: string; detail?: ErrorDetail },
     done: (value: T) => Response,
-  ) => (result.ok ? done(result.value) : error(c, result.code, result.message));
+  ) => (result.ok ? done(result.value) : error(c, result.code, result.message, result.detail));
   /**
    * A group route: the session check, then the slug and (unless `list`) the group ID from the
    * path, each answering like a missing one when malformed.

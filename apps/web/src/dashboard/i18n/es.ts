@@ -2888,6 +2888,8 @@ export const es = {
     "{count, plural, one {devolvió su tiempo a # artifact} other {devolvió su tiempo a # artifacts}}",
   "transfer.confirm.maxLife":
     "{space} archiva los artifacts {days} días después de su última publicación, restauración o traslado: si lo mueves ahora, este se archiva como tarde el {date} salvo que alguien lo vuelva a publicar, y allí no se puede fijar.",
+  "policies.comments.unavailable":
+    "La regla de retención de comentarios no se pudo cambiar ahora, así que no se guardó nada. Vuelve a intentarlo en unos minutos.",
   "policies.comments.legend": "Retención de comentarios",
   "policies.comments.hint":
     "Elimina cada hilo de comentarios del espacio de trabajo, con todos sus mensajes, cuando lleva un número de días sin actividad. Un hilo abierto en la versión actual de un artefacto se conserva, para que nunca se pierda lo que los revisores esperan; cuando una nueva versión reemplaza esa versión, el hilo vuelve a tener el periodo completo desde ese momento. Nadie puede recuperar los hilos eliminados, ni siquiera Portifact.",

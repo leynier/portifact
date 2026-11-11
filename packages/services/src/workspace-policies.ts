@@ -305,7 +305,7 @@ async function commentBase(
   if (agreement === "unavailable" || agreement === "unreadable") {
     return requestedDays === null || requestedDays === rule.days
       ? ok(row.policy)
-      : fail("capacity_unavailable", GUARD_UNAVAILABLE);
+      : guardUnavailable();
   }
   return ok({
     ...row.policy,
@@ -320,9 +320,19 @@ function bucketOfRow(regions: Regions, row: { region: string }): R2Bucket | unde
   return isRegion(row.region) ? regions.get(row.region).bucket : undefined;
 }
 
-/** Answered when comment retention's guard record cannot be read or written for a change. */
-const GUARD_UNAVAILABLE =
-  "Comment retention cannot be changed right now, so nothing was saved. Try again in a few minutes.";
+/**
+ * Answered when comment retention's guard record cannot be read or written for a change, marked
+ * `comment_retention_guard` so the Policies page shows its own sentence.
+ */
+function guardUnavailable<T>(): Result<T> {
+  return {
+    ok: false,
+    code: "capacity_unavailable",
+    message:
+      "Comment retention cannot be changed right now, so nothing was saved. Try again in a few minutes.",
+    detail: "comment_retention_guard",
+  };
+}
 
 function regionalOf(regions: Regions, row: { id: string; region: string }): RegionalDb {
   if (!isRegion(row.region)) throw new Error(`Workspace ${row.id} is in an unknown region`);
@@ -769,18 +779,16 @@ export async function setWorkspacePolicy(
   const guardToken = next.commentRetentionToken;
   const tokenChanged = guardToken !== row.policy.commentRetentionToken;
   const loosening = commentRetentionLoosened(row.policy, next);
+  // `commentTiming` always dates a rule it keeps, so the rule and its date come together.
+  const kept = commentRetentionOf(next);
   const guarded =
-    guardToken === null || next.commentRetentionDays === null
+    guardToken === null || kept === null
       ? null
-      : {
-          token: guardToken,
-          days: next.commentRetentionDays,
-          from: next.commentRetentionFrom ?? 0,
-        };
+      : { token: guardToken, days: kept.days, from: kept.from };
   if (loosening) {
     if (guarded === null) await deleteGuardRecord(bucket, row.id);
     else if (!(await writeGuardRecord(bucket, row.id, guarded))) {
-      return fail("capacity_unavailable", GUARD_UNAVAILABLE);
+      return guardUnavailable();
     }
   }
   const results = await global.batch([
@@ -873,9 +881,10 @@ export async function setWorkspacePolicy(
   }
   if (!loosening && tokenChanged && guarded !== null) {
     // Failing here leaves the rule saved but not in force: the answer says so (and to save again).
-    if (await writeGuardRecord(bucket, row.id, guarded)) {
-      await confirmGuardRecord(global, bucket, row.id, guarded.token);
-    }
+    // Confirmed whatever the write answered: a write can land and still throw (a timeout after
+    // it), and the confirmation only ever deletes a record holding this save's own token.
+    await writeGuardRecord(bucket, row.id, guarded);
+    await confirmGuardRecord(global, bucket, row.id, guarded.token);
   }
   return ok(
     await stateOf(

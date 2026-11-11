@@ -408,23 +408,25 @@ export async function confirmGuardRecord(
   workspaceId: string,
   token: string,
 ): Promise<void> {
-  const [row] = await global
-    .select({ policy: sql<string | null>`${w.policy}` })
-    .from(w)
-    .where(eq(w.id, workspaceId))
-    .limit(1);
-  let held: string | null = null;
   try {
-    held = row ? policyOf(row.policy).commentRetentionToken : null;
-  } catch {
-    held = null;
-  }
-  if (held === token || !bucket) return;
-  try {
+    const [row] = await global
+      .select({ policy: sql<string | null>`${w.policy}` })
+      .from(w)
+      .where(eq(w.id, workspaceId))
+      .limit(1);
+    let held: string | null = null;
+    try {
+      held = row ? policyOf(row.policy).commentRetentionToken : null;
+    } catch {
+      held = null;
+    }
+    if (held === token || !bucket) return;
     const object = await bucket.get(guardKey(workspaceId));
     const record = object ? guardRecordOf(await object.text()) : null;
     if (record?.token === token) await bucket.delete(guardKey(workspaceId));
   } catch (error) {
+    // After the save's D1 write: never fail the save for it, and leave a trace for the operator
+    // (docs/operations.md, "Comment retention": a record whose rule is gone is deleted by hand).
     logEvent("error", "comment_retention_guard_write_failed", { error: errorLabel(error) });
   }
 }

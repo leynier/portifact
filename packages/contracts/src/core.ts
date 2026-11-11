@@ -88,6 +88,16 @@ export const ErrorCode = z.enum([
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
+/**
+ * Which refusal an error is, when a page must tell two refusals of the same code apart without
+ * reading the message: sent as `error.details.reason`. `comment_retention_guard`: a workspace's
+ * comment retention rule could not be changed because its restore guard record could not be
+ * read or written (decision 0023, "Restores").
+ */
+export const ERROR_DETAILS = ["comment_retention_guard"] as const;
+export const ErrorDetail = z.enum(ERROR_DETAILS);
+export type ErrorDetail = z.infer<typeof ErrorDetail>;
+
 export const ApiError = z.object({
   error: z.object({
     code: ErrorCode,

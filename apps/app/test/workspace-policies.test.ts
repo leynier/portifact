@@ -532,6 +532,21 @@ describe("comment retention (decision 0023)", () => {
     expect(JSON.stringify(tool.content)).toContain(
       "comment threads are deleted 90 days after their last activity (an open one: after its version was replaced, when later), except open ones on the current version",
     );
+    // While its guard record cannot be read, a change is refused with the detail the page reads.
+    await env.ARTIFACTS.put(`system/comment-retention/${t.id}`, "not a record");
+    const blocked = await t.admin.h.request(
+      base,
+      dashboard(cookie, "PUT", { policy: policy({ commentRetentionDays: 180 }), revision: 1 }),
+    );
+    expect(blocked.status).toBe(503);
+    expect(await blocked.json()).toEqual({
+      error: {
+        code: "capacity_unavailable",
+        message:
+          "Comment retention cannot be changed right now, so nothing was saved. Try again in a few minutes.",
+        details: { reason: "comment_retention_guard" },
+      },
+    });
     // Removing it needs no plan and applies at once.
     await db().delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));
     const removed = await t.admin.h.request(

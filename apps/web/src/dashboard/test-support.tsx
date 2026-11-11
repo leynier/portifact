@@ -416,6 +416,11 @@ export interface FakeWorkspace {
   policiesAvailable: boolean;
   /** Whether a set comment retention is in force (decision 0023); in force unless a test says. */
   commentRetentionInForce?: boolean;
+  /**
+   * How a save that changes comment retention is refused, as the API refuses it while the guard
+   * record cannot be read or written (`guard`, with its detail) or for capacity (`capacity`).
+   */
+  commentRetentionRefusal?: "guard" | "capacity";
   /** What the fake preview answers; a save needs these counts confirmed while any is above zero. */
   policyImpact: PolicyImpact;
   /**
@@ -2789,6 +2794,20 @@ function policyRoute(
   }
   if (!match[2] && method === "PUT") {
     if (body?.revision !== w.policyRevision) return apiError("version_conflict", 409);
+    const asked = (body?.policy as WorkspacePolicy | undefined)?.commentRetentionDays ?? null;
+    if (w.commentRetentionRefusal && asked !== w.view.policy.commentRetentionDays) {
+      const reason = w.commentRetentionRefusal === "guard" ? "comment_retention_guard" : null;
+      return json(
+        {
+          error: {
+            code: "capacity_unavailable",
+            message: "x",
+            ...(reason && { details: { reason } }),
+          },
+        },
+        503,
+      );
+    }
     // As the API: a save that changes existing artifacts needs the impact the preview showed,
     // and is refused when a count grew past it since.
     const impact = Object.values(w.policyImpact).reduce((sum, count) => sum + count, 0);

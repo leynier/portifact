@@ -2918,6 +2918,8 @@ export const fr = {
     "{count, plural, one {a rendu son temps à # artifact} other {a rendu leur temps à # artifacts}}",
   "transfer.confirm.maxLife":
     "{space} archive les artifacts {days} jours après leur dernière publication, restauration ou arrivée : déplacé maintenant, celui-ci est archivé au plus tard le {date} sauf si quelqu’un le republie, et il ne peut pas y être épinglé.",
+  "policies.comments.unavailable":
+    "La règle de conservation des commentaires n’a pas pu être modifiée pour le moment, donc rien n’a été enregistré. Réessaie dans quelques minutes.",
   "policies.comments.legend": "Conservation des commentaires",
   "policies.comments.hint":
     "Supprime chaque fil de commentaires de l'espace de travail, avec tous ses messages, après un nombre de jours sans activité. Un fil ouvert sur la version actuelle d'un artefact est conservé, pour que ce qu'attendent les relecteurs ne soit jamais perdu ; quand une nouvelle version remplace cette version, le fil retrouve la période entière à partir de ce moment. Personne ne peut récupérer les fils supprimés, pas même Portifact.",

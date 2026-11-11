@@ -205,7 +205,11 @@ describe("each writer's order, and what each failure leaves", () => {
     const before = await tokenOf(t);
     bucket.fail.put = true;
     const refused = await save(t, retention(180), { via: r, now: NOW + DAY });
-    expect(refused).toMatchObject({ ok: false, code: "capacity_unavailable" });
+    expect(refused).toMatchObject({
+      ok: false,
+      code: "capacity_unavailable",
+      detail: "comment_retention_guard",
+    });
     expect(await tokenOf(t)).toBe(before);
     expect(recordOf(bucket, t)).toBe(before);
     // R2 refuses deletes too: the removal goes through; the record left behind is the window
@@ -647,6 +651,7 @@ describe("the save path decides a loosening against the stored rule (fourth chec
     expect(await preview(retention(180))).toMatchObject({
       ok: false,
       code: "capacity_unavailable",
+      detail: "comment_retention_guard",
     });
     expect(await preview(retention(null))).toMatchObject({ ok: true });
   });
@@ -658,7 +663,11 @@ describe("the save path decides a loosening against the stored rule (fourth chec
     const before = await stored(t);
     bucket.fail.get = true;
     const longer = await save(t, retention(180), { via: r, now: NOW + DAY });
-    expect(longer).toMatchObject({ ok: false, code: "capacity_unavailable" });
+    expect(longer).toMatchObject({
+      ok: false,
+      code: "capacity_unavailable",
+      detail: "comment_retention_guard",
+    });
     const other = value(
       await save(t, { ...retention(90), publicAccess: "forbidden" }, { via: r, now: NOW + DAY }),
     );
@@ -738,6 +747,100 @@ describe('concurrent saves (decision 0023, "Concurrent saves")', () => {
     expect(b).toMatchObject({ ok: false, code: "version_conflict" });
     expect((await stored(t)).commentRetentionDays).toBe(90);
     expect(await survives(t, old, later, bucket)).toEqual({ threads: 0, survives: true });
+  });
+});
+
+describe("fifth check", () => {
+  it("X2: a new rule's write that lands and then throws is still confirmed, so a removal meanwhile wins", async () => {
+    const inner = memoryBucket();
+    let throwAfterPut = false;
+    const bucket = Object.assign(Object.create(null), {
+      get: inner.get,
+      delete: inner.delete,
+      put: async (k: string, v: string) => {
+        await inner.put(k, v);
+        if (throwAfterPut) throw new Error("timeout after write");
+        return {};
+      },
+    }) as unknown as R2Bucket;
+    const r = regionsFromEnv({ ...env, ARTIFACTS: bucket });
+    const t = await team();
+    const artifact = await publishIn(t.editor.id, t.id);
+    const old = await thread(t, artifact, { agoDays: 2000 });
+    let snap: Snapshot | null = null;
+    inner.hooks.beforeWrite = async () => {
+      snap = await snapshot(t);
+      value(await save(t, retention(null), { via: r, now: NOW + DAY }));
+      throwAfterPut = true;
+    };
+    await save(t, retention(90), { via: r });
+    expect(inner.held(guardKey(t.id))).toBeUndefined();
+    if (!snap) throw new Error("no snapshot");
+    // A restore to between A's D1 write and B's removal finds no record to agree with.
+    await restore(t, snap);
+    await enforceCommentRetention(home(t), inner, FROM + 3000 * DAY, t.region);
+    expect(await exists(t, old)).toBe(true);
+  });
+
+  it("reads a record that is not an object, or has no token, as unreadable", async () => {
+    const t = await team();
+    const bucket = memoryBucket();
+    const rule = { token: "x", days: 90, from: FROM };
+    for (const text of [
+      "42",
+      "null",
+      '"text"',
+      JSON.stringify({ days: 90, from: FROM }),
+      JSON.stringify({ ...rule, token: "" }),
+    ]) {
+      await bucket.put(guardKey(t.id), text);
+      expect(await guardAgreement(bucket, t.id, rule)).toBe("unreadable");
+    }
+  });
+
+  it("confirms against a workspace that is gone by deleting its own record, and never throws", async () => {
+    const t = await team();
+    const bucket = memoryBucket();
+    const rule = { token: "mine", days: 90, from: FROM };
+    await writeGuardRecord(bucket, "ws_gone", rule);
+    await confirmGuardRecord(g(), bucket, "ws_gone", "mine");
+    expect(bucket.held(guardKey("ws_gone"))).toBeUndefined();
+    // A record holding another save's token is left alone.
+    await writeGuardRecord(bucket, "ws_gone", { ...rule, token: "theirs" });
+    await confirmGuardRecord(g(), bucket, "ws_gone", "mine");
+    expect(bucket.held(guardKey("ws_gone"))).toBeDefined();
+    // Its own read failing after the save's D1 write: logged, never thrown.
+    const failing = raceGlobalBeforeFirstWrite(async () => {});
+    const broken = new Proxy(failing, {
+      get(target, prop) {
+        if (prop === "select") {
+          return () => {
+            throw new Error("d1 unavailable");
+          };
+        }
+        return Reflect.get(target, prop, target);
+      },
+    });
+    await expect(confirmGuardRecord(broken, bucket, t.id, "mine")).resolves.toBeUndefined();
+  });
+
+  it("removes a rule whose record holds another token (after a restore), and deletes that record", async () => {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const { t } = await ruled(r);
+    const current = await stored(t);
+    await bucket.put(
+      guardKey(t.id),
+      JSON.stringify({
+        token: "newer",
+        days: current.commentRetentionDays,
+        from: current.commentRetentionFrom,
+      }),
+    );
+    const removed = await save(t, retention(null), { via: r, now: NOW + DAY });
+    expect(removed.ok).toBe(true);
+    expect((await stored(t)).commentRetentionDays).toBeNull();
+    expect(recordOf(bucket, t)).toBeNull();
   });
 });
 

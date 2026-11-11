@@ -445,6 +445,35 @@ describe("comment retention (decision 0023)", () => {
     await themes(container);
   });
 
+  it("says the rule could not be changed when its guard record cannot be, and nothing else for capacity", async () => {
+    acme("admin");
+    const workspaceState = server.workspaces.acme;
+    if (!workspaceState) throw new Error("no workspace");
+    workspaceState.commentRetentionRefusal = "guard";
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    await screen.findByRole("group", { name: group });
+    fireEvent.click(radio("Delete old threads", group));
+    fireEvent.change(screen.getByRole("textbox", { name: /Days after a thread's last activity/ }), {
+      target: { value: "180" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    expect(
+      await screen.findByText(
+        "The comment retention rule could not be changed right now, so nothing was saved. Try again in a few minutes.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Portifact is at capacity right now. Try again later.")).toBeNull();
+    expect(workspaceState.view.policy.commentRetentionDays).toBeNull();
+    await themes(container);
+    // The same code without the detail is the general capacity refusal, not this sentence.
+    workspaceState.commentRetentionRefusal = "capacity";
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    expect(
+      await screen.findByText("Portifact is at capacity right now. Try again later."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/The comment retention rule could not be changed/)).toBeNull();
+  });
+
   it("tells every member the rule in effect", async () => {
     acme("member", {
       ...DEFAULT_POLICY,

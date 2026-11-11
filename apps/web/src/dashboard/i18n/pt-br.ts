@@ -2859,6 +2859,8 @@ export const ptBR = {
     "{count, plural, one {devolveu o tempo de # artifact} other {devolveu o tempo de # artifacts}}",
   "transfer.confirm.maxLife":
     "{space} arquiva artifacts {days} dias após a última publicação, restauração ou transferência: movido agora, este é arquivado no máximo em {date}, a menos que alguém o publique de novo, e lá não pode ser fixado.",
+  "policies.comments.unavailable":
+    "A regra de retenção de comentários não pôde ser alterada agora, então nada foi salvo. Tente de novo em alguns minutos.",
   "policies.comments.legend": "Retenção de comentários",
   "policies.comments.hint":
     "Exclui cada conversa de comentários do espaço de trabalho, com todas as mensagens, quando ela fica um número de dias sem atividade. Uma conversa aberta na versão atual de um artefato é mantida, para que o que os revisores aguardam nunca se perca; quando uma nova versão substitui essa versão, a conversa recebe o período inteiro de novo a partir desse momento. Ninguém pode recuperar conversas excluídas, nem a Portifact.",
