@@ -2236,12 +2236,30 @@ export const auditEvents = sqliteTable(
     targetId: text("target_id"),
     artifactId: text("artifact_id"),
     detail: text("detail", { mode: "json" }).notNull(),
+    /**
+     * When the database recorded the row, in milliseconds by the database's own clock
+     * (`recordedNow`, set inside the same insert that writes the event), never by a Worker's.
+     * Only audit streams read it (decision 0019): it orders and positions a stream, so an event
+     * whose `at` is old when it is written still lands after every position already delivered.
+     * Never shown or sent; `at` stays the time every reader shows. The constant default is only
+     * for the migration that added it (SQLite refuses an expression there); every insert sets it.
+     */
+    recordedAt: integer("recorded_at").notNull().default(0),
   },
   (t) => [
     index("audit_events_owner_at_idx").on(t.ownerId, t.at, t.id),
     index("audit_events_at_idx").on(t.at),
+    index("audit_events_owner_recorded_idx").on(t.ownerId, t.recordedAt, t.id),
   ],
 );
+
+/**
+ * The database's clock in milliseconds, for `audit_events.recorded_at`: put it at the end of every
+ * `insert ... select` into `audit_events` (the column's place in schema order). One expression in
+ * the statement the writer already runs, so recording it costs no statement, read or round trip.
+ * `julianday('now')` is fixed for the whole statement.
+ */
+export const recordedNow = sql`cast(round((julianday('now') - 2440587.5) * 86400000) as integer)`;
 
 /**
  * Content search (premium plan T8, decision 0012): which version of an artifact the index holds.
@@ -2340,6 +2358,19 @@ export const auditStreams = sqliteTable(
     gapTo: timestamp("gap_to"),
     /** A test an admin asked for, sent by the next run whatever the state. */
     testRequestedAt: timestamp("test_requested_at"),
+    /**
+     * Bumped by every change of what the stream is (its URL, secret, key, state or label), by an
+     * admin, the platform's pause or the key re-seal; never by delivery. Every admin change is
+     * conditioned on the revision it read, and a run writes a position only while the revision
+     * is the one it started with, so a batch sent to a destination the admin just left never
+     * moves the stream (decision 0019, "Changes during a run").
+     */
+    revision: integer("revision").notNull().default(0),
+    /** Up to where a gap was already reported, per database (recorded time). */
+    regionalGapTo: timestamp("regional_gap_to"),
+    globalGapTo: timestamp("global_gap_to"),
+    /** Every event recorded before this was delivered (the database's clock), for the lag. */
+    deliveredThrough: timestamp("delivered_through"),
     createdAt: createdAt(),
     /** Who created it (no foreign key: cleared when the account is deleted). */
     createdBy: text("created_by"),

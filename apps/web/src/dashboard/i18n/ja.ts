@@ -2523,9 +2523,9 @@ export const ja = {
   "audit.stream.lastAttempt": "最後のリクエスト {when}：{outcome}",
   "audit.stream.noAttempts": "まだリクエストはありません",
   "audit.stream.testPending": "送信待ちのテストがあります。",
-  "audit.stream.gapTitle": "このエンドポイントに届かなかったイベントがあります",
+  "audit.stream.gapTitle": "このエンドポイントに届かないイベントがあるかもしれません",
   "audit.stream.gap":
-    "{from} から {to} までのイベントは、このエンドポイントが受け取る前にログの保持期間を過ぎたため送信されませんでした。エンドポイントにはそのことを示す欠落レコードが届いています。",
+    "{from} から {to} までに記録されたイベントは、このエンドポイントが受け取る前にログの保持期間によって削除された、または削除されます。まだ保持されていたものは送信されました。エンドポイントにはそのことを示す欠落レコードが届いています。",
   "audit.stream.test": "テストを送信",
   "audit.stream.testLabel": "{label} にテストを送信",
   "audit.stream.testQueued": "{label} へのテストを送信待ちにしました",
@@ -2565,4 +2565,12 @@ export const ja = {
   "audit.stream.error.invalid_url": "URL が受け入れられなくなりました",
   "audit.stream.error.key_unavailable": "開けません",
   "audit.stream.error.daily_cap": "1 日の上限に到達",
+  "audit.stream.revokeNow": "今すぐ置き換え",
+  "audit.stream.revokeNowLabel": "{label} のシークレットを今すぐ置き換え",
+  "audit.stream.revokeConfirm.title": "{label} のシークレットを今すぐ置き換えますか？",
+  "audit.stream.revokeConfirm.body":
+    "古いシークレットはすぐに署名しなくなります。エンドポイントが新しいシークレットを受け取るまで Portifact のリクエストを拒否しますが、何も失われず、受け入れられたら再送されます。古いシークレットが漏れた場合に使ってください。",
+  "audit.stream.revokedNow": "{label} の新しいシークレット。古いものはもう署名しません",
+  "audit.stream.revokeNow.body":
+    "古いシークレットはもう署名しません。今すぐこれをエンドポイントに設定してください。",
 } satisfies Catalog;

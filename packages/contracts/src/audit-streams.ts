@@ -11,12 +11,20 @@ export const AUDIT_STREAM = {
   labelMaxLength: 80,
   urlMaxLength: 2_048,
   /**
-   * How old an event must be before it is sent. An event's time is the `now` of the request or
-   * run that wrote it, which commits at most one Worker invocation later (15 minutes for the jobs
-   * Worker), so an event older than this can no longer appear behind the position: waiting this
-   * long is what makes "never skipping" true without touching the audit write path.
+   * How long after the database recorded an event (`audit_events.recorded_at`, its own clock)
+   * the stream sends it: the time a D1 batch that read the clock takes to commit, with room to
+   * spare. Ordering by the database's clock instead of the writer's `now` is what makes "never
+   * skipping" independent of how old a writer's time is (decision 0019, "Recorded time").
    */
-  settleMs: 20 * 60_000,
+  settleMs: 2 * 60_000,
+  /**
+   * How much older than its recorded time an event's `at` may be for the gap rule: no writer
+   * holds its `now` for a day before writing. Events recorded within this of the retention
+   * cutoff may be swept before delivery, so they are reported in a gap.
+   */
+  gapMarginMs: 24 * 60 * 60_000,
+  /** The shortest gap reported after the first; shorter ranges wait and join the next. */
+  gapMinMs: 60 * 60_000,
   /** Events one request carries at most. */
   eventsPerBatch: 500,
   /** Bytes of one request's body at most (one event is always sent, whatever its size). */
@@ -140,9 +148,14 @@ export const AuditStreamUpdate = z
     url: url.optional(),
     state: z.enum(["active", "paused"]).optional(),
     rotateSecret: z.literal(true).optional(),
+    /** With `rotateSecret`: the old secret stops signing at once instead of after a day. */
+    revokeOldSecret: z.literal(true).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, {
     message: "Send label, url, state or rotateSecret.",
+  })
+  .refine((body) => body.revokeOldSecret === undefined || body.rotateSecret === true, {
+    message: "revokeOldSecret goes with rotateSecret.",
   });
 export type AuditStreamUpdate = z.infer<typeof AuditStreamUpdate>;
 

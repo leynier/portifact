@@ -52,6 +52,7 @@ async function streamWithEvent() {
       targetId: null,
       artifactId: null,
       detail: {},
+      recordedAt: NOW - 3_600_000,
     });
   const streamId = created.value.stream.id;
   return { streamId, job: await jobOf(streamId) };

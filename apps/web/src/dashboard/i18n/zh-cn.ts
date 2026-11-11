@@ -2317,9 +2317,9 @@ export const zhCN = {
   "audit.stream.lastAttempt": "上次请求 {when}：{outcome}",
   "audit.stream.noAttempts": "还没有请求",
   "audit.stream.testPending": "有一个测试正在等待发送。",
-  "audit.stream.gapTitle": "部分事件从未到达此端点",
+  "audit.stream.gapTitle": "部分事件可能永远不会到达此端点",
   "audit.stream.gap":
-    "{from} 至 {to} 的事件在此端点收到之前已超过日志的保留期，因此没有发送。端点已收到说明这一点的缺口记录。",
+    "在 {from} 至 {to} 之间记录的事件，在此端点收到之前已被或将被日志的保留期删除；仍保留的内容都已发送。端点已收到说明这一点的缺口记录。",
   "audit.stream.test": "发送测试",
   "audit.stream.testLabel": "向 {label} 发送测试",
   "audit.stream.testQueued": "已为 {label} 排队测试",
@@ -2359,4 +2359,11 @@ export const zhCN = {
   "audit.stream.error.invalid_url": "URL 不再被接受",
   "audit.stream.error.key_unavailable": "无法打开",
   "audit.stream.error.daily_cap": "已达每日上限",
+  "audit.stream.revokeNow": "立即替换",
+  "audit.stream.revokeNowLabel": "立即替换 {label} 的密钥",
+  "audit.stream.revokeConfirm.title": "立即替换 {label} 的密钥？",
+  "audit.stream.revokeConfirm.body":
+    "旧密钥会立即停止签名。在你的端点拿到新密钥之前，它会拒绝 Portifact 的请求；不会丢失任何内容，端点接受后会重新发送。旧密钥泄露时使用此操作。",
+  "audit.stream.revokedNow": "已为 {label} 设置新密钥；旧密钥不再签名",
+  "audit.stream.revokeNow.body": "旧密钥不再签名。请立即把这个密钥交给你的端点。",
 } satisfies Catalog;

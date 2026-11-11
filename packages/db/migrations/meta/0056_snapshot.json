@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f2152c33-dc3b-4105-9d97-16a4b93cc2f3",
+  "id": "96318ed7-bcf2-49d6-b75f-78664b5d66c1",
   "prevId": "2f6412f4-e724-4918-b8ce-b24a50e1a905",
   "tables": {
     "abuse_reports": {
@@ -1255,6 +1255,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         }
       },
       "indexes": {
@@ -1266,6 +1274,11 @@
         "audit_events_at_idx": {
           "name": "audit_events_at_idx",
           "columns": ["at"],
+          "isUnique": false
+        },
+        "audit_events_owner_recorded_idx": {
+          "name": "audit_events_owner_recorded_idx",
+          "columns": ["owner_id", "recorded_at", "id"],
           "isUnique": false
         }
       },
@@ -1531,6 +1544,35 @@
         },
         "test_requested_at": {
           "name": "test_requested_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "regional_gap_to": {
+          "name": "regional_gap_to",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "global_gap_to": {
+          "name": "global_gap_to",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "delivered_through": {
+          "name": "delivered_through",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

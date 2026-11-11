@@ -745,12 +745,13 @@ function memberRemoval(
   const memberWhere = sql`${m.workspaceId} = ${W} and ${m.userId} = ${account}`;
   const isMember = sql`exists (select 1 from ${m} where ${memberWhere}) and ${condition}`;
   return [
-    // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail.
+    // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail,
+    // recorded (the database's clock, decision 0019).
     // The role and the member come from the row, so the event is written from SQL.
     global
       .insert(schema.auditEvents)
       .select(
-        sql`select ${newAuditEventId()}, ${W}, ${now}, 'member.removed', 'directory', ${caller.tokenId}, ${m.userId}, null, json_object('role', ${m.role}) from ${m} where ${memberWhere} and ${condition}`,
+        sql`select ${newAuditEventId()}, ${W}, ${now}, 'member.removed', 'directory', ${caller.tokenId}, ${m.userId}, null, json_object('role', ${m.role}), ${schema.recordedNow} from ${m} where ${memberWhere} and ${condition}`,
       ),
     global
       .insert(schema.tombstones)
@@ -799,7 +800,7 @@ function pendingRemoval(
     global
       .insert(schema.auditEvents)
       .select(
-        sql`select ${newAuditEventId()}, ${W}, ${now}, 'member.invitation_revoked', 'directory', ${caller.tokenId}, ${inv.id}, null, '{}' from ${inv} where ${pending} and ${inv.expiresAt} > ${now}`,
+        sql`select ${newAuditEventId()}, ${W}, ${now}, 'member.invitation_revoked', 'directory', ${caller.tokenId}, ${inv.id}, null, '{}', ${schema.recordedNow} from ${inv} where ${pending} and ${inv.expiresAt} > ${now}`,
       ),
     global
       .insert(schema.tombstones)

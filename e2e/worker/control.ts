@@ -473,7 +473,7 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   }
 
   // The jobs Worker's audit stream deliveries (decision 0019), run with its real deps `laterMs`
-  // from now (an event is sent once it is 20 minutes old), except the network: requests to
+  // from now and no settle window, except the network: requests to
   // COLLECTOR_HOST land in the local bucket (the collector answers 200), anything else fails.
   if (path === "/audit-streams") {
     const { laterMs = 0 } = input as { laterMs?: number };
@@ -487,7 +487,8 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       );
       return new Response("ok");
     };
-    const auditStreams = auditStreamDepsFromWebhooks(await webhookDepsFromEnv(env, receive));
+    // Events are sent once the database recorded them two minutes ago; the stack cannot wait.
+    const auditStreams = auditStreamDepsFromWebhooks(await webhookDepsFromEnv(env, receive), 0);
     const { results } = await env.DB.prepare(
       "select id from outbox where topic = 'audit_stream' and available_at <= ?",
     )

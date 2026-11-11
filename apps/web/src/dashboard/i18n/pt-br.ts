@@ -2546,9 +2546,9 @@ export const ptBR = {
   "audit.stream.lastAttempt": "Última requisição {when}: {outcome}",
   "audit.stream.noAttempts": "Nenhuma requisição ainda",
   "audit.stream.testPending": "Há um teste esperando para ser enviado.",
-  "audit.stream.gapTitle": "Alguns eventos nunca chegaram a este endpoint",
+  "audit.stream.gapTitle": "Alguns eventos podem nunca chegar a este endpoint",
   "audit.stream.gap":
-    "Os eventos de {from} a {to} passaram da retenção do registro antes de este endpoint recebê-los, então não foram enviados. O endpoint recebeu um registro de lacuna informando isso.",
+    "Os eventos registrados entre {from} e {to} foram ou serão excluídos pela retenção do registro antes de este endpoint recebê-los; o que ainda estava guardado foi enviado. O endpoint recebeu um registro de lacuna informando isso.",
   "audit.stream.test": "Enviar teste",
   "audit.stream.testLabel": "Enviar teste para {label}",
   "audit.stream.testQueued": "Teste na fila para {label}",
@@ -2588,4 +2588,12 @@ export const ptBR = {
   "audit.stream.error.invalid_url": "URL não aceita mais",
   "audit.stream.error.key_unavailable": "não pode ser aberto",
   "audit.stream.error.daily_cap": "limite diário atingido",
+  "audit.stream.revokeNow": "Substituir já",
+  "audit.stream.revokeNowLabel": "Substituir já o segredo de {label}",
+  "audit.stream.revokeConfirm.title": "Substituir já o segredo de {label}?",
+  "audit.stream.revokeConfirm.body":
+    "O segredo antigo para de assinar na hora. Até seu endpoint ter o novo, ele recusa as requisições do Portifact; nada se perde, elas são enviadas de novo quando ele as aceitar. Use isto se o segredo antigo vazou.",
+  "audit.stream.revokedNow": "Novo segredo para {label}; o antigo não assina mais",
+  "audit.stream.revokeNow.body":
+    "O segredo antigo não assina mais. Passe este ao seu endpoint agora.",
 } satisfies Catalog;

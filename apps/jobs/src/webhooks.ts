@@ -45,11 +45,16 @@ export async function webhookDepsFromEnv(
  * What audit stream deliveries get (decision 0019): the same keys, network, emergency stop and
  * switch as webhooks, so `WEBHOOKS_ENABLED` and `WEBHOOK_KEY` turn both on and off together.
  */
-export function auditStreamDepsFromWebhooks(webhooks: WebhookDeps): AuditStreamDeps {
+export function auditStreamDepsFromWebhooks(
+  webhooks: WebhookDeps,
+  /** Only the e2e stack, whose database clock cannot be moved, passes another window. */
+  settleMs?: number,
+): AuditStreamDeps {
   return {
     keys: webhooks.keys,
     fetch: webhooks.fetch,
     enabled: webhooks.enabled,
     paused: webhooks.paused,
+    ...(settleMs === undefined ? {} : { settleMs }),
   };
 }

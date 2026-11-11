@@ -2569,9 +2569,9 @@ export const es = {
   "audit.stream.lastAttempt": "Última petición {when}: {outcome}",
   "audit.stream.noAttempts": "Aún no hay peticiones",
   "audit.stream.testPending": "Hay una prueba esperando a enviarse.",
-  "audit.stream.gapTitle": "Algunos eventos nunca llegaron a este endpoint",
+  "audit.stream.gapTitle": "Puede que algunos eventos nunca lleguen a este endpoint",
   "audit.stream.gap":
-    "Los eventos de {from} a {to} superaron la retención del registro antes de que este endpoint los recibiera, así que no se enviaron. El endpoint recibió un registro de hueco que lo indica.",
+    "Los eventos registrados entre {from} y {to} fueron o serán eliminados por la retención del registro antes de que este endpoint los recibiera; lo que aún se conservaba se envió. El endpoint recibió un registro de hueco que lo indica.",
   "audit.stream.test": "Enviar prueba",
   "audit.stream.testLabel": "Enviar prueba a {label}",
   "audit.stream.testQueued": "Prueba en cola para {label}",
@@ -2611,4 +2611,11 @@ export const es = {
   "audit.stream.error.invalid_url": "URL ya no aceptada",
   "audit.stream.error.key_unavailable": "no se puede abrir",
   "audit.stream.error.daily_cap": "límite diario alcanzado",
+  "audit.stream.revokeNow": "Reemplazar ya",
+  "audit.stream.revokeNowLabel": "Reemplazar ya el secreto de {label}",
+  "audit.stream.revokeConfirm.title": "¿Reemplazar ya el secreto de {label}?",
+  "audit.stream.revokeConfirm.body":
+    "El secreto anterior deja de firmar de inmediato. Hasta que tu endpoint tenga el nuevo, rechazará las peticiones de Portifact; no se pierde nada, se envían de nuevo cuando las acepte. Úsalo si el secreto anterior se filtró.",
+  "audit.stream.revokedNow": "Nuevo secreto para {label}; el anterior ya no firma",
+  "audit.stream.revokeNow.body": "El secreto anterior ya no firma. Dale este a tu endpoint ahora.",
 } satisfies Catalog;

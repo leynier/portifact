@@ -1,6 +1,7 @@
 import { AUDIT_STREAM } from "@portifact/contracts";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
+import { auditPruneCutoff } from "./audit.ts";
 import {
   buildStreamBatch,
   classifyStreamAttempt,
@@ -10,11 +11,10 @@ import {
   nextStreamAttemptAt,
   parseRetryAfter,
   type StreamLine,
-  settledBefore,
   statusClass,
   streamBatchKey,
-  streamCutoff,
-  streamRead,
+  streamGap,
+  streamRiskBound,
   testLine,
 } from "./audit-streams.ts";
 
@@ -28,41 +28,61 @@ const line = (at: number, id: string, text = `{"id":"${id}"}\n`): StreamLine => 
   line: text,
 });
 
-describe("where a stream reads", () => {
-  it("rounds the retention cutoff down to the hour, so a retried batch keeps its start", () => {
-    const cutoff = streamCutoff(90, NOW);
-    expect(cutoff % HOUR).toBe(0);
-    expect(cutoff).toBeLessThanOrEqual(NOW - 90 * DAY);
-    expect(cutoff).toBeGreaterThan(NOW - 90 * DAY - HOUR);
-    expect(streamCutoff(90, NOW + 1_000)).toBe(cutoff);
-  });
-
-  it("sends only settled events", () => {
-    expect(settledBefore(NOW)).toBe(NOW - AUDIT_STREAM.settleMs);
+describe("the gap rule", () => {
+  it("bounds the risk with the sweep's own cutoff, unrounded, plus the margin", () => {
+    expect(streamRiskBound(90, NOW)).toBe(auditPruneCutoff(90, NOW) + AUDIT_STREAM.gapMarginMs);
+    // Never rounded: a minute later the bound is a minute later.
+    expect(streamRiskBound(90, NOW + 60_000) - streamRiskBound(90, NOW)).toBe(60_000);
   });
 
   it.each([
+    ["a fresh backfill claims nothing", { at: null, id: "" }, null, 1_000, null],
+    ["a position past the bound has no gap", { at: 2_000, id: "ae_x" }, null, 1_000, null],
+    ["a position at the bound has no gap", { at: 1_000, id: "" }, null, 1_000, null],
     [
-      "a backfill starts at the cutoff with no gap",
+      "a position behind the bound reports from it",
+      { at: 400, id: "ae_y" },
+      null,
+      1_000,
+      { from: 400, to: 1_000 },
+    ],
+    [
+      "a gap already reported starts the next one where it ended",
+      { at: 400, id: "ae_y" },
+      900,
+      900 + AUDIT_STREAM.gapMinMs,
+      { from: 900, to: 900 + AUDIT_STREAM.gapMinMs },
+    ],
+    [
+      "a shorter range waits to join the next",
+      { at: 400, id: "ae_y" },
+      900,
+      900 + AUDIT_STREAM.gapMinMs - 1,
+      null,
+    ],
+    [
+      "a backfill with a gap already reported goes on from it",
       { at: null, id: "" },
-      { at: 100, id: "" },
-      null,
+      500,
+      500 + 2 * AUDIT_STREAM.gapMinMs,
+      { from: 500, to: 500 + 2 * AUDIT_STREAM.gapMinMs },
     ],
-    [
-      "a position after the cutoff reads on",
-      { at: 150, id: "ae_x" },
-      { at: 150, id: "ae_x" },
-      null,
-    ],
-    ["a position at the cutoff reads on", { at: 100, id: "" }, { at: 100, id: "" }, null],
-    [
-      "a position past retention says so and skips to the cutoff",
-      { at: 40, id: "ae_y" },
-      { at: 100, id: "" },
-      { from: 40, to: 100 },
-    ],
-  ])("%s", (_name, position, after, gap) => {
-    expect(streamRead(position, 100)).toEqual({ after, gap });
+  ])("%s", (_name, position, gapTo, bound, gap) => {
+    expect(streamGap(position, gapTo, bound)).toEqual(gap);
+  });
+
+  it("reports what the sweep deleted after a position the old rounding called safe", () => {
+    // R1 of the review: the position is ten minutes past the hour-rounded cutoff but before the
+    // sweep's unrounded one, and the sweep deleted an event recorded after it.
+    const days = 90;
+    const sweepAt = NOW + 25 * 60_000;
+    const position = { at: auditPruneCutoff(days, NOW) + 10 * 60_000, id: "" };
+    const deleted = auditPruneCutoff(days, NOW) + 20 * 60_000;
+    expect(deleted).toBeLessThan(auditPruneCutoff(days, sweepAt));
+    const gap = streamGap(position, null, streamRiskBound(days, NOW + 30 * 60_000));
+    expect(gap).not.toBeNull();
+    expect((gap as { from: number; to: number }).from).toBeLessThanOrEqual(deleted);
+    expect((gap as { from: number; to: number }).to).toBeGreaterThan(deleted);
   });
 });
 

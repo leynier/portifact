@@ -259,7 +259,11 @@ function streamChanges(d: Record<string, unknown>): string[] {
   return [
     d.label ? "its label" : null,
     d.url ? "its URL" : null,
-    d.secret ? "a new signing secret" : null,
+    d.secret
+      ? d.revoked
+        ? "a new signing secret, the old one revoked at once"
+        : "a new signing secret"
+      : null,
     d.state === "active" ? "resumed" : d.state === "paused" ? "paused" : null,
   ].filter((part): part is string => part !== null);
 }

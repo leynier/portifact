@@ -76,7 +76,7 @@ describe("audit streams through the dashboard session", () => {
       serviceAvailable: true,
       euOwner: false,
       limit: 2,
-      settleMinutes: 20,
+      settleMinutes: 2,
     });
     expect(JSON.stringify(listed)).not.toMatch(/whsec_|token=abc/);
 
@@ -198,5 +198,11 @@ describe("audit streams through the dashboard session", () => {
     }
     const empty = await session(`/api/v1/audit/streams/as_${"1".repeat(32)}`, json("PATCH", {}));
     expect(empty.status).toBe(400);
+    // Revoking the old secret goes only with a new one.
+    const revokeOnly = await session(
+      `/api/v1/audit/streams/as_${"1".repeat(32)}`,
+      json("PATCH", { revokeOldSecret: true }),
+    );
+    expect(revokeOnly.status).toBe(400);
   });
 });

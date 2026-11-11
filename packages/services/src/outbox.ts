@@ -266,10 +266,9 @@ async function runRow(
       if (!issues) throw new Error("thread_issue needs the integration deps");
       return runThreadIssue(db, row, now, issues);
     case "audit_stream":
-      // Thrown, not reported done: the row stays and the job runs again where the keys are.
-      if (!auditStreams || auditStreams.keys.length === 0) {
-        throw new Error("audit_stream needs the webhook keys");
-      }
+      // Without the deps or the key the job ends instead of being redelivered forever; the scan
+      // gives the stream a job again once streams are switched on with a key (decision 0019).
+      if (!auditStreams || auditStreams.keys.length === 0) return "stale";
       return deliverAuditStream(db, row, now, auditStreams);
   }
 }

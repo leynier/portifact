@@ -9,7 +9,7 @@ import {
   type AuditStreamStatusClass,
   type AuditStreamTestRecord,
 } from "@portifact/contracts";
-import { auditCutoff } from "./audit.ts";
+import { auditPruneCutoff } from "./audit.ts";
 
 /**
  * Where a stream stands in one database: the time and ID of the last event it delivered, in the
@@ -21,41 +21,36 @@ export interface StreamPosition {
   id: string;
 }
 
-const HOUR_MS = 3_600_000;
-
 /**
- * The oldest moment a stream still reads for a retention in days: the audit cutoff rounded down
- * to the hour, so a batch retried within the hour starts from the same place and keeps its key.
+ * Events recorded before this may already be gone, or go before the stream reads them: the
+ * sweep deletes by `at` before `auditPruneCutoff`, and an event's `at` is at most
+ * `AUDIT_STREAM.gapMarginMs` older than when it was recorded. Unrounded, from the same function
+ * the sweep uses, and taken again for every batch of a run.
  */
-export function streamCutoff(retentionDays: number, now: number): number {
-  const cutoff = auditCutoff(retentionDays, now);
-  return cutoff - (((cutoff % HOUR_MS) + HOUR_MS) % HOUR_MS);
-}
-
-/** The newest event time a stream may send now: older than `settleMs`, so none can still appear. */
-export function settledBefore(now: number): number {
-  return now - AUDIT_STREAM.settleMs;
-}
-
-export interface StreamRead {
-  /** Read events strictly after this position (null time: from `cutoff` on, inclusive). */
-  after: StreamPosition;
-  /** The gap to report first, when the position is older than what retention still keeps. */
-  gap: { from: number; to: number } | null;
+export function streamRiskBound(retentionDays: number, now: number): number {
+  return auditPruneCutoff(retentionDays, now) + AUDIT_STREAM.gapMarginMs;
 }
 
 /**
- * What a stream reads next in one database. A position older than the retention cutoff means the
- * sweep may have deleted events the endpoint never got: the stream says so with a gap from the
- * position to the cutoff and goes on from the cutoff, never pretending continuity. Events still
- * in that range (the sweep runs every 15 minutes) are past retention and are not sent.
+ * The gap a stream reports in one database before its next events, or null. Everything recorded
+ * from the later of the position and the gap already reported (`gapTo`) up to `bound` may have
+ * been deleted, or may be before the stream reads it: the stream says so and keeps reading from
+ * its position, so whatever is still kept in that range is still sent. A fresh backfill (no
+ * position, no gap reported) claims nothing. A range shorter than `gapMinMs` waits, so a stream
+ * that lags at the edge reports contiguous ranges, not one per run; the next report starts where
+ * the last ended, so nothing is left out.
  */
-export function streamRead(position: StreamPosition, cutoff: number): StreamRead {
-  if (position.at === null) return { after: { at: cutoff, id: "" }, gap: null };
-  if (position.at < cutoff) {
-    return { after: { at: cutoff, id: "" }, gap: { from: position.at, to: cutoff } };
-  }
-  return { after: position, gap: null };
+export function streamGap(
+  position: StreamPosition,
+  gapTo: number | null,
+  bound: number,
+): { from: number; to: number } | null {
+  const starts = [position.at, gapTo].filter((value): value is number => value !== null);
+  if (starts.length === 0) return null;
+  const from = Math.max(...starts);
+  if (from >= bound) return null;
+  if (gapTo !== null && bound - from < AUDIT_STREAM.gapMinMs) return null;
+  return { from, to: bound };
 }
 
 /** One event already presented as the export's JSON Lines line, with its position. */

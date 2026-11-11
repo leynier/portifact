@@ -37,9 +37,18 @@ CREATE TABLE `audit_streams` (
 	`gap_from` integer,
 	`gap_to` integer,
 	`test_requested_at` integer,
+	`revision` integer DEFAULT 0 NOT NULL,
+	`regional_gap_to` integer,
+	`global_gap_to` integer,
+	`delivered_through` integer,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`created_by` text,
 	CONSTRAINT "audit_streams_failures" CHECK("audit_streams"."failures" >= 0)
 );
 --> statement-breakpoint
-CREATE INDEX `audit_streams_owner_idx` ON `audit_streams` (`owner_id`);
+CREATE INDEX `audit_streams_owner_idx` ON `audit_streams` (`owner_id`);--> statement-breakpoint
+ALTER TABLE `audit_events` ADD `recorded_at` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+-- Rows written before this migration were recorded about when they happened: one set-based pass,
+-- before the index exists so it is built once (decision 0019, "Recorded time").
+UPDATE `audit_events` SET `recorded_at` = `at` WHERE `recorded_at` = 0;--> statement-breakpoint
+CREATE INDEX `audit_events_owner_recorded_idx` ON `audit_events` (`owner_id`,`recorded_at`,`id`);

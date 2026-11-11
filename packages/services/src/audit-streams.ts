@@ -1,9 +1,9 @@
 // Audit streams (premium plan E3, feature `auditExport`, decision 0019): the admins of an owner
 // point the owner's audit log at an HTTPS endpoint they run (a SIEM collector), and the jobs Worker
 // posts the events there in batches. The stream keeps a position in each database the owner's
-// events live in and moves it only after a 2xx answer: at least once, in order per database, never
-// skipping. Nothing here touches the audit write path: `auditEvent` and the batches that call it
-// are unchanged; delivery reads what they wrote, once it is `AUDIT_STREAM.settleMs` old.
+// events live in, in the order the database recorded them (`audit_events.recorded_at`, its own
+// clock), and moves it only after a 2xx answer: at least once, in order per database, never
+// skipping. The audit write path only sets `recorded_at` inside the insert it already runs.
 //
 // It reuses the webhook machinery (decision 0009): `checkWebhookUrl` before every request, the
 // URL and secret sealed with `WEBHOOK_KEY`, the Standard Webhooks signature, the bounded response
@@ -22,6 +22,7 @@ import {
   type AuditStreamSource,
   type AuditStreamUpdate,
   type AuditStreamView,
+  isWorkspaceId,
 } from "@portifact/contracts";
 import { bothSides, type Db, hitRateLimit, type RegionalDb, schema } from "@portifact/db";
 import {
@@ -44,15 +45,15 @@ import {
   type StreamAttemptResult,
   type StreamBatch,
   type StreamPosition,
-  settledBefore,
   streamBatchKey,
-  streamCutoff,
-  streamRead,
+  streamGap,
+  streamRiskBound,
   testLine,
   utcDayStart,
 } from "@portifact/domain";
 import { and, desc, eq, gte, inArray, lt, ne, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { actorOn } from "./actors.ts";
 import { auditEvent, presentAuditEvents, streamEventsAfter } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import { closeJobs, type JobOutcome } from "./outbox.ts";
@@ -83,6 +84,8 @@ export const AUDIT_STREAMS_UNAVAILABLE = "Audit streams are not available yet.";
 
 const unavailable = () => fail<never>("capacity_unavailable", AUDIT_STREAMS_UNAVAILABLE);
 const missing = () => fail<never>("not_found", "Audit stream not found.");
+const changedMeanwhile = () =>
+  fail<never>("version_conflict", "The stream changed at the same time. Reload it and try again.");
 
 /** Whether Portifact delivers audit streams at all: the webhook switch (`WEBHOOKS_ENABLED`). */
 export interface AuditStreamService {
@@ -127,7 +130,7 @@ function view(
   names: ReadonlyMap<string, string>,
   now: number,
 ): AuditStreamView {
-  const through = deliveredThrough(row.regionalAt, row.globalAt);
+  const through = row.deliveredThrough ?? deliveredThrough(row.regionalAt, row.globalAt);
   return {
     id: row.id,
     label: row.label,
@@ -195,6 +198,31 @@ async function owned(db: RegionalDb, actor: Actor, streamId: string) {
     .where(and(eq(s.id, streamId), eq(s.ownerId, actor.ownerId)))
     .limit(1);
   return row;
+}
+
+/**
+ * The handle a stream write runs on and the condition it adds, as issue integrations do
+ * (decision 0018): with one database the write holds only while the caller is still the
+ * workspace's admin (inside the batch); with a separate regional database the caller is
+ * resolved again right before the batch (`stillManages`), and a demotion landing between that
+ * read and the batch is not seen (decision 0019, "Who and where"). A personal space's owner is
+ * always its admin.
+ */
+function writeScope(db: RegionalDb, actor: Actor): { w: Db; holds: SQL } {
+  const both = bothSides(db);
+  if (both && isWorkspaceId(actor.ownerId)) {
+    const m = schema.workspaceMembers;
+    // As `stillAdmin` in ./workspaces.ts (not imported: that module imports this one).
+    const holds = sql`exists (select 1 from ${m} as "caller" where "caller"."workspace_id" = ${actor.ownerId} and "caller"."user_id" = ${actor.userId} and "caller"."role" = 'admin')`;
+    return { w: both, holds };
+  }
+  return { w: both ?? db, holds: sql`1` };
+}
+
+/** The caller resolved again just before a write: still allowed to manage streams? */
+async function stillManages(db: RegionalDb, actor: Actor): Promise<Result<true>> {
+  const again = authorize(await actorOn(db.global, actor.userId, actor.ownerId), "audit");
+  return again.ok ? ok(true) : again;
 }
 
 /**
@@ -291,15 +319,15 @@ export async function listAuditStreams(
     serviceAvailable: input.service.enabled,
     euOwner: input.actor.region === "eu",
     limit: AUDIT_STREAM.perOwner,
-    settleMinutes: AUDIT_STREAM.settleMs / 60_000,
+    settleMinutes: Math.max(1, Math.round(AUDIT_STREAM.settleMs / 60_000)),
   });
 }
 
 /**
  * Creates a stream that starts from now (or from the oldest event still kept) and gives it its
- * first job. The signing secret is returned here and never again. No idempotency key: a stored
- * replay would keep the secret (as for webhooks); a retried create makes a second stream, which
- * the admin removes.
+ * first job, only while the caller is still an admin. The signing secret is returned here and
+ * never again. No idempotency key: a stored replay would keep the secret (as for webhooks); a
+ * retried create makes a second stream, which the admin removes.
  */
 export async function createAuditStream(
   db: RegionalDb,
@@ -323,32 +351,39 @@ export async function createAuditStream(
   if (!key) return unavailable();
   const limited = await ownerLimit(db, "create", ownerId, input.now);
   if (!limited.ok) return limited;
+  const still = await stillManages(db, input.actor);
+  if (!still.ok) return still;
+  const { w, holds } = writeScope(db, input.actor);
   const id = hexId("as_");
   const secret = newWebhookSecret();
   const urlBox = await seal(key, id, "url", checked.value.url);
   const secretBox = await seal(key, id, "secret", secret);
-  const start = input.stream.start === "oldest" ? null : input.now;
+  // "Now" is the database's clock, the order streams read in; the oldest event is no position.
+  const start = input.stream.start === "oldest" ? sql`null` : schema.recordedNow;
   const exists = sql`exists (select 1 from ${s} where ${s.id} = ${id})`;
   // Columns in schema order: id, owner, label, host, key, url, secret, previous secret, previous
   // until, state, reason, paused at, regional at, regional id, global at, global id, failures,
-  // failing since, next attempt, gap source, gap from, gap to, test requested, created, created by.
-  // The count keeps concurrent creates under the cap.
-  const [inserted] = await db.batch([
-    db
+  // failing since, next attempt, gap source, gap from, gap to, test requested, revision,
+  // regional gap to, global gap to, delivered through, created, created by. The count keeps
+  // concurrent creates under the cap.
+  const [inserted] = await w.batch([
+    w
       .insert(s)
       .select(
-        sql`select ${id}, ${ownerId}, ${input.stream.label}, ${checked.value.host}, ${key.id}, ${urlBox}, ${secretBox}, null, null, 'active', null, null, ${start}, '', ${start}, '', 0, null, null, null, null, null, null, ${input.now}, ${input.actor.userId} where (select count(*) from ${s} where ${s.ownerId} = ${ownerId}) < ${AUDIT_STREAM.perOwner}`,
+        sql`select ${id}, ${ownerId}, ${input.stream.label}, ${checked.value.host}, ${key.id}, ${urlBox}, ${secretBox}, null, null, 'active', null, null, ${start}, '', ${start}, '', 0, null, null, null, null, null, null, 0, null, null, null, ${input.now}, ${input.actor.userId} where (select count(*) from ${s} where ${s.ownerId} = ${ownerId}) < ${AUDIT_STREAM.perOwner} and ${holds}`,
       )
       .returning(),
-    streamEvent(db, input.actor, id, "audit_stream.created", {
+    streamEvent(w, input.actor, id, "audit_stream.created", {
       detail: { host: checked.value.host, start: input.stream.start },
       now: input.now,
       condition: exists,
     }),
-    ensureJob(db, id, exists, input.now),
+    ensureJob(w, id, exists, input.now),
   ]);
   const [row] = inserted;
   if (!row) {
+    const again = await stillManages(db, input.actor);
+    if (!again.ok) return again;
     return fail(
       "quota_exceeded",
       `An owner can have at most ${AUDIT_STREAM.perOwner} audit streams. Remove one to add another.`,
@@ -359,10 +394,11 @@ export async function createAuditStream(
 
 /**
  * Changes a stream: its label, its URL, pausing or resuming it, or a new signing secret (the old
- * one keeps signing for `rotationOverlapMs`, so the endpoint can switch without losing a batch).
- * A new URL and resuming need the owner's plan; the label, pausing and rotating never do.
- * Resuming continues from the stored position, so a lapse or a pause ends in a gap only if the
- * retention sweep passed it meanwhile.
+ * one keeps signing for `rotationOverlapMs`, unless the admin revokes it at once). A new URL and
+ * resuming need the owner's plan; the label, pausing and rotating never do. Every change is
+ * conditioned on the revision read and on the caller still being an admin, and bumps the
+ * revision: two changes at once never mix, and a run in flight never moves the stream on behalf
+ * of what the admin just changed. Resuming continues from the stored position.
  */
 export async function updateAuditStream(
   db: RegionalDb,
@@ -418,10 +454,21 @@ export async function updateAuditStream(
     change.keyId = key.id;
     change.urlBox = await seal(key, row.id, "url", url ?? opened.value.url);
     change.secretBox = await seal(key, row.id, "secret", secret ?? opened.value.secret);
-    if (rotating) {
+    if (rotating && update.revokeOldSecret === true) {
+      // An emergency: the old secret stops signing now; requests the endpoint still checks with
+      // it fail until the endpoint has the new one.
+      Object.assign(change, { previousSecretBox: null, previousUntil: null });
+      detail.secret = true;
+      detail.revoked = true;
+    } else if (rotating) {
       change.previousSecretBox = await seal(key, row.id, "secret", opened.value.secret);
       change.previousUntil = input.now + AUDIT_STREAM.rotationOverlapMs;
       detail.secret = true;
+    } else if (row.previousSecretBox !== null) {
+      // Re-sealed with the current key, so every value names the row's one key.
+      const previous = await openedPrevious(input.keys, row);
+      change.previousSecretBox =
+        previous === null ? null : await seal(key, row.id, "secret", previous);
     }
     if (newUrl) {
       // A new endpoint starts with a clean slate of failures.
@@ -450,26 +497,28 @@ export async function updateAuditStream(
   if (Object.keys(change).length === 0) {
     return ok({ stream: await present(db, row, input.now), secret: null });
   }
-  // Conditioned on the state read, so two resumes or two pauses at once are one change.
-  const where = and(
-    eq(s.id, row.id),
-    eq(s.ownerId, input.actor.ownerId),
-    resuming || pausing ? eq(s.state, row.state) : undefined,
-    sealing ? eq(s.keyId, row.keyId) : undefined,
-  ) as SQL;
-  const results = await db.batch([
-    streamEvent(db, input.actor, row.id, "audit_stream.changed", {
+  const still = await stillManages(db, input.actor);
+  if (!still.ok) return still;
+  const { w, holds } = writeScope(db, input.actor);
+  // The old state is the revision read: anything that changed the stream since refuses this.
+  const where = sql`${s.id} = ${row.id} and ${s.ownerId} = ${input.actor.ownerId} and ${s.revision} = ${row.revision} and ${holds}`;
+  const results = await w.batch([
+    streamEvent(w, input.actor, row.id, "audit_stream.changed", {
       detail,
       now: input.now,
       condition: sql`exists (select 1 from ${s} where ${where})`,
     }),
-    db.update(s).set(change).where(where).returning(),
+    w
+      .update(s)
+      .set({ ...change, revision: sql`${s.revision} + 1` })
+      .where(where)
+      .returning(),
     ...(resuming
       ? [
           ensureJob(
-            db,
+            w,
             row.id,
-            sql`exists (select 1 from ${s} where ${s.id} = ${row.id} and ${s.state} = 'active')`,
+            sql`exists (select 1 from ${s} where ${s.id} = ${row.id} and ${s.state} = 'active' and ${s.revision} = ${row.revision + 1})`,
             input.now,
           ),
         ]
@@ -477,9 +526,9 @@ export async function updateAuditStream(
   ] as unknown as Batch);
   const [updated] = results[1] as StreamRow[];
   if (updated) return ok({ stream: await present(db, updated, input.now), secret });
-  // A concurrent request changed it first: answer the stream as it is now, without a secret.
-  const current = await owned(db, input.actor, input.streamId);
-  return current ? ok({ stream: await present(db, current, input.now), secret: null }) : missing();
+  const again = await stillManages(db, input.actor);
+  if (!again.ok) return again;
+  return (await owned(db, input.actor, input.streamId)) ? changedMeanwhile() : missing();
 }
 
 /** The URL and current secret of a stream, opened with the key that sealed them. */
@@ -503,6 +552,12 @@ async function openedValues(
   }
 }
 
+/** The previous secret while it still signs, or null. */
+async function openedPrevious(keys: Keys, row: StreamRow): Promise<string | null> {
+  if (row.previousSecretBox === null || row.previousUntil === null) return null;
+  return open(keys, row.keyId, row.id, "secret", row.previousSecretBox);
+}
+
 /** The statement that deletes an owner's streams (their log goes by its foreign key). */
 export function deleteOwnerAuditStreams(db: Db, ownerId: string, condition?: SQL) {
   return db
@@ -512,7 +567,7 @@ export function deleteOwnerAuditStreams(db: Db, ownerId: string, condition?: SQL
 
 /**
  * Removes a stream with its log and its job, and writes its tombstone so a restored backup cannot
- * bring the destination back. Never gated.
+ * bring the destination back. Never gated, but only while the caller is still an admin.
  */
 export async function removeAuditStream(
   db: RegionalDb,
@@ -522,7 +577,10 @@ export async function removeAuditStream(
   if (!allowed.ok) return allowed;
   const row = await owned(db, input.actor, input.streamId);
   if (!row) return missing();
-  const mine = sql`exists (select 1 from ${s} where ${s.id} = ${row.id} and ${s.ownerId} = ${input.actor.ownerId})`;
+  const still = await stillManages(db, input.actor);
+  if (!still.ok) return still;
+  const { w, holds } = writeScope(db, input.actor);
+  const mine = sql`exists (select 1 from ${s} where ${s.id} = ${row.id} and ${s.ownerId} = ${input.actor.ownerId}) and ${holds}`;
   // With one database the tombstone rides the batch on the same condition; with a separate one it
   // is written globally first, once the stream is known to be the owner's (decision 0005).
   const both = bothSides(db);
@@ -532,22 +590,23 @@ export async function removeAuditStream(
       .select(sql`select 'audit_stream', ${row.id}, ${input.now} where ${condition}`)
       .onConflictDoNothing();
   if (!both) await tombstone(db.global, sql`1`);
-  const target = both ?? db;
-  const results = await target.batch([
-    streamEvent(target, input.actor, row.id, "audit_stream.removed", {
+  const results = await w.batch([
+    streamEvent(w, input.actor, row.id, "audit_stream.removed", {
       detail: { host: row.host },
       now: input.now,
       condition: mine,
     }),
-    ...(both ? [tombstone(both, mine)] : []),
-    closeJobs(target, "audit_stream", row.id, mine),
-    target
+    ...(both ? [tombstone(w, mine)] : []),
+    closeJobs(w, "audit_stream", row.id, mine),
+    w
       .delete(s)
-      .where(and(eq(s.id, row.id), eq(s.ownerId, input.actor.ownerId)))
+      .where(and(eq(s.id, row.id), eq(s.ownerId, input.actor.ownerId), holds))
       .returning({ id: s.id }),
   ] as unknown as Batch);
   const deleted = results.at(-1) as { id: string }[];
-  return deleted.length === 1 ? ok({ streamId: row.id }) : missing();
+  if (deleted.length === 1) return ok({ streamId: row.id });
+  const again = await stillManages(db, input.actor);
+  return again.ok ? missing() : again;
 }
 
 /**
@@ -567,11 +626,18 @@ export async function sendAuditStreamTest(
   if (!gate.ok) return gate;
   const limited = await ownerLimit(db, "test", input.actor.ownerId, input.now);
   if (!limited.ok) return limited;
-  const mine = sql`exists (select 1 from ${s} where ${s.id} = ${row.id})`;
-  await db.batch([
-    db.update(s).set({ testRequestedAt: input.now }).where(eq(s.id, row.id)),
+  const still = await stillManages(db, input.actor);
+  if (!still.ok) return still;
+  const { w, holds } = writeScope(db, input.actor);
+  const mine = sql`exists (select 1 from ${s} where ${s.id} = ${row.id}) and ${holds}`;
+  const [asked] = await w.batch([
+    w
+      .update(s)
+      .set({ testRequestedAt: input.now })
+      .where(and(eq(s.id, row.id), holds))
+      .returning({ id: s.id }),
     // A job waiting for its backoff runs now: it sends the test and goes back to waiting.
-    db
+    w
       .update(o)
       .set({ availableAt: input.now, dispatchedAt: null })
       .where(
@@ -579,11 +645,14 @@ export async function sendAuditStreamTest(
           eq(o.topic, "audit_stream"),
           eq(o.subject, row.id),
           sql`${o.availableAt} > ${input.now}`,
+          mine,
         ),
       ),
-    ensureJob(db, row.id, mine, input.now),
+    ensureJob(w, row.id, mine, input.now),
   ]);
-  return ok({ streamId: row.id });
+  if (asked.length === 1) return ok({ streamId: row.id });
+  const again = await stillManages(db, input.actor);
+  return again.ok ? missing() : again;
 }
 
 /** The stream's requests of the last `logDays` days, newest first. Never gated. */
@@ -629,6 +698,11 @@ export interface AuditStreamDeps {
   paused?: boolean | undefined;
   /** Defaults to `AUDIT_STREAM.timeoutMs`. */
   timeoutMs?: number | undefined;
+  /**
+   * How long after the database recorded an event it is sent; `AUDIT_STREAM.settleMs` by
+   * default. Tests cannot move the database's clock, so they set it to 0.
+   */
+  settleMs?: number | undefined;
   /** Tests make batches small; the Worker uses `AUDIT_STREAM`. */
   bounds?: { events: number; bytes: number; batchesPerRun: number } | undefined;
 }
@@ -670,9 +744,18 @@ function reschedule(db: Db, rowId: number, at: number) {
     .where(eq(o.id, rowId));
 }
 
-/** The system's pause of a stream, with its audit event, only while the stream is active. */
-function autoPause(db: RegionalDb, stream: StreamRow, reason: AuditStreamAutoPause, now: number) {
-  const active = and(eq(s.id, stream.id), eq(s.state, "active")) as SQL;
+/**
+ * The system's pause of a stream, with its audit event, only while the stream is active (and on
+ * `extra`); it bumps the revision, so a run in flight stops moving the stream.
+ */
+function autoPause(
+  db: RegionalDb,
+  stream: StreamRow,
+  reason: AuditStreamAutoPause,
+  now: number,
+  extra: SQL = sql`1`,
+) {
+  const active = sql`${s.id} = ${stream.id} and ${s.state} = 'active' and ${extra}`;
   return [
     auditEvent(
       db,
@@ -692,8 +775,10 @@ function autoPause(db: RegionalDb, stream: StreamRow, reason: AuditStreamAutoPau
         state: reason === "plan" ? "paused" : "attention",
         pausedReason: reason,
         pausedAt: now,
+        revision: sql`${s.revision} + 1`,
       })
-      .where(active),
+      .where(active)
+      .returning({ id: s.id }),
   ] as const;
 }
 
@@ -702,6 +787,10 @@ function positionOf(stream: StreamRow, source: AuditStreamSource): StreamPositio
   return source === "regional"
     ? { at: stream.regionalAt, id: stream.regionalId }
     : { at: stream.globalAt, id: stream.globalId };
+}
+
+function gapToOf(stream: StreamRow, source: AuditStreamSource): number | null {
+  return source === "regional" ? stream.regionalGapTo : stream.globalGapTo;
 }
 
 /** Where the stream still stands at `position` in `source`: the guard of every position write. */
@@ -716,6 +805,10 @@ function setPosition(source: AuditStreamSource, position: StreamPosition) {
   return source === "regional"
     ? { regionalAt: position.at, regionalId: position.id }
     : { globalAt: position.at, globalId: position.id };
+}
+
+function setGapTo(source: AuditStreamSource, to: number) {
+  return source === "regional" ? { regionalGapTo: to } : { globalGapTo: to };
 }
 
 /**
@@ -736,7 +829,9 @@ export async function deliverAuditStream(
   if (row.availableAt > now) return "kept";
   const stream = found.stream;
   const testing = stream.testRequestedAt !== null;
-  if (!deps.enabled) return "stale";
+  // Switched off, or no key to open anything with: the job ends; the scan gives the stream a job
+  // again once the switch and the key are back.
+  if (!deps.enabled || deps.keys.length === 0) return "stale";
   if (stream.state !== "active" && !testing) return "stale";
   if (!canStream(entitlements(found.plan, now))) {
     // A lapsed plan pauses the stream and keeps everything; resuming continues from the position.
@@ -769,10 +864,9 @@ export async function deliverAuditStream(
   try {
     url = await open(deps.keys, stream.keyId, stream.id, "url", stream.urlBox);
     secrets.push(await open(deps.keys, stream.keyId, stream.id, "secret", stream.secretBox));
-    if (stream.previousSecretBox !== null && (stream.previousUntil ?? 0) > now) {
-      secrets.push(
-        await open(deps.keys, stream.keyId, stream.id, "secret", stream.previousSecretBox),
-      );
+    if ((stream.previousUntil ?? 0) > now) {
+      const previous = await openedPrevious(deps.keys, stream);
+      if (previous !== null) secrets.push(previous);
     }
   } catch (error) {
     if (!(error instanceof WebhookKeyUnavailableError)) throw error;
@@ -812,12 +906,12 @@ export async function deliverAuditStream(
   return deliverBatches(db, row, stream, found.plan, now, deps, send);
 }
 
+type StreamVerdictLike = ReturnType<typeof classifyStreamAttempt>;
 type Send = (
   body: string,
   key: string,
   source: AuditStreamSource | null,
 ) => Promise<StreamVerdictLike>;
-type StreamVerdictLike = ReturnType<typeof classifyStreamAttempt>;
 
 /** The platform stops a stream that can never send as it is: attention, with its audit event. */
 async function stop(
@@ -839,13 +933,28 @@ async function stop(
   ]);
 }
 
+/**
+ * One row of the stream's log, only while the stream exists: a stream removed during a run takes
+ * its log with it, and its run's last write must not fail on the foreign key.
+ */
 function logAttempt(
   db: Db,
   stream: StreamRow,
   now: number,
-  entry: Omit<typeof sd.$inferInsert, "streamId" | "ownerId" | "at">,
+  entry: {
+    outcome: "delivered" | "failed" | "skipped" | "test";
+    source: AuditStreamSource | null;
+    events: number;
+    statusClass: string | null;
+    error: string | null;
+  },
 ) {
-  return db.insert(sd).values({ streamId: stream.id, ownerId: stream.ownerId, at: now, ...entry });
+  // Columns in schema order: id, stream, owner, at, outcome, source, events, class, error.
+  return db
+    .insert(sd)
+    .select(
+      sql`select null, ${stream.id}, ${stream.ownerId}, ${now}, ${entry.outcome}, ${entry.source}, ${entry.events}, ${entry.statusClass}, ${entry.error} where exists (select 1 from ${s} where ${s.id} = ${stream.id})`,
+    );
 }
 
 /**
@@ -891,12 +1000,12 @@ async function post(
   };
   if (input.source !== null) headers[AUDIT_STREAM_SOURCE_HEADER] = input.source;
   const signal = AbortSignal.timeout(deps.timeoutMs ?? AUDIT_STREAM.timeoutMs);
-  let result: StreamAttemptResult;
   // The timeout holds even against a network that ignores the signal.
   const aborted = new Promise<never>((_, reject) => {
     signal.addEventListener("abort", () => reject(signal.reason), { once: true });
   });
   aborted.catch(() => {});
+  let result: StreamAttemptResult;
   try {
     const response = await Promise.race([
       deps.fetch(url, {
@@ -923,33 +1032,35 @@ async function post(
 }
 
 /**
- * The next batch of one database: its gap line if the position fell behind retention, then the
- * settled events after the position, presented as the export presents them.
+ * The next batch of one database: its gap line if events recorded since the position may have
+ * been swept, then the settled events after the position in recorded order, presented as the
+ * export presents them.
  */
 async function nextBatch(
   db: RegionalDb,
   stream: StreamRow,
   source: AuditStreamSource,
   position: StreamPosition,
-  cutoff: number,
-  now: number,
+  gapTo: number | null,
+  bound: number,
+  settleMs: number,
   bounds: { events: number; bytes: number },
 ): Promise<{ batch: StreamBatch | null; complete: boolean }> {
-  const read = streamRead(position, cutoff);
   const rows = await streamEventsAfter(source === "global" ? db.global : db, {
     ownerId: stream.ownerId,
     source,
-    after: { at: read.after.at as number, id: read.after.id },
-    before: settledBefore(now),
+    after: position,
+    settleMs,
     limit: bounds.events,
   });
   const events = rows.length === 0 ? [] : await presentAuditEvents(db, stream.ownerId, rows);
   const lines = events.map((event, index) => ({
-    at: (rows[index] as (typeof rows)[number]).at,
+    at: (rows[index] as (typeof rows)[number]).recordedAt,
     id: event.id,
     line: auditJsonLine(event),
   }));
-  const batch = buildStreamBatch({ source, gap: read.gap, lines, bounds });
+  const gap = streamGap(position, gapTo, bound);
+  const batch = buildStreamBatch({ source, gap, lines, bounds });
   // Everything there was fits in this batch: nothing is left behind it in this database.
   return { batch, complete: rows.length < bounds.events && (batch?.events ?? 0) === rows.length };
 }
@@ -968,18 +1079,41 @@ async function deliverBatches(
     bytes: AUDIT_STREAM.bytesPerBatch,
     batchesPerRun: AUDIT_STREAM.batchesPerRun,
   };
-  const cutoff = streamCutoff(entitlements(plan, now).limits.auditRetentionDays, now);
-  const positions = {
-    regional: positionOf(stream, "regional"),
-    global: positionOf(stream, "global"),
-  };
+  const settleMs = deps.settleMs ?? AUDIT_STREAM.settleMs;
+  const retentionDays = entitlements(plan, now).limits.auditRetentionDays;
+  const started = Date.now();
+  const revision = stream.revision;
+  const current = { ...stream };
   const caughtUp = { regional: false, global: false };
   let sent = 0;
   while (sent < bounds.batchesPerRun && !(caughtUp.regional && caughtUp.global)) {
     for (const source of AUDIT_STREAM_SOURCES) {
       if (caughtUp[source] || sent >= bounds.batchesPerRun) continue;
-      const from = positions[source];
-      const { batch, complete } = await nextBatch(db, stream, source, from, cutoff, now, bounds);
+      // The stream as it is now: an admin's change or the platform's pause since the run began
+      // ends the run, and its next run starts from what the stream has become.
+      const [now_] = await db
+        .select({ revision: s.revision, state: s.state })
+        .from(s)
+        .where(eq(s.id, stream.id))
+        .limit(1);
+      if (!now_ || now_.revision !== revision || now_.state !== "active") {
+        await reschedule(db, row.id, now);
+        return "kept";
+      }
+      const from = positionOf(current, source);
+      const gapTo = gapToOf(current, source);
+      // The sweep's own cutoff, taken again for each batch, plus the margin.
+      const bound = streamRiskBound(retentionDays, now + (Date.now() - started));
+      const { batch, complete } = await nextBatch(
+        db,
+        stream,
+        source,
+        from,
+        gapTo,
+        bound,
+        settleMs,
+        bounds,
+      );
       if (!batch) {
         caughtUp[source] = true;
         continue;
@@ -1001,21 +1135,28 @@ async function deliverBatches(
       const verdict = await send(batch.body, key, source);
       sent += 1;
       if (!verdict.delivered) return failed(db, row, stream, source, batch, verdict, now);
-      // The position moves only now, and only from where this run read it.
+      // The position moves only now, only from where this run read it and only while the stream
+      // is still the one the batch went to: a batch sent to a destination the admin just left
+      // never advances the stream, and goes again to the new one.
       const results = await db.batch([
         db
           .update(s)
           .set({
-            ...setPosition(source, batch.through),
+            ...(batch.events > 0 ? setPosition(source, batch.through) : {}),
             failures: 0,
             failingSince: null,
             nextAttemptAt: null,
             ...(batch.gap
-              ? { gapSource: source, gapFrom: batch.gap.from, gapTo: batch.gap.to }
+              ? {
+                  ...setGapTo(source, batch.gap.to),
+                  gapSource: source,
+                  gapFrom: batch.gap.from,
+                  gapTo: batch.gap.to,
+                }
               : {}),
           })
-          .where(and(eq(s.id, stream.id), standsAt(source, from)))
-          .returning({ id: s.id }),
+          .where(and(eq(s.id, stream.id), eq(s.revision, revision), standsAt(source, from)))
+          .returning(),
         logAttempt(db, stream, now, {
           outcome: "delivered",
           source,
@@ -1024,12 +1165,12 @@ async function deliverBatches(
           error: null,
         }),
       ]);
-      // Moved meanwhile (a restore, or an admin's change): the next run reads it again.
-      if ((results[0] as { id: string }[]).length !== 1) {
+      const [moved] = results[0] as StreamRow[];
+      if (!moved) {
         await reschedule(db, row.id, now);
         return "kept";
       }
-      positions[source] = batch.through;
+      Object.assign(current, moved);
       if (complete) caughtUp[source] = true;
     }
   }
@@ -1037,29 +1178,25 @@ async function deliverBatches(
     await reschedule(db, row.id, now);
     return "kept";
   }
-  // Caught up in both: every settled event is delivered, so the positions move to the settled
-  // time (later reads start there, and the dashboard's lag stays true when nothing happens).
-  const settled = settledBefore(now);
-  const moves: BatchItem<"sqlite">[] = [];
-  for (const source of AUDIT_STREAM_SOURCES) {
-    const at = positions[source].at;
-    if (at === null || at < settled) {
-      moves.push(
-        db
-          .update(s)
-          .set(setPosition(source, { at: settled, id: "" }))
-          .where(and(eq(s.id, stream.id), standsAt(source, positions[source]))),
-      );
-    }
-  }
-  await db.batch([...moves, reschedule(db, row.id, now + AUDIT_STREAM.idleMs)] as unknown as Batch);
+  // Caught up in both: every event the database recorded before the settle window is delivered.
+  // Positions stay on the last event (the database's clock moves on its own); the time is kept
+  // for the dashboard's lag.
+  await db.batch([
+    db
+      .update(s)
+      .set({ deliveredThrough: sql`${schema.recordedNow} - ${settleMs}` })
+      .where(and(eq(s.id, stream.id), eq(s.revision, revision))),
+    reschedule(db, row.id, now + AUDIT_STREAM.idleMs),
+  ]);
   return "kept";
 }
 
 /**
- * Records a failed request: the failure count and since when, the next time a request may go
- * (the endpoint's `Retry-After` or the backoff) and, once it has failed for `attentionAfterMs`,
- * the pause with the state `attention` and its audit event. Nothing moves the position.
+ * Records a failed request: the failure count and since when (kept in SQL, so a run never writes
+ * back a time the admin's change just cleared), the next time a request may go (the endpoint's
+ * `Retry-After` or the backoff) and, once it has failed for `attentionAfterMs`, the pause with the
+ * state `attention` and its audit event. Every write holds only while the revision is the run's.
+ * Nothing moves the position.
  */
 async function failed(
   db: RegionalDb,
@@ -1070,10 +1207,14 @@ async function failed(
   verdict: StreamVerdictLike,
   now: number,
 ): Promise<JobOutcome> {
-  const failingSince = stream.failingSince ?? now;
   const next = nextStreamAttemptAt(stream.failures + 1, now, verdict.retryAfterMs);
-  const attention = needsAttention(failingSince, now);
-  await db.batch([
+  const same = sql`${s.revision} = ${stream.revision}`;
+  const attention = needsAttention(stream.failingSince ?? now, now);
+  const failingLong = sql`coalesce(${s.failingSince}, ${now}) <= ${now - AUDIT_STREAM.attentionAfterMs}`;
+  const pause = attention
+    ? autoPause(db, stream, "failures", now, sql`${same} and ${failingLong}`)
+    : null;
+  const results = await db.batch([
     logAttempt(db, stream, now, {
       outcome: "failed",
       source,
@@ -1081,14 +1222,20 @@ async function failed(
       statusClass: verdict.statusClass,
       error: verdict.error,
     }),
-    ...(attention ? autoPause(db, stream, "failures", now) : []),
     db
       .update(s)
-      .set({ failures: sql`${s.failures} + 1`, failingSince, nextAttemptAt: next })
-      .where(eq(s.id, stream.id)),
-    ...(attention ? [] : [reschedule(db, row.id, next)]),
+      .set({
+        failures: sql`${s.failures} + 1`,
+        failingSince: sql`coalesce(${s.failingSince}, ${now})`,
+        nextAttemptAt: next,
+      })
+      .where(and(eq(s.id, stream.id), same)),
+    ...(pause ?? []),
   ] as unknown as Batch);
-  return attention ? "stale" : "kept";
+  const paused = pause !== null && (results.at(-1) as { id: string }[]).length === 1;
+  if (paused) return "stale";
+  await reschedule(db, row.id, next);
+  return "kept";
 }
 
 // Maintenance
@@ -1102,7 +1249,7 @@ export interface AuditStreamMaintenance {
  * The scan of one region (run by the jobs Worker only while streams are switched on): prunes the
  * delivery log past `logDays` (one statement of at most `logPruneBatch` rows) and gives a job to
  * at most `armPerRun` active streams (or streams with a test waiting) that have none, in one
- * statement. Two D1 calls per region and run, whatever the number of owners or streams.
+ * statement. One D1 call per region and run, whatever the number of owners or streams.
  */
 export async function maintainAuditStreams(
   db: RegionalDb,
@@ -1136,8 +1283,8 @@ export async function maintainAuditStreams(
 
 /**
  * Re-seals streams sealed with an older key (`WEBHOOK_KEY_PREVIOUS`) with the current one, up to
- * `limit` a run, as `rewrapWebhookKeys` does for webhooks. Returns how many it re-sealed and how
- * many still use another key.
+ * `limit` a run, as `rewrapWebhookKeys` does for webhooks, bumping each stream's revision. Without
+ * a previous key there is nothing to re-seal and it reads nothing.
  */
 export async function rewrapAuditStreamKeys(
   db: RegionalDb,
@@ -1145,7 +1292,7 @@ export async function rewrapAuditStreamKeys(
   limit = 100,
 ): Promise<{ rewrapped: number; left: number }> {
   const [current] = keys;
-  if (!current) return { rewrapped: 0, left: 0 };
+  if (!current || keys.length < 2) return { rewrapped: 0, left: 0 };
   const known = keys.map((key) => key.id);
   const rows = await db
     .select()
@@ -1154,7 +1301,7 @@ export async function rewrapAuditStreamKeys(
     .limit(limit);
   let rewrapped = 0;
   for (const row of rows) {
-    const reseal = (purpose: "url" | "secret", box: string) =>
+    const reseal = (box: string, purpose: "url" | "secret") =>
       open(keys, row.keyId, row.id, purpose, box).then((plain) =>
         seal(current, row.id, purpose, plain),
       );
@@ -1162,12 +1309,13 @@ export async function rewrapAuditStreamKeys(
       .update(s)
       .set({
         keyId: current.id,
-        urlBox: await reseal("url", row.urlBox),
-        secretBox: await reseal("secret", row.secretBox),
+        urlBox: await reseal(row.urlBox, "url"),
+        secretBox: await reseal(row.secretBox, "secret"),
         previousSecretBox:
-          row.previousSecretBox === null ? null : await reseal("secret", row.previousSecretBox),
+          row.previousSecretBox === null ? null : await reseal(row.previousSecretBox, "secret"),
+        revision: sql`${s.revision} + 1`,
       })
-      .where(and(eq(s.id, row.id), eq(s.keyId, row.keyId)))
+      .where(and(eq(s.id, row.id), eq(s.keyId, row.keyId), eq(s.revision, row.revision)))
       .returning({ id: s.id });
     rewrapped += updated.length;
   }

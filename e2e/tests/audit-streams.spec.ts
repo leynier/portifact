@@ -72,7 +72,7 @@ test("an owner streams the audit log to a collector and gets every event, signed
   await list.getByRole("button", { name: "Resume the stream Collector" }).click();
   await expect(list.getByRole("button", { name: "Pause the stream Collector" })).toBeVisible();
 
-  // The jobs Worker runs once the events are older than the settle window.
+  // The jobs Worker runs later (its own clock); the e2e control runs it without a settle window.
   const [stream] = await sql<{ id: string }>("SELECT id FROM audit_streams WHERE owner_id = ?", [
     owner.userId,
   ]);

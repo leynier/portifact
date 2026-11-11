@@ -347,6 +347,8 @@ export const AUDIT_DETAILS = {
     label: z.literal(true).optional(),
     url: z.literal(true).optional(),
     secret: z.literal(true).optional(),
+    /** The old secret was revoked at once (an emergency rotation). */
+    revoked: z.literal(true).optional(),
     state: z.enum(["active", "paused"]).optional(),
   }),
   "audit_stream.removed": z.strictObject({ host: DnsName }),

@@ -2503,9 +2503,9 @@ export const en = {
   "audit.stream.lastAttempt": "Last request {when}: {outcome}",
   "audit.stream.noAttempts": "No request yet",
   "audit.stream.testPending": "A test is waiting to be sent.",
-  "audit.stream.gapTitle": "Some events never reached this endpoint",
+  "audit.stream.gapTitle": "Some events may never reach this endpoint",
   "audit.stream.gap":
-    "Events from {from} to {to} were past the log's retention before this endpoint received them, so they were not sent. The endpoint got a gap record saying so.",
+    "Events recorded between {from} and {to} were or will be deleted by the log's retention before this endpoint received them; whatever was still kept was sent. The endpoint got a gap record saying so.",
   "audit.stream.test": "Send test",
   "audit.stream.testLabel": "Send test to {label}",
   "audit.stream.testQueued": "Test queued for {label}",
@@ -2545,6 +2545,13 @@ export const en = {
   "audit.stream.error.invalid_url": "URL no longer accepted",
   "audit.stream.error.key_unavailable": "cannot be opened",
   "audit.stream.error.daily_cap": "daily limit reached",
+  "audit.stream.revokeNow": "Replace now",
+  "audit.stream.revokeNowLabel": "Replace now the secret of {label}",
+  "audit.stream.revokeConfirm.title": "Replace the secret of {label} now?",
+  "audit.stream.revokeConfirm.body":
+    "The old secret stops signing at once. Until your endpoint has the new one it refuses Portifact's requests; nothing is lost, they are sent again once it accepts them. Use this when the old secret leaked.",
+  "audit.stream.revokedNow": "New secret for {label}; the old one no longer signs",
+  "audit.stream.revokeNow.body": "The old secret no longer signs. Give your endpoint this one now.",
 } as const;
 
 export type MessageId = keyof typeof en;

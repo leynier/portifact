@@ -3,7 +3,12 @@
 // the region guard is strict (REGION_GUARD), so a statement that reaches the wrong database fails
 // the test instead of working by accident.
 import { env } from "cloudflare:test";
-import { type AnnotationTarget, DEFAULT_POLICY, type JobMessage } from "@portifact/contracts";
+import {
+  type AnnotationTarget,
+  type AuditEventView,
+  DEFAULT_POLICY,
+  type JobMessage,
+} from "@portifact/contracts";
 import { accessSchema, aliasBinding, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { entitlements, personalActor } from "@portifact/domain";
 import { eq } from "drizzle-orm";
@@ -912,6 +917,23 @@ describe("an EU workspace's plan, scans and paid features", () => {
       }),
     );
     const actor = await euActor(admin.id, ws.id);
+    // A global kind that names the EU artifact (a custom domain, decision 0006): the stream must
+    // show its name exactly as the reader does, from the EU database.
+    const domainEvent = `ae_${crypto.randomUUID().replaceAll("-", "").slice(0, 24)}`;
+    await regions()
+      .global.insert(schema.auditEvents)
+      .values({
+        id: domainEvent,
+        ownerId: ws.id,
+        at: NOW + 1,
+        kind: "domain.attached",
+        actorType: "user",
+        actorId: admin.id,
+        targetId: artifactId,
+        artifactId,
+        detail: { hostname: "docs.example.com" },
+        recordedAt: NOW + 1,
+      });
     const keys = await webhookKeys({ current: "test-only audit stream key, long enough to use" });
     const listed = value(
       await listAuditStreams(eu().db, { actor, service: { enabled: true }, now: NOW }),
@@ -933,10 +955,12 @@ describe("an EU workspace's plan, scans and paid features", () => {
       .from(schema.auditStreams)
       .where(eq(schema.auditStreams.id, created.stream.id));
     expect(inHome).toEqual([]);
-    const sent: { source: string; kinds: string[] }[] = [];
+    const sent: { source: string; kinds: string[]; lines: AuditEventView[] }[] = [];
     const deps: AuditStreamDeps = {
       keys,
       enabled: true,
+      // Every event here was just recorded; the database's clock cannot be moved in a test.
+      settleMs: 0,
       fetch: async (_url, init) => {
         const headers = new Headers(init.headers);
         sent.push({
@@ -945,6 +969,10 @@ describe("an EU workspace's plan, scans and paid features", () => {
             .split("\n")
             .filter(Boolean)
             .map((line) => (JSON.parse(line) as { kind: string }).kind),
+          lines: String(init.body)
+            .split("\n")
+            .filter(Boolean)
+            .map((line) => JSON.parse(line) as AuditEventView),
         });
         return new Response("ok");
       },
@@ -965,6 +993,12 @@ describe("an EU workspace's plan, scans and paid features", () => {
     expect(regional?.kinds).toContain("access.changed");
     expect(regional?.kinds).not.toContain("member.joined");
     expect(globalBatch?.kinds).toContain("member.joined");
+    const streamed = globalBatch?.lines.find((line) => line.id === domainEvent);
+    expect(streamed?.artifact).toEqual({ id: artifactId, name: expect.any(String) });
+    const read = value(
+      await getAuditLog(eu().db, { actor, filters: {}, limit: 100, now: NOW + DAY }),
+    ).events.find((event) => event.id === domainEvent);
+    expect(streamed).toEqual(read);
     const [row] = await eu()
       .db.select()
       .from(schema.auditStreams)

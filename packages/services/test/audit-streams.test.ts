@@ -6,17 +6,24 @@
 // request anywhere.
 import { env } from "cloudflare:test";
 import {
+  AUDIT_RETENTION_DAYS,
   AUDIT_STREAM,
   type AuditKind,
   type JobMessage,
   planRequiredMessage,
 } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
-import { type Actor, auditJsonLine, personalActor, utcDayStart } from "@portifact/domain";
-import { and, eq } from "drizzle-orm";
+import {
+  type Actor,
+  auditJsonLine,
+  auditPruneCutoff,
+  personalActor,
+  utcDayStart,
+} from "@portifact/domain";
+import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { exportAccount, requestAccountDeletion } from "../src/account-data.ts";
-import { presentAuditEvents } from "../src/audit.ts";
+import { presentAuditEvents, pruneAuditEvents } from "../src/audit.ts";
 import {
   type AuditStreamDeps,
   createAuditStream,
@@ -41,6 +48,7 @@ import {
   resolveOwnerScope,
 } from "../src/workspaces.ts";
 import { DAY, db, grantPlan, MINUTE, NOW, session, user, value } from "./fixtures.ts";
+import { raceBeforeFirstWrite } from "./race.ts";
 
 const KEY_TEXT = "test-only audit stream sealing key, long enough";
 const OTHER_KEY_TEXT = "another test-only sealing key for the stream rotation";
@@ -82,7 +90,9 @@ async function deps(
   fetch: AuditStreamDeps["fetch"],
   extra: Partial<AuditStreamDeps> = {},
 ): Promise<AuditStreamDeps> {
-  return { keys: await keys(), fetch, enabled: true, ...extra };
+  // The database's clock cannot be moved, so the settle window is off here and rows that must
+  // look recorded in the past say so in `recorded_at` (the test clock, NOW, is in the past).
+  return { keys: await keys(), fetch, enabled: true, settleMs: 0, ...extra };
 }
 
 async function enterprise(name = "Ada") {
@@ -111,8 +121,16 @@ async function addStream(
 }
 
 let sequence = 0;
-/** An audit event written directly, in its home database, at `at`. */
-async function event(ownerId: string, at: number, kind: AuditKind = "artifact.archived") {
+/**
+ * An audit event written directly, in its home database, at `at`, recorded at `recorded` (at the
+ * same time by default; `"now"` is the database's clock, as every real writer records it).
+ */
+async function event(
+  ownerId: string,
+  at: number,
+  kind: AuditKind = "artifact.archived",
+  recorded: number | "now" = at,
+) {
   sequence += 1;
   const id = `ae_${String(sequence).padStart(4, "0")}${crypto.randomUUID().replaceAll("-", "").slice(0, 20)}`;
   const isGlobal = kind === "plan.granted";
@@ -126,6 +144,7 @@ async function event(ownerId: string, at: number, kind: AuditKind = "artifact.ar
     targetId: isGlobal ? ownerId : null,
     artifactId: null,
     detail: isGlobal ? { plan: "enterprise", seats: 1 } : {},
+    recordedAt: recorded === "now" ? sql`${schema.recordedNow}` : recorded,
   });
   return id;
 }
@@ -174,6 +193,10 @@ async function verifies(secret: string, request: Sent): Promise<boolean> {
   const expected = `v1,${btoa(String.fromCharCode(...new Uint8Array(mac)))}`;
   return (request.headers["webhook-signature"] ?? "").split(" ").includes(expected);
 }
+
+/** The lines of a body, without the stream's own `audit_stream.*` events. */
+const fixtures = (body: string) =>
+  lines(body).filter((line) => !String(line.kind ?? "").startsWith("audit_stream."));
 
 const lines = (body: string) =>
   body
@@ -461,7 +484,7 @@ describe("managing streams", () => {
     expect(await verifies(rotated.secret as string, request)).toBe(true);
     expect(await verifies(created.secret, request)).toBe(true);
     // A day later only the new one signs.
-    await event(owner.id, NOW + DAY - HOUR);
+    await event(owner.id, NOW + DAY - HOUR, "artifact.archived", "now");
     const later = collector();
     await run(created.stream.id, NOW + DAY + HOUR, await deps(later.fetch));
     const [next] = later.sent;
@@ -501,22 +524,31 @@ describe("delivering", () => {
       .from(schema.auditEvents)
       .where(eq(schema.auditEvents.ownerId, owner.id))
       .orderBy(schema.auditEvents.at);
-    const presented = await presentAuditEvents(
-      db(),
-      owner.id,
-      rows.filter((row) => regional.includes(row.id)),
-    );
+    // The regional rows in recorded order: the fixtures, then the stream's own creation.
+    const regionalRows = rows
+      .filter((row) => row.kind !== "plan.granted")
+      .sort((x, y) => x.recordedAt - y.recordedAt || (x.id < y.id ? -1 : 1));
+    const presented = await presentAuditEvents(db(), owner.id, regionalRows);
     expect(first.body).toBe(presented.map(auditJsonLine).join(""));
-    expect(lines(first.body).map((line) => line.id)).toEqual(regional);
+    expect(fixtures(first.body).map((line) => line.id)).toEqual(regional);
+    expect(lines(first.body).at(-1)?.kind).toBe("audit_stream.created");
+    // The recorded time orders and positions the stream; it is never sent.
+    expect(first.body).not.toContain("recorded");
     expect(second.headers["portifact-audit-source"]).toBe("global");
     expect(lines(second.body).map((line) => line.id)).toEqual(globalIds);
     // Nothing but the presented view: no URL, secret or address.
     expect(first.body).not.toContain("@example.test");
     const row = await stream(created.stream.id);
-    expect(row).toMatchObject({ regionalId: "", globalId: "" });
-    // Caught up: both positions moved to the settled time, and the job waits `idleMs`.
-    expect(row?.regionalAt).toBe(NOW - AUDIT_STREAM.settleMs);
-    expect(row?.globalAt).toBe(NOW - AUDIT_STREAM.settleMs);
+    // Each position is the last event delivered from its database, by recorded time.
+    const lastRegional = regionalRows.at(-1);
+    expect(row).toMatchObject({
+      regionalAt: lastRegional?.recordedAt,
+      regionalId: lastRegional?.id,
+      globalAt: NOW - 150 * MINUTE,
+      globalId: globalIds[0],
+    });
+    // Caught up: the time for the lag comes from the database's clock.
+    expect(row?.deliveredThrough).not.toBeNull();
     expect((await jobOf(created.stream.id))?.availableAt).toBe(NOW + AUDIT_STREAM.idleMs);
     // Delivering recorded no audit event.
     expect((await kindsOf(owner.id)).filter((kind) => kind.startsWith("audit_stream."))).toEqual([
@@ -528,19 +560,53 @@ describe("delivering", () => {
     expect(again.sent).toEqual([]);
   });
 
-  it("waits for an event to settle, and starts from now unless asked for the oldest", async () => {
+  it("waits for an event to settle by the database's clock, and starts from now unless asked for the oldest", async () => {
     const owner = await enterprise();
     await event(owner.id, NOW - DAY);
     const created = await addStream(owner.actor, { start: "now" });
-    const fresh = await event(owner.id, NOW + MINUTE);
+    const fresh = await event(owner.id, NOW + MINUTE, "artifact.archived", "now");
     const net = collector();
-    await run(created.stream.id, NOW + 10 * MINUTE, await deps(net.fetch));
+    // A minute's window: just recorded, nothing is sent yet, whatever the run's own clock says.
+    await run(created.stream.id, NOW + DAY, await deps(net.fetch, { settleMs: 60_000 }));
     expect(net.sent).toEqual([]);
-    await run(created.stream.id, NOW + 30 * MINUTE, await deps(net.fetch));
+    // Recorded two minutes ago by the database: settled. (The stream's start moves back with
+    // them, so they stay after it.)
+    await db()
+      .update(schema.auditEvents)
+      .set({ recordedAt: sql`${schema.recordedNow} - 120000` })
+      .where(eq(schema.auditEvents.ownerId, owner.id));
+    await db()
+      .update(schema.auditStreams)
+      .set({ regionalAt: sql`${schema.auditStreams.regionalAt} - 300000` })
+      .where(eq(schema.auditStreams.id, created.stream.id));
+    await db()
+      .update(schema.auditEvents)
+      .set({ recordedAt: NOW - DAY })
+      .where(and(eq(schema.auditEvents.ownerId, owner.id), eq(schema.auditEvents.at, NOW - DAY)));
+    await run(
+      created.stream.id,
+      NOW + DAY + AUDIT_STREAM.idleMs,
+      await deps(net.fetch, { settleMs: 60_000 }),
+    );
     const sent = net.sent.flatMap((r) => lines(r.body));
-    // The stream's own creation is part of the log; the event from before it is not sent.
+    // The event from before the stream is not sent.
     expect(sent.map((line) => line.id)).toContain(fresh);
-    expect(sent.map((line) => line.kind)).toEqual(["audit_stream.created", "artifact.archived"]);
+    expect(sent.map((line) => line.kind).sort()).toEqual([
+      "artifact.archived",
+      "audit_stream.created",
+    ]);
+  });
+
+  it("sends an event whose time is old but that the database recorded after the position (R2)", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor, { start: "now", now: NOW - 2 * HOUR });
+    const net = collector();
+    await run(created.stream.id, NOW, await deps(net.fetch));
+    // A writer that took its `now` 25 minutes ago (the operator's loop) commits only now.
+    const late = await event(owner.id, NOW - 25 * MINUTE, "artifact.archived", "now");
+    await run(created.stream.id, NOW + AUDIT_STREAM.idleMs, await deps(net.fetch));
+    const ids = net.sent.flatMap((r) => lines(r.body).map((l) => l.id));
+    expect(ids).toContain(late);
   });
 
   it("sends in batches of at most `events`, oldest first, across runs", async () => {
@@ -555,7 +621,7 @@ describe("delivering", () => {
     expect(net.sent).toHaveLength(4);
     expect((await jobOf(created.stream.id))?.availableAt).toBe(NOW);
     await run(created.stream.id, NOW, bounded);
-    const got = net.sent.flatMap((r) => lines(r.body).map((l) => l.id as string));
+    const got = net.sent.flatMap((r) => fixtures(r.body).map((l) => l.id as string));
     expect(got).toEqual(ids);
     expect(net.sent.every((r) => lines(r.body).length <= 3)).toBe(true);
   });
@@ -612,7 +678,8 @@ describe("delivering", () => {
           now: NOW,
         }),
       );
-      expect(attempt).toMatchObject({ outcome: "failed", statusClass: cls, error, events: 1 });
+      // The fixture and the stream's own creation event.
+      expect(attempt).toMatchObject({ outcome: "failed", statusClass: cls, error, events: 2 });
       expect(JSON.stringify(attempt)).not.toContain("slow down");
       expect((await stream(created.stream.id))?.nextAttemptAt).toBe(NOW + delay);
       expect((await jobOf(created.stream.id))?.availableAt).toBe(NOW + delay);
@@ -687,15 +754,16 @@ describe("delivering", () => {
     expect(net.sent).toHaveLength(1);
   });
 
-  it("reports a gap when retention passed the position, and the dashboard shows it", async () => {
+  it("reports a gap up to the sweep's cutoff plus the margin, and still sends what is kept", async () => {
     const owner = await enterprise();
     const created = await addStream(owner.actor);
     await db()
       .update(schema.auditStreams)
       .set({ regionalAt: NOW - 200 * DAY })
       .where(eq(schema.auditStreams.id, created.stream.id));
-    // Still in the table (the sweep has not run) but past retention: never sent.
-    await event(owner.id, NOW - 150 * DAY);
+    // Past retention but not swept yet: it may go any minute, and it is still sent while it is
+    // there, after the gap line that says such events may be missing.
+    const old = await event(owner.id, NOW - 150 * DAY);
     const kept = await event(owner.id, NOW - DAY);
     const net = collector();
     await run(created.stream.id, NOW, await deps(net.fetch));
@@ -707,12 +775,142 @@ describe("delivering", () => {
       from: new Date(NOW - 200 * DAY).toISOString(),
       reason: "retention",
     });
-    expect(Date.parse(gap?.to as string)).toBeLessThanOrEqual(NOW - 90 * DAY);
-    expect(events.map((line) => line.id)).toEqual([kept]);
+    const bound = auditPruneCutoff(AUDIT_RETENTION_DAYS, NOW) + AUDIT_STREAM.gapMarginMs;
+    expect(Date.parse(gap?.to as string) - bound).toBeGreaterThanOrEqual(0);
+    expect(Date.parse(gap?.to as string) - bound).toBeLessThan(MINUTE);
+    expect(events.filter((line) => line.kind === "artifact.archived").map((l) => l.id)).toEqual([
+      old,
+      kept,
+    ]);
     const listed = value(
       await listAuditStreams(db(), { actor: owner.actor, service: ON, now: NOW }),
     );
     expect(listed.streams[0]?.lastGap).toMatchObject({ source: "regional" });
+    // Reported once: the next run, a minute later, says nothing more.
+    await db()
+      .update(schema.outbox)
+      .set({ availableAt: NOW, payload: {} })
+      .where(eq(schema.outbox.subject, created.stream.id));
+    await event(owner.id, NOW - HOUR, "artifact.archived", "now");
+    const next = collector();
+    await run(created.stream.id, NOW + MINUTE, await deps(next.fetch));
+    expect(next.sent.flatMap((r) => lines(r.body)).some((l) => l.record === "gap")).toBe(false);
+  });
+
+  it("reports what the sweep deleted after a position the hour-rounded cutoff called safe (R1)", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor);
+    const R = AUDIT_RETENTION_DAYS * DAY;
+    const position = NOW - R + 10 * MINUTE;
+    await db()
+      .update(schema.auditStreams)
+      .set({ regionalAt: position, regionalId: "" })
+      .where(eq(schema.auditStreams.id, created.stream.id));
+    const lost = await event(owner.id, NOW - R + 20 * MINUTE);
+    const kept = await event(owner.id, NOW - 2 * HOUR);
+    // The sweep at 12:25 deletes everything older than 12:25 minus retention.
+    await pruneAuditEvents(db(), global(), NOW + 25 * MINUTE);
+    expect(
+      await db().select().from(schema.auditEvents).where(eq(schema.auditEvents.id, lost)),
+    ).toEqual([]);
+    const net = collector();
+    await run(created.stream.id, NOW + 30 * MINUTE, await deps(net.fetch));
+    const all = net.sent.flatMap((r) => lines(r.body));
+    expect(all.map((l) => l.id)).toContain(kept);
+    const gap = all.find((l) => l.record === "gap");
+    expect(gap).toBeDefined();
+    expect(Date.parse(gap?.from as string)).toBeLessThanOrEqual(NOW - R + 20 * MINUTE);
+    expect(Date.parse(gap?.to as string)).toBeGreaterThan(NOW - R + 20 * MINUTE);
+  });
+
+  it("covers an event the sweep deletes between two batches of one run", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor);
+    const R = AUDIT_RETENTION_DAYS * DAY;
+    await db()
+      .update(schema.auditStreams)
+      .set({ regionalAt: NOW - R + 30 * MINUTE, regionalId: "" })
+      .where(eq(schema.auditStreams.id, created.stream.id));
+    const first = await event(owner.id, NOW - R + 40 * MINUTE);
+    const swept = await event(owner.id, NOW - R + 50 * MINUTE);
+    const later = await event(owner.id, NOW - 2 * HOUR);
+    let pruned = false;
+    const sent: Sent[] = [];
+    const fetch = async (url: string, init: RequestInit) => {
+      sent.push({ url, body: String(init.body), headers: {} });
+      if (!pruned) {
+        pruned = true;
+        await pruneAuditEvents(db(), global(), NOW + HOUR);
+      }
+      return new Response("ok");
+    };
+    await run(
+      created.stream.id,
+      NOW,
+      await deps(fetch, { bounds: { events: 1, bytes: 64 * 1024, batchesPerRun: 4 } }),
+    );
+    const all = sent.flatMap((r) => lines(r.body));
+    const ids = all.map((l) => l.id);
+    expect(ids).toContain(first);
+    expect(ids).toContain(later);
+    expect(ids).not.toContain(swept);
+    // The gap reported before the sweep already covers the event it deleted.
+    const gaps = all.filter((l) => l.record === "gap");
+    expect(
+      gaps.some(
+        (g) =>
+          Date.parse(g.from as string) <= NOW - R + 50 * MINUTE &&
+          Date.parse(g.to as string) > NOW - R + 50 * MINUTE,
+      ),
+    ).toBe(true);
+  });
+
+  it("reports a gap when the operator lowers retention below the position", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor);
+    await db()
+      .update(schema.auditStreams)
+      .set({ regionalAt: NOW - 70 * DAY, regionalId: "" })
+      .where(eq(schema.auditStreams.id, created.stream.id));
+    const gone = await event(owner.id, NOW - 60 * DAY);
+    await grantPlan(owner.id, "enterprise", {
+      overrides: { limits: { auditRetentionDays: 30 } },
+    });
+    await pruneAuditEvents(db(), global(), NOW);
+    expect(
+      await db().select().from(schema.auditEvents).where(eq(schema.auditEvents.id, gone)),
+    ).toEqual([]);
+    const net = collector();
+    await run(created.stream.id, NOW, await deps(net.fetch));
+    const gap = net.sent.flatMap((r) => lines(r.body)).find((l) => l.record === "gap");
+    expect(gap).toMatchObject({ source: "regional", from: new Date(NOW - 70 * DAY).toISOString() });
+    // The bound is taken again for each batch, so it moves on with the run's elapsed time.
+    expect(
+      Date.parse(gap?.to as string) - (auditPruneCutoff(30, NOW) + AUDIT_STREAM.gapMarginMs),
+    ).toBeGreaterThanOrEqual(0);
+    expect(
+      Date.parse(gap?.to as string) - (auditPruneCutoff(30, NOW) + AUDIT_STREAM.gapMarginMs),
+    ).toBeLessThan(MINUTE);
+  });
+
+  it("keeps a gap per database: the global one is reported on its own source", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor, { start: "now" });
+    await db()
+      .update(schema.auditStreams)
+      .set({ globalAt: NOW - 200 * DAY, globalId: "" })
+      .where(eq(schema.auditStreams.id, created.stream.id));
+    const granted = await event(owner.id, NOW - DAY, "plan.granted");
+    const net = collector();
+    await run(created.stream.id, NOW, await deps(net.fetch));
+    const globalBody = net.sent.find((r) => r.headers["portifact-audit-source"] === "global");
+    const [gap, ...rest] = lines(globalBody?.body ?? "");
+    expect(gap).toMatchObject({ record: "gap", source: "global" });
+    expect(rest.map((l) => l.id)).toEqual([granted]);
+    const regionalBody = net.sent.find((r) => r.headers["portifact-audit-source"] === "regional");
+    expect(lines(regionalBody?.body ?? "").some((l) => l.record === "gap")).toBe(false);
+    expect((await stream(created.stream.id))?.regionalGapTo).toBeNull();
+    expect((await stream(created.stream.id))?.globalGapTo).not.toBeNull();
   });
 
   it("pauses on a lapsed plan with an event, keeps the position, and resumes from it", async () => {
@@ -878,6 +1076,306 @@ describe("delivering", () => {
   });
 });
 
+describe("changes while a run is in flight", () => {
+  it("delivers everything to the new endpoint when the admin changes the URL mid-request (R3)", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor);
+    const ids = [await event(owner.id, NOW - 3 * HOUR), await event(owner.id, NOW - 2 * HOUR)];
+    const sent: { url: string; body: string }[] = [];
+    let changed = false;
+    const fetch = async (url: string, init: RequestInit) => {
+      sent.push({ url, body: String(init.body) });
+      if (!changed) {
+        changed = true;
+        value(
+          await updateAuditStream(db(), {
+            actor: owner.actor,
+            streamId: created.stream.id,
+            update: { url: "https://new-siem.example.com/in" },
+            keys: await keys(),
+            service: ON,
+            now: NOW,
+          }),
+        );
+      }
+      return new Response("ok");
+    };
+    await run(created.stream.id, NOW, await deps(fetch));
+    // The old endpoint's answer did not move the stream.
+    expect((await stream(created.stream.id))?.regionalAt).toBeNull();
+    await run(created.stream.id, NOW, await deps(fetch));
+    const toNew = sent
+      .filter((r) => r.url.startsWith("https://new-siem"))
+      .flatMap((r) => lines(r.body).map((l) => l.id));
+    for (const id of ids) expect(toNew).toContain(id);
+  });
+
+  it("sends no further batch once the admin pauses or removes the stream during a run", async () => {
+    for (const change of ["pause", "remove"] as const) {
+      const owner = await enterprise();
+      const created = await addStream(owner.actor);
+      for (let i = 0; i < 4; i += 1) await event(owner.id, NOW - (5 - i) * HOUR);
+      let calls = 0;
+      const fetch = async () => {
+        calls += 1;
+        if (calls === 1) {
+          if (change === "pause") {
+            value(
+              await updateAuditStream(db(), {
+                actor: owner.actor,
+                streamId: created.stream.id,
+                update: { state: "paused" },
+                keys: await keys(),
+                service: ON,
+                now: NOW,
+              }),
+            );
+          } else {
+            value(
+              await removeAuditStream(db(), {
+                actor: owner.actor,
+                streamId: created.stream.id,
+                now: NOW,
+              }),
+            );
+          }
+        }
+        return new Response("ok");
+      };
+      await run(
+        created.stream.id,
+        NOW,
+        await deps(fetch, { bounds: { events: 1, bytes: 64 * 1024, batchesPerRun: 4 } }),
+      );
+      expect(calls, change).toBe(1);
+      if (change === "pause") {
+        expect(await stream(created.stream.id)).toMatchObject({
+          state: "paused",
+          regionalAt: null,
+        });
+      }
+    }
+  });
+
+  it("never writes back an old failing time after the admin changed the URL (S4)", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor);
+    await event(owner.id, NOW - HOUR);
+    // Failing for 71 hours.
+    await db()
+      .update(schema.auditStreams)
+      .set({ failures: 30, failingSince: NOW - 71 * HOUR })
+      .where(eq(schema.auditStreams.id, created.stream.id));
+    let changed = false;
+    const fetch = async () => {
+      if (!changed) {
+        changed = true;
+        value(
+          await updateAuditStream(db(), {
+            actor: owner.actor,
+            streamId: created.stream.id,
+            update: { url: "https://new-siem.example.com/in" },
+            keys: await keys(),
+            service: ON,
+            now: NOW,
+          }),
+        );
+      }
+      return new Response("down", { status: 503 });
+    };
+    await run(created.stream.id, NOW + 2 * HOUR, await deps(fetch));
+    expect(await stream(created.stream.id)).toMatchObject({
+      state: "active",
+      failures: 0,
+      failingSince: null,
+    });
+    // The new endpoint's first failure starts its own count; no pause into attention.
+    const due = (await jobOf(created.stream.id))?.availableAt ?? NOW;
+    await run(created.stream.id, due, await deps(fetch));
+    expect(await stream(created.stream.id)).toMatchObject({
+      state: "active",
+      failures: 1,
+      failingSince: due,
+    });
+  });
+});
+
+describe("the caller and the row at write time (S3)", () => {
+  it("refuses a create, change, test and removal when the admin is demoted mid-request", async () => {
+    const t = await team();
+    const admin = value(await t.scope(t.admin.id));
+    const kept = await addStream(admin);
+    // A second admin, so the first can be demoted.
+    await global()
+      .update(schema.workspaceMembers)
+      .set({ role: "admin" })
+      .where(
+        and(
+          eq(schema.workspaceMembers.workspaceId, t.ws.id),
+          eq(schema.workspaceMembers.userId, t.editor.id),
+        ),
+      );
+    const demote = async () => {
+      await global()
+        .update(schema.workspaceMembers)
+        .set({ role: "member" })
+        .where(
+          and(
+            eq(schema.workspaceMembers.workspaceId, t.ws.id),
+            eq(schema.workspaceMembers.userId, t.admin.id),
+          ),
+        );
+    };
+    const promote = async () => {
+      await global()
+        .update(schema.workspaceMembers)
+        .set({ role: "admin" })
+        .where(
+          and(
+            eq(schema.workspaceMembers.workspaceId, t.ws.id),
+            eq(schema.workspaceMembers.userId, t.admin.id),
+          ),
+        );
+    };
+    const attempts = [
+      (d: ReturnType<typeof db>) =>
+        createAuditStream(d, {
+          actor: admin,
+          stream: { label: "x", url: URL_IN, start: "now" },
+          keys: [] as never,
+          service: ON,
+          now: NOW,
+        }),
+      async (d: ReturnType<typeof db>) =>
+        updateAuditStream(d, {
+          actor: admin,
+          streamId: kept.stream.id,
+          update: { url: "https://elsewhere.example.com/in" },
+          keys: await keys(),
+          service: ON,
+          now: NOW,
+        }),
+      (d: ReturnType<typeof db>) =>
+        sendAuditStreamTest(d, { actor: admin, streamId: kept.stream.id, service: ON, now: NOW }),
+      (d: ReturnType<typeof db>) =>
+        removeAuditStream(d, { actor: admin, streamId: kept.stream.id, now: NOW }),
+    ];
+    for (const [index, attempt] of attempts.entries()) {
+      await promote();
+      const raced = raceBeforeFirstWrite(demote);
+      // The create needs its key: give it one through the same raced handle.
+      const result =
+        index === 0
+          ? await createAuditStream(raced, {
+              actor: admin,
+              stream: { label: "x", url: URL_IN, start: "now" },
+              keys: await keys(),
+              service: ON,
+              now: NOW,
+            })
+          : await attempt(raced);
+      expect(result, `attempt ${index}`).toMatchObject({ ok: false, code: "forbidden" });
+    }
+    const rows = await db()
+      .select()
+      .from(schema.auditStreams)
+      .where(eq(schema.auditStreams.ownerId, t.ws.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ host: "siem.example.com", testRequestedAt: null });
+  });
+
+  it("refuses a rotation that raced a URL change instead of re-sealing the secret it read", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor);
+    const raced = raceBeforeFirstWrite(async () => {
+      value(
+        await updateAuditStream(db(), {
+          actor: owner.actor,
+          streamId: created.stream.id,
+          update: { url: "https://new-siem.example.com/in" },
+          keys: await keys(),
+          service: ON,
+          now: NOW,
+        }),
+      );
+    });
+    const rotation = await updateAuditStream(raced, {
+      actor: owner.actor,
+      streamId: created.stream.id,
+      update: { rotateSecret: true },
+      keys: await keys(),
+      service: ON,
+      now: NOW,
+    });
+    expect(rotation).toMatchObject({ ok: false, code: "version_conflict" });
+    // No rotation was recorded, and the original secret still signs at the new URL.
+    expect(await kindsOf(owner.id)).toEqual(["audit_stream.created", "audit_stream.changed"]);
+    await event(owner.id, NOW - HOUR);
+    const net = collector();
+    await run(created.stream.id, NOW, await deps(net.fetch));
+    const [request] = net.sent;
+    expect(request?.url).toBe("https://new-siem.example.com/in");
+    expect(await verifies(created.secret, request as Sent)).toBe(true);
+  });
+
+  it("revokes the old secret at once on an emergency rotation (M4)", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor);
+    const rotated = value(
+      await updateAuditStream(db(), {
+        actor: owner.actor,
+        streamId: created.stream.id,
+        update: { rotateSecret: true, revokeOldSecret: true },
+        keys: await keys(),
+        service: ON,
+        now: NOW,
+      }),
+    );
+    expect(await stream(created.stream.id)).toMatchObject({
+      previousSecretBox: null,
+      previousUntil: null,
+    });
+    await event(owner.id, NOW - HOUR);
+    const net = collector();
+    await run(created.stream.id, NOW, await deps(net.fetch));
+    const [request] = net.sent as [Sent];
+    expect(request.headers["webhook-signature"]?.split(" ")).toHaveLength(1);
+    expect(await verifies(rotated.secret as string, request)).toBe(true);
+    expect(await verifies(created.secret, request)).toBe(false);
+    const [changed] = await db()
+      .select()
+      .from(schema.auditEvents)
+      .where(
+        and(
+          eq(schema.auditEvents.ownerId, owner.id),
+          eq(schema.auditEvents.kind, "audit_stream.changed"),
+        ),
+      );
+    expect(changed?.detail).toEqual({ host: "siem.example.com", secret: true, revoked: true });
+  });
+});
+
+describe("a job without the switch or the key (M5)", () => {
+  it("ends instead of being redelivered forever, and the scan arms it again later", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor);
+    const job = await jobOf(created.stream.id);
+    const message: JobMessage = { id: job?.id ?? 0, topic: "audit_stream" };
+    expect(
+      await runJob(db(), env.ARTIFACTS, message, NOW, {
+        auditStreams: await deps(collector().fetch, { keys: [] }),
+      }),
+    ).toBe("stale");
+    expect(await jobOf(created.stream.id)).toBeUndefined();
+    await maintainAuditStreams(db(), NOW);
+    const again = await jobOf(created.stream.id);
+    expect(
+      await runJob(db(), env.ARTIFACTS, { id: again?.id ?? 0, topic: "audit_stream" }, NOW, {}),
+    ).toBe("stale");
+    expect(await jobOf(created.stream.id)).toBeUndefined();
+  });
+});
+
 describe("maintenance", () => {
   it("gives an active stream without a job one, prunes the old log and re-seals with a new key", async () => {
     const owner = await enterprise();
@@ -978,6 +1476,6 @@ describe("what goes with the owner", () => {
     const second = await event(owner.id, NOW - HOUR);
     const net = collector();
     await run(created.stream.id, NOW + AUDIT_STREAM.idleMs, await deps(net.fetch));
-    expect(lines((net.sent[0] as Sent).body).map((line) => line.id)).toEqual([first, second]);
+    expect(fixtures((net.sent[0] as Sent).body).map((line) => line.id)).toEqual([first, second]);
   });
 });

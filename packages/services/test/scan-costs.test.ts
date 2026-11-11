@@ -7,7 +7,7 @@ import { schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { pruneAuditEvents } from "../src/audit.ts";
-import { maintainAuditStreams } from "../src/audit-streams.ts";
+import { maintainAuditStreams, rewrapAuditStreamKeys } from "../src/audit-streams.ts";
 import { applyTombstones } from "../src/backups.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "../src/content-search.ts";
 import { scheduleExpiryNotices } from "../src/expiry-notices.ts";
@@ -19,6 +19,7 @@ import {
   setOwnerPlan,
   unpinLapsedPlans,
 } from "../src/plans.ts";
+import { webhookKeys } from "../src/webhook-keys.ts";
 import { DAY, db, grantPlan, NOW, publishSite, user } from "./fixtures.ts";
 import { recording } from "./recording.ts";
 
@@ -27,6 +28,9 @@ async function counted(run: (database: ReturnType<typeof db>) => Promise<unknown
   await run(database);
   return count();
 }
+
+const KEY = "test-only scan cost key for audit streams, long enough";
+const OLD_KEY = "the previous test-only scan cost key, long enough";
 
 /** The calls each path made on develop, with the scenario below. */
 const DEVELOP = {
@@ -47,6 +51,11 @@ const DEVELOP = {
   // lost their job), whatever the number of owners or streams. Run by the jobs Worker only while
   // streams are switched on, outside `runMaintenance`, which it leaves as it was.
   maintainAuditStreams: 1,
+  // The key re-seal reads nothing without a previous key (`WEBHOOK_KEY_PREVIOUS`), so it costs
+  // nothing every 15 minutes outside a rotation; during one, a read and a count per region plus
+  // one update per stream it re-seals (none here).
+  rewrapAuditStreamKeys: 0,
+  rewrapAuditStreamKeysRotating: 2,
 };
 
 describe("D1 calls of the scans and plan paths, one region", () => {
@@ -111,6 +120,12 @@ describe("D1 calls of the scans and plan paths, one region", () => {
       ),
       runMaintenance: await counted((d) => runMaintenance(d, env.ARTIFACTS, NOW + DAY)),
       maintainAuditStreams: await counted((d) => maintainAuditStreams(d, NOW)),
+      rewrapAuditStreamKeys: await counted(async (d) =>
+        rewrapAuditStreamKeys(d, await webhookKeys({ current: KEY })),
+      ),
+      rewrapAuditStreamKeysRotating: await counted(async (d) =>
+        rewrapAuditStreamKeys(d, await webhookKeys({ current: KEY, previous: OLD_KEY })),
+      ),
     };
     expect(costs).toEqual(DEVELOP);
   });

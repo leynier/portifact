@@ -2584,9 +2584,9 @@ export const de = {
   "audit.stream.lastAttempt": "Letzte Anfrage {when}: {outcome}",
   "audit.stream.noAttempts": "Noch keine Anfrage",
   "audit.stream.testPending": "Ein Test wartet darauf, gesendet zu werden.",
-  "audit.stream.gapTitle": "Einige Ereignisse haben diesen Endpunkt nie erreicht",
+  "audit.stream.gapTitle": "Einige Ereignisse erreichen diesen Endpunkt vielleicht nie",
   "audit.stream.gap":
-    "Die Ereignisse von {from} bis {to} lagen außerhalb der Aufbewahrung des Protokolls, bevor dieser Endpunkt sie erhielt, und wurden nicht gesendet. Der Endpunkt hat einen Lückeneintrag erhalten, der das meldet.",
+    "Die zwischen {from} und {to} erfassten Ereignisse wurden oder werden durch die Aufbewahrung des Protokolls gelöscht, bevor dieser Endpunkt sie erhielt; was noch aufbewahrt war, wurde gesendet. Der Endpunkt hat einen Lückeneintrag erhalten, der das meldet.",
   "audit.stream.test": "Test senden",
   "audit.stream.testLabel": "Test senden an {label}",
   "audit.stream.testQueued": "Test für {label} eingereiht",
@@ -2626,4 +2626,12 @@ export const de = {
   "audit.stream.error.invalid_url": "URL nicht mehr akzeptiert",
   "audit.stream.error.key_unavailable": "lässt sich nicht öffnen",
   "audit.stream.error.daily_cap": "Tageslimit erreicht",
+  "audit.stream.revokeNow": "Jetzt ersetzen",
+  "audit.stream.revokeNowLabel": "Jetzt ersetzen: Geheimnis von {label}",
+  "audit.stream.revokeConfirm.title": "Das Geheimnis von {label} jetzt ersetzen?",
+  "audit.stream.revokeConfirm.body":
+    "Das alte Geheimnis signiert sofort nicht mehr. Bis Ihr Endpunkt das neue hat, lehnt er die Anfragen von Portifact ab; nichts geht verloren, sie werden erneut gesendet, sobald er sie annimmt. Verwenden Sie dies, wenn das alte Geheimnis bekannt geworden ist.",
+  "audit.stream.revokedNow": "Neues Geheimnis für {label}; das alte signiert nicht mehr",
+  "audit.stream.revokeNow.body":
+    "Das alte Geheimnis signiert nicht mehr. Geben Sie Ihrem Endpunkt jetzt dieses.",
 } satisfies Catalog;

@@ -77,6 +77,10 @@ interface Revealed {
   host: string;
   secret: string;
   rotated: boolean;
+  /** The old secret was revoked at once (an emergency rotation). */
+  revoked: boolean;
+  /** Drops the answer that held the secret from the mutation cache. */
+  clear(): void;
 }
 
 /** The section, below the log's controls. `days` is the owner's retention. */
@@ -114,7 +118,16 @@ export function AuditStreams({ slug, days }: { slug: string | undefined; days: n
           {t("audit.stream.planRequired", { plan: PLAN_LABELS[lowestPlanWith("auditExport")] })}
         </Callout>
       ) : null}
-      {revealed ? <SecretOnce revealed={revealed} onDone={() => setRevealed(null)} /> : null}
+      {revealed ? (
+        <SecretOnce
+          revealed={revealed}
+          onDone={() => {
+            // The secret leaves the page and the query cache together.
+            revealed.clear();
+            setRevealed(null);
+          }}
+        />
+      ) : null}
       <div className="grid items-start gap-6 xl:grid-cols-3">
         <section aria-label={t("audit.stream.list")} className="min-w-0 xl:col-span-2">
           {data.streams.length === 0 ? (
@@ -161,7 +174,11 @@ function SecretOnce({ revealed, onDone }: { revealed: Revealed; onDone(): void }
     >
       <div className="flex min-w-0 flex-col gap-3">
         <p>{t("audit.stream.secret.body")}</p>
-        {revealed.rotated ? <p>{t("audit.stream.rotate.body")}</p> : null}
+        {revealed.revoked ? (
+          <p>{t("audit.stream.revokeNow.body")}</p>
+        ) : revealed.rotated ? (
+          <p>{t("audit.stream.rotate.body")}</p>
+        ) : null}
         <CopyField
           label={t("audit.stream.secret.label", { label: revealed.label, host: revealed.host })}
           value={revealed.secret}
@@ -193,7 +210,9 @@ function AddStream(props: {
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
   const [start, setStart] = useState<AuditStreamStart>("now");
+  // The answer holds the secret: once the admin resets it (`clear`), nothing keeps it cached.
   const create = useMutation({
+    gcTime: 0,
     mutationFn: () =>
       api.createAuditStream({ label: label.trim(), url: url.trim(), start }, props.slug),
     onSuccess: async (created) => {
@@ -204,6 +223,8 @@ function AddStream(props: {
         host: created.stream.host,
         secret: created.secret,
         rotated: false,
+        revoked: false,
+        clear: () => create.reset(),
       });
       await queryClient.invalidateQueries({ queryKey: auditStreamsQuery(props.slug) });
       announce(t("audit.stream.added", { host: created.stream.host }));
@@ -336,6 +357,7 @@ function StreamCard(props: {
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const [confirming, setConfirming] = useState(false);
+  const [revoking, setRevoking] = useState(false);
   const label = stream.label;
   const refresh = () => queryClient.invalidateQueries({ queryKey: auditStreamsQuery(slug) });
   const test = useMutation({
@@ -357,14 +379,29 @@ function StreamCard(props: {
     },
   });
   const rotate = useMutation({
-    mutationFn: () => api.updateAuditStream(stream.id, { rotateSecret: true }, slug),
-    onSuccess: async (next) => {
+    gcTime: 0,
+    mutationFn: (revoke: boolean) =>
+      api.updateAuditStream(
+        stream.id,
+        revoke ? { rotateSecret: true, revokeOldSecret: true } : { rotateSecret: true },
+        slug,
+      ),
+    onSuccess: async (next, revoke) => {
+      setRevoking(false);
       if (next.secret) {
-        props.onSecret({ label, host: next.stream.host, secret: next.secret, rotated: true });
+        props.onSecret({
+          label,
+          host: next.stream.host,
+          secret: next.secret,
+          rotated: true,
+          revoked: revoke,
+          clear: () => rotate.reset(),
+        });
       }
       await refresh();
-      announce(t("audit.stream.rotated", { label }));
+      announce(t(revoke ? "audit.stream.revokedNow" : "audit.stream.rotated", { label }));
     },
+    onError: () => setRevoking(false),
   });
   const remove = useMutation({
     mutationFn: () => api.removeAuditStream(stream.id, slug),
@@ -415,9 +452,18 @@ function StreamCard(props: {
             aria-label={t("audit.stream.rotateLabel", { label })}
             busy={rotate.isPending}
             disabled={busy}
-            onClick={() => rotate.mutate()}
+            onClick={() => rotate.mutate(false)}
           >
             {t("audit.stream.rotate")}
+          </Button>
+          <Button
+            size="sm"
+            icon={<KeyRound className="size-4" />}
+            aria-label={t("audit.stream.revokeNowLabel", { label })}
+            disabled={busy}
+            onClick={() => setRevoking(true)}
+          >
+            {t("audit.stream.revokeNow")}
           </Button>
           <Button
             size="sm"
@@ -495,6 +541,19 @@ function StreamCard(props: {
         onCancel={() => setConfirming(false)}
       >
         {t("audit.stream.confirm.body")}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={revoking}
+        title={t("audit.stream.revokeConfirm.title", { label })}
+        confirmLabel={t("audit.stream.revokeNow")}
+        cancelLabel={t("account.cancel")}
+        confirmIcon={<KeyRound className="size-4" />}
+        tone="danger"
+        busy={rotate.isPending}
+        onConfirm={() => rotate.mutate(true)}
+        onCancel={() => setRevoking(false)}
+      >
+        {t("audit.stream.revokeConfirm.body")}
       </ConfirmDialog>
     </li>
   );

@@ -2595,9 +2595,10 @@ export const fr = {
   "audit.stream.lastAttempt": "Dernière requête {when} : {outcome}",
   "audit.stream.noAttempts": "Aucune requête pour l’instant",
   "audit.stream.testPending": "Un test attend d’être envoyé.",
-  "audit.stream.gapTitle": "Des événements ne sont jamais arrivés à ce point de terminaison",
+  "audit.stream.gapTitle":
+    "Certains événements pourraient ne jamais atteindre ce point de terminaison",
   "audit.stream.gap":
-    "Les événements du {from} au {to} avaient dépassé la conservation du journal avant que ce point de terminaison les reçoive : ils n’ont pas été envoyés. Le point de terminaison a reçu un enregistrement de trou qui le signale.",
+    "Les événements enregistrés entre le {from} et le {to} ont été ou seront supprimés par la conservation du journal avant que ce point de terminaison les reçoive ; ce qui était encore conservé a été envoyé. Le point de terminaison a reçu un enregistrement de trou qui le signale.",
   "audit.stream.test": "Envoyer un test",
   "audit.stream.testLabel": "Envoyer un test à {label}",
   "audit.stream.testQueued": "Test en file d’attente pour {label}",
@@ -2637,4 +2638,12 @@ export const fr = {
   "audit.stream.error.invalid_url": "URL plus acceptée",
   "audit.stream.error.key_unavailable": "impossible à ouvrir",
   "audit.stream.error.daily_cap": "limite quotidienne atteinte",
+  "audit.stream.revokeNow": "Remplacer maintenant",
+  "audit.stream.revokeNowLabel": "Remplacer maintenant le secret de {label}",
+  "audit.stream.revokeConfirm.title": "Remplacer maintenant le secret de {label} ?",
+  "audit.stream.revokeConfirm.body":
+    "L’ancien secret cesse de signer immédiatement. Tant que votre point de terminaison n’a pas le nouveau, il refuse les requêtes de Portifact ; rien n’est perdu, elles sont renvoyées dès qu’il les accepte. À utiliser si l’ancien secret a fuité.",
+  "audit.stream.revokedNow": "Nouveau secret pour {label} ; l’ancien ne signe plus",
+  "audit.stream.revokeNow.body":
+    "L’ancien secret ne signe plus. Donnez celui-ci à votre point de terminaison maintenant.",
 } satisfies Catalog;

@@ -127,7 +127,7 @@ describe("the audit stream section", () => {
     expect(found.textContent).toContain("Delivered through");
     expect(found.textContent).toContain("2 requests failed in a row");
     expect(found.textContent).toContain("delivered (2xx)");
-    expect(within(found).getByText("Some events never reached this endpoint")).toBeTruthy();
+    expect(within(found).getByText("Some events may never reach this endpoint")).toBeTruthy();
     expect(await axeViolations(container)).toEqual([]);
 
     fireEvent.click(within(found).getByRole("button", { name: "Send test to Splunk" }));
@@ -145,6 +145,51 @@ describe("the audit stream section", () => {
     const dialog = await screen.findByRole("dialog", { name: "Remove the stream Splunk?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
     await within(found).findByText("No stream yet");
+  });
+
+  it("drops the secret from the mutation cache when the admin says it is saved (M7)", async () => {
+    server.auditStreams.offered = true;
+    const { queryClient } = renderDashboard("/audit", server);
+    const found = await section();
+    const form = within(found).getByRole("region", { name: "Add a stream" });
+    fireEvent.change(within(form).getByLabelText("Name"), { target: { value: "Splunk" } });
+    fireEvent.change(within(form).getByLabelText(/Endpoint URL/), {
+      target: { value: "https://siem.example.com/in" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Add stream" }));
+    await screen.findByText("Copy the signing secret now");
+    const cached = () =>
+      queryClient
+        .getMutationCache()
+        .getAll()
+        .some((mutation) => JSON.stringify(mutation.state.data ?? null).includes("whsec_"));
+    expect(cached()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "I saved it" }));
+    await waitFor(() => expect(cached()).toBe(false));
+    // The same for a new secret.
+    const list = within(found).getByRole("region", { name: "Your audit streams" });
+    fireEvent.click(await within(list).findByRole("button", { name: "New secret for Splunk" }));
+    await screen.findByText("whsec_rotated-stream-secret-for-tests");
+    expect(cached()).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "I saved it" }));
+    await waitFor(() => expect(cached()).toBe(false));
+  });
+
+  it("replaces the secret now, revoking the old one, after saying what that does (M4)", async () => {
+    server.auditStreams.offered = true;
+    server.auditStreams.bySpace[""] = [stream()];
+    const { container } = renderDashboard("/audit", server);
+    const found = await section();
+    fireEvent.click(
+      await within(found).findByRole("button", { name: "Replace now the secret of Splunk" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Replace the secret of Splunk now?" });
+    expect(dialog.textContent).toContain("The old secret stops signing at once");
+    expect(await axeViolations(container)).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Replace now" }));
+    await screen.findByText("whsec_rotated-stream-secret-for-tests");
+    expect(server.bodies.at(-1)).toEqual({ rotateSecret: true, revokeOldSecret: true });
+    expect(screen.getByText(/The old secret no longer signs/)).toBeTruthy();
   });
 
   it("opens a stream's requests in a captioned table", async () => {
