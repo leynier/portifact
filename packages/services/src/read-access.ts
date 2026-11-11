@@ -158,7 +158,11 @@ export async function checkReadAccess(
         ).map((row) => row.email)
       : [];
   const verifiedEmails = user.emailVerified ? [user.email.toLowerCase()] : [];
-  const actor = await actorOn(db.global, input.userId, artifact.ownerId);
+  const resolved = await actorOn(db.global, input.userId, artifact.ownerId);
+  // A person a request policy refuses on the workspace (decision 0020) reads nothing of it
+  // through their account; a public artifact is for everyone, so it reads as for anyone.
+  if (!resolved.ok && artifact.accessMode !== "public") return resolved;
+  const actor = resolved.ok ? resolved.value : null;
   const domains = await policyDomains(db.global, {
     mode: artifact.accessMode,
     ownerId: artifact.ownerId,

@@ -64,7 +64,8 @@ export function exitCodeFor(code: CliErrorCode): number {
     case "account_too_new_for_public":
     case "human_verification_required":
     case "plan_required":
-    // A workspace policy refused it (decision 0015): the message names the policy.
+    // A workspace policy refused it (decisions 0015 and 0020): the message names the policy, and
+    // for a network policy says to connect from an approved network.
     case "policy_refused":
       return EXIT.limit;
     default:

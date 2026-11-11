@@ -107,8 +107,9 @@ export async function getViewerArtifact(
     const access = await checkReadAccess(db, { ...input, userId: input.userId });
     if (!access.ok) return access;
     // An admin or editor of the owner is the owner here, as the user of a personal space is.
+    // Refused by a request policy and still reading: the artifact is public, read as anyone.
     const actor = await actorOn(db.global, input.userId, artifact.ownerId);
-    role = actsForOwner(actor, artifact.ownerId) ? "owner" : "reader";
+    role = actor.ok && actsForOwner(actor.value, artifact.ownerId) ? "owner" : "reader";
   }
   return ok({
     name: artifact.name,

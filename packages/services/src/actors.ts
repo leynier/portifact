@@ -3,6 +3,12 @@
 // gives the role. A user who is not a member of an owner gets exactly what a missing owner or
 // artifact gives. Adapters never decide a role: they pass the user and the owner (or the
 // artifact) and the services resolve the actor here.
+//
+// It is also the one choke point of a workspace's request policies (decision 0020): the global
+// handle carries the request context the Worker built (`GlobalDb.request`), the policy comes
+// with the membership in the same query, and a request the policy refuses gets `policy_refused`
+// here, whatever interface, service or role it came through. Every caller handles that answer:
+// `actorOn` returns a `Result`, so none can mistake a refusal for a missing role.
 import {
   DEFAULT_REGION,
   isServiceTokenId,
@@ -20,12 +26,14 @@ import {
 import {
   type Actor,
   authorize,
+  checkRequestPolicy,
   fail,
   type OwnerPlanRecord,
   ok,
   personalActor,
   policyOf,
   type Result,
+  requestVerdict,
   restrictionAllows,
   restrictionOf,
   storedTokenScopes,
@@ -58,22 +66,58 @@ function ownerOfTarget(target: ActorTarget): string {
 }
 
 /**
- * The actor for `userId` on an owner (or on an artifact's owner), or null when the user has no
- * role there. A personal space needs no read; a workspace, one indexed read of the membership and
- * the workspace's region. A service token's ID (decision 0011) has a role only on its own
- * workspace, from its row, and only on the artifacts its restriction reaches; it has no personal
- * space.
+ * The actor for `userId` on an owner (or on an artifact's owner): `ok(null)` when the user has no
+ * role there, and `policy_refused` when they have one but the workspace's request policies refuse
+ * this request (decision 0020). A personal space needs no read and is never bound by a
+ * workspace's policy; a workspace, one indexed read of the membership, the workspace's region and
+ * its policy. A service token's ID (decision 0011) has a role only on its own workspace, from its
+ * row, and only on the artifacts its restriction reaches; it has no personal space.
  */
 export async function actorOn(
   global: GlobalDb,
   userId: string,
   target: ActorTarget,
-): Promise<Actor | null> {
-  if (isServiceTokenId(userId)) return tokenActorOn(global, userId, target);
+): Promise<Result<Actor | null>> {
+  if (isServiceTokenId(userId)) {
+    return bound(global, await tokenActorOn(global, userId, target), "token");
+  }
   const ownerId = ownerOfTarget(target);
-  if (!isWorkspaceId(ownerId)) return ownerId === userId ? personalActor(userId) : null;
+  if (!isWorkspaceId(ownerId)) return ok(ownerId === userId ? personalActor(userId) : null);
   const [row] = await memberQuery(global, userId, ownerId);
-  return memberActor(userId, ownerId, row);
+  return bound(global, memberActor(userId, ownerId, row), "person");
+}
+
+/** The workspaces this isolate already reported an unreadable network list for. */
+const reportedUnreadable = new Set<string>();
+const REPORTED_UNREADABLE_MAX = 1_000;
+
+/**
+ * Says once per isolate and workspace that its stored network list does not parse (the request
+ * is refused, fail closed): the workspace's ID only, never an address or a range. Every refused
+ * request, and on the artifact origin every subresource, would otherwise write a line.
+ */
+export function reportUnreadablePolicy(workspaceId: string): void {
+  if (reportedUnreadable.has(workspaceId)) return;
+  if (reportedUnreadable.size >= REPORTED_UNREADABLE_MAX) reportedUnreadable.clear();
+  reportedUnreadable.add(workspaceId);
+  console.error(JSON.stringify({ event: "workspace_network_policy_unreadable", workspaceId }));
+}
+
+/**
+ * The actor, if the workspace's request policies admit the request the handle answers. Only an
+ * actor is checked: someone with no role learns nothing about the workspace's policies.
+ */
+function bound(
+  global: GlobalDb,
+  actor: Actor | null,
+  caller: "person" | "token",
+): Result<Actor | null> {
+  if (!actor) return ok(null);
+  const allowed = checkRequestPolicy(actor.policy, global.request, caller);
+  if (!allowed.ok && requestVerdict(actor.policy, global.request, caller) === "unreadable") {
+    reportUnreadablePolicy(actor.ownerId);
+  }
+  return allowed.ok ? ok(actor) : allowed;
 }
 
 /** The membership read `actorOn` makes for a workspace, for a batch of the global database. */
@@ -123,20 +167,21 @@ export async function actorAndPlanOn(
   global: GlobalDb,
   userId: string,
   target: ActorTarget,
-): Promise<{ actor: Actor | null; plan: OwnerPlanRecord | null }> {
+): Promise<Result<{ actor: Actor | null; plan: OwnerPlanRecord | null }>> {
   const ownerId = ownerOfTarget(target);
   if (isServiceTokenId(userId) || !isWorkspaceId(ownerId)) {
     const [actor, plan] = await Promise.all([
       actorOn(global, userId, target),
       ownerPlanRecord(global, ownerId),
     ]);
-    return { actor, plan };
+    return actor.ok ? ok({ actor: actor.value, plan }) : actor;
   }
   const [members, plans] = await global.batch([
     memberQuery(global, userId, ownerId),
     ownerPlanQuery(global, ownerId),
   ]);
-  return { actor: memberActor(userId, ownerId, members[0]), plan: plans[0] ?? null };
+  const actor = bound(global, memberActor(userId, ownerId, members[0]), "person");
+  return actor.ok ? ok({ actor: actor.value, plan: plans[0] ?? null }) : actor;
 }
 
 async function tokenActorOn(
@@ -185,7 +230,7 @@ async function tokenActorOn(
 
 /**
  * The actor for `userId` on `ownerId`. `not_found` when the user has no role there, the same
- * answer as an owner that does not exist.
+ * answer as an owner that does not exist; `policy_refused` when a request policy refuses it.
  */
 export async function resolveActor(
   global: GlobalDb,
@@ -193,7 +238,8 @@ export async function resolveActor(
   target: ActorTarget,
 ): Promise<Result<Actor>> {
   const actor = await actorOn(global, userId, target);
-  return actor ? ok(actor) : fail("not_found", "Not found.");
+  if (!actor.ok) return actor;
+  return actor.value ? ok(actor.value) : fail("not_found", "Not found.");
 }
 
 /**
@@ -209,8 +255,9 @@ export async function authorizeOn(
   missing: () => Result<never>,
 ): Promise<Result<Actor>> {
   const actor = await actorOn(db.global, userId, target);
-  if (!actor) return missing();
-  return authorize(actor, action);
+  if (!actor.ok) return actor;
+  if (!actor.value) return missing();
+  return authorize(actor.value, action);
 }
 
 /**

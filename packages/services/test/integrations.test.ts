@@ -100,8 +100,8 @@ async function workspace(members: [string, "admin" | "editor" | "member"][]) {
 
 async function actorIn(userId: string, ownerId: string): Promise<Actor> {
   const actor = await actorOn(db().global, userId, ownerId);
-  if (!actor) throw new Error("no role");
-  return actor;
+  if (!actor.ok || !actor.value) throw new Error("no role");
+  return actor.value;
 }
 
 interface Artifact {

@@ -3,6 +3,7 @@
 // the API sent it and exits 7, like every limit. The CLI never changes a policy: that is the
 // dashboard's alone, so no command reaches the `policies` plan feature and the GATED table in
 // plan-gates.test.ts has no line for it (the API side is apps/app/test/plan-gates.test.ts).
+import { DEFAULT_POLICY } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EXIT, exitCodeFor } from "./errors.ts";
 import { error } from "./testing/fake-api.ts";
@@ -26,6 +27,8 @@ beforeEach(async () => {
         readerDomains: ["acme.example"],
         shareLinks: "password_required",
         shareLinkMaxDays: 30,
+        ipAllowlist: null,
+        tokenIpAllowlist: null,
       },
     },
     { slug: "readers", name: "Readers", role: "member" },
@@ -57,6 +60,32 @@ describe("portifact workspaces", () => {
       readerDomains: null,
       shareLinks: "allowed",
       shareLinkMaxDays: null,
+      ipAllowlist: null,
+      tokenIpAllowlist: null,
+    });
+  });
+
+  it("says a network policy exists, never its networks, and when it blocks this machine", async () => {
+    server.api.workspaces = [
+      {
+        slug: "acme",
+        name: "Acme Docs",
+        role: "member",
+        policy: { ...DEFAULT_POLICY, ipAllowlist: "hidden", tokenIpAllowlist: "hidden" },
+        blocked: true,
+      },
+    ];
+    h.signIn();
+    const result = await h.invoke("workspaces");
+    expect(result.stdout).toContain(
+      "Policies of acme: people only from approved networks; service tokens only from approved networks.\n",
+    );
+    expect(result.stdout).toContain(
+      "acme only allows approved networks, and this one is not on its list: commands on it fail until you connect from an approved network.\n",
+    );
+    expect(JSON.parse((await h.invoke("workspaces", "--json")).stdout).items[0]).toMatchObject({
+      blocked: true,
+      policy: { ipAllowlist: "hidden" },
     });
   });
 });
@@ -84,6 +113,20 @@ describe("a policy refusal", () => {
     expect(plain.code).toBe(7);
     expect(plain.stdout).toBe("");
     expect(plain.stderr.endsWith(`Error: ${PUBLIC_FORBIDDEN}\n`)).toBe(true);
+  });
+
+  it("prints a network policy's refusal, which says how to fix it, and exits 7", async () => {
+    h.signIn();
+    const NETWORK =
+      "This workspace's network policy only allows access from approved networks, and your address (203.0.113.9) is not on its list. Connect from an approved network, or ask a workspace admin.";
+    server.faults.push({
+      method: "GET",
+      path: /^\/api\/v1\/artifacts$/,
+      reply: error("policy_refused", NETWORK),
+    });
+    const plain = await h.invoke("list", "--workspace", "acme");
+    expect(plain.code).toBe(EXIT.limit);
+    expect(plain.stderr.endsWith(`Error: ${NETWORK}\n`)).toBe(true);
   });
 
   it("maps to the limit exit code", () => {

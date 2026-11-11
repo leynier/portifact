@@ -4,6 +4,7 @@ import {
   ArtifactId,
   DEFAULT_REGION,
   type Region,
+  requestContextOf,
   SHARE_ENTRY_PATH,
   TokenPrincipal,
   TURNSTILE_ORIGIN,
@@ -11,6 +12,7 @@ import {
 } from "@portifact/contracts";
 import { isLocale } from "@portifact/contracts/locales";
 import { THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
+import { baseEnv, withRequestContext } from "@portifact/db";
 import { needsTermsAcceptance, viewerFrameOrigin } from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { customDomainsServing, getViewerArtifact } from "@portifact/services";
@@ -251,8 +253,11 @@ async function viewerFrameOriginFor(
 
 export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   // One Better Auth instance per environment object, which is stable per isolate.
+  // Keyed by the Worker's own bindings, not the per-request copy that carries the request
+  // context (decision 0020).
   const instances = new WeakMap<Env, Auth>();
-  const authFor = (env: Env): Auth => {
+  const authFor = (requestEnv: Env): Auth => {
+    const env = baseEnv(requestEnv);
     let auth = instances.get(env);
     if (!auth) {
       auth = createAuth(env, depsFor(env));
@@ -320,6 +325,14 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   };
 
   const app = new Hono<{ Bindings: Env }>();
+
+  // The request context (decision 0020), built once from what Cloudflare says about the request
+  // and carried by every database handle built for it, so the services apply a workspace's
+  // request policies where the role is decided, whatever route or tool asks.
+  app.use("*", async (c, next) => {
+    c.env = withRequestContext(c.env, requestContextOf(c.req.raw));
+    await next();
+  });
 
   app.use("*", async (c, next) => {
     await next();

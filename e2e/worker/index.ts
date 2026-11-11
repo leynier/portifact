@@ -9,6 +9,11 @@
 // accepts only the fake Turnstile's token (../src/turnstile-fake.ts). Custom domains use the
 // in-memory Cloudflare and DNS of ./domains.ts, which the control host drives. Single sign-on
 // talks to the fake identity provider of ./sso.ts, whose authorize page this Worker serves too.
+//
+// The stack has no Cloudflare edge, so nothing sets CF-Connecting-IP: a test that needs a client
+// address (a workspace's network policy, decision 0020) sends `x-e2e-client-ip`, which this
+// Worker alone turns into CF-Connecting-IP before either Worker sees the request. Production code
+// reads only CF-Connecting-IP, which Cloudflare sets and a client cannot.
 
 import { workerDeps } from "../../apps/app/src/auth/deps.ts";
 import type { EmailSender } from "../../apps/app/src/auth/email.ts";
@@ -73,8 +78,23 @@ function siteCookies(response: Response): Response {
   return rewritten;
 }
 
+/** The test header standing in for the address Cloudflare would report. */
+const E2E_CLIENT_IP = "x-e2e-client-ip";
+
+/** The request as Cloudflare's edge would hand it on: CF-Connecting-IP from the test's header. */
+function atEdge(request: Request): Request {
+  const ip = request.headers.get(E2E_CLIENT_IP);
+  const edged = new Request(request);
+  edged.headers.delete(E2E_CLIENT_IP);
+  // Whatever a client sent as CF-Connecting-IP is dropped, as the edge would overwrite it.
+  edged.headers.delete("CF-Connecting-IP");
+  if (ip) edged.headers.set("CF-Connecting-IP", ip);
+  return edged;
+}
+
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(incoming, env, ctx) {
+    const request = atEdge(incoming);
     const host = new URL(request.url).hostname;
     if (host === CONTROL_HOST) return control(request, env);
     if (host === IDP_HOST) return idpPage(request);

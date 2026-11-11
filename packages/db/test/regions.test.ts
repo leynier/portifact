@@ -1,13 +1,17 @@
 import { env } from "cloudflare:test";
+import { BACKGROUND, requestContextOf, UNKNOWN_REQUEST } from "@portifact/contracts";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
+  baseEnv,
   globalDb,
   isRegion,
   type Region,
   regionalDb,
   regionsFromEnv,
   schema,
+  withBindings,
+  withRequestContext,
 } from "../src/index.ts";
 
 const NOW = Date.UTC(2026, 10, 9);
@@ -77,5 +81,46 @@ describe("regions of a Worker", () => {
   it("attaches a regional database to the global database it is given", () => {
     const global = globalDb(env.DB);
     expect(regionalDb(env.DB, global).global).toBe(global);
+  });
+});
+
+describe("the request context on the handles (decision 0020)", () => {
+  it("is carried by every handle built for a request, and fails closed without one", () => {
+    const request = { kind: "request", ip: "192.0.2.1" } as const;
+    const scoped = withRequestContext(env, request);
+    // A view over the bindings: every binding still reads, and the context rides along.
+    expect(scoped.DB).toBe(env.DB);
+    const regions = regionsFromEnv(scoped);
+    expect(regions.global.request).toEqual(request);
+    expect(regions.get("default").db.global.request).toEqual(request);
+    expect(regionsFromEnv(env).global.request).toEqual(UNKNOWN_REQUEST);
+    expect(globalDb(env.DB).request).toEqual(UNKNOWN_REQUEST);
+    expect(regionsFromEnv(withRequestContext(env, BACKGROUND)).global.request).toBe(BACKGROUND);
+  });
+
+  it("keeps the Worker's own bindings object for caches keyed by it", () => {
+    const once = withRequestContext(env, BACKGROUND);
+    const twice = withRequestContext(once, { kind: "request", ip: null });
+    expect(baseEnv(once)).toBe(env);
+    expect(baseEnv(twice)).toBe(env);
+    expect(baseEnv(env)).toBe(env);
+  });
+
+  it("replaces bindings without losing the context", () => {
+    const scoped = withRequestContext(env, { kind: "request", ip: "192.0.2.1" });
+    const replaced = withBindings(scoped, { MIGRATION_DB: env.DB });
+    expect(replaced.MIGRATION_DB).toBe(env.DB);
+    expect(replaced.DB).toBe(env.DB);
+    expect(regionsFromEnv(replaced).global.request).toEqual({ kind: "request", ip: "192.0.2.1" });
+  });
+});
+
+describe("the request context of a request", () => {
+  it("comes from CF-Connecting-IP only", () => {
+    const at = (headers: Record<string, string>) =>
+      requestContextOf(new Request("https://app.portifact.com/", { headers }));
+    expect(at({ "CF-Connecting-IP": " 192.0.2.1 " })).toEqual({ kind: "request", ip: "192.0.2.1" });
+    expect(at({ "X-Forwarded-For": "192.0.2.1" })).toEqual({ kind: "request", ip: null });
+    expect(at({ "CF-Connecting-IP": "" })).toEqual({ kind: "request", ip: null });
   });
 });

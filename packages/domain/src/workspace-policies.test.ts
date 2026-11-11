@@ -483,6 +483,8 @@ describe("describePolicy", () => {
         readerDomains: ["a.example", "b.example"],
         shareLinks: "password_required",
         shareLinkMaxDays: 30,
+        ipAllowlist: null,
+        tokenIpAllowlist: null,
       }),
     ).toEqual([
       "public access forbidden",

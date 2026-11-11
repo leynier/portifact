@@ -5,11 +5,16 @@
 // apply it (access, publish, share links, transfer) read nothing more.
 import {
   DEFAULT_POLICY,
+  type PolicyField,
   type PolicyImpact,
+  type PolicyPreview,
+  type RequestContext,
+  type SingleFamilyLists,
   WORKSPACE_POLICIES,
   type WorkspacePolicy,
   WorkspacePolicyExport,
   WorkspacePolicyJobPayload,
+  type WorkspacePolicyShown,
 } from "@portifact/contracts";
 import {
   type Db,
@@ -26,11 +31,14 @@ import {
   changedFields,
   checkPolicyDefaults,
   checkPolicyImpact,
+  checkPolicyKeepsCaller,
+  checkSingleFamily,
   type Entitlements,
   entitlements,
   fail,
   hasFeature,
   lifetimeCutoff,
+  liftedFields,
   normalizePolicy,
   ok,
   policyChangeDetail,
@@ -40,6 +48,10 @@ import {
   type Result,
   readerAllowed,
   requireFeature,
+  shownPolicy,
+  singleFamilyLists,
+  storedPolicy,
+  withoutRequestPolicies,
 } from "@portifact/domain";
 import { and, asc, eq, gt, isNull, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -59,13 +71,18 @@ const l = schema.shareLinks;
 const s = schema.shareSessions;
 
 export interface PolicyState {
-  policy: WorkspacePolicy;
+  /** The network allowlists are `hidden` unless the caller is an admin (decision 0020). */
+  policy: WorkspacePolicyShown;
   revision: number;
   /** Whether the plan includes `policies`. */
   enabled: boolean;
   /** Whether the caller may change them. */
   editable: boolean;
   domainVerified: boolean;
+  /** The caller's address as this request reached the app, for admins only; never stored. */
+  yourIp: string | null;
+  /** Active service tokens, for admins only: what a people-only list leaves unbound. */
+  serviceTokens: number | null;
 }
 
 interface PolicyRow {
@@ -93,7 +110,9 @@ async function scopedPolicy(
 ): Promise<Result<{ row: PolicyRow; actor: Actor }>> {
   const row = await policyRow(global, slug);
   if (!row) return missingWorkspace();
-  const actor = await actorOn(global, userId, row.id);
+  const resolved = await actorOn(global, userId, row.id);
+  if (!resolved.ok) return resolved;
+  const actor = resolved.value;
   if (!actor) return missingWorkspace();
   const allowed = authorize(actor, action);
   if (!allowed.ok) return allowed;
@@ -116,13 +135,30 @@ async function stateOf(
   actor: Actor,
   now: number,
 ): Promise<PolicyState> {
+  // Reaching here means the network policy admitted the caller, so an admin sees the networks.
+  const admin = can(actor, "policies");
   return {
-    policy: row.policy,
+    policy: shownPolicy(row.policy, admin),
     revision: row.revision,
     enabled: hasFeature(await ownerEntitlements(global, row.id, now), "policies"),
-    editable: can(actor, "policies"),
+    editable: admin,
     domainVerified: await domainVerified(global, row.id),
+    yourIp: admin && global.request.kind === "request" ? global.request.ip : null,
+    serviceTokens: admin ? await activeTokens(global, row.id, now) : null,
   };
+}
+
+function activeTokensQuery(global: GlobalDb, workspaceId: string, now: number) {
+  const t = schema.serviceTokens;
+  return global
+    .select({ n: sql<number>`count(*)` })
+    .from(t)
+    .where(and(eq(t.workspaceId, workspaceId), gt(t.expiresAt, now)));
+}
+
+async function activeTokens(global: GlobalDb, workspaceId: string, now: number): Promise<number> {
+  const [row] = await activeTokensQuery(global, workspaceId, now);
+  return Number(row?.n ?? 0);
 }
 
 /**
@@ -210,7 +246,10 @@ export async function policyImpact(
   };
 }
 
-/** Validates a proposed policy for the workspace: the domains and the `domain` default. */
+/**
+ * Validates a proposed policy for the workspace: the domains, the networks, the `domain` default
+ * and lock-out safety (decision 0020): a people allowlist must admit the request saving it.
+ */
 async function checkProposal(
   global: GlobalDb,
   workspaceId: string,
@@ -218,6 +257,8 @@ async function checkProposal(
 ): Promise<Result<WorkspacePolicy>> {
   const normalized = normalizePolicy(input);
   if (!normalized.ok) return normalized;
+  const keeps = checkPolicyKeepsCaller(normalized.value, global.request);
+  if (!keeps.ok) return keeps;
   const defaults = checkPolicyDefaults(
     normalized.value,
     normalized.value.defaultAccess === "domain" ? await domainVerified(global, workspaceId) : true,
@@ -226,23 +267,59 @@ async function checkProposal(
   return normalized;
 }
 
+/**
+ * Who a network allowlist would bind (decision 0020), as counts: the workspace's members when the
+ * people allowlist is set, its active service tokens when the token allowlist is. Portifact keeps
+ * nobody's address, so it cannot say who is outside the networks; the admin saving is checked.
+ */
+async function networkReach(
+  global: GlobalDb,
+  workspaceId: string,
+  current: WorkspacePolicy,
+  next: WorkspacePolicy,
+  now: number,
+): Promise<PolicyPreview["networks"]> {
+  if (next.ipAllowlist === null && next.tokenIpAllowlist === null) return null;
+  const m = schema.workspaceMembers;
+  const [members, tokens] = await global.batch([
+    global.select({ n: sql<number>`count(*)` }).from(m).where(eq(m.workspaceId, workspaceId)),
+    activeTokensQuery(global, workspaceId, now),
+  ]);
+  const active = Number(tokens[0]?.n ?? 0);
+  return {
+    members: next.ipAllowlist === null ? 0 : Number(members[0]?.n ?? 0),
+    tokens: next.tokenIpAllowlist === null ? 0 : active,
+    // Tokens are bound only by their own list: with only the people list they work from anywhere.
+    unboundTokens: next.ipAllowlist !== null && next.tokenIpAllowlist === null ? active : 0,
+    singleFamily: singleFamilyLists(current, next),
+  };
+}
+
 /** What saving a policy would change, for the admins before they save. */
 export async function previewWorkspacePolicy(
   regions: Regions,
   input: { userId: string; slug: string; policy: WorkspacePolicy; now: number },
-): Promise<Result<PolicyImpact>> {
+): Promise<Result<PolicyPreview>> {
   const found = await scopedPolicy(regions.global, input.userId, input.slug, "policies");
   if (!found.ok) return found;
   const proposal = await checkProposal(regions.global, found.value.row.id, input.policy);
   if (!proposal.ok) return proposal;
-  return ok(
-    await policyImpact(
-      regionalOf(regions, found.value.row),
+  const impact = await policyImpact(
+    regionalOf(regions, found.value.row),
+    found.value.row.id,
+    proposal.value,
+    input.now,
+  );
+  return ok({
+    ...impact,
+    networks: await networkReach(
+      regions.global,
       found.value.row.id,
+      found.value.row.policy,
       proposal.value,
       input.now,
     ),
-  );
+  });
 }
 
 /** The `workspace_policy` job, in the batch that saves a policy, on the same condition. */
@@ -276,6 +353,8 @@ export async function setWorkspacePolicy(
     revision: number;
     /** The impact the admin saw in the preview and accepted. */
     confirmed?: PolicyImpact | undefined;
+    /** The single-family lists the preview reported and the admin accepted (decision 0020). */
+    confirmedSingleFamily?: SingleFamilyLists | undefined;
     now: number;
   },
 ): Promise<Result<PolicyState>> {
@@ -295,12 +374,18 @@ export async function setWorkspacePolicy(
     const gate = requireFeature(await ownerEntitlements(global, row.id, input.now), "policies");
     if (!gate.ok) return gate;
   }
+  // A list covering one address family is never saved without the admin confirming exactly it.
+  const families = checkSingleFamily(
+    singleFamilyLists(row.policy, next),
+    input.confirmedSingleFamily,
+  );
+  if (!families.ok) return families;
   const impact = await policyImpact(regionalOf(regions, row), row.id, next, input.now);
   const confirmed = checkPolicyImpact(impact, input.confirmed);
   if (!confirmed.ok) return confirmed;
 
   const condition = sql`${stillAdmin(row.id, input.userId)} and exists (select 1 from ${w} where ${w.id} = ${row.id} and ${w.policyRevision} = ${row.revision})`;
-  const stored = changedFields(DEFAULT_POLICY, next).length === 0 ? null : next;
+  const stored = storedPolicy(next);
   const results = await global.batch([
     auditEvent(
       global,
@@ -790,29 +875,50 @@ export async function exportWorkspacePolicies(global: GlobalDb): Promise<Workspa
   );
 }
 
-export interface ApplyPoliciesResult {
-  /** Policies set again. */
-  applied: number;
-  /** Already as exported, or the workspace is gone. */
-  skipped: number;
-  /** Workspaces with a policy the file does not list: the operator decides whether to lift it. */
-  extra: string[];
-}
+export type ApplyPoliciesResult =
+  | {
+      ok: true;
+      /** Policies set again. */
+      applied: number;
+      /** Already as exported, or the workspace is gone. */
+      skipped: number;
+      /** Workspaces with a policy the file does not list: the operator decides whether to lift it. */
+      extra: string[];
+      /**
+       * Workspaces left as they are because the file would lift a restriction they have now (an
+       * export older than it), with the fields; applied only with `allowLifting`.
+       */
+      lifting: { workspaceId: string; fields: PolicyField[] }[];
+    }
+  /** An item that is not a valid policy (its index in the file): nothing was applied. */
+  | { ok: false; index: number; message: string };
 
 /**
  * Sets the exported policies again after a D1 Time Travel restore, which rewinds them with the
- * workspace rows and could lift one an admin set after the restore point. Each change records
- * `policy.changed` with the operator as actor and writes the `workspace_policy` job, in one global
- * batch conditioned on the revision read. It never lifts a policy: a workspace with one the file
+ * workspace rows and could lift one an admin set after the restore point. Every item is
+ * validated and normalized first, as a save would (`normalizePolicy`): one invalid item refuses
+ * the whole file and nothing is applied, so a hand-edited or corrupted export can never store a
+ * range enforcement cannot read. Each change records `policy.changed` with the operator as actor
+ * and writes the `workspace_policy` job, in one global batch conditioned on the revision read. It
+ * never lifts a restriction the workspace has now (`liftedFields`) unless `allowLifting` says
+ * so: those workspaces are reported and left as they are. A workspace with a policy the file
  * does not list is reported. Running it again changes nothing.
  */
 export async function applyWorkspacePolicies(
   global: GlobalDb,
-  items: readonly WorkspacePolicyExport[],
+  input: readonly WorkspacePolicyExport[],
   now: number,
+  options: { allowLifting?: boolean } = {},
 ): Promise<ApplyPoliciesResult> {
+  const items: WorkspacePolicyExport[] = [];
+  for (const [index, item] of input.entries()) {
+    const normalized = normalizePolicy(item.policy);
+    if (!normalized.ok) return { ok: false, index, message: normalized.message };
+    items.push({ ...item, policy: normalized.value });
+  }
   let applied = 0;
   let skipped = 0;
+  const lifting: { workspaceId: string; fields: PolicyField[] }[] = [];
   for (const item of items) {
     const [row] = await global
       .select({ policy: w.policy, revision: w.policyRevision })
@@ -822,6 +928,11 @@ export async function applyWorkspacePolicies(
     const current = row ? policyOf(row.policy) : null;
     if (!row || !current || changedFields(current, item.policy).length === 0) {
       skipped += 1;
+      continue;
+    }
+    const lifted = liftedFields(current, item.policy);
+    if (lifted.length > 0 && !options.allowLifting) {
+      lifting.push({ workspaceId: item.workspaceId, fields: lifted });
       continue;
     }
     const condition = sql`exists (select 1 from ${w} where ${w.id} = ${item.workspaceId} and ${w.policyRevision} = ${row.revision})`;
@@ -850,7 +961,11 @@ export async function applyWorkspacePolicies(
         : []),
       global
         .update(w)
-        .set({ policy: item.policy, policyRevision: row.revision + 1, updatedAt: now })
+        .set({
+          policy: storedPolicy(item.policy),
+          policyRevision: row.revision + 1,
+          updatedAt: now,
+        })
         .where(and(eq(w.id, item.workspaceId), eq(w.policyRevision, row.revision)))
         .returning({ id: w.id }),
     ]);
@@ -861,5 +976,66 @@ export async function applyWorkspacePolicies(
   const extra = (await exportWorkspacePolicies(global))
     .map((item) => item.workspaceId)
     .filter((id) => !listed.has(id));
-  return { applied, skipped, extra };
+  return { ok: true, applied, skipped, extra, lifting };
+}
+
+export type ClearRequestPoliciesResult =
+  | { outcome: "cleared"; fields: string[] }
+  | { outcome: "unchanged" }
+  | { outcome: "missing" }
+  /** The policy kept changing under it (`CLEAR_ATTEMPTS` times): run the command again. */
+  | { outcome: "conflict" };
+
+/** How many times the escape hatch tries again when a concurrent save moved the revision. */
+export const CLEAR_ATTEMPTS = 3;
+
+/**
+ * The operator's escape hatch (decision 0020, docs/operations.md): lifts exactly the request
+ * policies (both network allowlists) of a workspace whose admins locked themselves out, keeping
+ * every other policy. Recorded as a `policy.changed` event by the operator, in the batch that
+ * changes the row, conditioned on the revision read. Never behind the plan: it only loosens.
+ */
+export async function clearRequestPolicies(
+  global: GlobalDb,
+  workspaceId: string,
+  now: number,
+  attempt = 1,
+): Promise<ClearRequestPoliciesResult> {
+  const [row] = await global
+    .select({ policy: w.policy, revision: w.policyRevision })
+    .from(w)
+    .where(eq(w.id, workspaceId))
+    .limit(1);
+  if (!row) return { outcome: "missing" };
+  const current = policyOf(row.policy);
+  const next = withoutRequestPolicies(current);
+  const fields = changedFields(current, next);
+  if (fields.length === 0) return { outcome: "unchanged" };
+  const condition = sql`exists (select 1 from ${w} where ${w.id} = ${workspaceId} and ${w.policyRevision} = ${row.revision})`;
+  const stored = storedPolicy(next);
+  const results = await global.batch([
+    auditEvent(
+      global,
+      {
+        ownerId: workspaceId,
+        kind: "policy.changed",
+        actor: { type: "operator" },
+        targetId: workspaceId,
+        detail: policyChangeDetail(current, next, false),
+        now,
+      },
+      condition,
+    ),
+    global
+      .update(w)
+      .set({ policy: stored, policyRevision: row.revision + 1, updatedAt: now })
+      .where(and(eq(w.id, workspaceId), eq(w.policyRevision, row.revision)))
+      .returning({ id: w.id }),
+  ]);
+  // A concurrent save moved the revision: try again on what it wrote, a bounded number of times.
+  if ((results.at(-1) as unknown[]).length === 0) {
+    if (attempt >= CLEAR_ATTEMPTS) return { outcome: "conflict" };
+    return clearRequestPolicies(global, workspaceId, now, attempt + 1);
+  }
+  return { outcome: "cleared", fields };
 }

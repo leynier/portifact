@@ -327,6 +327,13 @@ describe("login page", () => {
     expect(location.assigned).toEqual([]);
   });
 
+  it("explains that a workspace's network policy refused the artifact", async () => {
+    api.on("GET", "/get-session", session("ada@example.test"));
+    await open("?error=network_refused");
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.network_refused);
+    expect(location.assigned).toEqual([]);
+  });
+
   it("explains that too many artifacts were opened in a short time", async () => {
     api.on("GET", "/get-session", session("ada@example.test"));
     await open("?error=read_rate_limited");

@@ -9,6 +9,7 @@ import {
   ERROR_STATUS,
   REVIEW_SESSION,
   type ReviewKind,
+  requestContextOf,
 } from "@portifact/contracts";
 import {
   type AccessDb,
@@ -21,6 +22,8 @@ import {
   type RegionHandles,
   type Regions,
   regionsFromEnv,
+  withBindings,
+  withRequestContext,
 } from "@portifact/db";
 import {
   canonicalLocation,
@@ -32,6 +35,7 @@ import {
   isArtifactId,
   isLoggedLinkOpening,
   isLoggedOpening,
+  networkDecision,
   normalizePath,
   pageView,
   type TrafficCycle,
@@ -46,6 +50,7 @@ import {
   recordOpenings,
   recordTraffic,
   recordViews,
+  reportUnreadablePolicy,
 } from "@portifact/services";
 import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
@@ -138,7 +143,8 @@ const PAGES: Record<
   | "slowDown"
   | "reviewEnded"
   | "endRefused"
-  | "noBarRefused",
+  | "noBarRefused"
+  | "networkRefused",
   string
 > = {
   notFound: "This artifact does not exist or is no longer available",
@@ -155,6 +161,8 @@ const PAGES: Record<
   reviewEnded: "Review ended. You can close this tab",
   endRefused: "Use End review in the review tab to end the review",
   noBarRefused: "Open this link from the Portifact viewer to see the artifact without the bar",
+  networkRefused:
+    "This workspace only allows access from its approved networks. Connect from one of them, or ask a workspace admin",
 };
 
 /** The request headers every answer of this Worker depends on. */
@@ -279,7 +287,9 @@ async function route(
   logRegionOpening: LogOpening,
   countRegionView: CountView,
 ): Promise<Response> {
-  let env = workerEnv;
+  // The request context (decision 0020): read and review sessions renew through `actorOn`, which
+  // applies a workspace's network policy to this request.
+  let env = withRequestContext(workerEnv, requestContextOf(request));
   if (request.method !== "GET" && request.method !== "HEAD") {
     return message(405, PAGES.methodNotAllowed, { allow: "GET, HEAD" });
   }
@@ -318,7 +328,7 @@ async function route(
   // every read of the bytes uses it) and its traffic, opening and view counters.
   const db = handles.db;
   const region = handles.region;
-  if (handles.bucket) env = { ...env, ARTIFACTS: handles.bucket };
+  if (handles.bucket) env = withBindings(env, { ARTIFACTS: handles.bucket });
   const countTraffic: CountTraffic = (charge) => countRegionTraffic(charge, region);
   const logOpening: LogOpening = (opening) => logRegionOpening(opening, region);
   const countView: CountView = (view) => countRegionView(view, region);
@@ -476,6 +486,22 @@ async function serve(
   linkId?: string,
 ): Promise<Response> {
   const { request, cycle, now } = delivery;
+  // A workspace's network policy (decision 0020), part of authorization, so a refusal charges
+  // nothing: it binds the signed-in readers of a `workspace` artifact, who are all its members,
+  // on every request. The allowlist came with the artifact lookup, so it adds no read. Members
+  // reading another mode are bound when their session renews (`actorOn`), within a minute;
+  // public visitors and share links are for people outside and are never bound.
+  const network = networkDecision({
+    accessMode: artifact.accessMode,
+    networks: artifact.networks,
+    signedIn: visitorId !== null && linkId === undefined,
+    ip: request.headers.get("CF-Connecting-IP"),
+  });
+  if (network !== "allowed") {
+    // A stored list that does not parse refuses (fail closed) and is logged by owner, no address.
+    if (network === "unreadable") reportUnreadablePolicy(artifact.ownerId);
+    return withCookies(message(403, PAGES.networkRefused), setCookies);
+  }
   // The plan came with the artifact lookup, so the quota and the view count add no read.
   const plan = entitlements(artifact.plan, now);
   if (trafficExhausted(artifact.traffic, plan.limits)) {

@@ -2457,6 +2457,58 @@ export const ja = {
     "{reason, select, key_unavailable {接続の認証情報を開けなくなりました} other {{service, select, github {GitHub} other {Linear}} が接続の認証情報を拒否しました}}",
   "audit.kind.issueCreated":
     "スレッドから {target} に {service, select, github {GitHub} other {Linear}} の issue を作成しました {message, select, true {(最初のメッセージを含む)} other {(コメントのテキストなし)}}",
+  "policies.networks.legend": "人のためのネットワーク",
+  "policies.networks.hint":
+    "管理者を含むメンバーは、これらのネットワークからのみワークスペースを操作し、ワークスペース限定のartifactを閲覧できます。公開artifact、共有リンク、共有した外部の人には影響しません。",
+  "policies.networks.any": "すべてのネットワーク",
+  "policies.networks.anyHint": "どこからでもワークスペースにアクセスできます。",
+  "policies.networks.only": "これらのネットワークのみ",
+  "policies.networks.onlyHint":
+    "ほかのアドレスからのリクエストは、理由を示すメッセージとともに拒否されます。",
+  "policies.networks.ranges": "許可するIPアドレスと範囲",
+  "policies.networks.rangesHint":
+    "1行に1つ、192.0.2.0/24 や 2001:db8::/32 のように最大 {max} 件まで。単一のアドレスは1台のデバイスを表します。",
+  "policies.networks.rangesError":
+    "192.0.2.0/24 のように、1〜{max} 件のIPアドレスまたは範囲を入力してください。すべてのアドレスを含む範囲（/0）は使えません。",
+  "policies.networks.yourIp":
+    "現在のアドレスは {ip} です。リストに含めないと、保存したときに自分がアクセスできなくなります。",
+  "policies.networks.notStored":
+    "Portifact はリクエストごとに Cloudflare が報告するアドレスを確認し、保存することはありません。",
+  "policies.networks.hidden":
+    "このワークスペースには承認済みのネットワークからのみアクセスできます。リストは管理者が確認できます。",
+  "policies.networks.limits":
+    "共有VPNなどで承認済みのネットワークに入った人は止められません。また、制限されるのは人のアカウントであり、ワークスペース外にすでに共有したartifactではありません。",
+  "policies.tokenNetworks.legend": "サービストークンのためのネットワーク",
+  "policies.tokenNetworks.hint":
+    "サービストークンには人のためのリストは適用されません。CIランナーのアドレスなど、専用のリストを設定してください。",
+  "policies.tokenNetworks.anyHint": "サービストークンはどこからでも使えます。",
+  "policies.tokenNetworks.onlyHint": "ほかのアドレスから使われたサービストークンは拒否されます。",
+  "policies.tokenNetworks.hidden":
+    "サービストークンは承認済みのネットワークからのみ使えます。リストはワークスペースの管理者が確認できます。",
+  "policies.impact.networksTitle": "このワークスペースにアクセスできるネットワークを制限しますか？",
+  "policies.impact.members":
+    "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}は許可されたネットワークからのみワークスペースにアクセスできるようになります",
+  "policies.impact.tokens":
+    "{count, plural, one {# 個のサービストークン} other {# 個のサービストークン}}は許可されたネットワークからのみ使えるようになります",
+  "policies.impact.networksNote":
+    "Portifact は誰のアドレスも保存しないため、現在これらのネットワーク外にいる人を判断できません。あなた自身のアドレスは含まれています。",
+  "policies.impact.networksConfirm": "ネットワークを制限",
+  "space.blocked.title": "このネットワークからは利用できません",
+  "space.blocked.body":
+    "{workspace} は承認済みのネットワークからのアクセスのみを許可しており、このネットワークはそのいずれでもありません。承認済みのネットワークに接続するか、ワークスペースの管理者に問い合わせてください。ほかのスペースは引き続き使えます。",
+  "audit.policy.networks":
+    "人は {count, plural, one {# 個のネットワーク} other {# 個のネットワーク}}からのみ",
+  "audit.policy.networksAny": "人はすべてのネットワークから",
+  "audit.policy.tokenNetworks":
+    "サービストークンは {count, plural, one {# 個のネットワーク} other {# 個のネットワーク}}からのみ",
+  "audit.policy.tokenNetworksAny": "サービストークンはすべてのネットワークから",
+  "policies.networks.bothFamilies":
+    "IPv4とIPv6の両方を使うネットワークには両方の範囲が必要です。ブラウザはどちらでもPortifactに接続でき、リストにないアドレスファミリーで届いたリクエストは拒否されます。",
+  "policies.impact.singleFamily":
+    "{list, select, people {人のためのリスト} other {サービストークンのためのリスト}}には{family, select, ipv4 {IPv4} other {IPv6}}の範囲しかありません。{family, select, ipv4 {IPv6} other {IPv4}}で届くリクエストは、これらのネットワークからでも拒否されます",
+  "policies.impact.unboundTokens":
+    "{count, plural, one {# 個のサービストークン} other {# 個のサービストークン}}は引き続きどのネットワークからでも使えます。サービストークンも制限するには、専用のリストを設定してください",
+  "policies.impact.familiesConfirm": "理解しました。保存する",
   "audit.group.exports": "エクスポートとストリーム",
   "audit.kind.streamCreated":
     "ログの {host} への送信を開始しました{start, select, oldest {（保持されている最も古いイベントから）} other {}}",

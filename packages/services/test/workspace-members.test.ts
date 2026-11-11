@@ -112,8 +112,10 @@ async function invited(t: Team, role: WorkspaceRole = "editor", now = NOW) {
   return { invitee, token: (sender.sent[0] as InvitationMessage).token };
 }
 
-const roleOf = async (t: Team, userId: string) =>
-  (await actorOn(global(), userId, t.id))?.role ?? null;
+const roleOf = async (t: Team, userId: string) => {
+  const actor = await actorOn(global(), userId, t.id);
+  return actor.ok ? (actor.value?.role ?? null) : null;
+};
 
 describe("naming a workspace", () => {
   it("resolves a slug to the member's actor, and anything else like a missing workspace", async () => {
