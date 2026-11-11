@@ -1,9 +1,11 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
-  collisionKey,
+  downloadCollisionKey,
   isGitSegment,
   normalizePath,
+  publishCollisionKey,
+  validateDownloadPaths,
   validateManifestPaths,
   windowsNameProblem,
 } from "./paths.ts";
@@ -149,21 +151,35 @@ describe("validateManifestPaths", () => {
   });
 });
 
-describe("collisionKey", () => {
-  it.each([
-    ["A.md", "a.md"],
-    ["ſ.txt", "s.txt"],
-    ["K.txt", "k.txt"],
-    ["straße.md", "strasse.md"],
-    ["é.md", "é.md"],
-  ])("folds %s and %s to one key, as Windows and macOS store them", (a, b) => {
-    expect(collisionKey(a)).toBe(collisionKey(b));
+describe("the two collision keys", () => {
+  const PAIRS = [
+    ["\u017f.txt", "s.txt"],
+    ["stra\u00dfe.html", "strasse.html"],
+  ];
+
+  it.each([["A.md", "a.md"], ["\u212a.txt", "k.txt"], ...PAIRS, ["e\u0301.md", "\u00e9.md"]])(
+    "the download key folds %s and %s to one name, as Windows and macOS store them",
+    (a, b) => {
+      expect(downloadCollisionKey(a)).toBe(downloadCollisionKey(b));
+    },
+  );
+
+  it.each(PAIRS)("publishing still accepts %s next to %s, as before", (a, b) => {
+    expect(validateManifestPaths([a, b])).toEqual({ ok: true, value: [a, b] });
+    expect(validateManifestPaths([`docs/${a}`, `docs/${b}`]).ok).toBe(true);
   });
 
-  it("refuses two manifest paths that would be one file on a folding file system", () => {
-    expect(validateManifestPaths(["ſ.txt", "s.txt"]).ok).toBe(false);
-    expect(validateManifestPaths(["docs/K.md", "docs/k.md"]).ok).toBe(false);
-    expect(validateManifestPaths(["a.md", "b.md"]).ok).toBe(true);
+  it.each(PAIRS)("downloading refuses %s next to %s before writing either", (a, b) => {
+    expect(validateDownloadPaths([a, b])).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+
+  it("keeps what publishing refused before: case pairs, and NFC next to NFD (one canonical path)", () => {
+    expect(validateManifestPaths(["A.md", "a.md"]).ok).toBe(false);
+    // The Kelvin sign lower-cases to `k`: publishing refused it before, and still does.
+    expect(validateManifestPaths(["\u212a.txt", "k.txt"]).ok).toBe(false);
+    // An NFD path is made canonical (NFC) at publish, so it is the same path as its NFC twin.
+    expect(validateManifestPaths(["e\u0301.md", "\u00e9.md"]).ok).toBe(false);
+    expect(publishCollisionKey("Stra\u00dfe.HTML")).toBe("stra\u00dfe.html");
   });
 });
 

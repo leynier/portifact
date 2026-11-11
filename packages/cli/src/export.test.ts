@@ -404,7 +404,13 @@ describe("portifact export", () => {
     const doc = server.api.seed({ type: "site", currentVersionId: null, versions: 0 });
     server.api.seedVersion(
       doc,
-      { published: { "index.html": "i", "\u017f.txt": "long s", "s.txt": "s" } },
+      {
+        published: {
+          "index.html": "i",
+          "stra\u00dfe.html": "one",
+          "strasse.html": "two",
+        },
+      },
       { entrypoint: "index.html" },
     );
     server.api.audit.set("personal", []);
@@ -412,7 +418,8 @@ describe("portifact export", () => {
     const result = await h.invoke("export", out, "--json");
     expect(result.code).toBe(1);
     expect(JSON.parse(result.stdout).error.code).toBe("server_error");
-    expect((await files(out)).some((file) => file.endsWith(".txt"))).toBe(false);
+    expect(JSON.parse(result.stdout).error.message).toContain("collides with another file");
+    expect((await files(out)).some((file) => file.includes("stra"))).toBe(false);
   });
 
   it("prints no control or bidirectional characters from a server path", async () => {

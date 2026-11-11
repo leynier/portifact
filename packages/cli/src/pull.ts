@@ -12,7 +12,7 @@ import {
   type DownloadLink,
   VersionDownload,
 } from "@portifact/contracts";
-import { exportPathSegments, isGitSegment, validateManifestPaths } from "@portifact/domain";
+import { exportPathSegments, isGitSegment, validateDownloadPaths } from "@portifact/domain";
 import { callApi, RETRY_ATTEMPTS, withRetries } from "./api.ts";
 import { parseArtifactId } from "./artifacts.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
@@ -164,7 +164,8 @@ export function checkDownloadPaths(
   describe: (path: string, reason: string) => string = messages.errors.unsafePath,
 ): void {
   const paths = download.files.map((file) => file.path);
-  const checked = validateManifestPaths(paths);
+  // The download rules: the reader's file system decides which names are one file.
+  const checked = validateDownloadPaths(paths);
   if (!checked.ok) {
     const path = paths.find((p) => checked.message.startsWith(`${p}:`)) ?? "";
     // The reason repeats the path: only the part after it, so the path is printed once, cleaned.
