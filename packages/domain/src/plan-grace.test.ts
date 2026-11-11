@@ -22,10 +22,12 @@ import {
   expirySlot,
   graceAfterChange,
   graceForecastSteps,
+  graceHoldEndDrops,
   graceScanStep,
   graceSlotOf,
   hasFeature,
   holdsFeature,
+  keptAt,
   liveGraceSlots,
   type OwnerPlanRecord,
   readGrace,
@@ -570,5 +572,75 @@ describe("the forecast of an unreadable grace", () => {
     // A readable one still forecasts.
     const { next } = changed(row(), null, NOW);
     expect(graceForecastSteps(next, NOW + DAY).map((step) => step.kind)).toContain("versions");
+  });
+});
+
+describe("the forecast of overlapping holds", () => {
+  const team = graceSlotOf(entitlements(row({ plan: "team" }), NOW), "lowered", NOW - 50 * DAY);
+  const pro = graceSlotOf(entitlements(row(), NOW), "removed", NOW);
+
+  it("dates a kind where its retention drops, not at an earlier hold another still covers", () => {
+    // Team lowered to Pro 50 days ago (ends in 10 days), then Pro removed now (ends in 60).
+    const record = row({ plan: "free", grace: [team, pro] as GraceSlot[] });
+    const steps = graceForecastSteps(record, NOW);
+    const at = (kind: string) => steps.filter((s) => s.kind === kind).map((s) => s.from);
+    // Team keeps more versions than Pro: they drop twice, at each end.
+    expect(at("versions")).toEqual([team.until, pro.until]);
+    // Team and Pro keep the access log as long: nothing goes at Team's end.
+    expect(PLANS.team.limits.accessLogRetentionDays).toBe(PLANS.pro.limits.accessLogRetentionDays);
+    expect(at("accessLog")).toEqual([pro.until]);
+    expect(entitlements(record, team.until + 1).limits.accessLogRetentionDays).toBe(
+      PLANS.pro.limits.accessLogRetentionDays,
+    );
+    expect(at("pins")).toEqual([pro.until]);
+    // Each step says what is kept on either side of it.
+    const first = steps.find((s) => s.kind === "versions" && s.from === team.until);
+    expect(first?.before.retainedPreviousVersions).toBe(PLANS.team.limits.retainedPreviousVersions);
+    expect(first?.after.retainedPreviousVersions).toBe(PLANS.pro.limits.retainedPreviousVersions);
+  });
+
+  it("lets nothing go at the end of a hold a later one covers, and says so for its emails", () => {
+    const earlier = graceSlotOf(entitlements(row(), NOW), "removed", NOW - 50 * DAY);
+    const later = graceSlotOf(entitlements(row({ plan: "team" }), NOW), "removed", NOW);
+    const record = row({ plan: "free", grace: [earlier, later] as GraceSlot[] });
+    expect([...new Set(graceForecastSteps(record, NOW).map((s) => s.from))]).toEqual([later.until]);
+    expect(graceHoldEndDrops(record, earlier)).toBe(false);
+    expect(graceHoldEndDrops(record, later)).toBe(true);
+  });
+
+  it("matches the retention in force on either side of every step, for any plans and holds", () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.tuple(planArb, fc.integer({ min: 0, max: 59 })), {
+          minLength: 1,
+          maxLength: 4,
+        }),
+        (drops) => {
+          const slots = drops.map(([plan, ago]) =>
+            graceSlotOf(entitlements(row({ plan }), NOW), "lowered", NOW - ago * DAY),
+          );
+          const record = row({ plan: "free", grace: slots });
+          const steps = graceForecastSteps(record, NOW);
+          for (const step of steps) {
+            expect(step.from).toBeGreaterThan(NOW);
+            expect(step.before).toEqual(keptAt(record, step.from - 1));
+            expect(step.after).toEqual(keptAt(record, step.from));
+          }
+          // Between steps nothing drops: at every other moment what is kept stays the same.
+          const moments = [...new Set(slots.map((s) => s.until))].filter((at) => at > NOW);
+          for (const at of moments) {
+            const before = keptAt(record, at - 1);
+            const after = keptAt(record, at);
+            const listed = steps.filter((s) => s.from === at).map((s) => s.kind);
+            expect(listed.includes("accessLog")).toBe(
+              after.accessLogRetentionDays < before.accessLogRetentionDays,
+            );
+            expect(listed.includes("auditEvents")).toBe(
+              after.auditRetentionDays < before.auditRetentionDays,
+            );
+          }
+        },
+      ),
+    );
   });
 });

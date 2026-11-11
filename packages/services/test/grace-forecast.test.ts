@@ -110,7 +110,7 @@ describe("the grace forecast", () => {
     expect((await forecast(token)).ok).toBe(true);
   });
 
-  it("counts exactly what the scans delete after the grace", async () => {
+  it("counts exactly what the scans delete when the clock passes the grace's end", async () => {
     const owner = await user("Pro");
     const reader = await user("Reader");
     value(await grant(owner.id, "pro", NOW - 100 * DAY));
@@ -139,9 +139,13 @@ describe("the grace forecast", () => {
       const [row] = await access().select({ n: count() }).from(e).where(eq(e.ownerId, owner.id));
       return Number(row?.n ?? 0);
     };
+    // What goes on its own before the step (the held plan's own retention) is not the step's.
+    const end = NOW + GRACE;
+    for (let i = 0; i < 5; i += 1) await pruneVersions(db(), env.ARTIFACTS, end - 1);
+    await pruneAccessEvents(access(), end - 1);
     const versionsBefore = await countVersions();
     const openingsBefore = await countOpenings();
-    const at = NOW + GRACE + 1;
+    const at = end + 1;
     for (let i = 0; i < 5; i += 1) await pruneVersions(db(), env.ARTIFACTS, at);
     await pruneAccessEvents(access(), at);
     expect(byKind.versions).toBe(versionsBefore - (await countVersions()));

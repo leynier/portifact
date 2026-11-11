@@ -56,6 +56,7 @@ import {
   planActive,
   type Result,
   readGrace,
+  readGraceNotices,
   requireFeature,
   storedGraceSlots,
   unreadableGraceSlot,
@@ -532,7 +533,7 @@ export async function setOwnerPlan(
       w
         .insert(p)
         .select(
-          sql`select ${input.ownerId}, ${input.plan}, ${input.seats}, ${input.validUntil}, ${overrides === null ? null : JSON.stringify(overrides)}, ${input.grantedBy.trim()}, ${input.note}, ${input.now}, ${input.now}, ${graceJson(change.slots)} where ${when}`,
+          sql`select ${input.ownerId}, ${input.plan}, ${input.seats}, ${input.validUntil}, ${overrides === null ? null : JSON.stringify(overrides)}, ${input.grantedBy.trim()}, ${input.note}, ${input.now}, ${input.now}, ${graceJson(change.slots)}, null where ${when}`,
         )
         .onConflictDoUpdate({
           target: p.ownerId,
@@ -1209,6 +1210,7 @@ export async function exportOwnerPlans(db: GlobalDb, now: number): Promise<Owner
       validUntil: schema.ownerPlans.validUntil,
       overrides: schema.ownerPlans.overrides,
       grace: schema.ownerPlans.grace,
+      graceNotices: schema.ownerPlans.graceNotices,
       grantedBy: schema.ownerPlans.grantedBy,
       note: schema.ownerPlans.note,
     })
@@ -1220,10 +1222,12 @@ export async function exportOwnerPlans(db: GlobalDb, now: number): Promise<Owner
     // (decision 0022), so a restore keeps holding rather than dropping it.
     const grace = readGrace(row);
     const slots = grace.unreadable ? [unreadableGraceSlot(now)] : grace.slots;
+    const notices = readGraceNotices(row.graceNotices);
     return OwnerPlanExport.parse({
       ...row,
       overrides: row.overrides !== null && overrides.success ? overrides.data : null,
       grace: slots.length === 0 ? null : slots,
+      graceNotices: notices.length === 0 ? null : notices,
     });
   });
 }
@@ -1288,6 +1292,10 @@ async function restoreOwnerPlan(db: RegionalDb, plan: OwnerPlanExport, now: numb
   const p = schema.ownerPlans;
   const guard = grantableOwner(plan.ownerId);
   const grace = plan.grace && plan.grace.length > 0 ? JSON.stringify(plan.grace) : null;
+  // The grace emails already sent come back with the row, so a restore sends none of them again
+  // (decision 0022, third delivery); an export from before them has none.
+  const notices =
+    plan.graceNotices && plan.graceNotices.length > 0 ? JSON.stringify(plan.graceNotices) : null;
   const record = { ...plan, grace: plan.grace ?? null };
   const results = (await w.batch([
     both
@@ -1296,7 +1304,7 @@ async function restoreOwnerPlan(db: RegionalDb, plan: OwnerPlanExport, now: numb
     w
       .insert(p)
       .select(
-        sql`select ${plan.ownerId}, ${plan.plan}, ${plan.seats}, ${plan.validUntil}, ${plan.overrides === null ? null : JSON.stringify(plan.overrides)}, ${plan.grantedBy}, ${plan.note}, ${now}, ${now}, ${grace} where ${guard}`,
+        sql`select ${plan.ownerId}, ${plan.plan}, ${plan.seats}, ${plan.validUntil}, ${plan.overrides === null ? null : JSON.stringify(plan.overrides)}, ${plan.grantedBy}, ${plan.note}, ${now}, ${now}, ${grace}, ${notices} where ${guard}`,
       )
       .onConflictDoUpdate({
         target: p.ownerId,
@@ -1309,6 +1317,7 @@ async function restoreOwnerPlan(db: RegionalDb, plan: OwnerPlanExport, now: numb
           note: sql`excluded.note`,
           updatedAt: sql`excluded.updated_at`,
           grace: sql`excluded.grace`,
+          graceNotices: sql`excluded.grace_notices`,
         },
       })
       .returning({ ownerId: p.ownerId }),

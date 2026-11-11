@@ -50,6 +50,7 @@ import {
   directoryNotifierFromEnv,
   domainNotifierFromEnv,
   expiryNotifierFromEnv,
+  graceNotifierFromEnv,
   type NoticeEnv,
   retentionNotifierFromEnv,
   reviewNotifierFromEnv,
@@ -317,6 +318,7 @@ export async function runQueue(
     notifier: expiryNotifierFromEnv(env, region),
     commentNotifier: commentNotifierFromEnv(env, region),
     reviewNotifier: reviewNotifierFromEnv(env, region),
+    graceNotifier: graceNotifierFromEnv(env, region),
   });
   const domainNotifier = domainNotifierFromEnv(env);
   const directoryNotifier = directoryNotifierFromEnv(env);

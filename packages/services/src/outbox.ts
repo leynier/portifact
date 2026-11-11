@@ -26,6 +26,7 @@ import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
+import { type GraceNotifier, sendGraceNotice } from "./plan-grace-notices.ts";
 import { applyOwnerPlanRegion } from "./plans.ts";
 import { type RetentionNotifier, sendRetentionNotice } from "./retention-notices.ts";
 import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
@@ -164,6 +165,8 @@ export interface JobDeps {
   retentionNotifier?: RetentionNotifier | undefined;
   /** Creates issues from threads for `thread_issue` jobs (decision 0018). */
   issues?: ThreadIssueDeps | undefined;
+  /** Sends `plan_grace_notice` emails (decision 0022, third delivery). */
+  graceNotifier?: GraceNotifier | undefined;
   /** Every region, for the deletions that reach all of them; only the job's own without it. */
   regions?: DeletionRegions | undefined;
 }
@@ -203,6 +206,7 @@ async function runRow(
     directoryNotifier,
     retentionNotifier,
     issues,
+    graceNotifier,
     regions = singleRegion(db, bucket),
   }: JobDeps,
 ): Promise<JobOutcome> {
@@ -281,6 +285,11 @@ async function runRow(
       // gives the stream a job again once streams are switched on with a key (decision 0019).
       if (!auditStreams || auditStreams.keys.length === 0) return "stale";
       return deliverAuditStream(db, row, now, auditStreams);
+    case "plan_grace_notice":
+      // Thrown, not reported done: the row stays and the job runs again where both are bound.
+      if (!graceNotifier) throw new Error("plan_grace_notice needs the grace notifier");
+      if (!access) throw new Error("plan_grace_notice needs the access log database");
+      return sendGraceNotice(db, access, row, now, graceNotifier);
   }
 }
 
