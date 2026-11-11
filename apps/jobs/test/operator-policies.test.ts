@@ -8,12 +8,15 @@ import { OPERATOR_USAGE, runOperator } from "../src/operator.ts";
 
 const NOW = Date.UTC(2026, 10, 10, 12);
 const db = () => createDb(env.DB);
+// With a network allowlist (decision 0020): a restore must not lift it either.
 const POLICY = {
   publicAccess: "forbidden",
   defaultAccess: "restricted",
   readerDomains: null,
   shareLinks: "allowed",
   shareLinkMaxDays: null,
+  ipAllowlist: ["192.0.2.0/24", "2001:db8::/32"],
+  tokenIpAllowlist: null,
 };
 
 async function workspace(policy: unknown) {
@@ -91,5 +94,93 @@ describe("operator policy commands", () => {
       "export-policies needs --out <file>.",
     );
     expect(OPERATOR_USAGE).toContain("export-policies --out <file>");
+  });
+
+  it("exports a policy stored before the network allowlists with them lifted", async () => {
+    const { ipAllowlist: _people, tokenIpAllowlist: _tokens, ...older } = POLICY;
+    const id = await workspace(older);
+    const written = new Map<string, string>();
+    await runOperator(db(), ["export-policies", "--out", "p.jsonl"], NOW, {
+      read: async () => "",
+      write: async (path, text) => {
+        written.set(path, text);
+      },
+    });
+    expect(written.get("p.jsonl")).toContain(
+      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null })}}`,
+    );
+  });
+});
+
+describe("clear-request-policies", () => {
+  const slugOf = (id: string) => id.slice(3, 23);
+
+  it("lifts only the network allowlists, as the operator, with counts in the audit log", async () => {
+    const id = await workspace({ ...POLICY, tokenIpAllowlist: ["198.51.100.7/32"] });
+    expect((await runOperator(db(), ["clear-request-policies", slugOf(id)], NOW)).output).toContain(
+      `clear-request-policies needs --confirm ${slugOf(id)}`,
+    );
+    const cleared = await runOperator(
+      db(),
+      ["clear-request-policies", slugOf(id), "--confirm", slugOf(id)],
+      NOW,
+    );
+    expect(cleared).toEqual({
+      exitCode: 0,
+      output: `Lifted ipAllowlist and tokenIpAllowlist of workspace ${slugOf(id)} (${id}); its other policies are unchanged. The audit log records it as the operator.`,
+    });
+    const [row] = await db()
+      .select({ policy: schema.workspaces.policy, revision: schema.workspaces.policyRevision })
+      .from(schema.workspaces)
+      .where(eq(schema.workspaces.id, id));
+    expect(row).toEqual({
+      policy: { ...POLICY, ipAllowlist: null, tokenIpAllowlist: null },
+      revision: 2,
+    });
+    const events = await db()
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.ownerId, id));
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "policy.changed", actorType: "operator" });
+    // Counts only: no address or range ever enters the audit log.
+    expect(events[0]?.detail).toEqual({
+      fields: ["ipAllowlist", "tokenIpAllowlist"],
+      ipRanges: null,
+      tokenIpRanges: null,
+      confirmed: false,
+    });
+    expect(JSON.stringify(events)).not.toContain("192.0.2");
+    // Again: nothing left to lift, nothing recorded.
+    expect(
+      (
+        await runOperator(
+          db(),
+          ["clear-request-policies", slugOf(id), "--confirm", slugOf(id)],
+          NOW + 1,
+        )
+      ).output,
+    ).toBe(`Workspace ${slugOf(id)} has no network allowlist; nothing changed.`);
+  });
+
+  it("stores no policy when the allowlists were all there was, and answers a missing one", async () => {
+    const id = await workspace({
+      ...POLICY,
+      publicAccess: "allowed",
+      tokenIpAllowlist: null,
+    });
+    await runOperator(db(), ["clear-request-policies", id, "--confirm", slugOf(id)], NOW);
+    const [row] = await db()
+      .select({ policy: schema.workspaces.policy })
+      .from(schema.workspaces)
+      .where(eq(schema.workspaces.id, id));
+    expect(row?.policy).toBeNull();
+    expect(
+      await runOperator(db(), ["clear-request-policies", "no-such-slug", "--confirm", "x"], NOW),
+    ).toEqual({ exitCode: 1, output: "Workspace not found." });
+    expect((await runOperator(db(), ["clear-request-policies"], NOW)).output).toContain(
+      "clear-request-policies needs a slug or workspace ID.",
+    );
+    expect(OPERATOR_USAGE).toContain("clear-request-policies <slug|workspace-id>");
   });
 });

@@ -102,7 +102,9 @@ function newInvitationId(): string {
 async function adminScope(global: GlobalDb, userId: string, slug: string) {
   const workspace = await workspaceBySlug(global, slug);
   if (!workspace) return missingWorkspace();
-  const actor = await actorOn(global, userId, workspace.id);
+  const resolved = await actorOn(global, userId, workspace.id);
+  if (!resolved.ok) return resolved;
+  const actor = resolved.value;
   if (!actor) return missingWorkspace();
   if (actor.role !== "admin") {
     return fail<never>("forbidden", "Only the workspace's admins manage members and invitations.");

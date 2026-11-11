@@ -142,6 +142,26 @@ function MissingSpace() {
   );
 }
 
+/**
+ * The screen of a workspace whose request policies refuse this network (decision 0020): one clear
+ * page instead of every list failing, while the switcher keeps the other spaces working.
+ */
+function BlockedSpace({ name }: { name: string }) {
+  const t = useT();
+  useDocumentTitle(t("space.blocked.title"));
+  return (
+    <>
+      <PageHeader title={t("space.blocked.title")} />
+      <p className="mb-6 max-w-3xl text-text-muted">
+        {t("space.blocked.body", { workspace: name })}
+      </p>
+      <Link to="/" search={{ workspace: undefined }} className="font-semibold">
+        {t("space.missing.personal")}
+      </Link>
+    </>
+  );
+}
+
 /** Pages that show one space: switching keeps the page, everything else goes to the list. */
 const SPACE_PAGES = new Set([
   "/",
@@ -421,6 +441,8 @@ export function Shell() {
       <AnnounceContext.Provider value={announce}>
         {account.data && spaceState.status === "missing" ? (
           <MissingSpace />
+        ) : account.data && space?.kind === "workspace" && space.blocked ? (
+          <BlockedSpace name={space.name} />
         ) : account.data && space ? (
           <>
             <InvitationsNotice />

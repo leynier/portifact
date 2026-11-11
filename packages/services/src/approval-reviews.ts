@@ -639,6 +639,7 @@ export async function submitApprovalVerdict(
   // A verdict is a person's judgment: a token is nobody here, like in the comments.
   if (isServiceTokenId(input.userId)) return missing();
   const standing = await commentStanding(db, input);
+  if (standing && "ok" in standing) return standing;
   if (!standing || standing.role === null) return missing();
   if (["draft", "purging", "deleted"].includes(standing.state)) return missing();
   const { artifact } = standing;
@@ -826,6 +827,7 @@ export async function getApprovalReview(
     owner = await ownerEntitlements(db.global, artifact.ownerId, input.now);
   } else {
     const standing = await commentStanding(db, input);
+    if (standing && "ok" in standing) return standing;
     if (!standing || standing.role === null) return missing();
     if (["draft", "purging", "deleted"].includes(standing.state)) return missing();
     // Visitors lose the review with the content, like the comments.

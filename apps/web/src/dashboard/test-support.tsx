@@ -413,11 +413,13 @@ export function workspace(
   overrides: Partial<Omit<FakeWorkspace, "view">> & {
     name?: string;
     policy?: WorkspacePolicy;
+    /** Its network policy refuses this browser (decision 0020). */
+    blocked?: boolean;
   } = {},
 ): FakeWorkspace {
-  const { name = `Team ${slug}`, policy = DEFAULT_POLICY, ...rest } = overrides;
+  const { name = `Team ${slug}`, policy = DEFAULT_POLICY, blocked = false, ...rest } = overrides;
   return {
-    view: { slug, name, role, region: "default", createdAt: NOW, policy },
+    view: { slug, name, role, region: "default", createdAt: NOW, policy, blocked },
     members: [
       {
         userId: "u_ada",
@@ -1087,6 +1089,7 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
       region: "default",
       createdAt: NOW,
       policy: DEFAULT_POLICY,
+      blocked: false,
     };
     server.workspaces[view.slug] = workspace(view.slug, view.role, { name: view.name });
     return json(view);
@@ -2640,16 +2643,35 @@ function policyRoute(
   const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
   if (!w) return apiError("not_found", 404);
   const admin = w.view.role === "admin";
+  // As the API (decision 0020): the network allowlists only to admins, with their own address.
+  const hidden = (list: unknown) => (list === null ? null : "hidden");
   const state = () => ({
-    policy: w.view.policy,
+    policy: admin
+      ? w.view.policy
+      : {
+          ...w.view.policy,
+          ipAllowlist: hidden(w.view.policy.ipAllowlist),
+          tokenIpAllowlist: hidden(w.view.policy.tokenIpAllowlist),
+        },
     revision: w.policyRevision,
     enabled: w.policiesAvailable,
     editable: admin,
     domainVerified: w.domains.some((domain) => domain.state === "verified"),
+    yourIp: admin ? "192.0.2.10" : null,
   });
   if (!match[2] && method === "GET") return json(state());
   if (!admin) return apiError("forbidden", 403);
-  if (match[2] && method === "POST") return json(w.policyImpact);
+  if (match[2] && method === "POST") {
+    const proposed = body?.policy as WorkspacePolicy | undefined;
+    const networks =
+      proposed?.ipAllowlist || proposed?.tokenIpAllowlist
+        ? {
+            members: proposed.ipAllowlist ? w.members.length : 0,
+            tokens: proposed.tokenIpAllowlist ? 2 : 0,
+          }
+        : null;
+    return json({ ...w.policyImpact, networks });
+  }
   if (!match[2] && method === "PUT") {
     if (body?.revision !== w.policyRevision) return apiError("version_conflict", 409);
     // As the API: a save that changes existing artifacts needs the impact the preview showed,

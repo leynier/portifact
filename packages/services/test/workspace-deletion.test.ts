@@ -76,7 +76,7 @@ async function drain(now: number) {
 describe("creating a workspace", () => {
   it("creates it with its first admin, and refuses a taken slug or a missing account", async () => {
     const { ws, admin } = await newWorkspace();
-    expect(await actorOn(db().global, admin.id, ws.id)).toMatchObject({ role: "admin" });
+    expect(await actorOn(db().global, admin.id, ws.id)).toMatchObject({ value: { role: "admin" } });
     expect(
       await createWorkspace(db().global, {
         slug: ws.slug,
@@ -162,7 +162,7 @@ describe("deleting a workspace", () => {
     ).toEqual({
       deleted: true,
     });
-    expect(await actorOn(db().global, admin.id, ws.id)).toBeNull();
+    expect(await actorOn(db().global, admin.id, ws.id)).toEqual({ ok: true, value: null });
     const [artifact] = await db()
       .select({ state: schema.artifacts.state })
       .from(schema.artifacts)
@@ -251,7 +251,7 @@ describe("deleting a workspace", () => {
       NOW + 2,
     );
     expect(applied).toMatchObject({ workspaces: 1, artifacts: 1 });
-    expect(await actorOn(db().global, admin.id, ws.id)).toBeNull();
+    expect(await actorOn(db().global, admin.id, ws.id)).toEqual({ ok: true, value: null });
     const [artifact] = await db()
       .select({ state: schema.artifacts.state })
       .from(schema.artifacts)

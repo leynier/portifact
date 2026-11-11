@@ -1,22 +1,24 @@
 // What the content Worker needs from the global database for delivery (decision 0005, "Two-region
-// audit"): the region that holds an artifact and its owner's plan.
+// audit"): the region that holds an artifact, its owner's plan and, for a workspace, the people
+// network allowlist of its policy (decision 0020), which travels with the plan everywhere below.
 //
 // - With one region bound (production today) nothing here reads anything: the region is the
 //   default one, and the delivery lookup joins the plan in its one read, exactly as before.
 // - The default region's database is the global one even beside a second region, so its
 //   artifacts keep the joined lookup too.
 // - Only an artifact in a region with its own database (the EU) cannot join the global plan: its
-//   owner's plan is cached per isolate for `PLAN_TTL_MS` (a grant or removal reaches its traffic
-//   limits and analytics within a minute), so a warm request still costs one regional read.
+//   owner's plan and network allowlist are cached per isolate for `PLAN_TTL_MS` (a grant or
+//   removal reaches its traffic limits and analytics within a minute, a network allowlist its
+//   readers within a minute too), so a warm request still costs one regional read.
 // - With more than one region the directory says which; a positive answer never changes and is
 //   kept with no expiry, a miss is kept for `MISS_TTL_MS` so random IDs do not cost a global
 //   read each. Both caches are bounded.
 import {
   bothSides,
   type DeliveryArtifact,
-  type DeliveryPlan,
+  type DeliveryOwner,
   findDeliveryArtifact,
-  findDeliveryPlan,
+  findDeliveryOwner,
   type GlobalDb,
   type RegionHandles,
   type Regions,
@@ -60,7 +62,7 @@ class Lru<V> {
 
 let regionsOfArtifacts = new Lru<RegionHandles["region"]>(DELIVERY_CACHE_ENTRIES);
 let misses = new Lru<number>(DELIVERY_CACHE_ENTRIES);
-let plans = new Lru<{ plan: DeliveryPlan | null; readAt: number }>(DELIVERY_CACHE_ENTRIES);
+let plans = new Lru<{ owner: DeliveryOwner; readAt: number }>(DELIVERY_CACHE_ENTRIES);
 
 /** Forgets every cache, for tests. */
 export function resetDeliveryCaches(maxEntries = DELIVERY_CACHE_ENTRIES): void {
@@ -99,17 +101,20 @@ export async function deliveryRegion(
   return found;
 }
 
-/** The owner's plan for delivery, from the isolate's cache or one read of the global database. */
-export async function deliveryPlan(
+/**
+ * The owner's plan and network allowlist for delivery, from the isolate's cache or one read of
+ * the global database.
+ */
+export async function deliveryOwner(
   global: GlobalDb,
   ownerId: string,
   now: number,
-): Promise<DeliveryPlan | null> {
+): Promise<DeliveryOwner> {
   const cached = plans.get(ownerId);
-  if (cached && now - cached.readAt < PLAN_TTL_MS && now >= cached.readAt) return cached.plan;
-  const plan = await findDeliveryPlan(global, ownerId);
-  plans.set(ownerId, { plan, readAt: now });
-  return plan;
+  if (cached && now - cached.readAt < PLAN_TTL_MS && now >= cached.readAt) return cached.owner;
+  const owner = await findDeliveryOwner(global, ownerId);
+  plans.set(ownerId, { owner, readAt: now });
+  return owner;
 }
 
 /**
@@ -130,5 +135,5 @@ export async function lookupDelivery(
   }
   const artifact = await findDeliveryArtifact(db, artifactId, cycleStart, customHost);
   if (!artifact) return null;
-  return { ...artifact, plan: await deliveryPlan(regions.global, artifact.ownerId, now) };
+  return { ...artifact, ...(await deliveryOwner(regions.global, artifact.ownerId, now)) };
 }

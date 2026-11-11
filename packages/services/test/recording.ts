@@ -1,9 +1,13 @@
 // The recording proxy the cost tests share: every D1 call (one statement, or one batch) counted.
 import { env } from "cloudflare:test";
+import type { RequestContext } from "@portifact/contracts";
 import { globalDb, type RegionalDb, regionalDb } from "@portifact/db";
 
-/** Counts every D1 call (one statement, or one batch) through one shared binding. */
-export function recording(regionalBinding: D1Database = env.DB) {
+/**
+ * Counts every D1 call (one statement, or one batch) through one shared binding. `request` is the
+ * request context the handles carry (decision 0020); the default is the fail-closed one.
+ */
+export function recording(regionalBinding: D1Database = env.DB, request?: RequestContext) {
   let calls = 0;
   const wrap = (statement: D1PreparedStatement): D1PreparedStatement =>
     new Proxy(statement, {
@@ -46,6 +50,6 @@ export function recording(regionalBinding: D1Database = env.DB) {
   // One database: both handles share the one recorded binding. A separate regional database
   // (the EU's) gets its own, and the calls of both are counted together.
   const regional = regionalBinding === env.DB ? global : record(regionalBinding);
-  const database: RegionalDb = regionalDb(regional, globalDb(global));
+  const database: RegionalDb = regionalDb(regional, globalDb(global, request));
   return { database, count: () => calls };
 }

@@ -7,13 +7,14 @@
 // queue records the bounces and
 // complaints Cloudflare Email Service reports. Every job is idempotent and guards every
 // transition, so overlapping runs, retries and duplicate deliveries are safe.
-import { DEFAULT_REGION, EmailSendingEvent, JobMessage } from "@portifact/contracts";
+import { BACKGROUND, DEFAULT_REGION, EmailSendingEvent, JobMessage } from "@portifact/contracts";
 import {
   createAccessDb,
   type GlobalDb,
   type Region,
   type RegionHandles,
   regionsFromEnv,
+  withRequestContext,
 } from "@portifact/db";
 import {
   checkCustomDomains,
@@ -348,8 +349,15 @@ export async function runQueue(
   await deliveries;
 }
 
+/**
+ * Jobs and scans answer no client: request policies, applied to the request that asked for the
+ * work, never bind them (decision 0020).
+ */
+const background = (env: Env): Env => withRequestContext(env, BACKGROUND);
+
 export default {
-  scheduled: (controller, env, ctx) => {
+  scheduled: (controller, workerEnv, ctx) => {
+    const env = background(workerEnv);
     if (controller.cron === RELAY_CRON) {
       ctx.waitUntil(runRelay(env, controller.scheduledTime));
       return;
@@ -363,5 +371,5 @@ export default {
     // Independent of maintenance: a failing scan must not stop the budget's protection.
     ctx.waitUntil(runScheduledBudget(env, controller.scheduledTime));
   },
-  queue: (batch, env) => runQueue(batch, env, Date.now()),
+  queue: (batch, env) => runQueue(batch, background(env), Date.now()),
 } satisfies ExportedHandler<Env>;

@@ -49,6 +49,8 @@ const messages = {
       "Die Anmeldung hat zu lange gedauert oder wurde in einem anderen Tab begonnen. Versuch es noch einmal.",
     artifact_unavailable:
       "Dieses Artifact existiert nicht, ist nicht mehr verfügbar oder kann mit diesem Konto nicht geöffnet werden. Um ein anderes Konto zu verwenden, melde dich ab und öffne den Link erneut.",
+    network_refused:
+      "Dieser Workspace erlaubt den Zugriff nur aus seinen freigegebenen Netzwerken, und du bist gerade in keinem davon. Verbinde dich mit einem freigegebenen Netzwerk und öffne den Link erneut, oder wende dich an einen Workspace-Admin.",
     read_rate_limited:
       "Dieses Konto hat in kurzer Zeit zu viele Artifacts geöffnet. Warte ein paar Minuten und öffne den Link erneut.",
     sso_unavailable:

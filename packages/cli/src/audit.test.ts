@@ -377,6 +377,8 @@ describe("plain words for every kind", () => {
       readerDomains: ["corp.example"],
       shareLinks: "password_required",
       shareLinkMaxDays: 30,
+      ipRanges: 3,
+      tokenIpRanges: null,
       confirmed: true,
     },
     "policy.enforced": {
@@ -446,7 +448,7 @@ describe("plain words for every kind", () => {
     "group.sync_stopped": 'Stopped syncing the group "Design" from the directory',
     "audit.exported": "Exported the audit log as CSV (2026-01-01 to now)",
     "policy.changed":
-      "Changed the workspace's policies: public access forbidden, readers only at corp.example, share links password required, share links at most 30 days (existing artifacts changed)",
+      "Changed the workspace's policies: public access forbidden, readers only at corp.example, share links password required, share links at most 30 days, people only from 3 network(s), service tokens from any network (existing artifacts changed)",
     "policy.enforced":
       "Applied the workspace's policies: 2 artifact(s) made workspace-only, 1 share link(s) revoked, 3 link session(s) ended",
   };

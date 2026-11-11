@@ -5,7 +5,13 @@ import { env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { describe, expect, it } from "vitest";
 import { resetProtectionCache } from "../src/budget.ts";
-import { deliveryCacheSizes, MISS_TTL_MS } from "../src/directory.ts";
+import {
+  deliveryCacheSizes,
+  lookupDelivery,
+  MISS_TTL_MS,
+  PLAN_TTL_MS,
+  resetDeliveryCaches,
+} from "../src/directory.ts";
 import { handle, isolateMeter, isolateOpenings } from "../src/index.ts";
 import type { TrafficCharge } from "../src/traffic.ts";
 
@@ -215,5 +221,47 @@ describe("an artifact in the EU region", () => {
       .bind(ID)
       .all();
     expect(elsewhere.results).toEqual([]);
+  });
+});
+
+describe("a network allowlist for an EU workspace (decision 0020)", () => {
+  it("reaches delivery with the plan's per-isolate cache: within a minute, with no added read", async () => {
+    await seedInEu();
+    resetDeliveryCaches();
+    const regions = regionsFromEnv(env);
+    const policy = (ranges: string[] | null) =>
+      JSON.stringify({
+        publicAccess: "allowed",
+        defaultAccess: "restricted",
+        readerDomains: null,
+        shareLinks: "allowed",
+        shareLinkMaxDays: null,
+        ipAllowlist: ranges,
+        tokenIpAllowlist: null,
+      });
+    await regions.global
+      .insert(schema.workspaces)
+      .values({
+        id: OWNER,
+        slug: "eu-networks",
+        name: "EU",
+        createdBy: "u_admin",
+        updatedAt: NOW,
+        region: "eu",
+      })
+      .onConflictDoNothing();
+    await env.DB.prepare("UPDATE workspaces SET policy = ? WHERE id = ?")
+      .bind(policy(["192.0.2.0/24"]), OWNER)
+      .run();
+    const lookup = (now: number) => lookupDelivery(regions, eu(), ID, 0, now);
+    expect((await lookup(NOW))?.networks).toEqual(["192.0.2.0/24"]);
+    // Lifted in the global database: the isolate keeps the cached allowlist for up to a minute,
+    // the delay a plan change already has there, and reads it again after.
+    await env.DB.prepare("UPDATE workspaces SET policy = ? WHERE id = ?")
+      .bind(policy(null), OWNER)
+      .run();
+    expect((await lookup(NOW + PLAN_TTL_MS - 1))?.networks).toEqual(["192.0.2.0/24"]);
+    expect((await lookup(NOW + PLAN_TTL_MS))?.networks).toBeNull();
+    await env.DB.prepare("DELETE FROM workspaces WHERE id = ?").bind(OWNER).run();
   });
 });

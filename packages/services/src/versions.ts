@@ -383,7 +383,9 @@ export async function getVersionDownload(
   }
   const artifact = await loadArtifact(db, input.artifactId);
   if (!artifact) return missingVersion();
-  const actor = await actorOn(db.global, input.userId, artifact);
+  const resolved = await actorOn(db.global, input.userId, artifact);
+  if (!resolved.ok) return resolved;
+  const actor = resolved.value;
   if (!(actor && can(actor, "versions"))) {
     if (input.kind !== "published" || artifact.type === "site") return missingVersion();
     const ref = input.versionId === CURRENT_VERSION ? artifact.currentVersionId : input.versionId;

@@ -6,10 +6,13 @@
 import {
   DEFAULT_POLICY,
   type PolicyImpact,
+  type PolicyPreview,
+  type RequestContext,
   WORKSPACE_POLICIES,
   type WorkspacePolicy,
   WorkspacePolicyExport,
   WorkspacePolicyJobPayload,
+  type WorkspacePolicyShown,
 } from "@portifact/contracts";
 import {
   type Db,
@@ -26,6 +29,7 @@ import {
   changedFields,
   checkPolicyDefaults,
   checkPolicyImpact,
+  checkPolicyKeepsCaller,
   type Entitlements,
   entitlements,
   fail,
@@ -40,6 +44,8 @@ import {
   type Result,
   readerAllowed,
   requireFeature,
+  shownPolicy,
+  withoutRequestPolicies,
 } from "@portifact/domain";
 import { and, asc, eq, gt, isNull, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -59,13 +65,16 @@ const l = schema.shareLinks;
 const s = schema.shareSessions;
 
 export interface PolicyState {
-  policy: WorkspacePolicy;
+  /** The network allowlists are `hidden` unless the caller is an admin (decision 0020). */
+  policy: WorkspacePolicyShown;
   revision: number;
   /** Whether the plan includes `policies`. */
   enabled: boolean;
   /** Whether the caller may change them. */
   editable: boolean;
   domainVerified: boolean;
+  /** The caller's address as this request reached the app, for admins only; never stored. */
+  yourIp: string | null;
 }
 
 interface PolicyRow {
@@ -93,7 +102,9 @@ async function scopedPolicy(
 ): Promise<Result<{ row: PolicyRow; actor: Actor }>> {
   const row = await policyRow(global, slug);
   if (!row) return missingWorkspace();
-  const actor = await actorOn(global, userId, row.id);
+  const resolved = await actorOn(global, userId, row.id);
+  if (!resolved.ok) return resolved;
+  const actor = resolved.value;
   if (!actor) return missingWorkspace();
   const allowed = authorize(actor, action);
   if (!allowed.ok) return allowed;
@@ -116,12 +127,14 @@ async function stateOf(
   actor: Actor,
   now: number,
 ): Promise<PolicyState> {
+  const admin = can(actor, "policies");
   return {
-    policy: row.policy,
+    policy: shownPolicy(row.policy, admin),
     revision: row.revision,
     enabled: hasFeature(await ownerEntitlements(global, row.id, now), "policies"),
-    editable: can(actor, "policies"),
+    editable: admin,
     domainVerified: await domainVerified(global, row.id),
+    yourIp: admin && global.request.kind === "request" ? global.request.ip : null,
   };
 }
 
@@ -210,7 +223,10 @@ export async function policyImpact(
   };
 }
 
-/** Validates a proposed policy for the workspace: the domains and the `domain` default. */
+/**
+ * Validates a proposed policy for the workspace: the domains, the networks, the `domain` default
+ * and lock-out safety (decision 0020): a people allowlist must admit the request saving it.
+ */
 async function checkProposal(
   global: GlobalDb,
   workspaceId: string,
@@ -218,6 +234,8 @@ async function checkProposal(
 ): Promise<Result<WorkspacePolicy>> {
   const normalized = normalizePolicy(input);
   if (!normalized.ok) return normalized;
+  const keeps = checkPolicyKeepsCaller(normalized.value, global.request);
+  if (!keeps.ok) return keeps;
   const defaults = checkPolicyDefaults(
     normalized.value,
     normalized.value.defaultAccess === "domain" ? await domainVerified(global, workspaceId) : true,
@@ -226,23 +244,52 @@ async function checkProposal(
   return normalized;
 }
 
+/**
+ * Who a network allowlist would bind (decision 0020), as counts: the workspace's members when the
+ * people allowlist is set, its active service tokens when the token allowlist is. Portifact keeps
+ * nobody's address, so it cannot say who is outside the networks; the admin saving is checked.
+ */
+async function networkReach(
+  global: GlobalDb,
+  workspaceId: string,
+  next: WorkspacePolicy,
+  now: number,
+): Promise<PolicyPreview["networks"]> {
+  if (next.ipAllowlist === null && next.tokenIpAllowlist === null) return null;
+  const m = schema.workspaceMembers;
+  const t = schema.serviceTokens;
+  const [members, tokens] = await global.batch([
+    global.select({ n: sql<number>`count(*)` }).from(m).where(eq(m.workspaceId, workspaceId)),
+    global
+      .select({ n: sql<number>`count(*)` })
+      .from(t)
+      .where(and(eq(t.workspaceId, workspaceId), gt(t.expiresAt, now))),
+  ]);
+  return {
+    members: next.ipAllowlist === null ? 0 : Number(members[0]?.n ?? 0),
+    tokens: next.tokenIpAllowlist === null ? 0 : Number(tokens[0]?.n ?? 0),
+  };
+}
+
 /** What saving a policy would change, for the admins before they save. */
 export async function previewWorkspacePolicy(
   regions: Regions,
   input: { userId: string; slug: string; policy: WorkspacePolicy; now: number },
-): Promise<Result<PolicyImpact>> {
+): Promise<Result<PolicyPreview>> {
   const found = await scopedPolicy(regions.global, input.userId, input.slug, "policies");
   if (!found.ok) return found;
   const proposal = await checkProposal(regions.global, found.value.row.id, input.policy);
   if (!proposal.ok) return proposal;
-  return ok(
-    await policyImpact(
-      regionalOf(regions, found.value.row),
-      found.value.row.id,
-      proposal.value,
-      input.now,
-    ),
+  const impact = await policyImpact(
+    regionalOf(regions, found.value.row),
+    found.value.row.id,
+    proposal.value,
+    input.now,
   );
+  return ok({
+    ...impact,
+    networks: await networkReach(regions.global, found.value.row.id, proposal.value, input.now),
+  });
 }
 
 /** The `workspace_policy` job, in the batch that saves a policy, on the same condition. */
@@ -861,4 +908,58 @@ export async function applyWorkspacePolicies(
     .map((item) => item.workspaceId)
     .filter((id) => !listed.has(id));
   return { applied, skipped, extra };
+}
+
+export type ClearRequestPoliciesResult =
+  | { outcome: "cleared"; fields: string[] }
+  | { outcome: "unchanged" }
+  | { outcome: "missing" };
+
+/**
+ * The operator's escape hatch (decision 0020, docs/operations.md): lifts exactly the request
+ * policies (both network allowlists) of a workspace whose admins locked themselves out, keeping
+ * every other policy. Recorded as a `policy.changed` event by the operator, in the batch that
+ * changes the row, conditioned on the revision read. Never behind the plan: it only loosens.
+ */
+export async function clearRequestPolicies(
+  global: GlobalDb,
+  workspaceId: string,
+  now: number,
+): Promise<ClearRequestPoliciesResult> {
+  const [row] = await global
+    .select({ policy: w.policy, revision: w.policyRevision })
+    .from(w)
+    .where(eq(w.id, workspaceId))
+    .limit(1);
+  if (!row) return { outcome: "missing" };
+  const current = policyOf(row.policy);
+  const next = withoutRequestPolicies(current);
+  const fields = changedFields(current, next);
+  if (fields.length === 0) return { outcome: "unchanged" };
+  const condition = sql`exists (select 1 from ${w} where ${w.id} = ${workspaceId} and ${w.policyRevision} = ${row.revision})`;
+  const stored = changedFields(DEFAULT_POLICY, next).length === 0 ? null : next;
+  const results = await global.batch([
+    auditEvent(
+      global,
+      {
+        ownerId: workspaceId,
+        kind: "policy.changed",
+        actor: { type: "operator" },
+        targetId: workspaceId,
+        detail: policyChangeDetail(current, next, false),
+        now,
+      },
+      condition,
+    ),
+    global
+      .update(w)
+      .set({ policy: stored, policyRevision: row.revision + 1, updatedAt: now })
+      .where(and(eq(w.id, workspaceId), eq(w.policyRevision, row.revision)))
+      .returning({ id: w.id }),
+  ]);
+  // A concurrent save moved the revision: try again on what it wrote.
+  if ((results.at(-1) as unknown[]).length === 0) {
+    return clearRequestPolicies(global, workspaceId, now);
+  }
+  return { outcome: "cleared", fields };
 }

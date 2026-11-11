@@ -2481,4 +2481,49 @@ export const ptBR = {
     "{reason, select, key_unavailable {A credencial de uma conexão não pode mais ser aberta} other {O {service, select, github {GitHub} other {Linear}} recusou a credencial de uma conexão}}",
   "audit.kind.issueCreated":
     "Criou uma issue no {service, select, github {GitHub} other {Linear}} em {target} a partir de uma conversa {message, select, true {com a primeira mensagem} other {sem texto de comentários}}",
+  "policies.networks.legend": "Redes para pessoas",
+  "policies.networks.hint":
+    "Os membros, incluindo os administradores, agem no workspace e leem os artifacts só do workspace apenas a partir destas redes. Artifacts públicos, links de compartilhamento e pessoas de fora com quem você compartilhou não são afetados.",
+  "policies.networks.any": "Qualquer rede",
+  "policies.networks.anyHint": "As pessoas acessam o workspace de qualquer lugar.",
+  "policies.networks.only": "Somente estas redes",
+  "policies.networks.onlyHint":
+    "Solicitações de outros endereços são recusadas com uma mensagem que explica o motivo.",
+  "policies.networks.ranges": "Endereços e intervalos IP permitidos",
+  "policies.networks.rangesHint":
+    "Um por linha, como 192.0.2.0/24 ou 2001:db8::/32, no máximo {max}. Um único endereço corresponde a um dispositivo.",
+  "policies.networks.rangesError":
+    "Escreva de 1 a {max} endereços ou intervalos IP, como 192.0.2.0/24. Um intervalo de todos os endereços (/0) não é permitido.",
+  "policies.networks.yourIp":
+    "Seu endereço atual é {ip}. A lista precisa incluí-lo, ou ao salvá-la você perderia o acesso.",
+  "policies.networks.notStored":
+    "O Portifact verifica o endereço que a Cloudflare informa em cada solicitação e nunca o armazena.",
+  "policies.networks.hidden":
+    "As pessoas só acessam este workspace a partir de redes aprovadas. Os administradores veem a lista.",
+  "policies.networks.limits":
+    "Isso não impede quem chega a uma rede aprovada, por exemplo por uma VPN compartilhada, e limita as contas das pessoas, não os artifacts já compartilhados fora do workspace.",
+  "policies.tokenNetworks.legend": "Redes para tokens de serviço",
+  "policies.tokenNetworks.hint":
+    "Os tokens de serviço não são limitados pela lista para pessoas. Dê a eles uma lista própria, como os endereços dos seus runners de CI.",
+  "policies.tokenNetworks.anyHint": "Os tokens de serviço funcionam de qualquer lugar.",
+  "policies.tokenNetworks.onlyHint":
+    "Tokens de serviço usados a partir de outros endereços são recusados.",
+  "policies.tokenNetworks.hidden":
+    "Os tokens de serviço só funcionam a partir de redes aprovadas. Os administradores do workspace veem a lista.",
+  "policies.impact.networksTitle": "Limitar as redes que acessam este workspace?",
+  "policies.impact.members":
+    "{count, plural, one {# membro acessará} other {# membros acessarão}} o workspace apenas a partir das redes permitidas",
+  "policies.impact.tokens":
+    "{count, plural, one {# token de serviço funcionará} other {# tokens de serviço funcionarão}} apenas a partir das redes permitidas",
+  "policies.impact.networksNote":
+    "O Portifact não guarda o endereço de ninguém, então não consegue saber quem está fora destas redes agora. Seu próprio endereço está incluído.",
+  "policies.impact.networksConfirm": "Limitar redes",
+  "space.blocked.title": "Indisponível nesta rede",
+  "space.blocked.body":
+    "{workspace} só permite acesso a partir das redes aprovadas, e esta rede não é uma delas. Conecte-se a uma rede aprovada ou fale com um administrador do workspace. Seus outros espaços continuam funcionando.",
+  "audit.policy.networks": "pessoas só a partir de {count, plural, one {# rede} other {# redes}}",
+  "audit.policy.networksAny": "pessoas de qualquer rede",
+  "audit.policy.tokenNetworks":
+    "tokens de serviço só a partir de {count, plural, one {# rede} other {# redes}}",
+  "audit.policy.tokenNetworksAny": "tokens de serviço de qualquer rede",
 } satisfies Catalog;

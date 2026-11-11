@@ -370,8 +370,9 @@ async function requesterStanding(
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, issue.artifactId));
   if (!owners.some((row) => row.ownerId === issue.ownerId)) return "artifact_moved";
+  // The job runs in the background, which request policies never bind (decision 0020).
   const actor = await actorOn(db.global, issue.requestedBy, issue.ownerId);
-  if (!actsForOwner(actor, issue.ownerId)) return "requester_left";
+  if (!actor.ok || !actsForOwner(actor.value, issue.ownerId)) return "requester_left";
   const readable = await readableThread(db, {
     userId: issue.requestedBy,
     artifactId: issue.artifactId,

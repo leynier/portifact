@@ -49,6 +49,8 @@ const messages = {
       "La connexion a pris trop de temps ou a été lancée dans un autre onglet. Réessayez.",
     artifact_unavailable:
       "Cet artifact n’existe pas, n’est plus disponible ou ne peut pas être ouvert avec ce compte. Pour utiliser un autre compte, déconnectez-vous et ouvrez de nouveau le lien.",
+    network_refused:
+      "Cet espace de travail n’autorise l’accès que depuis ses réseaux approuvés, et vous n’êtes sur aucun d’eux pour le moment. Connectez-vous depuis un réseau approuvé et ouvrez de nouveau le lien, ou contactez un administrateur de l’espace de travail.",
     read_rate_limited:
       "Ce compte a ouvert trop d’artifacts en peu de temps. Patientez quelques minutes et ouvrez de nouveau le lien.",
     sso_unavailable:

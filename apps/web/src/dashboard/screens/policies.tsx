@@ -3,12 +3,16 @@
 // them. Before a save that changes existing artifacts (public artifacts narrowed, readers removed,
 // share links revoked or stopped), the page lists the counts and asks for a confirmation. The
 // API decides every rule again; without the plan's feature, the page says only loosening works.
+// The network allowlists (decision 0020) are edited here too: only admins see the ranges, every
+// other member reads that one exists; saving one asks for a confirmation with who it binds.
 import {
   DEFAULT_ACCESS_POLICIES,
   type DefaultAccessPolicy,
+  type IpAllowlistView,
   lowestPlanWith,
   PLAN_LABELS,
   type PolicyImpact,
+  type PolicyPreview,
   type PublicAccessPolicy,
   SHARE_LINK_POLICIES,
   type ShareLinkPolicy,
@@ -16,7 +20,7 @@ import {
   type WorkspacePolicy,
   type WorkspacePolicyView,
 } from "@portifact/contracts";
-import { impactTotal } from "@portifact/domain";
+import { changedFields, impactTotal, normalizeIpRanges } from "@portifact/domain";
 import {
   Button,
   Callout,
@@ -88,9 +92,18 @@ interface Draft {
   readerDomains: string;
   shareLinks: ShareLinkPolicy;
   maxDays: string;
+  networksLimited: boolean;
+  networks: string;
+  tokenNetworksLimited: boolean;
+  tokenNetworks: string;
 }
 
-function draftOf(policy: WorkspacePolicy): Draft {
+/** A shown allowlist's lines; a hidden one (not an admin, who cannot save) shows none. */
+function linesOf(list: IpAllowlistView): string {
+  return Array.isArray(list) ? list.join("\n") : "";
+}
+
+function draftOf(policy: WorkspacePolicyView["policy"]): Draft {
   return {
     publicAccess: policy.publicAccess,
     defaultAccess: policy.defaultAccess,
@@ -98,13 +111,29 @@ function draftOf(policy: WorkspacePolicy): Draft {
     readerDomains: (policy.readerDomains ?? []).join("\n"),
     shareLinks: policy.shareLinks,
     maxDays: policy.shareLinkMaxDays === null ? "" : String(policy.shareLinkMaxDays),
+    networksLimited: policy.ipAllowlist !== null,
+    networks: linesOf(policy.ipAllowlist),
+    tokenNetworksLimited: policy.tokenIpAllowlist !== null,
+    tokenNetworks: linesOf(policy.tokenIpAllowlist),
   };
+}
+
+type DraftField = "domains" | "days" | "networks" | "tokenNetworks";
+
+/** The ranges a textarea lists, or null when they are not 1 to the maximum valid ranges. */
+function rangesOf(text: string): string[] | null {
+  const ranges = text
+    .split(/[\s,]+/)
+    .map((range) => range.trim())
+    .filter((range) => range.length > 0);
+  if (ranges.length === 0 || ranges.length > WORKSPACE_POLICIES.ipRanges) return null;
+  return normalizeIpRanges(ranges).ok ? ranges : null;
 }
 
 /** The policy a draft describes, or which field is not valid. */
 export function policyOfDraft(
   draft: Draft,
-): { ok: true; policy: WorkspacePolicy } | { ok: false; field: "domains" | "days" } {
+): { ok: true; policy: WorkspacePolicy } | { ok: false; field: DraftField } {
   const domains = draft.readerDomains
     .split(/[\s,]+/)
     .map((domain) => domain.trim())
@@ -123,6 +152,12 @@ export function policyOfDraft(
   ) {
     return { ok: false, field: "days" };
   }
+  const networks = draft.networksLimited ? rangesOf(draft.networks) : null;
+  if (draft.networksLimited && networks === null) return { ok: false, field: "networks" };
+  const tokenNetworks = draft.tokenNetworksLimited ? rangesOf(draft.tokenNetworks) : null;
+  if (draft.tokenNetworksLimited && tokenNetworks === null) {
+    return { ok: false, field: "tokenNetworks" };
+  }
   return {
     ok: true,
     policy: {
@@ -131,8 +166,39 @@ export function policyOfDraft(
       readerDomains: draft.readersLimited ? domains : null,
       shareLinks: draft.shareLinks,
       shareLinkMaxDays: maxDays,
+      ipAllowlist: networks,
+      tokenIpAllowlist: tokenNetworks,
     },
   };
+}
+
+/**
+ * Whether saving `next` sets or changes a network allowlist the page last showed: the admin is
+ * told who it binds before it is saved (decision 0020).
+ */
+function networksChange(view: WorkspacePolicyView, next: WorkspacePolicy): boolean {
+  const shown = view.policy;
+  if (!Array.isArray(shown.ipAllowlist) && shown.ipAllowlist !== null) return false;
+  if (!Array.isArray(shown.tokenIpAllowlist) && shown.tokenIpAllowlist !== null) return false;
+  const current = {
+    ...next,
+    ipAllowlist: shown.ipAllowlist,
+    tokenIpAllowlist: shown.tokenIpAllowlist,
+  } as WorkspacePolicy;
+  const fields = changedFields(current, {
+    ...next,
+    ipAllowlist: next.ipAllowlist === null ? null : normalized(next.ipAllowlist),
+    tokenIpAllowlist: next.tokenIpAllowlist === null ? null : normalized(next.tokenIpAllowlist),
+  });
+  return (
+    (fields.includes("ipAllowlist") && next.ipAllowlist !== null) ||
+    (fields.includes("tokenIpAllowlist") && next.tokenIpAllowlist !== null)
+  );
+}
+
+function normalized(ranges: string[]): string[] {
+  const result = normalizeIpRanges(ranges);
+  return result.ok ? result.value : ranges;
 }
 
 function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyView }) {
@@ -141,10 +207,11 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const [draft, setDraft] = useState<Draft>(() => draftOf(view.policy));
-  const [invalid, setInvalid] = useState<"domains" | "days" | null>(null);
-  const [pending, setPending] = useState<{ policy: WorkspacePolicy; impact: PolicyImpact } | null>(
-    null,
-  );
+  const [invalid, setInvalid] = useState<DraftField | null>(null);
+  const [pending, setPending] = useState<{
+    policy: WorkspacePolicy;
+    preview: PolicyPreview;
+  } | null>(null);
   // Set after a save that changes existing artifacts: where the admin sees what changed.
   const [applied, setApplied] = useState(false);
   const editable = view.editable;
@@ -182,10 +249,11 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
     const parsed = policyOfDraft(draft);
     setInvalid(parsed.ok ? null : parsed.field);
     if (!parsed.ok) return;
-    const impact = await preview.mutateAsync(parsed.policy).catch(() => null);
-    if (!impact) return;
-    if (impactTotal(impact) > 0) setPending({ policy: parsed.policy, impact });
-    else save.mutate({ policy: parsed.policy });
+    const result = await preview.mutateAsync(parsed.policy).catch(() => null);
+    if (!result) return;
+    if (impactTotal(result) > 0 || networksChange(view, parsed.policy)) {
+      setPending({ policy: parsed.policy, preview: result });
+    } else save.mutate({ policy: parsed.policy });
   };
 
   const failure = save.error ?? preview.error;
@@ -331,6 +399,26 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
           />
         </div>
       </Panel>
+      <NetworkPanel
+        kind="people"
+        view={view}
+        limited={draft.networksLimited}
+        text={draft.networks}
+        disabled={fieldsDisabled}
+        invalid={invalid === "networks"}
+        onLimited={(value) => set("networksLimited", value)}
+        onText={(value) => set("networks", value)}
+      />
+      <NetworkPanel
+        kind="tokens"
+        view={view}
+        limited={draft.tokenNetworksLimited}
+        text={draft.tokenNetworks}
+        disabled={fieldsDisabled}
+        invalid={invalid === "tokenNetworks"}
+        onLimited={(value) => set("tokenNetworksLimited", value)}
+        onText={(value) => set("tokenNetworks", value)}
+      />
       {failure ? (
         <Callout
           tone="error"
@@ -341,7 +429,8 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
             ? t("policies.conflict")
             : failure instanceof ApiFailure && failure.code === "policy_refused"
               ? t("policies.impact.stale")
-              : errorMessage(t, failure)}
+              : // The lock-out refusal names the admin's own address, in the API's words.
+                errorMessage(t, failure)}
         </Callout>
       ) : null}
       {applied && !failure ? (
@@ -363,43 +452,165 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
       ) : null}
       <ConfirmDialog
         open={pending !== null}
-        title={t("policies.impact.title")}
-        confirmLabel={t("policies.impact.confirm")}
+        title={
+          pending && impactTotal(pending.preview) === 0
+            ? t("policies.impact.networksTitle")
+            : t("policies.impact.title")
+        }
+        confirmLabel={
+          pending && impactTotal(pending.preview) === 0
+            ? t("policies.impact.networksConfirm")
+            : t("policies.impact.confirm")
+        }
         cancelLabel={t("policies.impact.cancel")}
         tone="danger"
         busy={save.isPending}
         onCancel={() => setPending(null)}
         onConfirm={() => {
-          if (pending) save.mutate({ policy: pending.policy, confirmed: pending.impact });
+          if (!pending) return;
+          // A confirmation is only needed (and sent) for changes to existing artifacts.
+          save.mutate(
+            impactTotal(pending.preview) > 0
+              ? { policy: pending.policy, confirmed: pending.preview }
+              : { policy: pending.policy },
+          );
         }}
       >
-        {pending ? <ImpactList space={space} impact={pending.impact} /> : null}
+        {pending ? <ImpactList space={space} preview={pending.preview} /> : null}
       </ConfirmDialog>
     </form>
   );
 }
 
-/** The counts a save changes, one line each. */
-function ImpactList({ space, impact }: { space: Workspace; impact: PolicyImpact }) {
+/** The counts a save changes, one line each, and who a network allowlist binds. */
+function ImpactList({ space, preview }: { space: Workspace; preview: PolicyPreview }) {
   const t = useT();
   const lines = [
-    [impact.publicArtifacts, "policies.impact.public"],
-    [impact.readersOutside, "policies.impact.readers"],
-    [impact.linksRevoked, "policies.impact.revoked"],
-    [impact.linksWithoutPassword, "policies.impact.password"],
-    [impact.linksOverLifetime, "policies.impact.lifetime"],
+    [preview.publicArtifacts, "policies.impact.public"],
+    [preview.readersOutside, "policies.impact.readers"],
+    [preview.linksRevoked, "policies.impact.revoked"],
+    [preview.linksWithoutPassword, "policies.impact.password"],
+    [preview.linksOverLifetime, "policies.impact.lifetime"],
   ] as const;
+  const artifacts = impactTotal(preview) > 0;
+  const networks = preview.networks;
   return (
     <div className="flex flex-col gap-3 text-sm">
-      <p>{t("policies.impact.body", { workspace: space.name })}</p>
-      <ul className="list-disc pl-5">
-        {lines
-          .filter(([count]) => count > 0)
-          .map(([count, message]) => (
-            <li key={message}>{t(message, { count })}</li>
-          ))}
-      </ul>
-      <p className="text-text-muted">{t("policies.impact.note")}</p>
+      {artifacts ? (
+        <>
+          <p>{t("policies.impact.body", { workspace: space.name })}</p>
+          <ul className="list-disc pl-5">
+            {lines
+              .filter(([count]) => count > 0)
+              .map(([count, message]) => (
+                <li key={message}>{t(message, { count })}</li>
+              ))}
+          </ul>
+          <p className="text-text-muted">{t("policies.impact.note")}</p>
+        </>
+      ) : null}
+      {networks ? (
+        <>
+          <ul className="list-disc pl-5">
+            {networks.members > 0 ? (
+              <li>{t("policies.impact.members", { count: networks.members })}</li>
+            ) : null}
+            {networks.tokens > 0 ? (
+              <li>{t("policies.impact.tokens", { count: networks.tokens })}</li>
+            ) : null}
+          </ul>
+          <p className="text-text-muted">{t("policies.impact.networksNote")}</p>
+        </>
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * One network allowlist (decision 0020): for people or for service tokens. An admin edits the
+ * ranges; any other member sees only that one exists, never the networks.
+ */
+function NetworkPanel(props: {
+  kind: "people" | "tokens";
+  view: WorkspacePolicyView;
+  limited: boolean;
+  text: string;
+  disabled: boolean;
+  invalid: boolean;
+  onLimited: (limited: boolean) => void;
+  onText: (text: string) => void;
+}) {
+  const t = useT();
+  const { kind, view } = props;
+  const shown = kind === "people" ? view.policy.ipAllowlist : view.policy.tokenIpAllowlist;
+  const legend = t(
+    kind === "people" ? "policies.networks.legend" : "policies.tokenNetworks.legend",
+  );
+  const hint = t(kind === "people" ? "policies.networks.hint" : "policies.tokenNetworks.hint");
+  if (shown === "hidden") {
+    return (
+      <Panel headingLevel={2} title={legend}>
+        <p className="text-sm">
+          {t(kind === "people" ? "policies.networks.hidden" : "policies.tokenNetworks.hidden")}
+        </p>
+      </Panel>
+    );
+  }
+  const name = kind === "people" ? "ipAllowlist" : "tokenIpAllowlist";
+  return (
+    <Panel headingLevel={2} title={legend} description={hint}>
+      <div className="flex flex-col gap-4">
+        <RadioGroup<"any" | "only">
+          legend={legend}
+          name={name}
+          value={props.limited ? "only" : "any"}
+          disabled={props.disabled}
+          onChange={(value) => props.onLimited(value === "only")}
+          options={[
+            {
+              value: "any",
+              label: t("policies.networks.any"),
+              description: t(
+                kind === "people" ? "policies.networks.anyHint" : "policies.tokenNetworks.anyHint",
+              ),
+            },
+            {
+              value: "only",
+              label: t("policies.networks.only"),
+              description: t(
+                kind === "people"
+                  ? "policies.networks.onlyHint"
+                  : "policies.tokenNetworks.onlyHint",
+              ),
+            },
+          ]}
+        />
+        {props.limited ? (
+          <TextArea
+            compact
+            label={t("policies.networks.ranges")}
+            description={t("policies.networks.rangesHint", { max: WORKSPACE_POLICIES.ipRanges })}
+            value={props.text}
+            disabled={props.disabled}
+            spellCheck={false}
+            autoComplete="off"
+            error={
+              props.invalid
+                ? t("policies.networks.rangesError", { max: WORKSPACE_POLICIES.ipRanges })
+                : undefined
+            }
+            onChange={(event) => props.onText(event.currentTarget.value)}
+          />
+        ) : null}
+        {kind === "people" && view.editable && view.yourIp ? (
+          <p className="text-sm">{t("policies.networks.yourIp", { ip: view.yourIp })}</p>
+        ) : null}
+        {kind === "people" ? (
+          <p className="text-sm text-text-muted">
+            {t("policies.networks.notStored")} {t("policies.networks.limits")}
+          </p>
+        ) : null}
+      </div>
+    </Panel>
   );
 }

@@ -2504,4 +2504,49 @@ export const es = {
     "{reason, select, key_unavailable {La credencial de una conexión ya no se puede abrir} other {{service, select, github {GitHub} other {Linear}} rechazó la credencial de una conexión}}",
   "audit.kind.issueCreated":
     "Creó un issue de {service, select, github {GitHub} other {Linear}} en {target} desde un hilo {message, select, true {con su primer mensaje} other {sin texto de comentarios}}",
+  "policies.networks.legend": "Redes para personas",
+  "policies.networks.hint":
+    "Los miembros, incluidos los administradores, actúan en el espacio de trabajo y leen sus artifacts solo para el espacio de trabajo únicamente desde estas redes. Los artifacts públicos, los enlaces para compartir y las personas de fuera con quienes compartiste no se ven afectados.",
+  "policies.networks.any": "Cualquier red",
+  "policies.networks.anyHint": "Las personas acceden al espacio de trabajo desde cualquier lugar.",
+  "policies.networks.only": "Solo estas redes",
+  "policies.networks.onlyHint":
+    "Las solicitudes desde otras direcciones se rechazan con un mensaje que explica el motivo.",
+  "policies.networks.ranges": "Direcciones y rangos IP permitidos",
+  "policies.networks.rangesHint":
+    "Una por línea, como 192.0.2.0/24 o 2001:db8::/32, como máximo {max}. Una sola dirección corresponde a un dispositivo.",
+  "policies.networks.rangesError":
+    "Escribe entre 1 y {max} direcciones o rangos IP, como 192.0.2.0/24. No se permite un rango de todas las direcciones (/0).",
+  "policies.networks.yourIp":
+    "Tu dirección actual es {ip}. La lista debe incluirla; de lo contrario, al guardarla te quedarías sin acceso.",
+  "policies.networks.notStored":
+    "Portifact comprueba la dirección que Cloudflare informa en cada solicitud y nunca la guarda.",
+  "policies.networks.hidden":
+    "Las personas solo acceden a este espacio de trabajo desde redes aprobadas. Sus administradores ven la lista.",
+  "policies.networks.limits":
+    "Esto no detiene a quien llegue a una red aprobada, por ejemplo con una VPN compartida, y limita las cuentas de las personas, no los artifacts ya compartidos fuera del espacio de trabajo.",
+  "policies.tokenNetworks.legend": "Redes para tokens de servicio",
+  "policies.tokenNetworks.hint":
+    "Los tokens de servicio no están limitados por la lista para personas. Dales su propia lista, como las direcciones de tus runners de CI.",
+  "policies.tokenNetworks.anyHint": "Los tokens de servicio funcionan desde cualquier lugar.",
+  "policies.tokenNetworks.onlyHint":
+    "Se rechazan los tokens de servicio usados desde otras direcciones.",
+  "policies.tokenNetworks.hidden":
+    "Los tokens de servicio solo funcionan desde redes aprobadas. Los administradores del espacio de trabajo ven la lista.",
+  "policies.impact.networksTitle": "¿Limitar las redes que acceden a este espacio de trabajo?",
+  "policies.impact.members":
+    "{count, plural, one {# miembro accederá} other {# miembros accederán}} al espacio de trabajo solo desde las redes permitidas",
+  "policies.impact.tokens":
+    "{count, plural, one {# token de servicio funcionará} other {# tokens de servicio funcionarán}} solo desde las redes permitidas",
+  "policies.impact.networksNote":
+    "Portifact no guarda la dirección de nadie, así que no puede saber quién está fuera de estas redes ahora. Tu propia dirección está incluida.",
+  "policies.impact.networksConfirm": "Limitar redes",
+  "space.blocked.title": "No disponible desde esta red",
+  "space.blocked.body":
+    "{workspace} solo permite el acceso desde sus redes aprobadas, y esta red no es una de ellas. Conéctate desde una red aprobada o pregunta a un administrador del espacio de trabajo. Tus otros espacios siguen funcionando.",
+  "audit.policy.networks": "personas solo desde {count, plural, one {# red} other {# redes}}",
+  "audit.policy.networksAny": "personas desde cualquier red",
+  "audit.policy.tokenNetworks":
+    "tokens de servicio solo desde {count, plural, one {# red} other {# redes}}",
+  "audit.policy.tokenNetworksAny": "tokens de servicio desde cualquier red",
 } satisfies Catalog;

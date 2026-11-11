@@ -29,11 +29,13 @@ import {
   authorize,
   checkNewWorkspace,
   checkRemoval,
+  checkRequestPolicy,
   checkRoleChange,
   fail,
   ok,
   personalActor,
   policyOf,
+  type RequestCaller,
   type Result,
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
@@ -106,7 +108,8 @@ export async function resolveOwnerScope(
   const workspace = await workspaceBySlug(global, slug);
   if (!workspace) return missingWorkspace();
   const actor = await actorOn(global, userId, workspace.id);
-  return actor ? ok(actor) : missingWorkspace();
+  if (!actor.ok) return actor;
+  return actor.value ? ok(actor.value) : missingWorkspace();
 }
 
 async function tokenScope(
@@ -122,11 +125,18 @@ async function tokenScope(
     .limit(1);
   if (!token || (slug !== undefined && slug !== token.slug)) return missingWorkspace();
   const actor = await actorOn(global, tokenId, token.workspaceId);
-  return actor ? ok(actor) : missingWorkspace();
+  if (!actor.ok) return actor;
+  return actor.value ? ok(actor.value) : missingWorkspace();
 }
 
 export interface UserWorkspace extends WorkspaceRow {
   role: WorkspaceRole;
+  /**
+   * The workspace's request policies refuse the request listing it (decision 0020): its screens
+   * explain that instead of failing one by one. Listing one's own workspaces is not acting on
+   * them, so the list itself is never refused.
+   */
+  blocked?: boolean;
 }
 
 /** The workspaces the user is a member of, with their role, by name. */
@@ -151,7 +161,7 @@ export async function listUserWorkspaces(
       .innerJoin(w, eq(w.id, t.workspaceId))
       .where(eq(t.id, userId))
       .limit(1);
-    return rows.map((row) => ({ ...row, region: regionOf(row), policy: policyOf(row.policy) }));
+    return rows.map((row) => listed(global, row, "token"));
   }
   const rows = await global
     .select({
@@ -167,7 +177,18 @@ export async function listUserWorkspaces(
     .innerJoin(w, eq(w.id, m.workspaceId))
     .where(eq(m.userId, userId))
     .orderBy(asc(w.name), asc(w.slug));
-  return rows.map((row) => ({ ...row, region: regionOf(row), policy: policyOf(row.policy) }));
+  return rows.map((row) => listed(global, row, "person"));
+}
+
+function listed(
+  global: GlobalDb,
+  row: Omit<UserWorkspace, "policy" | "region" | "blocked"> & { region: string; policy: unknown },
+  caller: RequestCaller,
+): UserWorkspace {
+  const policy = policyOf(row.policy);
+  // The policy came with the row: deciding it reads nothing more.
+  const blocked = !checkRequestPolicy(policy, global.request, caller).ok;
+  return { ...row, region: regionOf(row), policy, blocked };
 }
 
 /**
@@ -265,7 +286,9 @@ export async function scoped(
 ): Promise<Result<{ workspace: WorkspaceRow; actor: Actor }>> {
   const workspace = await workspaceBySlug(global, slug);
   if (!workspace) return missingWorkspace();
-  const actor = await actorOn(global, userId, workspace.id);
+  const resolved = await actorOn(global, userId, workspace.id);
+  if (!resolved.ok) return resolved;
+  const actor = resolved.value;
   if (!actor) return missingWorkspace();
   const allowed = authorize(actor, action);
   if (!allowed.ok) return allowed;

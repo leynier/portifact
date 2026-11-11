@@ -5,11 +5,15 @@
 import {
   type AccessMode,
   DEFAULT_POLICY,
+  type IpAllowlistView,
   type PolicyField,
   type PolicyImpact,
+  type RequestContext,
   WorkspacePolicy,
+  type WorkspacePolicyShown,
 } from "@portifact/contracts";
 import { emailDomainOf, normalizeEmailDomain } from "./email-domains.ts";
+import { compileIpRanges, ipAllowed, normalizeIpRanges, rangesCovered } from "./ip-ranges.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 const DAY_MS = 86_400_000;
@@ -46,6 +50,16 @@ export const POLICY_MESSAGES = {
     "What this policy changes on existing artifacts grew since it was reviewed. Review the change again before saving.",
   transferLinks:
     "This artifact has active share links, and the target workspace's policy does not allow them. Revoke them first, then move it.",
+  networkPerson: (ip: string | null) =>
+    ip === null
+      ? "This workspace's network policy only allows access from approved networks, and Portifact could not tell which network this request came from. Connect from an approved network, or ask a workspace admin."
+      : `This workspace's network policy only allows access from approved networks, and your address (${ip}) is not on its list. Connect from an approved network, or ask a workspace admin.`,
+  networkToken: (ip: string | null) =>
+    `This workspace's network policy only allows its service tokens from approved networks, and this request came from ${ip ?? "an unknown address"}. Run it from an approved network, or ask a workspace admin to add it.`,
+  networkLocksOut: (ip: string | null) =>
+    ip === null
+      ? "Portifact could not tell which network you are on, so this allowlist would lock you out. Try again from your usual network."
+      : `This allowlist does not include your current address (${ip}), so saving it would lock you out. Add your network first.`,
 } as const;
 
 /**
@@ -54,7 +68,13 @@ export const POLICY_MESSAGES = {
  * same rule `emailDomainOf` applies to an address's domain.
  */
 export function normalizePolicy(input: WorkspacePolicy): Result<WorkspacePolicy> {
-  if (input.readerDomains === null) return ok({ ...input });
+  const people = input.ipAllowlist === null ? ok(null) : normalizeIpRanges(input.ipAllowlist);
+  if (!people.ok) return people;
+  const tokens =
+    input.tokenIpAllowlist === null ? ok(null) : normalizeIpRanges(input.tokenIpAllowlist);
+  if (!tokens.ok) return tokens;
+  const networks = { ipAllowlist: people.value, tokenIpAllowlist: tokens.value };
+  if (input.readerDomains === null) return ok({ ...input, ...networks });
   const domains = new Set<string>();
   for (const written of input.readerDomains) {
     const lower = written.trim().toLowerCase();
@@ -67,7 +87,7 @@ export function normalizePolicy(input: WorkspacePolicy): Result<WorkspacePolicy>
     }
     domains.add(domain.value);
   }
-  return ok({ ...input, readerDomains: [...domains].sort() });
+  return ok({ ...input, ...networks, readerDomains: [...domains].sort() });
 }
 
 /** Whether a policy changes nothing: every field at its default. */
@@ -88,6 +108,10 @@ export function changedFields(current: WorkspacePolicy, next: WorkspacePolicy): 
   if (!sameDomains(current.readerDomains, next.readerDomains)) fields.push("readerDomains");
   if (current.shareLinks !== next.shareLinks) fields.push("shareLinks");
   if (current.shareLinkMaxDays !== next.shareLinkMaxDays) fields.push("shareLinkMaxDays");
+  if (!sameDomains(current.ipAllowlist, next.ipAllowlist)) fields.push("ipAllowlist");
+  if (!sameDomains(current.tokenIpAllowlist, next.tokenIpAllowlist)) {
+    fields.push("tokenIpAllowlist");
+  }
   return fields;
 }
 
@@ -115,7 +139,17 @@ function loosens(field: PolicyField, current: WorkspacePolicy, next: WorkspacePo
         next.shareLinkMaxDays === null ||
         (current.shareLinkMaxDays !== null && next.shareLinkMaxDays > current.shareLinkMaxDays)
       );
+    // A network allowlist loosens when it is lifted or when every network it admitted still is.
+    case "ipAllowlist":
+      return networksLoosen(current.ipAllowlist, next.ipAllowlist);
+    case "tokenIpAllowlist":
+      return networksLoosen(current.tokenIpAllowlist, next.tokenIpAllowlist);
   }
+}
+
+function networksLoosen(current: string[] | null, next: string[] | null): boolean {
+  if (next === null) return true;
+  return current !== null && rangesCovered(current, next);
 }
 
 /**
@@ -334,6 +368,11 @@ export function policyChangeDetail(
     ...(fields.includes("readerDomains") ? { readerDomains: next.readerDomains } : {}),
     ...(fields.includes("shareLinks") ? { shareLinks: next.shareLinks } : {}),
     ...(fields.includes("shareLinkMaxDays") ? { shareLinkMaxDays: next.shareLinkMaxDays } : {}),
+    // Counts only: an address or range never enters the audit log (decision 0020).
+    ...(fields.includes("ipAllowlist") ? { ipRanges: next.ipAllowlist?.length ?? null } : {}),
+    ...(fields.includes("tokenIpAllowlist")
+      ? { tokenIpRanges: next.tokenIpAllowlist?.length ?? null }
+      : {}),
     confirmed,
   };
 }
@@ -347,7 +386,7 @@ export function lifetimeCutoff(policy: WorkspacePolicy, now: number): number | n
  * A policy in short English phrases, for the CLI and MCP (empty for the defaults): what a client
  * shows before trying something the policy refuses.
  */
-export function describePolicy(policy: WorkspacePolicy): string[] {
+export function describePolicy(policy: WorkspacePolicy | WorkspacePolicyShown): string[] {
   const lines: string[] = [];
   if (policy.publicAccess === "forbidden") lines.push("public access forbidden");
   if (policy.defaultAccess !== DEFAULT_POLICY.defaultAccess) {
@@ -359,5 +398,90 @@ export function describePolicy(policy: WorkspacePolicy): string[] {
   if (policy.shareLinkMaxDays !== null && policy.shareLinks !== "disabled") {
     lines.push(`share links last at most ${policy.shareLinkMaxDays} days`);
   }
+  // Never the networks themselves: every member reads this line.
+  if (policy.ipAllowlist) lines.push("people only from approved networks");
+  if (policy.tokenIpAllowlist) lines.push("service tokens only from approved networks");
   return lines;
+}
+
+/**
+ * Who a request policy binds: a person (any role, admins included) or a workspace's service
+ * token. The two have separate allowlists (decision 0020): CI runners rarely share an office's
+ * networks.
+ */
+export type RequestCaller = "person" | "token";
+
+/**
+ * Whether a request may act on a workspace under its request policies (decision 0020), from the
+ * request context the Worker built: work no client is making (`background`) is never bound;
+ * otherwise the caller's allowlist, if any, must admit the request's address. Refused with
+ * `policy_refused` and a message naming the network policy and the caller's own address, never
+ * the allowed networks.
+ */
+export function checkRequestPolicy(
+  policy: WorkspacePolicy | undefined,
+  request: RequestContext,
+  caller: RequestCaller,
+): Result<true> {
+  if (!policy || request.kind === "background") return ok(true);
+  const allowlist = caller === "person" ? policy.ipAllowlist : policy.tokenIpAllowlist;
+  if (allowlist === null || ipAllowed(request.ip, compileIpRanges(allowlist))) return ok(true);
+  return refused(
+    caller === "person"
+      ? POLICY_MESSAGES.networkPerson(request.ip)
+      : POLICY_MESSAGES.networkToken(request.ip),
+  );
+}
+
+/**
+ * Lock-out safety (decision 0020): an admin cannot save a people allowlist that leaves out the
+ * address they are saving from. The token allowlist binds tokens only, so it cannot lock the
+ * dashboard out.
+ */
+export function checkPolicyKeepsCaller(
+  next: WorkspacePolicy,
+  request: RequestContext,
+): Result<true> {
+  if (next.ipAllowlist === null || request.kind === "background") return ok(true);
+  if (ipAllowed(request.ip, compileIpRanges(next.ipAllowlist))) return ok(true);
+  return fail("invalid_input", POLICY_MESSAGES.networkLocksOut(request.ip));
+}
+
+function shownNetworks(list: string[] | null, admin: boolean): IpAllowlistView {
+  if (list === null) return null;
+  return admin ? list : "hidden";
+}
+
+/**
+ * A policy as a caller sees it: the network allowlists to admins only; anyone else learns only
+ * that one exists (`hidden`).
+ */
+export function shownPolicy(policy: WorkspacePolicy, admin: boolean): WorkspacePolicyShown {
+  return {
+    ...policy,
+    ipAllowlist: shownNetworks(policy.ipAllowlist, admin),
+    tokenIpAllowlist: shownNetworks(policy.tokenIpAllowlist, admin),
+  };
+}
+
+/** A policy with its request policies (the network allowlists) lifted: the operator's escape hatch. */
+export function withoutRequestPolicies(policy: WorkspacePolicy): WorkspacePolicy {
+  return { ...policy, ipAllowlist: null, tokenIpAllowlist: null };
+}
+
+/**
+ * Whether the content Worker serves a request under the owning workspace's people allowlist
+ * (decision 0020), with nothing but what the delivery lookup holds: it binds the signed-in
+ * readers of a `workspace` artifact, every one of them a member. Public visitors, share links and
+ * the outsiders a `restricted` or `domain` artifact names are people the workspace chose to reach
+ * outside it; a member reading those modes is bound where the session renews (`actorOn`).
+ */
+export function networkAdmits(input: {
+  accessMode: AccessMode;
+  networks: readonly string[] | null;
+  signedIn: boolean;
+  ip: string | null;
+}): boolean {
+  if (input.networks === null || !input.signedIn || input.accessMode !== "workspace") return true;
+  return ipAllowed(input.ip, compileIpRanges(input.networks));
 }

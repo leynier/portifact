@@ -311,10 +311,9 @@ export async function preparePublish(
       .where(eq(schema.versions.artifactId, artifactId));
     versionNumber = Number(last?.number ?? 0) + 1;
   } else {
-    const allowed = authorize(
-      await actorOn(db.global, input.userId, input.targetOwnerId ?? input.userId),
-      "publish",
-    );
+    const resolved = await actorOn(db.global, input.userId, input.targetOwnerId ?? input.userId);
+    if (!resolved.ok) return resolved;
+    const allowed = authorize(resolved.value, "publish");
     if (!allowed.ok) return allowed;
     actor = allowed.value;
     const reach = checkPublishKeyReach(actor.token, input.key);

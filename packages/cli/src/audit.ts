@@ -295,6 +295,11 @@ function policyParts(d: Record<string, unknown>): string[] {
         : `share links at most ${d.shareLinkMaxDays} days`,
     );
   }
+  // Network allowlists are recorded as counts only (decision 0020).
+  const networks = (count: unknown, who: string) =>
+    count === null ? `${who} from any network` : `${who} only from ${count} network(s)`;
+  if (d.ipRanges !== undefined) parts.push(networks(d.ipRanges, "people"));
+  if (d.tokenIpRanges !== undefined) parts.push(networks(d.tokenIpRanges, "service tokens"));
   return parts;
 }
 

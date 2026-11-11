@@ -239,6 +239,8 @@ describe("reading, previewing and changing policies", () => {
         enabled: true,
         editable,
         domainVerified: false,
+        // The test's handles answer no real request: no address to show.
+        yourIp: null,
       });
     }
     const missing = { ok: false, code: "not_found", message: "Workspace not found." };
@@ -423,6 +425,7 @@ describe("reading, previewing and changing policies", () => {
       linksRevoked: 0,
       linksWithoutPassword: 1,
       linksOverLifetime: 1,
+      networks: null,
     });
     expect(value(await preview(policy({ shareLinks: "disabled" }))).linksRevoked).toBe(2);
     expect(value(await preview(policy({ shareLinkMaxDays: 1 }))).linksOverLifetime).toBe(2);

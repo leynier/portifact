@@ -54,7 +54,7 @@ import {
   WorkspaceSlug,
   WorkspaceView,
 } from "@portifact/contracts";
-import { domainRecord } from "@portifact/domain";
+import { domainRecord, roleAllows, shownPolicy } from "@portifact/domain";
 import { invitationEmail } from "@portifact/emails";
 import {
   acceptInvitation,
@@ -134,7 +134,9 @@ export function workspaceView(row: UserWorkspace): WorkspaceView {
     role: row.role,
     region: row.region,
     createdAt: iso(row.createdAt),
-    policy: row.policy,
+    // The network allowlists only to admins (decision 0020).
+    policy: shownPolicy(row.policy, roleAllows(row.role, "policies")),
+    blocked: row.blocked ?? false,
   });
 }
 

@@ -398,7 +398,10 @@ async function threadsInScope(
     { managed: boolean; side: readonly string[]; groups: ReadonlySet<string> }
   >();
   for (const ownerId of new Set([...artifacts.values()].map((artifact) => artifact.ownerId))) {
-    const actor = await actorOn(db.global, user.id, ownerId);
+    // The export is the account's own data: where a request policy refuses the person, the
+    // workspace's threads are shown as to someone without a role there (less, never more).
+    const resolved = await actorOn(db.global, user.id, ownerId);
+    const actor = resolved.ok ? resolved.value : null;
     const managed = actsForOwner(actor, ownerId);
     const member =
       !managed && actor !== null && actor.ownerId === ownerId && isWorkspaceId(ownerId);

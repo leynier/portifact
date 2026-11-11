@@ -59,7 +59,8 @@ import {
   InvitationLookup,
   InvitationView,
   LifecycleResult,
-  PolicyImpact,
+  type PolicyImpact,
+  PolicyPreview,
   PreparedPublish,
   type PublishRequest,
   ReviewStart,
@@ -223,7 +224,7 @@ export interface DashboardApi {
   /** A workspace's policies (decision 0015): every member reads them, only admins change them. */
   policies(slug: string): Promise<WorkspacePolicyView>;
   /** What saving a policy would change on the existing artifacts. */
-  previewPolicies(slug: string, policy: WorkspacePolicy): Promise<PolicyImpact>;
+  previewPolicies(slug: string, policy: WorkspacePolicy): Promise<PolicyPreview>;
   savePolicies(
     slug: string,
     update: { policy: WorkspacePolicy; revision: number; confirmed?: PolicyImpact },
@@ -774,7 +775,7 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       return call(`${workspacePath(slug)}/policies`, WorkspacePolicyView);
     },
     previewPolicies(slug, policy) {
-      return call(`${workspacePath(slug)}/policies/preview`, PolicyImpact, "POST", { policy });
+      return call(`${workspacePath(slug)}/policies/preview`, PolicyPreview, "POST", { policy });
     },
     savePolicies(slug, update) {
       return call(`${workspacePath(slug)}/policies`, WorkspacePolicyView, "PUT", update);

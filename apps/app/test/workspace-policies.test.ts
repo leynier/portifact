@@ -167,6 +167,8 @@ describe("policies through the dashboard's session", () => {
       enabled: true,
       editable: true,
       domainVerified: false,
+      // The request carried no CF-Connecting-IP.
+      yourIp: null,
     });
     const preview = await t.admin.h.request(
       `${base}/preview`,
@@ -178,6 +180,7 @@ describe("policies through the dashboard's session", () => {
       linksRevoked: 0,
       linksWithoutPassword: 0,
       linksOverLifetime: 0,
+      networks: null,
     });
     const saved = await t.admin.h.request(
       base,

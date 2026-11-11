@@ -2518,4 +2518,50 @@ export const de = {
     "{reason, select, key_unavailable {Die Zugangsdaten einer Verbindung lassen sich nicht mehr öffnen} other {{service, select, github {GitHub} other {Linear}} hat die Zugangsdaten einer Verbindung abgelehnt}}",
   "audit.kind.issueCreated":
     "Hat ein {service, select, github {GitHub} other {Linear}}-Issue in {target} aus einem Thread erstellt {message, select, true {mit der ersten Nachricht} other {ohne Kommentartext}}",
+  "policies.networks.legend": "Netzwerke für Personen",
+  "policies.networks.hint":
+    "Mitglieder, Admins eingeschlossen, handeln im Workspace und lesen seine nur für den Workspace freigegebenen Artifacts nur aus diesen Netzwerken. Öffentliche Artifacts, Freigabelinks und Personen außerhalb, mit denen du geteilt hast, sind nicht betroffen.",
+  "policies.networks.any": "Jedes Netzwerk",
+  "policies.networks.anyHint": "Personen erreichen den Workspace von überall.",
+  "policies.networks.only": "Nur diese Netzwerke",
+  "policies.networks.onlyHint":
+    "Anfragen von anderen Adressen werden mit einer Meldung abgelehnt, die den Grund nennt.",
+  "policies.networks.ranges": "Erlaubte IP-Adressen und -Bereiche",
+  "policies.networks.rangesHint":
+    "Eine pro Zeile, etwa 192.0.2.0/24 oder 2001:db8::/32, höchstens {max}. Eine einzelne Adresse steht für ein Gerät.",
+  "policies.networks.rangesError":
+    "Gib 1 bis {max} IP-Adressen oder -Bereiche an, etwa 192.0.2.0/24. Ein Bereich aller Adressen (/0) ist nicht erlaubt.",
+  "policies.networks.yourIp":
+    "Deine aktuelle Adresse ist {ip}. Die Liste muss sie enthalten, sonst würdest du dich beim Speichern aussperren.",
+  "policies.networks.notStored":
+    "Portifact prüft die Adresse, die Cloudflare für jede Anfrage meldet, und speichert sie nie.",
+  "policies.networks.hidden":
+    "Personen erreichen diesen Workspace nur aus freigegebenen Netzwerken. Seine Admins sehen die Liste.",
+  "policies.networks.limits":
+    "Das hält niemanden auf, der ein freigegebenes Netzwerk erreicht, etwa über ein gemeinsames VPN, und es bindet die Konten der Personen, nicht Artifacts, die bereits außerhalb des Workspace geteilt sind.",
+  "policies.tokenNetworks.legend": "Netzwerke für Service-Tokens",
+  "policies.tokenNetworks.hint":
+    "Service-Tokens sind nicht an die Liste für Personen gebunden. Gib ihnen eine eigene Liste, etwa die Adressen deiner CI-Runner.",
+  "policies.tokenNetworks.anyHint": "Service-Tokens funktionieren von überall.",
+  "policies.tokenNetworks.onlyHint":
+    "Service-Tokens, die von anderen Adressen verwendet werden, werden abgelehnt.",
+  "policies.tokenNetworks.hidden":
+    "Service-Tokens funktionieren nur aus freigegebenen Netzwerken. Die Admins des Workspace sehen die Liste.",
+  "policies.impact.networksTitle": "Netzwerke einschränken, die diesen Workspace erreichen?",
+  "policies.impact.members":
+    "{count, plural, one {# Mitglied erreicht} other {# Mitglieder erreichen}} den Workspace nur noch aus den erlaubten Netzwerken",
+  "policies.impact.tokens":
+    "{count, plural, one {# Service-Token funktioniert} other {# Service-Tokens funktionieren}} nur noch aus den erlaubten Netzwerken",
+  "policies.impact.networksNote":
+    "Portifact speichert niemandes Adresse und kann daher nicht sagen, wer gerade außerhalb dieser Netzwerke ist. Deine eigene Adresse ist enthalten.",
+  "policies.impact.networksConfirm": "Netzwerke einschränken",
+  "space.blocked.title": "Aus diesem Netzwerk nicht erreichbar",
+  "space.blocked.body":
+    "{workspace} erlaubt den Zugriff nur aus seinen freigegebenen Netzwerken, und dieses Netzwerk gehört nicht dazu. Verbinde dich mit einem freigegebenen Netzwerk oder wende dich an einen Workspace-Admin. Deine anderen Bereiche funktionieren weiter.",
+  "audit.policy.networks":
+    "Personen nur aus {count, plural, one {# Netzwerk} other {# Netzwerken}}",
+  "audit.policy.networksAny": "Personen aus jedem Netzwerk",
+  "audit.policy.tokenNetworks":
+    "Service-Tokens nur aus {count, plural, one {# Netzwerk} other {# Netzwerken}}",
+  "audit.policy.tokenNetworksAny": "Service-Tokens aus jedem Netzwerk",
 } satisfies Catalog;

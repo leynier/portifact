@@ -2529,4 +2529,50 @@ export const fr = {
     "{reason, select, key_unavailable {L'identifiant d'une connexion ne peut plus être ouvert} other {{service, select, github {GitHub} other {Linear}} a refusé l'identifiant d'une connexion}}",
   "audit.kind.issueCreated":
     "A créé un ticket {service, select, github {GitHub} other {Linear}} dans {target} depuis un fil {message, select, true {avec son premier message} other {sans texte de commentaire}}",
+  "policies.networks.legend": "Réseaux pour les personnes",
+  "policies.networks.hint":
+    "Les membres, administrateurs compris, n’agissent sur l’espace de travail et ne lisent ses artifacts réservés à l’espace de travail que depuis ces réseaux. Les artifacts publics, les liens de partage et les personnes extérieures avec qui vous avez partagé ne sont pas concernés.",
+  "policies.networks.any": "Tout réseau",
+  "policies.networks.anyHint": "Les personnes accèdent à l’espace de travail depuis n’importe où.",
+  "policies.networks.only": "Uniquement ces réseaux",
+  "policies.networks.onlyHint":
+    "Les requêtes depuis d’autres adresses sont refusées avec un message qui en donne la raison.",
+  "policies.networks.ranges": "Adresses et plages IP autorisées",
+  "policies.networks.rangesHint":
+    "Une par ligne, comme 192.0.2.0/24 ou 2001:db8::/32, {max} au maximum. Une adresse seule correspond à un appareil.",
+  "policies.networks.rangesError":
+    "Indiquez entre 1 et {max} adresses ou plages IP, comme 192.0.2.0/24. Une plage couvrant toutes les adresses (/0) n’est pas autorisée.",
+  "policies.networks.yourIp":
+    "Votre adresse actuelle est {ip}. La liste doit l’inclure, sinon l’enregistrer vous bloquerait.",
+  "policies.networks.notStored":
+    "Portifact vérifie l’adresse que Cloudflare indique pour chaque requête et ne la conserve jamais.",
+  "policies.networks.hidden":
+    "Les personnes n’accèdent à cet espace de travail que depuis des réseaux approuvés. Ses administrateurs voient la liste.",
+  "policies.networks.limits":
+    "Cela n’arrête pas quelqu’un qui atteint un réseau approuvé, par exemple via un VPN partagé, et cela limite les comptes des personnes, pas les artifacts déjà partagés hors de l’espace de travail.",
+  "policies.tokenNetworks.legend": "Réseaux pour les jetons de service",
+  "policies.tokenNetworks.hint":
+    "Les jetons de service ne sont pas soumis à la liste pour les personnes. Donnez-leur leur propre liste, comme les adresses de vos runners de CI.",
+  "policies.tokenNetworks.anyHint": "Les jetons de service fonctionnent depuis n’importe où.",
+  "policies.tokenNetworks.onlyHint":
+    "Les jetons de service utilisés depuis d’autres adresses sont refusés.",
+  "policies.tokenNetworks.hidden":
+    "Les jetons de service ne fonctionnent que depuis des réseaux approuvés. Les administrateurs de l’espace de travail voient la liste.",
+  "policies.impact.networksTitle": "Limiter les réseaux qui accèdent à cet espace de travail ?",
+  "policies.impact.members":
+    "{count, plural, one {# membre n’accédera} other {# membres n’accéderont}} à l’espace de travail que depuis les réseaux autorisés",
+  "policies.impact.tokens":
+    "{count, plural, one {# jeton de service ne fonctionnera} other {# jetons de service ne fonctionneront}} que depuis les réseaux autorisés",
+  "policies.impact.networksNote":
+    "Portifact ne conserve l’adresse de personne : il ne peut donc pas savoir qui est hors de ces réseaux en ce moment. Votre propre adresse est incluse.",
+  "policies.impact.networksConfirm": "Limiter les réseaux",
+  "space.blocked.title": "Inaccessible depuis ce réseau",
+  "space.blocked.body":
+    "{workspace} n’autorise l’accès que depuis ses réseaux approuvés, et ce réseau n’en fait pas partie. Connectez-vous depuis un réseau approuvé, ou contactez un administrateur de l’espace de travail. Vos autres espaces continuent de fonctionner.",
+  "audit.policy.networks":
+    "personnes uniquement depuis {count, plural, one {# réseau} other {# réseaux}}",
+  "audit.policy.networksAny": "personnes depuis tout réseau",
+  "audit.policy.tokenNetworks":
+    "jetons de service uniquement depuis {count, plural, one {# réseau} other {# réseaux}}",
+  "audit.policy.tokenNetworksAny": "jetons de service depuis tout réseau",
 } satisfies Catalog;

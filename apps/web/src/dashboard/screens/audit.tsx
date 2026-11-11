@@ -673,6 +673,21 @@ function policyChanges(t: T, d: Record<string, unknown>, locale: string | undefi
         : t("audit.policy.lifetime", { days: Number(d.shareLinkMaxDays) }),
     );
   }
+  // Network allowlists are recorded as counts only (decision 0020).
+  if (d.ipRanges !== undefined) {
+    parts.push(
+      d.ipRanges === null
+        ? t("audit.policy.networksAny")
+        : t("audit.policy.networks", { count: Number(d.ipRanges) }),
+    );
+  }
+  if (d.tokenIpRanges !== undefined) {
+    parts.push(
+      d.tokenIpRanges === null
+        ? t("audit.policy.tokenNetworksAny")
+        : t("audit.policy.tokenNetworks", { count: Number(d.tokenIpRanges) }),
+    );
+  }
   return new Intl.ListFormat(locale, { style: "long", type: "unit" }).format(parts);
 }
 

@@ -4,7 +4,7 @@
 // membership; adapters never decide one.
 import { z } from "zod";
 import { Email } from "./core.ts";
-import { WorkspacePolicy } from "./policies.ts";
+import { WorkspacePolicyShown } from "./policies.ts";
 
 /**
  * Where an owner's data is stored (decision 0005). Only the default region exists for now; the
@@ -127,9 +127,15 @@ export const WorkspaceView = z.object({
   createdAt: z.iso.datetime(),
   /**
    * The workspace's policies in effect (decision 0015), so clients that publish or change access
-   * can explain a refusal before trying.
+   * can explain a refusal before trying. The network allowlists are `hidden` unless the caller is
+   * an admin (decision 0020).
    */
-  policy: WorkspacePolicy,
+  policy: WorkspacePolicyShown,
+  /**
+   * The workspace's request policies refuse the request that listed it (decision 0020): acting on
+   * it from here answers `policy_refused`. Connect from an approved network.
+   */
+  blocked: z.boolean().default(false),
 });
 export type WorkspaceView = z.infer<typeof WorkspaceView>;
 

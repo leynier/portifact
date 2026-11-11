@@ -216,6 +216,10 @@ describe("policyOfDraft", () => {
     readerDomains: " a.example, b.example\nc.example ",
     shareLinks: "allowed" as const,
     maxDays: " 30 ",
+    networksLimited: false,
+    networks: "",
+    tokenNetworksLimited: false,
+    tokenNetworks: "",
   };
   it("splits domains on spaces, commas and lines and reads the days", () => {
     expect(policyOfDraft(draft)).toEqual({

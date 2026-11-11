@@ -591,8 +591,8 @@ async function updateInEu(
 
 async function euActor(userId: string, ownerId: string) {
   const actor = await actorOn(regions().global, userId, ownerId);
-  if (!actor) throw new Error("no role");
-  return actor;
+  if (!actor.ok || !actor.value) throw new Error("no role");
+  return actor.value;
 }
 
 async function euJobs(topic: string, subject?: string) {

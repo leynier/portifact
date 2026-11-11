@@ -2260,4 +2260,40 @@ export const zhCN = {
     "{reason, select, key_unavailable {连接的凭据无法再打开} other {{service, select, github {GitHub} other {Linear}} 拒绝了连接的凭据}}",
   "audit.kind.issueCreated":
     "从讨论串在 {target} 中创建了 {service, select, github {GitHub} other {Linear}} issue {message, select, true {（包含第一条消息）} other {（不含评论文字）}}",
+  "policies.networks.legend": "人员网络",
+  "policies.networks.hint":
+    "成员（包括管理员）只能从这些网络操作工作区并阅读仅限工作区的 artifact。公开 artifact、共享链接以及你共享给的工作区外人员不受影响。",
+  "policies.networks.any": "任何网络",
+  "policies.networks.anyHint": "人员可以从任何地方访问工作区。",
+  "policies.networks.only": "仅限这些网络",
+  "policies.networks.onlyHint": "来自其他地址的请求会被拒绝，并附上原因说明。",
+  "policies.networks.ranges": "允许的 IP 地址和范围",
+  "policies.networks.rangesHint":
+    "每行一个，例如 192.0.2.0/24 或 2001:db8::/32，最多 {max} 个。单个地址代表一台设备。",
+  "policies.networks.rangesError":
+    "请填写 1 到 {max} 个 IP 地址或范围，例如 192.0.2.0/24。不允许使用包含所有地址的范围（/0）。",
+  "policies.networks.yourIp": "你当前的地址是 {ip}。列表必须包含它，否则保存后你将被锁定在外。",
+  "policies.networks.notStored": "Portifact 会检查 Cloudflare 为每个请求报告的地址，且从不存储它。",
+  "policies.networks.hidden": "人员只能从批准的网络访问此工作区。其管理员可以查看列表。",
+  "policies.networks.limits":
+    "这无法阻止通过共享 VPN 等方式进入批准网络的人，并且它限制的是人员的账号，而不是已经共享到工作区外的 artifact。",
+  "policies.tokenNetworks.legend": "服务令牌网络",
+  "policies.tokenNetworks.hint":
+    "服务令牌不受人员列表的限制。请为它们设置单独的列表，例如你的 CI 运行器地址。",
+  "policies.tokenNetworks.anyHint": "服务令牌可以在任何地方使用。",
+  "policies.tokenNetworks.onlyHint": "从其他地址使用的服务令牌会被拒绝。",
+  "policies.tokenNetworks.hidden": "服务令牌只能从批准的网络使用。工作区管理员可以查看列表。",
+  "policies.impact.networksTitle": "要限制可访问此工作区的网络吗？",
+  "policies.impact.members": "{count, plural, other {# 名成员}}将只能从允许的网络访问工作区",
+  "policies.impact.tokens": "{count, plural, other {# 个服务令牌}}将只能从允许的网络使用",
+  "policies.impact.networksNote":
+    "Portifact 不保存任何人的地址，因此无法判断当前谁在这些网络之外。你自己的地址已包含在内。",
+  "policies.impact.networksConfirm": "限制网络",
+  "space.blocked.title": "无法从此网络访问",
+  "space.blocked.body":
+    "{workspace} 只允许从其批准的网络访问，而此网络不在其中。请连接到批准的网络，或联系工作区管理员。你的其他空间仍可正常使用。",
+  "audit.policy.networks": "人员仅限 {count, plural, other {# 个网络}}",
+  "audit.policy.networksAny": "人员可来自任何网络",
+  "audit.policy.tokenNetworks": "服务令牌仅限 {count, plural, other {# 个网络}}",
+  "audit.policy.tokenNetworksAny": "服务令牌可来自任何网络",
 } satisfies Catalog;

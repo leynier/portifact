@@ -312,6 +312,12 @@ export const AUDIT_DETAILS = {
       .max(WORKSPACE_POLICIES.shareLinkMaxDays)
       .nullable()
       .optional(),
+    /**
+     * How many ranges each network allowlist names after the change, null when it is lifted: a
+     * count only, an address or range never enters the log (decision 0020).
+     */
+    ipRanges: z.int().min(1).max(WORKSPACE_POLICIES.ipRanges).nullable().optional(),
+    tokenIpRanges: z.int().min(1).max(WORKSPACE_POLICIES.ipRanges).nullable().optional(),
     /** The save accepted changes to existing artifacts (the preview's counts). */
     confirmed: z.boolean(),
   }),

@@ -2439,6 +2439,50 @@ export const en = {
     "{reason, select, key_unavailable {A connection's credential can no longer be opened} other {{service, select, github {GitHub} other {Linear}} refused a connection's credential}}",
   "audit.kind.issueCreated":
     "Created a {service, select, github {GitHub} other {Linear}} issue in {target} from a thread {message, select, true {with its first message} other {without comment text}}",
+  "policies.networks.legend": "Networks for people",
+  "policies.networks.hint":
+    "Members, admins included, act on the workspace and read its workspace-only artifacts only from these networks. Public artifacts, share links and people outside the workspace you shared with are not affected.",
+  "policies.networks.any": "Any network",
+  "policies.networks.anyHint": "People reach the workspace from anywhere.",
+  "policies.networks.only": "Only these networks",
+  "policies.networks.onlyHint":
+    "Requests from other addresses are refused with a message that says why.",
+  "policies.networks.ranges": "Allowed IP addresses and ranges",
+  "policies.networks.rangesHint":
+    "One per line, like 192.0.2.0/24 or 2001:db8::/32, at most {max}. A single address stands for one device.",
+  "policies.networks.rangesError":
+    "Write between 1 and {max} IP addresses or ranges, like 192.0.2.0/24. A range of every address (/0) is not allowed.",
+  "policies.networks.yourIp":
+    "Your current address is {ip}. The list must include it, or saving it would lock you out.",
+  "policies.networks.notStored":
+    "Portifact checks the address Cloudflare reports for each request and never stores it.",
+  "policies.networks.hidden":
+    "People reach this workspace only from approved networks. Its admins see the list.",
+  "policies.networks.limits":
+    "This does not stop someone who reaches an approved network, such as through a shared VPN, and it binds people's own accounts, not artifacts already shared outside the workspace.",
+  "policies.tokenNetworks.legend": "Networks for service tokens",
+  "policies.tokenNetworks.hint":
+    "Service tokens are not bound by the list for people. Give them their own list, such as your CI runners' addresses.",
+  "policies.tokenNetworks.anyHint": "Service tokens work from anywhere.",
+  "policies.tokenNetworks.onlyHint": "Service tokens used from other addresses are refused.",
+  "policies.tokenNetworks.hidden":
+    "Service tokens work only from approved networks. The workspace's admins see the list.",
+  "policies.impact.networksTitle": "Limit the networks that reach this workspace?",
+  "policies.impact.members":
+    "{count, plural, one {# member} other {# members}} will reach the workspace only from the allowed networks",
+  "policies.impact.tokens":
+    "{count, plural, one {# service token} other {# service tokens}} will work only from the allowed networks",
+  "policies.impact.networksNote":
+    "Portifact keeps nobody's address, so it cannot tell who is outside these networks right now. Your own address is included.",
+  "policies.impact.networksConfirm": "Limit networks",
+  "space.blocked.title": "Not reachable from this network",
+  "space.blocked.body":
+    "{workspace} only allows access from its approved networks, and this network is not one of them. Connect from an approved network, or ask a workspace admin. Your other spaces keep working.",
+  "audit.policy.networks": "people only from {count, plural, one {# network} other {# networks}}",
+  "audit.policy.networksAny": "people from any network",
+  "audit.policy.tokenNetworks":
+    "service tokens only from {count, plural, one {# network} other {# networks}}",
+  "audit.policy.tokenNetworksAny": "service tokens from any network",
 } as const;
 
 export type MessageId = keyof typeof en;

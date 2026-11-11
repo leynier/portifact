@@ -124,6 +124,7 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   setWorkspacePolicy: ["policy.changed"],
   // After a restore, with the operator as actor.
   applyWorkspacePolicies: ["policy.changed"],
+  clearRequestPolicies: ["policy.changed"],
   enforceWorkspacePolicy: ["policy.enforced", "access.changed"],
   runWorkspacePolicyJob: ["policy.enforced", "access.changed"],
   enforceWorkspacePolicies: ["policy.enforced", "access.changed"],

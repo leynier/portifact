@@ -21,6 +21,8 @@ export const WORKSPACE_POLICIES = {
   scanWorkspaces: 500,
   /** Workspaces with a violation the scan corrects per run, one step each, worst first. */
   scanSteps: 20,
+  /** IPv4 and IPv6 ranges one network allowlist names at most (decision 0020). */
+  ipRanges: 50,
 } as const;
 
 export const PUBLIC_ACCESS_POLICIES = ["allowed", "forbidden"] as const;
@@ -42,6 +44,15 @@ export type ShareLinkPolicy = z.infer<typeof ShareLinkPolicy>;
  */
 const PolicyDomain = z.string().trim().min(1).max(253);
 
+/**
+ * One range of a network allowlist as an admin writes it: an IPv4 or IPv6 address, or a CIDR
+ * range. The domain rules parse and normalize it (`normalizeIpRanges`, decision 0020).
+ */
+const PolicyIpRange = z.string().trim().min(1).max(64);
+
+/** A network allowlist: null binds nobody. */
+const IpAllowlist = z.array(PolicyIpRange).min(1).max(WORKSPACE_POLICIES.ipRanges).nullable();
+
 /** A workspace's policies. Every field has a default that changes nothing (`DEFAULT_POLICY`). */
 export const WorkspacePolicy = z.strictObject({
   /** `forbidden`: no artifact of the workspace can be public. */
@@ -54,8 +65,31 @@ export const WorkspacePolicy = z.strictObject({
   shareLinks: ShareLinkPolicy,
   /** The longest a share link may live, from its creation, in days; null for no maximum. */
   shareLinkMaxDays: z.number().int().min(1).max(WORKSPACE_POLICIES.shareLinkMaxDays).nullable(),
+  /**
+   * The networks people (members, admins included) may act on the workspace from, and read its
+   * artifacts as members (decision 0020); null binds nobody. Absent in policies stored before it
+   * existed, which read as null.
+   */
+  ipAllowlist: IpAllowlist.default(null),
+  /** The networks the workspace's service tokens may act from; null leaves tokens unbound. */
+  tokenIpAllowlist: IpAllowlist.default(null),
 });
 export type WorkspacePolicy = z.infer<typeof WorkspacePolicy>;
+
+/**
+ * A network allowlist as a policy view shows it: the ranges to the workspace's admins, only
+ * `hidden` to everyone else (a member learns that one exists, never the networks).
+ */
+export const IpAllowlistView = z.union([z.array(z.string()), z.literal("hidden")]).nullable();
+export type IpAllowlistView = z.infer<typeof IpAllowlistView>;
+
+/** A policy as it is shown: `WorkspacePolicy` with the network allowlists hidden from non-admins. */
+export const WorkspacePolicyShown = z.object({
+  ...WorkspacePolicy.shape,
+  ipAllowlist: IpAllowlistView,
+  tokenIpAllowlist: IpAllowlistView,
+});
+export type WorkspacePolicyShown = z.infer<typeof WorkspacePolicyShown>;
 
 export const DEFAULT_POLICY: WorkspacePolicy = {
   publicAccess: "allowed",
@@ -63,6 +97,8 @@ export const DEFAULT_POLICY: WorkspacePolicy = {
   readerDomains: null,
   shareLinks: "allowed",
   shareLinkMaxDays: null,
+  ipAllowlist: null,
+  tokenIpAllowlist: null,
 };
 
 /** The fields of a policy, for the audit log and the dashboard. */
@@ -72,6 +108,8 @@ export const POLICY_FIELDS = [
   "readerDomains",
   "shareLinks",
   "shareLinkMaxDays",
+  "ipAllowlist",
+  "tokenIpAllowlist",
 ] as const satisfies readonly (keyof WorkspacePolicy)[];
 export type PolicyField = (typeof POLICY_FIELDS)[number];
 
@@ -92,9 +130,21 @@ export const PolicyImpact = z.object({
 });
 export type PolicyImpact = z.infer<typeof PolicyImpact>;
 
+/**
+ * `POST /api/v1/workspaces/:slug/policies/preview`: the impact on existing artifacts, and who a
+ * network allowlist would bind, as counts (decision 0020): `members` when the people allowlist is
+ * set, `tokens` (active service tokens) when the token allowlist is; null without either.
+ * Portifact keeps nobody's address, so it cannot tell who is outside the networks.
+ */
+export const PolicyPreview = PolicyImpact.extend({
+  networks: z.object({ members: z.int().min(0), tokens: z.int().min(0) }).nullable(),
+});
+export type PolicyPreview = z.infer<typeof PolicyPreview>;
+
 /** The policies page's view (`GET /api/v1/workspaces/:slug/policies`). */
 export const WorkspacePolicyView = z.object({
-  policy: WorkspacePolicy,
+  /** The network allowlists are `hidden` unless the caller is an admin. */
+  policy: WorkspacePolicyShown,
   /** Moves with every change; a save names the revision it was made from. */
   revision: z.int().min(0),
   /** Whether the workspace's plan includes `policies`: without it, only loosening is possible. */
@@ -103,6 +153,11 @@ export const WorkspacePolicyView = z.object({
   editable: z.boolean(),
   /** Whether the workspace has a verified email domain, which the `domain` default needs. */
   domainVerified: z.boolean(),
+  /**
+   * The caller's address as the app sees it (`CF-Connecting-IP`), shown only to admins so they
+   * can include their own network before saving an allowlist; null otherwise. Never stored.
+   */
+  yourIp: z.string().nullable(),
 });
 export type WorkspacePolicyView = z.infer<typeof WorkspacePolicyView>;
 

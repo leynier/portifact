@@ -29,6 +29,7 @@ export * from "./plans.ts";
 export * from "./policies.ts";
 export * from "./publishing.ts";
 export * from "./read.ts";
+export * from "./request-context.ts";
 export * from "./review.ts";
 export * from "./scim.ts";
 export * from "./search.ts";
