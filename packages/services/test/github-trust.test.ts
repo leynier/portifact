@@ -10,7 +10,7 @@ import {
 } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import type { GitHubClaims } from "@portifact/domain";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { createAnnotationThread } from "../src/annotations.ts";
 import { getArtifact, listArtifacts } from "../src/artifacts.ts";
@@ -505,6 +505,55 @@ describe("a restore and a narrowed rule (review of the first version)", () => {
 });
 
 describe("refusals of rule changes", () => {
+  it("lets one of two concurrent changes win and answers the other version_conflict", async () => {
+    const t = await team();
+    const created = await rule(t);
+    const change = (scopes: GitHubTrustRuleCreate["scopes"]) =>
+      updateGitHubTrustRule(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        ruleId: created.id,
+        body: { ...BODY, scopes, revision: 0 },
+        now: NOW,
+      });
+    const results = await Promise.all([change(["artifacts:read"]), change(["artifacts:write"])]);
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.find((result) => !result.ok)).toMatchObject({
+      ok: false,
+      code: "version_conflict",
+    });
+    const rules = await db()
+      .select({ id: schema.githubTrustRules.id })
+      .from(schema.githubTrustRules)
+      .where(eq(schema.githubTrustRules.workspaceId, t.id));
+    expect(rules).toHaveLength(1);
+  });
+
+  it("names the replaced rule in the change's audit event", async () => {
+    const t = await team();
+    const created = await rule(t);
+    const changed = value(
+      await updateGitHubTrustRule(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        ruleId: created.id,
+        body: { ...BODY, events: ["push"], revision: 0 },
+        now: NOW,
+      }),
+    );
+    const [event] = await db()
+      .select({ targetId: schema.auditEvents.targetId, detail: schema.auditEvents.detail })
+      .from(schema.auditEvents)
+      .where(
+        and(
+          eq(schema.auditEvents.ownerId, t.id),
+          eq(schema.auditEvents.kind, "github_trust.changed"),
+        ),
+      );
+    expect(event?.targetId).toBe(changed.id);
+    expect(event?.detail).toMatchObject({ replaces: created.id });
+  });
+
   it("refuses editors, unknown rules, a second rule's repository and unconfirmed privileged events", async () => {
     const t = await team();
     const created = await rule(t);

@@ -27,8 +27,12 @@ export const GITHUB_TRUST = {
   /** Key set cache and forced refresh per isolate. */
   jwksCacheMs: 60 * 60 * 1000,
   jwksRefetchMs: 60 * 1000,
-  /** How long a key set that once worked keeps serving while GitHub cannot be reached. */
-  jwksStaleMs: 24 * 60 * 60 * 1000,
+  /**
+   * How long a key set that once worked keeps serving while GitHub cannot be reached: a few
+   * hours, so a key GitHub removed stops verifying by then; issued credentials and a stored
+   * `PORTIFACT_TOKEN` cover a longer outage (decision 0024).
+   */
+  jwksStaleMs: 3 * 60 * 60 * 1000,
   /**
    * Per window: verified exchanges per IP and per repository, and, on their own budget,
    * requests from an IP that fail before verification (decision 0024, "Review of the first

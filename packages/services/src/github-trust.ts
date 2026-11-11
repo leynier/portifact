@@ -275,7 +275,7 @@ export async function updateGitHubTrustRule(
         kind: "github_trust.changed",
         actor: { type: "user", id: input.userId },
         targetId: id,
-        detail: detailOf(body),
+        detail: { ...detailOf(body), replaces: current.id },
         now: input.now,
       },
       read,
@@ -297,6 +297,16 @@ export async function updateGitHubTrustRule(
   if (inserted.length === 0) {
     const again = await scoped(global, input.userId, input.slug, "federation");
     if (!again.ok) return again;
+    // The rule this request named is gone or changed (a concurrent change saved a new one): a
+    // conflict, whatever the new rule holds.
+    const [still] = await global
+      .select({ revision: r.revision })
+      .from(r)
+      .where(and(eq(r.id, current.id), eq(r.workspaceId, workspaceId)))
+      .limit(1);
+    if (!still || still.revision !== body.revision) {
+      return fail("version_conflict", "This rule changed since it was read. Reload and try again.");
+    }
     const [other] = await global
       .select({ id: r.id })
       .from(r)

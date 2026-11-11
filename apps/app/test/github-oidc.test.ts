@@ -472,6 +472,33 @@ describe("the exchange", () => {
     expect((await exchange(t, await mint(t), t.slug, shared)).status).toBe(200);
   });
 
+  it("refuses a body whose declared length is too large without reading any of it", async () => {
+    const t = await team();
+    await trust(t);
+    let pulled = 0;
+    // No queue to fill ahead of a read: a pull happens only when someone reads the body.
+    const counted = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulled += 1;
+          if (pulled > 3) controller.close();
+          else controller.enqueue(new TextEncoder().encode("x"));
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const response = await t.h.request("/api/v1/github/token", {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": "100000" },
+      body: counted,
+      // @ts-expect-error: undici and workerd need this for a streamed request body
+      duplex: "half",
+    });
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual(REFUSED);
+    expect(pulled).toBe(0);
+  });
+
   it("refuses an oversized body by its length, and caps the read of one without it", async () => {
     const t = await team();
     await trust(t);
@@ -670,8 +697,9 @@ describe("GitHub's key set", () => {
       expect((await exchange(t, await mint(t, { header: { kid: `k${i}` } }))).status).toBe(401);
     }
     expect(gitHubKeyFetches()).toBe(2);
-    // A day after the last good fetch, the stale set no longer serves.
-    vi.setSystemTime(NOW + 25 * 60 * 60_000);
+    // Three hours after the last good fetch, the stale set no longer serves: a key GitHub
+    // removed (a compromised one) stops verifying by then even while GitHub is unreachable.
+    vi.setSystemTime(NOW + 3 * 60 * 60_000 + 60_000);
     expect((await exchange(t, await mint(t))).status).toBe(401);
     expect(gitHubKeyFetches()).toBe(3);
   });

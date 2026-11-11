@@ -12,6 +12,7 @@ import {
   GITHUB_TRUST_SCOPES,
   GitHubNumericId,
   GitHubTrustEvent,
+  GitHubTrustRuleId,
   GitHubTrustScope,
 } from "./github-oidc.ts";
 import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
@@ -292,7 +293,8 @@ export const AUDIT_DETAILS = {
    * what it may trigger and do, and whether a ref or an environment narrows it, never their values.
    */
   "github_trust.created": githubTrustDetail,
-  "github_trust.changed": githubTrustDetail,
+  /** A change saves a new rule (the target); `replaces` is the opaque ID of the rule it replaced. */
+  "github_trust.changed": githubTrustDetail.extend({ replaces: GitHubTrustRuleId }),
   "github_trust.removed": z.strictObject({
     repositoryId: GitHubNumericId,
     repository: GitHubRepo,

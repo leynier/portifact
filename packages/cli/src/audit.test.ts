@@ -372,6 +372,7 @@ describe("plain words for every kind", () => {
       scopes: ["artifacts:read"],
       ref: true,
       environment: false,
+      replaces: `gtr_${"1".repeat(32)}`,
     },
     "github_trust.removed": { repositoryId: "123", repository: "acme/site" },
     "github_trust.exchanged": {
