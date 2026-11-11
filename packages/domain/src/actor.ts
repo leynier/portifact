@@ -42,6 +42,11 @@ export interface Actor {
    * `defaultAccess` is `domain` (true otherwise): what a new artifact may start with.
    */
   domainVerified?: boolean;
+  /**
+   * The workspace's single sign-on provider while it can sign people in, read with the policy
+   * only when the policy requires single sign-on (decision 0021); null or absent otherwise.
+   */
+  ssoProvider?: string | null;
 }
 
 const MEMBER: readonly RoleAction[] = ["read", "comment"];

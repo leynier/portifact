@@ -54,6 +54,7 @@ import { releaseOrphans } from "./maintenance.ts";
 import { closeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { directoryRoleHolders } from "./scim-groups.ts";
+import { ssoRequirementColumns } from "./sso-required.ts";
 
 const w = schema.workspaces;
 const m = schema.workspaceMembers;
@@ -185,6 +186,7 @@ export async function listUserWorkspaces(
       createdAt: w.createdAt,
       policy: w.policy,
       role: m.role,
+      ...ssoRequirementColumns(Date.now()),
     })
     .from(m)
     .innerJoin(w, eq(w.id, m.workspaceId))
@@ -198,6 +200,8 @@ function listed(
   row: Omit<UserWorkspace, "policy" | "region" | "blocked" | "blockedBy" | "shown"> & {
     region: string;
     policy: unknown;
+    /** "SSO required": the provider and plan columns, read only for a person's list. */
+    ssoProvider?: string | null;
     /** Who is listing: the sign-in policies apply the request's credential only to them. */
     userId: string;
   },
@@ -205,13 +209,15 @@ function listed(
 ): UserWorkspace {
   const policy = policyOf(row.policy);
   // The policy came with the row: deciding it reads nothing more.
+  const now = Date.now();
   const blockedBy = requestRefusal(policy, global.request, caller, {
     userId: row.userId,
-    now: Date.now(),
+    now,
+    ssoProvider: row.ssoProvider ?? null,
   });
   const blocked = blockedBy !== null;
   const shown = shownPolicy(policy, seesNetworks(row.role, blocked));
-  const { userId: _, ...rest } = row;
+  const { userId: _, ssoProvider: _p, ...rest } = row;
   return { ...rest, region: regionOf(row), policy, blocked, blockedBy, shown };
 }
 
@@ -665,9 +671,9 @@ export async function createWorkspace(
     global
       .insert(w)
       // Columns in schema order: id, slug, name, region, created by, created at, updated at,
-      // policy (the defaults), policy revision.
+      // policy (the defaults), policy revision, SSO suspended.
       .select(
-        sql`select ${id}, ${slug}, ${name}, ${region}, ${input.adminUserId}, ${input.now}, ${input.now}, null, 0 where ${guard}`,
+        sql`select ${id}, ${slug}, ${name}, ${region}, ${input.adminUserId}, ${input.now}, ${input.now}, null, 0, 0 where ${guard}`,
       )
       .onConflictDoNothing()
       .returning({ id: w.id }),

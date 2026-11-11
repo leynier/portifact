@@ -111,6 +111,7 @@ describe("browser sessions", () => {
       "current",
       "expiresAt",
       "lastActiveAt",
+      "signInMethod",
       "userAgent",
     ]);
     for (const cookie of [laptop, phone]) {

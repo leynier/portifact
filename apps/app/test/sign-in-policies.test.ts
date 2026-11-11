@@ -148,6 +148,7 @@ describe("the maximum session age through the app Worker", () => {
           clientId: CLI_CLIENT_ID,
           client: "cli",
           signedInAt,
+          method: null,
         }),
       ),
     );
@@ -161,6 +162,7 @@ describe("the maximum session age through the app Worker", () => {
           clientId: t.member.mcpClientId,
           client: "oauth_apps",
           signedInAt,
+          method: null,
         }),
       ),
     );
@@ -205,6 +207,7 @@ describe("the maximum session age through the app Worker", () => {
           clientId: CLI_CLIENT_ID,
           client: "cli",
           signedInAt: 0,
+          method: null,
         }),
       ),
     );

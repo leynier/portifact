@@ -169,8 +169,12 @@ describe("workspace contracts", () => {
       WorkspaceList.parse({ items: [{ ...view, blocked: true, blockedBy: "session_age" }] })
         .items[0],
     ).toMatchObject({ blockedBy: "session_age", policy: { sessionMaxHours: null } });
+    // Single sign-on required (decision 0021) is a reason too; anything else is not.
     expect(
-      WorkspaceList.safeParse({ items: [{ ...view, blocked: true, blockedBy: "sso" }] }).success,
+      WorkspaceList.parse({ items: [{ ...view, blocked: true, blockedBy: "sso" }] }).items[0],
+    ).toMatchObject({ blockedBy: "sso", policy: { ssoRequired: false } });
+    expect(
+      WorkspaceList.safeParse({ items: [{ ...view, blocked: true, blockedBy: "saml" }] }).success,
     ).toBe(false);
     expect(
       WorkspaceList.parse({

@@ -38,6 +38,7 @@ import { hex } from "./objects.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { joinGroupStatements, linkDirectoryUser } from "./scim-groups.ts";
 import { openSsoSecret, type SsoKey, sealSsoSecret } from "./sso-keys.ts";
+import { ssoSuspensionStatements } from "./sso-required.ts";
 import { memberEvent, scoped, seatsUsedSql, stillAdmin } from "./workspaces.ts";
 
 const so = schema.workspaceSso;
@@ -438,6 +439,12 @@ export async function saveSsoProvider(
       })
       .where(target)
       .returning({ id: so.id }),
+    // The served domains changed: "SSO required" may be suspended or resumed (decision 0021).
+    ...ssoSuspensionStatements(global, {
+      workspaceId: workspace.id,
+      now: input.now,
+      cause: "provider",
+    }),
   ]);
   if (updated.length === 0) return conflictOrScope(global, input);
   return ok(
@@ -464,7 +471,8 @@ async function conflictOrScope(
 /**
  * Removes the workspace's provider, for an admin, whatever the plan: the row, the identities
  * linked through it (people keep their accounts and sign in another way) and a `workspace_sso`
- * tombstone in one batch, so a restore cannot bring it back. Members stay members.
+ * tombstone in one batch, so a restore cannot bring it back. Members stay members. A policy that
+ * required single sign-on through it stops requiring it in the same batch (decision 0021).
  */
 export async function removeSsoProvider(
   global: GlobalDb,
@@ -477,7 +485,37 @@ export async function removeSsoProvider(
   if (!row) return fail("not_found", "Single sign-on is not set up.");
   const target = and(eq(so.id, row.id), stillAdmin(workspace.id, input.userId)) as SQL;
   const exists = sql`exists (select 1 from ${so} where ${target})`;
-  const [, , , deleted] = await global.batch([
+  // "SSO required" (decision 0021) names this provider: it is cleared in the same batch, by the
+  // system and recorded, so no workspace keeps a requirement nobody can meet.
+  const ws = schema.workspaces;
+  const requires = sql`${exists} and exists (select 1 from ${ws} where ${ws.id} = ${workspace.id} and coalesce(json_extract(${ws.policy}, '$.ssoRequired'), 0) = 1)`;
+  const [, , , , , deleted] = await global.batch([
+    auditEvent(
+      global,
+      {
+        ownerId: workspace.id,
+        kind: "policy.changed",
+        actor: { type: "system" },
+        targetId: workspace.id,
+        detail: {
+          fields: ["ssoRequired"],
+          ssoRequired: false,
+          reason: "sso_removed",
+          confirmed: false,
+        },
+        now: input.now,
+      },
+      requires,
+    ),
+    global
+      .update(ws)
+      .set({
+        policy: sql`json_remove(${ws.policy}, '$.ssoRequired')`,
+        policyRevision: sql`${ws.policyRevision} + 1`,
+        ssoSuspended: 0,
+        updatedAt: input.now,
+      })
+      .where(and(eq(ws.id, workspace.id), requires) as SQL),
     auditEvent(
       global,
       {

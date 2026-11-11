@@ -971,6 +971,7 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         revision: body.value.revision,
         confirmed: body.value.confirmed,
         confirmedSingleFamily: body.value.confirmedSingleFamily,
+        confirmedOutsideProvider: body.value.confirmedOutsideProvider,
         now: deps.now(),
       });
       return reply(c, result, (state) => c.json(policyView(state)));

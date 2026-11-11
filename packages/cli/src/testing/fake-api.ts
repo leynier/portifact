@@ -122,7 +122,7 @@ export interface FakeWorkspace {
   /** Its network policy refuses this machine (decision 0020). */
   blocked?: boolean;
   /** Which request policy refuses this CLI (decisions 0020 and 0021). */
-  blockedBy?: "network" | "session_age" | "client" | null;
+  blockedBy?: "network" | "session_age" | "client" | "sso" | null;
 }
 
 export interface FakeVersionFile {

@@ -487,6 +487,7 @@ describe("describePolicy", () => {
         tokenIpAllowlist: null,
         sessionMaxHours: null,
         allowedClients: null,
+        ssoRequired: false,
       }),
     ).toEqual([
       "public access forbidden",

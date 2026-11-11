@@ -24,6 +24,7 @@ beforeEach(async () => {
     approvedAt: "2026-11-01T10:00:00.000Z",
     lastIssuedAt: "2026-11-08T09:00:00.000Z",
     expiresAt: null,
+    signInMethod: "sso",
   });
 });
 

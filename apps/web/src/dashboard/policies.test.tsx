@@ -224,6 +224,7 @@ describe("policyOfDraft", () => {
     sessionHours: "",
     clientsLimited: false,
     clients: ["cli", "oauth_apps"] as ClientKind[],
+    ssoRequired: false,
   };
   it("splits domains on spaces, commas and lines and reads the days", () => {
     expect(policyOfDraft(draft)).toEqual({

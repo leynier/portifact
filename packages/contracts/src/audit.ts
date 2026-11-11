@@ -344,6 +344,18 @@ export const AUDIT_DETAILS = {
       .optional(),
     /** The kinds of client allowed after the change; null when every kind is again (0021). */
     allowedClients: z.array(AllowedClient).max(2).nullable().optional(),
+    /** Whether single sign-on is required after the change (0021, "SSO required"). */
+    ssoRequired: z.boolean().optional(),
+    /**
+     * Members the provider could not serve that the admin confirmed when requiring single
+     * sign-on: a count only.
+     */
+    outsideProvider: z.int().min(0).optional(),
+    /**
+     * Why the system changed it, when it did: `sso_removed`, removing the provider cleared "SSO
+     * required" in the same batch, so no workspace keeps a requirement nobody can meet.
+     */
+    reason: z.enum(["sso_removed"]).optional(),
     /** The save accepted changes to existing artifacts (the preview's counts). */
     confirmed: z.boolean(),
   }),
@@ -351,6 +363,14 @@ export const AUDIT_DETAILS = {
    * One step of applying a policy to existing artifacts (the `workspace_policy` job or the
    * maintenance scan), by the system: what it changed, as counts.
    */
+  /**
+   * "SSO required" can no longer be met (decision 0021): the workspace's provider serves no
+   * verified domain or the plan lost `sso`, so the requirement is suspended. By the system, in the
+   * batch of the write that caused it (`cause`), or by the scan that noticed a plan expiring.
+   */
+  "policy.sso_suspended": z.strictObject({ cause: z.enum(["domain", "plan", "provider", "scan"]) }),
+  /** "SSO required" can be met again and binds again (decision 0021). */
+  "policy.sso_resumed": z.strictObject({ cause: z.enum(["domain", "plan", "provider", "scan"]) }),
   "policy.enforced": z.strictObject({
     artifactsNarrowed: enforceCount,
     readersRemoved: enforceCount,
@@ -476,6 +496,8 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "audit.exported": "audit_log",
   "policy.changed": "policy",
   "policy.enforced": "policy",
+  "policy.sso_suspended": "policy",
+  "policy.sso_resumed": "policy",
   "audit_stream.created": "audit_stream",
   "audit_stream.changed": "audit_stream",
   "audit_stream.removed": "audit_stream",

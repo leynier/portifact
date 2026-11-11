@@ -25,7 +25,7 @@ const read = (file: string) => readFileSync(join(ROOT, file), "utf8");
 const ENTRIES: Record<string, RegExp> = {
   // The app Worker: every request, from Cloudflare's CF-Connecting-IP.
   "apps/app/src/app-host.ts":
-    /c\.env = withRequestContext\(c\.env, requestContextOf\(c\.req\.raw\)\)/,
+    /c\.env = withRequestContext\(\s*c\.env,\s*requestContextOf\(c\.req\.raw, \{ sso: c\.env\.SSO_ENABLED === "true" \}\),?\s*\)/,
   // The content Worker: every request it routes.
   "apps/content/src/index.ts": /withRequestContext\(workerEnv, requestContextOf\(request\)\)/,
   // The jobs Worker and the operator answer no client.
@@ -87,7 +87,8 @@ function entryPoints(config: string): string[] {
 const CLASSIFIED: Record<string, { file: string; pattern: RegExp } | { noDatabase: string }> = {
   "apps/app/wrangler.jsonc#fetch": {
     file: "apps/app/src/app-host.ts",
-    pattern: /c\.env = withRequestContext\(c\.env, requestContextOf\(c\.req\.raw\)\)/,
+    pattern:
+      /c\.env = withRequestContext\(\s*c\.env,\s*requestContextOf\(c\.req\.raw, \{ sso: c\.env\.SSO_ENABLED === "true" \}\),?\s*\)/,
   },
   "apps/content/wrangler.jsonc#fetch": {
     file: "apps/content/src/index.ts",
@@ -202,7 +203,7 @@ describe("the credential on the request context", () => {
       "packages/services/src/review-access.ts",
     ]) {
       expect(read(file)).toMatch(
-        /recordSessionRenewal\(db, session\.userId, Number\(signedInAt\)\);\s+const access = await checkReadAccess\(/,
+        /recordSessionRenewal\(db, session\.userId, signIn\);\s+const access = await checkReadAccess\(/,
       );
     }
   });
@@ -212,6 +213,25 @@ describe("the credential on the request context", () => {
     expect(routes).toMatch(/if \(path === "\/device\/approve"\) \{\s+await recordDeviceApproval\(/);
     expect(routes).toMatch(
       /if \(path === "\/oauth2\/token"\) \{\s+return authHeaders\(\s+await exchangeDeviceCode\(/,
+    );
+  });
+
+  it("carries how the session signed in, from the rows already read (SSO required)", () => {
+    // The session hook writes the method in the statement that creates the session, from the
+    // endpoint answering, and the lookup records the row's method.
+    expect(read("apps/app/src/auth/auth.ts")).toMatch(
+      /before: async \(session, ctx\) => \{\s+await terms\.session\.create\.before\(session, ctx\);\s+return \{ data: \{ \.\.\.session, signInMethod: sessionSignInMethod\(ctx\) \} \};/,
+    );
+    const credentials = read("apps/app/src/auth/credentials.ts");
+    expect(credentials).toMatch(/method: parseSignInMethod\(found\.session\.signInMethod\)/);
+    expect(credentials).toMatch(/method: parseSignInMethod\(payload\[SIGN_IN_METHOD_CLAIM\]\)/);
+    // The token's method comes from the row the provider read, never a second read.
+    expect(read("apps/app/src/auth/introspection.ts")).toMatch(
+      /seen\.signInMethod = row\.signInMethod;/,
+    );
+    // Renewals parse it from the app session row they already read.
+    expect(read("packages/services/src/read-access.ts")).toMatch(
+      /method: parseSignInMethod\(signIn\.method\)/,
     );
   });
 

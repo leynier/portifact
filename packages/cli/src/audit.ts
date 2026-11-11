@@ -240,6 +240,10 @@ export function auditSummary(event: AuditEventView): string {
       return `Changed the workspace's policies: ${policyParts(d).join(", ")}${d.confirmed ? " (existing artifacts changed)" : ""}`;
     case "policy.enforced":
       return `Applied the workspace's policies: ${enforcedParts(d).join(", ")}`;
+    case "policy.sso_suspended":
+      return `Single sign-on required no longer applies: the provider cannot sign anyone in (${SSO_CAUSES[String(d.cause)] ?? d.cause})`;
+    case "policy.sso_resumed":
+      return `Single sign-on required applies again: the provider can sign people in (${SSO_CAUSES[String(d.cause)] ?? d.cause})`;
     case "audit_stream.created":
       return `Started streaming the audit log to ${d.host}${d.start === "oldest" ? " from the oldest kept event" : ""}`;
     case "audit_stream.changed":
@@ -347,8 +351,19 @@ function policyParts(d: Record<string, unknown>): string[] {
     count === null ? `${who} from any network` : `${who} only from ${count} network(s)`;
   if (d.ipRanges !== undefined) parts.push(networks(d.ipRanges, "people"));
   if (d.tokenIpRanges !== undefined) parts.push(networks(d.tokenIpRanges, "service tokens"));
+  if (d.ssoRequired !== undefined) {
+    parts.push(d.ssoRequired ? "single sign-on required" : "single sign-on not required");
+  }
+  if (d.reason === "sso_removed") parts.push("because the single sign-on provider was removed");
   return parts;
 }
+
+const SSO_CAUSES: Record<string, string> = {
+  domain: "a verified domain changed",
+  plan: "the plan changed",
+  provider: "the provider changed",
+  scan: "noticed by the daily check",
+};
 
 /** What one enforcement step changed, as counts. */
 function enforcedParts(d: Record<string, unknown>): string[] {

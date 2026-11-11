@@ -2,7 +2,12 @@
 // issues a one-use handoff after checking access; the artifact origin redeems it into a read
 // session and later renews the session's claims through the same access check. A missing
 // artifact and a forbidden one give the same answer.
-import { type AccessMode, READ_SESSION, recordCredential } from "@portifact/contracts";
+import {
+  type AccessMode,
+  parseSignInMethod,
+  READ_SESSION,
+  recordCredential,
+} from "@portifact/contracts";
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   canRead,
@@ -81,6 +86,17 @@ export function appSessionSignInSql(table: "read_sessions" | "review_sessions", 
 }
 
 /**
+ * How the live app session behind a read or review session signed in (`sessions.sign_in_method`,
+ * decision 0021, "SSO required"), as another column of the renewal's own read with one database:
+ * the same row as `appSessionSignInSql`, so no statement is added.
+ */
+export function appSessionMethodSql(table: "read_sessions" | "review_sessions", now: number) {
+  return sql<
+    string | null
+  >`(select "s"."sign_in_method" from "sessions" "s" where "s"."id" = ${sql.raw(`"${table}"."auth_session_id"`)} and "s"."expires_at" > ${now})`;
+}
+
+/**
  * When the live app session signed in, with a separate regional database: the one global read a
  * renewal already made to check the app session is live, now also returning its sign-in time
  * (null when it ended).
@@ -89,22 +105,31 @@ export async function appSessionSignIn(
   global: GlobalDb,
   authSessionId: string,
   now: number,
-): Promise<number | null> {
+): Promise<{ signedInAt: number; method: string | null } | null> {
   const [row] = await global
-    .select({ createdAt: schema.sessions.createdAt })
+    .select({ createdAt: schema.sessions.createdAt, method: schema.sessions.signInMethod })
     .from(schema.sessions)
     .where(and(eq(schema.sessions.id, authSessionId), gt(schema.sessions.expiresAt, new Date(now))))
     .limit(1);
-  return row ? row.createdAt.getTime() : null;
+  return row ? { signedInAt: row.createdAt.getTime(), method: row.method } : null;
 }
 
 /**
  * Records, on the request the renewal answers, that it acts for `userId` through the app session
- * that signed in at `signedInAt` (decision 0021): `actorOn` then applies the workspace's sign-in
+ * that signed in at `signedInAt` with `method` (decision 0021): `actorOn` then applies the workspace's sign-in
  * policies to the renewal, as it does on the app.
  */
-export function recordSessionRenewal(db: RegionalDb, userId: string, signedInAt: number): void {
-  recordCredential(db.global.request, { kind: "session", userId, signedInAt });
+export function recordSessionRenewal(
+  db: RegionalDb,
+  userId: string,
+  signIn: { signedInAt: number; method: string | null },
+): void {
+  recordCredential(db.global.request, {
+    kind: "session",
+    userId,
+    signedInAt: signIn.signedInAt,
+    method: parseSignInMethod(signIn.method),
+  });
 }
 
 export async function appSessionLive(
@@ -420,6 +445,7 @@ export async function refreshReadSession(
       expiresAt: schema.readSessions.expiresAt,
       authSessionId: schema.readSessions.authSessionId,
       signedInAt: both ? appSessionSignInSql("read_sessions", input.now) : sql<null>`null`,
+      method: both ? appSessionMethodSql("read_sessions", input.now) : sql<null>`null`,
     })
     .from(schema.readSessions)
     .where(
@@ -435,11 +461,13 @@ export async function refreshReadSession(
   // One database: the app session and its sign-in time came with the read above. Otherwise they
   // are global, in the one read that checks the app session is live, before the access check so
   // that the workspace's sign-in policies apply to the renewal (decision 0021).
-  const signedInAt = both
-    ? session.signedInAt
+  const signIn = both
+    ? session.signedInAt === null
+      ? null
+      : { signedInAt: Number(session.signedInAt), method: session.method }
     : await appSessionSignIn(db.global, session.authSessionId, input.now);
-  if (signedInAt === null) return unavailable();
-  recordSessionRenewal(db, session.userId, Number(signedInAt));
+  if (signIn === null) return unavailable();
+  recordSessionRenewal(db, session.userId, signIn);
   const access = await checkReadAccess(db, { ...input, userId: session.userId });
   if (!access.ok) return access;
   return ok({

@@ -108,7 +108,7 @@ export const AUDIT_GROUPS = {
     "member.provisioned",
     "scim.changed",
   ],
-  policies: ["policy.changed", "policy.enforced"],
+  policies: ["policy.changed", "policy.enforced", "policy.sso_suspended", "policy.sso_resumed"],
   groups: [
     "group.created",
     "group.renamed",
@@ -668,6 +668,10 @@ export function describeAuditEvent(
       return t("audit.kind.policyChanged", { changes: policyChanges(t, d, locale) });
     case "policy.enforced":
       return t("audit.kind.policyEnforced", { changes: enforcedChanges(t, d, locale) });
+    case "policy.sso_suspended":
+      return t("audit.kind.policySsoSuspended", { cause: String(d.cause) });
+    case "policy.sso_resumed":
+      return t("audit.kind.policySsoResumed", { cause: String(d.cause) });
     case "plan.grace_started":
       return t("audit.kind.graceStarted", {
         reason: t(`audit.graceStart.${d.reason as GraceStartReason}`),
@@ -732,6 +736,10 @@ function policyChanges(t: T, d: Record<string, unknown>, locale: string | undefi
         ? t("audit.policy.sessionAny")
         : t("audit.policy.session", { count: Number(d.sessionMaxHours) }),
     );
+  }
+  if (d.ssoRequired !== undefined) {
+    parts.push(t("audit.policy.sso", { value: String(d.ssoRequired === true) }));
+    if (d.reason === "sso_removed") parts.push(t("audit.policy.ssoRemoved"));
   }
   if (d.allowedClients !== undefined) {
     parts.push(t("audit.policy.clients", { kinds: clientKinds(d.allowedClients) }));

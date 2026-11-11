@@ -119,7 +119,7 @@ export const WorkspaceName = z
   .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "No control characters");
 
 /** Which request policy refuses a request (decisions 0020 and 0021). */
-export const REQUEST_REFUSALS = ["network", "session_age", "client"] as const;
+export const REQUEST_REFUSALS = ["network", "session_age", "client", "sso"] as const;
 export const RequestRefusal = z.enum(REQUEST_REFUSALS);
 export type RequestRefusal = z.infer<typeof RequestRefusal>;
 
@@ -144,7 +144,8 @@ export const WorkspaceView = z.object({
   /**
    * Which request policy refuses it, when `blocked` (decisions 0020 and 0021): `network` (connect
    * from an approved network), `session_age` (sign in again), `client` (this kind of client may
-   * not act on it; use the dashboard). Null when it is not blocked.
+   * not act on it; use the dashboard), `sso` (sign in through the workspace's single sign-on).
+   * Null when it is not blocked.
    */
   blockedBy: RequestRefusal.nullable().default(null),
 });

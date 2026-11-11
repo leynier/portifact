@@ -2782,4 +2782,53 @@ export const fr = {
   "audit.policy.sessionAny": "aucune limite de durée de session",
   "audit.policy.clients":
     "{kinds, select, none {seul le tableau de bord peut agir} cli {seuls le tableau de bord et la CLI peuvent agir} oauth_apps {seuls le tableau de bord et les applications connectées peuvent agir} both {le tableau de bord, la CLI et les applications connectées peuvent agir} other {toutes les applications peuvent agir}}",
+  "space.blockedSso.title": "Connectez-vous par authentification unique pour continuer",
+  "space.blockedSso.body":
+    "{workspace} exige une connexion par son authentification unique, et ce navigateur s’est connecté autrement. Connectez-vous par authentification unique pour revenir ici : votre compte reste le même et vos autres espaces continuent de fonctionner. Si votre adresse n’est pas servie par le fournisseur d’identité de l’espace, demandez à un administrateur. Vous pouvez toujours quitter l’espace depuis la page de vos espaces de travail.",
+  "space.blockedSso.action": "Se connecter par authentification unique",
+  "policies.sso.legend": "Authentification unique",
+  "policies.sso.hint":
+    "Si les personnes doivent se connecter par le fournisseur d’identité de cet espace pour y agir, depuis le tableau de bord, la CLI et les applications connectées.",
+  "policies.sso.any": "Toute connexion",
+  "policies.sso.anyHint":
+    "Les codes par e-mail, Google, GitHub et l’authentification unique fonctionnent tous.",
+  "policies.sso.only": "Uniquement par authentification unique",
+  "policies.sso.onlyHint":
+    "Administrateurs compris. La CLI et les applications fonctionnent si la personne les a approuvées depuis une session d’authentification unique. Les jetons de service ne sont pas concernés.",
+  "policies.sso.notUsable":
+    "Configurez d’abord l’authentification unique avec un domaine e-mail vérifié, sur une offre qui l’inclut. D’ici là, elle ne peut pas être exigée.",
+  "policies.sso.signInFirst":
+    "Connectez-vous d’abord par authentification unique depuis ce navigateur, pour savoir qu’elle fonctionne avant de l’exiger. Vous reviendrez ici.",
+  "policies.sso.tradeoff":
+    "Les administrateurs sont aussi concernés, pour qu’aucun compte ne contourne le fournisseur d’identité. Si le fournisseur est en panne ou mal configuré, personne ne peut agir sur l’espace tant qu’il ne fonctionne pas à nouveau ou que le support de Portifact ne lève l’exigence à la demande d’un administrateur ; les autres espaces de chacun continuent de fonctionner.",
+  "policies.sso.required":
+    "Les personnes se connectent par l’authentification unique de cet espace pour y agir.",
+  "policies.sso.suspended":
+    "L’authentification unique est exigée, mais le fournisseur ne peut connecter personne pour l’instant (il ne sert aucun domaine vérifié, ou l’offre ne l’inclut plus) : l’exigence n’est pas appliquée tant qu’il ne le peut pas.",
+  "policies.impact.ssoTitle": "Exiger l’authentification unique ?",
+  "policies.impact.ssoConfirm": "Exiger l’authentification unique",
+  "policies.impact.ssoMembers":
+    "{count, plural, one {# membre n’agira} other {# membres n’agiront}} sur l’espace que par authentification unique.",
+  "policies.impact.ssoOutside":
+    "{count, plural, one {L’adresse de # membre n’est pas} other {Les adresses de # membres ne sont pas}} dans un domaine servi par le fournisseur : ces personnes ne peuvent pas se connecter par lui et seront refusées jusqu’à ce qu’un administrateur lève l’exigence ou que leur adresse change.",
+  "policies.impact.ssoWithout":
+    "{count, plural, one {# membre n’a} other {# membres n’ont}} pas encore de session par authentification unique et devront s’y connecter à leur prochaine action.",
+  "policies.impact.ssoNote":
+    "Personne n’est déconnecté. Les connexions de la CLI et les applications approuvées depuis un autre type de connexion sont refusées sur cet espace jusqu’à ce que la personne les approuve à nouveau depuis une session d’authentification unique.",
+  "account.sessions.column.method": "Connecté avec",
+  "account.apps.method": "Approuvée depuis une connexion avec",
+  "account.method.code": "Code par e-mail",
+  "account.method.google": "Google",
+  "account.method.github": "GitHub",
+  "account.method.sso": "Authentification unique",
+  "account.method.unknown": "Non enregistré",
+  "audit.policy.sso":
+    "{value, select, true {authentification unique exigée} other {authentification unique non exigée}}",
+  "audit.policy.ssoRemoved": "(le fournisseur d’authentification unique a été supprimé)",
+  "audit.kind.policySsoSuspended":
+    "L’authentification unique exigée ne s’applique plus : le fournisseur ne peut connecter personne ({cause, select, domain {un domaine vérifié a changé} plan {l’offre a changé} provider {le fournisseur a changé} other {constaté par la vérification quotidienne}})",
+  "audit.kind.policySsoResumed":
+    "L’authentification unique exigée s’applique de nouveau : le fournisseur peut connecter les personnes ({cause, select, domain {un domaine vérifié a changé} plan {l’offre a changé} provider {le fournisseur a changé} other {constaté par la vérification quotidienne}})",
+  "policies.sso.switchedOff":
+    "L’authentification unique est exigée, mais elle est désactivée sur ce Portifact : personne ne peut se connecter par le fournisseur ni agir sur cet espace tant que le support de Portifact n’a pas levé l’exigence ou réactivé l’authentification unique. Contactez le support de Portifact.",
 } satisfies Catalog;

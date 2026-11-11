@@ -45,6 +45,13 @@ export const sessions = sqliteTable(
     userId: text("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * How the session signed in (decision 0021, "SSO required"): `code`, `google`, `github` or
+     * `sso:<provider ID>`, written by the session hook in the statement that creates the row
+     * (`apps/app/src/auth/sign-in-method.ts`). Null for sessions from before it was recorded:
+     * "not known", which "SSO required" refuses. Never changed after.
+     */
+    signInMethod: text("sign_in_method"),
   },
   (t) => [index("sessions_user_id_idx").on(t.userId)],
 );
@@ -198,12 +205,21 @@ export const oauthRefreshTokens = sqliteTable(
     authTime: date("auth_time"),
     confirmation: text("confirmation"),
     scopes: text("scopes").notNull(),
+    /**
+     * How the sign-in this grant descends from happened (decision 0021), as on `sessions`: set by
+     * a trigger on insert from the token it rotates (or its session), or by the device exchange
+     * from the approving session. Null when not known.
+     */
+    signInMethod: text("sign_in_method"),
   },
   (t) => [
     index("oauth_refresh_tokens_client_id_idx").on(t.clientId),
     index("oauth_refresh_tokens_session_id_idx").on(t.sessionId),
     index("oauth_refresh_tokens_user_id_idx").on(t.userId),
     index("oauth_refresh_tokens_authorization_code_id_idx").on(t.authorizationCodeId),
+    // The sign-in method trigger's predecessor match (migration 0061, decision 0021): the token a
+    // new one rotates, found without scanning the user's whole refresh history.
+    index("oauth_refresh_tokens_user_client_rotated_idx").on(t.userId, t.clientId, t.rotatedAt),
   ],
 );
 
@@ -236,6 +252,12 @@ export const oauthAccessTokens = sqliteTable(
      * `created_at`, so a refresh never resets it. The introspection plugin declares the field.
      */
     authTime: date("auth_time"),
+    /**
+     * How the sign-in this token descends from happened (decision 0021): set by a trigger on
+     * insert from its refresh token, or its session, like `auth_time`. The introspection plugin
+     * declares the field, so the token check reads it with the row.
+     */
+    signInMethod: text("sign_in_method"),
   },
   (t) => [
     index("oauth_access_tokens_client_id_idx").on(t.clientId),
@@ -297,6 +319,12 @@ export const deviceCodes = sqliteTable(
      * written by Better Auth; null until approved.
      */
     approverSignedInAt: date("approver_signed_in_at"),
+    /**
+     * How the approving session signed in (`sessions.sign_in_method`), written with
+     * `approverSignedInAt` and copied onto the grant's tokens at the exchange (decision 0021).
+     * Two approvals by sessions with different methods leave `unknown`, which no method matches.
+     */
+    approverSignInMethod: text("approver_sign_in_method"),
   },
   (t) => [
     uniqueIndex("device_codes_device_code_idx").on(t.deviceCode),

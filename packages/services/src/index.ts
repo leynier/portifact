@@ -62,6 +62,7 @@ export * from "./service-tokens.ts";
 export * from "./share-links.ts";
 export * from "./sso.ts";
 export * from "./sso-keys.ts";
+export * from "./sso-required.ts";
 export * from "./thread-issue-views.ts";
 export * from "./thread-issues.ts";
 export * from "./traffic.ts";

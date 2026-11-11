@@ -297,6 +297,7 @@ export async function startFakeServer(): Promise<FakeServer> {
       approvedAt: at,
       lastIssuedAt: at,
       expiresAt: new Date(fake.clock() + 30 * 86_400_000).toISOString(),
+      signInMethod: "code",
     };
     if (method === "GET" && url.pathname === "/api/v1/tokens") {
       const items = [cli, ...fake.otherApps].map((app) => ({

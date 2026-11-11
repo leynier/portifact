@@ -343,6 +343,26 @@ describe("login page", () => {
     expect(element("sign-in").hidden).toBe(false);
   });
 
+  it("asks for a sign-in through single sign-on with the account's address, and comes back to the page", async () => {
+    api.on("GET", "/get-session", session("ada@corp.example"));
+    api.on("POST", "/sso/lookup", { status: 200, body: { sso: true } });
+    api.on("POST", "/sign-in/sso", { status: 200, body: { url: "https://login.corp.example/a" } });
+    await open(`?${new URLSearchParams({ reauth: "sso", next: "/policies?workspace=acme" })}`);
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.sso_required);
+    expect(location.assigned).toEqual([]);
+    expect(element("sign-in").hidden).toBe(false);
+    expect((element("email") as HTMLInputElement).value).toBe("ada@corp.example");
+    await requestCode("ada@corp.example");
+    element("sso-continue").click();
+    await settle();
+    expect(api.calls.find((call) => call.path === "/sign-in/sso")?.body).toEqual({
+      email: "ada@corp.example",
+      callbackURL: "/policies?workspace=acme",
+      errorCallbackURL: "/login",
+    });
+    expect(location.assigned).toEqual(["https://login.corp.example/a"]);
+  });
+
   it("explains that too many artifacts were opened in a short time", async () => {
     api.on("GET", "/get-session", session("ada@example.test"));
     await open("?error=read_rate_limited");

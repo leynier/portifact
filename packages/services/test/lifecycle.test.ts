@@ -458,6 +458,7 @@ describe("purging archives", () => {
       redatedPlans: 0,
       alignedPlanLimits: 0,
       unpinned: 0,
+      ssoRequirements: 0,
       droppedSearchIndexes: 0,
       scheduledSearchIndexing: 0,
       webhooks: { prunedDeliveries: 0, requeued: 0 },

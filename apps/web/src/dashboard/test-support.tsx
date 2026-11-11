@@ -181,6 +181,7 @@ export function connectedApp(
     approvedAt: "2026-11-01T12:00:00.000Z",
     lastIssuedAt: "2026-11-08T11:00:00.000Z",
     expiresAt: "2026-12-01T12:00:00.000Z",
+    signInMethod: "code",
     ...overrides,
   };
 }
@@ -192,6 +193,7 @@ export function browserSession(overrides: Partial<BrowserSession> = {}): Browser
     createdAt: "2026-11-01T12:00:00.000Z",
     lastActiveAt: "2026-11-08T10:00:00.000Z",
     expiresAt: "2026-11-15T10:00:00.000Z",
+    signInMethod: "code",
     ...overrides,
   };
 }
@@ -411,6 +413,13 @@ export interface FakeWorkspace {
   policiesAvailable: boolean;
   /** What the fake preview answers; a save needs these counts confirmed while any is above zero. */
   policyImpact: PolicyImpact;
+  /**
+   * "SSO required" as an admin's Policies page sees it (decision 0021): null where single sign-on
+   * is not offered; otherwise whether the provider can sign people in and the admin's own session
+   * went through it. `ssoOutside` is how many members the provider cannot serve.
+   */
+  ssoState: { usable: boolean; yourSession: boolean; offered?: boolean } | null;
+  ssoOutside: number;
 }
 
 export const NO_IMPACT: PolicyImpact = {
@@ -490,6 +499,8 @@ export function workspace(
     policyRevision: 0,
     policiesAvailable: true,
     policyImpact: NO_IMPACT,
+    ssoState: null,
+    ssoOutside: 0,
     ...rest,
   };
 }
@@ -2715,6 +2726,7 @@ function policyRoute(
     serviceTokens: admin ? w.serviceTokens.length : null,
     // The admin signed in three hours ago (decision 0021).
     yourSignInAt: admin ? Date.now() - 3 * 3_600_000 : null,
+    sso: admin && w.ssoState ? { offered: true, ...w.ssoState } : null,
   });
   if (!match[2] && method === "GET") return json(state());
   if (!admin) return apiError("forbidden", 403);
@@ -2738,7 +2750,12 @@ function policyRoute(
       proposed && (proposed.sessionMaxHours !== null || proposed.allowedClients !== null)
         ? { members: w.members.length, staleMembers: 1, clientMembers: 0 }
         : null;
-    return json({ ...w.policyImpact, networks, signIns });
+    // Who requiring single sign-on binds (decision 0021).
+    const sso =
+      proposed?.ssoRequired && w.ssoState?.usable
+        ? { members: w.members.length, outsideProvider: w.ssoOutside, withoutSsoSession: 1 }
+        : null;
+    return json({ ...w.policyImpact, networks, signIns, sso });
   }
   if (!match[2] && method === "PUT") {
     if (body?.revision !== w.policyRevision) return apiError("version_conflict", 409);
@@ -2757,6 +2774,12 @@ function policyRoute(
     );
     const confirmedFamilies = body?.confirmedSingleFamily as SingleFamilyLists | undefined;
     if (!checkSingleFamily(families, confirmedFamilies).ok) {
+      return apiError("policy_refused", 403);
+    }
+    // As the API (decision 0021): newly requiring SSO needs the members it cuts off confirmed.
+    const proposedPolicy = body?.policy as WorkspacePolicy | undefined;
+    const newlySso = proposedPolicy?.ssoRequired === true && !w.view.policy.ssoRequired;
+    if (newlySso && w.ssoOutside > 0 && body?.confirmedOutsideProvider !== w.ssoOutside) {
       return apiError("policy_refused", 403);
     }
     w.view = { ...w.view, policy: body?.policy as WorkspacePolicy };

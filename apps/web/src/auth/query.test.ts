@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loginUrl, safeNext, signedOAuthQuery, singleParam } from "./query.ts";
+import { loginUrl, safeNext, signedOAuthQuery, singleParam, ssoReauthUrl } from "./query.ts";
 
 const ORIGIN = "https://app.portifact.com";
 
@@ -86,5 +86,38 @@ describe("next after sign-in", () => {
 
   it("builds a login URL that returns to the given path", () => {
     expect(loginUrl("/device?user_code=X")).toBe("/login?next=%2Fdevice%3Fuser_code%3DX");
+  });
+});
+
+describe("the single sign-on round trip (decision 0021)", () => {
+  const ORIGIN = "https://app.portifact.com";
+  it("comes back to a space's page, and nowhere else", () => {
+    const url = new URL(ssoReauthUrl("/policies?workspace=acme"), ORIGIN);
+    expect(url.searchParams.get("reauth")).toBe("sso");
+    expect(safeNext(url.search, ORIGIN)).toBe("/policies?workspace=acme");
+    for (const path of ["/members", "/artifacts/abc/history", "/audit"]) {
+      expect(safeNext(`?next=${encodeURIComponent(path)}`, ORIGIN)).toBe(path);
+    }
+    for (const path of ["/policies/x", "//evil.example/policies", "/admin"]) {
+      expect(safeNext(`?next=${encodeURIComponent(path)}`, ORIGIN)).toBeUndefined();
+    }
+  });
+});
+
+describe("hostile return paths of the single sign-on round trip", () => {
+  const ORIGIN = "https://app.portifact.com";
+  it.each([
+    "https://evil.example/policies",
+    "//evil.example/policies",
+    "/\\evil.example/policies",
+    "\\\\evil.example/policies",
+    "/\\/evil.example/policies",
+    "https:/evil.example/policies",
+    "javascript:alert(1)",
+    "/policies\\..\\..\\evil",
+  ])("refuses %s", (next) => {
+    const url = new URL(ssoReauthUrl(next), ORIGIN);
+    expect(url.searchParams.get("next")).toBe(next);
+    expect(safeNext(url.search, ORIGIN)).toBeUndefined();
   });
 });

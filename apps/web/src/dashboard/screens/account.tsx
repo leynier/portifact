@@ -208,6 +208,7 @@ export function BrowserSessions() {
                 <TableHead>
                   <TableRow>
                     <TableHeaderCell>{t("account.sessions.column.browser")}</TableHeaderCell>
+                    <TableHeaderCell>{t("account.sessions.column.method")}</TableHeaderCell>
                     <TableHeaderCell>{t("account.sessions.column.lastActive")}</TableHeaderCell>
                     <TableHeaderCell>{t("account.sessions.column.expires")}</TableHeaderCell>
                   </TableRow>
@@ -225,6 +226,9 @@ export function BrowserSessions() {
                             </Badge>
                           ) : null}
                         </span>
+                      </TableCell>
+                      <TableCell label={t("account.sessions.column.method")} stack="inline">
+                        {t(`account.method.${session.signInMethod}`)}
                       </TableCell>
                       <TableCell label={t("account.sessions.column.lastActive")} stack="inline">
                         {formatDate(session.lastActiveAt, true)}
@@ -482,6 +486,7 @@ function AppCard({
                 ),
               },
               { term: t("account.apps.approved"), detail: formatDate(app.approvedAt, true) },
+              { term: t("account.apps.method"), detail: t(`account.method.${app.signInMethod}`) },
               { term: t("account.apps.lastIssued"), detail: formatDate(app.lastIssuedAt, true) },
               {
                 term: t("account.apps.expires"),

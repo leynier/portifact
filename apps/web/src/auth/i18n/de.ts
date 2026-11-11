@@ -49,6 +49,8 @@ const messages = {
       "Die Anmeldung hat zu lange gedauert oder wurde in einem anderen Tab begonnen. Versuch es noch einmal.",
     artifact_unavailable:
       "Dieses Artifact existiert nicht, ist nicht mehr verfügbar oder kann mit diesem Konto nicht geöffnet werden. Um ein anderes Konto zu verwenden, melde dich ab und öffne den Link erneut.",
+    sso_required:
+      "Dieser Workspace verlangt die Anmeldung über das Single Sign-on deiner Organisation. Fahre unten mit deiner geschäftlichen Adresse fort; deine aktuelle Anmeldung bleibt bestehen und du kehrst dorthin zurück, wo du warst.",
     session_age:
       "Dieser Workspace verlangt nach einer Weile eine neue Anmeldung, und deine ist älter als erlaubt. Melde dich erneut an, um fortzufahren; du kommst dorthin zurück, wo du warst.",
     network_refused:

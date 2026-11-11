@@ -113,6 +113,7 @@ export function accountRoutes(deps: AccountDeps) {
             createdAt: iso(row.createdAt),
             lastActiveAt: iso(row.lastActiveAt),
             expiresAt: iso(row.expiresAt),
+            signInMethod: row.signInMethod,
           })),
         }),
       );
@@ -391,6 +392,7 @@ export function connectedAppView(appOrigin: string): (row: ConnectedAppRow) => C
     approvedAt: iso(row.approvedAt),
     lastIssuedAt: iso(row.lastIssuedAt),
     expiresAt: row.expiresAt === null ? null : iso(row.expiresAt),
+    signInMethod: row.signInMethod,
   });
 }
 

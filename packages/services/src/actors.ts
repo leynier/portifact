@@ -42,6 +42,7 @@ import {
 } from "@portifact/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { ownerPlanQuery, ownerPlanRecord } from "./plans.ts";
+import { ssoRequirementColumns } from "./sso-required.ts";
 
 /**
  * Whether the workspace has a verified email domain, evaluated only when its policy's default
@@ -120,6 +121,7 @@ function bound(
   const allowed = checkRequestPolicy(actor.policy, global.request, caller, {
     userId: actor.userId,
     now: Date.now(),
+    ssoProvider: actor.ssoProvider ?? null,
   });
   if (!allowed.ok && requestVerdict(actor.policy, global.request, caller) === "unreadable") {
     reportUnreadablePolicy(actor.ownerId);
@@ -136,6 +138,8 @@ function memberQuery(global: GlobalDb, userId: string, ownerId: string) {
       // The policies come with the membership, so applying them costs no read (decision 0015).
       policy: schema.workspaces.policy,
       domainVerified: domainVerifiedSql,
+      // "SSO required" (decision 0021): the provider and the plan, only when the policy sets it.
+      ...ssoRequirementColumns(Date.now()),
     })
     .from(schema.workspaceMembers)
     .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.workspaceMembers.workspaceId))
@@ -160,6 +164,7 @@ function memberActor(userId: string, ownerId: string, row: MemberRow | undefined
     region: row.region,
     policy: policyOf(row.policy),
     domainVerified: Number(row.domainVerified) === 1,
+    ssoProvider: row.ssoProvider,
   };
 }
 

@@ -149,8 +149,8 @@ Commands:
                                (--allow-lifting also lifts restrictions the file does not have)
   clear-request-policies <slug|workspace-id> --confirm <slug>
                                (lifts the request policies only: network allowlists, maximum
-                               session age, allowed clients; for admins locked out)
-  workspaces
+                               session age, allowed clients, SSO required; for admins locked out)
+  workspaces [--sso-required]  (--sso-required lists only those that require single sign-on)
   workspace <slug|workspace-id>
   workspace-create <slug> --name <name> --admin <user-id|email>
                    [--plan team|enterprise --seats N [--until <ISO date>] [--note <text>]]
@@ -1151,6 +1151,12 @@ export async function runOperator(
           ...result.lifting.map((item) => `  ${item.workspaceId}: ${item.fields.join(", ")}`),
         );
       }
+      if (result.ssoUnusable.length > 0) {
+        lines.push(
+          `${result.ssoUnusable.length} workspace(s) were left as they are because the file requires single sign-on and the workspace's provider cannot sign anyone in now (removed, no verified domain it serves, or a plan without sso); set the provider up again, then have an admin require it from the Policies page:`,
+          ...result.ssoUnusable.map((id) => `  ${id}`),
+        );
+      }
       if (result.extra.length > 0) {
         lines.push(
           `${result.extra.length} workspace(s) have a policy the file does not list; review each on its Policies page (it was set before the restore point):`,
@@ -1189,8 +1195,17 @@ export async function runOperator(
       };
     }
     case "workspaces": {
-      const rows = await listAllWorkspaces(global);
-      if (rows.length === 0) return { exitCode: 0, output: "No workspaces." };
+      // `--sso-required`: the workspaces that require single sign-on, before switching SSO off
+      // (docs/releasing.md, "SSO"): with it off nobody can meet the requirement (decision 0021).
+      const ssoOnly = options.has("sso-required");
+      const all = await listAllWorkspaces(global);
+      const rows = ssoOnly ? all.filter((row) => row.policy.ssoRequired) : all;
+      if (rows.length === 0) {
+        return {
+          exitCode: 0,
+          output: ssoOnly ? "No workspace requires single sign-on." : "No workspaces.",
+        };
+      }
       return {
         exitCode: 0,
         output: rows

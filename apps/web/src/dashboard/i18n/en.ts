@@ -2680,6 +2680,53 @@ export const en = {
   "audit.policy.sessionAny": "no session length limit",
   "audit.policy.clients":
     "{kinds, select, none {only the dashboard may act} cli {only the dashboard and the CLI may act} oauth_apps {only the dashboard and connected apps may act} both {the dashboard, the CLI and connected apps may act} other {every app may act}}",
+  "space.blockedSso.title": "Sign in with single sign-on to continue",
+  "space.blockedSso.body":
+    "{workspace} requires signing in through its single sign-on, and this browser signed in another way. Sign in with single sign-on to come back here: your account stays the same and your other spaces keep working. If your address is not one the workspace's identity provider serves, ask a workspace admin. You can still leave the workspace from your workspaces page.",
+  "space.blockedSso.action": "Sign in with single sign-on",
+  "policies.sso.legend": "Single sign-on",
+  "policies.sso.hint":
+    "Whether people must sign in through this workspace's own identity provider to act on it, from the dashboard, the CLI and connected apps.",
+  "policies.sso.any": "Any sign-in",
+  "policies.sso.anyHint": "Email codes, Google, GitHub and single sign-on all work.",
+  "policies.sso.only": "Only through single sign-on",
+  "policies.sso.onlyHint":
+    "Admins included. The CLI and apps work when the person approved them from a single sign-on session. Service tokens are not bound.",
+  "policies.sso.notUsable":
+    "Set up single sign-on first, serving a verified email domain, on a plan that includes it. Until then it cannot be required.",
+  "policies.sso.signInFirst":
+    "Sign in with single sign-on from this browser first, so you know it works before you require it. You will come back here.",
+  "policies.sso.tradeoff":
+    "Admins are bound too, so no account can skip the identity provider. If the provider is down or misconfigured, nobody can act on the workspace until it works again or Portifact support lifts the requirement at an admin's request; everyone's other spaces keep working.",
+  "policies.sso.required": "People sign in through this workspace's single sign-on to act on it.",
+  "policies.sso.suspended":
+    "Single sign-on is required, but the provider cannot sign anyone in right now (it serves no verified domain, or the plan no longer includes it), so the requirement is not applied until it can.",
+  "policies.impact.ssoTitle": "Require single sign-on?",
+  "policies.impact.ssoConfirm": "Require single sign-on",
+  "policies.impact.ssoMembers":
+    "{count, plural, one {# member} other {# members}} will act on the workspace only through single sign-on.",
+  "policies.impact.ssoOutside":
+    "{count, plural, one {# member's address is} other {# members' addresses are}} not at a domain the provider serves: they cannot sign in through it and will be refused until an admin removes the requirement or their address changes.",
+  "policies.impact.ssoWithout":
+    "{count, plural, one {# member has} other {# members have}} no session through single sign-on yet and will be asked to sign in through it at their next action.",
+  "policies.impact.ssoNote":
+    "Nobody is signed out. CLI logins and connected apps approved from another kind of sign-in are refused on this workspace until the person approves them again from a single sign-on session.",
+  "account.sessions.column.method": "Signed in with",
+  "account.apps.method": "Approved from a sign-in with",
+  "account.method.code": "Email code",
+  "account.method.google": "Google",
+  "account.method.github": "GitHub",
+  "account.method.sso": "Single sign-on",
+  "account.method.unknown": "Not recorded",
+  "audit.policy.sso":
+    "{value, select, true {single sign-on required} other {single sign-on not required}}",
+  "audit.policy.ssoRemoved": "(the single sign-on provider was removed)",
+  "audit.kind.policySsoSuspended":
+    "Single sign-on required no longer applies: the provider cannot sign anyone in ({cause, select, domain {a verified domain changed} plan {the plan changed} provider {the provider changed} other {noticed by the daily check}})",
+  "audit.kind.policySsoResumed":
+    "Single sign-on required applies again: the provider can sign people in ({cause, select, domain {a verified domain changed} plan {the plan changed} provider {the provider changed} other {noticed by the daily check}})",
+  "policies.sso.switchedOff":
+    "Single sign-on is required, but it is switched off on this Portifact, so nobody can sign in through the provider and nobody can act on this workspace until Portifact support lifts the requirement or switches single sign-on back on. Contact Portifact support.",
 } as const;
 
 export type MessageId = keyof typeof en;

@@ -10,6 +10,7 @@ import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { activeCustomHost } from "./custom-domains.ts";
 import {
   appSessionLive,
+  appSessionMethodSql,
   appSessionSignIn,
   appSessionSignInSql,
   checkReadAccess,
@@ -242,6 +243,7 @@ export async function refreshReviewSession(
       expiresAt: sessions.expiresAt,
       authSessionId: sessions.authSessionId,
       signedInAt: both ? appSessionSignInSql("review_sessions", input.now) : sql<null>`null`,
+      method: both ? appSessionMethodSql("review_sessions", input.now) : sql<null>`null`,
     })
     .from(sessions)
     .where(
@@ -254,12 +256,16 @@ export async function refreshReviewSession(
     )
     .limit(1);
   if (!session) return unavailable();
-  const { authSessionId, signedInAt: joined, ...grant } = session;
+  const { authSessionId, signedInAt: joined, method, ...grant } = session;
   // As for read sessions: the app session's sign-in time comes with the renewal's read (one
   // database) or its one global read, before the access check applies the sign-in policies.
-  const signedInAt = both ? joined : await appSessionSignIn(db.global, authSessionId, input.now);
-  if (signedInAt === null) return unavailable();
-  recordSessionRenewal(db, session.userId, Number(signedInAt));
+  const signIn = both
+    ? joined === null
+      ? null
+      : { signedInAt: Number(joined), method }
+    : await appSessionSignIn(db.global, authSessionId, input.now);
+  if (signIn === null) return unavailable();
+  recordSessionRenewal(db, session.userId, signIn);
   const access = await checkReadAccess(db, { ...input, userId: session.userId });
   if (!access.ok) return access;
   return ok({

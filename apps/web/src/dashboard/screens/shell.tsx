@@ -39,7 +39,7 @@ import symbol from "../../../../../assets/brand/symbol.svg";
 import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
 import wordmark from "../../../../../assets/brand/wordmark.svg";
 import wordmarkDark from "../../../../../assets/brand/wordmark-dark.svg";
-import { loginUrl, reauthUrl } from "../../auth/query.ts";
+import { loginUrl, reauthUrl, ssoReauthUrl } from "../../auth/query.ts";
 import { AnnounceContext, useDashboard, useT } from "../context.tsx";
 import { ROLE_LABELS, type Space, spaceCan, useSpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
@@ -148,12 +148,16 @@ function MissingSpace() {
  * The screen of a workspace whose request policies refuse this request (decisions 0020 and 0021):
  * one clear page instead of every list failing, while the switcher keeps the other spaces
  * working. A sign-in that is too old offers to sign in again and come back to this page; the
- * old session is not ended (the login page signs in alongside it).
+ * old session is not ended (the login page signs in alongside it). A workspace that requires
+ * single sign-on offers its provider's flow, which comes back here the same way (decision 0021).
  */
 function BlockedSpace({ name, reason }: { name: string; reason: RequestRefusal | null }) {
   const t = useT();
   const session = reason === "session_age";
-  const title = t(session ? "space.blockedSession.title" : "space.blocked.title");
+  const sso = reason === "sso";
+  const title = t(
+    sso ? "space.blockedSso.title" : session ? "space.blockedSession.title" : "space.blocked.title",
+  );
   useDocumentTitle(title);
   // Where this page is, so signing in again comes back to it.
   const here = useRouterState({ select: (state) => state.location.href });
@@ -161,9 +165,22 @@ function BlockedSpace({ name, reason }: { name: string; reason: RequestRefusal |
     <>
       <PageHeader title={title} />
       <p className="mb-6 max-w-3xl text-text-muted">
-        {t(session ? "space.blockedSession.body" : "space.blocked.body", { workspace: name })}
+        {t(
+          sso
+            ? "space.blockedSso.body"
+            : session
+              ? "space.blockedSession.body"
+              : "space.blocked.body",
+          { workspace: name },
+        )}
       </p>
       <div className="flex flex-wrap items-center gap-4">
+        {sso ? (
+          <a href={ssoReauthUrl(here)} className={buttonClasses({ intent: "primary" })}>
+            <LogIn aria-hidden="true" className="size-4" />
+            {t("space.blockedSso.action")}
+          </a>
+        ) : null}
         {session ? (
           <a href={reauthUrl(here)} className={buttonClasses({ intent: "primary" })}>
             <LogIn aria-hidden="true" className="size-4" />
