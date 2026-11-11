@@ -245,6 +245,8 @@ describe("reading, previewing and changing policies", () => {
         // Active service tokens are counted for admins only.
         serviceTokens: editable ? 0 : null,
         yourSignInAt: null,
+        // Single sign-on is not offered on these handles (decision 0021).
+        sso: null,
       });
     }
     const missing = { ok: false, code: "not_found", message: "Workspace not found." };
@@ -431,6 +433,7 @@ describe("reading, previewing and changing policies", () => {
       linksOverLifetime: 1,
       networks: null,
       signIns: null,
+      sso: null,
     });
     expect(value(await preview(policy({ shareLinks: "disabled" }))).linksRevoked).toBe(2);
     expect(value(await preview(policy({ shareLinkMaxDays: 1 }))).linksOverLifetime).toBe(2);

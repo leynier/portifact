@@ -147,6 +147,8 @@ describe("browser sessions", () => {
       createdAt: NOW - DAY,
       lastActiveAt: NOW - 3 * HOUR,
       expiresAt: NOW + 6 * DAY,
+      // Sessions from before the method was recorded (decision 0021).
+      signInMethod: "unknown",
     });
     expect(sessions[2]?.userAgent).toBeNull();
     expect(older).toBeTruthy();
@@ -180,6 +182,7 @@ describe("connected apps", () => {
         approvedAt: NOW - 3 * DAY,
         lastIssuedAt: NOW - HOUR / 4,
         expiresAt: NOW + 20 * DAY,
+        signInMethod: "unknown",
       },
       {
         clientId: cli,
@@ -189,8 +192,34 @@ describe("connected apps", () => {
         approvedAt: NOW - 2 * DAY,
         lastIssuedAt: NOW - 2 * DAY,
         expiresAt: NOW + HOUR,
+        signInMethod: "unknown",
       },
     ]);
+  });
+
+  it("shows how an app's grants signed in only when they all agree (decision 0021)", async () => {
+    const userId = await user();
+    const agreed = await client("Agreed");
+    await accessToken(userId, agreed, { createdAt: NOW - HOUR });
+    await db()
+      .global.update(schema.oauthAccessTokens)
+      .set({ signInMethod: "sso:sso_" + "c".repeat(32) })
+      .where(eq(schema.oauthAccessTokens.clientId, agreed));
+    const mixed = await client("Mixed");
+    await accessToken(userId, mixed, { createdAt: NOW - HOUR });
+    await accessToken(userId, mixed, { createdAt: NOW - 2 * HOUR });
+    const [first] = await db()
+      .global.select({ id: schema.oauthAccessTokens.id })
+      .from(schema.oauthAccessTokens)
+      .where(eq(schema.oauthAccessTokens.clientId, mixed))
+      .limit(1);
+    await db()
+      .global.update(schema.oauthAccessTokens)
+      .set({ signInMethod: "code" })
+      .where(eq(schema.oauthAccessTokens.id, first?.id as string));
+    const apps = await listConnectedApps(db().global, { userId, now: NOW });
+    expect(apps.find((app) => app.clientId === agreed)?.signInMethod).toBe("sso");
+    expect(apps.find((app) => app.clientId === mixed)?.signInMethod).toBe("unknown");
   });
 
   it("leaves out revoked, rotated and expired tokens and other users' grants", async () => {

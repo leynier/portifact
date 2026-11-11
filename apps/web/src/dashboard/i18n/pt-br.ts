@@ -2709,4 +2709,44 @@ export const ptBR = {
   "audit.policy.sessionAny": "sem limite de duração da sessão",
   "audit.policy.clients":
     "{kinds, select, none {só o painel pode agir} cli {só o painel e a CLI podem agir} oauth_apps {só o painel e os apps conectados podem agir} both {o painel, a CLI e os apps conectados podem agir} other {qualquer app pode agir}}",
+  "space.blockedSso.title": "Entre com login único para continuar",
+  "space.blockedSso.body":
+    "{workspace} exige entrar pelo login único dele, e este navegador entrou de outra forma. Entre com login único para voltar aqui: sua conta continua a mesma e seus outros espaços continuam funcionando. Se o seu endereço não é atendido pelo provedor de identidade do espaço, fale com um administrador. Você ainda pode sair do espaço pela página dos seus espaços de trabalho.",
+  "space.blockedSso.action": "Entrar com login único",
+  "policies.sso.legend": "Login único",
+  "policies.sso.hint":
+    "Se as pessoas precisam entrar pelo provedor de identidade deste espaço para agir nele, pelo painel, pela CLI e por apps conectados.",
+  "policies.sso.any": "Qualquer login",
+  "policies.sso.anyHint": "Códigos por e-mail, Google, GitHub e login único funcionam.",
+  "policies.sso.only": "Somente com login único",
+  "policies.sso.onlyHint":
+    "Administradores incluídos. A CLI e os apps funcionam quando a pessoa os aprovou de uma sessão de login único. Tokens de serviço não são afetados.",
+  "policies.sso.notUsable":
+    "Configure primeiro o login único com um domínio de e-mail verificado, em um plano que o inclua. Até lá, ele não pode ser exigido.",
+  "policies.sso.signInFirst":
+    "Entre primeiro com login único neste navegador, para saber que funciona antes de exigi-lo. Você voltará aqui.",
+  "policies.sso.tradeoff":
+    "Administradores também ficam sujeitos, para que nenhuma conta possa contornar o provedor de identidade. Se o provedor cair ou estiver mal configurado, ninguém pode agir no espaço até ele voltar a funcionar ou o suporte da Portifact retirar a exigência a pedido de um administrador; os outros espaços de todos continuam funcionando.",
+  "policies.sso.required": "As pessoas entram pelo login único deste espaço para agir nele.",
+  "policies.sso.suspended":
+    "O login único é exigido, mas o provedor não consegue conectar ninguém agora (não atende nenhum domínio verificado ou o plano não o inclui mais), então a exigência não é aplicada até que consiga.",
+  "policies.impact.ssoTitle": "Exigir login único?",
+  "policies.impact.ssoConfirm": "Exigir login único",
+  "policies.impact.ssoMembers":
+    "{count, plural, one {# membro vai agir} other {# membros vão agir}} no espaço só com login único.",
+  "policies.impact.ssoOutside":
+    "{count, plural, one {O endereço de # membro não está} other {Os endereços de # membros não estão}} em um domínio atendido pelo provedor: essas pessoas não conseguem entrar por ele e serão recusadas até um administrador retirar a exigência ou o endereço mudar.",
+  "policies.impact.ssoWithout":
+    "{count, plural, one {# membro ainda não tem} other {# membros ainda não têm}} sessão com login único e vão precisar entrar por ele na próxima ação.",
+  "policies.impact.ssoNote":
+    "Ninguém é desconectado. Logins da CLI e apps conectados aprovados por outro tipo de login são recusados neste espaço até a pessoa aprová-los de novo de uma sessão de login único.",
+  "account.sessions.column.method": "Entrou com",
+  "account.apps.method": "Aprovado a partir de um login com",
+  "account.method.code": "Código por e-mail",
+  "account.method.google": "Google",
+  "account.method.github": "GitHub",
+  "account.method.sso": "Login único",
+  "account.method.unknown": "Não registrado",
+  "audit.policy.sso": "{value, select, true {login único exigido} other {login único não exigido}}",
+  "audit.policy.ssoRemoved": "(o provedor de login único foi removido)",
 } satisfies Catalog;

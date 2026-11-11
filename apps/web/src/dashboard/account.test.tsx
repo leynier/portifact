@@ -134,10 +134,13 @@ describe("browser sessions", () => {
     const cells = within(within(table).getAllByRole("row")[2] as HTMLElement).getAllByRole("cell");
     expect(cells.map((cell) => cell.firstElementChild?.textContent)).toEqual([
       "Safari on iOS",
+      "Signed in with",
       "Last active",
       "Signed out on",
     ]);
-    expect(cells[1]?.textContent).toContain("Nov 7, 2026");
+    // How the browser signed in (decision 0021).
+    expect(cells[1]?.textContent).toContain("Email code");
+    expect(cells[2]?.textContent).toContain("Nov 7, 2026");
   });
 
   it("signs out the other sessions only after confirming, and announces how many", async () => {

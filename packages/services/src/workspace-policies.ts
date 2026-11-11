@@ -12,6 +12,7 @@ import {
   type PolicyPreview,
   type RequestContext,
   type SingleFamilyLists,
+  signInMethodText,
   WORKSPACE_POLICIES,
   type WorkspacePolicy,
   WorkspacePolicyExport,
@@ -35,6 +36,8 @@ import {
   checkPolicyImpact,
   checkPolicyKeepsCaller,
   checkSingleFamily,
+  checkSsoOutside,
+  checkSsoRequirement,
   type Entitlements,
   entitlements,
   errorLabel,
@@ -55,6 +58,7 @@ import {
   requireFeature,
   shownPolicy,
   singleFamilyLists,
+  ssoOffered,
   storedPolicy,
   withoutRequestPolicies,
 } from "@portifact/domain";
@@ -67,6 +71,7 @@ import { auditEvent } from "./audit.ts";
 import { cursorFor, saveCursor } from "./maintenance-cursors.ts";
 import type { JobOutcome } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { workspaceSsoProvider } from "./sso-required.ts";
 import { markWebhookEvents } from "./webhook-activity.ts";
 import { missingWorkspace, stillAdmin } from "./workspaces.ts";
 
@@ -91,6 +96,12 @@ export interface PolicyState {
   serviceTokens: number | null;
   /** When the caller's own sign-in happened, for admins only (decision 0021). */
   yourSignInAt: number | null;
+  /**
+   * "SSO required" as an admin needs it (decision 0021): whether the provider can sign people in
+   * and whether the caller's own session signed in through it. Null for everyone else and
+   * whenever this Worker does not offer single sign-on.
+   */
+  sso: { usable: boolean; yourSession: boolean } | null;
 }
 
 interface PolicyRow {
@@ -146,7 +157,7 @@ async function stateOf(
   // Reaching here means the network policy admitted the caller, so an admin sees the networks.
   const admin = can(actor, "policies");
   return {
-    policy: shownPolicy(row.policy, admin),
+    policy: shownPolicy(row.policy, admin, ssoOffered(global.request)),
     revision: row.revision,
     enabled: hasFeature(await ownerEntitlements(global, row.id, now), "policies"),
     editable: admin,
@@ -154,6 +165,27 @@ async function stateOf(
     yourIp: admin && global.request.kind === "request" ? global.request.ip : null,
     serviceTokens: admin ? await activeTokens(global, row.id, now) : null,
     yourSignInAt: admin ? ownSignIn(global, actor.userId) : null,
+    sso: admin ? await ssoState(global, row.id, actor.userId, now) : null,
+  };
+}
+
+/** Whether single sign-on can be required, and whether the caller already signed in through it. */
+async function ssoState(
+  global: GlobalDb,
+  workspaceId: string,
+  userId: string,
+  now: number,
+): Promise<PolicyState["sso"]> {
+  if (global.request.kind !== "request" || global.request.sso !== true) return null;
+  const provider = await workspaceSsoProvider(global, workspaceId, now);
+  const credential = global.request.credential;
+  const method =
+    credential && credential.userId === userId && credential.kind !== "service_token"
+      ? credential.method
+      : null;
+  return {
+    usable: provider !== null,
+    yourSession: provider !== null && method?.kind === "sso" && method.providerId === provider,
   };
 }
 
@@ -276,6 +308,14 @@ async function checkProposal(
 ): Promise<Result<WorkspacePolicy>> {
   const normalized = normalizePolicy(input);
   if (!normalized.ok) return normalized;
+  // "SSO required" (decision 0021): never a setting nobody can satisfy. Single sign-on must be
+  // offered and the provider able to sign people in, and the admin's own session must have
+  // signed in through it (`checkPolicyKeepsCaller` with the provider). Read only when it is set.
+  if (normalized.value.ssoRequired) {
+    const provider = subject.ssoProvider ?? null;
+    const usable = checkSsoRequirement(normalized.value, global.request, provider);
+    if (!usable.ok) return usable;
+  }
   // Lock-out safety: the network, and the saving admin's own sign-in (decision 0021).
   const keeps = checkPolicyKeepsCaller(normalized.value, global.request, subject);
   if (!keeps.ok) return keeps;
@@ -315,6 +355,18 @@ async function networkReach(
   };
 }
 
+/**
+ * Where single sign-on is not offered, a save leaves "SSO required" as stored: the page shows it
+ * as off and a save must not lift it unseen (decision 0021).
+ */
+function keepSsoUnlessOffered(
+  global: GlobalDb,
+  current: WorkspacePolicy,
+  next: WorkspacePolicy,
+): WorkspacePolicy {
+  return ssoOffered(global.request) ? next : { ...next, ssoRequired: current.ssoRequired };
+}
+
 /** What saving a policy would change, for the admins before they save. */
 export async function previewWorkspacePolicy(
   regions: Regions,
@@ -322,9 +374,14 @@ export async function previewWorkspacePolicy(
 ): Promise<Result<PolicyPreview>> {
   const found = await scopedPolicy(regions.global, input.userId, input.slug, "policies");
   if (!found.ok) return found;
-  const proposal = await checkProposal(regions.global, found.value.row.id, input.policy, {
+  const policy = keepSsoUnlessOffered(regions.global, found.value.row.policy, input.policy);
+  const provider = policy.ssoRequired
+    ? await workspaceSsoProvider(regions.global, found.value.row.id, input.now)
+    : null;
+  const proposal = await checkProposal(regions.global, found.value.row.id, policy, {
     userId: input.userId,
     now: input.now,
+    ssoProvider: provider,
   });
   if (!proposal.ok) return proposal;
   const impact = await policyImpact(
@@ -343,7 +400,55 @@ export async function previewWorkspacePolicy(
       input.now,
     ),
     signIns: await signInReach(regions.global, found.value.row.id, proposal.value, input.now),
+    sso:
+      provider === null
+        ? null
+        : await ssoReach(regions.global, found.value.row.id, provider, input.now),
   });
+}
+
+/**
+ * Who requiring single sign-on would bind (decision 0021), as counts: every member; those whose
+ * address is not at a verified domain the provider serves, who cannot sign in through it; and
+ * those with no live session through it, who sign in through it at their next action. One batch
+ * of the global database, on the preview and the save only.
+ */
+export async function ssoReach(
+  global: GlobalDb,
+  workspaceId: string,
+  providerId: string,
+  now: number,
+): Promise<NonNullable<PolicyPreview["sso"]>> {
+  const m = schema.workspaceMembers;
+  const u = schema.users;
+  const so = schema.workspaceSso;
+  const wd = schema.workspaceDomains;
+  const sess = schema.sessions;
+  const member = eq(m.workspaceId, workspaceId);
+  const method = signInMethodText({ kind: "sso", providerId });
+  const served = sql`exists (select 1 from ${so} join ${wd} on ${wd.workspaceId} = ${so.workspaceId} and ${wd.state} = 'verified' and (' ' || ${so.domains} || ' ') like ('% ' || ${wd.domain} || ' %') where ${so.id} = ${providerId} and ${wd.domain} = lower(substr(${u.email}, instr(${u.email}, '@') + 1)))`;
+  const [members, outside, without] = await global.batch([
+    global.select({ n: sql<number>`count(*)` }).from(m).where(member),
+    global
+      .select({ n: sql<number>`count(*)` })
+      .from(m)
+      .innerJoin(u, eq(u.id, m.userId))
+      .where(and(member, sql`not ${served}`)),
+    global
+      .select({ n: sql<number>`count(*)` })
+      .from(m)
+      .where(
+        and(
+          member,
+          sql`not exists (select 1 from ${sess} where ${sess.userId} = ${m.userId} and ${sess.expiresAt} > ${now} and ${sess.signInMethod} = ${method})`,
+        ),
+      ),
+  ]);
+  return {
+    members: Number(members[0]?.n ?? 0),
+    outsideProvider: Number(outside[0]?.n ?? 0),
+    withoutSsoSession: Number(without[0]?.n ?? 0),
+  };
 }
 
 /**
@@ -443,6 +548,8 @@ export async function setWorkspacePolicy(
     confirmed?: PolicyImpact | undefined;
     /** The single-family lists the preview reported and the admin accepted (decision 0020). */
     confirmedSingleFamily?: SingleFamilyLists | undefined;
+    /** Members the provider cannot serve, as the preview counted and the admin accepted. */
+    confirmedOutsideProvider?: number | undefined;
     now: number;
   },
 ): Promise<Result<PolicyState>> {
@@ -453,9 +560,21 @@ export async function setWorkspacePolicy(
   if (row.revision !== input.revision) {
     return fail("version_conflict", "The policies changed meanwhile. Reload them and try again.");
   }
-  const proposal = await checkProposal(global, row.id, input.policy, {
+  const policy = keepSsoUnlessOffered(global, row.policy, input.policy);
+  // Newly requiring single sign-on needs `sso` in the plan too, and is checked first so the
+  // answer names the plan rather than a provider the plan cannot run.
+  const newlySso = policy.ssoRequired && !row.policy.ssoRequired;
+  if (newlySso) {
+    const gate = requireFeature(await ownerEntitlements(global, row.id, input.now), "sso");
+    if (!gate.ok) return gate;
+  }
+  const provider = policy.ssoRequired
+    ? await workspaceSsoProvider(global, row.id, input.now)
+    : null;
+  const proposal = await checkProposal(global, row.id, policy, {
     userId: input.userId,
     now: input.now,
+    ssoProvider: provider,
   });
   if (!proposal.ok) return proposal;
   const next = proposal.value;
@@ -465,6 +584,13 @@ export async function setWorkspacePolicy(
     const gate = requireFeature(await ownerEntitlements(global, row.id, input.now), "policies");
     if (!gate.ok) return gate;
   }
+  // Members the provider cannot serve are never cut off without the admin confirming the count.
+  const outside =
+    newlySso && provider !== null
+      ? (await ssoReach(global, row.id, provider, input.now)).outsideProvider
+      : 0;
+  const outsideOk = checkSsoOutside(newlySso, outside, input.confirmedOutsideProvider);
+  if (!outsideOk.ok) return outsideOk;
   // A list covering one address family is never saved without the admin confirming exactly it.
   const families = checkSingleFamily(
     singleFamilyLists(row.policy, next),
@@ -475,7 +601,13 @@ export async function setWorkspacePolicy(
   const confirmed = checkPolicyImpact(impact, input.confirmed);
   if (!confirmed.ok) return confirmed;
 
-  const condition = sql`${stillAdmin(row.id, input.userId)} and exists (select 1 from ${w} where ${w.id} = ${row.id} and ${w.policyRevision} = ${row.revision})`;
+  // Requiring single sign-on holds only while the provider the admin proved is still there: a
+  // removal racing the save cannot leave a requirement nobody can meet.
+  const providerKept =
+    next.ssoRequired && provider !== null
+      ? sql` and exists (select 1 from ${schema.workspaceSso} where ${schema.workspaceSso.id} = ${provider})`
+      : sql.empty();
+  const condition = sql`${stillAdmin(row.id, input.userId)} and exists (select 1 from ${w} where ${w.id} = ${row.id} and ${w.policyRevision} = ${row.revision})${providerKept}`;
   const stored = storedPolicy(next);
   const results = await global.batch([
     auditEvent(
@@ -485,7 +617,10 @@ export async function setWorkspacePolicy(
         kind: "policy.changed",
         actor: { type: "user", id: input.userId },
         targetId: row.id,
-        detail: policyChangeDetail(row.policy, next, input.confirmed !== undefined),
+        detail: {
+          ...policyChangeDetail(row.policy, next, input.confirmed !== undefined),
+          ...(newlySso && outside > 0 ? { outsideProvider: outside } : {}),
+        },
         now: input.now,
       },
       condition,
@@ -970,6 +1105,11 @@ export type ApplyPoliciesResult =
        * export older than it), with the fields; applied only with `allowLifting`.
        */
       lifting: { workspaceId: string; fields: PolicyField[] }[];
+      /**
+       * Workspaces left as they are because the file requires single sign-on and the workspace's
+       * provider cannot sign anyone in now (decision 0021): never a requirement nobody can meet.
+       */
+      ssoUnusable: string[];
     }
   /** An item that is not a valid policy (its index in the file): nothing was applied. */
   | { ok: false; index: number; message: string };
@@ -1000,6 +1140,7 @@ export async function applyWorkspacePolicies(
   let applied = 0;
   let skipped = 0;
   const lifting: { workspaceId: string; fields: PolicyField[] }[] = [];
+  const ssoUnusable: string[] = [];
   for (const item of items) {
     const [row] = await global
       .select({ policy: w.policy, revision: w.policyRevision })
@@ -1016,7 +1157,18 @@ export async function applyWorkspacePolicies(
       lifting.push({ workspaceId: item.workspaceId, fields: lifted });
       continue;
     }
-    const condition = sql`exists (select 1 from ${w} where ${w.id} = ${item.workspaceId} and ${w.policyRevision} = ${row.revision})`;
+    const provider = item.policy.ssoRequired
+      ? await workspaceSsoProvider(global, item.workspaceId, now)
+      : null;
+    if (item.policy.ssoRequired && provider === null) {
+      ssoUnusable.push(item.workspaceId);
+      continue;
+    }
+    const kept =
+      provider === null
+        ? sql.empty()
+        : sql` and exists (select 1 from ${schema.workspaceSso} where ${schema.workspaceSso.id} = ${provider})`;
+    const condition = sql`exists (select 1 from ${w} where ${w.id} = ${item.workspaceId} and ${w.policyRevision} = ${row.revision})${kept}`;
     const results = await global.batch([
       auditEvent(
         global,
@@ -1047,7 +1199,7 @@ export async function applyWorkspacePolicies(
           policyRevision: row.revision + 1,
           updatedAt: now,
         })
-        .where(and(eq(w.id, item.workspaceId), eq(w.policyRevision, row.revision)))
+        .where(and(eq(w.id, item.workspaceId), eq(w.policyRevision, row.revision), sql`1${kept}`))
         .returning({ id: w.id }),
     ]);
     if ((results.at(-1) as unknown[]).length > 0) applied += 1;
@@ -1057,7 +1209,7 @@ export async function applyWorkspacePolicies(
   const extra = (await exportWorkspacePolicies(global))
     .map((item) => item.workspaceId)
     .filter((id) => !listed.has(id));
-  return { ok: true, applied, skipped, extra, lifting };
+  return { ok: true, applied, skipped, extra, lifting, ssoUnusable };
 }
 
 export type ClearRequestPoliciesResult =
@@ -1072,7 +1224,8 @@ export const CLEAR_ATTEMPTS = 3;
 
 /**
  * The operator's escape hatch (decision 0020, docs/operations.md): lifts exactly the request
- * policies (both network allowlists) of a workspace whose admins locked themselves out, keeping
+ * policies (both network allowlists, the sign-in policies and "SSO required", decision 0021) of a
+ * workspace whose admins locked themselves out, keeping
  * every other policy. Recorded as a `policy.changed` event by the operator, in the batch that
  * changes the row, conditioned on the revision read. Never behind the plan: it only loosens.
  */

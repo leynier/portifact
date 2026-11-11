@@ -2,6 +2,7 @@
 // section 6). Every query is keyed by the user ID from the session, so a user can only see and
 // end their own grants. Better Auth owns these tables: ending sessions goes through Better Auth
 // (apps/app), so its session hooks revoke the tokens bound to them; tokens are never exposed.
+import { type SignInMethodKind, signInMethodKind } from "@portifact/contracts";
 import { type GlobalDb, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
@@ -15,6 +16,8 @@ export interface BrowserSessionRow {
   createdAt: number;
   lastActiveAt: number;
   expiresAt: number;
+  /** How the session signed in (decision 0021). */
+  signInMethod: SignInMethodKind;
 }
 
 export async function listBrowserSessions(
@@ -28,6 +31,7 @@ export async function listBrowserSessions(
       createdAt: schema.sessions.createdAt,
       updatedAt: schema.sessions.updatedAt,
       expiresAt: schema.sessions.expiresAt,
+      signInMethod: schema.sessions.signInMethod,
     })
     .from(schema.sessions)
     .where(
@@ -44,6 +48,7 @@ export async function listBrowserSessions(
     createdAt: row.createdAt.getTime(),
     lastActiveAt: row.updatedAt.getTime(),
     expiresAt: row.expiresAt.getTime(),
+    signInMethod: signInMethodKind(row.signInMethod),
   }));
   // The browser asking always comes first.
   return [...sessions.filter((s) => s.current), ...sessions.filter((s) => !s.current)];
@@ -59,6 +64,8 @@ export interface ConnectedAppRow {
   lastIssuedAt: number;
   /** Null when some live token never expires. */
   expiresAt: number | null;
+  /** How the sign-in its live grants descend from happened; `unknown` when they disagree. */
+  signInMethod: SignInMethodKind;
 }
 
 interface TokenGroup {
@@ -70,7 +77,16 @@ interface TokenGroup {
   lastIssuedAt: number;
   expiresAt: number | null;
   neverExpires: number;
+  method: string | null;
 }
+
+/** The method every row of a group agrees on, or null (decision 0021). */
+const agreedMethod = (
+  column:
+    | typeof schema.oauthRefreshTokens.signInMethod
+    | typeof schema.oauthAccessTokens.signInMethod,
+) =>
+  sql<string | null>`case when count(distinct coalesce(${column}, '')) = 1 then max(${column}) end`;
 
 /**
  * Apps holding live tokens for the user: an unrevoked, unexpired access token, or a refresh
@@ -96,6 +112,7 @@ export async function listConnectedApps(
       lastIssuedAt: sql<number>`max(${refresh.createdAt})`,
       expiresAt: sql<number | null>`max(${refresh.expiresAt})`,
       neverExpires: sql<number>`max(${refresh.expiresAt} is null)`,
+      method: agreedMethod(refresh.signInMethod),
     })
     .from(refresh)
     .innerJoin(clients, eq(clients.clientId, refresh.clientId))
@@ -119,6 +136,7 @@ export async function listConnectedApps(
       lastIssuedAt: sql<number>`max(${access.createdAt})`,
       expiresAt: sql<number | null>`max(${access.expiresAt})`,
       neverExpires: sql<number>`0`,
+      method: agreedMethod(access.signInMethod),
     })
     .from(access)
     .innerJoin(clients, eq(clients.clientId, access.clientId))
@@ -132,7 +150,10 @@ export async function listConnectedApps(
     )
     .groupBy(access.clientId, access.scopes, access.resources);
 
-  const apps = new Map<string, ConnectedAppRow & { neverExpires: boolean }>();
+  const apps = new Map<
+    string,
+    Omit<ConnectedAppRow, "signInMethod"> & { neverExpires: boolean; methods: Set<string | null> }
+  >();
   for (const group of [...refreshGroups, ...accessGroups]) {
     const app = apps.get(group.clientId) ?? {
       clientId: group.clientId,
@@ -143,7 +164,9 @@ export async function listConnectedApps(
       lastIssuedAt: group.lastIssuedAt,
       expiresAt: group.expiresAt,
       neverExpires: false,
+      methods: new Set<string | null>(),
     };
+    app.methods.add(group.method);
     app.resources = union(app.resources, parseList(group.resources));
     app.scopes = union(app.scopes, parseList(group.scopes));
     app.approvedAt = Math.min(app.approvedAt, group.approvedAt);
@@ -153,7 +176,11 @@ export async function listConnectedApps(
     apps.set(group.clientId, app);
   }
   return [...apps.values()]
-    .map(({ neverExpires, ...app }) => ({ ...app, expiresAt: neverExpires ? null : app.expiresAt }))
+    .map(({ neverExpires, methods, ...app }) => ({
+      ...app,
+      expiresAt: neverExpires ? null : app.expiresAt,
+      signInMethod: methods.size === 1 ? signInMethodKind([...methods][0]) : ("unknown" as const),
+    }))
     .sort((a, b) => b.lastIssuedAt - a.lastIssuedAt || a.clientId.localeCompare(b.clientId));
 }
 

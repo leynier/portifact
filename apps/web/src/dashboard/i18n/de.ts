@@ -2750,4 +2750,46 @@ export const de = {
   "audit.policy.sessionAny": "keine Grenze für die Sitzungsdauer",
   "audit.policy.clients":
     "{kinds, select, none {nur das Dashboard darf handeln} cli {nur das Dashboard und die CLI dürfen handeln} oauth_apps {nur das Dashboard und verbundene Apps dürfen handeln} both {das Dashboard, die CLI und verbundene Apps dürfen handeln} other {jede App darf handeln}}",
+  "space.blockedSso.title": "Mit Single Sign-on anmelden, um fortzufahren",
+  "space.blockedSso.body":
+    "{workspace} verlangt die Anmeldung über sein Single Sign-on, und dieser Browser hat sich anders angemeldet. Melde dich mit Single Sign-on an, um hierher zurückzukehren: Dein Konto bleibt dasselbe und deine anderen Bereiche funktionieren weiter. Wenn deine Adresse nicht vom Identitätsanbieter des Workspaces bedient wird, frag einen Workspace-Admin. Du kannst den Workspace weiterhin über deine Workspace-Seite verlassen.",
+  "space.blockedSso.action": "Mit Single Sign-on anmelden",
+  "policies.sso.legend": "Single Sign-on",
+  "policies.sso.hint":
+    "Ob Personen sich über den eigenen Identitätsanbieter dieses Workspaces anmelden müssen, um im Dashboard, in der CLI und in verbundenen Apps darauf zu handeln.",
+  "policies.sso.any": "Jede Anmeldung",
+  "policies.sso.anyHint": "E-Mail-Codes, Google, GitHub und Single Sign-on funktionieren alle.",
+  "policies.sso.only": "Nur über Single Sign-on",
+  "policies.sso.onlyHint":
+    "Admins eingeschlossen. CLI und Apps funktionieren, wenn die Person sie aus einer Single-Sign-on-Sitzung freigegeben hat. Service-Tokens sind nicht betroffen.",
+  "policies.sso.notUsable":
+    "Richte zuerst Single Sign-on mit einer verifizierten E-Mail-Domain in einem Tarif ein, der es enthält. Bis dahin kann es nicht verlangt werden.",
+  "policies.sso.signInFirst":
+    "Melde dich zuerst in diesem Browser mit Single Sign-on an, damit du weißt, dass es funktioniert, bevor du es verlangst. Du kehrst hierher zurück.",
+  "policies.sso.tradeoff":
+    "Auch Admins sind gebunden, damit kein Konto den Identitätsanbieter umgehen kann. Wenn der Anbieter ausfällt oder falsch eingerichtet ist, kann niemand im Workspace handeln, bis er wieder funktioniert oder der Portifact-Support die Vorgabe auf Bitte eines Admins aufhebt; die anderen Bereiche aller funktionieren weiter.",
+  "policies.sso.required":
+    "Personen melden sich über das Single Sign-on dieses Workspaces an, um darauf zu handeln.",
+  "policies.sso.suspended":
+    "Single Sign-on wird verlangt, aber der Anbieter kann gerade niemanden anmelden (er bedient keine verifizierte Domain mehr oder der Tarif enthält es nicht mehr), daher wird die Vorgabe erst wieder angewendet, wenn er es kann.",
+  "policies.impact.ssoTitle": "Single Sign-on verlangen?",
+  "policies.impact.ssoConfirm": "Single Sign-on verlangen",
+  "policies.impact.ssoMembers":
+    "{count, plural, one {# Mitglied handelt} other {# Mitglieder handeln}} nur noch über Single Sign-on im Workspace.",
+  "policies.impact.ssoOutside":
+    "{count, plural, one {Die Adresse von # Mitglied liegt} other {Die Adressen von # Mitgliedern liegen}} nicht in einer Domain, die der Anbieter bedient: Sie können sich nicht darüber anmelden und werden abgewiesen, bis ein Admin die Vorgabe aufhebt oder sich ihre Adresse ändert.",
+  "policies.impact.ssoWithout":
+    "{count, plural, one {# Mitglied hat} other {# Mitglieder haben}} noch keine Single-Sign-on-Sitzung und {count, plural, one {wird} other {werden}} bei der nächsten Aktion gebeten, sich darüber anzumelden.",
+  "policies.impact.ssoNote":
+    "Niemand wird abgemeldet. CLI-Anmeldungen und verbundene Apps, die aus einer anderen Anmeldung freigegeben wurden, werden in diesem Workspace abgewiesen, bis die Person sie aus einer Single-Sign-on-Sitzung erneut freigibt.",
+  "account.sessions.column.method": "Angemeldet mit",
+  "account.apps.method": "Freigegeben aus einer Anmeldung mit",
+  "account.method.code": "E-Mail-Code",
+  "account.method.google": "Google",
+  "account.method.github": "GitHub",
+  "account.method.sso": "Single Sign-on",
+  "account.method.unknown": "Nicht erfasst",
+  "audit.policy.sso":
+    "{value, select, true {Single Sign-on verlangt} other {Single Sign-on nicht verlangt}}",
+  "audit.policy.ssoRemoved": "(der Single-Sign-on-Anbieter wurde entfernt)",
 } satisfies Catalog;

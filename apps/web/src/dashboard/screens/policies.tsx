@@ -6,7 +6,9 @@
 // The network allowlists (decision 0020) are edited here too: only admins see the ranges, every
 // other member reads that one exists; saving one asks for a confirmation with who it binds. So
 // are the sign-in policies (decision 0021): a maximum session age and the kinds of app allowed to
-// act; saving either asks for a confirmation with who it binds, as counts.
+// act; saving either asks for a confirmation with who it binds, as counts. And "SSO required"
+// (decision 0021), offered only where single sign-on is: setting it needs a provider that can
+// sign people in and the admin's own session through it, and confirms the members it cuts off.
 import {
   type ClientKind,
   DEFAULT_ACCESS_POLICIES,
@@ -27,6 +29,7 @@ import {
 import { changedFields, impactTotal, normalizeIpRanges } from "@portifact/domain";
 import {
   Button,
+  buttonClasses,
   Callout,
   Checkbox,
   ConfirmDialog,
@@ -37,8 +40,10 @@ import {
   TextInput,
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Info, Save, ShieldCheck } from "lucide-react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import { CircleAlert, Info, LogIn, Save, ShieldCheck } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { ssoReauthUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { type Space, useReadySpace, WORKSPACES_QUERY } from "../space.tsx";
@@ -105,6 +110,7 @@ interface Draft {
   sessionHours: string;
   clientsLimited: boolean;
   clients: ClientKind[];
+  ssoRequired: boolean;
 }
 
 /** A shown allowlist's lines; a hidden one (not an admin, who cannot save) shows none. */
@@ -128,6 +134,7 @@ function draftOf(policy: WorkspacePolicyView["policy"]): Draft {
     sessionHours: policy.sessionMaxHours === null ? "" : String(policy.sessionMaxHours),
     clientsLimited: policy.allowedClients !== null,
     clients: policy.allowedClients ?? ["cli", "oauth_apps"],
+    ssoRequired: policy.ssoRequired,
   };
 }
 
@@ -192,6 +199,7 @@ export function policyOfDraft(
       tokenIpAllowlist: tokenNetworks,
       sessionMaxHours: hours,
       allowedClients: draft.clientsLimited ? draft.clients : null,
+      ssoRequired: draft.ssoRequired,
     },
   };
 }
@@ -264,6 +272,7 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
       policy: WorkspacePolicy;
       confirmed?: PolicyImpact;
       families?: SingleFamilyLists;
+      outsideProvider?: number;
     }) =>
       api.savePolicies(space.slug, {
         policy: input.policy,
@@ -271,6 +280,10 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         ...(input.confirmed ? { confirmed: input.confirmed } : {}),
         // The single-family lists the dialog showed (decision 0020): the API refuses others.
         ...(input.families ? { confirmedSingleFamily: input.families } : {}),
+        // The members the provider cannot serve that the dialog showed (decision 0021).
+        ...(input.outsideProvider !== undefined
+          ? { confirmedOutsideProvider: input.outsideProvider }
+          : {}),
       }),
     onSuccess: async (next, input) => {
       setPending(null);
@@ -300,7 +313,8 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
     if (
       impactTotal(result) > 0 ||
       networksChange(view, parsed.policy) ||
-      signInsChange(view, parsed.policy)
+      signInsChange(view, parsed.policy) ||
+      (parsed.policy.ssoRequired && !view.policy.ssoRequired)
     ) {
       setPending({ policy: parsed.policy, preview: result });
     } else save.mutate({ policy: parsed.policy });
@@ -486,6 +500,12 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         onLimited={(value) => set("clientsLimited", value)}
         onClients={(value) => set("clients", value)}
       />
+      <SsoRequirementPanel
+        view={view}
+        required={draft.ssoRequired}
+        disabled={fieldsDisabled}
+        onRequired={(value) => set("ssoRequired", value)}
+      />
       {failure ? (
         <Callout
           tone="error"
@@ -523,7 +543,9 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
           pending && impactTotal(pending.preview) === 0
             ? pending.preview.networks
               ? t("policies.impact.networksTitle")
-              : t("policies.impact.signInsTitle")
+              : pending.preview.sso && !pending.preview.signIns
+                ? t("policies.impact.ssoTitle")
+                : t("policies.impact.signInsTitle")
             : t("policies.impact.title")
         }
         confirmLabel={
@@ -532,7 +554,9 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
               ? t("policies.impact.familiesConfirm")
               : pending.preview.networks
                 ? t("policies.impact.networksConfirm")
-                : t("policies.impact.signInsConfirm")
+                : pending.preview.sso && !pending.preview.signIns
+                  ? t("policies.impact.ssoConfirm")
+                  : t("policies.impact.signInsConfirm")
             : t("policies.impact.confirm")
         }
         cancelLabel={t("policies.impact.cancel")}
@@ -544,10 +568,15 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
           // Confirmations are only sent for what needs one: changes to existing artifacts, and
           // lists that cover one address family.
           const families = familiesOf(pending.preview);
+          const outside =
+            pending.policy.ssoRequired && !view.policy.ssoRequired
+              ? pending.preview.sso?.outsideProvider
+              : undefined;
           save.mutate({
             policy: pending.policy,
             ...(impactTotal(pending.preview) > 0 ? { confirmed: pending.preview } : {}),
             ...(families ? { families } : {}),
+            ...(outside !== undefined && outside > 0 ? { outsideProvider: outside } : {}),
           });
         }}
       >
@@ -576,6 +605,7 @@ function ImpactList({ space, preview }: { space: Workspace; preview: PolicyPrevi
   const artifacts = impactTotal(preview) > 0;
   const networks = preview.networks;
   const signIns = preview.signIns;
+  const sso = preview.sso;
   return (
     <div className="flex flex-col gap-3 text-sm">
       {artifacts ? (
@@ -627,7 +657,101 @@ function ImpactList({ space, preview }: { space: Workspace; preview: PolicyPrevi
           <p className="text-text-muted">{t("policies.impact.signInsNote")}</p>
         </>
       ) : null}
+      {sso ? (
+        <>
+          <ul className="list-disc pl-5">
+            <li>{t("policies.impact.ssoMembers", { count: sso.members })}</li>
+            {sso.outsideProvider > 0 ? (
+              <li className="font-semibold">
+                {t("policies.impact.ssoOutside", { count: sso.outsideProvider })}
+              </li>
+            ) : null}
+            {sso.withoutSsoSession > 0 ? (
+              <li>{t("policies.impact.ssoWithout", { count: sso.withoutSsoSession })}</li>
+            ) : null}
+          </ul>
+          <p className="text-text-muted">{t("policies.impact.ssoNote")}</p>
+          <p className="text-text-muted">{t("policies.sso.tradeoff")}</p>
+        </>
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * "SSO required" (decision 0021). Admins see it only where single sign-on is offered
+ * (`view.sso`); members see that it is required, never the provider. Requiring it needs a
+ * provider that can sign people in and the admin's own session through it: the page explains
+ * what is missing and offers the sign-in, which comes back here. Lifting it is always possible.
+ */
+function SsoRequirementPanel(props: {
+  view: WorkspacePolicyView;
+  required: boolean;
+  disabled: boolean;
+  onRequired: (required: boolean) => void;
+}) {
+  const t = useT();
+  const { view } = props;
+  const here = useRouterState({ select: (state) => state.location.href });
+  const legend = t("policies.sso.legend");
+  if (!view.sso) {
+    // Members read the rule they follow; with single sign-on off it is never shown.
+    return view.policy.ssoRequired ? (
+      <Panel headingLevel={2} title={legend}>
+        <p className="text-sm">{t("policies.sso.required")}</p>
+      </Panel>
+    ) : null;
+  }
+  const canRequire = view.sso.usable && view.sso.yourSession;
+  return (
+    <Panel headingLevel={2} title={legend} description={t("policies.sso.hint")}>
+      <div className="flex flex-col gap-4">
+        <RadioGroup<"any" | "only">
+          legend={legend}
+          name="ssoRequired"
+          value={props.required ? "only" : "any"}
+          disabled={props.disabled}
+          onChange={(value) => props.onRequired(value === "only")}
+          options={[
+            {
+              value: "any",
+              label: t("policies.sso.any"),
+              description: t("policies.sso.anyHint"),
+            },
+            {
+              value: "only",
+              label: t("policies.sso.only"),
+              description: t("policies.sso.onlyHint"),
+              // The current value stays selectable, so it can be kept.
+              disabled: !canRequire && !view.policy.ssoRequired,
+            },
+          ]}
+        />
+        {view.policy.ssoRequired && !view.sso.usable ? (
+          <Callout tone="info" title={legend} icon={<CircleAlert className="size-5" />}>
+            {t("policies.sso.suspended")}
+          </Callout>
+        ) : null}
+        {!view.sso.usable && !view.policy.ssoRequired ? (
+          <p className="text-sm">
+            {t("policies.sso.notUsable")}{" "}
+            <Link to="/members" className="font-semibold">
+              {legend}
+            </Link>
+          </p>
+        ) : null}
+        {view.sso.usable && !view.sso.yourSession ? (
+          <div className="flex flex-col items-start gap-3">
+            <p className="text-sm">{t("policies.sso.signInFirst")}</p>
+            <a href={ssoReauthUrl(here)} className={buttonClasses({})}>
+              <LogIn aria-hidden="true" className="size-4" />
+              {t("space.blockedSso.action")}
+            </a>
+          </div>
+        ) : null}
+        <p className="text-sm text-text-muted">{t("policies.sso.tradeoff")}</p>
+      </div>
+    </Panel>
   );
 }
 

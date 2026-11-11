@@ -97,6 +97,13 @@ export const WorkspacePolicy = z.strictObject({
    * only the dashboard. Service tokens are not bound.
    */
   allowedClients: z.array(AllowedClient).max(CLIENT_KINDS.length).nullable().default(null),
+  /**
+   * People act on the workspace only through a sign-in with the workspace's own single sign-on
+   * provider (decision 0021, "SSO required"; the provider of decision 0016, matched by its ID).
+   * Binds only while the provider can sign people in; service tokens are not bound. Absent in
+   * policies stored before it existed, and stored only while set.
+   */
+  ssoRequired: z.boolean().default(false),
 });
 export type WorkspacePolicy = z.infer<typeof WorkspacePolicy>;
 
@@ -125,6 +132,7 @@ export const DEFAULT_POLICY: WorkspacePolicy = {
   tokenIpAllowlist: null,
   sessionMaxHours: null,
   allowedClients: null,
+  ssoRequired: false,
 };
 
 /** The fields of a policy, for the audit log and the dashboard. */
@@ -138,6 +146,7 @@ export const POLICY_FIELDS = [
   "tokenIpAllowlist",
   "sessionMaxHours",
   "allowedClients",
+  "ssoRequired",
 ] as const satisfies readonly (keyof WorkspacePolicy)[];
 export type PolicyField = (typeof POLICY_FIELDS)[number];
 
@@ -205,6 +214,22 @@ export const PolicyPreview = PolicyImpact.extend({
     })
     .nullable()
     .default(null),
+  /**
+   * What requiring single sign-on would do (decision 0021), null when the policy does not set it:
+   * `members` it binds; `outsideProvider`, members whose verified address is not at a domain the
+   * provider serves, who cannot sign in through it and are refused until an admin removes the
+   * requirement or their address changes; `withoutSsoSession`, members with no live session
+   * through the provider, who sign in through it at their next action. A save that newly
+   * requires it needs `outsideProvider` confirmed (`confirmedOutsideProvider`).
+   */
+  sso: z
+    .object({
+      members: z.int().min(0),
+      outsideProvider: z.int().min(0),
+      withoutSsoSession: z.int().min(0),
+    })
+    .nullable()
+    .default(null),
 });
 export type PolicyPreview = z.infer<typeof PolicyPreview>;
 
@@ -232,6 +257,14 @@ export const WorkspacePolicyView = z.object({
    * whether a maximum session age would lock them out (decision 0021); null otherwise.
    */
   yourSignInAt: z.int().min(0).nullable().default(null),
+  /**
+   * Single sign-on as "SSO required" sees it (decision 0021), for admins only, null otherwise
+   * and whenever the app does not offer single sign-on (`SSO_ENABLED`): `usable`, whether the
+   * workspace's provider can sign people in now (it exists, serves a verified domain and the plan
+   * includes `sso`); `yourSession`, whether the caller's own session signed in through it, which
+   * setting the requirement needs (an admin proves it works first).
+   */
+  sso: z.object({ usable: z.boolean(), yourSession: z.boolean() }).nullable().default(null),
 });
 export type WorkspacePolicyView = z.infer<typeof WorkspacePolicyView>;
 
@@ -250,6 +283,12 @@ export const WorkspacePolicyUpdate = z.strictObject({
   confirmed: PolicyImpact.optional(),
   /** The single-family lists the preview reported and the admin accepted (decision 0020). */
   confirmedSingleFamily: SingleFamilyLists.optional(),
+  /**
+   * The count of members the provider cannot serve that the preview reported and the admin
+   * accepted when newly requiring single sign-on (decision 0021); a save whose count grew since
+   * is refused again.
+   */
+  confirmedOutsideProvider: z.int().min(0).optional(),
 });
 export type WorkspacePolicyUpdate = z.infer<typeof WorkspacePolicyUpdate>;
 

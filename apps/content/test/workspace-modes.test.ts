@@ -545,3 +545,126 @@ describe("a workspace's sign-in policies on the artifact origin (decision 0021)"
     expect({ warm: warm.counter.statements, renew: renew.counter.statements }).toEqual(DEVELOP);
   });
 });
+
+describe("SSO required on the artifact origin (decision 0021)", () => {
+  // The app session's sign-in method is on its row; a renewal reads it with the sign-in time.
+  const PROVIDER = `sso_${"e".repeat(32)}`;
+  const withSso = { ...env, SSO_ENABLED: "true" };
+  const later = NOW + CLAIMS_MS + 1_000;
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Requires single sign-on through a provider serving the seeded verified domain, on Enterprise. */
+  async function requireSso() {
+    await env.DB.prepare("UPDATE owner_plans SET plan = 'enterprise' WHERE owner_id = ?")
+      .bind(WS)
+      .run();
+    await env.DB.prepare(
+      "INSERT OR REPLACE INTO workspace_sso (id, workspace_id, issuer, client_id, client_secret_sealed, secret_key_id, domains, revision, created_at, updated_at) VALUES (?, ?, 'https://login.acme.example', 'c', 's', 'k', ?, 1, ?, ?)",
+    )
+      .bind(PROVIDER, WS, DOMAIN, NOW, NOW)
+      .run();
+    await env.DB.prepare(
+      "UPDATE workspaces SET policy = ?, policy_revision = policy_revision + 1 WHERE id = ?",
+    )
+      .bind(
+        JSON.stringify({
+          publicAccess: "allowed",
+          defaultAccess: "restricted",
+          readerDomains: null,
+          shareLinks: "allowed",
+          shareLinkMaxDays: null,
+          ssoRequired: true,
+        }),
+        WS,
+      )
+      .run();
+  }
+  const signedInWith = (userId: string, method: string | null) =>
+    env.DB.prepare("UPDATE sessions SET sign_in_method = ? WHERE user_id = ?")
+      .bind(method, userId)
+      .run();
+  const deliver = (path: string, cookie: string | undefined, now: number) =>
+    send(path, cookie, now, NAVIGATE, withSso);
+
+  it("ends a member's read session at renewal unless the app session signed in through the provider", async () => {
+    for (const mode of ["workspace", "restricted", "domain"] as const) {
+      await seed(mode);
+      if (mode === "restricted") {
+        await db()
+          .insert(schema.artifactReaders)
+          .values({ artifactId: ID, email: "member@example.org" });
+      }
+      const cookie = await signIn(MEMBER);
+      const other = await signIn(MEMBER);
+      await signedInWith(MEMBER, "code");
+      await requireSso();
+      expect((await deliver("/", cookie, NOW + 1_000)).status).toBe(200);
+      const renewed = await deliver("/", cookie, later);
+      expect(renewed.status).toBe(303);
+      expect(renewed.headers.get("location")).toContain("/read/");
+      await signedInWith(MEMBER, `sso:${PROVIDER}`);
+      expect((await deliver("/", other, later)).status).toBe(200);
+    }
+  });
+
+  it("is not applied where the Worker does not offer single sign-on", async () => {
+    await seed("workspace");
+    const cookie = await signIn(MEMBER);
+    await signedInWith(MEMBER, "code");
+    await requireSso();
+    expect((await send("/", cookie, later)).status).toBe(200);
+  });
+
+  it("never binds a share link or a public artifact", async () => {
+    await seed("workspace");
+    const created = await createShareLink(db(), {
+      userId: ADMIN,
+      artifactId: ID,
+      label: "Board",
+      expiresAt: null,
+      password: undefined,
+      now: NOW,
+    });
+    if (!created.ok) throw new Error(created.message);
+    const opened = await openShareLink([db()], {
+      customDomains: true,
+      token: created.value.token,
+      password: undefined,
+      now: NOW,
+      contentDomain: "portifact.dev",
+    });
+    if (opened.kind !== "opened") throw new Error(opened.kind);
+    const entered = await send(`/__portifact/link?code=${opened.code}`, undefined, NOW, FROM_APP);
+    const link = pairOf(entered, `${SHARE_COOKIE}=`);
+    await requireSso();
+    expect((await deliver("/", link, later)).status).toBe(200);
+    await env.DB.prepare("UPDATE artifacts SET access_mode = 'public' WHERE id = ?").bind(ID).run();
+    expect((await deliver("/", undefined, later)).status).toBe(200);
+  });
+
+  it("adds no D1 read to a warm request or to a renewal", async () => {
+    await seed("workspace");
+    const [primer, before] = [await signIn(MEMBER), await signIn(MEMBER)];
+    await signedInWith(MEMBER, `sso:${PROVIDER}`);
+    await requireSso();
+    expect((await deliver("/", primer, NOW + 1_000)).status).toBe(200);
+    const warm = counting();
+    const warmEnv = { ...warm.env, SSO_ENABLED: "true" };
+    expect((await send("/", before, NOW + 1_000, NAVIGATE, warmEnv)).status).toBe(200);
+    expect((await deliver("/", primer, later)).status).toBe(200);
+    const renew = counting();
+    const renewEnv = { ...renew.env, SSO_ENABLED: "true" };
+    expect((await send("/", before, later, NAVIGATE, renewEnv)).status).toBe(200);
+    // The same absolute counts as without any policy (the sign-in policies' pin above).
+    expect({ warm: warm.counter.statements, renew: renew.counter.statements }).toEqual({
+      warm: 2,
+      renew: 7,
+    });
+  });
+});

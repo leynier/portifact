@@ -73,9 +73,13 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   }
   // A workspace's maximum session age asked for a new sign-in (decision 0021): sign in again
   // although a session exists, alongside it, and go back to `next`. The old session is not ended.
-  const reauth = new URLSearchParams(location.search).get("reauth") === "session_age";
+  // A workspace that requires single sign-on asks for a sign-in through it the same way, with the
+  // account's address filled in (decision 0021): the flow links to this account and comes back.
+  const reauthKind = new URLSearchParams(location.search).get("reauth");
+  const reauth = reauthKind === "session_age" || reauthKind === "sso";
   if (reauth) {
-    showSummary(summary, messages.providerErrors.session_age ?? messages.providerErrorFallback);
+    const reason = reauthKind === "sso" ? "sso_required" : "session_age";
+    showSummary(summary, messages.providerErrors[reason] ?? messages.providerErrorFallback);
   }
 
   const humanCopy = byId(doc, "human-check-copy");
@@ -370,6 +374,7 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
     }
   }
   if (reauth) {
+    if (reauthKind === "sso" && sessionEmail) emailInput.value = sessionEmail;
     showSignIn();
     return;
   }

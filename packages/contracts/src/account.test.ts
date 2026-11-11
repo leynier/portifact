@@ -33,8 +33,12 @@ describe("account contracts", () => {
       "current",
       "expiresAt",
       "lastActiveAt",
+      "signInMethod",
       "userAgent",
     ]);
+    // A server from before sign-in methods (decision 0021) reads as not recorded.
+    expect(parsed.signInMethod).toBe("unknown");
+    expect(BrowserSession.safeParse({ ...parsed, signInMethod: "sso:sso_1" }).success).toBe(false);
   });
 
   it("describes a connected app by client, resources and scopes, without its tokens", () => {
@@ -47,6 +51,7 @@ describe("account contracts", () => {
       approvedAt: AT,
       lastIssuedAt: AT,
       expiresAt: null,
+      signInMethod: "sso",
     };
     expect(ConnectedApp.parse({ ...app, accessToken: "x" })).toEqual(app);
     expect(ConnectedApp.safeParse({ ...app, resources: ["userinfo"] }).success).toBe(false);
@@ -63,6 +68,7 @@ describe("account contracts", () => {
       approvedAt: AT,
       lastIssuedAt: AT,
       expiresAt: AT,
+      signInMethod: "code",
     };
     expect(TokenGrantList.parse({ items: [{ ...grant, refreshToken: "x" }] })).toEqual({
       items: [grant],

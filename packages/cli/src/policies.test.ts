@@ -31,6 +31,7 @@ beforeEach(async () => {
         tokenIpAllowlist: null,
         sessionMaxHours: null,
         allowedClients: null,
+        ssoRequired: false,
       },
     },
     { slug: "readers", name: "Readers", role: "member" },
@@ -66,6 +67,7 @@ describe("portifact workspaces", () => {
       tokenIpAllowlist: null,
       sessionMaxHours: null,
       allowedClients: null,
+      ssoRequired: false,
     });
   });
 
@@ -111,6 +113,14 @@ describe("portifact workspaces", () => {
         blocked: true,
         blockedBy: "client",
       },
+      {
+        slug: "corp",
+        name: "Corp",
+        role: "editor",
+        policy: { ...DEFAULT_POLICY, ssoRequired: true },
+        blocked: true,
+        blockedBy: "sso",
+      },
     ];
     h.signIn();
     const result = await h.invoke("workspaces");
@@ -121,6 +131,13 @@ describe("portifact workspaces", () => {
     expect(result.stdout).toContain("Policies of beta: people act only through the dashboard.\n");
     expect(result.stdout).toContain(
       "beta does not allow the Portifact CLI to act on it: use the dashboard, or ask a workspace admin.\n",
+    );
+    // SSO required (decision 0021): the device approval inherits the approving session's method.
+    expect(result.stdout).toContain(
+      "Policies of corp: people sign in through the workspace's single sign-on.\n",
+    );
+    expect(result.stdout).toContain(
+      "corp requires signing in through its single sign-on, and this CLI's login did not come from one: sign in to the Portifact dashboard with single sign-on, then run `portifact login` and approve it from that browser.\n",
     );
   });
 });

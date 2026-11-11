@@ -2685,4 +2685,46 @@ export const ja = {
   "audit.policy.sessionAny": "セッションの長さの制限なし",
   "audit.policy.clients":
     "{kinds, select, none {ダッシュボードのみ操作可能} cli {ダッシュボードと CLI のみ操作可能} oauth_apps {ダッシュボードと接続アプリのみ操作可能} both {ダッシュボード、CLI、接続アプリが操作可能} other {すべてのアプリが操作可能}}",
+  "space.blockedSso.title": "続けるにはシングルサインオンでサインインしてください",
+  "space.blockedSso.body":
+    "{workspace} ではシングルサインオンでのサインインが必要ですが、このブラウザは別の方法でサインインしています。シングルサインオンでサインインするとここに戻ります。アカウントは同じままで、ほかのスペースも引き続き使えます。アドレスがワークスペースの ID プロバイダーの対象外の場合は、ワークスペースの管理者に相談してください。ワークスペースからの脱退はワークスペース一覧のページから引き続き行えます。",
+  "space.blockedSso.action": "シングルサインオンでサインイン",
+  "policies.sso.legend": "シングルサインオン",
+  "policies.sso.hint":
+    "ダッシュボード、CLI、接続済みアプリからこのワークスペースで操作するために、このワークスペース独自の ID プロバイダーでのサインインを必須にするかどうか。",
+  "policies.sso.any": "任意のサインイン",
+  "policies.sso.anyHint": "メールコード、Google、GitHub、シングルサインオンのいずれも使えます。",
+  "policies.sso.only": "シングルサインオンのみ",
+  "policies.sso.onlyHint":
+    "管理者も対象です。CLI とアプリは、シングルサインオンのセッションから承認した場合に使えます。サービストークンは対象外です。",
+  "policies.sso.notUsable":
+    "まず、確認済みのメールドメインを対象にしたシングルサインオンを、それを含むプランで設定してください。それまでは必須にできません。",
+  "policies.sso.signInFirst":
+    "必須にする前に動作を確認できるよう、まずこのブラウザでシングルサインオンでサインインしてください。ここに戻ります。",
+  "policies.sso.tradeoff":
+    "どのアカウントも ID プロバイダーを回避できないよう、管理者も対象になります。プロバイダーが停止したり設定が誤っていたりすると、復旧するか、管理者の依頼で Portifact サポートが要件を解除するまで、誰もこのワークスペースで操作できません。各自のほかのスペースは引き続き使えます。",
+  "policies.sso.required":
+    "このワークスペースで操作するには、ワークスペースのシングルサインオンでサインインします。",
+  "policies.sso.suspended":
+    "シングルサインオンは必須ですが、現在プロバイダーは誰もサインインさせられません（確認済みドメインを対象にしていないか、プランに含まれなくなりました）。可能になるまで要件は適用されません。",
+  "policies.impact.ssoTitle": "シングルサインオンを必須にしますか？",
+  "policies.impact.ssoConfirm": "シングルサインオンを必須にする",
+  "policies.impact.ssoMembers":
+    "{count, plural, one {# 人のメンバーは、シングルサインオンでのみこのワークスペースで操作できるようになります。} other {# 人のメンバーは、シングルサインオンでのみこのワークスペースで操作できるようになります。}}",
+  "policies.impact.ssoOutside":
+    "{count, plural, one {# 人のメンバーのアドレスはプロバイダーの対象ドメインにありません。プロバイダーでサインインできないため、管理者が要件を解除するかアドレスが変わるまで拒否されます。} other {# 人のメンバーのアドレスはプロバイダーの対象ドメインにありません。プロバイダーでサインインできないため、管理者が要件を解除するかアドレスが変わるまで拒否されます。}}",
+  "policies.impact.ssoWithout":
+    "{count, plural, one {# 人のメンバーはまだシングルサインオンのセッションがなく、次の操作時にサインインを求められます。} other {# 人のメンバーはまだシングルサインオンのセッションがなく、次の操作時にサインインを求められます。}}",
+  "policies.impact.ssoNote":
+    "誰もサインアウトされません。別の方法のサインインから承認された CLI ログインと接続済みアプリは、シングルサインオンのセッションから再承認するまで、このワークスペースでは拒否されます。",
+  "account.sessions.column.method": "サインイン方法",
+  "account.apps.method": "承認したサインインの方法",
+  "account.method.code": "メールコード",
+  "account.method.google": "Google",
+  "account.method.github": "GitHub",
+  "account.method.sso": "シングルサインオン",
+  "account.method.unknown": "記録なし",
+  "audit.policy.sso":
+    "{value, select, true {シングルサインオン必須} other {シングルサインオン任意}}",
+  "audit.policy.ssoRemoved": "（シングルサインオンのプロバイダーが削除されました）",
 } satisfies Catalog;

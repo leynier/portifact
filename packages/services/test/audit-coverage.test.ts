@@ -366,6 +366,8 @@ const READ_NAMES = new Set([
   "readableThread",
   "appSessionLive",
   "appSessionSignIn",
+  // Who requiring single sign-on would bind, counted for the preview and the save (0021).
+  "ssoReach",
   "directoryGroupChoices",
   "directoryRoleHolders",
   "seatLimit",

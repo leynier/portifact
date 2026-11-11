@@ -48,6 +48,8 @@ const messages = {
       "El inicio de sesión tardó demasiado o empezó en otra pestaña. Inténtalo de nuevo.",
     artifact_unavailable:
       "Este artifact no existe, ya no está disponible o no se puede abrir con esta cuenta. Para usar otra cuenta, cierra la sesión y abre el enlace de nuevo.",
+    sso_required:
+      "Este espacio de trabajo exige iniciar sesión con el inicio de sesión único de tu organización. Continúa abajo con tu dirección de trabajo; tu sesión actual se mantiene y volverás a donde estabas.",
     session_age:
       "Este espacio de trabajo pide un nuevo inicio de sesión pasado un tiempo, y el tuyo es más antiguo de lo que permite. Inicia sesión de nuevo para continuar; volverás a donde estabas.",
     network_refused:

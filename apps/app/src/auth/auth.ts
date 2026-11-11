@@ -21,6 +21,7 @@ import type { AuthDeps } from "./deps.ts";
 import { deliverSignInCode, emailLocale } from "./email.ts";
 import { humanHooks } from "./human.ts";
 import { inProcessIntrospection } from "./introspection.ts";
+import { sessionSignInMethod } from "./sign-in-method.ts";
 import { workspaceSso } from "./sso.ts";
 import { termsHooks } from "./terms.ts";
 
@@ -100,7 +101,15 @@ export function createAuth(env: Env, deps: AuthDeps) {
       defaultCookieAttributes: { secure: true, httpOnly: true, sameSite: "lax", path: "/" },
       ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
     },
-    session: { expiresIn: 7 * 24 * 3600, updateAge: 24 * 3600 },
+    session: {
+      expiresIn: 7 * 24 * 3600,
+      updateAge: 24 * 3600,
+      // How the session signed in (decision 0021, "SSO required"): set only by the session hook
+      // below, in the statement that creates the row; never input, never changed after.
+      additionalFields: {
+        signInMethod: { type: "string", required: false, input: false },
+      },
+    },
     account: {
       // A Google or GitHub sign-in joins the existing account with the same email, but only
       // when the provider vouches for the email and the account's own email is verified. Every
@@ -144,7 +153,10 @@ export function createAuth(env: Env, deps: AuthDeps) {
       },
       session: {
         create: {
-          before: terms.session.create.before,
+          before: async (session, ctx) => {
+            await terms.session.create.before(session, ctx);
+            return { data: { ...session, signInMethod: sessionSignInMethod(ctx) } };
+          },
           after: async (session, ctx) => {
             await terms.session.create.after(session, ctx);
             human.clear(ctx);

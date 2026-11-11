@@ -44,6 +44,7 @@ const session = (hoursAgo: number, userId = "u1"): Credential => ({
   kind: "session",
   userId,
   signedInAt: NOW - hoursAgo * HOUR,
+  method: { kind: "code" },
 });
 const cli = (hoursAgo: number | null): Credential => ({
   kind: "oauth",
@@ -51,6 +52,7 @@ const cli = (hoursAgo: number | null): Credential => ({
   clientId: CLI_CLIENT_ID,
   client: "cli",
   signedInAt: hoursAgo === null ? null : NOW - hoursAgo * HOUR,
+  method: { kind: "code" },
 });
 const app = (hoursAgo: number | null): Credential => ({
   kind: "oauth",
@@ -58,6 +60,7 @@ const app = (hoursAgo: number | null): Credential => ({
   clientId: "dcr_123",
   client: "oauth_apps",
   signedInAt: hoursAgo === null ? null : NOW - hoursAgo * HOUR,
+  method: { kind: "code" },
 });
 const EIGHT_HOURS = policy({ sessionMaxHours: 8 });
 const CLI_ONLY = policy({ allowedClients: ["cli"] });

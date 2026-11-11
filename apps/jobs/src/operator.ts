@@ -1128,6 +1128,12 @@ export async function runOperator(
           ...result.lifting.map((item) => `  ${item.workspaceId}: ${item.fields.join(", ")}`),
         );
       }
+      if (result.ssoUnusable.length > 0) {
+        lines.push(
+          `${result.ssoUnusable.length} workspace(s) were left as they are because the file requires single sign-on and the workspace's provider cannot sign anyone in now (removed, no verified domain it serves, or a plan without sso); set the provider up again, then have an admin require it from the Policies page:`,
+          ...result.ssoUnusable.map((id) => `  ${id}`),
+        );
+      }
       if (result.extra.length > 0) {
         lines.push(
           `${result.extra.length} workspace(s) have a policy the file does not list; review each on its Policies page (it was set before the restore point):`,

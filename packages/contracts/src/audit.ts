@@ -329,6 +329,18 @@ export const AUDIT_DETAILS = {
       .optional(),
     /** The kinds of client allowed after the change; null when every kind is again (0021). */
     allowedClients: z.array(AllowedClient).max(2).nullable().optional(),
+    /** Whether single sign-on is required after the change (0021, "SSO required"). */
+    ssoRequired: z.boolean().optional(),
+    /**
+     * Members the provider could not serve that the admin confirmed when requiring single
+     * sign-on: a count only.
+     */
+    outsideProvider: z.int().min(0).optional(),
+    /**
+     * Why the system changed it, when it did: `sso_removed`, removing the provider cleared "SSO
+     * required" in the same batch, so no workspace keeps a requirement nobody can meet.
+     */
+    reason: z.enum(["sso_removed"]).optional(),
     /** The save accepted changes to existing artifacts (the preview's counts). */
     confirmed: z.boolean(),
   }),

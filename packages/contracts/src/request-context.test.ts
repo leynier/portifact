@@ -3,15 +3,68 @@ import {
   BACKGROUND,
   CLI_CLIENT_ID,
   clientKindOf,
+  parseSignInMethod,
   recordCredential,
   requestContextOf,
+  signInMethodKind,
+  signInMethodText,
   UNKNOWN_REQUEST,
 } from "./request-context.ts";
 
 const from = (headers: Record<string, string>) =>
   requestContextOf(new Request("https://app.portifact.com/api/v1/artifacts", { headers }));
 
+const SSO_ID = `sso_${"a".repeat(32)}`;
+
+describe("sign-in methods (decision 0021, SSO required)", () => {
+  it("round-trips every method through its stored spelling", () => {
+    for (const method of [
+      { kind: "code" },
+      { kind: "social", provider: "google" },
+      { kind: "social", provider: "github" },
+      { kind: "sso", providerId: SSO_ID },
+    ] as const) {
+      expect(parseSignInMethod(signInMethodText(method))).toEqual(method);
+    }
+  });
+
+  it("reads anything it does not know as not known, never as a method", () => {
+    for (const stored of [
+      null,
+      undefined,
+      "",
+      "otp",
+      "sso:",
+      "sso:sso_123",
+      `sso:${SSO_ID}x`,
+      `x-sso:${SSO_ID}`,
+      "GOOGLE",
+      42,
+    ]) {
+      expect(parseSignInMethod(stored)).toBeNull();
+      expect(signInMethodKind(stored)).toBe("unknown");
+    }
+  });
+
+  it("shows a method by its kind, never the provider's ID", () => {
+    expect(signInMethodKind("code")).toBe("code");
+    expect(signInMethodKind("github")).toBe("github");
+    expect(signInMethodKind(`sso:${SSO_ID}`)).toBe("sso");
+  });
+});
+
 describe("the request context", () => {
+  it("says single sign-on is offered only when the Worker says so", () => {
+    const request = new Request("https://app.portifact.com/");
+    expect(requestContextOf(request, { sso: true })).toEqual({
+      kind: "request",
+      ip: null,
+      sso: true,
+    });
+    expect(requestContextOf(request, { sso: false })).toEqual({ kind: "request", ip: null });
+    expect(requestContextOf(request)).toEqual({ kind: "request", ip: null });
+  });
+
   it("takes the address only from CF-Connecting-IP, trimmed", () => {
     expect(from({ "CF-Connecting-IP": "203.0.113.5" })).toEqual({
       kind: "request",
@@ -44,7 +97,7 @@ describe("the request context", () => {
 });
 
 describe("recording how a request authenticated", () => {
-  const session = { kind: "session", userId: "u1", signedInAt: 1_000 } as const;
+  const session = { kind: "session", userId: "u1", signedInAt: 1_000, method: null } as const;
 
   it("records the credential on the request's own context", () => {
     const context = requestContextOf(new Request("https://app.portifact.com/"));
@@ -79,6 +132,7 @@ describe("recording how a request authenticated", () => {
       clientId: CLI_CLIENT_ID,
       client: "cli",
       signedInAt: null,
+      method: null,
     } as const;
     const context = requestContextOf(new Request("https://app.portifact.com/"));
     recordCredential(context, token);
@@ -90,6 +144,20 @@ describe("recording how a request authenticated", () => {
     recordCredential(tokens, { kind: "service_token", userId: "st_1" });
     recordCredential(tokens, { kind: "service_token", userId: "st_1" });
     expect(tokens).toMatchObject({ credential: { kind: "service_token", userId: "st_1" } });
+  });
+
+  it("compares credentials by how they signed in too", () => {
+    const code = { ...session, method: { kind: "code" } } as const;
+    const context = requestContextOf(new Request("https://app.portifact.com/"));
+    recordCredential(context, code);
+    recordCredential(context, { ...code, method: { kind: "code" } });
+    expect(context).toMatchObject({ credential: code });
+    recordCredential(context, { ...code, method: { kind: "sso", providerId: SSO_ID } });
+    expect(context).toMatchObject({ credential: null });
+    const unknown = requestContextOf(new Request("https://app.portifact.com/"));
+    recordCredential(unknown, code);
+    recordCredential(unknown, session);
+    expect(unknown).toMatchObject({ credential: null });
   });
 
   it("never records on a background or frozen context", () => {

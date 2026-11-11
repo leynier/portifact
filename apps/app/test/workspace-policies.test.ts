@@ -172,6 +172,8 @@ describe("policies through the dashboard's session", () => {
       serviceTokens: 0,
       // The admin's own sign-in, from the session row this request read (decision 0021).
       yourSignInAt: expect.any(Number),
+      // Single sign-on is offered here, but the workspace has no provider (decision 0021).
+      sso: { usable: false, yourSession: false },
     });
     const preview = await t.admin.h.request(
       `${base}/preview`,
@@ -185,6 +187,7 @@ describe("policies through the dashboard's session", () => {
       linksOverLifetime: 0,
       networks: null,
       signIns: null,
+      sso: null,
     });
     const saved = await t.admin.h.request(
       base,

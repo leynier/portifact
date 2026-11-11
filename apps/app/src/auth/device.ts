@@ -40,10 +40,16 @@ export async function recordDeviceApproval(
   const found = await sessionOf(auth, env, headers);
   if (!found) return;
   const signedInAt = new Date(found.session.createdAt).getTime();
+  // How the approving session signed in (decision 0021, "SSO required"): a first approval sets
+  // it; a second one by a session that signed in another way leaves `unknown`, which no method
+  // matches, so the grant never inherits the better of two approvals.
+  // Null for a session from before the method was recorded: the grant inherits "not known".
+  const method: string | null = found.session.signInMethod ?? null;
   await regionsOf(env)
     .global.update(d)
     .set({
       approverSignedInAt: sql`min(coalesce(${d.approverSignedInAt}, ${signedInAt}), ${signedInAt})`,
+      approverSignInMethod: sql`case when ${d.approverSignedInAt} is null then ${method} when ${d.approverSignInMethod} is ${method} then ${method} else 'unknown' end`,
     })
     .where(
       and(
@@ -70,26 +76,37 @@ export async function exchangeDeviceCode(
   if (body.grant_type !== DEVICE_GRANT || typeof body.device_code !== "string") return issue();
   const global = regionsOf(env).global;
   const [code] = await global
-    .select({ signedInAt: d.approverSignedInAt })
+    .select({ signedInAt: d.approverSignedInAt, method: d.approverSignInMethod })
     .from(d)
     .where(eq(d.deviceCode, body.device_code))
     .limit(1);
   const response = await issue();
   const signedInAt = code?.signedInAt?.getTime() ?? null;
   if (response.status !== 200 || signedInAt === null) return response;
+  // `unknown` (two approvals that disagreed) is copied as it is: parsing reads it as not known.
+  const method = code?.method ?? null;
   // The provider has consumed the code and issued the tokens: its answer is the only copy of
   // them, so nothing below may replace it. A failure leaves the tokens' 0 (fail closed for a
   // maximum session age) and the login itself still completes.
   try {
-    await stampTokens(auth, env, response.clone(), new Date(signedInAt));
+    await stampTokens(auth, env, response.clone(), new Date(signedInAt), method);
   } catch (error) {
     logEvent("error", "device_sign_in_time_failed", { error: errorLabel(error) });
   }
   return response;
 }
 
-/** Writes the sign-in time onto the access and refresh token rows the answer's token names. */
-async function stampTokens(auth: Auth, env: Env, answer: Response, at: Date): Promise<void> {
+/**
+ * Writes the sign-in time and method onto the access and refresh token rows the answer's token
+ * names (decision 0021).
+ */
+async function stampTokens(
+  auth: Auth,
+  env: Env,
+  answer: Response,
+  at: Date,
+  method: string | null,
+): Promise<void> {
   const tokens = (await answer.json().catch(() => null)) as { access_token?: unknown } | null;
   if (typeof tokens?.access_token !== "string") return;
   const record = (await auth.api.tokenRecordOf({
@@ -100,13 +117,13 @@ async function stampTokens(auth: Auth, env: Env, answer: Response, at: Date): Pr
   await global.batch([
     global
       .update(schema.oauthAccessTokens)
-      .set({ authTime: at })
+      .set({ authTime: at, signInMethod: method })
       .where(eq(schema.oauthAccessTokens.id, record.accessId)),
     ...(record.refreshId
       ? [
           global
             .update(schema.oauthRefreshTokens)
-            .set({ authTime: at })
+            .set({ authTime: at, signInMethod: method })
             .where(eq(schema.oauthRefreshTokens.id, record.refreshId)),
         ]
       : []),

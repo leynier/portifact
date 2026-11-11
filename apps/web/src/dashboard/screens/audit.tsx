@@ -718,6 +718,10 @@ function policyChanges(t: T, d: Record<string, unknown>, locale: string | undefi
         : t("audit.policy.session", { count: Number(d.sessionMaxHours) }),
     );
   }
+  if (d.ssoRequired !== undefined) {
+    parts.push(t("audit.policy.sso", { value: String(d.ssoRequired === true) }));
+    if (d.reason === "sso_removed") parts.push(t("audit.policy.ssoRemoved"));
+  }
   if (d.allowedClients !== undefined) {
     parts.push(t("audit.policy.clients", { kinds: clientKinds(d.allowedClients) }));
   }

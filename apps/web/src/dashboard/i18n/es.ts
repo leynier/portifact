@@ -2734,4 +2734,47 @@ export const es = {
   "audit.policy.sessionAny": "sin límite de duración de sesión",
   "audit.policy.clients":
     "{kinds, select, none {solo el panel puede actuar} cli {solo el panel y la CLI pueden actuar} oauth_apps {solo el panel y las apps conectadas pueden actuar} both {el panel, la CLI y las apps conectadas pueden actuar} other {cualquier app puede actuar}}",
+  "space.blockedSso.title": "Inicia sesión con el inicio de sesión único para continuar",
+  "space.blockedSso.body":
+    "{workspace} exige iniciar sesión con su inicio de sesión único, y este navegador inició sesión de otra forma. Inicia sesión con el inicio de sesión único para volver aquí: tu cuenta es la misma y tus otros espacios siguen funcionando. Si tu dirección no es una que atiende el proveedor de identidad del espacio, pregunta a un administrador. Aún puedes salir del espacio desde tu página de espacios de trabajo.",
+  "space.blockedSso.action": "Iniciar sesión con inicio de sesión único",
+  "policies.sso.legend": "Inicio de sesión único",
+  "policies.sso.hint":
+    "Si las personas deben iniciar sesión con el proveedor de identidad propio de este espacio para actuar en él, desde el panel, la CLI y las aplicaciones conectadas.",
+  "policies.sso.any": "Cualquier inicio de sesión",
+  "policies.sso.anyHint":
+    "Funcionan los códigos por correo, Google, GitHub y el inicio de sesión único.",
+  "policies.sso.only": "Solo con inicio de sesión único",
+  "policies.sso.onlyHint":
+    "Incluidos los administradores. La CLI y las aplicaciones funcionan si la persona las aprobó desde una sesión de inicio de sesión único. Los tokens de servicio no quedan sujetos.",
+  "policies.sso.notUsable":
+    "Configura primero el inicio de sesión único con un dominio de correo verificado, en un plan que lo incluya. Hasta entonces no se puede exigir.",
+  "policies.sso.signInFirst":
+    "Inicia sesión primero con el inicio de sesión único desde este navegador, para saber que funciona antes de exigirlo. Volverás aquí.",
+  "policies.sso.tradeoff":
+    "Los administradores también quedan sujetos, así que ninguna cuenta puede saltarse el proveedor de identidad. Si el proveedor falla o está mal configurado, nadie puede actuar en el espacio hasta que vuelva a funcionar o el soporte de Portifact retire el requisito a petición de un administrador; los demás espacios de todos siguen funcionando.",
+  "policies.sso.required":
+    "Las personas inician sesión con el inicio de sesión único de este espacio para actuar en él.",
+  "policies.sso.suspended":
+    "Se exige el inicio de sesión único, pero el proveedor no puede iniciar la sesión de nadie ahora (no atiende ningún dominio verificado o el plan ya no lo incluye), así que el requisito no se aplica hasta que pueda.",
+  "policies.impact.ssoTitle": "¿Exigir inicio de sesión único?",
+  "policies.impact.ssoConfirm": "Exigir inicio de sesión único",
+  "policies.impact.ssoMembers":
+    "{count, plural, one {# miembro actuará} other {# miembros actuarán}} en el espacio solo con el inicio de sesión único.",
+  "policies.impact.ssoOutside":
+    "{count, plural, one {La dirección de # miembro no está} other {Las direcciones de # miembros no están}} en un dominio que atiende el proveedor: no pueden iniciar sesión con él y se les rechazará hasta que un administrador retire el requisito o cambie su dirección.",
+  "policies.impact.ssoWithout":
+    "{count, plural, one {# miembro aún no tiene} other {# miembros aún no tienen}} una sesión con inicio de sesión único y se les pedirá iniciarla en su próxima acción.",
+  "policies.impact.ssoNote":
+    "No se cierra la sesión de nadie. Los inicios de sesión de la CLI y las aplicaciones conectadas aprobados desde otro tipo de inicio de sesión se rechazan en este espacio hasta que la persona los apruebe de nuevo desde una sesión de inicio de sesión único.",
+  "account.sessions.column.method": "Sesión iniciada con",
+  "account.apps.method": "Aprobada desde un inicio de sesión con",
+  "account.method.code": "Código por correo",
+  "account.method.google": "Google",
+  "account.method.github": "GitHub",
+  "account.method.sso": "Inicio de sesión único",
+  "account.method.unknown": "No registrado",
+  "audit.policy.sso":
+    "{value, select, true {inicio de sesión único obligatorio} other {inicio de sesión único no obligatorio}}",
+  "audit.policy.ssoRemoved": "(se eliminó el proveedor de inicio de sesión único)",
 } satisfies Catalog;
