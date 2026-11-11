@@ -56,6 +56,7 @@ import {
   type EditMessageRequest,
   type ErrorCode,
   FileDiff,
+  GraceForecastView,
   IncomingInvitationList,
   IntegrationChoiceList,
   IntegrationConnectionList,
@@ -203,6 +204,8 @@ export interface DashboardApi {
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
   /** A space's quotas, this month's traffic and what blocks it now. */
   usage(workspace?: string): Promise<AccountUsageView>;
+  /** What a space's running plan grace lets go, per kind (decision 0022). */
+  graceForecast(workspace?: string): Promise<GraceForecastView>;
   /** The caller's workspaces and role in each. */
   workspaces(): Promise<WorkspaceList>;
   /** A workspace's members and seats (session only). */
@@ -808,6 +811,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     usage(workspace) {
       return call(inSpace("/api/v1/usage", workspace), AccountUsageView);
+    },
+    graceForecast(workspace) {
+      return call(inSpace("/api/v1/grace-forecast", workspace), GraceForecastView);
     },
     workspaces() {
       return call("/api/v1/workspaces", WorkspaceList);

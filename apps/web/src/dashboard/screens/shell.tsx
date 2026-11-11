@@ -1,7 +1,9 @@
 import type { RequestRefusal, RoleAction } from "@portifact/contracts";
+import { PLAN_LABELS, planRequestHref } from "@portifact/contracts/plans";
 import {
   AppShell,
   type AppShellNavItem,
+  Button,
   buttonClasses,
   Callout,
   LoadingState,
@@ -20,7 +22,9 @@ import {
   BadgeCheck,
   Blocks,
   Cable,
+  Clock,
   Gauge,
+  HardDriveDownload,
   KeySquare,
   Layers,
   LogIn,
@@ -40,7 +44,7 @@ import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
 import wordmark from "../../../../../assets/brand/wordmark.svg";
 import wordmarkDark from "../../../../../assets/brand/wordmark-dark.svg";
 import { loginUrl, reauthUrl, ssoReauthUrl } from "../../auth/query.ts";
-import { AnnounceContext, useDashboard, useT } from "../context.tsx";
+import { AnnounceContext, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { ROLE_LABELS, type Space, spaceCan, useSpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { integrationChoicesQuery } from "./integrations.tsx";
@@ -103,6 +107,128 @@ function CapacityNotice({ space }: { space: Space }) {
         )}
       </Callout>
     </div>
+  );
+}
+
+/** How long the grace notice's live region holds its words before it is emptied again. */
+const ANNOUNCE_HOLD_MS = 1_500;
+
+/** What this tab last announced for a space's grace (session storage; nothing when blocked). */
+const ANNOUNCED_KEY = (space: Space) => `portifact.graceAnnounced.${space.slug ?? "personal"}`;
+
+function announcedBefore(space: Space, message: string): boolean {
+  try {
+    return sessionStorage.getItem(ANNOUNCED_KEY(space)) === message;
+  } catch {
+    return false;
+  }
+}
+
+function rememberAnnounced(space: Space, message: string): void {
+  try {
+    sessionStorage.setItem(ANNOUNCED_KEY(space), message);
+  } catch {
+    // Without storage it may be announced again after a reload; never more often than that.
+  }
+}
+
+/** The day a grace notice was hidden for, per space and browser (`YYYY-MM-DD`, UTC). */
+const GRACE_HIDDEN_KEY = (space: Space) => `portifact.graceNotice.${space.slug ?? "personal"}`;
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function hiddenToday(space: Space): boolean {
+  try {
+    return localStorage.getItem(GRACE_HIDDEN_KEY(space)) === today();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The notice on every page of a space while a plan's grace runs (decision 0022): until when what
+ * the previous plan kept is held, and the two ways forward, downloading and asking for the plan
+ * again (both for the roles that may). From the usage body the shell already loads, so no request
+ * is added. Hidden for the rest of the day in this browser on request, never for good.
+ */
+function GraceNotice({ space }: { space: Space }) {
+  const t = useT();
+  const formatDate = useFormatDate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const usage = useUsage(space.slug, spaceCan(space, "usage"));
+  const [hidden, setHidden] = useState(() => hiddenToday(space));
+  const grace = usage.data?.plan.grace ?? null;
+  const admin = spaceCan(space, "plan");
+  const title = grace
+    ? t("shell.grace.title", {
+        plan: PLAN_LABELS[grace.plan],
+        date: formatDate(grace.until, true),
+      })
+    : "";
+  const body = admin ? t("shell.grace.body") : t("shell.grace.bodyAskAdmin");
+  // The visible box has no live role. Its words are announced through a polite live region that
+  // holds them only for a moment and is then emptied, so reading the page never hears them twice;
+  // and only when they differ from what this tab last announced for the space, so moving between
+  // pages, reloading or coming back to the space does not announce them again.
+  const onOwnPage = pathname === "/data" || pathname === "/plan";
+  const message = grace && !hidden && !onOwnPage ? `${title}. ${body}` : "";
+  const [spoken, setSpoken] = useState("");
+  useEffect(() => {
+    if (message === "" || announcedBefore(space, message)) return;
+    rememberAnnounced(space, message);
+    setSpoken(message);
+    const clear = setTimeout(() => setSpoken(""), ANNOUNCE_HOLD_MS);
+    return () => clearTimeout(clear);
+  }, [message, space]);
+  if (!grace || hidden) return null;
+  const hide = () => {
+    try {
+      localStorage.setItem(GRACE_HIDDEN_KEY(space), today());
+    } catch {
+      // Without storage it is hidden until the page reloads.
+    }
+    setHidden(true);
+  };
+  return (
+    <>
+      <p className="sr-only" role="status">
+        {spoken}
+      </p>
+      {/* The Plan page and the download page show the grace themselves. */}
+      {onOwnPage ? null : (
+        <div className="mb-6">
+          <Callout
+            live={false}
+            title={title}
+            icon={<Clock className="size-5" />}
+            action={
+              <div className="flex flex-wrap items-center gap-3">
+                {admin ? (
+                  <>
+                    <Link to="/data" className={buttonClasses({ intent: "primary", size: "sm" })}>
+                      {t("shell.grace.download")}
+                    </Link>
+                    <a
+                      href={planRequestHref(grace.plan)}
+                      className={buttonClasses({ intent: "secondary", size: "sm" })}
+                    >
+                      {t("shell.grace.request", { plan: PLAN_LABELS[grace.plan] })}
+                    </a>
+                  </>
+                ) : null}
+                <Button intent="ghost" size="sm" onClick={hide}>
+                  {t("shell.grace.hide")}
+                </Button>
+              </div>
+            }
+          >
+            {body}
+          </Callout>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -201,6 +327,7 @@ const SPACE_PAGES = new Set([
   "/publish",
   "/usage",
   "/plan",
+  "/data",
   "/branding",
   "/members",
   "/groups",
@@ -354,6 +481,12 @@ export function Shell() {
       icon: <BadgeCheck className="size-4" />,
       render: (props) => <Link to="/plan" {...props} />,
     },
+    allowed("plan") && {
+      key: "data",
+      label: t("shell.dataLink"),
+      icon: <HardDriveDownload className="size-4" />,
+      render: (props) => <Link to="/data" {...props} />,
+    },
     allowed("webhooks") && {
       key: "webhooks",
       label: t("shell.webhooksLink"),
@@ -480,6 +613,7 @@ export function Shell() {
           <>
             <InvitationsNotice />
             <CapacityNotice space={space} />
+            <GraceNotice key={space.slug ?? "personal"} space={space} />
             <Outlet />
           </>
         ) : (

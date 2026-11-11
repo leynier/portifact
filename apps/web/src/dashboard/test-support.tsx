@@ -34,6 +34,7 @@ import {
   DocumentPreviewRequest,
   type ErrorCode,
   type FileChange,
+  type GraceForecastView,
   type IncomingInvitationView,
   type IntegrationConnectionView,
   type InvitationLookup,
@@ -545,6 +546,8 @@ export interface FakeServer {
   commentNotices: Record<string, CommentNoticeMute>;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
+  /** The body of GET /api/v1/grace-forecast (decision 0022), for every space. */
+  graceForecast: GraceForecastView;
   /** The account's webhooks and whether its plan includes them, as /api/v1/webhooks keeps them. */
   webhooks: {
     list: WebhookView[];
@@ -671,6 +674,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       locale: null,
     },
     usage: usageView(),
+    graceForecast: { ownerId: "u_owner", grace: null, kinds: [] },
     webhooks: { list: [], available: true, attempts: {} },
     webhookTests: [],
     integrations: {
@@ -1735,6 +1739,11 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       })
       .map(({ artifactId: _id, ...hit }) => hit);
     return Response.json({ items, nextCursor: null });
+  }
+  if (path === "/api/v1/grace-forecast" && method === "GET") {
+    const slug = url.searchParams.get("workspace");
+    if (slug && !server.workspaces[slug]) return apiError("not_found", 404);
+    return Response.json(server.graceForecast);
   }
   if (path === "/api/v1/usage" && method === "GET") {
     const slug = url.searchParams.get("workspace");

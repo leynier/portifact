@@ -525,6 +525,7 @@ Markdown documents highlight fenced code and draw Mermaid diagrams. Both are add
 ### Uploads
 
 - Paths are normalized and checked on the server: absolute paths, `..`, symlinks, special entries, collisions, reserved paths, size and entry limits are all rejected.
+- Two collision rules, on purpose (decision 0022): publishing refuses two paths that are the same in lower case after NFC normalization (`validateManifestPaths`, `publishCollisionKey`), and must keep accepting what it always did, so artifacts that hold other pairs keep updating; `pull` and `portifact export` refuse, before writing anything, two paths a case-folding or normalizing file system would store as one (`validateDownloadPaths`, `downloadCollisionKey`: `straße`/`strasse`, `ſ`/`s`), and on Windows also device names and names Windows cannot store (`windowsNameProblem`). The two keys are separate functions; never merge them.
 - The server verifies the real size and checksum before commit. A client-declared value is never trusted.
 - Quotas are reserved in the same transaction that admits the work.
 - The CLI (`packages/cli/src/manifest.ts`) also refuses links and special files instead of following them, applies the domain's path rules before uploading, and leaves out `.git` (any case), `node_modules`, caches and files that may hold secrets (`.env*` except templates, `.dev.vars`, `.npmrc`, `.netrc`, SSH keys, `*.pem`, `*.key`, Terraform state and similar), also when such a file or folder is named directly. These are conveniences for the user; the server still enforces every rule.

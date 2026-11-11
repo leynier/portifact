@@ -1617,6 +1617,58 @@ export const ja = {
   "plan.grace.reads": "それまで引き続き読めるもの：{features}。",
   "plan.grace.download":
     "それまでに必要なものをダウンロードしてください。各アーティファクトの履歴にバージョンがあり、アクセスログと監査ログはエクスポートできます。すべてを残すには、もう一度プランを申請してください。",
+  "data.title": "データをダウンロード",
+  "data.description":
+    "このスペースに保存されていて持ち出せるもの：各アーティファクトの保持されたバージョンとそのソース、アクセスログ、監査ログ、そして個人スペースではアカウントのデータです。ファイルはストレージから直接届き、サーバーでまとめることはありません。",
+  "data.adminsOnly": "{workspace} のすべてのデータのダウンロードは管理者が行います。",
+  "data.grace.title": "削除されるものと時期",
+  "data.grace.hint":
+    "期限切れ、削除、引き下げとなったプランは、保持していたものを 60 日間保持します。その後、このスペースのプランで保持されないものは削除されます。",
+  "data.grace.body":
+    "これらの日付までに必要なものをダウンロードするか、すべてを残すためにもう一度プランを申請してください。",
+  "data.grace.loading": "削除されるものと時期を読み込んでいます",
+  "data.grace.error": "削除されるものと時期を読み込めませんでした。",
+  "data.grace.nothing": "猶予期間が終わっても、保持中のもので削除されるものはありません。",
+  "data.grace.caption": "猶予期間の終了時に削除されるものと、その時期",
+  "data.grace.column.kind": "内容",
+  "data.grace.column.count": "件数",
+  "data.grace.column.from": "開始日",
+  "data.kind.versions": "以前のバージョン",
+  "data.kind.accessLog": "アクセスログのエントリ",
+  "data.kind.analytics": "日ごとの分析カウンター",
+  "data.kind.auditEvents": "監査イベント",
+  "data.kind.pins": "ピン留めされたアーティファクト（ピンが外れ、通常どおりアーカイブされます）",
+  "data.artifacts.title": "アーティファクト",
+  "data.artifacts.hint":
+    "アーティファクトを開くと、保持されている任意のバージョン（公開ファイルまたはソース）をダウンロードできます。",
+  "data.artifacts.loading": "アーティファクトを読み込んでいます",
+  "data.artifacts.error": "アーティファクトを読み込めませんでした。",
+  "data.artifacts.none": "このスペースにはアーティファクトがありません。",
+  "data.artifacts.more": "さらにアーティファクトを表示",
+  "data.artifact.summary":
+    "{name}：保持されているバージョン {count, plural, one {# 件} other {# 件}}",
+  "data.versions.title": "{name} のバージョン",
+  "data.versions.caption": "{name} の保持されているバージョン（新しい順）",
+  "data.versions.size": "サイズ",
+  "data.accessLog.csv": "アクセスログ（CSV）",
+  "data.accessLog.json": "アクセスログ（JSON）",
+  "data.accessLog.saved": "アクセスログの準備ができました。",
+  "data.logs.title": "ログとアカウント",
+  "data.logs.hint":
+    "スペースの監査ログには専用のエクスポートがあり、個人スペースにはアカウントのデータが含まれます。",
+  "data.logs.audit": "監査ログページから監査ログをエクスポート",
+  "data.logs.account": "アカウントのデータをダウンロード（JSON）",
+  "data.logs.cli":
+    "すべてを一度に持ち出すには、ターミナルで portifact export <フォルダー> を実行してください。保持されているすべてのバージョンを取得し、中断しても再開し、マニフェストを書き出します。",
+  "shell.dataLink": "データをダウンロード",
+  "shell.grace.title": "{plan} プランで保持していたものは {date} まで保持されます",
+  "shell.grace.download": "データをダウンロード",
+  "shell.grace.request": "{plan} をもう一度申請",
+  "shell.grace.hide": "今日は非表示",
+  "shell.grace.body":
+    "その日以降、このスペースのプランで保持されないものは削除されます。必要なものをダウンロードするか、すべてを残すためにもう一度プランを申請してください。",
+  "shell.grace.bodyAskAdmin":
+    "その日以降、このスペースのプランで保持されないものは削除されます。必要なもののダウンロードかプランの再申請を、このスペースの管理者に依頼してください。",
   "plan.loading": "プランを読み込み中",
   "plan.error": "プランを読み込めませんでした。",
   "plan.compare.section": "すべてのプラン",

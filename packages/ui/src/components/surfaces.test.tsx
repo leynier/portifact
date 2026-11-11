@@ -443,3 +443,16 @@ describe("variants added with the redesign", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 });
+
+describe("Callout as a live region", () => {
+  it("is a status by default, an alert for errors, and no live region when asked", () => {
+    const { rerender } = render(<Callout title="Saved" />);
+    expect(screen.getByRole("status").textContent).toContain("Saved");
+    rerender(<Callout tone="error" title="Failed" />);
+    expect(screen.getByRole("alert").textContent).toContain("Failed");
+    rerender(<Callout live={false} title="Held until May" />);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Held until May")).toBeTruthy();
+  });
+});

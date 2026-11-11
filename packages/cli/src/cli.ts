@@ -28,6 +28,7 @@ import { login, logout, whoami, writeJson } from "./commands.ts";
 import { diff } from "./diff.ts";
 import { addDomain, domainInfo, listDomains, removeDomain, verifyDomain } from "./domains.ts";
 import { CliError, EXIT, exitCodeFor } from "./errors.ts";
+import { exportSpace } from "./export.ts";
 import { feedback } from "./feedback.ts";
 import { pullHistory } from "./history.ts";
 import { createIssue, listIntegrations } from "./integrations.ts";
@@ -134,6 +135,16 @@ only when GitHub CLI (gh) is signed in and the repository is not starred yet. It
 nothing to Portifact. Set PORTIFACT_NO_STAR_PROMPT=1 to turn it off; it is off when CI is set.
 `;
 
+const EXPORT_HELP = `
+Each artifact goes under artifacts/<id>/v<number>/published (and /source when the version has
+private sources), with its access log as artifacts/<id>/access-log.jsonl when you may read it, the
+space's audit log as audit.jsonl when you may export it, and manifest.json last, listing every file
+with its size and SHA-256 and what was left out and why. Every file is checked against its size and
+SHA-256 before it is kept. Run the same command again to resume: complete files are skipped and
+the rest is fetched again. Nothing is built on the server, and the folder must be new, empty or an
+earlier export of the same space.
+`;
+
 const PULL_HELP = `
 Without --published or --source, pull downloads the published files. Files go into a new
 folder: published files under <out>/published and sources under <out>/source. The folder must
@@ -220,13 +231,15 @@ export async function run(
   // arguments first, then the options and the command; commands take the options first.
   const execute =
     <T extends { json?: boolean }, A extends unknown[]>(
-      command: (io: Io, runtime: Runtime, options: T, ...args: A) => Promise<void>,
+      command: (io: Io, runtime: Runtime, options: T, ...args: A) => Promise<void | number>,
     ) =>
     async (...received: unknown[]) => {
       const args = received.slice(0, -2) as A;
       const options = received.at(-2) as T;
       try {
-        await command(io, runtime, options, ...args);
+        // A command that completed only in part answers its exit code (export: 1, run again).
+        const code = await command(io, runtime, options, ...args);
+        if (typeof code === "number") exitCode = code;
       } catch (error) {
         if (!(error instanceof CliError)) throw error;
         exitCode = exitCodeFor(error.code);
@@ -713,6 +726,35 @@ export async function run(
             ? pullHistory(io, runtime, id, pullOptions)
             : pull(io, runtime, id, pullOptions);
         },
+      ),
+    );
+
+  program
+    .command("export")
+    .description(
+      "Download everything a space holds into a folder: every retained version, its sources, access logs, the audit log and a manifest",
+    )
+    .argument(
+      "<folder>",
+      "new or empty folder, or the folder an earlier export of this space wrote",
+    )
+    .option("--workspace <slug>", "export this workspace, or personal")
+    .option("--dry-run", "print what would be exported (counts and bytes) and write nothing")
+    .option("--json", "Print the result as JSON")
+    .addHelpText("after", EXPORT_HELP)
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { workspace?: string; dryRun?: boolean; json?: boolean },
+          folder: string,
+        ) =>
+          exportSpace(io, runtime, folder, {
+            workspace: options.workspace,
+            dryRun: options.dryRun === true,
+            json: options.json === true,
+          }),
       ),
     );
 

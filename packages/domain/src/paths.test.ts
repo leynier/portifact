@@ -1,6 +1,14 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { isGitSegment, normalizePath, validateManifestPaths } from "./paths.ts";
+import {
+  downloadCollisionKey,
+  isGitSegment,
+  normalizePath,
+  publishCollisionKey,
+  validateDownloadPaths,
+  validateManifestPaths,
+  windowsNameProblem,
+} from "./paths.ts";
 
 const value = (raw: string) => {
   const result = normalizePath(raw);
@@ -140,5 +148,58 @@ describe("validateManifestPaths", () => {
     const paths = Array.from({ length: 1001 }, (_, i) => `f${i}.txt`);
     expect(validateManifestPaths(paths)).toMatchObject({ ok: false, code: "quota_exceeded" });
     expect(validateManifestPaths(paths.slice(0, 1000)).ok).toBe(true);
+  });
+});
+
+describe("the two collision keys", () => {
+  const PAIRS = [
+    ["\u017f.txt", "s.txt"],
+    ["stra\u00dfe.html", "strasse.html"],
+  ];
+
+  it.each([["A.md", "a.md"], ["\u212a.txt", "k.txt"], ...PAIRS, ["e\u0301.md", "\u00e9.md"]])(
+    "the download key folds %s and %s to one name, as Windows and macOS store them",
+    (a, b) => {
+      expect(downloadCollisionKey(a)).toBe(downloadCollisionKey(b));
+    },
+  );
+
+  it.each(PAIRS)("publishing still accepts %s next to %s, as before", (a, b) => {
+    expect(validateManifestPaths([a, b])).toEqual({ ok: true, value: [a, b] });
+    expect(validateManifestPaths([`docs/${a}`, `docs/${b}`]).ok).toBe(true);
+  });
+
+  it.each(PAIRS)("downloading refuses %s next to %s before writing either", (a, b) => {
+    expect(validateDownloadPaths([a, b])).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+
+  it("keeps what publishing refused before: case pairs, and NFC next to NFD (one canonical path)", () => {
+    expect(validateManifestPaths(["A.md", "a.md"]).ok).toBe(false);
+    // The Kelvin sign lower-cases to `k`: publishing refused it before, and still does.
+    expect(validateManifestPaths(["\u212a.txt", "k.txt"]).ok).toBe(false);
+    // An NFD path is made canonical (NFC) at publish, so it is the same path as its NFC twin.
+    expect(validateManifestPaths(["e\u0301.md", "\u00e9.md"]).ok).toBe(false);
+    expect(publishCollisionKey("Stra\u00dfe.HTML")).toBe("stra\u00dfe.html");
+  });
+});
+
+describe("windowsNameProblem", () => {
+  it.each([
+    "CON",
+    "CON .txt",
+    "com0",
+    "LPT0.txt",
+    "CONIN$",
+    "CONOUT$",
+    "CLOCK$",
+    "a:b",
+    "x.",
+    "y ",
+  ])("refuses %s", (segment) => {
+    expect(windowsNameProblem(segment)).not.toBeNull();
+  });
+
+  it.each(["console.txt", "com10", "a.b", "nulled"])("allows %s", (segment) => {
+    expect(windowsNameProblem(segment)).toBeNull();
   });
 });

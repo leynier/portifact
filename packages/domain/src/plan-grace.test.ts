@@ -21,6 +21,7 @@ import {
   entitlements,
   expirySlot,
   graceAfterChange,
+  graceForecastSteps,
   graceScanStep,
   graceSlotOf,
   hasFeature,
@@ -558,5 +559,16 @@ describe("rank", () => {
     const pro = graceSlotOf(entitlements(row(), NOW), "removed", NOW + DAY);
     const owner = entitlements(row({ plan: "free", grace: [pro, team] as GraceSlot[] }), NOW + DAY);
     expect(owner.grace?.plan).toBe<PlanName>("team");
+  });
+});
+
+describe("the forecast of an unreadable grace", () => {
+  it("lists nothing, since an unreadable grace holds everything and deletes nothing", () => {
+    const record = row({ plan: "free", grace: "{not json" });
+    expect(entitlements(record, NOW).grace?.unreadable).toBe(true);
+    expect(graceForecastSteps(record, NOW)).toEqual([]);
+    // A readable one still forecasts.
+    const { next } = changed(row(), null, NOW);
+    expect(graceForecastSteps(next, NOW + DAY).map((step) => step.kind)).toContain("versions");
   });
 });

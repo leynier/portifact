@@ -36,6 +36,7 @@ import {
   ERROR_STATUS,
   type ErrorCode,
   type FeedbackItem,
+  type GraceForecastView,
   IdempotencyKey,
   type IntegrationChoiceList,
   type ManifestFile,
@@ -194,6 +195,8 @@ export interface FakeApiState {
   artifacts: Map<string, FakeArtifact>;
   /** Access log entries by artifact, newest first, as GET /artifacts/:id/access-log pages them. */
   accessLogs: Map<string, AccessLogEntry[]>;
+  /** What GET /grace-forecast answers (decision 0022). */
+  graceForecast: GraceForecastView;
   /** Audit events by space (`personal` or a slug), newest first, as GET /audit pages them. */
   audit: Map<string, AuditEventView[]>;
   /** The query strings GET /audit received, in order. */
@@ -297,6 +300,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
   const state: FakeApiState = {
     artifacts: new Map(),
     accessLogs: new Map(),
+    graceForecast: { ownerId: "u_fake_owner", grace: null, kinds: [] },
     audit: new Map(),
     auditQueries: [],
     auditExportQueries: [],
@@ -1682,6 +1686,14 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     if (route === "GET /artifacts") return listArtifacts(url, workspace);
     if (route === "GET /usage") return { status: 200, body: state.usage };
+    if (route === "GET /grace-forecast") {
+      // Each space has its own owner ID, as the API answers it.
+      const space = url.searchParams.get("workspace");
+      return {
+        status: 200,
+        body: { ...state.graceForecast, ...(space ? { ownerId: `ws_fake_${space}` } : {}) },
+      };
+    }
     if (route === "GET /feedback") return feedbackPageOf(state, url, workspace);
     if (route === "GET /integrations") {
       const space = workspace ?? "personal";
