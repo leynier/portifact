@@ -102,9 +102,26 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      # The system libraries come from Ubuntu's package hosts, which the runner's resolver sometimes
+      # cannot resolve ("Temporary failure resolving"), and apt then hangs until the job's timeout.
+      # Each try is bounded (it normally takes 15 to 80 seconds), and after a failed one the next
+      # tries use public resolvers, since the hosts themselves answer.
       - name: Install the browser and its system libraries
         working-directory: e2e
-        run: bunx playwright install --with-deps ${{ matrix.browser }}
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 300 bunx playwright install --with-deps "$BROWSER"; then
+              exit 0
+            fi
+            echo "Installing $BROWSER failed (attempt $attempt of 3)."
+            link="$(ip route show default | awk '{ print $5; exit }')"
+            sudo resolvectl dns "$link" 1.1.1.1 8.8.8.8 || true
+            sudo resolvectl flush-caches || true
+            sleep 15
+          done
+          exit 1
       - run: bun run test:e2e -- --project=${{ matrix.project }}
       - name: Keep traces of failed tests
         if: failure()
