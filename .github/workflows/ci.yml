@@ -102,9 +102,21 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
+      # The system libraries come from Ubuntu's package hosts, which the runner sometimes cannot
+      # resolve for a minute or two ("Temporary failure resolving"): try again before failing.
       - name: Install the browser and its system libraries
         working-directory: e2e
-        run: bunx playwright install --with-deps ${{ matrix.browser }}
+        env:
+          BROWSER: ${{ matrix.browser }}
+        run: |
+          for attempt in 1 2 3 4; do
+            if bunx playwright install --with-deps "$BROWSER"; then
+              exit 0
+            fi
+            echo "Installing $BROWSER failed (attempt $attempt of 4)."
+            sleep $((attempt * 30))
+          done
+          exit 1
       - run: bun run test:e2e -- --project=${{ matrix.project }}
       - name: Keep traces of failed tests
         if: failure()
