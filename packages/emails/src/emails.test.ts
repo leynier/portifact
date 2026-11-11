@@ -704,7 +704,6 @@ describe("previews", () => {
       "grace-notice-two-weeks",
       "grace-notice-three-days",
       "grace-notice-personal",
-      "grace-notice-nothing",
       "grace-notice-without-names",
       ...translated.map((code) => `grace-notice-${code}`),
       ...translated.map((code) => `grace-notice-without-names-${code}`),

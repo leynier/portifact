@@ -67,29 +67,23 @@ describe("the grace email", () => {
     }
   });
 
-  it("says no first date when nothing is counted, and dates the subject by the hold's end", () => {
-    const email = graceNoticeEmail({ ...input, kinds: [] });
+  it("dates the start subject by the hold's end when every step falls on it", () => {
+    const email = graceNoticeEmail({
+      ...input,
+      kinds: [{ kind: "versions", count: 3, from: UNTIL }],
+    });
     expect(email.subject).toBe("Your data is held until Sun, Jan 10, 2027, 12:00 UTC");
-    expect(email.text).not.toContain("Nothing held goes before");
   });
 
-  it.each([
-    ["two_weeks", "Two weeks left: your held data goes on Sun, Jan 10, 2027, 12:00 UTC"],
-    ["three_days", "Three days left: your held data goes on Sun, Jan 10, 2027, 12:00 UTC"],
-  ] as const)("words the %s email as a reminder", (moment, subject) => {
-    const email = graceNoticeEmail({ ...input, moment });
-    expect(email.subject).toBe(subject);
-    expect(email.text).toContain(
-      "What the Team plan of this space kept is held only until Sun, Jan 10, 2027, 12:00 UTC.",
-    );
-    expect(email.text).not.toContain("ended or was lowered");
-  });
-
-  it("says when nothing is counted to go, and names a personal space as the account", () => {
-    const email = graceNoticeEmail({ ...input, kinds: [], workspace: null });
-    expect(email.text).toContain("Nothing more is counted to go.");
+  it("names a personal space as the account", () => {
+    const email = graceNoticeEmail({ ...input, workspace: null });
     expect(email.text).toContain("Space: Your account");
-    expect(email.text).not.toContain("What goes, and from when");
+  });
+
+  it("refuses to build an email that lists nothing: a hold is announced only when something goes", () => {
+    expect(() => graceNoticeEmail({ ...input, kinds: [] })).toThrow(
+      "A grace email lists at least one step.",
+    );
   });
 
   it("never names the workspace outside the default region, the subject included", () => {

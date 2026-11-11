@@ -323,7 +323,6 @@ export function previews(): Preview[] {
         requestUrl: "mailto:hello@portifact.com?subject=Portifact%20Pro%20plan%20request",
       }),
     },
-    { name: "grace-notice-nothing", email: graceNoticeEmail({ ...grace, kinds: [] }) },
     { name: "grace-notice-without-names", email: graceNoticeEmail(graceWithoutNames) },
     ...TRANSLATED.map((locale) => ({
       name: `grace-notice-${locale.toLowerCase()}`,

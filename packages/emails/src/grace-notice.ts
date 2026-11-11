@@ -28,7 +28,7 @@ export interface GraceNoticeInput {
   until: number;
   /** The held plan's label (`Pro`, `Team`, `Enterprise`). */
   plan: string;
-  /** What goes and when, from the forecast; empty when nothing is counted. */
+  /** What goes and when, from the forecast: at least one step (a hold is announced only then). */
   kinds: GraceNoticeKind[];
   /** The workspace's name, null for a personal space. */
   workspace: string | null;
@@ -59,7 +59,6 @@ export interface GraceNoticeText {
   /** The dashboard's words for each kind (`data.kind.*`). */
   kinds: { readonly [kind in GraceForecastKind]: string };
   amount(count: string, date: string): string;
-  nothing: string;
   /** Followed by the download page's link, after `gap`. */
   download: string;
   downloadLink: string;
@@ -95,8 +94,6 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       pins: "Pinned artifacts (unpinned, then archived as usual)",
     },
     amount: (count, date) => `${count}, from ${date}`,
-    nothing:
-      "Nothing more is counted to go. Reading what the plan allowed, such as analytics or the audit log, ends on that date.",
     download: "Download what you need before then:",
     downloadLink: "Download your data",
     cli: "Or take everything at once with the Portifact CLI:",
@@ -130,8 +127,6 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       pins: "Artefactos fijados (se desfijan y luego se archivan como siempre)",
     },
     amount: (count, date) => `${count}, desde el ${date}`,
-    nothing:
-      "No hay nada más contado para borrar. La lectura de lo que permitía el plan, como la analítica o el registro de auditoría, termina en esa fecha.",
     download: "Descarga lo que necesites antes:",
     downloadLink: "Descarga tus datos",
     cli: "O llévatelo todo de una vez con la CLI de Portifact:",
@@ -164,8 +159,6 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       pins: "Artefatos fixados (desafixados e depois arquivados como sempre)",
     },
     amount: (count, date) => `${count}, a partir de ${date}`,
-    nothing:
-      "Nada mais está contado para ser apagado. A leitura do que o plano permitia, como as análises ou o registro de auditoria, termina nessa data.",
     download: "Baixe o que precisar antes disso:",
     downloadLink: "Baixe seus dados",
     cli: "Ou leve tudo de uma vez com a CLI do Portifact:",
@@ -201,8 +194,6 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       pins: "Artefacts épinglés (désépinglés, puis archivés comme d'habitude)",
     },
     amount: (count, date) => `${count}, à partir du ${date}`,
-    nothing:
-      "Rien d’autre n’est compté pour suppression. La lecture de ce que l’offre permettait, comme les statistiques ou le journal d’audit, prend fin à cette date.",
     download: "Téléchargez ce dont vous avez besoin avant cette date :",
     downloadLink: "Télécharger vos données",
     cli: "Ou récupérez tout d’un coup avec la CLI Portifact :",
@@ -236,8 +227,6 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       pins: "Angeheftete Artefakte (gelöst, dann wie üblich archiviert)",
     },
     amount: (count, date) => `${count}, ab ${date}`,
-    nothing:
-      "Sonst ist nichts zum Löschen gezählt. Das Lesen dessen, was der Tarif erlaubte, etwa Analysen oder das Audit-Protokoll, endet an diesem Datum.",
     download: "Laden Sie vorher herunter, was Sie brauchen:",
     downloadLink: "Daten herunterladen",
     cli: "Oder holen Sie alles auf einmal mit der Portifact-CLI:",
@@ -270,8 +259,6 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       pins: "Закреплённые артефакты (открепляются, затем архивируются как обычно)",
     },
     amount: (count, date) => `${count}, с ${date}`,
-    nothing:
-      "Больше ничего к удалению не насчитано. Чтение того, что позволял тариф, например аналитики или журнала аудита, заканчивается в эту дату.",
     download: "Скачайте нужное до этой даты:",
     downloadLink: "Скачать данные",
     cli: "Или заберите всё сразу с помощью Portifact CLI:",
@@ -305,8 +292,6 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       pins: "ピン留めされたアーティファクト（ピンが外れ、通常どおりアーカイブされます）",
     },
     amount: (count, date) => `${count} 件、${date} から`,
-    nothing:
-      "ほかに削除対象として数えられたものはありません。分析や監査ログなど、プランで許可されていた閲覧はその日に終了します。",
     download: "その前に必要なものをダウンロードしてください:",
     downloadLink: "データをダウンロード",
     cli: "または Portifact CLI ですべてを一度に取り出せます:",
@@ -338,7 +323,6 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       pins: "已固定的制品（取消固定，然后照常归档）",
     },
     amount: (count, date) => `${count} 项，自 ${date} 起`,
-    nothing: "没有其他计入删除的内容。方案允许的读取（例如分析或审计日志）将在该日期结束。",
     download: "请在此之前下载你需要的内容：",
     downloadLink: "下载你的数据",
     cli: "或使用 Portifact CLI 一次性取出全部内容：",
@@ -356,19 +340,19 @@ const oneLine = (name: string) => name.replace(/[\s\u0000-\u001f\u007f]+/g, " ")
 const numberLocale = (locale: LocaleCode) => (locale === "en" ? "en-US" : locale);
 
 export function graceNoticeEmail(input: GraceNoticeInput): EmailContent {
+  // A hold is announced only when a forecast step falls on its end (decision 0022): an email that
+  // lists nothing would say the data goes while nothing does, so it is a programming error.
+  if (input.kinds.length === 0) throw new Error("A grace email lists at least one step.");
   const locale = input.locale ?? DEFAULT_LOCALE;
   const t = GRACE_NOTICE_TEXT[locale];
   const date = formatExpiry(input.until, locale);
   // The first date anything held goes comes from the steps listed, never from the hold's end
   // alone: another hold can let something go earlier (decision 0022, third delivery).
-  const first =
-    input.kinds.length === 0
-      ? input.until
-      : Math.min(input.until, ...input.kinds.map((entry) => entry.from));
+  const first = Math.min(input.until, ...input.kinds.map((entry) => entry.from));
   const firstDate = formatExpiry(first, locale);
   const subject = t.subject[input.moment](input.moment === "start" ? firstDate : date);
   const intro = (input.moment === "start" ? t.introStart : t.introLater)(input.plan, date);
-  const safe = input.kinds.length === 0 ? null : t.safe(firstDate);
+  const safe = t.safe(firstDate);
   const space =
     input.workspace === null
       ? t.personal
@@ -382,14 +366,10 @@ export function graceNoticeEmail(input: GraceNoticeInput): EmailContent {
   }));
   const requestLink = t.requestLink(input.plan);
   const blocks: Block[] = [
-    { kind: "paragraph", content: safe === null ? [intro] : [`${intro}${gap(intro)}${safe}`] },
+    { kind: "paragraph", content: [`${intro}${gap(intro)}${safe}`] },
     { kind: "facts", rows: [{ label: t.space, value: space }] },
-    ...(rows.length > 0
-      ? ([
-          { kind: "paragraph", content: [t.goes] },
-          { kind: "facts", rows },
-        ] satisfies Block[])
-      : ([{ kind: "paragraph", content: [t.nothing] }] satisfies Block[])),
+    { kind: "paragraph", content: [t.goes] },
+    { kind: "facts", rows },
     {
       kind: "paragraph",
       content: [t.download + gap(t.download), { href: input.downloadUrl, text: t.downloadLink }],
@@ -412,13 +392,12 @@ export function graceNoticeEmail(input: GraceNoticeInput): EmailContent {
   const text = [
     subject,
     "",
-    safe === null ? intro : `${intro}${gap(intro)}${safe}`,
+    `${intro}${gap(intro)}${safe}`,
     "",
     `${t.space}: ${space}`,
     "",
-    ...(rows.length > 0
-      ? [t.goes, ...rows.map((row) => `- ${row.label}: ${row.value}`)]
-      : [t.nothing]),
+    t.goes,
+    ...rows.map((row) => `- ${row.label}: ${row.value}`),
     "",
     `${t.download}${gap(t.download)}${input.downloadUrl}`,
     t.cli,

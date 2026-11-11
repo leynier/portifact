@@ -405,6 +405,12 @@ export const GRACE_NOTICE_LEAD_MS = {
   three_days: 3 * 86_400_000,
 } as const;
 
+/**
+ * How many times a job waits for its mark (written right after it, with a separate regional
+ * database), a few minutes each, before it counts as the job of a scan that crashed.
+ */
+export const GRACE_NOTICE_MARK_WAITS = 6;
+
 /** The per-scan token that ties a scheduled email to its mark (decision 0022, "At most once"). */
 const claim = z.string().min(1).max(64);
 
@@ -417,6 +423,12 @@ export const GraceNoticeMark = z.strictObject({
   until: moment,
   moment: GraceNoticeMoment,
   claim: claim.optional(),
+  /**
+   * Set instead of an email for a hold whose end lets nothing go (another hold covers it): how
+   * many holds were stored when that was decided. The scan skips the hold while the grace still
+   * stores that many; any change to the holds makes it decide again.
+   */
+  covered: z.number().int().min(1).max(PLAN_GRACE_MAX_SLOTS).optional(),
 });
 export type GraceNoticeMark = z.infer<typeof GraceNoticeMark>;
 
@@ -433,6 +445,13 @@ export const GraceNoticePayload = z.strictObject({
   until: moment,
   moment: GraceNoticeMoment,
   claim,
+  /** How many times the job waited for its mark to land (separate regional database). */
+  waits: z.number().int().min(1).max(GRACE_NOTICE_MARK_WAITS).optional(),
+  /**
+   * For a last warning put back after capacity ran out partway: the accounts still to be told
+   * (opaque IDs, rechecked against the owner's recipients when it runs). Absent: every recipient.
+   */
+  recipients: z.array(z.string().min(1).max(200)).min(1).max(100).optional(),
 });
 export type GraceNoticePayload = z.infer<typeof GraceNoticePayload>;
 

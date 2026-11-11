@@ -12,6 +12,7 @@
 import {
   DEFAULT_REGION,
   GRACE_NOTICE_LEAD_MS,
+  GRACE_NOTICE_MARK_WAITS,
   type GraceForecastKind,
   type GraceNoticeMoment,
   GraceNoticePayload,
@@ -31,9 +32,9 @@ import {
 import {
   checkNoticeCapacity,
   type GraceNoticeRecord,
-  graceNoticeDue,
-  graceNoticeStillDue,
+  graceNoticeCheck,
   logEvent,
+  planGraceNotices,
 } from "@portifact/domain";
 import { and, asc, eq, type SQL, sql } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
@@ -97,7 +98,11 @@ function dueSql(now: number): SQL {
   const marks = sql`(case when ${p.graceNotices} is not null and json_valid(${p.graceNotices}) and json_type(${p.graceNotices}) = 'array' then ${p.graceNotices} else '[]' end)`;
   const until = sql`json_extract("held"."value", '$.until')`;
   const reached = sql`(case when ${until} - ${now} <= ${GRACE_NOTICE_LEAD_MS.three_days} then 2 when ${until} - ${now} <= ${GRACE_NOTICE_LEAD_MS.two_weeks} then 1 else 0 end)`;
-  const told = sql`coalesce((select max(${rankOf(sql`json_extract("mark"."value", '$.moment')`)}) from json_each(${marks}) as "mark" where json_extract("mark"."value", '$.from') = json_extract("held"."value", '$.from') and json_extract("mark"."value", '$.until') = ${until}), -1)`;
+  // A covered mark (no email: the hold's end lets nothing go) counts as everything told while the
+  // grace stores as many holds as when it was decided, and as nothing told once that changes.
+  const covered = sql`json_extract("mark"."value", '$.covered')`;
+  const rank = sql`(case when ${covered} is null then ${rankOf(sql`json_extract("mark"."value", '$.moment')`)} when ${covered} = json_array_length(${p.grace}) then 3 else -1 end)`;
+  const told = sql`coalesce((select max(${rank}) from json_each(${marks}) as "mark" where json_extract("mark"."value", '$.from') = json_extract("held"."value", '$.from') and json_extract("mark"."value", '$.until') = ${until}), -1)`;
   return sql`(${p.grace} is not null and json_valid(${p.grace}) and json_type(${p.grace}) = 'array' and exists (select 1 from json_each(${p.grace}) as "held" where json_type("held"."value") = 'object' and ${until} > ${now} and ${reached} > ${told}))`;
 }
 
@@ -179,31 +184,42 @@ export async function scheduleGraceNotices(
   return { scheduled };
 }
 
+/** How long a job written with a separate regional database waits before it may run. */
+export const GRACE_NOTICE_MARK_DELAY_MS = 2 * 60_000;
+
+/** How long a job whose mark has not landed waits before it runs again. */
+export const GRACE_NOTICE_MARK_WAIT_MS = 5 * 60_000;
+
 async function scheduleOne(
   db: RegionalDb,
   row: GraceNoticeRecord & { ownerId: string; grace: string | null; graceNotices: string | null },
   now: number,
 ): Promise<boolean> {
   const claim = crypto.randomUUID();
-  const due = graceNoticeDue(row, now, claim);
-  // The SQL only narrows: a grace that cannot be read, or a hold another covers past its end, is
-  // never announced, and the cursor moves past it.
-  if (due === null) return false;
+  const plan = planGraceNotices(row, now, claim);
+  // The SQL only narrows: a grace that cannot be read is never announced, and the cursor moves
+  // past it; a hold whose end lets nothing go is only marked covered, so it is not read again.
+  if (!plan.changed) return false;
   // The exact row read: the raw grace and marks (no re-serialization).
   const same = sql`exists (select 1 from ${p} where ${p.ownerId} = ${row.ownerId} and ${p.grace} is ${row.grace} and ${p.graceNotices} is ${row.graceNotices})`;
-  const payload = GraceNoticePayload.parse({
-    from: due.slot.from,
-    until: due.slot.until,
-    moment: due.moment,
-    claim,
-  });
   const mark = (w: Db) =>
     w
       .update(p)
-      .set({ graceNotices: sql`${JSON.stringify(due.marks)}` })
+      .set({ graceNotices: sql`${JSON.stringify(plan.marks)}` })
       .where(and(eq(p.ownerId, row.ownerId), same))
       .returning({ ownerId: p.ownerId });
   const both = bothSides(db);
+  if (plan.notice === null) {
+    // Covered holds only: no email, just the marks.
+    await mark(both ?? db.global);
+    return false;
+  }
+  const payload = GraceNoticePayload.parse({
+    from: plan.notice.slot.from,
+    until: plan.notice.slot.until,
+    moment: plan.notice.moment,
+    claim,
+  });
   if (both) {
     // One database: the job before the mark, on the same condition, as expiry notices do.
     const [, marked] = await both.batch([
@@ -212,13 +228,15 @@ async function scheduleOne(
     ]);
     return marked.length > 0;
   }
-  // A separate regional database: the job first, then the mark that names its token.
+  // A separate regional database: the job first, then the mark that names its token. The job is
+  // relayed only a little later, so it normally runs after its mark; one that still runs first
+  // waits for it (`graceNoticeCheck`).
   const [job] = await db
     .insert(schema.outbox)
     .values({
       topic: "plan_grace_notice",
       payload,
-      availableAt: now,
+      availableAt: now + GRACE_NOTICE_MARK_DELAY_MS,
       createdAt: now,
       subject: row.ownerId,
     })
@@ -284,7 +302,10 @@ interface Recipient {
 async function graceRecipients(
   global: GlobalDb,
   ownerId: string,
-): Promise<{ recipients: Recipient[]; space: { slug: string; name: string } | null }> {
+): Promise<{
+  recipients: (Recipient & { userId: string })[];
+  space: { slug: string; name: string } | null;
+}> {
   const u = schema.users;
   let people: { userId: string; email: string }[];
   let space: { slug: string; name: string } | null = null;
@@ -308,10 +329,10 @@ async function graceRecipients(
       .where(eq(u.id, ownerId))
       .limit(1);
   }
-  const recipients: Recipient[] = [];
+  const recipients: (Recipient & { userId: string })[] = [];
   for (const person of people) {
     const settings = await loadSettings(global, person.userId);
-    recipients.push({ email: person.email, locale: settings.locale });
+    recipients.push({ userId: person.userId, email: person.email, locale: settings.locale });
   }
   return { recipients, space };
 }
@@ -323,7 +344,9 @@ async function graceRecipients(
  * when nobody got it yet, so nobody gets it twice. A capacity refusal drops `start` and
  * `two_weeks`, as expiry notices do; the `three_days` email is the last warning before the data
  * goes, so it waits (`GRACE_NOTICE_CAPACITY_RETRY_MS`) and is tried again while it is still due,
- * which ends at the hold's end (decision 0022, "Capacity").
+ * which ends at the hold's end, for the recipients not told yet (decision 0022, "Capacity"). A job
+ * that runs before its mark has landed (separate regional database) waits for it a bounded number
+ * of times (`GRACE_NOTICE_MARK_WAITS`) instead of being dropped.
  */
 export async function sendGraceNotice(
   db: RegionalDb,
@@ -343,22 +366,50 @@ export async function sendGraceNotice(
   if (!parsed.success) return skipped("malformed", "unknown");
   const notice = parsed.data;
   const ownerId = row.subject ?? "";
-  const held = graceNoticeStillDue(await planWithMarks(db.global, ownerId), notice, now);
-  if (held === null) return skipped("moot", notice.moment);
+  const putBack = (payload: GraceNoticePayload, availableAt: number) =>
+    db.insert(schema.outbox).values({
+      topic: "plan_grace_notice",
+      payload,
+      availableAt,
+      createdAt: row.createdAt,
+      subject: ownerId,
+      attempts: row.attempts,
+    });
+  const check = graceNoticeCheck(await planWithMarks(db.global, ownerId), notice, now);
+  if (check.status === "wait") {
+    // Its mark is written right after it: give it a few minutes, a bounded number of times. If
+    // the scan really crashed, the next scan writes another token and this job is then moot.
+    const waits = (notice.waits ?? 0) + 1;
+    if (waits > GRACE_NOTICE_MARK_WAITS) return skipped("moot", notice.moment);
+    await putBack({ ...notice, waits }, now + GRACE_NOTICE_MARK_WAIT_MS);
+    logEvent("log", "plan_grace_notice_waiting", { reason: "mark", moment: notice.moment });
+    return "kept";
+  }
+  if (check.status === "moot") return skipped("moot", notice.moment);
+  const held = check.slot;
 
-  const { recipients, space } = await graceRecipients(db.global, ownerId);
+  const everyone = await graceRecipients(db.global, ownerId);
+  const { space } = everyone;
+  // A put-back last warning names the accounts still to be told: only those still recipients.
+  const recipients = notice.recipients
+    ? everyone.recipients.filter((person) => notice.recipients?.includes(person.userId))
+    : everyone.recipients;
   if (recipients.length === 0) return skipped("no_account", notice.moment);
   const { kinds } = await graceForecastKinds(db, access, ownerId, now);
+  // A hold is announced only when a forecast step falls on its end, so the list is never empty.
+  if (kinds.length === 0) return skipped("moot", notice.moment);
 
   let sent = 0;
   let skip: Skip = "suppressed";
-  for (const recipient of recipients) {
+  let untold: string[] = [];
+  for (const [index, recipient] of recipients.entries()) {
     if (await isEmailSuppressed(db.global, recipient.email, now)) {
       skip = "suppressed";
       continue;
     }
     if (!checkNoticeCapacity(await emailsSentInCycle(db.global, now)).ok) {
       skip = "capacity";
+      untold = recipients.slice(index).map((person) => person.userId);
       break;
     }
     try {
@@ -383,32 +434,22 @@ export async function sendGraceNotice(
         continue;
       }
       // Back in the outbox for the next delivery, which checks everything again.
-      await db.insert(schema.outbox).values({
-        topic: "plan_grace_notice",
-        payload: notice,
-        availableAt: now,
-        createdAt: row.createdAt,
-        subject: ownerId,
-        attempts: row.attempts,
-      });
+      await putBack(notice, now);
       throw error;
     }
     await recordEmailsSent(db.global, now);
     sent += 1;
   }
-  if (sent === 0 && skip === "capacity" && notice.moment === "three_days") {
-    // The last warning waits for capacity instead of being dropped: back in the outbox for later.
-    // Each try checks again that it is still due, so it stops at the hold's end at the latest.
-    await db.insert(schema.outbox).values({
-      topic: "plan_grace_notice",
-      payload: notice,
-      availableAt: now + GRACE_NOTICE_CAPACITY_RETRY_MS,
-      createdAt: row.createdAt,
-      subject: ownerId,
-      attempts: row.attempts,
-    });
+  if (untold.length > 0 && notice.moment === "three_days") {
+    // The last warning waits for capacity instead of being dropped: back in the outbox for later,
+    // for the accounts not told yet when someone already was. Each try checks again that it is
+    // still due, so it stops at the hold's end at the latest.
+    await putBack(
+      sent > 0 ? { ...notice, recipients: untold } : notice,
+      now + GRACE_NOTICE_CAPACITY_RETRY_MS,
+    );
     logEvent("warn", "plan_grace_notice_waiting", { reason: "capacity", moment: notice.moment });
-    return "kept";
+    return sent > 0 ? "done" : "kept";
   }
   return sent > 0 ? "done" : skipped(skip, notice.moment);
 }

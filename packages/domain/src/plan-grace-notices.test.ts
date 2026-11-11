@@ -7,12 +7,15 @@ import {
 } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  graceNoticeCheck,
   graceNoticeDue,
   graceNoticeMoment,
   graceNoticeRank,
   graceNoticeStillDue,
+  planGraceNotices,
   readGraceNotices,
 } from "./plan-grace-notices.ts";
+import { graceForecastSteps, graceHoldEndDrops } from "./plans.ts";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 11, 12);
@@ -212,23 +215,40 @@ describe("which email is due", () => {
     }
   });
 
-  it("picks the hold ending first and keeps only the marks of live holds", () => {
-    // Team lowered to Pro (keeps more, ends first), then Pro removed.
+  it("sends one email when several holds are due, marks each, and keeps their later moments", () => {
+    // Team lowered to Pro (keeps more, ends first), then Pro removed: both new at once.
     const first = teamHold(NOW - 10 * DAY);
     const second = slot(NOW);
     const gone = slot(NOW - 70 * DAY, NOW - 10 * DAY);
     const due = graceNoticeDue(
       record([second, first], JSON.stringify([mark(gone, "three_days")])),
       NOW,
+      "scan",
     );
+    // One email, for the hold ending first (both are at their start), both marked with its token.
     expect(due?.slot).toEqual(first);
     expect(due?.moment).toBe("start");
-    expect(due?.marks).toEqual([mark(first, "start")]);
-    // Next run: the second hold, keeping the first's mark.
-    const next = graceNoticeDue(record([second, first], due?.marks), NOW + 60_000);
-    expect(next?.slot).toEqual(second);
-    expect(next?.marks).toEqual([mark(first, "start"), mark(second, "start")]);
-    expect(graceNoticeDue(record([second, first], next?.marks), NOW + 120_000)).toBeNull();
+    expect(due?.marks).toEqual([
+      { ...mark(first, "start"), claim: "scan" },
+      { ...mark(second, "start"), claim: "scan" },
+    ]);
+    expect(graceNoticeDue(record([second, first], due?.marks), NOW + MINUTE)).toBeNull();
+    // Each still gets its own later moments.
+    const firstLater = graceNoticeDue(record([second, first], due?.marks), first.until - 10 * DAY);
+    expect([firstLater?.slot, firstLater?.moment]).toEqual([first, "two_weeks"]);
+    const secondLater = graceNoticeDue(
+      record([second], JSON.stringify([mark(second, "start")])),
+      second.until - 2 * DAY,
+    );
+    expect(secondLater?.moment).toBe("three_days");
+  });
+
+  it("picks the most urgent moment when due holds are at different moments", () => {
+    const first = teamHold(NOW - 50 * DAY); // 10 days left: two_weeks
+    const second = slot(NOW); // start
+    const due = graceNoticeDue(record([second, first]), NOW, "scan");
+    expect([due?.slot, due?.moment]).toEqual([first, "two_weeks"]);
+    expect(due?.marks.map((m) => m.moment)).toEqual(["two_weeks", "start"]);
   });
 
   it("breaks a tie on the end by the earlier drop", () => {
@@ -288,7 +308,7 @@ describe("whether a scheduled email is still due when it is sent", () => {
     ["a later moment is due since", marked([held]), held.until - 10 * DAY],
     ["it ended", marked([held]), held.until],
     ["the grace cannot be read", marked("nope"), NOW],
-    ["its scan's mark never landed", record([held]), NOW],
+
     ["another scan's mark won", marked([held], "scan-2"), NOW],
     ["a later hold now covers its end", marked([held, teamHold(NOW + DAY)]), NOW + DAY],
   ])("is moot when %s", (_, row, now) => {
@@ -297,21 +317,98 @@ describe("whether a scheduled email is still due when it is sent", () => {
   it("is moot without a plan row", () => {
     expect(graceNoticeStillDue(null, notice, NOW)).toBeNull();
   });
+
+  it("waits while its mark has not landed, and is moot once another token holds the moment", () => {
+    const three = { ...mark(slot(NOW - 58 * DAY), "three_days"), claim: "scan-1" };
+    const held58 = slot(NOW - 58 * DAY);
+    const below = record([held58], JSON.stringify([mark(held58, "two_weeks")]));
+    // The job was written first and runs before the scan's mark: it waits.
+    expect(graceNoticeCheck(below, three, NOW)).toEqual({ status: "wait" });
+    expect(graceNoticeCheck(record([held58]), three, NOW)).toEqual({ status: "wait" });
+    // The mark lands with its token: it sends.
+    const landed = record([held58], JSON.stringify([three]));
+    expect(graceNoticeCheck(landed, three, NOW)).toEqual({ status: "send", slot: held58 });
+    // The scan crashed and the next one wrote its own token: this one is moot.
+    const other = record([held58], JSON.stringify([{ ...three, claim: "scan-2" }]));
+    expect(graceNoticeCheck(other, three, NOW)).toEqual({ status: "moot" });
+  });
+});
+
+describe("which holds are announced", () => {
+  it("only those on whose end a forecast step falls", () => {
+    // Enterprise lowered to Team: the same retention, only features lost; nothing goes.
+    const enterprise = slot(NOW);
+    const { limits } = PLANS.enterprise;
+    enterprise.plan = "enterprise";
+    enterprise.limits = {
+      archiveMonths: limits.archiveMonths,
+      retainedPreviousVersions: limits.retainedPreviousVersions,
+      previousVersionRetentionDays: limits.previousVersionRetentionDays,
+      accessLogRetentionDays: limits.accessLogRetentionDays,
+      auditRetentionDays: limits.auditRetentionDays,
+    };
+    enterprise.features = [...PLANS.enterprise.features];
+    const team = { ...record([enterprise]), plan: "team" };
+    expect(graceHoldEndDrops(team, enterprise)).toBe(
+      graceForecastSteps(team, enterprise.until - 1).some((s) => s.from === enterprise.until),
+    );
+    expect(planGraceNotices(team, NOW).notice).toBeNull();
+    // Archive months alone: dates only archives made meanwhile, so nothing goes either.
+    const archive = { ...slot(NOW), limits: { ...slot(NOW).limits } };
+    const own = PLANS.pro.limits;
+    archive.limits = {
+      archiveMonths: own.archiveMonths + 12,
+      retainedPreviousVersions: own.retainedPreviousVersions,
+      previousVersionRetentionDays: own.previousVersionRetentionDays,
+      accessLogRetentionDays: own.accessLogRetentionDays,
+      auditRetentionDays: own.auditRetentionDays,
+    };
+    const pro = { ...record([archive]), plan: "pro" };
+    expect(graceHoldEndDrops(pro, archive)).toBe(false);
+    expect(planGraceNotices(pro, NOW).notice).toBeNull();
+  });
 });
 
 describe("holds another hold covers past their end", () => {
-  it("are not announced: the covering hold is", () => {
-    // Pro removed (hold A), Team granted then removed (hold B, keeps more, ends later).
+  it("are not announced but marked covered, until the holds change", () => {
+    // Hand-applied: a later Team hold covers an earlier Pro one (the services end such a hold).
     const a = slot(NOW - 10 * DAY);
     const b = teamHold(NOW);
-    const due = graceNoticeDue(record([a, b]), NOW + MINUTE, "scan");
-    expect(due?.slot).toEqual(b);
-    expect(due?.marks).toEqual([{ ...mark(b, "start"), claim: "scan" }]);
-    // Days before A's end only B's own moments come: nothing goes at A's end.
+    const plan = planGraceNotices(record([a, b]), NOW + MINUTE, "scan");
+    expect(plan.notice?.slot).toEqual(b);
+    expect(plan.marks).toEqual([
+      { ...mark(a, "three_days"), covered: 2 },
+      { ...mark(b, "start"), claim: "scan" },
+    ]);
+    // Nothing more for A while the holds stay the same: no email, no write.
+    const after = record([a, b], JSON.stringify(plan.marks));
     for (const now of [a.until - 13 * DAY, a.until - 2 * DAY]) {
-      const later = graceNoticeDue(record([a, b], JSON.stringify(due?.marks)), now);
-      expect(later?.slot ?? null).not.toEqual(a);
+      expect(planGraceNotices(after, now).notice?.slot ?? null).not.toEqual(a);
     }
+    expect(planGraceNotices(after, NOW + 2 * MINUTE)).toMatchObject({
+      notice: null,
+      changed: false,
+    });
+    // A covered mark recorded with another number of holds is decided again.
+    const changed = record([a], JSON.stringify(plan.marks));
+    expect(planGraceNotices(changed, NOW + 2 * MINUTE).notice?.slot).toEqual(a);
+  });
+
+  it("records a covered hold without an email when nothing else is due", () => {
+    const a = slot(NOW - 10 * DAY);
+    const b = teamHold(NOW);
+    const plan = planGraceNotices(
+      record([a, b], JSON.stringify([{ ...mark(b, "start"), claim: "x" }])),
+      NOW + MINUTE,
+    );
+    expect(plan).toEqual({
+      notice: null,
+      marks: [
+        { ...mark(a, "three_days"), covered: 2 },
+        { ...mark(b, "start"), claim: "x" },
+      ],
+      changed: true,
+    });
   });
 
   it("are announced when the later hold keeps less", () => {

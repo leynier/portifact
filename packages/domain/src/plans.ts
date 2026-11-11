@@ -478,18 +478,14 @@ export function graceForecastSteps(
 }
 
 /**
- * Whether the end of a hold lets anything go: a retention limit or a held feature in force just
- * before it is lower or gone from then on. A hold another one covers past its end lets nothing go
- * then, so its end is announced by nobody (decision 0022, third delivery).
+ * Whether the end of a hold lets anything go: a forecast step falls on it (decision 0022, third
+ * delivery). The same rule as the forecast, so an email and the forecast can never disagree: a
+ * hold another covers past its end, or one whose end only drops what deletes nothing (held reads,
+ * `archiveMonths`, which only dates archives made meanwhile and never moves a `purge_at`), is
+ * announced by nobody.
  */
 export function graceHoldEndDrops(record: OwnerPlanRecord | null, slot: GraceSlot): boolean {
-  const before = entitlements(record, slot.until - 1);
-  const after = entitlements(record, slot.until);
-  if (GRACE_LIMITS.some((key) => after.limits[key] < before.limits[key])) return true;
-  const held = (owner: Entitlements) =>
-    new Set([...owner.features, ...(owner.grace?.features ?? [])]);
-  const kept = held(after);
-  return [...held(before)].some((feature) => !kept.has(feature));
+  return graceForecastSteps(record, slot.until - 1).some((step) => step.from === slot.until);
 }
 
 /** Whether the owner's plan includes a feature. */
