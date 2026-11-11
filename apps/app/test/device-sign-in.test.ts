@@ -99,6 +99,42 @@ describe("copying it at the exchange", () => {
     }
   });
 
+  it("still hands the tokens over when writing the sign-in time fails", async () => {
+    const h = createHarness();
+    const cookie = await h.signIn("dvf@example.test");
+    const device = await requestDeviceCode(h, CLI_CLIENT_ID, SCOPES);
+    await approveDevice(h, cookie, device.user_code);
+    // The provider answered with the only copy of the tokens; the lookup of their rows then fails.
+    const failing = {
+      ...h.auth,
+      api: {
+        ...h.auth.api,
+        tokenRecordOf: async () => {
+          throw new Error("lookup failed");
+        },
+      },
+    } as unknown as typeof h.auth;
+    const logged: string[] = [];
+    const error = console.error;
+    console.error = (line: string) => logged.push(line);
+    let answer: Response;
+    try {
+      answer = await exchangeDeviceCode(
+        failing,
+        env as Env,
+        { grant_type: DEVICE_GRANT, device_code: device.device_code },
+        async () => Response.json({ access_token: "issued", token_type: "Bearer" }),
+      );
+    } finally {
+      console.error = error;
+    }
+    expect(answer.status).toBe(200);
+    expect(await answer.json()).toEqual({ access_token: "issued", token_type: "Bearer" });
+    expect(logged.map((line) => JSON.parse(line))).toEqual([
+      { event: "device_sign_in_time_failed", error: "Error" },
+    ]);
+  });
+
   it("gives a grant without a refresh token the approver's sign-in on its access token", async () => {
     const h = createHarness();
     const cookie = await h.signIn("dvn@example.test");

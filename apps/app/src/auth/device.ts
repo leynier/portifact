@@ -76,16 +76,28 @@ export async function exchangeDeviceCode(
   const response = await issue();
   const signedInAt = code?.signedInAt?.getTime() ?? null;
   if (response.status !== 200 || signedInAt === null) return response;
-  const tokens = (await response
-    .clone()
-    .json()
-    .catch(() => null)) as { access_token?: unknown } | null;
-  if (typeof tokens?.access_token !== "string") return response;
+  // The provider has consumed the code and issued the tokens: its answer is the only copy of
+  // them, so nothing below may replace it. A failure leaves the tokens' 0 (fail closed for a
+  // maximum session age) and the login itself still completes.
+  try {
+    await stampTokens(auth, env, response.clone(), new Date(signedInAt));
+  } catch (error) {
+    console.error(JSON.stringify({ event: "device_sign_in_time_failed", error: errorName(error) }));
+  }
+  return response;
+}
+
+const errorName = (error: unknown) => (error instanceof Error ? error.name : "unknown");
+
+/** Writes the sign-in time onto the access and refresh token rows the answer's token names. */
+async function stampTokens(auth: Auth, env: Env, answer: Response, at: Date): Promise<void> {
+  const tokens = (await answer.json().catch(() => null)) as { access_token?: unknown } | null;
+  if (typeof tokens?.access_token !== "string") return;
   const record = (await auth.api.tokenRecordOf({
     headers: new Headers({ authorization: `Bearer ${tokens.access_token}` }),
   })) as { accessId: string; refreshId: string | null } | null;
-  if (!record) return response;
-  const at = new Date(signedInAt);
+  if (!record) return;
+  const global = regionsOf(env).global;
   await global.batch([
     global
       .update(schema.oauthAccessTokens)
@@ -100,5 +112,4 @@ export async function exchangeDeviceCode(
         ]
       : []),
   ]);
-  return response;
 }
