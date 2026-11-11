@@ -29,6 +29,7 @@ import {
   type Db,
   type GlobalDb,
   isRegion,
+  type Region,
   type RegionalDb,
   type Regions,
   regionsFromEnv,
@@ -452,6 +453,24 @@ async function ownerDb(regions: Regions, ownerId: string): Promise<RegionalDb> {
   return regions.get(await ownerRegion(regions.global, ownerId)).db;
 }
 
+/** The owner's region's bucket: a plan change that lapses comment retention raises its mark. */
+async function ownerBucket(regions: Regions, ownerId: string): Promise<R2Bucket | undefined> {
+  return regions.get(await ownerRegion(regions.global, ownerId)).bucket;
+}
+
+/** Every region's bucket, for the restore guard's marks (decision 0023). */
+function regionBuckets(regions: Regions): Partial<Record<Region, R2Bucket | undefined>> {
+  return Object.fromEntries(
+    schema.REGIONS.map((region) => {
+      try {
+        return [region, regions.get(region).bucket];
+      } catch {
+        return [region, undefined];
+      }
+    }),
+  );
+}
+
 async function setPlan(
   regions: Regions,
   args: string[],
@@ -484,6 +503,7 @@ async function setPlan(
     note: options.get("note")?.trim() || null,
     now,
     noGrace: options.has("no-grace"),
+    bucket: await ownerBucket(regions, userId),
   });
   if (!result.ok) return { exitCode: 1, output: result.message };
   return {
@@ -1079,6 +1099,7 @@ export async function runOperator(
         ownerId: userId,
         now,
         noGrace: options.has("no-grace"),
+        bucket: await ownerBucket(regions, userId),
       });
       if (!result.ok) return { exitCode: 1, output: result.message };
       const held = result.value.state.entitlements.grace;
@@ -1135,6 +1156,7 @@ export async function runOperator(
       }
       const result = await applyWorkspacePolicies(global, parsed.items, now, {
         allowLifting: options.has("allow-lifting"),
+        buckets: regionBuckets(regions),
       });
       if (!result.ok) {
         return {
@@ -1169,7 +1191,25 @@ export async function runOperator(
           ...result.retentionCleared.map((id) => `  ${id}`),
         );
       }
-      return { exitCode: 0, output: lines.join("\n") };
+      if (result.armed) {
+        lines.push(
+          "Comment retention is armed again: the scans may delete under the policies now stored.",
+        );
+        return { exitCode: 0, output: lines.join("\n") };
+      }
+      if (result.heldBack.length > 0) {
+        lines.push(
+          `Comment retention stays paused (no deletion anywhere): ${result.heldBack.length} workspace(s) still have a comment retention stricter than the file's, or a policy that cannot be read. Fix each (from the Policies page, or a corrected file), then run apply-policies again:`,
+          ...result.heldBack.map((id) => `  ${id}`),
+        );
+      } else {
+        lines.push(
+          result.armFailure === "no_bucket"
+            ? "Comment retention stays paused (no deletion anywhere): a region's bucket is not bound in operator.wrangler.jsonc. Bind every region's bucket and run apply-policies again."
+            : 'Comment retention stays paused (no deletion anywhere): a region\'s mark (system/comment-retention-epoch) could not be read or written. Check R2 (docs/operations.md, "Comment retention") and run apply-policies again.',
+        );
+      }
+      return { exitCode: 1, output: lines.join("\n") };
     }
     case "clear-request-policies": {
       const [key] = args;

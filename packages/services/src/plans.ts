@@ -38,6 +38,7 @@ import {
 } from "@portifact/db";
 import {
   alignedLimit,
+  commentRetentionOf,
   type Entitlements,
   entitlements,
   FREE_LIMIT_COLUMNS,
@@ -45,6 +46,7 @@ import {
   type GraceChange,
   graceAfterChange,
   graceScanStep,
+  hasFeature,
   type LimitColumns,
   limitColumns,
   liveGraceSlots,
@@ -54,6 +56,7 @@ import {
   ok,
   pinsLapse,
   planActive,
+  policyOf,
   type Result,
   readGrace,
   readGraceNotices,
@@ -65,6 +68,7 @@ import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ownerRetentionJob } from "./analytics.ts";
 import { auditEvent } from "./audit.ts";
+import { bumpEpochStatement, raiseBeforeLoosening } from "./comment-retention.ts";
 import {
   cursorFor,
   cursorRead,
@@ -173,6 +177,11 @@ export interface SetOwnerPlanInput {
    * abuse. Without it a grant that takes something away holds it for `PLAN_GRACE_DAYS`.
    */
   noGrace?: boolean;
+  /**
+   * The owner's region's bucket: a change that takes `policies` from a workspace with a comment
+   * retention raises the restore guard's mark there before moving the epoch (decision 0023).
+   */
+  bucket?: R2Bucket | undefined;
 }
 
 export interface OwnerPlanState {
@@ -464,6 +473,33 @@ function graceJson(slots: readonly GraceSlot[]): string | null {
 }
 
 /**
+ * A plan change that takes `policies` from a workspace whose policy sets a comment retention
+ * lapses that rule (the scan removes it, decision 0023): it moves the restore guard's epoch like
+ * every loosening, the region's mark raised first (`raiseBeforeLoosening`), the epoch in the
+ * change's own batch. Null (nothing to move) for every other owner and change, with no read for a
+ * personal space. An unreadable policy counts as one that sets it.
+ */
+async function lapseEpoch(
+  global: GlobalDb,
+  ownerId: string,
+  after: Entitlements,
+  bucket: R2Bucket | undefined,
+  now: number,
+): Promise<number | null> {
+  if (!isWorkspaceId(ownerId) || hasFeature(after, "policies")) return null;
+  const w = schema.workspaces;
+  const [row] = await global.select({ policy: w.policy }).from(w).where(eq(w.id, ownerId)).limit(1);
+  if (!row) return null;
+  let sets = true;
+  try {
+    sets = commentRetentionOf(policyOf(row.policy)) !== null;
+  } catch {
+    sets = true;
+  }
+  return sets ? (await raiseBeforeLoosening(global, bucket, now)).epoch : null;
+}
+
+/**
  * Grants or changes an owner's plan: the `owner_plans` row and the four limit columns, in one
  * batch, only while the account exists and is not being deleted. Retrying the same grant gives
  * the same state. Lowering a plan never sets a column below usage (`alignedLimit`), and what the
@@ -495,6 +531,7 @@ export async function setOwnerPlan(
   const guard = grantableOwner(input.ownerId);
   const p = schema.ownerPlans;
   const same = sql`exists (select 1 from ${p} where ${p.ownerId} = ${input.ownerId} and ${p.plan} = ${input.plan} and ${p.seats} = ${input.seats} and ${p.validUntil} is ${input.validUntil} and ${p.overrides} is ${overrides === null ? null : JSON.stringify(overrides)})`;
+  const epoch = await lapseEpoch(db.global, input.ownerId, granted, input.bucket, input.now);
   let written = false;
   for (let attempt = 0; attempt < PLAN_CHANGE_ATTEMPTS && !written; attempt += 1) {
     const before = await planBefore(db.global, input.ownerId);
@@ -565,6 +602,7 @@ export async function setOwnerPlan(
       ...(isWorkspaceId(input.ownerId)
         ? ssoSuspensionStatements(w, { workspaceId: input.ownerId, now: input.now, cause: "plan" })
         : []),
+      ...(epoch === null ? [] : [bumpEpochStatement(w, epoch)]),
     ])) as unknown[][];
     written = (results[2 + graceEventCount(change)] ?? []).length > 0;
     if (!written && !(await isGrantable(db.global, input.ownerId))) {
@@ -598,12 +636,19 @@ async function isGrantable(global: GlobalDb, ownerId: string): Promise<boolean> 
  */
 export async function removeOwnerPlan(
   db: RegionalDb,
-  input: { ownerId: string; now: number; noGrace?: boolean },
+  input: { ownerId: string; now: number; noGrace?: boolean; bucket?: R2Bucket | undefined },
 ): Promise<Result<{ removed: boolean; state: OwnerPlanState }>> {
   // The same two shapes as `setOwnerPlan`.
   const both = bothSides(db);
   const w = both ?? db.global;
   const p = schema.ownerPlans;
+  const epoch = await lapseEpoch(
+    db.global,
+    input.ownerId,
+    entitlements(null, input.now),
+    input.bucket,
+    input.now,
+  );
   let done: { removed: boolean } | null = null;
   for (let attempt = 0; attempt < PLAN_CHANGE_ATTEMPTS && done === null; attempt += 1) {
     const before = await planBefore(db.global, input.ownerId);
@@ -657,6 +702,7 @@ export async function removeOwnerPlan(
       ...(isWorkspaceId(input.ownerId)
         ? ssoSuspensionStatements(w, { workspaceId: input.ownerId, now: input.now, cause: "plan" })
         : []),
+      ...(epoch === null ? [] : [bumpEpochStatement(w, epoch)]),
     ])) as unknown[][];
     const changed = (results[2 + graceEventCount(change)] ?? []).length;
     if (before === null || changed === 1) done = { removed: had && changed === 1 };

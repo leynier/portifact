@@ -26,6 +26,7 @@ import {
   type Db,
   type GlobalDb,
   isRegion,
+  type Region,
   type RegionalDb,
   type Regions,
   schema,
@@ -84,7 +85,7 @@ import {
   bumpEpochStatement,
   commentRetentionImpact,
   commentRetentionNoticeJob,
-  raiseBucketEpoch,
+  raiseBeforeLoosening,
 } from "./comment-retention.ts";
 import {
   cursorFor,
@@ -684,6 +685,15 @@ export async function setWorkspacePolicy(
       : sql.empty();
   const condition = sql`${stillAdmin(row.id, input.userId)} and exists (select 1 from ${w} where ${w.id} = ${row.id} and ${w.policyRevision} = ${row.revision})${providerKept}`;
   const stored = storedPolicy(next);
+  // A removed or longer comment retention raises the region's mark before the batch writes the
+  // epoch (decision 0023, "Restores"); a failed raise never blocks the save.
+  const loosening = commentRetentionLoosened(row.policy, next)
+    ? await raiseBeforeLoosening(
+        global,
+        isRegion(row.region) ? regions.get(row.region).bucket : undefined,
+        input.now,
+      )
+    : null;
   const results = await global.batch([
     auditEvent(
       global,
@@ -734,7 +744,7 @@ export async function setWorkspacePolicy(
           }),
         ]
       : []),
-    ...(commentRetentionLoosened(row.policy, next) ? [bumpEpochStatement(global, input.now)] : []),
+    ...(loosening ? [bumpEpochStatement(global, loosening.epoch)] : []),
     ...(maxLifeTightened(row.policy, next)
       ? [
           retentionNoticeJob(global, {
@@ -767,15 +777,6 @@ export async function setWorkspacePolicy(
     const again = await scopedPolicy(global, input.userId, input.slug, "policies");
     if (!again.ok) return again;
     return fail("version_conflict", "The policies changed meanwhile. Reload them and try again.");
-  }
-  // The restore guard (decision 0023): the region's bucket learns the epoch this save moved now,
-  // not only at the next scan, so a restore to before it pauses deletions whenever it happens.
-  // Best effort: the scan raises it anyway, and a failure here never fails the save.
-  if (commentRetentionLoosened(row.policy, next)) {
-    await raiseBucketEpoch(
-      global,
-      isRegion(row.region) ? regions.get(row.region).bucket : undefined,
-    );
   }
   return ok(
     await stateOf(global, { ...row, policy: next, revision: row.revision + 1 }, actor, input.now),
@@ -1552,20 +1553,30 @@ export type ApplyPoliciesResult =
       /**
        * Workspaces left as they are because the file would lift a restriction they have now (an
        * export older than it), with the fields; applied only with `allowLifting`. A longer or no
-       * maximum life in the file is applied anyway (decision 0023).
+       * maximum life or comment retention in the file is applied anyway (decision 0023).
        */
       lifting: { workspaceId: string; fields: PolicyField[] }[];
       /**
        * Workspaces left as they are because the file requires single sign-on and the workspace's
        * provider cannot sign anyone in now (decision 0021): never a requirement nobody can meet.
+       * A longer or no maximum life or comment retention in the file is applied anyway.
        */
       ssoUnusable: string[];
       /**
-       * Workspaces the file does not list whose maximum life was removed (decision 0023): the
-       * file was exported after the restore point, so a workspace missing from it had no policy
-       * then, and the restored maximum is one an admin had removed.
+       * Workspaces the file does not list whose maximum life or comment retention was removed
+       * (decision 0023): the file was exported after the restore point, so a workspace missing
+       * from it had no policy then, and the restored rule is one an admin had removed.
        */
       retentionCleared: string[];
+      /**
+       * Whether comment retention may delete again (decision 0023, "Restores"): only when no
+       * workspace's stored comment retention is stricter than the file's (`heldBack` lists those)
+       * and every region's mark could be read. Otherwise the scans stay paused.
+       */
+      armed: boolean;
+      heldBack: string[];
+      /** Why it was not armed when no workspace held it back: a region's bucket missing or unreadable. */
+      armFailure: "no_bucket" | "unreadable" | null;
     }
   /** An item that is not a valid policy (its index in the file): nothing was applied. */
   | { ok: false; index: number; message: string };
@@ -1587,12 +1598,69 @@ function fileTiming(policy: WorkspacePolicy, now: number): WorkspacePolicy {
   };
 }
 
-/** Whether a change removes or lengthens comment retention: applied whatever else waits. */
-function commentRetentionReplaced(current: WorkspacePolicy, next: WorkspacePolicy): boolean {
-  return commentRetentionLoosened(current, next);
+/**
+ * Whether a stored comment retention deletes more than the file's (decision 0023): set where the
+ * file has none, shorter, or taking effect earlier while the file's date is still ahead. A
+ * workspace missing from the file compares with none.
+ */
+function commentsStricter(
+  stored: WorkspacePolicy,
+  file: WorkspacePolicy | null,
+  now: number,
+): boolean {
+  if (stored.commentRetentionDays === null) return false;
+  if (file === null || file.commentRetentionDays === null) return true;
+  const storedFrom = stored.commentRetentionFrom ?? 0;
+  const fileFrom = file.commentRetentionFrom ?? 0;
+  return (
+    stored.commentRetentionDays < file.commentRetentionDays ||
+    (storedFrom < fileFrom && fileFrom > now)
+  );
 }
 
-/** One workspace's policy set by the operator, in one global batch on the revision read. */
+/**
+ * What of the file only loosens deletion, applied whatever holds the rest of the item back
+ * (lifting, an unusable provider, a revision race): a longer or no maximum life, and comment
+ * retention no stricter than the file's (the longer days and the later date of the two, or none).
+ * Null when it changes nothing.
+ */
+function retentionLoosening(
+  current: WorkspacePolicy,
+  file: WorkspacePolicy | null,
+  now: number,
+): WorkspacePolicy | null {
+  let next = current;
+  const fileLife = file ?? { ...current, artifactMaxDays: null, artifactMaxDaysFrom: null };
+  if (replacedMaxLife(current, fileLife) !== null) {
+    next = {
+      ...next,
+      artifactMaxDays: fileLife.artifactMaxDays,
+      artifactMaxDaysFrom: fileLife.artifactMaxDaysFrom,
+    };
+  }
+  if (commentsStricter(current, file, now)) {
+    const days = file?.commentRetentionDays ?? null;
+    next =
+      days === null
+        ? { ...next, commentRetentionDays: null, commentRetentionFrom: null }
+        : {
+            ...next,
+            commentRetentionDays: Math.max(days, current.commentRetentionDays ?? days),
+            commentRetentionFrom: Math.max(
+              file?.commentRetentionFrom ?? 0,
+              current.commentRetentionFrom ?? 0,
+            ),
+          };
+  }
+  return next === current ? null : next;
+}
+
+/**
+ * One workspace's policy set by the operator, in one global batch on the revision read. With
+ * `keepSso` (a change that only loosens retention) the SSO suspension is left as it is. With
+ * `epoch` (comment retention removed or lengthened) the restore guard's epoch moves in the batch,
+ * after the mark was raised (`raiseBeforeLoosening`).
+ */
 async function applyOne(
   global: GlobalDb,
   workspaceId: string,
@@ -1601,6 +1669,7 @@ async function applyOne(
   next: WorkspacePolicy,
   provider: string | null,
   now: number,
+  options: { keepSso?: boolean; epoch?: number } = {},
 ): Promise<boolean> {
   const kept =
     provider === null
@@ -1631,6 +1700,7 @@ async function applyOne(
           }),
         ]
       : []),
+    ...(options.epoch === undefined ? [] : [bumpEpochStatement(global, options.epoch)]),
     global
       .update(w)
       .set({
@@ -1638,7 +1708,7 @@ async function applyOne(
         policyRevision: revision + 1,
         updatedAt: now,
         // Applied only where the provider is usable, or lifted: not suspended (0021).
-        ssoSuspended: 0,
+        ...(options.keepSso ? {} : { ssoSuspended: 0 }),
       })
       .where(and(eq(w.id, workspaceId), eq(w.policyRevision, revision), sql`1${kept}`))
       .returning({ id: w.id }),
@@ -1646,27 +1716,38 @@ async function applyOne(
   return (results.at(-1) as unknown[]).length > 0;
 }
 
+/** How many times one workspace's item is decided again after a save moved its revision. */
+const APPLY_ATTEMPTS = 3;
+
 /**
  * Sets the exported policies again after a D1 Time Travel restore, which rewinds them with the
  * workspace rows and could lift one an admin set after the restore point. Every item is
  * validated and normalized first, as a save would (`normalizePolicy`): one invalid item refuses
  * the whole file and nothing is applied, so a hand-edited or corrupted export can never store a
  * range enforcement cannot read. Each change records `policy.changed` with the operator as actor
- * and writes the `workspace_policy` job, in one global batch conditioned on the revision read. It
- * never lifts a restriction the workspace has now (`liftedFields`) unless `allowLifting` says
- * so: those workspaces are reported and left as they are. A workspace with a policy the file
- * does not list is reported. Running it again changes nothing.
+ * and writes the `workspace_policy` job, in one global batch conditioned on the revision read
+ * (decided again when a save moved it). It never lifts a restriction the workspace has now
+ * (`liftedFields`) unless `allowLifting` says so: those workspaces are reported and left as they
+ * are. A workspace with a policy the file does not list is reported. Running it again changes
+ * nothing.
  *
- * The maximum life of artifacts (decision 0023) is the other way round: there, the restored value
- * is the dangerous one, because it archives. A file's longer or removed maximum is always applied
- * (alone when the rest of the item is held back), a file's new or shorter one keeps the effective
- * date the file stores, and a workspace the file does not list loses a restored maximum life.
+ * Retention is the other way round (decision 0023): there, the restored value is the dangerous
+ * one, because it archives or deletes. A file's longer or removed maximum life and comment
+ * retention are always applied, alone when the rest of the item is held back for any reason, and a
+ * workspace the file does not list loses a restored one. Comment retention may delete again only
+ * when, after all that, no workspace's stored rule is stricter than the file's: then the restore
+ * guard is re-armed from the stored epochs (`armCommentRetention`, every region's mark in
+ * `buckets`); otherwise the scans stay paused and the result says which workspaces hold it back.
  */
 export async function applyWorkspacePolicies(
   global: GlobalDb,
   input: readonly WorkspacePolicyExport[],
   now: number,
-  options: { allowLifting?: boolean } = {},
+  options: {
+    allowLifting?: boolean;
+    /** Every region's bucket: the marks re-arming reads and raises, and loosening raises. */
+    buckets?: Partial<Record<Region, R2Bucket | undefined>>;
+  } = {},
 ): Promise<ApplyPoliciesResult> {
   const items: WorkspacePolicyExport[] = [];
   for (const [index, item] of input.entries()) {
@@ -1674,85 +1755,146 @@ export async function applyWorkspacePolicies(
     if (!normalized.ok) return { ok: false, index, message: normalized.message };
     items.push({ ...item, policy: fileTiming(normalized.value, now) });
   }
+  const buckets = options.buckets ?? {};
+  const bucketOf = async (workspaceId: string) => {
+    const [row] = await global
+      .select({ region: w.region })
+      .from(w)
+      .where(eq(w.id, workspaceId))
+      .limit(1);
+    return row && isRegion(row.region) ? buckets[row.region] : undefined;
+  };
   let applied = 0;
   let skipped = 0;
   const lifting: { workspaceId: string; fields: PolicyField[] }[] = [];
   const ssoUnusable: string[] = [];
-  for (const item of items) {
-    const [row] = await global
-      .select({ policy: w.policy, revision: w.policyRevision })
-      .from(w)
-      .where(eq(w.id, item.workspaceId))
-      .limit(1);
-    const current = row ? policyOf(row.policy) : null;
-    if (!row || !current || changedFields(current, item.policy).length === 0) {
-      skipped += 1;
-      continue;
-    }
-    let next = item.policy;
-    const lifted = liftedFields(current, next);
-    if (lifted.length > 0 && !options.allowLifting) {
-      lifting.push({ workspaceId: item.workspaceId, fields: lifted });
-      // The rest waits for the operator; a longer or removed maximum life or comment retention
-      // does not (re-applying the tighter one is what archives or deletes).
-      const life = replacedMaxLife(current, next) !== null;
-      const comments = commentRetentionReplaced(current, next);
-      if (!life && !comments) continue;
-      next = {
-        ...current,
-        ...(life
-          ? { artifactMaxDays: next.artifactMaxDays, artifactMaxDaysFrom: next.artifactMaxDaysFrom }
-          : {}),
-        ...(comments
-          ? {
-              commentRetentionDays: next.commentRetentionDays,
-              commentRetentionFrom: next.commentRetentionFrom,
-            }
-          : {}),
-      };
-    }
-    const provider = next.ssoRequired
-      ? await workspaceSsoProvider(global, item.workspaceId, now)
-      : null;
-    if (next.ssoRequired && provider === null) {
-      ssoUnusable.push(item.workspaceId);
-      continue;
-    }
-    if (await applyOne(global, item.workspaceId, current, row.revision, next, provider, now)) {
-      applied += 1;
-    } else skipped += 1;
-  }
-  const listed = new Set(items.map((item) => item.workspaceId));
-  const extra: string[] = [];
   const retentionCleared: string[] = [];
-  for (const item of await exportWorkspacePolicies(global)) {
-    if (listed.has(item.workspaceId)) continue;
-    extra.push(item.workspaceId);
+
+  /**
+   * Applies `file` (or, with `file` null, clears the retention of a workspace the file does not
+   * list), deciding again when a save moved the revision. Returns what happened.
+   */
+  async function applyItem(
+    workspaceId: string,
+    file: WorkspacePolicy | null,
+  ): Promise<"applied" | "loosened" | "unchanged" | "held"> {
+    for (let attempt = 0; attempt < APPLY_ATTEMPTS; attempt += 1) {
+      const [row] = await global
+        .select({ policy: w.policy, revision: w.policyRevision })
+        .from(w)
+        .where(eq(w.id, workspaceId))
+        .limit(1);
+      if (!row) return "unchanged";
+      const current = policyOf(row.policy);
+      const loosening = retentionLoosening(current, file, now);
+      let next: WorkspacePolicy | null = null;
+      let provider: string | null = null;
+      let whole = false;
+      let held = false;
+      if (file !== null && changedFields(current, file).length > 0) {
+        const lifted = liftedFields(current, file);
+        if (lifted.length > 0 && !options.allowLifting) {
+          if (attempt === 0) lifting.push({ workspaceId, fields: lifted });
+          held = true;
+        } else {
+          provider = file.ssoRequired ? await workspaceSsoProvider(global, workspaceId, now) : null;
+          if (file.ssoRequired && provider === null) {
+            if (attempt === 0) ssoUnusable.push(workspaceId);
+            held = true;
+          } else {
+            next = file;
+            whole = true;
+          }
+        }
+      }
+      if (next === null) {
+        // Held back, or nothing else to apply: only what loosens retention goes in.
+        if (loosening === null) return held ? "held" : "unchanged";
+        next = loosening;
+        provider = null;
+      }
+      // Removed, longer or later: the epoch moves, the region's mark raised first (decision 0023).
+      const raise = commentsStricter(current, next, now)
+        ? await raiseBeforeLoosening(global, await bucketOf(workspaceId), now)
+        : null;
+      const done = await applyOne(global, workspaceId, current, row.revision, next, provider, now, {
+        keepSso: !whole,
+        ...(raise ? { epoch: raise.epoch } : {}),
+      });
+      if (done) return whole ? "applied" : "loosened";
+    }
+    return "held";
+  }
+
+  for (const item of items) {
+    const outcome = await applyItem(item.workspaceId, item.policy);
+    if (outcome === "applied" || outcome === "loosened") applied += 1;
+    else if (outcome === "unchanged") skipped += 1;
+  }
+  const fileOf = new Map(items.map((item) => [item.workspaceId, item.policy]));
+  const extra: string[] = [];
+  // The raw text, so one malformed row is skipped here instead of failing the read.
+  const stored = await global
+    .select({ id: w.id, policy: sql<string | null>`${w.policy}` })
+    .from(w)
+    .where(sql`${w.policy} is not null`)
+    .orderBy(asc(w.id));
+  for (const row of stored) {
+    if (fileOf.has(row.id)) continue;
+    extra.push(row.id);
+    let policy: WorkspacePolicy;
+    try {
+      policy = policyOf(row.policy);
+    } catch {
+      // Unreadable: nothing can be applied to it, and it holds re-arming back below.
+      continue;
+    }
+    const item = { workspaceId: row.id, policy };
     if (item.policy.artifactMaxDays === null && item.policy.commentRetentionDays === null) continue;
-    const [row] = await global
-      .select({ revision: w.policyRevision })
-      .from(w)
-      .where(eq(w.id, item.workspaceId))
-      .limit(1);
-    if (!row) continue;
-    const next = {
-      ...item.policy,
-      artifactMaxDays: null,
-      artifactMaxDaysFrom: null,
-      commentRetentionDays: null,
-      commentRetentionFrom: null,
-    };
-    const provider = next.ssoRequired
-      ? await workspaceSsoProvider(global, item.workspaceId, now)
-      : null;
-    if (await applyOne(global, item.workspaceId, item.policy, row.revision, next, provider, now)) {
+    if ((await applyItem(item.workspaceId, null)) === "loosened") {
       retentionCleared.push(item.workspaceId);
     }
   }
-  // The policies are back as the file has them: comment retention may delete again (decision
-  // 0023, "Restores").
-  await armCommentRetention(global, now);
-  return { ok: true, applied, skipped, extra, lifting, ssoUnusable, retentionCleared };
+  // Re-arm only when no stored comment retention, in any region, is stricter than the file's.
+  const heldBack: string[] = [];
+  for (const row of await global
+    .select({ id: w.id, policy: sql<string | null>`${w.policy}` })
+    .from(w)
+    .where(sql`${w.policy} is not null`)
+    .orderBy(asc(w.id))) {
+    let stored: WorkspacePolicy | null;
+    try {
+      stored = policyOf(row.policy);
+    } catch {
+      stored = null;
+    }
+    if (stored === null || commentsStricter(stored, fileOf.get(row.id) ?? null, now)) {
+      heldBack.push(row.id);
+    }
+  }
+  let armed = false;
+  let armFailure: "no_bucket" | "unreadable" | null = null;
+  if (heldBack.length === 0) {
+    const result = await armCommentRetention(
+      global,
+      schema.REGIONS.map((region) => buckets[region]),
+      now,
+    );
+    armed = result.armed;
+    armFailure = result.armed ? null : result.reason;
+  }
+  return {
+    ok: true,
+    applied,
+    skipped,
+    extra,
+    lifting,
+    ssoUnusable,
+    retentionCleared,
+    armed,
+    heldBack,
+    armFailure,
+  };
 }
 
 export type ClearRequestPoliciesResult =

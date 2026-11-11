@@ -5,11 +5,10 @@
 // the query plans, and the invariant as a property with counters and mutation checks.
 import { env } from "cloudflare:test";
 import { DEFAULT_POLICY, WORKSPACE_POLICIES, type WorkspacePolicy } from "@portifact/contracts";
-import { type Regions, regionalDb, regionsFromEnv, schema } from "@portifact/db";
+import { regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import {
   NOTICE_EMAILS_PER_CYCLE,
   POLICY_MESSAGES,
-  policyOf,
   storedPolicy,
   threadDeletable,
 } from "@portifact/domain";
@@ -21,7 +20,7 @@ import {
   COMMENT_RETENTION_EPOCH_KEY,
   dueThreadIds,
   enforceCommentRetention,
-  syncBucketEpoch,
+  raiseBucketMark,
   writeCommentTombstones,
 } from "../src/comment-retention.ts";
 import {
@@ -30,7 +29,6 @@ import {
 } from "../src/comment-retention-notices.ts";
 import { RecipientSuppressedError, recordEmailsSent, suppressEmail } from "../src/email.ts";
 import { reinstateArtifact, suspendArtifact } from "../src/moderation.ts";
-import { commitPublish, preparePublish } from "../src/publish.ts";
 import { createServiceToken } from "../src/service-tokens.ts";
 import { transferArtifact } from "../src/transfer.ts";
 import { rollbackArtifact } from "../src/versions.ts";
@@ -41,226 +39,33 @@ import {
   setWorkspacePolicy,
   staleCapOwners,
 } from "../src/workspace-policies.ts";
-import { DAY, db, grantPlan, NOW, racing, sha256, value } from "./fixtures.ts";
+import {
+  ENV_BUCKETS,
+  exists,
+  FROM,
+  hex,
+  home,
+  m,
+  memoryBucket,
+  NOTICE,
+  person,
+  preview,
+  publishIn,
+  publishNext,
+  regions,
+  retention,
+  revision,
+  save,
+  scan,
+  stored,
+  type Team,
+  team,
+  th,
+  thread,
+  usage,
+} from "./comment-retention-fixtures.ts";
+import { DAY, db, grantPlan, NOW, racing, value } from "./fixtures.ts";
 import { raceBeforeBatchWith, raceBeforeFirstWrite, raceGlobalBeforeStatement } from "./race.ts";
-
-const hex = () => crypto.randomUUID().replaceAll("-", "");
-const regions = (): Regions => regionsFromEnv(env);
-const NOTICE = WORKSPACE_POLICIES.retentionNoticeDays * DAY;
-const FROM = NOW + NOTICE;
-const retention = (days: number | null, extra: Partial<WorkspacePolicy> = {}): WorkspacePolicy => ({
-  ...DEFAULT_POLICY,
-  ...extra,
-  commentRetentionDays: days,
-  commentRetentionFrom: null,
-});
-const th = schema.annotationThreads;
-const m = schema.annotationMessages;
-
-async function person(name: string) {
-  const id = `u_${hex()}`;
-  const email = `${name.toLowerCase()}-${hex().slice(0, 8)}@example.test`;
-  await db()
-    .insert(schema.users)
-    .values({
-      id,
-      name,
-      email,
-      emailVerified: true,
-      createdAt: new Date(NOW - 30 * DAY),
-      updatedAt: new Date(NOW),
-    });
-  return { id, email };
-}
-
-async function team(region: "default" | "eu" = "default") {
-  const id = `ws_${hex()}`;
-  const slug = `c${hex().slice(0, 20)}`;
-  const t = {
-    id,
-    slug,
-    region,
-    admin: await person("Admin"),
-    editor: await person("Editor"),
-    member: await person("Member"),
-  };
-  await regions()
-    .global.insert(schema.workspaces)
-    .values({ id, slug, name: "Team", createdBy: t.admin.id, updatedAt: NOW, region });
-  await regions()
-    .global.insert(schema.workspaceMembers)
-    .values([
-      { workspaceId: id, userId: t.admin.id, role: "admin", updatedAt: NOW },
-      { workspaceId: id, userId: t.editor.id, role: "editor", updatedAt: NOW },
-      { workspaceId: id, userId: t.member.id, role: "member", updatedAt: NOW },
-    ]);
-  await grantPlan(id, "enterprise", { seats: 10 });
-  return t;
-}
-type Team = Awaited<ReturnType<typeof team>>;
-const home = (t: { region: "default" | "eu" }) => regions().get(t.region).db;
-const bucketOf = (t: { region: "default" | "eu" }) =>
-  t.region === "eu" ? env.ARTIFACTS_EU : env.ARTIFACTS;
-
-async function publishIn(
-  userId: string,
-  ownerId: string,
-  region: "default" | "eu" = "default",
-  next?: { artifactId: string; baseVersionId: string; now: number },
-) {
-  const body = `<p>${crypto.randomUUID()}</p>`;
-  const digest = await sha256(body);
-  const target = regions().get(region).db;
-  const at = next?.now ?? NOW - 400 * DAY;
-  const prepared = value(
-    await preparePublish(target, {
-      userId,
-      targetOwnerId: ownerId,
-      ...(next ? { artifactId: next.artifactId } : {}),
-      type: "site",
-      name: "Plan",
-      entrypoint: "index.html",
-      baseVersionId: next?.baseVersionId ?? null,
-      files: [
-        {
-          path: "index.html",
-          kind: "published" as const,
-          sha256: digest,
-          size: body.length,
-          contentType: "text/html",
-        },
-      ],
-      now: at,
-    }),
-  );
-  const bucket = region === "eu" ? env.ARTIFACTS_EU : env.ARTIFACTS;
-  await bucket.put(`objects/${ownerId}/${digest}`, body);
-  return value(
-    await commitPublish(target, bucket, {
-      userId,
-      sessionId: prepared.sessionId,
-      now: at,
-    }),
-  );
-}
-
-/** A new version of `artifact` at `now`: its current version stops being current then. */
-const publishNext = (t: Team, artifact: { artifactId: string; versionId: string }, now: number) =>
-  publishIn(t.editor.id, t.id, t.region, {
-    artifactId: artifact.artifactId,
-    baseVersionId: artifact.versionId,
-    now,
-  });
-
-/**
- * A thread written directly, with `messages` messages, last active `agoDays` before NOW. The
- * `annotation_usage` triggers count it as any thread.
- */
-async function thread(
-  t: { id: string; region: "default" | "eu"; editor: { id: string } },
-  artifact: { artifactId: string; versionId: string },
-  options: { agoDays: number; state?: "open" | "resolved"; version?: string; messages?: number },
-) {
-  const id = `th_${hex()}`;
-  const at = NOW - options.agoDays * DAY;
-  const target = home(t);
-  await target.insert(th).values({
-    id,
-    artifactId: artifact.artifactId,
-    versionId: options.version ?? artifact.versionId,
-    ownerId: t.id,
-    authorId: t.editor.id,
-    target: JSON.stringify({ schema: 1, path: "index.html", anchor: { kind: "document" } }),
-    targetBytes: 60,
-    path: "index.html",
-    state: options.state ?? "resolved",
-    messageCount: options.messages ?? 2,
-    createdAt: at,
-    updatedAt: at,
-  });
-  for (let i = 0; i < (options.messages ?? 2); i += 1) {
-    await target.insert(m).values({
-      id: `msg_${hex()}`,
-      threadId: id,
-      artifactId: artifact.artifactId,
-      ownerId: t.id,
-      authorId: t.editor.id,
-      body: "x".repeat(10),
-      bodyBytes: 10,
-      createdAt: at,
-    });
-  }
-  return id;
-}
-
-async function exists(t: { region: "default" | "eu" }, id: string) {
-  return (await home(t).select({ id: th.id }).from(th).where(eq(th.id, id))).length === 1;
-}
-
-const preview = (t: Team, next: WorkspacePolicy, now = NOW) =>
-  previewWorkspacePolicy(regions(), { userId: t.admin.id, slug: t.slug, policy: next, now });
-
-async function revision(t: Team) {
-  const [row] = await regions()
-    .global.select({ revision: schema.workspaces.policyRevision })
-    .from(schema.workspaces)
-    .where(eq(schema.workspaces.id, t.id));
-  return row?.revision ?? 0;
-}
-
-async function save(
-  t: Team,
-  next: WorkspacePolicy,
-  options: { now?: number; userId?: string; confirm?: boolean } = {},
-) {
-  const now = options.now ?? NOW;
-  const shown = options.confirm === false ? undefined : await preview(t, next, now);
-  return setWorkspacePolicy(regions(), {
-    userId: options.userId ?? t.admin.id,
-    slug: t.slug,
-    policy: next,
-    revision: await revision(t),
-    confirmed: shown?.ok ? shown.value : undefined,
-    now,
-  });
-}
-
-async function stored(t: Team) {
-  const [row] = await regions()
-    .global.select({ policy: schema.workspaces.policy })
-    .from(schema.workspaces)
-    .where(eq(schema.workspaces.id, t.id));
-  return policyOf(row?.policy ?? null);
-}
-
-/** An in-memory bucket for the restore guard's mark, so a test never leaves the shared one paused. */
-function memoryBucket(initial?: string, fail: { get?: boolean; put?: boolean } = {}) {
-  let held = initial;
-  const bucket = {
-    get: async (key: string) => {
-      if (fail.get) throw new Error("r2 unavailable");
-      return key === COMMENT_RETENTION_EPOCH_KEY && held !== undefined
-        ? { text: async () => held as string }
-        : null;
-    },
-    put: async (key: string, text: string) => {
-      if (fail.put) throw new Error("r2 unavailable");
-      if (key === COMMENT_RETENTION_EPOCH_KEY) held = text;
-    },
-  };
-  return Object.assign(bucket as unknown as R2Bucket, { held: () => held });
-}
-
-const scan = (t: { region: "default" | "eu" }, now: number) =>
-  enforceCommentRetention(home(t), bucketOf(t), now, t.region);
-
-async function usage(t: { id: string; region: "default" | "eu" }) {
-  const [row] = await home(t)
-    .select({ messages: schema.annotationUsage.messages, bytes: schema.annotationUsage.bytes })
-    .from(schema.annotationUsage)
-    .where(eq(schema.annotationUsage.ownerId, t.id));
-  return row;
-}
 
 describe("setting comment retention", () => {
   it("is an admin's, gated on the plan to set or shorten, never to lengthen or remove", async () => {
@@ -558,14 +363,15 @@ describe("restores", () => {
     const paused = await scan(t, epoch);
     expect(paused).toMatchObject({ paused: true, threads: 0 });
     expect(await exists(t, old)).toBe(true);
-    // `apply-policies` re-arms it once the policies are back, from the clock alone.
+    // `apply-policies` re-arms it once the policies are back, from the stored epochs.
     expect(
       await applyWorkspacePolicies(
         regions().global,
         await exportWorkspacePolicies(regions().global),
         epoch + 2,
+        { buckets: { default: env.ARTIFACTS, eu: env.ARTIFACTS_EU } },
       ),
-    ).toMatchObject({ ok: true });
+    ).toMatchObject({ ok: true, armed: true, heldBack: [] });
     const resumed = await scan(t, epoch + 2);
     expect(resumed.paused).toBe(false);
     expect(await exists(t, old)).toBe(false);
@@ -573,8 +379,8 @@ describe("restores", () => {
 
   it("raises a bucket's mark and never lowers it", async () => {
     const bucket = memoryBucket();
-    await syncBucketEpoch(bucket, 500);
-    await syncBucketEpoch(bucket, 400);
+    await raiseBucketMark(bucket, 500);
+    await raiseBucketMark(bucket, 400);
     expect(bucket.held()).toBe("500");
   });
 
@@ -589,9 +395,27 @@ describe("restores", () => {
     expect(bucket.held()).toBe("not a number");
   });
 
-  it("re-arms from the clock alone, ahead of every bucket", async () => {
-    const epoch = await armCommentRetention(regions().global, NOW + 400 * DAY);
-    expect(epoch).toBeGreaterThanOrEqual(NOW + 400 * DAY);
+  it("re-arms from the stored epochs, never a clock, and only with every mark readable", async () => {
+    const [row] = await regions()
+      .global.select({ cursor: schema.maintenanceCursors.cursor })
+      .from(schema.maintenanceCursors)
+      .where(eq(schema.maintenanceCursors.name, "comment_retention_epoch"));
+    const database = Number(row?.cursor ?? 0);
+    const ahead = memoryBucket(String(database + 500));
+    const behind = memoryBucket("7");
+    // An operator's clock far behind (1) still puts the epoch past every stored value.
+    const armed = await armCommentRetention(regions().global, [ahead, behind], 1);
+    expect(armed).toEqual({ armed: true, epoch: database + 501 });
+    expect([ahead.held(), behind.held()]).toEqual([String(database + 501), String(database + 501)]);
+    expect(await armCommentRetention(regions().global, [memoryBucket("not a number")], 1)).toEqual({
+      armed: false,
+      reason: "unreadable",
+    });
+    expect(await armCommentRetention(regions().global, [ahead, undefined], 1)).toEqual({
+      armed: false,
+      reason: "no_bucket",
+    });
+    await armCommentRetention(regions().global, ENV_BUCKETS, NOW);
   });
 });
 
@@ -639,6 +463,9 @@ describe("query plans without table statistics", () => {
       "annotation_threads_owner_state_updated_idx (owner_id=? AND state=? AND updated_at<?)",
     );
     expect(plan).not.toMatch(/SCAN annotation_threads\b/);
+    // The open-thread clock's fallback reads one artifact's publish trail through its index.
+    expect(plan).toContain("lifecycle_events_artifact_at_idx (artifact_id=? AND at>?)");
+    expect(plan).not.toMatch(/SCAN (le|lifecycle_events)\b/);
   });
 });
 
@@ -908,20 +735,34 @@ describe("an open thread's clock", () => {
     expect(await exists(t, open)).toBe(false);
   });
 
-  it("reads a pruned version's replacement from the current version's commit, never earlier", async () => {
+  it("reads a pruned version's replacement from the publish trail, whatever is published later", async () => {
     const t = await team();
     const v1 = await publishIn(t.editor.id, t.id);
-    const open = await thread(t, v1, { agoDays: 400, state: "open" });
-    const v2 = await publishNext(t, v1, NOW - 100 * DAY);
-    const v3 = await publishNext(t, v2, NOW - 10 * DAY);
-    // v1 pruned (its row gone): the clock is v3's commit, later than v1's true replacement.
+    const open = await thread(t, v1, { agoDays: 399, state: "open" });
+    const v2 = await publishNext(t, v1, NOW - 50 * DAY);
+    // v1 pruned (its row gone): the clock is the first publish after the thread, v2's.
     await db().delete(schema.versions).where(eq(schema.versions.id, v1.versionId));
     value(await save(t, retention(90)));
-    await scan(t, NOW + 79 * DAY);
+    // Later publishes never move it (they would, read from the current version's commit).
+    await publishNext(t, v2, NOW + 20 * DAY);
+    await scan(t, NOW + 40 * DAY - 1);
     expect(await exists(t, open)).toBe(true);
-    await scan(t, NOW + 80 * DAY);
+    await scan(t, NOW + 40 * DAY);
     expect(await exists(t, open)).toBe(false);
-    expect(v3.versionId).not.toBe(v2.versionId);
+  });
+
+  it("never takes a thread's own version's publish as its replacement", async () => {
+    const t = await team();
+    const v1 = await publishIn(t.editor.id, t.id);
+    // Created in the same millisecond as v1's publish (both NOW - 400 days).
+    const open = await thread(t, v1, { agoDays: 400, state: "open" });
+    await publishNext(t, v1, NOW - 50 * DAY);
+    await db().delete(schema.versions).where(eq(schema.versions.id, v1.versionId));
+    value(await save(t, retention(90)));
+    await scan(t, NOW + 40 * DAY - 1);
+    expect(await exists(t, open)).toBe(true);
+    await scan(t, NOW + 40 * DAY);
+    expect(await exists(t, open)).toBe(false);
   });
 
   it("counts in the preview exactly what the scan then deletes", async () => {
@@ -968,7 +809,7 @@ describe("the restore guard fails closed", () => {
           .where(eq(c.name, "comment_retention_epoch"));
       return await work();
     } finally {
-      await armCommentRetention(regions().global, Math.max(Number(current ?? 0), NOW + 2000 * DAY));
+      await armCommentRetention(regions().global, ENV_BUCKETS, NOW);
     }
   }
 
@@ -1155,8 +996,20 @@ describe("the invariant, as a property", () => {
     current: string | null,
   ): Promise<number | null> {
     const v = schema.versions;
+    const le = schema.lifecycleEvents;
     const [own] = await db().select({ at: v.supersededAt }).from(v).where(eq(v.id, one.versionId));
     if (own?.at != null) return own.at;
+    const [trail] = await db()
+      .select({ at: sql<number | null>`min(${le.at})` })
+      .from(le)
+      .where(
+        and(
+          eq(le.artifactId, one.artifactId),
+          sql`${le.at} > ${one.createdAt}`,
+          sql`${le.event} in ('published', 'rolled_back')`,
+        ),
+      );
+    if (trail?.at != null) return Number(trail.at);
     if (current === null) return null;
     const [now] = await db().select({ at: v.committedAt }).from(v).where(eq(v.id, current));
     return now?.at ?? null;
@@ -1429,7 +1282,6 @@ describe("the restore guard, as a property", () => {
       const w = schema.workspaces;
       const epochRow = async () =>
         (await g.select().from(c).where(eq(c.name, "comment_retention_epoch")))[0] ?? null;
-      const original = await epochRow();
       const failures: unknown[] = [];
       try {
         for (let round = 0; round < 3; round += 1) {
@@ -1624,7 +1476,9 @@ describe("the restore guard, as a property", () => {
             else shapes.pausedAfterChange += 1;
           }
           // `apply-policies` with the export taken before the restore re-arms it.
-          await applyWorkspacePolicies(g, exported, now + 2 * DAY);
+          await applyWorkspacePolicies(g, exported, now + 2 * DAY, {
+            buckets: { default: bucket, eu: env.ARTIFACTS_EU },
+          });
           const resumed = await enforceCommentRetention(
             home(teams[0] as Team),
             bucket,
@@ -1634,7 +1488,7 @@ describe("the restore guard, as a property", () => {
           if (resumed.paused) failures.push({ round, stillPaused: true });
         }
       } finally {
-        await armCommentRetention(g, Math.max(Number(original?.cursor ?? 0), NOW + 3000 * DAY));
+        await armCommentRetention(g, ENV_BUCKETS, NOW);
       }
       expect(failures.slice(0, 3)).toEqual([]);
     },
