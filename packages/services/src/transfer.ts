@@ -411,7 +411,9 @@ function maxLifeOnMove(policy: WorkspacePolicy | undefined, now: number) {
     return {
       lifeStartedAt: now,
       expiresAt: sql`case when ${back} then max(${a.expiresAt}, ${a.uncappedExpiresAt}) else ${a.expiresAt} end`,
-      uncappedExpiresAt: null,
+      // Kept when not given back here (an artifact already past its cap, or suspended): the
+      // expiry run or the sweep gives it back later, from what the plan gave it.
+      uncappedExpiresAt: sql`case when ${back} then null else ${a.uncappedExpiresAt} end`,
     };
   }
   const target = maxLifeDeadline(life, now);
@@ -421,7 +423,7 @@ function maxLifeOnMove(policy: WorkspacePolicy | undefined, now: number) {
     lifeStartedAt: now,
     pinned: sql`case when ${live} then 0 else ${a.pinned} end`,
     expiresAt: sql`case when ${live} then min(${base}, ${target}) else ${a.expiresAt} end`,
-    uncappedExpiresAt: sql`case when ${live} and ${base} > ${target} then ${base} else null end`,
+    uncappedExpiresAt: sql`case when ${live} then (case when ${base} > ${target} then ${base} else null end) else ${a.uncappedExpiresAt} end`,
   };
 }
 

@@ -198,7 +198,9 @@ export function giveBackIds(
   limit: number,
 ): SQL {
   const target = giveBackTarget(policy, now);
-  return sql`select ${a.id} from ${a} where ${live(workspaceId, now)} and ${a.pinned} = 0 and ${a.uncappedExpiresAt} is not null and (${a.expiresAt} < ${target} or ${target} >= ${a.uncappedExpiresAt}) order by ${a.id} limit ${limit}`;
+  // `+state`: on the owner's capped rows only (`artifacts_capped_owner_idx`), not every active
+  // artifact of the owner, also without table statistics (decision 0023, "Query plans").
+  return sql`select ${a.id} from ${a} where ${a.ownerId} = ${workspaceId} and +${a.state} = 'active' and (${a.expiresAt} is null or ${a.expiresAt} > ${now}) and ${a.pinned} = 0 and ${a.uncappedExpiresAt} is not null and (${a.expiresAt} < ${target} or ${target} >= ${a.uncappedExpiresAt}) order by ${a.id} limit ${limit}`;
 }
 
 /**

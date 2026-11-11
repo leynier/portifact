@@ -12,7 +12,7 @@ import {
 } from "@portifact/contracts";
 import { globalDb, type Regions, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { POLICY_MESSAGES, policyExpiry, policyOf } from "@portifact/domain";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getAuditLog } from "../src/audit.ts";
 import {
@@ -23,7 +23,7 @@ import {
   unpinArtifact,
 } from "../src/lifecycle.ts";
 import { archiveExpired } from "../src/maintenance.ts";
-import { cappedExpirySql } from "../src/max-life.ts";
+import { cappedExpirySql, giveBackIds, overMaxLifeIds } from "../src/max-life.ts";
 import { reinstateArtifact, suspendArtifact } from "../src/moderation.ts";
 import { runJob } from "../src/outbox.ts";
 import { unpinLapsedPlans } from "../src/plans.ts";
@@ -39,7 +39,9 @@ import {
   exportWorkspacePolicies,
   getWorkspacePolicy,
   previewWorkspacePolicy,
+  STALE_CAPS_SWEEP,
   setWorkspacePolicy,
+  staleCapOwners,
 } from "../src/workspace-policies.ts";
 import { DAY, db, grantPlan, NOW, racing, sha256, value } from "./fixtures.ts";
 
@@ -1062,26 +1064,31 @@ describe("stale caps after a removal or a racing write (review of PR 214, second
   });
 });
 
-describe("the invariant after one scan, for any interleaving (review of PR 214, second pass)", () => {
+describe("the invariant after one maintenance run, for any interleaving (review of PR 214)", () => {
   /**
    * Seeded sequences of saves (with their job run or lost), suspensions, reinstatements, moves
    * out and back in, and renewals, each at a later moment. The model keeps what the policy cannot
-   * see: each artifact's plan expiry and life start. After one scan run with no pending job,
-   * every active artifact still live must be at `min(plan expiry, current deadline)` (the plan's
-   * without a maximum) with the plan's expiry kept exactly when that is earlier; one that is not
-   * live must be due by its plan or the current maximum, never by a removed or older rule.
+   * see: each artifact's plan expiry and life start. Every third sequence ends with a removal
+   * whose job is lost, and every third other one also lets the stale cap pass before the run, so
+   * both fixes are reached: the sweep (a live stale cap) and the expiry run (a passed one). After
+   * one maintenance run with no pending job (the expiry run, then the scan), every active artifact
+   * still live must be at `min(plan expiry, current deadline)` (the plan's without a maximum) with
+   * the plan's expiry kept exactly when that is earlier; one that is not live must be due by its
+   * plan or the current maximum; and none may have been archived by that run while its owner's
+   * current policy gives it a later expiry. Counters fail the test if the sequences never reach
+   * either kind of stale cap, so it cannot pass by missing them.
    */
-  it("holds expires_at and uncapped_expires_at at what the owner's current policy gives", async () => {
-    let seed = 7;
+  const SEEDS = [7, 2, 99, 1234];
+  it.each(SEEDS)("holds for seed %i", async (initial) => {
+    let seed = initial;
     const rnd = (n: number) => {
       seed = (seed * 1103515245 + 12345) % 2147483648;
       // The high bits: an LCG's low bits cycle with a short period.
       return Math.floor(seed / 65536) % n;
     };
     const failures: unknown[] = [];
-    // What the sequences exercised, so the test cannot pass by never reaching a cap.
-    const seen = { lost: 0, checked: 0, capped: 0 };
-    for (let sequence = 0; sequence < 24; sequence += 1) {
+    const seen = { lost: 0, checked: 0, staleLive: 0, stalePast: 0 };
+    for (let sequence = 0; sequence < 9; sequence += 1) {
       const t = await team();
       let now = NOW;
       const model = new Map<string, { plan: number; lifeStart: number }>();
@@ -1092,6 +1099,14 @@ describe("the invariant after one scan, for any interleaving (review of PR 214, 
         model.set(id, { plan: NOW + 120 * DAY, lifeStart: NOW - ago * DAY });
       }
       const ids = [...model.keys()];
+      const saveAt = async (days: number | null, lose: boolean) => {
+        const saved = await save(t, maxLife(days), { now });
+        if (saved.ok && !lose) await runJobs(t, now);
+        else if (saved.ok) seen.lost += 1;
+        await db().delete(schema.outbox).where(eq(schema.outbox.subject, t.id));
+      };
+      // Every third sequence starts from a maximum in effect, so its caps exist to go stale.
+      if (sequence % 3 !== 2) await saveAt([14, 30, 90][rnd(3)] as number, false);
       for (let step = 0; step < 7; step += 1) {
         now += (1 + rnd(4)) * DAY;
         const id = ids[rnd(ids.length)] as string;
@@ -1099,15 +1114,9 @@ describe("the invariant after one scan, for any interleaving (review of PR 214, 
         const current = await row(id);
         switch (rnd(6)) {
           case 0:
-          case 1: {
-            const days = [null, 14, 30, 90][rnd(4)] as number | null;
-            const saved = await save(t, maxLife(days), { now });
-            if (saved.ok && rnd(3) > 0) await runJobs(t, now);
-            else if (saved.ok) seen.lost += 1;
-            else await db().delete(schema.outbox).where(eq(schema.outbox.subject, t.id));
-            await db().delete(schema.outbox).where(eq(schema.outbox.subject, t.id));
+          case 1:
+            await saveAt([null, 14, 30, 90][rnd(4)] as number | null, rnd(3) === 0);
             break;
-          }
           case 2:
             if (current.state === "active") {
               await suspendArtifact(db(), { artifactId: id, reason: "spam", now });
@@ -1118,7 +1127,7 @@ describe("the invariant after one scan, for any interleaving (review of PR 214, 
           case 3: {
             const out = current.ownerId === t.id;
             const moved = await transferArtifact(db(), env.ARTIFACTS, {
-              userId: out ? t.admin.id : t.admin.id,
+              userId: t.admin.id,
               artifactId: id,
               workspace: out ? null : t.slug,
               now,
@@ -1138,19 +1147,73 @@ describe("the invariant after one scan, for any interleaving (review of PR 214, 
           }
         }
       }
-      // One maintenance run with nothing pending, in its order: the expiry run (which gives back a
-      // stale cap that already passed instead of archiving it), then the scan.
-      await archiveExpired(db(), now);
-      await enforceWorkspacePolicies(db(), now);
+      if (sequence % 3 !== 2) {
+        // Bring every artifact back under the workspace (reinstated, moved back in), then a
+        // maximum the job applies, then removed with its job lost: only the maintenance run can
+        // give those caps back.
+        now += DAY;
+        for (const id of ids) {
+          const current = await row(id);
+          if (current.state === "suspended") {
+            await reinstateArtifact(db(), { artifactId: id, now });
+          }
+          if (current.ownerId !== t.id) {
+            const moved = await transferArtifact(db(), env.ARTIFACTS, {
+              userId: t.admin.id,
+              artifactId: id,
+              workspace: t.slug,
+              now,
+            });
+            const entry = model.get(id) as { plan: number; lifeStart: number };
+            if (moved.ok && moved.value.state === "active") {
+              entry.lifeStart = now;
+              entry.plan = current.uncappedExpiresAt ?? current.expiresAt ?? entry.plan;
+            }
+          }
+        }
+        await saveAt(14, false);
+        now += DAY;
+        await saveAt(null, true);
+        if (sequence % 3 === 1) {
+          // Let the earliest stale cap pass first: the expiry run reaches it before the scan.
+          const capped = (await Promise.all(ids.map(row))).filter(
+            (one) =>
+              one.state === "active" &&
+              one.uncappedExpiresAt !== null &&
+              one.expiresAt !== null &&
+              one.expiresAt > now,
+          );
+          const earliest = Math.min(...capped.map((one) => one.expiresAt as number));
+          if (Number.isFinite(earliest)) now = earliest + 60_000;
+        }
+      }
+      // What the run will meet, observed just before it.
       const policy = await stored(t);
+      const before = new Map<string, Awaited<ReturnType<typeof row>>>();
       for (const id of ids) {
         const found = await row(id);
-        if (found.state !== "active") continue;
-        seen.checked += 1;
-        if (found.uncappedExpiresAt !== null) seen.capped += 1;
+        before.set(id, found);
+        if (found.state !== "active" || found.uncappedExpiresAt === null) continue;
+        const ownedMaximum = found.ownerId === t.id && policy.artifactMaxDays !== null;
+        if (ownedMaximum) continue;
+        if (found.expiresAt !== null && found.expiresAt > now) seen.staleLive += 1;
+        else if (found.uncappedExpiresAt > now) seen.stalePast += 1;
+      }
+      // One maintenance run with nothing pending, in its order: the expiry run, then the scan.
+      await archiveExpired(db(), now);
+      await enforceWorkspacePolicies(db(), now);
+      for (const id of ids) {
+        const found = await row(id);
         const entry = model.get(id) as { plan: number; lifeStart: number };
         const owned = found.ownerId === t.id ? policy : undefined;
         const expected = policyExpiry(owned, entry.plan, entry.lifeStart, now);
+        if (found.state === "archived" && before.get(id)?.state === "active") {
+          // Archived by this run: only by a rule the owner has now.
+          if (expected > now) failures.push({ sequence, id, archivedBy: "stale cap", expected });
+          continue;
+        }
+        if (found.state !== "active") continue;
+        seen.checked += 1;
         const live = found.expiresAt !== null && found.expiresAt > now;
         if (live) {
           const ok =
@@ -1163,8 +1226,124 @@ describe("the invariant after one scan, for any interleaving (review of PR 214, 
       }
     }
     expect(seen.lost).toBeGreaterThan(3);
-    expect(seen.capped).toBeGreaterThan(3);
-    expect(seen.checked).toBeGreaterThan(15);
+    expect(seen.checked).toBeGreaterThan(10);
+    // Both fixes are reached, whatever the seed.
+    expect(seen.staleLive).toBeGreaterThan(0);
+    expect(seen.stalePast).toBeGreaterThan(0);
     expect(failures.slice(0, 3)).toEqual([]);
+  });
+});
+
+describe("moving out an artifact past its cap (found by the property test)", () => {
+  it("keeps the plan's expiry it held, and the expiry run gives it back", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 25);
+    value(await save(t, maxLife(90)));
+    await runJobs(t);
+    // Past its cap (FROM), not yet archived, then moved to a space with no maximum.
+    const at = FROM + DAY;
+    value(
+      await transferArtifact(db(), env.ARTIFACTS, {
+        userId: t.admin.id,
+        artifactId: old,
+        workspace: null,
+        now: at,
+      }),
+    );
+    expect(await row(old)).toMatchObject({ expiresAt: FROM, uncappedExpiresAt: NOW + 25 * DAY });
+    await archiveExpired(db(), at + 60_000);
+    expect(await row(old)).toMatchObject({
+      state: "active",
+      expiresAt: NOW + 25 * DAY,
+      uncappedExpiresAt: null,
+    });
+  });
+});
+
+describe("query plans without table statistics (review of PR 214, third pass)", () => {
+  // workerd's D1 has no `sqlite_stat1`, and production D1 cannot be assumed to have it either:
+  // the planner must reach the partial index of capped rows from the statements alone.
+  async function plan(query: { toSQL(): { sql: string; params: unknown[] } }) {
+    const { sql: text, params } = query.toSQL();
+    const { results } = await env.DB.prepare(`explain query plan ${text}`)
+      .bind(...params)
+      .all<{ detail: string }>();
+    return results.map((row) => row.detail).join("\n");
+  }
+  // A selection as the statements embed it: `select ... where id in (<it>)`.
+  const raw = (fragment: SQL) =>
+    db()
+      .select({ id: schema.artifacts.id })
+      .from(schema.artifacts)
+      .where(sql`${schema.artifacts.id} in (${fragment})`);
+
+  it("the sweep reads only capped rows, in both layouts", async () => {
+    for (const shared of [true, false]) {
+      const found = await plan(staleCapOwners(db(), NOW, ["ws_a"], shared));
+      expect(found, String(shared)).toContain(
+        "SEARCH artifacts USING INDEX artifacts_capped_owner_idx (owner_id>?)",
+      );
+      expect(found, String(shared)).not.toContain("artifacts_state_purge_idx");
+      expect(found, String(shared)).not.toContain("TEMP B-TREE FOR DISTINCT");
+    }
+  });
+
+  it("the give-back reads one owner's capped rows, the cap one owner's active rows", async () => {
+    const policy = maxLife(30);
+    for (const owned of [undefined, { ...policy, artifactMaxDaysFrom: NOW }]) {
+      expect(await plan(raw(giveBackIds("ws_a", owned, NOW, 50)))).toContain(
+        "SEARCH artifacts USING INDEX artifacts_capped_owner_idx (owner_id=?)",
+      );
+    }
+    expect(await plan(raw(overMaxLifeIds("ws_a", { days: 30, from: NOW }, NOW, 50)))).toContain(
+      "SEARCH artifacts USING INDEX artifacts_owner_state_idx (owner_id=? AND state=?)",
+    );
+  });
+});
+
+describe("the sweep's bounds (review of PR 214, third pass)", () => {
+  /** Active artifacts of `ownerId` with a stale cap, written directly (no publish limits). */
+  async function staleIn(ownerId: string, count: number) {
+    const ids = Array.from({ length: count }, () => hex().slice(0, 10));
+    await db()
+      .insert(schema.accountUsage)
+      .values({ ownerId, activeLimit: 1_000, monthStartedAt: NOW, updatedAt: NOW })
+      .onConflictDoUpdate({ target: schema.accountUsage.ownerId, set: { activeLimit: 1_000 } });
+    // Five rows a statement: well under D1's 100 bound parameters.
+    for (let i = 0; i < ids.length; i += 5) {
+      await db()
+        .insert(schema.artifacts)
+        .values(
+          ids.slice(i, i + 5).map((id) => ({
+            id,
+            ownerId,
+            type: "site" as const,
+            name: "Stale",
+            state: "active" as const,
+            expiresAt: NOW + 3 * DAY,
+            uncappedExpiresAt: NOW + 20 * DAY,
+          })),
+        );
+    }
+    return ids;
+  }
+
+  it("never holds the owners after a large one back, and finishes the large one on later passes", async () => {
+    // A large owner first by ID, then small ones after it: owners with no policy.
+    const run = hex().slice(0, 8);
+    const large = await staleIn(`u_${run}_0`, 60);
+    const smalls: string[] = [];
+    for (let i = 1; i <= 3; i += 1) smalls.push(...(await staleIn(`u_${run}_${i}`, 2)));
+    await enforceWorkspacePolicies(db(), NOW);
+    // One run: the large owner got one batch, and every small owner after it its time back.
+    for (const id of smalls) expect((await row(id)).expiresAt, id).toBe(NOW + 20 * DAY);
+    const done = async () =>
+      (await Promise.all(large.map(row))).filter((one) => one.expiresAt === NOW + 20 * DAY).length;
+    expect(await done()).toBe(WORKSPACE_POLICIES.enforceBatch);
+    // The next pass finishes it.
+    for (let run = 0; run < 3 && (await done()) < large.length; run += 1) {
+      await enforceWorkspacePolicies(db(), NOW);
+    }
+    expect(await done()).toBe(large.length);
   });
 });

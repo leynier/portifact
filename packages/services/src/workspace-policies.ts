@@ -1256,71 +1256,96 @@ export async function enforceWorkspacePolicies(
 }
 
 const STALE_CAPS = "stale_caps";
-/** Owners with a capped artifact the sweep reads per run; with more, it resumes from a cursor. */
-const STALE_CAPS_OWNERS = 20;
+/**
+ * The sweep's bounds per run and region: at most 20 owners read, and at most 200 artifacts given
+ * back in all, each owner at most one batch (50) per visit, so one owner with many caps never
+ * holds up the owners after it: the cursor moves past it, and the next pass gives it its next
+ * batch.
+ */
+export const STALE_CAPS_SWEEP = { owners: 20, artifacts: 200 } as const;
+
+/**
+ * The owners the sweep reads: those with a live capped artifact, after the saved cursor, by ID,
+ * that do not set a maximum. With the workspace table in the same database (one region, today's
+ * production) that is decided for every workspace in the statement itself; with a separate
+ * regional database the workspaces this run's scan read with a maximum (at most
+ * `scanWorkspaces`, 500) come as one JSON parameter, and the sweep checks the owners it finds
+ * against the global database (a workspace with a maximum outside that page takes a slot and is
+ * skipped; the cursor moves past it). `+state` keeps SQLite on the partial index of capped rows
+ * (`artifacts_capped_owner_idx`): without table statistics (workerd's D1 has no `sqlite_stat1`)
+ * it would otherwise pick an index on `state` and read every active artifact each run.
+ */
+export function staleCapOwners(db: Db, now: number, maxed: string[], shared: boolean) {
+  const withMaximum = shared
+    ? sql`select ${w.id} from ${w} where json_extract(${w.policy}, '$.artifactMaxDays') is not null`
+    : sql`select value from json_each(${JSON.stringify(maxed)})`;
+  return db
+    .selectDistinct({ ownerId: a.ownerId })
+    .from(a)
+    .where(
+      sql`${a.uncappedExpiresAt} is not null and +${a.state} = 'active' and (${a.expiresAt} is null or ${a.expiresAt} > ${now}) and ${a.ownerId} > ${savedCursorSql(STALE_CAPS)} and ${a.ownerId} not in (${withMaximum})`,
+    )
+    .orderBy(asc(a.ownerId))
+    .limit(STALE_CAPS_SWEEP.owners);
+}
 
 /**
  * Gives back every cap that no current rule asks for (decision 0023, "The invariant"), whatever
  * the owner's policy now is: the steps above only visit workspaces that set a maximum, so after a
  * removal (its job lost, or an artifact suspended or racing while it ran), or in a personal space
- * an artifact moved to, nothing else would. Per run and region: one regional statement reads the
- * saved cursor with the first owners (at most 20, by ID) that hold a live capped artifact and are
- * not among the workspaces this run read with a maximum (`maxed`, one JSON parameter however many,
- * never a list bound one by one), through the partial index on capped rows. With nothing capped
- * that is the only call. For the owners found, one global read of their policies, then the
- * idempotent give-back for each whose current policy sets no maximum (a workspace that does is
- * left to its step), and the cursor. Returns how many owners it gave back to.
+ * an artifact moved to, nothing else would. Per run and region: one statement reads the saved
+ * cursor with the first owners `staleCapOwners` selects; with nothing capped that is the only
+ * call. With a separate regional database, one global read then drops the owners that do set a
+ * maximum. Then the idempotent give-back, one batch per owner (at most 50 artifacts), until the
+ * run's budget of artifacts is spent, and the cursor. Returns how many owners it gave back to.
  */
 async function sweepStaleCaps(db: RegionalDb, now: number, maxed: string[]): Promise<number> {
-  const page = db
-    .selectDistinct({ ownerId: a.ownerId })
-    .from(a)
-    .where(
-      sql`${a.uncappedExpiresAt} is not null and ${a.state} = 'active' and (${a.expiresAt} is null or ${a.expiresAt} > ${now}) and ${a.ownerId} > ${savedCursorSql(STALE_CAPS)} and ${a.ownerId} not in (select value from json_each(${JSON.stringify(maxed)}))`,
-    )
-    .orderBy(asc(a.ownerId))
-    .limit(STALE_CAPS_OWNERS);
-  const [saved, first] = await db.batch([cursorRead(db, STALE_CAPS), page]);
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const [saved, first] = await x.batch([
+    cursorRead(x, STALE_CAPS),
+    staleCapOwners(x, now, maxed, shared !== null),
+  ]);
   const started = saved[0]?.cursor ?? "";
   const owners = first.map((row) => row.ownerId);
   if (owners.length === 0) {
-    await resumeAt(db, STALE_CAPS, started, null, now);
+    await resumeAt(x, STALE_CAPS, started, null, now);
     return 0;
   }
-  const policies = new Map(
-    (
-      await db.global
-        .select({ id: w.id, policy: w.policy })
-        .from(w)
-        .where(sql`${w.id} in (select value from json_each(${JSON.stringify(owners)}))`)
-    ).map((row) => [row.id, row.policy]),
-  );
+  const maximum = shared
+    ? new Set<string>()
+    : new Set(
+        (
+          await db.global
+            .select({ id: w.id })
+            .from(w)
+            .where(
+              sql`${w.id} in (select value from json_each(${JSON.stringify(owners)})) and json_extract(${w.policy}, '$.artifactMaxDays') is not null`,
+            )
+        ).map((row) => row.id),
+      );
   let given = 0;
+  let budget: number = STALE_CAPS_SWEEP.artifacts;
   let resume: string | null = started;
-  let ended = owners.length < STALE_CAPS_OWNERS;
+  let ended = owners.length < STALE_CAPS_SWEEP.owners;
   for (const ownerId of owners) {
-    let policy: WorkspacePolicy | undefined;
-    try {
-      policy = policies.has(ownerId) ? policyOf(policies.get(ownerId)) : undefined;
-    } catch {
-      logEvent("error", "workspace_policy_unreadable");
-      resume = ownerId;
-      continue;
-    }
-    if (maxLifeOf(policy) !== null) {
-      resume = ownerId;
-      continue;
-    }
-    const back = await giveBackStep(db, ownerId, policy, now);
-    if (back > 0) given += 1;
-    if (back === WORKSPACE_POLICIES.enforceBatch) {
-      // More of this owner's than one batch: it is read again next run.
+    if (budget <= 0) {
       ended = false;
       break;
     }
     resume = ownerId;
+    // A workspace with a maximum is its step's (the scan's), never the sweep's.
+    if (maximum.has(ownerId)) continue;
+    const back = await giveBackStep(
+      db,
+      ownerId,
+      now,
+      Math.min(WORKSPACE_POLICIES.enforceBatch, budget),
+    );
+    budget -= back;
+    if (back > 0) given += 1;
   }
-  await resumeAt(db, STALE_CAPS, started, ended ? null : resume, now);
+  await resumeAt(x, STALE_CAPS, started, ended ? null : resume, now);
   return given;
 }
 
@@ -1333,8 +1358,8 @@ async function sweepStaleCaps(db: RegionalDb, now: number, maxed: string[]): Pro
 async function giveBackStep(
   db: RegionalDb,
   ownerId: string,
-  policy: WorkspacePolicy | undefined,
   now: number,
+  limit: number,
 ): Promise<number> {
   const shared = bothSides(db);
   const x: Db = shared ?? db;
@@ -1343,7 +1368,9 @@ async function giveBackStep(
     shared && workspace
       ? sql`not exists (select 1 from ${w} where ${w.id} = ${ownerId} and json_extract(${w.policy}, '$.artifactMaxDays') is not null)`
       : sql`1`;
-  const ids = giveBackIds(ownerId, policy, now, WORKSPACE_POLICIES.enforceBatch);
+  // The owner sets no maximum: the plan's expiry each artifact kept is its target.
+  const policy = undefined;
+  const ids = giveBackIds(ownerId, policy, now, limit);
   const extended = sql<number>`(select count(*) from (${ids}))`;
   const statements: BatchItem<"sqlite">[] = [
     ...(workspace
