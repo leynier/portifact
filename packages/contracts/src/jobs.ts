@@ -26,6 +26,7 @@ export const OutboxTopic = z.enum([
   "plan_region",
   "audit_stream",
   "retention_notice",
+  "plan_grace_notice",
   "comment_retention_notice",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;

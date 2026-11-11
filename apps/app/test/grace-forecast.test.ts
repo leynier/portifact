@@ -3,7 +3,7 @@
 // like the usage body; MCP has no tool for it, since moving a space's data out is not something an
 // agent does inline.
 import { env } from "cloudflare:workers";
-import { GRACE_FORECAST_LIMITS, GraceForecastView } from "@portifact/contracts";
+import { GRACE_FORECAST_LIMITS, GraceForecastView, PLANS } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHarness, ORIGIN } from "./harness.ts";
 import { api, apiToken, connect, mcpToken } from "./mcp-helpers.ts";
@@ -52,6 +52,49 @@ describe("the grace forecast route", () => {
     });
     expect(viaSession.status).toBe(200);
     expect(await viaSession.json()).toEqual(held);
+  });
+
+  it("dates each kind where its retention drops, also with two overlapping holds", async () => {
+    const h = createHarness();
+    const token = await apiToken(h, "forecast-two@example.test");
+    const me = await (await api(h, token, "/api/v1/me")).json<{ userId: string }>();
+    const hold = (plan: "team" | "pro", from: number) => {
+      const limits = PLANS[plan].limits;
+      return {
+        plan,
+        reason: "lowered",
+        from,
+        until: from + 60 * DAY,
+        limits: {
+          archiveMonths: limits.archiveMonths,
+          retainedPreviousVersions: limits.retainedPreviousVersions,
+          previousVersionRetentionDays: limits.previousVersionRetentionDays,
+          accessLogRetentionDays: limits.accessLogRetentionDays,
+          auditRetentionDays: limits.auditRetentionDays,
+        },
+        features: ["pin"],
+      };
+    };
+    // Team lowered to Pro 50 days ago, then Pro removed now.
+    const team = hold("team", NOW - 50 * DAY);
+    const pro = hold("pro", NOW);
+    await env.DB.prepare(
+      "insert into owner_plans (owner_id, plan, seats, granted_by, updated_at, grace) values (?, 'free', 1, 'test', ?, ?)",
+    )
+      .bind(me.userId, NOW, JSON.stringify([team, pro]))
+      .run();
+    const view = GraceForecastView.parse(
+      await (await api(h, token, "/api/v1/grace-forecast")).json(),
+    );
+    const dates = (kind: string) =>
+      view.kinds.filter((entry) => entry.kind === kind).map((entry) => entry.from);
+    const iso = (at: number) => new Date(at).toISOString();
+    expect(dates("versions")).toEqual([iso(team.until), iso(pro.until)]);
+    // Pro keeps the access log as long as Team: nothing of it goes at Team's end.
+    expect(dates("accessLog")).toEqual([iso(pro.until)]);
+    expect(view.kinds.map((entry) => entry.from)).toEqual(
+      [...view.kinds.map((entry) => entry.from)].sort(),
+    );
   });
 
   it("answers a workspace the caller is not in like a missing one", async () => {

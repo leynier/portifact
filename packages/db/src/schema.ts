@@ -725,6 +725,7 @@ export const OUTBOX_TOPICS = [
   "plan_region",
   "audit_stream",
   "retention_notice",
+  "plan_grace_notice",
   "comment_retention_notice",
 ] as const;
 
@@ -1646,6 +1647,14 @@ export const ownerPlans = sqliteTable(
      */
     // Plain text, parsed only by `readGrace`: a malformed value must never throw in a reader.
     grace: text("grace"),
+    /**
+     * Which grace emails each live hold got (decision 0022, third delivery): a JSON list validated
+     * by `GraceNoticeMarks` when it is read (`readGraceNotices`), null when none. Written only by
+     * the grace notice scan and `applyOwnerPlans`; never touched by the plan's own writes, so it
+     * does not move `updated_at`.
+     */
+    // Plain text, like `grace`: a malformed value reads as no marks and never throws.
+    graceNotices: text("grace_notices"),
   },
   (t) => [
     check("owner_plans_plan", sql`${t.plan} in ('free', 'pro', 'team', 'enterprise')`),

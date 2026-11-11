@@ -116,7 +116,8 @@ function GraceSection({ space }: { space: Space }) {
                 </TableHead>
                 <TableBody>
                   {view.kinds.map((kind) => (
-                    <TableRow key={kind.kind}>
+                    // A kind can go in several steps, one per hold end at which its retention drops.
+                    <TableRow key={`${kind.kind}:${kind.from}`}>
                       <TableRowHeader>{t(KIND_KEYS[kind.kind])}</TableRowHeader>
                       <TableCell label={t("data.grace.column.count")}>{kind.count}</TableCell>
                       <TableCell label={t("data.grace.column.from")}>

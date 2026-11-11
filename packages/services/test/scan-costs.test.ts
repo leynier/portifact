@@ -14,6 +14,7 @@ import { applyTombstones } from "../src/backups.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "../src/content-search.ts";
 import { scheduleExpiryNotices } from "../src/expiry-notices.ts";
 import { archiveExpired, pruneVersions, runMaintenance } from "../src/maintenance.ts";
+import { scheduleGraceNotices } from "../src/plan-grace-notices.ts";
 import {
   alignPlanLimits,
   getOwnerPlan,
@@ -59,9 +60,14 @@ const DEVELOP = {
   // Plus the one global read of "SSO required"'s suspension scan (`syncSsoRequirementStates`).
   // Plus the stale-cap sweep of the maximum life (decision 0023): with nothing capped, one call,
   // its saved cursor and its first page together.
+  // Plus the grace emails (decision 0022, third delivery): the scan's one call (its saved cursor
+  // and first page together), and here one batch (the job and the mark) for the grantee whose
+  // removal above started a hold.
   // Plus comment retention's one global call while no workspace of the region sets it (decision
   // 0023): its cursor, its workspaces and the restore guard's epoch in one batch.
-  runMaintenance: 60,
+  runMaintenance: 62,
+  // The grace email scan alone once nothing is due: one call.
+  scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads
   // the cursor with its first page in one call and marks itself done in another; every later run
   // costs one call, the cursor read.
@@ -140,6 +146,7 @@ describe("D1 calls of the scans and plan paths, one region", () => {
       ),
       runMaintenance: await counted((d) => runMaintenance(d, env.ARTIFACTS, NOW + DAY)),
       redateDatedPlansDone: await counted((d) => redateDatedPlans(d, NOW + DAY)),
+      scheduleGraceNotices: await counted((d) => scheduleGraceNotices(d, NOW + DAY)),
       maintainAuditStreams: await counted((d) => maintainAuditStreams(d, NOW)),
       rewrapAuditStreamKeys: await counted(async (d) =>
         rewrapAuditStreamKeys(d, await webhookKeys({ current: KEY })),

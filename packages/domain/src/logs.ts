@@ -122,7 +122,7 @@ export function errorLabel(error: unknown): ErrorLabel {
 
 /**
  * The fields a log line may carry, each of a kind that holds no content: IDs, counts, enum
- * values (`reason`, `outcome`, `type`, `topic` must be literal unions, never `string`), a region
+ * values (`reason`, `outcome`, `type`, `topic`, `moment` must be literal unions, never `string`), a region
  * and an error's label. `scripts/log-fields.test.ts` lists the same names and checks values.
  */
 export interface LogFields {
@@ -130,6 +130,8 @@ export interface LogFields {
   outcome?: string;
   type?: string;
   topic?: string;
+  /** A grace email's moment (decision 0022): `start`, `two_weeks`, `three_days`. */
+  moment?: string;
   error?: ErrorLabel;
   region?: Region | undefined;
   /** A queue message's ID. */
@@ -151,7 +153,7 @@ export interface LogFields {
   alerts?: number;
 }
 
-type EnumField = "reason" | "outcome" | "type" | "topic";
+type EnumField = "reason" | "outcome" | "type" | "topic" | "moment";
 
 /** Refuses a field typed as plain `string` where a literal union is required. */
 export type LiteralEnums<F> = {

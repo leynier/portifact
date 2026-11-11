@@ -344,6 +344,10 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "unpinLapsedPlans",
   // The one-time re-dating pass (decision 0022): writes retention jobs, changes nothing an owner has.
   "redateDatedPlans",
+  // Grace emails (decision 0022, third delivery): the hold's start and end are already events, and
+  // scheduling or sending an email changes nothing an owner has.
+  "scheduleGraceNotices",
+  "sendGraceNotice",
   // The regional half of a plan change (decision 0005): the change's `plan.granted` or
   // `plan.removed` was recorded with its global half.
   "applyOwnerPlanRegion",
@@ -390,6 +394,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // The grace forecast's counts (decision 0022), shared by its route and the grace emails.
+  "graceForecastKinds",
   // The thread a caller may read now (decision 0018): a read like every annotation read.
   "readableThread",
   "appSessionLive",

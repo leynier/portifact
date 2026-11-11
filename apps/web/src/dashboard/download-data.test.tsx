@@ -53,12 +53,17 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
 });
 
+/** The end of an earlier hold, before the grace's own end. */
+const EARLIER = "2026-12-01T00:00:00.000Z";
+
 function inGrace() {
   server.usage = usageView({ plan: { ...usageView().plan, grace: GRACE } });
   server.graceForecast = {
     ownerId: "u_owner",
     grace: GRACE,
     kinds: [
+      // Two holds: versions drop at the first one's end and again at the second's.
+      { kind: "versions", count: 2, from: EARLIER },
       { kind: "versions", count: 4, from: GRACE.until },
       { kind: "pins", count: 1, from: GRACE.until },
     ],
@@ -78,6 +83,7 @@ describe("the Download your data page", () => {
       });
       const rows = within(table).getAllByRole("row").slice(1);
       expect(rows.map((row) => row.textContent)).toEqual([
+        expect.stringContaining("Previous versionsHow many2"),
         expect.stringContaining("Previous versionsHow many4"),
         expect.stringContaining("Pinned artifacts"),
       ]);

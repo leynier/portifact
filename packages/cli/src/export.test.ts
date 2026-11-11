@@ -113,10 +113,17 @@ describe("portifact export", () => {
     server.api.graceForecast = {
       ownerId: "u_fake_owner",
       grace,
-      kinds: [{ kind: "versions", count: 4, from: "2027-01-10T00:00:00.000Z" }],
+      // Two holds: versions drop at each one's end, each step with its own count and date.
+      kinds: [
+        { kind: "versions", count: 2, from: "2026-12-01T00:00:00.000Z" },
+        { kind: "versions", count: 4, from: "2027-01-10T00:00:00.000Z" },
+      ],
     };
     const out = join(h.workspace, "dry");
     const text = await h.invoke("export", out, "--dry-run");
+    expect(text.stdout).toContain(
+      "2 previous versions go from 2026-12-01 00:00 UTC unless the plan is granted again.",
+    );
     expect(text.stdout).toContain(
       "4 previous versions go from 2027-01-10 00:00 UTC unless the plan is granted again.",
     );
@@ -126,7 +133,7 @@ describe("portifact export", () => {
       artifacts: 2,
       versions: 3,
       files: 5,
-      grace: { kinds: [{ count: 4 }] },
+      grace: { kinds: [{ count: 2 }, { count: 4 }] },
     });
   });
 

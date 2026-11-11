@@ -455,6 +455,7 @@ describe("purging archives", () => {
       prunedEmailCounters: 0,
       prunedEmailSuppressions: 0,
       planGraces: 0,
+      graceNotices: 0,
       redatedPlans: 0,
       alignedPlanLimits: 0,
       unpinned: 0,

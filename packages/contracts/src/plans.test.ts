@@ -6,8 +6,13 @@ import {
   AVAILABLE_PLAN_FEATURES,
   GRACE_END_REASONS,
   GRACE_LIMITS,
+  GRACE_NOTICE_LEAD_MS,
+  GRACE_NOTICE_MOMENTS,
   GRACE_START_REASONS,
   GraceLimits,
+  GraceNoticeMark,
+  GraceNoticeMarks,
+  GraceNoticePayload,
   GraceSlot,
   GraceSlots,
   lowestPlanWith,
@@ -308,6 +313,45 @@ describe("plan grace", () => {
     }
     expect(GraceSlot.safeParse({ ...bounded, folded: 3 }).success).toBe(true);
     expect(GraceSlot.safeParse({ ...bounded, folded: 1 }).success).toBe(false);
+  });
+
+  it("marks a hold's grace emails by its dates, at most one per live hold", () => {
+    const mark = { from: 1, until: 2, moment: "two_weeks" };
+    expect(GRACE_NOTICE_MOMENTS).toEqual(["start", "two_weeks", "three_days"]);
+    expect(GRACE_NOTICE_LEAD_MS).toEqual({
+      two_weeks: 14 * 86_400_000,
+      three_days: 3 * 86_400_000,
+    });
+    expect(GraceNoticeMark.parse(mark)).toEqual(mark);
+    expect(GraceNoticeMark.parse({ ...mark, claim: "c1" })).toEqual({ ...mark, claim: "c1" });
+    expect(GraceNoticeMark.safeParse({ ...mark, claim: "" }).success).toBe(false);
+    expect(GraceNoticePayload.parse({ ...mark, claim: "c1" })).toEqual({ ...mark, claim: "c1" });
+    // A job always carries the token of the scan that wrote it.
+    expect(GraceNoticePayload.safeParse(mark).success).toBe(false);
+    expect(GraceNoticeMark.safeParse({ ...mark, moment: "later" }).success).toBe(false);
+    expect(GraceNoticeMark.safeParse({ ...mark, extra: 1 }).success).toBe(false);
+    expect(GraceNoticeMark.safeParse({ ...mark, from: -1 }).success).toBe(false);
+    expect(GraceNoticeMark.safeParse({ ...mark, until: MAX_DATE_MS + 1 }).success).toBe(false);
+    expect(GraceNoticeMarks.safeParse(Array(PLAN_GRACE_MAX_SLOTS).fill(mark)).success).toBe(true);
+    expect(GraceNoticeMarks.safeParse(Array(PLAN_GRACE_MAX_SLOTS + 1).fill(mark)).success).toBe(
+      false,
+    );
+    const exported = {
+      ownerId: "u1",
+      plan: "pro",
+      seats: 1,
+      validUntil: null,
+      overrides: null,
+      grantedBy: "op",
+      note: null,
+    };
+    expect(OwnerPlanExport.safeParse(exported).success).toBe(true);
+    expect(OwnerPlanExport.parse({ ...exported, graceNotices: [mark] }).graceNotices).toEqual([
+      mark,
+    ]);
+    expect(
+      OwnerPlanExport.safeParse({ ...exported, graceNotices: [{ ...mark, moment: "x" }] }).success,
+    ).toBe(false);
   });
 
   it("is part of the plan view and the export, and optional for older servers and files", () => {
