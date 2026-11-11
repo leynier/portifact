@@ -433,6 +433,10 @@ function graceEvents(w: Db, ownerId: string, change: GraceChange, now: number, w
   ];
 }
 
+function graceEventCount(change: GraceChange): number {
+  return change.ended.length + (change.started ? 1 : 0);
+}
+
 function graceJson(slots: readonly GraceSlot[]): string | null {
   return slots.length === 0 ? null : JSON.stringify(slots);
 }
@@ -496,6 +500,8 @@ export async function setOwnerPlan(
         },
         sql`${when} and not ${same}`,
       ),
+      // What the change does to the graces, before the row's write, on its old state.
+      ...graceEvents(w, input.ownerId, change, input.now, when),
       // Retention follows the plan: the job moves the expiries of the owner's analytics and access
       // log rows (`applyOwnerRetention`), on the same condition as the grant. It runs where the
       // owner's access log is, so with a separate regional database the regional half writes it.
@@ -521,12 +527,19 @@ export async function setOwnerPlan(
           },
         })
         .returning({ ownerId: p.ownerId }),
-      ...graceEvents(w, input.ownerId, change, input.now, when),
+      // After the row's write, on the row now holding exactly what this change wrote.
       ...(both
-        ? limitStatements(both, input.ownerId, limitColumns(granted), when, input.now, true)
+        ? limitStatements(
+            both,
+            input.ownerId,
+            limitColumns(granted),
+            sql`${guard} and exists (select 1 from ${p} where ${p.ownerId} = ${input.ownerId} and ${p.updatedAt} = ${input.now} and ${p.grace} is ${graceJson(change.slots)} and ${same})`,
+            input.now,
+            true,
+          )
         : []),
     ])) as unknown[][];
-    written = (results[2] ?? []).length > 0;
+    written = (results[2 + graceEventCount(change)] ?? []).length > 0;
     if (!written && !(await isGrantable(db.global, input.ownerId))) {
       return fail("not_found", "Account or workspace not found.");
     }
@@ -614,7 +627,7 @@ export async function removeOwnerPlan(
         ? limitStatements(both, input.ownerId, FREE_LIMIT_COLUMNS, sql`1`, input.now, false)
         : []),
     ])) as unknown[][];
-    const changed = (results[2 + change.ended.length + (change.started ? 1 : 0)] ?? []).length;
+    const changed = (results[2 + graceEventCount(change)] ?? []).length;
     if (before === null || changed === 1) done = { removed: had && changed === 1 };
   }
   if (done === null) return fail("capacity_unavailable", PLAN_CHANGED);
@@ -1207,7 +1220,9 @@ export async function applyOwnerPlans(
   let skipped = 0;
   for (const plan of plans) {
     const record = { ...plan, grace: plan.grace ?? null };
-    if (!planActive(record, now) && liveGraceSlots(record, now).length === 0) {
+    const grants =
+      planActive(record, now) && (record.plan !== "free" || record.overrides !== null);
+    if (!grants && liveGraceSlots(record, now).length === 0) {
       skipped += 1;
       continue;
     }

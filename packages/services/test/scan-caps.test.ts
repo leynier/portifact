@@ -63,7 +63,8 @@ describe("version pruning, one database", () => {
     const artifacts: string[] = [];
     for (let i = 0; i < 5; i += 1) {
       const owner = await user(`Lapsed ${i}`);
-      await grantPlan(owner.id, "pro", { validUntil: NOW - DAY });
+      // A plan whose grace (decision 0022) has ended.
+      await grantPlan(owner.id, "pro", { validUntil: NOW - 61 * DAY });
       const first = await publishSite(owner.id, { "index.html": "<p>one</p>" }, NOW - 40 * DAY);
       await publishSite(owner.id, { "index.html": "<p>two</p>" }, NOW - 35 * DAY, first);
       artifacts.push(first.artifactId);

@@ -52,6 +52,7 @@ import {
   alignPlanLimits,
   getOwnerPlan,
   HALF_APPLIED,
+  maintainPlanGraces,
   removeOwnerPlan,
   setOwnerPlan,
 } from "../src/plans.ts";
@@ -1121,8 +1122,9 @@ describe("EU scans and plan changes, second review", () => {
   const LATER = NOW + 30 * DAY;
 
   it("prunes an expired plan's owner as free, and never stalls the region on skipped versions", async () => {
-    // An expired plan keeps its row; alignment puts its columns back to free.
-    const expired = await euVersions(5, { validUntil: NOW - DAY });
+    // An expired plan keeps its row; alignment puts its columns back to free. Its grace
+    // (decision 0022) ended before LATER.
+    const expired = await euVersions(5, { validUntil: NOW - 31 * DAY });
     const freeOwner = await euVersions(3, null);
     // The reviewer's repro: two versions per run, three runs used to prune nothing.
     for (let run = 0; run < 6; run += 1) {
@@ -1137,7 +1139,10 @@ describe("EU scans and plan changes, second review", () => {
     const paid = await euVersions(3, { validUntil: NOW + 60 * DAY });
     await pruneVersions(eu().db, env.ARTIFACTS_EU, LATER, 50, "eu");
     expect(await paid.versions()).toBe(3);
-    await pruneVersions(eu().db, env.ARTIFACTS_EU, NOW + 70 * DAY, 50, "eu");
+    // Held for the plan's grace (decision 0022), pruned as free after it.
+    await pruneVersions(eu().db, env.ARTIFACTS_EU, NOW + 119 * DAY, 50, "eu");
+    expect(await paid.versions()).toBe(3);
+    await pruneVersions(eu().db, env.ARTIFACTS_EU, NOW + 121 * DAY, 50, "eu");
     expect(await paid.versions()).toBe(1);
   });
 
@@ -1157,7 +1162,7 @@ describe("EU scans and plan changes, second review", () => {
   it("keeps a version when the plan changes between the choice and the delete", async () => {
     // Chosen as free (expired plan); renewed after the choice (when the run saves its cursor),
     // before the delete: the re-read keeps the version.
-    const renewed = await euVersions(3, { validUntil: NOW - DAY });
+    const renewed = await euVersions(3, { validUntil: NOW - 31 * DAY });
     const raced = raceBeforeStatementIn(
       env.DB_EU,
       /^insert into "maintenance_cursors"/i,
@@ -1172,7 +1177,7 @@ describe("EU scans and plan changes, second review", () => {
     expect(result.processed).toBe(0);
     expect(await renewed.versions()).toBe(3);
     // Without the renewal the same choice is pruned as free.
-    const lapsed = await euVersions(3, { validUntil: NOW - DAY });
+    const lapsed = await euVersions(3, { validUntil: NOW - 31 * DAY });
     await regions()
       .global.update(schema.ownerPlans)
       .set({ validUntil: null })
@@ -1181,6 +1186,34 @@ describe("EU scans and plan changes, second review", () => {
       await pruneVersions(eu().db, env.ARTIFACTS_EU, LATER, 1, "eu");
     }
     expect(await lapsed.versions()).toBe(1);
+  });
+
+  it("holds an EU workspace's versions for its grace after a lowering, then prunes them", async () => {
+    // Decision 0022 with a separate regional database: the grant writes the grace in the global
+    // batch, the EU prune reads it from the global database, and the grace scan runs globally.
+    const held = await euVersions(4);
+    const lowered = await setOwnerPlan(eu().db, {
+      ownerId: held.ws.id,
+      plan: "free",
+      seats: 1,
+      validUntil: null,
+      overrides: null,
+      grantedBy: "op",
+      note: null,
+      now: NOW + DAY,
+    });
+    expect(value(lowered).entitlements.grace?.plan).toBe("enterprise");
+    await pruneVersions(eu().db, env.ARTIFACTS_EU, NOW + 60 * DAY, 50, "eu");
+    expect(await held.versions()).toBe(4);
+    await maintainPlanGraces(regions().global, NOW + 61 * DAY);
+    const [row] = await regions()
+      .global.select({ grace: schema.ownerPlans.grace })
+      .from(schema.ownerPlans)
+      .where(eq(schema.ownerPlans.ownerId, held.ws.id));
+    // A free row whose last hold ended goes, so the owner reads as free with no row.
+    expect(row).toBeUndefined();
+    await pruneVersions(eu().db, env.ARTIFACTS_EU, NOW + 61 * DAY, 50, "eu");
+    expect(await held.versions()).toBe(1);
   });
 
   it("refuses a plan grant left half applied, and its job or a second run completes it", async () => {

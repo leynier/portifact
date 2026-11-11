@@ -299,7 +299,10 @@ describe("reading an artifact's analytics", () => {
     });
     // A stranger still learns nothing, not even that the owner is on free.
     expect(await stats(stranger.id, artifactId)).toMatchObject({ code: "not_found" });
+    // Reading what a plan kept stays open for its grace (decision 0022), then closes.
     await grantPlan(owner.id, "pro", { validUntil: NOW });
+    expect((await stats(owner.id, artifactId)).ok).toBe(true);
+    await grantPlan(owner.id, "pro", { validUntil: NOW - 60 * DAY });
     expect(await stats(owner.id, artifactId)).toMatchObject({ code: "plan_required" });
     await grantPlan(owner.id, "pro");
     expect((await stats(owner.id, artifactId)).ok).toBe(true);
@@ -399,7 +402,7 @@ describe("retention by plan", () => {
       [linkId, NOW + 265 * DAY],
       [linkId, NOW + 355 * DAY],
     ]);
-    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW }));
+    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW, noGrace: true }));
     expect(await applyOwnerRetention(db(), access(), owner.id, NOW)).toBe("done");
     await pruneAccessEvents(access(), NOW);
     expect((await openingsOf(artifactId)).map((row) => [row.linkId, row.expiresAt])).toEqual([
@@ -413,7 +416,30 @@ describe("retention by plan", () => {
     const { artifactId } = await publishSite(owner.id);
     await grantPlan(owner.id, "pro", { validUntil: NOW + 90 * DAY });
     await recordOpenings(db(), access(), [{ artifactId, userId: reader.id, at: NOW }]);
-    expect((await openingsOf(artifactId))[0]?.expiresAt).toBe(NOW + 90 * DAY);
+    // Kept until the plan's grace ends, 60 days after the plan (decision 0022).
+    expect((await openingsOf(artifactId))[0]?.expiresAt).toBe(NOW + 150 * DAY);
+  });
+
+  it("a removal holds what the plan kept for 60 days, then the prune deletes it", async () => {
+    const owner = await user();
+    const reader = await user();
+    const { artifactId } = await publishSite(owner.id);
+    await grantPlan(owner.id, "pro");
+    await recordOpenings(db(), access(), [
+      { artifactId, userId: reader.id, at: NOW - 100 * DAY },
+      { artifactId, userId: reader.id, at: NOW - 10 * DAY },
+    ]);
+    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW }));
+    expect(await applyOwnerRetention(db(), access(), owner.id, NOW)).toBe("done");
+    expect((await openingsOf(artifactId)).map((row) => row.expiresAt)).toEqual([
+      NOW + 60 * DAY,
+      NOW + 60 * DAY,
+    ]);
+    // Day 59 keeps both, and the owner can still read them; day 61 has neither.
+    await pruneAccessEvents(access(), NOW + 59 * DAY);
+    expect(await openingsOf(artifactId)).toHaveLength(2);
+    await pruneAccessEvents(access(), NOW + 61 * DAY);
+    expect(await openingsOf(artifactId)).toHaveLength(0);
   });
 
   it("a downgrade shortens what is kept and the prune deletes it; an upgrade extends the rest", async () => {
@@ -441,7 +467,8 @@ describe("retention by plan", () => {
       delta(artifactId, owner.id, { day: TODAY - 10 * DAY, expiresAt: TODAY + 356 * DAY }),
     ]);
 
-    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW }));
+    // Without a grace (the operator's --no-grace), as a lapse is once its grace ends.
+    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW, noGrace: true }));
     const jobs = await retentionJobs(owner.id);
     expect(jobs.length).toBeGreaterThanOrEqual(1);
     // Nothing is deleted on the spot: the job moves the expiries and the normal prune deletes.
@@ -486,13 +513,14 @@ describe("retention by plan", () => {
     ]);
     await grantPlan(owner.id, "pro", { validUntil: NOW + 90 * DAY });
     expect(await applyOwnerRetention(db(), access(), owner.id, NOW)).toBe("done");
+    // Capped at the end of the plan's grace, 60 days after the plan (decision 0022).
     expect((await openingsOf(artifactId)).map((row) => row.expiresAt)).toEqual([
-      NOW + 90 * DAY,
-      NOW + 90 * DAY,
+      NOW + 150 * DAY,
+      NOW + 150 * DAY,
     ]);
-    expect((await viewsOf(artifactId))[0]?.expiresAt).toBe(NOW + 90 * DAY);
-    // A plan ending soon still keeps the free 30 days from each row's start.
-    await grantPlan(owner.id, "pro", { validUntil: NOW + DAY });
+    expect((await viewsOf(artifactId))[0]?.expiresAt).toBe(NOW + 150 * DAY);
+    // A plan whose grace already ended keeps the free 30 days from each row's start.
+    await grantPlan(owner.id, "pro", { validUntil: NOW - 59 * DAY });
     expect(await applyOwnerRetention(db(), access(), owner.id, NOW)).toBe("done");
     expect((await openingsOf(artifactId)).map((row) => row.expiresAt)).toEqual([
       NOW + DAY,
