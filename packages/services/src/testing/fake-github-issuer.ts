@@ -50,8 +50,11 @@ export interface FakeGitHubTokenOptions {
   claims?: Record<string, unknown>;
   /** Merged over the header. */
   header?: Record<string, unknown>;
-  /** `stray` signs with a key not in the set; `none` sends no signature. */
-  signing?: "RS256" | "stray" | "none";
+  /**
+   * `stray` signs with a key not in the set; `none` sends no signature; `RS512` signs with the
+   * set's key under another algorithm (with `keysWithoutAlg`, only an algorithm allowlist refuses it).
+   */
+  signing?: "RS256" | "RS512" | "stray" | "none";
 }
 
 export class FakeGitHubIssuer {
@@ -61,6 +64,8 @@ export class FakeGitHubIssuer {
   now: () => number = Date.now;
   /** Answers the key set URL instead, for slow, oversized or failing answers. */
   override: ((url: string) => Promise<Response> | Response | undefined) | null = null;
+  /** Serve keys without their `alg`, as a key set may. */
+  keysWithoutAlg = false;
   /** Every call, by URL (the key set is public). */
   readonly calls: string[] = [];
   private keys: SigningKey[] = [];
@@ -96,7 +101,7 @@ export class FakeGitHubIssuer {
           ...(await crypto.subtle.exportKey("jwk", k.pair.publicKey)),
           kid: k.kid,
           use: "sig",
-          alg: "RS256",
+          ...(this.keysWithoutAlg ? { alg: undefined } : { alg: "RS256" }),
         })),
       ),
     };
@@ -143,9 +148,22 @@ export class FakeGitHubIssuer {
       this.stray ??= await newKey();
       key = this.stray;
     }
-    const header = { alg: "RS256", typ: "JWT", kid: key.kid, ...options.header };
+    const alg = options.signing === "RS512" ? "RS512" : "RS256";
+    const header = { alg, typ: "JWT", kid: key.kid, ...options.header };
     const head = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
     if (options.signing === "none") return `${head}.`;
+    if (options.signing === "RS512") {
+      const jwk = await crypto.subtle.exportKey("jwk", key.pair.privateKey);
+      const sha512 = await crypto.subtle.importKey(
+        "jwk",
+        { ...jwk, alg: undefined },
+        { name: "RSASSA-PKCS1-v1_5", hash: "SHA-512" },
+        false,
+        ["sign"],
+      );
+      const signed = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", sha512, encoder.encode(head));
+      return `${head}.${base64url(new Uint8Array(signed))}`;
+    }
     const signature = await crypto.subtle.sign(
       "RSASSA-PKCS1-v1_5",
       key.pair.privateKey,

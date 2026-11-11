@@ -407,6 +407,16 @@ describe("the exchange", () => {
     }
   });
 
+  it("accepts only RS256, even from a key set whose keys name no algorithm", async () => {
+    const t = await team();
+    await trust(t);
+    t.issuer.keysWithoutAlg = true;
+    const other = await exchange(t, await mint(t, { signing: "RS512" }));
+    expect(other.status).toBe(401);
+    expect(await other.json()).toEqual(REFUSED);
+    expect((await exchange(t, await mint(t))).status).toBe(200);
+  });
+
   it("refuses once the plan lapses, with the same answer", async () => {
     const t = await team();
     await trust(t);
