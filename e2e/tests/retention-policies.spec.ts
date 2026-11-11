@@ -48,6 +48,9 @@ test("a maximum life archives only what reached it, after its notice period", as
   page,
   context,
 }) => {
+  // The scheduled runs below share the database with every other spec and archive at most 50
+  // artifacts each, so waiting for this artifact's turn can take most of the default minute.
+  test.slow();
   const admin = await createUser("Admin");
   const slug = `life-${crypto.randomUUID().slice(0, 8)}`;
   const workspace = await createWorkspace({ slug, name: "Retention team", admin });
@@ -117,10 +120,15 @@ test("a maximum life archives only what reached it, after its notice period", as
   // The archived one can be restored, and gets a new life within the maximum.
   await open(page, `/artifacts/${old.artifactId}?workspace=${slug}`, "Old plan");
   const details = page.getByRole("region", { name: "Details" });
+  // The press can land while the page settles, and the restore answers after it: press only
+  // while the button is there, then wait for the state instead of reading it at once.
   await expect(async () => {
-    await details.getByRole("button", { name: "Restore" }).click();
-    expect((await state(old.artifactId))?.state).toBe("active");
-  }).toPass();
+    const restore = details.getByRole("button", { name: "Restore" });
+    if (await restore.isVisible()) await restore.click();
+    await expect
+      .poll(async () => (await state(old.artifactId))?.state, { timeout: 3_000 })
+      .toBe("active");
+  }).toPass({ timeout: 30_000 });
   const restored = await state(old.artifactId);
   expect(restored?.expires_at).toBeGreaterThan(Date.now() + 29 * DAY);
   await expect(
