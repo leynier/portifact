@@ -330,7 +330,7 @@ GitHub Actions OIDC federation ships switched off ([decision 0024](decisions/002
 6. **A removed rule.** Remove the rule during a run that holds a credential: its next request is refused (401).
 7. **A replayed token.** Print an ID token in a scratch run (never in a real one), exchange it once, exchange it again: the second is refused.
 8. **A wrong audience.** Ask GitHub for the default audience, another workspace's, and staging's against production: each is refused with the same body.
-9. **No secrets in logs.** Tail the Worker during the checks: only `github_oidc.issued`, `github_oidc.refused` with a reason and `github_oidc.jwks_unavailable` appear, never a token, claim or key set.
+9. **No secrets in logs.** Tail the Worker during the checks: only `github_oidc_issued`, `github_oidc_refused` with a reason and `github_oidc_jwks_unavailable` appear, never a token, claim or key set.
 
 ### SCIM
 

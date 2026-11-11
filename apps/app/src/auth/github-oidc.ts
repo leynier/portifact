@@ -133,14 +133,13 @@ export async function verifyGitHubToken(
 }
 
 function refusalOf(error: unknown): GitHubRefusal {
+  // A claim jose checks (issuer, audience, times, required claims); anything else is the token's
+  // signature or shape, which only GitHub's own tokens pass.
   if (
     error instanceof joseErrors.JWTClaimValidationFailed ||
     error instanceof joseErrors.JWTExpired
   ) {
     return "claims";
-  }
-  if (error instanceof joseErrors.JWSInvalid || error instanceof joseErrors.JWTInvalid) {
-    return "malformed";
   }
   return "signature";
 }

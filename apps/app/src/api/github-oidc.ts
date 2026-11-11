@@ -32,12 +32,12 @@ export interface GitHubOidcDeps {
 }
 
 function refused(c: ApiContext, reason: GitHubRefusal): Response {
-  logEvent("warn", "github_oidc.refused", { reason });
+  logEvent("warn", "github_oidc_refused", { reason });
   return c.json({ error: { code: "unauthenticated", message: GITHUB_EXCHANGE_REFUSED } }, 401);
 }
 
 function limited(c: ApiContext, resetAt: number, now: number): Response {
-  logEvent("warn", "github_oidc.refused", { reason: "rate_limited" as const });
+  logEvent("warn", "github_oidc_refused", { reason: "rate_limited" });
   const response = error(c, "rate_limited", "Too many token exchanges. Try again later.");
   response.headers.set("Retry-After", String(Math.max(1, Math.ceil((resetAt - now) / 1000))));
   return response;
@@ -65,7 +65,7 @@ export function githubOidcRoutes(deps: GitHubOidcDeps) {
     const verified = await verifyGitHubToken(deps.fetch(c.env), body.value.token, audience, now);
     if (!verified.ok) {
       if (verified.reason === "jwks_unavailable") {
-        logEvent("error", "github_oidc.jwks_unavailable");
+        logEvent("error", "github_oidc_jwks_unavailable");
       }
       return refused(c, verified.reason);
     }
@@ -85,7 +85,7 @@ export function githubOidcRoutes(deps: GitHubOidcDeps) {
       now,
     });
     if (!issued.ok) return refused(c, issued.reason);
-    logEvent("log", "github_oidc.issued");
+    logEvent("log", "github_oidc_issued");
     return c.json(
       GitHubTokenExchanged.parse({
         token: issued.secret,

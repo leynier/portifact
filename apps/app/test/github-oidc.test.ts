@@ -219,6 +219,33 @@ describe("trust rules from the dashboard", () => {
     }
   });
 
+  it("answers bad input, unknown rules and stale revisions without changing anything", async () => {
+    const t = await team();
+    const created = await trust(t);
+    const base = `/api/v1/workspaces/${t.slug}/github-trust`;
+    const cases: [string, string, unknown, number][] = [
+      ["POST", base, { ...RULE, repositoryId: "abc" }, 400],
+      ["PATCH", `${base}/not-a-rule`, { ...RULE, revision: 0 }, 404],
+      ["DELETE", `${base}/not-a-rule`, undefined, 404],
+      ["DELETE", `${base}/gtr_${"0".repeat(32)}`, undefined, 404],
+      ["PATCH", `${base}/${created.id}`, { ...RULE, events: ["push"], revision: 5 }, 409],
+      ["PATCH", `${base}/${created.id}`, { ...RULE, repositoryId: "x", revision: 0 }, 400],
+    ];
+    for (const [method, path, body, status] of cases) {
+      const response = await t.h.request(path, dashboard(t.adminCookie, method, body));
+      expect(response.status, `${method} ${path}`).toBe(status);
+    }
+    const off = createHarness({
+      githubOidcFetch: t.issuer.fetch,
+      env: { GITHUB_OIDC_ENABLED: undefined },
+    });
+    const patched = await off.request(
+      `${base}/${created.id}`,
+      dashboard(t.adminCookie, "PATCH", { ...RULE, revision: 0 }),
+    );
+    expect(patched.status).toBe(503);
+  });
+
   it("is gated on the plan for adding, never for removing", async () => {
     const t = await team("pro");
     const response = await t.h.request(
@@ -337,6 +364,46 @@ describe("the exchange", () => {
       const response = await exchange(t, token, workspace);
       expect(response.status, name).toBe(401);
       expect(await response.json(), name).toEqual(REFUSED);
+    }
+  });
+
+  it("refuses a body that is not the exchange's, or a token that only looks like one", async () => {
+    const t = await team();
+    await trust(t);
+    const notJson = await t.h.request("/api/v1/github/token", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "token",
+    });
+    expect(notJson.status).toBe(401);
+    expect(await notJson.json()).toEqual(REFUSED);
+    const good = await mint(t);
+    const [head, , signature] = good.split(".");
+    const encode = (text: string) =>
+      btoa(text).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+    for (const token of [
+      `${head}.${encode("not json")}.${signature}`,
+      `${head}.${encode(JSON.stringify({ iss: "x" }))}.${signature}`,
+      `${good.slice(0, -4)}AAAA`,
+      "a.b.c",
+    ]) {
+      const response = await exchange(t, token);
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual(REFUSED);
+    }
+  });
+
+  it("accepts the audience alone in a list, and refuses claims of another shape", async () => {
+    const t = await team();
+    await trust(t);
+    expect((await exchange(t, await mint(t, { audience: [audience(t.slug)] }))).status).toBe(200);
+    for (const claims of [
+      { repository_id: 123456 },
+      { run_attempt: "0" },
+      { event_name: undefined },
+    ]) {
+      const response = await exchange(t, await mint(t, { claims }));
+      expect(response.status, JSON.stringify(claims)).toBe(401);
     }
   });
 

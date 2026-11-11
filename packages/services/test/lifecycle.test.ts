@@ -450,6 +450,7 @@ describe("purging archives", () => {
       accountDeletions: 0,
       workspaceDeletions: 0,
       expiredInvitations: 0,
+      federatedCredentials: 0,
       directoryUsers: 0,
       prunedTrafficCounters: 0,
       prunedEmailCounters: 0,

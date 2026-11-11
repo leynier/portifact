@@ -161,7 +161,7 @@ describe("action.yml", () => {
       (match) =>
         parse(match[1] ?? "") as {
           permissions?: Record<string, string>;
-          jobs: Record<string, { steps: Step[] & { with?: Record<string, string> }[] }>;
+          jobs: Record<string, { steps: (Step & { with?: Record<string, string> })[] }>;
         },
     );
     const oidc = workflows.filter((workflow) => workflow.permissions?.["id-token"] === "write");

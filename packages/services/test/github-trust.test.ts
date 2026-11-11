@@ -327,6 +327,105 @@ describe("trust rules", () => {
   });
 });
 
+describe("refusals of rule changes", () => {
+  it("refuses editors, unknown rules, a second rule's repository and unconfirmed privileged events", async () => {
+    const t = await team();
+    const created = await rule(t);
+    await rule(t, { repositoryId: "654321", repository: "acme/docs" });
+    const update = (userId: string, ruleId: string, body: Partial<GitHubTrustRuleCreate> = {}) =>
+      updateGitHubTrustRule(db().global, {
+        userId,
+        slug: t.slug,
+        ruleId,
+        body: { ...BODY, ...body, revision: 0 },
+        now: NOW,
+      });
+    expect(await update(t.editor.id, created.id, { events: ["push"] })).toMatchObject({
+      ok: false,
+      code: "forbidden",
+    });
+    expect(await update(t.admin.id, `gtr_${"0".repeat(32)}`)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(await update(t.admin.id, created.id, { repositoryId: "654321" })).toMatchObject({
+      ok: false,
+      code: "invalid_input",
+    });
+    expect(await update(t.admin.id, created.id, { events: ["workflow_run"] })).toMatchObject({
+      ok: false,
+      code: "invalid_input",
+    });
+    expect(
+      await removeGitHubTrustRule(db().global, {
+        userId: t.editor.id,
+        slug: t.slug,
+        ruleId: created.id,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "forbidden" });
+    expect(
+      await removeGitHubTrustRule(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        ruleId: `gtr_${"0".repeat(32)}`,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(
+      await listGitHubTrustRules(db().global, { userId: t.editor.id, slug: t.slug, now: NOW }),
+    ).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("gates changing on the plan but never removing", async () => {
+    const t = await team();
+    const created = await rule(t);
+    await db().delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));
+    expect(
+      await updateGitHubTrustRule(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        ruleId: created.id,
+        body: { ...BODY, events: ["push"], revision: 0 },
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "plan_required" });
+    expect(
+      value(await listGitHubTrustRules(db().global, { userId: t.admin.id, slug: t.slug, now: NOW }))
+        .available,
+    ).toBe(false);
+  });
+
+  it("issues nothing for a rule whose stored scopes give nothing", async () => {
+    const t = await team();
+    const created = await rule(t);
+    await db()
+      .update(schema.githubTrustRules)
+      .set({ scopes: "artifacts:share" })
+      .where(eq(schema.githubTrustRules.id, created.id));
+    expect(
+      await exchangeGitHubToken(db().global, { slug: t.slug, claims: claims(), now: NOW }),
+    ).toEqual({ ok: false, reason: "no_rule" });
+  });
+
+  it("checks the rule's ref and environment", async () => {
+    const t = await team();
+    await rule(t, { ref: "refs/heads/main", environment: "preview", events: ["push"] });
+    const at = (over: Partial<GitHubClaims>) =>
+      exchangeGitHubToken(db().global, {
+        slug: t.slug,
+        claims: claims({ eventName: "push", ...over }),
+        now: NOW,
+      });
+    expect(await at({ ref: "refs/heads/dev", environment: "preview" })).toEqual({
+      ok: false,
+      reason: "ref",
+    });
+    expect(await at({ ref: "refs/heads/main" })).toEqual({ ok: false, reason: "environment" });
+    expect((await at({ ref: "refs/heads/main", environment: "preview" })).ok).toBe(true);
+  });
+});
+
 describe("the exchange", () => {
   it("issues a short-lived credential restricted to the repository's key namespace", async () => {
     const t = await team();
