@@ -2487,18 +2487,19 @@ export const ja = {
     "サービストークンは承認済みのネットワークからのみ使えます。リストはワークスペースの管理者が確認できます。",
   "policies.impact.networksTitle": "このワークスペースにアクセスできるネットワークを制限しますか？",
   "policies.impact.members":
-    "{count, plural, other {# 人のメンバー}}は許可されたネットワークからのみワークスペースにアクセスできるようになります",
+    "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}は許可されたネットワークからのみワークスペースにアクセスできるようになります",
   "policies.impact.tokens":
-    "{count, plural, other {# 個のサービストークン}}は許可されたネットワークからのみ使えるようになります",
+    "{count, plural, one {# 個のサービストークン} other {# 個のサービストークン}}は許可されたネットワークからのみ使えるようになります",
   "policies.impact.networksNote":
     "Portifact は誰のアドレスも保存しないため、現在これらのネットワーク外にいる人を判断できません。あなた自身のアドレスは含まれています。",
   "policies.impact.networksConfirm": "ネットワークを制限",
   "space.blocked.title": "このネットワークからは利用できません",
   "space.blocked.body":
     "{workspace} は承認済みのネットワークからのアクセスのみを許可しており、このネットワークはそのいずれでもありません。承認済みのネットワークに接続するか、ワークスペースの管理者に問い合わせてください。ほかのスペースは引き続き使えます。",
-  "audit.policy.networks": "人は {count, plural, other {# 個のネットワーク}}からのみ",
+  "audit.policy.networks":
+    "人は {count, plural, one {# 個のネットワーク} other {# 個のネットワーク}}からのみ",
   "audit.policy.networksAny": "人はすべてのネットワークから",
   "audit.policy.tokenNetworks":
-    "サービストークンは {count, plural, other {# 個のネットワーク}}からのみ",
+    "サービストークンは {count, plural, one {# 個のネットワーク} other {# 個のネットワーク}}からのみ",
   "audit.policy.tokenNetworksAny": "サービストークンはすべてのネットワークから",
 } satisfies Catalog;

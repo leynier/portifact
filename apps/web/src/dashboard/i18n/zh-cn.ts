@@ -2284,16 +2284,18 @@ export const zhCN = {
   "policies.tokenNetworks.onlyHint": "从其他地址使用的服务令牌会被拒绝。",
   "policies.tokenNetworks.hidden": "服务令牌只能从批准的网络使用。工作区管理员可以查看列表。",
   "policies.impact.networksTitle": "要限制可访问此工作区的网络吗？",
-  "policies.impact.members": "{count, plural, other {# 名成员}}将只能从允许的网络访问工作区",
-  "policies.impact.tokens": "{count, plural, other {# 个服务令牌}}将只能从允许的网络使用",
+  "policies.impact.members":
+    "{count, plural, one {# 名成员} other {# 名成员}}将只能从允许的网络访问工作区",
+  "policies.impact.tokens":
+    "{count, plural, one {# 个服务令牌} other {# 个服务令牌}}将只能从允许的网络使用",
   "policies.impact.networksNote":
     "Portifact 不保存任何人的地址，因此无法判断当前谁在这些网络之外。你自己的地址已包含在内。",
   "policies.impact.networksConfirm": "限制网络",
   "space.blocked.title": "无法从此网络访问",
   "space.blocked.body":
     "{workspace} 只允许从其批准的网络访问，而此网络不在其中。请连接到批准的网络，或联系工作区管理员。你的其他空间仍可正常使用。",
-  "audit.policy.networks": "人员仅限 {count, plural, other {# 个网络}}",
+  "audit.policy.networks": "人员仅限 {count, plural, one {# 个网络} other {# 个网络}}",
   "audit.policy.networksAny": "人员可来自任何网络",
-  "audit.policy.tokenNetworks": "服务令牌仅限 {count, plural, other {# 个网络}}",
+  "audit.policy.tokenNetworks": "服务令牌仅限 {count, plural, one {# 个网络} other {# 个网络}}",
   "audit.policy.tokenNetworksAny": "服务令牌可来自任何网络",
 } satisfies Catalog;
