@@ -100,14 +100,33 @@ async function team(prefix: string) {
   return { id: created.value.id, slug, admin, member };
 }
 
-async function setPolicy(admin: Person, slug: string, next: WorkspacePolicy) {
+/** Saves as the dashboard does: preview, then confirm what the preview reported. */
+async function setPolicy(
+  admin: Person,
+  slug: string,
+  next: WorkspacePolicy,
+  options: { confirmFamilies?: boolean } = {},
+) {
   const base = `/api/v1/workspaces/${slug}/policies`;
   const current = await (await admin.h.request(base, dashboard(admin.cookie))).json<{
     revision: number;
   }>();
+  const preview = await admin.h.request(
+    `${base}/preview`,
+    dashboard(admin.cookie, "POST", { policy: next }),
+  );
+  const families =
+    preview.status === 200
+      ? (await preview.json<{ networks: { singleFamily: unknown } | null }>()).networks
+          ?.singleFamily
+      : undefined;
   return admin.h.request(
     base,
-    dashboard(admin.cookie, "PUT", { policy: next, revision: current.revision }),
+    dashboard(admin.cookie, "PUT", {
+      policy: next,
+      revision: current.revision,
+      ...(families && options.confirmFamilies !== false ? { confirmedSingleFamily: families } : {}),
+    }),
   );
 }
 
@@ -207,5 +226,24 @@ describe("a network allowlist through the app Worker", () => {
     });
     expect(entry.status).toBe(303);
     expect(entry.headers.get("location")).toBe("/login?error=network_refused");
+  });
+
+  it("never shows a blocked admin the networks, the same through the API and MCP", async () => {
+    const t = await team("rpb");
+    expect((await setPolicy(t.admin, t.slug, OFFICE_ONLY)).status).toBe(200);
+    t.admin.at.ip = HOME;
+    const listed = await (await t.admin.call("/api/v1/workspaces")).json<{
+      items: { blocked: boolean; policy: { ipAllowlist: unknown } }[];
+    }>();
+    expect(listed.items[0]).toMatchObject({ blocked: true, policy: { ipAllowlist: "hidden" } });
+    expect(JSON.stringify(listed)).not.toContain("192.0.2");
+    expect((await t.admin.tool("list_workspaces", {})).structuredContent).toEqual(listed);
+  });
+
+  it("refuses a single-family list without its confirmation, through the API", async () => {
+    const t = await team("rpf");
+    const refused = await setPolicy(t.admin, t.slug, OFFICE_ONLY, { confirmFamilies: false });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({ error: { code: "policy_refused" } });
   });
 });

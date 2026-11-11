@@ -35,7 +35,7 @@ import {
   isArtifactId,
   isLoggedLinkOpening,
   isLoggedOpening,
-  networkAdmits,
+  networkDecision,
   normalizePath,
   pageView,
   type TrafficCycle,
@@ -490,14 +490,22 @@ async function serve(
   // on every request. The allowlist came with the artifact lookup, so it adds no read. Members
   // reading another mode are bound when their session renews (`actorOn`), within a minute;
   // public visitors and share links are for people outside and are never bound.
-  if (
-    !networkAdmits({
-      accessMode: artifact.accessMode,
-      networks: artifact.networks,
-      signedIn: visitorId !== null && linkId === undefined,
-      ip: request.headers.get("CF-Connecting-IP"),
-    })
-  ) {
+  const network = networkDecision({
+    accessMode: artifact.accessMode,
+    networks: artifact.networks,
+    signedIn: visitorId !== null && linkId === undefined,
+    ip: request.headers.get("CF-Connecting-IP"),
+  });
+  if (network !== "allowed") {
+    // A stored list that does not parse refuses (fail closed) and is logged by owner, no address.
+    if (network === "unreadable") {
+      console.error(
+        JSON.stringify({
+          event: "workspace_network_policy_unreadable",
+          workspaceId: artifact.ownerId,
+        }),
+      );
+    }
     return withCookies(message(403, PAGES.networkRefused), setCookies);
   }
   // The plan came with the artifact lookup, so the quota and the view count add no read.

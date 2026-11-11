@@ -169,6 +169,7 @@ describe("policies through the dashboard's session", () => {
       domainVerified: false,
       // The request carried no CF-Connecting-IP.
       yourIp: null,
+      serviceTokens: 0,
     });
     const preview = await t.admin.h.request(
       `${base}/preview`,

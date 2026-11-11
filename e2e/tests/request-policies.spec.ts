@@ -75,7 +75,9 @@ test("an admin limits people to the office: a member elsewhere is refused in the
   await expect(
     dialog.getByText("2 members will reach the workspace only from the allowed networks"),
   ).toBeVisible();
-  await dialog.getByRole("button", { name: "Limit networks" }).click();
+  // An IPv4-only list is confirmed as such (decision 0020): IPv6 requests would be refused.
+  await expect(dialog.getByText(/names only IPv4 ranges/)).toBeVisible();
+  await dialog.getByRole("button", { name: "I understand, save" }).click();
   const stored = async () =>
     (
       await sql<{ policy: string | null }>("select policy from workspaces where id = ?", [

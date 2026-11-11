@@ -54,7 +54,7 @@ import {
   WorkspaceSlug,
   WorkspaceView,
 } from "@portifact/contracts";
-import { domainRecord, roleAllows, shownPolicy } from "@portifact/domain";
+import { domainRecord, shownPolicy } from "@portifact/domain";
 import { invitationEmail } from "@portifact/emails";
 import {
   acceptInvitation,
@@ -134,8 +134,8 @@ export function workspaceView(row: UserWorkspace): WorkspaceView {
     role: row.role,
     region: row.region,
     createdAt: iso(row.createdAt),
-    // The network allowlists only to admins (decision 0020).
-    policy: shownPolicy(row.policy, roleAllows(row.role, "policies")),
+    // As the services decided it for this caller (decision 0020); never the networks otherwise.
+    policy: row.shown ?? shownPolicy(row.policy, false),
     blocked: row.blocked ?? false,
   });
 }
@@ -969,6 +969,7 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         policy: body.value.policy,
         revision: body.value.revision,
         confirmed: body.value.confirmed,
+        confirmedSingleFamily: body.value.confirmedSingleFamily,
         now: deps.now(),
       });
       return reply(c, result, (state) => c.json(policyView(state)));

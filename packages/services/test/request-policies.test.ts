@@ -11,6 +11,7 @@ import {
   type WorkspacePolicy,
 } from "@portifact/contracts";
 import {
+  globalDb,
   type RegionalDb,
   type Regions,
   regionsFromEnv,
@@ -21,16 +22,21 @@ import { POLICY_MESSAGES } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getAccess, updateAccess } from "../src/access.ts";
+import { disconnectApp, listConnectedApps } from "../src/account.ts";
 import { actorOn, resolveActor } from "../src/actors.ts";
 import { listAnnotations } from "../src/annotations.ts";
 import { getAuditLog } from "../src/audit.ts";
+import { declineInvitation, inviteMember } from "../src/invitations.ts";
 import { renewArtifact } from "../src/lifecycle.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { checkReadAccess } from "../src/read-access.ts";
 import { createServiceToken } from "../src/service-tokens.ts";
 import { transferArtifact } from "../src/transfer.ts";
+import { getVersionDownload } from "../src/versions.ts";
 import { getViewerArtifact } from "../src/viewer.ts";
 import {
+  applyWorkspacePolicies,
+  CLEAR_ATTEMPTS,
   clearRequestPolicies,
   getWorkspacePolicy,
   previewWorkspacePolicy,
@@ -38,6 +44,7 @@ import {
 } from "../src/workspace-policies.ts";
 import {
   createWorkspace,
+  leaveWorkspace,
   listMembers,
   listUserWorkspaces,
   resolveOwnerScope,
@@ -91,13 +98,26 @@ async function team(plan: "enterprise" | "free" = "enterprise") {
 }
 type Team = Awaited<ReturnType<typeof team>>;
 
-async function save(t: Team, next: WorkspacePolicy, r: Regions = office(), userId = t.admin.id) {
+/**
+ * Saves as the dashboard does: the preview first, then the save confirming exactly the
+ * single-family lists the preview reported (`confirmFamilies: false` confirms nothing).
+ */
+async function save(
+  t: Team,
+  next: WorkspacePolicy,
+  r: Regions = office(),
+  userId = t.admin.id,
+  options: { confirmFamilies?: boolean } = {},
+) {
   const current = value(await getWorkspacePolicy(r.global, { userId, slug: t.slug, now: NOW }));
+  const preview = await previewWorkspacePolicy(r, { userId, slug: t.slug, policy: next, now: NOW });
+  const families = preview.ok ? preview.value.networks?.singleFamily : undefined;
   return setWorkspacePolicy(r, {
     userId,
     slug: t.slug,
     policy: next,
     revision: current.revision,
+    ...(options.confirmFamilies !== false && families ? { confirmedSingleFamily: families } : {}),
     now: NOW,
   });
 }
@@ -119,25 +139,26 @@ async function token(t: Team) {
   ).token.id;
 }
 
-async function publishIn(userId: string, ownerId: string) {
-  const body = `<p>${crypto.randomUUID()}</p>`;
+async function publishIn(userId: string, ownerId: string, type: "site" | "markdown" = "site") {
+  const body = type === "site" ? `<p>${crypto.randomUUID()}</p>` : `# ${crypto.randomUUID()}`;
+  const entry = type === "site" ? "index.html" : "index.md";
   const digest = await sha256(body);
   const db = office().get("default").db;
   const prepared = value(
     await preparePublish(db, {
       userId,
       targetOwnerId: ownerId,
-      type: "site",
+      type,
       name: "Plan",
-      entrypoint: "index.html",
+      entrypoint: entry,
       baseVersionId: null,
       files: [
         {
-          path: "index.html",
+          path: entry,
           kind: "published",
           sha256: digest,
           size: body.length,
-          contentType: "text/html",
+          contentType: type === "site" ? "text/html" : "text/markdown",
         },
       ],
       now: NOW,
@@ -385,7 +406,7 @@ describe("changing the network allowlists", () => {
           now: NOW,
         }),
       ).networks,
-    ).toEqual({ members: 3, tokens: 1 });
+    ).toMatchObject({ members: 3, tokens: 1 });
   });
 
   it("needs the plan to set or tighten, never to loosen, and keeps applying after a lapse", async () => {
@@ -545,5 +566,279 @@ describe("a stored allowlist", () => {
     expect(row?.policy).toEqual(OFFICE_ONLY);
     // Not an IP anywhere else: the feature stores ranges an admin typed, never a visitor's address.
     expect(await sha256(JSON.stringify(row))).toBeTypeOf("string");
+  });
+});
+
+describe("review fixes (decision 0020)", () => {
+  it("never saves a list covering one address family without confirming exactly that", async () => {
+    const t = await team();
+    // The preview reports it, for each list that is set or changed.
+    const preview = value(
+      await previewWorkspacePolicy(office(), {
+        userId: t.admin.id,
+        slug: t.slug,
+        policy: policy({ ipAllowlist: ["192.0.2.0/24"], tokenIpAllowlist: ["2001:db8::/32"] }),
+        now: NOW,
+      }),
+    );
+    expect(preview.networks?.singleFamily).toEqual({ people: "ipv4", tokens: "ipv6" });
+    // Unconfirmed: refused, naming both lists.
+    const refused = await save(
+      t,
+      policy({ ipAllowlist: ["192.0.2.0/24"], tokenIpAllowlist: ["2001:db8::/32"] }),
+      office(),
+      t.admin.id,
+      { confirmFamilies: false },
+    );
+    expect(refused).toMatchObject({ ok: false, code: "policy_refused" });
+    if (!refused.ok) expect(refused.message).toContain("people and for service tokens");
+    // A confirmation of something else is refused again.
+    const current = value(
+      await getWorkspacePolicy(office().global, { userId: t.admin.id, slug: t.slug, now: NOW }),
+    );
+    expect(
+      await setWorkspacePolicy(office(), {
+        userId: t.admin.id,
+        slug: t.slug,
+        policy: OFFICE_ONLY,
+        revision: current.revision,
+        confirmedSingleFamily: { people: "ipv6", tokens: null },
+        now: NOW,
+      }),
+    ).toMatchObject({ code: "policy_refused" });
+    // Confirmed exactly: saved. Both families need no confirmation at all.
+    value(await save(t, OFFICE_ONLY));
+    const both = policy({ ipAllowlist: ["192.0.2.0/24", "2001:db8::/32"] });
+    const saved = value(await save(t, both, office(), t.admin.id, { confirmFamilies: false }));
+    expect(saved.policy.ipAllowlist).toEqual(["192.0.2.0/24", "2001:db8::/32"]);
+    // An unchanged single-family list is not asked about again on another change.
+    value(await save(t, OFFICE_ONLY));
+    value(
+      await save(t, { ...OFFICE_ONLY, publicAccess: "forbidden" }, office(), t.admin.id, {
+        confirmFamilies: false,
+      }),
+    );
+  });
+
+  it("shows a blocked admin only that lists exist, never the networks", async () => {
+    const t = await team();
+    value(await save(t, OFFICE_ONLY));
+    const away = (await listUserWorkspaces(home().global, t.admin.id)).find((w) => w.id === t.id);
+    expect(away).toMatchObject({ blocked: true, shown: { ipAllowlist: "hidden" } });
+    const inside = (await listUserWorkspaces(office().global, t.admin.id)).find(
+      (w) => w.id === t.id,
+    );
+    expect(inside?.shown?.ipAllowlist).toEqual(["192.0.2.0/24"]);
+    const editor = (await listUserWorkspaces(office().global, t.editor.id)).find(
+      (w) => w.id === t.id,
+    );
+    expect(editor?.shown?.ipAllowlist).toBe("hidden");
+  });
+
+  it("counts the service tokens a people-only list leaves working from anywhere, for admins", async () => {
+    const t = await team();
+    await token(t);
+    await token(t);
+    const preview = value(
+      await previewWorkspacePolicy(office(), {
+        userId: t.admin.id,
+        slug: t.slug,
+        policy: OFFICE_ONLY,
+        now: NOW,
+      }),
+    );
+    expect(preview.networks).toMatchObject({ members: 3, tokens: 0, unboundTokens: 2 });
+    const bound = value(
+      await previewWorkspacePolicy(office(), {
+        userId: t.admin.id,
+        slug: t.slug,
+        policy: { ...OFFICE_ONLY, tokenIpAllowlist: ["203.0.113.0/24"] },
+        now: NOW,
+      }),
+    );
+    expect(bound.networks).toMatchObject({ tokens: 2, unboundTokens: 0 });
+    const view = (userId: string) =>
+      getWorkspacePolicy(office().global, { userId, slug: t.slug, now: NOW });
+    expect(value(await view(t.admin.id)).serviceTokens).toBe(2);
+    expect(value(await view(t.member.id)).serviceTokens).toBeNull();
+  });
+
+  it("fails closed, never throwing, on a stored list that does not parse", async () => {
+    const t = await team();
+    await office()
+      .global.update(schema.workspaces)
+      .set({ policy: { ...OFFICE_ONLY, ipAllowlist: ["10.0.0.0/33"] }, policyRevision: 9 })
+      .where(eq(schema.workspaces.id, t.id));
+    const logged: string[] = [];
+    const error = console.error;
+    console.error = (line: string) => logged.push(line);
+    try {
+      for (const r of [office(), home()]) {
+        expect(await resolveActor(r.global, t.member.id, t.id)).toEqual({
+          ok: false,
+          code: "policy_refused",
+          message: POLICY_MESSAGES.networkUnreadable,
+        });
+      }
+    } finally {
+      console.error = error;
+    }
+    expect(logged.map((line) => JSON.parse(line))).toContainEqual({
+      event: "workspace_network_policy_unreadable",
+      workspaceId: t.id,
+    });
+    expect(logged.join("")).not.toContain("10.0.0.0");
+    // The list still blocks, and the workspace still lists; the escape hatch fixes it.
+    expect((await listUserWorkspaces(office().global, t.member.id))[0]?.blocked).toBe(true);
+    expect((await clearRequestPolicies(regionsAt(BACKGROUND).global, t.id, NOW)).outcome).toBe(
+      "cleared",
+    );
+    expect((await resolveActor(home().global, t.member.id, t.id)).ok).toBe(true);
+  });
+
+  it("validates every exported policy before applying any, and never lifts one silently", async () => {
+    const t = await team();
+    const other = await team();
+    const background = regionsAt(BACKGROUND).global;
+    expect(
+      await applyWorkspacePolicies(
+        background,
+        [
+          { workspaceId: other.id, policy: policy({ publicAccess: "forbidden" }) },
+          { workspaceId: t.id, policy: policy({ ipAllowlist: ["10.0.0.0/33"] }) },
+        ],
+        NOW,
+      ),
+    ).toMatchObject({ ok: false, index: 1, message: expect.stringContaining("10.0.0.0/33") });
+    // Nothing applied, not even the valid first item.
+    const stored = async (id: string) =>
+      (
+        await background
+          .select({ policy: schema.workspaces.policy })
+          .from(schema.workspaces)
+          .where(eq(schema.workspaces.id, id))
+      )[0]?.policy ?? null;
+    expect(await stored(other.id)).toBeNull();
+    // Ranges are normalized as a save would.
+    const applied = await applyWorkspacePolicies(
+      background,
+      [{ workspaceId: t.id, policy: policy({ ipAllowlist: ["192.0.2.9/24", "192.0.2.1"] }) }],
+      NOW,
+    );
+    expect(applied).toMatchObject({ ok: true, applied: 1, lifting: [] });
+    expect(await stored(t.id)).toMatchObject({ ipAllowlist: ["192.0.2.0/24"] });
+    // An export older than a restriction would lift it: reported and left as it is.
+    const older = { workspaceId: t.id, policy: DEFAULT_POLICY };
+    expect(await applyWorkspacePolicies(background, [older], NOW + 1)).toMatchObject({
+      ok: true,
+      applied: 0,
+      lifting: [{ workspaceId: t.id, fields: ["ipAllowlist"] }],
+    });
+    expect(await stored(t.id)).toMatchObject({ ipAllowlist: ["192.0.2.0/24"] });
+    // Replacing the network with another lifts the old one too.
+    const moved = { workspaceId: t.id, policy: policy({ ipAllowlist: ["198.51.100.0/24"] }) };
+    expect(await applyWorkspacePolicies(background, [moved], NOW + 1)).toMatchObject({
+      lifting: [{ workspaceId: t.id, fields: ["ipAllowlist"] }],
+    });
+    // Only with the explicit intent.
+    expect(
+      await applyWorkspacePolicies(background, [older], NOW + 2, { allowLifting: true }),
+    ).toMatchObject({ ok: true, applied: 1, lifting: [] });
+    expect(await stored(t.id)).toMatchObject({ ipAllowlist: null });
+  });
+
+  it("lets a blocked member leave, and keeps account-level actions working", async () => {
+    const t = await team();
+    value(await save(t, OFFICE_ONLY));
+    expect(await leaveWorkspace(home().global, { userId: t.member.id, slug: t.slug })).toEqual({
+      ok: true,
+      value: { removed: true },
+    });
+    expect((await listUserWorkspaces(home().global, t.member.id)).map((w) => w.id)).not.toContain(
+      t.id,
+    );
+    // Someone with no membership answers like a missing workspace, as before.
+    expect(await leaveWorkspace(home().global, { userId: t.outsider.id, slug: t.slug })).toEqual({
+      ok: false,
+      code: "not_found",
+      message: "Workspace not found.",
+    });
+    // An invitation can be declined from anywhere: declining never acts on the workspace.
+    const sent: string[] = [];
+    value(
+      await inviteMember(
+        office().global,
+        { userId: t.admin.id, slug: t.slug, email: t.outsider.email, role: "member", now: NOW },
+        {
+          async send(message) {
+            sent.push(message.token);
+          },
+        },
+      ),
+    );
+    expect(
+      await declineInvitation(home().global, {
+        userId: t.outsider.id,
+        key: { token: sent[0] as string },
+        now: NOW,
+      }),
+    ).toEqual({ ok: true, value: { declined: true } });
+    // The account's own apps and sessions are never the workspace's.
+    expect(await listConnectedApps(home().global, { userId: t.editor.id, now: NOW })).toEqual([]);
+    expect(
+      await disconnectApp(home().global, { userId: t.editor.id, clientId: "none" }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+  });
+
+  it("lets a blocked member download a public document as anyone, nothing else", async () => {
+    const t = await team();
+    const doc = await publishIn(t.editor.id, t.id, "markdown");
+    await office()
+      .get("default")
+      .db.update(schema.artifacts)
+      .set({ accessMode: "public" })
+      .where(eq(schema.artifacts.id, doc));
+    value(await save(t, OFFICE_ONLY));
+    const download = () =>
+      getVersionDownload(home().get("default").db, {
+        userId: t.member.id,
+        artifactId: doc,
+        versionId: "current",
+        kind: "published",
+        now: NOW,
+      });
+    expect((await download()).ok).toBe(true);
+    await office()
+      .get("default")
+      .db.update(schema.artifacts)
+      .set({ accessMode: "workspace" })
+      .where(eq(schema.artifacts.id, doc));
+    expect(await download()).toEqual(networkRefusal(HOME_IP));
+  });
+
+  it("gives up after a bounded number of conflicting saves", async () => {
+    const t = await team();
+    value(await save(t, OFFICE_ONLY));
+    let saves = 0;
+    // Every attempt's batch races a save that moves the revision first.
+    const d1 = new Proxy(env.DB, {
+      get(target, property) {
+        if (property === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            saves += 1;
+            await target
+              .prepare("update workspaces set policy_revision = ? where id = ?")
+              .bind(100 + saves, t.id)
+              .run();
+            return target.batch(statements);
+          };
+        }
+        const real = Reflect.get(target, property, target);
+        return typeof real === "function" ? real.bind(target) : real;
+      },
+    });
+    const racing = globalDb(d1, BACKGROUND);
+    expect(await clearRequestPolicies(racing, t.id, NOW)).toEqual({ outcome: "conflict" });
+    expect(saves).toBe(CLEAR_ATTEMPTS);
   });
 });

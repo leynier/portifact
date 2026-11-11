@@ -143,7 +143,8 @@ Commands:
   export-plans --out <file>
   apply-plans --file <file>
   export-policies --out <file>
-  apply-policies --file <file>
+  apply-policies --file <file> [--allow-lifting]
+                               (--allow-lifting also lifts restrictions the file does not have)
   clear-request-policies <slug|workspace-id> --confirm <slug>
                                (lifts the network allowlists only, for admins locked out)
   workspaces
@@ -1108,10 +1109,24 @@ export async function runOperator(
           output: `Line ${parsed.line} of ${file} is not an exported workspace policy; nothing was applied.`,
         };
       }
-      const result = await applyWorkspacePolicies(global, parsed.items, now);
+      const result = await applyWorkspacePolicies(global, parsed.items, now, {
+        allowLifting: options.has("allow-lifting"),
+      });
+      if (!result.ok) {
+        return {
+          exitCode: 1,
+          output: `Line ${result.index + 1} of ${file} is not a valid workspace policy (${result.message}); nothing was applied.`,
+        };
+      }
       const lines = [
         `Applied ${result.applied} workspace policy(ies); skipped ${result.skipped} (unchanged, or the workspace is gone).`,
       ];
+      if (result.lifting.length > 0) {
+        lines.push(
+          `${result.lifting.length} workspace(s) were left as they are because the file would lift a restriction they have now (an export older than it); run again with --allow-lifting only if lifting them is intended:`,
+          ...result.lifting.map((item) => `  ${item.workspaceId}: ${item.fields.join(", ")}`),
+        );
+      }
       if (result.extra.length > 0) {
         lines.push(
           `${result.extra.length} workspace(s) have a policy the file does not list; review each on its Policies page (it was set before the restore point):`,
@@ -1132,6 +1147,12 @@ export async function runOperator(
       }
       const result = await clearRequestPolicies(global, detail.id, now);
       if (result.outcome === "missing") return { exitCode: 1, output: "Workspace not found." };
+      if (result.outcome === "conflict") {
+        return {
+          exitCode: 1,
+          output: `The policies of ${detail.slug} kept changing while lifting its network allowlists; nothing was changed. Run the command again.`,
+        };
+      }
       if (result.outcome === "unchanged") {
         return {
           exitCode: 0,

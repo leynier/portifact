@@ -2564,4 +2564,11 @@ export const de = {
   "audit.policy.tokenNetworks":
     "Service-Tokens nur aus {count, plural, one {# Netzwerk} other {# Netzwerken}}",
   "audit.policy.tokenNetworksAny": "Service-Tokens aus jedem Netzwerk",
+  "policies.networks.bothFamilies":
+    "Netzwerke mit IPv4 und IPv6 brauchen beide Bereiche: Ein Browser kann Portifact über beide erreichen, und Anfragen über eine Familie, die nicht in der Liste steht, werden abgelehnt.",
+  "policies.impact.singleFamily":
+    "{list, select, people {Die Liste für Personen} other {Die Liste für Service-Tokens}} enthält nur {family, select, ipv4 {IPv4} other {IPv6}}-Bereiche: Anfragen über {family, select, ipv4 {IPv6} other {IPv4}} werden abgelehnt, auch aus diesen Netzwerken",
+  "policies.impact.unboundTokens":
+    "{count, plural, one {# Service-Token funktioniert} other {# Service-Tokens funktionieren}} weiterhin aus jedem Netzwerk. Lege eine Liste für Service-Tokens fest, um sie ebenfalls einzuschränken",
+  "policies.impact.familiesConfirm": "Verstanden, speichern",
 } satisfies Catalog;

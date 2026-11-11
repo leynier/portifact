@@ -12,14 +12,20 @@ import {
   changedFields,
   checkPolicyKeepsCaller,
   checkRequestPolicy,
+  checkSingleFamily,
   describePolicy,
   isDefaultPolicy,
+  liftedFields,
   networkAdmits,
+  networkDecision,
   normalizePolicy,
   POLICY_MESSAGES,
   policyChangeDetail,
   policyChangeNeedsPlan,
+  requestVerdict,
+  seesNetworks,
   shownPolicy,
+  singleFamilyLists,
   withoutRequestPolicies,
 } from "./workspace-policies.ts";
 
@@ -198,5 +204,90 @@ describe("the content Worker's check", () => {
     expect(
       networkAdmits({ accessMode: "workspace", networks: null, signedIn: true, ip: null }),
     ).toBe(true);
+  });
+});
+
+describe("review fixes", () => {
+  it("reports and checks single-family lists for what a save sets or changes", () => {
+    const v4 = policy({ ipAllowlist: ["192.0.2.0/24"] });
+    const both = policy({ ipAllowlist: ["192.0.2.0/24", "2001:db8::/32"] });
+    expect(singleFamilyLists(DEFAULT_POLICY, v4)).toEqual({ people: "ipv4", tokens: null });
+    expect(singleFamilyLists(DEFAULT_POLICY, both)).toEqual({ people: null, tokens: null });
+    // Unchanged: not asked again.
+    expect(singleFamilyLists(v4, { ...v4, publicAccess: "forbidden" })).toEqual({
+      people: null,
+      tokens: null,
+    });
+    expect(
+      singleFamilyLists(DEFAULT_POLICY, policy({ tokenIpAllowlist: ["2001:db8::/32"] })),
+    ).toEqual({ people: null, tokens: "ipv6" });
+    const required = { people: "ipv4", tokens: null } as const;
+    expect(checkSingleFamily({ people: null, tokens: null }, undefined).ok).toBe(true);
+    expect(checkSingleFamily(required, required).ok).toBe(true);
+    expect(checkSingleFamily(required, undefined)).toMatchObject({ code: "policy_refused" });
+    expect(checkSingleFamily(required, { people: "ipv6", tokens: null })).toMatchObject({
+      code: "policy_refused",
+    });
+    expect(checkSingleFamily({ people: null, tokens: "ipv4" }, undefined)).toMatchObject({
+      message: expect.stringContaining("service tokens"),
+    });
+  });
+
+  it("shows the networks only to an admin the policy admits", () => {
+    expect(seesNetworks("admin", false)).toBe(true);
+    expect(seesNetworks("admin", true)).toBe(false);
+    expect(seesNetworks("editor", false)).toBe(false);
+  });
+
+  it.each([
+    [OFFICE, DEFAULT_POLICY, ["ipAllowlist"]],
+    [OFFICE, policy({ ipAllowlist: ["198.51.100.0/24"] }), ["ipAllowlist"]],
+    [OFFICE, policy({ ipAllowlist: ["192.0.2.0/25"] }), []],
+    [DEFAULT_POLICY, OFFICE, []],
+    [policy({ publicAccess: "forbidden" }), DEFAULT_POLICY, ["publicAccess"]],
+    [
+      policy({ readerDomains: ["a.example"] }),
+      policy({ readerDomains: ["b.example"] }),
+      ["readerDomains"],
+    ],
+    [
+      policy({ readerDomains: ["a.example", "b.example"] }),
+      policy({ readerDomains: ["a.example"] }),
+      [],
+    ],
+    [
+      policy({ shareLinks: "disabled" }),
+      policy({ shareLinks: "password_required" }),
+      ["shareLinks"],
+    ],
+    [policy({ shareLinkMaxDays: 5 }), policy({ shareLinkMaxDays: 10 }), ["shareLinkMaxDays"]],
+    [policy({ defaultAccess: "workspace" }), DEFAULT_POLICY, []],
+    [policy({ tokenIpAllowlist: ["203.0.113.0/24"] }), DEFAULT_POLICY, ["tokenIpAllowlist"]],
+  ] as const)("lifting %#", (current, next, lifted) => {
+    expect(liftedFields(current, next)).toEqual(lifted);
+  });
+
+  it("refuses everyone a stored list binds when it does not parse, without throwing", () => {
+    const broken = policy({ ipAllowlist: ["10.0.0.0/33"] });
+    expect(requestVerdict(broken, from("10.0.0.1"), "person")).toBe("unreadable");
+    expect(checkRequestPolicy(broken, from("10.0.0.1"), "person")).toEqual({
+      ok: false,
+      code: "policy_refused",
+      message: POLICY_MESSAGES.networkUnreadable,
+    });
+    expect(requestVerdict(broken, BACKGROUND, "person")).toBe("allowed");
+    expect(
+      networkDecision({
+        accessMode: "workspace",
+        networks: ["bad"],
+        signedIn: true,
+        ip: "1.1.1.1",
+      }),
+    ).toBe("unreadable");
+    expect(
+      networkAdmits({ accessMode: "workspace", networks: ["bad"], signedIn: true, ip: "1.1.1.1" }),
+    ).toBe(false);
+    // Lifting a broken list is loosening: it admitted nobody.
+    expect(policyChangeNeedsPlan(broken, DEFAULT_POLICY)).toBe(false);
   });
 });

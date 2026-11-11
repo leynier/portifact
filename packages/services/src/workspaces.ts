@@ -12,6 +12,7 @@ import {
   type OwnerView,
   type Region,
   type WorkspacePolicy,
+  type WorkspacePolicyShown,
   type WorkspaceRole,
 } from "@portifact/contracts";
 import {
@@ -37,6 +38,8 @@ import {
   policyOf,
   type RequestCaller,
   type Result,
+  seesNetworks,
+  shownPolicy,
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import { claimArtifacts } from "./account-data.ts";
@@ -137,6 +140,12 @@ export interface UserWorkspace extends WorkspaceRow {
    * them, so the list itself is never refused.
    */
   blocked?: boolean;
+  /**
+   * The policy as this caller sees it (`shownPolicy`): the networks only to an admin the network
+   * policy admits, so a stolen admin session used from elsewhere never learns them. Absent where
+   * the list was not built for a caller; adapters then show the networks to nobody.
+   */
+  shown?: WorkspacePolicyShown;
 }
 
 /** The workspaces the user is a member of, with their role, by name. */
@@ -182,13 +191,17 @@ export async function listUserWorkspaces(
 
 function listed(
   global: GlobalDb,
-  row: Omit<UserWorkspace, "policy" | "region" | "blocked"> & { region: string; policy: unknown },
+  row: Omit<UserWorkspace, "policy" | "region" | "blocked" | "shown"> & {
+    region: string;
+    policy: unknown;
+  },
   caller: RequestCaller,
 ): UserWorkspace {
   const policy = policyOf(row.policy);
   // The policy came with the row: deciding it reads nothing more.
   const blocked = !checkRequestPolicy(policy, global.request, caller).ok;
-  return { ...row, region: regionOf(row), policy, blocked };
+  const shown = shownPolicy(policy, seesNetworks(row.role, blocked));
+  return { ...row, region: regionOf(row), policy, blocked, shown };
 }
 
 /**
@@ -475,9 +488,14 @@ export async function leaveWorkspace(
   global: GlobalDb,
   input: { userId: string; slug: string; now?: number | undefined },
 ): Promise<Result<{ removed: true }>> {
-  const found = await scoped(global, input.userId, input.slug, "read");
-  if (!found.ok) return found;
-  return dropMember(global, found.value.workspace.id, input.userId, true, sql`1`, {
+  // Leaving only reduces access, so the request policies, which bind acting on the workspace, do
+  // not stop it (decision 0020): someone refused from elsewhere can still leave. No role is
+  // decided here, only whether the membership exists; the last-admin rule applies as always.
+  const workspace = await workspaceBySlug(global, input.slug);
+  if (!workspace || !(await membership(global, workspace.id, input.userId))) {
+    return missingWorkspace();
+  }
+  return dropMember(global, workspace.id, input.userId, true, sql`1`, {
     userId: input.userId,
     now: input.now ?? Date.now(),
   });

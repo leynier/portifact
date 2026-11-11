@@ -241,6 +241,8 @@ describe("reading, previewing and changing policies", () => {
         domainVerified: false,
         // The test's handles answer no real request: no address to show.
         yourIp: null,
+        // Active service tokens are counted for admins only.
+        serviceTokens: editable ? 0 : null,
       });
     }
     const missing = { ok: false, code: "not_found", message: "Workspace not found." };
@@ -797,6 +799,7 @@ describe("a restore", () => {
     value(await save(extra, policy({ shareLinks: "password_required" })));
     const gone = { workspaceId: `ws_${hex()}`, policy: strict };
     const result = await applyWorkspacePolicies(db().global, [...exported, gone], NOW + DAY);
+    if (!result.ok) throw new Error(result.message);
     expect(result.applied).toBe(1);
     expect(result.skipped).toBe(2);
     expect(result.extra).toContain(extra.id);
@@ -806,7 +809,10 @@ describe("a restore", () => {
     expect(events.at(0)?.actor).toEqual({ type: "operator" });
     expect(await outboxJobs(t.id)).toHaveLength(2);
     // Running it again changes nothing.
-    expect((await applyWorkspacePolicies(db().global, exported, NOW + DAY)).applied).toBe(0);
+    expect(await applyWorkspacePolicies(db().global, exported, NOW + DAY)).toMatchObject({
+      ok: true,
+      applied: 0,
+    });
   });
 });
 

@@ -184,3 +184,54 @@ describe("clear-request-policies", () => {
     expect(OPERATOR_USAGE).toContain("clear-request-policies <slug|workspace-id>");
   });
 });
+
+describe("apply-policies after the review (decision 0020)", () => {
+  const filesWith = (text: string) => ({ read: async () => text, write: async () => {} });
+
+  it("refuses a file with an invalid range, naming the line, and applies nothing", async () => {
+    const first = await workspace(null);
+    const second = await workspace(null);
+    const text = [
+      JSON.stringify({ workspaceId: first, policy: POLICY }),
+      JSON.stringify({ workspaceId: second, policy: { ...POLICY, ipAllowlist: ["10.0.0.0/33"] } }),
+    ].join("\n");
+    const result = await runOperator(db(), ["apply-policies", "--file", "p"], NOW, filesWith(text));
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain("Line 2 of p is not a valid workspace policy");
+    expect(result.output).toContain("10.0.0.0/33");
+    const rows = await db()
+      .select({ policy: schema.workspaces.policy })
+      .from(schema.workspaces)
+      .where(eq(schema.workspaces.id, first));
+    expect(rows[0]?.policy).toBeNull();
+  });
+
+  it("reports what an older file would lift and lifts it only with --allow-lifting", async () => {
+    const id = await workspace(POLICY);
+    const older = JSON.stringify({
+      workspaceId: id,
+      policy: { ...POLICY, publicAccess: "allowed", ipAllowlist: null },
+    });
+    const kept = await runOperator(db(), ["apply-policies", "--file", "p"], NOW, filesWith(older));
+    expect(kept.exitCode).toBe(0);
+    expect(kept.output).toContain("Applied 0 workspace policy(ies)");
+    expect(kept.output).toContain(`  ${id}: publicAccess, ipAllowlist`);
+    const stored = async () =>
+      (
+        await db()
+          .select({ policy: schema.workspaces.policy })
+          .from(schema.workspaces)
+          .where(eq(schema.workspaces.id, id))
+      )[0]?.policy;
+    expect(await stored()).toEqual(POLICY);
+    const lifted = await runOperator(
+      db(),
+      ["apply-policies", "--file", "p", "--allow-lifting"],
+      NOW + 1,
+      filesWith(older),
+    );
+    expect(lifted.output).toContain("Applied 1 workspace policy(ies)");
+    expect(await stored()).toMatchObject({ publicAccess: "allowed", ipAllowlist: null });
+    expect(OPERATOR_USAGE).toContain("--allow-lifting");
+  });
+});

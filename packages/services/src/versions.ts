@@ -384,8 +384,10 @@ export async function getVersionDownload(
   const artifact = await loadArtifact(db, input.artifactId);
   if (!artifact) return missingVersion();
   const resolved = await actorOn(db.global, input.userId, artifact);
-  if (!resolved.ok) return resolved;
-  const actor = resolved.value;
+  // As `checkReadAccess`: a person a request policy refuses reads a public document as anyone,
+  // and nothing else of the workspace (decision 0020).
+  if (!resolved.ok && artifact.accessMode !== "public") return resolved;
+  const actor = resolved.ok ? resolved.value : null;
   if (!(actor && can(actor, "versions"))) {
     if (input.kind !== "published" || artifact.type === "site") return missingVersion();
     const ref = input.versionId === CURRENT_VERSION ? artifact.currentVersionId : input.versionId;

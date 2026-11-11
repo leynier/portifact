@@ -2483,6 +2483,13 @@ export const en = {
   "audit.policy.tokenNetworks":
     "service tokens only from {count, plural, one {# network} other {# networks}}",
   "audit.policy.tokenNetworksAny": "service tokens from any network",
+  "policies.networks.bothFamilies":
+    "Networks that use both IPv4 and IPv6 need both ranges: a browser can reach Portifact over either, and requests over a family the list does not name are refused.",
+  "policies.impact.singleFamily":
+    "{list, select, people {The list for people} other {The list for service tokens}} names only {family, select, ipv4 {IPv4} other {IPv6}} ranges: requests that arrive over {family, select, ipv4 {IPv6} other {IPv4}} will be refused, also from these networks",
+  "policies.impact.unboundTokens":
+    "{count, plural, one {# service token keeps} other {# service tokens keep}} working from any network. Set a list for service tokens to limit them too",
+  "policies.impact.familiesConfirm": "I understand, save",
 } as const;
 
 export type MessageId = keyof typeof en;

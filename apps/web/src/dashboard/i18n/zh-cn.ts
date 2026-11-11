@@ -2298,4 +2298,11 @@ export const zhCN = {
   "audit.policy.networksAny": "人员可来自任何网络",
   "audit.policy.tokenNetworks": "服务令牌仅限 {count, plural, one {# 个网络} other {# 个网络}}",
   "audit.policy.tokenNetworksAny": "服务令牌可来自任何网络",
+  "policies.networks.bothFamilies":
+    "同时使用 IPv4 和 IPv6 的网络需要两类范围：浏览器可能通过其中任何一种访问 Portifact，而通过列表未包含的地址族到达的请求会被拒绝。",
+  "policies.impact.singleFamily":
+    "{list, select, people {人员列表} other {服务令牌列表}}只包含 {family, select, ipv4 {IPv4} other {IPv6}} 范围：通过 {family, select, ipv4 {IPv6} other {IPv4}} 到达的请求会被拒绝，即使来自这些网络",
+  "policies.impact.unboundTokens":
+    "{count, plural, one {# 个服务令牌} other {# 个服务令牌}}仍可从任何网络使用。如需同样限制它们，请为服务令牌设置列表",
+  "policies.impact.familiesConfirm": "我已了解，保存",
 } satisfies Catalog;

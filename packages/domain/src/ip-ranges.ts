@@ -226,13 +226,52 @@ export function normalizeIpRanges(written: readonly string[]): Result<string[]> 
   return ok(kept.map(rangeText));
 }
 
-/** Stored (normalized) ranges, parsed once for matching. A stored range always parses. */
+/** Stored (normalized) ranges, parsed once for matching; throws on one that does not parse. */
 export function compileIpRanges(stored: readonly string[]): IpRange[] {
-  return stored.map((text) => {
+  const ranges = readIpRanges(stored);
+  if (!ranges) throw new Error("A stored IP range does not parse");
+  return ranges;
+}
+
+/**
+ * Stored ranges parsed for matching, or null when any of them does not parse. Enforcement uses
+ * this, never `compileIpRanges`: a list that a corrupted row or a hand-edited restore put in the
+ * database must refuse (fail closed), never throw (decision 0020).
+ */
+export function readIpRanges(stored: readonly string[]): IpRange[] | null {
+  const ranges: IpRange[] = [];
+  for (const text of stored) {
+    if (typeof text !== "string") return null;
     const range = parseIpRange(text);
-    if (!range.ok) throw new Error("A stored IP range does not parse");
-    return range.value;
-  });
+    if (!range.ok) return null;
+    ranges.push(range.value);
+  }
+  return ranges;
+}
+
+/** What an allowlist says about an address: admitted, refused, or unreadable (refused too). */
+export type NetworkVerdict = "allowed" | "refused" | "unreadable";
+
+export function networkVerdict(stored: readonly string[], ip: string | null): NetworkVerdict {
+  const ranges = readIpRanges(stored);
+  if (!ranges) return "unreadable";
+  return ipAllowed(ip, ranges) ? "allowed" : "refused";
+}
+
+export type IpFamily = "ipv4" | "ipv6";
+
+/**
+ * The one address family a list covers, or null when it names both. A list of only IPv4 (or
+ * only IPv6) ranges refuses everyone whose network also speaks the other family as soon as a
+ * request arrives over it, which on a dual-stack network the browser decides per connection.
+ */
+export function singleFamily(stored: readonly string[]): IpFamily | null {
+  const ranges = readIpRanges(stored);
+  if (!ranges || ranges.length === 0) return null;
+  const v4 = ranges.some((range) => range.bytes.length === 4);
+  const v6 = ranges.some((range) => range.bytes.length === 16);
+  if (v4 && v6) return null;
+  return v4 ? "ipv4" : "ipv6";
 }
 
 /** Whether a client's address is in an allowlist. No address (or an unreadable one) never is. */
@@ -241,8 +280,14 @@ export function ipAllowed(ip: string | null, ranges: readonly IpRange[]): boolea
   return bytes !== null && ranges.some((range) => rangeContains(range, bytes));
 }
 
-/** Whether every range of `narrower` lies inside some range of `wider`. */
+/**
+ * Whether every range of `narrower` lies inside some range of `wider`. An unreadable `narrower`
+ * admitted nobody, so anything covers it; an unreadable `wider` covers nothing.
+ */
 export function rangesCovered(narrower: readonly string[], wider: readonly string[]): boolean {
-  const outer = compileIpRanges(wider);
-  return compileIpRanges(narrower).every((range) => outer.some((o) => rangeCovers(o, range)));
+  const inner = readIpRanges(narrower);
+  if (!inner) return true;
+  const outer = readIpRanges(wider);
+  if (!outer) return false;
+  return inner.every((range) => outer.some((o) => rangeCovers(o, range)));
 }

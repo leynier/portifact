@@ -2544,4 +2544,11 @@ export const ru = {
   "audit.policy.tokenNetworks":
     "сервисные токены только из {count, plural, one {# сети} few {# сетей} many {# сетей} other {# сети}}",
   "audit.policy.tokenNetworksAny": "сервисные токены из любой сети",
+  "policies.networks.bothFamilies":
+    "Сетям, использующим IPv4 и IPv6, нужны оба диапазона: браузер может обращаться к Portifact по любому из протоколов, а запросы по семейству, которого нет в списке, отклоняются.",
+  "policies.impact.singleFamily":
+    "{list, select, people {Список для людей} other {Список для сервисных токенов}} содержит только диапазоны {family, select, ipv4 {IPv4} other {IPv6}}: запросы по {family, select, ipv4 {IPv6} other {IPv4}} будут отклонены, даже из этих сетей",
+  "policies.impact.unboundTokens":
+    "{count, plural, one {# сервисный токен продолжает} few {# сервисных токена продолжают} many {# сервисных токенов продолжают} other {# сервисного токена продолжают}} работать из любой сети. Задайте список для сервисных токенов, чтобы ограничить и их",
+  "policies.impact.familiesConfirm": "Понятно, сохранить",
 } satisfies Catalog;

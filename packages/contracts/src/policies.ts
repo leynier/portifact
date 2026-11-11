@@ -136,8 +136,33 @@ export type PolicyImpact = z.infer<typeof PolicyImpact>;
  * set, `tokens` (active service tokens) when the token allowlist is; null without either.
  * Portifact keeps nobody's address, so it cannot tell who is outside the networks.
  */
+export const IP_FAMILIES = ["ipv4", "ipv6"] as const;
+export const IpFamily = z.enum(IP_FAMILIES);
+
+/**
+ * The lists a save sets or changes that name only one address family (decision 0020): each is
+ * `ipv4` or `ipv6`, or null when the list names both, is lifted or is unchanged. A save needs
+ * exactly these confirmed (`confirmedSingleFamily`).
+ */
+export const SingleFamilyLists = z.strictObject({
+  people: IpFamily.nullable(),
+  tokens: IpFamily.nullable(),
+});
+export type SingleFamilyLists = z.infer<typeof SingleFamilyLists>;
+
 export const PolicyPreview = PolicyImpact.extend({
-  networks: z.object({ members: z.int().min(0), tokens: z.int().min(0) }).nullable(),
+  networks: z
+    .object({
+      members: z.int().min(0),
+      tokens: z.int().min(0),
+      /**
+       * Active service tokens that keep working from any network: the people list is set and the
+       * token list is not.
+       */
+      unboundTokens: z.int().min(0),
+      singleFamily: SingleFamilyLists,
+    })
+    .nullable(),
 });
 export type PolicyPreview = z.infer<typeof PolicyPreview>;
 
@@ -158,6 +183,8 @@ export const WorkspacePolicyView = z.object({
    * can include their own network before saving an allowlist; null otherwise. Never stored.
    */
   yourIp: z.string().nullable(),
+  /** The workspace's active service tokens, for admins only (null otherwise): counts, no names. */
+  serviceTokens: z.int().min(0).nullable(),
 });
 export type WorkspacePolicyView = z.infer<typeof WorkspacePolicyView>;
 
@@ -174,6 +201,8 @@ export const WorkspacePolicyUpdate = z.strictObject({
   policy: WorkspacePolicy,
   revision: z.int().min(0),
   confirmed: PolicyImpact.optional(),
+  /** The single-family lists the preview reported and the admin accepted (decision 0020). */
+  confirmedSingleFamily: SingleFamilyLists.optional(),
 });
 export type WorkspacePolicyUpdate = z.infer<typeof WorkspacePolicyUpdate>;
 

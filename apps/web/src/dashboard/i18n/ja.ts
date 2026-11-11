@@ -2502,4 +2502,11 @@ export const ja = {
   "audit.policy.tokenNetworks":
     "サービストークンは {count, plural, one {# 個のネットワーク} other {# 個のネットワーク}}からのみ",
   "audit.policy.tokenNetworksAny": "サービストークンはすべてのネットワークから",
+  "policies.networks.bothFamilies":
+    "IPv4とIPv6の両方を使うネットワークには両方の範囲が必要です。ブラウザはどちらでもPortifactに接続でき、リストにないアドレスファミリーで届いたリクエストは拒否されます。",
+  "policies.impact.singleFamily":
+    "{list, select, people {人のためのリスト} other {サービストークンのためのリスト}}には{family, select, ipv4 {IPv4} other {IPv6}}の範囲しかありません。{family, select, ipv4 {IPv6} other {IPv4}}で届くリクエストは、これらのネットワークからでも拒否されます",
+  "policies.impact.unboundTokens":
+    "{count, plural, one {# 個のサービストークン} other {# 個のサービストークン}}は引き続きどのネットワークからでも使えます。サービストークンも制限するには、専用のリストを設定してください",
+  "policies.impact.familiesConfirm": "理解しました。保存する",
 } satisfies Catalog;

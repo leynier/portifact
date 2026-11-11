@@ -126,3 +126,57 @@ describe("a workspace this network cannot reach", () => {
     await themes(container);
   });
 });
+
+describe("after the review (decision 0020)", () => {
+  it("confirms a list covering one address family, and sends exactly that", async () => {
+    acme("admin");
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    await screen.findByRole("group", { name: "Networks for people" });
+    fireEvent.click(
+      group("Networks for people").getByRole("radio", { name: "Only these networks" }),
+    );
+    expect(screen.getByText(/Networks that use both IPv4 and IPv6 need both ranges/)).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Allowed IP addresses and ranges" }), {
+      target: { value: "192.0.2.0/24" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Limit the networks that reach this workspace?",
+    });
+    expect(dialog.textContent).toContain(
+      "The list for people names only IPv4 ranges: requests that arrive over IPv6 will be refused, also from these networks",
+    );
+    await themes(container);
+    fireEvent.click(within(dialog).getByRole("button", { name: "I understand, save" }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(server.bodies.at(-1)).toEqual({
+      policy: { ...DEFAULT_POLICY, ipAllowlist: ["192.0.2.0/24"] },
+      revision: 0,
+      confirmedSingleFamily: { people: "ipv4", tokens: null },
+    });
+  });
+
+  it("warns that service tokens keep working from anywhere with only a people list", async () => {
+    acme("admin");
+    const w = server.workspaces.acme;
+    if (!w) throw new Error("no workspace");
+    w.serviceTokens = [{} as never, {} as never];
+    renderDashboard("/policies?workspace=acme", server);
+    await screen.findByRole("group", { name: "Networks for people" });
+    expect(screen.queryByText(/keep working from any network/)).toBeNull();
+    fireEvent.click(
+      group("Networks for people").getByRole("radio", { name: "Only these networks" }),
+    );
+    expect(
+      screen.getByText(
+        "2 service tokens keep working from any network. Set a list for service tokens to limit them too",
+      ),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Allowed IP addresses and ranges" }), {
+      target: { value: "192.0.2.0/24\n2001:db8::/32" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("2 service tokens keep working from any network");
+  });
+});

@@ -16,6 +16,7 @@ import {
   type PublicAccessPolicy,
   SHARE_LINK_POLICIES,
   type ShareLinkPolicy,
+  type SingleFamilyLists,
   WORKSPACE_POLICIES,
   type WorkspacePolicy,
   type WorkspacePolicyView,
@@ -220,11 +221,17 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
 
   const save = useMutation({
     // The confirmation carries the impact the admin saw: the API refuses it when that grew.
-    mutationFn: async (input: { policy: WorkspacePolicy; confirmed?: PolicyImpact }) =>
+    mutationFn: async (input: {
+      policy: WorkspacePolicy;
+      confirmed?: PolicyImpact;
+      families?: SingleFamilyLists;
+    }) =>
       api.savePolicies(space.slug, {
         policy: input.policy,
         revision: view.revision,
         ...(input.confirmed ? { confirmed: input.confirmed } : {}),
+        // The single-family lists the dialog showed (decision 0020): the API refuses others.
+        ...(input.families ? { confirmedSingleFamily: input.families } : {}),
       }),
     onSuccess: async (next, input) => {
       setPending(null);
@@ -416,6 +423,7 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         text={draft.tokenNetworks}
         disabled={fieldsDisabled}
         invalid={invalid === "tokenNetworks"}
+        peopleLimited={draft.networksLimited}
         onLimited={(value) => set("tokenNetworksLimited", value)}
         onText={(value) => set("tokenNetworks", value)}
       />
@@ -459,7 +467,9 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         }
         confirmLabel={
           pending && impactTotal(pending.preview) === 0
-            ? t("policies.impact.networksConfirm")
+            ? familiesOf(pending.preview)
+              ? t("policies.impact.familiesConfirm")
+              : t("policies.impact.networksConfirm")
             : t("policies.impact.confirm")
         }
         cancelLabel={t("policies.impact.cancel")}
@@ -468,18 +478,26 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         onCancel={() => setPending(null)}
         onConfirm={() => {
           if (!pending) return;
-          // A confirmation is only needed (and sent) for changes to existing artifacts.
-          save.mutate(
-            impactTotal(pending.preview) > 0
-              ? { policy: pending.policy, confirmed: pending.preview }
-              : { policy: pending.policy },
-          );
+          // Confirmations are only sent for what needs one: changes to existing artifacts, and
+          // lists that cover one address family.
+          const families = familiesOf(pending.preview);
+          save.mutate({
+            policy: pending.policy,
+            ...(impactTotal(pending.preview) > 0 ? { confirmed: pending.preview } : {}),
+            ...(families ? { families } : {}),
+          });
         }}
       >
         {pending ? <ImpactList space={space} preview={pending.preview} /> : null}
       </ConfirmDialog>
     </form>
   );
+}
+
+/** The single-family lists a preview reported, or undefined when there are none to confirm. */
+function familiesOf(preview: PolicyPreview): SingleFamilyLists | undefined {
+  const families = preview.networks?.singleFamily;
+  return families && (families.people || families.tokens) ? families : undefined;
 }
 
 /** The counts a save changes, one line each, and who a network allowlist binds. */
@@ -518,6 +536,15 @@ function ImpactList({ space, preview }: { space: Workspace; preview: PolicyPrevi
             {networks.tokens > 0 ? (
               <li>{t("policies.impact.tokens", { count: networks.tokens })}</li>
             ) : null}
+            {(["people", "tokens"] as const).map((list) => {
+              const family = networks.singleFamily[list];
+              return family ? (
+                <li key={list}>{t("policies.impact.singleFamily", { list, family })}</li>
+              ) : null;
+            })}
+            {networks.unboundTokens > 0 ? (
+              <li>{t("policies.impact.unboundTokens", { count: networks.unboundTokens })}</li>
+            ) : null}
           </ul>
           <p className="text-text-muted">{t("policies.impact.networksNote")}</p>
         </>
@@ -537,6 +564,8 @@ function NetworkPanel(props: {
   text: string;
   disabled: boolean;
   invalid: boolean;
+  /** Whether the people list is set in the draft: then unbound tokens are worth a warning. */
+  peopleLimited?: boolean;
   onLimited: (limited: boolean) => void;
   onText: (text: string) => void;
 }) {
@@ -601,6 +630,14 @@ function NetworkPanel(props: {
             }
             onChange={(event) => props.onText(event.currentTarget.value)}
           />
+        ) : null}
+        {props.limited ? (
+          <p className="text-sm text-text-muted">{t("policies.networks.bothFamilies")}</p>
+        ) : null}
+        {kind === "tokens" && !props.limited && props.peopleLimited && view.serviceTokens ? (
+          <Callout tone="info" title={legend} icon={<CircleAlert className="size-5" />}>
+            {t("policies.impact.unboundTokens", { count: view.serviceTokens })}
+          </Callout>
         ) : null}
         {kind === "people" && view.editable && view.yourIp ? (
           <p className="text-sm">{t("policies.networks.yourIp", { ip: view.yourIp })}</p>

@@ -5,12 +5,15 @@ import {
   compileIpRanges,
   ipAllowed,
   ipText,
+  networkVerdict,
   normalizeIpRanges,
   parseIp,
   parseIpRange,
   rangeContains,
   rangesCovered,
   rangeText,
+  readIpRanges,
+  singleFamily,
 } from "./ip-ranges.ts";
 
 const text = (written: string) => {
@@ -233,3 +236,100 @@ function rangeArbitrary(): fc.Arbitrary<string> {
     fc.ipV4(),
   );
 }
+
+// The independent review's cases (PR 200): what an allowlist admits, and what it refuses to read.
+describe("the review's cases", () => {
+  const admits = (ip: string | null, list: string[]) => {
+    const normalized = normalizeIpRanges(list);
+    if (!normalized.ok) throw new Error(normalized.message);
+    return ipAllowed(ip, compileIpRanges(normalized.value));
+  };
+  it.each([
+    ["an IPv4-mapped client", "::ffff:1.2.3.4", true],
+    ["an IPv4-mapped client in hex", "::FFFF:0102:0304", true],
+    ["an IPv4-compatible client (deprecated, not mapped)", "::1.2.3.4", false],
+    ["a NAT64 client (another network)", "64:ff9b::102:304", false],
+    ["a client with spaces around", " 1.2.3.4 ", true],
+    ["no client address", null, false],
+    ["a bracketed client", "[1.2.3.4]", false],
+    ["a client with a port", "1.2.3.4:443", false],
+  ] as const)("%s: %s is admitted %s", (_name, ip, admitted) => {
+    expect(admits(ip, ["1.2.3.0/24"])).toBe(admitted);
+  });
+
+  it.each([
+    ["1.2.3.5", ["1.2.3.4/31"], true],
+    ["1.2.3.6", ["1.2.3.4/31"], false],
+    ["2001:db8:0:1:ffff::1", ["2001:db8:0:1::/64"], true],
+    ["2001:db8:0:2::1", ["2001:db8:0:1::/64"], false],
+    ["fe80::1%eth0", ["fe80::/10"], false],
+  ] as const)("%s in %j: %s", (ip, list, admitted) => {
+    expect(admits(ip, [...list])).toBe(admitted);
+  });
+
+  it.each([
+    "::ffff:1.2.3.0/120",
+    "::/0",
+    "0.0.0.0/0",
+    "fe80::1%eth0",
+    "010.1.1.1",
+    "1.2.3.4/032",
+    "1.2.3.4/33",
+    "::1/129",
+    "1.2.3.4 /24",
+    "1.2.\t3.4",
+    "1.2.3.4.",
+    "1.2.3.4/",
+    "1.2.3.4/+8",
+    "１.2.3.4",
+    "١.2.3.4",
+    ":::1",
+    "1::2::3",
+    "1:2:3:4:5:6:7:8:9",
+    "1:2:3:4::5:6:7:8",
+    "1.2.3.4::",
+    "1".repeat(70),
+    "0x7f.0.0.1",
+    "127.1",
+    "2130706433",
+  ])("refuses %j", (written) => {
+    expect(normalizeIpRanges([written]).ok).toBe(false);
+  });
+
+  it.each([
+    [["::"], ["::/128"]],
+    [["::1/128"], ["::1/128"]],
+    [["1.2.3.4/32"], ["1.2.3.4/32"]],
+    [["2001:0db8:0000:0000:0000:0000:0000:0000/32"], ["2001:db8::/32"]],
+    [["2001:db8:0:0:1:0:0:1"], ["2001:db8::1:0:0:1/128"]],
+    [["0.0.0.0"], ["0.0.0.0/32"]],
+    [["10.0.0.0/8", "10.1.0.0/16", "10.0.0.0/8"], ["10.0.0.0/8"]],
+  ])("normalizes %j to %j", (written, normalized) => {
+    expect(normalizeIpRanges(written)).toEqual({ ok: true, value: normalized });
+  });
+});
+
+describe("a stored list that does not parse", () => {
+  it("reads as unreadable, never throwing", () => {
+    expect(readIpRanges(["10.0.0.0/33"])).toBeNull();
+    expect(readIpRanges([1 as unknown as string])).toBeNull();
+    expect(networkVerdict(["10.0.0.0/33"], "10.0.0.1")).toBe("unreadable");
+    expect(networkVerdict(["10.0.0.0/8"], "10.0.0.1")).toBe("allowed");
+    expect(networkVerdict(["10.0.0.0/8"], "11.0.0.1")).toBe("refused");
+    // Anything covers a list that admitted nobody; a broken one covers nothing.
+    expect(rangesCovered(["bad"], ["10.0.0.0/8"])).toBe(true);
+    expect(rangesCovered(["10.0.0.0/8"], ["bad"])).toBe(false);
+  });
+});
+
+describe("the address family a list covers", () => {
+  it.each([
+    [["192.0.2.0/24"], "ipv4"],
+    [["2001:db8::/32"], "ipv6"],
+    [["192.0.2.0/24", "2001:db8::/32"], null],
+    [[], null],
+    [["bad"], null],
+  ] as const)("%j: %s", (list, family) => {
+    expect(singleFamily([...list])).toBe(family);
+  });
+});

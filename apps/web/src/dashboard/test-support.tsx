@@ -55,6 +55,7 @@ import {
   type ShareLinkCreated,
   type ShareLinkList,
   type ShareLinkView,
+  type SingleFamilyLists,
   type SsoProviderView,
   type SsoSettings,
   UNTRUSTED_ANNOTATIONS_NOTICE,
@@ -74,7 +75,10 @@ import {
 import {
   auditExportLine,
   auditExportPreamble,
+  checkSingleFamily,
   diffText,
+  normalizePolicy,
+  singleFamilyLists,
   textDiffEligibility,
 } from "@portifact/domain";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -2633,6 +2637,11 @@ function serviceTokenRoute(
   return apiError("not_found", 404);
 }
 
+function normalizedPolicy(policy: WorkspacePolicy): WorkspacePolicy {
+  const normalized = normalizePolicy(policy);
+  return normalized.ok ? normalized.value : policy;
+}
+
 /** The fake policies routes (decision 0015): every member reads, admins preview and save. */
 function policyRoute(
   server: FakeServer,
@@ -2658,6 +2667,7 @@ function policyRoute(
     editable: admin,
     domainVerified: w.domains.some((domain) => domain.state === "verified"),
     yourIp: admin ? "192.0.2.10" : null,
+    serviceTokens: admin ? w.serviceTokens.length : null,
   });
   if (!match[2] && method === "GET") return json(state());
   if (!admin) return apiError("forbidden", 403);
@@ -2667,7 +2677,13 @@ function policyRoute(
       proposed?.ipAllowlist || proposed?.tokenIpAllowlist
         ? {
             members: proposed.ipAllowlist ? w.members.length : 0,
-            tokens: proposed.tokenIpAllowlist ? 2 : 0,
+            tokens: proposed.tokenIpAllowlist ? w.serviceTokens.length : 0,
+            unboundTokens:
+              proposed.ipAllowlist && !proposed.tokenIpAllowlist ? w.serviceTokens.length : 0,
+            singleFamily: singleFamilyLists(
+              w.view.policy as WorkspacePolicy,
+              normalizedPolicy(proposed),
+            ),
           }
         : null;
     return json({ ...w.policyImpact, networks });
@@ -2682,6 +2698,15 @@ function policyRoute(
       (key) => w.policyImpact[key] > (confirmed?.[key] ?? -1),
     );
     if (impact > 0 && grew) return apiError("policy_refused", 403);
+    // As the API (decision 0020): a single-family list needs exactly that confirmed.
+    const families = singleFamilyLists(
+      w.view.policy as WorkspacePolicy,
+      normalizedPolicy(body?.policy as WorkspacePolicy),
+    );
+    const confirmedFamilies = body?.confirmedSingleFamily as SingleFamilyLists | undefined;
+    if (!checkSingleFamily(families, confirmedFamilies).ok) {
+      return apiError("policy_refused", 403);
+    }
     w.view = { ...w.view, policy: body?.policy as WorkspacePolicy };
     w.policyRevision += 1;
     return json(state());

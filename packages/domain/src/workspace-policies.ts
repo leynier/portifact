@@ -12,8 +12,16 @@ import {
   WorkspacePolicy,
   type WorkspacePolicyShown,
 } from "@portifact/contracts";
+import { roleAllows } from "./actor.ts";
 import { emailDomainOf, normalizeEmailDomain } from "./email-domains.ts";
-import { compileIpRanges, ipAllowed, normalizeIpRanges, rangesCovered } from "./ip-ranges.ts";
+import {
+  type IpFamily,
+  type NetworkVerdict,
+  networkVerdict,
+  normalizeIpRanges,
+  rangesCovered,
+  singleFamily,
+} from "./ip-ranges.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 const DAY_MS = 86_400_000;
@@ -60,6 +68,10 @@ export const POLICY_MESSAGES = {
     ip === null
       ? "Portifact could not tell which network you are on, so this allowlist would lock you out. Try again from your usual network."
       : `This allowlist does not include your current address (${ip}), so saving it would lock you out. Add your network first.`,
+  networkUnreadable:
+    "This workspace's network policy could not be read, so Portifact refuses requests until it is fixed. Ask a workspace admin to contact Portifact support.",
+  singleFamily: (lists: string) =>
+    `${lists} only IPv4 or only IPv6 ranges. People on networks that use both reach Portifact over either, and requests over the other one would be refused. Add the other family's ranges, or confirm that the list covers only one.`,
 } as const;
 
 /**
@@ -423,14 +435,29 @@ export function checkRequestPolicy(
   request: RequestContext,
   caller: RequestCaller,
 ): Result<true> {
-  if (!policy || request.kind === "background") return ok(true);
-  const allowlist = caller === "person" ? policy.ipAllowlist : policy.tokenIpAllowlist;
-  if (allowlist === null || ipAllowed(request.ip, compileIpRanges(allowlist))) return ok(true);
+  const verdict = requestVerdict(policy, request, caller);
+  if (verdict === "allowed") return ok(true);
+  // A stored list that does not parse refuses everyone it binds (fail closed), never throws.
+  if (verdict === "unreadable") return refused(POLICY_MESSAGES.networkUnreadable);
+  const ip = request.kind === "request" ? request.ip : null;
   return refused(
-    caller === "person"
-      ? POLICY_MESSAGES.networkPerson(request.ip)
-      : POLICY_MESSAGES.networkToken(request.ip),
+    caller === "person" ? POLICY_MESSAGES.networkPerson(ip) : POLICY_MESSAGES.networkToken(ip),
   );
+}
+
+/**
+ * What the caller's allowlist says about a request: `unreadable` when the stored list does not
+ * parse, which callers log (with the workspace's ID, never an address) so the operator finds it.
+ */
+export function requestVerdict(
+  policy: WorkspacePolicy | undefined,
+  request: RequestContext,
+  caller: RequestCaller,
+): NetworkVerdict {
+  if (!policy || request.kind === "background") return "allowed";
+  const allowlist = caller === "person" ? policy.ipAllowlist : policy.tokenIpAllowlist;
+  if (allowlist === null) return "allowed";
+  return networkVerdict(allowlist, request.ip);
 }
 
 /**
@@ -443,25 +470,110 @@ export function checkPolicyKeepsCaller(
   request: RequestContext,
 ): Result<true> {
   if (next.ipAllowlist === null || request.kind === "background") return ok(true);
-  if (ipAllowed(request.ip, compileIpRanges(next.ipAllowlist))) return ok(true);
+  if (networkVerdict(next.ipAllowlist, request.ip) === "allowed") return ok(true);
   return fail("invalid_input", POLICY_MESSAGES.networkLocksOut(request.ip));
 }
 
-function shownNetworks(list: string[] | null, admin: boolean): IpAllowlistView {
-  if (list === null) return null;
-  return admin ? list : "hidden";
+/** Which lists a save sets or changes that cover a single address family (decision 0020). */
+export interface SingleFamilyLists {
+  people: IpFamily | null;
+  tokens: IpFamily | null;
 }
 
 /**
- * A policy as a caller sees it: the network allowlists to admins only; anyone else learns only
- * that one exists (`hidden`).
+ * The lists `next` sets or changes that name only IPv4 or only IPv6 ranges. An unchanged list is
+ * not being saved, so it is not reported again.
  */
-export function shownPolicy(policy: WorkspacePolicy, admin: boolean): WorkspacePolicyShown {
+export function singleFamilyLists(
+  current: WorkspacePolicy,
+  next: WorkspacePolicy,
+): SingleFamilyLists {
+  const fields = changedFields(current, next);
+  const of = (field: "ipAllowlist" | "tokenIpAllowlist") => {
+    const list = next[field];
+    return list !== null && fields.includes(field) ? singleFamily(list) : null;
+  };
+  return { people: of("ipAllowlist"), tokens: of("tokenIpAllowlist") };
+}
+
+/**
+ * A list covering one address family is never saved silently: the admin confirms exactly what
+ * the preview reported, and a save whose lists changed since is refused again.
+ */
+export function checkSingleFamily(
+  required: SingleFamilyLists,
+  confirmed: SingleFamilyLists | undefined,
+): Result<true> {
+  if (required.people === null && required.tokens === null) return ok(true);
+  if (confirmed && confirmed.people === required.people && confirmed.tokens === required.tokens) {
+    return ok(true);
+  }
+  const named = [
+    required.people === null ? null : "The allowlist for people names",
+    required.tokens === null ? null : "The allowlist for service tokens names",
+  ].filter((part): part is string => part !== null);
+  return refused(
+    POLICY_MESSAGES.singleFamily(
+      named.length === 2
+        ? "The allowlists for people and for service tokens name"
+        : (named[0] as string),
+    ),
+  );
+}
+
+function shownNetworks(list: string[] | null, sees: boolean): IpAllowlistView {
+  if (list === null) return null;
+  return sees ? list : "hidden";
+}
+
+/**
+ * Whether a caller sees a workspace's networks: an admin the network policy admits. A blocked
+ * admin (a stolen session or token used from elsewhere) learns only that a list exists, never
+ * which networks to get into.
+ */
+export function seesNetworks(role: Parameters<typeof roleAllows>[0], blocked: boolean): boolean {
+  return roleAllows(role, "policies") && !blocked;
+}
+
+/**
+ * A policy as a caller sees it: the network allowlists only when `sees` (`seesNetworks`); anyone
+ * else learns only that one exists (`hidden`).
+ */
+export function shownPolicy(policy: WorkspacePolicy, sees: boolean): WorkspacePolicyShown {
   return {
     ...policy,
-    ipAllowlist: shownNetworks(policy.ipAllowlist, admin),
-    tokenIpAllowlist: shownNetworks(policy.tokenIpAllowlist, admin),
+    ipAllowlist: shownNetworks(policy.ipAllowlist, sees),
+    tokenIpAllowlist: shownNetworks(policy.tokenIpAllowlist, sees),
   };
+}
+
+/**
+ * The restrictions `next` would lift from `current`: what `current` refuses and `next` would
+ * allow. The operator's `apply-policies` reports them and lifts them only when asked to, so a
+ * file older than a restriction cannot remove it silently.
+ */
+export function liftedFields(current: WorkspacePolicy, next: WorkspacePolicy): PolicyField[] {
+  return changedFields(current, next).filter((field) => {
+    switch (field) {
+      // The access a new artifact starts with restricts nothing.
+      case "defaultAccess":
+        return false;
+      case "readerDomains":
+        return (
+          current.readerDomains !== null &&
+          (next.readerDomains === null ||
+            next.readerDomains.some((domain) => !current.readerDomains?.includes(domain)))
+        );
+      case "ipAllowlist":
+      case "tokenIpAllowlist": {
+        const was = current[field];
+        const now = next[field];
+        return was !== null && (now === null || !rangesCovered(now, was));
+      }
+      default:
+        return loosens(field, current, next);
+    }
+  });
 }
 
 /** A policy with its request policies (the network allowlists) lifted: the operator's escape hatch. */
@@ -482,6 +594,18 @@ export function networkAdmits(input: {
   signedIn: boolean;
   ip: string | null;
 }): boolean {
-  if (input.networks === null || !input.signedIn || input.accessMode !== "workspace") return true;
-  return ipAllowed(input.ip, compileIpRanges(input.networks));
+  return networkDecision(input) === "allowed";
+}
+
+/** `networkAdmits` with the reason, so the content Worker can log an unreadable list. */
+export function networkDecision(input: {
+  accessMode: AccessMode;
+  networks: readonly string[] | null;
+  signedIn: boolean;
+  ip: string | null;
+}): NetworkVerdict {
+  if (input.networks === null || !input.signedIn || input.accessMode !== "workspace") {
+    return "allowed";
+  }
+  return networkVerdict(input.networks, input.ip);
 }

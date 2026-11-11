@@ -335,6 +335,29 @@ describe("a workspace's network allowlist on the artifact origin (decision 0020)
     expect((await at(HOME, cookie)).status).toBe(200);
   });
 
+  it("refuses with a page, never a 500, when the stored list does not parse, and logs where", async () => {
+    await seed("workspace");
+    const cookie = await signIn(MEMBER);
+    await allowOnly(["10.0.0.0/33"]);
+    const logged: string[] = [];
+    const error = console.error;
+    console.error = (line: string) => logged.push(line);
+    try {
+      const refused = await at(OFFICE, cookie);
+      expect(refused.status).toBe(403);
+      expect(await refused.text()).toContain("approved networks");
+    } finally {
+      console.error = error;
+    }
+    expect(logged.map((line) => JSON.parse(line))).toContainEqual({
+      event: "workspace_network_policy_unreadable",
+      workspaceId: WS,
+    });
+    expect(logged.join("")).not.toContain(OFFICE);
+    // The renewal decides through `actorOn`, which refuses it the same way.
+    expect((await at(OFFICE, cookie, NOW + CLAIMS_MS + 1_000)).status).toBe(303);
+  });
+
   it("adds no D1 read to a warm request", async () => {
     await seed("workspace");
     const cookie = await signIn(MEMBER);

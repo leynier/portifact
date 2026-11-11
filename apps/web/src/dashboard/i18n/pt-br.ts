@@ -2526,4 +2526,11 @@ export const ptBR = {
   "audit.policy.tokenNetworks":
     "tokens de serviço só a partir de {count, plural, one {# rede} other {# redes}}",
   "audit.policy.tokenNetworksAny": "tokens de serviço de qualquer rede",
+  "policies.networks.bothFamilies":
+    "Redes que usam IPv4 e IPv6 precisam dos dois intervalos: um navegador pode chegar ao Portifact por qualquer um deles, e as solicitações por uma família que a lista não inclui são recusadas.",
+  "policies.impact.singleFamily":
+    "{list, select, people {A lista para pessoas} other {A lista para tokens de serviço}} só inclui intervalos {family, select, ipv4 {IPv4} other {IPv6}}: solicitações que chegarem por {family, select, ipv4 {IPv6} other {IPv4}} serão recusadas, também a partir destas redes",
+  "policies.impact.unboundTokens":
+    "{count, plural, one {# token de serviço continua} other {# tokens de serviço continuam}} funcionando de qualquer rede. Defina uma lista para tokens de serviço para limitá-los também",
+  "policies.impact.familiesConfirm": "Entendi, salvar",
 } satisfies Catalog;

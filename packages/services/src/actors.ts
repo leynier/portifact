@@ -33,6 +33,7 @@ import {
   personalActor,
   policyOf,
   type Result,
+  requestVerdict,
   restrictionAllows,
   restrictionOf,
   storedTokenScopes,
@@ -97,6 +98,12 @@ function bound(
 ): Result<Actor | null> {
   if (!actor) return ok(null);
   const allowed = checkRequestPolicy(actor.policy, global.request, caller);
+  if (!allowed.ok && requestVerdict(actor.policy, global.request, caller) === "unreadable") {
+    // Fail closed, and say where: the workspace's ID only, never an address or a range.
+    console.error(
+      JSON.stringify({ event: "workspace_network_policy_unreadable", workspaceId: actor.ownerId }),
+    );
+  }
   return allowed.ok ? ok(actor) : allowed;
 }
 

@@ -52,13 +52,26 @@ export const policyNetworksSql = sql<
   string | null
 >`json_extract(${workspaces.policy}, '$.ipAllowlist')`;
 
+/**
+ * What stands for a stored allowlist that is not a list of strings: an entry no range parser
+ * reads, so the list refuses everyone it binds (decision 0020). Delivery never throws on it.
+ */
+export const UNREADABLE_NETWORKS: readonly string[] = Object.freeze(["unreadable"]);
+
 /** The stored allowlist as the lookup returns it (JSON text from SQLite), parsed. */
 export function networksOf(value: unknown): string[] | null {
   if (value === null || value === undefined) return null;
-  const parsed = typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return [...UNREADABLE_NETWORKS];
+    }
+  }
   if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === "string")) {
     // A stored policy was validated on write; anything else must not open the workspace.
-    throw new Error("A stored network allowlist does not parse");
+    return [...UNREADABLE_NETWORKS];
   }
   return parsed;
 }

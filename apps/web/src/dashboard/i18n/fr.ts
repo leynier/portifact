@@ -2575,4 +2575,11 @@ export const fr = {
   "audit.policy.tokenNetworks":
     "jetons de service uniquement depuis {count, plural, one {# réseau} other {# réseaux}}",
   "audit.policy.tokenNetworksAny": "jetons de service depuis tout réseau",
+  "policies.networks.bothFamilies":
+    "Les réseaux qui utilisent IPv4 et IPv6 ont besoin des deux plages : un navigateur peut atteindre Portifact par l’une ou l’autre, et les requêtes arrivant par une famille absente de la liste sont refusées.",
+  "policies.impact.singleFamily":
+    "{list, select, people {La liste pour les personnes} other {La liste pour les jetons de service}} ne contient que des plages {family, select, ipv4 {IPv4} other {IPv6}} : les requêtes arrivant par {family, select, ipv4 {IPv6} other {IPv4}} seront refusées, y compris depuis ces réseaux",
+  "policies.impact.unboundTokens":
+    "{count, plural, one {# jeton de service continue} other {# jetons de service continuent}} de fonctionner depuis n’importe quel réseau. Définissez une liste pour les jetons de service pour les limiter aussi",
+  "policies.impact.familiesConfirm": "J’ai compris, enregistrer",
 } satisfies Catalog;

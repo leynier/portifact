@@ -10,6 +10,7 @@ import {
   findRenderedPage,
   networksOf,
   schema,
+  UNREADABLE_NETWORKS,
 } from "../src/index.ts";
 
 const db = () => createDb(env.DB);
@@ -192,11 +193,12 @@ describe("delivery queries", () => {
     await env.DB.prepare("DELETE FROM workspaces WHERE id = ?").bind(ws).run();
   });
 
-  it("refuses a stored allowlist that is not a list of strings", () => {
+  it("reads a stored allowlist that is not a list of strings as unreadable, never throwing", () => {
     expect(networksOf(null)).toBeNull();
     expect(networksOf('["192.0.2.0/24"]')).toEqual(["192.0.2.0/24"]);
-    expect(() => networksOf('{"a":1}')).toThrow();
-    expect(() => networksOf("[1]")).toThrow();
+    expect(networksOf('{"a":1}')).toEqual(UNREADABLE_NETWORKS);
+    expect(networksOf("[1]")).toEqual(UNREADABLE_NETWORKS);
+    expect(networksOf("not json")).toEqual(UNREADABLE_NETWORKS);
   });
 
   it("refuses a plan the schema does not know and fewer than one seat", async () => {
