@@ -99,13 +99,15 @@ describe("the SSO required verdict, for every credential and method", () => {
     expect(signInVerdict(undefined, as(session(null)), "person", WHO)).toBe("allowed");
   });
 
-  it("is suspended while the provider cannot sign anyone in, or the Worker offers no SSO", () => {
+  it("is suspended while the provider cannot sign anyone in, never by a Worker's switch", () => {
     const code = as(session({ kind: "code" }));
     expect(signInVerdict(REQUIRED, code, "person", { ...WHO, ssoProvider: null })).toBe("allowed");
     expect(signInVerdict(REQUIRED, code, "person", { userId: "u1", now: NOW })).toBe("allowed");
+    // A Worker without SSO_ENABLED binds exactly like one with it (fail closed).
     expect(signInVerdict(REQUIRED, as(session({ kind: "code" }), false), "person", WHO)).toBe(
-      "allowed",
+      "sso",
     );
+    expect(ssoRequirementBinds(REQUIRED, as(undefined, false), OURS)).toBe(true);
     expect(ssoRequirementBinds(REQUIRED, code, OURS)).toBe(true);
     expect(ssoRequirementBinds(REQUIRED, BACKGROUND, OURS)).toBe(false);
     expect(ssoRequirementBinds(DEFAULT_POLICY, code, OURS)).toBe(false);

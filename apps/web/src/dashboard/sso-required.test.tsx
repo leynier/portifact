@@ -34,7 +34,7 @@ function acme(
   role: "admin" | "member",
   options: {
     policy?: WorkspacePolicy;
-    ssoState?: { usable: boolean; yourSession: boolean } | null;
+    ssoState?: { usable: boolean; yourSession: boolean; offered?: boolean } | null;
     ssoOutside?: number;
     blockedBy?: "sso" | null;
   } = {},
@@ -108,6 +108,22 @@ describe("SSO required on the Policies page", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(server.bodies.at(-1)).toEqual({ policy: DEFAULT_POLICY, revision: 0 });
     await themes(container);
+  });
+
+  it("tells admins nobody can meet it while single sign-on is switched off, and lets them lift it", async () => {
+    acme("admin", {
+      policy: REQUIRED,
+      ssoState: { usable: true, yourSession: false, offered: false },
+    });
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    await screen.findByRole("group", { name: "Single sign-on" });
+    expect(screen.getByText(/it is switched off on this Portifact/)).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Sign in with single sign-on" })).toBeNull();
+    await themes(container);
+    fireEvent.click(sso().getByRole("radio", { name: "Any sign-in" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(server.bodies.at(-1)).toEqual({ policy: DEFAULT_POLICY, revision: 0 });
   });
 
   it("shows nothing about it where single sign-on is off, and members only read it", async () => {

@@ -2507,4 +2507,10 @@ export const zhCN = {
   "account.method.unknown": "未记录",
   "audit.policy.sso": "{value, select, true {要求单点登录} other {不要求单点登录}}",
   "audit.policy.ssoRemoved": "（单点登录提供商已被移除）",
+  "audit.kind.policySsoSuspended":
+    "不再执行单点登录要求：提供商无法为任何人登录（{cause, select, domain {已验证域名发生变化} plan {套餐发生变化} provider {提供商发生变化} other {每日检查发现}}）",
+  "audit.kind.policySsoResumed":
+    "重新执行单点登录要求：提供商可以为成员登录（{cause, select, domain {已验证域名发生变化} plan {套餐发生变化} provider {提供商发生变化} other {每日检查发现}}）",
+  "policies.sso.switchedOff":
+    "已要求单点登录，但此 Portifact 已关闭单点登录：在 Portifact 支持解除该要求或重新开启单点登录之前，没人能通过提供商登录，也没人能操作此工作区。请联系 Portifact 支持。",
 } satisfies Catalog;

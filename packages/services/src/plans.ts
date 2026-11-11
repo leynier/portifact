@@ -15,6 +15,7 @@
 import {
   AUDIT_RETENTION_BOUNDS,
   DEFAULT_REGION,
+  isWorkspaceId,
   OwnerPlanExport,
   type PlanFeature,
   type PlanName,
@@ -59,6 +60,7 @@ import {
   savedCursorSql,
 } from "./maintenance-cursors.ts";
 import { ownerOfRegion } from "./shapes.ts";
+import { ssoSuspensionStatements } from "./sso-required.ts";
 import { retried } from "./workspaces.ts";
 
 /**
@@ -404,6 +406,10 @@ export async function setOwnerPlan(
     ...(both
       ? limitStatements(both, input.ownerId, limitColumns(granted), guard, input.now, true)
       : []),
+    // A plan gaining or losing `sso` resumes or suspends the workspace's "SSO required" (0021).
+    ...(isWorkspaceId(input.ownerId)
+      ? ssoSuspensionStatements(w, { workspaceId: input.ownerId, now: input.now, cause: "plan" })
+      : []),
   ])) as unknown[][];
   const plan = results[2] ?? [];
   if (plan.length === 0) return fail("not_found", "Account or workspace not found.");
@@ -449,6 +455,9 @@ export async function removeOwnerPlan(
       .returning({ ownerId: schema.ownerPlans.ownerId }),
     ...(both
       ? limitStatements(both, input.ownerId, FREE_LIMIT_COLUMNS, sql`1`, input.now, false)
+      : []),
+    ...(isWorkspaceId(input.ownerId)
+      ? ssoSuspensionStatements(w, { workspaceId: input.ownerId, now: input.now, cause: "plan" })
       : []),
   ])) as unknown[][];
   const deleted = removed[2] ?? [];

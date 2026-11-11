@@ -418,7 +418,7 @@ export interface FakeWorkspace {
    * is not offered; otherwise whether the provider can sign people in and the admin's own session
    * went through it. `ssoOutside` is how many members the provider cannot serve.
    */
-  ssoState: { usable: boolean; yourSession: boolean } | null;
+  ssoState: { usable: boolean; yourSession: boolean; offered?: boolean } | null;
   ssoOutside: number;
 }
 
@@ -2726,7 +2726,7 @@ function policyRoute(
     serviceTokens: admin ? w.serviceTokens.length : null,
     // The admin signed in three hours ago (decision 0021).
     yourSignInAt: admin ? Date.now() - 3 * 3_600_000 : null,
-    sso: admin ? w.ssoState : null,
+    sso: admin && w.ssoState ? { offered: true, ...w.ssoState } : null,
   });
   if (!match[2] && method === "GET") return json(state());
   if (!admin) return apiError("forbidden", 403);

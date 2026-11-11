@@ -118,12 +118,6 @@ export interface Env extends BudgetEnv {
   /** HMAC key of read session cookies (secret, at least 32 characters). */
   READ_SESSION_SECRET?: string | undefined;
   /**
-   * Exactly `"true"` when the app Worker offers single sign-on (decision 0016): a workspace's
-   * "SSO required" then binds read and review session renewals too (decision 0021). Set on both
-   * Workers together, never in a `wrangler.jsonc` (docs/releasing.md, "SSO").
-   */
-  SSO_ENABLED?: string | undefined;
-  /**
    * Exactly `"true"` serves artifacts on their active custom hosts and redirects old `.dev`
    * links there (decision 0006). Anything else, or nothing, answers every other host 404 and
    * serves exactly as before custom domains existed.
@@ -295,12 +289,7 @@ async function route(
 ): Promise<Response> {
   // The request context (decision 0020): read and review sessions renew through `actorOn`, which
   // applies a workspace's network policy to this request.
-  // "SSO required" (decision 0021) binds a renewal only where the app offers single sign-on: the
-  // content Worker carries the same `SSO_ENABLED` (docs/releasing.md, "SSO").
-  let env = withRequestContext(
-    workerEnv,
-    requestContextOf(request, { sso: workerEnv.SSO_ENABLED === "true" }),
-  );
+  let env = withRequestContext(workerEnv, requestContextOf(request));
   if (request.method !== "GET" && request.method !== "HEAD") {
     return message(405, PAGES.methodNotAllowed, { allow: "GET, HEAD" });
   }

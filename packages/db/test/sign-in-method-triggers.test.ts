@@ -177,3 +177,25 @@ describe("the sign-in method columns", () => {
     expect(await methodOf("sessions", "s_m7")).toBeNull();
   });
 });
+
+describe("the predecessor match's cost (review of PR 210)", () => {
+  it("finds the rotated token through the user, client and rotation index, not the user's history", async () => {
+    // The trigger's own lookup (migration 0060), planned as SQLite plans it inside the trigger.
+    const { results } = await env.DB.prepare(
+      `EXPLAIN QUERY PLAN
+       SELECT CASE WHEN count(DISTINCT coalesce(p.sign_in_method, '')) = 1 THEN max(p.sign_in_method) END
+       FROM oauth_refresh_tokens p
+       WHERE p.id <> ? AND p.user_id = ? AND p.client_id = ? AND p.rotated_at = ?
+         AND p.auth_time IS ? AND p.authorization_code_id IS ?`,
+    )
+      .bind("x", "u", "portifact-cli", NOW, NOW, null)
+      .all<{ detail: string }>();
+    const plan = results.map((row) => row.detail).join(" | ");
+    // All three equalities served by the index: only the rotated predecessors are read. The
+    // count(DISTINCT) still uses a temporary B-tree, over those few rows only.
+    expect(plan).toContain(
+      "SEARCH p USING INDEX oauth_refresh_tokens_user_client_rotated_idx (user_id=? AND client_id=? AND rotated_at=?)",
+    );
+    expect(plan).not.toContain("oauth_refresh_tokens_user_id_idx");
+  });
+});

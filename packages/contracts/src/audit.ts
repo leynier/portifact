@@ -348,6 +348,14 @@ export const AUDIT_DETAILS = {
    * One step of applying a policy to existing artifacts (the `workspace_policy` job or the
    * maintenance scan), by the system: what it changed, as counts.
    */
+  /**
+   * "SSO required" can no longer be met (decision 0021): the workspace's provider serves no
+   * verified domain or the plan lost `sso`, so the requirement is suspended. By the system, in the
+   * batch of the write that caused it (`cause`), or by the scan that noticed a plan expiring.
+   */
+  "policy.sso_suspended": z.strictObject({ cause: z.enum(["domain", "plan", "provider", "scan"]) }),
+  /** "SSO required" can be met again and binds again (decision 0021). */
+  "policy.sso_resumed": z.strictObject({ cause: z.enum(["domain", "plan", "provider", "scan"]) }),
   "policy.enforced": z.strictObject({
     artifactsNarrowed: enforceCount,
     readersRemoved: enforceCount,
@@ -471,6 +479,8 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "audit.exported": "audit_log",
   "policy.changed": "policy",
   "policy.enforced": "policy",
+  "policy.sso_suspended": "policy",
+  "policy.sso_resumed": "policy",
   "audit_stream.created": "audit_stream",
   "audit_stream.changed": "audit_stream",
   "audit_stream.removed": "audit_stream",

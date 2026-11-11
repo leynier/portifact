@@ -549,6 +549,7 @@ describe("a workspace's sign-in policies on the artifact origin (decision 0021)"
 describe("SSO required on the artifact origin (decision 0021)", () => {
   // The app session's sign-in method is on its row; a renewal reads it with the sign-in time.
   const PROVIDER = `sso_${"e".repeat(32)}`;
+  // The variable is not read by the content Worker at all: set here to prove it changes nothing.
   const withSso = { ...env, SSO_ENABLED: "true" };
   const later = NOW + CLAIMS_MS + 1_000;
   beforeEach(() => {
@@ -613,12 +614,21 @@ describe("SSO required on the artifact origin (decision 0021)", () => {
     }
   });
 
-  it("is not applied where the Worker does not offer single sign-on", async () => {
-    await seed("workspace");
-    const cookie = await signIn(MEMBER);
-    await signedInWith(MEMBER, "code");
-    await requireSso();
-    expect((await send("/", cookie, later)).status).toBe(200);
+  it("enforces it identically whether the content Worker has SSO_ENABLED or not", async () => {
+    for (const variable of ["true", undefined] as const) {
+      await seed("workspace");
+      const [viaCode, viaSso] = [await signIn(MEMBER), await signIn(ADMIN)];
+      await signedInWith(MEMBER, "code");
+      await signedInWith(ADMIN, `sso:${PROVIDER}`);
+      await requireSso();
+      const testEnv = { ...env, SSO_ENABLED: variable };
+      const refused = await send("/", viaCode, later, NAVIGATE, testEnv);
+      expect(refused.status, String(variable)).toBe(303);
+      expect(refused.headers.get("location")).toContain("/read/");
+      expect((await send("/", viaSso, later, NAVIGATE, testEnv)).status, String(variable)).toBe(
+        200,
+      );
+    }
   });
 
   it("never binds a share link or a public artifact", async () => {

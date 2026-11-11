@@ -695,14 +695,15 @@ function SsoRequirementPanel(props: {
   const here = useRouterState({ select: (state) => state.location.href });
   const legend = t("policies.sso.legend");
   if (!view.sso) {
-    // Members read the rule they follow; with single sign-on off it is never shown.
+    // Members read the rule they follow; a stored requirement is always shown.
     return view.policy.ssoRequired ? (
       <Panel headingLevel={2} title={legend}>
         <p className="text-sm">{t("policies.sso.required")}</p>
       </Panel>
     ) : null;
   }
-  const canRequire = view.sso.usable && view.sso.yourSession;
+  const offered = view.sso.offered;
+  const canRequire = offered && view.sso.usable && view.sso.yourSession;
   return (
     <Panel headingLevel={2} title={legend} description={t("policies.sso.hint")}>
       <div className="flex flex-col gap-4">
@@ -727,12 +728,17 @@ function SsoRequirementPanel(props: {
             },
           ]}
         />
-        {view.policy.ssoRequired && !view.sso.usable ? (
+        {view.policy.ssoRequired && !offered ? (
+          // It binds and nobody can meet it: switched off on this Portifact (decision 0021).
+          <Callout tone="error" title={legend} icon={<CircleAlert className="size-5" />}>
+            {t("policies.sso.switchedOff")}
+          </Callout>
+        ) : view.policy.ssoRequired && !view.sso.usable ? (
           <Callout tone="info" title={legend} icon={<CircleAlert className="size-5" />}>
             {t("policies.sso.suspended")}
           </Callout>
         ) : null}
-        {!view.sso.usable && !view.policy.ssoRequired ? (
+        {offered && !view.sso.usable && !view.policy.ssoRequired ? (
           <p className="text-sm">
             {t("policies.sso.notUsable")}{" "}
             <Link to="/members" className="font-semibold">
@@ -740,7 +746,7 @@ function SsoRequirementPanel(props: {
             </Link>
           </p>
         ) : null}
-        {view.sso.usable && !view.sso.yourSession ? (
+        {offered && view.sso.usable && !view.sso.yourSession ? (
           <div className="flex flex-col items-start gap-3">
             <p className="text-sm">{t("policies.sso.signInFirst")}</p>
             <a href={ssoReauthUrl(here)} className={buttonClasses({})}>

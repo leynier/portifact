@@ -50,6 +50,7 @@ import { pruneReviewSessions } from "./review-access.ts";
 import { pruneDirectoryUsers } from "./scim.ts";
 import { jsonValues, ownerOfRegion } from "./shapes.ts";
 import { pruneShareLinks } from "./share-links.ts";
+import { syncSsoRequirementStates } from "./sso-required.ts";
 import { requeueThreadIssues } from "./thread-issues.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
@@ -915,6 +916,9 @@ export async function runMaintenance(
     prunedEmailSuppressions: await pruneEmailSuppressions(db.global, now),
     alignedPlanLimits: (await alignPlanLimits(db, now)).processed,
     unpinned: (await unpinLapsedPlans(db, now)).processed,
+    // "SSO required" entering or leaving suspension when a plan expires (decision 0021): one
+    // global read per run, a batch only for a workspace whose state changed.
+    ssoRequirements: (await syncSsoRequirementStates(db.global, now)).changed,
     // Content search (decision 0012): drop what a plan no longer covers, then index what is missing.
     droppedSearchIndexes: (await dropLapsedSearchIndexes(db, now)).dropped,
     scheduledSearchIndexing: (await scheduleSearchIndexing(db, now)).scheduled,

@@ -217,6 +217,9 @@ export const oauthRefreshTokens = sqliteTable(
     index("oauth_refresh_tokens_session_id_idx").on(t.sessionId),
     index("oauth_refresh_tokens_user_id_idx").on(t.userId),
     index("oauth_refresh_tokens_authorization_code_id_idx").on(t.authorizationCodeId),
+    // The sign-in method trigger's predecessor match (migration 0061, decision 0021): the token a
+    // new one rotates, found without scanning the user's whole refresh history.
+    index("oauth_refresh_tokens_user_client_rotated_idx").on(t.userId, t.clientId, t.rotatedAt),
   ],
 );
 

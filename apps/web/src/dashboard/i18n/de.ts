@@ -2792,4 +2792,10 @@ export const de = {
   "audit.policy.sso":
     "{value, select, true {Single Sign-on verlangt} other {Single Sign-on nicht verlangt}}",
   "audit.policy.ssoRemoved": "(der Single-Sign-on-Anbieter wurde entfernt)",
+  "audit.kind.policySsoSuspended":
+    "„Single Sign-on verlangt“ gilt nicht mehr: Der Anbieter kann niemanden anmelden ({cause, select, domain {eine verifizierte Domain hat sich geändert} plan {der Tarif hat sich geändert} provider {der Anbieter hat sich geändert} other {bei der täglichen Prüfung bemerkt}})",
+  "audit.kind.policySsoResumed":
+    "„Single Sign-on verlangt“ gilt wieder: Der Anbieter kann Personen anmelden ({cause, select, domain {eine verifizierte Domain hat sich geändert} plan {der Tarif hat sich geändert} provider {der Anbieter hat sich geändert} other {bei der täglichen Prüfung bemerkt}})",
+  "policies.sso.switchedOff":
+    "Single Sign-on wird verlangt, ist auf diesem Portifact aber abgeschaltet: Niemand kann sich über den Anbieter anmelden und niemand kann in diesem Workspace handeln, bis der Portifact-Support die Vorgabe aufhebt oder Single Sign-on wieder einschaltet. Wende dich an den Portifact-Support.",
 } satisfies Catalog;

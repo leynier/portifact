@@ -101,7 +101,7 @@ export interface PolicyState {
    * and whether the caller's own session signed in through it. Null for everyone else and
    * whenever this Worker does not offer single sign-on.
    */
-  sso: { usable: boolean; yourSession: boolean } | null;
+  sso: { usable: boolean; yourSession: boolean; offered: boolean } | null;
 }
 
 interface PolicyRow {
@@ -157,7 +157,7 @@ async function stateOf(
   // Reaching here means the network policy admitted the caller, so an admin sees the networks.
   const admin = can(actor, "policies");
   return {
-    policy: shownPolicy(row.policy, admin, ssoOffered(global.request)),
+    policy: shownPolicy(row.policy, admin),
     revision: row.revision,
     enabled: hasFeature(await ownerEntitlements(global, row.id, now), "policies"),
     editable: admin,
@@ -165,19 +165,25 @@ async function stateOf(
     yourIp: admin && global.request.kind === "request" ? global.request.ip : null,
     serviceTokens: admin ? await activeTokens(global, row.id, now) : null,
     yourSignInAt: admin ? ownSignIn(global, actor.userId) : null,
-    sso: admin ? await ssoState(global, row.id, actor.userId, now) : null,
+    sso: admin ? await ssoState(global, row, actor.userId, now) : null,
   };
 }
 
-/** Whether single sign-on can be required, and whether the caller already signed in through it. */
+/**
+ * "SSO required" as an admin's Policies page needs it (decision 0021): shown where single sign-on
+ * is offered, and always while the requirement is stored, so a requirement that binds is never
+ * invisible to the admins (with single sign-on off it binds and cannot be met: `offered` false).
+ */
 async function ssoState(
   global: GlobalDb,
-  workspaceId: string,
+  row: PolicyRow,
   userId: string,
   now: number,
 ): Promise<PolicyState["sso"]> {
-  if (global.request.kind !== "request" || global.request.sso !== true) return null;
-  const provider = await workspaceSsoProvider(global, workspaceId, now);
+  if (global.request.kind !== "request") return null;
+  const offered = global.request.sso === true;
+  if (!offered && !row.policy.ssoRequired) return null;
+  const provider = await workspaceSsoProvider(global, row.id, now);
   const credential = global.request.credential;
   const method =
     credential && credential.userId === userId && credential.kind !== "service_token"
@@ -186,6 +192,7 @@ async function ssoState(
   return {
     usable: provider !== null,
     yourSession: provider !== null && method?.kind === "sso" && method.providerId === provider,
+    offered,
   };
 }
 
@@ -302,16 +309,19 @@ export async function policyImpact(
  */
 async function checkProposal(
   global: GlobalDb,
-  workspaceId: string,
+  row: { id: string; policy: WorkspacePolicy },
   input: WorkspacePolicy,
   subject: RequestSubject,
 ): Promise<Result<WorkspacePolicy>> {
+  const workspaceId = row.id;
   const normalized = normalizePolicy(input);
   if (!normalized.ok) return normalized;
-  // "SSO required" (decision 0021): never a setting nobody can satisfy. Single sign-on must be
-  // offered and the provider able to sign people in, and the admin's own session must have
-  // signed in through it (`checkPolicyKeepsCaller` with the provider). Read only when it is set.
-  if (normalized.value.ssoRequired) {
+  // "SSO required" (decision 0021): never a setting nobody can satisfy. Newly requiring it needs
+  // single sign-on offered and the provider able to sign people in, and the admin's own session
+  // must have signed in through it (`checkPolicyKeepsCaller` with the provider). Keeping it set
+  // while it is suspended (or single sign-on is off) is not re-checked, so the admins can still
+  // save their other policies; lifting it never is.
+  if (normalized.value.ssoRequired && !row.policy.ssoRequired) {
     const provider = subject.ssoProvider ?? null;
     const usable = checkSsoRequirement(normalized.value, global.request, provider);
     if (!usable.ok) return usable;
@@ -355,18 +365,6 @@ async function networkReach(
   };
 }
 
-/**
- * Where single sign-on is not offered, a save leaves "SSO required" as stored: the page shows it
- * as off and a save must not lift it unseen (decision 0021).
- */
-function keepSsoUnlessOffered(
-  global: GlobalDb,
-  current: WorkspacePolicy,
-  next: WorkspacePolicy,
-): WorkspacePolicy {
-  return ssoOffered(global.request) ? next : { ...next, ssoRequired: current.ssoRequired };
-}
-
 /** What saving a policy would change, for the admins before they save. */
 export async function previewWorkspacePolicy(
   regions: Regions,
@@ -374,11 +372,11 @@ export async function previewWorkspacePolicy(
 ): Promise<Result<PolicyPreview>> {
   const found = await scopedPolicy(regions.global, input.userId, input.slug, "policies");
   if (!found.ok) return found;
-  const policy = keepSsoUnlessOffered(regions.global, found.value.row.policy, input.policy);
+  const policy = input.policy;
   const provider = policy.ssoRequired
     ? await workspaceSsoProvider(regions.global, found.value.row.id, input.now)
     : null;
-  const proposal = await checkProposal(regions.global, found.value.row.id, policy, {
+  const proposal = await checkProposal(regions.global, found.value.row, policy, {
     userId: input.userId,
     now: input.now,
     ssoProvider: provider,
@@ -560,7 +558,7 @@ export async function setWorkspacePolicy(
   if (row.revision !== input.revision) {
     return fail("version_conflict", "The policies changed meanwhile. Reload them and try again.");
   }
-  const policy = keepSsoUnlessOffered(global, row.policy, input.policy);
+  const policy = input.policy;
   // Newly requiring single sign-on needs `sso` in the plan too, and is checked first so the
   // answer names the plan rather than a provider the plan cannot run.
   const newlySso = policy.ssoRequired && !row.policy.ssoRequired;
@@ -571,7 +569,7 @@ export async function setWorkspacePolicy(
   const provider = policy.ssoRequired
     ? await workspaceSsoProvider(global, row.id, input.now)
     : null;
-  const proposal = await checkProposal(global, row.id, policy, {
+  const proposal = await checkProposal(global, row, policy, {
     userId: input.userId,
     now: input.now,
     ssoProvider: provider,
@@ -639,7 +637,13 @@ export async function setWorkspacePolicy(
       : []),
     global
       .update(w)
-      .set({ policy: stored, policyRevision: row.revision + 1, updatedAt: input.now })
+      .set({
+        policy: stored,
+        policyRevision: row.revision + 1,
+        updatedAt: input.now,
+        // Newly required (the provider was usable) or lifted: not suspended (decision 0021).
+        ...(fields.includes("ssoRequired") ? { ssoSuspended: 0 } : {}),
+      })
       .where(and(eq(w.id, row.id), eq(w.policyRevision, row.revision), condition))
       .returning({ id: w.id }),
   ]);
@@ -1198,6 +1202,8 @@ export async function applyWorkspacePolicies(
           policy: storedPolicy(item.policy),
           policyRevision: row.revision + 1,
           updatedAt: now,
+          // Applied only where the provider is usable, or lifted: not suspended (0021).
+          ssoSuspended: 0,
         })
         .where(and(eq(w.id, item.workspaceId), eq(w.policyRevision, row.revision), sql`1${kept}`))
         .returning({ id: w.id }),
@@ -1262,7 +1268,7 @@ export async function clearRequestPolicies(
     ),
     global
       .update(w)
-      .set({ policy: stored, policyRevision: row.revision + 1, updatedAt: now })
+      .set({ policy: stored, policyRevision: row.revision + 1, updatedAt: now, ssoSuspended: 0 })
       .where(and(eq(w.id, workspaceId), eq(w.policyRevision, row.revision)))
       .returning({ id: w.id }),
   ]);

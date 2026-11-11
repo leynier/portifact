@@ -45,8 +45,9 @@ const DEVELOP = {
   dropLapsedSearchIndexes: 4,
   pruneAuditEvents: 2,
   applyTombstones: 3,
-  // 52 measured on develop before issue integrations, plus their one requeue scan (`requeueThreadIssues`).
-  runMaintenance: 53,
+  // 52 measured on develop before issue integrations, plus their one requeue scan (`requeueThreadIssues`),
+  // plus the one global read of "SSO required"'s suspension scan (`syncSsoRequirementStates`).
+  runMaintenance: 54,
   // Audit streams (decision 0019): one batch per region and run (prune the log, arm streams that
   // lost their job), whatever the number of owners or streams. Run by the jobs Worker only while
   // streams are switched on, outside `runMaintenance`, which it leaves as it was.

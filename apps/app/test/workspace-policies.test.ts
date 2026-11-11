@@ -173,7 +173,7 @@ describe("policies through the dashboard's session", () => {
       // The admin's own sign-in, from the session row this request read (decision 0021).
       yourSignInAt: expect.any(Number),
       // Single sign-on is offered here, but the workspace has no provider (decision 0021).
-      sso: { usable: false, yourSession: false },
+      sso: { usable: false, yourSession: false, offered: true },
     });
     const preview = await t.admin.h.request(
       `${base}/preview`,

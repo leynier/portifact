@@ -2808,4 +2808,10 @@ export const fr = {
   "audit.policy.sso":
     "{value, select, true {authentification unique exigée} other {authentification unique non exigée}}",
   "audit.policy.ssoRemoved": "(le fournisseur d’authentification unique a été supprimé)",
+  "audit.kind.policySsoSuspended":
+    "L’authentification unique exigée ne s’applique plus : le fournisseur ne peut connecter personne ({cause, select, domain {un domaine vérifié a changé} plan {l’offre a changé} provider {le fournisseur a changé} other {constaté par la vérification quotidienne}})",
+  "audit.kind.policySsoResumed":
+    "L’authentification unique exigée s’applique de nouveau : le fournisseur peut connecter les personnes ({cause, select, domain {un domaine vérifié a changé} plan {l’offre a changé} provider {le fournisseur a changé} other {constaté par la vérification quotidienne}})",
+  "policies.sso.switchedOff":
+    "L’authentification unique est exigée, mais elle est désactivée sur ce Portifact : personne ne peut se connecter par le fournisseur ni agir sur cet espace tant que le support de Portifact n’a pas levé l’exigence ou réactivé l’authentification unique. Contactez le support de Portifact.",
 } satisfies Catalog;

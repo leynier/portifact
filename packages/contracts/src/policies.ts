@@ -258,13 +258,22 @@ export const WorkspacePolicyView = z.object({
    */
   yourSignInAt: z.int().min(0).nullable().default(null),
   /**
-   * Single sign-on as "SSO required" sees it (decision 0021), for admins only, null otherwise
-   * and whenever the app does not offer single sign-on (`SSO_ENABLED`): `usable`, whether the
-   * workspace's provider can sign people in now (it exists, serves a verified domain and the plan
-   * includes `sso`); `yourSession`, whether the caller's own session signed in through it, which
-   * setting the requirement needs (an admin proves it works first).
+   * Single sign-on as "SSO required" sees it (decision 0021), for admins only, null otherwise:
+   * shown where the app offers single sign-on (`SSO_ENABLED`) and always while the requirement is
+   * stored. `usable`, whether the workspace's provider can sign people in now (it exists, serves a
+   * verified domain and the plan includes `sso`); `yourSession`, whether the caller's own session
+   * signed in through it, which setting the requirement needs (an admin proves it works first);
+   * `offered`, whether the app offers single sign-on: a stored requirement binds without it, and
+   * nobody can meet it then.
    */
-  sso: z.object({ usable: z.boolean(), yourSession: z.boolean() }).nullable().default(null),
+  sso: z
+    .object({
+      usable: z.boolean(),
+      yourSession: z.boolean(),
+      offered: z.boolean().default(true),
+    })
+    .nullable()
+    .default(null),
 });
 export type WorkspacePolicyView = z.infer<typeof WorkspacePolicyView>;
 

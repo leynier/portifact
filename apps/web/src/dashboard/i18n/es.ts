@@ -2777,4 +2777,10 @@ export const es = {
   "audit.policy.sso":
     "{value, select, true {inicio de sesión único obligatorio} other {inicio de sesión único no obligatorio}}",
   "audit.policy.ssoRemoved": "(se eliminó el proveedor de inicio de sesión único)",
+  "audit.kind.policySsoSuspended":
+    "El inicio de sesión único obligatorio ya no se aplica: el proveedor no puede iniciar la sesión de nadie ({cause, select, domain {cambió un dominio verificado} plan {cambió el plan} provider {cambió el proveedor} other {detectado en la revisión diaria}})",
+  "audit.kind.policySsoResumed":
+    "El inicio de sesión único obligatorio vuelve a aplicarse: el proveedor puede iniciar sesiones ({cause, select, domain {cambió un dominio verificado} plan {cambió el plan} provider {cambió el proveedor} other {detectado en la revisión diaria}})",
+  "policies.sso.switchedOff":
+    "Se exige el inicio de sesión único, pero está desactivado en este Portifact: nadie puede iniciar sesión con el proveedor ni actuar en este espacio hasta que el soporte de Portifact retire el requisito o vuelva a activarlo. Contacta con el soporte de Portifact.",
 } satisfies Catalog;

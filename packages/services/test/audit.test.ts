@@ -1286,6 +1286,8 @@ describe("edges of reading and pruning", () => {
         "member.provisioned",
         "scim.changed",
         "policy.changed",
+        "policy.sso_suspended",
+        "policy.sso_resumed",
         "service_token.created",
         "service_token.revoked",
         "domain.attached",

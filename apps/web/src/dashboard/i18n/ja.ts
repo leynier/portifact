@@ -2727,4 +2727,10 @@ export const ja = {
   "audit.policy.sso":
     "{value, select, true {シングルサインオン必須} other {シングルサインオン任意}}",
   "audit.policy.ssoRemoved": "（シングルサインオンのプロバイダーが削除されました）",
+  "audit.kind.policySsoSuspended":
+    "シングルサインオン必須は適用されなくなりました。プロバイダーが誰もサインインさせられません（{cause, select, domain {確認済みドメインが変更されました} plan {プランが変更されました} provider {プロバイダーが変更されました} other {日次チェックで検出}}）",
+  "audit.kind.policySsoResumed":
+    "シングルサインオン必須が再び適用されます。プロバイダーでサインインできます（{cause, select, domain {確認済みドメインが変更されました} plan {プランが変更されました} provider {プロバイダーが変更されました} other {日次チェックで検出}}）",
+  "policies.sso.switchedOff":
+    "シングルサインオンは必須ですが、この Portifact では無効になっています。Portifact サポートが要件を解除するかシングルサインオンを再び有効にするまで、誰もプロバイダーでサインインできず、このワークスペースで操作できません。Portifact サポートに連絡してください。",
 } satisfies Catalog;

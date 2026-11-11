@@ -2749,4 +2749,10 @@ export const ptBR = {
   "account.method.unknown": "Não registrado",
   "audit.policy.sso": "{value, select, true {login único exigido} other {login único não exigido}}",
   "audit.policy.ssoRemoved": "(o provedor de login único foi removido)",
+  "audit.kind.policySsoSuspended":
+    "O login único exigido não se aplica mais: o provedor não consegue conectar ninguém ({cause, select, domain {um domínio verificado mudou} plan {o plano mudou} provider {o provedor mudou} other {detectado na verificação diária}})",
+  "audit.kind.policySsoResumed":
+    "O login único exigido volta a valer: o provedor consegue conectar as pessoas ({cause, select, domain {um domínio verificado mudou} plan {o plano mudou} provider {o provedor mudou} other {detectado na verificação diária}})",
+  "policies.sso.switchedOff":
+    "O login único é exigido, mas está desligado neste Portifact: ninguém consegue entrar pelo provedor nem agir neste espaço até o suporte da Portifact retirar a exigência ou religar o login único. Fale com o suporte da Portifact.",
 } satisfies Catalog;

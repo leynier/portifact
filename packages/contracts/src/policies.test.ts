@@ -116,6 +116,6 @@ describe("SSO required contracts (decision 0021)", () => {
     expect(view.sso).toBeNull();
     expect(
       WorkspacePolicyView.parse({ ...view, sso: { usable: true, yourSession: false } }).sso,
-    ).toEqual({ usable: true, yourSession: false });
+    ).toEqual({ usable: true, yourSession: false, offered: true });
   });
 });

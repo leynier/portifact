@@ -38,6 +38,7 @@ import { hex } from "./objects.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { joinGroupStatements, linkDirectoryUser } from "./scim-groups.ts";
 import { openSsoSecret, type SsoKey, sealSsoSecret } from "./sso-keys.ts";
+import { ssoSuspensionStatements } from "./sso-required.ts";
 import { memberEvent, scoped, seatsUsedSql, stillAdmin } from "./workspaces.ts";
 
 const so = schema.workspaceSso;
@@ -438,6 +439,12 @@ export async function saveSsoProvider(
       })
       .where(target)
       .returning({ id: so.id }),
+    // The served domains changed: "SSO required" may be suspended or resumed (decision 0021).
+    ...ssoSuspensionStatements(global, {
+      workspaceId: workspace.id,
+      now: input.now,
+      cause: "provider",
+    }),
   ]);
   if (updated.length === 0) return conflictOrScope(global, input);
   return ok(
@@ -505,6 +512,7 @@ export async function removeSsoProvider(
       .set({
         policy: sql`json_remove(${ws.policy}, '$.ssoRequired')`,
         policyRevision: sql`${ws.policyRevision} + 1`,
+        ssoSuspended: 0,
         updatedAt: input.now,
       })
       .where(and(eq(ws.id, workspace.id), requires) as SQL),

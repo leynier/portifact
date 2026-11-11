@@ -1692,6 +1692,13 @@ export const workspaces = sqliteTable(
     policy: text("policy", { mode: "json" }),
     /** Moves with every policy change; a change is conditioned on the revision it read. */
     policyRevision: integer("policy_revision").notNull().default(0),
+    /**
+     * Whether the policy's "SSO required" is suspended because the workspace's provider cannot
+     * sign anyone in (decision 0021): 1 while it cannot, 0 otherwise. Changed only by
+     * `ssoSuspensionStatements` in the batch of the write that causes the transition, with its
+     * audit event; enforcement never reads it (it decides from the provider itself).
+     */
+    ssoSuspended: integer("sso_suspended").notNull().default(0),
   },
   (t) => [uniqueIndex("workspaces_slug_idx").on(t.slug)],
 );

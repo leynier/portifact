@@ -104,7 +104,7 @@ export const AUDIT_GROUPS = {
     "member.provisioned",
     "scim.changed",
   ],
-  policies: ["policy.changed", "policy.enforced"],
+  policies: ["policy.changed", "policy.enforced", "policy.sso_suspended", "policy.sso_resumed"],
   groups: [
     "group.created",
     "group.renamed",
@@ -664,6 +664,10 @@ export function describeAuditEvent(
       return t("audit.kind.policyChanged", { changes: policyChanges(t, d, locale) });
     case "policy.enforced":
       return t("audit.kind.policyEnforced", { changes: enforcedChanges(t, d, locale) });
+    case "policy.sso_suspended":
+      return t("audit.kind.policySsoSuspended", { cause: String(d.cause) });
+    case "policy.sso_resumed":
+      return t("audit.kind.policySsoResumed", { cause: String(d.cause) });
     case "plan.granted": {
       const values = { plan: PLAN_LABELS[d.plan as PlanName], seats: Number(d.seats) };
       return typeof d.validUntil === "string"

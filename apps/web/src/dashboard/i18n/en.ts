@@ -2704,6 +2704,12 @@ export const en = {
   "audit.policy.sso":
     "{value, select, true {single sign-on required} other {single sign-on not required}}",
   "audit.policy.ssoRemoved": "(the single sign-on provider was removed)",
+  "audit.kind.policySsoSuspended":
+    "Single sign-on required no longer applies: the provider cannot sign anyone in ({cause, select, domain {a verified domain changed} plan {the plan changed} provider {the provider changed} other {noticed by the daily check}})",
+  "audit.kind.policySsoResumed":
+    "Single sign-on required applies again: the provider can sign people in ({cause, select, domain {a verified domain changed} plan {the plan changed} provider {the provider changed} other {noticed by the daily check}})",
+  "policies.sso.switchedOff":
+    "Single sign-on is required, but it is switched off on this Portifact, so nobody can sign in through the provider and nobody can act on this workspace until Portifact support lifts the requirement or switches single sign-on back on. Contact Portifact support.",
 } as const;
 
 export type MessageId = keyof typeof en;

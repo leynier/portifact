@@ -298,3 +298,16 @@ describe("SSO required in restores (decision 0021)", () => {
     expect(row?.policy ?? null).toBeNull();
   });
 });
+
+describe("listing the workspaces that require single sign-on (decision 0021)", () => {
+  it("lists only them, for the step before switching single sign-on off", async () => {
+    const required = await workspace({ ...POLICY, ssoRequired: true });
+    const other = await workspace(POLICY);
+    const listed = await runOperator(db(), ["workspaces", "--sso-required"], NOW);
+    expect(listed.exitCode).toBe(0);
+    expect(listed.output).toContain(required);
+    expect(listed.output).not.toContain(other);
+    expect((await runOperator(db(), ["workspaces"], NOW)).output).toContain(other);
+    expect(OPERATOR_USAGE).toContain("workspaces [--sso-required]");
+  });
+});

@@ -27,8 +27,7 @@ const ENTRIES: Record<string, RegExp> = {
   "apps/app/src/app-host.ts":
     /c\.env = withRequestContext\(\s*c\.env,\s*requestContextOf\(c\.req\.raw, \{ sso: c\.env\.SSO_ENABLED === "true" \}\),?\s*\)/,
   // The content Worker: every request it routes.
-  "apps/content/src/index.ts":
-    /withRequestContext\(\s*workerEnv,\s*requestContextOf\(request, \{ sso: workerEnv\.SSO_ENABLED === "true" \}\),?\s*\)/,
+  "apps/content/src/index.ts": /withRequestContext\(workerEnv, requestContextOf\(request\)\)/,
   // The jobs Worker and the operator answer no client.
   "apps/jobs/src/index.ts": /withRequestContext\(env, BACKGROUND\)/,
   "apps/jobs/scripts/operator.ts": /withRequestContext\(proxy\.env, BACKGROUND\)/,
@@ -93,8 +92,7 @@ const CLASSIFIED: Record<string, { file: string; pattern: RegExp } | { noDatabas
   },
   "apps/content/wrangler.jsonc#fetch": {
     file: "apps/content/src/index.ts",
-    pattern:
-      /withRequestContext\(\s*workerEnv,\s*requestContextOf\(request, \{ sso: workerEnv\.SSO_ENABLED === "true" \}\),?\s*\)/,
+    pattern: /withRequestContext\(workerEnv, requestContextOf\(request\)\)/,
   },
   "apps/content/wrangler.jsonc#TrafficLimiter": {
     noDatabase: "apps/content/src/traffic-limiter.ts",

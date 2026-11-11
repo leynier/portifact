@@ -41,7 +41,6 @@ import {
   requestRefusal,
   seesNetworks,
   shownPolicy,
-  ssoOffered,
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import { claimArtifacts } from "./account-data.ts";
@@ -55,7 +54,7 @@ import { releaseOrphans } from "./maintenance.ts";
 import { closeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { directoryRoleHolders } from "./scim-groups.ts";
-import { ssoRequirementColumns, usableSsoProvider } from "./sso-required.ts";
+import { ssoRequirementColumns } from "./sso-required.ts";
 
 const w = schema.workspaces;
 const m = schema.workspaceMembers;
@@ -187,7 +186,7 @@ export async function listUserWorkspaces(
       createdAt: w.createdAt,
       policy: w.policy,
       role: m.role,
-      ...ssoRequirementColumns(),
+      ...ssoRequirementColumns(Date.now()),
     })
     .from(m)
     .innerJoin(w, eq(w.id, m.workspaceId))
@@ -203,7 +202,6 @@ function listed(
     policy: unknown;
     /** "SSO required": the provider and plan columns, read only for a person's list. */
     ssoProvider?: string | null;
-    ssoPlan?: string | null;
     /** Who is listing: the sign-in policies apply the request's credential only to them. */
     userId: string;
   },
@@ -215,14 +213,11 @@ function listed(
   const blockedBy = requestRefusal(policy, global.request, caller, {
     userId: row.userId,
     now,
-    ssoProvider: usableSsoProvider(
-      { ssoProvider: row.ssoProvider ?? null, ssoPlan: row.ssoPlan ?? null },
-      now,
-    ),
+    ssoProvider: row.ssoProvider ?? null,
   });
   const blocked = blockedBy !== null;
-  const shown = shownPolicy(policy, seesNetworks(row.role, blocked), ssoOffered(global.request));
-  const { userId: _, ssoProvider: _p, ssoPlan: _q, ...rest } = row;
+  const shown = shownPolicy(policy, seesNetworks(row.role, blocked));
+  const { userId: _, ssoProvider: _p, ...rest } = row;
   return { ...rest, region: regionOf(row), policy, blocked, blockedBy, shown };
 }
 
@@ -676,9 +671,9 @@ export async function createWorkspace(
     global
       .insert(w)
       // Columns in schema order: id, slug, name, region, created by, created at, updated at,
-      // policy (the defaults), policy revision.
+      // policy (the defaults), policy revision, SSO suspended.
       .select(
-        sql`select ${id}, ${slug}, ${name}, ${region}, ${input.adminUserId}, ${input.now}, ${input.now}, null, 0 where ${guard}`,
+        sql`select ${id}, ${slug}, ${name}, ${region}, ${input.adminUserId}, ${input.now}, ${input.now}, null, 0, 0 where ${guard}`,
       )
       .onConflictDoNothing()
       .returning({ id: w.id }),

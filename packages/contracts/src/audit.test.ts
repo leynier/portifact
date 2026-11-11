@@ -166,6 +166,8 @@ describe("the catalog's exact shapes", () => {
       "audit_stream.paused": "audit_stream",
       "policy.changed": "policy",
       "policy.enforced": "policy",
+      "policy.sso_suspended": "policy",
+      "policy.sso_resumed": "policy",
     });
   });
 

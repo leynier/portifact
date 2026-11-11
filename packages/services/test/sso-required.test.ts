@@ -15,17 +15,28 @@ import {
   type WorkspacePolicy,
 } from "@portifact/contracts";
 import { type Regions, regionsFromEnv, schema, withRequestContext } from "@portifact/db";
-import { POLICY_MESSAGES, policyOf } from "@portifact/domain";
-import { and, eq } from "drizzle-orm";
+import { entitlements, POLICY_MESSAGES, policyOf } from "@portifact/domain";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { updateAccess } from "../src/access.ts";
 import { resolveActor } from "../src/actors.ts";
 import { declineInvitation, inviteMember } from "../src/invitations.ts";
 import { renewArtifact } from "../src/lifecycle.ts";
+import { setOwnerPlan } from "../src/plans.ts";
 import { issueReadHandoff, redeemReadHandoff, refreshReadSession } from "../src/read-access.ts";
 import { createServiceToken } from "../src/service-tokens.ts";
 import { removeSsoProvider } from "../src/sso.ts";
-import { workspaceSsoProvider } from "../src/sso-required.ts";
+import {
+  planHasSsoSql,
+  syncSsoRequirementStates,
+  workspaceSsoProvider,
+} from "../src/sso-required.ts";
+import { FakeDomains } from "../src/testing/fake-domains.ts";
+import {
+  recheckEmailDomains,
+  removeWorkspaceDomain,
+  verifyWorkspaceDomain,
+} from "../src/workspace-domains.ts";
 import {
   applyWorkspacePolicies,
   clearRequestPolicies,
@@ -406,17 +417,22 @@ describe("acting on a workspace that requires single sign-on", () => {
     value(await save(t, REQUIRED, { outside: 1 }));
     expect(await renew(viaCode)).toMatchObject({ ok: false, reason: "sso" });
     expect((await renew(viaSso)).ok).toBe(true);
-    // A content Worker without single sign-on does not apply it.
-    expect((await renew(viaCode, false)).ok).toBe(true);
+    // A Worker without single sign-on applies it exactly the same: never a per-Worker switch.
+    expect(await renew(viaCode, false)).toMatchObject({ ok: false, reason: "sso" });
+    expect((await renew(viaSso, false)).ok).toBe(true);
   });
 });
 
 describe("never a setting nobody can satisfy", () => {
   it("needs single sign-on offered, a provider that can sign people in and the admin's own SSO session", async () => {
     const t = await team();
-    // Single sign-on off: the stored value is kept, never set.
-    value(await save(t, REQUIRED, { offered: false, outside: 1 }));
-    expect(policyOf(await stored(t)).ssoRequired).toBe(false);
+    // Single sign-on off: it cannot be newly required.
+    expect(await save(t, REQUIRED, { offered: false, outside: 1 })).toEqual({
+      ok: false,
+      code: "invalid_input",
+      message: POLICY_MESSAGES.ssoOff,
+    });
+    expect(await stored(t)).toBeNull();
     // The admin's own session signed in another way: refused, in the preview too.
     for (const method of [CODE, GOOGLE, sso(`sso_${hex()}`), null]) {
       const credential = session(t.admin.id, method);
@@ -480,7 +496,7 @@ describe("never a setting nobody can satisfy", () => {
     });
     const state = value(await save(t, REQUIRED, { outside: 1 }));
     expect(state.policy.ssoRequired).toBe(true);
-    expect(state.sso).toEqual({ usable: true, yourSession: true });
+    expect(state.sso).toEqual({ usable: true, yourSession: true, offered: true });
     expect(await stored(t)).toMatchObject({ ssoRequired: true });
     expect(
       await resolveActor(regionsAs(session(t.contractor.id, CODE)).global, t.contractor.id, t.id),
@@ -498,18 +514,40 @@ describe("never a setting nobody can satisfy", () => {
     expect(await stored(t)).toBeNull();
   });
 
-  it("shows nothing about it where single sign-on is not offered, and only admins see the provider state", async () => {
+  it("keeps binding and shows admins it cannot be met where single sign-on is off; only admins see the provider state", async () => {
     const t = await team();
     value(await save(t, REQUIRED, { outside: 1 }));
+    // Switched off: the stored requirement binds (fail closed), the admin with a code session too.
+    const code = session(t.admin.id, CODE);
+    expect(await resolveActor(regionsAs(code, false).global, t.admin.id, t.id)).toMatchObject({
+      reason: "sso",
+    });
+    // An admin whose session went through the provider before the switch reads that it cannot
+    // be met, and nothing hides it.
     const off = value(
-      await getWorkspacePolicy(regionsAs(session(t.admin.id, CODE), false).global, {
+      await getWorkspacePolicy(regionsAs(session(t.admin.id, sso(t.providerId)), false).global, {
         userId: t.admin.id,
         slug: t.slug,
         now: NOW,
       }),
     );
-    expect(off.policy.ssoRequired).toBe(false);
-    expect(off.sso).toBeNull();
+    expect(off.policy.ssoRequired).toBe(true);
+    expect(off.sso).toEqual({ usable: true, yourSession: true, offered: false });
+    // That admin can still lift it; nobody can newly require it.
+    value(await save(t, DEFAULT_POLICY, { offered: false }));
+    expect(await stored(t)).toBeNull();
+    value(await save(t, REQUIRED, { outside: 1 }));
+    // Where single sign-on is off and nothing is required, nothing is offered.
+    const plain = await team();
+    expect(
+      value(
+        await getWorkspacePolicy(regionsAs(session(plain.admin.id, CODE), false).global, {
+          userId: plain.admin.id,
+          slug: plain.slug,
+          now: NOW,
+        }),
+      ).sso,
+    ).toBeNull();
     const member = value(
       await getWorkspacePolicy(regionsAs(session(t.member.id, sso(t.providerId))).global, {
         userId: t.member.id,
@@ -581,8 +619,8 @@ describe("what makes it unsatisfiable", () => {
       .set({ validUntil: null })
       .where(eq(schema.ownerPlans.ownerId, t.id));
     expect(await acts()).toBe(false);
-    // Single sign-on switched off on the Worker: not applied.
-    expect((await resolveActor(regionsAs(code, false).global, t.member.id, t.id)).ok).toBe(true);
+    // Single sign-on switched off on the Worker: applied all the same (fail closed).
+    expect((await resolveActor(regionsAs(code, false).global, t.member.id, t.id)).ok).toBe(false);
   });
 });
 
@@ -673,5 +711,155 @@ describe("D1 calls", () => {
     expect(await count(session(t.member.id, CODE))).toBe(before);
     expect(await count(session(t.member.id, sso(t.providerId)))).toBe(before);
     expect(before).toBe(2);
+  });
+});
+
+describe("entering and leaving suspension, recorded by the write that causes it", () => {
+  const transitions = async (t: Team) =>
+    (
+      await background()
+        .select({ kind: schema.auditEvents.kind, detail: schema.auditEvents.detail })
+        .from(schema.auditEvents)
+        .where(
+          and(
+            eq(schema.auditEvents.ownerId, t.id),
+            inArray(schema.auditEvents.kind, ["policy.sso_suspended", "policy.sso_resumed"]),
+          ),
+        )
+        .orderBy(schema.auditEvents.recordedAt)
+    ).map((e) => `${e.kind}:${(e.detail as { cause: string }).cause}`);
+  const flag = async (t: Team) =>
+    (
+      await background()
+        .select({ s: schema.workspaces.ssoSuspended })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, t.id))
+    )[0]?.s;
+  const adminCode = (t: Team) => regionsAs(session(t.admin.id, CODE)).global;
+
+  it("an admin removing the provider's domain suspends it, and verifying one again resumes it", async () => {
+    const t = await team();
+    value(await save(t, REQUIRED, { outside: 1 }));
+    // Bound now, so the admin acts through their SSO session.
+    const admin = regionsAs(session(t.admin.id, sso(t.providerId))).global;
+    value(
+      await removeWorkspaceDomain(admin, {
+        userId: t.admin.id,
+        slug: t.slug,
+        domainId: t.domainId,
+        now: NOW,
+      }),
+    );
+    expect(await transitions(t)).toEqual(["policy.sso_suspended:domain"]);
+    expect(await flag(t)).toBe(1);
+    // Suspended: a code session acts; a retried removal records nothing more.
+    expect((await resolveActor(adminCode(t), t.admin.id, t.id)).ok).toBe(true);
+    await removeWorkspaceDomain(adminCode(t), {
+      userId: t.admin.id,
+      slug: t.slug,
+      domainId: t.domainId,
+      now: NOW,
+    });
+    expect(await transitions(t)).toEqual(["policy.sso_suspended:domain"]);
+    // Claiming and proving the domain again resumes it.
+    const id = `wd_${hex()}`;
+    const token = "v".repeat(32);
+    await background()
+      .insert(schema.workspaceDomains)
+      .values({
+        id,
+        workspaceId: t.id,
+        domain: t.domain,
+        token,
+        state: "pending",
+        createdAt: NOW,
+        expiresAt: NOW + DAY,
+      });
+    const dns = new FakeDomains();
+    dns.publishTxt(`_portifact-email.${t.domain}`, `portifact-email-verify=${token}`);
+    value(
+      await verifyWorkspaceDomain(adminCode(t), dns, {
+        userId: t.admin.id,
+        slug: t.slug,
+        domainId: id,
+        now: NOW + 1,
+      }),
+    );
+    expect(await transitions(t)).toEqual([
+      "policy.sso_suspended:domain",
+      "policy.sso_resumed:domain",
+    ]);
+    expect(await flag(t)).toBe(0);
+    expect((await resolveActor(adminCode(t), t.admin.id, t.id)).ok).toBe(false);
+  });
+
+  it("the daily re-check removing the domain suspends it", async () => {
+    const t = await team();
+    value(await save(t, REQUIRED, { outside: 1 }));
+    await background()
+      .update(schema.workspaceDomains)
+      .set({ failedChecks: 99, checkedAt: NOW - 3 * DAY })
+      .where(eq(schema.workspaceDomains.id, t.domainId));
+    await recheckEmailDomains(background(), new FakeDomains(), NOW);
+    expect(await transitions(t)).toEqual(["policy.sso_suspended:domain"]);
+  });
+
+  it("a plan change losing or gaining sso suspends or resumes it, and the scan notices an expiry", async () => {
+    const t = await team();
+    value(await save(t, REQUIRED, { outside: 1 }));
+    const grant = (plan: "team" | "enterprise", validUntil: number | null = null) =>
+      setOwnerPlan(regionsAs().get("default").db, {
+        ownerId: t.id,
+        plan,
+        seats: 10,
+        validUntil,
+        overrides: null,
+        grantedBy: "test",
+        note: null,
+        now: NOW,
+      });
+    value(await grant("team"));
+    expect(await transitions(t)).toEqual(["policy.sso_suspended:plan"]);
+    value(await grant("enterprise", NOW + HOUR));
+    expect(await transitions(t)).toEqual(["policy.sso_suspended:plan", "policy.sso_resumed:plan"]);
+    // The plan expires with no write: the scan records it, once.
+    expect(await syncSsoRequirementStates(background(), NOW + 2 * HOUR)).toEqual({ changed: 1 });
+    expect(await syncSsoRequirementStates(background(), NOW + 2 * HOUR)).toEqual({ changed: 0 });
+    expect(await transitions(t)).toEqual([
+      "policy.sso_suspended:plan",
+      "policy.sso_resumed:plan",
+      "policy.sso_suspended:scan",
+    ]);
+  });
+
+  it("decides whether the plan includes sso exactly as entitlements does", async () => {
+    const owner = `ws_${hex()}`;
+    const rows = [
+      { plan: "enterprise", validUntil: null, overrides: null },
+      { plan: "enterprise", validUntil: NOW - 1, overrides: null },
+      { plan: "enterprise", validUntil: NOW + 1, overrides: null },
+      { plan: "team", validUntil: null, overrides: null },
+      { plan: "team", validUntil: null, overrides: { features: { sso: true } } },
+      { plan: "enterprise", validUntil: null, overrides: { features: { sso: false } } },
+      { plan: "pro", validUntil: null, overrides: { features: { webhooks: true } } },
+      { plan: "free", validUntil: null, overrides: null },
+    ] as const;
+    for (const row of rows) {
+      await background().delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, owner));
+      await grantPlan(owner, row.plan, { validUntil: row.validUntil, overrides: row.overrides });
+      const [read] = await background().all<{ has: number }>(
+        sql`select ${planHasSsoSql(owner, NOW)} as has`,
+      );
+      const expected = entitlements(
+        { plan: row.plan, seats: 1, validUntil: row.validUntil, overrides: row.overrides },
+        NOW,
+      ).features.includes("sso");
+      expect(Number(read?.has) === 1, JSON.stringify(row)).toBe(expected);
+    }
+    await background().delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, owner));
+    const [none] = await background().all<{ has: number }>(
+      sql`select ${planHasSsoSql(owner, NOW)} as has`,
+    );
+    expect(Number(none?.has)).toBe(0);
   });
 });

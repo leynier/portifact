@@ -310,12 +310,19 @@ describe("requiring single sign-on through the app Worker", () => {
       }),
     );
     expect(mcpRefreshed.status).toBe(200);
-    const [token] = await global()
+    // The refreshed token itself acts on the workspace, and every token row of the grant, the
+    // refreshed one included, carries the provider's method.
+    const refreshedToken = (await mcpRefreshed.json<TokenResponse>()).access_token;
+    const afterRefresh = await connect(s.h, refreshedToken);
+    expect(
+      (await callTool(afterRefresh, "list_artifacts", { workspace: s.slug })).isError,
+    ).toBeFalsy();
+    const rows = await global()
       .select({ method: schema.oauthAccessTokens.signInMethod })
       .from(schema.oauthAccessTokens)
-      .where(eq(schema.oauthAccessTokens.clientId, mcpFromSso.clientId))
-      .orderBy(schema.oauthAccessTokens.createdAt);
-    expect(token?.method).toBe(`sso:${s.providerId}`);
+      .where(eq(schema.oauthAccessTokens.clientId, mcpFromSso.clientId));
+    expect(rows.length).toBe(2);
+    expect(new Set(rows.map((row) => row.method))).toEqual(new Set([`sso:${s.providerId}`]));
     // The old code CLI stays refused: approving it from a code session never counted.
     expect((await api(s.h, cliFromCode.access_token, path)).status).toBe(403);
     // The personal space works for everyone, whatever their sign-in.
@@ -373,5 +380,142 @@ describe("sessions from before the method was recorded", () => {
     expect((await s.h.request(path, dashboard(memberCode))).status).toBe(403);
     // The personal space works for them all the same.
     expect((await api(s.h, cli.access_token, "/api/v1/artifacts")).status).toBe(200);
+  });
+});
+
+async function refresh(s: Setup, token: string, clientId: string) {
+  const response = await s.h.request(
+    "/api/auth/oauth2/token",
+    form({ grant_type: "refresh_token", refresh_token: token, client_id: clientId }),
+  );
+  expect(response.status).toBe(200);
+  return response.json<TokenResponse>();
+}
+
+describe("repeated refreshes (review of PR 210)", () => {
+  it("a CLI grant from an SSO session keeps its method through six refreshes, some within one second", async () => {
+    const s = await setUp();
+    const adminSso = await ssoSignIn(s, s.adminEmail, s.adminCode);
+    expect((await requireSso(s, adminSso)).status).toBe(200);
+    const path = `/api/v1/artifacts?workspace=${s.slug}`;
+    let tokens = await deviceLogin(s, adminSso);
+    for (let i = 0; i < 6; i++) {
+      tokens = await refresh(s, tokens.refresh_token ?? "", CLI_CLIENT_ID);
+      expect((await api(s.h, tokens.access_token, path)).status, `refresh ${i}`).toBe(200);
+      if (i === 2) await new Promise((resolve) => setTimeout(resolve, 1100));
+    }
+    const admin = await userId(s.adminEmail);
+    const rows = await global()
+      .select({ method: schema.oauthRefreshTokens.signInMethod })
+      .from(schema.oauthRefreshTokens)
+      .where(eq(schema.oauthRefreshTokens.userId, admin));
+    expect(rows.length).toBe(7);
+    expect(new Set(rows.map((row) => row.method))).toEqual(new Set([`sso:${s.providerId}`]));
+  });
+
+  it("an MCP grant from an SSO session keeps its method through six refreshes", async () => {
+    const s = await setUp();
+    const adminSso = await ssoSignIn(s, s.adminEmail, s.adminCode);
+    expect((await requireSso(s, adminSso)).status).toBe(200);
+    const m = await mcpLogin(s, adminSso);
+    let tokens = m.tokens;
+    for (let i = 0; i < 6; i++) {
+      tokens = await refresh(s, tokens.refresh_token ?? "", m.clientId);
+      const rows = await global()
+        .select({ method: schema.oauthAccessTokens.signInMethod })
+        .from(schema.oauthAccessTokens)
+        .where(eq(schema.oauthAccessTokens.clientId, m.clientId));
+      expect(new Set(rows.map((row) => row.method)), `refresh ${i}`).toEqual(
+        new Set([`sso:${s.providerId}`]),
+      );
+      const mcp = await connect(s.h, tokens.access_token);
+      expect(
+        (await callTool(mcp, "list_artifacts", { workspace: s.slug })).isError,
+        `tool ${i}`,
+      ).toBeFalsy();
+      if (i === 3) await new Promise((resolve) => setTimeout(resolve, 1100));
+    }
+  });
+
+  it.each([
+    ["the SSO grant first", true],
+    ["the code grant first", false],
+  ])(
+    "two grants of one user and client rotated in the same second never upgrade the code grant (%s)",
+    async (_name, ssoFirst) => {
+      const s = await setUp();
+      const adminSso = await ssoSignIn(s, s.adminEmail, s.adminCode);
+      expect((await requireSso(s, adminSso)).status).toBe(200);
+      const fromSso = await deviceLogin(s, adminSso);
+      const fromCode = await deviceLogin(s, s.adminCode);
+      // An equal sign-in time (both 0, or two sessions created in the same millisecond).
+      await env.DB.prepare("UPDATE oauth_refresh_tokens SET auth_time = 0 WHERE client_id = ?")
+        .bind(CLI_CLIENT_ID)
+        .run();
+      const path = `/api/v1/artifacts?workspace=${s.slug}`;
+      const [first, second] = ssoFirst ? [fromSso, fromCode] : [fromCode, fromSso];
+      const a = await refresh(s, first.refresh_token ?? "", CLI_CLIENT_ID);
+      const b = await refresh(s, second.refresh_token ?? "", CLI_CLIENT_ID);
+      const code = ssoFirst ? b : a;
+      const viaSso = ssoFirst ? a : b;
+      // The code grant is never upgraded. The SSO grant may drop to "not known" if both rotated
+      // in the same second (decision 0021, "The one-second match"): refused with the fix.
+      const refused = await api(s.h, code.access_token, path);
+      expect(refused.status).toBe(403);
+      const status = (await api(s.h, viaSso.access_token, path)).status;
+      expect([200, 403]).toContain(status);
+      if (status === 403) {
+        const body = await (await api(s.h, viaSso.access_token, path)).json<{
+          error: { message: string };
+        }>();
+        expect(body.error.message).toContain("then run `portifact login` and approve it");
+      }
+    },
+  );
+});
+
+describe("the session payload the browser reads", () => {
+  it("does not carry how the session signed in; the account's sessions endpoint does", async () => {
+    const s = await setUp();
+    const response = await s.h.request("/api/auth/get-session", dashboard(s.adminCode));
+    expect(response.status).toBe(200);
+    const body = await response.json<{ session: Record<string, unknown> }>();
+    expect(body.session).toBeTruthy();
+    expect(body.session).not.toHaveProperty("signInMethod");
+    expect(JSON.stringify(body)).not.toContain('"code"');
+    const sessions = await (
+      await s.h.request("/api/v1/account/sessions", dashboard(s.adminCode))
+    ).json<{ items: { signInMethod: string }[] }>();
+    expect(sessions.items[0]?.signInMethod).toBe("code");
+  });
+});
+
+describe("a provider change resuming the requirement", () => {
+  it("records the transition in the save's batch", async () => {
+    const s = await setUp();
+    const adminSso = await ssoSignIn(s, s.adminEmail, s.adminCode);
+    expect((await requireSso(s, adminSso)).status).toBe(200);
+    const workspaceId = s.workspaceId;
+    // As if suspended earlier; a save that serves a verified domain resumes it.
+    await env.DB.prepare("UPDATE workspaces SET sso_suspended = 1 WHERE id = ?")
+      .bind(workspaceId)
+      .run();
+    const saved = await s.h.request(
+      `/api/v1/workspaces/${s.slug}/sso`,
+      dashboard(adminSso, "PUT", {
+        issuer: s.idp.issuer,
+        clientId: "another-client",
+        domains: [s.domain],
+      }),
+    );
+    expect(saved.status).toBe(200);
+    const events = await env.DB.prepare(
+      "SELECT kind, detail FROM audit_events WHERE owner_id = ? AND kind IN ('policy.sso_suspended', 'policy.sso_resumed')",
+    )
+      .bind(workspaceId)
+      .all<{ kind: string; detail: string }>();
+    expect(events.results.map((e) => [e.kind, JSON.parse(e.detail).cause])).toEqual([
+      ["policy.sso_resumed", "provider"],
+    ]);
   });
 });

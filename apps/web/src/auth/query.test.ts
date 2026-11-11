@@ -103,3 +103,21 @@ describe("the single sign-on round trip (decision 0021)", () => {
     }
   });
 });
+
+describe("hostile return paths of the single sign-on round trip", () => {
+  const ORIGIN = "https://app.portifact.com";
+  it.each([
+    "https://evil.example/policies",
+    "//evil.example/policies",
+    "/\\evil.example/policies",
+    "\\\\evil.example/policies",
+    "/\\/evil.example/policies",
+    "https:/evil.example/policies",
+    "javascript:alert(1)",
+    "/policies\\..\\..\\evil",
+  ])("refuses %s", (next) => {
+    const url = new URL(ssoReauthUrl(next), ORIGIN);
+    expect(url.searchParams.get("next")).toBe(next);
+    expect(safeNext(url.search, ORIGIN)).toBeUndefined();
+  });
+});

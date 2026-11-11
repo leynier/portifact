@@ -147,8 +147,8 @@ Commands:
                                (--allow-lifting also lifts restrictions the file does not have)
   clear-request-policies <slug|workspace-id> --confirm <slug>
                                (lifts the request policies only: network allowlists, maximum
-                               session age, allowed clients; for admins locked out)
-  workspaces
+                               session age, allowed clients, SSO required; for admins locked out)
+  workspaces [--sso-required]  (--sso-required lists only those that require single sign-on)
   workspace <slug|workspace-id>
   workspace-create <slug> --name <name> --admin <user-id|email>
                    [--plan team|enterprise --seats N [--until <ISO date>] [--note <text>]]
@@ -1172,8 +1172,17 @@ export async function runOperator(
       };
     }
     case "workspaces": {
-      const rows = await listAllWorkspaces(global);
-      if (rows.length === 0) return { exitCode: 0, output: "No workspaces." };
+      // `--sso-required`: the workspaces that require single sign-on, before switching SSO off
+      // (docs/releasing.md, "SSO"): with it off nobody can meet the requirement (decision 0021).
+      const ssoOnly = options.has("sso-required");
+      const all = await listAllWorkspaces(global);
+      const rows = ssoOnly ? all.filter((row) => row.policy.ssoRequired) : all;
+      if (rows.length === 0) {
+        return {
+          exitCode: 0,
+          output: ssoOnly ? "No workspace requires single sign-on." : "No workspaces.",
+        };
+      }
       return {
         exitCode: 0,
         output: rows

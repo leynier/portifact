@@ -562,15 +562,22 @@ export interface RequestSubject {
   ssoProvider?: string | null;
 }
 
-/** Whether the Worker answering a request offers single sign-on (`SSO_ENABLED`, decision 0021). */
+/**
+ * Whether the Worker answering a request offers single sign-on (`SSO_ENABLED`, decision 0021):
+ * it decides only whether the sign-in endpoints exist and whether setting the requirement is
+ * offered, never whether a stored requirement binds.
+ */
 export function ssoOffered(request: RequestContext): boolean {
   return request.kind === "request" && request.sso === true;
 }
 
 /**
- * Whether "SSO required" binds now (decision 0021): set on the policy, single sign-on offered by
- * this Worker (`RequestContext.sso`) and the workspace's provider able to sign people in. Any of
- * those missing suspends it (the stored setting stays); removing the provider clears it.
+ * Whether "SSO required" binds now (decision 0021): set on the policy and the workspace's provider
+ * able to sign people in (it exists, serves a verified domain and the plan includes `sso`), all
+ * read from data that is the same on every Worker. Never from a Worker's configuration: a Worker
+ * without `SSO_ENABLED` enforces it exactly like one with it (fail closed), so a security rule
+ * never depends on two Workers' settings agreeing. A provider that cannot sign anyone in
+ * suspends it (the stored setting stays); removing the provider clears it.
  */
 export function ssoRequirementBinds(
   policy: WorkspacePolicy | undefined,
@@ -578,10 +585,7 @@ export function ssoRequirementBinds(
   ssoProvider: string | null | undefined,
 ): ssoProvider is string {
   return (
-    policy?.ssoRequired === true &&
-    request.kind === "request" &&
-    request.sso === true &&
-    typeof ssoProvider === "string"
+    policy?.ssoRequired === true && request.kind === "request" && typeof ssoProvider === "string"
   );
 }
 
@@ -855,18 +859,12 @@ export function seesNetworks(role: Parameters<typeof roleAllows>[0], blocked: bo
 
 /**
  * A policy as a caller sees it: the network allowlists only when `sees` (`seesNetworks`); anyone
- * else learns only that one exists (`hidden`). `ssoShown` is false where single sign-on is not
- * offered (`ssoOffered`): "SSO required" is then neither enforced nor shown.
+ * else learns only that one exists (`hidden`). A stored "SSO required" is always shown: it binds
+ * whatever a Worker's configuration (decision 0021).
  */
-export function shownPolicy(
-  policy: WorkspacePolicy,
-  sees: boolean,
-  ssoShown = true,
-): WorkspacePolicyShown {
+export function shownPolicy(policy: WorkspacePolicy, sees: boolean): WorkspacePolicyShown {
   return {
     ...policy,
-    // With single sign-on off nothing about "SSO required" is shown (decision 0021).
-    ssoRequired: ssoShown && policy.ssoRequired,
     ipAllowlist: shownNetworks(policy.ipAllowlist, sees),
     tokenIpAllowlist: shownNetworks(policy.tokenIpAllowlist, sees),
   };

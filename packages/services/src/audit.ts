@@ -111,6 +111,9 @@ export const GLOBAL_AUDIT_KINDS: readonly AuditKind[] = [
   "sso.removed",
   // A workspace's policies are columns of its global row (decision 0015).
   "policy.changed",
+  // So is whether its "SSO required" is suspended (decision 0021).
+  "policy.sso_suspended",
+  "policy.sso_resumed",
 ];
 const REGIONAL_AUDIT_KINDS = AUDIT_KINDS.filter((kind) => !GLOBAL_AUDIT_KINDS.includes(kind));
 
