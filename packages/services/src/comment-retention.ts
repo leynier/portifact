@@ -21,6 +21,7 @@ import {
   type CommentRetentionNoticePayload,
   CommentTombstonesPayload,
   WORKSPACE_POLICIES,
+  WorkspaceId,
   type WorkspacePolicy,
 } from "@portifact/contracts";
 import {
@@ -308,6 +309,7 @@ export async function writeCommentTombstones(
 // records and the operator's plan commands that take `policies` away write R2 first, then D1.
 // Never the scan for a deletion and never an outbox job: a restore rewinds the outbox together
 // with the rule, so a job retried after a restore would re-arm exactly what the guard must stop.
+// The scan's sweep (`sweepGuardRecords`) only ever deletes a record no stored rule vouches for.
 
 /** Where a workspace's guard record lives in its region's bucket. */
 export function guardKey(workspaceId: string): string {
@@ -446,6 +448,224 @@ export async function deleteGuardRecord(
   }
 }
 
+// The sweep of guard records (decision 0023, "Restores", "The sweep")
+//
+// A record the stored policy does not vouch for (no workspace, another region, no rule, or a rule
+// with another token, days or date) is what a later restore of the global database could agree
+// with. Every write that should remove one already does, but each can fail; the sweep deletes
+// what is left within one pass. It only ever deletes, so at worst it pauses a rule, and it
+// decides on what it read in this run:
+// - one R2 `list` of the prefix per run and region, from a cursor in `maintenance_cursors`;
+// - records younger than `GUARD_SWEEP.minAgeMs` by R2's own clock, and workspaces whose row
+//   changed within it by D1's, are skipped, so a save between its two writes is not swept unless
+//   it stalls longer than that between them (consecutive calls of one request) or lands in the
+//   one call between the re-read and the delete below; either way its rule is only paused;
+// - one global read per page, for the page's workspaces, by their IDs in one JSON parameter;
+// - each record is read again right before its delete, and kept unless it is still the object
+//   the list returned (same etag) and still disagrees;
+// - any error keeps the record and is logged with an enum reason; a failed list or policy read
+//   also keeps the cursor, while a failed read or delete of one record waits for the next pass.
+
+/** The prefix every guard record lives under. */
+export const GUARD_PREFIX = guardKey("");
+
+/** How the sweep pages and how old a record (and its workspace's row) must be to be swept. */
+export const GUARD_SWEEP = { page: 100, minAgeMs: 10 * 60_000 } as const;
+
+const SWEEP = "comment_retention_guard";
+const FOREIGN = "comment_retention_guard_foreign:";
+
+/** What one run of the sweep did in a region. */
+export interface GuardSweepRun {
+  /** Records the list returned. */
+  listed: number;
+  deleted: number;
+  /** Kept because the record or its workspace's row changed too recently, or since the list. */
+  young: number;
+  /** Keys under the prefix that name no workspace: left alone, logged once each. */
+  foreign: number;
+  failed: number;
+}
+
+type SweepFailure = "list" | "read" | "policy" | "get" | "delete" | "marker" | "cursor";
+
+function sweepFailed(run: GuardSweepRun, reason: SweepFailure, error?: unknown): void {
+  run.failed += 1;
+  if (error === undefined) logEvent("error", "comment_retention_guard_sweep_failed", { reason });
+  else {
+    logEvent("error", "comment_retention_guard_sweep_failed", { reason, error: errorLabel(error) });
+  }
+}
+
+interface SweptRow {
+  id: string;
+  region: string;
+  policy: unknown;
+  updatedAt: number;
+}
+
+/** Whether the stored row vouches for the record: this region, a rule, the same token and rule. */
+function vouches(
+  row: SweptRow | undefined,
+  region: Region,
+  text: string,
+): "agrees" | "stale" | "unreadable" {
+  if (!row || row.region !== region) return "stale";
+  let policy: WorkspacePolicy;
+  try {
+    policy = policyOf(row.policy);
+  } catch {
+    return "unreadable";
+  }
+  const rule = commentRetentionOf(policy);
+  const record = guardRecordOf(text);
+  if (rule === null || record === null) return "stale";
+  return record.token === policy.commentRetentionToken &&
+    record.days === rule.days &&
+    record.from === rule.from
+    ? "agrees"
+    : "stale";
+}
+
+/**
+ * One run of the sweep in a region, from `started` (the cursor read with the scan's first batch).
+ * `wall` is R2's clock for the records' age; `now` is the run's clock for the rows' age and the
+ * cursor. Never writes a record.
+ */
+export async function sweepGuardRecords(
+  global: GlobalDb,
+  bucket: R2Bucket | undefined,
+  now: number,
+  region: Region,
+  started: string,
+  wall: number = Date.now(),
+): Promise<GuardSweepRun> {
+  const run: GuardSweepRun = { listed: 0, deleted: 0, young: 0, foreign: 0, failed: 0 };
+  if (!bucket) return run;
+  const name = `${SWEEP}:${region}`;
+  let listing: R2Objects;
+  try {
+    listing = await bucket.list({
+      prefix: GUARD_PREFIX,
+      limit: GUARD_SWEEP.page,
+      ...(started ? { startAfter: started } : {}),
+    });
+  } catch (error) {
+    sweepFailed(run, "list", error);
+    return run;
+  }
+  run.listed = listing.objects.length;
+  const old: { object: R2Object; id: string }[] = [];
+  const foreign: string[] = [];
+  for (const object of listing.objects) {
+    const id = object.key.slice(GUARD_PREFIX.length);
+    if (!WorkspaceId.safeParse(id).success) {
+      run.foreign += 1;
+      foreign.push(`${FOREIGN}${region}:${id}`);
+    } else if (wall - object.uploaded.getTime() < GUARD_SWEEP.minAgeMs) run.young += 1;
+    else old.push({ object, id });
+  }
+  const last = listing.objects.at(-1)?.key ?? null;
+  const next = listing.truncated ? last : null;
+  if (old.length === 0 && foreign.length === 0) {
+    await saveSweepCursor(global, run, name, started, next, now);
+    return run;
+  }
+  let rows: SweptRow[];
+  let known: Set<string>;
+  try {
+    const ids = JSON.stringify(old.map((entry) => entry.id));
+    const [found, marked] = await global.batch([
+      global
+        // The policy as stored text: one malformed row never fails the page's read.
+        .select({
+          id: w.id,
+          region: w.region,
+          policy: sql<string | null>`${w.policy}`,
+          updatedAt: w.updatedAt,
+        })
+        .from(w)
+        .where(sql`${w.id} in (select value from json_each(${ids}))`),
+      global
+        .select({ name: c.name })
+        .from(c)
+        .where(sql`${c.name} in (select value from json_each(${JSON.stringify(foreign)}))`),
+    ]);
+    rows = found as SweptRow[];
+    known = new Set(marked.map((row) => row.name));
+  } catch (error) {
+    // Nothing is decided without the rows: the page is read again next run.
+    sweepFailed(run, "read", error);
+    return run;
+  }
+  const fresh = foreign.filter((marker) => !known.has(marker));
+  if (fresh.length > 0) {
+    try {
+      await global
+        .insert(c)
+        .values(
+          fresh.map((marker) => ({ name: marker, cursor: "", passStartedAt: now, updatedAt: now })),
+        )
+        .onConflictDoNothing();
+      for (let index = 0; index < fresh.length; index += 1) {
+        logEvent("error", "comment_retention_guard_foreign", { region });
+      }
+    } catch (error) {
+      sweepFailed(run, "marker", error);
+    }
+  }
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  for (const { object, id } of old) {
+    const row = byId.get(id);
+    if (row && now - row.updatedAt < GUARD_SWEEP.minAgeMs) {
+      run.young += 1;
+      continue;
+    }
+    let text: string;
+    try {
+      const current = await bucket.get(object.key);
+      if (!current) continue;
+      if (current.etag !== object.etag) {
+        run.young += 1;
+        continue;
+      }
+      text = await current.text();
+    } catch (error) {
+      sweepFailed(run, "get", error);
+      continue;
+    }
+    const verdict = vouches(row, region, text);
+    if (verdict === "agrees") continue;
+    if (verdict === "unreadable") {
+      sweepFailed(run, "policy");
+      continue;
+    }
+    try {
+      await bucket.delete(object.key);
+      run.deleted += 1;
+    } catch (error) {
+      sweepFailed(run, "delete", error);
+    }
+  }
+  await saveSweepCursor(global, run, name, started, next, now);
+  return run;
+}
+
+async function saveSweepCursor(
+  global: GlobalDb,
+  run: GuardSweepRun,
+  name: string,
+  started: string,
+  next: string | null,
+  now: number,
+): Promise<void> {
+  try {
+    await resumeAt(global, name, started, next, now);
+  } catch (error) {
+    sweepFailed(run, "cursor", error);
+  }
+}
+
 type PlanRowRead = Parameters<typeof entitlements>[0];
 
 // The scan
@@ -479,13 +699,15 @@ export interface CommentRetentionRun {
   /** Workspaces with threads due whose policy and guard record did not agree this run. */
   heldBack: number;
   failed: number;
+  /** The sweep of guard records no stored rule vouches for (`sweepGuardRecords`). */
+  guardSweep: GuardSweepRun;
 }
 
 /**
  * The comment retention scan, per run and region (decision 0023, "Comment retention"):
  * - One global batch reads the saved cursor and up to 100 workspaces of this region with a comment
- *   retention after it (with their plan rows and whether their second notice was decided). With
- *   no rule in the region that is the only call.
+ *   retention after it (with their plan rows and whether their second notice was decided), and the
+ *   sweep's cursor. With no rule in the region and no old guard record that is the only D1 call.
  * - A workspace whose plan no longer includes `policies` has its rule removed by the system
  *   (`policy.changed`, reason `plan_lapsed`), its guard record deleted first: its comments are
  *   kept until an admin sets it again, with a new notice and confirmation.
@@ -494,6 +716,8 @@ export interface CommentRetentionRun {
  *   of the policy the batch is held to (`guardAgreement`); only when they agree does one batch
  *   (at most 50 threads) run, until the run's 200, in turn from the cursor, so a large workspace
  *   never starves the others. Nothing here writes the record.
+ * - Last, the sweep (`sweepGuardRecords`): one R2 list of the guard records' prefix from its own
+ *   cursor (read in the first batch), deleting records no stored rule vouches for.
  */
 export async function enforceCommentRetention(
   db: RegionalDb,
@@ -508,11 +732,14 @@ export async function enforceCommentRetention(
     paused: false,
     heldBack: 0,
     failed: 0,
+    guardSweep: { listed: 0, deleted: 0, young: 0, foreign: 0, failed: 0 },
   };
   const global = db.global;
   const name = `${SCAN}:${region}`;
   try {
-    const [saved, rows] = await global.batch([
+    const [swept, saved, rows] = await global.batch([
+      // The sweep's cursor rides the scan's first batch, so it adds no call.
+      cursorRead(global, `${SWEEP}:${region}`),
       cursorRead(global, name),
       global
         .select({
@@ -547,8 +774,12 @@ export async function enforceCommentRetention(
     const started = saved[0]?.cursor ?? "";
     const list = rows as RuleRow[];
     run.checked = list.length;
+    const sweep = async () => {
+      run.guardSweep = await sweepGuardRecords(global, bucket, now, region, swept[0]?.cursor ?? "");
+    };
     if (list.length === 0) {
       await resumeAt(global, name, started, null, now);
+      await sweep();
       return run;
     }
     let budget: number = WORKSPACE_POLICIES.commentDeleteRun;
@@ -606,6 +837,7 @@ export async function enforceCommentRetention(
       }
     }
     await resumeAt(global, name, started, ended ? null : resume, now);
+    await sweep();
   } catch (error) {
     run.failed += 1;
     logEvent("error", "comment_retention_scan_failed", { error: errorLabel(error) });

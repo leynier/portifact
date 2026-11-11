@@ -473,6 +473,7 @@ describe("purging archives", () => {
         paused: false,
         heldBack: 0,
         failed: 0,
+        guardSweep: { listed: 0, deleted: 0, young: 0, foreign: 0, failed: 0 },
       },
     });
   });

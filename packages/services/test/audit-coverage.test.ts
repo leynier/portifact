@@ -319,6 +319,10 @@ reason(
   ],
 );
 reason(
+  "the sweep only deletes guard records no stored rule vouches for: R2 objects, not an owner's data (decision 0023)",
+  ["sweepGuardRecords"],
+);
+reason(
   "tombstones of threads whose deletion its batch already recorded as policy.enforced (decision 0023)",
   ["writeCommentTombstones"],
 );
