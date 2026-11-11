@@ -26,6 +26,7 @@ export * from "./limits.ts";
 export * from "./locales.ts";
 export * from "./mcp.ts";
 export * from "./moderation.ts";
+export * from "./data-export.ts";
 export * from "./plans.ts";
 export * from "./policies.ts";
 export * from "./publishing.ts";

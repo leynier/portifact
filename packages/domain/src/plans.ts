@@ -398,6 +398,45 @@ export function graceScanStep(record: OwnerPlanRecord, now: number): GraceScanSt
   return { slots: compacted.slots, started, ended, folded: compacted.folded };
 }
 
+/** What the row grants by itself at `now`, without any grace: the plan's own entitlements. */
+export function ownEntitlements(record: OwnerPlanRecord | null, now: number): Entitlements {
+  return record === null || !planActive(record, now) ? free() : granted(record);
+}
+
+/** A kind of held data and the first moment some of it may go (decision 0022). */
+export interface GraceForecastStep {
+  kind: "versions" | "accessLog" | "auditEvents" | "pins";
+  /** The end of the first running hold that keeps more of it than the plan's own values. */
+  from: number;
+}
+
+/**
+ * Which kinds of held data a running grace will let go, and from when: for each kind, the end of
+ * the earliest live hold that keeps more than the plan the owner has now (more previous versions
+ * or days, more access log or audit days, or pins the plan does not grant). Empty without a grace.
+ */
+export function graceForecastSteps(
+  record: OwnerPlanRecord | null,
+  now: number,
+): GraceForecastStep[] {
+  const own = ownEntitlements(record, now);
+  const slots = liveGraceSlots(record, now);
+  const holdsMore: Record<GraceForecastStep["kind"], (slot: GraceSlot) => boolean> = {
+    versions: (slot) =>
+      slot.limits.retainedPreviousVersions > own.limits.retainedPreviousVersions ||
+      slot.limits.previousVersionRetentionDays > own.limits.previousVersionRetentionDays,
+    accessLog: (slot) => slot.limits.accessLogRetentionDays > own.limits.accessLogRetentionDays,
+    auditEvents: (slot) => slot.limits.auditRetentionDays > own.limits.auditRetentionDays,
+    pins: (slot) => slot.features.includes("pin") && !own.features.includes("pin"),
+  };
+  const steps: GraceForecastStep[] = [];
+  for (const kind of Object.keys(holdsMore) as GraceForecastStep["kind"][]) {
+    const ends = slots.filter(holdsMore[kind]).map((slot) => slot.until);
+    if (ends.length > 0) steps.push({ kind, from: Math.min(...ends) });
+  }
+  return steps;
+}
+
 /** Whether the owner's plan includes a feature. */
 export function hasFeature(owner: Entitlements, feature: PlanFeature): boolean {
   return owner.features.includes(feature);

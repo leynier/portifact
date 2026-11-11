@@ -6,6 +6,15 @@ import { ISSUE_FAILURE_MESSAGES } from "@portifact/domain";
 
 const VERSION_DIFF_FILE_BYTES = VERSION_DIFF.fileBytes;
 
+/** What each kind a grace lets go is called in the dry run's lines. */
+const EXPORT_KIND_LABELS: Record<string, string> = {
+  versions: "previous versions",
+  accessLog: "access log entries",
+  analytics: "daily analytics counters",
+  auditEvents: "audit events",
+  pins: "pins",
+};
+
 export const messages = {
   notice: [
     "Portifact is in early development.",
@@ -491,6 +500,34 @@ export const messages = {
       `Could not update the files in ${out}: an untracked file or link is in the way of a file of the new versions. Move it, then run the command again.`,
     historyDirty: (out: string) =>
       `${out} has uncommitted changes to files Portifact wrote. Commit or discard them, then run the command again.`,
+  },
+  exportSpace: {
+    dryRun: (
+      space: string,
+      artifacts: number,
+      versions: number,
+      files: number,
+      bytes: number,
+      out: string,
+    ) =>
+      `Would export ${space === "personal" ? "your personal space" : `workspace ${space}`}: ${artifacts} ${plural(artifacts, "artifact", "artifacts")}, ${versions} retained ${plural(versions, "version", "versions")}, ${files} ${plural(files, "file", "files")} (${formatBytes(bytes)}), into ${out}. Nothing was written.`,
+    goes: (kind: string, count: number, from: string) =>
+      `  ${count} ${EXPORT_KIND_LABELS[kind] ?? kind} go from ${formatDate(from)} unless the plan is granted again.`,
+    progress: (done: number, total: number, id: string, version: number) =>
+      `Exported version ${done} of ${total} (${id} v${version}).`,
+    done: (
+      space: string,
+      artifacts: number,
+      versions: number,
+      files: number,
+      bytes: number,
+      out: string,
+    ) =>
+      `Exported ${space === "personal" ? "your personal space" : `workspace ${space}`}: ${artifacts} ${plural(artifacts, "artifact", "artifacts")}, ${versions} ${plural(versions, "version", "versions")}, ${files} ${plural(files, "file", "files")} (${formatBytes(bytes)}) into ${out}. ${"manifest.json"} lists everything written.`,
+    resume: (out: string) =>
+      `The export stopped. What was verified is kept in ${out}; run the same command again to resume.`,
+    notAnExport: (out: string) =>
+      `${out} is not empty and is not an export of this space. Choose a new or empty folder, or the folder an earlier export of this space wrote.`,
   },
   auditExport: {
     formatNeeded: "--format must be csv or jsonl.",
