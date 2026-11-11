@@ -1,11 +1,28 @@
 // portifact export (decision 0022, second delivery): a space's every retained version, sources,
 // access logs, audit log and a manifest, into a folder; resumable, verified, never outside it.
-import { lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
+
+import { existsSync, mkdtempSync } from "node:fs";
+import {
+  chmod,
+  cp,
+  link,
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { ExportManifest } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { oneLine, plain } from "./plain.ts";
 import { type FakeServer, startFakeServer } from "./testing/fake-server.ts";
 import { createHarness, type Harness } from "./testing/harness.ts";
+
+const tmpdirOf = () => mkdtempSync(join(tmpdir(), "portifact-export-stop-"));
 
 let server: FakeServer;
 let h: Harness;
@@ -375,7 +392,7 @@ describe("portifact export", () => {
     });
   });
 
-  it("exits 1 with everything else written when the audit log must wait, and a later run adds it", async () => {
+  it("exits 8 with everything else written when the audit log must wait, and a later run adds it", async () => {
     h.signIn();
     space();
     server.faults.push({
@@ -388,7 +405,7 @@ describe("portifact export", () => {
     });
     const out = join(h.workspace, "export");
     const first = await h.invoke("export", out);
-    expect(first.code).toBe(1);
+    expect(first.code).toBe(8);
     expect(first.stdout).toContain("The audit log was not exported: the server asked to wait.");
     expect(first.stdout).toContain("The export is not complete");
     expect((await manifestOf(out)).audit).toEqual({ skipped: "rate_limited" });
@@ -454,5 +471,282 @@ describe("portifact export", () => {
       .split("\n");
     expect(lines).toHaveLength(250);
     expect(new Set(lines).size).toBe(250);
+  });
+
+  const posix = process.platform !== "win32";
+
+  it.skipIf(!posix)(
+    "X1: refuses a link at a parent folder instead of trusting the files behind it",
+    async () => {
+      h.signIn();
+      await mkdir(h.workspace, { recursive: true });
+      const doc = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+      server.api.seedVersion(doc, { published: { "index.md": "content" } });
+      server.api.audit.set("personal", []);
+      const out = join(h.workspace, "export");
+      expect((await h.invoke("export", out)).code).toBe(0);
+      const outside = join(h.workspace, "outside-v1");
+      await cp(join(out, "artifacts", doc.id, "v1"), outside, { recursive: true });
+      await rm(join(out, "artifacts", doc.id, "v1"), { recursive: true });
+      await symlink(outside, join(out, "artifacts", doc.id, "v1"));
+      const second = await h.invoke("export", out, "--json");
+      expect(second.code).toBe(2);
+      expect(JSON.parse(second.stdout).error.message).toContain("is a link or not a folder");
+      // The earlier manifest is gone: nothing claims files that are not in the folder.
+      await expect(lstat(join(out, "manifest.json"))).rejects.toThrow();
+    },
+  );
+
+  it("X2: prints no escape sequence or invisible character a server error carries", async () => {
+    h.signIn();
+    await mkdir(h.workspace, { recursive: true });
+    const doc = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+    server.api.seedVersion(doc, { published: { "index.md": "x" } });
+    const evil =
+      "\u001b]8;;https://evil.example\u0007click\u001b]8;;\u0007 \u001b[2J\u202eolleh\u200b\u009b";
+    for (const json of [false, true]) {
+      server.faults.push({
+        method: "GET",
+        path: new RegExp(`^/api/v1/artifacts/${doc.id}/versions`),
+        reply: {
+          status: 403,
+          body: Buffer.from(JSON.stringify({ error: { code: "forbidden", message: evil } })),
+        },
+      });
+      const result = await h.invoke(
+        "export",
+        join(h.workspace, `export-${json}`),
+        ...(json ? ["--json"] : []),
+      );
+      const printed = result.stderr + result.stdout;
+      expect(printed).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b\u202e]/);
+      expect(printed).not.toContain("\\u001b");
+      expect(printed).toContain("olleh");
+    }
+  });
+
+  it("X3: a hard failure leaves no manifest, so the folder does not claim a finished export", async () => {
+    h.signIn();
+    space();
+    const out = join(h.workspace, "export");
+    expect((await h.invoke("export", out)).code).toBe(0);
+    for (let i = 0; i < 10; i += 1) {
+      server.faults.push({
+        method: "GET",
+        path: /^\/(?!api\/)/,
+        reply: { status: 500, body: Buffer.from("") },
+      });
+    }
+    server.api.seedVersion(
+      server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 }),
+      {
+        published: { "new.md": "new" },
+      },
+    );
+    const result = await h.invoke("export", out, "--json");
+    expect(result.code).toBe(1);
+    await expect(lstat(join(out, "manifest.json"))).rejects.toThrow();
+    await expect(lstat(join(out, ".portifact-export.lock"))).rejects.toThrow();
+  });
+
+  it.skipIf(!posix || process.getuid?.() === 0)(
+    "X5: a disk error stops at once as write_failed, without retries",
+    async () => {
+      h.signIn();
+      await mkdir(h.workspace, { recursive: true });
+      const doc = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+      server.api.seedVersion(doc, { published: { "index.md": "x" } });
+      server.api.audit.set("personal", []);
+      const out = join(h.workspace, "export");
+      expect((await h.invoke("export", out)).code).toBe(0);
+      server.api.seedVersion(doc, { published: { "index.md": "y" } });
+      const published = join(out, "artifacts", doc.id, "v2", "published");
+      await mkdir(published, { recursive: true });
+      await chmod(published, 0o500);
+      const sleepsBefore = h.sleeps.length;
+      const result = await h.invoke("export", out, "--json");
+      await chmod(published, 0o700);
+      expect(result.code).toBe(1);
+      expect(JSON.parse(result.stdout).error.code).toBe("write_failed");
+      expect(JSON.parse(result.stdout).error.message).toContain("EACCES");
+      expect(h.sleeps.length).toBe(sleepsBefore);
+    },
+  );
+
+  it("stops a body larger than its size before writing more", async () => {
+    h.signIn();
+    const doc = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+    server.api.seedVersion(doc, { published: { "index.md": "small" } });
+    server.api.audit.set("personal", []);
+    server.faults.push({
+      method: "GET",
+      path: /^\/r2\/objects\//,
+      reply: { status: 200, body: Buffer.from("X".repeat(100_000)) },
+    });
+    const out = join(h.workspace, "export");
+    const result = await h.invoke("export", out, "--json");
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.stdout).error.message).toContain("sent more than its");
+    expect((await readdir(join(out, ".portifact-tmp"))).length).toBe(0);
+  });
+
+  it.skipIf(!posix)(
+    "X6: replaces a hard link at a file's name instead of writing through it",
+    async () => {
+      h.signIn();
+      await mkdir(h.workspace, { recursive: true });
+      const doc = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+      server.api.seedVersion(doc, { published: { "index.md": "SERVER" } });
+      server.api.audit.set("personal", []);
+      const out = join(h.workspace, "export");
+      await mkdir(join(out, "artifacts", doc.id, "v1", "published"), { recursive: true });
+      await writeFile(join(out, ".portifact-export"), JSON.stringify({ ownerId: "u_fake_owner" }));
+      const victim = join(h.workspace, "victim.txt");
+      await writeFile(victim, "precious");
+      await link(victim, join(out, "artifacts", doc.id, "v1", "published", "index.md"));
+      expect((await h.invoke("export", out)).code).toBe(0);
+      expect(await readFile(victim, "utf8")).toBe("precious");
+      expect(
+        await readFile(join(out, "artifacts", doc.id, "v1", "published", "index.md"), "utf8"),
+      ).toBe("SERVER");
+    },
+  );
+
+  it.skipIf(!posix)(
+    "X7: links at the temporary folder, the lock, the manifest and the audit file harm nothing",
+    async () => {
+      h.signIn();
+      await mkdir(h.workspace, { recursive: true });
+      const doc = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+      server.api.seedVersion(doc, { published: { "index.md": "x" } });
+      server.api.audit.set("personal", []);
+      const victim = join(h.workspace, "victim");
+      await mkdir(victim);
+      await writeFile(join(victim, "keep.txt"), "precious");
+      for (const name of [
+        ".portifact-tmp",
+        ".portifact-export.lock",
+        "manifest.json",
+        "audit.jsonl",
+      ]) {
+        const out = join(h.workspace, `export-${name}`);
+        await mkdir(out, { recursive: true });
+        await writeFile(
+          join(out, ".portifact-export"),
+          JSON.stringify({ ownerId: "u_fake_owner" }),
+        );
+        await symlink(
+          name === ".portifact-tmp" ? victim : join(victim, "keep.txt"),
+          join(out, name),
+        );
+        const result = await h.invoke("export", out, "--json");
+        expect(await readFile(join(victim, "keep.txt"), "utf8"), name).toBe("precious");
+        if (name === ".portifact-export.lock") {
+          // A link at the lock's name is never taken over or deleted.
+          expect(result.code, name).toBe(6);
+          expect((await lstat(join(out, name))).isSymbolicLink(), name).toBe(true);
+        }
+      }
+    },
+  );
+
+  describe("the folder's lock", () => {
+    const lockOf = (out: string) => join(out, ".portifact-export.lock");
+    async function claimed() {
+      h.signIn();
+      space();
+      const out = join(h.workspace, "export");
+      expect((await h.invoke("export", out)).code).toBe(0);
+      return out;
+    }
+
+    it("takes over a lock whose process no longer runs on this host", async () => {
+      await h.cleanup();
+      h = await createHarness({ server, processAlive: () => false });
+      const out = await claimed();
+      await writeFile(
+        lockOf(out),
+        JSON.stringify({ pid: 999_999, host: hostname(), token: "dead" }),
+      );
+      expect((await h.invoke("export", out)).code).toBe(0);
+      await expect(lstat(lockOf(out))).rejects.toThrow();
+    });
+
+    it("refuses a live lock, another host's lock and an unreadable one, and keeps them", async () => {
+      await h.cleanup();
+      h = await createHarness({ server, processAlive: (pid) => pid === 4242 });
+      const out = await claimed();
+      for (const content of [
+        JSON.stringify({ pid: 4242, host: hostname(), token: "live" }),
+        JSON.stringify({ pid: 1, host: "another-host", token: "far" }),
+        "not a lock",
+      ]) {
+        await writeFile(lockOf(out), content);
+        const result = await h.invoke("export", out, "--json");
+        expect(result.code, content).toBe(6);
+        expect(JSON.parse(result.stdout).error.code).toBe("folder_in_use");
+        expect(await readFile(lockOf(out), "utf8")).toBe(content);
+      }
+    });
+
+    it("is taken before the folder is read: a refused folder gets no lock and no temporary folder", async () => {
+      h.signIn();
+      const other = await h.files("unrelated", { "notes.txt": "mine" });
+      const refused = await h.invoke("export", other);
+      expect(refused.code).toBe(2);
+      expect((await readdir(other)).sort()).toEqual(
+        [".portifact-tmp", "notes.txt"].filter((n) => n === "notes.txt"),
+      );
+    });
+
+    it("is removed on Ctrl-C or kill, with the shell's codes, so the next run resumes", async () => {
+      for (const [signal, code] of [
+        ["SIGINT", 130],
+        ["SIGTERM", 143],
+      ] as const) {
+        await h.cleanup();
+        let fired = false;
+        let lockDuringStop: boolean | null = null;
+        const out = join(tmpdirOf(), `stop-${signal}`);
+        h = await createHarness({
+          server,
+          beforeFetch: (url) => {
+            if (fired || !url.includes("/r2/objects/")) return;
+            fired = true;
+            h.signal(signal);
+            lockDuringStop = existsSync(join(out, ".portifact-export.lock"));
+          },
+        });
+        h.signIn();
+        server.api.artifacts.clear();
+        space();
+        await h.invoke("export", out);
+        expect(h.exits).toEqual([code]);
+        expect(lockDuringStop).toBe(false);
+        expect((await h.invoke("export", out)).code).toBe(0);
+      }
+    });
+  });
+
+  it("strips invisible format characters from what it prints", () => {
+    for (const character of [
+      "\u200e",
+      "\u200f",
+      "\u061c",
+      "\u200b",
+      "\u200c",
+      "\u200d",
+      "\ufeff",
+      "\u00ad",
+      "\u{E0041}",
+      "\u202e",
+      "\u2067",
+      "\u001b",
+      "\u009b",
+      "\u007f",
+    ]) {
+      expect(oneLine(`a${character}b`), JSON.stringify(character)).toBe("ab");
+    }
+    expect(plain("line one\n\tline two")).toBe("line one\n\tline two");
   });
 });

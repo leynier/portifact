@@ -549,10 +549,16 @@ export const messages = {
       `${oneLine(path)} did not match its size or SHA-256 on disk after downloading, so the export stopped and removed it. Run the same command again to resume.`,
     skipped: (id: string, reason: string) =>
       `Skipped ${id}: ${EXPORT_SKIP_LABELS[reason] ?? reason}.`,
+    stopped: (out: string) =>
+      `The export was stopped. What was verified is kept in ${out}; run the same command again to resume.`,
+    tooLarge: (path: string, size: number) =>
+      `${oneLine(path)} sent more than its ${formatBytes(size)}, so the export stopped before writing more. Run the same command again.`,
+    writeFailed: (path: string, code: string) =>
+      `Could not write ${oneLine(path)} to the export folder (${code}). Check the folder's permissions and free space, then run the same command again.`,
     auditLater:
       "The audit log was not exported: the server asked to wait. Run the same command again later to add it.",
     incomplete:
-      "The export is not complete: some parts must be fetched again later. Run the same command again; what is in the folder is kept.",
+      "The export is not complete (exit 8): some parts must be fetched again later. Run the same command again; what is in the folder is kept.",
   },
   auditExport: {
     formatNeeded: "--format must be csv or jsonl.",

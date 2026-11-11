@@ -2,11 +2,14 @@
 // nothing that could drive the terminal or hide text. One place, used by every command.
 
 /**
- * Removes what could change the terminal or hide text: control characters (C0, DEL and C1)
- * other than line feeds and tabs, line separators and bidirectional overrides and isolates.
+ * Removes what could change the terminal or hide text: control characters (C0, DEL and C1) other
+ * than line feeds and tabs, line separators, and every invisible format character (`\p{Cf}`):
+ * bidirectional overrides, isolates and marks (LRM, RLM, ALM), zero-width characters (ZWSP,
+ * ZWNJ, and ZWJ too, so an emoji joined with it shows as its parts), the BOM, the soft hyphen and
+ * tag characters.
  */
 export function plain(value: string): string {
-  return value.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]/gu, (character) =>
+  return value.replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (character) =>
     character === "\n" || character === "\t" ? character : "",
   );
 }

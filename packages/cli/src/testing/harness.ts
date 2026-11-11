@@ -5,7 +5,14 @@ import { OAuthScope } from "@portifact/contracts";
 import { run } from "../cli.ts";
 import { KEYRING_SERVICE } from "../credentials.ts";
 import { type Git, gitRunner } from "../git.ts";
-import { nodeFileBody, type ProcessRunner, type Runtime, type SecretsApi } from "../runtime.ts";
+import {
+  nodeFileBody,
+  type ProcessRunner,
+  processAlive,
+  type Runtime,
+  type SecretsApi,
+  type StopSignal,
+} from "../runtime.ts";
 import type { FakeServer } from "./fake-server.ts";
 
 /** An in-memory OS credential store, or one that fails like Linux without a Secret Service. */
@@ -35,6 +42,10 @@ export interface Harness {
   runtime: Runtime;
   /** Every delay the CLI asked to wait, in milliseconds. */
   sleeps: number[];
+  /** Exit codes the CLI asked for after a stop signal. */
+  exits: number[];
+  /** Sends a stop signal to the running command, as Ctrl-C or `kill` would. */
+  signal: (name: StopSignal) => void;
   /** URLs the CLI asked to open in a browser. */
   opened: string[];
   /** Questions the CLI asked at the terminal. */
@@ -57,6 +68,10 @@ export interface Harness {
 
 export interface HarnessOptions {
   server: FakeServer;
+  /** Whether a process ID runs (for an export lock a stopped run left); real by default. */
+  processAlive?: (pid: number) => boolean;
+  /** Called before each request the CLI sends (tests act in the middle of a command). */
+  beforeFetch?: (url: string) => void;
   secrets?: FakeSecrets | undefined;
   interactive?: boolean;
   browserOpens?: boolean;
@@ -79,6 +94,8 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   const configDir = join(base, "config", "portifact");
   const workspace = join(base, "work");
   const sleeps: number[] = [];
+  const exits: number[] = [];
+  const signalListeners = new Set<(signal: StopSignal) => void>();
   const opened: string[] = [];
   const prompts: string[] = [];
   const processes: string[][] = [];
@@ -89,7 +106,10 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
 
   const runtime: Runtime = {
     env: { PORTIFACT_APP_ORIGIN: options.server.origin, ...options.env },
-    fetch: (input, init) => fetch(input, init),
+    fetch: (input, init) => {
+      options.beforeFetch?.(String(input));
+      return fetch(input, init);
+    },
     now: () => clock,
     // Waiting is simulated: the clock jumps instead of real time passing.
     sleep: async (ms) => {
@@ -115,6 +135,15 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
       processes.push([command, ...args]);
       return runProcess(command, args, processOptions);
     },
+    onSignal: (listener) => {
+      signalListeners.add(listener);
+      return () => signalListeners.delete(listener);
+    },
+    // The test process keeps running: the code is recorded instead.
+    exit: (code) => {
+      exits.push(code);
+    },
+    processAlive: (pid) => (options.processAlive ? options.processAlive(pid) : processAlive(pid)),
   };
   // Upload URLs expire on the same controlled clock the CLI reads.
   options.server.clock = () => clock;
@@ -122,6 +151,10 @@ export async function createHarness(options: HarnessOptions): Promise<Harness> {
   return {
     runtime,
     sleeps,
+    exits,
+    signal: (name: StopSignal) => {
+      for (const listener of [...signalListeners]) listener(name);
+    },
     opened,
     prompts,
     processes,

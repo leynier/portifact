@@ -21,20 +21,23 @@ const CREATE_NEW = constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | N
 export class SafeFolder {
   private constructor(readonly root: string) {}
 
-  /** The folder, created if needed, by its real path, so every later check compares against it. */
+  /**
+   * The folder, created if needed, by its real path, so every later check compares against it.
+   * Nothing is written into it here: the caller claims it first (`claimFolder` in `export.ts`).
+   */
   static async open(path: string): Promise<SafeFolder> {
     await mkdir(path, { recursive: true });
-    const root = await realpath(path);
-    const folder = new SafeFolder(root);
-    await folder.directory([TEMP_FOLDER]);
-    return folder;
+    return new SafeFolder(await realpath(path));
   }
 
   /**
-   * The folder at `segments` under the root, each level created if missing and refused if it is a
-   * link or not a folder; its real path must still be inside the root.
+   * The folder at `segments` under the root, each level refused if it is a link or not a folder,
+   * and its real path must still be inside the root. With `create` (the default) a missing level
+   * is created; without it a missing level answers null, for reads that must not create anything.
    */
-  async directory(segments: readonly string[]): Promise<string> {
+  async directory(segments: readonly string[], create: true): Promise<string>;
+  async directory(segments: readonly string[], create?: boolean): Promise<string | null>;
+  async directory(segments: readonly string[], create = true): Promise<string | null> {
     let current = this.root;
     for (const segment of segments) {
       current = join(current, segment);
@@ -45,6 +48,7 @@ export class SafeFolder {
         info = null;
       }
       if (info === null) {
+        if (!create) return null;
         try {
           await mkdir(current);
         } catch {
@@ -74,7 +78,7 @@ export class SafeFolder {
    * is a regular file: a link, a folder or anything else at that name is refused.
    */
   async place(temporary: string, segments: readonly string[]): Promise<string> {
-    const folder = await this.directory(segments.slice(0, -1));
+    const folder = await this.directory(segments.slice(0, -1), true);
     const target = join(folder, segments.at(-1) as string);
     const existing = await info(target);
     if (existing !== null && !existing.isFile()) {
@@ -85,12 +89,34 @@ export class SafeFolder {
     return target;
   }
 
+  /**
+   * The regular file at `segments`, reached only through folders `directory` accepts (no link at
+   * any level, real path inside the root), or null when there is none. Every read the export
+   * trusts goes through it, so a link planted at a parent folder is refused, never followed.
+   */
+  private async file(segments: readonly string[]): Promise<string | null> {
+    const folder = await this.directory(segments.slice(0, -1), false);
+    if (folder === null) return null;
+    const target = join(folder, segments.at(-1) as string);
+    const found = await info(target);
+    if (found === null) return null;
+    if (!found.isFile()) {
+      throw new CliError("invalid_input", messages.exportSpace.notAFile(this.show(target)));
+    }
+    return target;
+  }
+
   /** Whether `segments` names a regular file (never through a link) with this size and SHA-256. */
   async holds(segments: readonly string[], size: number, sha256: string): Promise<boolean> {
-    const target = join(this.root, ...segments);
-    const found = await info(target);
-    if (found === null || !found.isFile() || found.size !== size) return false;
+    const target = await this.file(segments);
+    if (target === null || (await lstat(target)).size !== size) return false;
     return (await digest(target)) === sha256;
+  }
+
+  /** Removes the regular file at `segments` if there is one (never through a link). */
+  async remove(segments: readonly string[]): Promise<void> {
+    const target = await this.file(segments);
+    if (target !== null) await rm(target, { force: true });
   }
 
   /** Writes `text` at `segments` through a temporary file. */
@@ -106,9 +132,8 @@ export class SafeFolder {
 
   /** Reads a regular file at `segments` (never through a link), or null when there is none. */
   async readText(segments: readonly string[]): Promise<string | null> {
-    const target = join(this.root, ...segments);
-    const found = await info(target);
-    if (found === null || !found.isFile()) return null;
+    const target = await this.file(segments);
+    if (target === null) return null;
     const handle = await open(target, constants.O_RDONLY | NOFOLLOW);
     try {
       return await handle.readFile("utf8");
@@ -119,8 +144,9 @@ export class SafeFolder {
 
   /** Removes the temporary folder's leftovers from interrupted runs. */
   async clearTemporary(): Promise<void> {
+    // `rm` removes a link planted at this name, never what it points to.
     await rm(join(this.root, TEMP_FOLDER), { recursive: true, force: true });
-    await this.directory([TEMP_FOLDER]);
+    await this.directory([TEMP_FOLDER], true);
   }
 
   private show(path: string): string {

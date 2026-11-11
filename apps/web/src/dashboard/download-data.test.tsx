@@ -42,6 +42,7 @@ beforeEach(async () => {
   await seedVersion(server, ID, [{ path: "index.html", text: "<h1>v2</h1>" }]);
   try {
     localStorage.clear();
+    sessionStorage.clear();
   } catch {
     // No storage in this environment: nothing to clear.
   }
@@ -123,26 +124,43 @@ async function graceNotice(): Promise<HTMLElement> {
 }
 
 describe("the grace notice", () => {
-  it("is announced once, by one live region that stays across pages, not by the box", async () => {
+  it("is announced once per tab and content, then empties its live region; the box has none", async () => {
     inGrace();
     const { router } = renderDashboard("/usage", server);
     const notice = await graceNotice();
     expect(notice.closest('[role="status"]')).toBeNull();
-    const region = await waitFor(() => {
-      const found = screen
+    const spoken = () =>
+      screen
         .getAllByRole("status")
-        .find((node) => node.textContent?.startsWith("What the Pro plan kept is held until "));
-      if (!found) throw new Error("no live region yet");
-      return found;
-    });
-    const said = region.textContent;
+        // The shell's live region (the Plan page's own callout is a status too, and stays).
+        .filter((node) => node.tagName === "P" && node.className.includes("sr-only"))
+        .filter((node) => node.textContent?.startsWith("What the Pro plan kept is held until "));
+    await waitFor(() => expect(spoken()).toHaveLength(1));
+    // It holds the words only for a moment: reading the page then hears them once, in the box.
+    await waitFor(() => expect(spoken()).toHaveLength(0), { timeout: 3_000 });
     await router.navigate({ to: "/" });
     await screen.findByRole("heading", { level: 1 });
     await router.navigate({ to: "/plan" });
     await screen.findByRole("heading", { level: 1, name: "Plan" });
-    // The same node with the same words: nothing re-inserted, nothing announced again.
-    expect(region.isConnected).toBe(true);
-    expect(region.textContent).toBe(said);
+    expect(spoken()).toHaveLength(0);
+    cleanup();
+    // A reload in the same tab announces nothing new either.
+    renderDashboard("/usage", server);
+    await graceNotice();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(spoken()).toHaveLength(0);
+  });
+
+  it("puts no live region on the pages that show the grace themselves", async () => {
+    inGrace();
+    renderDashboard("/data", server);
+    await screen.findByRole("heading", { level: 1, name: "Download your data" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((node) => node.className.includes("sr-only") && node.textContent !== ""),
+    ).toBe(false);
   });
 
   it.each(["light", "dark"] as const)(

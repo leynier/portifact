@@ -110,6 +110,28 @@ function CapacityNotice({ space }: { space: Space }) {
   );
 }
 
+/** How long the grace notice's live region holds its words before it is emptied again. */
+const ANNOUNCE_HOLD_MS = 1_500;
+
+/** What this tab last announced for a space's grace (session storage; nothing when blocked). */
+const ANNOUNCED_KEY = (space: Space) => `portifact.graceAnnounced.${space.slug ?? "personal"}`;
+
+function announcedBefore(space: Space, message: string): boolean {
+  try {
+    return sessionStorage.getItem(ANNOUNCED_KEY(space)) === message;
+  } catch {
+    return false;
+  }
+}
+
+function rememberAnnounced(space: Space, message: string): void {
+  try {
+    sessionStorage.setItem(ANNOUNCED_KEY(space), message);
+  } catch {
+    // Without storage it may be announced again after a reload; never more often than that.
+  }
+}
+
 /** The day a grace notice was hidden for, per space and browser (`YYYY-MM-DD`, UTC). */
 const GRACE_HIDDEN_KEY = (space: Space) => `portifact.graceNotice.${space.slug ?? "personal"}`;
 
@@ -146,13 +168,20 @@ function GraceNotice({ space }: { space: Space }) {
       })
     : "";
   const body = admin ? t("shell.grace.body") : t("shell.grace.bodyAskAdmin");
-  // One polite live region, mounted with the shell, carries the notice: moving between pages
-  // re-inserts nothing, so it is announced once per change of what it says, not on every page.
+  // The visible box has no live role. Its words are announced through a polite live region that
+  // holds them only for a moment and is then emptied, so reading the page never hears them twice;
+  // and only when they differ from what this tab last announced for the space, so moving between
+  // pages, reloading or coming back to the space does not announce them again.
+  const onOwnPage = pathname === "/data" || pathname === "/plan";
+  const message = grace && !hidden && !onOwnPage ? `${title}. ${body}` : "";
   const [spoken, setSpoken] = useState("");
-  const message = grace && !hidden ? `${title}. ${body}` : "";
   useEffect(() => {
+    if (message === "" || announcedBefore(space, message)) return;
+    rememberAnnounced(space, message);
     setSpoken(message);
-  }, [message]);
+    const clear = setTimeout(() => setSpoken(""), ANNOUNCE_HOLD_MS);
+    return () => clearTimeout(clear);
+  }, [message, space]);
   if (!grace || hidden) return null;
   const hide = () => {
     try {
@@ -168,7 +197,7 @@ function GraceNotice({ space }: { space: Space }) {
         {spoken}
       </p>
       {/* The Plan page and the download page show the grace themselves. */}
-      {pathname === "/data" || pathname === "/plan" ? null : (
+      {onOwnPage ? null : (
         <div className="mb-6">
           <Callout
             live={false}

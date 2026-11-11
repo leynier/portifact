@@ -13,9 +13,8 @@
 // away while the export ran, is recorded as skipped; something the server asked to retry later
 // (a rate limit) makes the export exit 1 with everything else written, so running it again
 // completes it.
-import { constants } from "node:fs";
-import { open, readdir, rm } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { readdir, rm } from "node:fs/promises";
+import { resolve, sep } from "node:path";
 import {
   AccessLogView,
   ArtifactList,
@@ -38,6 +37,7 @@ import { exportPathSegments, exportVersionFolder, isGitSegment } from "@portifac
 import { callApi, downloadApi, RETRY_ATTEMPTS, withRetries } from "./api.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError, EXIT } from "./errors.ts";
+import { EXPORT_LOCK, takeExportLock } from "./export-lock.ts";
 import { messages } from "./messages.ts";
 import { checkDownloadPaths, DOWNLOAD_CONCURRENCY, fetchLinks } from "./pull.ts";
 import type { Io, Runtime } from "./runtime.ts";
@@ -48,8 +48,6 @@ import { chosenWorkspace, workspaceQuery } from "./workspaces.ts";
 
 /** The file that marks a folder as an export of one owner. */
 export const EXPORT_MARKER = ".portifact-export";
-/** The file that keeps a second export out of a folder while one runs. */
-export const EXPORT_LOCK = ".portifact-export.lock";
 const PAGE = 100;
 const RETRY_BASE_MS = 1_000;
 
@@ -131,8 +129,17 @@ export async function exportSpace(
   }
 
   const target = await SafeFolder.open(out);
-  await claimFolder(target, forecast.ownerId, out);
+  // The lock first: nothing in the folder is read or written before this run holds it.
+  const lock = await takeExportLock(target.root, out, runtime.processAlive);
+  // Ctrl-C or `kill`: the lock goes, so running the command again resumes (130 and 143, the
+  // shell's codes for a process stopped by SIGINT and SIGTERM).
+  const stopListening = runtime.onSignal((signal) => {
+    lock.releaseNow();
+    io.stderr(`${messages.exportSpace.stopped(out)}\n`);
+    runtime.exit(signal === "SIGINT" ? 130 : 143);
+  });
   try {
+    await claimFolder(target, forecast.ownerId, out);
     return await writeExport(io, session, target, out, planned, {
       workspace,
       space,
@@ -141,40 +148,29 @@ export async function exportSpace(
       json: options.json === true,
     });
   } finally {
-    await rm(join(target.root, EXPORT_LOCK), { force: true });
+    stopListening();
+    await lock.release();
   }
 }
 
 /**
- * Takes the folder for this run: refused when another export holds its lock, or when it holds
- * anything but an earlier export of this same owner (its marker names the owner's ID). The lock is
- * created exclusively, so two runs that start together never both get it.
+ * Claims the folder for this run, which holds its lock: refused when it holds anything but an
+ * earlier export of this same owner (its marker names the owner's ID). An earlier run's manifest
+ * is removed, so a run that stops before its end leaves no manifest that seems to describe it:
+ * a folder without `manifest.json` holds an unfinished export.
  */
 async function claimFolder(folder: SafeFolder, ownerId: string, out: string): Promise<void> {
   const marker = await folder.readText([EXPORT_MARKER]);
-  const entries = (await readdir(folder.root)).filter((name) => name !== TEMP_FOLDER);
+  const entries = (await readdir(folder.root)).filter(
+    (name) => name !== TEMP_FOLDER && name !== EXPORT_LOCK,
+  );
   if (marker === null ? entries.length > 0 : markerOwner(marker) !== ownerId) {
     throw new CliError("invalid_input", messages.exportSpace.notAnExport(out));
   }
-  try {
-    const lock = await open(
-      join(folder.root, EXPORT_LOCK),
-      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
-      0o644,
-    );
-    await lock.write(`${process.pid}\n`);
-    await lock.close();
-  } catch {
-    throw new CliError("folder_in_use", messages.exportSpace.locked(out, EXPORT_LOCK));
-  }
-  try {
-    await folder.clearTemporary();
-    if (marker === null) {
-      await folder.writeText([EXPORT_MARKER], `${JSON.stringify({ ownerId })}\n`);
-    }
-  } catch (error) {
-    await rm(join(folder.root, EXPORT_LOCK), { force: true });
-    throw error;
+  await folder.clearTemporary();
+  await folder.remove([EXPORT_MANIFEST_FILE]);
+  if (marker === null) {
+    await folder.writeText([EXPORT_MARKER], `${JSON.stringify({ ownerId })}\n`);
   }
 }
 
@@ -300,7 +296,7 @@ async function writeExport(
     }
     if (retryLater) io.stdout(`${messages.exportSpace.incomplete}\n`);
   }
-  return retryLater ? EXIT.failure : EXIT.ok;
+  return retryLater ? EXIT.incomplete : EXIT.ok;
 }
 
 /** Every artifact of the space and its retained versions, a page at a time. */
@@ -431,8 +427,11 @@ export function segmentsOf(path: string, windows: boolean): string[] {
 /**
  * A file that is already in place and verified is kept; anything else is fetched again into a
  * temporary file of its own, put in place, and read back: it counts only when the bytes at its
- * final place have the right size and SHA-256. Storage links are renewed before they expire or
- * once after storage refuses one, and transient failures are retried with backoff.
+ * final place have the right size and SHA-256. Only the network (the request and reading its
+ * body) is retried: storage links are renewed before they expire or once after storage refuses
+ * one, and transient failures are retried with backoff. A disk error (`EACCES`, `ENOSPC`, a
+ * failing `rename`) stops at once as `write_failed`, and a body larger than its size is cut off
+ * before it can fill the disk.
  */
 async function fetchToFile(
   session: Session,
@@ -443,7 +442,7 @@ async function fetchToFile(
   renew: () => Promise<void>,
 ): Promise<void> {
   const expected = link();
-  if (await folder.holds(segments, expected.size, expected.sha256)) return;
+  if (await onDisk(path, () => folder.holds(segments, expected.size, expected.sha256))) return;
   const { runtime } = session;
   let renewed = false;
   let failures = 0;
@@ -455,33 +454,28 @@ async function fetchToFile(
       continue;
     }
     let status = 0;
+    let response: Response | null = null;
     try {
       // Storage links carry their own signature; the API token never goes to storage.
-      const response = await runtime.fetch(current.url, { method: "GET", redirect: "manual" });
+      response = await runtime.fetch(current.url, { method: "GET", redirect: "manual" });
       status = response.status;
-      if (response.ok && response.body) {
-        const temporary = await folder.temporary();
-        try {
-          const reader = response.body.getReader();
-          for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            await temporary.handle.write(value);
-          }
-        } finally {
-          await temporary.handle.close();
-        }
-        const placed = await folder.place(temporary.path, segments);
-        if (!(await folder.holds(segments, current.size, current.sha256))) {
+    } catch {
+      status = 0;
+    }
+    if (response?.ok && response.body) {
+      const fetched = await streamToDisk(path, folder, response.body, current.size);
+      if (fetched === "network") {
+        status = 0;
+      } else {
+        const placed = await onDisk(path, () => folder.place(fetched, segments));
+        if (!(await onDisk(path, () => folder.holds(segments, current.size, current.sha256)))) {
           await rm(placed, { force: true });
           throw new CliError("download_failed", messages.exportSpace.mismatch(path));
         }
         return;
       }
-      await response.body?.cancel();
-    } catch (error) {
-      if (error instanceof CliError) throw error;
-      status = 0;
+    } else {
+      await response?.body?.cancel().catch(() => undefined);
     }
     if (status === 403 && !renewed) {
       renewed = true;
@@ -495,6 +489,59 @@ async function fetchToFile(
       continue;
     }
     throw new CliError("download_failed", messages.errors.downloadFailed(path));
+  }
+}
+
+/**
+ * Streams a response body into a new temporary file, at most `size` bytes. Answers the temporary
+ * file's path, or `network` when reading the body failed (worth retrying). A disk error throws
+ * `write_failed`, and a body longer than `size` throws a mismatch: neither is retried.
+ */
+async function streamToDisk(
+  path: string,
+  folder: SafeFolder,
+  body: ReadableStream<Uint8Array>,
+  size: number,
+): Promise<string | "network"> {
+  const temporary = await onDisk(path, () => folder.temporary());
+  const reader = body.getReader();
+  let written = 0;
+  let outcome: string | "network" = temporary.path;
+  try {
+    for (;;) {
+      let chunk: Awaited<ReturnType<typeof reader.read>>;
+      try {
+        chunk = await reader.read();
+      } catch {
+        outcome = "network";
+        break;
+      }
+      if (chunk.done) break;
+      written += chunk.value.byteLength;
+      if (written > size) {
+        await reader.cancel().catch(() => undefined);
+        throw new CliError("download_failed", messages.exportSpace.tooLarge(path, size));
+      }
+      await onDisk(path, () => temporary.handle.write(chunk.value));
+    }
+  } catch (error) {
+    await temporary.handle.close().catch(() => undefined);
+    await rm(temporary.path, { force: true });
+    throw error;
+  }
+  await onDisk(path, () => temporary.handle.close());
+  if (outcome === "network") await rm(temporary.path, { force: true });
+  return outcome;
+}
+
+/** Runs a disk step; a file system error becomes `write_failed` naming the file and its code. */
+async function onDisk<T>(path: string, step: () => Promise<T>): Promise<T> {
+  try {
+    return await step();
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    const code = (error as NodeJS.ErrnoException).code ?? "unknown";
+    throw new CliError("write_failed", messages.exportSpace.writeFailed(path, code));
   }
 }
 
