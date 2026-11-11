@@ -15,7 +15,7 @@ import { type ReactNode, useState } from "react";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import type { MessageId } from "../i18n/en.ts";
-import { ROLE_LABELS, spaceCan, useWorkspaces, WORKSPACES_QUERY } from "../space.tsx";
+import { ROLE_LABELS, spaceCan, spaceRegion, useWorkspaces, WORKSPACES_QUERY } from "../space.tsx";
 import { artifactQuery } from "./artifact-detail.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { domainQuery } from "./custom-domain.tsx";
@@ -58,7 +58,7 @@ export function TransferArtifact({ artifact }: { artifact: ArtifactSummary }) {
   const sourceRegion =
     source.kind === "personal"
       ? DEFAULT_REGION
-      : (items.find((w) => w.slug === source.slug)?.region ?? DEFAULT_REGION);
+      : spaceRegion(items.find((w) => w.slug === source.slug) ?? {});
   const destinations = [
     ...(source.kind === "personal" || sourceRegion !== DEFAULT_REGION
       ? []
@@ -67,7 +67,7 @@ export function TransferArtifact({ artifact }: { artifact: ArtifactSummary }) {
       .filter(
         (w) =>
           spaceCan(w, "transfer") &&
-          w.region === sourceRegion &&
+          spaceRegion(w) === sourceRegion &&
           !(source.kind === "workspace" && source.slug === w.slug),
       )
       .map((w) => ({ value: w.slug, label: `${w.name} (${t(ROLE_LABELS[w.role])})` })),

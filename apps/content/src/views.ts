@@ -5,7 +5,7 @@
 // one batch next to the traffic meter's batch to the control database.
 
 import type { Region } from "@portifact/db";
-import { utcDay } from "@portifact/domain";
+import { logEvent, utcDay } from "@portifact/domain";
 import type { ViewDelta } from "@portifact/services";
 
 /** How long an isolate gathers views before writing them, like the traffic meter. */
@@ -65,7 +65,7 @@ export class ViewMeter {
     } catch {
       for (const delta of deltas) this.#add(delta);
       // No identifiers or counts: the log is technical and sampled.
-      console.error("view counter write failed; kept for the next window");
+      logEvent("error", "view_write_failed");
     }
   }
 

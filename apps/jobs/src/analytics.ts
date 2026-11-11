@@ -4,7 +4,9 @@
 // account also hosts other projects, so every dataset is filtered to Portifact's bucket, Workers
 // and databases. Without the settings the budget uses what D1 already knows. `fetch` is injected
 // so tests never reach the network.
+
 import type { PlatformMetrics } from "@portifact/domain";
+import { CodedError } from "@portifact/domain";
 
 export const GRAPHQL_ENDPOINT = "https://api.cloudflare.com/client/v4/graphql";
 
@@ -98,7 +100,7 @@ const total = <T>(rows: T[] | undefined, pick: (row: T) => number | undefined) =
 /** Turns the GraphQL answer into metrics; a dataset missing from the answer stays unmeasured. */
 export function parseBudgetData(data: BudgetQueryData): AnalyticsMetrics {
   const account = data.viewer?.accounts?.[0];
-  if (!account) throw new Error("analytics: the account is not visible to this token");
+  if (!account) throw new CodedError("ANALYTICS_ACCOUNT_NOT_VISIBLE");
   const metrics: AnalyticsMetrics = {};
   const operations = account.r2OperationsAdaptiveGroups;
   if (operations) {
@@ -153,11 +155,11 @@ export function cloudflareAnalytics(
       });
       if (!response.ok) {
         await response.body?.cancel();
-        throw new Error(`analytics: HTTP ${response.status}`);
+        throw new CodedError("ANALYTICS_HTTP", response.status);
       }
       const body = (await response.json()) as { data?: BudgetQueryData | null; errors?: unknown[] };
       if (body.errors && body.errors.length > 0) {
-        throw new Error(`analytics: ${body.errors.length} GraphQL error(s)`);
+        throw new CodedError("ANALYTICS_GRAPHQL_ERRORS", body.errors.length);
       }
       return parseBudgetData(body.data ?? {});
     },

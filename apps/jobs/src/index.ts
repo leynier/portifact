@@ -17,7 +17,7 @@ import {
   regionsFromEnv,
   withRequestContext,
 } from "@portifact/db";
-import { errorLabel } from "@portifact/domain";
+import { CodedError, errorLabel, logEvent, logSummary } from "@portifact/domain";
 import {
   checkCustomDomains,
   type DomainDeps,
@@ -109,13 +109,10 @@ export async function runRelay(env: Env, now: number): Promise<number | "failed"
       relayed += (await relayOutbox(handles.db, env.JOBS, now, 5, handles.region)).relayed;
     } catch (error) {
       failed = true;
-      console.error(
-        JSON.stringify({
-          event: "outbox_relay_failed",
-          region: handles.region,
-          error: errorLabel(error),
-        }),
-      );
+      logEvent("error", "outbox_relay_failed", {
+        region: handles.region,
+        error: errorLabel(error),
+      });
     }
   }
   return failed ? "failed" : relayed;
@@ -123,7 +120,7 @@ export async function runRelay(env: Env, now: number): Promise<number | "failed"
 
 /** The bucket of a region, which every Worker that runs its jobs is bound to. */
 function bucketOf(handles: RegionHandles): R2Bucket {
-  if (!handles.bucket) throw new Error(`Region ${handles.region} has no bucket binding`);
+  if (!handles.bucket) throw new CodedError("BUCKET_NOT_BOUND");
   return handles.bucket;
 }
 
@@ -162,7 +159,7 @@ export async function runScheduled(
     customDomains = await checkCustomDomains(domainDbs(regions), domains, now);
   } catch (error) {
     customDomains = "failed";
-    console.error(JSON.stringify({ event: "custom_domains_failed", error: errorLabel(error) }));
+    logEvent("error", "custom_domains_failed", { error: errorLabel(error) });
   }
   // Workspace email domains: a DNS failure is never a miss, and never hides the rest of the run.
   let emailDomains: Awaited<ReturnType<typeof recheckEmailDomains>> | "skipped" | "failed" =
@@ -172,7 +169,7 @@ export async function runScheduled(
       emailDomains = await recheckEmailDomains(regions.global, options.emailDomains, now);
     } catch (error) {
       emailDomains = "failed";
-      console.error(JSON.stringify({ event: "email_domains_failed", error: errorLabel(error) }));
+      logEvent("error", "email_domains_failed", { error: errorLabel(error) });
     }
   }
   // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
@@ -222,13 +219,10 @@ export async function runScheduled(
       if (prunedAccessEvents !== "failed") prunedAccessEvents += pruned;
     } catch (error) {
       prunedAccessEvents = "failed";
-      console.error(
-        JSON.stringify({
-          event: "access_log_prune_failed",
-          region: handles.region,
-          error: errorLabel(error),
-        }),
-      );
+      logEvent("error", "access_log_prune_failed", {
+        region: handles.region,
+        error: errorLabel(error),
+      });
     }
   }
   const result = {
@@ -246,7 +240,7 @@ export async function runScheduled(
     customDomains,
     emailDomains,
   };
-  console.log(JSON.stringify({ event: "maintenance", ...result }));
+  logSummary("log", "maintenance", result);
   return result;
 }
 
@@ -260,7 +254,7 @@ export async function runScheduledBudget(
     analytics: analyticsFromEnv(env, fetcher),
     notifier: notifierFromEnv(env),
   });
-  console.log(JSON.stringify({ event: "budget", ...result }));
+  logSummary("log", "budget", result);
   return result;
 }
 
@@ -273,23 +267,20 @@ export async function runEmailEvents(db: GlobalDb, batch: MessageBatch<unknown>,
     const body = typeof message.body === "string" ? safeJson(message.body) : message.body;
     const parsed = EmailSendingEvent.safeParse(body);
     if (!parsed.success) {
-      console.error(JSON.stringify({ event: "email_event_malformed", messageId: message.id }));
+      logEvent("error", "email_event_malformed", { messageId: message.id });
       message.ack();
       continue;
     }
     try {
       const outcome = await recordEmailEvent(db, parsed.data, now);
       message.ack();
-      console.log(
-        JSON.stringify({
-          event: "email_event",
-          type: parsed.data.type,
-          eventId: parsed.data.payload.eventId ?? null,
-          outcome,
-        }),
-      );
+      logEvent("log", "email_event", {
+        type: emailEventKind(parsed.data.type),
+        eventId: parsed.data.payload.eventId ?? null,
+        outcome,
+      });
     } catch (error) {
-      console.error(JSON.stringify({ event: "email_event_failed", error: errorLabel(error) }));
+      logEvent("error", "email_event_failed", { error: errorLabel(error) });
       message.retry({ delaySeconds: FAILED_RETRY_SECONDS });
     }
   }
@@ -301,6 +292,13 @@ function safeJson(text: string): unknown {
   } catch {
     return undefined;
   }
+}
+
+/** An Email Service event's type as a log line may say it: Cloudflare's text is not logged. */
+export function emailEventKind(type: string): "bounced" | "complained" | "other" {
+  if (type.endsWith("message.bounced")) return "bounced";
+  if (type.endsWith("message.complained")) return "complained";
+  return "other";
 }
 
 export async function runQueue(
@@ -328,7 +326,7 @@ export async function runQueue(
     const parsed = JobMessage.safeParse(message.body);
     if (!parsed.success) {
       // Never retried: no delivery can make a malformed message valid.
-      console.error(JSON.stringify({ event: "job_malformed", messageId: message.id }));
+      logEvent("error", "job_malformed", { messageId: message.id });
       message.ack();
       return;
     }
@@ -351,11 +349,19 @@ export async function runQueue(
       } else {
         message.ack();
       }
-      console.log(JSON.stringify({ event: "job", ...parsed.data, outcome }));
+      logEvent("log", "job", {
+        id: parsed.data.id,
+        topic: parsed.data.topic,
+        region: parsed.data.region,
+        outcome,
+      });
     } catch (error) {
-      console.error(
-        JSON.stringify({ event: "job_failed", ...parsed.data, error: errorLabel(error) }),
-      );
+      logEvent("error", "job_failed", {
+        id: parsed.data.id,
+        topic: parsed.data.topic,
+        region: parsed.data.region,
+        error: errorLabel(error),
+      });
       message.retry({ delaySeconds: FAILED_RETRY_SECONDS });
     }
   };

@@ -14,6 +14,7 @@ import {
   errorLabel,
   fail,
   isPlannedPart,
+  logEvent,
   type MultipartConfig,
   ok,
   type PartPlan,
@@ -252,7 +253,7 @@ async function completeUpload(
     return null;
   } catch (error) {
     // Only the error's label: R2's message can name the object's key, which holds the owner.
-    console.error(JSON.stringify({ event: "multipart_complete_failed", error: errorLabel(error) }));
+    logEvent("error", "multipart_complete_failed", { error: errorLabel(error) });
     // A reported ETag or part R2 does not have: the client sends every part again.
     await forgetParts(db, input.sessionId, input.sha256);
     return `${input.sha256} could not be assembled from its parts; they must be uploaded again`;

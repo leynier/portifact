@@ -31,6 +31,7 @@ import {
   fail,
   groupActivity,
   hasFeature,
+  logEvent,
   ok,
   type Result,
   unsubscribeUsable,
@@ -163,7 +164,7 @@ type Skip = "no_account" | "opted_out" | "nothing_visible" | "suppressed" | "cap
 
 function skipped(reason: Skip, threads: number): JobOutcome {
   // Only the reason and a count: never the address, names or anything about the comments.
-  console.log(JSON.stringify({ event: "comment_notice_skipped", reason, threads }));
+  logEvent("log", "comment_notice_skipped", { reason, threads });
   return "stale";
 }
 

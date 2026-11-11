@@ -5,6 +5,7 @@
 // like an unknown one. The role comes from `GET /api/v1/workspaces`; it only decides what the
 // screens offer, and the API stays the authority.
 import {
+  DEFAULT_REGION,
   type OwnerView,
   type Region,
   type RoleAction,
@@ -95,6 +96,11 @@ export function useSpace(): SpaceState {
     },
     workspaces: items,
   };
+}
+
+/** Where a space's data is stored: a missing region reads as the default one (decision 0005). */
+export function spaceRegion(space: { region?: Region | undefined }): Region {
+  return space.region ?? DEFAULT_REGION;
 }
 
 /** The space once known; screens inside the shell only render when it is. */

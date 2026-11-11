@@ -54,11 +54,15 @@ function regionBindings(env: E2eEnv, region: Region = "default") {
   return { db: env.DB_EU, access: env.ACCESS_DB_EU, bucket: env.ARTIFACTS_EU };
 }
 
-/** The bucket a presigned URL names, by its bucket name (the first segment of its path). */
-function bucketNamed(env: E2eEnv, name: string | null): R2Bucket {
-  return name !== null && name === env.R2_BUCKET_EU && env.ARTIFACTS_EU
-    ? env.ARTIFACTS_EU
-    : env.ARTIFACTS;
+/**
+ * The bucket a presigned URL names, by its bucket name (the first segment of its path), or null
+ * for any other name: an upload signed for a bucket the stack does not have is refused, never
+ * written to the default one.
+ */
+function bucketNamed(env: E2eEnv, name: string | null): R2Bucket | null {
+  if (name !== null && name === env.R2_BUCKET) return env.ARTIFACTS;
+  if (name !== null && name === env.R2_BUCKET_EU && env.ARTIFACTS_EU) return env.ARTIFACTS_EU;
+  return null;
 }
 
 /**
@@ -193,6 +197,7 @@ async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Resp
   const key = url.searchParams.get("key") ?? "";
   // The bucket the URL was signed for: an EU workspace's uploads go to the EU bucket.
   const bucket = bucketNamed(env, url.searchParams.get("bucket"));
+  if (!bucket) return new Response("Unknown bucket", { status: 400 });
   const size = Number(request.headers.get("content-length"));
   const uploadId = url.searchParams.get("uploadId");
   if (uploadId !== null) return partPut(request, bucket, key, uploadId, url, size);
@@ -684,7 +689,12 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   // database, access log database and bucket, and in the global tables, for an owner and its
   // artifacts. Raw reads, so a row in the wrong database is seen, not refused by the guard.
   if (path === "/where") {
-    const { ownerId, artifactIds = [] } = input as { ownerId: string; artifactIds?: string[] };
+    const {
+      ownerId,
+      artifactIds = [],
+      actorIds = [],
+    } = input as { ownerId: string; artifactIds?: string[]; actorIds?: string[] };
+    const actors = JSON.stringify(actorIds);
     const ids = JSON.stringify(artifactIds);
     const count = async (database: D1Database, query: string, ...params: string[]) =>
       (
@@ -739,6 +749,12 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
           "select count(*) as n from access_events where artifact_id in (select value from json_each(?)) or owner_id = ?",
           ids,
           ownerId,
+        ),
+        // Idempotency records of the people who acted: they hold responses (decision 0005).
+        operations: await count(
+          d,
+          "select count(*) as n from operations where actor_id in (select value from json_each(?))",
+          actors,
         ),
         traffic: await count(
           d,

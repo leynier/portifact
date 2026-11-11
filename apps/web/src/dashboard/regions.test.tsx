@@ -5,6 +5,7 @@
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { spaceRegion } from "./space.tsx";
 import { type FakeServer, fakeServer, renderDashboard, workspace } from "./test-support.tsx";
 
 afterEach(() => {
@@ -42,5 +43,13 @@ describe("the notice that a destination leaves the EU", () => {
     renderDashboard(path, server);
     await screen.findByRole("heading", { level: 1, name: heading });
     expect(screen.queryByText(TITLE)).toBeNull();
+  });
+});
+
+describe("a space's region", () => {
+  it("reads a missing region as the default one, the same for every screen", () => {
+    expect(spaceRegion({})).toBe("default");
+    expect(spaceRegion({ region: undefined })).toBe("default");
+    expect(spaceRegion({ region: "eu" })).toBe("eu");
   });
 });

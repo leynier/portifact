@@ -5,7 +5,7 @@ import { Badge, Callout } from "@portifact/ui";
 import { Link } from "@tanstack/react-router";
 import { Info, Lock, User, Users } from "lucide-react";
 import { useT } from "../context.tsx";
-import type { Space } from "../space.tsx";
+import { type Space, spaceRegion } from "../space.tsx";
 
 /** The space an artifact or a page belongs to, as a badge: Personal, or the workspace's name. */
 export function SpaceBadge({ owner }: { owner: OwnerView | Space }) {
@@ -53,7 +53,7 @@ export function LeavesRegionNotice({
   destination: "webhooks" | "integrations";
 }) {
   const t = useT();
-  if (space.kind !== "workspace" || (space.region ?? DEFAULT_REGION) === DEFAULT_REGION) {
+  if (space.kind !== "workspace" || spaceRegion(space) === DEFAULT_REGION) {
     return null;
   }
   return (

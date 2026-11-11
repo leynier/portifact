@@ -10,6 +10,7 @@
 import type { GlobalDb } from "@portifact/db";
 import {
   errorLabel,
+  logEvent,
   PROTECTION_TRAFFIC_LIMITS,
   type ProtectionAction,
   trafficLimited,
@@ -54,9 +55,7 @@ async function protectionActions(db: GlobalDb, now: number): Promise<ProtectionA
     actions = (await platformProtection(db, now)).actions;
   } catch (error) {
     // Unreadable state never stops delivery; the next minute reads it again.
-    console.error(
-      JSON.stringify({ event: "budget_protection_unreadable", error: errorLabel(error) }),
-    );
+    logEvent("error", "budget_protection_unreadable", { error: errorLabel(error) });
   }
   cached = { actions, readAt: now };
   return actions;
@@ -98,7 +97,7 @@ export async function overTrafficLimit(
     remember(key, hit.resetAt, now);
     return hit.resetAt;
   } catch (error) {
-    console.error(JSON.stringify({ event: "traffic_limiter_failed", error: errorLabel(error) }));
+    logEvent("error", "traffic_limiter_failed", { error: errorLabel(error) });
     return null;
   }
 }

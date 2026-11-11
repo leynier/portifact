@@ -75,7 +75,7 @@ describe("opening log", () => {
     record(opening());
     await settle();
     expect(log.pending()).toEqual([opening()]);
-    expect(error).toHaveBeenCalledWith("access log write failed; kept for the next batch");
+    expect(error).toHaveBeenCalledWith(JSON.stringify({ event: "access_log_write_failed" }));
     fail = false;
     record(opening({ userId: "u_other" }));
     await settle();

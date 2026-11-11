@@ -1,3 +1,4 @@
+import { errorLabel } from "@portifact/domain";
 import { describe, expect, it } from "vitest";
 import {
   analyticsFromEnv,
@@ -97,8 +98,10 @@ describe("analytics collector", () => {
     expect(
       parseBudgetData({ viewer: { accounts: [{ r2StorageAdaptiveGroups: [{ max: {} }] }] } }),
     ).toEqual({ storedBytes: 0 });
-    expect(() => parseBudgetData({ viewer: { accounts: [] } })).toThrow(/not visible/);
-    expect(() => parseBudgetData({})).toThrow(/not visible/);
+    expect(() => parseBudgetData({ viewer: { accounts: [] } })).toThrow(
+      /ANALYTICS_ACCOUNT_NOT_VISIBLE/,
+    );
+    expect(() => parseBudgetData({})).toThrow(/ANALYTICS_ACCOUNT_NOT_VISIBLE/);
   });
 
   it("fails without echoing the token or the response body", async () => {
@@ -107,20 +110,22 @@ describe("analytics collector", () => {
       fakeFetch(() => new Response(`bad token ${TOKEN}`, { status: 403 })).fetcher,
     );
     const error = await collector.collect(RANGE).catch((e: unknown) => e);
-    expect(String(error)).toBe("Error: analytics: HTTP 403");
+    expect(String(error)).toBe("Error: ANALYTICS_HTTP 403");
+    // What the budget run logs: the code and the status, so a revoked token reads apart from a limit.
+    expect(errorLabel(error)).toBe("Error:ANALYTICS_HTTP:403");
 
     const graphErrors = cloudflareAnalytics(
       { token: TOKEN, accountId: "acc" },
       fakeFetch(() => Response.json({ data: null, errors: [{ message: TOKEN }] })).fetcher,
     );
     expect(String(await graphErrors.collect(RANGE).catch((e: unknown) => e))).toBe(
-      "Error: analytics: 1 GraphQL error(s)",
+      "Error: ANALYTICS_GRAPHQL_ERRORS 1",
     );
 
     const noData = cloudflareAnalytics(
       { token: TOKEN, accountId: "acc" },
       fakeFetch(() => Response.json({ errors: [] })).fetcher,
     );
-    await expect(noData.collect(RANGE)).rejects.toThrow(/not visible/);
+    await expect(noData.collect(RANGE)).rejects.toThrow(/ANALYTICS_ACCOUNT_NOT_VISIBLE/);
   });
 });

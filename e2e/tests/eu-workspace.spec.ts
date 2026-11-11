@@ -39,6 +39,7 @@ interface Counts {
   messages: number;
   shareLinks: number;
   accessEvents: number;
+  operations: number;
   traffic: number;
   views: number;
   r2Objects: number;
@@ -67,13 +68,17 @@ const NOTHING: Counts = {
   messages: 0,
   shareLinks: 0,
   accessEvents: 0,
+  operations: 0,
   traffic: 0,
   views: 0,
   r2Objects: 0,
 };
 
+/** The people who act in the journey, whose idempotency records `/where` counts. */
+const actorIds: string[] = [];
+
 function where(ownerId: string, artifactIds: string[]): Promise<Where> {
-  return control<Where>("/where", { ownerId, artifactIds });
+  return control<Where>("/where", { ownerId, artifactIds, actorIds });
 }
 
 /** Nothing of the owner in the default region, and no global table copied into the EU one. */
@@ -169,6 +174,7 @@ test("an EU workspace keeps its artifacts, comments, logs and bytes in the EU, f
   test.skip(browserName === "webkit", "uploads from the browser need request bodies");
   const admin = await createUser("Admin");
   const reader = await createUser("Reader");
+  actorIds.splice(0, actorIds.length, admin.userId, reader.userId);
   const slug = `eu-${crypto.randomUUID().slice(0, 8)}`;
 
   // 1. The operator creates the workspace in the EU with a Team plan (docs/operations.md).
@@ -203,6 +209,34 @@ test("an EU workspace keeps its artifacts, comments, logs and bytes in the EU, f
   // 2. A member publishes a site and a Markdown document from the dashboard.
   await signIn(context, admin);
   await routeStorage(page);
+
+  // The storage stand-in writes only to a bucket the stack has: a URL signed for another bucket
+  // is refused instead of landing in the default one.
+  const bogus = await fetch(
+    `${process.env.PF_E2E_CONTROL}/storage?key=objects%2Fx%2F${"a".repeat(64)}&bucket=portifact-elsewhere`,
+    {
+      method: "PUT",
+      headers: { "content-length": "1", "x-amz-checksum-sha256": "AAAA" },
+      body: "x",
+    },
+  );
+  expect(bogus.status).toBe(400);
+
+  // The pages that send the workspace's data where its admins choose say it leaves the EU, in
+  // both themes and without an axe violation.
+  for (const [path, heading, body] of [
+    ["/webhooks", "Webhooks", "Webhook deliveries go to the addresses you enter"],
+    ["/integrations", "Integrations", "Issues you create go to GitHub or Linear"],
+  ] as const) {
+    await open(page, `${path}?workspace=${slug}`, heading);
+    await expect(page.getByText("Where you send it may be outside the EU")).toBeVisible();
+    await expect(page.getByText(body, { exact: false })).toBeVisible();
+    for (const colorScheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+      expect(await axeViolations(page), `${path} ${colorScheme}`).toEqual([]);
+    }
+  }
+  await page.emulateMedia({ colorScheme: "light" });
   await publishFromDashboard(
     page,
     slug,
@@ -223,6 +257,8 @@ test("an EU workspace keeps its artifacts, comments, logs and bytes in the EU, f
   {
     const found = await onlyInEu(ownerId, ids);
     expect(found.eu).toMatchObject({ artifacts: 2, versions: 2, usage: 1 });
+    // The dashboard's keyed prepares left their records in the EU database (decision 0005).
+    expect(found.eu.operations).toBeGreaterThanOrEqual(2);
     expect(found.eu.objects).toBeGreaterThanOrEqual(2);
     expect(found.eu.versionFiles).toBeGreaterThanOrEqual(2);
     // The uploaded bytes and the rendered document are in the EU bucket only.
@@ -405,7 +441,8 @@ test("an EU workspace keeps its artifacts, comments, logs and bytes in the EU, f
   await expect(async () => {
     await runJobs();
     const found = await where(ownerId, ids);
-    expect(found.eu).toEqual(NOTHING);
+    // The people's idempotency records stay with them until pruned within a day; in the EU.
+    expect({ ...found.eu, operations: 0 }).toEqual(NOTHING);
     expect(found.default).toEqual(NOTHING);
     expect(found.global).toMatchObject({ workspaces: 0, members: 0, plans: 0 });
     expect(found.global.tombstones).toEqual(

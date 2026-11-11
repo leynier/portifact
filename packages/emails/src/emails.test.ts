@@ -3,10 +3,12 @@ import { LOCALE_CODES } from "@portifact/contracts/locales";
 import { type DefaultTreeAdapterMap, parse } from "parse5";
 import { describe, expect, it } from "vitest";
 import { budgetAlertEmail } from "./budget-alert.ts";
+import { commentNoticeEmail } from "./comment-notice.ts";
 import { EXPIRY_TEXT, expiryNoticeEmail, formatExpiry } from "./expiry-notice.ts";
 import { INVITATION_TEXT, invitationEmail } from "./invitation.ts";
 import { escapeHtml, renderEmail } from "./layout.ts";
 import { previews } from "./previews.ts";
+import { reviewNoticeEmail } from "./review-notice.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
 import { DARK, FONT_SANS, fontSans, LIGHT } from "./theme.ts";
 
@@ -515,6 +517,49 @@ describe.each(LOCALE_CODES)("user-facing emails in %s", (locale) => {
     if (locale !== "en") {
       expect(text.due(1, first)).not.toBe(EXPIRY_TEXT.en.due(1, first));
       expect(text.list(3)).not.toBe(EXPIRY_TEXT.en.list(3));
+    }
+  });
+
+  it("names nothing and nobody in an EU owner's comment and review notices", () => {
+    const secret = "Confidential merger plan";
+    const links = {
+      settingsUrl: "https://app.portifact.com/settings",
+      unsubscribeUrl: "https://app.portifact.com/unsubscribe?token=t",
+    };
+    const emails = [
+      commentNoticeEmail({
+        ...links,
+        names: false,
+        more: 1,
+        locale,
+        artifacts: [
+          {
+            name: secret,
+            url: "https://app.portifact.com/view/k7d2qm4xab",
+            newThreads: 1,
+            newReplies: 2,
+            resolvedThreads: 1,
+          },
+        ],
+      }),
+      ...(["requested", "approved", "changes_requested"] as const).map((kind) =>
+        reviewNoticeEmail({
+          ...links,
+          names: false,
+          kind,
+          name: secret,
+          version: 3,
+          url: "https://app.portifact.com/view/k7d2qm4xab",
+          locale,
+        }),
+      ),
+    ];
+    for (const email of emails) {
+      for (const part of [email.subject, email.text, email.html]) {
+        expect(part).not.toContain(secret);
+        // No address at all: the recipient's is only in the envelope, nobody else's anywhere.
+        expect(part).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);
+      }
     }
   });
 

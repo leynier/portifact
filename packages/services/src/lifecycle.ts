@@ -154,7 +154,7 @@ export async function renewArtifact(
       .returning({ id: schema.artifacts.id }),
   ]);
   if (updated.length === 0) return conflict();
-  await logEvent(db, input, "renewed");
+  await recordLifecycleEvent(db, input, "renewed");
   return ok({ state: "active", expiresAt, purgeAt: null, pinned: false });
 }
 
@@ -192,7 +192,7 @@ export async function archiveArtifact(
       .returning({ id: schema.artifacts.id }),
   ]);
   if (updated.length === 0) return conflict();
-  await logEvent(db, input, "archived");
+  await recordLifecycleEvent(db, input, "archived");
   return ok({ state: "archived", expiresAt: artifact.expiresAt, purgeAt, pinned: false });
 }
 
@@ -256,7 +256,7 @@ export async function restoreArtifact(
     }
     throw error;
   }
-  await logEvent(db, input, "restored");
+  await recordLifecycleEvent(db, input, "restored");
   return ok({ state: "active", expiresAt, purgeAt: null, pinned: false });
 }
 
@@ -328,7 +328,7 @@ export async function pinArtifact(
       .returning({ id: schema.artifacts.id }),
   ]);
   if (updated.length === 0) return conflict();
-  await logEvent(db, input, "pinned");
+  await recordLifecycleEvent(db, input, "pinned");
   return ok(pinned);
 }
 
@@ -362,11 +362,11 @@ export async function unpinArtifact(
       .returning({ id: schema.artifacts.id }),
   ]);
   if (updated.length === 0) return conflict();
-  await logEvent(db, input, "unpinned");
+  await recordLifecycleEvent(db, input, "unpinned");
   return ok(outcome);
 }
 
-async function logEvent(db: Db, input: LifecycleInput, event: string) {
+async function recordLifecycleEvent(db: Db, input: LifecycleInput, event: string) {
   await db.insert(schema.lifecycleEvents).values({
     artifactId: input.artifactId,
     actorId: input.userId,

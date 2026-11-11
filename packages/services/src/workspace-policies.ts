@@ -40,6 +40,7 @@ import {
   hasFeature,
   lifetimeCutoff,
   liftedFields,
+  logEvent,
   normalizePolicy,
   ok,
   policyChangeDetail,
@@ -771,7 +772,7 @@ export async function enforceWorkspacePolicies(
         return policyTouchesArtifacts(policy) ? [scanEntry(one.id, policy)] : [];
       } catch {
         failed += 1;
-        console.error(JSON.stringify({ event: "workspace_policy_unreadable" }));
+        logEvent("error", "workspace_policy_unreadable");
         return [];
       }
     });
@@ -782,12 +783,7 @@ export async function enforceWorkspacePolicies(
         corrected += 1;
       } catch (error) {
         failed += 1;
-        console.error(
-          JSON.stringify({
-            event: "workspace_policy_enforce_failed",
-            error: errorLabel(error),
-          }),
-        );
+        logEvent("error", "workspace_policy_enforce_failed", { error: errorLabel(error) });
       }
     }
     await saveCursor(
@@ -798,12 +794,7 @@ export async function enforceWorkspacePolicies(
     );
   } catch (error) {
     failed += 1;
-    console.error(
-      JSON.stringify({
-        event: "workspace_policy_scan_failed",
-        error: errorLabel(error),
-      }),
-    );
+    logEvent("error", "workspace_policy_scan_failed", { error: errorLabel(error) });
   }
   return { checked, corrected, failed };
 }

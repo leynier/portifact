@@ -18,6 +18,7 @@ import {
   domainLimitAt,
   domainNotice,
   entitlements,
+  logEvent,
 } from "@portifact/domain";
 import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
@@ -114,7 +115,7 @@ type Skip = "no_account" | "renewed" | "suppressed" | "capacity";
 
 function skipped(reason: Skip): JobOutcome {
   // Only the reason: never the address or the hostnames.
-  console.log(JSON.stringify({ event: "domain_notice_skipped", reason }));
+  logEvent("log", "domain_notice_skipped", { reason });
   return "stale";
 }
 

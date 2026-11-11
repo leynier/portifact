@@ -17,6 +17,7 @@ import {
   eventBit,
   groupNotices,
   hasFeature,
+  logEvent,
   noticeWindowEnd,
   stillExpiring,
 } from "@portifact/domain";
@@ -199,7 +200,7 @@ type Skip = "no_account" | "opted_out" | "nothing_due" | "suppressed" | "capacit
 
 function skipped(reason: Skip, artifacts: number): JobOutcome {
   // Only the reason and a count: never the address or the artifacts' names.
-  console.log(JSON.stringify({ event: "expiry_notice_skipped", reason, artifacts }));
+  logEvent("log", "expiry_notice_skipped", { reason, artifacts });
   return "stale";
 }
 
@@ -331,7 +332,7 @@ export async function sendExpiryNotice(
       }
       if (sent > 0) {
         // Others already got it: a retry would send them a second copy, so this one is lost.
-        console.log(JSON.stringify({ event: "expiry_notice_failed", artifacts: artifacts.length }));
+        logEvent("log", "expiry_notice_failed", { artifacts: artifacts.length });
         continue;
       }
       // Back in the outbox for the next run, as it was scheduled; the artifacts' marks stay, so

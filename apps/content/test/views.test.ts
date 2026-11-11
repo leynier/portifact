@@ -285,7 +285,7 @@ describe("view meter", () => {
     count(charge({ visitorId: "u_a" }));
     await settle();
     expect(meter.pending()).toHaveLength(1);
-    expect(error).toHaveBeenCalledWith("view counter write failed; kept for the next window");
+    expect(error).toHaveBeenCalledWith(JSON.stringify({ event: "view_write_failed" }));
     fail = false;
     count(charge({ visitorId: "u_a" }));
     await settle();

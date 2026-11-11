@@ -358,6 +358,44 @@ describe("marking activity on the write path", () => {
     expect(await pending(editor.id)).toHaveLength(1);
   });
 
+  it("marks every admin and editor of a large workspace, and the reply still lands", async () => {
+    // One UNION term per owner-side member made D1 refuse the statement ("too many terms in
+    // compound SELECT") once a workspace had a handful of admins and editors: every reply and
+    // resolution then failed. The owner side is one JSON list now, whatever its size.
+    const admin = await person();
+    const reader = await person();
+    const editors = await Promise.all(Array.from({ length: 12 }, () => person()));
+    const workspaceId = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
+    await db()
+      .insert(schema.workspaces)
+      .values({
+        id: workspaceId,
+        slug: workspaceId.slice(3, 23),
+        name: "Big",
+        createdBy: admin.id,
+        updatedAt: NOW,
+      });
+    await db()
+      .insert(schema.workspaceMembers)
+      .values([
+        { workspaceId, userId: admin.id, role: "admin", updatedAt: NOW },
+        ...editors.map((e) => ({
+          workspaceId,
+          userId: e.id,
+          role: "editor" as const,
+          updatedAt: NOW,
+        })),
+      ]);
+    await grantPlan(workspaceId, "team");
+    const a = await artifact(workspaceId, [reader.email]);
+    const threadId = await thread(a, reader.id);
+    await reply(a, reader.id, threadId);
+    await resolve(a, admin.id, threadId, "resolved");
+    for (const editor of editors) expect(await pending(editor.id)).toHaveLength(1);
+    expect(await pending(admin.id)).toHaveLength(1);
+    expect(await pending(reader.id)).toHaveLength(1);
+  });
+
   it("marks nothing for someone who muted the artifact", async () => {
     const { owner, reader, a } = await proWorld();
     value(
