@@ -455,7 +455,12 @@ export const en = {
   "account.data.title": "Your data",
   "account.data.hint":
     "Download everything your account holds as JSON: your profile, artifacts with their access, versions and file lists, and comments. Each version lists a link that downloads its files.",
-  "account.data.download": "Download your data",
+  "account.data.download": "Download your account's data (JSON)",
+  "account.data.spacePersonal":
+    "To take out what your personal space holds (each artifact's retained versions and sources, the access logs and the audit log), use the space's download page.",
+  "account.data.spaceWorkspace":
+    "To take out what the workspace {workspace} holds (each artifact's retained versions and sources, the access logs and the audit log), use the space's download page.",
+  "account.data.spaceLink": "Download this space's data",
   "account.delete.title": "Delete account",
   "account.delete.hint":
     'Deleting your account removes your artifacts, sessions, apps and sign-in methods, and your comments on other people\'s artifacts. A comment someone replied to becomes a "message deleted" marker. Artifact addresses are never given to anyone else. This cannot be undone, so download your data first.',
@@ -1642,7 +1647,6 @@ export const en = {
   "data.logs.account": "Download your account's data (JSON)",
   "data.logs.cli":
     "To take out everything at once, run portifact export <folder> in a terminal: it fetches every retained version, resumes when interrupted and writes a manifest.",
-  "shell.dataLink": "Download your data",
   "shell.grace.title": "What the {plan} plan kept is held until {date}",
   "shell.grace.download": "Download your data",
   "shell.grace.request": "Ask for {plan} again",

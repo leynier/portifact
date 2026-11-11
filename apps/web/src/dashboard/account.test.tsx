@@ -9,6 +9,7 @@ import {
   type FakeServer,
   fakeServer,
   renderDashboard,
+  workspace,
 } from "./test-support.tsx";
 
 afterEach(cleanup);
@@ -413,12 +414,60 @@ describe("section guides", () => {
 });
 
 describe("your data", () => {
-  it("offers the export as a download link", async () => {
+  afterEach(() => {
+    delete document.documentElement.dataset.theme;
+  });
+
+  it("offers the account's export as a download link", async () => {
     renderDashboard("/settings", server);
     const data = await region("Your data");
-    const link = within(data).getByRole("link", { name: "Download your data" });
+    const link = within(data).getByRole("link", { name: "Download your account's data (JSON)" });
     expect(link.getAttribute("href")).toBe("/api/v1/account/export");
     expect(link.hasAttribute("download")).toBe(true);
+  });
+
+  it.each(["light", "dark"] as const)(
+    "leads the personal space's admin to the space's download page (%s)",
+    async (theme) => {
+      document.documentElement.dataset.theme = theme;
+      const { container, router } = renderDashboard("/settings", server);
+      const data = await region("Your data");
+      expect(data.textContent).toContain(
+        "To take out what your personal space holds (each artifact's retained versions and sources, the access logs and the audit log), use the space's download page.",
+      );
+      const link = within(data).getByRole("link", { name: "Download this space's data" });
+      expect(link.getAttribute("href")).toBe("/data");
+      expect(await axeViolations(container)).toEqual([]);
+      fireEvent.click(link);
+      await waitFor(() => expect(router.state.location.pathname).toBe("/data"));
+      expect(
+        await screen.findByRole("heading", { level: 1, name: "Download your data" }),
+      ).toBeTruthy();
+    },
+  );
+
+  it("names the workspace for its admin and keeps the space on the link", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    const { router } = renderDashboard("/settings?workspace=acme", server);
+    const data = await region("Your data");
+    await waitFor(() => expect(data.textContent).toContain("the workspace Acme holds"));
+    const link = within(data).getByRole("link", { name: "Download this space's data" });
+    expect(link.getAttribute("href")).toBe("/data?workspace=acme");
+    fireEvent.click(link);
+    await waitFor(() => expect(router.state.location.href).toBe("/data?workspace=acme"));
+  });
+
+  it("shows nothing about the space's data to a role that may not download it", async () => {
+    server.workspaces.acme = workspace("acme", "editor", { name: "Acme" });
+    const { container } = renderDashboard("/settings?workspace=acme", server);
+    const data = await region("Your data");
+    // The account's own export stays; the space's line and link are not offered.
+    expect(
+      within(data).getByRole("link", { name: "Download your account's data (JSON)" }),
+    ).toBeTruthy();
+    expect(within(data).queryByRole("link", { name: "Download this space's data" })).toBeNull();
+    expect(data.textContent).not.toContain("download page");
+    expect(await axeViolations(container)).toEqual([]);
   });
 });
 

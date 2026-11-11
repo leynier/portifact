@@ -475,7 +475,12 @@ export const de = {
   "account.data.title": "Deine Daten",
   "account.data.hint":
     "Lade alles, was dein Konto enthält, als JSON herunter: dein Profil, deine Artifacts mit ihrem Zugriff, ihren Versionen und Dateilisten sowie Kommentare. Jede Version enthält einen Link, über den sich ihre Dateien herunterladen lassen.",
-  "account.data.download": "Deine Daten herunterladen",
+  "account.data.download": "Die Daten deines Kontos herunterladen (JSON)",
+  "account.data.spacePersonal":
+    "Um mitzunehmen, was dein persönlicher Bereich enthält (die aufbewahrten Versionen und Quellen jedes Artefakts, die Zugriffsprotokolle und das Audit-Protokoll), nutze die Download-Seite des Bereichs.",
+  "account.data.spaceWorkspace":
+    "Um mitzunehmen, was der Arbeitsbereich {workspace} enthält (die aufbewahrten Versionen und Quellen jedes Artefakts, die Zugriffsprotokolle und das Audit-Protokoll), nutze die Download-Seite des Bereichs.",
+  "account.data.spaceLink": "Daten dieses Bereichs herunterladen",
   "account.delete.title": "Konto löschen",
   "account.delete.hint":
     "Wenn du dein Konto löschst, werden deine Artifacts, Sitzungen, Apps und Anmeldemethoden entfernt, ebenso deine Kommentare zu Artifacts anderer Personen. Ein Kommentar, auf den jemand geantwortet hat, wird zu einem Hinweis „Nachricht gelöscht“. Adressen von Artifacts werden nie an andere vergeben. Das kann nicht rückgängig gemacht werden, lade also zuerst deine Daten herunter.",
@@ -1702,7 +1707,6 @@ export const de = {
   "data.logs.account": "Lade die Daten deines Kontos herunter (JSON)",
   "data.logs.cli":
     "Um alles auf einmal mitzunehmen, führe portifact export <Ordner> in einem Terminal aus: Es lädt jede aufbewahrte Version, setzt nach einer Unterbrechung fort und schreibt ein Manifest.",
-  "shell.dataLink": "Daten herunterladen",
   "shell.grace.title": "Was der Tarif {plan} aufbewahrte, bleibt bis {date} erhalten",
   "shell.grace.download": "Daten herunterladen",
   "shell.grace.request": "{plan} erneut anfordern",

@@ -13,6 +13,7 @@ import type {
 import { PLAN_LABELS } from "@portifact/contracts/plans";
 import {
   Button,
+  backLinkClasses,
   Callout,
   Disclosure,
   PageHeader,
@@ -27,7 +28,7 @@ import {
 } from "@portifact/ui";
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Clock, Download, Lock } from "lucide-react";
+import { ArrowLeft, Clock, Download, Lock } from "lucide-react";
 import { useState } from "react";
 import { accessLogCsv, accessLogJson, loadWholeAccessLog } from "../access-log-export.ts";
 import { ACCOUNT_EXPORT_PATH } from "../api.ts";
@@ -56,6 +57,13 @@ export function DownloadDataScreen() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
+        back={
+          // Reached from Settings ("Your data"), the grace notice and the Plan page; not the menu.
+          <Link to="/settings" hash="data" className={backLinkClasses}>
+            <ArrowLeft aria-hidden="true" className="size-4" />
+            {t("settings.title")}
+          </Link>
+        }
         title={t("data.title")}
         meta={<SpaceBadge owner={space} />}
         description={t("data.description")}

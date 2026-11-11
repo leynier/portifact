@@ -72,6 +72,19 @@ test("an owner in grace sees the notice, opens the download page and downloads a
     "2",
   );
 
+  // The page is not in the side menu: Settings leads to it, and it leads back there.
+  await expect(
+    page
+      .getByRole("navigation", { name: "Main" })
+      .getByRole("link", { name: "Download your data" }),
+  ).toHaveCount(0);
+  await page.getByRole("main").getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
+  const yourData = page.getByRole("region", { name: "Your data" });
+  await expect(yourData).toContainText("To take out what your personal space holds");
+  await yourData.getByRole("link", { name: "Download this space's data" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Download your data" })).toBeVisible();
+
   // A previous version, which the free plan would no longer keep, downloads as a checked ZIP.
   const roadmap = page.getByText("Roadmap: 3 retained versions");
   const version1 = page.getByRole("button", { name: "Download files of version 1" });
