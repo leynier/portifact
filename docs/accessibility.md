@@ -32,6 +32,7 @@ Portifact targets **WCAG 2.2 level AA** on every surface we build: the dashboard
 - Errors appear next to the field and are linked with `aria-describedby`. On submit, a form with several fields in error summarizes them at the top and moves focus to the summary; a form with one validated field moves focus to that field instead, whose linked error is read with it (the `Form` of `@portifact/ui/forms` does this).
 - Long operations (uploads, restores, exports) announce progress and completion through a polite live region and never rely on a spinner alone.
 - Toasts are announced, stay long enough to read, and any action they offer is also available elsewhere.
+- A notice that stays on screen across pages (the grace notice) is announced once per change of what it says, by one live region that stays mounted, never by a live region that each page inserts again (`Callout` with `live={false}` for the visible box).
 - Time limits, such as OTP expiry, are stated in text, and the user can request a new code.
 
 ## Annotations
