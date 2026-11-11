@@ -3,6 +3,7 @@
 // packages/contracts), error codes, idempotency replay, deduplication by SHA-256, lifecycle
 // states and version history. Storage checks the signed size and checksum headers, the bytes and
 // the URL's expiry like R2 does, and serves downloads only through unexpired signed links.
+
 import { createHash, randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders } from "node:http";
 import {
@@ -64,6 +65,7 @@ import {
   auditExportPreamble,
   decodeUtf8,
   diffText,
+  noticeWindowEnd,
   pageHunks,
   textDiffEligibility,
 } from "@portifact/domain";
@@ -1173,7 +1175,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       return error("invalid_input", "Invalid cursor or limit.");
     }
     const query = Object.fromEntries(
-      ["search", "state", "type", "access", "annotations", "key"].flatMap((name) => {
+      ["search", "state", "type", "access", "annotations", "key", "expiring"].flatMap((name) => {
         const value = url.searchParams.get(name);
         return value ? [[name, value]] : [];
       }),
@@ -1189,7 +1191,8 @@ export function createFakeApi(origin: () => string, clock: () => number) {
       (filters.data.type === undefined || item.type === filters.data.type) &&
       (filters.data.access === undefined || item.accessMode === filters.data.access) &&
       (filters.data.annotations === undefined || item.annotations === filters.data.annotations) &&
-      (filters.data.key === undefined || item.key === filters.data.key);
+      (filters.data.key === undefined || item.key === filters.data.key) &&
+      (filters.data.expiring === undefined || expiringSoon(item, clock()));
     const all = [...state.artifacts.values()]
       .filter((artifact) => artifact.state !== "deleted" && artifact.workspace === workspace)
       .filter((artifact) => matches(summary(artifact, state.workspaces)));
@@ -1855,6 +1858,13 @@ export function listItemOf(artifact: FakeArtifact): ArtifactListItem {
     review: NO_APPROVAL_REVIEW,
     activity: { versions: 1, currentBytes: null, openThreads: 0, lastAnnotationAt: null },
   };
+}
+
+/** `expiring: "soon"` as the service decides it: active, expiring within the notices' window. */
+function expiringSoon(item: { state: string; expiresAt: string | null }, now = Date.now()) {
+  if (item.state !== "active" || item.expiresAt === null) return false;
+  const at = Date.parse(item.expiresAt);
+  return at > now && at <= noticeWindowEnd(now);
 }
 
 function summary(artifact: FakeArtifact, workspaces: FakeWorkspace[] = []): ArtifactSummary {

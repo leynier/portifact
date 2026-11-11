@@ -72,7 +72,7 @@ describe("access log retention", () => {
       JSON.stringify({
         event: "access_log_prune_failed",
         region: "default",
-        error: "access log unavailable",
+        error: "Error",
       }),
     );
     error.mockRestore();

@@ -14,6 +14,7 @@ import {
   entitlements,
   fail,
   invitationExpiry,
+  logEvent,
   MISSING_INVITATION,
   newAuditEventId,
   normalizeEmail,
@@ -154,7 +155,7 @@ function replacedSql(workspaceId: string, email: string, now: number): SQL {
 
 function notSent(reason: "suppressed") {
   // Only the reason: never the address or the workspace.
-  console.log(JSON.stringify({ event: "invitation_not_sent", reason }));
+  logEvent("log", "invitation_not_sent", { reason });
 }
 
 /**

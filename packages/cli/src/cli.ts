@@ -3,6 +3,7 @@ import {
   AnnotationsState,
   type ArtifactListFilters,
   ArtifactType,
+  ExpiringFilter,
   FEEDBACK_LIMITS,
   LIST_SEARCH_MAX,
   ListedArtifactState,
@@ -369,6 +370,12 @@ export async function run(
       ).choices(AnnotationsState.options),
     )
     .option("--key <key>", "only the artifact published with this key", parseKeyOption)
+    .addOption(
+      new Option(
+        "--expiring <when>",
+        "only active artifacts that expire soon (within three days)",
+      ).choices(ExpiringFilter.options),
+    )
     .option("--json", "Print the result as JSON")
     .action(
       execute(
@@ -393,6 +400,7 @@ export async function run(
               access: options.access,
               annotations: options.annotations,
               key: options.key,
+              expiring: options.expiring,
             },
             json: options.json === true,
           }),

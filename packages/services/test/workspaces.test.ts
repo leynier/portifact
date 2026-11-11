@@ -77,10 +77,13 @@ import {
   user,
   value,
 } from "./fixtures.ts";
+import { recording } from "./recording.ts";
 
 const HUMAN: HumanCheck = { token: "solved", verify: async () => "passed" };
 const DOC: AnnotationTarget = { schema: 1, path: "index.html", anchor: { kind: "document" } };
 const MISSING = "zzzzzzzzzz";
+/** D1 calls of a workspace's expiry notice job with two admins to email, measured on develop. */
+const EXPIRY_NOTICE_JOB_CALLS = 18;
 
 function workspaceId(): string {
   return `ws_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -709,13 +712,16 @@ describe("'the owner' means an admin or editor of the owner", () => {
       .from(schema.outbox)
       .where(and(eq(schema.outbox.topic, "expiry_notice"), eq(schema.outbox.subject, t.id)));
     const sent: string[] = [];
+    const spaces = new Set<string | null>();
     const notifier: ExpiryNotifier = {
       async send(notice) {
         sent.push(notice.to);
+        spaces.add(notice.space);
       },
     };
+    const { database, count } = recording();
     const outcome = await runJob(
-      db(),
+      database,
       env.ARTIFACTS,
       { id: job?.id as number, topic: "expiry_notice" },
       soon - 2 * DAY,
@@ -724,6 +730,10 @@ describe("'the owner' means an admin or editor of the owner", () => {
     expect(outcome).toBe("done");
     // The admin who opted out gets nothing; the editor and the member are not recipients.
     expect(sent.sort()).toEqual([t.admin.email, third.email].sort());
+    // The workspace's slug, for the list an EU workspace's notice links (decision 0005), comes
+    // with the admins' read: the job makes the calls it made on develop.
+    expect([...spaces]).toEqual([t.id.slice(3, 23)]);
+    expect(count()).toBe(EXPIRY_NOTICE_JOB_CALLS);
   });
 });
 

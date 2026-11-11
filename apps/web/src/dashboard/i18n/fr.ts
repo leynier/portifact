@@ -108,6 +108,8 @@ export const fr = {
   "list.filter.type": "Type",
   "list.filter.access": "Accès",
   "list.filter.annotations": "Commentaires",
+  "list.filter.expiring": "Expiration",
+  "list.expiring.soon": "Expire dans 3 jours ou moins",
   "list.filter.any": "Tous",
   "list.filter.open": "Filtres",
   "list.filter.activeCount": "actifs",
@@ -1487,6 +1489,8 @@ export const fr = {
     "Cet artifact a un domaine personnalisé, actif ou en attente. Retirez-le dans Partage, puis déplacez l’artifact.",
   "transfer.none":
     "Il n’y a aucun autre espace où le déplacer. Vous pouvez déplacer des artifacts vers votre espace personnel et vers les workspaces où vous êtes éditeur ou admin.",
+  "transfer.noneInRegion":
+    "Cet espace conserve ses données dans l’UE : l’artifact ne peut aller que dans un autre espace de l’UE, et vous n’en avez aucun.",
   "transfer.confirm.title": "Déplacer {name} vers {space} ?",
   "transfer.confirm.stays":
     "Ne change pas : son ID, son lien, ses versions, les personnes que vous avez ajoutées et les commentaires.",
@@ -2593,6 +2597,11 @@ export const fr = {
   "audit.stream.title": "Envoi vers votre SIEM",
   "audit.stream.description":
     "Portifact envoie chaque événement de ce journal à un point de terminaison HTTPS que vous gérez, en JSON Lines signé, dans l’ordre et au moins une fois : conservez chaque ID d’événement une seule fois. Un événement part quand il a {minutes} minutes.",
+  "region.leaves.title": "La destination peut se trouver hors de l’UE",
+  "region.leaves.webhooks":
+    "Les données de cet espace sont conservées dans l’UE. Les envois de webhooks partent vers les adresses que vous indiquez, qui peuvent se trouver n’importe où : ce qu’ils contiennent quitte l’UE.",
+  "region.leaves.integrations":
+    "Les données de cet espace sont conservées dans l’UE. Les tickets que vous créez partent vers GitHub ou Linear, qui peuvent les conserver n’importe où : ce que vous envoyez quitte l’UE.",
   "audit.stream.euTitle": "Votre point de terminaison peut être hors de l’UE",
   "audit.stream.eu":
     "Les données de cet espace sont conservées dans l’UE. Le point de terminaison choisi peut se trouver n’importe où : les événements qu’il reçoit quittent l’UE.",

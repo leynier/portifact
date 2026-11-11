@@ -17,7 +17,7 @@ import {
   releaseRateLimit,
   schema,
 } from "@portifact/db";
-import { checkNoticeCapacity } from "@portifact/domain";
+import { checkNoticeCapacity, logEvent } from "@portifact/domain";
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
 import {
@@ -67,7 +67,7 @@ type Skip = "not_member" | "suppressed" | "capacity" | "recent";
 
 function skipped(reason: Skip): JobOutcome {
   // Only the reason: never the address or the workspace.
-  console.log(JSON.stringify({ event: "directory_notice_skipped", reason }));
+  logEvent("log", "directory_notice_skipped", { reason });
   return "stale";
 }
 

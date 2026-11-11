@@ -192,6 +192,7 @@ describe("the expiry_notice job", () => {
         ],
         locale: null,
         archiveMonths: 6,
+        space: null,
       },
     ]);
     expect(await emailsSentInCycle(db().global, NOW + HOUR)).toBe(1);

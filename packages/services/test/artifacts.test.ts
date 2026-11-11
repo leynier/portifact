@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
-import { personalActor } from "@portifact/domain";
+import { noticeWindowEnd, personalActor } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { decodeCursor, encodeCursor, getArtifact, listArtifacts } from "../src/artifacts.ts";
@@ -180,6 +180,25 @@ describe("searching and filtering an owner's artifacts", () => {
     expect(await ids(owner, {})).toHaveLength(5);
   });
 
+  it("lists with expiring=soon the active artifacts an expiry notice is about", async () => {
+    const owner = `u_${crypto.randomUUID()}`;
+    const DAY = 86_400_000;
+    const [tomorrow, inThree, inFour, past, archived, pinned] = await insertRows(owner, [
+      { expiresAt: NOW + DAY },
+      { expiresAt: NOW + 3 * DAY },
+      { expiresAt: NOW + 3 * DAY + 1 },
+      { expiresAt: NOW - 1 },
+      { state: "archived", expiresAt: NOW + DAY },
+      { pinned: true, expiresAt: null },
+    ]);
+    const soon = await ids(owner, { expiring: "soon" });
+    expect(soon).toEqual([inThree, tomorrow]);
+    for (const id of [inFour, past, archived, pinned]) expect(soon).not.toContain(id);
+    // The window is the expiry notices' own (noticeWindowEnd), so the list holds what they count.
+    expect(NOW + 3 * DAY).toBe(noticeWindowEnd(NOW));
+    expect(await ids(owner, { expiring: "soon", search: "nothing like this" })).toEqual([]);
+  });
+
   it("pages through the filtered artifacts once", async () => {
     const owner = `u_${crypto.randomUUID()}`;
     const rows = await insertRows(
@@ -320,14 +339,30 @@ describe("the activity of listed artifacts", () => {
     ]);
   });
 
-  it("reads every figure through an index, never a scan", async () => {
-    const statements: string[] = [];
+  it.each([
+    ["no filter", undefined],
+    ["expiring=soon", { expiring: "soon" as const }],
+  ])("reads every figure through an index, never a scan, with %s", async (_name, filters) => {
+    const statements: { query: string; params: unknown[] }[] = [];
     const recording = new Proxy(env.DB, {
       get(target, key) {
         if (key === "prepare") {
           return (query: string) => {
-            statements.push(query);
-            return target.prepare(query);
+            const entry = { query, params: [] as unknown[] };
+            statements.push(entry);
+            const statement = target.prepare(query);
+            return new Proxy(statement, {
+              get(inner, property) {
+                const value = Reflect.get(inner, property, inner);
+                if (property === "bind") {
+                  return (...params: unknown[]) => {
+                    entry.params = params;
+                    return value.apply(inner, params);
+                  };
+                }
+                return typeof value === "function" ? value.bind(inner) : value;
+              },
+            });
           };
         }
         const value = Reflect.get(target, key);
@@ -337,12 +372,14 @@ describe("the activity of listed artifacts", () => {
     await listArtifacts(regionalDb(recording, globalDb(recording)), {
       actor: personalActor("u_plan"),
       limit: 10,
+      filters,
       now: NOW,
     });
     // The owner's plan is read first; the list is the last statement.
-    const query = statements.at(-1);
-    const plan = await env.DB.prepare(`explain query plan ${query}`)
-      .bind(NOW - 7 * 86_400_000, 2, "u_plan", "deleted", "draft", 11)
+    const last = statements.at(-1);
+    if (!last) throw new Error("no statement");
+    const plan = await env.DB.prepare(`explain query plan ${last.query}`)
+      .bind(...last.params)
       .all<{ detail: string }>();
     const steps = plan.results.map((row) => row.detail);
     expect(steps.filter((step) => step.startsWith("SCAN"))).toEqual([]);

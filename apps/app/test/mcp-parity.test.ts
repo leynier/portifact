@@ -7,6 +7,7 @@ import { regionsFromEnv, schema } from "@portifact/db";
 import { RENDERER_VERSION } from "@portifact/render";
 import {
   clearBudgetOverride,
+  createWorkspace,
   runJob,
   setBudgetOverride,
   suspendArtifact,
@@ -44,8 +45,12 @@ interface Both {
   tool: (name: string, args: Record<string, unknown>) => Promise<ToolResult>;
 }
 
-async function both(email: string, scope?: string): Promise<Both> {
-  const h = createHarness();
+async function both(
+  email: string,
+  scope?: string,
+  options?: Parameters<typeof createHarness>[0],
+): Promise<Both> {
+  const h = createHarness(options);
   const apiAccess = await apiToken(h, email, scope);
   const client = await connect(h, await mcpToken(h, email, scope));
   return {
@@ -183,6 +188,10 @@ describe("API and MCP parity", () => {
     const log = await publish("text", "Build log");
     await publish("markdown", "Roadmap");
     await b.apiCall(`/api/v1/artifacts/${log}/archive`, { method: "POST" });
+    // Expiring tomorrow: what an EU workspace's expiry notice links (decision 0005).
+    await env.DB.prepare("UPDATE artifacts SET expires_at = ? WHERE id = ?")
+      .bind(Date.now() + 86_400_000, notes)
+      .run();
 
     const cases: [Record<string, unknown>, string, string[]][] = [
       [{ search: "notes" }, "search=notes", [notes]],
@@ -191,6 +200,8 @@ describe("API and MCP parity", () => {
       [{ type: "markdown", search: "release" }, "type=markdown&search=release", [notes]],
       [{ access: "public" }, "access=public", []],
       [{ annotations: "off", type: "text" }, "annotations=off&type=text", [log]],
+      [{ expiring: "soon" }, "expiring=soon", [notes]],
+      [{ expiring: "soon", type: "text" }, "expiring=soon&type=text", []],
     ];
     for (const [args, query, expected] of cases) {
       const viaMcp = fromTool(await b.tool("list_artifacts", args));
@@ -221,6 +232,8 @@ describe("API and MCP parity", () => {
     const refused = await b.apiCall("/api/v1/artifacts?state=deleted");
     expect(refused.status).toBe(400);
     expect(await refused.json()).toMatchObject({ error: { code: "invalid_input" } });
+    expect((await b.tool("list_artifacts", { expiring: "later" })).isError).toBe(true);
+    expect((await b.apiCall("/api/v1/artifacts?expiring=later")).status).toBe(400);
   });
 
   it("show the same suspension reason, and refuse the same changes, while suspended", async () => {
@@ -3372,5 +3385,86 @@ describe("API and MCP parity for content search", () => {
       },
     );
     expect(mcpDenied.status).toBe(403);
+  });
+});
+
+describe("idempotency records of an EU workspace (decision 0005)", () => {
+  it("live in the EU database through both, never in the default one", async () => {
+    const b = await both(
+      "parity-eu-records@example.test",
+      "artifacts:read artifacts:write annotations:read annotations:write offline_access",
+      {
+        env: { R2_BUCKET_EU: "portifact-artifacts-eu" },
+      },
+    );
+    const userId = await ownerId(b);
+    const regions = regionsFromEnv(env);
+    const slug = `eu-${crypto.randomUUID().slice(0, 8)}`;
+    const created = await createWorkspace(regions.global, {
+      slug,
+      name: "EU",
+      adminUserId: userId,
+      now: Date.now(),
+      region: "eu",
+    });
+    if (!created.ok) throw new Error(created.message);
+    await regions.global
+      .insert(schema.ownerPlans)
+      .values({ ownerId: created.value.id, plan: "enterprise", grantedBy: "test", updatedAt: 0 });
+    const keys = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
+
+    // An upload through the API, a published document and a comment through MCP.
+    const prepared = await b.apiCall(`/api/v1/publishes?workspace=${slug}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": keys[0] as string },
+      body: JSON.stringify({
+        type: "site",
+        name: "EU upload",
+        entrypoint: "index.html",
+        files: [{ path: "index.html", sha256: "a".repeat(64), size: 3, contentType: "text/html" }],
+      }),
+    });
+    expect(prepared.status).toBe(201);
+    const published = fromTool(
+      await b.tool("publish_document", {
+        workspace: slug,
+        type: "markdown",
+        name: "EU notes",
+        content: "# EU notes",
+        idempotencyKey: keys[1],
+      }),
+    );
+    expect(published.ok).toBe(true);
+    const { artifactId, versionId } = published.body as { artifactId: string; versionId: string };
+    // Comments open, as the owner would set them (arranged here: the parity is about the record).
+    await (env.DB_EU as D1Database)
+      .prepare("update artifacts set annotations = 'open' where id = ?")
+      .bind(artifactId)
+      .run();
+    const comment = fromTool(
+      await b.tool("create_annotation", {
+        artifactId,
+        versionId,
+        target: { schema: 1, path: "index.md", anchor: { kind: "document" } },
+        body: "Kept in the EU",
+        idempotencyKey: keys[2],
+      }),
+    );
+    expect(comment.ok, JSON.stringify(comment.body)).toBe(true);
+
+    const records = (database: D1Database) =>
+      database
+        .prepare(
+          "select operation from operations where actor_id = ? and idempotency_key in (select value from json_each(?)) order by operation",
+        )
+        .bind(userId, JSON.stringify(keys))
+        .all<{ operation: string }>();
+    // The records hold the responses, the comment's text included: only in the EU database.
+    expect((await records(env.DB_EU as D1Database)).results.map((r) => r.operation)).toEqual([
+      "mcp.create_annotation",
+      "mcp.publish_document",
+      "publish.prepare",
+    ]);
+    expect((await records(env.DB)).results).toEqual([]);
   });
 });

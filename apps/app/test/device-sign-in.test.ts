@@ -136,7 +136,7 @@ describe("copying it at the exchange", () => {
     // Said by the error's name only, never its message.
     expect(logged.map((line) => JSON.parse(line))).toEqual([
       { event: "device_sign_in_time_failed", error: "TypeError" },
-      { event: "device_sign_in_time_failed", error: "unknown" },
+      { event: "device_sign_in_time_failed", error: "string" },
     ]);
   });
 

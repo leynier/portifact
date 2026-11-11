@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
+import { CodedError } from "@portifact/domain";
 import { emailsSentInCycle, getBudgetState, listBudgetAlerts } from "@portifact/services";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsCollector } from "../src/analytics.ts";
@@ -112,7 +113,8 @@ describe("budget run", () => {
     await runBudget(regionsFromEnv(env), MID, { analytics: spending(130), notifier: null });
     const failing: AnalyticsCollector = {
       collect: async () => {
-        throw new Error("analytics: HTTP 500");
+        // A revoked token: the code and the status say which, never the response.
+        throw new CodedError("ANALYTICS_HTTP", 401);
       },
     };
     const result = await runBudget(regionsFromEnv(env), MID + 900_000, {
@@ -120,7 +122,10 @@ describe("budget run", () => {
       notifier: null,
     });
     expect(result).toMatchObject({ analytics: "failed", level: "protect100" });
-    expect(errors).toHaveBeenCalledWith(expect.stringContaining("HTTP 500"));
+    // The error's label only: its message is free text (decision 0005, "What leaves the region").
+    expect(errors).toHaveBeenCalledWith(
+      JSON.stringify({ event: "budget_analytics_failed", error: "Error:ANALYTICS_HTTP:401" }),
+    );
   });
 
   it("ignores values that are not finite numbers", async () => {

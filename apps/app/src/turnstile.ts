@@ -3,7 +3,9 @@
 // secret is `TURNSTILE_SECRET_KEY`; without it every check fails closed, so a deployment that
 // lacks it refuses new accounts and those comments instead of letting them through. Tests and
 // local development use Cloudflare's documented test keys and a fake siteverify transport.
+
 import type { HumanVerdict } from "@portifact/domain";
+import { logEvent } from "@portifact/domain";
 import type { HumanCheck } from "@portifact/services";
 import type { FetchLike } from "./auth/deps.ts";
 import type { Env } from "./env.ts";
@@ -32,7 +34,7 @@ export interface TurnstileVerification {
  */
 export async function verifyTurnstile(input: TurnstileVerification): Promise<HumanVerdict> {
   if (!input.secret) {
-    console.error("TURNSTILE_SECRET_KEY is not set: human checks fail closed");
+    logEvent("error", "turnstile_secret_missing");
     return "unavailable";
   }
   const form = new FormData();
@@ -56,7 +58,7 @@ export async function verifyTurnstile(input: TurnstileVerification): Promise<Hum
   if (result.success === true) return "passed";
   const codes = Array.isArray(result["error-codes"]) ? result["error-codes"] : [];
   if (codes.some((code) => CONFIGURATION_ERRORS.has(code))) {
-    console.error("TURNSTILE_SECRET_KEY was rejected by siteverify: human checks fail closed");
+    logEvent("error", "turnstile_secret_rejected");
     return "unavailable";
   }
   if (codes.includes("internal-error")) return "unavailable";

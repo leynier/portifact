@@ -72,7 +72,7 @@ export async function startLocalTarget(): Promise<Target> {
       const key = path.slice(1).join("/");
       // A multipart part carries its upload ID and part number, as S3 UploadPart does.
       const signed = new URL(url).searchParams;
-      const query = new URLSearchParams({ key });
+      const query = new URLSearchParams({ key, bucket: BUCKET });
       for (const name of ["uploadId", "partNumber"]) {
         const value = signed.get(name);
         if (value !== null) query.set(name, value);

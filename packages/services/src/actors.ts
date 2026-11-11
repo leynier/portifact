@@ -29,6 +29,7 @@ import {
   authorize,
   checkRequestPolicy,
   fail,
+  logEvent,
   type OwnerPlanRecord,
   ok,
   personalActor,
@@ -101,7 +102,7 @@ export function reportUnreadablePolicy(workspaceId: string): void {
   if (reportedUnreadable.has(workspaceId)) return;
   if (reportedUnreadable.size >= REPORTED_UNREADABLE_MAX) reportedUnreadable.clear();
   reportedUnreadable.add(workspaceId);
-  console.error(JSON.stringify({ event: "workspace_network_policy_unreadable", workspaceId }));
+  logEvent("error", "workspace_network_policy_unreadable", { workspaceId });
 }
 
 /**

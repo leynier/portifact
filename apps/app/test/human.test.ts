@@ -109,7 +109,7 @@ describe("POST /api/auth/verify-human", () => {
     const response = await verify(unconfigured, `${HUMAN_TOKEN}-unconfigured`);
     expect(response.status).toBe(503);
     expect(unconfigured.siteverifyCalls).toEqual([]);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("TURNSTILE_SECRET_KEY is not set"));
+    expect(error).toHaveBeenCalledWith(JSON.stringify({ event: "turnstile_secret_missing" }));
     expect(JSON.stringify(error.mock.calls)).not.toContain(HUMAN_TOKEN);
     error.mockRestore();
   });
@@ -256,7 +256,7 @@ describe("siteverify", () => {
       fetch: async () => Response.json({ success: false, "error-codes": ["invalid-input-secret"] }),
     });
     expect(result).toBe("unavailable");
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("rejected"));
+    expect(error).toHaveBeenCalledWith(JSON.stringify({ event: "turnstile_secret_rejected" }));
     error.mockRestore();
   });
 

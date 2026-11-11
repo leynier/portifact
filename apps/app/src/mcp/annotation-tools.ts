@@ -247,14 +247,16 @@ export function registerAnnotationTools(
     async (args: CreateAnnotationInput) => {
       const { idempotencyKey, artifactId, ...request } = args;
       const at = context.now();
+      // The record holds the comment: it lives in the artifact's region (decision 0005).
+      const owned = await artifactDb(context.env, artifactId);
       const result = await idempotent(
-        db,
+        owned,
         context,
         idempotencyKey,
         "mcp.create_annotation",
         [artifactId, request],
         async () =>
-          createAnnotationThread(await artifactDb(context.env, artifactId), {
+          createAnnotationThread(owned, {
             userId: context.userId,
             artifactId,
             ...request,
@@ -279,14 +281,15 @@ export function registerAnnotationTools(
     async (args: ReplyAnnotationInput) => {
       const { idempotencyKey, artifactId, threadId, body } = args;
       const at = context.now();
+      const owned = await artifactDb(context.env, artifactId);
       const result = await idempotent(
-        db,
+        owned,
         context,
         idempotencyKey,
         "mcp.reply_annotation",
         [artifactId, threadId, { body }],
         async () =>
-          replyToAnnotationThread(await artifactDb(context.env, artifactId), {
+          replyToAnnotationThread(owned, {
             userId: context.userId,
             artifactId,
             threadId,

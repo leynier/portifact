@@ -1,13 +1,18 @@
 // The notice senders of the jobs Worker (docs/operations.md, "Expiry notices" and "Comment
 // notices"): they render the emails with packages/emails in the recipient's language (English when
-// they chose none) and send them through Cloudflare Email Service. Expiry notices link each
-// artifact, its page in the dashboard to renew it and the settings; comment and review notices link
+// they chose none) and send them through Cloudflare Email Service. Each is built for the region its
+// job runs in (`JobMessage.region`), and what it may say about the owner's artifacts is decided
+// only by `noticeDetail` in packages/domain (decision 0005): outside the default region, counts and
+// links, never names. Expiry notices link each
+// artifact, its page in the dashboard to renew it and the settings (or, without names, the
+// dashboard's list of the space's artifacts expiring soon); comment and review notices link
 // the artifact in the viewer, the settings and a signed one-click unsubscribe link (the same one:
 // one setting covers both), also offered to mail clients through the `List-Unsubscribe` headers
 // (RFC 8058).
 import { DEFAULT_REGION, LIMITS } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
 import type { Region } from "@portifact/db";
+import { noticeNames } from "@portifact/domain";
 import {
   commentNoticeEmail,
   directoryNoticeEmail,
@@ -42,15 +47,6 @@ export interface NoticeEnv {
   UNSUBSCRIBE_SECRET?: string | undefined;
 }
 
-/**
- * Whether a notice may name artifacts: only in the default region. A workspace whose data stays
- * in the EU gets its notices with counts and links, never names or comment text (decision 0005,
- * "What leaves the region": the email provider is outside the region).
- */
-export function emailNames(region: Region): boolean {
-  return region === DEFAULT_REGION;
-}
-
 export const NOTICE_SENDER = { email: "noreply@portifact.com", name: "Portifact" } as const;
 
 /** The email of one notice, with the environment's addresses. */
@@ -61,9 +57,14 @@ export function noticeEmail(
   archiveMonths: number = LIMITS.archiveMonths,
   /** The artifacts' region: outside the default one, names stay out (decision 0005). */
   region: Region = DEFAULT_REGION,
+  /** The workspace's slug, for the list the notice links without names; null when personal. */
+  space: string | null = null,
 ) {
+  const shown = noticeNames(region)
+    ? { names: true as const }
+    : { names: false as const, listUrl: expiringListUrl(env.APP_ORIGIN, space) };
   return expiryNoticeEmail({
-    names: emailNames(region),
+    ...shown,
     artifacts: artifacts.map((artifact) => ({
       name: artifact.name,
       url: `https://${artifact.id}.${env.CONTENT_DOMAIN}/`,
@@ -77,17 +78,25 @@ export function noticeEmail(
   });
 }
 
+/** The dashboard's list of a space's active artifacts expiring soon (`expiring=soon`). */
+export function expiringListUrl(appOrigin: string, space: string | null): string {
+  const query = new URLSearchParams();
+  if (space !== null) query.set("workspace", space);
+  query.set("expiring", "soon");
+  return `${appOrigin}/?${query}`;
+}
+
 export function expiryNotifierFromEnv(
   env: NoticeEnv,
   region: Region = DEFAULT_REGION,
 ): ExpiryNotifier {
   return {
-    async send({ to, artifacts, locale, archiveMonths }) {
+    async send({ to, artifacts, locale, archiveMonths, space }) {
       try {
         await env.EMAIL.send({
           from: NOTICE_SENDER,
           to,
-          ...noticeEmail(env, artifacts, locale, archiveMonths, region),
+          ...noticeEmail(env, artifacts, locale, archiveMonths, region, space),
         });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
@@ -127,7 +136,7 @@ export function commentEmail(
     more: notice.more,
     settingsUrl: `${env.APP_ORIGIN}/settings`,
     unsubscribeUrl: urls.page,
-    names: emailNames(region),
+    names: noticeNames(region),
     locale: notice.locale ?? undefined,
   });
   return {
@@ -182,7 +191,7 @@ export function reviewEmail(
     url: `${env.APP_ORIGIN}/view/${notice.artifactId}`,
     settingsUrl: `${env.APP_ORIGIN}/settings`,
     unsubscribeUrl: urls.page,
-    names: emailNames(region),
+    names: noticeNames(region),
     locale: notice.locale ?? undefined,
   });
   return {

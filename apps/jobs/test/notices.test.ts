@@ -61,6 +61,7 @@ describe("expiryNotifierFromEnv", () => {
       artifacts: [ARTIFACT],
       locale: "ru",
       archiveMonths: 12,
+      space: null,
     });
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ from: NOTICE_SENDER, to: "ada@example.com" });
@@ -79,6 +80,7 @@ describe("expiryNotifierFromEnv", () => {
           artifacts: [ARTIFACT],
           locale: null,
           archiveMonths: 6,
+          space: null,
         }),
       ).rejects.toBeInstanceOf(RecipientSuppressedError);
     }
@@ -91,6 +93,7 @@ describe("expiryNotifierFromEnv", () => {
       artifacts: [ARTIFACT],
       locale: null,
       archiveMonths: 6,
+      space: null,
     });
     await expect(sending).rejects.toThrow(/^email delivery failed$/);
   });

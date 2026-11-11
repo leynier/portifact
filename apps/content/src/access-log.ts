@@ -6,7 +6,7 @@
 // written yet; the log says it is not a complete audit.
 
 import type { Region } from "@portifact/db";
-import { accessWindow } from "@portifact/domain";
+import { accessWindow, logEvent } from "@portifact/domain";
 import type { Opening } from "@portifact/services";
 
 export type { Opening };
@@ -60,7 +60,7 @@ export class OpeningLog {
     } catch {
       for (const [key, opening] of batch) this.#pending.set(key, opening);
       // No identifiers: the log is technical and sampled, and these name visitors.
-      console.error("access log write failed; kept for the next batch");
+      logEvent("error", "access_log_write_failed");
       return;
     }
     const latest = Math.max(...batch.map(([, opening]) => accessWindow(opening.at)));

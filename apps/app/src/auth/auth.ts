@@ -2,6 +2,7 @@ import { cimd } from "@better-auth/cimd";
 import { oauthDeviceAuthorization, oauthProvider } from "@better-auth/oauth-provider";
 import { OTP_LIMITS } from "@portifact/contracts";
 import { createDb, regionsFromEnv, schema } from "@portifact/db";
+import { logEvent } from "@portifact/domain";
 import { claimDirectoryMemberships } from "@portifact/services";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -37,7 +38,7 @@ async function claimDirectory(env: Env, userId: string): Promise<void> {
   try {
     await claimDirectoryMemberships(regionsFromEnv(env).global, { userId, now: Date.now() });
   } catch {
-    console.log(JSON.stringify({ event: "scim_claim_failed" }));
+    logEvent("log", "scim_claim_failed");
   }
 }
 

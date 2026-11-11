@@ -133,8 +133,9 @@ export function registerReviewTools(
               requiredApprovals: rest.requiredApprovals,
               showStatus: rest.showStatus,
             };
+      // The record lives in the artifact's region, with the review (decision 0005).
       const outcome = await once(
-        db,
+        target,
         context,
         idempotencyKey,
         action === "request" ? "review.request" : "review.change",
@@ -191,8 +192,9 @@ export function registerReviewTools(
     async (args: SubmitReviewToolInput) => {
       const { idempotencyKey, artifactId, ...request } = args;
       const now = context.now();
+      const owned = await artifactDb(context.env, artifactId);
       const outcome = await once(
-        db,
+        owned,
         context,
         idempotencyKey,
         "review.verdict",
@@ -200,7 +202,7 @@ export function registerReviewTools(
         now,
         async () =>
           reviewResponse(
-            await submitApprovalVerdict(await artifactDb(context.env, artifactId), {
+            await submitApprovalVerdict(owned, {
               userId: context.userId,
               artifactId,
               verdict: request.verdict,

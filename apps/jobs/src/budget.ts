@@ -2,7 +2,13 @@
 // automatic protection and the alerts it earns, and email the operator when that is configured.
 // Collector and notifier are injected so every path is tested with fakes.
 import type { Regions } from "@portifact/db";
-import { budgetCycle, type PlatformMetrics } from "@portifact/domain";
+import {
+  budgetCycle,
+  errorLabel,
+  logEvent,
+  logSummary,
+  type PlatformMetrics,
+} from "@portifact/domain";
 import { budgetAlertEmail } from "@portifact/emails";
 import {
   type AnalyticsStatus,
@@ -91,8 +97,8 @@ export async function runBudget(
       analytics = "ok";
     } catch (error) {
       analytics = "failed";
-      // The collector's errors hold only a status or a count, never the token.
-      console.error(JSON.stringify({ event: "budget_analytics_failed", error: String(error) }));
+      // Only the error's label: its message is free text (`errorLabel`, decision 0005).
+      logEvent("error", "budget_analytics_failed", { error: errorLabel(error) });
     }
   }
   const recorded = await recordBudgetMeasurement(db, { metrics, analytics, now });
@@ -105,7 +111,7 @@ export async function runBudget(
     notified: 0,
   };
   if (recorded.newAlerts.length > 0 || recorded.changed) {
-    console.warn(JSON.stringify({ event: "budget_alert", ...result }));
+    logSummary("warn", "budget_alert", result);
   }
   if (deps.notifier) {
     const pending = await pendingBudgetAlerts(db, cycle.start);
@@ -122,7 +128,7 @@ export async function runBudget(
         await recordEmailsSent(db, now);
       } catch {
         // Left pending: the next run tries again. The provider error may echo the message.
-        console.error(JSON.stringify({ event: "budget_email_failed", alerts: pending.length }));
+        logEvent("error", "budget_email_failed", { alerts: pending.length });
       }
     }
   }

@@ -45,7 +45,7 @@ import { spaceCan, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
-import { SpaceBadge } from "./space-parts.tsx";
+import { LeavesRegionNotice, SpaceBadge } from "./space-parts.tsx";
 
 /** The connections the owner side picks from, shared by the sidebar and the issue dialog. */
 export const integrationChoicesQuery = (slug: string | undefined) =>
@@ -103,6 +103,7 @@ export function IntegrationsScreen() {
         meta={space.kind === "workspace" ? <SpaceBadge owner={space} /> : undefined}
         description={t("integrations.description")}
       />
+      <LeavesRegionNotice space={space} destination="integrations" />
       {list.data && offered && !available ? (
         <Callout tone="info" title={t("integrations.planTitle")} icon={<Info className="size-5" />}>
           {t("integrations.planRequired", { plan: PLAN_LABELS[lowestPlanWith("integrations")] })}

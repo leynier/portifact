@@ -104,6 +104,8 @@ export const ja = {
   "list.filter.type": "種類",
   "list.filter.access": "アクセス",
   "list.filter.annotations": "コメント",
+  "list.filter.expiring": "有効期限",
+  "list.expiring.soon": "3日以内に期限切れ",
   "list.filter.any": "すべて",
   "list.filter.open": "フィルター",
   "list.filter.activeCount": "件適用中",
@@ -1447,6 +1449,8 @@ export const ja = {
     "このartifactには独自ドメイン（有効または保留中）があります。共有で削除してから移動してください。",
   "transfer.none":
     "移動できる別のスペースがありません。artifactは個人スペースと、編集者か管理者であるworkspaceへ移動できます。",
+  "transfer.noneInRegion":
+    "このスペースはデータをEU内に保存しているため、artifactは別のEUのスペースにしか移動できませんが、該当するスペースがありません。",
   "transfer.confirm.title": "{name}を{space}へ移動しますか？",
   "transfer.confirm.stays": "変わらないもの：ID、リンク、バージョン、追加したユーザー、コメント。",
   "transfer.confirm.changes":
@@ -2520,6 +2524,11 @@ export const ja = {
   "audit.stream.title": "SIEM への送信",
   "audit.stream.description":
     "Portifact はこのログのすべてのイベントを、あなたが運用する HTTPS エンドポイントへ署名付きの JSON Lines として、順番どおり少なくとも 1 回送信します。イベント ID ごとに 1 回だけ保存してください。イベントは {minutes} 分経過してから送信されます。",
+  "region.leaves.title": "送信先はEU外の場合があります",
+  "region.leaves.webhooks":
+    "このスペースのデータはEU内に保存されます。Webhookの配信先は入力したアドレスで、どこにあってもかまいません。配信される内容はEUの外に出ます。",
+  "region.leaves.integrations":
+    "このスペースのデータはEU内に保存されます。作成したissueはGitHubまたはLinearに送られ、どこに保存されるかはそれぞれのサービス次第です。送信する内容はEUの外に出ます。",
   "audit.stream.euTitle": "エンドポイントは EU 外にある可能性があります",
   "audit.stream.eu":
     "このスペースのデータは EU 内に保存されています。選んだエンドポイントはどこにあっても構いませんが、そこが受け取るイベントは EU の外に出ます。",

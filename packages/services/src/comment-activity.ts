@@ -48,10 +48,10 @@ export function markCommentActivity(db: Db, mark: ActivityMark) {
   const m = schema.annotationMessages;
   const mutes = schema.commentNoticeMutes;
   const cn = schema.commentNotices;
-  const sources: SQL[] = [
-    sql`select null as "id" where 0`,
-    ...fixed.map((id) => sql`select ${id}`),
-  ];
+  // The owner side as one JSON list: one term and one bound value whatever its size. A term per
+  // member made D1 refuse the statement ("too many terms in compound SELECT") for a workspace with
+  // a handful of admins and editors, and would pass D1's 100 bound values for a large one.
+  const sources: SQL[] = [sql`select "value" as "id" from json_each(${JSON.stringify(fixed)})`];
   if (mark.activity !== "thread") {
     sources.push(
       sql`select ${th.authorId} from ${th} where ${th.id} = ${mark.threadId}`,
