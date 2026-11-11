@@ -2444,7 +2444,7 @@ export const zhCN = {
   "policies.impact.signInsTitle": "更改此工作区的登录方式？",
   "policies.impact.signInMembers": "{count, plural, one {# 名成员} other {# 名成员}}将受此限制",
   "policies.impact.staleMembers":
-    "{count, plural, one {# 名成员} other {# 名成员}}没有比限制更新的登录，下次操作时需要重新登录",
+    "{count, plural, one {# 名成员} other {# 名成员}}下次操作时需要在控制台、CLI 或已连接的应用中重新登录",
   "policies.impact.clientMembers":
     "{count, plural, one {# 名成员} other {# 名成员}}在使用此设置会拒绝的应用",
   "policies.impact.signInsNote":

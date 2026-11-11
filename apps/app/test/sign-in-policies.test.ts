@@ -58,6 +58,7 @@ async function person(prefix: string, role: string) {
     cookie,
     cli,
     mcpToken: mcpGranted.token,
+    mcpClientId: mcpGranted.clientId,
     call: (path: string, token = cli.access_token) => api(h, token, path),
     tool: (name: string, args: Record<string, unknown>) => callTool(mcp, name, args),
   };
@@ -133,12 +134,36 @@ describe("the maximum session age through the app Worker", () => {
     expect((await t.member.tool("list_artifacts", { workspace: t.slug })).isError).toBeFalsy();
 
     await ageSignIns(t.member, 9);
+    // The same code everywhere, and the message meant for the client that asked.
+    const signedInAt = Date.now() - 9 * HOUR;
     const viaCli = await t.member.call(path);
     expect(viaCli.status).toBe(403);
     const cliBody = await viaCli.json<{ error: { message: string } }>();
     expect(cliBody.error.message).toContain("portifact login");
+    expect(cliBody).toEqual(
+      refused(
+        POLICY_MESSAGES.sessionAge(8, {
+          kind: "oauth",
+          userId: t.member.userId,
+          clientId: CLI_CLIENT_ID,
+          client: "cli",
+          signedInAt,
+        }),
+      ),
+    );
     const viaMcp = await t.member.tool("list_artifacts", { workspace: t.slug });
     expect(viaMcp.isError).toBe(true);
+    expect(viaMcp.structuredContent).toEqual(
+      refused(
+        POLICY_MESSAGES.sessionAge(8, {
+          kind: "oauth",
+          userId: t.member.userId,
+          clientId: t.member.mcpClientId,
+          client: "oauth_apps",
+          signedInAt,
+        }),
+      ),
+    );
     expect(JSON.stringify(viaMcp.structuredContent)).toContain("reconnect this app");
     const viaDashboard = await t.member.h.request(
       `/api/v1/workspaces/${t.slug}/members`,
@@ -311,3 +336,155 @@ describe("the allowed clients through the app Worker", () => {
     expect(answer.status).toBe(404);
   });
 });
+
+/** A session's row, by its cookie: the newest session of the user. */
+async function newestSession(userId: string) {
+  const rows = await regions()
+    .global.select({ id: schema.sessions.id, createdAt: schema.sessions.createdAt })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.userId, userId));
+  return rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+}
+
+describe("a device login inherits the sign-in of the session that approved it (review fix)", () => {
+  it("never lets a stale session mint a CLI token that looks fresh", async () => {
+    const t = await team("rvd");
+    expect(
+      (await setPolicy(t.admin, t.slug, { ...DEFAULT_POLICY, sessionMaxHours: 8 })).status,
+    ).toBe(200);
+    await ageSignIns(t.member, 9);
+    const path = `/api/v1/artifacts?workspace=${t.slug}`;
+    expect((await t.member.call(path)).status).toBe(403);
+    const dash = await t.member.h.request(
+      `/api/v1/workspaces/${t.slug}/members`,
+      dashboard(t.member.cookie),
+    );
+    expect(dash.status).toBe(403);
+    // The same 9-hour-old session approves a new device code: the new token is as old as it.
+    const fresh = await cliLogin(t.member.h, t.member.cookie);
+    const refused = await t.member.call(path, fresh.access_token);
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toMatchObject({
+      error: { code: "policy_refused", message: expect.stringContaining("portifact login") },
+    });
+  });
+
+  it("takes the approving session's sign-in, not the moment of the poll, and keeps it on refresh", async () => {
+    const h = createHarness();
+    const cookie = await h.signIn("rvf@example.test");
+    const first = await cliLogin(h, cookie);
+    const { userId } = await (await api(h, first.access_token, "/api/v1/me")).json<{
+      userId: string;
+    }>();
+    const signedIn = new Date(Date.now() - 2 * HOUR);
+    await regions()
+      .global.update(schema.sessions)
+      .set({ createdAt: signedIn })
+      .where(eq(schema.sessions.userId, userId));
+    const login = await cliLogin(h, cookie);
+    expect(await tokenRows(login.access_token)).toEqual({
+      access: signedIn.getTime(),
+      refresh: signedIn.getTime(),
+    });
+    const refreshed = await h.request(
+      "/api/auth/oauth2/token",
+      form({
+        grant_type: "refresh_token",
+        refresh_token: login.refresh_token ?? "",
+        client_id: CLI_CLIENT_ID,
+      }),
+    );
+    expect(refreshed.status).toBe(200);
+    const next = await refreshed.json<TokenResponse>();
+    expect(await tokenRows(next.access_token)).toEqual({
+      access: signedIn.getTime(),
+      refresh: signedIn.getTime(),
+    });
+  });
+
+  it("keeps two codes approved at once by two sessions of one person apart", async () => {
+    const h = createHarness();
+    const email = "rvc@example.test";
+    const older = await h.signIn(email);
+    const { userId } = await (
+      await api(h, (await cliLogin(h, older)).access_token, "/api/v1/me")
+    ).json<{
+      userId: string;
+    }>();
+    const olderSession = await newestSession(userId);
+    const olderAt = new Date(Date.now() - 5 * HOUR);
+    await regions()
+      .global.update(schema.sessions)
+      .set({ createdAt: olderAt })
+      .where(eq(schema.sessions.id, olderSession?.id ?? ""));
+    const newer = await h.signIn(email);
+    const newerAt = (await newestSession(userId))?.createdAt.getTime();
+    const [a, b] = await Promise.all([
+      requestDeviceCode(h, CLI_CLIENT_ID, SCOPES),
+      requestDeviceCode(h, CLI_CLIENT_ID, SCOPES),
+    ]);
+    await Promise.all([approveDevice(h, older, a.user_code), approveDevice(h, newer, b.user_code)]);
+    const [ta, tb] = await Promise.all([
+      pollDeviceToken(h, CLI_CLIENT_ID, a.device_code).then((r) => r.json<TokenResponse>()),
+      pollDeviceToken(h, CLI_CLIENT_ID, b.device_code).then((r) => r.json<TokenResponse>()),
+    ]);
+    expect(await tokenRows(ta.access_token)).toEqual({
+      access: olderAt.getTime(),
+      refresh: olderAt.getTime(),
+    });
+    expect(await tokenRows(tb.access_token)).toEqual({ access: newerAt, refresh: newerAt });
+  });
+
+  it("reads a code approved before the release as not known: the person approves again", async () => {
+    const t = await team("rvp");
+    await setPolicy(t.admin, t.slug, { ...DEFAULT_POLICY, sessionMaxHours: 8 });
+    const device = await requestDeviceCode(t.member.h, CLI_CLIENT_ID, SCOPES);
+    await approveDevice(t.member.h, t.member.cookie, device.user_code);
+    // As a code approved before migration 0059 carries nothing.
+    await regions()
+      .global.update(schema.deviceCodes)
+      .set({ approverSignedInAt: null })
+      .where(eq(schema.deviceCodes.deviceCode, device.device_code));
+    const token = await (
+      await pollDeviceToken(t.member.h, CLI_CLIENT_ID, device.device_code)
+    ).json<TokenResponse>();
+    const path = `/api/v1/artifacts?workspace=${t.slug}`;
+    expect(await (await t.member.call(path, token.access_token)).json()).toMatchObject({
+      error: { code: "policy_refused" },
+    });
+    // The personal space is never bound, and a new approval admits the workspace again.
+    expect((await t.member.call("/api/v1/artifacts", token.access_token)).status).toBe(200);
+    expect(
+      (await t.member.call(path, (await cliLogin(t.member.h, t.member.cookie)).access_token))
+        .status,
+    ).toBe(200);
+  });
+});
+
+/**
+ * The sign-in time on an access token's row and on the refresh token it came with, found by the
+ * stored form of the token (the provider stores a SHA-256, base64url).
+ */
+async function tokenRows(token: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  const stored = btoa(String.fromCharCode(...new Uint8Array(digest)))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+  const g = regions().global;
+  const [access] = await g
+    .select({
+      authTime: schema.oauthAccessTokens.authTime,
+      refreshId: schema.oauthAccessTokens.refreshId,
+    })
+    .from(schema.oauthAccessTokens)
+    .where(eq(schema.oauthAccessTokens.token, stored));
+  const [refresh] = await g
+    .select({ authTime: schema.oauthRefreshTokens.authTime })
+    .from(schema.oauthRefreshTokens)
+    .where(eq(schema.oauthRefreshTokens.id, access?.refreshId ?? ""));
+  return {
+    access: access?.authTime?.getTime() ?? null,
+    refresh: refresh?.authTime?.getTime() ?? null,
+  };
+}

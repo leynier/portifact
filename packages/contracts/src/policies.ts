@@ -193,9 +193,9 @@ export const PolicyPreview = PolicyImpact.extend({
     .nullable(),
   /**
    * Who the sign-in policies would bind (decision 0021), as counts, null when the policy sets
-   * neither: `members` it binds; `staleMembers`, members with no live session younger than the
-   * maximum age, who sign in again at their next action; `clientMembers`, members who authorized
-   * a kind of client the policy would no longer allow. Service tokens are never bound by them.
+   * neither: `members` it binds; `staleMembers`, members who would have to sign in again: no
+   * live dashboard session younger than the maximum, or a live CLI or app grant whose sign-in is
+   * older or not known; `clientMembers`, members who authorized a kind of client the policy would no longer allow. Service tokens are never bound by them.
    */
   signIns: z
     .object({

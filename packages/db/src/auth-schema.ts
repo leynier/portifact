@@ -290,6 +290,13 @@ export const deviceCodes = sqliteTable(
     scope: text("scope"),
     resources: text("resources"),
     oauthClientId: text("oauth_client_id"),
+    /**
+     * When the session that approved the code signed in (its `created_at`), written by the app
+     * at approval and copied onto the grant's tokens at the exchange (decision 0021): a device
+     * login inherits the approving session's sign-in, as an authorization code does. Never
+     * written by Better Auth; null until approved.
+     */
+    approverSignedInAt: date("approver_signed_in_at"),
   },
   (t) => [
     uniqueIndex("device_codes_device_code_idx").on(t.deviceCode),

@@ -2727,7 +2727,7 @@ export const de = {
   "policies.impact.signInMembers":
     "{count, plural, one {# Mitglied ist} other {# Mitglieder sind}} betroffen",
   "policies.impact.staleMembers":
-    "{count, plural, one {# Mitglied hat} other {# Mitglieder haben}} keine Anmeldung, die jünger als die Grenze ist, und {count, plural, one {meldet} other {melden}} sich bei der nächsten Aktion erneut an",
+    "{count, plural, one {# Mitglied müsste} other {# Mitglieder müssten}} sich bei der nächsten Aktion erneut anmelden, im Dashboard, in der CLI oder in einer verbundenen App",
   "policies.impact.clientMembers":
     "{count, plural, one {# Mitglied nutzt} other {# Mitglieder nutzen}} eine App, die das ablehnen würde",
   "policies.impact.signInsNote":

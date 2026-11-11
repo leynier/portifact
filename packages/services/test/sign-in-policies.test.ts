@@ -24,6 +24,7 @@ import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { updateAccess } from "../src/access.ts";
 import { resolveActor } from "../src/actors.ts";
+import { declineInvitation, inviteMember } from "../src/invitations.ts";
 import { renewArtifact } from "../src/lifecycle.ts";
 import {
   checkReadAccess,
@@ -403,8 +404,32 @@ describe("changing the sign-in policies", () => {
         now: NOW,
       }),
     );
-    // Three members; only the editor holds a recent live session; only the member a CLI grant.
+    // Three members; only the editor holds a recent live session; only the member a CLI grant
+    // (a device grant without a session: its sign-in is not known, so it counts as old).
     expect(preview.signIns).toEqual({ members: 3, staleMembers: 2, clientMembers: 1 });
+    // A fresh dashboard session does not hide an old CLI grant: the editor is refused there.
+    await regionsAs()
+      .global.insert(schema.oauthRefreshTokens)
+      .values({
+        id: `rt_${crypto.randomUUID()}`,
+        token: crypto.randomUUID(),
+        clientId: CLI_CLIENT_ID,
+        userId: t.editor.id,
+        scopes: '["artifacts:read"]',
+        expiresAt: new Date(NOW + DAY),
+        createdAt: new Date(NOW),
+        authTime: new Date(NOW - 30 * HOUR),
+      });
+    expect(
+      value(
+        await previewWorkspacePolicy(regionsAs(session(t.admin.id)), {
+          userId: t.admin.id,
+          slug: t.slug,
+          policy: policy({ sessionMaxHours: 8 }),
+          now: NOW,
+        }),
+      ).signIns,
+    ).toMatchObject({ staleMembers: 3 });
     expect(
       value(
         await previewWorkspacePolicy(regionsAs(session(t.admin.id)), {
@@ -477,6 +502,57 @@ describe("changing the sign-in policies", () => {
       }),
     ).toMatchObject({ ok: false, code: "forbidden" });
   });
+});
+
+describe("reducing access is never refused", () => {
+  it.each([
+    ["an old sign-in", policy({ sessionMaxHours: 8 }), (id: string) => session(id, 9)],
+    ["a refused client", policy({ allowedClients: [] }), (id: string) => app(id)],
+  ] as const)(
+    "lets a member blocked by %s leave and decline an invitation",
+    async (_, rule, as) => {
+      const t = await team();
+      const other = await team();
+      value(await save(t, rule));
+      value(await save(other, rule));
+      const blocked = regionsAs(as(t.member.id)).global;
+      expect(await resolveActor(blocked, t.member.id, t.id)).toMatchObject({
+        ok: false,
+        code: "policy_refused",
+      });
+      // An invitation to a second workspace with the same policy is declined with the same
+      // credential: declining never acts on a workspace.
+      const sent: string[] = [];
+      value(
+        await inviteMember(
+          regionsAs(session(other.admin.id)).global,
+          {
+            userId: other.admin.id,
+            slug: other.slug,
+            email: t.member.email,
+            role: "member",
+            now: NOW,
+          },
+          {
+            async send(message) {
+              sent.push(message.token);
+            },
+          },
+        ),
+      );
+      expect(
+        await declineInvitation(blocked, {
+          userId: t.member.id,
+          key: { token: sent[0] as string },
+          now: NOW,
+        }),
+      ).toEqual({ ok: true, value: { declined: true } });
+      expect(await leaveWorkspace(blocked, { userId: t.member.id, slug: t.slug })).toEqual({
+        ok: true,
+        value: { removed: true },
+      });
+    },
+  );
 });
 
 describe("the operator", () => {

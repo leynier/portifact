@@ -207,6 +207,14 @@ describe("the credential on the request context", () => {
     }
   });
 
+  it("is the approving session's for a device login, at approval and at the exchange", () => {
+    const routes = read("apps/app/src/auth/routes.ts");
+    expect(routes).toMatch(/if \(path === "\/device\/approve"\) \{\s+await recordDeviceApproval\(/);
+    expect(routes).toMatch(
+      /if \(path === "\/oauth2\/token"\) \{\s+return authHeaders\(\s+await exchangeDeviceCode\(/,
+    );
+  });
+
   it("is never taken from a header", () => {
     expect(read("apps/app/src/auth/credentials.ts")).not.toMatch(/headers\.get\(/);
     // The context reads one header, the address Cloudflare sets, and nothing about credentials.

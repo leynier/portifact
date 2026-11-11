@@ -13,6 +13,8 @@ export const AUTH_TIME_CLAIM = "portifact_auth_time";
 /** What the provider's adapter read for the token, captured as it read it: no read is added. */
 interface Seen {
   authTime?: unknown;
+  id?: unknown;
+  refreshId?: unknown;
 }
 
 /**
@@ -23,7 +25,11 @@ function watching(ctx: GenericEndpointContext, seen: Seen): GenericEndpointConte
   const adapter = ctx.context.adapter;
   const findOne: typeof adapter.findOne = async (query) => {
     const row = await adapter.findOne<Record<string, unknown>>(query);
-    if (query.model === "oauthAccessToken" && row) seen.authTime = row.authTime;
+    if (query.model === "oauthAccessToken" && row) {
+      seen.authTime = row.authTime;
+      seen.id = row.id;
+      seen.refreshId = row.refreshId;
+    }
     return row as never;
   };
   const watched = Object.create(adapter, { findOne: { value: findOne } }) as typeof adapter;
@@ -77,6 +83,32 @@ export function inProcessIntrospection(providerOptions: OAuthOptions<Scope[]>) {
           } catch {
             // Unknown, malformed or foreign tokens are simply inactive.
             return ctx.json({ active: false });
+          }
+        },
+      ),
+      // The rows of an active access token and of the refresh token it came with, found by the
+      // provider's own lookup of the token (decision 0021): the device exchange writes the
+      // approving session's sign-in onto exactly these rows. SERVER_ONLY, never over HTTP.
+      tokenRecordOf: createAuthEndpoint(
+        "/portifact/token-record",
+        { method: "POST", requireHeaders: true, metadata: { SERVER_ONLY: true } },
+        async (ctx) => {
+          const token = bearerToken(ctx.headers.get("authorization"));
+          if (!token) return ctx.json(null);
+          try {
+            const seen: Seen = {};
+            const provider = getOAuthProviderApi(
+              watching(ctx as GenericEndpointContext, seen),
+              providerOptions,
+            );
+            const payload = await provider.validateAccessToken(token);
+            if (payload.active !== true || typeof seen.id !== "string") return ctx.json(null);
+            return ctx.json({
+              accessId: seen.id,
+              refreshId: typeof seen.refreshId === "string" ? seen.refreshId : null,
+            });
+          } catch {
+            return ctx.json(null);
           }
         },
       ),

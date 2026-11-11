@@ -518,30 +518,30 @@ describe("a workspace's sign-in policies on the artifact origin (decision 0021)"
     expect((await send("/", undefined, later)).status).toBe(200);
   });
 
-  it("adds no D1 read to a warm request or to a renewal", async () => {
+  /**
+   * The D1 statements `origin/develop` (b72e8744, before the sign-in policies) prepares with one
+   * database for the same sequence, the isolate's caches (budget, plan) primed by a request just
+   * before each count: measured there, a warm request 2 (the delivery lookup, the version's
+   * files) and a renewal 7. Pinned as absolute numbers, so a statement added both with and
+   * without a policy cannot hide.
+   */
+  const DEVELOP = { warm: 2, renew: 7 };
+
+  it.each([
+    ["without a policy", null],
+    ["with a maximum session age", 8],
+  ] as const)("adds no D1 read to a warm request or to a renewal, %s", async (_, hours) => {
     await seed("workspace");
-    const [primer, before, after] = [
-      await signIn(MEMBER),
-      await signIn(MEMBER),
-      await signIn(MEMBER),
-    ];
+    const [primer, before] = [await signIn(MEMBER), await signIn(MEMBER)];
     await signedInHoursAgo(MEMBER, 1);
-    // The same moment for each pair, so the per-isolate meters flush alike.
-    const warmBefore = counting();
-    expect((await send("/", before, NOW + 1_000, NAVIGATE, warmBefore.env)).status).toBe(200);
-    await signInPolicy(8);
-    const warmAfter = counting();
-    expect((await send("/", before, NOW + 1_000, NAVIGATE, warmAfter.env)).status).toBe(200);
-    await env.DB.prepare("UPDATE workspaces SET policy = NULL WHERE id = ?").bind(WS).run();
+    if (hours !== null) await signInPolicy(hours);
+    expect((await send("/", primer, NOW + 1_000)).status).toBe(200);
+    const warm = counting();
+    expect((await send("/", before, NOW + 1_000, NAVIGATE, warm.env)).status).toBe(200);
+    // The same moment for each count, so the per-isolate meters flush alike.
     expect((await send("/", primer, later)).status).toBe(200);
-    const renewBefore = counting();
-    expect((await send("/", before, later, NAVIGATE, renewBefore.env)).status).toBe(200);
-    await signInPolicy(8);
-    const renewAfter = counting();
-    expect((await send("/", after, later, NAVIGATE, renewAfter.env)).status).toBe(200);
-    expect([warmAfter.counter.statements, renewAfter.counter.statements]).toEqual([
-      warmBefore.counter.statements,
-      renewBefore.counter.statements,
-    ]);
+    const renew = counting();
+    expect((await send("/", before, later, NAVIGATE, renew.env)).status).toBe(200);
+    expect({ warm: warm.counter.statements, renew: renew.counter.statements }).toEqual(DEVELOP);
   });
 });

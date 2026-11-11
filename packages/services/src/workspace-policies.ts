@@ -346,9 +346,10 @@ export async function previewWorkspacePolicy(
 
 /**
  * Who the sign-in policies would bind (decision 0021), as counts, for the confirmation before a
- * save: every member when either is set; the members with no live session younger than the
- * maximum age (they sign in again at their next action, through the dashboard, the CLI or an
- * app); and the members holding a live OAuth grant of a kind of client the policy would refuse.
+ * save: every member when either is set; the members who would have to sign in again (no live
+ * dashboard session younger than the maximum, or a live CLI or app grant whose sign-in is older
+ * or not known); and the members holding a live OAuth grant of a kind of client the policy would
+ * refuse.
  * One batch of the global database, on the preview only.
  */
 async function signInReach(
@@ -373,6 +374,8 @@ async function signInReach(
         : sql`${column} <> ${CLI_CLIENT_ID}`;
   const holds = (table: typeof refresh | typeof access) =>
     sql`exists (select 1 from ${table} where ${table.userId} = ${m.userId} and ${table.revoked} is null and ${table.expiresAt} > ${at.getTime()} and ${refusedClient(table.clientId)})`;
+  const staleGrant = (table: typeof refresh | typeof access) =>
+    sql`exists (select 1 from ${table} where ${table.userId} = ${m.userId} and ${table.revoked} is null and ${table.expiresAt} > ${at.getTime()} and coalesce(${table.authTime}, 0) < ${cutoff.getTime()})`;
   const member = eq(m.workspaceId, workspaceId);
   const [members, stale, clients] = await global.batch([
     global.select({ n: sql<number>`count(*)` }).from(m).where(member),
@@ -384,7 +387,9 @@ async function signInReach(
           ? sql`0`
           : and(
               member,
-              sql`not exists (select 1 from ${sess} where ${sess.userId} = ${m.userId} and ${sess.expiresAt} > ${at.getTime()} and ${sess.createdAt} >= ${cutoff.getTime()})`,
+              // No live dashboard session younger than the maximum, or a live CLI or app grant
+              // whose sign-in is older (0 and null read as not known, so older).
+              sql`(not exists (select 1 from ${sess} where ${sess.userId} = ${m.userId} and ${sess.expiresAt} > ${at.getTime()} and ${sess.createdAt} >= ${cutoff.getTime()}) or ${staleGrant(refresh)} or ${staleGrant(access)})`,
             ),
       ),
     global

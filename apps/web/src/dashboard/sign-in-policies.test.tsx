@@ -58,7 +58,9 @@ describe("the sign-in policies on the Policies page", () => {
       name: "Change how people sign in to this workspace?",
     });
     expect(dialog.textContent).toMatch(/\d+ members? will be bound/);
-    expect(dialog.textContent).toContain("1 member has no sign-in younger than the limit");
+    expect(dialog.textContent).toContain(
+      "1 member would have to sign in again, in the dashboard, the CLI or a connected app",
+    );
     expect(dialog.textContent).toContain("Nobody is signed out");
     await themes(container);
     expect(puts()).toEqual([]);

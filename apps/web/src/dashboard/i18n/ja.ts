@@ -2662,7 +2662,7 @@ export const ja = {
   "policies.impact.signInMembers":
     "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}が対象になります",
   "policies.impact.staleMembers":
-    "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}は制限より新しいサインインがなく、次の操作で再サインインが必要になります",
+    "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}は次の操作で、ダッシュボード、CLI、または接続アプリで再サインインが必要になります",
   "policies.impact.clientMembers":
     "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}が、これで拒否されるアプリを使っています",
   "policies.impact.signInsNote":

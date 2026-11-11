@@ -2640,7 +2640,7 @@ export const en = {
   "policies.impact.signInMembers":
     "{count, plural, one {# member} other {# members}} will be bound",
   "policies.impact.staleMembers":
-    "{count, plural, one {# member has} other {# members have}} no sign-in younger than the limit and will sign in again at their next action",
+    "{count, plural, one {# member} other {# members}} would have to sign in again, in the dashboard, the CLI or a connected app, at their next action",
   "policies.impact.clientMembers":
     "{count, plural, one {# member uses} other {# members use}} an app this would refuse",
   "policies.impact.signInsNote":

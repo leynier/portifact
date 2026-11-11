@@ -2710,7 +2710,7 @@ export const es = {
   "policies.impact.signInMembers":
     "{count, plural, one {# miembro quedará limitado} other {# miembros quedarán limitados}}",
   "policies.impact.staleMembers":
-    "{count, plural, one {# miembro no tiene} other {# miembros no tienen}} un inicio de sesión más reciente que el límite y {count, plural, one {iniciará} other {iniciarán}} sesión de nuevo en su próxima acción",
+    "{count, plural, one {# miembro tendría} other {# miembros tendrían}} que iniciar sesión de nuevo, en el panel, la CLI o una app conectada, en su próxima acción",
   "policies.impact.clientMembers":
     "{count, plural, one {# miembro usa} other {# miembros usan}} una app que esto rechazaría",
   "policies.impact.signInsNote":

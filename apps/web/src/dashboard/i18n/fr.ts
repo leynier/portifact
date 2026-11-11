@@ -2741,7 +2741,7 @@ export const fr = {
   "policies.impact.signInMembers":
     "{count, plural, one {# membre sera concerné} other {# membres seront concernés}}",
   "policies.impact.staleMembers":
-    "{count, plural, one {# membre n’a} other {# membres n’ont}} aucune connexion plus récente que la limite et {count, plural, one {devra} other {devront}} se reconnecter à la prochaine action",
+    "{count, plural, one {# membre devrait} other {# membres devraient}} se reconnecter, dans le tableau de bord, la CLI ou une application connectée, à leur prochaine action",
   "policies.impact.clientMembers":
     "{count, plural, one {# membre utilise} other {# membres utilisent}} une application que cela refuserait",
   "policies.impact.signInsNote":

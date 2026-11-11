@@ -2705,7 +2705,7 @@ export const ru = {
   "policies.impact.signInMembers":
     "Затронет {count, plural, one {# участника} few {# участников} many {# участников} other {# участника}}",
   "policies.impact.staleMembers":
-    "У {count, plural, one {# участника} few {# участников} many {# участников} other {# участника}} нет входа новее ограничения: при следующем действии нужно будет войти заново",
+    "{count, plural, one {# участнику} few {# участникам} many {# участникам} other {# участника}} придётся войти заново при следующем действии: в панели, CLI или подключённом приложении",
   "policies.impact.clientMembers":
     "{count, plural, one {# участник использует} few {# участника используют} many {# участников используют} other {# участника используют}} приложение, которое это запретит",
   "policies.impact.signInsNote":

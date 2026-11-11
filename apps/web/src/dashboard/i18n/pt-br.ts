@@ -2686,7 +2686,7 @@ export const ptBR = {
   "policies.impact.signInMembers":
     "{count, plural, one {# membro será limitado} other {# membros serão limitados}}",
   "policies.impact.staleMembers":
-    "{count, plural, one {# membro não tem} other {# membros não têm}} um login mais recente que o limite e {count, plural, one {vai entrar} other {vão entrar}} de novo na próxima ação",
+    "{count, plural, one {# membro teria} other {# membros teriam}} que entrar de novo, no painel, na CLI ou em um app conectado, na próxima ação",
   "policies.impact.clientMembers":
     "{count, plural, one {# membro usa} other {# membros usam}} um app que isso recusaria",
   "policies.impact.signInsNote":
