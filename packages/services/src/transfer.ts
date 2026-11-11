@@ -321,6 +321,21 @@ export async function transferArtifact(
         // Columns in schema order: id, artifact, actor, channel, event, details, at.
         sql`select null, ${artifact.id}, ${input.userId}, 'system', 'transferred', ${JSON.stringify({ from, to })}, ${input.now} where ${unchanged}`,
       ),
+      // A target's maximum life unpins a pinned artifact (decision 0023): the trail of an unpin,
+      // by the system and naming the policy, as the policy's own job leaves, before the update.
+      ...(maxLifeOf(policy) !== null && artifact.state === "active" && artifact.pinned
+        ? [
+            w
+              .insert(schema.auditEvents)
+              .select(
+                sql`select 'ae_' || lower(hex(randomblob(12))), ${to}, ${input.now}, 'artifact.unpinned', 'system', null, ${artifact.id}, ${artifact.id}, json_object('policy', 'artifactMaxDays'), ${schema.recordedNow} where ${unchanged} and exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.pinned} = 1)`,
+              ),
+            w.insert(schema.lifecycleEvents).select(
+              // Columns in schema order: id, artifact, actor, channel, event, details, at.
+              sql`select null, ${artifact.id}, null, 'system', 'unpinned', json_object('policy', 'artifactMaxDays'), ${input.now} where ${unchanged} and exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.pinned} = 1)`,
+            ),
+          ]
+        : []),
       // One event for each side, on the same conditions.
       ...transferEvents(
         w,

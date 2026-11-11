@@ -178,7 +178,7 @@ export function capStatements(
  * What a capped artifact may expire at under `policy`: the plan's expiry it kept, or the current
  * maximum's deadline (never before now) when that is earlier. Without a maximum, the plan's.
  */
-function giveBackTarget(policy: WorkspacePolicy | undefined, now: number): SQL<number> {
+export function giveBackTarget(policy: WorkspacePolicy | undefined, now: number): SQL<number> {
   const life = maxLifeOf(policy);
   return life === null
     ? sql<number>`${a.uncappedExpiresAt}`

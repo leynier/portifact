@@ -16,7 +16,8 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   deleteArtifact: ["artifact.deleted"],
   pinArtifact: ["artifact.pinned"],
   unpinArtifact: ["artifact.unpinned"],
-  transferArtifact: ["artifact.transferred_in", "artifact.transferred_out"],
+  // A target's maximum life unpins a pinned artifact, by the system (decision 0023).
+  transferArtifact: ["artifact.transferred_in", "artifact.transferred_out", "artifact.unpinned"],
   updateAccess: ["access.changed"],
   createShareLink: ["share_link.created"],
   revokeShareLink: ["share_link.revoked"],

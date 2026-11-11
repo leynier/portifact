@@ -57,7 +57,9 @@ const DEVELOP = {
   // cursor and its first page in one batch, nothing due here), the held row's page in the version
   // prune, and the re-dating pass's two calls on its first run (one on every later run).
   // Plus the one global read of "SSO required"'s suspension scan (`syncSsoRequirementStates`).
-  runMaintenance: 58,
+  // Plus the stale-cap sweep of the maximum life (decision 0023): with nothing capped, one call,
+  // its saved cursor and its first page together.
+  runMaintenance: 59,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads
   // the cursor with its first page in one call and marks itself done in another; every later run
   // costs one call, the cursor read.
@@ -156,10 +158,16 @@ describe("D1 calls of the scans and plan paths, one region", () => {
  * the plan and the policy together.
  */
 const MAX_LIFE = {
-  // The cursor, the workspaces, the violations, the step (its read and batch), the cursor's write.
-  enforceWorkspacePolicies: 6,
+  // The cursor, the workspaces, the violations, the step (its read and batch), the cursor's write,
+  // and the stale-cap sweep's one call (the workspace has a maximum, so it is not swept).
+  enforceWorkspacePolicies: 7,
   // Clean: the step's two calls are gone.
-  enforceWorkspacePoliciesClean: 4,
+  enforceWorkspacePoliciesClean: 5,
+  // After the maximum is removed and its job lost: the scan's cursor, workspaces and cursor
+  // write (three; no workspace has a policy to step), then the sweep finds the owner (one call
+  // with its cursor), reads its policy (one) and gives back (one batch); its pass ends where it
+  // started, so no cursor write.
+  enforceWorkspacePoliciesStale: 6,
   enforceWorkspacePolicy: 2,
   // The due read, the plan and policy, the archive's batch, the lifecycle event.
   archiveExpired: 4,
@@ -197,6 +205,19 @@ describe("D1 calls of the maximum life's scans, one region", () => {
       enforceWorkspacePoliciesClean: await counted((d) => enforceWorkspacePolicies(d, NOW)),
       enforceWorkspacePolicy: await counted((d) => enforceWorkspacePolicy(d, id, NOW)),
       archiveExpired: await counted((d) => archiveExpired(d, NOW + DAY)),
+      enforceWorkspacePoliciesStale: await (async () => {
+        // A second artifact, capped and still live, then the maximum removed with its job lost.
+        const kept = await publishSite(admin.id, { "index.html": "<p>kept</p>" }, NOW - 60 * DAY);
+        await db()
+          .update(schema.artifacts)
+          .set({ ownerId: id, expiresAt: NOW + 3 * DAY, uncappedExpiresAt: NOW + 20 * DAY })
+          .where(eq(schema.artifacts.id, kept.artifactId));
+        await db()
+          .update(schema.workspaces)
+          .set({ policy: null })
+          .where(eq(schema.workspaces.id, id));
+        return counted((d) => enforceWorkspacePolicies(d, NOW + DAY));
+      })(),
     };
     expect(costs).toEqual(MAX_LIFE);
   });

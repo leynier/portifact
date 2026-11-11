@@ -7,6 +7,7 @@ import {
   CLI_CLIENT_ID,
   CLIENT_KINDS,
   DEFAULT_POLICY,
+  isWorkspaceId,
   type PolicyField,
   type PolicyImpact,
   type PolicyPreview,
@@ -75,7 +76,13 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { actorOn } from "./actors.ts";
 import { approvalAccessStatements } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
-import { cursorFor, saveCursor } from "./maintenance-cursors.ts";
+import {
+  cursorFor,
+  cursorRead,
+  resumeAt,
+  saveCursor,
+  savedCursorSql,
+} from "./maintenance-cursors.ts";
 import {
   capStatements,
   giveBackIds,
@@ -545,18 +552,11 @@ export function workspacePolicyJob(
   input: {
     workspaceId: string;
     revision: number;
-    /** Whether the save changed the maximum life, so the job also gives capped time back. */
-    maxLifeChanged?: boolean;
     condition: SQL;
     now: number;
   },
 ): BatchItem<"sqlite"> {
-  const payload = JSON.stringify(
-    WorkspacePolicyJobPayload.parse({
-      revision: input.revision,
-      ...(input.maxLifeChanged ? { maxLifeChanged: true as const } : {}),
-    }),
-  );
+  const payload = JSON.stringify(WorkspacePolicyJobPayload.parse({ revision: input.revision }));
   // Columns in schema order: id, topic, payload, available, dispatched, attempts, created,
   // subject, generation.
   return db
@@ -682,7 +682,6 @@ export async function setWorkspacePolicy(
           workspacePolicyJob(global, {
             workspaceId: row.id,
             revision: row.revision + 1,
-            maxLifeChanged: fields.includes("artifactMaxDays"),
             condition,
             now: input.now,
           }),
@@ -813,8 +812,8 @@ export async function enforceWorkspacePolicy(
   workspaceId: string,
   now: number,
   limit: number = WORKSPACE_POLICIES.enforceBatch,
-  /** The save changed the maximum life (the job's payload): give capped time back. */
-  maxLifeChanged = false,
+  /** A job's step (not the scan's): always gives capped time back, whatever the policy. */
+  giveBack = false,
 ): Promise<{ outcome: JobOutcome; counts: EnforceCounts }> {
   const counts: EnforceCounts = {
     artifactsNarrowed: 0,
@@ -838,7 +837,7 @@ export async function enforceWorkspacePolicy(
     row.revision,
     now,
     limit,
-    maxLifeChanged,
+    giveBack,
   );
   counts.deadlinesSet = retention.deadlinesSet;
   counts.deadlinesExtended = retention.deadlinesExtended;
@@ -1076,10 +1075,10 @@ async function enforceMaxLife(
   revision: number,
   now: number,
   limit: number,
-  maxLifeChanged: boolean,
+  giveBack: boolean,
 ): Promise<{ deadlinesSet: number; deadlinesExtended: number }> {
   const life = maxLifeOf(policy);
-  if (life === null && !maxLifeChanged) return { deadlinesSet: 0, deadlinesExtended: 0 };
+  if (life === null && !giveBack) return { deadlinesSet: 0, deadlinesExtended: 0 };
   const shared = bothSides(db);
   const x: Db = shared ?? db;
   const keep = shared
@@ -1159,18 +1158,12 @@ export async function runWorkspacePolicyJob(
   /** The workspace's region's database, when the job runs where every region is bound. */
   regionDb?: (workspaceId: string) => Promise<RegionalDb | null>,
 ): Promise<JobOutcome> {
-  const payload = WorkspacePolicyJobPayload.parse(row.payload);
+  WorkspacePolicyJobPayload.parse(row.payload);
   const workspaceId = row.subject ?? "";
   // The job is written in the global outbox; the workspace's artifacts are in its own region.
   const target = (await regionDb?.(workspaceId)) ?? db;
   return (
-    await enforceWorkspacePolicy(
-      target,
-      workspaceId,
-      now,
-      WORKSPACE_POLICIES.enforceBatch,
-      payload.maxLifeChanged === true,
-    )
+    await enforceWorkspacePolicy(target, workspaceId, now, WORKSPACE_POLICIES.enforceBatch, true)
   ).outcome;
 }
 
@@ -1211,6 +1204,7 @@ export async function enforceWorkspacePolicies(
   let failed = 0;
   let checked = 0;
   let corrected = 0;
+  let maxed: string[] = [];
   try {
     const cursor = await cursorFor(db.global, SCAN);
     const rows = await db.global
@@ -1231,6 +1225,8 @@ export async function enforceWorkspacePolicies(
       }
     });
     const found = entries.length === 0 ? [] : await violations(db, entries, now);
+    // The workspaces this run read with a maximum life: the sweep below leaves them to the steps.
+    maxed = entries.filter((entry) => entry.x !== null).map((entry) => entry.id);
     for (const id of found) {
       try {
         await enforceWorkspacePolicy(db, id, now);
@@ -1250,7 +1246,136 @@ export async function enforceWorkspacePolicies(
     failed += 1;
     logEvent("error", "workspace_policy_scan_failed", { error: errorLabel(error) });
   }
+  try {
+    corrected += await sweepStaleCaps(db, now, maxed);
+  } catch (error) {
+    failed += 1;
+    logEvent("error", "stale_caps_sweep_failed", { error: errorLabel(error) });
+  }
   return { checked, corrected, failed };
+}
+
+const STALE_CAPS = "stale_caps";
+/** Owners with a capped artifact the sweep reads per run; with more, it resumes from a cursor. */
+const STALE_CAPS_OWNERS = 20;
+
+/**
+ * Gives back every cap that no current rule asks for (decision 0023, "The invariant"), whatever
+ * the owner's policy now is: the steps above only visit workspaces that set a maximum, so after a
+ * removal (its job lost, or an artifact suspended or racing while it ran), or in a personal space
+ * an artifact moved to, nothing else would. Per run and region: one regional statement reads the
+ * saved cursor with the first owners (at most 20, by ID) that hold a live capped artifact and are
+ * not among the workspaces this run read with a maximum (`maxed`, one JSON parameter however many,
+ * never a list bound one by one), through the partial index on capped rows. With nothing capped
+ * that is the only call. For the owners found, one global read of their policies, then the
+ * idempotent give-back for each whose current policy sets no maximum (a workspace that does is
+ * left to its step), and the cursor. Returns how many owners it gave back to.
+ */
+async function sweepStaleCaps(db: RegionalDb, now: number, maxed: string[]): Promise<number> {
+  const page = db
+    .selectDistinct({ ownerId: a.ownerId })
+    .from(a)
+    .where(
+      sql`${a.uncappedExpiresAt} is not null and ${a.state} = 'active' and (${a.expiresAt} is null or ${a.expiresAt} > ${now}) and ${a.ownerId} > ${savedCursorSql(STALE_CAPS)} and ${a.ownerId} not in (select value from json_each(${JSON.stringify(maxed)}))`,
+    )
+    .orderBy(asc(a.ownerId))
+    .limit(STALE_CAPS_OWNERS);
+  const [saved, first] = await db.batch([cursorRead(db, STALE_CAPS), page]);
+  const started = saved[0]?.cursor ?? "";
+  const owners = first.map((row) => row.ownerId);
+  if (owners.length === 0) {
+    await resumeAt(db, STALE_CAPS, started, null, now);
+    return 0;
+  }
+  const policies = new Map(
+    (
+      await db.global
+        .select({ id: w.id, policy: w.policy })
+        .from(w)
+        .where(sql`${w.id} in (select value from json_each(${JSON.stringify(owners)}))`)
+    ).map((row) => [row.id, row.policy]),
+  );
+  let given = 0;
+  let resume: string | null = started;
+  let ended = owners.length < STALE_CAPS_OWNERS;
+  for (const ownerId of owners) {
+    let policy: WorkspacePolicy | undefined;
+    try {
+      policy = policies.has(ownerId) ? policyOf(policies.get(ownerId)) : undefined;
+    } catch {
+      logEvent("error", "workspace_policy_unreadable");
+      resume = ownerId;
+      continue;
+    }
+    if (maxLifeOf(policy) !== null) {
+      resume = ownerId;
+      continue;
+    }
+    const back = await giveBackStep(db, ownerId, policy, now);
+    if (back > 0) given += 1;
+    if (back === WORKSPACE_POLICIES.enforceBatch) {
+      // More of this owner's than one batch: it is read again next run.
+      ended = false;
+      break;
+    }
+    resume = ownerId;
+  }
+  await resumeAt(db, STALE_CAPS, started, ended ? null : resume, now);
+  return given;
+}
+
+/**
+ * One batch of the give-back for an owner whose policy sets no maximum: the plan's expiry each
+ * capped artifact kept comes back. For a workspace it records `policy.enforced` with the count,
+ * and with the workspace and its artifacts in one database it holds only while the workspace
+ * still sets no maximum (one set meanwhile is applied by its step).
+ */
+async function giveBackStep(
+  db: RegionalDb,
+  ownerId: string,
+  policy: WorkspacePolicy | undefined,
+  now: number,
+): Promise<number> {
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const workspace = isWorkspaceId(ownerId);
+  const still =
+    shared && workspace
+      ? sql`not exists (select 1 from ${w} where ${w.id} = ${ownerId} and json_extract(${w.policy}, '$.artifactMaxDays') is not null)`
+      : sql`1`;
+  const ids = giveBackIds(ownerId, policy, now, WORKSPACE_POLICIES.enforceBatch);
+  const extended = sql<number>`(select count(*) from (${ids}))`;
+  const statements: BatchItem<"sqlite">[] = [
+    ...(workspace
+      ? [
+          auditEvent(
+            x,
+            {
+              ownerId,
+              kind: "policy.enforced",
+              actor: { type: "system" },
+              targetId: ownerId,
+              detail: {
+                artifactsNarrowed: 0,
+                readersRemoved: 0,
+                linksRevoked: 0,
+                sessionsEnded: 0,
+                deadlinesSet: 0,
+                deadlinesExtended: 0,
+              },
+              computed: { deadlinesExtended: extended },
+              now,
+            },
+            sql`${extended} > 0 and ${still}`,
+          ),
+        ]
+      : []),
+    giveBackStatement(x, ids, policy, now, still),
+  ];
+  const results = (await x.batch(
+    statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+  )) as unknown[];
+  return (results.at(-1) as unknown[]).length;
 }
 
 /**
@@ -1410,7 +1535,6 @@ async function applyOne(
           workspacePolicyJob(global, {
             workspaceId,
             revision: revision + 1,
-            maxLifeChanged: lifeChanged,
             condition,
             now,
           }),

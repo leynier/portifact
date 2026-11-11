@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "f4c5fa1b-43e8-4bfe-8a15-3dbae6eb2f9a",
+  "id": "c5c99ed4-4090-4242-a0e4-6b08e99cf209",
   "prevId": "72c465f3-7a8f-45e4-8605-54e8abd9db2e",
   "tables": {
     "abuse_reports": {
@@ -1178,6 +1178,12 @@
           "columns": ["owner_id"],
           "isUnique": false,
           "where": "\"artifacts\".\"pinned\" = 1"
+        },
+        "artifacts_capped_owner_idx": {
+          "name": "artifacts_capped_owner_idx",
+          "columns": ["owner_id"],
+          "isUnique": false,
+          "where": "\"artifacts\".\"uncapped_expires_at\" is not null"
         },
         "artifacts_state_expires_idx": {
           "name": "artifacts_state_expires_idx",

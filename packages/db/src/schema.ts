@@ -142,6 +142,10 @@ export const artifacts = sqliteTable(
       .where(sql`${t.customHost} is not null`),
     // The scan that unpins the artifacts of owners whose plan no longer includes `pin`.
     index("artifacts_pinned_owner_idx").on(t.ownerId).where(sql`${t.pinned} = 1`),
+    // The sweep that gives back caps no rule asks for any more (decision 0023): owners with one.
+    index("artifacts_capped_owner_idx")
+      .on(t.ownerId)
+      .where(sql`${t.uncappedExpiresAt} is not null`),
     index("artifacts_state_expires_idx").on(t.state, t.expiresAt),
     index("artifacts_state_purge_idx").on(t.state, t.purgeAt),
     check("artifacts_id_format", sql`length(${t.id}) = 10`),

@@ -154,13 +154,11 @@ describe("the maximum life of artifacts (decision 0023)", () => {
 
   it("validates the job and notice payloads", () => {
     expect(WorkspacePolicyJobPayload.parse({ revision: 2 })).toEqual({ revision: 2 });
-    expect(WorkspacePolicyJobPayload.parse({ revision: 2, maxLifeChanged: true })).toEqual({
-      revision: 2,
-      maxLifeChanged: true,
-    });
-    expect(
-      WorkspacePolicyJobPayload.safeParse({ revision: 2, maxLifeChanged: false }).success,
-    ).toBe(false);
+    // The shape the previous release reads: no key it would refuse (decision 0023, "Rollback").
+    expect(WorkspacePolicyJobPayload.parse({ revision: 2 })).toEqual({ revision: 2 });
+    expect(WorkspacePolicyJobPayload.safeParse({ revision: 2, maxLifeChanged: true }).success).toBe(
+      false,
+    );
     const notice = { days: 30, from: 1, atStart: 2, soon: 0, revision: 1 };
     expect(RetentionNoticePayload.parse(notice)).toEqual(notice);
     expect(RetentionNoticePayload.safeParse({ ...notice, name: "x" }).success).toBe(false);

@@ -2,7 +2,7 @@
 // run concurrently: state changes are conditional on the lifecycle generation, and storage is
 // released only by the statement that actually deletes the object rows.
 
-import { DEFAULT_REGION } from "@portifact/contracts";
+import { DEFAULT_REGION, type WorkspacePolicy } from "@portifact/contracts";
 import {
   bothSides,
   type Db,
@@ -15,6 +15,7 @@ import {
   type Entitlements,
   entitlements,
   FREE_LIMIT_COLUMNS,
+  maxLifeOf,
   purgeDate,
   type VersionRetention,
   versionRetention,
@@ -41,6 +42,7 @@ import {
   type ScanCaps,
   savedCursorSql,
 } from "./maintenance-cursors.ts";
+import { giveBackTarget } from "./max-life.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import {
   alignPlanLimits,
@@ -61,7 +63,7 @@ import { requeueThreadIssues } from "./thread-issues.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
 import { pruneArtifactGroups, pruneGroupTombstones } from "./workspace-groups.ts";
-import { enforceWorkspacePolicies } from "./workspace-policies.ts";
+import { enforceWorkspacePolicies, ownerEntitlementsAndPolicy } from "./workspace-policies.ts";
 import { type DeletionRegions, processWorkspaceDeletions, singleRegion } from "./workspaces.ts";
 
 const DEFAULT_BATCH = 50;
@@ -94,15 +96,17 @@ export async function archiveExpired(
     .limit(limit);
 
   let processed = 0;
-  const owners = new Map<string, Entitlements>();
+  const owners = new Map<string, { owner: Entitlements; policy: WorkspacePolicy | undefined }>();
   for (const artifact of due) {
     // The archive starts at the expiry, not when this job happens to run.
     const archivedAt = artifact.expiresAt ?? now;
-    let owner = owners.get(artifact.ownerId);
-    if (!owner) {
-      owner = await ownerEntitlements(db.global, artifact.ownerId, now);
-      owners.set(artifact.ownerId, owner);
+    let found = owners.get(artifact.ownerId);
+    if (!found) {
+      // The plan and, for a workspace, its policy in one round trip, as the plan alone was.
+      found = await ownerEntitlementsAndPolicy(db.global, artifact.ownerId, now);
+      owners.set(artifact.ownerId, found);
     }
+    const { owner, policy } = found;
     const still = and(
       eq(schema.artifacts.id, artifact.id),
       eq(schema.artifacts.state, "active"),
@@ -120,13 +124,36 @@ export async function archiveExpired(
       })
       .where(still)
       .returning({ id: schema.artifacts.id });
-    // An artifact its workspace's maximum life capped (decision 0023: it kept the plan's expiry)
-    // leaves the trail of a manual archive: `artifact.archived` by the system, naming the policy,
-    // in the same batch, on the same condition.
-    const archived =
-      artifact.capped !== null
-        ? ((
-            await db.batch([
+    let archived: { id: string }[];
+    if (artifact.capped === null) {
+      archived = await archive;
+    } else {
+      // A cap no current rule asks for (decision 0023: the maximum was removed or lengthened while
+      // the artifact was out of the policy's reach) is given back first, in the same batch: it
+      // moves the generation, so the archive and its event below then match nothing. An artifact
+      // still capped by its workspace's current maximum is archived with the trail of a manual
+      // archive (`artifact.archived` by the system, naming the policy); never a policy the owner
+      // does not have.
+      const target = giveBackTarget(policy, now);
+      const credited = maxLifeOf(policy) !== null;
+      const [back, ...rest] = (await db.batch([
+        db
+          .update(schema.artifacts)
+          .set({
+            expiresAt: sql`max(${schema.artifacts.expiresAt}, ${target})`,
+            uncappedExpiresAt: sql`case when ${target} >= ${schema.artifacts.uncappedExpiresAt} then null else ${schema.artifacts.uncappedExpiresAt} end`,
+            lifecycleGeneration: artifact.generation + 1,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              still,
+              sql`${schema.artifacts.uncappedExpiresAt} is not null and ${schema.artifacts.pinned} = 0 and ${target} > ${now}`,
+            ),
+          )
+          .returning({ id: schema.artifacts.id }),
+        ...(credited
+          ? [
               auditEvent(
                 db,
                 {
@@ -140,10 +167,13 @@ export async function archiveExpired(
                 },
                 sql`exists (select 1 from ${schema.artifacts} where ${still} and ${schema.artifacts.uncappedExpiresAt} is not null)`,
               ),
-              archive,
-            ])
-          )[1] as { id: string }[])
-        : await archive;
+            ]
+          : []),
+        archive,
+      ])) as unknown as [{ id: string }[], ...unknown[]];
+      if (back.length > 0) continue;
+      archived = rest.at(-1) as { id: string }[];
+    }
     if (archived.length === 0) continue;
     processed += 1;
     await db.insert(schema.lifecycleEvents).values({

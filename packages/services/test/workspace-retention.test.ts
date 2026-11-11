@@ -892,3 +892,279 @@ describe("the SQL twin (review of PR 214, P1)", () => {
     expect(mismatches.slice(0, 3)).toEqual([]);
   });
 });
+
+describe("stale caps after a removal or a racing write (review of PR 214, second pass)", () => {
+  it("R-A: a renewal racing a removal is given back by the scan", async () => {
+    const t = await team();
+    // Expires before the maximum takes effect: the job does not cap it.
+    const old = await aged(t, 400, 3);
+    value(await save(t, maxLife(90)));
+    await runJobs(t);
+    const at = NOW + DAY;
+    const raced = racing(async () => {
+      value(await save(t, maxLife(null), { now: at }));
+      await runJobs(t, at);
+    });
+    value(await renewArtifact(raced, lifecycle(t.editor.id, old, at)));
+    await enforceWorkspacePolicies(db(), at + 60_000);
+    expect(await row(old)).toMatchObject({ expiresAt: at + 30 * DAY, uncappedExpiresAt: null });
+  });
+
+  it("R-A, the other way: a renewal that read no maximum just before one was set is capped", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 3);
+    const raced = racing(async () => {
+      value(await save(t, maxLife(30)));
+      await runJobs(t);
+    });
+    value(await renewArtifact(raced, lifecycle(t.editor.id, old)));
+    expect((await row(old)).expiresAt).toBe(NOW + 30 * DAY);
+    await enforceWorkspacePolicies(db(), NOW + 60_000);
+    expect(await row(old)).toMatchObject({ expiresAt: FROM, uncappedExpiresAt: NOW + 30 * DAY });
+  });
+
+  it("R-B: a removal while an artifact is suspended does not survive its reinstatement", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 25);
+    value(await save(t, maxLife(90)));
+    await runJobs(t);
+    expect((await row(old)).expiresAt).toBe(FROM);
+    value(await suspendArtifact(db(), { artifactId: old, reason: "spam", now: NOW + DAY }));
+    value(await save(t, maxLife(null), { now: NOW + 2 * DAY }));
+    await runJobs(t, NOW + 2 * DAY);
+    value(await reinstateArtifact(db(), { artifactId: old, now: NOW + 3 * DAY }));
+    await enforceWorkspacePolicies(db(), NOW + 3 * DAY);
+    expect(await row(old)).toMatchObject({ expiresAt: NOW + 25 * DAY, uncappedExpiresAt: null });
+    await archiveExpired(db(), FROM + 60_000);
+    expect((await row(old)).state).toBe("active");
+  });
+
+  it("R-B before any scan: the expiry run gives a stale cap back instead of archiving by a removed rule", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 25);
+    value(await save(t, maxLife(90)));
+    await runJobs(t);
+    value(await suspendArtifact(db(), { artifactId: old, reason: "spam", now: NOW + DAY }));
+    value(await save(t, maxLife(null), { now: NOW + 2 * DAY }));
+    await runJobs(t, NOW + 2 * DAY);
+    value(await reinstateArtifact(db(), { artifactId: old, now: NOW + 3 * DAY }));
+    // No scan between: the expiry run reaches the stale cap first.
+    await archiveExpired(db(), FROM + 60_000);
+    expect(await row(old)).toMatchObject({
+      state: "active",
+      expiresAt: NOW + 25 * DAY,
+      uncappedExpiresAt: null,
+    });
+    expect(await events(t, "artifact.archived")).toEqual([]);
+  });
+
+  it("an archive is credited to the policy only while the workspace has a maximum", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 25);
+    value(await save(t, maxLife(90)));
+    await runJobs(t);
+    // The plan's own expiry passes while the removal's job is lost: a plain expiry, not the policy.
+    value(await save(t, maxLife(null), { now: NOW + DAY }));
+    await db().delete(schema.outbox).where(eq(schema.outbox.subject, t.id));
+    await db()
+      .update(schema.artifacts)
+      .set({ uncappedExpiresAt: NOW + 5 * DAY })
+      .where(eq(schema.artifacts.id, old));
+    await archiveExpired(db(), FROM + 60_000);
+    expect((await row(old)).state).toBe("archived");
+    expect(await events(t, "artifact.archived")).toEqual([]);
+  });
+
+  it("R-C: a removal whose job is lost is given back by the scan", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 25);
+    value(await save(t, maxLife(90)));
+    await runJobs(t);
+    value(await save(t, maxLife(null), { now: NOW + DAY }));
+    await db().delete(schema.outbox).where(eq(schema.outbox.subject, t.id));
+    await enforceWorkspacePolicies(db(), NOW + DAY);
+    expect(await row(old)).toMatchObject({ expiresAt: NOW + 25 * DAY, uncappedExpiresAt: null });
+  });
+
+  it("R-D: a transfer racing a removal in the target is given back by the scan", async () => {
+    const t = await team();
+    value(await save(t, maxLife(30)));
+    await runJobs(t);
+    const LATER = NOW + 10 * DAY;
+    const mine = await publishIn(t.editor.id, t.editor.id, LATER - DAY);
+    await db()
+      .update(schema.artifacts)
+      .set({ expiresAt: LATER + 300 * DAY })
+      .where(eq(schema.artifacts.id, mine.artifactId));
+    const raced = racing(async () => {
+      value(await save(t, maxLife(null), { now: LATER }));
+      await runJobs(t, LATER);
+    });
+    value(
+      await transferArtifact(raced, env.ARTIFACTS, {
+        userId: t.editor.id,
+        artifactId: mine.artifactId,
+        workspace: t.slug,
+        now: LATER,
+      }),
+    );
+    await enforceWorkspacePolicies(db(), LATER + 60_000);
+    expect((await row(mine.artifactId)).expiresAt).toBe(LATER + 300 * DAY);
+  });
+
+  it("gives back a stale cap in a personal space", async () => {
+    const owner = await person("Solo");
+    const published = await publishIn(owner.id, owner.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ expiresAt: NOW + 5 * DAY, uncappedExpiresAt: NOW + 30 * DAY })
+      .where(eq(schema.artifacts.id, published.artifactId));
+    await enforceWorkspacePolicies(db(), NOW);
+    expect(await row(published.artifactId)).toMatchObject({
+      expiresAt: NOW + 30 * DAY,
+      uncappedExpiresAt: null,
+    });
+  });
+
+  it("leaves the trail of an unpin when a move into a workspace unpins", async () => {
+    const t = await team();
+    value(await save(t, maxLife(14)));
+    await runJobs(t);
+    const mine = await publishIn(t.editor.id, t.editor.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ pinned: true, expiresAt: null })
+      .where(eq(schema.artifacts.id, mine.artifactId));
+    value(
+      await transferArtifact(db(), env.ARTIFACTS, {
+        userId: t.editor.id,
+        artifactId: mine.artifactId,
+        workspace: t.slug,
+        now: NOW,
+      }),
+    );
+    const unpinned = await events(t, "artifact.unpinned");
+    expect(unpinned).toHaveLength(1);
+    expect(unpinned[0]).toMatchObject({
+      actorType: "system",
+      detail: { policy: "artifactMaxDays" },
+    });
+    const trail = await db()
+      .select()
+      .from(schema.lifecycleEvents)
+      .where(
+        and(
+          eq(schema.lifecycleEvents.artifactId, mine.artifactId),
+          eq(schema.lifecycleEvents.event, "unpinned"),
+        ),
+      );
+    expect(trail).toHaveLength(1);
+  });
+});
+
+describe("the invariant after one scan, for any interleaving (review of PR 214, second pass)", () => {
+  /**
+   * Seeded sequences of saves (with their job run or lost), suspensions, reinstatements, moves
+   * out and back in, and renewals, each at a later moment. The model keeps what the policy cannot
+   * see: each artifact's plan expiry and life start. After one scan run with no pending job,
+   * every active artifact still live must be at `min(plan expiry, current deadline)` (the plan's
+   * without a maximum) with the plan's expiry kept exactly when that is earlier; one that is not
+   * live must be due by its plan or the current maximum, never by a removed or older rule.
+   */
+  it("holds expires_at and uncapped_expires_at at what the owner's current policy gives", async () => {
+    let seed = 7;
+    const rnd = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      // The high bits: an LCG's low bits cycle with a short period.
+      return Math.floor(seed / 65536) % n;
+    };
+    const failures: unknown[] = [];
+    // What the sequences exercised, so the test cannot pass by never reaching a cap.
+    const seen = { lost: 0, checked: 0, capped: 0 };
+    for (let sequence = 0; sequence < 24; sequence += 1) {
+      const t = await team();
+      let now = NOW;
+      const model = new Map<string, { plan: number; lifeStart: number }>();
+      for (let i = 0; i < 3; i += 1) {
+        const ago = [400, 60, 5][i] as number;
+        // A plan's expiry far enough out that a stale cap, not the plan, is what would end it.
+        const id = await aged(t, ago, 120);
+        model.set(id, { plan: NOW + 120 * DAY, lifeStart: NOW - ago * DAY });
+      }
+      const ids = [...model.keys()];
+      for (let step = 0; step < 7; step += 1) {
+        now += (1 + rnd(4)) * DAY;
+        const id = ids[rnd(ids.length)] as string;
+        const entry = model.get(id) as { plan: number; lifeStart: number };
+        const current = await row(id);
+        switch (rnd(6)) {
+          case 0:
+          case 1: {
+            const days = [null, 14, 30, 90][rnd(4)] as number | null;
+            const saved = await save(t, maxLife(days), { now });
+            if (saved.ok && rnd(3) > 0) await runJobs(t, now);
+            else if (saved.ok) seen.lost += 1;
+            else await db().delete(schema.outbox).where(eq(schema.outbox.subject, t.id));
+            await db().delete(schema.outbox).where(eq(schema.outbox.subject, t.id));
+            break;
+          }
+          case 2:
+            if (current.state === "active") {
+              await suspendArtifact(db(), { artifactId: id, reason: "spam", now });
+            } else if (current.state === "suspended") {
+              await reinstateArtifact(db(), { artifactId: id, now });
+            }
+            break;
+          case 3: {
+            const out = current.ownerId === t.id;
+            const moved = await transferArtifact(db(), env.ARTIFACTS, {
+              userId: out ? t.admin.id : t.admin.id,
+              artifactId: id,
+              workspace: out ? null : t.slug,
+              now,
+            });
+            if (moved.ok && moved.value.state === "active") {
+              entry.lifeStart = now;
+              // A cap the source set is given back on the way out; on the way in the plan's
+              // expiry is the one the row held or kept.
+              entry.plan = current.uncappedExpiresAt ?? current.expiresAt ?? entry.plan;
+            }
+            break;
+          }
+          default: {
+            const userId = current.ownerId === t.id ? t.editor.id : t.admin.id;
+            const renewed = await renewArtifact(db(), lifecycle(userId, id, now));
+            if (renewed.ok) entry.plan = now + 30 * DAY;
+          }
+        }
+      }
+      // One maintenance run with nothing pending, in its order: the expiry run (which gives back a
+      // stale cap that already passed instead of archiving it), then the scan.
+      await archiveExpired(db(), now);
+      await enforceWorkspacePolicies(db(), now);
+      const policy = await stored(t);
+      for (const id of ids) {
+        const found = await row(id);
+        if (found.state !== "active") continue;
+        seen.checked += 1;
+        if (found.uncappedExpiresAt !== null) seen.capped += 1;
+        const entry = model.get(id) as { plan: number; lifeStart: number };
+        const owned = found.ownerId === t.id ? policy : undefined;
+        const expected = policyExpiry(owned, entry.plan, entry.lifeStart, now);
+        const live = found.expiresAt !== null && found.expiresAt > now;
+        if (live) {
+          const ok =
+            found.expiresAt === expected &&
+            found.uncappedExpiresAt === (expected < entry.plan ? entry.plan : null);
+          if (!ok) failures.push({ sequence, id, found, expected, plan: entry.plan, policy });
+        } else if (expected > now) {
+          failures.push({ sequence, id, due: found.expiresAt, expected, policy });
+        }
+      }
+    }
+    expect(seen.lost).toBeGreaterThan(3);
+    expect(seen.capped).toBeGreaterThan(3);
+    expect(seen.checked).toBeGreaterThan(15);
+    expect(failures.slice(0, 3)).toEqual([]);
+  });
+});

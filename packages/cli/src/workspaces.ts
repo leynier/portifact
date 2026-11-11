@@ -259,8 +259,9 @@ export async function transfer(
   io.stdout(
     `${moved.id} is now in: ${ownerLabel(moved.owner)}. Its URL did not change: ${moved.url}\nThe people who manage it there now also see who opened it before the move.\n`,
   );
-  // A workspace's maximum life of artifacts counts from the move (decision 0023): say by when.
+  // A workspace's maximum life of artifacts counts from the move (decision 0023), and a renewal
+  // cannot pass it: say by when, and what keeps it online.
   if (moved.state === "active" && moved.expiresAt) {
-    io.stdout(`It expires on ${moved.expiresAt} unless it is renewed or published again.\n`);
+    io.stdout(`It expires on ${moved.expiresAt} unless a new version is published before then.\n`);
   }
 }
