@@ -131,8 +131,8 @@ describe("the grace notice", () => {
       expect(await axeViolations(first.container)).toEqual([]);
       cleanup();
 
-      renderDashboard("/plan", server);
-      await screen.findAllByText(/^What the Pro plan kept is held until /);
+      renderDashboard("/", server);
+      await screen.findByText(/^What the Pro plan kept is held until /);
       fireEvent.click(screen.getByRole("button", { name: "Hide for today" }));
       await waitFor(() =>
         expect(screen.queryByRole("button", { name: "Hide for today" })).toBeNull(),

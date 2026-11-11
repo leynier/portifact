@@ -138,7 +138,8 @@ function GraceNotice({ space }: { space: Space }) {
   const usage = useUsage(space.slug, spaceCan(space, "usage"));
   const [hidden, setHidden] = useState(() => hiddenToday(space));
   const grace = usage.data?.plan.grace ?? null;
-  if (!grace || hidden || pathname === "/data") return null;
+  // The Plan page and the download page show the grace themselves.
+  if (!grace || hidden || pathname === "/data" || pathname === "/plan") return null;
   const admin = spaceCan(space, "plan");
   const hide = () => {
     try {
