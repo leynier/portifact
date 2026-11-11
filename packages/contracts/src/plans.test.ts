@@ -11,11 +11,13 @@ import {
   GraceSlot,
   GraceSlots,
   lowestPlanWith,
+  MAX_DATE_MS,
   OwnerPlanExport,
   PLAN_FEATURE_LABELS,
   PLAN_FEATURES,
   PLAN_GRACE_DAYS,
   PLAN_GRACE_MAX_SLOTS,
+  PLAN_GRACE_MS,
   PLAN_LABELS,
   PLAN_NAMES,
   PLAN_PRICES,
@@ -29,6 +31,7 @@ import {
   planFeatureStatus,
   planRequestHref,
   planRequiredMessage,
+  RETENTION_LIMIT_MAX,
 } from "./plans.ts";
 import { ERROR_STATUS } from "./publishing.ts";
 
@@ -278,8 +281,33 @@ describe("plan grace", () => {
     ).toBe(false);
     expect(GraceSlots.safeParse(Array(PLAN_GRACE_MAX_SLOTS).fill(slot)).success).toBe(true);
     expect(GraceSlots.safeParse(Array(PLAN_GRACE_MAX_SLOTS + 1).fill(slot)).success).toBe(false);
-    expect(GRACE_START_REASONS).toEqual(["lowered", "removed", "expired"]);
-    expect(GRACE_END_REASONS).toEqual(["renewed", "operator", "expired"]);
+    expect(GRACE_START_REASONS).toEqual(["lowered", "removed", "expired", "unreadable"]);
+    expect(GRACE_END_REASONS).toEqual(["renewed", "operator", "expired", "folded"]);
+  });
+
+  it("bounds a slot: valid dates, at most the grace length, limits within the maximum", () => {
+    const now = 1_800_000_000_000;
+    const bounded = { ...slot, from: now, until: now + PLAN_GRACE_MS };
+    expect(GraceSlot.safeParse(bounded).success).toBe(true);
+    expect(GraceSlot.safeParse({ ...bounded, until: now + PLAN_GRACE_MS + 1 }).success).toBe(false);
+    expect(GraceSlot.safeParse({ ...bounded, until: now - 1 }).success).toBe(false);
+    expect(GraceSlot.safeParse({ ...bounded, from: 9e15, until: 9e15 }).success).toBe(false);
+    expect(MAX_DATE_MS).toBe(8.64e15);
+    for (const key of Object.keys(RETENTION_LIMIT_MAX) as (keyof typeof RETENTION_LIMIT_MAX)[]) {
+      const at = { ...bounded, limits: { ...slot.limits, [key]: RETENTION_LIMIT_MAX[key] } };
+      expect(GraceSlot.safeParse(at).success).toBe(true);
+      const over = { ...bounded, limits: { ...slot.limits, [key]: RETENTION_LIMIT_MAX[key] + 1 } };
+      expect(GraceSlot.safeParse(over).success).toBe(false);
+      // Overrides are held to the same bounds, so a hold of a valid plan always fits.
+      expect(
+        PlanOverrides.safeParse({ limits: { [key]: RETENTION_LIMIT_MAX[key] + 1 } }).success,
+      ).toBe(false);
+      for (const plan of PLAN_NAMES) {
+        expect(PLANS[plan].limits[key]).toBeLessThanOrEqual(RETENTION_LIMIT_MAX[key]);
+      }
+    }
+    expect(GraceSlot.safeParse({ ...bounded, folded: 3 }).success).toBe(true);
+    expect(GraceSlot.safeParse({ ...bounded, folded: 1 }).success).toBe(false);
   });
 
   it("is part of the plan view and the export, and optional for older servers and files", () => {

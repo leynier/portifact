@@ -73,7 +73,7 @@ Locally, `npx wrangler d1 migrations apply portifact-access --local` from `apps/
 
 ### Plan grace (migration 0060)
 
-Migration `0060_owner_plan_grace` adds the nullable `owner_plans.grace` column ([decision 0022](decisions/0022-plan-grace.md)). The release before it never reads the column, so a rollback of the Workers needs nothing: rows stay readable, owners in a grace from a lowering or a removal lose the hold and are pruned as before the grace existed, and a removed plan's kept row (`free`, no end, no overrides) reads as free. Do not roll back the migration itself; the column is harmless to older code. A plan that ended within the 60 days before the deploy gets its grace at once (it is derived from `valid_until`), so versions and rows the previous release had not pruned yet are held.
+Migration `0060_owner_plan_grace` adds the nullable `owner_plans.grace` column ([decision 0022](decisions/0022-plan-grace.md)). The release before it never reads the column, so a rollback of the Workers needs nothing: rows stay readable, owners in a grace from a lowering or a removal lose the hold and are pruned as before the grace existed, and a removed plan's kept row (`free`, no end, no overrides) reads as free. Do not roll back the migration itself; the column is harmless to older code. A plan that ended within the 60 days before the deploy gets its grace at once (it is derived from `valid_until`), so versions and rows the previous release had not pruned yet are held. Access log rows the previous release dated for a plan with an end are re-dated by a one-time pass of the maintenance run after the deploy (`redatedPlans`), so nothing is needed by hand.
 
 ### Third-party notices
 

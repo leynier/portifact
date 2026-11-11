@@ -53,6 +53,20 @@ export const AUDIT_RETENTION_DAYS = 90;
 export const AUDIT_RETENTION_BOUNDS = { minDays: 30, maxDays: 2_557 } as const;
 
 /**
+ * The most any retention limit may be (decision 0022): seven years for every length of time
+ * (the audit retention bound), 84 months for archives and 10,000 previous versions. Overrides
+ * are held to them, so a grace that holds a previous plan's values is always within them, and a
+ * stored grace slot above them is not valid. Above every plan's own value.
+ */
+export const RETENTION_LIMIT_MAX = {
+  archiveMonths: 84,
+  retainedPreviousVersions: 10_000,
+  previousVersionRetentionDays: AUDIT_RETENTION_BOUNDS.maxDays,
+  accessLogRetentionDays: AUDIT_RETENTION_BOUNDS.maxDays,
+  auditRetentionDays: AUDIT_RETENTION_BOUNDS.maxDays,
+} as const;
+
+/**
  * The limits a plan sets. Sizes are decimal bytes. `bytesPerMonth` is the traffic served, an
  * abuse cap. `accessLogRetentionDays` is how long the access log and the analytics view counters
  * are kept, `auditRetentionDays` how long audit events are. Version and domain values are carried for later features; nothing applies them yet.
@@ -271,6 +285,14 @@ export const PlanOverrides = z
     limits: PlanLimits.partial()
       .extend({
         artifactBytes: count.max(LIMITS.fileBytesCap).optional(),
+        archiveMonths: count.max(RETENTION_LIMIT_MAX.archiveMonths).optional(),
+        retainedPreviousVersions: count
+          .max(RETENTION_LIMIT_MAX.retainedPreviousVersions)
+          .optional(),
+        previousVersionRetentionDays: count
+          .max(RETENTION_LIMIT_MAX.previousVersionRetentionDays)
+          .optional(),
+        accessLogRetentionDays: count.max(RETENTION_LIMIT_MAX.accessLogRetentionDays).optional(),
         auditRetentionDays: z
           .number()
           .int()
@@ -311,21 +333,28 @@ export const GRACE_LIMITS = [
 export type GraceLimit = (typeof GRACE_LIMITS)[number];
 
 export const GraceLimits = z.strictObject({
-  archiveMonths: count,
-  retainedPreviousVersions: count,
-  previousVersionRetentionDays: count,
-  accessLogRetentionDays: count,
-  auditRetentionDays: count,
+  archiveMonths: count.max(RETENTION_LIMIT_MAX.archiveMonths),
+  retainedPreviousVersions: count.max(RETENTION_LIMIT_MAX.retainedPreviousVersions),
+  previousVersionRetentionDays: count.max(RETENTION_LIMIT_MAX.previousVersionRetentionDays),
+  accessLogRetentionDays: count.max(RETENTION_LIMIT_MAX.accessLogRetentionDays),
+  auditRetentionDays: count.max(RETENTION_LIMIT_MAX.auditRetentionDays),
 });
 export type GraceLimits = z.infer<typeof GraceLimits>;
 
-/** Why a grace started: the operator lowered the plan, removed it, or it reached `valid_until`. */
-export const GRACE_START_REASONS = ["lowered", "removed", "expired"] as const;
+/**
+ * Why a grace started: the operator lowered the plan, removed it, or it reached `valid_until`;
+ * `unreadable` when a stored grace could not be read and the operator's next change stored a
+ * conservative hold in its place (decision 0022, "Unreadable graces").
+ */
+export const GRACE_START_REASONS = ["lowered", "removed", "expired", "unreadable"] as const;
 export const GraceStartReason = z.enum(GRACE_START_REASONS);
 export type GraceStartReason = z.infer<typeof GraceStartReason>;
 
-/** Why a grace ended: a plan that covers it again, the operator, or its 60 days passed. */
-export const GRACE_END_REASONS = ["renewed", "operator", "expired"] as const;
+/**
+ * Why a grace ended: a plan that covers it again, the operator, its 60 days passed, or it was
+ * folded into a later hold past `PLAN_GRACE_MAX_SLOTS` (which keeps its values longer).
+ */
+export const GRACE_END_REASONS = ["renewed", "operator", "expired", "folded"] as const;
 export const GraceEndReason = z.enum(GRACE_END_REASONS);
 export type GraceEndReason = z.infer<typeof GraceEndReason>;
 
@@ -334,15 +363,30 @@ export type GraceEndReason = z.infer<typeof GraceEndReason>;
  * paid features it granted, from the drop (`from`) until `until`. `expiry` is the `valid_until`
  * a natural expiry came from, so the scan that records it does so once.
  */
-export const GraceSlot = z.strictObject({
-  plan: PlanName,
-  reason: GraceStartReason,
-  from: z.number().int().nonnegative(),
-  until: z.number().int().nonnegative(),
-  limits: GraceLimits,
-  features: z.array(PlanFeature),
-  expiry: z.number().int().nonnegative().optional(),
-});
+/** The latest moment a `Date` can hold (milliseconds); a later value cannot be shown. */
+export const MAX_DATE_MS = 8_640_000_000_000_000;
+
+/** The grace length in milliseconds. */
+export const PLAN_GRACE_MS = PLAN_GRACE_DAYS * 86_400_000;
+
+const moment = z.number().int().nonnegative().max(MAX_DATE_MS);
+
+export const GraceSlot = z
+  .strictObject({
+    plan: PlanName,
+    reason: GraceStartReason,
+    from: moment,
+    until: moment,
+    limits: GraceLimits,
+    features: z.array(PlanFeature),
+    expiry: moment.optional(),
+    /** How many holds were folded into this one past `PLAN_GRACE_MAX_SLOTS` (2 or more). */
+    folded: z.number().int().min(2).max(10_000).optional(),
+  })
+  // A hold lasts at most the grace length from its drop: none can be held forever.
+  .refine((slot) => slot.from <= slot.until && slot.until - slot.from <= PLAN_GRACE_MS, {
+    message: "A grace slot lasts at most the grace length from its drop.",
+  });
 export type GraceSlot = z.infer<typeof GraceSlot>;
 
 export const GraceSlots = z.array(GraceSlot).max(PLAN_GRACE_MAX_SLOTS);

@@ -1812,9 +1812,11 @@ export const ptBR = {
   "audit.graceStart.lowered": "plano reduzido",
   "audit.graceStart.removed": "plano removido",
   "audit.graceStart.expired": "plano vencido",
+  "audit.graceStart.unreadable": "carência ilegível",
   "audit.graceEnd.renewed": "plano renovado",
   "audit.graceEnd.operator": "encerrado pela Portifact",
   "audit.graceEnd.expired": "os dias passaram",
+  "audit.graceEnd.folded": "unida a uma posterior",
   "audit.kind.planRemoved": "Removeu o plano, e o espaço voltou ao Free",
   "audit.kind.tokenCreated":
     "Criou um token de serviço que expira em {days, plural, one {# dia} other {# dias}}",

@@ -1830,9 +1830,11 @@ export const es = {
   "audit.graceStart.lowered": "plan rebajado",
   "audit.graceStart.removed": "plan retirado",
   "audit.graceStart.expired": "plan vencido",
+  "audit.graceStart.unreadable": "periodo de gracia ilegible",
   "audit.graceEnd.renewed": "plan renovado",
   "audit.graceEnd.operator": "terminado por Portifact",
   "audit.graceEnd.expired": "pasaron sus días",
+  "audit.graceEnd.folded": "fusionado con uno posterior",
   "audit.kind.planRemoved": "Quitó el plan, así que el espacio vuelve a Free",
   "audit.kind.tokenCreated":
     "Creó un token de servicio que vence en {days, plural, one {# día} other {# días}}",

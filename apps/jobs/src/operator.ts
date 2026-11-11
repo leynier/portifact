@@ -420,12 +420,17 @@ function planLines(ownerId: string, state: OwnerPlanState): string[] {
   );
   if (e.grace) {
     const g = e.grace;
+    if (g.unreadable) {
+      lines.push(
+        "grace       UNREADABLE: held at the most every retention may be until a set-plan or remove-plan stores a readable one",
+      );
+    }
     lines.push(
       `grace       until ${iso(g.until)}, holding ${g.plan}: ${count(g.limits.retainedPreviousVersions)} previous version(s) for ${count(g.limits.previousVersionRetentionDays)} days, access log ${count(g.limits.accessLogRetentionDays)} days, audit log ${count(g.limits.auditRetentionDays)} days, archives ${count(g.limits.archiveMonths)} months`,
       `held reads  ${list(g.features)}`,
       ...g.slots.map(
         (slot) =>
-          `  ${slot.reason.padEnd(8)} ${slot.plan.padEnd(10)} from ${iso(slot.from)} until ${iso(slot.until)}`,
+          `  ${slot.reason.padEnd(8)} ${slot.plan.padEnd(10)} from ${iso(slot.from)} until ${iso(slot.until)}${slot.folded ? ` (folded: ${slot.folded} holds)` : ""}`,
       ),
     );
   } else {
@@ -1085,7 +1090,7 @@ export async function runOperator(
     case "export-plans": {
       const out = options.get("out");
       if (!out) return usage("export-plans needs --out <file>.");
-      const plans = await exportOwnerPlans(global);
+      const plans = await exportOwnerPlans(global, now);
       await files.write(out, plans.map((plan) => `${JSON.stringify(plan)}\n`).join(""));
       return { exitCode: 0, output: `Wrote ${plans.length} plan(s) to ${out}.` };
     }

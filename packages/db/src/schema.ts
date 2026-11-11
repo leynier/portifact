@@ -1624,7 +1624,8 @@ export const ownerPlans = sqliteTable(
      * (`entitlements` in @portifact/domain), null when nothing is held. Written only by
      * `setOwnerPlan`, `removeOwnerPlan`, `applyOwnerPlans` and the grace scan.
      */
-    grace: text("grace", { mode: "json" }),
+    // Plain text, parsed only by `readGrace`: a malformed value must never throw in a reader.
+    grace: text("grace"),
   },
   (t) => [
     check("owner_plans_plan", sql`${t.plan} in ('free', 'pro', 'team', 'enterprise')`),

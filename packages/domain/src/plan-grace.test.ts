@@ -8,7 +8,9 @@ import {
   PLAN_GRACE_MAX_SLOTS,
   PLAN_NAMES,
   PLANS,
-  type PlanName,
+  type PlanFeature,
+  PlanName,
+  PlanOverrides,
 } from "@portifact/contracts";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
@@ -25,6 +27,7 @@ import {
   holdsFeature,
   liveGraceSlots,
   type OwnerPlanRecord,
+  readGrace,
   requireHeldFeature,
   storedGraceSlots,
 } from "./plans.ts";
@@ -89,7 +92,7 @@ describe("the three ways a plan drops", () => {
 
   it("removal stores a hold of what the plan kept", () => {
     const { change, next } = changed(row(), null, NOW);
-    expect(change.started).toMatchObject({ plan: "pro", reason: "removed", until: NOW + GRACE });
+    expect(change.started[0]).toMatchObject({ plan: "pro", reason: "removed", until: NOW + GRACE });
     expect(change.ended).toEqual([]);
     const owner = entitlements(next, NOW + DAY);
     expect(owner.plan).toBe("free");
@@ -99,7 +102,7 @@ describe("the three ways a plan drops", () => {
 
   it("lowering to another plan holds the previous plan's values", () => {
     const { change, next } = changed(row({ plan: "team" }), row({ plan: "pro" }), NOW);
-    expect(change.started).toMatchObject({ plan: "team", reason: "lowered" });
+    expect(change.started[0]).toMatchObject({ plan: "team", reason: "lowered" });
     const owner = entitlements(next, NOW + DAY);
     expect(owner.plan).toBe("pro");
     expect(owner.limits.retainedPreviousVersions).toBe(100);
@@ -116,7 +119,7 @@ describe("the three ways a plan drops", () => {
       row({ plan: "team", seats: 2 }),
       NOW,
     );
-    expect(change.started).toBeNull();
+    expect(change.started).toEqual([]);
     expect(change.slots).toEqual([]);
   });
 
@@ -124,7 +127,7 @@ describe("the three ways a plan drops", () => {
     const before = row({ plan: "enterprise", overrides: { limits: { auditRetentionDays: 730 } } });
     const after = row({ plan: "enterprise" });
     const { change, next } = changed(before, after, NOW);
-    expect(change.started?.limits.auditRetentionDays).toBe(730);
+    expect(change.started[0]?.limits.auditRetentionDays).toBe(730);
     expect(entitlements(next, NOW + DAY).limits.auditRetentionDays).toBe(730);
     expect(entitlements(next, NOW + GRACE).limits.auditRetentionDays).toBe(90);
   });
@@ -149,7 +152,7 @@ describe("ending a grace", () => {
     const { next: removed } = changed(row(), null, NOW);
     const { change, next } = changed(removed, row(), NOW + 10 * DAY);
     expect(change.ended.map((e) => e.reason)).toEqual(["renewed"]);
-    expect(change.started).toBeNull();
+    expect(change.started).toEqual([]);
     expect(next.grace).toBeNull();
     expect(entitlements(next, NOW + 10 * DAY)).toEqual(entitlements(row(), NOW));
   });
@@ -172,7 +175,7 @@ describe("ending a grace", () => {
   it("the operator's --no-grace ends every hold and starts none", () => {
     const { next: lowered } = changed(row({ plan: "team" }), row(), NOW);
     const { change, next } = changed(lowered, null, NOW + DAY, { noGrace: true });
-    expect(change.started).toBeNull();
+    expect(change.started).toEqual([]);
     expect(change.ended.map((e) => e.reason)).toEqual(["operator"]);
     expect(next.grace).toBeNull();
     expect(entitlements(next, NOW + DAY)).toEqual(entitlements(null, NOW));
@@ -189,7 +192,7 @@ describe("a second drop during a grace", () => {
     const { next: first } = changed(row({ plan: "team" }), row({ plan: "pro" }), NOW);
     const second = NOW + 20 * DAY;
     const { change, next } = changed(first, null, second);
-    expect(change.started).toMatchObject({ plan: "pro", until: second + GRACE });
+    expect(change.started[0]).toMatchObject({ plan: "pro", until: second + GRACE });
     const slots = storedGraceSlots(next);
     expect(slots.map((slot) => slot.until).sort()).toEqual([NOW + GRACE, second + GRACE]);
     // Until the first's end, team's values; then pro's until the second's end; then free.
@@ -225,6 +228,163 @@ describe("a second drop during a grace", () => {
     expect(slots.length).toBeLessThanOrEqual(PLAN_GRACE_MAX_SLOTS);
     // The highest held value is still there, at least until its own end.
     expect(entitlements(record, NOW + GRACE - 1).limits.auditRetentionDays).toBe(600);
+    // The folded hold says how many it holds, and keeps them no longer than the grace length
+    // after the newest drop folded into it.
+    const folded = slots.find((slot) => slot.folded !== undefined);
+    expect(folded?.folded).toBe(3);
+    expect(folded && folded.until - folded.from).toBeLessThanOrEqual(GRACE);
+    expect(entitlements(record, folded?.until ?? 0).limits.auditRetentionDays).toBeLessThan(600);
+  });
+
+  it("reports each folded hold as ended (folded), so every hold has one end", () => {
+    let record: OwnerPlanRecord = row({ plan: "enterprise" });
+    const ends: string[] = [];
+    const starts: number[] = [];
+    for (let i = 0; i < PLAN_GRACE_MAX_SLOTS + 1; i += 1) {
+      const before = { ...record, overrides: { limits: { auditRetentionDays: 600 - i } } };
+      const { change, next } = changed(before, { ...record, overrides: null }, NOW + i * DAY);
+      starts.push(change.started.length);
+      ends.push(...change.ended.map((e) => e.reason));
+      record = next;
+    }
+    expect(starts.every((n) => n === 1)).toBe(true);
+    expect(ends).toEqual(["folded"]);
+  });
+});
+
+describe("one start per hold, whoever stores it first", () => {
+  const expired = row({ plan: "team", validUntil: NOW - DAY });
+
+  it("the scan first: the scan reports the start, a later change does not", () => {
+    const step = graceScanStep(expired, NOW);
+    expect(step?.started).toMatchObject({ reason: "expired" });
+    const stored = { ...expired, grace: step?.slots };
+    expect(changed(stored, null, NOW + DAY).change.started).toEqual([]);
+  });
+
+  it.each([
+    ["remove-plan", null, false],
+    ["a lowering", row({ plan: "pro" }), false],
+    ["--no-grace", null, true],
+  ] as const)(
+    "the operator first by %s: the change reports the expiry's start",
+    (_, after, noGrace) => {
+      const { change, next } = changed(expired, after, NOW, { noGrace });
+      expect(change.started.filter((slot) => slot.reason === "expired")).toHaveLength(1);
+      // Stored with its marker, so the scan never reports it again.
+      expect(graceScanStep(next, NOW + DAY)?.started ?? null).toBeNull();
+    },
+  );
+});
+
+describe("unreadable graces hold, never delete", () => {
+  const hostile = ["{", "[1]", 42, [{ plan: "pro" }], "null", Array(20).fill(0), [1, 2]];
+
+  it.each(hostile.map((value) => [JSON.stringify(value), value]))(
+    "%s reads as the most any retention may be, without throwing",
+    (_, grace) => {
+      const owner = entitlements(row({ plan: "free", grace }), NOW);
+      expect(owner.grace?.unreadable).toBe(true);
+      expect(owner.limits.retainedPreviousVersions).toBe(10_000);
+      expect(owner.limits.auditRetentionDays).toBe(2_557);
+      expect(owner.features).toEqual([]);
+      expect(() => new Date(owner.grace?.until ?? 0).toISOString()).not.toThrow();
+      expect(graceScanStep(row({ plan: "free", grace }), NOW)).toBeNull();
+    },
+  );
+
+  it("a slot past the bounds is unreadable, not held forever or unprintable", () => {
+    const slot = {
+      plan: "enterprise",
+      reason: "removed",
+      from: 0,
+      until: 9e15,
+      limits: {
+        archiveMonths: 999,
+        retainedPreviousVersions: 1e9,
+        previousVersionRetentionDays: 1e9,
+        accessLogRetentionDays: 1e9,
+        auditRetentionDays: 1e9,
+      },
+      features: ["audit"],
+    };
+    const owner = entitlements(row({ plan: "free", grace: [slot] }), NOW);
+    expect(owner.grace?.unreadable).toBe(true);
+    expect(owner.grace?.until).toBe(NOW + GRACE);
+    expect(() => new Date(owner.grace?.until ?? 0).toISOString()).not.toThrow();
+    // A well formed slot longer than the grace length is refused too.
+    const long = { ...slot, until: NOW + 2 * GRACE, from: NOW, limits: PLANS.pro.limits };
+    expect(readGrace(row({ grace: [{ ...long, limits: undefined }] })).unreadable).toBe(true);
+  });
+
+  it("the operator's next change stores a readable hold in its place, reported as started", () => {
+    const { change, next } = changed(row({ plan: "free", grace: "{" }), row({ plan: "free" }), NOW);
+    expect(change.started.map((slot) => slot.reason)).toEqual(["unreadable"]);
+    expect(readGrace(next).unreadable).toBe(false);
+    expect(entitlements(next, NOW + GRACE - 1).limits.retainedPreviousVersions).toBe(10_000);
+    expect(entitlements(next, NOW + GRACE).limits.retainedPreviousVersions).toBe(2);
+  });
+});
+
+describe("the previous release's rule", () => {
+  // The reviewer's check: for every row without a grace, `entitlements` is develop's.
+  function developEntitlements(record: OwnerPlanRecord | null, now: number) {
+    const freePlan = () => ({
+      plan: "free",
+      seats: 1,
+      validUntil: null,
+      limits: { ...PLANS.free.limits },
+      features: [...PLANS.free.features],
+    });
+    if (record === null || !(record.validUntil === null || now < record.validUntil))
+      return freePlan();
+    const name = PlanName.safeParse(record.plan);
+    if (!name.success) return freePlan();
+    const definition = PLANS[name.data];
+    const seats = Number.isSafeInteger(record.seats) && record.seats >= 1 ? record.seats : 1;
+    const limits: Record<string, number> = { ...definition.limits };
+    for (const key of definition.perSeat) limits[key] = definition.limits[key] * seats;
+    const enabled = new Set<PlanFeature>(definition.features);
+    const overrides = PlanOverrides.safeParse(record.overrides ?? {});
+    if (overrides.success) {
+      Object.assign(limits, overrides.data.limits);
+      for (const [feature, on] of Object.entries(overrides.data.features ?? {})) {
+        if (on) enabled.add(feature as PlanFeature);
+        else enabled.delete(feature as PlanFeature);
+      }
+    }
+    return {
+      plan: name.data,
+      seats,
+      validUntil: record.validUntil,
+      limits,
+      features: PLAN_FEATURES.filter((feature) => enabled.has(feature)),
+    };
+  }
+
+  it("is unchanged for rows without a grace (outside a natural expiry's 60 days)", () => {
+    const record = fc.record({
+      plan: fc.constantFrom("free", "pro", "team", "enterprise", "bogus"),
+      seats: fc.oneof(fc.integer({ min: -2, max: 50 }), fc.constant(1.5)),
+      validUntil: fc.oneof(
+        fc.constant(null),
+        fc.integer({ min: NOW + 1, max: NOW + 1e11 }),
+        fc.integer({ min: NOW - 1e11, max: NOW - 61 * DAY }),
+      ),
+      overrides: fc.oneof(
+        fc.constant(null),
+        fc.constant({ features: { pin: true } }),
+        fc.constant({ limits: { auditRetentionDays: 400 } }),
+        fc.constant("garbage"),
+      ),
+      grace: fc.constant(null),
+    });
+    fc.assert(
+      fc.property(fc.option(record), (value) => {
+        expect(entitlements(value, NOW)).toEqual(developEntitlements(value, NOW));
+      }),
+      { numRuns: 5_000 },
+    );
   });
 });
 
@@ -367,7 +527,7 @@ describe("properties", () => {
         fc.integer({ min: 0, max: 90 }),
         (slots, d) => {
           const at = NOW + d * DAY;
-          const compacted = compactSlots(slots as GraceSlot[]);
+          const compacted = compactSlots(slots as GraceSlot[]).slots;
           expect(compacted.length).toBeLessThanOrEqual(PLAN_GRACE_MAX_SLOTS);
           const live = (list: readonly GraceSlot[]) => list.filter((slot) => slot.until > at);
           for (const slot of live(slots as GraceSlot[])) {

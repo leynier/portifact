@@ -1846,9 +1846,11 @@ export const fr = {
   "audit.graceStart.lowered": "offre réduite",
   "audit.graceStart.removed": "offre retirée",
   "audit.graceStart.expired": "offre expirée",
+  "audit.graceStart.unreadable": "délai illisible",
   "audit.graceEnd.renewed": "offre renouvelée",
   "audit.graceEnd.operator": "terminé par Portifact",
   "audit.graceEnd.expired": "délai écoulé",
+  "audit.graceEnd.folded": "fusionné avec un délai ultérieur",
   "audit.kind.planRemoved": "A retiré l'offre : l'espace revient à Free",
   "audit.kind.tokenCreated":
     "A créé un jeton de service qui expire dans {days, plural, one {# jour} other {# jours}}",

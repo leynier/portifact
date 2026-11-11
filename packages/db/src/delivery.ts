@@ -230,6 +230,15 @@ export interface DeliveryOwner {
   networks: string[] | null;
 }
 
+/** JSON from a column, or the text itself when it is not JSON (the validators then ignore it). */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
 /**
  * The owner's plan and its workspace's people network allowlist (decision 0020) in one read of
  * the global database, for a region with its own database, where the lookup cannot join them.
@@ -251,8 +260,9 @@ export async function findDeliveryOwner(global: Db, ownerId: string): Promise<De
           plan: row.plan,
           seats: row.seats,
           validUntil: row.validUntil,
-          overrides: row.overrides === null ? null : (JSON.parse(row.overrides) as unknown),
-          grace: row.grace === null ? null : (JSON.parse(row.grace) as unknown),
+          overrides: row.overrides === null ? null : parseJson(row.overrides),
+          // Raw text: `readGrace` (@portifact/domain) parses it and never throws.
+          grace: row.grace,
         }
       : null;
   return { plan, networks: networksOf(row?.networks ?? null) };

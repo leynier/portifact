@@ -1216,6 +1216,40 @@ describe("EU scans and plan changes, second review", () => {
     expect(await held.versions()).toBe(1);
   });
 
+  it("keeps a lowering's grace as it was when the region's half fails and is retried", async () => {
+    // Decision 0022: the grace is written in the global half; a failure between the halves, the
+    // job and a second run of the same command leave it exactly as the first half wrote it.
+    const { ws } = await euWorkspace();
+    const lower = {
+      ownerId: ws.id,
+      plan: "pro" as const,
+      seats: 1,
+      validUntil: null,
+      overrides: null,
+      grantedBy: "test",
+      note: null,
+      now: NOW,
+    };
+    const graceOf = async () =>
+      (
+        await regions()
+          .global.select({ grace: schema.ownerPlans.grace })
+          .from(schema.ownerPlans)
+          .where(eq(schema.ownerPlans.ownerId, ws.id))
+      )[0]?.grace;
+    expect(await setOwnerPlan(unreachableEu(), lower)).toMatchObject({ message: HALF_APPLIED });
+    const written = await graceOf();
+    expect(written).toContain('"plan":"enterprise"');
+    const [job] = await homeJobs("plan_region", ws.id);
+    await runJob(home().db, env.ARTIFACTS, { id: job?.id ?? 0, topic: "plan_region" }, NOW, {
+      regions: regions(),
+    });
+    expect(await graceOf()).toBe(written);
+    // The same command again, later: the plan is already Pro, nothing more is held.
+    value(await setOwnerPlan(eu().db, { ...lower, now: NOW + 1 }));
+    expect(await graceOf()).toBe(written);
+  });
+
   it("refuses a plan grant left half applied, and its job or a second run completes it", async () => {
     const { ws } = await euWorkspace();
     const grant = {

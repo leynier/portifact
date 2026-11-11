@@ -1823,9 +1823,11 @@ export const ru = {
   "audit.graceStart.lowered": "тариф понижен",
   "audit.graceStart.removed": "тариф удалён",
   "audit.graceStart.expired": "тариф истёк",
+  "audit.graceStart.unreadable": "льготный период не читается",
   "audit.graceEnd.renewed": "тариф продлён",
   "audit.graceEnd.operator": "завершён Portifact",
   "audit.graceEnd.expired": "срок прошёл",
+  "audit.graceEnd.folded": "объединён с более поздним",
   "audit.kind.planRemoved": "Удалил тариф, пространство снова на Free",
   "audit.kind.tokenCreated":
     "Создал сервисный токен, который истекает через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",

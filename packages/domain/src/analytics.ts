@@ -105,7 +105,9 @@ export function accessLogHolds(plan: RetentionPlan): RetentionHold[] {
     { days: own, until: plan.validUntil === null ? null : plan.validUntil + PLAN_GRACE_MS },
   ];
   for (const slot of plan.grace?.slots ?? []) {
-    holds.push({ days: slot.limits.accessLogRetentionDays, until: slot.until });
+    // The hold standing in for an unreadable grace never ends until the operator fixes the row.
+    const until = slot.reason === "unreadable" ? null : slot.until;
+    holds.push({ days: slot.limits.accessLogRetentionDays, until });
   }
   return holds;
 }

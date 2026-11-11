@@ -318,6 +318,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sendDirectoryNotice",
   "alignPlanLimits",
   "unpinLapsedPlans",
+  // The one-time re-dating pass (decision 0022): writes retention jobs, changes nothing an owner has.
+  "redateDatedPlans",
   // The regional half of a plan change (decision 0005): the change's `plan.granted` or
   // `plan.removed` was recorded with its global half.
   "applyOwnerPlanRegion",

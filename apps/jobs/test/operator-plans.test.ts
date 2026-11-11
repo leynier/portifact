@@ -106,8 +106,9 @@ describe("operator plan commands", () => {
       `Removed the plan of ${owner.id}; it is on free. What it kept is held until 2027-01-09T12:00:00.000Z.`,
     );
     expect(removed.output).toContain("row         free, 1 seat(s), no end");
-    // Pro's hold adds nothing to team's, which ends no sooner: one hold is listed.
-    expect(removed.output).not.toMatch(/ {2}removed {2}pro/);
+    // Each drop is its own hold, listed with its own start and end.
+    expect(removed.output).toMatch(/ {2}lowered {2}team/);
+    expect(removed.output).toMatch(/ {2}removed {2}pro/);
     const ended = await run("remove-plan", owner.id, "--no-grace");
     expect(ended.exitCode).toBe(0);
     expect(ended.output).toContain("row         none (free)");
@@ -232,6 +233,72 @@ describe("operator plan commands", () => {
     });
     expect((await run("apply-plans")).output).toContain("apply-plans needs --file <file>.");
     expect((await run("export-plans")).output).toContain("export-plans needs --out <file>.");
+  });
+
+  it("refuses a plans file whose grace slot is out of bounds, naming the line, applying nothing", async () => {
+    const owner = await account();
+    const slot = {
+      plan: "pro",
+      reason: "removed",
+      from: NOW,
+      until: NOW + 60 * 86_400_000,
+      limits: {
+        archiveMonths: 12,
+        retainedPreviousVersions: 50,
+        previousVersionRetentionDays: 90,
+        accessLogRetentionDays: 365,
+        auditRetentionDays: 90,
+      },
+      features: [],
+    };
+    const line = (grace: unknown) =>
+      JSON.stringify({
+        ownerId: owner.id,
+        plan: "free",
+        seats: 1,
+        validUntil: null,
+        overrides: null,
+        grantedBy: "operator",
+        note: null,
+        grace,
+      });
+    for (const bad of [
+      { ...slot, until: 9e15 },
+      { ...slot, until: NOW + 61 * 86_400_000 },
+      { ...slot, limits: { ...slot.limits, previousVersionRetentionDays: 1e9 } },
+    ]) {
+      const files = {
+        read: async () => `${line([slot])}\n${line([bad])}\n`,
+        write: async () => {},
+      };
+      expect(await runOperator(db(), ["apply-plans", "--file", "x"], NOW, files)).toEqual({
+        exitCode: 1,
+        output: "Line 2 of x is not an exported plan; nothing was applied.",
+      });
+    }
+    expect((await run("plan", owner.id)).output).toContain("row         none (free)");
+  });
+
+  it("shows a hold folded past the slot limit as such", async () => {
+    const owner = await account();
+    await run("set-plan", owner.id, "enterprise");
+    // Ten drops: two past the slot limit.
+    for (let i = 0; i < 11; i += 1) {
+      const days = 600 - i;
+      await runOperator(
+        db(),
+        [
+          "set-plan",
+          owner.id,
+          "enterprise",
+          "--overrides",
+          `{"limits":{"auditRetentionDays":${days}}}`,
+        ],
+        NOW + i * 3_600_000,
+      );
+    }
+    const shown = await runOperator(db(), ["plan", owner.id], NOW + 12 * 3_600_000);
+    expect(shown.output).toMatch(/\(folded: \d+ holds\)/);
   });
 
   it("lists the plan commands in the usage", () => {

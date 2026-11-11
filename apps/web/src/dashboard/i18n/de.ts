@@ -1839,9 +1839,11 @@ export const de = {
   "audit.graceStart.lowered": "Tarif herabgestuft",
   "audit.graceStart.removed": "Tarif entfernt",
   "audit.graceStart.expired": "Tarif abgelaufen",
+  "audit.graceStart.unreadable": "Schonfrist unlesbar",
   "audit.graceEnd.renewed": "Tarif erneuert",
   "audit.graceEnd.operator": "von Portifact beendet",
   "audit.graceEnd.expired": "Frist abgelaufen",
+  "audit.graceEnd.folded": "mit einer späteren zusammengeführt",
   "audit.kind.planRemoved": "Hat den Tarif entfernt, der Bereich ist wieder auf Free",
   "audit.kind.tokenCreated":
     "Hat ein Service-Token erstellt, das in {days, plural, one {# Tag} other {# Tagen}} abläuft",

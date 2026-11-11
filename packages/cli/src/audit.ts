@@ -304,12 +304,14 @@ const GRACE_STARTED = {
   lowered: "plan lowered",
   removed: "plan removed",
   expired: "plan ended",
+  unreadable: "stored grace unreadable",
 } as const;
 
 const GRACE_ENDED = {
   renewed: "plan renewed",
   operator: "ended by Portifact",
   expired: "its days passed",
+  folded: "folded into a later hold",
 } as const;
 
 const SSO_FIELD = {

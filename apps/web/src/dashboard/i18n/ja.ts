@@ -1790,9 +1790,11 @@ export const ja = {
   "audit.graceStart.lowered": "プランの引き下げ",
   "audit.graceStart.removed": "プランの削除",
   "audit.graceStart.expired": "プランの期限切れ",
+  "audit.graceStart.unreadable": "保存された猶予期間を読み取れない",
   "audit.graceEnd.renewed": "プランの更新",
   "audit.graceEnd.operator": "Portifact による終了",
   "audit.graceEnd.expired": "期間の経過",
+  "audit.graceEnd.folded": "後の猶予期間に統合",
   "audit.kind.planRemoved": "プランを削除しました。スペースは Free に戻りました",
   "audit.kind.tokenCreated":
     "{days, plural, one {#日} other {#日}}後に期限切れになるサービストークンを作成しました",

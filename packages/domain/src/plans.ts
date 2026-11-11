@@ -7,8 +7,8 @@ import {
   type GraceSlot,
   GraceSlots,
   PLAN_FEATURES,
-  PLAN_GRACE_DAYS,
   PLAN_GRACE_MAX_SLOTS,
+  PLAN_GRACE_MS,
   PLAN_NAMES,
   PLANS,
   type PlanFeature,
@@ -16,6 +16,7 @@ import {
   PlanName,
   PlanOverrides,
   planRequiredMessage,
+  RETENTION_LIMIT_MAX,
 } from "@portifact/contracts";
 import { fail, ok, type Result } from "./result.ts";
 
@@ -45,6 +46,12 @@ export interface Grace {
   limits: GraceLimits;
   features: PlanFeature[];
   slots: GraceSlot[];
+  /**
+   * The stored grace could not be read (decision 0022, "Unreadable graces"): it is held with the
+   * most any retention limit may be, and its access log hold never ends, until the operator's
+   * next change to the plan stores a readable one. Nothing is deleted because of it.
+   */
+  unreadable: boolean;
 }
 
 export interface Entitlements {
@@ -65,8 +72,7 @@ export interface Entitlements {
   ownAccessLogDays?: number;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-export const PLAN_GRACE_MS = PLAN_GRACE_DAYS * DAY_MS;
+export { PLAN_GRACE_MS };
 
 /** True while the row's plan applies: it has no end, or `now` is before it. */
 export function planActive(record: OwnerPlanRecord, now: number): boolean {
@@ -113,12 +119,41 @@ function graceLimitsOf(limits: PlanLimits): GraceLimits {
   return Object.fromEntries(GRACE_LIMITS.map((key) => [key, limits[key]])) as GraceLimits;
 }
 
-/** The stored slots, validated; an unreadable value holds nothing. */
-export function storedGraceSlots(record: OwnerPlanRecord | null): GraceSlot[] {
-  if (record?.grace === null || record?.grace === undefined) return [];
+/**
+ * The stored grace: its slots, or `unreadable` when the column holds something that is not a
+ * valid list of slots (a bad JSON text, a slot out of bounds). Never throws.
+ */
+export function readGrace(record: OwnerPlanRecord | null): {
+  slots: GraceSlot[];
+  unreadable: boolean;
+} {
+  if (record?.grace === null || record?.grace === undefined)
+    return { slots: [], unreadable: false };
   const raw = typeof record.grace === "string" ? safeJson(record.grace) : record.grace;
   const parsed = GraceSlots.safeParse(raw);
-  return parsed.success ? parsed.data : [];
+  return parsed.success
+    ? { slots: parsed.data, unreadable: false }
+    : { slots: [], unreadable: true };
+}
+
+/** The stored slots when they read; none when the grace is unreadable (see `readGrace`). */
+export function storedGraceSlots(record: OwnerPlanRecord | null): GraceSlot[] {
+  return readGrace(record).slots;
+}
+
+/**
+ * The hold that stands in for a grace that cannot be read: the most any retention limit may be,
+ * no paid reads (they are not deletion), until `PLAN_GRACE_DAYS` from `now`.
+ */
+export function unreadableGraceSlot(now: number): GraceSlot {
+  return {
+    plan: "enterprise",
+    reason: "unreadable",
+    from: now,
+    until: now + PLAN_GRACE_MS,
+    limits: { ...RETENTION_LIMIT_MAX },
+    features: [],
+  };
 }
 
 function safeJson(text: string): unknown {
@@ -136,12 +171,15 @@ export function graceSlotOf(
   from: number,
   expiry?: number,
 ): GraceSlot {
+  const limits = graceLimitsOf(previous.limits);
+  // Within the bounds a stored slot must keep (overrides are held to them too).
+  for (const key of GRACE_LIMITS) limits[key] = Math.min(limits[key], RETENTION_LIMIT_MAX[key]);
   return {
     plan: previous.plan,
     reason,
     from,
     until: from + PLAN_GRACE_MS,
-    limits: graceLimitsOf(previous.limits),
+    limits,
     features: [...previous.features],
     ...(expiry === undefined ? {} : { expiry }),
   };
@@ -162,11 +200,17 @@ export function expirySlot(record: OwnerPlanRecord | null, now: number): GraceSl
   return coversSlot(free(), slot) ? null : slot;
 }
 
-/** The holds running at `now`: the stored ones not ended and a natural expiry's. */
+/**
+ * The holds running at `now`: the stored ones not ended, a natural expiry's and, for a grace
+ * that cannot be read, the conservative hold that stands in for it.
+ */
 export function liveGraceSlots(record: OwnerPlanRecord | null, now: number): GraceSlot[] {
-  const live = storedGraceSlots(record).filter((slot) => slot.until > now);
+  const { slots, unreadable } = readGrace(record);
+  const live = slots.filter((slot) => slot.until > now);
   const expired = expirySlot(record, now);
-  return expired ? [...live, expired] : live;
+  if (expired) live.push(expired);
+  if (unreadable) live.push(unreadableGraceSlot(now));
+  return live;
 }
 
 /** Whether `owner` keeps and grants everything `slot` holds, so the hold adds nothing. */
@@ -194,6 +238,7 @@ export function entitlements(record: OwnerPlanRecord | null, now: number): Entit
   const own = record === null || !planActive(record, now) ? free() : granted(record);
   const slots = liveGraceSlots(record, now);
   if (slots.length === 0) return own;
+  const unreadable = readGrace(record).unreadable;
   const held = { ...graceLimitsOf(own.limits) };
   const heldFeatures = new Set<PlanFeature>();
   let plan: PlanName = slots[0]?.plan ?? "free";
@@ -214,6 +259,7 @@ export function entitlements(record: OwnerPlanRecord | null, now: number): Entit
       limits: held,
       features: PLAN_FEATURES.filter((f) => heldFeatures.has(f) && !own.features.includes(f)),
       slots,
+      unreadable,
     },
   };
 }
@@ -222,10 +268,22 @@ export function entitlements(record: OwnerPlanRecord | null, now: number): Entit
 export interface GraceChange {
   /** The holds to store after the change. */
   slots: GraceSlot[];
-  /** The hold this change started, or null when it took nothing away. */
-  started: GraceSlot | null;
-  /** Holds the change ended: a plan that covers them again, or the operator's `--no-grace`. */
-  ended: { slot: GraceSlot; reason: "renewed" | "operator" }[];
+  /**
+   * The holds this change stores for the first time, each to be recorded as started: the one it
+   * starts for what the outgoing plan kept, a natural expiry's hold the grace scan had not stored
+   * yet (reason `expired`), and the hold standing in for an unreadable grace. Empty when the
+   * change took nothing away and found nothing unstored.
+   */
+  started: GraceSlot[];
+  /** Holds the change ended: covered again, the operator's `--no-grace`, or folded. */
+  ended: { slot: GraceSlot; reason: "renewed" | "operator" | "folded" }[];
+}
+
+/** Whether a live slot is stored in the row already (so its start was recorded when it was). */
+function isStored(record: OwnerPlanRecord | null, slot: GraceSlot): boolean {
+  const same = (a: GraceSlot, b: GraceSlot) =>
+    a.reason === b.reason && a.from === b.from && a.until === b.until && a.plan === b.plan;
+  return storedGraceSlots(record).some((stored) => same(stored, slot));
 }
 
 /**
@@ -234,6 +292,8 @@ export interface GraceChange {
  * outgoing plan kept, from `now` for `PLAN_GRACE_DAYS`, unless the new plan keeps all of it. A hold
  * the new plan covers ends early with nothing lost. Each hold keeps its own end: a second drop
  * during a grace neither extends nor shortens the first (decision 0022). `noGrace` ends them all.
+ * Every hold gets exactly one start and one end whoever stores it first: a live hold not stored
+ * yet is reported in `started` with the change that stores (or ends) it.
  */
 export function graceAfterChange(
   before: OwnerPlanRecord | null,
@@ -242,8 +302,13 @@ export function graceAfterChange(
 ): GraceChange {
   const { now } = input;
   const live = liveGraceSlots(before, now);
+  const unstored = live.filter((slot) => !isStored(before, slot));
   if (input.noGrace) {
-    return { slots: [], started: null, ended: live.map((slot) => ({ slot, reason: "operator" })) };
+    return {
+      slots: [],
+      started: unstored,
+      ended: live.map((slot) => ({ slot, reason: "operator" })),
+    };
   }
   const next = after === null || !planActive(after, now) ? free() : granted(after);
   // What the owner had until now: its plan, or free without one (a lower override below free is
@@ -259,33 +324,37 @@ export function graceAfterChange(
     if (coversSlot(next, slot)) ended.push({ slot, reason: "renewed" });
     else kept.push(slot);
   }
-  const started = coversSlot(next, outgoing) ? null : outgoing;
-  if (started) kept.push(started);
-  return { slots: compactSlots(kept), started, ended };
+  const started = [...unstored];
+  if (!coversSlot(next, outgoing)) {
+    started.push(outgoing);
+    kept.push(outgoing);
+  }
+  const compacted = compactSlots(kept);
+  return {
+    slots: compacted.slots,
+    started,
+    ended: [...ended, ...compacted.folded.map((slot) => ({ slot, reason: "folded" as const }))],
+  };
 }
 
 /**
- * Drops a hold another one covers for at least as long (it adds nothing), then, past
- * `PLAN_GRACE_MAX_SLOTS`, folds the two that end first into one that keeps the highest of both
- * until the later end: never shorter, only ever longer, and only after that many drops.
+ * Past `PLAN_GRACE_MAX_SLOTS` running holds, folds the two that end first into the later one,
+ * which keeps the highest of both until its own end and counts how many it holds (`folded`).
+ * Only after that many drops, and only ever longer: a value can be held at most the grace length
+ * after the newest drop folded in. The earlier hold is reported in `folded`, to be recorded as
+ * ended (reason `folded`). Holds are otherwise kept as they are, each with its own start and end.
  */
-export function compactSlots(slots: readonly GraceSlot[]): GraceSlot[] {
-  const sorted = [...slots].sort((a, b) => a.until - b.until || a.from - b.from);
-  const kept = sorted.filter(
-    (slot, i) =>
-      !sorted.some(
-        (other, j) =>
-          j !== i &&
-          other.until >= slot.until &&
-          coversSlot(other, slot) &&
-          // Of two equal holds, keep the later one.
-          (j > i || !coversSlot(slot, other)),
-      ),
-  );
+export function compactSlots(slots: readonly GraceSlot[]): {
+  slots: GraceSlot[];
+  folded: GraceSlot[];
+} {
+  const kept = [...slots].sort((a, b) => a.until - b.until || a.from - b.from);
+  const folded: GraceSlot[] = [];
   while (kept.length > PLAN_GRACE_MAX_SLOTS) {
     const [a, b, ...rest] = kept as [GraceSlot, GraceSlot, ...GraceSlot[]];
     const limits = { ...b.limits };
     for (const key of GRACE_LIMITS) limits[key] = Math.max(a.limits[key], b.limits[key]);
+    folded.push(a);
     kept.splice(
       0,
       kept.length,
@@ -294,11 +363,12 @@ export function compactSlots(slots: readonly GraceSlot[]): GraceSlot[] {
         plan: rank(a.plan) > rank(b.plan) ? a.plan : b.plan,
         limits,
         features: PLAN_FEATURES.filter((f) => a.features.includes(f) || b.features.includes(f)),
+        folded: (a.folded ?? 1) + (b.folded ?? 1),
       },
       ...rest,
     );
   }
-  return kept;
+  return { slots: kept, folded };
 }
 
 /** What the grace scan does to one row (decision 0022), or null when it has nothing to do. */
@@ -309,15 +379,23 @@ export interface GraceScanStep {
   started: GraceSlot | null;
   /** Holds whose days passed: removed, and recorded as expired. */
   ended: GraceSlot[];
+  /** Holds folded into a later one to stay within `PLAN_GRACE_MAX_SLOTS`, recorded as ended. */
+  folded: GraceSlot[];
 }
 
+/**
+ * One row's step of the grace scan. Null when there is nothing to do, and for a grace that
+ * cannot be read: the scan never rewrites or deletes such a row (it logs it for the operator).
+ */
 export function graceScanStep(record: OwnerPlanRecord, now: number): GraceScanStep | null {
-  const stored = storedGraceSlots(record);
+  const { slots: stored, unreadable } = readGrace(record);
+  if (unreadable) return null;
   const ended = stored.filter((slot) => slot.until <= now);
   const started = expirySlot(record, now);
   if (ended.length === 0 && started === null) return null;
   const slots = stored.filter((slot) => slot.until > now);
-  return { slots: compactSlots(started ? [...slots, started] : slots), started, ended };
+  const compacted = compactSlots(started ? [...slots, started] : slots);
+  return { slots: compacted.slots, started, ended, folded: compacted.folded };
 }
 
 /** Whether the owner's plan includes a feature. */

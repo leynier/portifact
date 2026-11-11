@@ -15,8 +15,8 @@
 import {
   AUDIT_RETENTION_BOUNDS,
   DEFAULT_REGION,
+  type GraceEndReason,
   type GraceSlot,
-  GraceSlots,
   OwnerPlanExport,
   PLAN_GRACE_DAYS,
   type PlanFeature,
@@ -47,14 +47,17 @@ import {
   type LimitColumns,
   limitColumns,
   liveGraceSlots,
+  logEvent,
   nextExpiry,
   type OwnerPlanRecord,
   ok,
   pinsLapse,
   planActive,
   type Result,
+  readGrace,
   requireFeature,
   storedGraceSlots,
+  unreadableGraceSlot,
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -65,6 +68,7 @@ import {
   cursorRead,
   resumeAt,
   type ScanCaps,
+  saveCursor,
   savedCursorSql,
 } from "./maintenance-cursors.ts";
 import { ownerOfRegion } from "./shapes.ts";
@@ -385,56 +389,71 @@ function stillBefore(ownerId: string, before: Awaited<ReturnType<typeof planBefo
   if (before === null) {
     return sql`not exists (select 1 from ${p} where ${p.ownerId} = ${ownerId})`;
   }
-  const grace = before.grace === null ? null : JSON.stringify(before.grace);
+  // The column's raw text, compared as stored.
+  const grace = before.grace;
   return sql`exists (select 1 from ${p} where ${p.ownerId} = ${ownerId} and ${p.updatedAt} = ${before.updatedAt} and ${p.grace} is ${grace} and ${p.validUntil} is ${before.validUntil})`;
 }
 
 /** How often a plan change is read and decided again when another change landed first. */
 const PLAN_CHANGE_ATTEMPTS = 3;
 
-/** The audit events of what a change did to the graces, on the change's own condition. */
-function graceEvents(w: Db, ownerId: string, change: GraceChange, now: number, when: SQL) {
-  const iso = (at: number) => new Date(at).toISOString();
-  return [
-    ...change.ended.map(({ slot, reason }) =>
-      auditEvent(
+/** One hold's start or end as an audit event, on the write's own condition. */
+function graceEvent(
+  w: Db,
+  ownerId: string,
+  kind: "plan.grace_started" | "plan.grace_ended",
+  reason: GraceSlot["reason"] | GraceEndReason,
+  slot: GraceSlot,
+  actor: "operator" | "system",
+  now: number,
+  when: SQL,
+) {
+  const detail = { reason, plan: slot.plan, until: new Date(slot.until).toISOString() };
+  return kind === "plan.grace_started"
+    ? auditEvent(
         w,
         {
           ownerId,
-          kind: "plan.grace_ended",
-          actor: { type: "operator" },
+          kind,
+          actor: { type: actor },
           targetId: ownerId,
-          detail: { reason, plan: slot.plan, until: iso(slot.until) },
+          detail: { ...detail, reason: reason as GraceSlot["reason"] },
           now,
         },
         when,
-      ),
+      )
+    : auditEvent(
+        w,
+        {
+          ownerId,
+          kind,
+          actor: { type: actor },
+          targetId: ownerId,
+          detail: { ...detail, reason: reason as GraceEndReason },
+          now,
+        },
+        when,
+      );
+}
+
+/**
+ * The audit events of what a change did to the graces, on the change's own condition: each hold
+ * it stores for the first time starts, then each hold it ends ends (a hold the change both
+ * stores and ends gets both, in that order).
+ */
+function graceEvents(w: Db, ownerId: string, change: GraceChange, now: number, when: SQL) {
+  return [
+    ...change.started.map((slot) =>
+      graceEvent(w, ownerId, "plan.grace_started", slot.reason, slot, "operator", now, when),
     ),
-    ...(change.started
-      ? [
-          auditEvent(
-            w,
-            {
-              ownerId,
-              kind: "plan.grace_started",
-              actor: { type: "operator" },
-              targetId: ownerId,
-              detail: {
-                reason: change.started.reason,
-                plan: change.started.plan,
-                until: iso(change.started.until),
-              },
-              now,
-            },
-            when,
-          ),
-        ]
-      : []),
+    ...change.ended.map(({ slot, reason }) =>
+      graceEvent(w, ownerId, "plan.grace_ended", reason, slot, "operator", now, when),
+    ),
   ];
 }
 
 function graceEventCount(change: GraceChange): number {
-  return change.ended.length + (change.started ? 1 : 0);
+  return change.ended.length + change.started.length;
 }
 
 function graceJson(slots: readonly GraceSlot[]): string | null {
@@ -1168,7 +1187,7 @@ function inLine(
  * Every plan row, for `export-plans` before a D1 Time Travel restore. A row whose overrides no
  * longer validate is exported without them, as `entitlements` already reads it.
  */
-export async function exportOwnerPlans(db: GlobalDb): Promise<OwnerPlanExport[]> {
+export async function exportOwnerPlans(db: GlobalDb, now: number): Promise<OwnerPlanExport[]> {
   const rows = await db
     .select({
       ownerId: schema.ownerPlans.ownerId,
@@ -1184,7 +1203,10 @@ export async function exportOwnerPlans(db: GlobalDb): Promise<OwnerPlanExport[]>
     .orderBy(schema.ownerPlans.ownerId);
   return rows.map((row) => {
     const overrides = PlanOverrides.safeParse(row.overrides);
-    const slots = storedGraceSlots(row);
+    // A grace that cannot be read is exported as the conservative hold that stands in for it
+    // (decision 0022), so a restore keeps holding rather than dropping it.
+    const grace = readGrace(row);
+    const slots = grace.unreadable ? [unreadableGraceSlot(now)] : grace.slots;
     return OwnerPlanExport.parse({
       ...row,
       overrides: row.overrides !== null && overrides.success ? overrides.data : null,
@@ -1307,10 +1329,12 @@ export interface GraceScanResult {
  * The grace scan (decision 0022), on the global database, once per run: stores a natural
  * expiry's hold, so its start is recorded once, and removes the holds whose days passed,
  * recording each as expired; a removed plan's row goes with its last hold. Only rows with
- * something to do are read (`json_each` over the stored holds), a page at a time from
- * `maintenance_cursors`, at most `caps` per run. Each owner's events and write are one batch
- * conditioned on the row still holding what was read. Nothing else changes here: what the holds
- * kept is pruned by the existing scans once the retention they read is the plan's own again.
+ * something to do are read (`json_each` over the stored holds, only for valid JSON), a page at a
+ * time from `maintenance_cursors`, at most `caps` per run. Each owner's events and write are one
+ * batch conditioned on the exact row it read: its `updated_at`, which every operator write moves,
+ * and its grace text, which only the scan and the operator write. A grace that cannot be read is
+ * never rewritten or deleted here: it is logged (`plan_grace_unreadable`, the owner's ID only,
+ * once per run while it lasts) and held conservatively until the operator's next change.
  */
 export async function maintainPlanGraces(
   global: GlobalDb,
@@ -1319,7 +1343,8 @@ export async function maintainPlanGraces(
 ): Promise<GraceScanResult> {
   const p = schema.ownerPlans;
   const name = "plan_graces";
-  const due = sql`((${p.grace} is not null and exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.until') <= ${now})) or (${p.validUntil} <= ${now} and ${p.validUntil} > ${now - GRACE_MS} and (${p.plan} <> 'free' or ${p.overrides} is not null) and (${p.grace} is null or not exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.expiry') = ${p.validUntil}))))`;
+  const holds = sql`(${p.grace} is not null and json_valid(${p.grace}) and json_type(${p.grace}) = 'array')`;
+  const due = sql`((${holds} and exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.until') <= ${now})) or (${p.grace} is not null and not (${holds})) or (${p.validUntil} <= ${now} and ${p.validUntil} > ${now - GRACE_MS} and (${p.plan} <> 'free' or ${p.overrides} is not null) and (${p.grace} is null or not (${holds}) or not exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.expiry') = ${p.validUntil}))))`;
   const page = (after: SQL) =>
     global
       .select({
@@ -1328,7 +1353,8 @@ export async function maintainPlanGraces(
         seats: p.seats,
         validUntil: p.validUntil,
         overrides: p.overrides,
-        grace: p.grace,
+        grace: sql<string | null>`${p.grace}`,
+        updatedAt: p.updatedAt,
       })
       .from(p)
       .where(and(sql`${p.ownerId} > ${after}`, due))
@@ -1353,52 +1379,42 @@ export async function maintainPlanGraces(
     if (rows.length > 0) cursor = rows.at(-1)?.ownerId ?? cursor;
     else cursor ??= started;
     for (const row of rows) {
+      if (readGrace(row).unreadable) {
+        logEvent("error", "plan_grace_unreadable", { ownerId: row.ownerId });
+        continue;
+      }
       const step = graceScanStep(row, now);
       if (step === null) continue;
-      const grace = row.grace === null ? null : JSON.stringify(row.grace);
-      const when = sql`exists (select 1 from ${p} where ${p.ownerId} = ${row.ownerId} and ${p.grace} is ${grace} and ${p.validUntil} is ${row.validUntil} and ${p.plan} = ${row.plan})`;
-      const iso = (at: number) => new Date(at).toISOString();
+      // The exact row read: the raw grace text (no re-serialization) and the update time.
+      const when = sql`exists (select 1 from ${p} where ${p.ownerId} = ${row.ownerId} and ${p.updatedAt} = ${row.updatedAt} and ${p.grace} is ${row.grace})`;
       const events = [
-        ...step.ended.map((slot) =>
-          auditEvent(
-            global,
-            {
-              ownerId: row.ownerId,
-              kind: "plan.grace_ended",
-              actor: { type: "system" },
-              targetId: row.ownerId,
-              detail: { reason: "expired", plan: slot.plan, until: iso(slot.until) },
-              now,
-            },
-            when,
-          ),
-        ),
         ...(step.started
           ? [
-              auditEvent(
+              graceEvent(
                 global,
-                {
-                  ownerId: row.ownerId,
-                  kind: "plan.grace_started",
-                  actor: { type: "system" },
-                  targetId: row.ownerId,
-                  detail: {
-                    reason: "expired",
-                    plan: step.started.plan,
-                    until: iso(step.started.until),
-                  },
-                  now,
-                },
+                row.ownerId,
+                "plan.grace_started",
+                "expired",
+                step.started,
+                "system",
+                now,
                 when,
               ),
             ]
           : []),
+        ...step.ended.map((slot) =>
+          graceEvent(global, row.ownerId, "plan.grace_ended", "expired", slot, "system", now, when),
+        ),
+        ...step.folded.map((slot) =>
+          graceEvent(global, row.ownerId, "plan.grace_ended", "folded", slot, "system", now, when),
+        ),
       ];
-      // A removed plan's row (free, no end, no overrides) holds only its grace: it goes with the
+      // A removed plan's row (free, one seat, no end, no overrides) holds only its grace: it goes with the
       // last hold, as a removal without grace deletes it.
       const removable =
         step.slots.length === 0 &&
         row.plan === "free" &&
+        row.seats === 1 &&
         row.validUntil === null &&
         row.overrides === null;
       const write = removable
@@ -1418,4 +1434,71 @@ export async function maintainPlanGraces(
   }
   await resumeAt(global, name, started, ended ? null : cursor, now);
   return { processed };
+}
+
+/** Plans the one-time re-dating pass reads per run, per region. */
+export const REDATE_CAPS: ScanCaps = { pageSize: 100, maxPages: 1 };
+
+/** The cursor value that marks the re-dating pass of a region as done for good. */
+const REDATE_DONE = "\u{10FFFF}done";
+
+/**
+ * The one-time pass that brings access log rows dated by the release before plan grace to the
+ * grace rule (decision 0022, "Deploying"): that release capped each row of a plan with an end at
+ * the end itself, so without a new date those rows would go at `valid_until`, not 60 days later.
+ * For every owner of `region` whose plan has an end that is not past its grace yet, it writes an
+ * `owner_retention` job (which recomputes every row's expiry from the plan now), a page a run
+ * from `maintenance_cursors`, then marks the region done and costs one read a run from then on.
+ * Idempotent: the job only ever moves expiries to the rule.
+ */
+export async function redateDatedPlans(
+  db: RegionalDb,
+  now: number,
+  region: Region = DEFAULT_REGION,
+  caps: ScanCaps = REDATE_CAPS,
+): Promise<{ scheduled: number }> {
+  const both = bothSides(db);
+  const w = both ?? db;
+  const p = schema.ownerPlans;
+  const name = `plan_grace_redate:${region}`;
+  const dated = (after: SQL) =>
+    (both ?? db.global)
+      .select({ ownerId: p.ownerId })
+      .from(p)
+      .where(
+        and(
+          sql`${p.ownerId} > ${after}`,
+          sql`${p.validUntil} is not null and ${p.validUntil} > ${now - GRACE_MS}`,
+          ownerOfRegion(p.ownerId, region),
+        ),
+      )
+      .orderBy(asc(p.ownerId))
+      .limit(caps.pageSize);
+  let started: string;
+  let owners: string[];
+  if (both) {
+    const [saved, first] = await both.batch([cursorRead(both, name), dated(savedCursorSql(name))]);
+    started = saved[0]?.cursor ?? "";
+    if (started === REDATE_DONE) return { scheduled: 0 };
+    owners = first.map((row) => row.ownerId);
+  } else {
+    started = await cursorFor(db, name);
+    if (started === REDATE_DONE) return { scheduled: 0 };
+    owners = (await dated(sql`${started}`)).map((row) => row.ownerId);
+  }
+  let scheduled = 0;
+  let cursor = started;
+  for (let pages = 0; pages < caps.maxPages; pages += 1) {
+    if (pages > 0) owners = (await dated(sql`${cursor}`)).map((row) => row.ownerId);
+    const [first, ...rest] = owners.map((ownerId) => ownerRetentionJob(w, ownerId, sql`1`, now));
+    if (first) await w.batch([first, ...rest]);
+    scheduled += owners.length;
+    if (owners.length < caps.pageSize) {
+      await saveCursor(w, name, REDATE_DONE, now);
+      return { scheduled };
+    }
+    cursor = owners.at(-1) as string;
+  }
+  await saveCursor(w, name, cursor, now);
+  return { scheduled };
 }

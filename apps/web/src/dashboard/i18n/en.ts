@@ -1776,9 +1776,11 @@ export const en = {
   "audit.graceStart.lowered": "plan lowered",
   "audit.graceStart.removed": "plan removed",
   "audit.graceStart.expired": "plan ended",
+  "audit.graceStart.unreadable": "stored grace unreadable",
   "audit.graceEnd.renewed": "plan renewed",
   "audit.graceEnd.operator": "ended by Portifact",
   "audit.graceEnd.expired": "its days passed",
+  "audit.graceEnd.folded": "folded into a later hold",
   "audit.kind.planRemoved": "Removed the plan, so the space is back on Free",
   "audit.kind.tokenCreated":
     "Created a service token that expires in {days, plural, one {# day} other {# days}}",
