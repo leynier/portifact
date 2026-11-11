@@ -154,10 +154,12 @@ export function graceSlotOf(
 export function expirySlot(record: OwnerPlanRecord | null, now: number): GraceSlot | null {
   if (record === null || record.validUntil === null || now < record.validUntil) return null;
   if (now >= record.validUntil + PLAN_GRACE_MS) return null;
-  if (!PlanName.safeParse(record.plan).success || record.plan === "free") return null;
+  if (!PlanName.safeParse(record.plan).success) return null;
   const expiry = record.validUntil;
   if (storedGraceSlots(record).some((slot) => slot.expiry === expiry)) return null;
-  return graceSlotOf(granted(record), "expired", expiry, expiry);
+  const slot = graceSlotOf(granted(record), "expired", expiry, expiry);
+  // A plan that kept and granted nothing beyond free (an ended free row) holds nothing.
+  return coversSlot(free(), slot) ? null : slot;
 }
 
 /** The holds running at `now`: the stored ones not ended and a natural expiry's. */
@@ -244,17 +246,20 @@ export function graceAfterChange(
     return { slots: [], started: null, ended: live.map((slot) => ({ slot, reason: "operator" })) };
   }
   const next = after === null || !planActive(after, now) ? free() : granted(after);
-  const outgoing =
-    before !== null && planActive(before, now) && PlanName.safeParse(before.plan).success
-      ? graceSlotOf(granted(before), input.reason, now)
-      : null;
+  // What the owner had until now: its plan, or free without one (a lower override below free is
+  // a drop too). A plan that already ended is held by its own expiry's hold, in `live`.
+  const outgoing = graceSlotOf(
+    before !== null && planActive(before, now) ? granted(before) : free(),
+    input.reason,
+    now,
+  );
   const ended: GraceChange["ended"] = [];
   const kept: GraceSlot[] = [];
   for (const slot of live) {
     if (coversSlot(next, slot)) ended.push({ slot, reason: "renewed" });
     else kept.push(slot);
   }
-  const started = outgoing !== null && !coversSlot(next, outgoing) ? outgoing : null;
+  const started = coversSlot(next, outgoing) ? null : outgoing;
   if (started) kept.push(started);
   return { slots: compactSlots(kept), started, ended };
 }

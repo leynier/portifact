@@ -1305,7 +1305,7 @@ export async function maintainPlanGraces(
 ): Promise<GraceScanResult> {
   const p = schema.ownerPlans;
   const name = "plan_graces";
-  const due = sql`((${p.grace} is not null and exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.until') <= ${now})) or (${p.validUntil} <= ${now} and ${p.validUntil} > ${now - GRACE_MS} and ${p.plan} <> 'free' and (${p.grace} is null or not exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.expiry') = ${p.validUntil}))))`;
+  const due = sql`((${p.grace} is not null and exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.until') <= ${now})) or (${p.validUntil} <= ${now} and ${p.validUntil} > ${now - GRACE_MS} and (${p.plan} <> 'free' or ${p.overrides} is not null) and (${p.grace} is null or not exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.expiry') = ${p.validUntil}))))`;
   const page = (after: SQL) =>
     global
       .select({

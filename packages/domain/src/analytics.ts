@@ -96,14 +96,13 @@ export interface RetentionHold {
 
 /**
  * The access log retentions in force for an owner, each until it ends: the plan's own (until its
- * hold after `validUntil` ends, decision 0022), each running grace's, and the free plan's, which
- * never ends. The retention in force at a moment is the highest of those not ended.
+ * hold after `validUntil` ends, decision 0022) and each running grace's. The retention in force
+ * at a moment is the highest of those not ended; once all have ended, the free plan's.
  */
 export function accessLogHolds(plan: RetentionPlan): RetentionHold[] {
   const own = plan.ownAccessLogDays ?? plan.limits.accessLogRetentionDays;
   const holds: RetentionHold[] = [
     { days: own, until: plan.validUntil === null ? null : plan.validUntil + PLAN_GRACE_MS },
-    { days: FREE_RETENTION_DAYS, until: null },
   ];
   for (const slot of plan.grace?.slots ?? []) {
     holds.push({ days: slot.limits.accessLogRetentionDays, until: slot.until });
@@ -113,7 +112,8 @@ export function accessLogHolds(plan: RetentionPlan): RetentionHold[] {
 
 /**
  * The steps of the retention in force over time: from `from` (null: the beginning) until
- * `until` (null: no end), `days`. Decreasing, since a hold only ever ends.
+ * `until` (null: no end), `days`: the highest hold not ended, then the free plan's once every hold
+ * has ended.
  */
 export function retentionSteps(
   holds: readonly RetentionHold[],
@@ -124,12 +124,9 @@ export function retentionSteps(
   const steps: { from: number | null; until: number | null; days: number }[] = [];
   let from: number | null = null;
   for (const until of [...ends, null]) {
-    const days = Math.max(
-      0,
-      ...holds
-        .filter((h) => h.until === null || (until !== null && h.until >= until))
-        .map((h) => h.days),
-    );
+    const running = holds.filter((h) => h.until === null || (until !== null && h.until >= until));
+    const days =
+      running.length === 0 ? FREE_RETENTION_DAYS : Math.max(...running.map((h) => h.days));
     steps.push({ from, until, days });
     from = until;
   }
