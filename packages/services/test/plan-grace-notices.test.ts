@@ -1060,9 +1060,9 @@ describe("the second review's cases", () => {
     );
     expect(await scheduleGraceNotices(raced, NOW, "eu")).toEqual({ scheduled: 1 });
     // It waited instead of dropping: still in the outbox, a few minutes later.
-    const [waiting] = await jobsFor(ws.id, eu().db);
-    expect(waiting?.availableAt).toBe(NOW + 1_000 + GRACE_NOTICE_MARK_WAIT_MS);
-    expect((waiting?.payload as { waits?: number }).waits).toBe(1);
+    const waiting = await onlyJob(ws.id, eu().db);
+    expect(waiting.availableAt).toBe(NOW + 1_000 + GRACE_NOTICE_MARK_WAIT_MS);
+    expect((waiting.payload as { waits?: number }).waits).toBe(1);
     for (let t = NOW + 5 * MINUTE; t < held.until; t += 15 * MINUTE) {
       await scheduleGraceNotices(eu().db, t, "eu");
       await runDue(ws.id, t + MINUTE, graceNotifier);
