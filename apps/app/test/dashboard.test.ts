@@ -187,18 +187,20 @@ describe("viewer page", () => {
 });
 
 describe("dashboard policy", () => {
-  it("adds only the storage endpoint, the document stylesheet, artifact frames and the human check to the page policy", async () => {
+  it("adds only the storage endpoints, the document stylesheet, artifact frames and the human check to the page policy", async () => {
     const policy = await dashboardCsp(env);
     const digest = await crypto.subtle.digest(
       "SHA-256",
       new TextEncoder().encode(DOCUMENT_STYLESHEET),
     );
     const hash = btoa(String.fromCharCode(...new Uint8Array(digest)));
+    // The deployed configuration binds both regions' buckets, so both endpoints are allowed.
     const storage = `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+    const storageEu = `https://${env.R2_ACCOUNT_ID}.eu.r2.cloudflarestorage.com`;
     const challenges = "https://challenges.cloudflare.com";
     expect(policy).toBe(
       `${PAGE_CSP.replace("style-src 'self'", `style-src 'self' 'sha256-${hash}'`)
-        .replace("connect-src 'self'", `connect-src 'self' ${storage}`)
+        .replace("connect-src 'self'", `connect-src 'self' ${storage} ${storageEu}`)
         .replace(
           "script-src 'self'",
           `script-src 'self' ${challenges}`,
@@ -214,6 +216,7 @@ describe("dashboard policy", () => {
     expect(policy.match(/https:\/\/[^\s;]+/g)).toEqual([
       challenges,
       storage,
+      storageEu,
       "https://*.portifact.dev",
       challenges,
     ]);
