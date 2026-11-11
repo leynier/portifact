@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   ArtifactSummary,
   type OwnerView,
+  type RequestRefusal,
   WorkspaceGroupList,
   WorkspaceList,
   WorkspaceSlug,
@@ -143,14 +144,22 @@ export async function workspaces(io: Io, runtime: Runtime, options: OutputOption
   for (const item of list.items) {
     const policy = describePolicy(item.policy);
     if (policy.length > 0) io.stdout(`Policies of ${item.slug}: ${policy.join("; ")}.\n`);
-    // Its network policy refuses this machine's address (decision 0020).
-    if (item.blocked) {
-      io.stdout(
-        `${item.slug} only allows approved networks, and this one is not on its list: commands on it fail until you connect from an approved network.\n`,
-      );
-    }
+    // A request policy refuses this CLI (decisions 0020 and 0021): say which, and the fix.
+    if (item.blocked) io.stdout(`${blockedLine(item.slug, item.blockedBy)}\n`);
   }
   io.stderr("* is where publish, list and usage go without --workspace.\n");
+}
+
+/** Why a workspace refuses this CLI, and what fixes it (decisions 0020 and 0021). */
+export function blockedLine(slug: string, reason: RequestRefusal | null): string {
+  switch (reason) {
+    case "session_age":
+      return `${slug} asks for a recent sign-in, and this CLI's is older than it allows: run \`portifact login\` to sign in again.`;
+    case "client":
+      return `${slug} does not allow the Portifact CLI to act on it: use the dashboard, or ask a workspace admin.`;
+    default:
+      return `${slug} only allows approved networks, and this one is not on its list: commands on it fail until you connect from an approved network.`;
+  }
 }
 
 /**

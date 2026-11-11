@@ -91,7 +91,8 @@ export async function listConnectedApps(
       name: clients.name,
       scopes: refresh.scopes,
       resources: refresh.resources,
-      approvedAt: sql<number>`min(coalesce(${refresh.authTime}, ${refresh.createdAt}))`,
+      // 0 is "not known" (decision 0021, migrations 0058 and 0059), never a date to show.
+      approvedAt: sql<number>`min(coalesce(nullif(${refresh.authTime}, 0), ${refresh.createdAt}))`,
       lastIssuedAt: sql<number>`max(${refresh.createdAt})`,
       expiresAt: sql<number | null>`max(${refresh.expiresAt})`,
       neverExpires: sql<number>`max(${refresh.expiresAt} is null)`,

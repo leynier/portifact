@@ -119,6 +119,8 @@ export interface FakeWorkspace {
   policy?: WorkspacePolicyShown;
   /** Its network policy refuses this machine (decision 0020). */
   blocked?: boolean;
+  /** Which request policy refuses this CLI (decisions 0020 and 0021). */
+  blockedBy?: "network" | "session_age" | "client" | null;
 }
 
 export interface FakeVersionFile {
@@ -1632,6 +1634,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
             createdAt: "2026-11-01T00:00:00.000Z",
             policy: workspace.policy ?? DEFAULT_POLICY,
             blocked: workspace.blocked ?? false,
+            blockedBy: workspace.blockedBy ?? null,
           })),
         },
       };

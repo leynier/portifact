@@ -2699,4 +2699,61 @@ export const fr = {
   "audit.stream.revokedNow": "Nouveau secret pour {label} ; l’ancien ne signe plus",
   "audit.stream.revokeNow.body":
     "L’ancien secret ne signe plus. Donnez celui-ci à votre point de terminaison maintenant.",
+  "policies.session.legend": "Durée de session",
+  "policies.session.hint":
+    "Combien de temps après sa connexion une personne peut agir dans l’espace de travail. Au-delà, le tableau de bord, la CLI et les applications connectées lui demandent de se reconnecter ; personne n’est déconnecté et rien n’est supprimé.",
+  "policies.session.any": "Aucune limite",
+  "policies.session.anyHint":
+    "Une connexion agit dans l’espace de travail aussi longtemps qu’elle dure.",
+  "policies.session.only": "Demander une nouvelle connexion",
+  "policies.session.onlyHint":
+    "Les personnes se reconnectent quand leur connexion dépasse la limite.",
+  "policies.session.hours": "Heures après la connexion",
+  "policies.session.hoursHint": "Un nombre entier entre {min} et {max}.",
+  "policies.session.hoursError": "Indiquez un nombre entier d’heures entre {min} et {max}.",
+  "policies.session.yours":
+    "Vous vous êtes connecté il y a {count, plural, one {# heure} other {# heures}}. Une limite plus courte vous bloquerait : reconnectez-vous d’abord si vous en voulez une.",
+  "policies.session.tokens": "Les jetons de service ne se connectent pas et ne sont pas concernés.",
+  "policies.session.limits":
+    "La CLI compte à partir de `portifact login` et une application à partir de sa connexion, quel que soit le nombre de renouvellements de leurs jetons.",
+  "policies.clients.legend": "Applications autorisées à agir",
+  "policies.clients.hint":
+    "Quels types d’application peuvent agir dans l’espace de travail avec la connexion d’une personne. Le tableau de bord est toujours autorisé.",
+  "policies.clients.any": "Toutes les applications",
+  "policies.clients.anyHint":
+    "Le tableau de bord, la CLI Portifact et les applications que les personnes connectent, comme les clients MCP.",
+  "policies.clients.only": "Seulement les applications choisies ici",
+  "policies.clients.onlyHint":
+    "Les autres applications sont refusées avec un message qui explique pourquoi.",
+  "policies.clients.which": "Applications autorisées",
+  "policies.clients.dashboard": "Le tableau de bord (toujours autorisé)",
+  "policies.clients.cli": "La CLI Portifact",
+  "policies.clients.cliHint":
+    "La ligne de commande de Portifact, reconnue par son enregistrement client fixe.",
+  "policies.clients.apps": "Autres applications connectées",
+  "policies.clients.appsHint":
+    "Les clients MCP et toute autre application qu’une personne connecte par OAuth.",
+  "policies.clients.tokens": "Les jetons de service ne sont pas concernés.",
+  "policies.clients.limits":
+    "Les applications qui s’enregistrent elles-mêmes choisissent leur nom : Portifact les autorise ou les refuse comme un seul groupe, jamais par leur nom. Cela n’empêche pas quelqu’un de copier ce qu’il peut lire dans une autre application.",
+  "policies.impact.signInsTitle":
+    "Changer la façon dont les personnes se connectent à cet espace de travail ?",
+  "policies.impact.signInMembers":
+    "{count, plural, one {# membre sera concerné} other {# membres seront concernés}}",
+  "policies.impact.staleMembers":
+    "{count, plural, one {# membre devrait} other {# membres devraient}} se reconnecter, dans le tableau de bord, la CLI ou une application connectée, à leur prochaine action",
+  "policies.impact.clientMembers":
+    "{count, plural, one {# membre utilise} other {# membres utilisent}} une application que cela refuserait",
+  "policies.impact.signInsNote":
+    "Personne n’est déconnecté : on demande aux personnes de se reconnecter, ou d’utiliser une autre application, à leur prochaine action dans l’espace de travail.",
+  "policies.impact.signInsConfirm": "Enregistrer",
+  "space.blockedSession.title": "Reconnectez-vous pour continuer",
+  "space.blockedSession.body":
+    "{workspace} demande une nouvelle connexion au bout d’un moment, et la vôtre est plus ancienne que ce qu’il permet. Reconnectez-vous pour revenir ici. Vos autres espaces continuent de fonctionner.",
+  "space.blockedSession.action": "Se reconnecter",
+  "audit.policy.session":
+    "se reconnecter toutes les {count, plural, one {# heure} other {# heures}}",
+  "audit.policy.sessionAny": "aucune limite de durée de session",
+  "audit.policy.clients":
+    "{kinds, select, none {seul le tableau de bord peut agir} cli {seuls le tableau de bord et la CLI peuvent agir} oauth_apps {seuls le tableau de bord et les applications connectées peuvent agir} both {le tableau de bord, la CLI et les applications connectées peuvent agir} other {toutes les applications peuvent agir}}",
 } satisfies Catalog;

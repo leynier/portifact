@@ -365,6 +365,7 @@ const READ_NAMES = new Set([
   // The thread a caller may read now (decision 0018): a read like every annotation read.
   "readableThread",
   "appSessionLive",
+  "appSessionSignIn",
   "directoryGroupChoices",
   "directoryRoleHolders",
   "seatLimit",

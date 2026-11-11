@@ -4,8 +4,11 @@
 // share links revoked or stopped), the page lists the counts and asks for a confirmation. The
 // API decides every rule again; without the plan's feature, the page says only loosening works.
 // The network allowlists (decision 0020) are edited here too: only admins see the ranges, every
-// other member reads that one exists; saving one asks for a confirmation with who it binds.
+// other member reads that one exists; saving one asks for a confirmation with who it binds. So
+// are the sign-in policies (decision 0021): a maximum session age and the kinds of app allowed to
+// act; saving either asks for a confirmation with who it binds, as counts.
 import {
+  type ClientKind,
   DEFAULT_ACCESS_POLICIES,
   type DefaultAccessPolicy,
   type IpAllowlistView,
@@ -25,6 +28,7 @@ import { changedFields, impactTotal, normalizeIpRanges } from "@portifact/domain
 import {
   Button,
   Callout,
+  Checkbox,
   ConfirmDialog,
   PageHeader,
   Panel,
@@ -97,6 +101,10 @@ interface Draft {
   networks: string;
   tokenNetworksLimited: boolean;
   tokenNetworks: string;
+  sessionLimited: boolean;
+  sessionHours: string;
+  clientsLimited: boolean;
+  clients: ClientKind[];
 }
 
 /** A shown allowlist's lines; a hidden one (not an admin, who cannot save) shows none. */
@@ -116,10 +124,14 @@ function draftOf(policy: WorkspacePolicyView["policy"]): Draft {
     networks: linesOf(policy.ipAllowlist),
     tokenNetworksLimited: policy.tokenIpAllowlist !== null,
     tokenNetworks: linesOf(policy.tokenIpAllowlist),
+    sessionLimited: policy.sessionMaxHours !== null,
+    sessionHours: policy.sessionMaxHours === null ? "" : String(policy.sessionMaxHours),
+    clientsLimited: policy.allowedClients !== null,
+    clients: policy.allowedClients ?? ["cli", "oauth_apps"],
   };
 }
 
-type DraftField = "domains" | "days" | "networks" | "tokenNetworks";
+type DraftField = "domains" | "days" | "networks" | "tokenNetworks" | "sessionHours";
 
 /** The ranges a textarea lists, or null when they are not 1 to the maximum valid ranges. */
 function rangesOf(text: string): string[] | null {
@@ -159,6 +171,15 @@ export function policyOfDraft(
   if (draft.tokenNetworksLimited && tokenNetworks === null) {
     return { ok: false, field: "tokenNetworks" };
   }
+  const hours = draft.sessionLimited ? Number(draft.sessionHours.trim() || Number.NaN) : null;
+  if (
+    hours !== null &&
+    (!Number.isInteger(hours) ||
+      hours < WORKSPACE_POLICIES.sessionMinHours ||
+      hours > WORKSPACE_POLICIES.sessionMaxHours)
+  ) {
+    return { ok: false, field: "sessionHours" };
+  }
   return {
     ok: true,
     policy: {
@@ -169,8 +190,26 @@ export function policyOfDraft(
       shareLinkMaxDays: maxDays,
       ipAllowlist: networks,
       tokenIpAllowlist: tokenNetworks,
+      sessionMaxHours: hours,
+      allowedClients: draft.clientsLimited ? draft.clients : null,
     },
   };
+}
+
+/**
+ * Whether saving `next` sets or tightens a sign-in policy (decision 0021): the admin is told who
+ * it binds before it is saved.
+ */
+function signInsChange(view: WorkspacePolicyView, next: WorkspacePolicy): boolean {
+  const shown = view.policy;
+  const age =
+    next.sessionMaxHours !== null &&
+    (shown.sessionMaxHours === null || next.sessionMaxHours < shown.sessionMaxHours);
+  const clients =
+    next.allowedClients !== null &&
+    (shown.allowedClients === null ||
+      shown.allowedClients.some((kind) => !next.allowedClients?.includes(kind)));
+  return age || clients;
 }
 
 /**
@@ -258,7 +297,11 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
     if (!parsed.ok) return;
     const result = await preview.mutateAsync(parsed.policy).catch(() => null);
     if (!result) return;
-    if (impactTotal(result) > 0 || networksChange(view, parsed.policy)) {
+    if (
+      impactTotal(result) > 0 ||
+      networksChange(view, parsed.policy) ||
+      signInsChange(view, parsed.policy)
+    ) {
       setPending({ policy: parsed.policy, preview: result });
     } else save.mutate({ policy: parsed.policy });
   };
@@ -427,6 +470,22 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         onLimited={(value) => set("tokenNetworksLimited", value)}
         onText={(value) => set("tokenNetworks", value)}
       />
+      <SessionPanel
+        view={view}
+        limited={draft.sessionLimited}
+        hours={draft.sessionHours}
+        disabled={fieldsDisabled}
+        invalid={invalid === "sessionHours"}
+        onLimited={(value) => set("sessionLimited", value)}
+        onHours={(value) => set("sessionHours", value)}
+      />
+      <ClientsPanel
+        limited={draft.clientsLimited}
+        clients={draft.clients}
+        disabled={fieldsDisabled}
+        onLimited={(value) => set("clientsLimited", value)}
+        onClients={(value) => set("clients", value)}
+      />
       {failure ? (
         <Callout
           tone="error"
@@ -462,14 +521,18 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         open={pending !== null}
         title={
           pending && impactTotal(pending.preview) === 0
-            ? t("policies.impact.networksTitle")
+            ? pending.preview.networks
+              ? t("policies.impact.networksTitle")
+              : t("policies.impact.signInsTitle")
             : t("policies.impact.title")
         }
         confirmLabel={
           pending && impactTotal(pending.preview) === 0
             ? familiesOf(pending.preview)
               ? t("policies.impact.familiesConfirm")
-              : t("policies.impact.networksConfirm")
+              : pending.preview.networks
+                ? t("policies.impact.networksConfirm")
+                : t("policies.impact.signInsConfirm")
             : t("policies.impact.confirm")
         }
         cancelLabel={t("policies.impact.cancel")}
@@ -512,6 +575,7 @@ function ImpactList({ space, preview }: { space: Workspace; preview: PolicyPrevi
   ] as const;
   const artifacts = impactTotal(preview) > 0;
   const networks = preview.networks;
+  const signIns = preview.signIns;
   return (
     <div className="flex flex-col gap-3 text-sm">
       {artifacts ? (
@@ -549,7 +613,162 @@ function ImpactList({ space, preview }: { space: Workspace; preview: PolicyPrevi
           <p className="text-text-muted">{t("policies.impact.networksNote")}</p>
         </>
       ) : null}
+      {signIns ? (
+        <>
+          <ul className="list-disc pl-5">
+            <li>{t("policies.impact.signInMembers", { count: signIns.members })}</li>
+            {signIns.staleMembers > 0 ? (
+              <li>{t("policies.impact.staleMembers", { count: signIns.staleMembers })}</li>
+            ) : null}
+            {signIns.clientMembers > 0 ? (
+              <li>{t("policies.impact.clientMembers", { count: signIns.clientMembers })}</li>
+            ) : null}
+          </ul>
+          <p className="text-text-muted">{t("policies.impact.signInsNote")}</p>
+        </>
+      ) : null}
     </div>
+  );
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * The maximum session age (decision 0021): how long after signing in a person may act on the
+ * workspace. Every member reads it (it is a rule they follow, and a refusal names it anyway);
+ * admins change it, and see how old their own sign-in is, since a shorter limit is refused.
+ */
+function SessionPanel(props: {
+  view: WorkspacePolicyView;
+  limited: boolean;
+  hours: string;
+  disabled: boolean;
+  invalid: boolean;
+  onLimited: (limited: boolean) => void;
+  onHours: (hours: string) => void;
+}) {
+  const t = useT();
+  const { view } = props;
+  const legend = t("policies.session.legend");
+  const bounds = {
+    min: WORKSPACE_POLICIES.sessionMinHours,
+    max: WORKSPACE_POLICIES.sessionMaxHours,
+  };
+  const age =
+    view.editable && view.yourSignInAt !== null
+      ? Math.max(0, Math.floor((Date.now() - view.yourSignInAt) / HOUR_MS))
+      : null;
+  return (
+    <Panel headingLevel={2} title={legend} description={t("policies.session.hint")}>
+      <div className="flex flex-col gap-4">
+        <RadioGroup<"any" | "only">
+          legend={legend}
+          name="sessionMaxHours"
+          value={props.limited ? "only" : "any"}
+          disabled={props.disabled}
+          onChange={(value) => props.onLimited(value === "only")}
+          options={[
+            {
+              value: "any",
+              label: t("policies.session.any"),
+              description: t("policies.session.anyHint"),
+            },
+            {
+              value: "only",
+              label: t("policies.session.only"),
+              description: t("policies.session.onlyHint"),
+            },
+          ]}
+        />
+        {props.limited ? (
+          <TextInput
+            label={t("policies.session.hours")}
+            description={t("policies.session.hoursHint", bounds)}
+            inputMode="numeric"
+            value={props.hours}
+            disabled={props.disabled}
+            error={props.invalid ? t("policies.session.hoursError", bounds) : undefined}
+            onChange={(event) => props.onHours(event.currentTarget.value)}
+          />
+        ) : null}
+        {age !== null ? (
+          <p className="text-sm">{t("policies.session.yours", { count: age })}</p>
+        ) : null}
+        <p className="text-sm text-text-muted">
+          {t("policies.session.tokens")} {t("policies.session.limits")}
+        </p>
+      </div>
+    </Panel>
+  );
+}
+
+/**
+ * The kinds of app allowed to act with a person's sign-in (decision 0021). The dashboard is always
+ * allowed and shown as such; the page says plainly that self-registered apps choose their own
+ * names, so they are allowed or refused as one group.
+ */
+function ClientsPanel(props: {
+  limited: boolean;
+  clients: ClientKind[];
+  disabled: boolean;
+  onLimited: (limited: boolean) => void;
+  onClients: (clients: ClientKind[]) => void;
+}) {
+  const t = useT();
+  const legend = t("policies.clients.legend");
+  const toggle = (kind: ClientKind, on: boolean) =>
+    props.onClients(
+      (["cli", "oauth_apps"] as const).filter((each) =>
+        each === kind ? on : props.clients.includes(each),
+      ),
+    );
+  return (
+    <Panel headingLevel={2} title={legend} description={t("policies.clients.hint")}>
+      <div className="flex flex-col gap-4">
+        <RadioGroup<"any" | "only">
+          legend={legend}
+          name="allowedClients"
+          value={props.limited ? "only" : "any"}
+          disabled={props.disabled}
+          onChange={(value) => props.onLimited(value === "only")}
+          options={[
+            {
+              value: "any",
+              label: t("policies.clients.any"),
+              description: t("policies.clients.anyHint"),
+            },
+            {
+              value: "only",
+              label: t("policies.clients.only"),
+              description: t("policies.clients.onlyHint"),
+            },
+          ]}
+        />
+        {props.limited ? (
+          <fieldset className="flex flex-col gap-3">
+            <legend className="mb-1 text-sm font-medium">{t("policies.clients.which")}</legend>
+            <Checkbox label={t("policies.clients.dashboard")} checked disabled />
+            <Checkbox
+              label={t("policies.clients.cli")}
+              description={t("policies.clients.cliHint")}
+              checked={props.clients.includes("cli")}
+              disabled={props.disabled}
+              onChange={(event) => toggle("cli", event.currentTarget.checked)}
+            />
+            <Checkbox
+              label={t("policies.clients.apps")}
+              description={t("policies.clients.appsHint")}
+              checked={props.clients.includes("oauth_apps")}
+              disabled={props.disabled}
+              onChange={(event) => toggle("oauth_apps", event.currentTarget.checked)}
+            />
+          </fieldset>
+        ) : null}
+        <p className="text-sm text-text-muted">
+          {t("policies.clients.tokens")} {t("policies.clients.limits")}
+        </p>
+      </div>
+    </Panel>
   );
 }
 

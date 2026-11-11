@@ -1,4 +1,4 @@
-import { CREDENTIALS_SCOPE, OAuthScope } from "@portifact/contracts";
+import { CLI_CLIENT_ID, CREDENTIALS_SCOPE, OAuthScope } from "@portifact/contracts";
 
 export const AUTH_BASE_PATH = "/api/auth";
 
@@ -25,8 +25,8 @@ export const ALL_SCOPES: readonly string[] = [
 // The minimal set an MCP client requests first; more scopes come through step-up.
 export const MCP_BASELINE_SCOPES: readonly string[] = ["artifacts:read"];
 
-/** The first-party CLI client, seeded by migration 0003. */
-export const CLI_CLIENT_ID = "portifact-cli";
+/** The first-party CLI client, seeded by migration 0003 (decision 0021 names its kind). */
+export { CLI_CLIENT_ID };
 
 export interface AuthUrls {
   origin: string;

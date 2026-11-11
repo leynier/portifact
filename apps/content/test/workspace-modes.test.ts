@@ -6,7 +6,7 @@ import { env } from "cloudflare:test";
 import { READ_SESSION } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { createShareLink, issueReadHandoff, openShareLink } from "@portifact/services";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { READ_COOKIE, TRANSACTION_COOKIE_PREFIX } from "../src/cookies.ts";
 import { handle } from "../src/index.ts";
 import { SHARE_COOKIE } from "../src/share-session.ts";
@@ -418,5 +418,130 @@ describe("a workspace's network allowlist on the artifact origin (decision 0020)
     const cookie = pairOf(entered, `${SHARE_COOKIE}=`);
     await allowOnly(["192.0.2.0/24"]);
     expect((await at(HOME, cookie)).status).toBe(200);
+  });
+});
+
+describe("a workspace's sign-in policies on the artifact origin (decision 0021)", () => {
+  const HOUR = 3_600_000;
+  // The app sessions in `seed` signed in 30 days before NOW; `actorOn` reads the clock.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const signInPolicy = (sessionMaxHours: number | null, allowedClients: string[] | null = null) =>
+    env.DB.prepare(
+      "UPDATE workspaces SET policy = ?, policy_revision = policy_revision + 1 WHERE id = ?",
+    )
+      .bind(
+        JSON.stringify({
+          publicAccess: "allowed",
+          defaultAccess: "restricted",
+          readerDomains: null,
+          shareLinks: "allowed",
+          shareLinkMaxDays: null,
+          ...(sessionMaxHours === null ? {} : { sessionMaxHours }),
+          ...(allowedClients === null ? {} : { allowedClients }),
+        }),
+        WS,
+      )
+      .run();
+  const signedInHoursAgo = (userId: string, hours: number) =>
+    env.DB.prepare("UPDATE sessions SET created_at = ? WHERE user_id = ?")
+      .bind(NOW - hours * HOUR, userId)
+      .run();
+  const later = NOW + CLAIMS_MS + 1_000;
+
+  it("ends a member's read session at renewal once their sign-in is too old, for every mode", async () => {
+    for (const mode of ["workspace", "restricted", "domain"] as const) {
+      await seed(mode);
+      if (mode === "restricted") {
+        await db()
+          .insert(schema.artifactReaders)
+          .values({ artifactId: ID, email: "member@example.org" });
+      }
+      const cookie = await signIn(MEMBER);
+      const other = await signIn(MEMBER);
+      await signInPolicy(8);
+      // Within the claims' lifetime the session is served; the next renewal decides again.
+      expect((await send("/", cookie, NOW + 1_000)).status).toBe(200);
+      const renewed = await send("/", cookie, later);
+      expect(renewed.status).toBe(303);
+      expect(renewed.headers.get("location")).toContain("/read/");
+      // Once the app session's sign-in is recent (the person signed in again), it renews.
+      await signedInHoursAgo(MEMBER, 1);
+      expect((await send("/", other, later)).status).toBe(200);
+    }
+  });
+
+  it("never binds the outsiders a restricted artifact names, a share link or the allowed clients", async () => {
+    await seed("restricted");
+    await db().insert(schema.artifactReaders).values({ artifactId: ID, email: "out@example.org" });
+    const outsider = await signIn(OUTSIDER);
+    // A read session descends from the dashboard's session, which every client policy allows.
+    const admin = await signIn(ADMIN);
+    await signInPolicy(8, []);
+    expect((await send("/", outsider, later)).status).toBe(200);
+    await signedInHoursAgo(ADMIN, 1);
+    expect((await send("/", admin, later)).status).toBe(200);
+
+    await seed("workspace");
+    const created = await createShareLink(db(), {
+      userId: ADMIN,
+      artifactId: ID,
+      label: "Board",
+      expiresAt: null,
+      password: undefined,
+      now: NOW,
+    });
+    if (!created.ok) throw new Error(created.message);
+    const opened = await openShareLink([db()], {
+      customDomains: true,
+      token: created.value.token,
+      password: undefined,
+      now: NOW,
+      contentDomain: "portifact.dev",
+    });
+    if (opened.kind !== "opened") throw new Error(opened.kind);
+    const entered = await send(`/__portifact/link?code=${opened.code}`, undefined, NOW, FROM_APP);
+    const link = pairOf(entered, `${SHARE_COOKIE}=`);
+    await signInPolicy(1);
+    expect((await send("/", link, later)).status).toBe(200);
+  });
+
+  it("serves a public artifact to anyone, whatever the policy", async () => {
+    await seed("restricted");
+    await env.DB.prepare("UPDATE artifacts SET access_mode = 'public' WHERE id = ?").bind(ID).run();
+    await signInPolicy(1, []);
+    expect((await send("/", undefined, later)).status).toBe(200);
+  });
+
+  /**
+   * The D1 statements `origin/develop` (b72e8744, before the sign-in policies) prepares with one
+   * database for the same sequence, the isolate's caches (budget, plan) primed by a request just
+   * before each count: measured there, a warm request 2 (the delivery lookup, the version's
+   * files) and a renewal 7. Pinned as absolute numbers, so a statement added both with and
+   * without a policy cannot hide.
+   */
+  const DEVELOP = { warm: 2, renew: 7 };
+
+  it.each([
+    ["without a policy", null],
+    ["with a maximum session age", 8],
+  ] as const)("adds no D1 read to a warm request or to a renewal, %s", async (_, hours) => {
+    await seed("workspace");
+    const [primer, before] = [await signIn(MEMBER), await signIn(MEMBER)];
+    await signedInHoursAgo(MEMBER, 1);
+    if (hours !== null) await signInPolicy(hours);
+    expect((await send("/", primer, NOW + 1_000)).status).toBe(200);
+    const warm = counting();
+    expect((await send("/", before, NOW + 1_000, NAVIGATE, warm.env)).status).toBe(200);
+    // The same moment for each count, so the per-isolate meters flush alike.
+    expect((await send("/", primer, later)).status).toBe(200);
+    const renew = counting();
+    expect((await send("/", before, later, NAVIGATE, renew.env)).status).toBe(200);
+    expect({ warm: warm.counter.statements, renew: renew.counter.statements }).toEqual(DEVELOP);
   });
 });

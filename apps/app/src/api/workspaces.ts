@@ -137,6 +137,7 @@ export function workspaceView(row: UserWorkspace): WorkspaceView {
     // As the services decided it for this caller (decision 0020); never the networks otherwise.
     policy: row.shown ?? shownPolicy(row.policy, false),
     blocked: row.blocked ?? false,
+    blockedBy: row.blockedBy ?? null,
   });
 }
 

@@ -170,6 +170,8 @@ describe("policies through the dashboard's session", () => {
       // The request carried no CF-Connecting-IP.
       yourIp: null,
       serviceTokens: 0,
+      // The admin's own sign-in, from the session row this request read (decision 0021).
+      yourSignInAt: expect.any(Number),
     });
     const preview = await t.admin.h.request(
       `${base}/preview`,
@@ -182,6 +184,7 @@ describe("policies through the dashboard's session", () => {
       linksWithoutPassword: 0,
       linksOverLifetime: 0,
       networks: null,
+      signIns: null,
     });
     const saved = await t.admin.h.request(
       base,
