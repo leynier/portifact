@@ -53,6 +53,9 @@ export async function usage(
     ],
     ["Public access allowed from", formatDate(view.publicAccessFrom)],
     ["Plan features", messages.usageFeatures(view.plan.features)],
+    ...(view.plan.grace
+      ? ([["Grace", messages.usageGrace(view.plan.grace)]] as [string, string][])
+      : []),
   ];
   io.stdout(`${messages.usage(lines)}\n`);
   if (view.blocks.length === 0) {

@@ -140,6 +140,11 @@ export interface LogFields {
   id?: number;
   /** An opaque workspace ID (`ws_` and hex); the guard checks the value names one. */
   workspaceId?: string;
+  /**
+   * An owner's opaque ID (an account's or a workspace's), for a row the operator must fix
+   * (decision 0022, an unreadable plan grace); never a name or an address.
+   */
+  ownerId?: string;
   artifacts?: number;
   threads?: number;
   recipients?: number;

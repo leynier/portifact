@@ -138,8 +138,10 @@ Commands:
   reconcile-domains            (needs CF_CONTENT_ZONE_ID and CF_HOSTNAMES_TOKEN in the environment)
   plan <owner>
   set-plan <owner> <plan> [--seats N] [--until <ISO date>] [--note <text>]
-           [--overrides <json>]
-  remove-plan <owner>
+           [--overrides <json>] [--no-grace]
+  remove-plan <owner> [--no-grace]
+                               (a lower plan or a removal holds what the old plan kept for
+                               60 days; --no-grace ends every hold at once, for abuse)
   export-plans --out <file>
   apply-plans --file <file>
   export-policies --out <file>
@@ -416,6 +418,24 @@ function planLines(ownerId: string, state: OwnerPlanState): string[] {
     `per version ${count(e.limits.artifactBytes)} bytes; traffic ${count(e.limits.requestsPerMonth)} requests and ${count(e.limits.bytesPerMonth)} bytes a month`,
     `audit log   kept ${count(e.limits.auditRetentionDays)} days`,
   );
+  if (e.grace) {
+    const g = e.grace;
+    if (g.unreadable) {
+      lines.push(
+        "grace       UNREADABLE: held at the most every retention may be until a set-plan or remove-plan stores a readable one",
+      );
+    }
+    lines.push(
+      `grace       until ${iso(g.until)}, holding ${g.plan}: ${count(g.limits.retainedPreviousVersions)} previous version(s) for ${count(g.limits.previousVersionRetentionDays)} days, access log ${count(g.limits.accessLogRetentionDays)} days, audit log ${count(g.limits.auditRetentionDays)} days, archives ${count(g.limits.archiveMonths)} months`,
+      `held reads  ${list(g.features)}`,
+      ...g.slots.map(
+        (slot) =>
+          `  ${slot.reason.padEnd(8)} ${slot.plan.padEnd(10)} from ${iso(slot.from)} until ${iso(slot.until)}${slot.folded ? ` (folded: ${slot.folded} holds)` : ""}`,
+      ),
+    );
+  } else {
+    lines.push("grace       none");
+  }
   return lines;
 }
 
@@ -463,6 +483,7 @@ async function setPlan(
     grantedBy: "operator",
     note: options.get("note")?.trim() || null,
     now,
+    noGrace: options.has("no-grace"),
   });
   if (!result.ok) return { exitCode: 1, output: result.message };
   return {
@@ -1057,17 +1078,19 @@ export async function runOperator(
       const result = await removeOwnerPlan(await ownerDb(regions, userId), {
         ownerId: userId,
         now,
+        noGrace: options.has("no-grace"),
       });
       if (!result.ok) return { exitCode: 1, output: result.message };
+      const held = result.value.state.entitlements.grace;
       const head = result.value.removed
-        ? `Removed the plan of ${userId}; it is on free.`
+        ? `Removed the plan of ${userId}; it is on free.${held ? ` What it kept is held until ${iso(held.until)}.` : ""}`
         : `${userId} had no plan.`;
       return { exitCode: 0, output: [head, ...planLines(userId, result.value.state)].join("\n") };
     }
     case "export-plans": {
       const out = options.get("out");
       if (!out) return usage("export-plans needs --out <file>.");
-      const plans = await exportOwnerPlans(global);
+      const plans = await exportOwnerPlans(global, now);
       await files.write(out, plans.map((plan) => `${JSON.stringify(plan)}\n`).join(""));
       return { exitCode: 0, output: `Wrote ${plans.length} plan(s) to ${out}.` };
     }

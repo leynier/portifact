@@ -59,12 +59,12 @@ import {
   encodeAuditCursor,
   entitlements,
   fail,
-  hasFeature,
+  holdsFeature,
   newAuditEventId,
   newerFirst,
   ok,
   type Result,
-  requireFeature,
+  requireHeldFeature,
 } from "@portifact/domain";
 import { and, asc, desc, eq, gt, gte, lt, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -87,6 +87,9 @@ export const GLOBAL_AUDIT_KINDS: readonly AuditKind[] = [
   "member.left",
   "plan.granted",
   "plan.removed",
+  // A plan's grace is part of its global row (decision 0022).
+  "plan.grace_started",
+  "plan.grace_ended",
   // Service tokens are rows of the workspace, in the global database (decision 0011).
   "service_token.created",
   "service_token.revoked",
@@ -435,7 +438,8 @@ export async function getAuditLog(
   const allowed = authorize(input.actor, "audit");
   if (!allowed.ok) return allowed;
   const ownerId = input.actor.ownerId;
-  const gate = requireFeature(await ownerEntitlements(db.global, ownerId, input.now), "audit");
+  // Reading the log is a read of held data: a grace keeps it open (decision 0022).
+  const gate = requireHeldFeature(await ownerEntitlements(db.global, ownerId, input.now), "audit");
   if (!gate.ok) return gate;
   const retentionDays = gate.value.limits.auditRetentionDays;
   const window = auditWindow(input.filters, retentionDays, input.now);
@@ -474,7 +478,7 @@ export async function getAuditLog(
     nextCursor:
       rows.length > limit && last ? encodeAuditCursor({ at: last.at, id: last.id }) : null,
     retentionDays,
-    exportable: hasFeature(gate.value, "auditExport"),
+    exportable: holdsFeature(gate.value, "auditExport"),
   });
 }
 
@@ -525,9 +529,10 @@ export async function exportAuditLog(
   const ownerId = input.actor.ownerId;
   const owner = await ownerEntitlements(db.global, ownerId, input.now);
   // The export's own feature first, so an owner without either hears about the export.
-  const gate = requireFeature(owner, "auditExport");
+  // Exporting what was kept is a read of held data: a grace keeps it open (decision 0022).
+  const gate = requireHeldFeature(owner, "auditExport");
   if (!gate.ok) return gate;
-  const reading = requireFeature(owner, "audit");
+  const reading = requireHeldFeature(owner, "audit");
   if (!reading.ok) return reading;
   const window = auditWindow(input.filters, owner.limits.auditRetentionDays, input.now);
   if (!window.ok) return window;
@@ -770,8 +775,8 @@ export async function pruneAuditEvents(
   const defaultDays = entitlements(null, now).limits.auditRetentionDays;
   const special = new Map<string, number>();
   // Only rows that can keep events longer than the default are read: plans whose own value
-  // differs and rows with overrides (the operator's), so the read never grows with the number of
-  // owners (decision 0005, "Second delivery").
+  // differs, rows with overrides (the operator's) and rows holding a grace (decision 0022), so
+  // the read never grows with the number of owners (decision 0005, "Second delivery").
   const differing = PLAN_NAMES.filter(
     (plan) =>
       entitlements({ plan, seats: 1, validUntil: null, overrides: null }, now).limits
@@ -779,8 +784,8 @@ export async function pruneAuditEvents(
   );
   const mayDiffer =
     differing.length > 0
-      ? sql`(${p.overrides} is not null or ${p.plan} in ${jsonValues(differing)})`
-      : sql`${p.overrides} is not null`;
+      ? sql`(${p.overrides} is not null or ${p.grace} is not null or ${p.plan} in ${jsonValues(differing)})`
+      : sql`(${p.overrides} is not null or ${p.grace} is not null)`;
   let cursor = "";
   for (;;) {
     const plans = await global
@@ -790,6 +795,7 @@ export async function pruneAuditEvents(
         seats: p.seats,
         validUntil: p.validUntil,
         overrides: p.overrides,
+        grace: p.grace,
       })
       .from(p)
       .where(and(gt(p.ownerId, cursor), mayDiffer))

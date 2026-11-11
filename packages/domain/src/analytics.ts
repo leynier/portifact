@@ -3,7 +3,7 @@
 // Pure rules: the content Worker decides a view from what it already knows about the request and
 // its answer, and the services apply the retention and the range.
 import { ANALYTICS, PLANS } from "@portifact/contracts";
-import type { Entitlements } from "./plans.ts";
+import { type Entitlements, PLAN_GRACE_MS } from "./plans.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -83,19 +83,71 @@ export function pageView(page: ServedPage): ViewKind | null {
 export const FREE_RETENTION_DAYS = PLANS.free.limits.accessLogRetentionDays;
 
 /** What decides how long an owner's analytics and access log rows are kept. */
-export type RetentionPlan = Pick<Entitlements, "limits" | "validUntil">;
+export type RetentionPlan = Pick<
+  Entitlements,
+  "limits" | "validUntil" | "grace" | "ownAccessLogDays"
+>;
+
+/** A retention in force until a moment (null: with no end). */
+export interface RetentionHold {
+  days: number;
+  until: number | null;
+}
 
 /**
- * When a row whose retention starts at `base` expires on the owner's plan: `base` plus the plan's
- * `accessLogRetentionDays`, but no later than the plan's end when the free retention is shorter,
- * so a plan that runs out keeps nothing beyond what the free plan keeps from then on, without a
- * job at the moment it ends.
+ * The access log retentions in force for an owner, each until it ends: the plan's own (until its
+ * hold after `validUntil` ends, decision 0022) and each running grace's. The retention in force
+ * at a moment is the highest of those not ended; once all have ended, the free plan's.
+ */
+export function accessLogHolds(plan: RetentionPlan): RetentionHold[] {
+  const own = plan.ownAccessLogDays ?? plan.limits.accessLogRetentionDays;
+  const holds: RetentionHold[] = [
+    { days: own, until: plan.validUntil === null ? null : plan.validUntil + PLAN_GRACE_MS },
+  ];
+  for (const slot of plan.grace?.slots ?? []) {
+    // The hold standing in for an unreadable grace never ends until the operator fixes the row.
+    const until = slot.reason === "unreadable" ? null : slot.until;
+    holds.push({ days: slot.limits.accessLogRetentionDays, until });
+  }
+  return holds;
+}
+
+/**
+ * The steps of the retention in force over time: from `from` (null: the beginning) until
+ * `until` (null: no end), `days`: the highest hold not ended, then the free plan's once every hold
+ * has ended.
+ */
+export function retentionSteps(
+  holds: readonly RetentionHold[],
+): { from: number | null; until: number | null; days: number }[] {
+  const ends = [...new Set(holds.flatMap((h) => (h.until === null ? [] : [h.until])))].sort(
+    (a, b) => a - b,
+  );
+  const steps: { from: number | null; until: number | null; days: number }[] = [];
+  let from: number | null = null;
+  for (const until of [...ends, null]) {
+    const running = holds.filter((h) => h.until === null || (until !== null && h.until >= until));
+    const days =
+      running.length === 0 ? FREE_RETENTION_DAYS : Math.max(...running.map((h) => h.days));
+    steps.push({ from, until, days });
+    from = until;
+  }
+  return steps;
+}
+
+/**
+ * When a row whose retention starts at `base` expires: the first moment its age reaches the
+ * retention in force then. With one plan that does not end that is `base` plus its
+ * `accessLogRetentionDays`; a plan that ends, or a grace (decision 0022), keeps it no longer than
+ * its hold, and never less than what is in force after it, so no job is needed when a hold ends.
  */
 export function retentionExpiry(base: number, plan: RetentionPlan): number {
-  const kept = base + plan.limits.accessLogRetentionDays * DAY_MS;
-  const free = base + FREE_RETENTION_DAYS * DAY_MS;
-  if (plan.validUntil === null || kept <= free) return kept;
-  return Math.min(kept, Math.max(free, plan.validUntil));
+  for (const step of retentionSteps(accessLogHolds(plan))) {
+    const at = Math.max(step.from ?? base, base + step.days * DAY_MS);
+    if (step.until === null || at < step.until) return at;
+  }
+  // The last step never ends, so the loop always returns.
+  return base + FREE_RETENTION_DAYS * DAY_MS;
 }
 
 /** A day's view counters are kept for the whole retention after the day ends. */

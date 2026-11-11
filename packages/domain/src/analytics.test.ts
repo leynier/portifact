@@ -104,13 +104,61 @@ describe("retention", () => {
     expect(retentionExpiry(NOW, pro)).toBe(NOW + 365 * DAY_MS);
   });
 
-  it("never keeps past the plan's end more than the free plan would", () => {
+  it("keeps past the plan's end only for its grace, then what the free plan would", () => {
     const ending = (validUntil: number) =>
       entitlements({ plan: "pro", seats: 1, validUntil, overrides: null }, NOW);
-    expect(retentionExpiry(NOW, ending(NOW + 90 * DAY_MS))).toBe(NOW + 90 * DAY_MS);
-    // Ending sooner than the free retention: the free retention still applies.
-    expect(retentionExpiry(NOW, ending(NOW + DAY_MS))).toBe(NOW + 30 * DAY_MS);
+    // The plan's retention holds until 60 days after it ends (decision 0022).
+    expect(retentionExpiry(NOW, ending(NOW + 90 * DAY_MS))).toBe(NOW + 150 * DAY_MS);
+    // Its grace ends sooner than the free retention: the free retention still applies.
+    expect(retentionExpiry(NOW, ending(NOW - 59 * DAY_MS))).toBe(NOW + 30 * DAY_MS);
     expect(retentionExpiry(NOW, ending(NOW + 400 * DAY_MS))).toBe(NOW + 365 * DAY_MS);
+  });
+
+  it("dates rows by each running grace, never shorter than the hold in force", () => {
+    const slot = (days: number, until: number) => ({
+      plan: "team" as const,
+      reason: "lowered" as const,
+      from: NOW - DAY_MS,
+      until,
+      limits: {
+        archiveMonths: 12,
+        retainedPreviousVersions: 100,
+        previousVersionRetentionDays: 365,
+        accessLogRetentionDays: days,
+        auditRetentionDays: 90,
+      },
+      features: [],
+    });
+    const lowered = entitlements(
+      {
+        plan: "free",
+        seats: 1,
+        validUntil: null,
+        overrides: null,
+        grace: [slot(365, NOW + 59 * DAY_MS)],
+      },
+      NOW,
+    );
+    // A row from now: kept 365 days only while the grace lasts, then the free 30 days.
+    expect(retentionExpiry(NOW, lowered)).toBe(NOW + 59 * DAY_MS);
+    // An older row past the free days expires when the grace ends, not before.
+    expect(retentionExpiry(NOW - 100 * DAY_MS, lowered)).toBe(NOW + 59 * DAY_MS);
+    // A row older than the held days goes at once, as it would on the held plan.
+    expect(retentionExpiry(NOW - 400 * DAY_MS, lowered)).toBe(NOW - 35 * DAY_MS);
+    // Two holds: each keeps its own end.
+    const twice = entitlements(
+      {
+        plan: "free",
+        seats: 1,
+        validUntil: null,
+        overrides: null,
+        grace: [slot(365, NOW + 10 * DAY_MS), slot(90, NOW + 50 * DAY_MS)],
+      },
+      NOW,
+    );
+    expect(retentionExpiry(NOW - 200 * DAY_MS, twice)).toBe(NOW + 10 * DAY_MS);
+    expect(retentionExpiry(NOW - 60 * DAY_MS, twice)).toBe(NOW + 30 * DAY_MS);
+    expect(retentionExpiry(NOW - 20 * DAY_MS, twice)).toBe(NOW + 50 * DAY_MS);
   });
 
   it("keeps a lower override as it is, even with an end", () => {

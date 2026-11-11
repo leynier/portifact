@@ -183,8 +183,15 @@ describe("plan changes", () => {
     expect(await pruneVersions(db(), env.ARTIFACTS, at)).toEqual({ processed: 1 });
     expect(await versionRows((b[0] as { artifactId: string }).artifactId)).toEqual([2, 3, 4]);
     expect(await versionRows((a[0] as { artifactId: string }).artifactId)).toEqual([1, 2, 3, 4]);
-    expect(await pruneVersions(db(), env.ARTIFACTS, NOW + 3 * DAY)).toEqual({ processed: 1 });
-    expect(await versionRows((a[0] as { artifactId: string }).artifactId)).toEqual([2, 3, 4]);
+    // An expired plan's versions are held for its grace (decision 0022): 60 days from its end.
+    expect(await pruneVersions(db(), env.ARTIFACTS, NOW + 3 * DAY)).toEqual({ processed: 0 });
+    // The owner without a plan row is pruned by the free days; the expired one is still held.
+    // (Other tests' owners in this database are pruned by the same run, so only rows are checked.)
+    await pruneVersions(db(), env.ARTIFACTS, NOW + 61 * DAY);
+    expect(await versionRows((b[0] as { artifactId: string }).artifactId)).toEqual([4]);
+    expect(await versionRows((a[0] as { artifactId: string }).artifactId)).toEqual([1, 2, 3, 4]);
+    await pruneVersions(db(), env.ARTIFACTS, NOW + 62 * DAY);
+    expect(await versionRows((a[0] as { artifactId: string }).artifactId)).toEqual([4]);
   });
 
   it("does not prune with stale values when the plan changes after the scan read it", async () => {

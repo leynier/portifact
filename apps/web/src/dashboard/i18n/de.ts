@@ -1653,6 +1653,12 @@ export const de = {
     "Was dieser Bereich jetzt hat. Die Seite Nutzung zeigt, wie viel davon genutzt wird.",
   "plan.current.limits": "Limits des aktuellen Plans",
   "plan.current.usageLink": "Nutzung ansehen",
+  "plan.grace.title": "Was der Tarif {plan} aufbewahrte, bleibt bis {date} erhalten",
+  "plan.grace.body":
+    "Bis dahin wird nichts gelöscht: bis zu {versions} frühere Versionen jedes Artefakts für {days} Tage sowie das Zugriffsprotokoll und die Analysen für {log} Tage. Nach diesem Datum wird gelöscht, was der Tarif dieses Bereichs nicht aufbewahrt.",
+  "plan.grace.reads": "Bis dahin weiterhin lesbar: {features}.",
+  "plan.grace.download":
+    "Lade vorher herunter, was du brauchst: Der Verlauf jedes Artefakts enthält seine Versionen, und Zugriffs- und Auditprotokoll haben ihre Exporte. Oder fordere den Tarif erneut an, um alles zu behalten.",
   "plan.loading": "Plan wird geladen",
   "plan.error": "Der Plan konnte nicht geladen werden.",
   "plan.compare.section": "Alle Pläne",
@@ -1826,6 +1832,18 @@ export const de = {
     "Hat den Tarif {plan} mit {seats, plural, one {# Platz} other {# Plätzen}} festgelegt",
   "audit.kind.planGrantedUntil":
     "Hat den Tarif {plan} mit {seats, plural, one {# Platz} other {# Plätzen}} bis {until} festgelegt",
+  "audit.kind.graceStarted":
+    "Schonfrist begonnen ({reason}): was der Tarif {plan} aufbewahrte, bleibt bis {until} erhalten",
+  "audit.kind.graceEnded":
+    "Schonfrist für das, was der Tarif {plan} aufbewahrte, beendet ({reason})",
+  "audit.graceStart.lowered": "Tarif herabgestuft",
+  "audit.graceStart.removed": "Tarif entfernt",
+  "audit.graceStart.expired": "Tarif abgelaufen",
+  "audit.graceStart.unreadable": "Schonfrist unlesbar",
+  "audit.graceEnd.renewed": "Tarif erneuert",
+  "audit.graceEnd.operator": "von Portifact beendet",
+  "audit.graceEnd.expired": "Frist abgelaufen",
+  "audit.graceEnd.folded": "mit einer späteren zusammengeführt",
   "audit.kind.planRemoved": "Hat den Tarif entfernt, der Bereich ist wieder auf Free",
   "audit.kind.tokenCreated":
     "Hat ein Service-Token erstellt, das in {days, plural, one {# Tag} other {# Tagen}} abläuft",

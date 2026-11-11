@@ -28,6 +28,11 @@ interface GatedCommand {
   feature: PlanFeature;
   /** The command's arguments; `id` is an artifact the fake server holds. */
   args: (id: string) => string[];
+  /**
+   * Plan grace (decision 0022): `held` for a read of data the previous plan kept (open while a
+   * grace runs, apps/app/test/plan-gates.test.ts proves it on the server), `refused` for new work.
+   */
+  inGrace: "held" | "refused";
   /** The request the API refuses for a free owner. */
   method: string;
   path: RegExp;
@@ -40,108 +45,126 @@ interface GatedCommand {
 const GATED: GatedCommand[] = [
   {
     feature: "pin",
+    inGrace: "refused",
     args: (id) => ["pin", id],
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/pin$/,
   },
   {
     feature: "shareLinks",
+    inGrace: "refused",
     args: (id) => ["share", "create", id, "--label", "Gate"],
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/share-links$/,
   },
   {
     feature: "analytics",
+    inGrace: "held",
     args: (id) => ["stats", id],
     method: "GET",
     path: /^\/api\/v1\/artifacts\/[^/]+\/stats$/,
   },
   {
     feature: "versionDiff",
+    inGrace: "held",
     args: (id) => ["diff", id, "current", "current"],
     method: "GET",
     path: /^\/api\/v1\/artifacts\/[^/]+\/versions\/current\/diff\/current$/,
   },
   {
     feature: "versionDiff",
+    inGrace: "held",
     args: (id) => ["diff", id, "current", "current", "--file", "index.html"],
     method: "GET",
     path: /^\/api\/v1\/artifacts\/[^/]+\/versions\/current\/diff\/current\/file$/,
   },
   {
     feature: "webhooks",
+    inGrace: "refused",
     args: () => ["webhooks", "add", "https://hooks.example.com/in", "--events", "all"],
     method: "POST",
     path: /^\/api\/v1\/webhooks$/,
   },
   {
     feature: "webhooks",
+    inGrace: "refused",
     args: () => ["webhooks", "enable", `wh_${"a".repeat(32)}`],
     method: "PATCH",
     path: /^\/api\/v1\/webhooks\/wh_[0-9a-f]{32}$/,
   },
   {
     feature: "webhooks",
+    inGrace: "refused",
     args: () => ["webhooks", "test", `wh_${"a".repeat(32)}`],
     method: "POST",
     path: /^\/api\/v1\/webhooks\/wh_[0-9a-f]{32}\/test$/,
   },
   {
     feature: "audit",
+    inGrace: "held",
     args: () => ["audit"],
     method: "GET",
     path: /^\/api\/v1\/audit$/,
   },
   {
     feature: "auditExport",
+    inGrace: "held",
     args: () => ["audit", "export", "--format", "csv"],
     method: "GET",
     path: /^\/api\/v1\/audit\/export$/,
   },
   {
     feature: "contentSearch",
+    inGrace: "refused",
     args: () => ["search", "roadmap"],
     method: "GET",
     path: /^\/api\/v1\/search$/,
   },
   {
     feature: "workspaces",
+    inGrace: "refused",
     args: (id) => ["access", "set", id, "workspace"],
     method: "PATCH",
     path: /^\/api\/v1\/artifacts\/[^/]+\/access$/,
   },
   {
     feature: "workspaces",
+    inGrace: "refused",
     args: (id) => ["access", "set", id, "domain"],
     method: "PATCH",
     path: /^\/api\/v1\/artifacts\/[^/]+\/access$/,
   },
   {
     feature: "workspaces",
+    inGrace: "refused",
     args: (id) => ["access", "group", "add", id, `wg_${"a".repeat(32)}`],
     method: "PATCH",
     path: /^\/api\/v1\/artifacts\/[^/]+\/access$/,
   },
   {
     feature: "workspaces",
+    inGrace: "refused",
     args: () => ["feedback", "--workspace", "acme"],
     method: "GET",
     path: /^\/api\/v1\/feedback$/,
   },
   {
     feature: "customDomains",
+    inGrace: "refused",
     args: (id) => ["domains", "add", id, "docs.example.com"],
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/domain$/,
   },
   {
     feature: "reviews",
+    inGrace: "refused",
     args: (id) => ["review", "request", id, "--reviewer", "ana@example.com"],
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/review\/request$/,
   },
   {
     feature: "reviews",
+    inGrace: "refused",
     args: (id) => ["review", "change", id, "--show-status"],
     method: "PATCH",
     path: /^\/api\/v1\/artifacts\/[^/]+\/review\/request$/,
@@ -149,6 +172,7 @@ const GATED: GatedCommand[] = [
   // Creating an issue from a thread (decision 0018); connections are managed in the dashboard only.
   {
     feature: "integrations",
+    inGrace: "refused",
     args: (id) => [
       "issue",
       id,
@@ -168,11 +192,25 @@ const GATED: GatedCommand[] = [
   // (service-tokens.test.ts).
   {
     feature: "serviceTokens",
+    inGrace: "refused",
     args: () => ["list"],
     method: "GET",
     path: /^\/api\/v1\/artifacts$/,
   },
 ];
+
+describe("plan grace classification", () => {
+  it("holds only reads of what a plan kept: GET requests of the held features", () => {
+    const held = GATED.filter((gated) => gated.inGrace === "held");
+    expect(held.every((gated) => gated.method === "GET")).toBe(true);
+    expect([...new Set(held.map((gated) => gated.feature))].sort()).toEqual([
+      "analytics",
+      "audit",
+      "auditExport",
+      "versionDiff",
+    ]);
+  });
+});
 
 describe.each(GATED)("$feature through `$method $path`", (gated) => {
   const refuse = () => {

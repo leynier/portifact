@@ -449,6 +449,7 @@ export async function findBrandLogo(
               seats: p.seats,
               validUntil: p.validUntil,
               overrides: p.overrides,
+              grace: p.grace,
             },
           }
         : {}),

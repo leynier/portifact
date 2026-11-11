@@ -1625,6 +1625,12 @@ export const ptBR = {
   "plan.current.hint": "O que este espaço tem agora. A página Uso mostra quanto disso está em uso.",
   "plan.current.limits": "Limites do plano atual",
   "plan.current.usageLink": "Ver o uso",
+  "plan.grace.title": "O que o plano {plan} guardava fica até {date}",
+  "plan.grace.body":
+    "Até lá nada é apagado: até {versions} versões anteriores de cada artefato por {days} dias, e o registro de acessos e a análise por {log} dias. Depois dessa data, o que o plano deste espaço não guarda é apagado.",
+  "plan.grace.reads": "Ainda pode ser lido até lá: {features}.",
+  "plan.grace.download":
+    "Baixe o que precisar antes disso: o histórico de cada artefato tem as versões, e o registro de acessos e o registro de auditoria têm suas exportações. Ou peça o plano de novo para manter tudo.",
   "plan.loading": "Carregando o plano",
   "plan.error": "Não foi possível carregar o plano.",
   "plan.compare.section": "Todos os planos",
@@ -1799,6 +1805,18 @@ export const ptBR = {
     "Definiu o plano {plan} com {seats, plural, one {# vaga} other {# vagas}}",
   "audit.kind.planGrantedUntil":
     "Definiu o plano {plan} com {seats, plural, one {# vaga} other {# vagas}} até {until}",
+  "audit.kind.graceStarted":
+    "Começou um período de carência ({reason}): o que o plano {plan} guardava fica até {until}",
+  "audit.kind.graceEnded":
+    "Terminou o período de carência do que o plano {plan} guardava ({reason})",
+  "audit.graceStart.lowered": "plano reduzido",
+  "audit.graceStart.removed": "plano removido",
+  "audit.graceStart.expired": "plano vencido",
+  "audit.graceStart.unreadable": "carência ilegível",
+  "audit.graceEnd.renewed": "plano renovado",
+  "audit.graceEnd.operator": "encerrado pela Portifact",
+  "audit.graceEnd.expired": "os dias passaram",
+  "audit.graceEnd.folded": "unida a uma posterior",
   "audit.kind.planRemoved": "Removeu o plano, e o espaço voltou ao Free",
   "audit.kind.tokenCreated":
     "Criou um token de serviço que expira em {days, plural, one {# dia} other {# dias}}",

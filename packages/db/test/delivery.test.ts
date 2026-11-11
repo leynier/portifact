@@ -128,6 +128,8 @@ describe("delivery queries", () => {
       seats: 3,
       validUntil: CYCLE + 1,
       overrides: { limits: { activeArtifacts: 9 } },
+      // The plan's grace rides the same row (decision 0022).
+      grace: null,
     });
     expect(joined?.traffic).toEqual({ requests: 0, bytes: 0 });
     expect(
@@ -158,6 +160,8 @@ describe("delivery queries", () => {
       seats: 3,
       validUntil: CYCLE + 1,
       overrides: { limits: { activeArtifacts: 9 } },
+      // The plan's grace rides the same row (decision 0022).
+      grace: null,
     });
   });
 
@@ -187,7 +191,7 @@ describe("delivery queries", () => {
       .insert(schema.ownerPlans)
       .values({ ownerId: ws, plan: "enterprise", seats: 2, grantedBy: "t", updatedAt: CYCLE });
     expect(await findDeliveryOwner(db(), ws)).toEqual({
-      plan: { plan: "enterprise", seats: 2, validUntil: null, overrides: null },
+      plan: { plan: "enterprise", seats: 2, validUntil: null, overrides: null, grace: null },
       networks: ["192.0.2.0/24"],
     });
     await env.DB.prepare("DELETE FROM workspaces WHERE id = ?").bind(ws).run();

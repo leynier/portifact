@@ -279,6 +279,7 @@ export async function runSearchIndex(
               seats: p.seats,
               validUntil: p.validUntil,
               overrides: p.overrides,
+              grace: p.grace,
             },
           }
         : {}),
@@ -438,6 +439,7 @@ export async function scheduleSearchIndexing(
       seats: p.seats,
       validUntil: p.validUntil,
       overrides: p.overrides,
+      grace: p.grace,
     })
     .from(p)
     .where(
@@ -505,6 +507,7 @@ export async function dropLapsedSearchIndexes(
               seats: p.seats,
               validUntil: p.validUntil,
               overrides: p.overrides,
+              grace: p.grace,
               updatedAt: p.updatedAt,
             })
             .from(p)

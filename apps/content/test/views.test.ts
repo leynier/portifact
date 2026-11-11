@@ -193,7 +193,8 @@ describe("counting views in delivery", () => {
       .update(schema.ownerPlans)
       .set({ validUntil: NOW + 90 * DAY });
     const [view] = (await visit("/", TOP_LEVEL)).views;
-    expect(view?.expiresAt).toBe(NOW + 90 * DAY);
+    // Kept until the plan's grace ends, 60 days after it (decision 0022).
+    expect(view?.expiresAt).toBe(NOW + 150 * DAY);
   });
 
   it("writes no row while serving: the meter writes once per window", async () => {

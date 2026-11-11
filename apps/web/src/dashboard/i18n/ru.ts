@@ -1635,6 +1635,12 @@ export const ru = {
     "Что есть у этого пространства сейчас. На странице «Использование» видно, сколько из этого занято.",
   "plan.current.limits": "Лимиты текущего тарифа",
   "plan.current.usageLink": "Открыть использование",
+  "plan.grace.title": "То, что хранил тариф {plan}, сохраняется до {date}",
+  "plan.grace.body":
+    "До этой даты ничего не удаляется: до {versions} предыдущих версий каждого артефакта в течение {days} дней, а журнал доступа и аналитика в течение {log} дней. После этой даты удаляется то, что тариф этого пространства не хранит.",
+  "plan.grace.reads": "До этой даты по-прежнему доступно для чтения: {features}.",
+  "plan.grace.download":
+    "Скачайте нужное заранее: в истории каждого артефакта есть его версии, а журнал доступа и журнал аудита можно экспортировать. Или запросите тариф снова, чтобы сохранить всё.",
   "plan.loading": "Загрузка тарифа",
   "plan.error": "Не удалось загрузить тариф.",
   "plan.compare.section": "Все тарифы",
@@ -1810,6 +1816,18 @@ export const ru = {
     "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}}",
   "audit.kind.planGrantedUntil":
     "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}} до {until}",
+  "audit.kind.graceStarted":
+    "Начался льготный период ({reason}): то, что хранил тариф {plan}, сохраняется до {until}",
+  "audit.kind.graceEnded":
+    "Закончился льготный период для того, что хранил тариф {plan} ({reason})",
+  "audit.graceStart.lowered": "тариф понижен",
+  "audit.graceStart.removed": "тариф удалён",
+  "audit.graceStart.expired": "тариф истёк",
+  "audit.graceStart.unreadable": "льготный период не читается",
+  "audit.graceEnd.renewed": "тариф продлён",
+  "audit.graceEnd.operator": "завершён Portifact",
+  "audit.graceEnd.expired": "срок прошёл",
+  "audit.graceEnd.folded": "объединён с более поздним",
   "audit.kind.planRemoved": "Удалил тариф, пространство снова на Free",
   "audit.kind.tokenCreated":
     "Создал сервисный токен, который истекает через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",

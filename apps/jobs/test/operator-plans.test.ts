@@ -83,10 +83,37 @@ describe("operator plan commands", () => {
         "enterprise",
         "--overrides",
         `{"limits":{"auditRetentionDays":${days}}}`,
+        // Without a grace: a shorter retention than the owner had would be held for 60 days.
+        "--no-grace",
       );
       expect(granted.exitCode).toBe(0);
       expect(granted.output).toContain(`audit log   kept ${days.toLocaleString("en-US")} days`);
     }
+  });
+
+  it("holds what a lowered or removed plan kept, shows it, and ends it with --no-grace", async () => {
+    const owner = await account();
+    await run("set-plan", owner.id, "team");
+    expect((await run("plan", owner.id)).output).toContain("grace       none");
+    const lowered = await run("set-plan", owner.id, "pro");
+    expect(lowered.output).toContain(
+      "grace       until 2027-01-09T12:00:00.000Z, holding team: 100 previous version(s) for 365 days",
+    );
+    expect(lowered.output).toContain("held reads  ");
+    expect(lowered.output).toMatch(/ {2}lowered {2}team {7}from 2026-11-10T12:00:00\.000Z/);
+    const removed = await run("remove-plan", owner.id);
+    expect(removed.output).toContain(
+      `Removed the plan of ${owner.id}; it is on free. What it kept is held until 2027-01-09T12:00:00.000Z.`,
+    );
+    expect(removed.output).toContain("row         free, 1 seat(s), no end");
+    // Each drop is its own hold, listed with its own start and end.
+    expect(removed.output).toMatch(/ {2}lowered {2}team/);
+    expect(removed.output).toMatch(/ {2}removed {2}pro/);
+    const ended = await run("remove-plan", owner.id, "--no-grace");
+    expect(ended.exitCode).toBe(0);
+    expect(ended.output).toContain("row         none (free)");
+    expect(ended.output).toContain("grace       none");
+    expect(OPERATOR_USAGE).toContain("remove-plan <owner> [--no-grace]");
   });
 
   it("changes and removes a plan", async () => {
@@ -173,7 +200,7 @@ describe("operator plan commands", () => {
     const exported = await runOperator(db(), ["export-plans", "--out", "plans.jsonl"], NOW, files);
     expect(exported.output).toMatch(/^Wrote \d+ plan\(s\) to plans\.jsonl\.$/);
     expect(written.get("plans.jsonl")).toContain(
-      `{"ownerId":"${kept.id}","plan":"team","seats":3,"validUntil":null,"overrides":null,"grantedBy":"operator","note":"pilot"}`,
+      `{"ownerId":"${kept.id}","plan":"team","seats":3,"validUntil":null,"overrides":null,"grantedBy":"operator","note":"pilot","grace":null}`,
     );
 
     // The restore rewinds to before the grants; one plan removed since comes back.
@@ -188,7 +215,10 @@ describe("operator plan commands", () => {
     expect(applied.output).toContain(`  ${back.id}`);
     expect((await run("plan", kept.id)).output).toContain("row         team, 3 seat(s), no end");
     expect(await limits(kept.id)).toEqual({ active: 2_000, bytes: 90_000_000_000 });
-    expect((await run("plan", ended.id)).output).toContain("row         none (free)");
+    // A plan that ended a day before is back with its end, so its grace (decision 0022) runs on.
+    const endedPlan = (await runOperator(db(), ["plan", ended.id], later)).output;
+    expect(endedPlan).toContain("row         pro, 1 seat(s), until 2026-11-11T00:00:00.000Z");
+    expect(endedPlan).toContain("grace       until 2027-01-10T00:00:00.000Z, holding pro");
     expect((await run("plan", back.id)).output).toContain("row         pro");
   });
 
@@ -203,6 +233,72 @@ describe("operator plan commands", () => {
     });
     expect((await run("apply-plans")).output).toContain("apply-plans needs --file <file>.");
     expect((await run("export-plans")).output).toContain("export-plans needs --out <file>.");
+  });
+
+  it("refuses a plans file whose grace slot is out of bounds, naming the line, applying nothing", async () => {
+    const owner = await account();
+    const slot = {
+      plan: "pro",
+      reason: "removed",
+      from: NOW,
+      until: NOW + 60 * 86_400_000,
+      limits: {
+        archiveMonths: 12,
+        retainedPreviousVersions: 50,
+        previousVersionRetentionDays: 90,
+        accessLogRetentionDays: 365,
+        auditRetentionDays: 90,
+      },
+      features: [],
+    };
+    const line = (grace: unknown) =>
+      JSON.stringify({
+        ownerId: owner.id,
+        plan: "free",
+        seats: 1,
+        validUntil: null,
+        overrides: null,
+        grantedBy: "operator",
+        note: null,
+        grace,
+      });
+    for (const bad of [
+      { ...slot, until: 9e15 },
+      { ...slot, until: NOW + 61 * 86_400_000 },
+      { ...slot, limits: { ...slot.limits, previousVersionRetentionDays: 1e9 } },
+    ]) {
+      const files = {
+        read: async () => `${line([slot])}\n${line([bad])}\n`,
+        write: async () => {},
+      };
+      expect(await runOperator(db(), ["apply-plans", "--file", "x"], NOW, files)).toEqual({
+        exitCode: 1,
+        output: "Line 2 of x is not an exported plan; nothing was applied.",
+      });
+    }
+    expect((await run("plan", owner.id)).output).toContain("row         none (free)");
+  });
+
+  it("shows a hold folded past the slot limit as such", async () => {
+    const owner = await account();
+    await run("set-plan", owner.id, "enterprise");
+    // Ten drops: two past the slot limit.
+    for (let i = 0; i < 11; i += 1) {
+      const days = 600 - i;
+      await runOperator(
+        db(),
+        [
+          "set-plan",
+          owner.id,
+          "enterprise",
+          "--overrides",
+          `{"limits":{"auditRetentionDays":${days}}}`,
+        ],
+        NOW + i * 3_600_000,
+      );
+    }
+    const shown = await runOperator(db(), ["plan", owner.id], NOW + 12 * 3_600_000);
+    expect(shown.output).toMatch(/\(folded: \d+ holds\)/);
   });
 
   it("lists the plan commands in the usage", () => {
