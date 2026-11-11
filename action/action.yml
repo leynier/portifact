@@ -10,10 +10,15 @@ inputs:
     description: Folder or file to publish, relative to the workspace.
     required: true
   token:
-    description: The workspace's service token (pfst_...), from a secret. Empty on pull requests from forks, which are then skipped.
-    required: true
+    description: The workspace's service token (pfst_...), from a secret. Empty on pull requests from forks, which are then skipped. Leave it out to use the workspace input instead.
+    required: false
+    default: ""
+  workspace:
+    description: The workspace's slug, for GitHub Actions OIDC instead of a stored token. The job needs 'permissions id-token write', and a workspace admin must trust the repository. Used only when token is empty.
+    required: false
+    default: ""
   key:
-    description: Publish key of the preview. Defaults to pr-<pull request number>.
+    description: Publish key of the preview. Defaults to pr-<pull request number>, or gh-<repository ID>/pr-<pull request number> with the workspace input.
     required: false
     default: ""
   name:
@@ -62,6 +67,7 @@ runs:
         PF_ACTION: ${{ github.event.action }}
         PF_NUMBER: ${{ github.event.pull_request.number }}
         PF_TOKEN_SET: ${{ inputs.token != '' && 'yes' || '' }}
+        PF_WORKSPACE: ${{ inputs.workspace }}
         PF_INPUT_KEY: ${{ inputs.key }}
         PF_DELETE_ON_CLOSE: ${{ inputs.delete-on-close }}
         PF_FAIL_WITHOUT_TOKEN: ${{ inputs.fail-without-token }}
@@ -91,6 +97,7 @@ runs:
       shell: bash
       env:
         PORTIFACT_TOKEN: ${{ inputs.token }}
+        PORTIFACT_GITHUB_OIDC: ${{ inputs.workspace }}
         GH_TOKEN: ${{ inputs.github-token }}
         PF_KEY: ${{ steps.plan.outputs.key }}
         PF_PATH: ${{ inputs.path }}
@@ -106,6 +113,7 @@ runs:
       shell: bash
       env:
         PORTIFACT_TOKEN: ${{ inputs.token }}
+        PORTIFACT_GITHUB_OIDC: ${{ inputs.workspace }}
         GH_TOKEN: ${{ inputs.github-token }}
         PF_KEY: ${{ steps.plan.outputs.key }}
         PF_NUMBER: ${{ github.event.pull_request.number }}

@@ -99,6 +99,20 @@ export interface FakeServer {
    * refusal the API gives it (expired, revoked, plan lapsed).
    */
   serviceTokens: Map<string, { workspace: string; scopes: string[]; refusal?: Reply }>;
+  /**
+   * GitHub Actions OIDC (decision 0024): the runner's ID token endpoint at `/github/id-token`
+   * (bearer `requestToken`), which answers a token naming the audience it was asked for, and the
+   * exchange, which answers `secrets` in turn for a token whose audience is `audience` (the
+   * secrets must be in `serviceTokens`), or `exchangeRefusal`.
+   */
+  github: {
+    requestToken: string;
+    audiences: string[];
+    secrets: string[];
+    exchanges: { workspace: string; token: string }[];
+    exchangeRefusal?: Reply;
+    expiresInMs: number;
+  };
   /** Issues a token pair directly, as if a login had happened before the test. */
   issue(scopes?: string[]): { accessToken: string; refreshToken: string };
   revokedTokens(): string[];
@@ -135,6 +149,13 @@ export async function startFakeServer(): Promise<FakeServer> {
     refreshTokens: new Map(),
     otherApps: [],
     serviceTokens: new Map(),
+    github: {
+      requestToken: "",
+      audiences: [],
+      secrets: [],
+      exchanges: [],
+      expiresInMs: 15 * 60_000,
+    },
     issue(scopes = ["artifacts:read", "offline_access"]) {
       const accessToken = `at-${randomUUID()}`;
       const refreshToken = `rt-${randomUUID()}`;
@@ -179,6 +200,11 @@ export async function startFakeServer(): Promise<FakeServer> {
     if (fault?.drop === "before") return response.socket?.destroy();
     if (fault?.reply) return reply(response, fault.reply);
 
+    if (method === "GET" && url.pathname === "/github/id-token")
+      return githubIdToken(url, request.headers, response);
+    if (method === "POST" && url.pathname === "/api/v1/github/token")
+      return githubExchange(body, response);
+
     const answer = isStorage
       ? fakeApi.storage(method, url, request.headers, bytes)
       : url.pathname === "/api/v1/tokens" || url.pathname.startsWith("/api/v1/tokens/")
@@ -200,6 +226,43 @@ export async function startFakeServer(): Promise<FakeServer> {
     }
     if (route === "GET /api/v1/me") return me(request.headers.authorization, response);
     return send(response, 404, { error: { code: "not_found", message: "Not found." } });
+  }
+
+  function githubIdToken(url: URL, headers: IncomingHttpHeaders, response: ServerResponse) {
+    if (
+      !fake.github.requestToken ||
+      headers.authorization !== `Bearer ${fake.github.requestToken}`
+    ) {
+      return send(response, 401, { message: "Bad credentials" });
+    }
+    const audience = url.searchParams.get("audience") ?? "";
+    fake.github.audiences.push(audience);
+    return send(response, 200, { count: 1, value: `id-token-for ${audience}` });
+  }
+
+  function githubExchange(body: string, response: ServerResponse) {
+    const parsed = JSON.parse(body) as { workspace: string; token: string };
+    fake.github.exchanges.push(parsed);
+    if (fake.github.exchangeRefusal) {
+      return send(response, fake.github.exchangeRefusal.status, fake.github.exchangeRefusal.body);
+    }
+    const expected = `id-token-for ${origin}/workspaces/${parsed.workspace}/github`;
+    const secret = fake.github.secrets.shift();
+    if (parsed.token !== expected || !secret) {
+      return send(response, 401, {
+        error: {
+          code: "unauthenticated",
+          message: "This GitHub token was not accepted for the workspace.",
+        },
+      });
+    }
+    return send(response, 200, {
+      token: secret,
+      expiresAt: new Date(fake.clock() + fake.github.expiresInMs).toISOString(),
+      workspace: parsed.workspace,
+      keyPrefix: "gh-123/",
+      scopes: ["artifacts:read", "artifacts:write"],
+    });
   }
 
   function api(method: string, url: URL, headers: IncomingHttpHeaders, body: string): Reply {

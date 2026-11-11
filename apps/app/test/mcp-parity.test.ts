@@ -15,6 +15,7 @@ import {
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLI_CLIENT_ID } from "../src/auth/config.ts";
+import { TOOL_SCOPES } from "../src/mcp/tools.ts";
 import { pastHumanCheck } from "./api-client.ts";
 import { createHarness, type Harness } from "./harness.ts";
 import {
@@ -3466,5 +3467,16 @@ describe("idempotency records of an EU workspace (decision 0005)", () => {
       "publish.prepare",
     ]);
     expect((await records(env.DB)).results).toEqual([]);
+  });
+});
+
+// GitHub trust rules and the exchange (decision 0024) are not MCP operations: rules are managed
+// from the dashboard session only, and a run's credential is a service token, which MCP refuses
+// (github-oidc.test.ts). No tool may appear for them.
+describe("MCP has no GitHub OIDC federation tools", () => {
+  it("lists no tool that trusts a repository or exchanges a token", () => {
+    expect(
+      [...TOOL_SCOPES.keys()].filter((name) => /github|trust|federat|oidc/i.test(name)),
+    ).toEqual([]);
   });
 });

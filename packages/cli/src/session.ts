@@ -2,6 +2,7 @@ import { isServiceTokenSecret } from "@portifact/contracts";
 import { SERVICE_TOKEN_ENV } from "./child-env.ts";
 import type { CredentialStore, Credentials } from "./credentials.ts";
 import { CliError } from "./errors.ts";
+import { githubCredential, githubOidcWorkspace } from "./github-oidc.ts";
 import { messages } from "./messages.ts";
 import { refreshTokens, type TokenSet } from "./oauth.ts";
 import type { Runtime } from "./runtime.ts";
@@ -22,6 +23,14 @@ export function serviceTokenOf(runtime: Pick<Runtime, "env">): string | undefine
     throw new CliError("unauthenticated", messages.errors.serviceTokenMalformed);
   }
   return value;
+}
+
+/**
+ * Whether this process acts with a workspace credential rather than a stored login: a service
+ * token in `PORTIFACT_TOKEN`, or a GitHub run's credential (decision 0024).
+ */
+export function usesWorkspaceCredential(runtime: Pick<Runtime, "env">): boolean {
+  return serviceTokenOf(runtime) !== undefined || githubOidcWorkspace(runtime) !== undefined;
 }
 
 /** Access tokens this close to expiry are refreshed before use, to absorb clock skew. */
@@ -67,6 +76,18 @@ export async function withAccessToken<T>(
     const result = await call(serviceToken);
     if (result.kind === "ok") return result.value;
     throw new CliError("unauthenticated", messages.errors.serviceTokenRefused(server.origin));
+  }
+  const oidc = githubOidcWorkspace(runtime);
+  if (oidc) {
+    // A refusal may mean the credential just expired: exchange once more, then give up.
+    const first = await call(await githubCredential(runtime, server, oidc, false));
+    if (first.kind === "ok") return first.value;
+    const second = await call(await githubCredential(runtime, server, oidc, true));
+    if (second.kind === "ok") return second.value;
+    throw new CliError(
+      "unauthenticated",
+      messages.errors.githubOidcRefused(server.origin, oidc, undefined, undefined),
+    );
   }
   let credentials = await store.load(server.origin);
   if (!credentials) {

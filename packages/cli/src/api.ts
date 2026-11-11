@@ -35,7 +35,8 @@ export function callApi<T>(session: Session, request: ApiRequest<T>): Promise<T>
     }
     const response = await send(runtime, server, `${server.apiResource}${request.path}`, init);
     if (response.status === 401) {
-      // A refused service token says why (expired, revoked); a login is refreshed instead.
+      // A refused service token says why (expired, revoked); a login is refreshed instead, and a
+      // GitHub run's credential is exchanged again (decision 0024).
       if (serviceTokenOf(runtime)) throw await apiError(session, response);
       await response.body?.cancel();
       return { kind: "unauthorized" };

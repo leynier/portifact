@@ -88,15 +88,13 @@ describe("the D1 cost of the GitHub OIDC exchange", () => {
       now: NOW,
     });
     if (!workspace.ok) throw new Error(workspace.message);
-    await regionsFromEnv(env)
-      .global.insert(schema.ownerPlans)
-      .values({
-        ownerId: workspace.value.id,
-        plan: "team",
-        seats: 5,
-        grantedBy: "test",
-        updatedAt: NOW,
-      });
+    await regionsFromEnv(env).global.insert(schema.ownerPlans).values({
+      ownerId: workspace.value.id,
+      plan: "team",
+      seats: 5,
+      grantedBy: "test",
+      updatedAt: NOW,
+    });
     const dashboard = (method: string, body?: unknown): RequestInit => ({
       method,
       headers: {
