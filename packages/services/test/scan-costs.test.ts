@@ -165,9 +165,9 @@ const MAX_LIFE = {
   enforceWorkspacePoliciesClean: 5,
   // After the maximum is removed and its job lost: the scan's cursor, workspaces and cursor
   // write (three; no workspace has a policy to step), then the sweep finds the owner (one call
-  // with its cursor), reads its policy (one) and gives back (one batch); its pass ends where it
-  // started, so no cursor write.
-  enforceWorkspacePoliciesStale: 6,
+  // with its cursor; with one database it decides there that the owner sets no maximum, so no
+  // global read) and gives back (one batch); its pass ends where it started, so no cursor write.
+  enforceWorkspacePoliciesStale: 5,
   enforceWorkspacePolicy: 2,
   // The due read, the plan and policy, the archive's batch, the lifecycle event.
   archiveExpired: 4,
