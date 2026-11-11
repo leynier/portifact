@@ -2439,6 +2439,112 @@ export const en = {
     "{reason, select, key_unavailable {A connection's credential can no longer be opened} other {{service, select, github {GitHub} other {Linear}} refused a connection's credential}}",
   "audit.kind.issueCreated":
     "Created a {service, select, github {GitHub} other {Linear}} issue in {target} from a thread {message, select, true {with its first message} other {without comment text}}",
+  "audit.group.exports": "Exports and streams",
+  "audit.kind.streamCreated":
+    "Started streaming the log to {host}{start, select, oldest { from the oldest kept event} other {}}",
+  "audit.kind.streamChanged":
+    "{state, select, active {Resumed the stream to {host}} paused {Paused the stream to {host}} other {{secret, select, true {Gave the stream to {host} a new signing secret} other {Changed the stream to {host}}}}}",
+  "audit.kind.streamRemoved": "Removed the stream to {host}",
+  "audit.kind.streamPaused":
+    "{reason, select, failures {Paused the stream to {host}: the endpoint kept failing} plan {Paused the stream to {host}: the plan no longer includes it} invalid_url {Paused the stream to {host}: its URL no longer passes the checks} other {Paused the stream to {host}: its URL and secret can no longer be opened}}",
+  "audit.stream.title": "Stream to your SIEM",
+  "audit.stream.description":
+    "Portifact posts every event of this log to an HTTPS endpoint you run, as signed JSON Lines, in order and at least once: keep each event ID once. An event is sent once it is {minutes} minutes old.",
+  "audit.stream.euTitle": "Your endpoint may be outside the EU",
+  "audit.stream.eu":
+    "This space's data is kept in the EU. The endpoint you choose may be anywhere: the events it receives leave the EU.",
+  "audit.stream.planTitle": "Not in your plan",
+  "audit.stream.planRequired":
+    "Streaming the audit log is part of the {plan} plan. Existing streams stay paused and keep their place.",
+  "audit.stream.list": "Your audit streams",
+  "audit.stream.empty": "No stream yet",
+  "audit.stream.emptyBody": "Add an endpoint to receive every new event of this log.",
+  "audit.stream.add.title": "Add a stream",
+  "audit.stream.add.label": "Name",
+  "audit.stream.add.url": "Endpoint URL",
+  "audit.stream.add.urlHint": "HTTPS only. Once saved, only its host is shown.",
+  "audit.stream.add.start": "Start from",
+  "audit.stream.add.submit": "Add stream",
+  "audit.stream.add.limit": "A space can have at most {limit} streams. Remove one to add another.",
+  "audit.stream.start.now": "Now",
+  "audit.stream.start.nowHint": "Only events from now on.",
+  "audit.stream.start.oldest": "The oldest event kept",
+  "audit.stream.start.oldestHint":
+    "Everything the log still keeps (up to {days} days), then new events.",
+  "audit.stream.added": "Stream to {host} added",
+  "audit.stream.secret.title": "Copy the signing secret now",
+  "audit.stream.secret.body":
+    "It is shown only this once. Your endpoint uses it to check that each request comes from Portifact.",
+  "audit.stream.secret.label": "Signing secret of {label} ({host})",
+  "audit.stream.secret.copy": "Copy secret",
+  "audit.stream.secret.done": "I saved it",
+  "audit.stream.rotate.body":
+    "The old secret keeps signing next to the new one for 24 hours, so your endpoint can switch without losing a request.",
+  "audit.stream.verify.title": "Check each request",
+  "audit.stream.verify.body":
+    "Each request carries webhook-id, webhook-timestamp and webhook-signature, the same scheme as Portifact's webhooks. Recompute the signature over the raw body, refuse timestamps more than 5 minutes off and skip events whose ID you already kept. Lines with a record field are not events: a gap or a test.",
+  "audit.stream.verify.sample": "Signature check in Node.js",
+  "audit.stream.state.active": "Active",
+  "audit.stream.state.paused": "Paused",
+  "audit.stream.state.attention": "Needs attention",
+  "audit.stream.reason.manual": "Paused by an admin.",
+  "audit.stream.reason.plan":
+    "Paused: the plan no longer includes audit streaming. Resume it once it does; it continues where it stopped.",
+  "audit.stream.reason.failures":
+    "Paused after the endpoint failed for 3 days. Fix it, send a test, then resume.",
+  "audit.stream.reason.invalid_url":
+    "Paused: its URL no longer passes Portifact's checks. Change the URL.",
+  "audit.stream.reason.key_unavailable":
+    "Paused: its URL and secret can no longer be opened. Remove it and add it again.",
+  "audit.stream.through": "Delivered through {when}",
+  "audit.stream.notYet": "Nothing delivered yet",
+  "audit.stream.failures":
+    "{count, plural, one {# request failed} other {# requests failed in a row}}",
+  "audit.stream.lastAttempt": "Last request {when}: {outcome}",
+  "audit.stream.noAttempts": "No request yet",
+  "audit.stream.testPending": "A test is waiting to be sent.",
+  "audit.stream.gapTitle": "Some events never reached this endpoint",
+  "audit.stream.gap":
+    "Events from {from} to {to} were past the log's retention before this endpoint received them, so they were not sent. The endpoint got a gap record saying so.",
+  "audit.stream.test": "Send test",
+  "audit.stream.testLabel": "Send test to {label}",
+  "audit.stream.testQueued": "Test queued for {label}",
+  "audit.stream.pause": "Pause",
+  "audit.stream.pauseLabel": "Pause the stream {label}",
+  "audit.stream.paused": "Stream {label} paused",
+  "audit.stream.resume": "Resume",
+  "audit.stream.resumeLabel": "Resume the stream {label}",
+  "audit.stream.resumed": "Stream {label} resumed",
+  "audit.stream.rotate": "New secret",
+  "audit.stream.rotateLabel": "New secret for {label}",
+  "audit.stream.rotated": "New secret for {label} created",
+  "audit.stream.remove": "Remove",
+  "audit.stream.removeLabel": "Remove the stream {label}",
+  "audit.stream.removed": "Stream {label} removed",
+  "audit.stream.confirm.title": "Remove the stream {label}?",
+  "audit.stream.confirm.body":
+    "Portifact stops sending at once. Your endpoint keeps what it received; a new stream would start again from now.",
+  "audit.stream.failed": "That did not work",
+  "audit.stream.deliveries": "Requests",
+  "audit.stream.deliveriesOf": "Requests of the stream {label}",
+  "audit.stream.deliveries.loading": "Loading requests",
+  "audit.stream.deliveries.error": "The requests could not be loaded.",
+  "audit.stream.deliveries.empty": "No request in the last {days} days.",
+  "audit.stream.deliveries.time": "Time",
+  "audit.stream.deliveries.events": "Events",
+  "audit.stream.deliveries.outcome": "Outcome",
+  "audit.stream.outcome.delivered": "delivered",
+  "audit.stream.outcome.failed": "failed",
+  "audit.stream.outcome.skipped": "skipped",
+  "audit.stream.outcome.test": "test",
+  "audit.stream.error.unreachable": "could not connect",
+  "audit.stream.error.certificate": "certificate not accepted",
+  "audit.stream.error.timeout": "timed out",
+  "audit.stream.error.redirect": "redirected, not followed",
+  "audit.stream.error.refused": "refused",
+  "audit.stream.error.invalid_url": "URL no longer accepted",
+  "audit.stream.error.key_unavailable": "cannot be opened",
+  "audit.stream.error.daily_cap": "daily limit reached",
 } as const;
 
 export type MessageId = keyof typeof en;

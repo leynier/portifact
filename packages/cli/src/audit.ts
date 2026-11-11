@@ -236,7 +236,32 @@ export function auditSummary(event: AuditEventView): string {
       return `Changed the workspace's policies: ${policyParts(d).join(", ")}${d.confirmed ? " (existing artifacts changed)" : ""}`;
     case "policy.enforced":
       return `Applied the workspace's policies: ${enforcedParts(d).join(", ")}`;
+    case "audit_stream.created":
+      return `Started streaming the audit log to ${d.host}${d.start === "oldest" ? " from the oldest kept event" : ""}`;
+    case "audit_stream.changed":
+      return `Changed the audit stream to ${d.host}: ${streamChanges(d).join(", ")}`;
+    case "audit_stream.removed":
+      return `Removed the audit stream to ${d.host}`;
+    case "audit_stream.paused":
+      return `Paused the audit stream to ${d.host} (${STREAM_PAUSE[d.reason as keyof typeof STREAM_PAUSE]})`;
   }
+}
+
+const STREAM_PAUSE = {
+  failures: "the endpoint kept failing",
+  plan: "the plan no longer includes it",
+  invalid_url: "its URL no longer passes the checks",
+  key_unavailable: "its URL and secret can no longer be opened",
+} as const;
+
+/** What an audit stream change did, one phrase per field. */
+function streamChanges(d: Record<string, unknown>): string[] {
+  return [
+    d.label ? "its label" : null,
+    d.url ? "its URL" : null,
+    d.secret ? "a new signing secret" : null,
+    d.state === "active" ? "resumed" : d.state === "paused" ? "paused" : null,
+  ].filter((part): part is string => part !== null);
 }
 
 /** What a directory settings change did, one phrase per field. */

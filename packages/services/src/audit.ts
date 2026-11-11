@@ -679,6 +679,46 @@ async function* merged(
 }
 
 /**
+ * One database's events of an owner after a stream's position, oldest first (decision 0019): the
+ * kinds that database holds (`GLOBAL_AUDIT_KINDS` or the rest), at or after `from`, strictly
+ * after `after` and older than `before`. One indexed read on `(owner_id, at, id)`.
+ */
+export async function streamEventsAfter(
+  handle: Db,
+  input: {
+    ownerId: string;
+    source: "regional" | "global";
+    after: AuditPosition;
+    before: number;
+    limit: number;
+  },
+): Promise<AuditRow[]> {
+  const kinds = input.source === "global" ? GLOBAL_AUDIT_KINDS : REGIONAL_AUDIT_KINDS;
+  return handle
+    .select()
+    .from(ae)
+    .where(
+      and(
+        eq(ae.ownerId, input.ownerId),
+        sql`${ae.kind} in ${ids(kinds)}`,
+        or(gt(ae.at, input.after.at), and(eq(ae.at, input.after.at), gt(ae.id, input.after.id))),
+        lt(ae.at, input.before),
+      ),
+    )
+    .orderBy(asc(ae.at), asc(ae.id))
+    .limit(input.limit);
+}
+
+/** Events as the reader and the export show them, for a stream's batch (decision 0019). */
+export function presentAuditEvents(
+  db: RegionalDb,
+  ownerId: string,
+  rows: readonly AuditRow[],
+): Promise<AuditEventView[]> {
+  return present(db, ownerId, rows);
+}
+
+/**
  * A personal space's events for the account export: everything still kept, newest first, shown
  * the way the audit log shows them. Not behind the plan: an export is never refused.
  */

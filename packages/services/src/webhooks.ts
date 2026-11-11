@@ -847,7 +847,7 @@ function reviewOf(stored: string | null): ApprovalSummary | undefined {
 }
 
 /** Reads at most `limit` bytes of a body and cancels the rest; gives up when `signal` aborts. */
-async function drain(response: Response, limit: number, signal: AbortSignal) {
+export async function drain(response: Response, limit: number, signal: AbortSignal) {
   const reader = response.body?.getReader();
   if (!reader) return;
   const aborted = new Promise<never>((_, reject) => {

@@ -2457,4 +2457,112 @@ export const ja = {
     "{reason, select, key_unavailable {接続の認証情報を開けなくなりました} other {{service, select, github {GitHub} other {Linear}} が接続の認証情報を拒否しました}}",
   "audit.kind.issueCreated":
     "スレッドから {target} に {service, select, github {GitHub} other {Linear}} の issue を作成しました {message, select, true {(最初のメッセージを含む)} other {(コメントのテキストなし)}}",
+  "audit.group.exports": "エクスポートとストリーム",
+  "audit.kind.streamCreated":
+    "ログの {host} への送信を開始しました{start, select, oldest {（保持されている最も古いイベントから）} other {}}",
+  "audit.kind.streamChanged":
+    "{state, select, active {{host} へのストリームを再開しました} paused {{host} へのストリームを一時停止しました} other {{secret, select, true {{host} へのストリームに新しい署名シークレットを設定しました} other {{host} へのストリームを変更しました}}}}",
+  "audit.kind.streamRemoved": "{host} へのストリームを削除しました",
+  "audit.kind.streamPaused":
+    "{reason, select, failures {{host} へのストリームを一時停止しました：エンドポイントが失敗し続けました} plan {{host} へのストリームを一時停止しました：プランに含まれなくなりました} invalid_url {{host} へのストリームを一時停止しました：URL がチェックに通らなくなりました} other {{host} へのストリームを一時停止しました：URL とシークレットを開けなくなりました}}",
+  "audit.stream.title": "SIEM への送信",
+  "audit.stream.description":
+    "Portifact はこのログのすべてのイベントを、あなたが運用する HTTPS エンドポイントへ署名付きの JSON Lines として、順番どおり少なくとも 1 回送信します。イベント ID ごとに 1 回だけ保存してください。イベントは {minutes} 分経過してから送信されます。",
+  "audit.stream.euTitle": "エンドポイントは EU 外にある可能性があります",
+  "audit.stream.eu":
+    "このスペースのデータは EU 内に保存されています。選んだエンドポイントはどこにあっても構いませんが、そこが受け取るイベントは EU の外に出ます。",
+  "audit.stream.planTitle": "ご利用のプランには含まれていません",
+  "audit.stream.planRequired":
+    "監査ログの送信は {plan} プランに含まれます。既存のストリームは一時停止したまま位置を保持します。",
+  "audit.stream.list": "監査ストリーム",
+  "audit.stream.empty": "ストリームはまだありません",
+  "audit.stream.emptyBody":
+    "エンドポイントを追加すると、このログの新しいイベントをすべて受け取れます。",
+  "audit.stream.add.title": "ストリームを追加",
+  "audit.stream.add.label": "名前",
+  "audit.stream.add.url": "エンドポイント URL",
+  "audit.stream.add.urlHint": "HTTPS のみ。保存後はホストだけが表示されます。",
+  "audit.stream.add.start": "開始位置",
+  "audit.stream.add.submit": "ストリームを追加",
+  "audit.stream.add.limit":
+    "1 つのスペースで使えるストリームは最大 {limit} 個です。追加するには 1 つ削除してください。",
+  "audit.stream.start.now": "今から",
+  "audit.stream.start.nowHint": "今以降のイベントのみ。",
+  "audit.stream.start.oldest": "保持されている最も古いイベントから",
+  "audit.stream.start.oldestHint":
+    "ログがまだ保持しているすべて（最大 {days} 日分）と、その後の新しいイベント。",
+  "audit.stream.added": "{host} へのストリームを追加しました",
+  "audit.stream.secret.title": "署名シークレットを今すぐコピーしてください",
+  "audit.stream.secret.body":
+    "表示されるのはこの 1 回だけです。エンドポイントはこれを使って、各リクエストが Portifact から来たことを確認します。",
+  "audit.stream.secret.label": "{label}（{host}）の署名シークレット",
+  "audit.stream.secret.copy": "シークレットをコピー",
+  "audit.stream.secret.done": "保存しました",
+  "audit.stream.rotate.body":
+    "古いシークレットは 24 時間、新しいシークレットと並んで署名し続けるため、リクエストを失わずにエンドポイントを切り替えられます。",
+  "audit.stream.verify.title": "各リクエストを確認する",
+  "audit.stream.verify.body":
+    "各リクエストには webhook-id、webhook-timestamp、webhook-signature が付きます。Portifact の Webhook と同じ方式です。未加工の本文で署名を再計算し、5 分以上ずれたタイムスタンプは拒否し、保存済みの ID のイベントはスキップしてください。record フィールドのある行はイベントではなく、欠落の通知かテストです。",
+  "audit.stream.verify.sample": "Node.js での署名の確認",
+  "audit.stream.state.active": "有効",
+  "audit.stream.state.paused": "一時停止中",
+  "audit.stream.state.attention": "対応が必要",
+  "audit.stream.reason.manual": "管理者が一時停止しました。",
+  "audit.stream.reason.plan":
+    "一時停止中：プランにログの送信が含まれなくなりました。再び含まれたら再開してください。停止した位置から続きます。",
+  "audit.stream.reason.failures":
+    "エンドポイントが 3 日間失敗したため一時停止しました。修正してテストを送信してから再開してください。",
+  "audit.stream.reason.invalid_url":
+    "一時停止中：URL が Portifact のチェックに通らなくなりました。URL を変更してください。",
+  "audit.stream.reason.key_unavailable":
+    "一時停止中：URL とシークレットを開けなくなりました。削除して追加し直してください。",
+  "audit.stream.through": "{when}まで配信済み",
+  "audit.stream.notYet": "まだ何も配信されていません",
+  "audit.stream.failures":
+    "{count, plural, one {# 件のリクエストが失敗} other {# 件のリクエストが連続で失敗}}",
+  "audit.stream.lastAttempt": "最後のリクエスト {when}：{outcome}",
+  "audit.stream.noAttempts": "まだリクエストはありません",
+  "audit.stream.testPending": "送信待ちのテストがあります。",
+  "audit.stream.gapTitle": "このエンドポイントに届かなかったイベントがあります",
+  "audit.stream.gap":
+    "{from} から {to} までのイベントは、このエンドポイントが受け取る前にログの保持期間を過ぎたため送信されませんでした。エンドポイントにはそのことを示す欠落レコードが届いています。",
+  "audit.stream.test": "テストを送信",
+  "audit.stream.testLabel": "{label} にテストを送信",
+  "audit.stream.testQueued": "{label} へのテストを送信待ちにしました",
+  "audit.stream.pause": "一時停止",
+  "audit.stream.pauseLabel": "ストリーム {label} を一時停止",
+  "audit.stream.paused": "ストリーム {label} を一時停止しました",
+  "audit.stream.resume": "再開",
+  "audit.stream.resumeLabel": "ストリーム {label} を再開",
+  "audit.stream.resumed": "ストリーム {label} を再開しました",
+  "audit.stream.rotate": "新しいシークレット",
+  "audit.stream.rotateLabel": "{label} の新しいシークレット",
+  "audit.stream.rotated": "{label} の新しいシークレットを作成しました",
+  "audit.stream.remove": "削除",
+  "audit.stream.removeLabel": "ストリーム {label} を削除",
+  "audit.stream.removed": "ストリーム {label} を削除しました",
+  "audit.stream.confirm.title": "ストリーム {label} を削除しますか？",
+  "audit.stream.confirm.body":
+    "Portifact はすぐに送信を停止します。エンドポイントは受け取った分を保持します。新しいストリームは今から始まります。",
+  "audit.stream.failed": "うまくいきませんでした",
+  "audit.stream.deliveries": "リクエスト",
+  "audit.stream.deliveriesOf": "ストリーム {label} のリクエスト",
+  "audit.stream.deliveries.loading": "リクエストを読み込み中",
+  "audit.stream.deliveries.error": "リクエストを読み込めませんでした。",
+  "audit.stream.deliveries.empty": "過去 {days} 日間にリクエストはありません。",
+  "audit.stream.deliveries.time": "時刻",
+  "audit.stream.deliveries.events": "イベント",
+  "audit.stream.deliveries.outcome": "結果",
+  "audit.stream.outcome.delivered": "配信済み",
+  "audit.stream.outcome.failed": "失敗",
+  "audit.stream.outcome.skipped": "スキップ",
+  "audit.stream.outcome.test": "テスト",
+  "audit.stream.error.unreachable": "接続できません",
+  "audit.stream.error.certificate": "証明書が受け入れられません",
+  "audit.stream.error.timeout": "タイムアウト",
+  "audit.stream.error.redirect": "リダイレクト（追従せず）",
+  "audit.stream.error.refused": "拒否",
+  "audit.stream.error.invalid_url": "URL が受け入れられなくなりました",
+  "audit.stream.error.key_unavailable": "開けません",
+  "audit.stream.error.daily_cap": "1 日の上限に到達",
 } satisfies Catalog;

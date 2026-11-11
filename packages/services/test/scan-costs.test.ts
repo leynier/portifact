@@ -7,6 +7,7 @@ import { schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { pruneAuditEvents } from "../src/audit.ts";
+import { maintainAuditStreams } from "../src/audit-streams.ts";
 import { applyTombstones } from "../src/backups.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "../src/content-search.ts";
 import { scheduleExpiryNotices } from "../src/expiry-notices.ts";
@@ -42,6 +43,10 @@ const DEVELOP = {
   applyTombstones: 3,
   // 52 measured on develop before issue integrations, plus their one requeue scan (`requeueThreadIssues`).
   runMaintenance: 53,
+  // Audit streams (decision 0019): one batch per region and run (prune the log, arm streams that
+  // lost their job), whatever the number of owners or streams. Run by the jobs Worker only while
+  // streams are switched on, outside `runMaintenance`, which it leaves as it was.
+  maintainAuditStreams: 1,
 };
 
 describe("D1 calls of the scans and plan paths, one region", () => {
@@ -105,6 +110,7 @@ describe("D1 calls of the scans and plan paths, one region", () => {
         applyTombstones(d, [{ kind: "artifact", id: "gonegonego", deletedAt: NOW }], NOW),
       ),
       runMaintenance: await counted((d) => runMaintenance(d, env.ARTIFACTS, NOW + DAY)),
+      maintainAuditStreams: await counted((d) => maintainAuditStreams(d, NOW)),
     };
     expect(costs).toEqual(DEVELOP);
   });

@@ -706,6 +706,7 @@ export const OUTBOX_TOPICS = [
   "directory_notice",
   "thread_issue",
   "plan_region",
+  "audit_stream",
 ] as const;
 
 /**
@@ -790,7 +791,8 @@ export const tombstones = sqliteTable(
      * `scim_token` a revoked SCIM token and `scim_user` a directory user the directory deleted,
      * `workspace_invitation` a pending membership the directory withdrew by its row ID and
      * `workspace_member` a membership the directory ended, as `<workspace>:<user>`, which a
-     * restore must not bring back if it was created before the tombstone (decision 0017).
+     * restore must not bring back if it was created before the tombstone (decision 0017);
+     * `audit_stream` a removed audit stream (decision 0019).
      */
     kind: text("kind", {
       enum: [
@@ -809,6 +811,7 @@ export const tombstones = sqliteTable(
         "workspace_invitation",
         "workspace_member",
         "integration_connection",
+        "audit_stream",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -2285,4 +2288,90 @@ export const searchChunks = sqliteTable(
     seq: integer("seq").notNull(),
   },
   (t) => [uniqueIndex("search_chunks_artifact_path_seq_idx").on(t.artifactId, t.path, t.seq)],
+);
+
+/** Why an audit stream is not sending (decision 0019, `AuditStreamPauseReason`). */
+export const AUDIT_STREAM_PAUSE_REASONS = [
+  "manual",
+  "plan",
+  "failures",
+  "invalid_url",
+  "key_unavailable",
+] as const;
+
+/**
+ * Audit streams of an owner (decision 0019, packages/services/src/audit-streams.ts): HTTPS
+ * endpoints that receive the owner's audit log as it is written. Regional, next to the owner's
+ * webhooks: the job that delivers runs on the owner's region. The URL and the signing secret are
+ * sealed with `WEBHOOK_KEY` like a webhook's (`key_id` names the key); only the host is kept in
+ * clear. Each database the owner's events live in has its own position, the time and ID of the
+ * last event delivered (`regional_at`/`regional_id`, `global_at`/`global_id`); a null time means
+ * "from the oldest event still kept". `owner_id` has no foreign key (an owner is a user or a
+ * workspace): deleting the owner deletes the rows, and removing one writes an `audit_stream`
+ * tombstone so a restore cannot bring the destination back.
+ */
+export const auditStreams = sqliteTable(
+  "audit_streams",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    label: text("label").notNull(),
+    host: text("host").notNull(),
+    keyId: text("key_id").notNull(),
+    urlBox: text("url_box").notNull(),
+    secretBox: text("secret_box").notNull(),
+    /** The secret a rotation replaced, which also signs until `previous_until`. */
+    previousSecretBox: text("previous_secret_box"),
+    previousUntil: timestamp("previous_until"),
+    state: text("state", { enum: ["active", "paused", "attention"] }).notNull(),
+    pausedReason: text("paused_reason", { enum: AUDIT_STREAM_PAUSE_REASONS }),
+    pausedAt: timestamp("paused_at"),
+    regionalAt: timestamp("regional_at"),
+    regionalId: text("regional_id").notNull().default(""),
+    globalAt: timestamp("global_at"),
+    globalId: text("global_id").notNull().default(""),
+    /** Requests failed in a row, since when, and when the next one may go. */
+    failures: integer("failures").notNull().default(0),
+    failingSince: timestamp("failing_since"),
+    nextAttemptAt: timestamp("next_attempt_at"),
+    /** The last gap reported to the endpoint: events past retention it never received. */
+    gapSource: text("gap_source", { enum: ["regional", "global"] }),
+    gapFrom: timestamp("gap_from"),
+    gapTo: timestamp("gap_to"),
+    /** A test an admin asked for, sent by the next run whatever the state. */
+    testRequestedAt: timestamp("test_requested_at"),
+    createdAt: createdAt(),
+    /** Who created it (no foreign key: cleared when the account is deleted). */
+    createdBy: text("created_by"),
+  },
+  (t) => [
+    index("audit_streams_owner_idx").on(t.ownerId),
+    check("audit_streams_failures", sql`${t.failures} >= 0`),
+  ],
+);
+
+/**
+ * The delivery log of an audit stream for the last 7 days: one row per request (and per daily-cap
+ * deferral), with the outcome, the status class and how many events it carried. Never the body,
+ * the response or the URL. Pruned by the maintenance scan.
+ */
+export const auditStreamDeliveries = sqliteTable(
+  "audit_stream_deliveries",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    streamId: text("stream_id")
+      .notNull()
+      .references(() => auditStreams.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(),
+    at: timestamp("at").notNull(),
+    outcome: text("outcome", { enum: ["delivered", "failed", "skipped", "test"] }).notNull(),
+    source: text("source", { enum: ["regional", "global"] }),
+    events: integer("events").notNull().default(0),
+    statusClass: text("status_class"),
+    error: text("error"),
+  },
+  (t) => [
+    index("audit_stream_deliveries_stream_idx").on(t.streamId, t.at),
+    index("audit_stream_deliveries_at_idx").on(t.at),
+  ],
 );

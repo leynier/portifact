@@ -259,6 +259,20 @@ const GATED: GatedOperation[] = [
     },
   },
   {
+    feature: "auditExport",
+    name: "stream the audit log to an endpoint",
+    scope: "owner",
+    // Session only (decision 0019): no bearer route, MCP tool or CLI command manages a stream.
+    run: async (who) => {
+      const response = await who.sessionCall("/api/v1/audit/streams", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ label: "Gate", url: "https://siem.example.com/in", start: "now" }),
+      });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
+  },
+  {
     feature: "contentSearch",
     name: "search inside the space's artifacts",
     scope: "owner",

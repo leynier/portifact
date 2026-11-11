@@ -16,6 +16,7 @@ import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-o
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
 import { applyOwnerRetention, moveAccessHistory } from "./analytics.ts";
+import { type AuditStreamDeps, deliverAuditStream } from "./audit-streams.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
 import { runSearchIndex } from "./content-search.ts";
@@ -148,6 +149,8 @@ export interface JobDeps {
   commentNotifier?: CommentNotifier | undefined;
   /** Delivers `webhook_delivery` jobs. */
   webhooks?: WebhookDeps | undefined;
+  /** Delivers `audit_stream` jobs (decision 0019): the webhook keys, network and switches. */
+  auditStreams?: AuditStreamDeps | undefined;
   /** Cloudflare's custom hostnames, for `delete_custom_hostname` jobs; null while switched off. */
   domains?: DomainDeps | null | undefined;
   /** Sends `domain_notice` emails. */
@@ -190,6 +193,7 @@ async function runRow(
     notifier,
     commentNotifier,
     webhooks,
+    auditStreams,
     domains,
     domainNotifier,
     reviewNotifier,
@@ -261,6 +265,12 @@ async function runRow(
       // Thrown, not reported done: the row stays and the job runs again where the network is.
       if (!issues) throw new Error("thread_issue needs the integration deps");
       return runThreadIssue(db, row, now, issues);
+    case "audit_stream":
+      // Thrown, not reported done: the row stays and the job runs again where the keys are.
+      if (!auditStreams || auditStreams.keys.length === 0) {
+        throw new Error("audit_stream needs the webhook keys");
+      }
+      return deliverAuditStream(db, row, now, auditStreams);
   }
 }
 
