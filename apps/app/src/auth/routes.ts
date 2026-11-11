@@ -152,6 +152,9 @@ export function authRoutes(authFor: (env: Env) => Auth, siteverifyFor: (env: Env
         await exchangeDeviceCode(auth, c.env, await readBody(request), () => auth.handler(request)),
       );
     }
+    if (path === "/get-session") {
+      return authHeaders(await withoutSignInMethod(await auth.handler(request)));
+    }
     return authHeaders(await auth.handler(request));
   });
 
@@ -221,6 +224,30 @@ async function readBody(request: Request): Promise<Record<string, unknown>> {
   } catch {
     return {};
   }
+}
+
+/**
+ * The session payload the login page and the dashboard read, without how the session signed in
+ * (decision 0021): Better Auth returns additional fields by default, and `returned: false` would
+ * also strip it from the server-side `getSession` that `sessionOf` records the credential from.
+ * The browser never needs it there; the Apps page reads it from `/api/v1/account/sessions`.
+ */
+export async function withoutSignInMethod(response: Response): Promise<Response> {
+  if (!response.headers.get("content-type")?.includes("application/json")) return response;
+  const body = (await response
+    .clone()
+    .json()
+    .catch(() => null)) as {
+    session?: Record<string, unknown>;
+  } | null;
+  if (!body?.session || !("signInMethod" in body.session)) return response;
+  const { signInMethod: _hidden, ...session } = body.session;
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify({ ...body, session }), {
+    status: response.status,
+    headers,
+  });
 }
 
 function withoutCookies(request: Request): Request {

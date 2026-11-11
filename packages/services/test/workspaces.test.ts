@@ -217,6 +217,8 @@ describe("resolveActor", () => {
         // The policies come with the membership (decision 0015).
         policy: DEFAULT_POLICY,
         domainVerified: true,
+        // "SSO required" is not set, so no provider is read (decision 0021).
+        ssoProvider: null,
       });
     }
   });

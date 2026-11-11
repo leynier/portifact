@@ -6,6 +6,15 @@
 import { z } from "zod";
 import { CommentVisibility, PersonalAccessMode } from "./core.ts";
 import { LOCALE_CODES } from "./locales.ts";
+import { SIGN_IN_METHOD_KINDS } from "./request-context.ts";
+
+/**
+ * How a session, or the sign-in an app's grant descends from, signed in (decision 0021): an email
+ * code, Google, GitHub, a workspace's single sign-on, or `unknown` for one from before Portifact
+ * recorded it (or an app whose live grants disagree). Never the provider's ID.
+ */
+export const SignInMethodShown = z.enum(SIGN_IN_METHOD_KINDS);
+export type SignInMethodShown = z.infer<typeof SignInMethodShown>;
 
 /** A signed-in browser on app.portifact.com. */
 export const BrowserSession = z.object({
@@ -16,6 +25,8 @@ export const BrowserSession = z.object({
   createdAt: z.iso.datetime(),
   lastActiveAt: z.iso.datetime(),
   expiresAt: z.iso.datetime(),
+  /** How this browser signed in. */
+  signInMethod: SignInMethodShown.default("unknown"),
 });
 export type BrowserSession = z.infer<typeof BrowserSession>;
 
@@ -44,6 +55,8 @@ export const ConnectedApp = z.object({
   lastIssuedAt: z.iso.datetime(),
   /** When its last token expires unless the app renews it; null when a token never expires. */
   expiresAt: z.iso.datetime().nullable(),
+  /** How the sign-in that approved its live grants happened. */
+  signInMethod: SignInMethodShown.default("unknown"),
 });
 export type ConnectedApp = z.infer<typeof ConnectedApp>;
 

@@ -38,6 +38,10 @@ const NEXT_PATHS = [
   /^\/invitations$/,
   /^\/read\/[a-z2-7]{10}$/,
   /^\/view\/[a-z2-7]{10}$/,
+  // A space's pages, where a workspace's sign-in policies send a person to sign in again
+  // (decision 0021) and bring them back.
+  /^\/(publish|usage|plan|groups|policies|audit|service-tokens|webhooks|integrations|branding|settings|profile|apps)$/,
+  /^\/artifacts\/[A-Za-z0-9_-]+\/(publish|edit|history)$/,
 ];
 
 /**
@@ -68,4 +72,14 @@ export function loginUrl(path: string): string {
  */
 export function reauthUrl(path: string): string {
   return `/login?${new URLSearchParams({ reauth: "session_age", next: path })}`;
+}
+
+/**
+ * The login page asked to sign in through single sign-on (decision 0021, "SSO required"): it fills
+ * in the account's address, goes through the workspace's provider, which links to this account
+ * and replaces this browser's session cookie with the new session (the old session is not
+ * ended), and comes back to `path`.
+ */
+export function ssoReauthUrl(path: string): string {
+  return `/login?${new URLSearchParams({ reauth: "sso", next: path })}`;
 }

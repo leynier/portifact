@@ -45,6 +45,8 @@ const messages = {
     state_mismatch: "O login demorou demais ou foi iniciado em outra aba. Tente de novo.",
     artifact_unavailable:
       "Este artifact não existe, não está mais disponível ou não pode ser aberto com esta conta. Para usar outra conta, saia e abra o link de novo.",
+    sso_required:
+      "Este espaço de trabalho exige entrar pelo login único da sua organização. Continue abaixo com seu endereço de trabalho; seu login atual continua como está e você voltará para onde estava.",
     session_age:
       "Este workspace pede um novo login depois de um tempo, e o seu é mais antigo do que ele permite. Entre de novo para continuar; você voltará para onde estava.",
     network_refused:

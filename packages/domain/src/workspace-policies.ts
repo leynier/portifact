@@ -52,9 +52,12 @@ export function policyOf(stored: unknown): WorkspacePolicy {
 export function storedPolicy(policy: WorkspacePolicy): Partial<WorkspacePolicy> | null {
   if (changedFields(DEFAULT_POLICY, policy).length === 0) return null;
   // The same for the sign-in policies (decision 0021): a row stores them only while they are set.
-  const { ipAllowlist, tokenIpAllowlist, sessionMaxHours, allowedClients, ...rest } = policy;
+  const { ipAllowlist, tokenIpAllowlist, sessionMaxHours, allowedClients, ssoRequired, ...rest } =
+    policy;
   return {
     ...rest,
+    // "SSO required" too (decision 0021): stored only while set.
+    ...(ssoRequired ? { ssoRequired } : {}),
     ...(ipAllowlist === null ? {} : { ipAllowlist }),
     ...(tokenIpAllowlist === null ? {} : { tokenIpAllowlist }),
     ...(sessionMaxHours === null ? {} : { sessionMaxHours }),
@@ -107,6 +110,17 @@ export const POLICY_MESSAGES = {
     "This workspace's policy limits which apps may act on it, and Portifact could not tell which app made this request. Use the dashboard, or ask a workspace admin.",
   sessionLocksOut: (hours: number) =>
     `Your own sign-in is older than ${hoursText(hours)}, so this maximum session age would lock you out. Sign in again first, or choose a longer maximum.`,
+  ssoRequired: (credential: Credential | null | undefined) =>
+    `This workspace requires signing in through its single sign-on, and ${signInSubject(credential)} did not. ${ssoFix(credential)}`,
+  ssoOff: "Single sign-on is not available on this Portifact, so it cannot be required.",
+  ssoNotUsable:
+    "Set up the workspace's single sign-on first, serving a verified email domain, on a plan that includes it.",
+  ssoLocksOut:
+    "Sign in with the workspace's single sign-on first, from this browser, so you know it works before you require it.",
+  ssoOutside: (count: number) =>
+    `${count} ${count === 1 ? "member's address is" : "members' addresses are"} not at a domain the single sign-on provider serves, so they could no longer act on the workspace. Confirm to require it anyway.`,
+  ssoOutsideGrew:
+    "More members than you confirmed cannot sign in through the single sign-on provider now. Review the change again before saving.",
   sessionLocksOutUnknown:
     "Portifact could not tell when you signed in, so a maximum session age could lock you out. Sign in again first.",
   singleFamily: (lists: string) =>
@@ -123,6 +137,16 @@ function signInSubject(credential: Credential | null | undefined): string {
   return credential?.kind === "oauth" && credential.client === "oauth_apps"
     ? "this app's connection to Portifact"
     : "your sign-in";
+}
+
+/** What fixes a sign-in that did not go through the workspace's single sign-on, per client. */
+function ssoFix(credential: Credential | null | undefined): string {
+  if (credential?.kind === "oauth") {
+    return credential.client === "cli"
+      ? "Sign in to the Portifact dashboard with single sign-on, then run `portifact login` and approve it from that browser."
+      : "Ask the user to sign in to Portifact with the workspace's single sign-on, then reconnect this app.";
+  }
+  return "Sign in with single sign-on to continue.";
 }
 
 /** What fixes a sign-in that is too old, in the words of the client that made the request. */
@@ -195,6 +219,7 @@ export function changedFields(current: WorkspacePolicy, next: WorkspacePolicy): 
   }
   if (current.sessionMaxHours !== next.sessionMaxHours) fields.push("sessionMaxHours");
   if (!sameDomains(current.allowedClients, next.allowedClients)) fields.push("allowedClients");
+  if (current.ssoRequired !== next.ssoRequired) fields.push("ssoRequired");
   return fields;
 }
 
@@ -238,6 +263,8 @@ function loosens(field: PolicyField, current: WorkspacePolicy, next: WorkspacePo
         next.allowedClients === null ||
         current.allowedClients?.every((kind) => next.allowedClients?.includes(kind)) === true
       );
+    case "ssoRequired":
+      return !next.ssoRequired;
   }
 }
 
@@ -469,6 +496,7 @@ export function policyChangeDetail(
       : {}),
     ...(fields.includes("sessionMaxHours") ? { sessionMaxHours: next.sessionMaxHours } : {}),
     ...(fields.includes("allowedClients") ? { allowedClients: next.allowedClients } : {}),
+    ...(fields.includes("ssoRequired") ? { ssoRequired: next.ssoRequired } : {}),
     confirmed,
   };
 }
@@ -504,6 +532,7 @@ export function describePolicy(policy: WorkspacePolicy | WorkspacePolicyShown): 
     const allowed = ["the dashboard", ...policy.allowedClients.map((kind) => CLIENT_NAMES[kind])];
     lines.push(`people act only through ${allowed.join(" and ")}`);
   }
+  if (policy.ssoRequired) lines.push("people sign in through the workspace's single sign-on");
   return lines;
 }
 
@@ -524,6 +553,40 @@ export interface RequestSubject {
   /** The user (or service token) the role was decided for. */
   userId: string;
   now: number;
+  /**
+   * The workspace's single sign-on provider while it can sign people in (it exists, serves a
+   * verified domain and the plan includes `sso`), by its row ID; null otherwise. "SSO required"
+   * binds only while it is set: a provider nobody can sign in through never locks anyone out.
+   * Read with the membership, only for a policy that requires it (`actorOn`).
+   */
+  ssoProvider?: string | null;
+}
+
+/**
+ * Whether the Worker answering a request offers single sign-on (`SSO_ENABLED`, decision 0021):
+ * it decides only whether the sign-in endpoints exist and whether setting the requirement is
+ * offered, never whether a stored requirement binds.
+ */
+export function ssoOffered(request: RequestContext): boolean {
+  return request.kind === "request" && request.sso === true;
+}
+
+/**
+ * Whether "SSO required" binds now (decision 0021): set on the policy and the workspace's provider
+ * able to sign people in (it exists, serves a verified domain and the plan includes `sso`), all
+ * read from data that is the same on every Worker. Never from a Worker's configuration: a Worker
+ * without `SSO_ENABLED` enforces it exactly like one with it (fail closed), so a security rule
+ * never depends on two Workers' settings agreeing. A provider that cannot sign anyone in
+ * suspends it (the stored setting stays); removing the provider clears it.
+ */
+export function ssoRequirementBinds(
+  policy: WorkspacePolicy | undefined,
+  request: RequestContext,
+  ssoProvider: string | null | undefined,
+): ssoProvider is string {
+  return (
+    policy?.ssoRequired === true && request.kind === "request" && typeof ssoProvider === "string"
+  );
 }
 
 /**
@@ -573,6 +636,8 @@ export function checkRequestPolicy(
       return because("session_age", POLICY_MESSAGES.sessionAge(hours, credential));
     case "session_unknown":
       return because("session_age", POLICY_MESSAGES.sessionUnknown(credential));
+    case "sso":
+      return because("sso", POLICY_MESSAGES.ssoRequired(credential));
   }
 }
 
@@ -582,7 +647,8 @@ export type SignInVerdict =
   | "client"
   | "client_unknown"
   | "session_age"
-  | "session_unknown";
+  | "session_unknown"
+  | "sso";
 
 /**
  * What the sign-in policies (decision 0021) say about a person's request. Only facts the server
@@ -599,7 +665,8 @@ export function signInVerdict(
 ): SignInVerdict {
   if (!policy || request.kind === "background" || caller === "token") return "allowed";
   const { sessionMaxHours, allowedClients } = policy;
-  if (sessionMaxHours === null && allowedClients === null) return "allowed";
+  const sso = ssoRequirementBinds(policy, request, subject.ssoProvider);
+  if (sessionMaxHours === null && allowedClients === null && !sso) return "allowed";
   const credential = request.credential;
   const known =
     credential && credential.userId === subject.userId && credential.kind !== "service_token"
@@ -608,6 +675,14 @@ export function signInVerdict(
   if (allowedClients !== null) {
     if (!known) return "client_unknown";
     if (known.kind === "oauth" && !allowedClients.includes(known.client)) return "client";
+  }
+  // "SSO required": the sign-in this credential descends from went through this workspace's
+  // provider, matched by its ID; another workspace's provider, a social login with the same
+  // address or a method not known is not it. Checked before the age: signing in through the
+  // provider fixes both.
+  if (sso) {
+    const method = known?.method ?? null;
+    if (method?.kind !== "sso" || method.providerId !== subject.ssoProvider) return "sso";
   }
   if (sessionMaxHours !== null) {
     const signedInAt = known?.signedInAt ?? null;
@@ -638,6 +713,8 @@ export function requestRefusal(
     case "session_age":
     case "session_unknown":
       return "session_age";
+    case "sso":
+      return "sso";
   }
 }
 
@@ -682,7 +759,41 @@ export function checkPolicyKeepsCaller(
   if (verdict === "client" || verdict === "client_unknown") {
     return fail("invalid_input", POLICY_MESSAGES.clientUnknown);
   }
+  if (verdict === "sso") return fail("invalid_input", POLICY_MESSAGES.ssoLocksOut);
   return ok(true);
+}
+
+/**
+ * Whether "SSO required" may be set (decision 0021): never a setting nobody can satisfy. Single
+ * sign-on must be offered (`SSO_ENABLED`) and the workspace's provider able to sign people in;
+ * the saving admin's own session must have signed in through it (checked by
+ * `checkPolicyKeepsCaller` with the provider, an admin proves it works before requiring it). Only
+ * a save that sets it newly or keeps it set is checked; clearing it never is.
+ */
+export function checkSsoRequirement(
+  next: WorkspacePolicy,
+  request: RequestContext,
+  ssoProvider: string | null,
+): Result<true> {
+  if (!next.ssoRequired || request.kind === "background") return ok(true);
+  if (request.sso !== true) return fail("invalid_input", POLICY_MESSAGES.ssoOff);
+  if (ssoProvider === null) return fail("invalid_input", POLICY_MESSAGES.ssoNotUsable);
+  return ok(true);
+}
+
+/**
+ * Members the provider cannot serve are never cut off silently: newly requiring single sign-on
+ * needs the admin to confirm the count the preview showed, and a count that grew since is refused
+ * again, as the other policies' impact is.
+ */
+export function checkSsoOutside(
+  newly: boolean,
+  outside: number,
+  confirmed: number | undefined,
+): Result<true> {
+  if (!newly || outside === 0) return ok(true);
+  if (confirmed === undefined) return refused(POLICY_MESSAGES.ssoOutside(outside));
+  return outside > confirmed ? refused(POLICY_MESSAGES.ssoOutsideGrew) : ok(true);
 }
 
 /** Which lists a save sets or changes that cover a single address family (decision 0020). */
@@ -748,7 +859,8 @@ export function seesNetworks(role: Parameters<typeof roleAllows>[0], blocked: bo
 
 /**
  * A policy as a caller sees it: the network allowlists only when `sees` (`seesNetworks`); anyone
- * else learns only that one exists (`hidden`).
+ * else learns only that one exists (`hidden`). A stored "SSO required" is always shown: it binds
+ * whatever a Worker's configuration (decision 0021).
  */
 export function shownPolicy(policy: WorkspacePolicy, sees: boolean): WorkspacePolicyShown {
   return {
@@ -788,8 +900,8 @@ export function liftedFields(current: WorkspacePolicy, next: WorkspacePolicy): P
 }
 
 /**
- * A policy with its request policies lifted (the network allowlists, the maximum session age and
- * the allowed clients): the operator's escape hatch.
+ * A policy with its request policies lifted (the network allowlists, the maximum session age,
+ * the allowed clients and "SSO required"): the operator's escape hatch.
  */
 export function withoutRequestPolicies(policy: WorkspacePolicy): WorkspacePolicy {
   return {
@@ -798,6 +910,7 @@ export function withoutRequestPolicies(policy: WorkspacePolicy): WorkspacePolicy
     tokenIpAllowlist: null,
     sessionMaxHours: null,
     allowedClients: null,
+    ssoRequired: false,
   };
 }
 

@@ -335,7 +335,12 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   // and carried by every database handle built for it, so the services apply a workspace's
   // request policies where the role is decided, whatever route or tool asks.
   app.use("*", async (c, next) => {
-    c.env = withRequestContext(c.env, requestContextOf(c.req.raw));
+    // Whether single sign-on is offered is this Worker's configuration: "SSO required" binds
+    // only where people can sign in through a provider (decision 0021).
+    c.env = withRequestContext(
+      c.env,
+      requestContextOf(c.req.raw, { sso: c.env.SSO_ENABLED === "true" }),
+    );
     await next();
   });
 

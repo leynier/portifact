@@ -25,6 +25,8 @@ export interface IntrospectionPayload {
   scope?: string;
   /** When the sign-in the token descends from happened, in seconds (decision 0021). */
   portifact_auth_time?: number;
+  /** How that sign-in happened (decision 0021, "SSO required"), from the token row. */
+  portifact_sign_in_method?: string;
 }
 
 export type Introspect = (token: string) => Promise<IntrospectionPayload>;

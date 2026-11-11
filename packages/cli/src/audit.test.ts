@@ -389,6 +389,8 @@ describe("plain words for every kind", () => {
       linksRevoked: 1,
       sessionsEnded: 3,
     },
+    "policy.sso_suspended": { cause: "domain" },
+    "policy.sso_resumed": { cause: "scan" },
     "audit_stream.created": { host: "siem.example.com", start: "oldest" },
     "audit_stream.changed": { host: "siem.example.com", url: true, secret: true, revoked: true },
     "audit_stream.removed": { host: "siem.example.com" },
@@ -460,6 +462,10 @@ describe("plain words for every kind", () => {
       "Changed the workspace's policies: public access forbidden, readers only at corp.example, share links password required, share links at most 30 days, people only from 3 network(s), service tokens from any network (existing artifacts changed)",
     "policy.enforced":
       "Applied the workspace's policies: 2 artifact(s) made workspace-only, 1 share link(s) revoked, 3 link session(s) ended",
+    "policy.sso_suspended":
+      "Single sign-on required no longer applies: the provider cannot sign anyone in (a verified domain changed)",
+    "policy.sso_resumed":
+      "Single sign-on required applies again: the provider can sign people in (noticed by the daily check)",
     "audit_stream.created":
       "Started streaming the audit log to siem.example.com from the oldest kept event",
     "audit_stream.changed":

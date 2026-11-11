@@ -158,6 +158,11 @@ describe("sign-in with Google", () => {
       refresh_token: null,
       id_token: null,
     });
+    // The session records how it signed in, in the statement that created it (decision 0021).
+    const session = await env.DB.prepare(
+      "select s.sign_in_method as method from sessions s join users u on u.id = s.user_id where u.email = 'gina@example.test'",
+    ).first<{ method: string | null }>();
+    expect(session?.method).toBe("google");
   });
 
   it("finds a returning user by Google's stable ID even if the email changed", async () => {
@@ -259,6 +264,10 @@ describe("sign-in with GitHub", () => {
       "select a.account_id, u.email, u.email_verified from accounts a join users u on u.id = a.user_id where a.provider_id = 'github'and a.account_id = '7007'",
     ).first();
     expect(account).toEqual({ account_id: "7007", email: "octo@example.test", email_verified: 1 });
+    const session = await env.DB.prepare(
+      "select s.sign_in_method as method from sessions s join users u on u.id = s.user_id where u.email = 'octo@example.test'",
+    ).first<{ method: string | null }>();
+    expect(session?.method).toBe("github");
   });
 
   it("refuses an account whose primary email is not verified on GitHub", async () => {

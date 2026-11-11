@@ -17,6 +17,7 @@ import {
   DEFAULT_REGION,
   type GraceEndReason,
   type GraceSlot,
+  isWorkspaceId,
   OwnerPlanExport,
   PLAN_GRACE_DAYS,
   type PlanFeature,
@@ -72,6 +73,7 @@ import {
   savedCursorSql,
 } from "./maintenance-cursors.ts";
 import { ownerOfRegion } from "./shapes.ts";
+import { ssoSuspensionStatements } from "./sso-required.ts";
 import { retried } from "./workspaces.ts";
 
 /**
@@ -557,6 +559,11 @@ export async function setOwnerPlan(
             true,
           )
         : []),
+      // A plan gaining or losing `sso` resumes or suspends the workspace's "SSO required" (0021):
+      // decided from the row as this batch leaves it, so it records nothing when nothing changed.
+      ...(isWorkspaceId(input.ownerId)
+        ? ssoSuspensionStatements(w, { workspaceId: input.ownerId, now: input.now, cause: "plan" })
+        : []),
     ])) as unknown[][];
     written = (results[2 + graceEventCount(change)] ?? []).length > 0;
     if (!written && !(await isGrantable(db.global, input.ownerId))) {
@@ -644,6 +651,10 @@ export async function removeOwnerPlan(
             .returning({ ownerId: p.ownerId }),
       ...(both
         ? limitStatements(both, input.ownerId, FREE_LIMIT_COLUMNS, sql`1`, input.now, false)
+        : []),
+      // Losing `sso` with the plan suspends the workspace's "SSO required" (decision 0021).
+      ...(isWorkspaceId(input.ownerId)
+        ? ssoSuspensionStatements(w, { workspaceId: input.ownerId, now: input.now, cause: "plan" })
         : []),
     ])) as unknown[][];
     const changed = (results[2 + graceEventCount(change)] ?? []).length;

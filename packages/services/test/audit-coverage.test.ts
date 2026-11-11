@@ -49,14 +49,22 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   changeMemberRole: ["member.role_changed"],
   removeMember: ["member.removed", "member.left"],
   leaveWorkspace: ["member.left"],
-  setOwnerPlan: ["plan.granted", "plan.grace_started", "plan.grace_ended"],
+  setOwnerPlan: [
+    "plan.granted",
+    "plan.grace_started",
+    "plan.grace_ended",
+    "policy.sso_suspended",
+    "policy.sso_resumed",
+  ],
   applyOwnerPlans: ["plan.granted"],
   removeOwnerPlan: ["plan.removed", "plan.grace_started", "plan.grace_ended"],
   // The grace scan (decision 0022): a natural expiry's start and every hold's end.
   maintainPlanGraces: ["plan.grace_started", "plan.grace_ended"],
   verifyWorkspaceDomain: ["email_domain.verified", "email_domain.removed"],
   removeWorkspaceDomain: ["email_domain.removed"],
-  recheckEmailDomains: ["email_domain.removed"],
+  recheckEmailDomains: ["email_domain.removed", "policy.sso_suspended"],
+  // "SSO required" entering or leaving suspension when a plan expires (decision 0021).
+  syncSsoRequirementStates: ["policy.sso_suspended", "policy.sso_resumed"],
   createServiceToken: ["service_token.created"],
   revokeServiceToken: ["service_token.revoked"],
   operatorRevokeServiceToken: ["service_token.revoked"],
@@ -370,6 +378,8 @@ const READ_NAMES = new Set([
   "readableThread",
   "appSessionLive",
   "appSessionSignIn",
+  // Who requiring single sign-on would bind, counted for the preview and the save (0021).
+  "ssoReach",
   "directoryGroupChoices",
   "directoryRoleHolders",
   "seatLimit",

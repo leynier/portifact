@@ -155,6 +155,8 @@ export function blockedLine(slug: string, reason: RequestRefusal | null): string
   switch (reason) {
     case "session_age":
       return `${slug} asks for a recent sign-in, and this CLI's is older than it allows: run \`portifact login\` to sign in again.`;
+    case "sso":
+      return `${slug} requires signing in through its single sign-on, and this CLI's login did not come from one: sign in to the Portifact dashboard with single sign-on, then run \`portifact login\` and approve it from that browser.`;
     case "client":
       return `${slug} does not allow the Portifact CLI to act on it: use the dashboard, or ask a workspace admin.`;
     default:

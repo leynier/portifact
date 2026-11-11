@@ -64,6 +64,7 @@ const session = (userId: string, hoursAgo = 1): Credential => ({
   kind: "session",
   userId,
   signedInAt: NOW - hoursAgo * HOUR,
+  method: { kind: "code" },
 });
 const cli = (userId: string, hoursAgo: number | null = 1): Credential => ({
   kind: "oauth",
@@ -71,6 +72,7 @@ const cli = (userId: string, hoursAgo: number | null = 1): Credential => ({
   clientId: CLI_CLIENT_ID,
   client: "cli",
   signedInAt: hoursAgo === null ? null : NOW - hoursAgo * HOUR,
+  method: { kind: "code" },
 });
 const app = (userId: string, hoursAgo = 1): Credential => ({
   kind: "oauth",
@@ -78,6 +80,7 @@ const app = (userId: string, hoursAgo = 1): Credential => ({
   clientId: "dcr_client",
   client: "oauth_apps",
   signedInAt: NOW - hoursAgo * HOUR,
+  method: { kind: "code" },
 });
 const as = (credential?: Credential): RequestContext => ({
   kind: "request",

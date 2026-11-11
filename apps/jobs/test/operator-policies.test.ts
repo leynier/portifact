@@ -20,6 +20,7 @@ const POLICY = {
   tokenIpAllowlist: null,
   sessionMaxHours: null,
   allowedClients: null,
+  ssoRequired: false,
 };
 
 async function workspace(policy: unknown) {
@@ -106,6 +107,7 @@ describe("operator policy commands", () => {
       tokenIpAllowlist: _tokens,
       sessionMaxHours: _age,
       allowedClients: _clients,
+      ssoRequired: _sso,
       ...older
     } = POLICY;
     const id = await workspace(older);
@@ -117,7 +119,7 @@ describe("operator policy commands", () => {
       },
     });
     expect(written.get("p.jsonl")).toContain(
-      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null })}}`,
+      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null, ssoRequired: false })}}`,
     );
   });
 });
@@ -273,5 +275,39 @@ describe("apply-policies after the review (decision 0020)", () => {
     expect(lifted.output).toContain("Applied 1 workspace policy(ies)");
     expect(policyOf(await stored())).toMatchObject({ publicAccess: "allowed", ipAllowlist: null });
     expect(OPERATOR_USAGE).toContain("--allow-lifting");
+  });
+});
+
+describe("SSO required in restores (decision 0021)", () => {
+  it("leaves a workspace as it is when the file requires single sign-on it cannot run, and says so", async () => {
+    const id = await workspace(null);
+    const files = {
+      read: async () =>
+        `${JSON.stringify({ workspaceId: id, policy: { ...POLICY, ssoRequired: true } })}\n`,
+      write: async () => {},
+    };
+    const applied = await runOperator(db(), ["apply-policies", "--file", "p.jsonl"], NOW, files);
+    expect(applied.output).toContain(
+      "1 workspace(s) were left as they are because the file requires single sign-on",
+    );
+    expect(applied.output).toContain(`  ${id}`);
+    const [row] = await db()
+      .select({ policy: schema.workspaces.policy })
+      .from(schema.workspaces)
+      .where(eq(schema.workspaces.id, id));
+    expect(row?.policy ?? null).toBeNull();
+  });
+});
+
+describe("listing the workspaces that require single sign-on (decision 0021)", () => {
+  it("lists only them, for the step before switching single sign-on off", async () => {
+    const required = await workspace({ ...POLICY, ssoRequired: true });
+    const other = await workspace(POLICY);
+    const listed = await runOperator(db(), ["workspaces", "--sso-required"], NOW);
+    expect(listed.exitCode).toBe(0);
+    expect(listed.output).toContain(required);
+    expect(listed.output).not.toContain(other);
+    expect((await runOperator(db(), ["workspaces"], NOW)).output).toContain(other);
+    expect(OPERATOR_USAGE).toContain("workspaces [--sso-required]");
   });
 });

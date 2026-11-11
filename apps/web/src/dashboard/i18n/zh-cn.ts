@@ -2483,4 +2483,50 @@ export const zhCN = {
   "audit.policy.sessionAny": "不限制会话时长",
   "audit.policy.clients":
     "{kinds, select, none {仅控制台可以操作} cli {仅控制台和 CLI 可以操作} oauth_apps {仅控制台和已连接的应用可以操作} both {控制台、CLI 和已连接的应用可以操作} other {所有应用都可以操作}}",
+  "space.blockedSso.title": "请使用单点登录继续",
+  "space.blockedSso.body":
+    "{workspace} 要求通过其单点登录进行登录，而此浏览器使用了其他方式登录。使用单点登录后即可回到这里：你的账户保持不变，其他空间也照常可用。如果你的地址不在该工作区身份提供商的服务范围内，请联系工作区管理员。你仍然可以在工作区页面退出该工作区。",
+  "space.blockedSso.action": "使用单点登录",
+  "policies.sso.legend": "单点登录",
+  "policies.sso.hint":
+    "是否要求成员通过此工作区自己的身份提供商登录，才能在控制台、CLI 和已连接的应用中操作此工作区。",
+  "policies.sso.any": "任意登录方式",
+  "policies.sso.anyHint": "电子邮件验证码、Google、GitHub 和单点登录都可以使用。",
+  "policies.sso.only": "仅限单点登录",
+  "policies.sso.onlyHint":
+    "包括管理员。只有从单点登录会话中批准的 CLI 和应用才能使用。服务令牌不受影响。",
+  "policies.sso.notUsable":
+    "请先在包含该功能的套餐中设置单点登录，并服务于已验证的电子邮件域名。在此之前无法强制要求。",
+  "policies.sso.signInFirst":
+    "请先在此浏览器中使用单点登录，确认可用后再强制要求。完成后会回到这里。",
+  "policies.sso.tradeoff":
+    "管理员同样受约束，因此任何账户都无法绕过身份提供商。如果提供商宕机或配置错误，在其恢复或 Portifact 支持应管理员请求解除该要求之前，任何人都无法操作此工作区；每个人的其他空间照常可用。",
+  "policies.sso.required": "成员需通过此工作区的单点登录才能操作它。",
+  "policies.sso.suspended":
+    "已要求单点登录，但提供商目前无法为任何人登录（它不再服务于已验证的域名，或套餐已不包含该功能），因此在恢复之前不会执行该要求。",
+  "policies.impact.ssoTitle": "要求单点登录？",
+  "policies.impact.ssoConfirm": "要求单点登录",
+  "policies.impact.ssoMembers":
+    "{count, plural, one {# 名成员将只能通过单点登录操作此工作区。} other {# 名成员将只能通过单点登录操作此工作区。}}",
+  "policies.impact.ssoOutside":
+    "{count, plural, one {# 名成员的地址不在提供商服务的域名中：他们无法通过它登录，在管理员解除要求或其地址变更前将被拒绝。} other {# 名成员的地址不在提供商服务的域名中：他们无法通过它登录，在管理员解除要求或其地址变更前将被拒绝。}}",
+  "policies.impact.ssoWithout":
+    "{count, plural, one {# 名成员尚无单点登录会话，下次操作时将被要求通过它登录。} other {# 名成员尚无单点登录会话，下次操作时将被要求通过它登录。}}",
+  "policies.impact.ssoNote":
+    "不会让任何人退出登录。通过其他登录方式批准的 CLI 登录和已连接的应用在此工作区会被拒绝，直到该成员从单点登录会话重新批准。",
+  "account.sessions.column.method": "登录方式",
+  "account.apps.method": "批准时使用的登录方式",
+  "account.method.code": "电子邮件验证码",
+  "account.method.google": "Google",
+  "account.method.github": "GitHub",
+  "account.method.sso": "单点登录",
+  "account.method.unknown": "未记录",
+  "audit.policy.sso": "{value, select, true {要求单点登录} other {不要求单点登录}}",
+  "audit.policy.ssoRemoved": "（单点登录提供商已被移除）",
+  "audit.kind.policySsoSuspended":
+    "不再执行单点登录要求：提供商无法为任何人登录（{cause, select, domain {已验证域名发生变化} plan {套餐发生变化} provider {提供商发生变化} other {每日检查发现}}）",
+  "audit.kind.policySsoResumed":
+    "重新执行单点登录要求：提供商可以为成员登录（{cause, select, domain {已验证域名发生变化} plan {套餐发生变化} provider {提供商发生变化} other {每日检查发现}}）",
+  "policies.sso.switchedOff":
+    "已要求单点登录，但此 Portifact 已关闭单点登录：在 Portifact 支持解除该要求或重新开启单点登录之前，没人能通过提供商登录，也没人能操作此工作区。请联系 Portifact 支持。",
 } satisfies Catalog;

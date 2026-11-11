@@ -34,6 +34,7 @@ import { parse } from "tldts";
 import { type AuditActor, auditEvent } from "./audit.ts";
 import type { TxtLookup } from "./cloudflare-hostnames.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { ssoSuspensionStatements } from "./sso-required.ts";
 import { scoped, stillAdmin, type WorkspaceRow } from "./workspaces.ts";
 
 const wd = schema.workspaceDomains;
@@ -298,11 +299,30 @@ export async function verifyWorkspaceDomain(
           global.delete(wd).where(and(holderRow, claimLive)),
           verifiedEvent,
           verify,
+          // Losing or gaining a verified domain can suspend or resume "SSO required" (0021).
+          ...ssoSuspensionStatements(global, {
+            workspaceId: holder.workspaceId,
+            now: input.now,
+            cause: "domain",
+          }),
+          ...ssoSuspensionStatements(global, {
+            workspaceId: workspace.id,
+            now: input.now,
+            cause: "domain",
+          }),
         ])
       )[4];
       verified = rows[0];
     } else {
-      [, [verified]] = await global.batch([verifiedEvent, verify]);
+      [, [verified]] = await global.batch([
+        verifiedEvent,
+        verify,
+        ...ssoSuspensionStatements(global, {
+          workspaceId: workspace.id,
+          now: input.now,
+          cause: "domain",
+        }),
+      ]);
     }
     if (verified) return ok(verified);
   } catch (error) {
@@ -372,6 +392,12 @@ export async function removeWorkspaceDomain(
       .select(sql`select 'workspace_domain', ${wd.id}, ${input.now} from ${wd} where ${target}`)
       .onConflictDoNothing(),
     global.delete(wd).where(target).returning({ id: wd.id }),
+    // A domain the workspace's provider served may leave "SSO required" unmeetable (0021).
+    ...ssoSuspensionStatements(global, {
+      workspaceId: workspace.id,
+      now: input.now,
+      cause: "domain",
+    }),
   ]);
   if (deleted.length > 0) return ok(true);
   const again = await scoped(global, input.userId, input.slug, "members");
@@ -457,6 +483,12 @@ export async function recheckEmailDomains(
           .select(sql`select 'workspace_domain', ${wd.id}, ${now} from ${wd} where ${unchanged}`)
           .onConflictDoNothing(),
         global.delete(wd).where(unchanged).returning({ id: wd.id }),
+        // The daily re-check may leave "SSO required" unmeetable (decision 0021).
+        ...ssoSuspensionStatements(global, {
+          workspaceId: row.workspaceId,
+          now,
+          cause: "domain",
+        }),
       ]);
       result.removed += deleted.length;
       continue;
