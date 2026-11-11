@@ -46,7 +46,9 @@ describe("the EU bucket's endpoint", () => {
     expect(policy).toContain(
       `connect-src 'self' ${storageEndpoint(env.R2_ACCOUNT_ID)} ${storageEndpoint(env.R2_ACCOUNT_ID, "eu")}`,
     );
-    expect(await dashboardCsp(env)).not.toContain(".eu.r2.cloudflarestorage.com");
+    expect(await dashboardCsp({ ...env, R2_BUCKET_EU: undefined })).not.toContain(
+      ".eu.r2.cloudflarestorage.com",
+    );
   });
 });
 
