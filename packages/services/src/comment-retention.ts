@@ -457,11 +457,14 @@ export async function deleteGuardRecord(
 // decides on what it read in this run:
 // - one R2 `list` of the prefix per run and region, from a cursor in `maintenance_cursors`;
 // - records younger than `GUARD_SWEEP.minAgeMs` by R2's own clock, and workspaces whose row
-//   changed within it by D1's, are skipped: a save between its two writes is never swept;
+//   changed within it by D1's, are skipped, so a save between its two writes is not swept unless
+//   it stalls longer than that between them (consecutive calls of one request) or lands in the
+//   one call between the re-read and the delete below; either way its rule is only paused;
 // - one global read per page, for the page's workspaces, by their IDs in one JSON parameter;
 // - each record is read again right before its delete, and kept unless it is still the object
 //   the list returned (same etag) and still disagrees;
-// - any error keeps the record and the cursor, and is logged with an enum reason.
+// - any error keeps the record and is logged with an enum reason; a failed list or policy read
+//   also keeps the cursor, while a failed read or delete of one record waits for the next pass.
 
 /** The prefix every guard record lives under. */
 export const GUARD_PREFIX = guardKey("");
