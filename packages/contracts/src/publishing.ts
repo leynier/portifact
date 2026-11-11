@@ -229,6 +229,14 @@ export const ListQuery = z.object({
 export const ListedArtifactState = z.enum(["active", "archived", "suspended", "purging"]);
 export type ListedArtifactState = z.infer<typeof ListedArtifactState>;
 
+/**
+ * `soon`: active artifacts whose expiry falls within the expiry notices' window (three days), the
+ * ones an expiry notice is about. An EU workspace's notice links the list with this filter
+ * instead of naming them (decision 0005).
+ */
+export const ExpiringFilter = z.enum(["soon"]);
+export type ExpiringFilter = z.infer<typeof ExpiringFilter>;
+
 /** Longest text the artifact list searches for, as long as the longest name. */
 export const LIST_SEARCH_MAX = 200;
 
@@ -244,6 +252,7 @@ export const ArtifactListFilters = z.object({
   annotations: AnnotationsState.optional(),
   /** The artifact with this publish key, if any (decision 0011). */
   key: PublishKey.optional(),
+  expiring: ExpiringFilter.optional(),
 });
 export type ArtifactListFilters = z.infer<typeof ArtifactListFilters>;
 

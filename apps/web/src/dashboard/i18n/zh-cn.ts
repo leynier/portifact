@@ -99,6 +99,8 @@ export const zhCN = {
   "list.filter.type": "类型",
   "list.filter.access": "访问权限",
   "list.filter.annotations": "评论",
+  "list.filter.expiring": "到期",
+  "list.expiring.soon": "3 天内到期",
   "list.filter.any": "全部",
   "list.filter.open": "筛选",
   "list.filter.activeCount": "项已启用",
@@ -1343,6 +1345,8 @@ export const zhCN = {
     "这个 artifact 有一个自定义域名（已生效或待处理）。请先在共享中移除它，再移动 artifact。",
   "transfer.none":
     "没有可以移入的其他空间。你可以把 artifact 移到个人空间，以及你担任编辑者或管理员的 workspace。",
+  "transfer.noneInRegion":
+    "此空间的数据保存在欧盟，因此 artifact 只能移到另一个欧盟空间，而你没有这样的空间。",
   "transfer.confirm.title": "把 {name} 移到 {space}？",
   "transfer.confirm.stays": "保持不变：ID、链接、版本、你添加的人和评论。",
   "transfer.confirm.changes":
@@ -2316,6 +2320,11 @@ export const zhCN = {
   "audit.stream.title": "推送到你的 SIEM",
   "audit.stream.description":
     "Portifact 会把此日志中的每个事件以签名的 JSON Lines 发送到你运行的 HTTPS 端点，按顺序且至少发送一次：每个事件 ID 只保存一次。事件满 {minutes} 分钟后发送。",
+  "region.leaves.title": "发送目标可能位于欧盟以外",
+  "region.leaves.webhooks":
+    "此空间的数据保存在欧盟。Webhook 会发送到你填写的地址，这些地址可能位于任何地方：发送的内容会离开欧盟。",
+  "region.leaves.integrations":
+    "此空间的数据保存在欧盟。你创建的 issue 会发送到 GitHub 或 Linear，它们可能将其保存在任何地方：你发送的内容会离开欧盟。",
   "audit.stream.euTitle": "你的端点可能位于欧盟以外",
   "audit.stream.eu":
     "此空间的数据保存在欧盟。你选择的端点可以位于任何地方：它收到的事件会离开欧盟。",

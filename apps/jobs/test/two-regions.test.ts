@@ -12,7 +12,7 @@ import {
   commentEmail,
   directoryNotifierFromEnv,
   domainNotifierFromEnv,
-  emailNames,
+  expiringListUrl,
   noticeEmail,
   reviewEmail,
 } from "../src/notices.ts";
@@ -21,6 +21,7 @@ import { runOperator } from "../src/operator.ts";
 const NOW = Date.UTC(2026, 10, 10, 12);
 const eu = () => regionsFromEnv(env).get("eu").db;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+const DAY = 86_400_000;
 
 function artifactId(): string {
   let id = "";
@@ -211,16 +212,80 @@ describe("plan changes for an EU workspace", () => {
   });
 });
 
+describe("an EU workspace's expiry notice, from the scan to the email", () => {
+  it("runs in the EU outbox and sends a count and the space's list, never the name", async () => {
+    const regions = regionsFromEnv(env);
+    const admin = `u_${crypto.randomUUID()}`;
+    const email = `${admin}@example.test`;
+    await regions.global.insert(schema.users).values({
+      id: admin,
+      name: "Admin",
+      email,
+      emailVerified: true,
+      createdAt: new Date(NOW),
+      updatedAt: new Date(NOW),
+    });
+    const slug = `eu-${crypto.randomUUID().slice(0, 8)}`;
+    const argv = ["workspace-create", slug, "--name", "EU", "--admin", admin, "--region", "eu"];
+    expect((await runOperator(regions, argv, NOW)).exitCode).toBe(0);
+    const [workspace] = await regions.global
+      .select({ id: schema.workspaces.id })
+      .from(schema.workspaces)
+      .where(eq(schema.workspaces.slug, slug));
+    const ownerId = workspace?.id ?? "";
+    const id = artifactId();
+    const NAME = "Confidential merger plan";
+    await eu()
+      .insert(schema.artifacts)
+      .values({ id, ownerId, type: "site", name: NAME, state: "active", expiresAt: NOW + DAY });
+
+    await runScheduled(env, NOW, null, { relay: false });
+    const [job] = await eu().select().from(schema.outbox).where(eq(schema.outbox.subject, ownerId));
+    expect(job?.topic).toBe("expiry_notice");
+    // Never in the default region's outbox: the job runs with the EU database.
+    expect(
+      await regions.global.select().from(schema.outbox).where(eq(schema.outbox.subject, ownerId)),
+    ).toEqual([]);
+
+    const sent: { to: string; subject: string; text: string; html: string }[] = [];
+    const EMAIL = {
+      async send(message: (typeof sent)[number]) {
+        sent.push(message);
+        return { messageId: "m" };
+      },
+    } as unknown as SendEmail;
+    const body: JobMessage = { id: job?.id ?? 0, topic: "expiry_notice", region: "eu" };
+    await runQueue(
+      createMessageBatch("portifact-jobs", [{ id: "m0", timestamp: NOW, attempts: 1, body }]),
+      { ...env, EMAIL },
+      NOW,
+    );
+    expect(sent).toHaveLength(1);
+    const [notice] = sent;
+    expect(notice?.to).toBe(email);
+    for (const part of [notice?.subject, notice?.text, notice?.html]) {
+      expect(part).not.toContain(NAME);
+      expect(part).not.toContain(id);
+    }
+    expect(notice?.text).toContain(`${env.APP_ORIGIN}/?workspace=${slug}&expiring=soon`);
+  });
+});
+
 describe("notices about an EU workspace's artifacts", () => {
   const NAME = "Confidential merger plan";
   it("name no artifact and quote no comment, while the default region's still name them", () => {
     const expiring = [{ id: "k7d2qm4xab", name: NAME, expiresAt: NOW + 86_400_000 }];
-    const eu = noticeEmail(env, expiring, null, 6, "eu");
-    const home = noticeEmail(env, expiring, null, 6, "default");
+    const eu = noticeEmail(env, expiring, null, 6, "eu", "engines");
+    const home = noticeEmail(env, expiring, null, 6, "default", "engines");
     expect(home.text).toContain(NAME);
-    for (const part of [eu.subject, eu.text, eu.html]) expect(part).not.toContain(NAME);
-    // Each artifact is still there, by its address.
-    expect(eu.text).toContain(`k7d2qm4xab.${env.CONTENT_DOMAIN}`);
+    expect(home.text).toContain(`k7d2qm4xab.${env.CONTENT_DOMAIN}`);
+    // Without names, not even the address: the count, the date and the space's filtered list.
+    for (const part of [eu.subject, eu.text, eu.html]) {
+      expect(part).not.toContain(NAME);
+      expect(part).not.toContain("k7d2qm4xab");
+    }
+    expect(eu.text).toContain(`${env.APP_ORIGIN}/?workspace=engines&expiring=soon`);
+    expect(home).toEqual(noticeEmail(env, expiring, null, 6));
 
     const activity = {
       artifactId: "k7d2qm4xab",
@@ -249,8 +314,10 @@ describe("notices about an EU workspace's artifacts", () => {
     for (const part of [euReview.subject, euReview.text, euReview.html]) {
       expect(part).not.toContain(NAME);
     }
-    expect(emailNames("eu")).toBe(false);
-    expect(emailNames("default")).toBe(true);
+    expect(expiringListUrl("https://app.test", null)).toBe("https://app.test/?expiring=soon");
+    expect(expiringListUrl("https://app.test", "a-b")).toBe(
+      "https://app.test/?workspace=a-b&expiring=soon",
+    );
   });
 
   it("are the only kinds that could name one: directory and domain notices never take a name", async () => {

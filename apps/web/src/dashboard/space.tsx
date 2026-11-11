@@ -6,6 +6,7 @@
 // screens offer, and the API stays the authority.
 import {
   type OwnerView,
+  type Region,
   type RoleAction,
   type WorkspacePolicyShown,
   type WorkspaceRole,
@@ -39,6 +40,8 @@ export type Space =
       slug: string;
       name: string;
       role: WorkspaceRole;
+      /** Where its data is stored (decision 0005); absent reads as the default region. */
+      region?: Region;
       /** Its request policies refuse this browser's network (decision 0020). */
       blocked?: boolean;
     };
@@ -87,6 +90,7 @@ export function useSpace(): SpaceState {
       slug: found.slug,
       name: found.name,
       role: found.role,
+      region: found.region,
       blocked: found.blocked,
     },
     workspaces: items,

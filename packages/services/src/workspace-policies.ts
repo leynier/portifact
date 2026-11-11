@@ -35,6 +35,7 @@ import {
   checkSingleFamily,
   type Entitlements,
   entitlements,
+  errorLabel,
   fail,
   hasFeature,
   lifetimeCutoff,
@@ -784,7 +785,7 @@ export async function enforceWorkspacePolicies(
         console.error(
           JSON.stringify({
             event: "workspace_policy_enforce_failed",
-            error: error instanceof Error ? error.name : "unknown",
+            error: errorLabel(error),
           }),
         );
       }
@@ -800,7 +801,7 @@ export async function enforceWorkspacePolicies(
     console.error(
       JSON.stringify({
         event: "workspace_policy_scan_failed",
-        error: error instanceof Error ? error.name : "unknown",
+        error: errorLabel(error),
       }),
     );
   }

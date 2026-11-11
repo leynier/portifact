@@ -103,6 +103,8 @@ export const es = {
   "list.filter.type": "Tipo",
   "list.filter.access": "Acceso",
   "list.filter.annotations": "Comentarios",
+  "list.filter.expiring": "Vencimiento",
+  "list.expiring.soon": "Vence en 3 días o menos",
   "list.filter.any": "Cualquiera",
   "list.filter.open": "Filtros",
   "list.filter.activeCount": "activos",
@@ -1475,6 +1477,8 @@ export const es = {
     "Este artifact tiene un dominio propio o uno pendiente. Quítalo en Compartir y luego mueve el artifact.",
   "transfer.none":
     "No hay otro espacio al que puedas moverlo. Puedes mover artifacts a tu espacio personal y a workspaces donde seas editor o admin.",
+  "transfer.noneInRegion":
+    "Este espacio guarda sus datos en la UE, así que el artifact solo puede moverse a otro espacio de la UE, y no tienes ninguno.",
   "transfer.confirm.title": "¿Mover {name} a {space}?",
   "transfer.confirm.stays":
     "No cambia: su ID, su enlace, sus versiones, las personas que agregaste y los comentarios.",
@@ -2567,6 +2571,11 @@ export const es = {
   "audit.stream.title": "Envío a tu SIEM",
   "audit.stream.description":
     "Portifact envía cada evento de este registro a un endpoint HTTPS que tú gestionas, como JSON Lines firmado, en orden y al menos una vez: guarda cada ID de evento una sola vez. Un evento se envía cuando tiene {minutes} minutos.",
+  "region.leaves.title": "Adonde lo envías puede estar fuera de la UE",
+  "region.leaves.webhooks":
+    "Los datos de este espacio se guardan en la UE. Las entregas de webhooks van a las direcciones que indicas, que pueden estar en cualquier lugar: lo que llevan sale de la UE.",
+  "region.leaves.integrations":
+    "Los datos de este espacio se guardan en la UE. Las incidencias que creas van a GitHub o Linear, que pueden guardarlas en cualquier lugar: lo que envías sale de la UE.",
   "audit.stream.euTitle": "Tu endpoint puede estar fuera de la UE",
   "audit.stream.eu":
     "Los datos de este espacio se guardan en la UE. El endpoint que elijas puede estar en cualquier lugar: los eventos que recibe salen de la UE.",

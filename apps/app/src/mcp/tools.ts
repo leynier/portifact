@@ -258,17 +258,17 @@ export function createPortifactServer(context: ToolContext): McpServer {
     },
     async (args: PublishDocumentInput) => {
       const { idempotencyKey, ...request } = args;
+      let target: RegionHandles;
+      let targetOwnerId: string | undefined;
+      if (request.artifactId) {
+        target = await artifactRegion(context.env, request.artifactId);
+      } else {
+        const scope = await ownerScope(context.env, context.userId, request.workspace);
+        if (!scope.ok) return failure(scope.code, scope.message);
+        target = regionsOf(context.env).get(scope.value.actor.region);
+        targetOwnerId = scope.value.actor.ownerId;
+      }
       const run = async () => {
-        let target: RegionHandles;
-        let targetOwnerId: string | undefined;
-        if (request.artifactId) {
-          target = await artifactRegion(context.env, request.artifactId);
-        } else {
-          const scope = await ownerScope(context.env, context.userId, request.workspace);
-          if (!scope.ok) return scope;
-          target = regionsOf(context.env).get(scope.value.actor.region);
-          targetOwnerId = scope.value.actor.ownerId;
-        }
         const result = await publishInline(target.db, bucketOf(target), {
           userId: context.userId,
           targetOwnerId,
@@ -285,7 +285,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
           : result;
       };
       const outcome = idempotencyKey
-        ? await idempotent(db, context, idempotencyKey, request, run)
+        ? // The record lives where the publish writes: the owner's region (decision 0005).
+          await idempotent(target.db, context, idempotencyKey, request, run)
         : await run();
       if (!outcome.ok) return failure(outcome.code, outcome.message);
       const body = outcome.value;

@@ -162,7 +162,7 @@ export function apiRoutes(deps: ApiDeps) {
       const db = handles.db;
       const now = deps.now();
       const request = workspace.slug ? { ...body.value, workspace: workspace.slug } : body.value;
-      return idempotent(c, { userId, operation: "publish.prepare", request, now }, () =>
+      return idempotent(c, { db, userId, operation: "publish.prepare", request, now }, () =>
         prepareUpload(
           db,
           {
@@ -263,12 +263,13 @@ export function apiRoutes(deps: ApiDeps) {
         access: param("access"),
         annotations: param("annotations"),
         key: param("key"),
+        expiring: param("expiring"),
       });
       if (!query.success) {
         return error(
           c,
           "invalid_input",
-          "Invalid cursor, limit, search, state, type, access, annotations or key.",
+          "Invalid cursor, limit, search, state, type, access, annotations, key or expiring.",
         );
       }
       const { cursor, limit, ...filters } = query.data;

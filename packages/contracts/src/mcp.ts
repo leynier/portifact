@@ -11,6 +11,7 @@ import {
 import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import { LIMITS } from "./limits.ts";
 import {
+  ExpiringFilter,
   IdempotencyKey,
   LIST_SEARCH_MAX,
   ListedArtifactState,
@@ -75,6 +76,9 @@ export const ListArtifactsInput = z.object({
     "Only artifacts whose annotations are off, open or locked.",
   ),
   key: PublishKey.optional().describe("Only the artifact published with this key, if any."),
+  expiring: ExpiringFilter.optional().describe(
+    "soon: only active artifacts that expire within the next three days.",
+  ),
 });
 export type ListArtifactsInput = z.infer<typeof ListArtifactsInput>;
 

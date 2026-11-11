@@ -117,13 +117,14 @@ export function annotationRoutes(
       const at = now();
       const id = artifactId(c);
       const { turnstileToken, ...thread } = body.value;
+      const db = await artifactDb(c.env, id);
       return idempotent(
         c,
         // The token is single use and not part of what the request asks for: a retry with the
         // same key replays the first answer whatever token it carries.
-        { userId, operation: "annotations.thread.create", request: [id, thread], now: at },
+        { db, userId, operation: "annotations.thread.create", request: [id, thread], now: at },
         async () => {
-          const result = await createAnnotationThread(await artifactDb(c.env, artifactId(c)), {
+          const result = await createAnnotationThread(db, {
             userId,
             artifactId: id,
             ...thread,
@@ -160,16 +161,18 @@ export function annotationRoutes(
       const id = artifactId(c);
       const threadId = param(c, "threadId");
       const { turnstileToken, ...reply } = body.value;
+      const db = await artifactDb(c.env, id);
       return idempotent(
         c,
         {
+          db,
           userId,
           operation: "annotations.message.create",
           request: [id, threadId, reply],
           now: at,
         },
         async () => {
-          const result = await replyToAnnotationThread(await artifactDb(c.env, artifactId(c)), {
+          const result = await replyToAnnotationThread(db, {
             userId,
             artifactId: id,
             threadId,

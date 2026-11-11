@@ -7,9 +7,9 @@
 // or concurrent delivery finds nothing to do and never emails the owner twice. A send that fails
 // puts the row back for the next run; only a Worker dying between the claim and the send loses a
 // notice, which is safer than a second copy and costs nothing but the reminder.
-import { ExpiryNoticePayload } from "@portifact/contracts";
+import { ExpiryNoticePayload, isWorkspaceId } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
-import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   checkNoticeCapacity,
   EXPIRY_NOTICE,
@@ -54,6 +54,11 @@ export interface ExpiryNotifier {
     locale: LocaleCode | null;
     /** How long the owner's plan keeps an archive (`archiveMonths`), for the email's text. */
     archiveMonths: number;
+    /**
+     * The workspace's slug, null for a personal space: the notice of an owner outside the
+     * default region links the dashboard's list in that space instead of naming the artifacts.
+     */
+    space: string | null;
   }): Promise<void>;
 }
 
@@ -198,10 +203,14 @@ function skipped(reason: Skip, artifacts: number): JobOutcome {
   return "stale";
 }
 
-/** Who gets an owner's notice: the user of a personal space, or each admin of a workspace. */
+/**
+ * Who gets an owner's notice: the user of a personal space, or each admin of a workspace, and
+ * the workspace's slug, read with its admins in the same query (`ownerRecipients` plus the slug).
+ */
 async function noticeRecipients(db: RegionalDb, ownerId: string) {
   const recipients: { email: string; locale: LocaleCode | null; optedOut: boolean }[] = [];
-  for (const userId of await ownerRecipients(db.global, ownerId)) {
+  const { userIds, space } = await recipientsAndSpace(db.global, ownerId);
+  for (const userId of userIds) {
     const [user] = await db.global
       .select({ email: schema.users.email })
       .from(schema.users)
@@ -215,7 +224,24 @@ async function noticeRecipients(db: RegionalDb, ownerId: string) {
       optedOut: !settings.expiryNotices,
     });
   }
-  return recipients;
+  return { recipients, space };
+}
+
+/** `ownerRecipients` with the workspace's slug joined in: no read besides the admins'. */
+async function recipientsAndSpace(
+  global: GlobalDb,
+  ownerId: string,
+): Promise<{ userIds: string[]; space: string | null }> {
+  if (!isWorkspaceId(ownerId))
+    return { userIds: await ownerRecipients(global, ownerId), space: null };
+  const m = schema.workspaceMembers;
+  const rows = await global
+    .select({ userId: m.userId, slug: schema.workspaces.slug })
+    .from(m)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, m.workspaceId))
+    .where(and(eq(m.workspaceId, ownerId), eq(m.role, "admin")))
+    .orderBy(m.userId);
+  return { userIds: rows.map((row) => row.userId), space: rows[0]?.slug ?? null };
 }
 
 /**
@@ -243,7 +269,7 @@ export async function sendExpiryNotice(
   if (!payload.success) return skipped("nothing_due", 0);
   const scheduled = payload.data.artifacts;
 
-  const recipients = await noticeRecipients(db, ownerId);
+  const { recipients, space } = await noticeRecipients(db, ownerId);
   if (recipients.length === 0) return skipped("no_account", scheduled.length);
   const opted = recipients.filter((recipient) => !recipient.optedOut);
   if (opted.length === 0) return skipped("opted_out", scheduled.length);
@@ -295,6 +321,7 @@ export async function sendExpiryNotice(
         artifacts,
         locale: recipient.locale,
         archiveMonths,
+        space,
       });
     } catch (error) {
       if (error instanceof RecipientSuppressedError) {

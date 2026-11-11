@@ -2,7 +2,7 @@
 // automatic protection and the alerts it earns, and email the operator when that is configured.
 // Collector and notifier are injected so every path is tested with fakes.
 import type { Regions } from "@portifact/db";
-import { budgetCycle, type PlatformMetrics } from "@portifact/domain";
+import { budgetCycle, errorLabel, type PlatformMetrics } from "@portifact/domain";
 import { budgetAlertEmail } from "@portifact/emails";
 import {
   type AnalyticsStatus,
@@ -91,8 +91,8 @@ export async function runBudget(
       analytics = "ok";
     } catch (error) {
       analytics = "failed";
-      // The collector's errors hold only a status or a count, never the token.
-      console.error(JSON.stringify({ event: "budget_analytics_failed", error: String(error) }));
+      // Only the error's label: its message is free text (`errorLabel`, decision 0005).
+      console.error(JSON.stringify({ event: "budget_analytics_failed", error: errorLabel(error) }));
     }
   }
   const recorded = await recordBudgetMeasurement(db, { metrics, analytics, now });

@@ -9,6 +9,7 @@
 // a minute from one IP (docs/operations.md).
 import type { GlobalDb } from "@portifact/db";
 import {
+  errorLabel,
   PROTECTION_TRAFFIC_LIMITS,
   type ProtectionAction,
   trafficLimited,
@@ -46,8 +47,6 @@ export function resetProtectionCache(options: { maxRefusals?: number } = {}): vo
   maxRefusals = options.maxRefusals ?? MAX_REMEMBERED_REFUSALS;
 }
 
-const errorName = (error: unknown) => (error instanceof Error ? error.name : typeof error);
-
 async function protectionActions(db: GlobalDb, now: number): Promise<ProtectionAction[]> {
   if (cached && now - cached.readAt < PROTECTION_TTL_MS) return cached.actions;
   let actions: ProtectionAction[] = [];
@@ -56,7 +55,7 @@ async function protectionActions(db: GlobalDb, now: number): Promise<ProtectionA
   } catch (error) {
     // Unreadable state never stops delivery; the next minute reads it again.
     console.error(
-      JSON.stringify({ event: "budget_protection_unreadable", error: errorName(error) }),
+      JSON.stringify({ event: "budget_protection_unreadable", error: errorLabel(error) }),
     );
   }
   cached = { actions, readAt: now };
@@ -99,7 +98,7 @@ export async function overTrafficLimit(
     remember(key, hit.resetAt, now);
     return hit.resetAt;
   } catch (error) {
-    console.error(JSON.stringify({ event: "traffic_limiter_failed", error: errorName(error) }));
+    console.error(JSON.stringify({ event: "traffic_limiter_failed", error: errorLabel(error) }));
     return null;
   }
 }

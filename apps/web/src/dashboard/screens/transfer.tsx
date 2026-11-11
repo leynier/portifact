@@ -1,10 +1,12 @@
 // Moving an artifact to another space, from its page (premium plan T1). The destinations are the
 // spaces where the user may publish: the personal space and workspaces where they are an editor
 // or admin. Taking an artifact out of a workspace needs an admin of it, and an artifact with a
-// custom domain does not move, so both are said before anything is chosen. The dialog says what
+// custom domain does not move, so both are said before anything is chosen. A workspace's region
+// is fixed (decision 0005): only spaces in the artifact's own region are offered, and an EU
+// artifact with no other EU space to go to says so. The dialog says what
 // moves and what stays, and the API checks everything again (room in the destination, an open
 // upload, the roles).
-import type { ArtifactSummary } from "@portifact/contracts";
+import { type ArtifactSummary, DEFAULT_REGION } from "@portifact/contracts";
 import { Button, Callout, ConfirmDialog, Panel, Select } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -52,11 +54,21 @@ export function TransferArtifact({ artifact }: { artifact: ArtifactSummary }) {
   const sourceName = source.kind === "personal" ? t("space.personal") : source.name;
   // Out of a workspace only with an admin of it; in a personal space the user is its admin.
   const mayLeave = sourceRole !== undefined && spaceCan({ role: sourceRole }, "transfer_out");
+  // An artifact never moves between regions; a personal space is always in the default one.
+  const sourceRegion =
+    source.kind === "personal"
+      ? DEFAULT_REGION
+      : (items.find((w) => w.slug === source.slug)?.region ?? DEFAULT_REGION);
   const destinations = [
-    ...(source.kind === "personal" ? [] : [{ value: PERSONAL, label: t("space.personal") }]),
+    ...(source.kind === "personal" || sourceRegion !== DEFAULT_REGION
+      ? []
+      : [{ value: PERSONAL, label: t("space.personal") }]),
     ...items
       .filter(
-        (w) => spaceCan(w, "transfer") && !(source.kind === "workspace" && source.slug === w.slug),
+        (w) =>
+          spaceCan(w, "transfer") &&
+          w.region === sourceRegion &&
+          !(source.kind === "workspace" && source.slug === w.slug),
       )
       .map((w) => ({ value: w.slug, label: `${w.name} (${t(ROLE_LABELS[w.role])})` })),
   ];
@@ -102,7 +114,11 @@ export function TransferArtifact({ artifact }: { artifact: ArtifactSummary }) {
       </Callout>
     );
   } else if (workspaces.isSuccess && destinations.length === 0) {
-    body = <p className="text-sm text-text-muted">{t("transfer.none")}</p>;
+    body = (
+      <p className="text-sm text-text-muted">
+        {t(sourceRegion === DEFAULT_REGION ? "transfer.none" : "transfer.noneInRegion")}
+      </p>
+    );
   } else {
     body = (
       <div className="flex flex-wrap items-end gap-3">

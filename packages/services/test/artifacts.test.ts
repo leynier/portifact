@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
-import { personalActor } from "@portifact/domain";
+import { noticeWindowEnd, personalActor } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { decodeCursor, encodeCursor, getArtifact, listArtifacts } from "../src/artifacts.ts";
@@ -178,6 +178,25 @@ describe("searching and filtering an owner's artifacts", () => {
     expect(await ids(owner, { type: "site", state: "active", access: "public" })).toEqual([site]);
     expect(await ids(owner, { type: "site", access: "authenticated" })).toEqual([]);
     expect(await ids(owner, {})).toHaveLength(5);
+  });
+
+  it("lists with expiring=soon the active artifacts an expiry notice is about", async () => {
+    const owner = `u_${crypto.randomUUID()}`;
+    const DAY = 86_400_000;
+    const [tomorrow, inThree, inFour, past, archived, pinned] = await insertRows(owner, [
+      { expiresAt: NOW + DAY },
+      { expiresAt: NOW + 3 * DAY },
+      { expiresAt: NOW + 3 * DAY + 1 },
+      { expiresAt: NOW - 1 },
+      { state: "archived", expiresAt: NOW + DAY },
+      { pinned: true, expiresAt: null },
+    ]);
+    const soon = await ids(owner, { expiring: "soon" });
+    expect(soon).toEqual([inThree, tomorrow]);
+    for (const id of [inFour, past, archived, pinned]) expect(soon).not.toContain(id);
+    // The window is the expiry notices' own (noticeWindowEnd), so the list holds what they count.
+    expect(NOW + 3 * DAY).toBe(noticeWindowEnd(NOW));
+    expect(await ids(owner, { expiring: "soon", search: "nothing like this" })).toEqual([]);
   });
 
   it("pages through the filtered artifacts once", async () => {

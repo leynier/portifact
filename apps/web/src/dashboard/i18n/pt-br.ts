@@ -105,6 +105,8 @@ export const ptBR = {
   "list.filter.type": "Tipo",
   "list.filter.access": "Acesso",
   "list.filter.annotations": "Comentários",
+  "list.filter.expiring": "Expiração",
+  "list.expiring.soon": "Expira em até 3 dias",
   "list.filter.any": "Qualquer",
   "list.filter.open": "Filtros",
   "list.filter.activeCount": "ativos",
@@ -1460,6 +1462,8 @@ export const ptBR = {
     "Este artifact tem um domínio próprio, ativo ou pendente. Remova em Compartilhamento e depois mova o artifact.",
   "transfer.none":
     "Não há outro espaço para onde você possa movê-lo. Você pode mover artifacts para o seu espaço pessoal e para workspaces em que seja editor ou admin.",
+  "transfer.noneInRegion":
+    "Este espaço mantém os dados na UE, então o artifact só pode ir para outro espaço da UE, e você não tem nenhum.",
   "transfer.confirm.title": "Mover {name} para {space}?",
   "transfer.confirm.stays":
     "Não muda: o ID, o link, as versões, as pessoas que você adicionou e os comentários.",
@@ -2544,6 +2548,11 @@ export const ptBR = {
   "audit.stream.title": "Envio para o seu SIEM",
   "audit.stream.description":
     "O Portifact envia cada evento deste registro para um endpoint HTTPS que você mantém, como JSON Lines assinado, em ordem e pelo menos uma vez: guarde cada ID de evento uma só vez. Um evento é enviado quando tem {minutes} minutos.",
+  "region.leaves.title": "O destino pode estar fora da UE",
+  "region.leaves.webhooks":
+    "Os dados deste espaço são mantidos na UE. As entregas de webhooks vão para os endereços que você informa, que podem estar em qualquer lugar: o que elas levam sai da UE.",
+  "region.leaves.integrations":
+    "Os dados deste espaço são mantidos na UE. As issues que você cria vão para o GitHub ou o Linear, que podem guardá-las em qualquer lugar: o que você envia sai da UE.",
   "audit.stream.euTitle": "Seu endpoint pode estar fora da UE",
   "audit.stream.eu":
     "Os dados deste espaço ficam na UE. O endpoint que você escolher pode estar em qualquer lugar: os eventos que ele recebe saem da UE.",

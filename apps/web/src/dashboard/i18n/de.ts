@@ -107,6 +107,8 @@ export const de = {
   "list.filter.type": "Typ",
   "list.filter.access": "Zugriff",
   "list.filter.annotations": "Kommentare",
+  "list.filter.expiring": "Ablauf",
+  "list.expiring.soon": "Läuft in höchstens 3 Tagen ab",
   "list.filter.any": "Alle",
   "list.filter.open": "Filter",
   "list.filter.activeCount": "aktiv",
@@ -1480,6 +1482,8 @@ export const de = {
     "Dieses Artifact hat eine eigene Domain, aktiv oder ausstehend. Entferne sie unter Teilen und verschieb dann das Artifact.",
   "transfer.none":
     "Es gibt keinen anderen Bereich, in den du es verschieben kannst. Du kannst Artifacts in deinen persönlichen Bereich und in Workspaces verschieben, in denen du Editor oder Admin bist.",
+  "transfer.noneInRegion":
+    "Dieser Bereich speichert seine Daten in der EU, daher kann das Artifact nur in einen anderen EU-Bereich verschoben werden, und du hast keinen.",
   "transfer.confirm.title": "{name} nach {space} verschieben?",
   "transfer.confirm.stays":
     "Bleibt gleich: die ID, der Link, die Versionen, die Personen, die du hinzugefügt hast, und die Kommentare.",
@@ -2582,6 +2586,11 @@ export const de = {
   "audit.stream.title": "An Ihr SIEM senden",
   "audit.stream.description":
     "Portifact sendet jedes Ereignis dieses Protokolls an einen HTTPS-Endpunkt, den Sie betreiben, als signierte JSON Lines, in Reihenfolge und mindestens einmal: Speichern Sie jede Ereignis-ID nur einmal. Ein Ereignis wird gesendet, sobald es {minutes} Minuten alt ist.",
+  "region.leaves.title": "Das Ziel kann außerhalb der EU liegen",
+  "region.leaves.webhooks":
+    "Die Daten dieses Bereichs werden in der EU gespeichert. Webhook-Zustellungen gehen an die Adressen, die du einträgst, und die können überall sein: Was sie enthalten, verlässt die EU.",
+  "region.leaves.integrations":
+    "Die Daten dieses Bereichs werden in der EU gespeichert. Issues, die du erstellst, gehen an GitHub oder Linear, die sie überall speichern können: Was du sendest, verlässt die EU.",
   "audit.stream.euTitle": "Ihr Endpunkt kann außerhalb der EU liegen",
   "audit.stream.eu":
     "Die Daten dieses Bereichs werden in der EU gespeichert. Der gewählte Endpunkt kann überall liegen: Die Ereignisse, die er empfängt, verlassen die EU.",

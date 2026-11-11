@@ -388,6 +388,26 @@ describe("artifact search and filters", () => {
     await waitFor(() => expect(rowNames()).toEqual(["Launch plan"]));
   });
 
+  it("opens the list of artifacts expiring soon from an expiry notice's link (decision 0005)", async () => {
+    server.artifacts.push(
+      artifact("e2x3p4i5rs", {
+        name: "Expiring plan",
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      }),
+    );
+    const { container, router } = renderDashboard("/?expiring=soon", server);
+    await waitFor(() => expect(rowNames()).toEqual(["Expiring plan"]));
+    expect(lastListPath()).toBe("/api/v1/artifacts?expiring=soon");
+    expect(router.state.location.search).toEqual({ expiring: "soon" });
+    expect(chosen("Expiry")).toBe("Expires within 3 days");
+    expect(await axeViolations(container)).toEqual([]);
+    choose("Expiry", "Any");
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
+    // A value the API would refuse is dropped from the URL's filters.
+    renderDashboard("/?expiring=later", server);
+    await waitFor(() => expect(lastListPath()).toBe("/api/v1/artifacts"));
+  });
+
   it("puts the filters behind a Filters button with their count on a phone", async () => {
     setViewportWidth(375);
     try {

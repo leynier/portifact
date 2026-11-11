@@ -120,7 +120,10 @@ describe("budget run", () => {
       notifier: null,
     });
     expect(result).toMatchObject({ analytics: "failed", level: "protect100" });
-    expect(errors).toHaveBeenCalledWith(expect.stringContaining("HTTP 500"));
+    // The error's label only: its message is free text (decision 0005, "What leaves the region").
+    expect(errors).toHaveBeenCalledWith(
+      JSON.stringify({ event: "budget_analytics_failed", error: "Error" }),
+    );
   });
 
   it("ignores values that are not finite numbers", async () => {

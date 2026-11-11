@@ -65,12 +65,19 @@ export function approvalReviewRoutes(
       if (!body.ok) return body.response;
       const artifactId = c.req.param("artifactId") as string;
       const at = now();
+      const db = await artifactDb(c.env, artifactId);
       return idempotent(
         c,
-        { userId, operation: "review.request", request: { artifactId, ...body.value }, now: at },
+        {
+          db,
+          userId,
+          operation: "review.request",
+          request: { artifactId, ...body.value },
+          now: at,
+        },
         async () =>
           reviewResponse(
-            await requestApprovalReview(await artifactDb(c.env, artifactId), {
+            await requestApprovalReview(db, {
               userId,
               artifactId,
               reviewers: body.value.reviewers,
@@ -91,12 +98,13 @@ export function approvalReviewRoutes(
       if (!body.ok) return body.response;
       const artifactId = c.req.param("artifactId") as string;
       const at = now();
+      const db = await artifactDb(c.env, artifactId);
       return idempotent(
         c,
-        { userId, operation: "review.change", request: { artifactId, ...body.value }, now: at },
+        { db, userId, operation: "review.change", request: { artifactId, ...body.value }, now: at },
         async () =>
           reviewResponse(
-            await changeApprovalReview(await artifactDb(c.env, artifactId), {
+            await changeApprovalReview(db, {
               userId,
               artifactId,
               ...body.value,
@@ -129,12 +137,19 @@ export function approvalReviewRoutes(
       if (!body.ok) return body.response;
       const artifactId = c.req.param("artifactId") as string;
       const at = now();
+      const db = await artifactDb(c.env, artifactId);
       return idempotent(
         c,
-        { userId, operation: "review.verdict", request: { artifactId, ...body.value }, now: at },
+        {
+          db,
+          userId,
+          operation: "review.verdict",
+          request: { artifactId, ...body.value },
+          now: at,
+        },
         async () =>
           reviewResponse(
-            await submitApprovalVerdict(await artifactDb(c.env, artifactId), {
+            await submitApprovalVerdict(db, {
               userId,
               artifactId,
               verdict: body.value.verdict,

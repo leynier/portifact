@@ -6,11 +6,11 @@ import {
   type OAuthScope,
   WorkspaceParam,
 } from "@portifact/contracts";
+import type { RegionalDb } from "@portifact/db";
 import { hashRequest, runIdempotent, type StoredResponse } from "@portifact/services";
 import type { Context } from "hono";
 import type { z } from "zod";
 import type { Env } from "../env.ts";
-import { defaultDb } from "../regions.ts";
 
 export type ApiContext = Context<{ Bindings: Env }>;
 
@@ -76,11 +76,13 @@ export async function readJson<T extends z.ZodType>(
 
 /**
  * Runs `work` once per `Idempotency-Key` for the user: a retry with the same key and request
- * gets the stored response. `request` must identify the whole request, path included.
+ * gets the stored response. `request` must identify the whole request, path included. The record
+ * holds the response, so it lives in `db`, the database the operation writes (the owner's region,
+ * decision 0005): an EU artifact's comment never rests in the default database, even for a day.
  */
 export async function idempotent(
   c: ApiContext,
-  input: { userId: string; operation: string; request: unknown; now: number },
+  input: { db: RegionalDb; userId: string; operation: string; request: unknown; now: number },
   work: () => Promise<StoredResponse>,
 ): Promise<Response> {
   const key = IdempotencyKey.safeParse(c.req.header("idempotency-key"));
@@ -88,7 +90,7 @@ export async function idempotent(
     return error(c, "invalid_input", "Send an Idempotency-Key header (8 to 128 characters).");
   }
   const outcome = await runIdempotent(
-    defaultDb(c.env),
+    input.db,
     {
       actorId: input.userId,
       key: key.data,

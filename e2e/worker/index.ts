@@ -106,15 +106,16 @@ export default {
     }
     // Artifact hosts, and any other name but the app's: custom hosts (decision 0006).
     if (host.endsWith(`.${env.CONTENT_DOMAIN}`) || host !== new URL(env.APP_ORIGIN).hostname) {
-      // Like the content Worker's own fetch: traffic, access log and view batches after the response.
+      // Like the content Worker's own fetch: traffic, access log and view batches after the
+      // response, each in the artifact's region (decision 0005).
       const waitUntil = (promise: Promise<unknown>) => ctx.waitUntil(promise);
       return handle(
         request,
         env,
         contentNow(host),
-        (charge) => isolateMeter(env).count(charge, waitUntil),
-        (opening) => isolateOpenings(env).record(opening, waitUntil),
-        (view) => isolateViews(env).count(view, waitUntil),
+        (charge, region) => isolateMeter(env, region).count(charge, waitUntil),
+        (opening, region) => isolateOpenings(env, region).record(opening, waitUntil),
+        (view, region) => isolateViews(env, region).count(view, waitUntil),
       );
     }
     return app.fetch(request, env, ctx);

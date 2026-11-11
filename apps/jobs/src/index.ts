@@ -7,6 +7,7 @@
 // queue records the bounces and
 // complaints Cloudflare Email Service reports. Every job is idempotent and guards every
 // transition, so overlapping runs, retries and duplicate deliveries are safe.
+
 import { BACKGROUND, DEFAULT_REGION, EmailSendingEvent, JobMessage } from "@portifact/contracts";
 import {
   createAccessDb,
@@ -16,6 +17,7 @@ import {
   regionsFromEnv,
   withRequestContext,
 } from "@portifact/db";
+import { errorLabel } from "@portifact/domain";
 import {
   checkCustomDomains,
   type DomainDeps,
@@ -83,8 +85,6 @@ export const FAILED_RETRY_SECONDS = 60;
 /** The queue Cloudflare Email Service publishes `message.bounced` and `message.complained` to. */
 export const EMAIL_EVENTS_QUEUE = "portifact-email-events";
 
-const errorName = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
 /** Cloudflare's custom hostnames and DNS, or null while custom domains are switched off. */
 export function domainsFromEnv(env: Env, fetcher: typeof fetch = fetch): DomainDeps | null {
   return domainDepsFromEnv(env, (input, init) => fetcher(input, init));
@@ -113,7 +113,7 @@ export async function runRelay(env: Env, now: number): Promise<number | "failed"
         JSON.stringify({
           event: "outbox_relay_failed",
           region: handles.region,
-          error: errorName(error),
+          error: errorLabel(error),
         }),
       );
     }
@@ -162,7 +162,7 @@ export async function runScheduled(
     customDomains = await checkCustomDomains(domainDbs(regions), domains, now);
   } catch (error) {
     customDomains = "failed";
-    console.error(JSON.stringify({ event: "custom_domains_failed", error: errorName(error) }));
+    console.error(JSON.stringify({ event: "custom_domains_failed", error: errorLabel(error) }));
   }
   // Workspace email domains: a DNS failure is never a miss, and never hides the rest of the run.
   let emailDomains: Awaited<ReturnType<typeof recheckEmailDomains>> | "skipped" | "failed" =
@@ -172,7 +172,7 @@ export async function runScheduled(
       emailDomains = await recheckEmailDomains(regions.global, options.emailDomains, now);
     } catch (error) {
       emailDomains = "failed";
-      console.error(JSON.stringify({ event: "email_domains_failed", error: errorName(error) }));
+      console.error(JSON.stringify({ event: "email_domains_failed", error: errorLabel(error) }));
     }
   }
   // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
@@ -226,7 +226,7 @@ export async function runScheduled(
         JSON.stringify({
           event: "access_log_prune_failed",
           region: handles.region,
-          error: errorName(error),
+          error: errorLabel(error),
         }),
       );
     }
@@ -289,7 +289,7 @@ export async function runEmailEvents(db: GlobalDb, batch: MessageBatch<unknown>,
         }),
       );
     } catch (error) {
-      console.error(JSON.stringify({ event: "email_event_failed", error: errorName(error) }));
+      console.error(JSON.stringify({ event: "email_event_failed", error: errorLabel(error) }));
       message.retry({ delaySeconds: FAILED_RETRY_SECONDS });
     }
   }
@@ -354,7 +354,7 @@ export async function runQueue(
       console.log(JSON.stringify({ event: "job", ...parsed.data, outcome }));
     } catch (error) {
       console.error(
-        JSON.stringify({ event: "job_failed", ...parsed.data, error: errorName(error) }),
+        JSON.stringify({ event: "job_failed", ...parsed.data, error: errorLabel(error) }),
       );
       message.retry({ delaySeconds: FAILED_RETRY_SECONDS });
     }

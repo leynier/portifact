@@ -100,6 +100,8 @@ export const en = {
   "list.filter.type": "Type",
   "list.filter.access": "Access",
   "list.filter.annotations": "Comments",
+  "list.filter.expiring": "Expiry",
+  "list.expiring.soon": "Expires within 3 days",
   "list.filter.any": "Any",
   "list.filter.open": "Filters",
   "list.filter.activeCount": "on",
@@ -1427,6 +1429,8 @@ export const en = {
     "This artifact has a custom domain or a pending one. Remove it under Sharing, then move the artifact.",
   "transfer.none":
     "There is no other space you can move it to. You can move artifacts to your personal space and to workspaces where you are an editor or admin.",
+  "transfer.noneInRegion":
+    "This space keeps its data in the EU, so the artifact can only move to another EU space, and you have none.",
   "transfer.confirm.title": "Move {name} to {space}?",
   "transfer.confirm.stays":
     "Stays the same: its ID, its link, its versions, the people you added and the comments.",
@@ -2501,6 +2505,11 @@ export const en = {
   "audit.stream.title": "Stream to your SIEM",
   "audit.stream.description":
     "Portifact posts every event of this log to an HTTPS endpoint you run, as signed JSON Lines, in order and at least once: keep each event ID once. An event is sent once it is {minutes} minutes old.",
+  "region.leaves.title": "Where you send it may be outside the EU",
+  "region.leaves.webhooks":
+    "This space's data is kept in the EU. Webhook deliveries go to the addresses you enter, which may be anywhere: what they carry leaves the EU.",
+  "region.leaves.integrations":
+    "This space's data is kept in the EU. Issues you create go to GitHub or Linear, which may keep them anywhere: what you send leaves the EU.",
   "audit.stream.euTitle": "Your endpoint may be outside the EU",
   "audit.stream.eu":
     "This space's data is kept in the EU. The endpoint you choose may be anywhere: the events it receives leave the EU.",
