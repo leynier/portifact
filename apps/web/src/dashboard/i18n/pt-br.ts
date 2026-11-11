@@ -1968,6 +1968,86 @@ export const ptBR = {
   "tokens.createdOn": "Criado em {date}",
   "tokens.revoked": "Token {label} revogado",
   "tokens.confirm.title": "Revogar {label}?",
+  "github.title": "GitHub Actions",
+  "github.hint":
+    "Permite que os workflows de um repositório confiável publiquem previews sem um token guardado.",
+  "github.off":
+    "O acesso com GitHub Actions ainda não está disponível no Portifact. Mesmo assim, você pode remover os repositórios desta lista.",
+  "github.audience": "Audiência",
+  "github.audienceHint":
+    "O workflow pede ao GitHub um ID token com esta audiência. A ação de previews e a CLI fazem isso por você.",
+  "github.loading": "Carregando repositórios confiáveis",
+  "github.loadFailed": "Não foi possível carregar os repositórios confiáveis.",
+  "github.empty.title": "Nenhum repositório confiável",
+  "github.empty.body":
+    "Confie em um repositório para que os workflows dele publiquem previews neste workspace sem um token.",
+  "github.create.title": "Confiar em um repositório",
+  "github.create.hint":
+    "A confiança fica ligada aos IDs numéricos do GitHub: um repositório renomeado continua confiável, um apagado e criado de novo não.",
+  "github.create.repository": "Repositório",
+  "github.create.repositoryHint": "Como dono/nome. Só é mostrado às pessoas; nunca é verificado.",
+  "github.create.repositoryError": "Use dono/nome, como acme/site.",
+  "github.create.repositoryId": "ID do repositório",
+  "github.create.ownerId": "ID do dono",
+  "github.create.idsHint":
+    "Encontre os dois com gh api repos/OWNER/REPO --jq .id,.owner.id, ou em GITHUB_REPOSITORY_ID e GITHUB_REPOSITORY_OWNER_ID de uma execução.",
+  "github.create.idError": "Use o número que o GitHub mostra.",
+  "github.create.events": "Eventos que podem publicar",
+  "github.create.eventsError": "Escolha pelo menos um evento.",
+  "github.event.push": "push",
+  "github.event.pushHint":
+    "Pushes para o repositório. Só pessoas com permissão de escrita podem fazê-los.",
+  "github.event.pull_request": "pull_request",
+  "github.event.pull_requestHint":
+    "Pull requests. Em um repositório público a execução de um fork não recebe ID token, então só os branches do próprio repositório publicam. Em um privado com tokens de escrita para forks, a execução de um fork também pode publicar.",
+  "github.event.workflow_dispatch": "workflow_dispatch",
+  "github.event.workflow_dispatchHint":
+    "Execuções iniciadas manualmente por pessoas com permissão de escrita.",
+  "github.event.merge_group": "merge_group",
+  "github.event.merge_groupHint":
+    "Execuções da fila de merge, iniciadas pelo GitHub para o repositório.",
+  "github.event.release": "release",
+  "github.event.releaseHint": "Releases publicadas no repositório.",
+  "github.event.schedule": "schedule",
+  "github.event.scheduleHint": "Execuções agendadas do branch principal.",
+  "github.event.pull_request_target": "pull_request_target",
+  "github.event.pull_request_targetHint":
+    "Execuções privilegiadas que o pull request de um fork pode iniciar. Seguras só se o workflow nunca compilar o código do fork.",
+  "github.event.workflow_run": "workflow_run",
+  "github.event.workflow_runHint":
+    "Execuções privilegiadas iniciadas por outro workflow, que o pull request de um fork pode disparar. Seguras só se o workflow nunca compilar o código do fork.",
+  "github.create.privileged":
+    "Entendo que o pull request de um fork pode iniciar essas execuções e que o workflow nunca compila o código dele",
+  "github.create.privilegedError": "Confirme para confiar em pull_request_target ou workflow_run.",
+  "github.create.ref": "Ref (opcional)",
+  "github.create.refHint":
+    "Exata, como refs/heads/main. A ref de uma execução de pull request é refs/pull/NÚMERO/merge, então com uma ref de branch nenhum pull request publica.",
+  "github.create.refError": "Use uma ref completa que comece com refs/.",
+  "github.create.environment": "Ambiente (opcional)",
+  "github.create.environmentHint":
+    "Nome exato. O GitHub aplica as regras de proteção do ambiente, como revisores obrigatórios, antes de o job receber o token.",
+  "github.create.scopes": "O que as execuções podem fazer",
+  "github.create.scopesError": "Escolha pelo menos um.",
+  "github.create.submit": "Confiar no repositório",
+  "github.create.limit": "Um workspace pode confiar em no máximo {limit} repositórios.",
+  "github.created": "Agora {repository} é confiável.",
+  "github.rule.ids": "ID do repositório {repositoryId}, ID do dono {ownerId}",
+  "github.rule.events": "Eventos: {events}",
+  "github.rule.prefix": "Publica só chaves que começam com {prefix}",
+  "github.rule.ref": "Ref: {ref}",
+  "github.rule.environment": "Ambiente: {environment}",
+  "github.rule.live":
+    "{count, plural, =0 {Nenhuma credencial ativa} one {# credencial ativa} other {# credenciais ativas}}",
+  "github.remove": "Remover",
+  "github.removeLabel": "Deixar de confiar em {repository}",
+  "github.confirm.title": "Deixar de confiar em {repository}?",
+  "github.confirm.body":
+    "Os workflows dele não poderão mais publicar, e as credenciais já emitidas para as execuções param de funcionar na hora.",
+  "github.removed": "{repository} não é mais confiável.",
+  "audit.kind.githubTrusted": "Confiou no repositório do GitHub {repository}",
+  "audit.kind.githubTrustChanged": "Mudou a confiança no repositório do GitHub {repository}",
+  "audit.kind.githubTrustRemoved": "Deixou de confiar no repositório do GitHub {repository}",
+  "audit.kind.githubExchanged": "A execução do GitHub {run} de {repository} recebeu uma credencial",
   "tokens.confirm.body":
     "Tudo que o usa para de funcionar na próxima requisição. Não dá para desfazer.",
   "access.workspace": "Todo o workspace",

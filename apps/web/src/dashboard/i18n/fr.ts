@@ -2002,6 +2002,88 @@ export const fr = {
   "tokens.createdOn": "Créé le {date}",
   "tokens.revoked": "Jeton {label} révoqué",
   "tokens.confirm.title": "Révoquer {label} ?",
+  "github.title": "GitHub Actions",
+  "github.hint":
+    "Permettre aux workflows d'un dépôt de confiance de publier des aperçus sans jeton enregistré.",
+  "github.off":
+    "La connexion avec GitHub Actions n'est pas encore disponible sur Portifact. Vous pouvez quand même retirer les dépôts listés ici.",
+  "github.audience": "Audience",
+  "github.audienceHint":
+    "Le workflow demande à GitHub un ID token avec cette audience. L'action d'aperçu et la CLI le font pour vous.",
+  "github.loading": "Chargement des dépôts de confiance",
+  "github.loadFailed": "Les dépôts de confiance n'ont pas pu être chargés.",
+  "github.empty.title": "Aucun dépôt de confiance",
+  "github.empty.body":
+    "Faites confiance à un dépôt pour que ses workflows publient des aperçus dans ce workspace sans jeton.",
+  "github.create.title": "Faire confiance à un dépôt",
+  "github.create.hint":
+    "La confiance est liée aux identifiants numériques de GitHub : un dépôt renommé reste de confiance, un dépôt supprimé puis recréé ne l'est plus.",
+  "github.create.repository": "Dépôt",
+  "github.create.repositoryHint":
+    "Sous la forme propriétaire/nom. Affiché aux personnes seulement ; jamais vérifié.",
+  "github.create.repositoryError": "Utilisez propriétaire/nom, par exemple acme/site.",
+  "github.create.repositoryId": "ID du dépôt",
+  "github.create.ownerId": "ID du propriétaire",
+  "github.create.idsHint":
+    "Trouvez-les avec gh api repos/OWNER/REPO --jq .id,.owner.id, ou dans GITHUB_REPOSITORY_ID et GITHUB_REPOSITORY_OWNER_ID d'une exécution.",
+  "github.create.idError": "Utilisez le nombre affiché par GitHub.",
+  "github.create.events": "Événements autorisés à publier",
+  "github.create.eventsError": "Choisissez au moins un événement.",
+  "github.event.push": "push",
+  "github.event.pushHint":
+    "Les push vers le dépôt. Seules les personnes ayant l'accès en écriture peuvent pousser.",
+  "github.event.pull_request": "pull_request",
+  "github.event.pull_requestHint":
+    "Les pull requests. Dans un dépôt public, l'exécution d'un fork ne reçoit pas d'ID token : seules les branches du dépôt lui-même publient. Dans un dépôt privé avec les jetons d'écriture pour les forks, l'exécution d'un fork peut aussi publier.",
+  "github.event.workflow_dispatch": "workflow_dispatch",
+  "github.event.workflow_dispatchHint":
+    "Les exécutions lancées à la main par des personnes ayant l'accès en écriture.",
+  "github.event.merge_group": "merge_group",
+  "github.event.merge_groupHint":
+    "Les exécutions de la file de fusion, lancées par GitHub pour le dépôt.",
+  "github.event.release": "release",
+  "github.event.releaseHint": "Les releases publiées dans le dépôt.",
+  "github.event.schedule": "schedule",
+  "github.event.scheduleHint": "Les exécutions planifiées de la branche par défaut.",
+  "github.event.pull_request_target": "pull_request_target",
+  "github.event.pull_request_targetHint":
+    "Des exécutions privilégiées que la pull request d'un fork peut lancer. Sûres seulement si le workflow ne compile jamais le code du fork.",
+  "github.event.workflow_run": "workflow_run",
+  "github.event.workflow_runHint":
+    "Des exécutions privilégiées lancées par un autre workflow, que la pull request d'un fork peut déclencher. Sûres seulement si le workflow ne compile jamais le code du fork.",
+  "github.create.privileged":
+    "Je comprends que la pull request d'un fork peut lancer ces exécutions et que le workflow ne compile jamais son code",
+  "github.create.privilegedError":
+    "Confirmez pour faire confiance à pull_request_target ou workflow_run.",
+  "github.create.ref": "Ref (facultative)",
+  "github.create.refHint":
+    "Exacte, par exemple refs/heads/main. La ref d'une exécution de pull request est refs/pull/NUMÉRO/merge : avec une ref de branche, aucune pull request ne publie.",
+  "github.create.refError": "Utilisez une ref complète qui commence par refs/.",
+  "github.create.environment": "Environnement (facultatif)",
+  "github.create.environmentHint":
+    "Nom exact. GitHub applique les règles de protection de l'environnement, comme les relecteurs requis, avant que le job reçoive son jeton.",
+  "github.create.scopes": "Ce que ses exécutions peuvent faire",
+  "github.create.scopesError": "Choisissez-en au moins un.",
+  "github.create.submit": "Faire confiance au dépôt",
+  "github.create.limit": "Un workspace peut faire confiance à {limit} dépôts au maximum.",
+  "github.created": "{repository} est maintenant de confiance.",
+  "github.rule.ids": "ID du dépôt {repositoryId}, ID du propriétaire {ownerId}",
+  "github.rule.events": "Événements : {events}",
+  "github.rule.prefix": "Ne publie que des clés qui commencent par {prefix}",
+  "github.rule.ref": "Ref : {ref}",
+  "github.rule.environment": "Environnement : {environment}",
+  "github.rule.live":
+    "{count, plural, =0 {Aucun identifiant actif} one {# identifiant actif} other {# identifiants actifs}}",
+  "github.remove": "Retirer",
+  "github.removeLabel": "Ne plus faire confiance à {repository}",
+  "github.confirm.title": "Ne plus faire confiance à {repository} ?",
+  "github.confirm.body":
+    "Ses workflows ne peuvent plus publier, et les identifiants déjà émis pour ses exécutions cessent de fonctionner aussitôt.",
+  "github.removed": "{repository} n'est plus de confiance.",
+  "audit.kind.githubTrusted": "A fait confiance au dépôt GitHub {repository}",
+  "audit.kind.githubTrustChanged": "A modifié la confiance dans le dépôt GitHub {repository}",
+  "audit.kind.githubTrustRemoved": "A cessé de faire confiance au dépôt GitHub {repository}",
+  "audit.kind.githubExchanged": "L'exécution GitHub {run} de {repository} a reçu un identifiant",
   "tokens.confirm.body":
     "Tout ce qui l'utilise cesse de fonctionner dès la requête suivante. C'est irréversible.",
   "access.workspace": "Tout le workspace",

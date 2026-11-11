@@ -1980,6 +1980,86 @@ export const ru = {
   "tokens.createdOn": "Создан {date}",
   "tokens.revoked": "Токен {label} отозван",
   "tokens.confirm.title": "Отозвать {label}?",
+  "github.title": "GitHub Actions",
+  "github.hint":
+    "Разрешите workflow доверенного репозитория публиковать превью без сохранённого токена.",
+  "github.off":
+    "Вход через GitHub Actions в Portifact пока недоступен. Перечисленные здесь репозитории всё равно можно удалить.",
+  "github.audience": "Аудитория",
+  "github.audienceHint":
+    "Workflow запрашивает у GitHub ID-токен с этой аудиторией. Action для превью и CLI делают это сами.",
+  "github.loading": "Загрузка доверенных репозиториев",
+  "github.loadFailed": "Не удалось загрузить доверенные репозитории.",
+  "github.empty.title": "Нет доверенных репозиториев",
+  "github.empty.body":
+    "Доверьтесь репозиторию, чтобы его workflow публиковали превью в этом workspace без токена.",
+  "github.create.title": "Доверять репозиторию",
+  "github.create.hint":
+    "Доверие привязано к числовым ID GitHub: переименованный репозиторий остаётся доверенным, а удалённый и созданный заново нет.",
+  "github.create.repository": "Репозиторий",
+  "github.create.repositoryHint": "В виде владелец/имя. Только для показа людям; не проверяется.",
+  "github.create.repositoryError": "Укажите владелец/имя, например acme/site.",
+  "github.create.repositoryId": "ID репозитория",
+  "github.create.ownerId": "ID владельца",
+  "github.create.idsHint":
+    "Оба можно узнать командой gh api repos/OWNER/REPO --jq .id,.owner.id или из GITHUB_REPOSITORY_ID и GITHUB_REPOSITORY_OWNER_ID запуска.",
+  "github.create.idError": "Укажите число, которое показывает GitHub.",
+  "github.create.events": "События, которые могут публиковать",
+  "github.create.eventsError": "Выберите хотя бы одно событие.",
+  "github.event.push": "push",
+  "github.event.pushHint": "Push в репозиторий. Делать push могут только люди с правом записи.",
+  "github.event.pull_request": "pull_request",
+  "github.event.pull_requestHint":
+    "Pull request. В публичном репозитории запуск из форка не получает ID-токен, поэтому публикуют только ветки самого репозитория. В приватном репозитории с токенами записи для форков запуск из форка тоже может публиковать.",
+  "github.event.workflow_dispatch": "workflow_dispatch",
+  "github.event.workflow_dispatchHint": "Запуски, начатые вручную людьми с правом записи.",
+  "github.event.merge_group": "merge_group",
+  "github.event.merge_groupHint":
+    "Запуски очереди слияния, которые GitHub начинает для репозитория.",
+  "github.event.release": "release",
+  "github.event.releaseHint": "Релизы, опубликованные в репозитории.",
+  "github.event.schedule": "schedule",
+  "github.event.scheduleHint": "Запуски ветки по умолчанию по расписанию.",
+  "github.event.pull_request_target": "pull_request_target",
+  "github.event.pull_request_targetHint":
+    "Привилегированные запуски, которые может начать pull request из форка. Безопасны, только если workflow никогда не собирает код форка.",
+  "github.event.workflow_run": "workflow_run",
+  "github.event.workflow_runHint":
+    "Привилегированные запуски, которые начинает другой workflow и которые может вызвать pull request из форка. Безопасны, только если workflow никогда не собирает код форка.",
+  "github.create.privileged":
+    "Я понимаю, что pull request из форка может начать эти запуски, а workflow никогда не собирает его код",
+  "github.create.privilegedError":
+    "Подтвердите, чтобы доверять pull_request_target или workflow_run.",
+  "github.create.ref": "Ref (необязательно)",
+  "github.create.refHint":
+    "Точно, например refs/heads/main. У запуска pull request ref равен refs/pull/НОМЕР/merge, поэтому с ref ветки ни один pull request не публикует.",
+  "github.create.refError": "Укажите полный ref, начинающийся с refs/.",
+  "github.create.environment": "Окружение (необязательно)",
+  "github.create.environmentHint":
+    "Точное имя. GitHub применяет правила защиты окружения, например обязательных ревьюеров, до того как job получит токен.",
+  "github.create.scopes": "Что могут делать его запуски",
+  "github.create.scopesError": "Выберите хотя бы одно.",
+  "github.create.submit": "Доверять репозиторию",
+  "github.create.limit": "Workspace может доверять не более чем {limit} репозиториям.",
+  "github.created": "{repository} теперь доверенный.",
+  "github.rule.ids": "ID репозитория {repositoryId}, ID владельца {ownerId}",
+  "github.rule.events": "События: {events}",
+  "github.rule.prefix": "Публикует только ключи, начинающиеся с {prefix}",
+  "github.rule.ref": "Ref: {ref}",
+  "github.rule.environment": "Окружение: {environment}",
+  "github.rule.live":
+    "{count, plural, =0 {Нет действующих учётных данных} one {# действующие учётные данные} few {# действующих учётных данных} many {# действующих учётных данных} other {# действующих учётных данных}}",
+  "github.remove": "Удалить",
+  "github.removeLabel": "Перестать доверять {repository}",
+  "github.confirm.title": "Перестать доверять {repository}?",
+  "github.confirm.body":
+    "Его workflow больше не смогут публиковать, а уже выданные запускам учётные данные сразу перестанут работать.",
+  "github.removed": "{repository} больше не доверенный.",
+  "audit.kind.githubTrusted": "Начал доверять репозиторию GitHub {repository}",
+  "audit.kind.githubTrustChanged": "Изменил доверие к репозиторию GitHub {repository}",
+  "audit.kind.githubTrustRemoved": "Перестал доверять репозиторию GitHub {repository}",
+  "audit.kind.githubExchanged":
+    "Запуск GitHub {run} репозитория {repository} получил учётные данные",
   "tokens.confirm.body":
     "Всё, что его использует, перестанет работать со следующего запроса. Это нельзя отменить.",
   "access.workspace": "Весь workspace",

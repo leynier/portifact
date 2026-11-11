@@ -100,6 +100,10 @@ export const AUDIT_GROUPS = {
     "plan.grace_ended",
     "service_token.created",
     "service_token.revoked",
+    "github_trust.created",
+    "github_trust.changed",
+    "github_trust.removed",
+    "github_trust.exchanged",
     "sso.created",
     "sso.changed",
     "sso.removed",
@@ -469,6 +473,7 @@ function targetName(t: T, event: AuditEventView): string {
     case "audit_log":
     case "policy":
     case "scim":
+    case "github_trust":
       return t("audit.target.space");
     default:
       return "";
@@ -631,6 +636,17 @@ export function describeAuditEvent(
       return t("audit.kind.memberLeft", { member });
     case "service_token.created":
       return t("audit.kind.tokenCreated", { days: Number(d.days) });
+    case "github_trust.created":
+      return t("audit.kind.githubTrusted", { repository: String(d.repository) });
+    case "github_trust.changed":
+      return t("audit.kind.githubTrustChanged", { repository: String(d.repository) });
+    case "github_trust.removed":
+      return t("audit.kind.githubTrustRemoved", { repository: String(d.repository) });
+    case "github_trust.exchanged":
+      return t("audit.kind.githubExchanged", {
+        repository: String(d.repository),
+        run: String(d.runId),
+      });
     case "email_domain.verified":
       return t("audit.kind.emailDomainVerified", { domain: String(d.domain) });
     case "email_domain.removed":

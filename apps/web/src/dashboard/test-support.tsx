@@ -34,7 +34,10 @@ import {
   DocumentPreviewRequest,
   type ErrorCode,
   type FileChange,
+  GitHubTrustRuleCreate,
+  type GitHubTrustRuleView,
   type GraceForecastView,
+  githubKeyPrefix,
   type IncomingInvitationView,
   type IntegrationConnectionView,
   type InvitationLookup,
@@ -384,6 +387,9 @@ export interface FakeWorkspace {
   /** Service tokens (decision 0011) and whether the plan includes them. */
   serviceTokens: ServiceTokenView[];
   serviceTokensAvailable: boolean;
+  /** GitHub trust rules (decision 0024) and whether the deployment offers the federation. */
+  githubTrust: GitHubTrustRuleView[];
+  githubOidcEnabled: boolean;
   /** Its email domains (decision 0010); verifying one succeeds when `dns` holds its value. */
   domains: WorkspaceDomainView[];
   /** The TXT values the fake DNS answers, by record name. */
@@ -509,6 +515,8 @@ export function workspace(
     branding: { available: true, lowestPlan: "pro", suspended: false, brand: null },
     serviceTokens: [],
     serviceTokensAvailable: true,
+    githubTrust: [],
+    githubOidcEnabled: true,
     domains: [],
     dns: {},
     domainsAvailable: true,
@@ -1201,6 +1209,8 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
   if (groups) return groupRoute(server, groups, path, method, body);
   const policies = /^\/api\/v1\/workspaces\/([^/]+)\/policies(\/preview)?$/.exec(path);
   if (policies) return policyRoute(server, policies, method, body);
+  const trust = /^\/api\/v1\/workspaces\/([^/]+)\/github-trust(?:\/([^/]+))?$/.exec(path);
+  if (trust) return githubTrustRoute(server, trust, method, body);
   const tokens = /^\/api\/v1\/workspaces\/([^/]+)\/service-tokens(?:\/([^/]+))?$/.exec(path);
   if (tokens) return serviceTokenRoute(server, tokens, method, body);
   const scoped = /^\/api\/v1\/workspaces\/([^/]+)\/(members|invitations|leave)(?:\/([^/]+))?$/.exec(
@@ -2721,6 +2731,59 @@ function serviceTokenRoute(
     const before = w.serviceTokens.length;
     w.serviceTokens = w.serviceTokens.filter((token) => token.id !== id);
     if (w.serviceTokens.length === before) return apiError("not_found", 404);
+    return new Response(null, { status: 204 });
+  }
+  return apiError("not_found", 404);
+}
+
+/** The GitHub trust rule routes of a workspace, as apps/app/src/api/workspaces.ts answers them. */
+function githubTrustRoute(
+  server: FakeServer,
+  match: RegExpExecArray,
+  method: string,
+  body: Record<string, unknown> | undefined,
+): Response {
+  const w = server.workspaces[decodeURIComponent(match[1] ?? "")];
+  if (!w) return apiError("not_found", 404);
+  if (w.view.role !== "admin") return apiError("forbidden", 403);
+  const id = match[2] ? decodeURIComponent(match[2]) : undefined;
+  if (!id && method === "GET") {
+    return json({
+      items: w.githubTrust,
+      available: w.serviceTokensAvailable,
+      enabled: w.githubOidcEnabled,
+      limit: 20,
+      audience: `https://app.portifact.com/workspaces/${w.view.slug}/github`,
+    });
+  }
+  if (!id && method === "POST") {
+    if (!w.githubOidcEnabled) return apiError("capacity_unavailable", 503);
+    if (!w.serviceTokensAvailable) return apiError("plan_required", 403);
+    const parsed = GitHubTrustRuleCreate.safeParse(body);
+    if (!parsed.success) return apiError("invalid_input", 400);
+    const rule: GitHubTrustRuleView = {
+      id: `gtr_${String(w.githubTrust.length + 1).padStart(32, "0")}`,
+      repository: parsed.data.repository,
+      repositoryId: parsed.data.repositoryId,
+      repositoryOwnerId: parsed.data.repositoryOwnerId,
+      events: parsed.data.events,
+      ref: parsed.data.ref,
+      environment: parsed.data.environment,
+      scopes: parsed.data.scopes,
+      keyPrefix: githubKeyPrefix(parsed.data.repositoryId),
+      liveCredentials: 0,
+      createdAt: NOW,
+      updatedAt: NOW,
+      createdBy: { name: "Ada" },
+      revision: 0,
+    };
+    w.githubTrust.push(rule);
+    return json(rule, 201);
+  }
+  if (id && method === "DELETE") {
+    const before = w.githubTrust.length;
+    w.githubTrust = w.githubTrust.filter((rule) => rule.id !== id);
+    if (w.githubTrust.length === before) return apiError("not_found", 404);
     return new Response(null, { status: 204 });
   }
   return apiError("not_found", 404);

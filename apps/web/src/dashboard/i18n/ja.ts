@@ -1944,6 +1944,84 @@ export const ja = {
   "tokens.createdOn": "{date} に作成",
   "tokens.revoked": "トークン {label} を取り消しました",
   "tokens.confirm.title": "{label} を取り消しますか?",
+  "github.title": "GitHub Actions",
+  "github.hint":
+    "信頼したリポジトリのワークフローが、保存したトークンなしでプレビューを公開できるようにします。",
+  "github.off":
+    "GitHub Actions によるサインインは、Portifact ではまだ利用できません。ここに表示されたリポジトリは削除できます。",
+  "github.audience": "オーディエンス",
+  "github.audienceHint":
+    "ワークフローはこのオーディエンスを指定して GitHub に ID トークンを要求します。プレビューのアクションと CLI が自動で行います。",
+  "github.loading": "信頼したリポジトリを読み込んでいます",
+  "github.loadFailed": "信頼したリポジトリを読み込めませんでした。",
+  "github.empty.title": "信頼したリポジトリはありません",
+  "github.empty.body":
+    "リポジトリを信頼すると、そのワークフローがトークンなしでこのワークスペースにプレビューを公開できます。",
+  "github.create.title": "リポジトリを信頼",
+  "github.create.hint":
+    "信頼は GitHub の数値 ID に結び付きます。名前を変えたリポジトリは信頼されたままですが、削除して作り直したリポジトリは信頼されません。",
+  "github.create.repository": "リポジトリ",
+  "github.create.repositoryHint": "owner/name の形式。表示用で、照合には使いません。",
+  "github.create.repositoryError": "acme/site のように owner/name で入力してください。",
+  "github.create.repositoryId": "リポジトリ ID",
+  "github.create.ownerId": "オーナー ID",
+  "github.create.idsHint":
+    "gh api repos/OWNER/REPO --jq .id,.owner.id で、または実行の GITHUB_REPOSITORY_ID と GITHUB_REPOSITORY_OWNER_ID で確認できます。",
+  "github.create.idError": "GitHub に表示される数値を入力してください。",
+  "github.create.events": "公開できるイベント",
+  "github.create.eventsError": "イベントを 1 つ以上選んでください。",
+  "github.event.push": "push",
+  "github.event.pushHint": "リポジトリへの push。書き込み権限のある人だけが push できます。",
+  "github.event.pull_request": "pull_request",
+  "github.event.pull_requestHint":
+    "プルリクエスト。公開リポジトリではフォークの実行は ID トークンを受け取れないため、公開できるのはリポジトリ自身のブランチだけです。フォークへの書き込みトークンを有効にした非公開リポジトリでは、フォークの実行も公開できます。",
+  "github.event.workflow_dispatch": "workflow_dispatch",
+  "github.event.workflow_dispatchHint": "書き込み権限のある人が手動で開始した実行。",
+  "github.event.merge_group": "merge_group",
+  "github.event.merge_groupHint": "GitHub がリポジトリのために開始するマージキューの実行。",
+  "github.event.release": "release",
+  "github.event.releaseHint": "リポジトリで公開されたリリース。",
+  "github.event.schedule": "schedule",
+  "github.event.scheduleHint": "デフォルトブランチのスケジュール実行。",
+  "github.event.pull_request_target": "pull_request_target",
+  "github.event.pull_request_targetHint":
+    "フォークのプルリクエストが開始できる特権付きの実行。ワークフローがフォークのコードをビルドしない場合にだけ安全です。",
+  "github.event.workflow_run": "workflow_run",
+  "github.event.workflow_runHint":
+    "別のワークフローが開始する特権付きの実行で、フォークのプルリクエストから起動できます。ワークフローがフォークのコードをビルドしない場合にだけ安全です。",
+  "github.create.privileged":
+    "フォークのプルリクエストがこれらの実行を開始できること、そしてワークフローがそのコードをビルドしないことを理解しました",
+  "github.create.privilegedError":
+    "pull_request_target または workflow_run を信頼するには確認してください。",
+  "github.create.ref": "Ref (任意)",
+  "github.create.refHint":
+    "refs/heads/main のように完全一致で指定します。プルリクエストの実行の ref は refs/pull/番号/merge なので、ブランチの ref を指定するとプルリクエストは公開できません。",
+  "github.create.refError": "refs/ で始まる完全な ref を入力してください。",
+  "github.create.environment": "環境 (任意)",
+  "github.create.environmentHint":
+    "完全一致の名前。ジョブがトークンを受け取る前に、GitHub が必須レビュアーなどの環境の保護ルールを適用します。",
+  "github.create.scopes": "実行に許可する操作",
+  "github.create.scopesError": "1 つ以上選んでください。",
+  "github.create.submit": "リポジトリを信頼",
+  "github.create.limit": "1 つのワークスペースで信頼できるリポジトリは最大 {limit} 件です。",
+  "github.created": "{repository} を信頼しました。",
+  "github.rule.ids": "リポジトリ ID {repositoryId}、オーナー ID {ownerId}",
+  "github.rule.events": "イベント: {events}",
+  "github.rule.prefix": "{prefix} で始まるキーだけを公開します",
+  "github.rule.ref": "Ref: {ref}",
+  "github.rule.environment": "環境: {environment}",
+  "github.rule.live":
+    "{count, plural, =0 {有効な認証情報はありません} one {有効な認証情報 # 件} other {有効な認証情報 # 件}}",
+  "github.remove": "削除",
+  "github.removeLabel": "{repository} の信頼を解除",
+  "github.confirm.title": "{repository} の信頼を解除しますか?",
+  "github.confirm.body":
+    "このリポジトリのワークフローは公開できなくなり、実行に発行済みの認証情報もすぐに使えなくなります。",
+  "github.removed": "{repository} の信頼を解除しました。",
+  "audit.kind.githubTrusted": "GitHub リポジトリ {repository} を信頼しました",
+  "audit.kind.githubTrustChanged": "GitHub リポジトリ {repository} の信頼を変更しました",
+  "audit.kind.githubTrustRemoved": "GitHub リポジトリ {repository} の信頼を解除しました",
+  "audit.kind.githubExchanged": "{repository} の GitHub 実行 {run} が認証情報を受け取りました",
   "tokens.confirm.body":
     "これを使っているものは次のリクエストから動かなくなります。元に戻せません。",
   "access.workspace": "ワークスペース全員",
