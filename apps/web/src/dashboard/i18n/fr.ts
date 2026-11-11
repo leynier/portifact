@@ -480,7 +480,12 @@ export const fr = {
   "account.data.title": "Vos données",
   "account.data.hint":
     "Téléchargez tout ce que contient votre compte au format JSON : votre profil, vos artifacts avec leur accès, leurs versions et leurs listes de fichiers, et vos commentaires. Chaque version indique un lien qui télécharge ses fichiers.",
-  "account.data.download": "Télécharger vos données",
+  "account.data.download": "Télécharger les données de votre compte (JSON)",
+  "account.data.spacePersonal":
+    "Pour récupérer ce que contient votre espace personnel (les versions conservées et les sources de chaque artefact, les journaux d'accès et le journal d'audit), utilisez la page de téléchargement de l'espace.",
+  "account.data.spaceWorkspace":
+    "Pour récupérer ce que contient l'espace de travail {workspace} (les versions conservées et les sources de chaque artefact, les journaux d'accès et le journal d'audit), utilisez la page de téléchargement de l'espace.",
+  "account.data.spaceLink": "Télécharger les données de cet espace",
   "account.delete.title": "Supprimer le compte",
   "account.delete.hint":
     "Supprimer votre compte supprime vos artifacts, sessions, apps et méthodes de connexion, ainsi que vos commentaires sur les artifacts d’autres personnes. Un commentaire auquel quelqu’un a répondu est remplacé par la mention « Message supprimé ». Les adresses des artifacts ne sont jamais attribuées à quelqu’un d’autre. Cette action est irréversible, alors téléchargez d’abord vos données.",
@@ -1706,7 +1711,6 @@ export const fr = {
   "data.logs.account": "Téléchargez les données de votre compte (JSON)",
   "data.logs.cli":
     "Pour tout emporter d'un coup, lancez portifact export <dossier> dans un terminal : il récupère chaque version conservée, reprend après une interruption et écrit un manifeste.",
-  "shell.dataLink": "Télécharger vos données",
   "shell.grace.title": "Ce que gardait l'offre {plan} est conservé jusqu'au {date}",
   "shell.grace.download": "Télécharger vos données",
   "shell.grace.request": "Redemander {plan}",

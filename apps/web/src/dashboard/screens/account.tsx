@@ -34,6 +34,7 @@ import {
   Check,
   CircleAlert,
   Download,
+  HardDriveDownload,
   KeyRound,
   LogIn,
   LogOut,
@@ -50,7 +51,7 @@ import { loginUrl } from "../../auth/query.ts";
 import { ACCOUNT_EXPORT_PATH, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useRelativeTime, useT } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
-import { useWorkspaces } from "../space.tsx";
+import { spaceCan, useReadySpace, useWorkspaces } from "../space.tsx";
 import { describeUserAgent } from "../user-agent.ts";
 import { errorMessage } from "./artifact-list.tsx";
 
@@ -502,14 +503,35 @@ function AppCard({
   );
 }
 
+/**
+ * The account's own data (its JSON export) and, for the space's admins, the way to the space's
+ * data: the "Download your data" page (`/data`, decision 0022), which is not in the side menu. The
+ * root route keeps `?workspace=<slug>` on the link, so it opens the space being looked at.
+ */
 export function AccountData() {
   const t = useT();
+  const space = useReadySpace();
   return (
     <Section id="data" title={t("account.data.title")} hint={t("account.data.hint")}>
-      <a href={ACCOUNT_EXPORT_PATH} download className={buttonClasses({ intent: "secondary" })}>
-        <Download aria-hidden="true" className="size-4" />
-        {t("account.data.download")}
-      </a>
+      <div className="flex flex-col items-start gap-4">
+        <a href={ACCOUNT_EXPORT_PATH} download className={buttonClasses({ intent: "secondary" })}>
+          <Download aria-hidden="true" className="size-4" />
+          {t("account.data.download")}
+        </a>
+        {spaceCan(space, "plan") ? (
+          <>
+            <p className="text-sm text-text-muted">
+              {space.kind === "workspace"
+                ? t("account.data.spaceWorkspace", { workspace: space.name })
+                : t("account.data.spacePersonal")}
+            </p>
+            <Link to="/data" className={buttonClasses({ intent: "secondary" })}>
+              <HardDriveDownload aria-hidden="true" className="size-4" />
+              {t("account.data.spaceLink")}
+            </Link>
+          </>
+        ) : null}
+      </div>
     </Section>
   );
 }

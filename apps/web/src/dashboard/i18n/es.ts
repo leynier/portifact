@@ -473,7 +473,12 @@ export const es = {
   "account.data.title": "Tus datos",
   "account.data.hint":
     "Descarga en JSON todo lo que contiene tu cuenta: tu perfil, los artifacts con su acceso, versiones y listas de archivos, y los comentarios. Cada versión incluye un enlace que descarga sus archivos.",
-  "account.data.download": "Descargar tus datos",
+  "account.data.download": "Descargar los datos de tu cuenta (JSON)",
+  "account.data.spacePersonal":
+    "Para llevarte lo que guarda tu espacio personal (las versiones conservadas y las fuentes de cada artefacto, los registros de accesos y el registro de auditoría), usa la página de descarga del espacio.",
+  "account.data.spaceWorkspace":
+    "Para llevarte lo que guarda el espacio de trabajo {workspace} (las versiones conservadas y las fuentes de cada artefacto, los registros de accesos y el registro de auditoría), usa la página de descarga del espacio.",
+  "account.data.spaceLink": "Descargar los datos de este espacio",
   "account.delete.title": "Eliminar cuenta",
   "account.delete.hint":
     'Eliminar tu cuenta borra tus artifacts, sesiones, apps y métodos de inicio de sesión, y tus comentarios en artifacts de otras personas. Un comentario que alguien respondió se convierte en una marca de "Mensaje eliminado". Las direcciones de los artifacts nunca se asignan a nadie más. Esto no se puede deshacer, así que descarga tus datos primero.',
@@ -1693,7 +1698,6 @@ export const es = {
   "data.logs.account": "Descarga los datos de tu cuenta (JSON)",
   "data.logs.cli":
     "Para llevártelo todo de una vez, ejecuta portifact export <carpeta> en una terminal: descarga cada versión conservada, retoma si se interrumpe y escribe un manifiesto.",
-  "shell.dataLink": "Descarga tus datos",
   "shell.grace.title": "Lo que guardaba el plan {plan} se conserva hasta el {date}",
   "shell.grace.download": "Descarga tus datos",
   "shell.grace.request": "Pide {plan} de nuevo",

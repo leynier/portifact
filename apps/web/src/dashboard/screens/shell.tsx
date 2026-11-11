@@ -24,7 +24,6 @@ import {
   Cable,
   Clock,
   Gauge,
-  HardDriveDownload,
   KeySquare,
   Layers,
   LogIn,
@@ -480,12 +479,6 @@ export function Shell() {
       label: t("shell.planLink"),
       icon: <BadgeCheck className="size-4" />,
       render: (props) => <Link to="/plan" {...props} />,
-    },
-    allowed("plan") && {
-      key: "data",
-      label: t("shell.dataLink"),
-      icon: <HardDriveDownload className="size-4" />,
-      render: (props) => <Link to="/data" {...props} />,
     },
     allowed("webhooks") && {
       key: "webhooks",

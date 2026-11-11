@@ -433,7 +433,12 @@ export const zhCN = {
   "account.data.title": "你的数据",
   "account.data.hint":
     "以 JSON 格式下载你账号中的全部内容：个人资料、artifact 及其访问权限、版本和文件列表，以及评论。每个版本都附有一个下载其文件的链接。",
-  "account.data.download": "下载你的数据",
+  "account.data.download": "下载你的账户数据（JSON）",
+  "account.data.spacePersonal":
+    "要取出你的个人空间保存的内容（每个制品保留的版本和源文件、访问日志和审计日志），请使用该空间的下载页面。",
+  "account.data.spaceWorkspace":
+    "要取出工作空间 {workspace} 保存的内容（每个制品保留的版本和源文件、访问日志和审计日志），请使用该空间的下载页面。",
+  "account.data.spaceLink": "下载此空间的数据",
   "account.delete.title": "删除账号",
   "account.delete.hint":
     "删除账号会移除你的 artifact、会话、应用和登录方式，以及你在他人 artifact 上的评论。已有人回复的评论会变成“消息已删除”标记。Artifact 的地址永远不会分配给其他人。此操作无法撤销，请先下载你的数据。",
@@ -1538,7 +1543,6 @@ export const zhCN = {
   "data.logs.account": "下载你的账户数据（JSON）",
   "data.logs.cli":
     "要一次性带走全部内容，请在终端运行 portifact export <文件夹>：它会获取每个保留的版本，中断后可继续，并写入清单。",
-  "shell.dataLink": "下载你的数据",
   "shell.grace.title": "{plan} 方案保留的内容保留到 {date}",
   "shell.grace.download": "下载你的数据",
   "shell.grace.request": "再次申请 {plan}",

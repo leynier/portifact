@@ -458,7 +458,12 @@ export const ja = {
   "account.data.title": "あなたのデータ",
   "account.data.hint":
     "アカウントに保存されているすべての情報をJSONでダウンロードできます。プロフィール、artifactとそのアクセス設定、バージョン、ファイル一覧、コメントが含まれます。各バージョンには、そのファイルをダウンロードするリンクが記載されています。",
-  "account.data.download": "データをダウンロード",
+  "account.data.download": "アカウントのデータをダウンロード（JSON）",
+  "account.data.spacePersonal":
+    "個人スペースに保存されているもの（各アーティファクトの保持されたバージョンとソース、アクセスログ、監査ログ）を取り出すには、スペースのダウンロードページを使ってください。",
+  "account.data.spaceWorkspace":
+    "ワークスペース {workspace} に保存されているもの（各アーティファクトの保持されたバージョンとソース、アクセスログ、監査ログ）を取り出すには、スペースのダウンロードページを使ってください。",
+  "account.data.spaceLink": "このスペースのデータをダウンロード",
   "account.delete.title": "アカウントを削除",
   "account.delete.hint":
     "アカウントを削除すると、artifact、セッション、アプリ、サインイン方法、ほかの人のartifactへのコメントが削除されます。誰かが返信したコメントは「削除されたメッセージ」という表示に置き換わります。artifactのアドレスがほかの人に割り当てられることはありません。この操作は元に戻せないため、先にデータをダウンロードしてください。",
@@ -1660,7 +1665,6 @@ export const ja = {
   "data.logs.account": "アカウントのデータをダウンロード（JSON）",
   "data.logs.cli":
     "すべてを一度に持ち出すには、ターミナルで portifact export <フォルダー> を実行してください。保持されているすべてのバージョンを取得し、中断しても再開し、マニフェストを書き出します。",
-  "shell.dataLink": "データをダウンロード",
   "shell.grace.title": "{plan} プランで保持していたものは {date} まで保持されます",
   "shell.grace.download": "データをダウンロード",
   "shell.grace.request": "{plan} をもう一度申請",
