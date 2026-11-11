@@ -1,0 +1,77 @@
+# 0022 Plan grace
+
+- Status: accepted; the rule, storage, scans, read gates, operator control and audit events ship in this change; the "Download your data" page, the bulk CLI pull, the three grace emails and the dashboard banner ship in a follow-up
+- Date: 2026-11-11
+- Feature: premium plan acceptance criterion "downgrading a plan deletes no data and breaks no reads, exports, deletions or restores"; the maintainer's decision: 60 days of grace, the ability to download the data, then the current pruning
+
+## Question
+
+When an owner's entitlements drop (a plan's `valid_until` passes, the operator runs `remove-plan`, or `set-plan` lowers the plan, its seats or its overrides), what happens to its data today, and how do we keep everything the old plan kept, readable and downloadable, for 60 days, without adding a read to any request path and without a new deletion path?
+
+## Facts: what a drop does today (before this change)
+
+Read from the code on `develop` at `2f305569`. "At read" means the next request computes it from `entitlements`; "scan" means the 15-minute maintenance run.
+
+| What | Today on a drop | When | Deleted, hidden or refused | Recoverable |
+| --- | --- | --- | --- | --- |
+| Previous versions beyond the new count or days (`retainedPreviousVersions`, `previousVersionRetentionDays`) | Stop being listed, read, downloaded, compared or rolled back to (`retainedVersionSql`), then `pruneVersions` deletes the rows and `releaseOrphans` the objects | Hidden at read, deleted at the next scans (50 a run, cursor) | Hidden then deleted | Only by a grant before the scan reaches them |
+| Access log rows (`access_events`) | Expiry moved by the `owner_retention` job a grant or removal writes (`applyOwnerRetention`); a natural expiry is pre-capped at `valid_until` by `retentionExpiry`; `pruneAccessEvents` deletes by expiry; reads filter by expiry | Job within minutes, prune at the next run | Hidden then deleted | No |
+| Analytics view counters (`artifact_views`) | Same as the access log | Same | Hidden then deleted | No |
+| Analytics read (`analytics`) | `plan_required` | At read | Refused | Yes, on a grant |
+| Audit events (`auditRetentionDays`, 90 on every plan, overrides up to seven years) | An override lowered or lapsed: the sweep deletes events older than the new value | Next scan | Deleted | No |
+| Audit log read and export (`audit`, `auditExport`) | `plan_required` | At read | Refused | Yes, on a grant |
+| Pins (`pin`) | `unpinLapsedPlans` unpins with 30 days from the scan; the artifact then expires and is archived by the normal scans | Next scan, archive 30 days later | Unpinned (then archived, then purged after `archiveMonths`) | Archive restorable until purge |
+| Archive length (`archiveMonths`) | Artifacts archived after the drop get the new plan's months in `purge_at` | At archive time | Purged sooner | No, once purged |
+| Version compare (`versionDiff`) | `plan_required` | At read | Refused | Yes |
+| Search index (`contentSearch`) | `dropLapsedSearchIndexes` drops the rows; searching refused | Next scan | Derived index deleted | Rebuilt by `scheduleSearchIndexing` on a grant |
+| Custom domains | Natural expiry: domains over the limit detached 7 days after (`domainLimitAt`); removal or lowering: at the next check; `domain_notice` email | Daily check | Detached (the artifact stays) | Re-add after a grant |
+| Branding | Kept, not shown (`brandShown`) | At read | Hidden | Yes |
+| Share links | Kept; stop opening (`shareLinks` checked at opening and session renewal) | At read | Refused | Yes, links work again |
+| Webhooks | Kept; no new events marked, deliveries stop (`deliverWebhook` checks the feature) | At write and send | Refused | Yes (events in between are not sent) |
+| Audit streams | Kept; deliveries stop | At send | Refused | Yes, resume from their position |
+| Issue integrations | Connections kept; new issues refused | At request | Refused | Yes |
+| Workspace and domain access modes, groups | Kept; `domain` mode and groups stop admitting (`canRead` reads the plan) | At read | Refused | Yes |
+| Seats over the new limit | Members stay; new invitations refused | At invite | Refused | Yes |
+| Storage and active quotas | Limit columns aligned to the larger of the plan and the usage; new work over the plan refused | Grant batch and `alignPlanLimits` | Refused | Yes |
+| Traffic quota | New monthly limits | At read | Refused (429) above it | Yes |
+| Approval reviews | Requesting and changing refused; reading, verdicts, cancelling kept | At request | Refused | Yes |
+| Comment notices | No new marks; pending sends stop | At write and send | Refused | Yes |
+
+Only the first seven rows lose data. Everything else is only refused or hidden and comes back with the plan.
+
+## Decision in short
+
+- **60 days, one constant.** `PLAN_GRACE_DAYS` in `packages/contracts/src/plans.ts`, next to the plans. A drop starts a grace; it lasts 60 days from the drop.
+- **What a grace holds.** Retention follows the previous plan, everything else the current one. The retention limits are `GRACE_LIMITS`: `archiveMonths`, `retainedPreviousVersions`, `previousVersionRetentionDays`, `accessLogRetentionDays`, `auditRetentionDays`. During a grace `entitlements` returns, in `limits`, the highest of the current plan's value and each running hold's, so every existing reader, SQL condition and scan that keeps or lists data by those limits (`retention.ts`'s one condition, `pruneVersions`, `retentionExpiry`/`applyOwnerRetention`, the audit sweep and `auditPruneCutoff`, `purgeDate` at archive time) holds what the old plan kept without a new check. `features` stays the current plan's, so new work is refused exactly as before (publishing over the quota, new pins, share links, webhooks, searching, policies). `entitlements` also returns `grace`: its end, the highest plan held, the held limits and the paid features the old plan granted that the current one does not.
+- **Reads of held data.** `requireHeldFeature`/`holdsFeature` (`packages/domain/src/plans.ts`) open a gate when the plan grants the feature or a running grace holds it. Used only by reads of held data: the analytics read, the audit log and its export, comparing retained versions, the version list's `versionDiff` flag, and `pinsLapse` (pinned artifacts stay pinned while a grace holds `pin`). Writes and new work keep `requireFeature`. Every line of both `GATED` tables is classified (`IN_GRACE` in `apps/app/test/plan-gates.test.ts`, `inGrace` in `packages/cli/src/plan-gates.test.ts`): the app table runs each line for an owner whose plan ended the day before and expects held lines open and the rest refused, and fails for a line nobody classified.
+- **Rollback is allowed in a grace.** It is a write, but AGENTS.md already forbids putting rollback behind a plan limit, it uses objects already stored and counted, and it is how an owner gets a held version back as current. It goes through the retention condition, so it reaches exactly the versions the grace still holds.
+- **Storage.** `owner_plans.grace` (migration `0060_owner_plan_grace`), a JSON list of holds (`GraceSlot`: plan, reason, from, until, the five limits, the features, and for a natural expiry the `valid_until` it came from). On the same global row every reader already reads, so no join or read is added; the content Worker's delivery lookup and `actorAndPlanOn` select one more column of the row they already read. No payment columns.
+  - Natural expiry needs no write: `entitlements` derives the hold from `valid_until` itself for 60 days. The grace scan (`maintainPlanGraces`) then stores it once, so its start is recorded once, and the hold reads the same before and after.
+  - `set-plan` reads the row, decides with `graceAfterChange` (running holds, plus one for what the outgoing plan kept unless the new plan covers it; holds the new plan covers end early), and writes the row with its holds in one batch conditioned on the row it read (a change landing first makes it decide again, three times, then exit asking to run it again).
+  - `remove-plan` keeps the row as `free` with its holds instead of deleting it; the grace scan deletes that row when its last hold ends, so the owner is back to "no row". With nothing held (the plan kept nothing above free) it deletes the row as before.
+- **A second drop.** Each drop is its own hold with its own end: a second drop during a grace adds a hold for what the intermediate plan kept, from the second drop, and leaves the first unchanged, so the first is neither extended nor cut short. A hold another one covers until later is dropped (it adds nothing). Past `PLAN_GRACE_MAX_SLOTS` (8) running holds, the two ending first are folded into one with the highest of both until the later end: only after eight drops in 60 days, and only ever longer, never shorter. `plan-grace.test.ts` (domain) checks these with examples and a property test.
+- **Raising or renewing.** A grant that covers a hold (every held limit and feature) ends it early with nothing lost; a partial raise keeps the rest of the hold.
+- **The access log's expiry.** `retentionExpiry` dates each row from the steps of retention in force over time: the plan's own until 60 days after its `valid_until`, each hold until its end, then the free plan's. So a row is never dated before the hold that keeps it ends, and no job is needed when a hold ends: the prune deletes it on its date. `applyOwnerRetention`'s SQL is the same steps as a `case`. A plan with an end now keeps its rows 60 days past it (it capped at `valid_until` before).
+- **Grace's end.** Today's behavior through the existing scans, no new deletion path: once the held values are no longer in `limits`, `pruneVersions`, `pruneAccessEvents`, the audit sweep and `unpinLapsedPlans` do what they did on the day of the drop before this change. An owner above the new plan's quotas keeps everything it has (the limit columns already hold the larger of plan and usage); only new work is refused. Nothing is deleted to fit a quota.
+- **What is not held.** The search index (derived; dropped at the next scan and rebuilt by `scheduleSearchIndexing` on a grant, so nothing is lost), custom domains (their own 7-day downgrade rule, unchanged), and every feature that is new work (share links opening, webhooks, streams, integrations, `domain` mode and groups admitting, branding shown). Those are refused at once, as before, and come back with the plan.
+- **Operator.** `set-plan` and `remove-plan` start a grace by default; `--no-grace` ends every running hold and starts none (abuse), recorded as the operator. `plan <owner>` shows the grace, its end, what it holds and each hold. Suspensions and account or workspace deletion are unaffected: deletion deletes the row with everything else.
+- **Audit.** `plan.grace_started` (`reason`: `lowered`, `removed`, `expired`) and `plan.grace_ended` (`renewed`, `operator`, `expired`), details limited to the reason, the plan held and the end date, global kinds (they describe the global plan row). The operator's are in the change's own batch before the row's write, on the row it read; the scan writes a natural expiry's start and every expired end in its own batch per owner, conditioned on the row still holding what it read.
+- **Restore.** `export-plans` writes each row's holds; `apply-plans` writes each exported row back exactly (end and holds), without deciding a grace from the rewound row, so a restore neither shortens nor restarts a grace. A row whose plan ended and holds nothing is skipped, as an ended plan was before.
+- **Costs.** No D1 read or write added to a request path: the grace rides the plan row's existing reads (`write-costs.test.ts`, `idempotency-regions.test.ts`, `introspection-cost.test.ts` and the content Worker's delivery counts are unchanged). The operator's `set-plan` and `remove-plan` read the row first (one call each, pinned in `scan-costs.test.ts`); the grace scan is one call a run when nothing is due (the cursor and the first page in one batch), at most three pages of 100 a run, one batch per owner it changes, pinned in `scan-costs.test.ts`. The audit sweep also reads rows holding a grace.
+- **Two regions.** `owner_plans` is global and so is the grace; the regional scans already read plans from the global database. `test/two-regions.test.ts` holds an EU workspace's versions for its grace after a lowering under the strict guard and prunes them after.
+
+## Notices, download page and dashboard (follow-up)
+
+The follow-up builds: a "Download your data" page per space (every artifact with its retained versions and their download links, the access log and audit exports, what goes on which date); one CLI command that pulls everything a space holds into a folder through the existing version download path, resumable, bounded in memory, with a dry run that prints counts and bytes first (no server-side ZIP: a Worker cannot hold or stream tens of gigabytes); no MCP bulk tool, because an agent should not move gigabytes inline; the three emails (grace start, 14 and 3 days before the end) through the outbox, on the capacity ladder with expiry notices, without an opt-out (a service notice about deletion), in the account's language, obeying `noticeDetail(region)`; and the Plan page and space banner. Until then the owner downloads with the existing paths (version downloads, `portifact pull`, the access log export, the audit export, the account export), and `portifact usage`, `get_usage` and the usage body carry the grace.
+
+## Alternatives rejected
+
+- **Columns for the previous plan, seats and overrides.** One previous plan cannot keep two drops with their own ends, and a lowering during a grace would have to either extend the first hold or cut it. A list of holds keeps each exact.
+- **Holds inside `overrides`.** No migration, but a release rolled back to the previous code would fail to parse the overrides of any owner in a grace and read them as none, dropping an Enterprise owner's audit retention: a deletion on rollback. A separate column is ignored by older code.
+- **A grace checked in every reader.** Many call sites, easy to miss one, and the miss deletes data. Folding the hold into `entitlements` means every existing reader of retention is covered by construction.
+
+## Risks
+
+- Deleting something a grace should hold is the worst outcome. The tests that rule it out: each held kind survives day 59 and goes on day 61 through the existing scans (versions, access log rows and counters, audit events, pins) in `packages/services/test/plan-grace.test.ts`, `analytics.test.ts`, `audit-export.test.ts`, `pins.test.ts`, `version-retention.test.ts` and `two-regions.test.ts`; the domain property test that during a grace no retention value is below the previous plan's.
+- A reader that selects the plan row without `grace` still sees a natural expiry's hold (it comes from `valid_until`) but not a lowering's. Every reader of `owner_plans` in `packages/services` and `packages/db` selects it; a new one must too.
+- Rolling back to the previous release: it ignores the column, so owners in a grace from a lowering or removal lose the hold and are pruned as before (no worse than today), and a removed plan's `free` row reads as free.
