@@ -95,6 +95,8 @@ export const ROLE_ACTIONS = [
   "scim",
   /** The owner's connections to GitHub or Linear (decision 0018): they hold a credential. */
   "integrations",
+  /** GitHub repositories trusted to publish through OIDC (decision 0024): they mint credentials. */
+  "federation",
 ] as const;
 export const RoleAction = z.enum(ROLE_ACTIONS);
 export type RoleAction = z.infer<typeof RoleAction>;

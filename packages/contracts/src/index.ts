@@ -18,6 +18,7 @@ export * from "./documents.ts";
 export * from "./email.ts";
 export * from "./email-domains.ts";
 export * from "./feedback.ts";
+export * from "./github-oidc.ts";
 export * from "./groups.ts";
 export * from "./human.ts";
 export * from "./integrations.ts";

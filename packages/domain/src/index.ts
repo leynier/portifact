@@ -21,6 +21,7 @@ export * from "./email-domains.ts";
 export * from "./expiry-notices.ts";
 export * from "./feedback.ts";
 export * from "./files.ts";
+export * from "./github-oidc.ts";
 export * from "./groups.ts";
 export * from "./html-text.ts";
 export * from "./ids.ts";

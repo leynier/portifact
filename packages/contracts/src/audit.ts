@@ -7,6 +7,13 @@ import { z } from "zod";
 import { APPROVALS } from "./approval-reviews.ts";
 import { AuditStreamAutoPause, AuditStreamStart } from "./audit-streams.ts";
 import { AccessMode, CommentVisibility } from "./core.ts";
+import {
+  GITHUB_TRUST_EVENTS,
+  GITHUB_TRUST_SCOPES,
+  GitHubNumericId,
+  GitHubTrustEvent,
+  GitHubTrustScope,
+} from "./github-oidc.ts";
 import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import {
   GitHubRepo,
@@ -130,6 +137,15 @@ const ownerKind = z.enum(["personal", "workspace"]);
  * adding it here, writing it in the batch of its change (`auditEvent` in packages/services) and
  * translating it in every dashboard catalog.
  */
+const githubTrustDetail = z.strictObject({
+  repositoryId: GitHubNumericId,
+  repository: GitHubRepo,
+  events: z.array(GitHubTrustEvent).min(1).max(GITHUB_TRUST_EVENTS.length),
+  scopes: z.array(GitHubTrustScope).min(1).max(GITHUB_TRUST_SCOPES.length),
+  ref: z.boolean(),
+  environment: z.boolean(),
+});
+
 export const AUDIT_DETAILS = {
   "artifact.published": z.strictObject({ version, first: z.boolean() }),
   "artifact.rolled_back": z.strictObject({ version, from: version }),
@@ -270,6 +286,28 @@ export const AUDIT_DETAILS = {
     days: z.number().int().min(1).max(SERVICE_TOKENS.maxDays),
   }),
   "service_token.revoked": empty,
+  /**
+   * A GitHub repository trusted to publish through OIDC (decision 0024): its numeric ID and its
+   * `owner/name` (the `issue.created` precedent: only admins read the log and they see the rule),
+   * what it may trigger and do, and whether a ref or an environment narrows it, never their values.
+   */
+  "github_trust.created": githubTrustDetail,
+  "github_trust.changed": githubTrustDetail,
+  "github_trust.removed": z.strictObject({
+    repositoryId: GitHubNumericId,
+    repository: GitHubRepo,
+  }),
+  /**
+   * A credential issued to a run of a trusted repository; the actor is the credential itself. The
+   * run's ID and attempt, so the trail survives the credential's row.
+   */
+  "github_trust.exchanged": z.strictObject({
+    repositoryId: GitHubNumericId,
+    repository: GitHubRepo,
+    event: GitHubTrustEvent,
+    runId: GitHubNumericId,
+    runAttempt: z.number().int().min(1).max(1000),
+  }),
   /**
    * A workspace's email domain (decision 0010) once it grants access: proved, or gone again by an
    * admin (`removed`), by the daily check finding its record missing (`record_missing`) or by
@@ -464,6 +502,7 @@ export const AUDIT_TARGET_TYPES = [
   "scim",
   "integration",
   "audit_stream",
+  "github_trust",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -511,6 +550,10 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "plan.grace_ended": "plan",
   "service_token.created": "service_token",
   "service_token.revoked": "service_token",
+  "github_trust.created": "github_trust",
+  "github_trust.changed": "github_trust",
+  "github_trust.removed": "github_trust",
+  "github_trust.exchanged": "github_trust",
   "email_domain.verified": "email_domain",
   "email_domain.removed": "email_domain",
   "sso.created": "sso",

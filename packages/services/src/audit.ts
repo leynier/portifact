@@ -93,6 +93,11 @@ export const GLOBAL_AUDIT_KINDS: readonly AuditKind[] = [
   // Service tokens are rows of the workspace, in the global database (decision 0011).
   "service_token.created",
   "service_token.revoked",
+  // GitHub trust rules and the credentials they issue are global rows too (decision 0024).
+  "github_trust.created",
+  "github_trust.changed",
+  "github_trust.removed",
+  "github_trust.exchanged",
   // A workspace's email domains are global rows too (decision 0010).
   "email_domain.verified",
   "email_domain.removed",

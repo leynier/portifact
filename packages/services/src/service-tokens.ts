@@ -75,7 +75,8 @@ async function tokensOf(global: GlobalDb, workspaceIds: string[], now: number) {
     .select({ token: t, creator: schema.users.name })
     .from(t)
     .leftJoin(schema.users, eq(schema.users.id, t.createdBy))
-    .where(inArray(t.workspaceId, workspaceIds))
+    // A GitHub run's credential (decision 0024) is not an admin's token: listed with its rule.
+    .where(and(inArray(t.workspaceId, workspaceIds), isNull(t.trustRuleId)))
     .orderBy(asc(t.createdAt), asc(t.id));
   return rows.map((row) => ({
     workspaceId: row.token.workspaceId,
@@ -141,13 +142,13 @@ export async function createServiceToken(
   const { restriction, keyPrefix } = restrictionColumns(input.body.restriction);
   const scopes = [...input.body.scopes].sort().join(" ");
   const expiresAt = serviceTokenExpiry(input.now, input.body.expiresInDays);
-  const count = sql`(select count(*) from ${t} where ${t.workspaceId} = ${workspaceId})`;
+  const count = sql`(select count(*) from ${t} where ${t.workspaceId} = ${workspaceId} and ${t.trustRuleId} is null)`;
   const [inserted] = await global.batch([
     // Every column in schema order (AGENTS.md, insert ... select).
     global
       .insert(t)
       .select(
-        sql`select ${id}, ${workspaceId}, ${input.body.label}, ${input.body.role}, ${scopes}, ${restriction}, ${keyPrefix}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt}, null where ${stillAdmin(workspaceId, input.userId)} and ${count} < ${SERVICE_TOKENS.perWorkspace}`,
+        sql`select ${id}, ${workspaceId}, ${input.body.label}, ${input.body.role}, ${scopes}, ${restriction}, ${keyPrefix}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt}, null, null, null where ${stillAdmin(workspaceId, input.userId)} and ${count} < ${SERVICE_TOKENS.perWorkspace}`,
       )
       .returning(),
     // Recorded only when the row above was written: the ID is this request's own.

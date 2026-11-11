@@ -65,7 +65,8 @@ const DEVELOP = {
   // removal above started a hold.
   // Plus comment retention's one global call while no workspace of the region sets it (decision
   // 0023): its cursor, its workspaces and the restore guard's epoch in one batch.
-  runMaintenance: 62,
+  // Plus the prune of expired GitHub run credentials (decision 0024): one delete of at most 500.
+  runMaintenance: 63,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads

@@ -1,0 +1,116 @@
+# 0024 GitHub Actions OIDC federation
+
+- Status: accepted
+- Date: 2026-11-11
+- Feature: premium plan T5, second delivery ("GitHub Actions OIDC federation, so no tokens are stored"), gated on `serviceTokens` (Team and above), shipped switched off (`GITHUB_OIDC_ENABLED`)
+
+## Question
+
+The pull request preview action ([docs/github-actions.md](../github-actions.md)) publishes with a workspace service token saved as the `PORTIFACT_TOKEN` repository secret ([decision 0011](0011-service-tokens.md)). That secret lives for up to a year, can leak from the secret store, a log or a compromised step, and has to be rotated by hand. GitHub Actions can instead give a job a signed OpenID Connect ID token that says which repository, workflow run and event it is. How does a workspace admin trust a GitHub repository so that a run from it exchanges that ID token for a short-lived Portifact credential, without letting another repository, a fork, a renamed or re-created repository, or a replayed token publish into the workspace?
+
+## Facts
+
+Read from GitHub on 2026-11-11:
+
+- **Discovery** (`https://token.actions.githubusercontent.com/.well-known/openid-configuration`, fetched): `issuer` is `https://token.actions.githubusercontent.com`, `jwks_uri` is `https://token.actions.githubusercontent.com/.well-known/jwks`, `id_token_signing_alg_values_supported` is `["RS256"]`, and `claims_supported` lists `sub`, `aud`, `exp`, `iat`, `iss`, `jti`, `nbf`, `ref`, `sha`, `repository`, `repository_id`, `repository_owner`, `repository_owner_id`, `enterprise`, `enterprise_id`, `run_id`, `run_number`, `run_attempt`, `actor`, `actor_id`, `workflow`, `workflow_ref`, `workflow_sha`, `job_workflow_ref`, `job_workflow_sha`, `head_ref`, `base_ref`, `event_name`, `ref_type`, `ref_protected`, `environment`, `environment_node_id`, `repository_visibility`, `runner_environment`, `issuer_scope` and `check_run_id`.
+- **Key set** (the `jwks_uri`, fetched): RSA keys with `kty`, `alg: RS256`, `use: sig`, `kid`, `n` and `e`; two keys were published at once, so rotation overlaps.
+- **OIDC reference** (`https://docs.github.com/en/actions/reference/security/oidc`): `repository_id` is "the ID of the repository from where the workflow is running", `repository_owner_id` "the ID of the organization in which the `repository` is stored", `event_name` "the name of the event that triggered the workflow run", `ref` "the git ref that triggered the workflow run", `environment` "the name of the environment used by the job", `head_ref` "the source branch of the pull request", `jti` "unique identifier for the OIDC token". The job must grant `id-token: write`: "Without `id-token: write`, the OIDC JWT ID token cannot be requested." The audience defaults to the repository owner's URL; a job asks for another one by calling `ACTIONS_ID_TOKEN_REQUEST_URL` with the bearer `ACTIONS_ID_TOKEN_REQUEST_TOKEN` and an added `&audience=` parameter (or `core.getIDToken(audience)`). Repositories created after July 15, 2026 (and renamed or transferred ones after that date) get an immutable default `sub` with owner and repository IDs; older ones keep `repo:owner/name:...` unless they opt in. Immutable subjects are not available on GitHub Enterprise Server.
+- **OIDC concepts** (`https://docs.github.com/en/actions/concepts/security/openid-connect`): the example token has `iat` and `exp` 300 seconds apart; no lifetime is promised.
+- **Workflow syntax, `permissions`** (`https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax`): `id-token` takes only `write` or `none`. For a `pull_request` run from a fork, "the permissions are adjusted to change any write permissions to read only", so the run gets no ID token, unless an admin turned on "Send write tokens to workflows from pull requests" (a setting of private repositories). For `pull_request_target` "the `GITHUB_TOKEN` is granted read/write repository permission, even when it is triggered from a public fork", and the adjustment does not apply.
+- **Events** (`https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows`): a `pull_request` run's ref is `refs/pull/<number>/merge` (the base branch's ref once merged); a `pull_request_target` run runs "in the context of the default branch of the base repository". Fork pull request events go to the base repository.
+- **Secure use** (`https://docs.github.com/en/actions/reference/security/secure-use`): `pull_request_target` and `workflow_run` are privileged and "must not explicitly check out untrusted code, including from pull request forks."
+
+Read from the code: a service token is a `service_tokens` row (global) authenticated by `authenticateServiceToken` with one indexed read joined to the workspace's plan; `actorOn` gives its ID the `editor` role on its own workspace only and only on artifacts its restriction reaches (`restrictionAllows` over `ArtifactSubject`: `none`, `own` or a publish key prefix); `can` checks `TOKEN_ACTIONS`; `last_used_at` is written at most once an hour; revoking deletes the row with a `service_token` tombstone; the audit log stores a token's actions as actor type `token` and shows the label while the row exists; the request context records it as `{ kind: "service_token" }`, which the sign-in policies never bind. `apps/app` already verifies OIDC ID tokens with `jose` for single sign-on (decision 0016).
+
+## Threat model
+
+1. **Another repository**, anywhere on GitHub, whose workflow asks for an ID token with this workspace's audience. Its token is signed by GitHub and valid; only the repository claims can refuse it.
+2. **A renamed, transferred, or deleted and re-created `owner/repo`.** A name is not an identity: someone can register a deleted organization's name and create the same repository name.
+3. **A fork's pull request** to a trusted public repository: its author controls the code the run builds, `head_ref` and the pull request's content.
+4. **Someone with write access to the trusted repository** (a contributor, a compromised dependency in the workflow) who pushes a branch or a workflow change; they act as the repository, so the rule's narrowing (event, ref, environment) is what limits them.
+5. **A replayed ID token**: one leaked from a log or a step, used again within its lifetime.
+6. **A token minted for another service** (a cloud provider's audience) or **for another Portifact workspace or deployment**, presented here.
+7. **A forged token**: `alg: none`, an HMAC token signed with the public key, a key not GitHub's, or a GitHub Enterprise Server or enterprise-specific issuer.
+8. **Making the Worker hammer GitHub**: tokens naming made-up `kid`s, or a flood of exchanges.
+9. **A leaked issued credential**: what it can do and for how long.
+10. **A restore** of D1 bringing a removed rule back.
+
+Out of scope: GitHub's own signing keys being compromised, and an attacker who controls a workspace admin's account (they can create rules and service tokens anyway).
+
+## Design
+
+### Trust rules
+
+- `github_trust_rules` (global, next to `service_tokens`): ID (`gtr_` and 32 hex characters), the workspace (foreign key, cascading), `repository_id` and `repository_owner_id` (GitHub's numeric IDs, stored as decimal text, compared as text exactly as the claims carry them), `repository` (the `owner/name` the admin typed, shown to people only, never compared), the events (a set from `GITHUB_TRUST_EVENTS`), an optional exact `ref`, an optional exact `environment`, the scopes, who created it (no foreign key, cleared when the account is deleted), created, updated and a `revision`. One rule per repository per workspace (unique index), so the key namespace below belongs to one rule.
+- **Bound to IDs, not names.** The admin enters the repository's name and its two numeric IDs; the dashboard shows the `gh api repos/OWNER/REPO --jq '.id, .owner.id'` command, and the CLI prints the run's `GITHUB_REPOSITORY_ID` and `GITHUB_REPOSITORY_OWNER_ID` when an exchange is refused. Portifact makes no call to GitHub's API to look them up: a private repository needs credentials, and an extra outbound call from the app Worker buys nothing the admin cannot copy. A renamed or transferred repository keeps its ID (and keeps working; transferring to another owner changes `repository_owner_id`, so it stops until the admin updates the rule), and a re-created one gets a new ID (and is refused).
+- **Events** the admin may trust: `push`, `pull_request`, `workflow_dispatch`, `merge_group`, `release`, `schedule`, `pull_request_target` and `workflow_run`. The default is `pull_request` and `push`. What each means for forks, as the dashboard says next to each:
+  - `pull_request`: GitHub gives a fork's run no ID token (its write permissions become read only), so in a public repository only branches of the repository itself can publish. In a private repository with "Send write tokens to workflows from pull requests" on, a fork's run does get one, and nothing in the token tells it apart from a branch's (`head_ref` is only a branch name): leave the event off there, or require an environment with reviewers.
+  - `pull_request_target` and `workflow_run`: privileged runs that a fork's pull request can start, with an ID token and the repository's identity. Safe only when the workflow never builds the fork's code; refused by the preview action itself. Off by default, behind a confirmation in the dashboard.
+  - `push`, `workflow_dispatch`, `merge_group`, `release`, `schedule`: started by people with write access or by GitHub for the repository; a fork cannot start them.
+- **Ref** (optional, exact match of the `ref` claim, such as `refs/heads/main`): a pull request run's ref is `refs/pull/<n>/merge`, so a rule with a branch ref admits no pull request runs. **Environment** (optional, exact match of `environment`): the strongest narrowing, because GitHub enforces the environment's protection rules (required reviewers, branch policies) before the job gets its token.
+- **Attacker-influenced claims**, never trusted by a rule: `head_ref`, `base_ref` for a fork, `actor`, `workflow`, `workflow_ref` (a writer changes the workflow file), `sub` (its format depends on the repository's creation date and settings), `repository` and `repository_owner` (names). Trusted: `iss`, `aud`, `exp`, `nbf`, `iat`, `jti` (GitHub's), `repository_id`, `repository_owner_id`, `event_name`, `ref` and `environment` (set by GitHub from the run; a writer chooses the branch but not its name's meaning, which is why `ref` is exact).
+- **Scopes**: from `artifacts:read`, `artifacts:write` and `artifacts:delete`, at least one; the default is read and write. Never `artifacts:share`: a workflow does not need to change who reads a preview, and making artifacts public from any trusted run is exactly what a leaked or abused credential should not do. Deleting is offered unchecked, for "delete the preview when the pull request closes".
+- **Who**: admins only (role action `federation`, never in `TOKEN_ACTIONS`), through the dashboard session only (`/api/v1/workspaces/:slug/github-trust`); no bearer route, MCP tool or CLI command creates, changes or removes one. At most 20 per workspace (`GITHUB_TRUST.perWorkspace`, a safety cap), enforced by the insert's own condition.
+- **Plan**: creating and changing are gated on `serviceTokens` (`requireFeature`, after authorization): the credential is a service token, so the same line of the plan covers it; no new feature. Removing is never gated, and an exchange for a workspace without the feature is refused (the service token authentication refuses its credential anyway).
+- **Audit**: `github_trust.created`, `github_trust.changed` and `github_trust.removed` with the repository's numeric ID and its `owner/name`, the events, scopes and whether a ref and an environment are set (never their values). The name follows the `issue.created` precedent: only admins read the log, admins already see the rule, and which repository can publish into the workspace is the fact that matters. Each exchange records `github_trust.exchanged` (repository ID and name, event, run ID and attempt), so the audit log keeps which run each credential was after the credential row is pruned.
+- **Tombstone**: removing writes a `github_trust_rule` tombstone in the delete's batch; `applyTombstones` deletes restored rules (their credentials go by cascade) and `exportTombstones` carries the markers.
+
+### The exchange
+
+`POST /api/v1/github/token` on `app.portifact.com`, no credentials, body `{ "workspace": "<slug>", "token": "<GitHub ID token>" }`. It answers `200 { token, expiresAt, workspace, keyPrefix, scopes }` or, for every reason it does not issue, one body: `401 { error: { code: "unauthenticated", message: "This GitHub token was not accepted for the workspace." } }`. Two other answers say nothing about rules: `429 rate_limited` from the counters, and `404` while switched off.
+
+1. Count the attempt per IP (`rate_limits`, `github-oidc:ip:<ip>`, 300 per 10 minutes: GitHub-hosted runners share addresses, so the limit is generous and the per-repository one is the tight one).
+2. Parse and verify with `jose` (`jwtVerify` over a local key set): `alg` only `RS256`, `kid` required and looked up in GitHub's key set, `iss` exactly `https://token.actions.githubusercontent.com` (an enterprise-specific issuer `https://token.actions.githubusercontent.com/<enterprise>` and GitHub Enterprise Server issuers are refused: not supported), `aud` exactly the workspace's audience (one value; a token with several audiences is refused), `exp`, `nbf` and `iat` with 60 seconds of skew, `iat` at most an hour old, and `exp - iat` at most an hour, and `jti`, `repository_id`, `repository_owner_id`, `event_name`, `run_id` and `run_attempt` present with the expected shapes.
+3. Count the verified attempt per repository (`github-oidc:repo:<repository_id>`, 60 per 10 minutes).
+4. One read: the workspace by slug joined to the rule for the token's `repository_id` and the workspace's plan.
+5. The rule's verdict (`githubClaimsVerdict` in `packages/domain/src/github-oidc.ts`): owner ID, event, ref, environment, then the plan.
+6. One batch: insert the credential conditioned on the rule's row still being the one read (ID and revision) and `jti` not used, and the `github_trust.exchanged` event on the same condition.
+
+**Audience**: `https://app.portifact.com/workspaces/<slug>/github`, built by `githubAudience(appOrigin, slug)` (`packages/contracts`), so a token minted for another service, another Portifact deployment (staging has another origin) or another workspace never matches. Workspace slugs never change. The CLI asks GitHub for that audience with `ACTIONS_ID_TOKEN_REQUEST_URL` and `&audience=`.
+
+**Timing class**: a refusal before the signature check costs one D1 call; a refusal after it costs three (the repository counter, the read, nothing else), whether the workspace exists, has a rule for the repository or the rule refuses. Only a holder of a valid GitHub token for that repository reaches the later class, and its success is visible anyway. The refusal's reason is logged as an enum only.
+
+**Replay**: each ID token is single use. The credential row stores the token's `jti` under a unique index, so a second exchange of the same token fails the insert and answers the one refusal. It costs nothing extra (the column is in the insert the exchange makes anyway) and the rows are kept until an hour after the credential expires, longer than any accepted ID token lives (`exp - iat` at most an hour). It buys that a token leaked from a run's log after its exchange is worthless. The credential is bound to the run by its label, the audit event and its key namespace; requests made with it carry no new proof from GitHub, so the binding is what was recorded at exchange, and the short life is what limits it.
+
+**Key set**: fetched from the fixed `jwks_uri` only, through the same bounded fetcher as single sign-on (`fetchSsoJson`: no redirects, 5 seconds, 64 KiB), cached per isolate for an hour; a token naming a `kid` the cached set lacks fetches it again at most once a minute per isolate, so made-up `kid`s cannot make the Worker hammer GitHub. When GitHub is unreachable, verification fails closed and exchanges are refused (logged as `jwks_unavailable`); credentials already issued keep working until they expire.
+
+### The credential
+
+- **A row of `service_tokens`** with two new nullable columns: `trust_rule_id` (foreign key to the rule, cascading) and `federation_jti` (unique). This reuses everything decision 0011 built: `authenticateServiceToken`'s one read, the plan check, `actorOn`, `TOKEN_ACTIONS`, the scopes at the API boundary, the request context's `service_token` credential, the audit actor `token` and the operator's `find-service-token` and `revoke-service-token`. A new table would need all of that again. The rows are not admin-made tokens: the token list, its count against the 20-token cap and the account export leave them out (`trust_rule_id is null`), and the rule shows how many are live.
+- **Secret**: the same `pfst_` format, 256 random bits, only its SHA-256 stored, returned once by the exchange. The existing gitleaks rule and scanners recognize it.
+- **Life**: 15 minutes (`GITHUB_TRUST.credentialMinutes`). A preview publish is a prepare, the uploads and a commit, usually within a minute or two; 15 minutes covers large uploads on a slow runner while keeping a leak short. The CLI exchanges again when it gets close to expiry, so a longer job asks GitHub for a new ID token instead of holding a longer credential.
+- **Reach**: `editor` on its own workspace, restriction `key` with the prefix `gh-<repository_id>/`, so one repository's workflow publishes, reads and deletes only artifacts whose key starts with its own namespace: never another repository's previews or a hand-published artifact without such a key. The trailing slash keeps `gh-12/` from reaching `gh-123/`. A person or an unrestricted service token can still publish under the prefix (decision 0011, "The prefix is compared as plain text"); such an artifact is within the repository's reach.
+- **Label**: `GitHub <owner/name> run <run_id>`, cut to 80 characters, with the run's attempt in the audit event. The audit log shows the credential as a service token by this label while the row exists, and as a revoked token after it is pruned; the `github_trust.exchanged` event keeps the run.
+- **Last used**: set at issue, so the hourly write never runs for a credential that lives 15 minutes.
+- **Refused everywhere a person is needed**, as every service token: annotations, the viewer and review, account endpoints, MCP (it is not an OAuth token), `checkReadAccess`. The sign-in policies (maximum session age, allowed clients, SSO required) never bind it, like any service token: there was no sign-in. The network allowlist binds it like any service token (applied in `actorOn`): a workspace with one needs runners with addresses inside it.
+- **Revocation**: removing or changing a rule deletes its credentials in the same batch (the cascade on removal, an explicit delete on change), so they stop on the next request. A workspace's deletion cascades.
+- **Pruning**: `pruneFederatedCredentials` (global, in `runMaintenance`) deletes at most 500 credential rows that expired more than an hour ago, oldest first, in one statement; a backlog drains over later runs.
+
+### Clients
+
+- **CLI**: when `PORTIFACT_TOKEN` is unset and `PORTIFACT_GITHUB_OIDC` names a workspace (the explicit switch: a job that grants `id-token: write` for a cloud login does not start talking to Portifact), and `ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN` are set, the CLI asks GitHub for an ID token with the workspace's audience, exchanges it and keeps the credential in memory for that process only: never on disk, never printed, never in a child's environment (`childEnvironment` also withholds the two `ACTIONS_ID_TOKEN_REQUEST_*` variables and `PORTIFACT_GITHUB_OIDC`). A refused exchange tells the user the repository's IDs to put in the rule.
+- **Action**: a `workspace` input turns the mode on when `token` is empty; the job grants `id-token: write`. The default key becomes `gh-<repository_id>/pr-<number>`. A fork's `pull_request` run has no ID token request variables, so its preview is skipped with the same warning as a missing secret. `PORTIFACT_TOKEN` keeps working unchanged.
+
+### Switched off
+
+Nothing is reachable without `GITHUB_OIDC_ENABLED="true"` on the app Worker (never in a `wrangler.jsonc`): the exchange answers 404, creating and changing rules `capacity_unavailable`; listing and removing still work so an admin can always take trust away. Tests and the e2e stack set it and use `FakeGitHubIssuer` from `@portifact/services/testing`, which signs tokens with its own keys and serves its key set through the injected fetch; no test calls GitHub. [docs/releasing.md](../releasing.md) ("GitHub OIDC") lists the checks against real GitHub before turning it on.
+
+### Costs
+
+The exchange costs at most four D1 calls (IP counter, repository counter, the read, the batch) and no read on any existing request path. Requests with the credential cost what a service token's do (one read, no hourly write). `runMaintenance` gains one call (the prune), pinned in `scan-costs.test.ts`; the exchange's calls are pinned in `apps/app/test/github-oidc-cost.test.ts`.
+
+## Alternatives rejected
+
+- **A new credential table**: would duplicate authentication, `actorOn`, scopes, the audit actor and the operator tooling for no difference in behavior.
+- **Trusting `repository` or `sub`**: names can be re-registered, and `sub`'s format changed on July 15, 2026 and differs per repository.
+- **Looking up the IDs through GitHub's API**: private repositories need a credential, and the admin can copy two numbers.
+- **Not recording `jti`**: a leaked ID token would mint fresh credentials for its whole life; recording it costs no extra call.
+- **A per-workspace endpoint or issuer configuration**: GitHub has one public issuer; GitHub Enterprise Server is not supported until someone needs it, which would add per-rule issuers and key sets.
+- **Allowing `artifacts:share`**: no preview workflow needs it.
+
+## Open risks
+
+- **Private repositories with fork write tokens on** cannot be told apart from same-repository pull requests; the dashboard says so, and an environment with reviewers is the answer.
+- **A writer of the trusted repository** can publish within the namespace from any trusted event; `ref` and `environment` are how an admin narrows that.
+- **GitHub's key set unreachable** stops new exchanges until it is back (operations.md).
+- **Restore gaps**: rules created after the restore point are lost; removed ones stay removed through their tombstones; credentials are short-lived and go with their rule.

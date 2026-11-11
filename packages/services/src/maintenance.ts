@@ -34,6 +34,7 @@ import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
+import { pruneFederatedCredentials } from "./github-trust.ts";
 import { pruneOperations } from "./idempotency.ts";
 import { pruneExpiredInvitations } from "./invitations.ts";
 import {
@@ -974,6 +975,9 @@ export async function runMaintenance(
     accountDeletions: (await processAccountDeletions(regions, now)).finished,
     workspaceDeletions: (await processWorkspaceDeletions(regions, now)).finished,
     expiredInvitations: await pruneExpiredInvitations(db.global, now),
+    // Credentials GitHub runs were issued (decision 0024), an hour after they expire: one
+    // statement of at most 500 rows.
+    federatedCredentials: await pruneFederatedCredentials(db.global, now),
     // What a directory said about people who never got an account, once its pending row lapsed
     // (decision 0017): one delete over the users with no account link.
     directoryUsers: await pruneDirectoryUsers(db.global, now),
