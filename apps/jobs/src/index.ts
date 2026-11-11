@@ -47,6 +47,7 @@ import { type NotifierEnv, notifierFromEnv, runBudget } from "./budget.ts";
 import { type IntegrationEnv, integrationKeysFromEnv, issueDepsFromEnv } from "./integrations.ts";
 import {
   commentNotifierFromEnv,
+  commentRetentionNotifierFromEnv,
   directoryNotifierFromEnv,
   domainNotifierFromEnv,
   expiryNotifierFromEnv,
@@ -323,6 +324,7 @@ export async function runQueue(
   const domainNotifier = domainNotifierFromEnv(env);
   const directoryNotifier = directoryNotifierFromEnv(env);
   const retentionNotifier = retentionNotifierFromEnv(env);
+  const commentRetentionNotifier = commentRetentionNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
   const auditStreams = auditStreamDepsFromWebhooks(webhooks);
   const issues = await issueDepsFromEnv(env, fetcher);
@@ -347,6 +349,7 @@ export async function runQueue(
         domainNotifier,
         directoryNotifier,
         retentionNotifier,
+        commentRetentionNotifier,
         regions,
       });
       if (outcome === "pending") {

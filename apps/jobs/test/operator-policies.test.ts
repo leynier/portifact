@@ -1,7 +1,7 @@
 // The operator's workspace policy commands (decision 0015): exporting the policies before a D1
 // Time Travel restore and setting them again after it, so a restore never lifts one.
 import { env } from "cloudflare:test";
-import { createDb, schema } from "@portifact/db";
+import { createDb, regionsFromEnv, schema } from "@portifact/db";
 import { policyOf } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,8 @@ import { OPERATOR_USAGE, runOperator } from "../src/operator.ts";
 
 const NOW = Date.UTC(2026, 10, 10, 12);
 const db = () => createDb(env.DB);
+// Every region's database and bucket: what apply-policies needs to re-arm comment retention.
+const all = () => regionsFromEnv(env);
 // With a network allowlist (decision 0020): a restore must not lift it either.
 const POLICY = {
   publicAccess: "forbidden",
@@ -23,6 +25,9 @@ const POLICY = {
   ssoRequired: false,
   artifactMaxDays: null,
   artifactMaxDaysFrom: null,
+  commentRetentionDays: null,
+  commentRetentionFrom: null,
+  commentRetentionToken: null,
 };
 
 async function workspace(policy: unknown) {
@@ -68,7 +73,7 @@ describe("operator policy commands", () => {
       .where(eq(schema.workspaces.id, kept));
     const extra = await workspace({ ...POLICY, shareLinks: "disabled" });
     const applied = await runOperator(
-      db(),
+      all(),
       ["apply-policies", "--file", "policies.jsonl"],
       NOW + 1,
       files,
@@ -112,6 +117,9 @@ describe("operator policy commands", () => {
       ssoRequired: _sso,
       artifactMaxDays: _life,
       artifactMaxDaysFrom: _from,
+      commentRetentionDays: _comments,
+      commentRetentionFrom: _commentsFrom,
+      commentRetentionToken: _token,
       ...older
     } = POLICY;
     const id = await workspace(older);
@@ -123,7 +131,7 @@ describe("operator policy commands", () => {
       },
     });
     expect(written.get("p.jsonl")).toContain(
-      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null, ssoRequired: false, artifactMaxDays: null, artifactMaxDaysFrom: null })}}`,
+      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null, ssoRequired: false, artifactMaxDays: null, artifactMaxDaysFrom: null, commentRetentionDays: null, commentRetentionFrom: null, commentRetentionToken: null })}}`,
     );
   });
 });
@@ -241,7 +249,12 @@ describe("apply-policies after the review (decision 0020)", () => {
       JSON.stringify({ workspaceId: first, policy: POLICY }),
       JSON.stringify({ workspaceId: second, policy: { ...POLICY, ipAllowlist: ["10.0.0.0/33"] } }),
     ].join("\n");
-    const result = await runOperator(db(), ["apply-policies", "--file", "p"], NOW, filesWith(text));
+    const result = await runOperator(
+      all(),
+      ["apply-policies", "--file", "p"],
+      NOW,
+      filesWith(text),
+    );
     expect(result.exitCode).toBe(1);
     expect(result.output).toContain("Line 2 of p is not a valid workspace policy");
     expect(result.output).toContain("10.0.0.0/33");
@@ -258,7 +271,7 @@ describe("apply-policies after the review (decision 0020)", () => {
       workspaceId: id,
       policy: { ...POLICY, publicAccess: "allowed", ipAllowlist: null },
     });
-    const kept = await runOperator(db(), ["apply-policies", "--file", "p"], NOW, filesWith(older));
+    const kept = await runOperator(all(), ["apply-policies", "--file", "p"], NOW, filesWith(older));
     expect(kept.exitCode).toBe(0);
     expect(kept.output).toContain("Applied 0 workspace policy(ies)");
     expect(kept.output).toContain(`  ${id}: publicAccess, ipAllowlist`);
@@ -271,7 +284,7 @@ describe("apply-policies after the review (decision 0020)", () => {
       )[0]?.policy;
     expect(await stored()).toEqual(POLICY);
     const lifted = await runOperator(
-      db(),
+      all(),
       ["apply-policies", "--file", "p", "--allow-lifting"],
       NOW + 1,
       filesWith(older),
@@ -290,7 +303,7 @@ describe("SSO required in restores (decision 0021)", () => {
         `${JSON.stringify({ workspaceId: id, policy: { ...POLICY, ssoRequired: true } })}\n`,
       write: async () => {},
     };
-    const applied = await runOperator(db(), ["apply-policies", "--file", "p.jsonl"], NOW, files);
+    const applied = await runOperator(all(), ["apply-policies", "--file", "p.jsonl"], NOW, files);
     expect(applied.output).toContain(
       "1 workspace(s) were left as they are because the file requires single sign-on",
     );
@@ -313,5 +326,41 @@ describe("listing the workspaces that require single sign-on (decision 0021)", (
     expect(listed.output).not.toContain(other);
     expect((await runOperator(db(), ["workspaces"], NOW)).output).toContain(other);
     expect(OPERATOR_USAGE).toContain("workspaces [--sso-required]");
+  });
+});
+
+describe("comment retention after apply-policies (decision 0023)", () => {
+  it("names the workspaces whose stricter comment retention it did not apply", async () => {
+    const id = await workspace({
+      ...POLICY,
+      commentRetentionDays: 365,
+      commentRetentionFrom: NOW,
+      commentRetentionToken: "t",
+    });
+    const line = JSON.stringify({
+      workspaceId: id,
+      policy: {
+        ...POLICY,
+        commentRetentionDays: 30,
+        commentRetentionFrom: NOW,
+        commentRetentionToken: "t",
+      },
+    });
+    const result = await runOperator(db(), ["apply-policies", "--file", "p"], NOW, {
+      read: async () => `${line}\n`,
+      write: async () => {},
+    });
+    expect(result.output).toContain("kept their comment retention because the file's is stricter");
+    expect(result.output).toContain(id);
+  });
+
+  it("says it resumes by itself where the guard agrees, and that the export comes before the restore", async () => {
+    const result = await runOperator(db(), ["apply-policies", "--file", "empty"], NOW, {
+      read: async () => "",
+      write: async () => {},
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("Comment retention deletes again by itself");
+    expect(result.output).toContain("Take the export before the restore");
   });
 });

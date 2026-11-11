@@ -40,6 +40,26 @@ export const WORKSPACE_POLICIES = {
   retentionNoticeDays: 7,
   /** How far past its effective date the preview counts the artifacts it archives. */
   retentionHorizonDays: 30,
+  /**
+   * The shortest and longest comment retention a policy may set, in days after a thread's last
+   * activity (decision 0023, "Comment retention").
+   */
+  commentMinDays: 30,
+  commentMaxDays: 3650,
+  /**
+   * Threads the retention scan deletes per run and region at most, and per workspace per run, so
+   * one large workspace never holds the others back.
+   */
+  commentDeleteRun: 200,
+  commentDeleteBatch: 50,
+  /** Days after an artifact moves into a workspace before its threads come under its retention. */
+  commentMoveNoticeDays: 7,
+  /**
+   * The second notice to admins: sent when the first deletion is this many days away, if it comes
+   * at least `commentWarnAfterDays` after the save (otherwise the first notice was recent enough).
+   */
+  commentWarnDays: 3,
+  commentWarnAfterDays: 14,
 } as const;
 
 /** A kind of client a policy may allow besides the dashboard (decision 0021). */
@@ -137,6 +157,29 @@ export const WorkspacePolicy = z.strictObject({
    * the notice period, a longer one keeps the date it had. Whatever a client sends is ignored.
    */
   artifactMaxDaysFrom: z.int().min(0).nullable().default(null),
+  /**
+   * Comment retention (decision 0023): a thread is deleted for good, with every message, once its
+   * last activity is this many days old, unless it is open on the artifact's current version;
+   * null for none. Absent in policies stored before it existed, and stored only while set.
+   */
+  commentRetentionDays: z
+    .number()
+    .int()
+    .min(WORKSPACE_POLICIES.commentMinDays)
+    .max(WORKSPACE_POLICIES.commentMaxDays)
+    .nullable()
+    .default(null),
+  /**
+   * When comment retention takes effect (milliseconds): nothing is deleted before. Decided by the
+   * server on every save, like `artifactMaxDaysFrom`; whatever a client sends is ignored.
+   */
+  commentRetentionFrom: z.int().min(0).nullable().default(null),
+  /**
+   * Comment retention's restore guard (decision 0023, "Restores"): a random token the server
+   * writes with every save that sets or changes the rule, also kept in the workspace's region's R2
+   * bucket; the scan deletes only while the two agree. Never shown, never taken from a client.
+   */
+  commentRetentionToken: z.string().min(1).max(64).nullable().default(null),
 });
 export type WorkspacePolicy = z.infer<typeof WorkspacePolicy>;
 
@@ -152,6 +195,8 @@ export const WorkspacePolicyShown = z.object({
   ...WorkspacePolicy.shape,
   ipAllowlist: IpAllowlistView,
   tokenIpAllowlist: IpAllowlistView,
+  /** Never shown: the guard's token stays on the server. */
+  commentRetentionToken: z.null().default(null),
 });
 export type WorkspacePolicyShown = z.infer<typeof WorkspacePolicyShown>;
 
@@ -168,6 +213,9 @@ export const DEFAULT_POLICY: WorkspacePolicy = {
   ssoRequired: false,
   artifactMaxDays: null,
   artifactMaxDaysFrom: null,
+  commentRetentionDays: null,
+  commentRetentionFrom: null,
+  commentRetentionToken: null,
 };
 
 /** The fields of a policy, for the audit log and the dashboard. */
@@ -183,6 +231,7 @@ export const POLICY_FIELDS = [
   "allowedClients",
   "ssoRequired",
   "artifactMaxDays",
+  "commentRetentionDays",
 ] as const satisfies readonly (keyof WorkspacePolicy)[];
 export type PolicyField = (typeof POLICY_FIELDS)[number];
 
@@ -210,6 +259,14 @@ export const PolicyImpact = z.object({
   artifactsAtStart: z.int().min(0).default(0),
   artifactsSoon: z.int().min(0).default(0),
   pinsLifted: z.int().min(0).default(0),
+  /**
+   * Comment retention (decision 0023): threads, and the messages in them, deleted for good on
+   * the day it takes effect, and threads deleted within `retentionHorizonDays` after it. A save
+   * that sets or shortens it needs these confirmed, and is refused again if they grew.
+   */
+  threadsAtStart: z.int().min(0).default(0),
+  messagesAtStart: z.int().min(0).default(0),
+  threadsSoon: z.int().min(0).default(0),
 });
 export type PolicyImpact = z.infer<typeof PolicyImpact>;
 
@@ -292,6 +349,12 @@ export const WorkspacePolicyView = z.object({
   /** Whether the workspace has a verified email domain, which the `domain` default needs. */
   domainVerified: z.boolean(),
   /**
+   * Whether the comment retention set is in force (decision 0023): false when the policy and the
+   * region's guard record disagree (a restore, or a save whose guard write failed), so nothing is
+   * deleted until an admin saves it again; null when no rule is set.
+   */
+  commentRetentionInForce: z.boolean().nullable().default(null),
+  /**
    * The caller's address as the app sees it (`CF-Connecting-IP`), shown only to admins so they
    * can include their own network before saving an allowlist; null otherwise. Never stored.
    */
@@ -368,6 +431,34 @@ export const RetentionNoticePayload = z.strictObject({
   revision: z.int().min(0),
 });
 export type RetentionNoticePayload = z.infer<typeof RetentionNoticePayload>;
+
+/**
+ * Payload of a `comment_retention_notice` job (decision 0023; its subject is the workspace):
+ * `set` when an admin set or shortened comment retention, `soon` shortly before its first
+ * deletion. Counts, days and dates only, never a name or a word of a comment.
+ */
+export const CommentRetentionNoticePayload = z.strictObject({
+  kind: z.enum(["set", "soon"]),
+  days: z.int().min(WORKSPACE_POLICIES.commentMinDays).max(WORKSPACE_POLICIES.commentMaxDays),
+  from: z.int().min(0),
+  /** The first deletion's date: the effective date for `set`, the scan's estimate for `soon`. */
+  at: z.int().min(0),
+  threads: z.int().min(0),
+  messages: z.int().min(0),
+  revision: z.int().min(0),
+});
+export type CommentRetentionNoticePayload = z.infer<typeof CommentRetentionNoticePayload>;
+
+/**
+ * The `comment_tombstones` job (decision 0023, "Restores"): written in the regional batch that
+ * deleted the threads, on the same condition, when the region has its own database; it writes
+ * their `comment_thread` tombstones in the global database. At most one batch of threads.
+ */
+export const CommentTombstonesPayload = z.strictObject({
+  ids: z.array(z.string().min(1).max(64)).min(1).max(WORKSPACE_POLICIES.commentDeleteBatch),
+  at: z.int().min(0),
+});
+export type CommentTombstonesPayload = z.infer<typeof CommentTombstonesPayload>;
 
 /**
  * One workspace's policies in the file `export-policies` writes before a D1 Time Travel restore

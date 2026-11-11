@@ -10,6 +10,7 @@
 import {
   ERROR_STATUS,
   type ErrorCode,
+  type ErrorDetail,
   IncomingInvitationList,
   InvitationCreate,
   InvitationId,
@@ -54,6 +55,7 @@ import {
   WorkspaceSlug,
   WorkspaceView,
 } from "@portifact/contracts";
+import { isRegion } from "@portifact/db";
 import { domainRecord, shownPolicy } from "@portifact/domain";
 import { invitationEmail } from "@portifact/emails";
 import {
@@ -123,8 +125,14 @@ import { type Guarded, iso, readJson } from "./http.ts";
 
 type WorkspaceContext = Context<{ Bindings: Env }>;
 
-function error(c: WorkspaceContext, code: ErrorCode, message: string): Response {
-  return c.json({ error: { code, message } }, ERROR_STATUS[code] as 400);
+function error(
+  c: WorkspaceContext,
+  code: ErrorCode,
+  message: string,
+  detail?: ErrorDetail,
+): Response {
+  const body = detail ? { code, message, details: { reason: detail } } : { code, message };
+  return c.json({ error: body }, ERROR_STATUS[code] as 400);
 }
 
 export function workspaceView(row: UserWorkspace): WorkspaceView {
@@ -822,9 +830,11 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
   /** Answers a service result: the error's status and body, or `done` with the value. */
   const reply = <T>(
     c: WorkspaceContext,
-    result: { ok: true; value: T } | { ok: false; code: ErrorCode; message: string },
+    result:
+      | { ok: true; value: T }
+      | { ok: false; code: ErrorCode; message: string; detail?: ErrorDetail },
     done: (value: T) => Response,
-  ) => (result.ok ? done(result.value) : error(c, result.code, result.message));
+  ) => (result.ok ? done(result.value) : error(c, result.code, result.message, result.detail));
   /**
    * A group route: the session check, then the slug and (unless `list`) the group ID from the
    * path, each answering like a missing one when malformed.
@@ -940,8 +950,16 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
   routes.get(
     "/api/v1/workspaces/:slug/policies",
     policyRoute(async (c, ids) =>
-      reply(c, await getWorkspacePolicy(global(c), { ...ids, now: deps.now() }), (state) =>
-        c.json(policyView(state)),
+      reply(
+        c,
+        await getWorkspacePolicy(global(c), {
+          ...ids,
+          now: deps.now(),
+          // Read only here, and only while a rule is set (decision 0023, "Restores").
+          bucketOf: (region) =>
+            isRegion(region) ? regionsOf(c.env).get(region).bucket : undefined,
+        }),
+        (state) => c.json(policyView(state)),
       ),
     ),
   );

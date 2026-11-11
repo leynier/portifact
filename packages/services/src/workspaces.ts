@@ -3,6 +3,7 @@
 // comes from `actorOn`; a user who is not a member of a workspace gets exactly what a missing one
 // gives. Membership writes are D1 batches conditioned on the state the request read, and the
 // triggers of the workspace_members_invitations migration refuse leaving a workspace without an admin even when a race slips past.
+
 import {
   type AuditDetail,
   DEFAULT_POLICY,
@@ -48,6 +49,7 @@ import { actorOn } from "./actors.ts";
 import { type AuditActor, auditEvent, eraseOwnerAuditEvents } from "./audit.ts";
 import { deleteOwnerAuditStreams } from "./audit-streams.ts";
 import { eraseOwnerBrand } from "./branding.ts";
+import { deleteGuardRecord } from "./comment-retention.ts";
 import { domainDbsOf, releaseOwnerDomains } from "./custom-domains.ts";
 import { deleteOwnerConnections } from "./integrations.ts";
 import { releaseOrphans } from "./maintenance.ts";
@@ -829,6 +831,8 @@ export async function deleteWorkspace(
   const deleted = (results.at(-1) as unknown[]).length === 1;
   if (deleted) {
     if (home && !both) await retried(() => claimOwnerInRegion(home, input.workspaceId, input.now));
+    // Cleanup after the D1 deletion (decision 0023): a record left behind only ever disagrees.
+    if (row) await deleteGuardRecord(regions.get(regionOf(row)).bucket, input.workspaceId);
     return ok({ deleted: true });
   }
   const [pending] = await global

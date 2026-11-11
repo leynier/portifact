@@ -458,7 +458,12 @@ export const ja = {
   "account.data.title": "あなたのデータ",
   "account.data.hint":
     "アカウントに保存されているすべての情報をJSONでダウンロードできます。プロフィール、artifactとそのアクセス設定、バージョン、ファイル一覧、コメントが含まれます。各バージョンには、そのファイルをダウンロードするリンクが記載されています。",
-  "account.data.download": "データをダウンロード",
+  "account.data.download": "アカウントのデータをダウンロード（JSON）",
+  "account.data.spacePersonal":
+    "個人スペースに保存されているもの（各アーティファクトの保持されたバージョンとソース、アクセスログ、監査ログ）を取り出すには、スペースのダウンロードページを使ってください。",
+  "account.data.spaceWorkspace":
+    "ワークスペース {workspace} に保存されているもの（各アーティファクトの保持されたバージョンとソース、アクセスログ、監査ログ）を取り出すには、スペースのダウンロードページを使ってください。",
+  "account.data.spaceLink": "このスペースのデータをダウンロード",
   "account.delete.title": "アカウントを削除",
   "account.delete.hint":
     "アカウントを削除すると、artifact、セッション、アプリ、サインイン方法、ほかの人のartifactへのコメントが削除されます。誰かが返信したコメントは「削除されたメッセージ」という表示に置き換わります。artifactのアドレスがほかの人に割り当てられることはありません。この操作は元に戻せないため、先にデータをダウンロードしてください。",
@@ -1660,7 +1665,6 @@ export const ja = {
   "data.logs.account": "アカウントのデータをダウンロード（JSON）",
   "data.logs.cli":
     "すべてを一度に持ち出すには、ターミナルで portifact export <フォルダー> を実行してください。保持されているすべてのバージョンを取得し、中断しても再開し、マニフェストを書き出します。",
-  "shell.dataLink": "データをダウンロード",
   "shell.grace.title": "{plan} プランで保持していたものは {date} まで保持されます",
   "shell.grace.download": "データをダウンロード",
   "shell.grace.request": "{plan} をもう一度申請",
@@ -2836,4 +2840,39 @@ export const ja = {
     "{count, plural, one {# 件の artifact の期限を戻しました} other {# 件の artifact の期限を戻しました}}",
   "transfer.confirm.maxLife":
     "{space} では artifact は最後の公開、復元、または移動から {days} 日後にアーカイブされます。今移動すると、誰かが再公開しない限り遅くとも {date} にアーカイブされ、そこではピン留めできません。",
+  "policies.comments.unavailable":
+    "現在コメントの保持期間のルールを変更できないため、何も保存されませんでした。数分後にもう一度お試しください。",
+  "policies.comments.legend": "コメントの保持期間",
+  "policies.comments.hint":
+    "ワークスペースのコメントスレッドを、一定の日数アクティビティがなくなった時点で、すべてのメッセージとともに削除します。アーティファクトの現在のバージョンにある未解決のスレッドは保持されるため、レビュー担当者が待っている内容が失われることはありません。新しいバージョンがそのバージョンを置き換えると、スレッドはその時点から再び期間全体を得ます。削除されたスレッドは、Portifact を含め誰も復元できません。",
+  "policies.comments.any": "コメントを保持",
+  "policies.comments.anyHint": "誰かが削除するか artifact が削除されるまで、スレッドは残ります。",
+  "policies.comments.only": "古いスレッドを削除",
+  "policies.comments.onlyHint":
+    "解決済みのスレッドは、最後のアクティビティが期間より古くなると削除されます。以前のバージョンにある未解決のスレッドは、最後のアクティビティからも、そのバージョンが置き換えられてからも期間が過ぎると削除されます。返信すると期間がやり直しになります。",
+  "policies.comments.days": "スレッドの最後のアクティビティからの日数",
+  "policies.comments.daysHint": "{min} から {max} 日。",
+  "policies.comments.daysError": "{min} から {max} までの整数の日数を入力してください。",
+  "policies.comments.notice":
+    "新しい、またはより短い保持期間は保存の {days} 日後に適用され、すべての管理者にメールが届きます。最初の削除がずっと後の場合は、その少し前にもう一通届きます。より長い保持期間、または設定なしはすぐに適用されます。ワークスペースのプランが失効すると、何も削除されず、管理者が再設定するまで保持期間は解除されます。",
+  "policies.comments.pending": "コメントの保持期間は {date} に適用されます",
+  "policies.comments.active":
+    "コメントスレッドは最後のアクティビティから {days} 日後に完全に削除されます。未解決のスレッドは、そのバージョンが置き換えられてから {days} 日後のほうが遅ければ、その時点で削除されます。アーティファクトの現在のバージョンにある未解決のスレッドは保持されます。",
+  "policies.comments.notInForce": "コメントの保持期間は設定されていますが、有効になっていません",
+  "policies.comments.notInForceHint":
+    "このルールでは何も削除されません。バックアップからの復元後、またはルールを記録できなかった保存の後に起こります。ルールをもう一度保存すると有効になります。新しいルールと同じく、予告期間の後に適用されます。",
+  "policies.impact.threads":
+    "{count, plural, one {# 件のコメントスレッドが保持期間の適用日に完全に削除されます} other {# 件のコメントスレッドが保持期間の適用日に完全に削除されます}}",
+  "policies.impact.messages":
+    "{count, plural, one {その中の # 件のメッセージも削除されます} other {その中の # 件のメッセージも削除されます}}",
+  "policies.impact.threadsSoon":
+    "{count, plural, one {さらに # 件がその後 30 日以内に削除されます} other {さらに # 件がその後 30 日以内に削除されます}}",
+  "policies.impact.openThreads":
+    "アーティファクトの現在のバージョンにある未解決のスレッドは数えられません。これらは保持され、新しいバージョンがそれを置き換えると、それぞれその時点から期間全体を得ます。",
+  "audit.policy.comments": "コメントスレッドを最後のアクティビティから {days} 日後に削除",
+  "audit.policy.commentsNone": "コメントの保持期間なし",
+  "audit.policy.planLapsed": "(プランにポリシーが含まれなくなりました)",
+  "audit.policy.threadsDeleted":
+    "{count, plural, one {# 件のコメントスレッドを削除} other {# 件のコメントスレッドを削除}}",
+  "audit.policy.messagesDeleted": "{count, plural, one {メッセージ # 件} other {メッセージ # 件}}",
 } satisfies Catalog;

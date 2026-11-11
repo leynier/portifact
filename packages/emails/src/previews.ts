@@ -3,6 +3,7 @@
 import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
 import { budgetAlertEmail } from "./budget-alert.ts";
 import { commentNoticeEmail } from "./comment-notice.ts";
+import { commentRetentionNoticeEmail } from "./comment-retention-notice.ts";
 import { directoryNoticeEmail } from "./directory-notice.ts";
 import { domainNoticeEmail } from "./domain-notice.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
@@ -253,6 +254,31 @@ export function previews(): Preview[] {
         from: CREATED_AT + 7 * 86_400_000,
         atStart: 1,
         soon: 0,
+        policiesUrl: "https://app.portifact.com/policies?workspace=acme",
+        locale,
+      }),
+    })),
+    ...(["set", "soon"] as const).map((kind) => ({
+      name: `comment-retention-${kind}`,
+      email: commentRetentionNoticeEmail({
+        kind,
+        days: 180,
+        from: CREATED_AT + 7 * 86_400_000,
+        at: CREATED_AT + (kind === "set" ? 7 : 40) * 86_400_000,
+        threads: 12,
+        messages: 57,
+        policiesUrl: "https://app.portifact.com/policies?workspace=acme",
+      }),
+    })),
+    ...TRANSLATED.map((locale) => ({
+      name: `comment-retention-set-${locale.toLowerCase()}`,
+      email: commentRetentionNoticeEmail({
+        kind: "set",
+        days: 90,
+        from: CREATED_AT + 7 * 86_400_000,
+        at: CREATED_AT + 7 * 86_400_000,
+        threads: 1,
+        messages: 3,
         policiesUrl: "https://app.portifact.com/policies?workspace=acme",
         locale,
       }),

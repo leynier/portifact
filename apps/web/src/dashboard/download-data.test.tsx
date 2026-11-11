@@ -102,6 +102,19 @@ describe("the Download your data page", () => {
     },
   );
 
+  it("is not in the side menu, and links back to Settings, keeping the space", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    const { router } = renderDashboard("/data?workspace=acme", server);
+    await screen.findByRole("heading", { level: 1, name: "Download your data" });
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+    expect(within(nav).queryByRole("link", { name: "Download your data" })).toBeNull();
+    const back = within(screen.getByRole("main")).getByRole("link", { name: "Settings" });
+    fireEvent.click(back);
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
+    expect(router.state.location.search).toEqual({ workspace: "acme" });
+    expect(router.state.location.hash).toBe("data");
+  });
+
   it("says nothing about a grace outside one, and asks for no forecast", async () => {
     renderDashboard("/data", server);
     await screen.findByRole("heading", { level: 1, name: "Download your data" });

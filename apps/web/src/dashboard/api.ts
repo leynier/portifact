@@ -55,6 +55,7 @@ import {
   type DownloadKind,
   type EditMessageRequest,
   type ErrorCode,
+  ErrorDetail,
   FileDiff,
   GraceForecastView,
   IncomingInvitationList,
@@ -132,10 +133,20 @@ export class ApiFailure extends Error {
   constructor(
     readonly code: FailureCode,
     readonly status: number,
+    /** Which refusal of its code this is, when the API marks one (`error.details.reason`). */
+    readonly detail: ErrorDetail | null = null,
   ) {
     super(code);
     this.name = "ApiFailure";
   }
+}
+
+/** The failure an API error body describes, with its refusal detail when it names a known one. */
+export function failureFrom(body: unknown, status: number): ApiFailure {
+  const error = ApiError.safeParse(body);
+  if (!error.success) return new ApiFailure("unexpected", status);
+  const detail = ErrorDetail.safeParse(error.data.error.details?.reason);
+  return new ApiFailure(error.data.error.code, status, detail.success ? detail.data : null);
 }
 
 /** Filters and the page of an audit log request. */
@@ -562,8 +573,7 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       onUnauthenticated();
       throw new ApiFailure("unauthenticated", 401);
     }
-    const error = ApiError.safeParse(body);
-    throw new ApiFailure(error.success ? error.data.error.code : "unexpected", response.status);
+    throw failureFrom(body, response.status);
   };
 
   return {
@@ -1104,8 +1114,7 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         onUnauthenticated();
         throw new ApiFailure("unauthenticated", 401);
       }
-      const error = ApiError.safeParse(await response.json().catch(() => null));
-      throw new ApiFailure(error.success ? error.data.error.code : "unexpected", response.status);
+      throw failureFrom(await response.json().catch(() => null), response.status);
     },
     audit(workspace, query) {
       const params = new URLSearchParams();

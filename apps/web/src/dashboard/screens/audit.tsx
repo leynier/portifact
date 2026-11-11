@@ -751,6 +751,14 @@ function policyChanges(t: T, d: Record<string, unknown>, locale: string | undefi
         : t("audit.policy.maxLife", { days: Number(d.artifactMaxDays) }),
     );
   }
+  if (d.commentRetentionDays !== undefined) {
+    parts.push(
+      d.commentRetentionDays === null
+        ? t("audit.policy.commentsNone")
+        : t("audit.policy.comments", { days: Number(d.commentRetentionDays) }),
+    );
+  }
+  if (d.reason === "plan_lapsed") parts.push(t("audit.policy.planLapsed"));
   return new Intl.ListFormat(locale, { style: "long", type: "unit" }).format(parts);
 }
 
@@ -771,6 +779,8 @@ function enforcedChanges(t: T, d: Record<string, unknown>, locale: string | unde
     [d.sessionsEnded, "audit.policy.sessionsEnded"],
     [d.deadlinesSet, "audit.policy.deadlinesSet"],
     [d.deadlinesExtended, "audit.policy.deadlinesExtended"],
+    [d.threadsDeleted, "audit.policy.threadsDeleted"],
+    [d.messagesDeleted, "audit.policy.messagesDeleted"],
   ] as const;
   const parts = counts
     .filter(([count]) => Number(count) > 0)

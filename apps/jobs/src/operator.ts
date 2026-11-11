@@ -29,6 +29,7 @@ import {
   type Db,
   type GlobalDb,
   isRegion,
+  type Region,
   type RegionalDb,
   type Regions,
   regionsFromEnv,
@@ -86,6 +87,7 @@ import {
   reinstateAccount,
   reinstateArtifact,
   reinstateBrand,
+  releaseGuardForPlan,
   removeOwnerPlan,
   resolveAbuseReport,
   setBudgetOverride,
@@ -452,6 +454,37 @@ async function ownerDb(regions: Regions, ownerId: string): Promise<RegionalDb> {
   return regions.get(await ownerRegion(regions.global, ownerId)).db;
 }
 
+/** The owner's region's bucket: a plan change that lapses comment retention deletes its record. */
+async function ownerBucket(regions: Regions, ownerId: string): Promise<R2Bucket | undefined> {
+  return regions.get(await ownerRegion(regions.global, ownerId)).bucket;
+}
+
+/**
+ * When the guard record was deleted but the plan change then failed: the workspace's comment
+ * retention no longer agrees with R2, so it deletes nothing until an admin saves it again.
+ */
+function guardReleasedLines(ownerId: string, guard: "none" | "released" | "kept"): string[] {
+  return guard === "released"
+    ? [
+        `The comment retention guard record of ${ownerId} was deleted before the plan change failed: its comment retention is now paused (it deletes nothing) until an admin saves it again on the Policies page.`,
+      ]
+    : [];
+}
+
+/**
+ * What the operator is told when a plan change takes `policies` from a workspace with comment
+ * retention and its guard record could not be deleted first (decision 0023, "Restores").
+ */
+function guardKeptLines(ownerId: string, bound: boolean): string[] {
+  return bound
+    ? [
+        `Warning: the comment retention guard record of ${ownerId} could not be deleted (R2 refused). A restore of the global database to before this change would let its restored comment retention delete again. Delete it now: npx wrangler r2 object delete <bucket>/system/comment-retention/${ownerId} --remote (the bucket of the workspace's region), then check that it is gone.`,
+      ]
+    : [
+        `Warning: no bucket is bound here (--local or --config), so the comment retention guard record of ${ownerId} was not deleted; the guard is not maintained in this database. Against production, run the command with operator.wrangler.jsonc, or delete system/comment-retention/${ownerId} from the workspace region's bucket.`,
+      ];
+}
+
 async function setPlan(
   regions: Regions,
   args: string[],
@@ -474,6 +507,15 @@ async function setPlan(
   }
   const userId = await ownerIdFor(regions.global, who);
   if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
+  // A plan without `policies` lapses comment retention: its guard record goes first.
+  const bucket = await ownerBucket(regions, userId);
+  const guard = await releaseGuardForPlan(
+    regions.global,
+    bucket,
+    userId,
+    { plan: name.data, seats, validUntil, overrides },
+    now,
+  );
   const result = await setOwnerPlan(await ownerDb(regions, userId), {
     ownerId: userId,
     plan: name.data,
@@ -485,7 +527,21 @@ async function setPlan(
     now,
     noGrace: options.has("no-grace"),
   });
-  if (!result.ok) return { exitCode: 1, output: result.message };
+  if (!result.ok) {
+    return {
+      exitCode: 1,
+      output: [result.message, ...guardReleasedLines(userId, guard)].join("\n"),
+    };
+  }
+  if (guard === "kept") {
+    return {
+      exitCode: 1,
+      output: [
+        `Granted ${name.data} to ${userId}.`,
+        ...guardKeptLines(userId, bucket !== undefined),
+      ].join("\n"),
+    };
+  }
   return {
     exitCode: 0,
     output: [`Set the plan of ${userId} to ${name.data}.`, ...planLines(userId, result.value)].join(
@@ -1075,12 +1131,28 @@ export async function runOperator(
       if (!who) return usage("remove-plan needs an owner.");
       const userId = await ownerIdFor(db.global, who);
       if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
+      const bucket = await ownerBucket(regions, userId);
+      const guard = await releaseGuardForPlan(regions.global, bucket, userId, null, now);
       const result = await removeOwnerPlan(await ownerDb(regions, userId), {
         ownerId: userId,
         now,
         noGrace: options.has("no-grace"),
       });
-      if (!result.ok) return { exitCode: 1, output: result.message };
+      if (!result.ok) {
+        return {
+          exitCode: 1,
+          output: [result.message, ...guardReleasedLines(userId, guard)].join("\n"),
+        };
+      }
+      if (guard === "kept") {
+        return {
+          exitCode: 1,
+          output: [
+            `Removed the plan of ${userId}.`,
+            ...guardKeptLines(userId, bucket !== undefined),
+          ].join("\n"),
+        };
+      }
       const held = result.value.state.entitlements.grace;
       const head = result.value.removed
         ? `Removed the plan of ${userId}; it is on free.${held ? ` What it kept is held until ${iso(held.until)}.` : ""}`
@@ -1165,10 +1237,19 @@ export async function runOperator(
       }
       if (result.retentionCleared.length > 0) {
         lines.push(
-          `${result.retentionCleared.length} of them had a maximum life of artifacts the restore brought back (an admin had removed it after the restore point); it was removed again so it archives nothing:`,
+          `${result.retentionCleared.length} of them had a maximum life of artifacts or a comment retention the restore brought back (an admin had removed it after the restore point); it was removed again so it archives or deletes nothing:`,
           ...result.retentionCleared.map((id) => `  ${id}`),
         );
       }
+      if (result.commentHeld.length > 0) {
+        lines.push(
+          `${result.commentHeld.length} workspace(s) kept their comment retention because the file's is stricter (shorter, new, or taking effect earlier); apply-policies never tightens deletion, so an admin sets it again from the Policies page if it is wanted:`,
+          ...result.commentHeld.map((id) => `  ${id}`),
+        );
+      }
+      lines.push(
+        "Comment retention deletes again by itself where the applied policy's rule is the one its admins last saved (the guard record agrees); anywhere else it stays paused until an admin saves the rule again. Take the export before the restore: one taken after it only re-applies the restored rules.",
+      );
       return { exitCode: 0, output: lines.join("\n") };
     }
     case "clear-request-policies": {

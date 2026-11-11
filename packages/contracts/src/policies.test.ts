@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CommentRetentionNoticePayload,
   DEFAULT_POLICY,
   PolicyImpact,
   PolicyPreview,
@@ -163,5 +164,52 @@ describe("the maximum life of artifacts (decision 0023)", () => {
     expect(RetentionNoticePayload.parse(notice)).toEqual(notice);
     expect(RetentionNoticePayload.safeParse({ ...notice, name: "x" }).success).toBe(false);
     expect(RetentionNoticePayload.safeParse({ ...notice, atStart: -1 }).success).toBe(false);
+  });
+});
+
+describe("comment retention (decision 0023)", () => {
+  it("bounds the days and reads a policy stored before it as none", () => {
+    expect(WorkspacePolicy.parse({ ...DEFAULT_POLICY, commentRetentionDays: 30 })).toMatchObject({
+      commentRetentionDays: 30,
+    });
+    for (const days of [29, 3651]) {
+      expect(
+        WorkspacePolicy.safeParse({ ...DEFAULT_POLICY, commentRetentionDays: days }).success,
+      ).toBe(false);
+    }
+    const { commentRetentionDays: _d, commentRetentionFrom: _f, ...older } = DEFAULT_POLICY;
+    expect(WorkspacePolicy.parse(older)).toMatchObject({
+      commentRetentionDays: null,
+      commentRetentionFrom: null,
+    });
+  });
+
+  it("defaults the comment counts of an older confirmation to zero", () => {
+    expect(
+      PolicyImpact.parse({
+        publicArtifacts: 0,
+        readersOutside: 0,
+        linksRevoked: 0,
+        linksWithoutPassword: 0,
+        linksOverLifetime: 0,
+      }),
+    ).toMatchObject({ threadsAtStart: 0, messagesAtStart: 0, threadsSoon: 0 });
+  });
+
+  it("validates the notice payload: counts and dates, nothing else", () => {
+    const notice = {
+      kind: "soon",
+      days: 90,
+      from: 1,
+      at: 2,
+      threads: 3,
+      messages: 4,
+      revision: 5,
+    } as const;
+    expect(CommentRetentionNoticePayload.parse(notice)).toEqual(notice);
+    expect(CommentRetentionNoticePayload.safeParse({ ...notice, kind: "later" }).success).toBe(
+      false,
+    );
+    expect(CommentRetentionNoticePayload.safeParse({ ...notice, name: "x" }).success).toBe(false);
   });
 });
