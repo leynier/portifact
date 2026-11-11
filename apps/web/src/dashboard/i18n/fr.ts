@@ -2529,4 +2529,121 @@ export const fr = {
     "{reason, select, key_unavailable {L'identifiant d'une connexion ne peut plus être ouvert} other {{service, select, github {GitHub} other {Linear}} a refusé l'identifiant d'une connexion}}",
   "audit.kind.issueCreated":
     "A créé un ticket {service, select, github {GitHub} other {Linear}} dans {target} depuis un fil {message, select, true {avec son premier message} other {sans texte de commentaire}}",
+  "audit.group.exports": "Exports et flux",
+  "audit.kind.streamCreated":
+    "A commencé à envoyer le journal vers {host}{start, select, oldest { depuis le plus ancien événement conservé} other {}}",
+  "audit.kind.streamChanged":
+    "{state, select, active {A repris le flux vers {host}} paused {A mis en pause le flux vers {host}} other {{secret, select, true {A donné un nouveau secret de signature au flux vers {host}} other {A modifié le flux vers {host}}}}}",
+  "audit.kind.streamRemoved": "A supprimé le flux vers {host}",
+  "audit.kind.streamPaused":
+    "{reason, select, failures {Flux vers {host} mis en pause : le point de terminaison échouait sans cesse} plan {Flux vers {host} mis en pause : l’offre ne l’inclut plus} invalid_url {Flux vers {host} mis en pause : son URL ne passe plus les contrôles} other {Flux vers {host} mis en pause : son URL et son secret ne peuvent plus être ouverts}}",
+  "audit.stream.title": "Envoi vers votre SIEM",
+  "audit.stream.description":
+    "Portifact envoie chaque événement de ce journal à un point de terminaison HTTPS que vous gérez, en JSON Lines signé, dans l’ordre et au moins une fois : conservez chaque ID d’événement une seule fois. Un événement part quand il a {minutes} minutes.",
+  "audit.stream.euTitle": "Votre point de terminaison peut être hors de l’UE",
+  "audit.stream.eu":
+    "Les données de cet espace sont conservées dans l’UE. Le point de terminaison choisi peut se trouver n’importe où : les événements qu’il reçoit quittent l’UE.",
+  "audit.stream.planTitle": "Pas dans votre offre",
+  "audit.stream.planRequired":
+    "L’envoi du journal d’audit fait partie de l’offre {plan}. Les flux existants restent en pause et gardent leur position.",
+  "audit.stream.list": "Vos flux d’audit",
+  "audit.stream.empty": "Aucun flux pour l’instant",
+  "audit.stream.emptyBody":
+    "Ajoutez un point de terminaison pour recevoir chaque nouvel événement de ce journal.",
+  "audit.stream.add.title": "Ajouter un flux",
+  "audit.stream.add.label": "Nom",
+  "audit.stream.add.url": "URL du point de terminaison",
+  "audit.stream.add.urlHint": "HTTPS uniquement. Une fois enregistrée, seul son hôte est affiché.",
+  "audit.stream.add.start": "Commencer à partir de",
+  "audit.stream.add.submit": "Ajouter le flux",
+  "audit.stream.add.limit":
+    "Un espace peut avoir au plus {limit} flux. Supprimez-en un pour en ajouter un autre.",
+  "audit.stream.start.now": "Maintenant",
+  "audit.stream.start.nowHint": "Uniquement les événements à partir de maintenant.",
+  "audit.stream.start.oldest": "Le plus ancien événement conservé",
+  "audit.stream.start.oldestHint":
+    "Tout ce que le journal conserve encore (jusqu’à {days} jours), puis les nouveaux événements.",
+  "audit.stream.added": "Flux vers {host} ajouté",
+  "audit.stream.secret.title": "Copiez le secret de signature maintenant",
+  "audit.stream.secret.body":
+    "Il n’est affiché que cette fois. Votre point de terminaison s’en sert pour vérifier que chaque requête vient de Portifact.",
+  "audit.stream.secret.label": "Secret de signature de {label} ({host})",
+  "audit.stream.secret.copy": "Copier le secret",
+  "audit.stream.secret.done": "Je l’ai enregistré",
+  "audit.stream.rotate.body":
+    "L’ancien secret continue de signer à côté du nouveau pendant 24 heures, pour que votre point de terminaison bascule sans perdre de requête.",
+  "audit.stream.verify.title": "Vérifiez chaque requête",
+  "audit.stream.verify.body":
+    "Chaque requête porte webhook-id, webhook-timestamp et webhook-signature, le même schéma que les webhooks de Portifact. Recalculez la signature sur le corps brut, refusez les horodatages décalés de plus de 5 minutes et ignorez les événements dont vous avez déjà l’ID. Les lignes avec un champ record ne sont pas des événements : un trou ou un test.",
+  "audit.stream.verify.sample": "Vérification de la signature en Node.js",
+  "audit.stream.state.active": "Actif",
+  "audit.stream.state.paused": "En pause",
+  "audit.stream.state.attention": "Requiert votre attention",
+  "audit.stream.reason.manual": "Mis en pause par un administrateur.",
+  "audit.stream.reason.plan":
+    "En pause : l’offre n’inclut plus l’envoi du journal. Reprenez-le quand elle l’inclura ; il continue là où il s’était arrêté.",
+  "audit.stream.reason.failures":
+    "Mis en pause après 3 jours d’échecs du point de terminaison. Corrigez-le, envoyez un test, puis reprenez.",
+  "audit.stream.reason.invalid_url":
+    "En pause : son URL ne passe plus les contrôles de Portifact. Changez l’URL.",
+  "audit.stream.reason.key_unavailable":
+    "En pause : son URL et son secret ne peuvent plus être ouverts. Supprimez-le et ajoutez-le de nouveau.",
+  "audit.stream.through": "Livré jusqu’à {when}",
+  "audit.stream.notYet": "Rien n’a encore été livré",
+  "audit.stream.failures":
+    "{count, plural, one {# requête a échoué} other {# requêtes ont échoué d’affilée}}",
+  "audit.stream.lastAttempt": "Dernière requête {when} : {outcome}",
+  "audit.stream.noAttempts": "Aucune requête pour l’instant",
+  "audit.stream.testPending": "Un test attend d’être envoyé.",
+  "audit.stream.gapTitle":
+    "Certains événements pourraient ne jamais atteindre ce point de terminaison",
+  "audit.stream.gap":
+    "Les événements enregistrés entre le {from} et le {to} ont été ou seront supprimés par la conservation du journal avant que ce point de terminaison les reçoive ; ce qui était encore conservé a été envoyé. Le point de terminaison a reçu un enregistrement de trou qui le signale.",
+  "audit.stream.test": "Envoyer un test",
+  "audit.stream.testLabel": "Envoyer un test à {label}",
+  "audit.stream.testQueued": "Test en file d’attente pour {label}",
+  "audit.stream.pause": "Mettre en pause",
+  "audit.stream.pauseLabel": "Mettre en pause le flux {label}",
+  "audit.stream.paused": "Flux {label} mis en pause",
+  "audit.stream.resume": "Reprendre",
+  "audit.stream.resumeLabel": "Reprendre le flux {label}",
+  "audit.stream.resumed": "Flux {label} repris",
+  "audit.stream.rotate": "Nouveau secret",
+  "audit.stream.rotateLabel": "Nouveau secret pour {label}",
+  "audit.stream.rotated": "Nouveau secret créé pour {label}",
+  "audit.stream.remove": "Supprimer",
+  "audit.stream.removeLabel": "Supprimer le flux {label}",
+  "audit.stream.removed": "Flux {label} supprimé",
+  "audit.stream.confirm.title": "Supprimer le flux {label} ?",
+  "audit.stream.confirm.body":
+    "Portifact arrête l’envoi immédiatement. Votre point de terminaison garde ce qu’il a reçu ; un nouveau flux repartirait de maintenant.",
+  "audit.stream.failed": "Cela n’a pas fonctionné",
+  "audit.stream.deliveries": "Requêtes",
+  "audit.stream.deliveriesOf": "Requêtes du flux {label}",
+  "audit.stream.deliveries.loading": "Chargement des requêtes",
+  "audit.stream.deliveries.error": "Les requêtes n’ont pas pu être chargées.",
+  "audit.stream.deliveries.empty": "Aucune requête ces {days} derniers jours.",
+  "audit.stream.deliveries.time": "Heure",
+  "audit.stream.deliveries.events": "Événements",
+  "audit.stream.deliveries.outcome": "Résultat",
+  "audit.stream.outcome.delivered": "livrée",
+  "audit.stream.outcome.failed": "échouée",
+  "audit.stream.outcome.skipped": "ignorée",
+  "audit.stream.outcome.test": "test",
+  "audit.stream.error.unreachable": "connexion impossible",
+  "audit.stream.error.certificate": "certificat refusé",
+  "audit.stream.error.timeout": "délai dépassé",
+  "audit.stream.error.redirect": "redirigée, non suivie",
+  "audit.stream.error.refused": "refusée",
+  "audit.stream.error.invalid_url": "URL plus acceptée",
+  "audit.stream.error.key_unavailable": "impossible à ouvrir",
+  "audit.stream.error.daily_cap": "limite quotidienne atteinte",
+  "audit.stream.revokeNow": "Remplacer maintenant",
+  "audit.stream.revokeNowLabel": "Remplacer maintenant le secret de {label}",
+  "audit.stream.revokeConfirm.title": "Remplacer maintenant le secret de {label} ?",
+  "audit.stream.revokeConfirm.body":
+    "L’ancien secret cesse de signer immédiatement. Tant que votre point de terminaison n’a pas le nouveau, il refuse les requêtes de Portifact ; rien n’est perdu, elles sont renvoyées dès qu’il les accepte. À utiliser si l’ancien secret a fuité.",
+  "audit.stream.revokedNow": "Nouveau secret pour {label} ; l’ancien ne signe plus",
+  "audit.stream.revokeNow.body":
+    "L’ancien secret ne signe plus. Donnez celui-ci à votre point de terminaison maintenant.",
 } satisfies Catalog;

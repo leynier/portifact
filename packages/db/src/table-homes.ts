@@ -98,6 +98,9 @@ export const TABLE_HOMES = {
   // Issue integrations (decision 0018): an owner's connections and the issues of its threads.
   integration_connections: "regional",
   thread_issues: "regional",
+  // Audit streams (decision 0019): with the owner's webhooks; each reads both homes' events.
+  audit_streams: "regional",
+  audit_stream_deliveries: "regional",
   owner_brands: "regional",
   search_artifacts: "regional",
   search_chunks: "regional",

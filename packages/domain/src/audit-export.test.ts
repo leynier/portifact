@@ -11,6 +11,7 @@ import {
   auditExportStop,
   auditJsonLine,
   csvCell,
+  jsonOneLine,
   newerFirst,
 } from "./audit-export.ts";
 
@@ -155,5 +156,29 @@ describe("the audit.exported detail", () => {
         to: "2026-02-01T00:00:00Z",
       }),
     ).toEqual({ format: "jsonl", kinds: 2, from: "2026-01-01", to: "2026-02-01" });
+  });
+});
+
+describe("one line per event", () => {
+  it.each([
+    ["LINE SEPARATOR", "\u2028", "\\u2028"],
+    ["PARAGRAPH SEPARATOR", "\u2029", "\\u2029"],
+    ["NEXT LINE", "\u0085", "\\u0085"],
+  ])("escapes %s so the line never breaks, and reads back the same", (_name, char, escaped) => {
+    const event = {
+      ...(EVENTS[0] as AuditEventView),
+      actor: { type: "member" as const, id: "u_x", name: `Ada${char}Lovelace` },
+    };
+    const line = auditJsonLine(event);
+    expect(line).toContain(escaped);
+    expect(line.slice(0, -1)).not.toMatch(/[\n\r\u0085\u2028\u2029]/);
+    expect(JSON.parse(line)).toEqual(event);
+    expect(jsonOneLine({ text: char })).toBe(`{"text":"${escaped}"}`);
+  });
+
+  it("leaves every other character as JSON.stringify writes it", () => {
+    for (const text of ["plain", 'tab\tquote"', "日本語", "emoji 🎉", "\u0084\u0086"]) {
+      expect(jsonOneLine({ text })).toBe(JSON.stringify({ text }));
+    }
   });
 });

@@ -439,14 +439,15 @@ export async function enforceWorkspacePolicy(
   const approvals = await approvalDrops(db, workspaceId, policy, set, owner, now);
 
   const ae = schema.auditEvents;
-  // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail.
+  // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail,
+  // recorded (the database's clock, decision 0019).
   const statements: BatchItem<"sqlite">[] = [enforceEvent(db, workspaceId, set, now)];
   if (set.publicIds) {
     statements.push(
       db
         .insert(ae)
         .select(
-          sql`select ${newAuditId}, ${workspaceId}, ${now}, 'access.changed', 'system', null, ${a.id}, ${a.id}, json_object('mode', 'workspace', 'policy', 'publicAccess') from ${a} where ${a.id} in (${set.publicIds})`,
+          sql`select ${newAuditId}, ${workspaceId}, ${now}, 'access.changed', 'system', null, ${a.id}, ${a.id}, json_object('mode', 'workspace', 'policy', 'publicAccess'), ${schema.recordedNow} from ${a} where ${a.id} in (${set.publicIds})`,
         ),
       ...markWebhookEvents(db, {
         entitlements: owner,
@@ -463,7 +464,7 @@ export async function enforceWorkspacePolicy(
       db
         .insert(ae)
         .select(
-          sql`select ${newAuditId}, ${workspaceId}, ${now}, 'access.changed', 'system', null, ${r.artifactId}, ${r.artifactId}, json_object('readersRemoved', count(*), 'policy', 'readerDomains') from ${r} where ${r}.rowid in (${set.readerRows}) group by ${r.artifactId}`,
+          sql`select ${newAuditId}, ${workspaceId}, ${now}, 'access.changed', 'system', null, ${r.artifactId}, ${r.artifactId}, json_object('readersRemoved', count(*), 'policy', 'readerDomains'), ${schema.recordedNow} from ${r} where ${r}.rowid in (${set.readerRows}) group by ${r.artifactId}`,
         ),
       ...markWebhookEvents(db, {
         entitlements: owner,

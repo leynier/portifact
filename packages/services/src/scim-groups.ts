@@ -116,11 +116,12 @@ export function roleSyncStatements(
   const self = sql`"workspace_members"."user_id"`;
   const linked = sql`"scim_users"."user_id"`;
   return [
-    // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail.
+    // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail,
+    // recorded (the database's clock, decision 0019).
     global
       .insert(schema.auditEvents)
       .select(
-        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'member.role_changed', ${actorType}, ${actorId}, ${row}, null, json_object('from', "rm"."role", 'to', ${desiredRoleSql(W, row, excluding)}) from ${m} as "rm" where "rm"."workspace_id" = ${W} and ${changes(row, sql`"rm"."role"`, mappedOf(row))}`,
+        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'member.role_changed', ${actorType}, ${actorId}, ${row}, null, json_object('from', "rm"."role", 'to', ${desiredRoleSql(W, row, excluding)}), ${schema.recordedNow} from ${m} as "rm" where "rm"."workspace_id" = ${W} and ${changes(row, sql`"rm"."role"`, mappedOf(row))}`,
       ),
     global
       .update(su)
@@ -177,7 +178,7 @@ export function joinGroupStatements(
     global
       .insert(schema.auditEvents)
       .select(
-        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'group.member_added', ${input.actor.type}, ${actorId}, ${input.userId}, null, json_object('group', "jg"."group_id") ${listed}`,
+        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'group.member_added', ${input.actor.type}, ${actorId}, ${input.userId}, null, json_object('group', "jg"."group_id"), ${schema.recordedNow} ${listed}`,
       ),
     global
       .insert(gm)
@@ -371,7 +372,7 @@ function membershipStatements(
     global
       .insert(schema.auditEvents)
       .select(
-        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'group.member_removed', 'directory', ${input.caller.tokenId}, ${gm.userId}, null, json_object('group', ${G}) from ${gm} where ${leaving}`,
+        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'group.member_removed', 'directory', ${input.caller.tokenId}, ${gm.userId}, null, json_object('group', ${G}), ${schema.recordedNow} from ${gm} where ${leaving}`,
       ),
     global
       .insert(t)
@@ -383,7 +384,7 @@ function membershipStatements(
     global
       .insert(schema.auditEvents)
       .select(
-        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'group.member_added', 'directory', ${input.caller.tokenId}, "nu"."user_id", null, json_object('group', ${G}) ${joining}`,
+        sql`select 'ae_' || lower(hex(randomblob(12))), ${W}, ${input.now}, 'group.member_added', 'directory', ${input.caller.tokenId}, "nu"."user_id", null, json_object('group', ${G}), ${schema.recordedNow} ${joining}`,
       ),
     global
       .insert(gm)

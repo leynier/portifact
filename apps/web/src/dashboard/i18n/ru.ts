@@ -2499,4 +2499,120 @@ export const ru = {
     "{reason, select, key_unavailable {Учётные данные подключения больше нельзя открыть} other {{service, select, github {GitHub} other {Linear}} отклонил учётные данные подключения}}",
   "audit.kind.issueCreated":
     "Создал задачу {service, select, github {GitHub} other {Linear}} в {target} из ветки {message, select, true {с её первым сообщением} other {без текста комментариев}}",
+  "audit.group.exports": "Экспорт и потоки",
+  "audit.kind.streamCreated":
+    "Начал отправлять журнал на {host}{start, select, oldest { с самого старого сохранённого события} other {}}",
+  "audit.kind.streamChanged":
+    "{state, select, active {Возобновил поток на {host}} paused {Приостановил поток на {host}} other {{secret, select, true {Выдал потоку на {host} новый секрет подписи} other {Изменил поток на {host}}}}}",
+  "audit.kind.streamRemoved": "Удалил поток на {host}",
+  "audit.kind.streamPaused":
+    "{reason, select, failures {Поток на {host} приостановлен: конечная точка продолжала отвечать ошибками} plan {Поток на {host} приостановлен: тариф больше его не включает} invalid_url {Поток на {host} приостановлен: его URL больше не проходит проверки} other {Поток на {host} приостановлен: его URL и секрет больше нельзя открыть}}",
+  "audit.stream.title": "Отправка в вашу SIEM",
+  "audit.stream.description":
+    "Portifact отправляет каждое событие этого журнала на вашу конечную точку HTTPS в виде подписанных JSON Lines, по порядку и хотя бы один раз: сохраняйте каждый ID события только один раз. Событие отправляется, когда ему исполняется {minutes} минут.",
+  "audit.stream.euTitle": "Ваша конечная точка может быть вне ЕС",
+  "audit.stream.eu":
+    "Данные этого пространства хранятся в ЕС. Выбранная конечная точка может находиться где угодно: полученные ею события покидают ЕС.",
+  "audit.stream.planTitle": "Нет в вашем тарифе",
+  "audit.stream.planRequired":
+    "Отправка журнала аудита входит в тариф {plan}. Существующие потоки остаются приостановленными и сохраняют позицию.",
+  "audit.stream.list": "Ваши потоки аудита",
+  "audit.stream.empty": "Потоков пока нет",
+  "audit.stream.emptyBody":
+    "Добавьте конечную точку, чтобы получать каждое новое событие этого журнала.",
+  "audit.stream.add.title": "Добавить поток",
+  "audit.stream.add.label": "Название",
+  "audit.stream.add.url": "URL конечной точки",
+  "audit.stream.add.urlHint": "Только HTTPS. После сохранения показывается только хост.",
+  "audit.stream.add.start": "Начать с",
+  "audit.stream.add.submit": "Добавить поток",
+  "audit.stream.add.limit":
+    "В пространстве может быть не больше {limit} потоков. Удалите один, чтобы добавить другой.",
+  "audit.stream.start.now": "Сейчас",
+  "audit.stream.start.nowHint": "Только события с этого момента.",
+  "audit.stream.start.oldest": "Самого старого сохранённого события",
+  "audit.stream.start.oldestHint":
+    "Всё, что журнал ещё хранит (до {days} дней), а затем новые события.",
+  "audit.stream.added": "Поток на {host} добавлен",
+  "audit.stream.secret.title": "Скопируйте секрет подписи сейчас",
+  "audit.stream.secret.body":
+    "Он показывается только один раз. Ваша конечная точка проверяет с его помощью, что каждый запрос пришёл от Portifact.",
+  "audit.stream.secret.label": "Секрет подписи {label} ({host})",
+  "audit.stream.secret.copy": "Скопировать секрет",
+  "audit.stream.secret.done": "Я сохранил",
+  "audit.stream.rotate.body":
+    "Старый секрет ещё 24 часа подписывает запросы вместе с новым, чтобы конечная точка перешла на него без потери запросов.",
+  "audit.stream.verify.title": "Проверяйте каждый запрос",
+  "audit.stream.verify.body":
+    "Каждый запрос содержит webhook-id, webhook-timestamp и webhook-signature, по той же схеме, что и вебхуки Portifact. Пересчитайте подпись по исходному телу, отклоняйте метки времени, отличающиеся больше чем на 5 минут, и пропускайте события, ID которых уже сохранён. Строки с полем record не являются событиями: это пропуск или проверка.",
+  "audit.stream.verify.sample": "Проверка подписи в Node.js",
+  "audit.stream.state.active": "Активен",
+  "audit.stream.state.paused": "Приостановлен",
+  "audit.stream.state.attention": "Требует внимания",
+  "audit.stream.reason.manual": "Приостановлен администратором.",
+  "audit.stream.reason.plan":
+    "Приостановлен: тариф больше не включает отправку журнала. Возобновите, когда снова будет включать; поток продолжит с того места, где остановился.",
+  "audit.stream.reason.failures":
+    "Приостановлен после 3 дней ошибок конечной точки. Исправьте её, отправьте проверку и возобновите.",
+  "audit.stream.reason.invalid_url":
+    "Приостановлен: его URL больше не проходит проверки Portifact. Измените URL.",
+  "audit.stream.reason.key_unavailable":
+    "Приостановлен: его URL и секрет больше нельзя открыть. Удалите его и добавьте заново.",
+  "audit.stream.through": "Доставлено по {when}",
+  "audit.stream.notYet": "Пока ничего не доставлено",
+  "audit.stream.failures":
+    "{count, plural, one {# запрос не удался} few {# запроса подряд не удались} many {# запросов подряд не удались} other {# запроса подряд не удались}}",
+  "audit.stream.lastAttempt": "Последний запрос {when}: {outcome}",
+  "audit.stream.noAttempts": "Запросов пока нет",
+  "audit.stream.testPending": "Проверка ожидает отправки.",
+  "audit.stream.gapTitle": "Некоторые события могут так и не дойти до этой конечной точки",
+  "audit.stream.gap":
+    "События, записанные с {from} по {to}, были или будут удалены по сроку хранения журнала до того, как эта конечная точка их получила; всё, что ещё хранилось, отправлено. Конечная точка получила запись о пропуске с этой информацией.",
+  "audit.stream.test": "Отправить проверку",
+  "audit.stream.testLabel": "Отправить проверку на {label}",
+  "audit.stream.testQueued": "Проверка для {label} поставлена в очередь",
+  "audit.stream.pause": "Приостановить",
+  "audit.stream.pauseLabel": "Приостановить поток {label}",
+  "audit.stream.paused": "Поток {label} приостановлен",
+  "audit.stream.resume": "Возобновить",
+  "audit.stream.resumeLabel": "Возобновить поток {label}",
+  "audit.stream.resumed": "Поток {label} возобновлён",
+  "audit.stream.rotate": "Новый секрет",
+  "audit.stream.rotateLabel": "Новый секрет для {label}",
+  "audit.stream.rotated": "Новый секрет для {label} создан",
+  "audit.stream.remove": "Удалить",
+  "audit.stream.removeLabel": "Удалить поток {label}",
+  "audit.stream.removed": "Поток {label} удалён",
+  "audit.stream.confirm.title": "Удалить поток {label}?",
+  "audit.stream.confirm.body":
+    "Portifact сразу прекращает отправку. Конечная точка сохраняет то, что получила; новый поток начнётся заново с текущего момента.",
+  "audit.stream.failed": "Не получилось",
+  "audit.stream.deliveries": "Запросы",
+  "audit.stream.deliveriesOf": "Запросы потока {label}",
+  "audit.stream.deliveries.loading": "Загрузка запросов",
+  "audit.stream.deliveries.error": "Не удалось загрузить запросы.",
+  "audit.stream.deliveries.empty": "За последние {days} дней запросов не было.",
+  "audit.stream.deliveries.time": "Время",
+  "audit.stream.deliveries.events": "События",
+  "audit.stream.deliveries.outcome": "Результат",
+  "audit.stream.outcome.delivered": "доставлен",
+  "audit.stream.outcome.failed": "ошибка",
+  "audit.stream.outcome.skipped": "пропущен",
+  "audit.stream.outcome.test": "проверка",
+  "audit.stream.error.unreachable": "не удалось подключиться",
+  "audit.stream.error.certificate": "сертификат не принят",
+  "audit.stream.error.timeout": "время ожидания истекло",
+  "audit.stream.error.redirect": "перенаправление, не выполнено",
+  "audit.stream.error.refused": "отклонён",
+  "audit.stream.error.invalid_url": "URL больше не принимается",
+  "audit.stream.error.key_unavailable": "нельзя открыть",
+  "audit.stream.error.daily_cap": "достигнут дневной лимит",
+  "audit.stream.revokeNow": "Заменить сейчас",
+  "audit.stream.revokeNowLabel": "Заменить сейчас секрет {label}",
+  "audit.stream.revokeConfirm.title": "Заменить секрет {label} сейчас?",
+  "audit.stream.revokeConfirm.body":
+    "Старый секрет сразу перестаёт подписывать запросы. Пока у конечной точки нет нового, она отклоняет запросы Portifact; ничего не теряется, они будут отправлены снова, когда она их примет. Используйте это, если старый секрет утёк.",
+  "audit.stream.revokedNow": "Новый секрет для {label}; старый больше не подписывает",
+  "audit.stream.revokeNow.body":
+    "Старый секрет больше не подписывает. Передайте конечной точке этот сейчас.",
 } satisfies Catalog;

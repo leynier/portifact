@@ -160,6 +160,10 @@ describe("the catalog's exact shapes", () => {
       "group.member_added": "member",
       "group.member_removed": "member",
       "audit.exported": "audit_log",
+      "audit_stream.created": "audit_stream",
+      "audit_stream.changed": "audit_stream",
+      "audit_stream.removed": "audit_stream",
+      "audit_stream.paused": "audit_stream",
       "policy.changed": "policy",
       "policy.enforced": "policy",
     });

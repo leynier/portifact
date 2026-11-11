@@ -54,6 +54,11 @@ export interface Env extends DomainEnv {
    */
   WEBHOOK_KEY?: string | undefined;
   /**
+   * Set only during a `WEBHOOK_KEY` rotation: opens audit streams sealed with the old key while an
+   * admin changes their URL or secret (decision 0019). Webhooks never need it here.
+   */
+  WEBHOOK_KEY_PREVIOUS?: string | undefined;
+  /**
    * Exactly `"true"` offers webhooks (decision 0009, "Switched off"): unset in the deployed
    * configuration until the checks in docs/releasing.md pass. Without it, creating, enabling
    * and testing a webhook answer 503.
