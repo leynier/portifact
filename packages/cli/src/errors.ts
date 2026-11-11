@@ -1,4 +1,5 @@
 import type { ErrorCode } from "@portifact/contracts";
+import { plain } from "./plain.ts";
 
 /**
  * Error codes the CLI reports. Every shared code from packages/contracts can come back from the
@@ -17,7 +18,11 @@ export type CliErrorCode =
   /** The user did not confirm a destructive action. */
   | "cancelled"
   /** `git` is not installed, or a git command the CLI needed failed. */
-  | "git_failed";
+  | "git_failed"
+  /** Another `portifact export` holds the folder's lock. */
+  | "folder_in_use"
+  /** Writing to the local disk failed (permissions, space, a failing rename). */
+  | "write_failed";
 
 /** Documented exit codes (skills/portifact/SKILL.md). */
 export const EXIT = {
@@ -29,14 +34,21 @@ export const EXIT = {
   notFound: 5,
   conflict: 6,
   limit: 7,
+  /** `export` finished without a part the server asked to fetch later: run it again. */
+  incomplete: 8,
 } as const;
 
+/**
+ * A failure the CLI reports. Its message is cleaned here, once, with `plain`: messages often carry
+ * the server's own text (an API error's message, a path, a name), and nothing printed from it may
+ * drive the terminal or hide text, in human output or in `--json`.
+ */
 export class CliError extends Error {
   constructor(
     readonly code: CliErrorCode,
     message: string,
   ) {
-    super(message);
+    super(plain(message));
     this.name = "CliError";
   }
 }
@@ -57,6 +69,7 @@ export function exitCodeFor(code: CliErrorCode): number {
     case "upload_incomplete":
     case "artifact_archived":
     case "sole_workspace_admin":
+    case "folder_in_use":
       return EXIT.conflict;
     case "quota_exceeded":
     case "seats_exhausted":

@@ -50,6 +50,27 @@ export interface Runtime {
   git: Git;
   /** Runs other local programs, such as GitHub CLI's read-only checks after a publish. */
   process: ProcessRunner;
+  /**
+   * Calls `listener` when the process is asked to stop (Ctrl-C or `kill`), until the answered
+   * function removes it. `export` cleans its lock there before it exits.
+   */
+  onSignal: (listener: (signal: StopSignal) => void) => () => void;
+  /** Ends the process with `code` now (after a stop signal; commands otherwise return). */
+  exit: (code: number) => void;
+  /** Whether a process with this ID runs on this machine (for a lock a stopped run left). */
+  processAlive: (pid: number) => boolean;
+}
+
+export type StopSignal = "SIGINT" | "SIGTERM";
+
+/** `process.kill(pid, 0)`: no such process is `ESRCH`; anything else (`EPERM`) means it runs. */
+export function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
 }
 
 export interface ProcessResult {
@@ -112,6 +133,19 @@ export function defaultRuntime(): Runtime {
     },
     git: gitRunner(),
     process: runProcess,
+    onSignal: (listener) => {
+      const signals: StopSignal[] = ["SIGINT", "SIGTERM"];
+      const handlers = signals.map((signal) => {
+        const handler = () => listener(signal);
+        process.on(signal, handler);
+        return [signal, handler] as const;
+      });
+      return () => {
+        for (const [signal, handler] of handlers) process.off(signal, handler);
+      };
+    },
+    exit: (code) => process.exit(code),
+    processAlive,
   };
 }
 

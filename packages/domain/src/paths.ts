@@ -49,12 +49,28 @@ export function isGitSegment(segment: string): boolean {
 }
 
 /**
- * Validates every path of a version's manifest. Rejects invalid paths, `.git` segments, duplicates after
- * normalization, names that differ only by case (they collide on case-insensitive file
- * systems when the artifact is downloaded), a file that is also used as a directory, and more
- * files than a version may hold.
+ * Validates every path of a version's manifest at publish. Rejects invalid paths, `.git`
+ * segments, duplicates after normalization, names that differ only by case
+ * (`publishCollisionKey`), a file that is also used as a directory, and more files than a version
+ * may hold. What it accepts must not change without a product decision: artifacts already hold
+ * what it accepted, and updating them must keep working. Downloads check the stricter
+ * `validateDownloadPaths` instead.
  */
 export function validateManifestPaths(rawPaths: readonly string[]): Result<string[]> {
+  return checkPaths(rawPaths, publishCollisionKey);
+}
+
+/**
+ * Validates a version's paths before they are written to the reader's disk (`pull`,
+ * `export`): the publish rules, with the stricter `downloadCollisionKey`, because there the
+ * reader's file system decides which names are one file. Refused, nothing is written; the
+ * publish side keeps accepting what it always did.
+ */
+export function validateDownloadPaths(rawPaths: readonly string[]): Result<string[]> {
+  return checkPaths(rawPaths, downloadCollisionKey);
+}
+
+function checkPaths(rawPaths: readonly string[], key: (path: string) => string): Result<string[]> {
   if (rawPaths.length > LIMITS.filesPerVersion) {
     return fail("quota_exceeded", `A version can hold at most ${LIMITS.filesPerVersion} files.`);
   }
@@ -66,13 +82,13 @@ export function validateManifestPaths(rawPaths: readonly string[]): Result<strin
     if (result.value.split("/").some(isGitSegment)) {
       return fail("invalid_input", `${raw}: paths inside a .git folder are not allowed.`);
     }
-    const key = result.value.toLowerCase();
-    if (seen.has(key)) return fail("invalid_input", `${raw}: collides with another file.`);
-    seen.add(key);
+    const folded = key(result.value);
+    if (seen.has(folded)) return fail("invalid_input", `${raw}: collides with another file.`);
+    seen.add(folded);
     paths.push(result.value);
   }
   for (const path of paths) {
-    const segments = path.toLowerCase().split("/");
+    const segments = key(path).split("/");
     for (let i = 1; i < segments.length; i++) {
       if (seen.has(segments.slice(0, i).join("/"))) {
         return fail("invalid_input", `${path}: a parent of this file is also a file.`);
@@ -80,4 +96,46 @@ export function validateManifestPaths(rawPaths: readonly string[]): Result<strin
     }
   }
   return ok(paths);
+}
+
+/**
+ * The publish side's collision key: lower case of the canonical (NFC) path, exactly what manifests
+ * have always been checked with. Do not make it stricter: artifacts already hold pairs only the
+ * download key refuses, and their updates must keep publishing. Never merge it with
+ * `downloadCollisionKey`.
+ */
+export function publishCollisionKey(path: string): string {
+  return path.toLowerCase();
+}
+
+/**
+ * The download side's collision key: what two paths share when a case-insensitive or normalizing
+ * file system would store them as one file, the canonical composition of their case-folded form
+ * (case through upper then lower on the decomposed form, so `ſ`, `K` and `ß` meet `s`, `k` and
+ * `ss` as Windows and macOS fold them). Only `validateDownloadPaths` uses it, before anything is
+ * written to the reader's disk. Never merge it with `publishCollisionKey`.
+ */
+export function downloadCollisionKey(path: string): string {
+  return path.normalize("NFD").toUpperCase().toLowerCase().normalize("NFC");
+}
+
+/**
+ * Names Windows treats as devices whatever their extension and trailing spaces (`con.txt`,
+ * `CON .txt`, `com0`, `conin$`).
+ */
+const WINDOWS_DEVICE =
+  /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$|clock\$) *(\..*)?$/i;
+const WINDOWS_FORBIDDEN = /[<>:"|?*]/;
+
+/**
+ * Why Windows cannot store a path segment under that name, or null when it can: a device name,
+ * a character Windows forbids in names, or a trailing dot or space (which Windows drops, so the
+ * file would land under another name). The one rule `pull` and `export` apply on Windows.
+ */
+export function windowsNameProblem(segment: string): string | null {
+  if (WINDOWS_DEVICE.test(segment)) return "The path names a Windows device.";
+  if (WINDOWS_FORBIDDEN.test(segment) || /[. ]$/.test(segment)) {
+    return "The path holds a name Windows cannot store.";
+  }
+  return null;
 }

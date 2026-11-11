@@ -1659,6 +1659,58 @@ export const de = {
   "plan.grace.reads": "Bis dahin weiterhin lesbar: {features}.",
   "plan.grace.download":
     "Lade vorher herunter, was du brauchst: Der Verlauf jedes Artefakts enthält seine Versionen, und Zugriffs- und Auditprotokoll haben ihre Exporte. Oder fordere den Tarif erneut an, um alles zu behalten.",
+  "data.title": "Daten herunterladen",
+  "data.description":
+    "Alles, was dieser Bereich enthält und du mitnehmen kannst: die aufbewahrten Versionen jedes Artefakts und ihre Quellen, Zugriffsprotokolle, das Auditprotokoll und für deinen persönlichen Bereich die Daten deines Kontos. Dateien kommen direkt aus dem Speicher; auf dem Server wird nichts gebündelt.",
+  "data.adminsOnly": "Alle Daten von {workspace} herunterzuladen, ist Sache seiner Admins.",
+  "data.grace.title": "Was wann gelöscht wird",
+  "data.grace.hint":
+    "Ein Tarif, der abgelaufen ist, entfernt oder herabgestuft wurde, bewahrt 60 Tage lang auf, was er aufbewahrte. Danach wird gelöscht, was der Tarif dieses Bereichs nicht aufbewahrt.",
+  "data.grace.body":
+    "Lade vor diesen Daten herunter, was du brauchst, oder fordere den Tarif erneut an, um alles zu behalten.",
+  "data.grace.loading": "Lade, was wann gelöscht wird",
+  "data.grace.error": "Was wann gelöscht wird, konnte nicht geladen werden.",
+  "data.grace.nothing": "Nichts Aufbewahrtes wird gelöscht, wenn die Schonfrist endet.",
+  "data.grace.caption": "Was am Ende der Schonfrist gelöscht wird, und ab wann",
+  "data.grace.column.kind": "Was",
+  "data.grace.column.count": "Anzahl",
+  "data.grace.column.from": "Ab",
+  "data.kind.versions": "Frühere Versionen",
+  "data.kind.accessLog": "Einträge im Zugriffsprotokoll",
+  "data.kind.analytics": "Tägliche Analysezähler",
+  "data.kind.auditEvents": "Audit-Ereignisse",
+  "data.kind.pins": "Angeheftete Artefakte (gelöst, dann wie üblich archiviert)",
+  "data.artifacts.title": "Artefakte",
+  "data.artifacts.hint":
+    "Öffne ein Artefakt, um jede aufbewahrte Version herunterzuladen, veröffentlichte Dateien oder Quellen.",
+  "data.artifacts.loading": "Lade Artefakte",
+  "data.artifacts.error": "Die Artefakte konnten nicht geladen werden.",
+  "data.artifacts.none": "Dieser Bereich hat keine Artefakte.",
+  "data.artifacts.more": "Weitere Artefakte anzeigen",
+  "data.artifact.summary":
+    "{name}: {count, plural, one {# aufbewahrte Version} other {# aufbewahrte Versionen}}",
+  "data.versions.title": "Versionen von {name}",
+  "data.versions.caption": "Aufbewahrte Versionen von {name}, neueste zuerst",
+  "data.versions.size": "Größe",
+  "data.accessLog.csv": "Zugriffsprotokoll als CSV",
+  "data.accessLog.json": "Zugriffsprotokoll als JSON",
+  "data.accessLog.saved": "Das Zugriffsprotokoll ist bereit.",
+  "data.logs.title": "Protokolle und Konto",
+  "data.logs.hint":
+    "Das Auditprotokoll des Bereichs hat einen eigenen Export, und dein persönlicher Bereich enthält die Daten deines Kontos.",
+  "data.logs.audit": "Exportiere das Auditprotokoll auf der Seite Auditprotokoll",
+  "data.logs.account": "Lade die Daten deines Kontos herunter (JSON)",
+  "data.logs.cli":
+    "Um alles auf einmal mitzunehmen, führe portifact export <Ordner> in einem Terminal aus: Es lädt jede aufbewahrte Version, setzt nach einer Unterbrechung fort und schreibt ein Manifest.",
+  "shell.dataLink": "Daten herunterladen",
+  "shell.grace.title": "Was der Tarif {plan} aufbewahrte, bleibt bis {date} erhalten",
+  "shell.grace.download": "Daten herunterladen",
+  "shell.grace.request": "{plan} erneut anfordern",
+  "shell.grace.hide": "Für heute ausblenden",
+  "shell.grace.body":
+    "Nach diesem Datum wird gelöscht, was der Tarif dieses Bereichs nicht aufbewahrt. Lade herunter, was du brauchst, oder fordere den Tarif erneut an, um alles zu behalten.",
+  "shell.grace.bodyAskAdmin":
+    "Nach diesem Datum wird gelöscht, was der Tarif dieses Bereichs nicht aufbewahrt. Bitte einen Admin dieses Bereichs, herunterzuladen, was du brauchst, oder den Tarif erneut anzufordern.",
   "plan.loading": "Plan wird geladen",
   "plan.error": "Der Plan konnte nicht geladen werden.",
   "plan.compare.section": "Alle Pläne",

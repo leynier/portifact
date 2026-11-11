@@ -1599,6 +1599,58 @@ export const en = {
   "plan.grace.reads": "Still readable until then: {features}.",
   "plan.grace.download":
     "Download what you need before then: each artifact's history has its versions, and the access log and audit log have their exports. Or ask for the plan again to keep everything.",
+  "data.title": "Download your data",
+  "data.description":
+    "Everything this space holds that you can take out: each artifact's retained versions and their sources, access logs, the audit log and, for your personal space, your account's data. Files come straight from storage; nothing is bundled on the server.",
+  "data.adminsOnly": "Downloading all of {workspace}'s data is for its admins.",
+  "data.grace.title": "What goes and when",
+  "data.grace.hint":
+    "A plan that ended, was removed or was lowered keeps what it kept for 60 days. After that, what this space's plan does not keep is deleted.",
+  "data.grace.body":
+    "Download what you need before these dates, or ask for the plan again to keep everything.",
+  "data.grace.loading": "Loading what goes and when",
+  "data.grace.error": "What goes and when could not be loaded.",
+  "data.grace.nothing": "Nothing held now goes when the grace ends.",
+  "data.grace.caption": "What is deleted when the grace ends, and from when",
+  "data.grace.column.kind": "What",
+  "data.grace.column.count": "How many",
+  "data.grace.column.from": "From",
+  "data.kind.versions": "Previous versions",
+  "data.kind.accessLog": "Access log entries",
+  "data.kind.analytics": "Daily analytics counters",
+  "data.kind.auditEvents": "Audit events",
+  "data.kind.pins": "Pinned artifacts (unpinned, then archived as usual)",
+  "data.artifacts.title": "Artifacts",
+  "data.artifacts.hint":
+    "Open an artifact to download any version it keeps, published files or sources.",
+  "data.artifacts.loading": "Loading artifacts",
+  "data.artifacts.error": "The artifacts could not be loaded.",
+  "data.artifacts.none": "This space has no artifacts.",
+  "data.artifacts.more": "Show more artifacts",
+  "data.artifact.summary":
+    "{name}: {count, plural, one {# retained version} other {# retained versions}}",
+  "data.versions.title": "Versions of {name}",
+  "data.versions.caption": "Retained versions of {name}, newest first",
+  "data.versions.size": "Size",
+  "data.accessLog.csv": "Access log as CSV",
+  "data.accessLog.json": "Access log as JSON",
+  "data.accessLog.saved": "The access log is ready.",
+  "data.logs.title": "Logs and account",
+  "data.logs.hint":
+    "The space's audit log has its own export, and your personal space comes with your account's data.",
+  "data.logs.audit": "Export the audit log from the Audit log page",
+  "data.logs.account": "Download your account's data (JSON)",
+  "data.logs.cli":
+    "To take out everything at once, run portifact export <folder> in a terminal: it fetches every retained version, resumes when interrupted and writes a manifest.",
+  "shell.dataLink": "Download your data",
+  "shell.grace.title": "What the {plan} plan kept is held until {date}",
+  "shell.grace.download": "Download your data",
+  "shell.grace.request": "Ask for {plan} again",
+  "shell.grace.hide": "Hide for today",
+  "shell.grace.body":
+    "After that date, what this space's plan does not keep is deleted. Download what you need, or ask for the plan again to keep everything.",
+  "shell.grace.bodyAskAdmin":
+    "After that date, what this space's plan does not keep is deleted. Ask an admin of this space to download what you need or to ask for the plan again.",
   "plan.loading": "Loading the plan",
   "plan.error": "The plan could not be loaded.",
   "plan.compare.section": "All plans",

@@ -203,6 +203,39 @@ describe("publishing through the API", () => {
     expect((await other.json<{ error: { code: string } }>()).error.code).toBe("invalid_input");
   });
 
+  it("accepts names only the download side folds together, as it always did (straße and strasse)", async () => {
+    const h = createHarness();
+    const c = await client(h, "folding@example.test");
+    // `pull` and `portifact export` refuse this pair before writing it to a folding disk, but a
+    // publish keeps accepting it, so artifacts that already hold such pairs keep updating.
+    const files = {
+      "index.html": "<h1>Plan</h1>",
+      "stra\u00dfe.html": "<p>one</p>",
+      "strasse.html": "<p>two</p>",
+      "\u017f.txt": "long s",
+      "s.txt": "s",
+    };
+    const prepared = await prepare(c, files);
+    expect(prepared.uploadId).toBeTruthy();
+    // What it refused before, it still refuses: two names that differ only by case.
+    const caseOnly = await c.call(
+      "/api/v1/publishes",
+      post(
+        {
+          type: "site",
+          name: "Plan",
+          entrypoint: "index.html",
+          files: await manifest({ "index.html": "x", "A.html": "a", "a.html": "b" }),
+        },
+        crypto.randomUUID(),
+      ),
+    );
+    expect(caseOnly.status).toBe(400);
+    expect((await caseOnly.json<{ error: { message: string } }>()).error.message).toContain(
+      "collides with another file",
+    );
+  });
+
   it("requires an idempotency key and a valid JSON manifest", async () => {
     const h = createHarness();
     const c = await client(h, "invalid@example.test");

@@ -17,6 +17,7 @@ import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx
 import { AuditScreen } from "./screens/audit.tsx";
 import { BrandingScreen } from "./screens/branding.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
+import { DownloadDataScreen } from "./screens/download-data.tsx";
 import { GroupsScreen } from "./screens/groups.tsx";
 import { HistoryScreen } from "./screens/history.tsx";
 import { IntegrationsScreen } from "./screens/integrations.tsx";
@@ -126,6 +127,11 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/plan",
     component: PlanScreen,
   });
+  const data = createRoute({
+    getParentRoute: () => root,
+    path: "/data",
+    component: DownloadDataScreen,
+  });
   const webhooks = createRoute({
     getParentRoute: () => root,
     path: "/webhooks",
@@ -202,6 +208,7 @@ export function createDashboardRouter(history?: RouterHistory) {
       apps,
       usage,
       plan,
+      data,
       webhooks,
       integrations,
       branding,

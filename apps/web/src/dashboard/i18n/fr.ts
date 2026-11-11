@@ -1663,6 +1663,58 @@ export const fr = {
   "plan.grace.reads": "Toujours lisible d'ici là : {features}.",
   "plan.grace.download":
     "Téléchargez ce dont vous avez besoin avant : l'historique de chaque artefact contient ses versions, et le journal d'accès et le journal d'audit ont leurs exports. Ou demandez à nouveau l'offre pour tout garder.",
+  "data.title": "Télécharger vos données",
+  "data.description":
+    "Tout ce que cet espace contient et que vous pouvez emporter : les versions conservées de chaque artefact et leurs sources, les journaux d'accès, le journal d'audit et, pour votre espace personnel, les données de votre compte. Les fichiers viennent directement du stockage ; rien n'est regroupé sur le serveur.",
+  "data.adminsOnly": "Télécharger toutes les données de {workspace} revient à ses admins.",
+  "data.grace.title": "Ce qui part et quand",
+  "data.grace.hint":
+    "Une offre expirée, retirée ou réduite conserve ce qu'elle gardait pendant 60 jours. Ensuite, ce que l'offre de cet espace ne garde pas est supprimé.",
+  "data.grace.body":
+    "Téléchargez ce dont vous avez besoin avant ces dates, ou demandez à nouveau l'offre pour tout garder.",
+  "data.grace.loading": "Chargement de ce qui part et quand",
+  "data.grace.error": "Impossible de charger ce qui part et quand.",
+  "data.grace.nothing": "Rien de ce qui est conservé ne part à la fin du délai de grâce.",
+  "data.grace.caption": "Ce qui est supprimé à la fin du délai de grâce, et à partir de quand",
+  "data.grace.column.kind": "Quoi",
+  "data.grace.column.count": "Combien",
+  "data.grace.column.from": "À partir du",
+  "data.kind.versions": "Versions précédentes",
+  "data.kind.accessLog": "Entrées du journal d'accès",
+  "data.kind.analytics": "Compteurs quotidiens de statistiques",
+  "data.kind.auditEvents": "Événements d'audit",
+  "data.kind.pins": "Artefacts épinglés (désépinglés, puis archivés comme d'habitude)",
+  "data.artifacts.title": "Artefacts",
+  "data.artifacts.hint":
+    "Ouvrez un artefact pour télécharger toute version qu'il conserve, fichiers publiés ou sources.",
+  "data.artifacts.loading": "Chargement des artefacts",
+  "data.artifacts.error": "Impossible de charger les artefacts.",
+  "data.artifacts.none": "Cet espace n'a aucun artefact.",
+  "data.artifacts.more": "Afficher plus d'artefacts",
+  "data.artifact.summary":
+    "{name} : {count, plural, one {# version conservée} other {# versions conservées}}",
+  "data.versions.title": "Versions de {name}",
+  "data.versions.caption": "Versions conservées de {name}, de la plus récente à la plus ancienne",
+  "data.versions.size": "Taille",
+  "data.accessLog.csv": "Journal d'accès en CSV",
+  "data.accessLog.json": "Journal d'accès en JSON",
+  "data.accessLog.saved": "Le journal d'accès est prêt.",
+  "data.logs.title": "Journaux et compte",
+  "data.logs.hint":
+    "Le journal d'audit de l'espace a son propre export, et votre espace personnel inclut les données de votre compte.",
+  "data.logs.audit": "Exportez le journal d'audit depuis la page Journal d'audit",
+  "data.logs.account": "Téléchargez les données de votre compte (JSON)",
+  "data.logs.cli":
+    "Pour tout emporter d'un coup, lancez portifact export <dossier> dans un terminal : il récupère chaque version conservée, reprend après une interruption et écrit un manifeste.",
+  "shell.dataLink": "Télécharger vos données",
+  "shell.grace.title": "Ce que gardait l'offre {plan} est conservé jusqu'au {date}",
+  "shell.grace.download": "Télécharger vos données",
+  "shell.grace.request": "Redemander {plan}",
+  "shell.grace.hide": "Masquer pour aujourd'hui",
+  "shell.grace.body":
+    "Après cette date, ce que l'offre de cet espace ne garde pas est supprimé. Téléchargez ce dont vous avez besoin, ou redemandez l'offre pour tout garder.",
+  "shell.grace.bodyAskAdmin":
+    "Après cette date, ce que l'offre de cet espace ne garde pas est supprimé. Demandez à un admin de cet espace de télécharger ce dont vous avez besoin ou de redemander l'offre.",
   "plan.loading": "Chargement de l’offre",
   "plan.error": "Impossible de charger l’offre.",
   "plan.compare.section": "Toutes les offres",

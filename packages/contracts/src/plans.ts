@@ -405,6 +405,46 @@ export const PlanGraceView = z.object({
 export type PlanGraceView = z.infer<typeof PlanGraceView>;
 
 /**
+ * What a running grace will let go, per kind (decision 0022, second delivery): previous versions
+ * the plan the owner has now does not keep, access log entries and analytics day counters that
+ * expire by then, audit events past the plan's retention, and pinned artifacts that are unpinned.
+ */
+export const GRACE_FORECAST_KINDS = [
+  "versions",
+  "accessLog",
+  "analytics",
+  "auditEvents",
+  "pins",
+] as const;
+export const GraceForecastKind = z.enum(GRACE_FORECAST_KINDS);
+export type GraceForecastKind = z.infer<typeof GraceForecastKind>;
+
+/**
+ * `GET /api/v1/grace-forecast`: the running grace, or null, and for each kind that will lose
+ * something, how many items and from when (the end of the first hold that keeps them). Counts
+ * only: no names, no IDs.
+ */
+export const GraceForecastView = z.object({
+  /**
+   * The space's owner, opaque (an account's or a workspace's ID): `portifact export` writes it in
+   * its folder's marker, so an export of another space is never mixed into the same folder.
+   */
+  ownerId: z.string().min(1).max(200),
+  grace: PlanGraceView.nullable(),
+  kinds: z.array(
+    z.object({
+      kind: GraceForecastKind,
+      count: z.number().int().nonnegative(),
+      from: z.iso.datetime(),
+    }),
+  ),
+});
+export type GraceForecastView = z.infer<typeof GraceForecastView>;
+
+/** How often one person or token may ask for a space's forecast (`rate_limits`, per minute). */
+export const GRACE_FORECAST_LIMITS = { perActorPerMinute: 30 } as const;
+
+/**
  * The owner's effective plan as the usage endpoint, `portifact usage`, `get_usage` and the
  * account export show it. An expired plan reads as `free`, with `validUntil` null. During a grace
  * the retention limits are the previous plan's (decision 0022) and `grace` says until when.
