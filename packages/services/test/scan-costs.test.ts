@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { pruneAuditEvents } from "../src/audit.ts";
 import { maintainAuditStreams, rewrapAuditStreamKeys } from "../src/audit-streams.ts";
 import { applyTombstones } from "../src/backups.ts";
+import { enforceCommentRetention, GUARD_SWEEP, guardKey } from "../src/comment-retention.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "../src/content-search.ts";
 import { scheduleExpiryNotices } from "../src/expiry-notices.ts";
 import { archiveExpired, pruneVersions, runMaintenance } from "../src/maintenance.ts";
@@ -25,6 +26,7 @@ import {
 } from "../src/plans.ts";
 import { webhookKeys } from "../src/webhook-keys.ts";
 import { enforceWorkspacePolicies, enforceWorkspacePolicy } from "../src/workspace-policies.ts";
+import { memoryBucket } from "./comment-retention-fixtures.ts";
 import { DAY, db, grantPlan, NOW, publishSite, user } from "./fixtures.ts";
 import { recording } from "./recording.ts";
 
@@ -64,7 +66,8 @@ const DEVELOP = {
   // and first page together), and here one batch (the job and the mark) for the grantee whose
   // removal above started a hold.
   // Plus comment retention's one global call while no workspace of the region sets it (decision
-  // 0023): its cursor, its workspaces and the restore guard's epoch in one batch.
+  // 0023): its cursor, its workspaces and the guard record sweep's cursor in one batch (the
+  // sweep's R2 list finds nothing here, so it adds no D1 call).
   runMaintenance: 62,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
@@ -229,5 +232,41 @@ describe("D1 calls of the maximum life's scans, one region", () => {
       })(),
     };
     expect(costs).toEqual(MAX_LIFE);
+  });
+});
+
+/**
+ * The sweep of comment retention guard records (decision 0023, "The sweep"), one region. Its
+ * cursor rides the scan's first batch, so a region whose prefix lists no record costs no D1 call
+ * beyond the scan's one, and one R2 `list` (class A). A page with an old record adds one global
+ * read for the page's workspaces, then per record one R2 `get` (class B) and, for a stale one, one
+ * `delete` (free); a pass that fits in one page writes no cursor.
+ */
+const GUARD_SWEEP_COSTS = {
+  empty: { d1: 1, lists: 1, reads: 0, deleted: 0 },
+  stale: { d1: 2, lists: 1, reads: 1, deleted: 1 },
+};
+
+describe("calls of the guard record sweep, one region", () => {
+  it("are what they were measured at", async () => {
+    const measure = async (bucket: ReturnType<typeof memoryBucket>) => {
+      const { database, count } = recording();
+      const run = await enforceCommentRetention(database, bucket, NOW, "default");
+      return {
+        d1: count(),
+        lists: bucket.lists(),
+        reads: bucket.reads(),
+        deleted: run.guardSweep.deleted,
+      };
+    };
+    const empty = await measure(memoryBucket());
+    const bucket = memoryBucket();
+    bucket.plant(
+      guardKey(`ws_${crypto.randomUUID().replaceAll("-", "")}`),
+      JSON.stringify({ token: "t", days: 90, from: 1 }),
+      GUARD_SWEEP.minAgeMs + 60_000,
+    );
+    const stale = await measure(bucket);
+    expect({ empty, stale }).toEqual(GUARD_SWEEP_COSTS);
   });
 });
