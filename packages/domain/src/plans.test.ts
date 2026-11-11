@@ -182,8 +182,13 @@ describe("entitlements", () => {
       validUntil: until,
       limits: PRO,
     });
-    expect(entitlements(row({ validUntil: NOW }), NOW)).toEqual(entitlements(null, NOW));
-    expect(entitlements(row({ validUntil: NOW - 1 }), NOW)).toEqual(entitlements(null, NOW));
+    // From its end the owner is on free for new work; what it kept is held (decision 0022).
+    const ended = entitlements(row({ validUntil: NOW }), NOW);
+    expect(ended).toMatchObject({ plan: "free", validUntil: null, features: [] });
+    expect(ended.grace?.until).toBe(NOW + 60 * 86_400_000);
+    expect(entitlements(row({ validUntil: NOW - 60 * 86_400_000 }), NOW)).toEqual(
+      entitlements(null, NOW),
+    );
     expect(planActive(row({ validUntil: NOW + 1 }), NOW)).toBe(true);
     expect(planActive(row({ validUntil: NOW }), NOW)).toBe(false);
     expect(planActive(row(), NOW)).toBe(true);

@@ -14,13 +14,15 @@ import {
   schema,
 } from "@portifact/db";
 import {
+  accessLogHolds,
   DAY_MS,
   FREE_RETENTION_DAYS,
   formatDay,
   ok,
   type Result,
   type RetentionPlan,
-  requireFeature,
+  requireHeldFeature,
+  retentionSteps,
   statsRange,
   utcDay,
 } from "@portifact/domain";
@@ -175,7 +177,8 @@ export async function getArtifactStats(
   // The access log's action: the same admins and editors read both.
   const allowed = await authorizeOn(db, input.userId, artifact, "access_log", missing);
   if (!allowed.ok) return allowed;
-  const gate = requireFeature(
+  // A read of held data: a grace keeps it open for what the previous plan granted (decision 0022).
+  const gate = requireHeldFeature(
     await ownerEntitlements(db.global, artifact.ownerId, input.now),
     "analytics",
   );
@@ -257,14 +260,22 @@ export async function getArtifactStats(
 }
 
 /**
- * The SQL for `retentionExpiry` (@portifact/domain) over a column: the same rule, applied to
- * every row of an owner by `applyOwnerRetention`.
+ * The SQL for `retentionExpiry` (@portifact/domain) over a column: the same steps (the plan's own
+ * retention until its hold ends, each grace's until its end, then the free one), applied to every
+ * row of an owner by `applyOwnerRetention`.
  */
 function expirySql(base: SQL, plan: RetentionPlan): SQL {
-  const kept = plan.limits.accessLogRetentionDays * DAY_MS;
-  const free = FREE_RETENTION_DAYS * DAY_MS;
-  if (plan.validUntil === null || kept <= free) return sql`(${base} + ${kept})`;
-  return sql`min(${base} + ${kept}, max(${base} + ${free}, ${plan.validUntil}))`;
+  const steps = retentionSteps(accessLogHolds(plan));
+  const at = (step: (typeof steps)[number]) =>
+    step.from === null
+      ? sql`(${base} + ${step.days * DAY_MS})`
+      : sql`max(${step.from}, ${base} + ${step.days * DAY_MS})`;
+  const last = steps.at(-1);
+  if (steps.length === 1 && last) return at(last);
+  const cases = steps
+    .slice(0, -1)
+    .map((step) => sql`when ${at(step)} < ${step.until} then ${at(step)}`);
+  return sql`(case ${sql.join(cases, sql` `)} else ${last ? at(last) : base} end)`;
 }
 
 /**

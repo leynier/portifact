@@ -134,6 +134,7 @@ export async function seatLimit(global: GlobalDb, workspaceId: string, now: numb
       seats: p.seats,
       validUntil: p.validUntil,
       overrides: p.overrides,
+      grace: p.grace,
       updatedAt: p.updatedAt,
     })
     .from(p)

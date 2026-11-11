@@ -12,6 +12,7 @@ import {
   preparePublish,
   revokeShareLink,
   runJob,
+  runMaintenance,
   scheduleCommentNotices,
   updateAccess,
 } from "@portifact/services";
@@ -198,6 +199,11 @@ async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Resp
   // The bucket the URL was signed for: an EU workspace's uploads go to the EU bucket.
   const bucket = bucketNamed(env, url.searchParams.get("bucket"));
   if (!bucket) return new Response("Unknown bucket", { status: 400 });
+  // A presigned download: the object as R2 holds it.
+  if (request.method === "GET") {
+    const object = key.startsWith("objects/") ? await bucket.get(key) : null;
+    return object ? new Response(object.body) : new Response("Not found", { status: 404 });
+  }
   const size = Number(request.headers.get("content-length"));
   const uploadId = url.searchParams.get("uploadId");
   if (uploadId !== null) return partPut(request, bucket, key, uploadId, url, size);
@@ -429,6 +435,18 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       url: `${env.APP_ORIGIN}/s#${result.value.token}`,
       token: result.value.token,
     });
+  }
+
+  // The 15-minute maintenance run of the default region, as the jobs Worker runs it, at a moment
+  // `offsetMs` from now: tests move time past a plan's grace (decision 0022) without waiting.
+  if (path === "/maintenance") {
+    const { offsetMs = 0 } = input as { offsetMs?: number };
+    const result = await runMaintenance(
+      regionsFromEnv(env).get("default").db,
+      env.ARTIFACTS,
+      now + offsetMs,
+    );
+    return Response.json(result);
   }
 
   if (path === "/clock") {

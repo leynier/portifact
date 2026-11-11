@@ -244,8 +244,17 @@ describe("pins", () => {
     expect(
       pinsLapse(entitlements({ plan: "pro", seats: 1, validUntil: null, overrides: null }, NOW)),
     ).toBe(false);
+    // A plan that just ended keeps its pins for its grace (decision 0022), and loses them after.
     expect(
       pinsLapse(entitlements({ plan: "pro", seats: 1, validUntil: NOW, overrides: null }, NOW)),
+    ).toBe(false);
+    expect(
+      pinsLapse(
+        entitlements(
+          { plan: "pro", seats: 1, validUntil: NOW - 60 * 86_400_000, overrides: null },
+          NOW,
+        ),
+      ),
     ).toBe(true);
     expect(
       pinsLapse(

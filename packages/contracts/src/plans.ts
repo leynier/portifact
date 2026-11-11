@@ -53,6 +53,20 @@ export const AUDIT_RETENTION_DAYS = 90;
 export const AUDIT_RETENTION_BOUNDS = { minDays: 30, maxDays: 2_557 } as const;
 
 /**
+ * The most any retention limit may be (decision 0022): seven years for every length of time
+ * (the audit retention bound), 84 months for archives and 10,000 previous versions. Overrides
+ * are held to them, so a grace that holds a previous plan's values is always within them, and a
+ * stored grace slot above them is not valid. Above every plan's own value.
+ */
+export const RETENTION_LIMIT_MAX = {
+  archiveMonths: 84,
+  retainedPreviousVersions: 10_000,
+  previousVersionRetentionDays: AUDIT_RETENTION_BOUNDS.maxDays,
+  accessLogRetentionDays: AUDIT_RETENTION_BOUNDS.maxDays,
+  auditRetentionDays: AUDIT_RETENTION_BOUNDS.maxDays,
+} as const;
+
+/**
  * The limits a plan sets. Sizes are decimal bytes. `bytesPerMonth` is the traffic served, an
  * abuse cap. `accessLogRetentionDays` is how long the access log and the analytics view counters
  * are kept, `auditRetentionDays` how long audit events are. Version and domain values are carried for later features; nothing applies them yet.
@@ -271,6 +285,14 @@ export const PlanOverrides = z
     limits: PlanLimits.partial()
       .extend({
         artifactBytes: count.max(LIMITS.fileBytesCap).optional(),
+        archiveMonths: count.max(RETENTION_LIMIT_MAX.archiveMonths).optional(),
+        retainedPreviousVersions: count
+          .max(RETENTION_LIMIT_MAX.retainedPreviousVersions)
+          .optional(),
+        previousVersionRetentionDays: count
+          .max(RETENTION_LIMIT_MAX.previousVersionRetentionDays)
+          .optional(),
+        accessLogRetentionDays: count.max(RETENTION_LIMIT_MAX.accessLogRetentionDays).optional(),
         auditRetentionDays: z
           .number()
           .int()
@@ -286,8 +308,106 @@ export const PlanOverrides = z
 export type PlanOverrides = z.infer<typeof PlanOverrides>;
 
 /**
+ * How long an owner keeps what its previous plan kept after its entitlements drop (decision 0022):
+ * a plan that ends (`valid_until` passes), is removed or is lowered holds the previous plan's
+ * retention, and lets the owner read and export what it held, for this many days from the drop.
+ * New work follows the plan the owner has now.
+ */
+export const PLAN_GRACE_DAYS = 60;
+
+/** At most this many drops are held at once; a later one folds the two oldest (decision 0022). */
+export const PLAN_GRACE_MAX_SLOTS = 8;
+
+/**
+ * The limits that decide what an owner keeps, and how long: those a grace holds from the previous
+ * plan (decision 0022). Every other limit (quotas, sizes, seats, traffic, domains) follows the
+ * plan the owner has now.
+ */
+export const GRACE_LIMITS = [
+  "archiveMonths",
+  "retainedPreviousVersions",
+  "previousVersionRetentionDays",
+  "accessLogRetentionDays",
+  "auditRetentionDays",
+] as const satisfies readonly PlanLimit[];
+export type GraceLimit = (typeof GRACE_LIMITS)[number];
+
+export const GraceLimits = z.strictObject({
+  archiveMonths: count.max(RETENTION_LIMIT_MAX.archiveMonths),
+  retainedPreviousVersions: count.max(RETENTION_LIMIT_MAX.retainedPreviousVersions),
+  previousVersionRetentionDays: count.max(RETENTION_LIMIT_MAX.previousVersionRetentionDays),
+  accessLogRetentionDays: count.max(RETENTION_LIMIT_MAX.accessLogRetentionDays),
+  auditRetentionDays: count.max(RETENTION_LIMIT_MAX.auditRetentionDays),
+});
+export type GraceLimits = z.infer<typeof GraceLimits>;
+
+/**
+ * Why a grace started: the operator lowered the plan, removed it, or it reached `valid_until`;
+ * `unreadable` when a stored grace could not be read and the operator's next change stored a
+ * conservative hold in its place (decision 0022, "Unreadable graces").
+ */
+export const GRACE_START_REASONS = ["lowered", "removed", "expired", "unreadable"] as const;
+export const GraceStartReason = z.enum(GRACE_START_REASONS);
+export type GraceStartReason = z.infer<typeof GraceStartReason>;
+
+/**
+ * Why a grace ended: a plan that covers it again, the operator, its 60 days passed, or it was
+ * folded into a later hold past `PLAN_GRACE_MAX_SLOTS` (which keeps its values longer).
+ */
+export const GRACE_END_REASONS = ["renewed", "operator", "expired", "folded"] as const;
+export const GraceEndReason = z.enum(GRACE_END_REASONS);
+export type GraceEndReason = z.infer<typeof GraceEndReason>;
+
+/**
+ * One drop held (`owner_plans.grace`, a JSON list of these): what the previous plan kept and the
+ * paid features it granted, from the drop (`from`) until `until`. `expiry` is the `valid_until`
+ * a natural expiry came from, so the scan that records it does so once.
+ */
+/** The latest moment a `Date` can hold (milliseconds); a later value cannot be shown. */
+export const MAX_DATE_MS = 8_640_000_000_000_000;
+
+/** The grace length in milliseconds. */
+export const PLAN_GRACE_MS = PLAN_GRACE_DAYS * 86_400_000;
+
+const moment = z.number().int().nonnegative().max(MAX_DATE_MS);
+
+export const GraceSlot = z
+  .strictObject({
+    plan: PlanName,
+    reason: GraceStartReason,
+    from: moment,
+    until: moment,
+    limits: GraceLimits,
+    features: z.array(PlanFeature),
+    expiry: moment.optional(),
+    /** How many holds were folded into this one past `PLAN_GRACE_MAX_SLOTS` (2 or more). */
+    folded: z.number().int().min(2).max(10_000).optional(),
+  })
+  // A hold lasts at most the grace length from its drop: none can be held forever.
+  .refine((slot) => slot.from <= slot.until && slot.until - slot.from <= PLAN_GRACE_MS, {
+    message: "A grace slot lasts at most the grace length from its drop.",
+  });
+export type GraceSlot = z.infer<typeof GraceSlot>;
+
+export const GraceSlots = z.array(GraceSlot).max(PLAN_GRACE_MAX_SLOTS);
+
+/**
+ * A running grace as the usage endpoint, `portifact usage`, `get_usage` and the account export
+ * show it: until when, the highest plan held, what it keeps and the paid features whose data the
+ * owner can still read and export (only those the plan it has now does not grant).
+ */
+export const PlanGraceView = z.object({
+  until: z.iso.datetime(),
+  plan: PlanName,
+  limits: GraceLimits,
+  features: z.array(PlanFeature),
+});
+export type PlanGraceView = z.infer<typeof PlanGraceView>;
+
+/**
  * The owner's effective plan as the usage endpoint, `portifact usage`, `get_usage` and the
- * account export show it. An expired plan reads as `free`, with `validUntil` null.
+ * account export show it. An expired plan reads as `free`, with `validUntil` null. During a grace
+ * the retention limits are the previous plan's (decision 0022) and `grace` says until when.
  */
 export const PlanView = z.object({
   name: PlanName,
@@ -297,6 +417,8 @@ export const PlanView = z.object({
   limits: PlanLimits,
   /** Features the plan grants, in the order of PLAN_FEATURES. */
   features: z.array(PlanFeature),
+  /** The running grace after a plan dropped, or null; absent from servers before it. */
+  grace: PlanGraceView.nullable().optional(),
 });
 export type PlanView = z.infer<typeof PlanView>;
 
@@ -313,5 +435,7 @@ export const OwnerPlanExport = z.strictObject({
   overrides: PlanOverrides.nullable(),
   grantedBy: z.string().min(1).max(200),
   note: z.string().max(500).nullable(),
+  /** The drops still held (decision 0022); absent in exports made before graces existed. */
+  grace: GraceSlots.nullable().optional(),
 });
 export type OwnerPlanExport = z.infer<typeof OwnerPlanExport>;

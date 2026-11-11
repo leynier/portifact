@@ -49,9 +49,11 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   changeMemberRole: ["member.role_changed"],
   removeMember: ["member.removed", "member.left"],
   leaveWorkspace: ["member.left"],
-  setOwnerPlan: ["plan.granted"],
+  setOwnerPlan: ["plan.granted", "plan.grace_started", "plan.grace_ended"],
   applyOwnerPlans: ["plan.granted"],
-  removeOwnerPlan: ["plan.removed"],
+  removeOwnerPlan: ["plan.removed", "plan.grace_started", "plan.grace_ended"],
+  // The grace scan (decision 0022): a natural expiry's start and every hold's end.
+  maintainPlanGraces: ["plan.grace_started", "plan.grace_ended"],
   verifyWorkspaceDomain: ["email_domain.verified", "email_domain.removed"],
   removeWorkspaceDomain: ["email_domain.removed"],
   recheckEmailDomains: ["email_domain.removed"],
@@ -316,6 +318,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sendDirectoryNotice",
   "alignPlanLimits",
   "unpinLapsedPlans",
+  // The one-time re-dating pass (decision 0022): writes retention jobs, changes nothing an owner has.
+  "redateDatedPlans",
   // The regional half of a plan change (decision 0005): the change's `plan.granted` or
   // `plan.removed` was recorded with its global half.
   "applyOwnerPlanRegion",

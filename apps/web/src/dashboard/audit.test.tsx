@@ -91,6 +91,33 @@ describe("audit log page", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  it("says when a plan's grace started and ended, and why (decision 0022)", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    const plan = { type: "plan", id: "ws_1" } as const;
+    server.audit.acme = [
+      event({
+        at: at(1),
+        kind: "plan.grace_started",
+        actor: { type: "operator" },
+        target: plan,
+        artifact: null,
+        detail: { reason: "lowered", plan: "team", until: "2027-01-09T12:00:00.000Z" },
+      }),
+      event({
+        at: at(2),
+        kind: "plan.grace_ended",
+        actor: { type: "system" },
+        target: plan,
+        artifact: null,
+        detail: { reason: "expired", plan: "team", until: "2027-01-09T12:00:00.000Z" },
+      }),
+    ];
+    renderDashboard("/audit?workspace=acme", server);
+    const text = (await table()).textContent ?? "";
+    expect(text).toContain("Ended the grace of what the Team plan kept (its days passed)");
+    expect(text).toContain("Started a grace (plan lowered): what the Team plan kept is held until");
+  });
+
   it("names service tokens by their label, and email domains by what happened to them", async () => {
     const tokenId = `st_${"0".repeat(32)}`;
     const live = { type: "service_token", id: tokenId, label: "CI previews" } as const;

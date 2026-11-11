@@ -64,6 +64,10 @@ export const ALLOWED_FIELDS: Record<string, { holds: string; value: RegExp }> = 
     holds: "an opaque workspace ID",
     value: re(`workspaceId|${PATH}\\.(?:id|workspaceId)`),
   },
+  ownerId: {
+    holds: "an owner's opaque ID (an account or a workspace)",
+    value: re(`ownerId|${PATH}\\.ownerId`),
+  },
   artifacts: { holds: "a count", value: re(`artifacts|${PATH}\\.length|\\d+`) },
   threads: { holds: "a count", value: re(`threads|${PATH}\\.length|\\d+`) },
   recipients: { holds: "a count", value: re(`recipients|${PATH}\\.length|\\d+`) },

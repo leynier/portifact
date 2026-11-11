@@ -1,9 +1,11 @@
 // portifact publish with ZIP input, private sources (--source, --ref) and Markdown assets, and
 // portifact usage, against the fake server.
+
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { PlanGraceView } from "@portifact/contracts";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { gitRunner } from "./git.ts";
 import { sha256Of } from "./testing/fake-api.ts";
@@ -350,6 +352,30 @@ describe("portifact usage", () => {
     expect(result.stdout).toMatch(/Plan features\s+pin, sso\n/);
     server.api.usage.plan = { ...server.api.usage.plan, name: "pro", seats: 1, validUntil: null };
     expect((await h.invoke("usage")).stdout).toMatch(/Plan\s+Pro\n/);
+  });
+
+  it("shows a running grace: what is held, until when, and what can still be read", async () => {
+    h.signIn();
+    expect((await h.invoke("usage")).stdout).not.toContain("Grace");
+    const grace: PlanGraceView = {
+      until: "2027-01-10T00:00:00.000Z",
+      plan: "pro",
+      limits: {
+        archiveMonths: 12,
+        retainedPreviousVersions: 50,
+        previousVersionRetentionDays: 90,
+        accessLogRetentionDays: 365,
+        auditRetentionDays: 90,
+      },
+      features: ["analytics", "versionDiff"],
+    };
+    server.api.usage.plan = { ...server.api.usage.plan, grace };
+    const result = await h.invoke("usage");
+    expect(result.stdout).toMatch(
+      /Grace\s+What the Pro plan kept is held until 2027-01-10 00:00 UTC \(50 previous versions for 90 days; still readable: analytics, versionDiff\)\./,
+    );
+    server.api.usage.plan = { ...server.api.usage.plan, grace: { ...grace, features: [] } };
+    expect((await h.invoke("usage")).stdout).toContain("(50 previous versions for 90 days).");
   });
 
   it("lists what blocks the account and when it lifts, and prints JSON as the API sends it", async () => {
