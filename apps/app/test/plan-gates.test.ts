@@ -463,6 +463,56 @@ const GATED: GatedOperation[] = [
       return { api: { status: response.status, body: await response.json<unknown>() } };
     },
   },
+  // Issue integrations (decision 0018): creating an issue from a thread goes through the API and
+  // MCP; the plan is checked before the connection is read, so a connection ID that names none
+  // reaches the gate. Connecting one is session-only (no MCP tool, no bearer route).
+  {
+    feature: "integrations",
+    name: "create an issue from a thread",
+    run: async (who, id) => {
+      const threadId = await threadOn(id, who.userId);
+      const body = {
+        connectionId: `ic_${"0".repeat(32)}`,
+        target: "acme/site",
+        title: "Gate",
+      };
+      const response = await who.apiCall(
+        `/api/v1/artifacts/${id}/annotations/threads/${threadId}/issue`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+          body: JSON.stringify(body),
+        },
+      );
+      const result = await who.tool("create_issue_from_thread", {
+        artifactId: id,
+        threadId,
+        ...body,
+      });
+      return {
+        api: { status: response.status, body: await response.json<unknown>() },
+        mcp: { ok: result.isError !== true, body: result.structuredContent },
+      };
+    },
+  },
+  {
+    feature: "integrations",
+    name: "connect an issue integration",
+    scope: "owner",
+    run: async (who) => {
+      const response = await who.sessionCall("/api/v1/integrations/connections", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          service: "github",
+          label: "Gate",
+          credential: "github_pat_gate_0123456789abcdefghij",
+          targets: ["acme/site"],
+        }),
+      });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
+  },
   // Setting or tightening workspace policies (decision 0015) is session-only, with no bearer
   // route, MCP tool or CLI command: the gate is `requireFeature` on the workspace's plan, and its
   // body is checked through the session in workspace-policies.test.ts.
@@ -621,6 +671,29 @@ async function publishIn(ownerId: string, userId: string): Promise<string> {
   });
   if (!committed.ok) throw new Error(committed.message);
   return committed.value.artifactId;
+}
+
+/** A thread the owner started on the artifact's current version, as the comment route writes it. */
+async function threadOn(artifactId: string, authorId: string): Promise<string> {
+  const [artifact] = await db()
+    .select({ ownerId: schema.artifacts.ownerId, versionId: schema.artifacts.currentVersionId })
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, artifactId));
+  if (!artifact?.versionId) throw new Error("The thread needs a published artifact");
+  const id = crypto.randomUUID();
+  const target = JSON.stringify({ schema: 1, path: "index.md", anchor: { kind: "document" } });
+  await db().insert(schema.annotationThreads).values({
+    id,
+    artifactId,
+    versionId: artifact.versionId,
+    ownerId: artifact.ownerId,
+    authorId,
+    target,
+    targetBytes: target.length,
+    path: "index.md",
+    updatedAt: NOW,
+  });
+  return id;
 }
 
 /** Puts an owner (a user or a workspace) on a plan, as the operator's grant writes the row. */

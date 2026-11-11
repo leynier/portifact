@@ -2,6 +2,7 @@
 // end with a period; no em dashes. Never interpolate a token, cookie or code other than the
 // device user code, which the user must see to approve the login.
 import { VERSION_DIFF, WEBHOOK_EVENTS } from "@portifact/contracts";
+import { ISSUE_FAILURE_MESSAGES } from "@portifact/domain";
 
 const VERSION_DIFF_FILE_BYTES = VERSION_DIFF.fileBytes;
 
@@ -269,6 +270,17 @@ export const messages = {
   domainRemoved: (hostname: string) =>
     `Removed ${hostname}. The artifact keeps its Portifact address.`,
 
+  // Issue integrations (decision 0018).
+  integrationsEmpty:
+    "This space has no connections to GitHub or Linear. Its admins add them in the dashboard, on the Integrations page.",
+  integrationsPlan:
+    "The plan of this space does not include integrations: connections are kept, but issues cannot be created.",
+  integrationsUnavailable: "This Portifact server does not offer integrations yet.",
+  integrationsEu:
+    "This space keeps its data in the EU: comment text sent in an issue leaves the EU.",
+  issueRequested: (target: string, id: string) =>
+    `Issue requested in ${target} (${id}). It is created within a few minutes; \`portifact annotations show\` then shows its link.`,
+
   // Tokens.
   webhooksEmpty:
     "You have no webhooks. Add one with `portifact webhooks add <url> --events <list>`.",
@@ -353,6 +365,8 @@ export const messages = {
     invalidRequired: (value: string) =>
       `${JSON.stringify(value)} is not a number of approvals. Use a whole number from 1, or "all".`,
     noReviewers: "Name at least one reviewer with --reviewer <email>.",
+    invalidConnection: (value: string) =>
+      `${JSON.stringify(value)} is not a connection ID. Run \`portifact integrations\` to list them.`,
     invalidHostname: (value: string) =>
       `${JSON.stringify(value)} is not a hostname. Use a name like docs.example.com.`,
     domainRemoveConfirmationRequired: (hostname: string) =>
@@ -506,6 +520,18 @@ export const annotationMessages = {
   element: (tagName: string, fingerprint: string) =>
     `Element: <${tagName}> ${JSON.stringify(fingerprint)}`,
   goneAuthor: "(deleted account)",
+  issue: (
+    state: "pending" | "created" | "failed",
+    key: string | null,
+    target: string,
+    url: string | null,
+    failure: string | null,
+  ) =>
+    state === "created"
+      ? `Issue ${key} in ${target}: ${url}`
+      : state === "pending"
+        ? `Issue in ${target}: being created`
+        : `Issue in ${target} failed: ${ISSUE_FAILURE_MESSAGES[failure as keyof typeof ISSUE_FAILURE_MESSAGES] ?? failure}`,
   unnamed: "(no name)",
   noBody: (state: string) => (state === "hidden" ? "(hidden by the owner)" : "(deleted)"),
   created: (threadId: string) => `Started thread ${threadId}.`,

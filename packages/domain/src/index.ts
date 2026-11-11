@@ -22,6 +22,7 @@ export * from "./files.ts";
 export * from "./groups.ts";
 export * from "./html-text.ts";
 export * from "./ids.ts";
+export * from "./integrations.ts";
 export * from "./lifecycle.ts";
 export * from "./locale.ts";
 export * from "./multipart.ts";

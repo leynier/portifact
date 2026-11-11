@@ -2355,4 +2355,148 @@ export const ru = {
     "Каталог больше не будет управлять этой группой: теперь её меняют администраторы здесь. Сопоставление роли снимается, а люди, которых она сделала редакторами или администраторами, сохраняют роль. Если каталог позже передаст группу с тем же названием, она будет отклонена.",
   "groups.stopSync.done": "{name} больше не синхронизируется из каталога.",
   "audit.kind.groupSyncStopped": "Остановил синхронизацию группы {group} из каталога",
+  "shell.integrationsLink": "Интеграции",
+  "integrations.title": "Интеграции",
+  "integrations.description":
+    "Превращайте ветку комментариев в задачу в GitHub или Linear. Подключение действует с учётными данными, которые вставил администратор, поэтому задачи создаются от имени этой учётной записи.",
+  "integrations.adminOnly.title": "Интеграциями управляют только администраторы",
+  "integrations.adminOnly.body":
+    "Попросите администратора {workspace} подключить GitHub или Linear.",
+  "integrations.planTitle": "Не входит в этот тариф",
+  "integrations.planRequired":
+    "Интеграции входят в тариф {plan}. Уже созданные подключения сохраняются, но создавать через них задачи нельзя.",
+  "integrations.list.title": "Подключения",
+  "integrations.list.loading": "Загрузка подключений",
+  "integrations.list.error": "Не удалось загрузить подключения.",
+  "integrations.empty.title": "Подключений пока нет",
+  "integrations.empty.body":
+    "Подключите GitHub или Linear, чтобы администраторы и редакторы могли создавать задачи из веток комментариев.",
+  "integrations.service.github": "GitHub",
+  "integrations.service.linear": "Linear",
+  "integrations.add.title": "Подключить сервис",
+  "integrations.add.hint":
+    "Учётные данные проверяются у сервиса, хранятся в зашифрованном виде и больше не показываются: Portifact показывает только последние четыре символа.",
+  "integrations.add.service": "Сервис",
+  "integrations.add.label": "Название",
+  "integrations.add.labelHint": "Название, понятное вашей команде, например Репозиторий продукта.",
+  "integrations.add.credential.github": "Детализированный персональный токен доступа",
+  "integrations.add.credential.linear": "API-ключ Linear",
+  "integrations.add.targets.github": "Репозитории",
+  "integrations.add.targets.linear": "ID команд",
+  "integrations.add.targetsHint.github": "Один владелец/репозиторий в строке, не больше {limit}.",
+  "integrations.add.targetsHint.linear":
+    "Один ID команды в строке, не больше {limit}. Linear показывает его в настройках команды.",
+  "integrations.add.failed":
+    "Сервис не принял учётные данные или один из репозиториев или команд. Проверьте их по шагам выше и попробуйте снова.",
+  "integrations.add.submit": "Подключить",
+  "integrations.add.limit":
+    "В пространстве может быть не больше {limit} подключений. Удалите одно, чтобы добавить другое.",
+  "integrations.howto.github.title": "Создайте токен GitHub с минимальными правами",
+  "integrations.howto.github.1":
+    "В GitHub откройте Settings, Developer settings, Personal access tokens, Fine-grained tokens и выберите Generate new token.",
+  "integrations.howto.github.2":
+    "Укажите владельцем ресурса учётную запись или организацию, которой принадлежат репозитории, и задайте срок действия.",
+  "integrations.howto.github.3":
+    "В Repository access выберите Only select repositories и отметьте репозитории, перечисленные здесь.",
+  "integrations.howto.github.4":
+    "В Repository permissions установите для Issues значение Read and write. Остальные права оставьте No access; Metadata остаётся только для чтения.",
+  "integrations.howto.github.5":
+    "Создайте токен и вставьте его сюда. Задачи создаются от имени учётной записи токена.",
+  "integrations.howto.linear.title": "Создайте API-ключ Linear",
+  "integrations.howto.linear.1":
+    "В Linear откройте Settings, затем Security and access, и создайте персональный API-ключ.",
+  "integrations.howto.linear.2":
+    "Если Linear позволяет ограничить ключ, разрешите только создание задач и только в перечисленных здесь командах.",
+  "integrations.howto.linear.3":
+    "Вставьте ключ сюда. Задачи создаются от имени вашей учётной записи Linear.",
+  "integrations.connected": "{label} подключено.",
+  "integrations.identity": "Действует как {identity}",
+  "integrations.credential": "Учётные данные заканчиваются на {hint}",
+  "integrations.attention.credential_rejected":
+    "Сервис отклонил эти учётные данные. Вставьте новые и проверьте их.",
+  "integrations.attention.key_unavailable":
+    "Сохранённые учётные данные больше нельзя открыть. Вставьте их заново.",
+  "integrations.state.ready": "Готово",
+  "integrations.state.attention": "Требует внимания",
+  "integrations.test": "Проверить",
+  "integrations.testLabel": "Проверить {label}",
+  "integrations.testPassed":
+    "{label} работает. Оно действует как {identity}, и все репозитории или команды доступны.",
+  "integrations.problem.credential_rejected":
+    "Сервис отклонил учётные данные: они неверны, истекли или отозваны.",
+  "integrations.problem.missing_permission":
+    "Сервис принял учётные данные, но они не могут прочитать собственную учётную запись.",
+  "integrations.problem.target_unreachable":
+    "Учётные данные не дают доступа к {target}. Проверьте доступ.",
+  "integrations.problem.issues_disabled": "Задачи отключены в {target}.",
+  "integrations.problem.service_unavailable": "Сервис не ответил. Попробуйте позже.",
+  "integrations.problem.rate_limited":
+    "Сервис ограничивает запросы с этими учётными данными. Попробуйте позже.",
+  "integrations.edit": "Изменить",
+  "integrations.editLabel": "Изменить {label}",
+  "integrations.edit.title": "Изменить {label}",
+  "integrations.edit.credentialHint": "Оставьте пустым, чтобы сохранить текущие учётные данные.",
+  "integrations.edit.save": "Сохранить",
+  "integrations.saved": "{label} сохранено.",
+  "integrations.remove": "Удалить",
+  "integrations.removeLabel": "Удалить {label}",
+  "integrations.confirm.title": "Удалить {label}?",
+  "integrations.confirm.body":
+    "Учётные данные удаляются из Portifact. Уже созданные задачи сохраняют ссылки; задачи, которые ещё создаются, завершатся ошибкой. Отзовите токен или ключ и в самом сервисе.",
+  "integrations.removed": "{label} удалено.",
+  "integrations.actionFailed": "Не получилось",
+  "issues.create": "Создать задачу",
+  "issues.dialog.title": "Создать задачу из ветки {number}",
+  "issues.dialog.close": "Закрыть",
+  "issues.dialog.connection": "Подключение",
+  "issues.dialog.target": "Репозиторий или команда",
+  "issues.dialog.issueTitle": "Заголовок задачи",
+  "issues.dialog.parts": "Что отправить",
+  "issues.dialog.part.link": "Ссылку на эту ветку",
+  "issues.dialog.part.artifactName": "Название artifact",
+  "issues.dialog.part.quote": "Цитируемый текст",
+  "issues.dialog.part.quoteHint": "Фрагмент artifact. Он покидает Portifact.",
+  "issues.dialog.part.message": "Первое сообщение ветки",
+  "issues.dialog.part.messageHint":
+    "Чьи-то слова. Они покидают Portifact и остаются в задаче, даже если комментарий потом удалят.",
+  "issues.dialog.preview": "Ровно то, что будет отправлено",
+  "issues.dialog.previewHint":
+    "Текст комментариев уходит как обычный текст: упоминания, ссылки и изображения в нём не срабатывают. Он перечитывается при создании задачи, поэтому отправляется последняя правка.",
+  "issues.dialog.never":
+    "Никогда не отправляются: адреса электронной почты читателей, содержимое artifact, другие сообщения ветки и заметки рецензентов.",
+  "issues.dialog.visible":
+    "Все, кто видит эту ветку, включая читателей вне вашей команды, видят ссылку на созданную задачу и название её репозитория или команды, даже если репозиторий приватный.",
+  "issues.failure.target_removed":
+    "администратор убрал этот репозиторий или команду из подключения.",
+  "issues.failure.artifact_moved": "artifact перенесён в другое пространство.",
+  "issues.failure.requester_left": "вы больше не можете создавать задачи для этого пространства.",
+  "issues.failure.thread_gone": "ветка удалена.",
+  "issues.dialog.eu":
+    "Это пространство хранит данные в ЕС. То, что вы отправите, уходит в {service}, за пределы ЕС.",
+  "issues.dialog.submit": "Создать задачу",
+  "issues.dialog.noConnections":
+    "Нет подключения, которое можно использовать. Попросите администратора подключить GitHub или Linear или исправить подключение, требующее внимания.",
+  "issues.requested": "Задача запрошена. Ссылка появится в ветке через несколько минут.",
+  "issues.list": "Задачи",
+  "issues.link": "Задача {key} в {target}",
+  "issues.pending": "Задача в {target} создаётся",
+  "issues.failed": "Задача в {target} не создана: {reason}",
+  "issues.failure.credential_rejected": "учётные данные подключения больше не работают.",
+  "issues.failure.target_unreachable": "учётные данные не могут создавать там задачи.",
+  "issues.failure.rejected": "сервис её отклонил.",
+  "issues.failure.connection_removed": "подключение удалено.",
+  "issues.failure.unavailable": "интеграции недоступны.",
+  "issues.failure.plan_lapsed": "тариф больше не включает интеграции.",
+  "issues.failure.service_unavailable": "сервис не ответил.",
+  "issues.failure.invalid_response": "сервис ответил так, что Portifact не смог это использовать.",
+  "audit.kind.integrationConnected":
+    "Подключил {service, select, github {GitHub} other {Linear}} с {targets, plural, one {# репозиторием или командой} few {# репозиториями или командами} many {# репозиториями или командами} other {# репозитория или команды}}",
+  "audit.kind.integrationChanged":
+    "{credential, select, true {Заменил учётные данные подключения} other {Изменил название или цели подключения}}",
+  "audit.kind.integrationRemoved":
+    "Удалил подключение {service, select, github {GitHub} other {Linear}}",
+  "audit.kind.integrationFailing":
+    "{reason, select, key_unavailable {Учётные данные подключения больше нельзя открыть} other {{service, select, github {GitHub} other {Linear}} отклонил учётные данные подключения}}",
+  "audit.kind.issueCreated":
+    "Создал задачу {service, select, github {GitHub} other {Linear}} в {target} из ветки {message, select, true {с её первым сообщением} other {без текста комментариев}}",
 } satisfies Catalog;

@@ -1,8 +1,24 @@
 // Maintenance jobs (plan section 10). Each job takes a small batch, is idempotent and safe to
 // run concurrently: state changes are conditional on the lifecycle generation, and storage is
 // released only by the statement that actually deletes the object rows.
-import { type Db, type RegionalDb, schema } from "@portifact/db";
-import { type Entitlements, entitlements, purgeDate, versionRetention } from "@portifact/domain";
+
+import { DEFAULT_REGION } from "@portifact/contracts";
+import {
+  bothSides,
+  type Db,
+  type GlobalDb,
+  type Region,
+  type RegionalDb,
+  schema,
+} from "@portifact/db";
+import {
+  type Entitlements,
+  entitlements,
+  FREE_LIMIT_COLUMNS,
+  purgeDate,
+  type VersionRetention,
+  versionRetention,
+} from "@portifact/domain";
 import { SECURE_RENDERER_VERSION } from "@portifact/render";
 import { and, asc, eq, gt, inArray, lte, notExists, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -18,6 +34,13 @@ import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
 import { pruneOperations } from "./idempotency.ts";
 import { pruneExpiredInvitations } from "./invitations.ts";
+import {
+  cursorFor,
+  cursorRead,
+  resumeAt,
+  type ScanCaps,
+  savedCursorSql,
+} from "./maintenance-cursors.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { alignPlanLimits, ownerEntitlements, unpinLapsedPlans } from "./plans.ts";
 import { closeUploadSession } from "./publish.ts";
@@ -25,7 +48,9 @@ import { pruneReadSessions } from "./read-access.ts";
 import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";
 import { pruneDirectoryUsers } from "./scim.ts";
+import { jsonValues, ownerOfRegion } from "./shapes.ts";
 import { pruneShareLinks } from "./share-links.ts";
+import { requeueThreadIssues } from "./thread-issues.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
 import { pruneArtifactGroups, pruneGroupTombstones } from "./workspace-groups.ts";
@@ -127,8 +152,14 @@ export async function expireUploads(
   return { processed: stale.length };
 }
 
-/** Owner plan rows the pruning scan reads per query. */
-const PLAN_PAGE = 100;
+/**
+ * How much of the plans the pruning reads per run (decision 0005, "Second delivery"): at most
+ * `maxPages` pages of `pageSize` plan rows (with one database, one regional read per row), then
+ * it resumes from `maintenance_cursors` on the next run, wrapping around at the end.
+ */
+export const PRUNE_PLAN_CAPS: ScanCaps = { pageSize: 50, maxPages: 1 };
+/** With a separate regional database, the free owners' candidate versions read per run. */
+export const PRUNE_FREE_CAPS: ScanCaps = { pageSize: 200, maxPages: 1 };
 
 /**
  * Deletes versions nobody can reach any more: previous versions their owner's plan no longer
@@ -136,20 +167,48 @@ const PLAN_PAGE = 100;
  * versions whose upload was abandoned. Then releases the objects only they referenced. Owners
  * without a plan row are pruned with the free plan's values in one query; each owner with a row
  * gets its own, and each delete is conditioned on the plan row it was decided from, so a grant
- * that lands meanwhile is never pruned with stale values. At most `limit` versions per run.
+ * that lands meanwhile is never pruned with stale values. At most `limit` versions per run, and
+ * at most `caps` of the plans read, resumed on the next run.
  */
 export async function pruneVersions(
-  db: Db,
+  db: RegionalDb,
   bucket: R2Bucket,
   now: number,
   limit = DEFAULT_BATCH,
+  /** The region `db` is, for a separate regional database: which plan owners live there. */
+  region: Region = DEFAULT_REGION,
+  caps: { plans?: ScanCaps; free?: ScanCaps } = {},
+): Promise<JobResult> {
+  const plans = caps.plans ?? PRUNE_PLAN_CAPS;
+  const both = bothSides(db);
+  if (both) return pruneOneDatabase(db, both, bucket, now, limit, region, plans);
+  return pruneSeparateRegion(db, bucket, now, limit, region, plans, caps.free ?? PRUNE_FREE_CAPS);
+}
+
+const planColumns = {
+  ownerId: schema.ownerPlans.ownerId,
+  plan: schema.ownerPlans.plan,
+  seats: schema.ownerPlans.seats,
+  validUntil: schema.ownerPlans.validUntil,
+  overrides: schema.ownerPlans.overrides,
+  updatedAt: schema.ownerPlans.updatedAt,
+};
+
+async function pruneOneDatabase(
+  db: RegionalDb,
+  w: Db,
+  bucket: R2Bucket,
+  now: number,
+  limit: number,
+  region: Region,
+  caps: ScanCaps,
 ): Promise<JobResult> {
   const v = schema.versions;
   const a = schema.artifacts;
   const p = schema.ownerPlans;
   const closedUpload = sql`exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.versionId} = ${v.id} and ${schema.uploadSessions.state} in ('failed', 'aborted', 'expired'))`;
   const victims: { id: string; guard: SQL }[] = (
-    await db
+    await w
       .select({ id: v.id })
       .from(v)
       .where(and(eq(v.state, "uploading"), closedUpload))
@@ -160,7 +219,7 @@ export async function pruneVersions(
   const noPlan = (ownerId: SQL) =>
     sql`not exists (select 1 from ${p} where ${p.ownerId} = ${ownerId})`;
   if (victims.length < limit) {
-    const rows = await db
+    const rows = await w
       .select({ id: v.id, ownerId: a.ownerId })
       .from(v)
       .innerJoin(a, eq(a.id, v.artifactId))
@@ -174,40 +233,251 @@ export async function pruneVersions(
     }
   }
 
-  let cursor = "";
-  while (victims.length < limit) {
-    const plans = await db
-      .select({
-        ownerId: p.ownerId,
-        plan: p.plan,
-        seats: p.seats,
-        validUntil: p.validUntil,
-        overrides: p.overrides,
-        updatedAt: p.updatedAt,
-      })
-      .from(p)
-      .where(gt(p.ownerId, cursor))
-      .orderBy(asc(p.ownerId))
-      .limit(PLAN_PAGE);
-    if (plans.length === 0) break;
+  // The plans, a page at a time from where the last run stopped; the saved cursor is read in the
+  // batch of the first page, so a pass that fits in one run costs what it always did.
+  const name = `prune_versions:${region}`;
+  const page = (after: SQL) =>
+    w.select(planColumns).from(p).where(after).orderBy(asc(p.ownerId)).limit(caps.pageSize);
+  let started = "";
+  let cursor: string | null = null;
+  let resume: string | null = null;
+  let ended = false;
+  let examined = 0;
+  const maxPlans = caps.pageSize * caps.maxPages;
+  while (victims.length < limit && examined < maxPlans) {
+    let plans: Awaited<ReturnType<typeof page>>;
+    if (cursor === null) {
+      const [saved, first] = await w.batch([
+        cursorRead(w, name),
+        page(sql`${p.ownerId} > ${savedCursorSql(name)}`),
+      ]);
+      started = saved[0]?.cursor ?? "";
+      resume = started;
+      plans = first;
+    } else {
+      plans = await page(gt(p.ownerId, cursor));
+    }
+    if (plans.length === 0) {
+      ended = true;
+      break;
+    }
     cursor = (plans.at(-1) as (typeof plans)[number]).ownerId;
     for (const plan of plans) {
-      if (victims.length >= limit) break;
+      if (victims.length >= limit || examined >= maxPlans) break;
+      examined += 1;
       const retention = versionRetention(entitlements(plan, now).limits);
       const prunable = previousPrunableSql(retention, now);
-      const rows = await db
+      const wanted = limit - victims.length;
+      const rows = await w
         .select({ id: v.id })
         .from(v)
         .innerJoin(a, eq(a.id, v.artifactId))
         .where(and(eq(a.ownerId, plan.ownerId), prunable))
-        .limit(limit - victims.length);
+        .limit(wanted);
       const samePlan = sql`exists (select 1 from ${p} where ${p.ownerId} = ${plan.ownerId} and ${p.updatedAt} = ${plan.updatedAt})`;
       for (const row of rows) victims.push({ id: row.id, guard: sql`${prunable} and ${samePlan}` });
+      // An owner whose versions filled the run is read again next time.
+      if (rows.length < wanted) resume = plan.ownerId;
     }
   }
+  if (cursor !== null) await resumeAt(w, name, started, ended ? null : resume, now);
 
   let processed = 0;
   for (const version of victims) {
+    const owners = await w
+      .select({ ownerId: schema.versionFiles.ownerId, sha256: schema.versionFiles.sha256 })
+      .from(schema.versionFiles)
+      .where(eq(schema.versionFiles.versionId, version.id));
+    const deleted = await w
+      .delete(v)
+      .where(
+        and(
+          eq(v.id, version.id),
+          version.guard,
+          // Never delete the version an artifact points at, even if it changed meanwhile.
+          notExists(
+            w
+              .select({ one: sql`1` })
+              .from(schema.artifacts)
+              .where(eq(schema.artifacts.currentVersionId, version.id)),
+          ),
+        ),
+      )
+      .returning({ id: v.id });
+    if (deleted.length === 0) continue;
+    processed += 1;
+    await releaseOrphans(db, bucket, owners, now);
+  }
+  return { processed };
+}
+
+/** A version chosen for pruning, with the retention it was chosen under. */
+interface Victim {
+  id: string;
+  /** Null for an abandoned upload, which no plan keeps. */
+  ownerId: string | null;
+  retention: string | null;
+  guard: SQL;
+}
+
+type PlanRow = {
+  ownerId: string;
+  plan: string;
+  seats: number;
+  validUntil: number | null;
+  overrides: unknown;
+  updatedAt: number;
+};
+
+/** The retention an owner's plan row gives at `now` (none, expired or unknown: the free one). */
+function retentionOf(plan: PlanRow | null | undefined, now: number): VersionRetention {
+  return versionRetention(entitlements(plan ?? null, now).limits);
+}
+
+/**
+ * Version pruning in a region with its own database (decision 0005). Every owner is pruned by
+ * exactly one of two branches, by the retention its plan row gives at `now`:
+ *
+ * - the free retention (no plan row, an expired or an unknown plan): candidate versions are read
+ *   in version order from a cursor, with their owners' plan rows read from the global database,
+ *   and the ones whose owner has a better retention are left to the second branch;
+ * - any other retention: the region's plans are paged from the global database from their own
+ *   cursor and grouped by retention, one regional query per group.
+ *
+ * Both cursors live in the region's `maintenance_cursors` and wrap around, so versions that are
+ * skipped never hold back the rest. A delete cannot be conditioned on the global plan row, so the
+ * owner's plan is read again right before each delete and the version is kept when the
+ * retention it gives changed: a grant that lands in the one round trip between that read and the
+ * delete is the window.
+ */
+async function pruneSeparateRegion(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  now: number,
+  limit: number,
+  region: Region,
+  planCaps: ScanCaps,
+  freeCaps: ScanCaps,
+): Promise<JobResult> {
+  const v = schema.versions;
+  const a = schema.artifacts;
+  const p = schema.ownerPlans;
+  const closedUpload = sql`exists (select 1 from ${schema.uploadSessions} where ${schema.uploadSessions.versionId} = ${v.id} and ${schema.uploadSessions.state} in ('failed', 'aborted', 'expired'))`;
+  const victims = new Map<string, Victim>();
+  for (const { id } of await db
+    .select({ id: v.id })
+    .from(v)
+    .where(and(eq(v.state, "uploading"), closedUpload))
+    .limit(limit)) {
+    victims.set(id, { id, ownerId: null, retention: null, guard: sql`1` });
+  }
+
+  const freeRetention = retentionOf(null, now);
+  const freeKey = JSON.stringify(freeRetention);
+  const free = previousPrunableSql(freeRetention, now);
+  if (victims.size < limit) {
+    const name = `prune_versions_free:${region}`;
+    const started = await cursorFor(db, name);
+    let cursor = started;
+    let ended = false;
+    for (let pages = 0; pages < freeCaps.maxPages && victims.size < limit; pages += 1) {
+      const rows = await db
+        .select({ id: v.id, ownerId: a.ownerId })
+        .from(v)
+        .innerJoin(a, eq(a.id, v.artifactId))
+        .where(and(free, gt(v.id, cursor)))
+        .orderBy(asc(v.id))
+        .limit(freeCaps.pageSize);
+      const plans = await plansOf(db.global, [...new Set(rows.map((row) => row.ownerId))]);
+      let examined = 0;
+      for (const row of rows) {
+        if (victims.size >= limit) break;
+        examined += 1;
+        cursor = row.id;
+        if (JSON.stringify(retentionOf(plans.get(row.ownerId), now)) !== freeKey) continue;
+        if (victims.has(row.id)) continue;
+        victims.set(row.id, { id: row.id, ownerId: row.ownerId, retention: freeKey, guard: free });
+      }
+      if (rows.length < freeCaps.pageSize && examined === rows.length) {
+        ended = true;
+        break;
+      }
+    }
+    await resumeAt(db, name, started, ended ? null : cursor, now);
+  }
+
+  if (victims.size < limit) {
+    const name = `prune_versions_plans:${region}`;
+    const started = await cursorFor(db, name);
+    let cursor = started;
+    let resume = started;
+    let ended = false;
+    for (let pages = 0; pages < planCaps.maxPages && victims.size < limit; pages += 1) {
+      const page = await db.global
+        .select(planColumns)
+        .from(p)
+        .where(and(gt(p.ownerId, cursor), ownerOfRegion(p.ownerId, region)))
+        .orderBy(asc(p.ownerId))
+        .limit(planCaps.pageSize);
+      if (page.length === 0) {
+        ended = true;
+        break;
+      }
+      const groups = new Map<string, { retention: VersionRetention; owners: string[] }>();
+      for (const plan of page) {
+        const retention = retentionOf(plan, now);
+        const key = JSON.stringify(retention);
+        // Owners with the free retention are the first branch's.
+        if (key === freeKey) continue;
+        const group = groups.get(key) ?? { retention, owners: [] };
+        group.owners.push(plan.ownerId);
+        groups.set(key, group);
+      }
+      let filled = false;
+      for (const [key, group] of groups) {
+        if (victims.size >= limit) break;
+        const prunable = previousPrunableSql(group.retention, now);
+        const wanted = limit - victims.size;
+        const rows = await db
+          .select({ id: v.id, ownerId: a.ownerId })
+          .from(v)
+          .innerJoin(a, eq(a.id, v.artifactId))
+          .where(and(prunable, sql`${a.ownerId} in ${jsonValues(group.owners)}`))
+          .orderBy(asc(v.id))
+          .limit(wanted);
+        for (const row of rows) {
+          if (victims.has(row.id)) continue;
+          victims.set(row.id, {
+            id: row.id,
+            ownerId: row.ownerId,
+            retention: key,
+            guard: prunable,
+          });
+        }
+        if (rows.length >= wanted) filled = true;
+      }
+      cursor = (page.at(-1) as (typeof page)[number]).ownerId;
+      // A page whose versions filled the run is read again next time.
+      if (filled) break;
+      resume = cursor;
+      if (page.length < planCaps.pageSize) {
+        ended = true;
+        break;
+      }
+    }
+    await resumeAt(db, name, started, ended ? null : resume, now);
+  }
+
+  let processed = 0;
+  for (const version of victims.values()) {
+    if (version.ownerId !== null) {
+      const [current] = await db.global
+        .select(planColumns)
+        .from(p)
+        .where(eq(p.ownerId, version.ownerId))
+        .limit(1);
+      if (JSON.stringify(retentionOf(current, now)) !== version.retention) continue;
+    }
     const owners = await db
       .select({ ownerId: schema.versionFiles.ownerId, sha256: schema.versionFiles.sha256 })
       .from(schema.versionFiles)
@@ -218,7 +488,6 @@ export async function pruneVersions(
         and(
           eq(v.id, version.id),
           version.guard,
-          // Never delete the version an artifact points at, even if it changed meanwhile.
           notExists(
             db
               .select({ one: sql`1` })
@@ -233,6 +502,17 @@ export async function pruneVersions(
     await releaseOrphans(db, bucket, owners, now);
   }
   return { processed };
+}
+
+/** The plan rows of `owners`, read from the global database in one statement. */
+async function plansOf(global: GlobalDb, owners: string[]): Promise<Map<string, PlanRow>> {
+  if (owners.length === 0) return new Map();
+  const p = schema.ownerPlans;
+  const rows = await global
+    .select(planColumns)
+    .from(p)
+    .where(sql`${p.ownerId} in ${jsonValues(owners)}`);
+  return new Map(rows.map((row) => [row.ownerId, row]));
 }
 
 /**
@@ -560,11 +840,22 @@ export async function rerenderDocuments(
  * owner as free there. Leaving them out only delays work (versions kept longer, no expiry notice,
  * limit columns and pins realigned later), it never removes anything a plan keeps.
  */
-export async function runRegionalMaintenance(db: RegionalDb, bucket: R2Bucket, now: number) {
+export async function runRegionalMaintenance(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  now: number,
+  region: Region,
+) {
+  // The scans of a region whose database is not the global one (decision 0005): every scan that
+  // acts on an owner's data, each limited to the owners of `region` and bounded per run. The
+  // global scans (deletions, invitations, directory users, email counters and suppressions, group
+  // tombstones and the global audit events) run once, with the default region.
   return {
     archived: (await archiveExpired(db, now)).processed,
+    expiryNotices: (await scheduleExpiryNotices(db, now)).owners,
     commentNotices: (await scheduleCommentNotices(db, now)).recipients,
     expiredUploads: (await expireUploads(db, now)).processed,
+    prunedVersions: (await pruneVersions(db, bucket, now, DEFAULT_BATCH, region)).processed,
     purged: (await purgeArchived(db, bucket, now)).processed,
     orphanObjects: (await sweepOrphanObjects(db, bucket, now)).processed,
     rerendered: (await rerenderDocuments(db, bucket, now)).processed,
@@ -574,9 +865,15 @@ export async function runRegionalMaintenance(db: RegionalDb, bucket: R2Bucket, n
     shareLinks: (await pruneShareLinks(db, now)).processed,
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
     prunedTrafficCounters: await pruneTrafficCounters(db, now),
+    alignedPlanLimits: (await alignPlanLimits(db, now, 50, region)).processed,
+    unpinned: (await unpinLapsedPlans(db, now, 50, region)).processed,
+    droppedSearchIndexes: (await dropLapsedSearchIndexes(db, now)).dropped,
+    scheduledSearchIndexing: (await scheduleSearchIndexing(db, now, undefined, region)).scheduled,
     webhooks: await maintainWebhooks(db, now),
+    threadIssues: await requeueThreadIssues(db, now),
     workspacePolicies: await enforceWorkspacePolicies(db, now),
     prunedAuditEvents: await pruneAuditEvents(db, db.global, now),
+    // Last, with its own call and time budget, as in the default region.
     approvalReviewers: (await recheckApprovalReviewers(db, now)).checked,
   };
 }
@@ -622,6 +919,8 @@ export async function runMaintenance(
     droppedSearchIndexes: (await dropLapsedSearchIndexes(db, now)).dropped,
     scheduledSearchIndexing: (await scheduleSearchIndexing(db, now)).scheduled,
     webhooks: await maintainWebhooks(db, now),
+    // Issues requested from threads whose job went missing get one again (decision 0018).
+    threadIssues: await requeueThreadIssues(db, now),
     // Workspace policies (decision 0015): brings back in line what a request that read a policy
     // before it tightened let through after the policy's job ran.
     workspacePolicies: await enforceWorkspacePolicies(db, now),

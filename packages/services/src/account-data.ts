@@ -29,11 +29,13 @@ import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./a
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
+import { deleteOwnerConnections, exportIntegrations } from "./integrations.ts";
 import { listIncomingInvitations } from "./invitations.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
 import { exportServiceTokens } from "./service-tokens.ts";
+import { forgetIssueRequester } from "./thread-issues.ts";
 import { exportWebhooks } from "./webhooks.ts";
 import { viewerGroupIds } from "./workspace-groups.ts";
 import {
@@ -236,6 +238,8 @@ export async function exportAccount(
       commentNoticeMutes: await listCommentNoticeMutes(db, input.userId),
       // Destinations only by host: never the URL or the signing secret.
       webhooks: await exportWebhooks(db, input.userId),
+      // Connections by service and label: never the credential.
+      integrations: await exportIntegrations(db, input.userId),
       auditEvents: await exportAuditEvents(db, input.userId, input.now),
       brand: await exportedBrand(db, input.userId),
       // The service tokens of the workspaces the account administers: never a secret or hash.
@@ -597,6 +601,14 @@ function regionalDeletion(
       .update(schema.webhooks)
       .set({ createdBy: null })
       .where(eq(schema.webhooks.createdBy, userId)),
+    // The account's issue connections and their sealed credentials go at once (decision 0018); a
+    // workspace's stay, without who connected them, and issues keep no trace of who asked.
+    deleteOwnerConnections(db, userId),
+    db
+      .update(schema.integrationConnections)
+      .set({ createdBy: null })
+      .where(eq(schema.integrationConnections.createdBy, userId)),
+    forgetIssueRequester(db, userId),
     // Links the account created on artifacts it did not own (a workspace's) keep no trace of it.
     db
       .update(schema.shareLinks)

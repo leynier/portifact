@@ -17,6 +17,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, Outlet, useRouterState } from "@tanstack/react-router";
 import {
   BadgeCheck,
+  Blocks,
   Cable,
   Gauge,
   KeySquare,
@@ -40,6 +41,7 @@ import { loginUrl } from "../../auth/query.ts";
 import { AnnounceContext, useDashboard, useT } from "../context.tsx";
 import { ROLE_LABELS, type Space, spaceCan, useSpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
+import { integrationChoicesQuery } from "./integrations.tsx";
 import { INCOMING_QUERY, useIncomingInvitations } from "./invitations.tsx";
 import { LanguageChoice, useAccountLocale } from "./language.tsx";
 import { useUsage } from "./usage.tsx";
@@ -253,6 +255,13 @@ export function Shell() {
   const space = spaceState.status === "ready" ? spaceState.space : null;
   // Pages a role cannot use are left out of the navigation; the pages say so if opened anyway.
   const allowed = (action: RoleAction) => space !== null && spaceCan(space, action);
+  // Integrations are shown only where Portifact offers them (decision 0018, switched off).
+  const integrations = useQuery({
+    queryKey: integrationChoicesQuery(space?.slug),
+    queryFn: () => api.integrations(space?.slug),
+    enabled: allowed("integrations"),
+    staleTime: 5 * 60_000,
+  });
   const navigation: (AppShellNavItem | false)[] = [
     {
       key: "artifacts",
@@ -298,6 +307,13 @@ export function Shell() {
       icon: <Webhook className="size-4" />,
       render: (props) => <Link to="/webhooks" {...props} />,
     },
+    allowed("integrations") &&
+      integrations.data?.serviceAvailable === true && {
+        key: "integrations",
+        label: t("shell.integrationsLink"),
+        icon: <Blocks className="size-4" />,
+        render: (props) => <Link to="/integrations" {...props} />,
+      },
     allowed("brand") && {
       key: "branding",
       label: t("shell.brandingLink"),

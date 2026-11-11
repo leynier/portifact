@@ -798,7 +798,8 @@ describe("recording events", () => {
     expect(onHooked.calls.roundTrips).toBe(onFree.calls.roundTrips);
     expect(onHooked.calls.batchSizes).toEqual(onBare.calls.batchSizes);
     // A paid write carries the comment notice mark and the two webhook statements.
-    expect(onBare.calls.batchSizes).toEqual([(onFree.calls.batchSizes[0] ?? 0) + 3]);
+    // Then the thread view's one read of its messages and issue links (decision 0018).
+    expect(onBare.calls.batchSizes).toEqual([(onFree.calls.batchSizes[0] ?? 0) + 3, 2]);
     expect(await pending(webhook.id)).toHaveLength(1);
   });
 

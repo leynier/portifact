@@ -31,6 +31,7 @@ import {
   type RegionalDb,
   type Regions,
   regionsFromEnv,
+  sameDatabase,
   schema,
 } from "@portifact/db";
 import {
@@ -43,6 +44,7 @@ import {
 } from "@portifact/domain";
 import {
   accountSuspension,
+  applyIntegrationTombstones,
   applyOwnerPlans,
   applyTombstones,
   applyWorkspacePolicies,
@@ -75,6 +77,7 @@ import {
   type OwnerPlanState,
   operatorRevokeScimToken,
   operatorRevokeServiceToken,
+  ownerRegion,
   rebuildArtifactDirectory,
   reconcileCustomDomains,
   reinstateAccount,
@@ -116,8 +119,8 @@ Commands:
   suspend-brand <owner> --reason <reason>
   reinstate-brand <owner>
   storage-report [--limit N]
-  export-tombstones --out <file>
-  apply-tombstones [--file <file>]
+  export-tombstones --out <file> [--region all|<region>]   (with more than one region: all, or a region with its own database)
+  apply-tombstones [--file <file>] [--region all|<region>]
   budget
   budget-alerts [--limit N]
   budget-override <level> --note <text> [--steps 1-${PROTECTION_STEPS.length}] [--hours N]
@@ -417,8 +420,13 @@ function parseUntil(value: string | undefined): number | null | "invalid" {
   return Number.isFinite(ms) ? ms : "invalid";
 }
 
+/** The database of the region an owner's data lives in (its workspace's, or the default one). */
+async function ownerDb(regions: Regions, ownerId: string): Promise<RegionalDb> {
+  return regions.get(await ownerRegion(regions.global, ownerId)).db;
+}
+
 async function setPlan(
-  db: RegionalDb,
+  regions: Regions,
   args: string[],
   options: Map<string, string>,
   now: number,
@@ -437,9 +445,9 @@ async function setPlan(
       return usage("--overrides must be JSON.");
     }
   }
-  const userId = await ownerIdFor(db.global, who);
+  const userId = await ownerIdFor(regions.global, who);
   if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
-  const result = await setOwnerPlan(db, {
+  const result = await setOwnerPlan(await ownerDb(regions, userId), {
     ownerId: userId,
     plan: name.data,
     seats,
@@ -570,6 +578,29 @@ async function createWorkspaceCommand(
   return { exitCode: 0, output: lines.join("\n") };
 }
 
+const RESTORE_COMMANDS = new Set(["export-tombstones", "apply-tombstones"]);
+const RESTORE_REGION_USAGE =
+  "With more than one region, export-tombstones and apply-tombstones need --region all, or --region <region> for a region whose own database was restored alone (never the default region, whose database is the global one).";
+
+/**
+ * The regions a restore command covers (decision 0005): the one `--region` names, or every region
+ * with `--region all`. With one region the flag may be left out; with more it must be given, so
+ * nobody re-applies tombstones to a region by accident. A region whose database is the global
+ * database (the default region's) can only be restored with everything that database holds:
+ * the global rows and the directory of every region, so it needs `--region all` when another
+ * region has its own database. A string is the refusal to print.
+ */
+function restoreRegions(regions: Regions, option: string | undefined): Regions | string {
+  if (option === "all" || (option === undefined && regions.all().length === 1)) return regions;
+  if (option === undefined) return RESTORE_REGION_USAGE;
+  // A named region was checked against the configuration before the command ran.
+  const handles = regions.get(option as Parameters<Regions["get"]>[0]);
+  if (sameDatabase(handles.db) && regions.all().some((other) => !sameDatabase(other.db))) {
+    return `Region ${option}'s database is the global database: restoring it rewinds the global rows and the artifact directory of every region, so use --region all.`;
+  }
+  return { global: regions.global, get: () => handles, all: () => [handles] };
+}
+
 /** Runs one operator command against the database. */
 /** Whether the operator was given every region or one control database (tests, a drill). */
 function isRegions(target: Db | Regions): target is Regions {
@@ -604,7 +635,12 @@ export async function runOperator(
   const [command, ...args] = positional;
   const regions = isRegions(target) ? target : singleDatabase(target);
   const global = regions.global;
-  const regionName = options.get("region") ?? DEFAULT_REGION;
+  const regionOption = options.get("region");
+  // `--region all` names every region, for the restore commands only.
+  const regionName = regionOption === "all" ? DEFAULT_REGION : (regionOption ?? DEFAULT_REGION);
+  if (regionOption === "all" && !RESTORE_COMMANDS.has(command ?? "")) {
+    return usage("--region all is only for export-tombstones and apply-tombstones.");
+  }
   if (!isRegion(regionName) || !regions.all().some((h) => h.region === regionName)) {
     return usage(
       `--region must be one of: ${regions
@@ -901,7 +937,9 @@ export async function runOperator(
     case "export-tombstones": {
       const out = options.get("out");
       if (!out) return usage("export-tombstones needs --out <file>.");
-      const markers = await exportTombstones(regions);
+      const chosen = restoreRegions(regions, regionOption);
+      if (typeof chosen === "string") return usage(chosen);
+      const markers = await exportTombstones(chosen);
       await files.write(out, markers.map((marker) => `${JSON.stringify(marker)}\n`).join(""));
       return { exitCode: 0, output: `Wrote ${markers.length} tombstone marker(s) to ${out}.` };
     }
@@ -919,15 +957,19 @@ export async function runOperator(
         }
         markers = parsed.markers;
       }
-      const result = await applyTombstones(db, markers, now);
+      const chosen = restoreRegions(regions, regionOption);
+      if (typeof chosen === "string") return usage(chosen);
+      const result = await applyTombstones(chosen, markers, now);
+      // Issue connections, per region from the stored markers (decision 0018).
+      const { integrations } = await applyIntegrationTombstones(chosen);
       // A restore of the global database rewinds the artifact directory too (decision 0005).
       let directory = 0;
-      for (const handles of regions.all()) {
+      for (const handles of chosen.all()) {
         directory += await rebuildArtifactDirectory(regions.global, handles.db, handles.region);
       }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${result.groups} group(s) and ${result.groupMembers} group membership(s) removed again, ${result.ssoProviders} single sign-on provider(s) removed again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${result.groups} group(s) and ${result.groupMembers} group membership(s) removed again, ${result.ssoProviders} single sign-on provider(s) removed again, ${integrations} issue connection(s) removed again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
       };
     }
     case "budget": {
@@ -990,17 +1032,23 @@ export async function runOperator(
       if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
       return {
         exitCode: 0,
-        output: planLines(userId, await getOwnerPlan(db, userId, now)).join("\n"),
+        output: planLines(
+          userId,
+          await getOwnerPlan(await ownerDb(regions, userId), userId, now),
+        ).join("\n"),
       };
     }
     case "set-plan":
-      return setPlan(db, args, options, now);
+      return setPlan(regions, args, options, now);
     case "remove-plan": {
       const [who] = args;
       if (!who) return usage("remove-plan needs an owner.");
       const userId = await ownerIdFor(db.global, who);
       if (!userId) return { exitCode: 1, output: "Account or workspace not found." };
-      const result = await removeOwnerPlan(db, { ownerId: userId, now });
+      const result = await removeOwnerPlan(await ownerDb(regions, userId), {
+        ownerId: userId,
+        now,
+      });
       if (!result.ok) return { exitCode: 1, output: result.message };
       const head = result.value.removed
         ? `Removed the plan of ${userId}; it is on free.`
@@ -1010,7 +1058,7 @@ export async function runOperator(
     case "export-plans": {
       const out = options.get("out");
       if (!out) return usage("export-plans needs --out <file>.");
-      const plans = await exportOwnerPlans(db);
+      const plans = await exportOwnerPlans(global);
       await files.write(out, plans.map((plan) => `${JSON.stringify(plan)}\n`).join(""));
       return { exitCode: 0, output: `Wrote ${plans.length} plan(s) to ${out}.` };
     }
@@ -1024,7 +1072,7 @@ export async function runOperator(
           output: `Line ${parsed.line} of ${file} is not an exported plan; nothing was applied.`,
         };
       }
-      const result = await applyOwnerPlans(db, parsed.items, now);
+      const result = await applyOwnerPlans(regions, parsed.items, now);
       const lines = [
         `Applied ${result.applied} plan(s); skipped ${result.skipped} (ended, or the account or workspace is gone).`,
       ];
@@ -1085,7 +1133,10 @@ export async function runOperator(
       if (!detail) return { exitCode: 1, output: "Workspace not found." };
       return {
         exitCode: 0,
-        output: workspaceLines(detail, await getOwnerPlan(db, detail.id, now)),
+        output: workspaceLines(
+          detail,
+          await getOwnerPlan(regions.get(detail.region).db, detail.id, now),
+        ),
       };
     }
     case "workspace-create":

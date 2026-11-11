@@ -18,6 +18,7 @@ export * from "./email-domains.ts";
 export * from "./feedback.ts";
 export * from "./groups.ts";
 export * from "./human.ts";
+export * from "./integrations.ts";
 export * from "./jobs.ts";
 export * from "./legal.ts";
 export * from "./limits.ts";

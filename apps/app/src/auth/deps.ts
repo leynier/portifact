@@ -36,6 +36,11 @@ export interface AuthDeps {
    * the token endpoint. Tests and the e2e stack inject a fake provider; never a real one.
    */
   ssoFetch: FetchLike;
+  /**
+   * Calls GitHub's and Linear's fixed API hosts to check an issue connection's credential
+   * (decision 0018). Tests and the e2e stack inject fakes; never the real services.
+   */
+  integrationFetch: (url: string, init: RequestInit) => Promise<Response>;
 }
 
 // Fetch transport for Client ID Metadata Documents on Workers. The Worker runs with the
@@ -65,5 +70,6 @@ export function workerDeps(env: Env): AuthDeps {
     domains: domainDepsFromEnv(env, (input, init) => fetch(input, init)),
     emailDomains: { txt: dohTxt((input, init) => fetch(input, init)) },
     ssoFetch: (input, init) => fetch(input, init),
+    integrationFetch: (url, init) => fetch(url, init),
   };
 }

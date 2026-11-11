@@ -704,6 +704,8 @@ export const OUTBOX_TOPICS = [
   "review_notice",
   "workspace_policy",
   "directory_notice",
+  "thread_issue",
+  "plan_region",
 ] as const;
 
 /**
@@ -806,6 +808,7 @@ export const tombstones = sqliteTable(
         "scim_user",
         "workspace_invitation",
         "workspace_member",
+        "integration_connection",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1292,6 +1295,102 @@ export const webhookDeliveries = sqliteTable(
     index("webhook_deliveries_webhook_idx").on(t.webhookId, t.at),
     index("webhook_deliveries_owner_idx").on(t.ownerId, t.at),
     index("webhook_deliveries_at_idx").on(t.at),
+  ],
+);
+
+/** Services an issue integration reaches, as in @portifact/contracts (decision 0018). */
+export const INTEGRATION_SERVICES = ["github", "linear"] as const;
+
+/**
+ * An owner's connections to GitHub Issues or Linear (decision 0018,
+ * packages/services/src/integrations.ts). The credential an admin pasted is sealed with a key
+ * derived from `INTEGRATIONS_KEY` (`key_id` names it) and shown only as `credential_hint`, its
+ * last four characters; `identity` is what the service reported the credential acts as.
+ * `targets` is the `IntegrationTarget[]` JSON of the allowed repositories or teams. Regional with
+ * the owner's other data; `owner_id` has no foreign key (an owner is a user or a workspace), so
+ * account and workspace deletion delete the rows, and removing one writes an
+ * `integration_connection` tombstone so a restore cannot bring the credential back.
+ */
+export const integrationConnections = sqliteTable(
+  "integration_connections",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id").notNull(),
+    service: text("service", { enum: INTEGRATION_SERVICES }).notNull(),
+    label: text("label").notNull(),
+    keyId: text("key_id").notNull(),
+    credentialBox: text("credential_box").notNull(),
+    credentialHint: text("credential_hint").notNull(),
+    identity: text("identity").notNull(),
+    targets: text("targets").notNull(),
+    /** Set when the service refused the credential or no key opens it: issues stop until fixed. */
+    attention: text("attention", { enum: ["credential_rejected", "key_unavailable"] }),
+    attentionAt: timestamp("attention_at"),
+    revision: integer("revision").notNull().default(1),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+    /** Who connected it (no foreign key: cleared when the account is deleted). */
+    createdBy: text("created_by"),
+  },
+  (t) => [
+    index("integration_connections_owner_idx").on(t.ownerId),
+    check("integration_connections_revision", sql`${t.revision} >= 1`),
+  ],
+);
+
+/**
+ * Issues created from comment threads (decision 0018): the request, which the `thread_issue`
+ * outbox job sends, and once created the link the thread shows (service, target, key and URL,
+ * nothing else). The title is the person's own words and is cleared once the issue exists; the
+ * comment text is never stored here, the job reads it from the thread when it sends. Goes with
+ * the thread and the artifact. `requested_by` has no foreign key and is cleared when the account
+ * is deleted; `(requested_by, idempotency_key)` makes a retried request the same request.
+ */
+export const threadIssues = sqliteTable(
+  "thread_issues",
+  {
+    id: text("id").primaryKey(),
+    threadId: text("thread_id")
+      .notNull()
+      .references(() => annotationThreads.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(),
+    /** No foreign key: a removed connection fails the requests still pending and keeps the links. */
+    connectionId: text("connection_id").notNull(),
+    service: text("service", { enum: INTEGRATION_SERVICES }).notNull(),
+    /** `owner/repo` or a Linear team ID. */
+    target: text("target").notNull(),
+    /** What the thread shows: the repository, or the team's name. */
+    targetName: text("target_name").notNull(),
+    requestedBy: text("requested_by"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    /** The request's claim: the outbox job and nothing else are written only on this row. */
+    writeId: text("write_id").notNull(),
+    includeLink: integer("include_link", { mode: "boolean" }).notNull(),
+    includeName: integer("include_name", { mode: "boolean" }).notNull(),
+    includeQuote: integer("include_quote", { mode: "boolean" }).notNull(),
+    includeMessage: integer("include_message", { mode: "boolean" }).notNull(),
+    title: text("title"),
+    state: text("state", { enum: ["pending", "created", "failed"] })
+      .notNull()
+      .default("pending"),
+    failure: text("failure"),
+    attempts: integer("attempts").notNull().default(0),
+    /** When the attempt in progress started; null between attempts. */
+    startedAt: timestamp("started_at"),
+    issueKey: text("issue_key"),
+    issueUrl: text("issue_url"),
+    createdAt: createdAt(),
+    completedAt: timestamp("completed_at"),
+  },
+  (t) => [
+    uniqueIndex("thread_issues_request_idx").on(t.requestedBy, t.idempotencyKey),
+    uniqueIndex("thread_issues_write_idx").on(t.writeId),
+    index("thread_issues_thread_idx").on(t.threadId),
+    index("thread_issues_connection_idx").on(t.connectionId, t.state),
+    check("thread_issues_attempts", sql`${t.attempts} >= 0`),
   ],
 );
 

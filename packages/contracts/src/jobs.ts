@@ -22,6 +22,8 @@ export const OutboxTopic = z.enum([
   "review_notice",
   "workspace_policy",
   "directory_notice",
+  "thread_issue",
+  "plan_region",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -158,7 +160,8 @@ export type DomainNoticePayload = z.infer<typeof DomainNoticePayload>;
  * One purged or deleted artifact or account, a revoked share link, a removed webhook or a removed
  * or lapsed workspace email domain (by row ID), a deleted workspace group or a removed group
  * membership (by row ID, decision 0014) or a removed single sign-on provider (by row ID,
- * decision 0016), that a restored backup must not bring back.
+ * decision 0016) or a removed issue integration connection (decision 0018), that a restored
+ * backup must not bring back.
  */
 export const TombstoneMarker = z.strictObject({
   kind: z.enum([
@@ -176,6 +179,7 @@ export const TombstoneMarker = z.strictObject({
     "scim_user",
     "workspace_invitation",
     "workspace_member",
+    "integration_connection",
   ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),

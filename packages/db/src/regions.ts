@@ -52,7 +52,21 @@ export function sameDatabase(regional: RegionalDb, global: GlobalDb = regional.g
   return underlyingBinding(regional.$client) === underlyingBinding(global.$client);
 }
 
-const BOTH = new WeakMap<RegionalDb, Db>();
+const BOTH = new WeakMap<object, Db>();
+
+/**
+ * One handle over both of two handles' sides when they reach one database, null otherwise:
+ * `bothSides` for any two handles (a scan given its regional and global handles separately).
+ */
+export function sharedHandle(one: Db, other: Db): Db | null {
+  if (underlyingBinding(one.$client) !== underlyingBinding(other.$client)) return null;
+  let handle = BOTH.get(one);
+  if (!handle) {
+    handle = drizzle(guardedAs(one.$client, "both"), { schema });
+    BOTH.set(one, handle);
+  }
+  return handle;
+}
 
 /**
  * One handle that reaches both sides, when `sameDatabase` holds; null otherwise. The paths that
@@ -61,13 +75,7 @@ const BOTH = new WeakMap<RegionalDb, Db>();
  * lets it name every table.
  */
 export function bothSides(regional: RegionalDb): Db | null {
-  if (!sameDatabase(regional)) return null;
-  let handle = BOTH.get(regional);
-  if (!handle) {
-    handle = drizzle(guardedAs(regional.$client, "both"), { schema });
-    BOTH.set(regional, handle);
-  }
-  return handle;
+  return sharedHandle(regional, regional.global);
 }
 
 /**

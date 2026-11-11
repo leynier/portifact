@@ -427,10 +427,12 @@ describe("marking activity on the write path", () => {
     await reply(proArtifact, pro.id, proThread, NOW, onPro.database);
 
     expect(onPro.calls.roundTrips).toBe(onFree.calls.roundTrips);
-    expect(onFree.calls.batchSizes).toHaveLength(1);
+    // The write's one batch, then the thread view's read of its messages and issue links
+    // (decision 0018), one call.
+    expect(onFree.calls.batchSizes).toHaveLength(2);
     // The Pro write carries three more statements in its one batch: the mark, and the two
     // webhook statements (decision 0009), which match no row without a webhook.
-    expect(onPro.calls.batchSizes).toEqual([(onFree.calls.batchSizes[0] ?? 0) + 3]);
+    expect(onPro.calls.batchSizes).toEqual([(onFree.calls.batchSizes[0] ?? 0) + 3, 2]);
     expect(await pending(reader.id)).toHaveLength(1);
   });
 });

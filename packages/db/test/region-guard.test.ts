@@ -169,16 +169,9 @@ describe("the guard", () => {
     await expect(
       regional("strict", "ownerEntitlements").select().from(schema.ownerPlans).limit(1),
     ).rejects.toThrow(RegionGuardError);
-    // A listed crossing passes until the change that fixes it removes it from the list; the same
-    // name in another file does not.
-    await regional("strict", "setOwnerPlan").select().from(schema.ownerPlans).limit(1);
-    const elsewhere = () =>
-      `Error\n    at async planRow (/repo/packages/services/src/workspaces.ts:1:1)`;
+    // No crossing is known any more: every product function is refused, whatever its name.
     await expect(
-      regionalDb(guardFor("strict", elsewhere)(env.DB, "regional", "default"), globalDb(env.DB))
-        .select()
-        .from(schema.ownerPlans)
-        .limit(1),
+      regional("strict", "setOwnerPlan").select().from(schema.ownerPlans).limit(1),
     ).rejects.toThrow(RegionGuardError);
     const store = globalThis as { __regionGuard?: Set<string> };
     delete store.__regionGuard;
@@ -189,11 +182,11 @@ describe("the guard", () => {
     delete store.__regionGuard;
   });
 
-  it("lists every known crossing with what it still does wrong", () => {
-    for (const [name, why] of Object.entries(KNOWN_CROSS_DATABASE)) {
-      expect(name).toMatch(/^(packages|apps)\/[a-z-/]+\.ts#[a-z][A-Za-z]+$/);
-      expect(why.length).toBeGreaterThan(10);
-    }
+  it("knows no crossing", () => {
+    // Every path is correct with a separate regional database (decision 0005). A future
+    // crossing must be fixed, through `bothSides` with one database and global first then per
+    // region with a separate one, or through the outbox; never listed here to make a test pass.
+    expect(KNOWN_CROSS_DATABASE).toEqual({});
   });
 });
 
