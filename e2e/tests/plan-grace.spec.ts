@@ -61,7 +61,10 @@ test("a lapsed Pro owner keeps its versions and pins for the grace, then the sca
 
   // The Plan page says what is held and until when.
   await page.goto(`${APP_ORIGIN}/plan`);
-  await expect(page.getByText(/^What the Pro plan kept is held until /)).toBeVisible();
+  // The visible title (the space's live region holds the same words for screen readers).
+  await expect(
+    page.locator("p.font-semibold", { hasText: /^What the Pro plan kept is held until / }),
+  ).toBeVisible();
   expect(await axeViolations(page)).toEqual([]);
 
   // The history still keeps Pro's versions, and a previous one downloads.
