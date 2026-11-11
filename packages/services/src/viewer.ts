@@ -60,6 +60,7 @@ export async function getViewerArtifact(
     seats: p.seats,
     validUntil: p.validUntil,
     overrides: p.overrides,
+    grace: p.grace,
   };
   const base = (both ?? db)
     .select({

@@ -1826,6 +1826,16 @@ export const de = {
     "Hat den Tarif {plan} mit {seats, plural, one {# Platz} other {# Plätzen}} festgelegt",
   "audit.kind.planGrantedUntil":
     "Hat den Tarif {plan} mit {seats, plural, one {# Platz} other {# Plätzen}} bis {until} festgelegt",
+  "audit.kind.graceStarted":
+    "Schonfrist begonnen ({reason}): was der Tarif {plan} aufbewahrte, bleibt bis {until} erhalten",
+  "audit.kind.graceEnded":
+    "Schonfrist für das, was der Tarif {plan} aufbewahrte, beendet ({reason})",
+  "audit.graceStart.lowered": "Tarif herabgestuft",
+  "audit.graceStart.removed": "Tarif entfernt",
+  "audit.graceStart.expired": "Tarif abgelaufen",
+  "audit.graceEnd.renewed": "Tarif erneuert",
+  "audit.graceEnd.operator": "von Portifact beendet",
+  "audit.graceEnd.expired": "Frist abgelaufen",
   "audit.kind.planRemoved": "Hat den Tarif entfernt, der Bereich ist wieder auf Free",
   "audit.kind.tokenCreated":
     "Hat ein Service-Token erstellt, das in {days, plural, one {# Tag} other {# Tagen}} abläuft",

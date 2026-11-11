@@ -561,6 +561,7 @@ async function webhookWithPlan(db: RegionalDb, webhookId: string) {
     seats: schema.ownerPlans.seats,
     validUntil: schema.ownerPlans.validUntil,
     overrides: schema.ownerPlans.overrides,
+    grace: schema.ownerPlans.grace,
   };
   const both = bothSides(db);
   if (both) {

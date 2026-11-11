@@ -1799,6 +1799,16 @@ export const ptBR = {
     "Definiu o plano {plan} com {seats, plural, one {# vaga} other {# vagas}}",
   "audit.kind.planGrantedUntil":
     "Definiu o plano {plan} com {seats, plural, one {# vaga} other {# vagas}} até {until}",
+  "audit.kind.graceStarted":
+    "Começou um período de carência ({reason}): o que o plano {plan} guardava fica até {until}",
+  "audit.kind.graceEnded":
+    "Terminou o período de carência do que o plano {plan} guardava ({reason})",
+  "audit.graceStart.lowered": "plano reduzido",
+  "audit.graceStart.removed": "plano removido",
+  "audit.graceStart.expired": "plano vencido",
+  "audit.graceEnd.renewed": "plano renovado",
+  "audit.graceEnd.operator": "encerrado pela Portifact",
+  "audit.graceEnd.expired": "os dias passaram",
   "audit.kind.planRemoved": "Removeu o plano, e o espaço voltou ao Free",
   "audit.kind.tokenCreated":
     "Criou um token de serviço que expira em {days, plural, one {# dia} other {# dias}}",

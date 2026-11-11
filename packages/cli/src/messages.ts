@@ -194,6 +194,13 @@ export const messages = {
     `${name.charAt(0).toUpperCase()}${name.slice(1)}${seats > 1 ? `, ${seats} seats` : ""}${validUntil === null ? "" : ` (until ${formatDate(validUntil)})`}`,
   usageFeatures: (features: readonly string[]) =>
     features.length === 0 ? "None" : features.join(", "),
+  usageGrace: (grace: {
+    until: string;
+    plan: string;
+    limits: { retainedPreviousVersions: number; previousVersionRetentionDays: number };
+    features: readonly string[];
+  }) =>
+    `What the ${grace.plan.charAt(0).toUpperCase()}${grace.plan.slice(1)} plan kept is held until ${formatDate(grace.until)} (${grace.limits.retainedPreviousVersions} previous versions for ${grace.limits.previousVersionRetentionDays} days${grace.features.length > 0 ? `; still readable: ${grace.features.join(", ")}` : ""}). Download what you need before then, or ask for the plan again: anything past your plan is deleted after that date.`,
   usageNoBlocks: "Nothing blocks your account.",
   usageBlocksHeader: "Blocked now:",
   usageBlock: (message: string, until: string | null) =>

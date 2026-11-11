@@ -11,7 +11,7 @@ import {
   checkPublish,
   type Entitlements,
   fail,
-  hasFeature,
+  holdsFeature,
   nextExpiry,
   normalizePath,
   ok,
@@ -307,7 +307,7 @@ export async function listVersions(
     items,
     nextCursor: rows.length > input.limit && last ? String(last.number) : null,
     retention,
-    versionDiff: hasFeature(owner, "versionDiff"),
+    versionDiff: holdsFeature(owner, "versionDiff"),
   });
 }
 

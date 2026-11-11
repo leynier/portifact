@@ -717,6 +717,7 @@ async function streamWithPlan(db: RegionalDb, streamId: string) {
     seats: p.seats,
     validUntil: p.validUntil,
     overrides: p.overrides,
+    grace: p.grace,
   };
   const both = bothSides(db);
   if (both) {

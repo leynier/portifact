@@ -153,7 +153,13 @@ async function loadManaged(
     const [row] = await both
       .select({
         artifact: schema.artifacts,
-        plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+        plan: {
+          plan: p.plan,
+          seats: p.seats,
+          validUntil: p.validUntil,
+          overrides: p.overrides,
+          grace: p.grace,
+        },
       })
       .from(schema.artifacts)
       .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))

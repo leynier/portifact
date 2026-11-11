@@ -26,7 +26,7 @@ import {
   ok,
   pageHunks,
   type Result,
-  requireFeature,
+  requireHeldFeature,
   textDiffEligibility,
   type VersionRetention,
   versionRetention,
@@ -112,7 +112,8 @@ async function comparable(db: RegionalDb, input: CompareInput): Promise<Result<C
   );
   if (!managed.ok) return managed;
   const { artifact, owner } = managed.value;
-  const gate = requireFeature(owner, "versionDiff");
+  // Comparing retained versions is a read of held data: a grace keeps it open (decision 0022).
+  const gate = requireHeldFeature(owner, "versionDiff");
   if (!gate.ok) return gate;
   const retention: VersionRetention = versionRetention(owner.limits);
   const from = await resolveVersion(db, artifact, input.fromVersionId, retention, input.now);

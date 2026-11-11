@@ -1764,6 +1764,15 @@ export const en = {
     "Set the plan to {plan} with {seats, plural, one {# seat} other {# seats}}",
   "audit.kind.planGrantedUntil":
     "Set the plan to {plan} with {seats, plural, one {# seat} other {# seats}} until {until}",
+  "audit.kind.graceStarted":
+    "Started a grace ({reason}): what the {plan} plan kept is held until {until}",
+  "audit.kind.graceEnded": "Ended the grace of what the {plan} plan kept ({reason})",
+  "audit.graceStart.lowered": "plan lowered",
+  "audit.graceStart.removed": "plan removed",
+  "audit.graceStart.expired": "plan ended",
+  "audit.graceEnd.renewed": "plan renewed",
+  "audit.graceEnd.operator": "ended by Portifact",
+  "audit.graceEnd.expired": "its days passed",
   "audit.kind.planRemoved": "Removed the plan, so the space is back on Free",
   "audit.kind.tokenCreated":
     "Created a service token that expires in {days, plural, one {# day} other {# days}}",

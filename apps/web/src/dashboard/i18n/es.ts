@@ -1817,6 +1817,16 @@ export const es = {
     "Puso el plan {plan} con {seats, plural, one {# puesto} other {# puestos}}",
   "audit.kind.planGrantedUntil":
     "Puso el plan {plan} con {seats, plural, one {# puesto} other {# puestos}} hasta el {until}",
+  "audit.kind.graceStarted":
+    "Empezó un periodo de gracia ({reason}): lo que guardaba el plan {plan} se conserva hasta el {until}",
+  "audit.kind.graceEnded":
+    "Terminó el periodo de gracia de lo que guardaba el plan {plan} ({reason})",
+  "audit.graceStart.lowered": "plan rebajado",
+  "audit.graceStart.removed": "plan retirado",
+  "audit.graceStart.expired": "plan vencido",
+  "audit.graceEnd.renewed": "plan renovado",
+  "audit.graceEnd.operator": "terminado por Portifact",
+  "audit.graceEnd.expired": "pasaron sus días",
   "audit.kind.planRemoved": "Quitó el plan, así que el espacio vuelve a Free",
   "audit.kind.tokenCreated":
     "Creó un token de servicio que vence en {days, plural, one {# día} other {# días}}",

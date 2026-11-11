@@ -82,6 +82,8 @@ export interface DeliveryPlan {
   seats: number;
   validUntil: number | null;
   overrides: unknown;
+  /** The drops still held (decision 0022), riding the same row. */
+  grace: unknown;
 }
 
 /**
@@ -173,6 +175,7 @@ async function findWithPlan(
       seats: ownerPlans.seats,
       validUntil: ownerPlans.validUntil,
       overrides: ownerPlans.overrides,
+      grace: ownerPlans.grace,
       networks: policyNetworksSql,
     })
     .from(artifacts)
@@ -193,7 +196,7 @@ async function findWithPlan(
     )
     .limit(1);
   if (!row) return null;
-  const { requests, bytes, plan, seats, validUntil, overrides, networks, ...artifact } = row;
+  const { requests, bytes, plan, seats, validUntil, overrides, grace, networks, ...artifact } = row;
   return {
     ...artifact,
     networks: networksOf(networks),
@@ -201,7 +204,7 @@ async function findWithPlan(
     plan:
       plan === null || seats === null
         ? null
-        : { plan, seats, validUntil, overrides: overrides ?? null },
+        : { plan, seats, validUntil, overrides: overrides ?? null, grace: grace ?? null },
   };
 }
 
@@ -213,11 +216,12 @@ export async function findDeliveryPlan(global: Db, ownerId: string): Promise<Del
       seats: ownerPlans.seats,
       validUntil: ownerPlans.validUntil,
       overrides: ownerPlans.overrides,
+      grace: ownerPlans.grace,
     })
     .from(ownerPlans)
     .where(eq(ownerPlans.ownerId, ownerId))
     .limit(1);
-  return row ? { ...row, overrides: row.overrides ?? null } : null;
+  return row ? { ...row, overrides: row.overrides ?? null, grace: row.grace ?? null } : null;
 }
 
 /** What delivery needs of an artifact's owner from the global database. */
@@ -236,9 +240,10 @@ export async function findDeliveryOwner(global: Db, ownerId: string): Promise<De
     seats: number | null;
     validUntil: number | null;
     overrides: string | null;
+    grace: string | null;
     networks: string | null;
   }>(
-    sql`select ${ownerPlans.plan} as plan, ${ownerPlans.seats} as seats, ${ownerPlans.validUntil} as validUntil, ${ownerPlans.overrides} as overrides, (select ${policyNetworksSql} from ${workspaces} where ${workspaces.id} = ${ownerId}) as networks from (select 1) left join ${ownerPlans} on ${ownerPlans.ownerId} = ${ownerId}`,
+    sql`select ${ownerPlans.plan} as plan, ${ownerPlans.seats} as seats, ${ownerPlans.validUntil} as validUntil, ${ownerPlans.overrides} as overrides, ${ownerPlans.grace} as grace, (select ${policyNetworksSql} from ${workspaces} where ${workspaces.id} = ${ownerId}) as networks from (select 1) left join ${ownerPlans} on ${ownerPlans.ownerId} = ${ownerId}`,
   );
   const plan =
     row && row.plan !== null && row.seats !== null
@@ -247,6 +252,7 @@ export async function findDeliveryOwner(global: Db, ownerId: string): Promise<De
           seats: row.seats,
           validUntil: row.validUntil,
           overrides: row.overrides === null ? null : (JSON.parse(row.overrides) as unknown),
+          grace: row.grace === null ? null : (JSON.parse(row.grace) as unknown),
         }
       : null;
   return { plan, networks: networksOf(row?.networks ?? null) };

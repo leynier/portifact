@@ -15,7 +15,10 @@
 import {
   AUDIT_RETENTION_BOUNDS,
   DEFAULT_REGION,
+  type GraceSlot,
+  GraceSlots,
   OwnerPlanExport,
+  PLAN_GRACE_DAYS,
   type PlanFeature,
   type PlanName,
   PlanName as PlanNameSchema,
@@ -38,14 +41,20 @@ import {
   entitlements,
   FREE_LIMIT_COLUMNS,
   fail,
+  type GraceChange,
+  graceAfterChange,
+  graceScanStep,
   type LimitColumns,
   limitColumns,
+  liveGraceSlots,
   nextExpiry,
   type OwnerPlanRecord,
   ok,
   pinsLapse,
+  planActive,
   type Result,
   requireFeature,
+  storedGraceSlots,
 } from "@portifact/domain";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -72,6 +81,7 @@ export function ownerPlanQuery(db: GlobalDb, ownerId: string) {
       seats: schema.ownerPlans.seats,
       validUntil: schema.ownerPlans.validUntil,
       overrides: schema.ownerPlans.overrides,
+      grace: schema.ownerPlans.grace,
     })
     .from(schema.ownerPlans)
     .where(eq(schema.ownerPlans.ownerId, ownerId))
@@ -121,6 +131,14 @@ export function planView(owner: Entitlements): PlanView {
     seats: owner.seats,
     limits: owner.limits,
     features: owner.features,
+    grace: owner.grace
+      ? {
+          until: new Date(owner.grace.until).toISOString(),
+          plan: owner.grace.plan,
+          limits: owner.grace.limits,
+          features: owner.grace.features,
+        }
+      : null,
   };
 }
 
@@ -143,6 +161,11 @@ export interface SetOwnerPlanInput {
   grantedBy: string;
   note: string | null;
   now: number;
+  /**
+   * Ends every running grace and starts none (decision 0022): the operator's `--no-grace`, for
+   * abuse. Without it a grant that takes something away holds it for `PLAN_GRACE_DAYS`.
+   */
+  noGrace?: boolean;
 }
 
 export interface OwnerPlanState {
@@ -152,6 +175,7 @@ export interface OwnerPlanState {
     seats: number;
     validUntil: number | null;
     overrides: unknown;
+    grace: unknown;
     grantedBy: string;
     note: string | null;
     createdAt: number;
@@ -188,6 +212,7 @@ export async function getOwnerPlan(
       seats: schema.ownerPlans.seats,
       validUntil: schema.ownerPlans.validUntil,
       overrides: schema.ownerPlans.overrides,
+      grace: schema.ownerPlans.grace,
       grantedBy: schema.ownerPlans.grantedBy,
       note: schema.ownerPlans.note,
       createdAt: schema.ownerPlans.createdAt,
@@ -332,11 +357,93 @@ export function checkGrant(input: SetOwnerPlanInput): Result<PlanOverrides | nul
   return ok(overrides.data);
 }
 
+/** The row a plan change starts from, for `graceAfterChange` and the change's condition. */
+async function planBefore(global: GlobalDb, ownerId: string) {
+  const p = schema.ownerPlans;
+  const [row] = await global
+    .select({
+      plan: p.plan,
+      seats: p.seats,
+      validUntil: p.validUntil,
+      overrides: p.overrides,
+      grace: p.grace,
+      updatedAt: p.updatedAt,
+    })
+    .from(p)
+    .where(eq(p.ownerId, ownerId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * The row is still the one a change read: it holds the same plan, update and grace, or there is
+ * still none. A change is decided from that row (what it takes away starts a grace), so it writes
+ * only on it, and is read and decided again when another change landed first.
+ */
+function stillBefore(ownerId: string, before: Awaited<ReturnType<typeof planBefore>>): SQL {
+  const p = schema.ownerPlans;
+  if (before === null) {
+    return sql`not exists (select 1 from ${p} where ${p.ownerId} = ${ownerId})`;
+  }
+  const grace = before.grace === null ? null : JSON.stringify(before.grace);
+  return sql`exists (select 1 from ${p} where ${p.ownerId} = ${ownerId} and ${p.updatedAt} = ${before.updatedAt} and ${p.grace} is ${grace} and ${p.validUntil} is ${before.validUntil})`;
+}
+
+/** How often a plan change is read and decided again when another change landed first. */
+const PLAN_CHANGE_ATTEMPTS = 3;
+
+/** The audit events of what a change did to the graces, on the change's own condition. */
+function graceEvents(w: Db, ownerId: string, change: GraceChange, now: number, when: SQL) {
+  const iso = (at: number) => new Date(at).toISOString();
+  return [
+    ...change.ended.map(({ slot, reason }) =>
+      auditEvent(
+        w,
+        {
+          ownerId,
+          kind: "plan.grace_ended",
+          actor: { type: "operator" },
+          targetId: ownerId,
+          detail: { reason, plan: slot.plan, until: iso(slot.until) },
+          now,
+        },
+        when,
+      ),
+    ),
+    ...(change.started
+      ? [
+          auditEvent(
+            w,
+            {
+              ownerId,
+              kind: "plan.grace_started",
+              actor: { type: "operator" },
+              targetId: ownerId,
+              detail: {
+                reason: change.started.reason,
+                plan: change.started.plan,
+                until: iso(change.started.until),
+              },
+              now,
+            },
+            when,
+          ),
+        ]
+      : []),
+  ];
+}
+
+function graceJson(slots: readonly GraceSlot[]): string | null {
+  return slots.length === 0 ? null : JSON.stringify(slots);
+}
+
 /**
  * Grants or changes an owner's plan: the `owner_plans` row and the four limit columns, in one
  * batch, only while the account exists and is not being deleted. Retrying the same grant gives
- * the same state, and of two concurrent grants the later batch wins whole, row and columns
- * together. Lowering a plan never sets a column below usage (`alignedLimit`).
+ * the same state. Lowering a plan never sets a column below usage (`alignedLimit`), and what the
+ * outgoing plan kept that the new one does not is held for `PLAN_GRACE_DAYS` (decision 0022,
+ * `graceAfterChange`), unless `noGrace`. The change is decided from the row it read and written
+ * only while the row is still that one; another change landing first makes it decide again.
  */
 export async function setOwnerPlan(
   db: RegionalDb,
@@ -344,7 +451,7 @@ export async function setOwnerPlan(
 ): Promise<Result<OwnerPlanState>> {
   // `db` is the owner's region. With one database the row and the columns go in one batch, as
   // they always did. With a separate regional database the global batch (the row, its audit
-  // event and a `plan_region` job that does the regional half) goes first, then the regional
+  // events and a `plan_region` job that does the regional half) goes first, then the regional
   // half inline, retried, which then withdraws the job; if every attempt fails the job finishes
   // it and the command says the grant is half applied (decision 0005, "Second delivery").
   const both = bothSides(db);
@@ -352,61 +459,79 @@ export async function setOwnerPlan(
   const checked = checkGrant(input);
   if (!checked.ok) return checked;
   const overrides = checked.value;
-  const granted = entitlements(
-    { plan: input.plan, seats: input.seats, validUntil: input.validUntil, overrides },
-    input.now,
-  );
+  const record = {
+    plan: input.plan,
+    seats: input.seats,
+    validUntil: input.validUntil,
+    overrides,
+  };
+  const granted = entitlements(record, input.now);
   const guard = grantableOwner(input.ownerId);
   const p = schema.ownerPlans;
   const same = sql`exists (select 1 from ${p} where ${p.ownerId} = ${input.ownerId} and ${p.plan} = ${input.plan} and ${p.seats} = ${input.seats} and ${p.validUntil} is ${input.validUntil} and ${p.overrides} is ${overrides === null ? null : JSON.stringify(overrides)})`;
-  const results = (await w.batch([
-    // Before the grant, only when it changes the plan: retrying the same grant records once.
-    auditEvent(
-      w,
-      {
-        ownerId: input.ownerId,
-        kind: "plan.granted",
-        actor: { type: "operator" },
-        targetId: input.ownerId,
-        detail: {
-          plan: input.plan as PlanName,
-          seats: input.seats,
-          validUntil: input.validUntil === null ? null : new Date(input.validUntil).toISOString(),
+  let written = false;
+  for (let attempt = 0; attempt < PLAN_CHANGE_ATTEMPTS && !written; attempt += 1) {
+    const before = await planBefore(db.global, input.ownerId);
+    const change = graceAfterChange(before, record, {
+      now: input.now,
+      reason: "lowered",
+      noGrace: input.noGrace === true,
+    });
+    const when = sql`${guard} and ${stillBefore(input.ownerId, before)}`;
+    const results = (await w.batch([
+      // Before the grant, only when it changes the plan: retrying the same grant records once.
+      auditEvent(
+        w,
+        {
+          ownerId: input.ownerId,
+          kind: "plan.granted",
+          actor: { type: "operator" },
+          targetId: input.ownerId,
+          detail: {
+            plan: input.plan as PlanName,
+            seats: input.seats,
+            validUntil: input.validUntil === null ? null : new Date(input.validUntil).toISOString(),
+          },
+          now: input.now,
         },
-        now: input.now,
-      },
-      sql`${guard} and not ${same}`,
-    ),
-    // Retention follows the plan: the job moves the expiries of the owner's analytics and access
-    // log rows (`applyOwnerRetention`), on the same condition as the grant. It runs where the
-    // owner's access log is, so with a separate regional database the regional half writes it.
-    both
-      ? ownerRetentionJob(both, input.ownerId, guard, input.now)
-      : planRegionJob(w, input.ownerId, guard, input.now),
-    w
-      .insert(p)
-      .select(
-        sql`select ${input.ownerId}, ${input.plan}, ${input.seats}, ${input.validUntil}, ${overrides === null ? null : JSON.stringify(overrides)}, ${input.grantedBy.trim()}, ${input.note}, ${input.now}, ${input.now} where ${guard}`,
-      )
-      .onConflictDoUpdate({
-        target: p.ownerId,
-        set: {
-          plan: sql`excluded.plan`,
-          seats: sql`excluded.seats`,
-          validUntil: sql`excluded.valid_until`,
-          overrides: sql`excluded.overrides`,
-          grantedBy: sql`excluded.granted_by`,
-          note: sql`excluded.note`,
-          updatedAt: sql`excluded.updated_at`,
-        },
-      })
-      .returning({ ownerId: p.ownerId }),
-    ...(both
-      ? limitStatements(both, input.ownerId, limitColumns(granted), guard, input.now, true)
-      : []),
-  ])) as unknown[][];
-  const plan = results[2] ?? [];
-  if (plan.length === 0) return fail("not_found", "Account or workspace not found.");
+        sql`${when} and not ${same}`,
+      ),
+      // Retention follows the plan: the job moves the expiries of the owner's analytics and access
+      // log rows (`applyOwnerRetention`), on the same condition as the grant. It runs where the
+      // owner's access log is, so with a separate regional database the regional half writes it.
+      both
+        ? ownerRetentionJob(both, input.ownerId, when, input.now)
+        : planRegionJob(w, input.ownerId, when, input.now),
+      w
+        .insert(p)
+        .select(
+          sql`select ${input.ownerId}, ${input.plan}, ${input.seats}, ${input.validUntil}, ${overrides === null ? null : JSON.stringify(overrides)}, ${input.grantedBy.trim()}, ${input.note}, ${input.now}, ${input.now}, ${graceJson(change.slots)} where ${when}`,
+        )
+        .onConflictDoUpdate({
+          target: p.ownerId,
+          set: {
+            plan: sql`excluded.plan`,
+            seats: sql`excluded.seats`,
+            validUntil: sql`excluded.valid_until`,
+            overrides: sql`excluded.overrides`,
+            grantedBy: sql`excluded.granted_by`,
+            note: sql`excluded.note`,
+            updatedAt: sql`excluded.updated_at`,
+            grace: sql`excluded.grace`,
+          },
+        })
+        .returning({ ownerId: p.ownerId }),
+      ...graceEvents(w, input.ownerId, change, input.now, when),
+      ...(both
+        ? limitStatements(both, input.ownerId, limitColumns(granted), when, input.now, true)
+        : []),
+    ])) as unknown[][];
+    written = (results[2] ?? []).length > 0;
+    if (!written && !(await isGrantable(db.global, input.ownerId))) {
+      return fail("not_found", "Account or workspace not found.");
+    }
+  }
+  if (!written) return fail("capacity_unavailable", PLAN_CHANGED);
   if (!both) {
     const applied = await applyPendingPlanRegion(db, input.ownerId, input.now);
     if (!applied) return fail("capacity_unavailable", HALF_APPLIED);
@@ -414,50 +539,91 @@ export async function setOwnerPlan(
   return ok(await getOwnerPlan(db, input.ownerId, input.now));
 }
 
+/** What the operator is told when the owner's plan kept changing while a change was decided. */
+export const PLAN_CHANGED =
+  "The plan changed while this change was being made. Run the command again; nothing was written.";
+
+async function isGrantable(global: GlobalDb, ownerId: string): Promise<boolean> {
+  const [row] = await global.all<{ ok: number }>(sql`select ${grantableOwner(ownerId)} as ok`);
+  return Number(row?.ok ?? 0) === 1;
+}
+
 /**
- * Removes an owner's plan, which puts it back on `free`: deletes the row and lowers the limit
- * columns toward the free values in the same batch, never below usage. Nothing else changes:
- * artifacts, versions and comments over the free limits stay, and only new work is refused.
+ * Removes an owner's plan, which puts it back on `free`, and lowers the limit columns toward the
+ * free values in the same batch, never below usage. Nothing else changes: artifacts, versions and
+ * comments over the free limits stay, and only new work is refused. What the plan kept is held
+ * for `PLAN_GRACE_DAYS` (decision 0022): the row stays, as `free` with its grace, until the grace
+ * scan removes it when the last hold ends. With `noGrace`, or when nothing is held, the row goes
+ * at once, as it always did.
  */
 export async function removeOwnerPlan(
   db: RegionalDb,
-  input: { ownerId: string; now: number },
+  input: { ownerId: string; now: number; noGrace?: boolean },
 ): Promise<Result<{ removed: boolean; state: OwnerPlanState }>> {
   // The same two shapes as `setOwnerPlan`.
   const both = bothSides(db);
   const w = both ?? db.global;
-  const hadPlan = sql`exists (select 1 from ${schema.ownerPlans} where ${schema.ownerPlans.ownerId} = ${input.ownerId})`;
-  const removed = (await w.batch([
-    auditEvent(
-      w,
-      {
-        ownerId: input.ownerId,
-        kind: "plan.removed",
-        actor: { type: "operator" },
-        targetId: input.ownerId,
-        detail: {},
-        now: input.now,
-      },
-      hadPlan,
-    ),
-    both
-      ? ownerRetentionJob(both, input.ownerId, hadPlan, input.now)
-      : planRegionJob(w, input.ownerId, hadPlan, input.now),
-    w
-      .delete(schema.ownerPlans)
-      .where(eq(schema.ownerPlans.ownerId, input.ownerId))
-      .returning({ ownerId: schema.ownerPlans.ownerId }),
-    ...(both
-      ? limitStatements(both, input.ownerId, FREE_LIMIT_COLUMNS, sql`1`, input.now, false)
-      : []),
-  ])) as unknown[][];
-  const deleted = removed[2] ?? [];
+  const p = schema.ownerPlans;
+  let done: { removed: boolean } | null = null;
+  for (let attempt = 0; attempt < PLAN_CHANGE_ATTEMPTS && done === null; attempt += 1) {
+    const before = await planBefore(db.global, input.ownerId);
+    const change = graceAfterChange(before, null, {
+      now: input.now,
+      reason: "removed",
+      noGrace: input.noGrace === true,
+    });
+    const had = before !== null && planActive(before, input.now) && before.plan !== "free";
+    const when = stillBefore(input.ownerId, before);
+    const existed = sql.raw(before === null ? "0" : "1");
+    const keep = change.slots.length > 0;
+    const results = (await w.batch([
+      auditEvent(
+        w,
+        {
+          ownerId: input.ownerId,
+          kind: "plan.removed",
+          actor: { type: "operator" },
+          targetId: input.ownerId,
+          detail: {},
+          now: input.now,
+        },
+        sql`${when} and ${sql.raw(had ? "1" : "0")}`,
+      ),
+      both
+        ? ownerRetentionJob(both, input.ownerId, sql`${when} and ${existed}`, input.now)
+        : planRegionJob(w, input.ownerId, sql`${when} and ${existed}`, input.now),
+      ...graceEvents(w, input.ownerId, change, input.now, when),
+      keep
+        ? w
+            .update(p)
+            .set({
+              plan: "free",
+              seats: 1,
+              validUntil: null,
+              overrides: null,
+              grace: sql`${graceJson(change.slots)}`,
+              updatedAt: input.now,
+            })
+            .where(and(eq(p.ownerId, input.ownerId), when))
+            .returning({ ownerId: p.ownerId })
+        : w
+            .delete(p)
+            .where(and(eq(p.ownerId, input.ownerId), when))
+            .returning({ ownerId: p.ownerId }),
+      ...(both
+        ? limitStatements(both, input.ownerId, FREE_LIMIT_COLUMNS, sql`1`, input.now, false)
+        : []),
+    ])) as unknown[][];
+    const changed = (results[2 + change.ended.length + (change.started ? 1 : 0)] ?? []).length;
+    if (before === null || changed === 1) done = { removed: had && changed === 1 };
+  }
+  if (done === null) return fail("capacity_unavailable", PLAN_CHANGED);
   if (!both) {
     const applied = await applyPendingPlanRegion(db, input.ownerId, input.now);
     if (!applied) return fail("capacity_unavailable", HALF_APPLIED);
   }
   return ok({
-    removed: deleted.length === 1,
+    removed: done.removed,
     state: await getOwnerPlan(db, input.ownerId, input.now),
   });
 }
@@ -532,6 +698,7 @@ async function planRegionBatch(
         seats: schema.ownerPlans.seats,
         validUntil: schema.ownerPlans.validUntil,
         overrides: schema.ownerPlans.overrides,
+        grace: schema.ownerPlans.grace,
         updatedAt: schema.ownerPlans.updatedAt,
       })
       .from(schema.ownerPlans)
@@ -667,6 +834,7 @@ async function alignOneDatabase(
             seats: schema.ownerPlans.seats,
             validUntil: schema.ownerPlans.validUntil,
             overrides: schema.ownerPlans.overrides,
+            grace: schema.ownerPlans.grace,
             updatedAt: schema.ownerPlans.updatedAt,
           })
           .from(schema.ownerPlans)
@@ -778,6 +946,7 @@ async function alignSeparateRegion(
             seats: p.seats,
             validUntil: p.validUntil,
             overrides: p.overrides,
+            grace: p.grace,
           })
           .from(p)
           .where(inArray(p.ownerId, owners))
@@ -905,6 +1074,7 @@ export async function unpinLapsedPlans(
             seats: schema.ownerPlans.seats,
             validUntil: schema.ownerPlans.validUntil,
             overrides: schema.ownerPlans.overrides,
+            grace: schema.ownerPlans.grace,
             updatedAt: schema.ownerPlans.updatedAt,
           })
           .from(schema.ownerPlans)
@@ -993,6 +1163,7 @@ export async function exportOwnerPlans(db: GlobalDb): Promise<OwnerPlanExport[]>
       seats: schema.ownerPlans.seats,
       validUntil: schema.ownerPlans.validUntil,
       overrides: schema.ownerPlans.overrides,
+      grace: schema.ownerPlans.grace,
       grantedBy: schema.ownerPlans.grantedBy,
       note: schema.ownerPlans.note,
     })
@@ -1000,9 +1171,11 @@ export async function exportOwnerPlans(db: GlobalDb): Promise<OwnerPlanExport[]>
     .orderBy(schema.ownerPlans.ownerId);
   return rows.map((row) => {
     const overrides = PlanOverrides.safeParse(row.overrides);
+    const slots = storedGraceSlots(row);
     return OwnerPlanExport.parse({
       ...row,
       overrides: row.overrides !== null && overrides.success ? overrides.data : null,
+      grace: slots.length === 0 ? null : slots,
     });
   });
 }
@@ -1017,10 +1190,12 @@ export interface ApplyPlansResult {
 }
 
 /**
- * Grants the exported plans again after a restore, each through `setOwnerPlan`, so the limit
- * columns follow. It never removes a plan: a plan the restore brought back that the export does
- * not list is reported for the operator to remove with `remove-plan`. Run after
- * `apply-tombstones`, so deleted accounts are gone and their plans are skipped.
+ * Puts the exported plans back after a restore exactly as they were, the running graces included
+ * (decision 0022), with their limit columns and retention job, so a restore neither shortens nor
+ * restarts a grace. A plan that ended and holds nothing any more is skipped. It never removes a
+ * plan: a plan the restore brought back that the export does not list is reported for the
+ * operator to remove with `remove-plan`. Run after `apply-tombstones`, so deleted accounts are
+ * gone and their plans are skipped.
  */
 export async function applyOwnerPlans(
   regions: Regions,
@@ -1031,16 +1206,18 @@ export async function applyOwnerPlans(
   let applied = 0;
   let skipped = 0;
   for (const plan of plans) {
-    if (plan.validUntil !== null && plan.validUntil <= now) {
+    const record = { ...plan, grace: plan.grace ?? null };
+    if (!planActive(record, now) && liveGraceSlots(record, now).length === 0) {
       skipped += 1;
       continue;
     }
-    // Each grant goes to its owner's region, where its limit columns live.
-    const result = await setOwnerPlan(regions.get(await ownerRegion(db, plan.ownerId)).db, {
-      ...plan,
+    // Each plan goes to its owner's region, where its limit columns live.
+    const result = await restoreOwnerPlan(
+      regions.get(await ownerRegion(db, plan.ownerId)).db,
+      plan,
       now,
-    });
-    if (result.ok) applied += 1;
+    );
+    if (result) applied += 1;
     else skipped += 1;
   }
   const listed = new Set(plans.map((plan) => plan.ownerId));
@@ -1049,4 +1226,182 @@ export async function applyOwnerPlans(
     .filter((ownerId) => !listed.has(ownerId))
     .sort();
   return { applied, skipped, extra };
+}
+
+/**
+ * Writes one exported plan back as it was: the row (its end and grace included), the limit
+ * columns and the retention job, like a grant, but without deciding a grace from the row the
+ * restore left: the export is the record. False when the owner is gone or being deleted.
+ */
+async function restoreOwnerPlan(db: RegionalDb, plan: OwnerPlanExport, now: number) {
+  const both = bothSides(db);
+  const w = both ?? db.global;
+  const p = schema.ownerPlans;
+  const guard = grantableOwner(plan.ownerId);
+  const grace = plan.grace && plan.grace.length > 0 ? JSON.stringify(plan.grace) : null;
+  const record = { ...plan, grace: plan.grace ?? null };
+  const results = (await w.batch([
+    both
+      ? ownerRetentionJob(both, plan.ownerId, guard, now)
+      : planRegionJob(w, plan.ownerId, guard, now),
+    w
+      .insert(p)
+      .select(
+        sql`select ${plan.ownerId}, ${plan.plan}, ${plan.seats}, ${plan.validUntil}, ${plan.overrides === null ? null : JSON.stringify(plan.overrides)}, ${plan.grantedBy}, ${plan.note}, ${now}, ${now}, ${grace} where ${guard}`,
+      )
+      .onConflictDoUpdate({
+        target: p.ownerId,
+        set: {
+          plan: sql`excluded.plan`,
+          seats: sql`excluded.seats`,
+          validUntil: sql`excluded.valid_until`,
+          overrides: sql`excluded.overrides`,
+          grantedBy: sql`excluded.granted_by`,
+          note: sql`excluded.note`,
+          updatedAt: sql`excluded.updated_at`,
+          grace: sql`excluded.grace`,
+        },
+      })
+      .returning({ ownerId: p.ownerId }),
+    ...(both
+      ? limitStatements(
+          both,
+          plan.ownerId,
+          limitColumns(entitlements(record, now)),
+          guard,
+          now,
+          true,
+        )
+      : []),
+  ])) as unknown[][];
+  if ((results[1] ?? []).length === 0) return false;
+  if (!both) return applyPendingPlanRegion(db, plan.ownerId, now);
+  return true;
+}
+
+/** How much of the plans the grace scan reads per run (decision 0005, "Second delivery"). */
+export const GRACE_CAPS: ScanCaps = { pageSize: 100, maxPages: 3 };
+
+const GRACE_MS = PLAN_GRACE_DAYS * 24 * 60 * 60 * 1000;
+
+export interface GraceScanResult {
+  /** Owners whose row this run changed. */
+  processed: number;
+}
+
+/**
+ * The grace scan (decision 0022), on the global database, once per run: stores a natural
+ * expiry's hold, so its start is recorded once, and removes the holds whose days passed,
+ * recording each as expired; a removed plan's row goes with its last hold. Only rows with
+ * something to do are read (`json_each` over the stored holds), a page at a time from
+ * `maintenance_cursors`, at most `caps` per run. Each owner's events and write are one batch
+ * conditioned on the row still holding what was read. Nothing else changes here: what the holds
+ * kept is pruned by the existing scans once the retention they read is the plan's own again.
+ */
+export async function maintainPlanGraces(
+  global: GlobalDb,
+  now: number,
+  caps: ScanCaps = GRACE_CAPS,
+): Promise<GraceScanResult> {
+  const p = schema.ownerPlans;
+  const name = "plan_graces";
+  const due = sql`((${p.grace} is not null and exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.until') <= ${now})) or (${p.validUntil} <= ${now} and ${p.validUntil} > ${now - GRACE_MS} and ${p.plan} <> 'free' and (${p.grace} is null or not exists (select 1 from json_each(${p.grace}) where json_extract(value, '$.expiry') = ${p.validUntil}))))`;
+  const page = (after: SQL) =>
+    global
+      .select({
+        ownerId: p.ownerId,
+        plan: p.plan,
+        seats: p.seats,
+        validUntil: p.validUntil,
+        overrides: p.overrides,
+        grace: p.grace,
+      })
+      .from(p)
+      .where(and(sql`${p.ownerId} > ${after}`, due))
+      .orderBy(asc(p.ownerId))
+      .limit(caps.pageSize);
+  let processed = 0;
+  let cursor: string | null = null;
+  let started = "";
+  let ended = false;
+  for (let pages = 0; pages < caps.maxPages; pages += 1) {
+    let rows: Awaited<ReturnType<typeof page>>;
+    if (cursor === null) {
+      const [saved, first] = await global.batch([
+        cursorRead(global, name),
+        page(savedCursorSql(name)),
+      ]);
+      started = saved[0]?.cursor ?? "";
+      rows = first;
+    } else {
+      rows = await page(sql`${cursor}`);
+    }
+    if (rows.length > 0) cursor = rows.at(-1)?.ownerId ?? cursor;
+    else cursor ??= started;
+    for (const row of rows) {
+      const step = graceScanStep(row, now);
+      if (step === null) continue;
+      const grace = row.grace === null ? null : JSON.stringify(row.grace);
+      const when = sql`exists (select 1 from ${p} where ${p.ownerId} = ${row.ownerId} and ${p.grace} is ${grace} and ${p.validUntil} is ${row.validUntil} and ${p.plan} = ${row.plan})`;
+      const iso = (at: number) => new Date(at).toISOString();
+      const events = [
+        ...step.ended.map((slot) =>
+          auditEvent(
+            global,
+            {
+              ownerId: row.ownerId,
+              kind: "plan.grace_ended",
+              actor: { type: "system" },
+              targetId: row.ownerId,
+              detail: { reason: "expired", plan: slot.plan, until: iso(slot.until) },
+              now,
+            },
+            when,
+          ),
+        ),
+        ...(step.started
+          ? [
+              auditEvent(
+                global,
+                {
+                  ownerId: row.ownerId,
+                  kind: "plan.grace_started",
+                  actor: { type: "system" },
+                  targetId: row.ownerId,
+                  detail: {
+                    reason: "expired",
+                    plan: step.started.plan,
+                    until: iso(step.started.until),
+                  },
+                  now,
+                },
+                when,
+              ),
+            ]
+          : []),
+      ];
+      // A removed plan's row (free, no end, no overrides) holds only its grace: it goes with the
+      // last hold, as a removal without grace deletes it.
+      const removable =
+        step.slots.length === 0 &&
+        row.plan === "free" &&
+        row.validUntil === null &&
+        row.overrides === null;
+      const write = removable
+        ? global.delete(p).where(and(eq(p.ownerId, row.ownerId), when))
+        : global
+            .update(p)
+            .set({ grace: sql`${step.slots.length === 0 ? null : JSON.stringify(step.slots)}` })
+            .where(and(eq(p.ownerId, row.ownerId), when));
+      const [first, ...rest] = [...events, write];
+      if (first) await global.batch([first, ...rest]);
+      processed += 1;
+    }
+    if (rows.length < caps.pageSize) {
+      ended = true;
+      break;
+    }
+  }
+  await resumeAt(global, name, started, ended ? null : cursor, now);
+  return { processed };
 }

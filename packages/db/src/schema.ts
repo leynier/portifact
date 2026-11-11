@@ -1619,6 +1619,12 @@ export const ownerPlans = sqliteTable(
     note: text("note"),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at").notNull(),
+    /**
+     * The drops still held (decision 0022): a JSON list validated by `GraceSlots` when it is read
+     * (`entitlements` in @portifact/domain), null when nothing is held. Written only by
+     * `setOwnerPlan`, `removeOwnerPlan`, `applyOwnerPlans` and the grace scan.
+     */
+    grace: text("grace", { mode: "json" }),
   },
   (t) => [
     check("owner_plans_plan", sql`${t.plan} in ('free', 'pro', 'team', 'enterprise')`),

@@ -286,8 +286,84 @@ export const PlanOverrides = z
 export type PlanOverrides = z.infer<typeof PlanOverrides>;
 
 /**
+ * How long an owner keeps what its previous plan kept after its entitlements drop (decision 0022):
+ * a plan that ends (`valid_until` passes), is removed or is lowered holds the previous plan's
+ * retention, and lets the owner read and export what it held, for this many days from the drop.
+ * New work follows the plan the owner has now.
+ */
+export const PLAN_GRACE_DAYS = 60;
+
+/** At most this many drops are held at once; a later one folds the two oldest (decision 0022). */
+export const PLAN_GRACE_MAX_SLOTS = 8;
+
+/**
+ * The limits that decide what an owner keeps, and how long: those a grace holds from the previous
+ * plan (decision 0022). Every other limit (quotas, sizes, seats, traffic, domains) follows the
+ * plan the owner has now.
+ */
+export const GRACE_LIMITS = [
+  "archiveMonths",
+  "retainedPreviousVersions",
+  "previousVersionRetentionDays",
+  "accessLogRetentionDays",
+  "auditRetentionDays",
+] as const satisfies readonly PlanLimit[];
+export type GraceLimit = (typeof GRACE_LIMITS)[number];
+
+export const GraceLimits = z.strictObject({
+  archiveMonths: count,
+  retainedPreviousVersions: count,
+  previousVersionRetentionDays: count,
+  accessLogRetentionDays: count,
+  auditRetentionDays: count,
+});
+export type GraceLimits = z.infer<typeof GraceLimits>;
+
+/** Why a grace started: the operator lowered the plan, removed it, or it reached `valid_until`. */
+export const GRACE_START_REASONS = ["lowered", "removed", "expired"] as const;
+export const GraceStartReason = z.enum(GRACE_START_REASONS);
+export type GraceStartReason = z.infer<typeof GraceStartReason>;
+
+/** Why a grace ended: a plan that covers it again, the operator, or its 60 days passed. */
+export const GRACE_END_REASONS = ["renewed", "operator", "expired"] as const;
+export const GraceEndReason = z.enum(GRACE_END_REASONS);
+export type GraceEndReason = z.infer<typeof GraceEndReason>;
+
+/**
+ * One drop held (`owner_plans.grace`, a JSON list of these): what the previous plan kept and the
+ * paid features it granted, from the drop (`from`) until `until`. `expiry` is the `valid_until`
+ * a natural expiry came from, so the scan that records it does so once.
+ */
+export const GraceSlot = z.strictObject({
+  plan: PlanName,
+  reason: GraceStartReason,
+  from: z.number().int().nonnegative(),
+  until: z.number().int().nonnegative(),
+  limits: GraceLimits,
+  features: z.array(PlanFeature),
+  expiry: z.number().int().nonnegative().optional(),
+});
+export type GraceSlot = z.infer<typeof GraceSlot>;
+
+export const GraceSlots = z.array(GraceSlot).max(PLAN_GRACE_MAX_SLOTS);
+
+/**
+ * A running grace as the usage endpoint, `portifact usage`, `get_usage` and the account export
+ * show it: until when, the highest plan held, what it keeps and the paid features whose data the
+ * owner can still read and export (only those the plan it has now does not grant).
+ */
+export const PlanGraceView = z.object({
+  until: z.iso.datetime(),
+  plan: PlanName,
+  limits: GraceLimits,
+  features: z.array(PlanFeature),
+});
+export type PlanGraceView = z.infer<typeof PlanGraceView>;
+
+/**
  * The owner's effective plan as the usage endpoint, `portifact usage`, `get_usage` and the
- * account export show it. An expired plan reads as `free`, with `validUntil` null.
+ * account export show it. An expired plan reads as `free`, with `validUntil` null. During a grace
+ * the retention limits are the previous plan's (decision 0022) and `grace` says until when.
  */
 export const PlanView = z.object({
   name: PlanName,
@@ -297,6 +373,8 @@ export const PlanView = z.object({
   limits: PlanLimits,
   /** Features the plan grants, in the order of PLAN_FEATURES. */
   features: z.array(PlanFeature),
+  /** The running grace after a plan dropped, or null; absent from servers before it. */
+  grace: PlanGraceView.nullable().optional(),
 });
 export type PlanView = z.infer<typeof PlanView>;
 
@@ -313,5 +391,7 @@ export const OwnerPlanExport = z.strictObject({
   overrides: PlanOverrides.nullable(),
   grantedBy: z.string().min(1).max(200),
   note: z.string().max(500).nullable(),
+  /** The drops still held (decision 0022); absent in exports made before graces existed. */
+  grace: GraceSlots.nullable().optional(),
 });
 export type OwnerPlanExport = z.infer<typeof OwnerPlanExport>;

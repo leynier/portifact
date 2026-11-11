@@ -1778,6 +1778,15 @@ export const ja = {
   "audit.kind.planGranted": "プランを {plan} ({seats, plural, one {# 席} other {# 席}}) にしました",
   "audit.kind.planGrantedUntil":
     "プランを {plan} ({seats, plural, one {# 席} other {# 席}}) にしました ({until} まで)",
+  "audit.kind.graceStarted":
+    "猶予期間が始まりました（{reason}）：{plan} プランで保持していたものは {until} まで保持されます",
+  "audit.kind.graceEnded": "{plan} プランで保持していたものの猶予期間が終了しました（{reason}）",
+  "audit.graceStart.lowered": "プランの引き下げ",
+  "audit.graceStart.removed": "プランの削除",
+  "audit.graceStart.expired": "プランの期限切れ",
+  "audit.graceEnd.renewed": "プランの更新",
+  "audit.graceEnd.operator": "Portifact による終了",
+  "audit.graceEnd.expired": "期間の経過",
   "audit.kind.planRemoved": "プランを削除しました。スペースは Free に戻りました",
   "audit.kind.tokenCreated":
     "{days, plural, one {#日} other {#日}}後に期限切れになるサービストークンを作成しました",

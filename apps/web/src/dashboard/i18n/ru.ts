@@ -1810,6 +1810,16 @@ export const ru = {
     "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}}",
   "audit.kind.planGrantedUntil":
     "Назначил тариф {plan} на {seats, plural, one {# место} few {# места} many {# мест} other {# места}} до {until}",
+  "audit.kind.graceStarted":
+    "Начался льготный период ({reason}): то, что хранил тариф {plan}, сохраняется до {until}",
+  "audit.kind.graceEnded":
+    "Закончился льготный период для того, что хранил тариф {plan} ({reason})",
+  "audit.graceStart.lowered": "тариф понижен",
+  "audit.graceStart.removed": "тариф удалён",
+  "audit.graceStart.expired": "тариф истёк",
+  "audit.graceEnd.renewed": "тариф продлён",
+  "audit.graceEnd.operator": "завершён Portifact",
+  "audit.graceEnd.expired": "срок прошёл",
   "audit.kind.planRemoved": "Удалил тариф, пространство снова на Free",
   "audit.kind.tokenCreated":
     "Создал сервисный токен, который истекает через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",

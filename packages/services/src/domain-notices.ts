@@ -52,6 +52,7 @@ async function planRow(global: GlobalDb, ownerId: string) {
       seats: schema.ownerPlans.seats,
       validUntil: schema.ownerPlans.validUntil,
       overrides: schema.ownerPlans.overrides,
+      grace: schema.ownerPlans.grace,
     })
     .from(schema.ownerPlans)
     .where(eq(schema.ownerPlans.ownerId, ownerId))

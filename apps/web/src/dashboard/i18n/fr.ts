@@ -1834,6 +1834,15 @@ export const fr = {
     "A défini l'offre {plan} avec {seats, plural, one {# siège} other {# sièges}}",
   "audit.kind.planGrantedUntil":
     "A défini l'offre {plan} avec {seats, plural, one {# siège} other {# sièges}} jusqu'au {until}",
+  "audit.kind.graceStarted":
+    "Délai de grâce commencé ({reason}) : ce que gardait l'offre {plan} est conservé jusqu'au {until}",
+  "audit.kind.graceEnded": "Délai de grâce terminé pour ce que gardait l'offre {plan} ({reason})",
+  "audit.graceStart.lowered": "offre réduite",
+  "audit.graceStart.removed": "offre retirée",
+  "audit.graceStart.expired": "offre expirée",
+  "audit.graceEnd.renewed": "offre renouvelée",
+  "audit.graceEnd.operator": "terminé par Portifact",
+  "audit.graceEnd.expired": "délai écoulé",
   "audit.kind.planRemoved": "A retiré l'offre : l'espace revient à Free",
   "audit.kind.tokenCreated":
     "A créé un jeton de service qui expire dans {days, plural, one {# jour} other {# jours}}",
