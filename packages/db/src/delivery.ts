@@ -9,6 +9,7 @@ import {
   trafficCounters,
   versionFiles,
   versions,
+  workspaces,
 } from "./schema.ts";
 
 export interface DeliveryArtifact {
@@ -38,6 +39,41 @@ export interface DeliveryArtifact {
    * `findDeliveryPlan` (decision 0005).
    */
   plan: DeliveryPlan | null;
+  /**
+   * The people network allowlist of the owning workspace's policy (decision 0020), as stored
+   * (normalized ranges), or null: none, or a personal space. Joined with the plan, attached from
+   * the same per-isolate cache otherwise, so it adds no read.
+   */
+  networks: string[] | null;
+}
+
+/** The people network allowlist of a stored policy, from its JSON text; null without one. */
+export const policyNetworksSql = sql<
+  string | null
+>`json_extract(${workspaces.policy}, '$.ipAllowlist')`;
+
+/**
+ * What stands for a stored allowlist that is not a list of strings: an entry no range parser
+ * reads, so the list refuses everyone it binds (decision 0020). Delivery never throws on it.
+ */
+export const UNREADABLE_NETWORKS: readonly string[] = Object.freeze(["unreadable"]);
+
+/** The stored allowlist as the lookup returns it (JSON text from SQLite), parsed. */
+export function networksOf(value: unknown): string[] | null {
+  if (value === null || value === undefined) return null;
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return [...UNREADABLE_NETWORKS];
+    }
+  }
+  if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === "string")) {
+    // A stored policy was validated on write; anything else must not open the workspace.
+    return [...UNREADABLE_NETWORKS];
+  }
+  return parsed;
 }
 
 /** The `owner_plans` columns `entitlements` (@portifact/domain) reads. */
@@ -101,7 +137,12 @@ export async function findDeliveryArtifact(
     .limit(1);
   if (!row) return null;
   const { requests, bytes, ...artifact } = row;
-  return { ...artifact, traffic: { requests: Number(requests), bytes: Number(bytes) }, plan: null };
+  return {
+    ...artifact,
+    traffic: { requests: Number(requests), bytes: Number(bytes) },
+    plan: null,
+    networks: null,
+  };
 }
 
 async function findWithPlan(
@@ -132,6 +173,7 @@ async function findWithPlan(
       seats: ownerPlans.seats,
       validUntil: ownerPlans.validUntil,
       overrides: ownerPlans.overrides,
+      networks: policyNetworksSql,
     })
     .from(artifacts)
     .leftJoin(versions, eq(versions.id, artifacts.currentVersionId))
@@ -143,6 +185,7 @@ async function findWithPlan(
       ),
     )
     .leftJoin(ownerPlans, eq(ownerPlans.ownerId, artifacts.ownerId))
+    .leftJoin(workspaces, eq(workspaces.id, artifacts.ownerId))
     .where(
       customHost === undefined
         ? eq(artifacts.id, id)
@@ -150,9 +193,10 @@ async function findWithPlan(
     )
     .limit(1);
   if (!row) return null;
-  const { requests, bytes, plan, seats, validUntil, overrides, ...artifact } = row;
+  const { requests, bytes, plan, seats, validUntil, overrides, networks, ...artifact } = row;
   return {
     ...artifact,
+    networks: networksOf(networks),
     traffic: { requests: Number(requests), bytes: Number(bytes) },
     plan:
       plan === null || seats === null
@@ -174,6 +218,38 @@ export async function findDeliveryPlan(global: Db, ownerId: string): Promise<Del
     .where(eq(ownerPlans.ownerId, ownerId))
     .limit(1);
   return row ? { ...row, overrides: row.overrides ?? null } : null;
+}
+
+/** What delivery needs of an artifact's owner from the global database. */
+export interface DeliveryOwner {
+  plan: DeliveryPlan | null;
+  networks: string[] | null;
+}
+
+/**
+ * The owner's plan and its workspace's people network allowlist (decision 0020) in one read of
+ * the global database, for a region with its own database, where the lookup cannot join them.
+ */
+export async function findDeliveryOwner(global: Db, ownerId: string): Promise<DeliveryOwner> {
+  const [row] = await global.all<{
+    plan: string | null;
+    seats: number | null;
+    validUntil: number | null;
+    overrides: string | null;
+    networks: string | null;
+  }>(
+    sql`select ${ownerPlans.plan} as plan, ${ownerPlans.seats} as seats, ${ownerPlans.validUntil} as validUntil, ${ownerPlans.overrides} as overrides, (select ${policyNetworksSql} from ${workspaces} where ${workspaces.id} = ${ownerId}) as networks from (select 1) left join ${ownerPlans} on ${ownerPlans.ownerId} = ${ownerId}`,
+  );
+  const plan =
+    row && row.plan !== null && row.seats !== null
+      ? {
+          plan: row.plan,
+          seats: row.seats,
+          validUntil: row.validUntil,
+          overrides: row.overrides === null ? null : (JSON.parse(row.overrides) as unknown),
+        }
+      : null;
+  return { plan, networks: networksOf(row?.networks ?? null) };
 }
 
 export interface DeliveryFile {

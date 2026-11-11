@@ -221,7 +221,9 @@ function writeScope(db: RegionalDb, actor: Actor): { w: Db; holds: SQL } {
 
 /** The caller resolved again just before a write: still allowed to manage streams? */
 async function stillManages(db: RegionalDb, actor: Actor): Promise<Result<true>> {
-  const again = authorize(await actorOn(db.global, actor.userId, actor.ownerId), "audit");
+  const resolved = await actorOn(db.global, actor.userId, actor.ownerId);
+  if (!resolved.ok) return resolved;
+  const again = authorize(resolved.value, "audit");
   return again.ok ? ok(true) : again;
 }
 

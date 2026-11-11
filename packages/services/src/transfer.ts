@@ -93,8 +93,9 @@ export async function transferArtifact(
   const targetId = await targetOwner(db.global, input.userId, input.workspace);
   if (!targetId.ok) return targetId;
   const targetActor = await actorOn(db.global, input.userId, targetId.value);
-  if (!targetActor) return missingWorkspace();
-  const target = authorize(targetActor, "transfer");
+  if (!targetActor.ok) return targetActor;
+  if (!targetActor.value) return missingWorkspace();
+  const target = authorize(targetActor.value, "transfer");
   if (!target.ok) return target;
   // Already there: a retried move, or nothing to do.
   if (artifact.ownerId === target.value.ownerId) return ok(artifact);

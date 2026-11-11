@@ -8,6 +8,7 @@ import {
   type ServiceTokenCreate,
 } from "@portifact/contracts";
 import { type AccessDb, regionsFromEnv, schema } from "@portifact/db";
+import { ok } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getAccess, updateAccess } from "../src/access.ts";
@@ -368,23 +369,25 @@ describe("the token's actor", () => {
     const [t, other] = [await team(), await team()];
     const created = await token(t);
     const id = created.token.id;
-    expect(await actorOn(db().global, id, t.id)).toEqual({
-      userId: id,
-      ownerId: t.id,
-      role: "editor",
-      region: "default",
-      policy: DEFAULT_POLICY,
-      domainVerified: true,
-      token: {
-        restriction: { kind: "none" },
-        scopes: ["artifacts:read", "artifacts:write"],
-        createdAt: NOW,
-        label: "CI previews",
-      },
-    });
-    expect(await actorOn(db().global, id, other.id)).toBeNull();
-    expect(await actorOn(db().global, id, id)).toBeNull();
-    expect(await actorOn(db().global, id, t.admin.id)).toBeNull();
+    expect(await actorOn(db().global, id, t.id)).toEqual(
+      ok({
+        userId: id,
+        ownerId: t.id,
+        role: "editor",
+        region: "default",
+        policy: DEFAULT_POLICY,
+        domainVerified: true,
+        token: {
+          restriction: { kind: "none" },
+          scopes: ["artifacts:read", "artifacts:write"],
+          createdAt: NOW,
+          label: "CI previews",
+        },
+      }),
+    );
+    expect(await actorOn(db().global, id, other.id)).toEqual(ok(null));
+    expect(await actorOn(db().global, id, id)).toEqual(ok(null));
+    expect(await actorOn(db().global, id, t.admin.id)).toEqual(ok(null));
     expect(await resolveActor(db().global, id, t.admin.id)).toMatchObject({ code: "not_found" });
   });
 

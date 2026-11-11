@@ -43,6 +43,8 @@ const messages = {
     state_mismatch: "登录耗时过长，或是在另一个标签页中开始的。请重试。",
     artifact_unavailable:
       "此 artifact 不存在、已不可用，或无法用此账号打开。如需使用其他账号，请退出登录后重新打开链接。",
+    network_refused:
+      "此工作区只允许从其批准的网络访问，而你当前不在其中任何一个网络。请连接到批准的网络后重新打开链接，或联系工作区管理员。",
     read_rate_limited: "此账号在短时间内打开了过多 artifact。请等待几分钟后重新打开链接。",
     sso_unavailable: "此地址目前无法使用单点登录。请用其他方式登录，或联系你的工作区管理员。",
     sso_email_outside_domain:

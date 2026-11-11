@@ -290,7 +290,9 @@ async function reach(
   const hostname = normalized.value;
   let forbidden = false;
   const allowed = async (ownerId: string) => {
-    const actor = await actorOn(global, userId, ownerId);
+    const resolved = await actorOn(global, userId, ownerId);
+    // A refused request counts as no role: the claim is answered like one of another owner.
+    const actor = resolved.ok ? resolved.value : null;
     if (!actor) return false;
     if (can(actor, "domains")) return true;
     forbidden = true;

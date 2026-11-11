@@ -56,7 +56,7 @@ import {
   WebhookUpdate,
   type WebhookView,
   type WorkspaceGroupView,
-  type WorkspacePolicy,
+  type WorkspacePolicyShown,
 } from "@portifact/contracts";
 import {
   auditExportContentType,
@@ -115,8 +115,10 @@ export interface FakeWorkspace {
   slug: string;
   name: string;
   role: "admin" | "editor" | "member";
-  /** Its policies (decision 0015); the defaults when absent. */
-  policy?: WorkspacePolicy;
+  /** Its policies as shown (decisions 0015 and 0020); the defaults when absent. */
+  policy?: WorkspacePolicyShown;
+  /** Its network policy refuses this machine (decision 0020). */
+  blocked?: boolean;
 }
 
 export interface FakeVersionFile {
@@ -1629,6 +1631,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
             region: "default",
             createdAt: "2026-11-01T00:00:00.000Z",
             policy: workspace.policy ?? DEFAULT_POLICY,
+            blocked: workspace.blocked ?? false,
           })),
         },
       };

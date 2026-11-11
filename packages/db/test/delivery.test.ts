@@ -4,10 +4,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   createDb,
   findDeliveryArtifact,
+  findDeliveryOwner,
   findDeliveryPlan,
   findPublishedFile,
   findRenderedPage,
+  networksOf,
   schema,
+  UNREADABLE_NETWORKS,
 } from "../src/index.ts";
 
 const db = () => createDb(env.DB);
@@ -156,6 +159,46 @@ describe("delivery queries", () => {
       validUntil: CYCLE + 1,
       overrides: { limits: { activeArtifacts: 9 } },
     });
+  });
+
+  it("joins a workspace's people network allowlist, or reads it with the plan in one read", async () => {
+    const ws = "ws_0123456789abcdef0123456789abcdef";
+    await env.DB.prepare("DELETE FROM workspaces WHERE id = ?").bind(ws).run();
+    await env.DB.exec("UPDATE artifacts SET owner_id = 'ws_0123456789abcdef0123456789abcdef'");
+    const joined = () =>
+      findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE, undefined, { withPlan: true });
+    // No workspace row (or a personal owner): no allowlist.
+    expect((await joined())?.networks).toBeNull();
+    expect(await findDeliveryOwner(db(), ws)).toEqual({ plan: null, networks: null });
+    await db()
+      .insert(schema.workspaces)
+      .values({
+        id: ws,
+        slug: "nets",
+        name: "Nets",
+        createdBy: "u_owner",
+        updatedAt: CYCLE,
+        policy: { ipAllowlist: ["192.0.2.0/24"], tokenIpAllowlist: ["203.0.113.0/24"] },
+      });
+    expect((await joined())?.networks).toEqual(["192.0.2.0/24"]);
+    // Without the join (a separate regional database) the lookup leaves it to the owner read.
+    expect((await findDeliveryArtifact(db(), "k7d2qm4xab", CYCLE))?.networks).toBeNull();
+    await db()
+      .insert(schema.ownerPlans)
+      .values({ ownerId: ws, plan: "enterprise", seats: 2, grantedBy: "t", updatedAt: CYCLE });
+    expect(await findDeliveryOwner(db(), ws)).toEqual({
+      plan: { plan: "enterprise", seats: 2, validUntil: null, overrides: null },
+      networks: ["192.0.2.0/24"],
+    });
+    await env.DB.prepare("DELETE FROM workspaces WHERE id = ?").bind(ws).run();
+  });
+
+  it("reads a stored allowlist that is not a list of strings as unreadable, never throwing", () => {
+    expect(networksOf(null)).toBeNull();
+    expect(networksOf('["192.0.2.0/24"]')).toEqual(["192.0.2.0/24"]);
+    expect(networksOf('{"a":1}')).toEqual(UNREADABLE_NETWORKS);
+    expect(networksOf("[1]")).toEqual(UNREADABLE_NETWORKS);
+    expect(networksOf("not json")).toEqual(UNREADABLE_NETWORKS);
   });
 
   it("refuses a plan the schema does not know and fewer than one seat", async () => {

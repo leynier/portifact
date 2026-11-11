@@ -27,6 +27,8 @@ import { artifactDb } from "./regions.ts";
 export const UNAVAILABLE_URL = "/login?error=artifact_unavailable";
 /** Where the login page explains that the account opened too many artifacts in a short time. */
 export const RATE_LIMITED_URL = "/login?error=read_rate_limited";
+/** A workspace's network policy refuses the request (decision 0020); nothing names the artifact. */
+export const NETWORK_REFUSED_URL = "/login?error=network_refused";
 
 export function readRoutes(authFor: (env: Env) => Auth) {
   const routes = new Hono<{ Bindings: Env }>();
@@ -86,7 +88,7 @@ export function readRoutes(authFor: (env: Env) => Auth) {
       state,
       confirmed: false,
     });
-    if (!issued.ok) return redirect(UNAVAILABLE_URL);
+    if (!issued.ok) return redirect(refusedUrl(issued.code));
     return redirect(callbackUrl(issued.value));
   });
 
@@ -126,7 +128,7 @@ export function readRoutes(authFor: (env: Env) => Auth) {
       customDomains: customDomainsServing(c.env),
       confirmed: true,
     });
-    return next(issued.ok ? callbackUrl(issued.value) : UNAVAILABLE_URL);
+    return next(issued.ok ? callbackUrl(issued.value) : refusedUrl(issued.code));
   });
 
   return routes;
@@ -137,6 +139,15 @@ const ReadConfirmation = z.strictObject({
   state: OpaqueToken,
   host: z.string().min(1).max(253),
 });
+
+/**
+ * Where a refused entry goes: a workspace's network policy says so (the person is a member, so
+ * they know the workspace; the page names neither it nor the artifact), anything else answers
+ * like an unavailable artifact.
+ */
+function refusedUrl(code: string): string {
+  return code === "policy_refused" ? NETWORK_REFUSED_URL : UNAVAILABLE_URL;
+}
 
 /** The artifact origin's callback with the code; the host comes from the service. */
 function callbackUrl(issued: { host: string; code: string }): string {

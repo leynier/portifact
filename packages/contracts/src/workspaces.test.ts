@@ -160,7 +160,15 @@ describe("workspace contracts", () => {
       createdAt: "2026-11-10T12:00:00.000Z",
       policy: DEFAULT_POLICY,
     };
-    expect(WorkspaceList.parse({ items: [view] })).toEqual({ items: [view] });
+    // A list without `blocked` (an older server) reads as not blocked (decision 0020).
+    expect(WorkspaceList.parse({ items: [view] })).toEqual({
+      items: [{ ...view, blocked: false }],
+    });
+    expect(
+      WorkspaceList.parse({
+        items: [{ ...view, blocked: true, policy: { ...DEFAULT_POLICY, ipAllowlist: "hidden" } }],
+      }).items[0],
+    ).toMatchObject({ blocked: true, policy: { ipAllowlist: "hidden" } });
     expect(
       WorkspaceMemberList.parse({
         workspace: view,

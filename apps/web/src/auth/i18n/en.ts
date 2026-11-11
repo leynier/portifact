@@ -52,6 +52,8 @@ export const en = {
       "Your organization's workspace has no free seat, so you could not join it. Ask its admin for a seat, then sign in again.",
     artifact_unavailable:
       "This artifact does not exist, is no longer available or cannot be opened with this account. To use another account, sign out and open the link again.",
+    network_refused:
+      "This workspace only allows access from its approved networks, and you are not on one of them now. Connect from an approved network and open the link again, or ask a workspace admin.",
     read_rate_limited:
       "This account opened too many artifacts in a short time. Wait a few minutes and open the link again.",
     sso_email_unverified:

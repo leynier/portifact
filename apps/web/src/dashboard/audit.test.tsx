@@ -235,6 +235,43 @@ describe("audit log page", () => {
     expect(text(8)).toContain("Directory (revoked SCIM token)");
   });
 
+  it("shows network allowlist changes as counts, never addresses (decision 0020)", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    server.audit.acme = [
+      event({
+        at: at(1),
+        kind: "policy.changed",
+        actor: { type: "operator" },
+        target: { type: "policy", id: "ws_1" },
+        artifact: null,
+        detail: {
+          fields: ["ipAllowlist", "tokenIpAllowlist"],
+          ipRanges: null,
+          tokenIpRanges: null,
+          confirmed: false,
+        },
+      }),
+      event({
+        at: at(2),
+        kind: "policy.changed",
+        target: { type: "policy", id: "ws_1" },
+        artifact: null,
+        detail: {
+          fields: ["ipAllowlist", "tokenIpAllowlist"],
+          ipRanges: 2,
+          tokenIpRanges: 1,
+          confirmed: false,
+        },
+      }),
+    ];
+    renderDashboard("/audit?workspace=acme", server);
+    const rows = within(await table()).getAllByRole("row");
+    expect(rows[1]?.textContent).toContain("people from any network");
+    expect(rows[1]?.textContent).toContain("service tokens from any network");
+    expect(rows[2]?.textContent).toContain("people only from 2 networks");
+    expect(rows[2]?.textContent).toContain("service tokens only from 1 network");
+  });
+
   it("filters by kind of change, person and period from keyboard reachable controls", async () => {
     server.audit[""] = EVENTS;
     renderDashboard("/audit", server);

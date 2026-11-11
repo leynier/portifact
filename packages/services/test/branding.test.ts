@@ -130,7 +130,7 @@ describe("who manages a brand and which plan allows it", () => {
       user("Stranger"),
     ]);
     const ws = await workspace({ admin: admin.id, editor: editor.id, member: member.id });
-    const as = async (id: string) => (await actorOn(db().global, id, ws)) as Actor;
+    const as = async (id: string) => value(await actorOn(db().global, id, ws)) as Actor;
 
     // The admin's own paid plan does not reach a free workspace.
     await grantPlan(admin.id, "enterprise");

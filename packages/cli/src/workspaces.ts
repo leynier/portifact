@@ -143,6 +143,12 @@ export async function workspaces(io: Io, runtime: Runtime, options: OutputOption
   for (const item of list.items) {
     const policy = describePolicy(item.policy);
     if (policy.length > 0) io.stdout(`Policies of ${item.slug}: ${policy.join("; ")}.\n`);
+    // Its network policy refuses this machine's address (decision 0020).
+    if (item.blocked) {
+      io.stdout(
+        `${item.slug} only allows approved networks, and this one is not on its list: commands on it fail until you connect from an approved network.\n`,
+      );
+    }
   }
   io.stderr("* is where publish, list and usage go without --workspace.\n");
 }

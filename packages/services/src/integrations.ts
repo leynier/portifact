@@ -170,7 +170,9 @@ async function checkLimit(global: GlobalDb, actor: Actor, now: number): Promise<
  * service (up to eleven calls of ten seconds): an admin removed meanwhile stores nothing.
  */
 async function stillManages(db: RegionalDb, actor: Actor): Promise<Result<true>> {
-  const again = authorize(await actorOn(db.global, actor.userId, actor.ownerId), "integrations");
+  const resolved = await actorOn(db.global, actor.userId, actor.ownerId);
+  if (!resolved.ok) return resolved;
+  const again = authorize(resolved.value, "integrations");
   return again.ok ? ok(true) : again;
 }
 

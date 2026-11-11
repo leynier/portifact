@@ -7,7 +7,7 @@
 import {
   type OwnerView,
   type RoleAction,
-  type WorkspacePolicy,
+  type WorkspacePolicyShown,
   type WorkspaceRole,
   WorkspaceSlug,
   type WorkspaceView,
@@ -34,7 +34,14 @@ export function parseSpaceSearch(search: Record<string, unknown>): SpaceSearch {
 
 export type Space =
   | { kind: "personal"; slug: undefined; role: WorkspaceRole }
-  | { kind: "workspace"; slug: string; name: string; role: WorkspaceRole };
+  | {
+      kind: "workspace";
+      slug: string;
+      name: string;
+      role: WorkspaceRole;
+      /** Its request policies refuse this browser's network (decision 0020). */
+      blocked?: boolean;
+    };
 
 export const PERSONAL: Space = { kind: "personal", slug: undefined, role: "admin" };
 
@@ -75,7 +82,13 @@ export function useSpace(): SpaceState {
   if (!found) return { status: "missing", slug };
   return {
     status: "ready",
-    space: { kind: "workspace", slug: found.slug, name: found.name, role: found.role },
+    space: {
+      kind: "workspace",
+      slug: found.slug,
+      name: found.name,
+      role: found.role,
+      blocked: found.blocked,
+    },
     workspaces: items,
   };
 }
@@ -90,7 +103,7 @@ export function useReadySpace(): Space {
  * The policies of the workspace that owns an artifact (decision 0015), from the workspace list;
  * undefined for a personal artifact. They only decide what the screens offer and explain.
  */
-export function useOwnerPolicy(owner: OwnerView): WorkspacePolicy | undefined {
+export function useOwnerPolicy(owner: OwnerView): WorkspacePolicyShown | undefined {
   const workspaces = useWorkspaces();
   if (owner.kind !== "workspace") return undefined;
   return workspaces.data?.items.find((item) => item.slug === owner.slug)?.policy;

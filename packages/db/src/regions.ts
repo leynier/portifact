@@ -3,6 +3,7 @@
 // comments live in its region's database. Each Worker builds one `Regions` value from its
 // bindings with `regionsFromEnv`, and adapters take their handles from it instead of calling
 // `createDb(env.DB)`. With one region both handles wrap the same binding.
+import { type RequestContext, UNKNOWN_REQUEST } from "@portifact/contracts";
 import { drizzle } from "drizzle-orm/d1";
 import * as accessSchema from "./access-schema.ts";
 import type { AccessDb, Db } from "./index.ts";
@@ -15,8 +16,14 @@ export type Region = (typeof REGIONS)[number];
 declare const globalBrand: unique symbol;
 declare const regionalBrand: unique symbol;
 
-/** The global database: identity, workspaces, memberships, plans, the artifact directory. */
-export type GlobalDb = Db & { readonly [globalBrand]: true };
+/**
+ * The global database: identity, workspaces, memberships, plans, the artifact directory. It
+ * carries the request it answers (decision 0020): the role is decided only on this handle
+ * (`actorOn` in @portifact/services), which applies a workspace's request policies to
+ * `request`, so no use case can resolve a role without one. A handle built without a context gets
+ * `UNKNOWN_REQUEST`, which every network allowlist refuses.
+ */
+export type GlobalDb = Db & { readonly [globalBrand]: true; readonly request: RequestContext };
 
 /**
  * One region's control database: artifacts, versions, usage, comments. It carries the global
@@ -30,9 +37,50 @@ export function isRegion(value: string): value is Region {
   return (REGIONS as readonly string[]).includes(value);
 }
 
-/** Wraps a binding as the global database. */
-export function globalDb(d1: D1Database): GlobalDb {
-  return drizzle(d1, { schema }) as GlobalDb;
+/** Wraps a binding as the global database, for the request it answers. */
+export function globalDb(d1: D1Database, request: RequestContext = UNKNOWN_REQUEST): GlobalDb {
+  return Object.assign(drizzle(d1, { schema }), { request }) as unknown as GlobalDb;
+}
+
+/**
+ * Where a Worker's entry puts the request context on its bindings, so every handle
+ * `regionsFromEnv` builds for that request carries it (decision 0020). A symbol: no binding or
+ * variable can be named like it, and nothing a client sends reaches it.
+ */
+export const REQUEST_CONTEXT: unique symbol = Symbol("portifact.request-context");
+
+const BASE_ENV: unique symbol = Symbol("portifact.base-env");
+
+/** The bindings with the request context of the request they answer. */
+export function withRequestContext<E extends object>(
+  env: E,
+  request: RequestContext,
+): E & { [REQUEST_CONTEXT]: RequestContext } {
+  // A view over the bindings, not a copy: some runtimes expose bindings that a spread would drop.
+  return Object.create(env, {
+    [REQUEST_CONTEXT]: { value: request, enumerable: false },
+    [BASE_ENV]: { value: baseEnv(env), enumerable: false },
+  }) as E & { [REQUEST_CONTEXT]: RequestContext };
+}
+
+/**
+ * The bindings with some replaced, keeping the request context: `{ ...env }` would drop both the
+ * context and any binding that is not an own property.
+ */
+export function withBindings<E extends object>(env: E, replaced: Partial<E>): E {
+  const descriptors: PropertyDescriptorMap = {};
+  for (const [key, value] of Object.entries(replaced)) {
+    descriptors[key] = { value, enumerable: true };
+  }
+  return Object.create(env, descriptors) as E;
+}
+
+/**
+ * The Worker's own bindings object behind a per-request copy, for caches keyed by it (one Better
+ * Auth instance per isolate): the copy `withRequestContext` makes is new on every request.
+ */
+export function baseEnv<E extends object>(env: E): E {
+  return ((env as { [BASE_ENV]?: E })[BASE_ENV] ?? env) as E;
 }
 
 /** Wraps a binding as a region's database, attached to its deployment's global database. */
@@ -110,6 +158,8 @@ export interface RegionEnv {
   ACCESS_DB_EU?: D1Database;
   ARTIFACTS_EU?: R2Bucket;
   REGION_GUARD?: string;
+  /** Set by the Worker's entry with `withRequestContext`; absent is `UNKNOWN_REQUEST`. */
+  [REQUEST_CONTEXT]?: RequestContext;
 }
 
 /** The bindings of a region other than the default one, by region. */
@@ -124,7 +174,7 @@ const REGION_BINDINGS = {
  */
 export function regionsFromEnv(env: RegionEnv): Regions {
   const guard = guardFor(env.REGION_GUARD);
-  const global = globalDb(guard(env.DB, "global", "global"));
+  const global = globalDb(guard(env.DB, "global", "global"), env[REQUEST_CONTEXT]);
   const access = (d1: D1Database | undefined) =>
     d1 ? drizzle(d1, { schema: accessSchema }) : undefined;
   const handles = new Map<Region, RegionHandles>([

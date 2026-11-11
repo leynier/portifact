@@ -171,7 +171,9 @@ async function loadManaged(
     .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
   if (!artifact || artifact.state === "deleted" || artifact.state === "purging") return missing();
-  const { actor, plan } = await actorAndPlanOn(db.global, userId, artifact);
+  const found = await actorAndPlanOn(db.global, userId, artifact);
+  if (!found.ok) return found;
+  const { actor, plan } = found.value;
   if (!actor) return missing();
   const authorized = authorize(actor, "access");
   if (!authorized.ok) return authorized;

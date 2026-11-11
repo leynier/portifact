@@ -9,7 +9,7 @@ import {
   type WorkspacePolicy,
 } from "@portifact/contracts";
 import { globalDb, type Regions, regionalDb, regionsFromEnv, schema } from "@portifact/db";
-import { eventBit, POLICY_MESSAGES } from "@portifact/domain";
+import { eventBit, POLICY_MESSAGES, policyOf } from "@portifact/domain";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -177,12 +177,13 @@ async function artifactRow(id: string) {
   return row;
 }
 
+/** The row's policy as it is read (a list the row does not set is none), or null for none stored. */
 async function storedPolicy(t: Team) {
   const [row] = await db()
     .select({ policy: schema.workspaces.policy, revision: schema.workspaces.policyRevision })
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, t.id));
-  return row;
+  return row && { ...row, policy: row.policy === null ? null : policyOf(row.policy) };
 }
 
 async function token(t: Team, scopes: ServiceTokenScope[]) {
@@ -239,6 +240,10 @@ describe("reading, previewing and changing policies", () => {
         enabled: true,
         editable,
         domainVerified: false,
+        // The test's handles answer no real request: no address to show.
+        yourIp: null,
+        // Active service tokens are counted for admins only.
+        serviceTokens: editable ? 0 : null,
       });
     }
     const missing = { ok: false, code: "not_found", message: "Workspace not found." };
@@ -423,6 +428,7 @@ describe("reading, previewing and changing policies", () => {
       linksRevoked: 0,
       linksWithoutPassword: 1,
       linksOverLifetime: 1,
+      networks: null,
     });
     expect(value(await preview(policy({ shareLinks: "disabled" }))).linksRevoked).toBe(2);
     expect(value(await preview(policy({ shareLinkMaxDays: 1 }))).linksOverLifetime).toBe(2);
@@ -794,6 +800,7 @@ describe("a restore", () => {
     value(await save(extra, policy({ shareLinks: "password_required" })));
     const gone = { workspaceId: `ws_${hex()}`, policy: strict };
     const result = await applyWorkspacePolicies(db().global, [...exported, gone], NOW + DAY);
+    if (!result.ok) throw new Error(result.message);
     expect(result.applied).toBe(1);
     expect(result.skipped).toBe(2);
     expect(result.extra).toContain(extra.id);
@@ -803,7 +810,10 @@ describe("a restore", () => {
     expect(events.at(0)?.actor).toEqual({ type: "operator" });
     expect(await outboxJobs(t.id)).toHaveLength(2);
     // Running it again changes nothing.
-    expect((await applyWorkspacePolicies(db().global, exported, NOW + DAY)).applied).toBe(0);
+    expect(await applyWorkspacePolicies(db().global, exported, NOW + DAY)).toMatchObject({
+      ok: true,
+      applied: 0,
+    });
   });
 });
 

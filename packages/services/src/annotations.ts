@@ -181,9 +181,11 @@ async function loadWithPlan(db: RegionalDb, userId: string, artifactId: string) 
       .limit(1);
     if (!row) return undefined;
     const actor = isServiceTokenId(userId)
-      ? null
+      ? ok(null)
       : await actorOn(db.global, userId, row.artifact.ownerId);
-    return { artifact: row.artifact, plan: row.plan, actor };
+    // A request policy refuses the person on the workspace (decision 0020): nothing here.
+    if (!actor.ok) return actor;
+    return { artifact: row.artifact, plan: row.plan, actor: actor.value };
   }
   const [artifact] = await db
     .select()
@@ -191,15 +193,20 @@ async function loadWithPlan(db: RegionalDb, userId: string, artifactId: string) 
     .where(eq(schema.artifacts.id, artifactId))
     .limit(1);
   if (!artifact) return undefined;
-  const { actor, plan } = isServiceTokenId(userId)
-    ? { actor: null, plan: await ownerPlanRecord(db.global, artifact.ownerId) }
+  const found = isServiceTokenId(userId)
+    ? ok({ actor: null, plan: await ownerPlanRecord(db.global, artifact.ownerId) })
     : await actorAndPlanOn(db.global, userId, artifact.ownerId);
-  return { artifact, plan, actor };
+  if (!found.ok) return found;
+  return { artifact, plan: found.value.plan, actor: found.value.actor };
 }
 
-async function load(db: RegionalDb, input: AnnotationActor): Promise<Loaded | undefined> {
+/** What `load` answers: the loaded artifact, nothing (missing), or a request policy's refusal. */
+type LoadOutcome = Loaded | undefined | Extract<Result<never>, { ok: false }>;
+
+async function load(db: RegionalDb, input: AnnotationActor): Promise<LoadOutcome> {
   const loaded = await loadWithPlan(db, input.userId, input.artifactId);
   if (!loaded) return undefined;
+  if ("ok" in loaded) return loaded;
   const { artifact, actor, plan } = loaded;
   const state = effectiveState(
     {
@@ -346,6 +353,7 @@ async function authorize(
 ): Promise<Result<Authorized>> {
   const loaded = await load(db, input);
   if (!loaded) return missingArtifact();
+  if ("ok" in loaded) return loaded;
   const decision = checkAnnotationAction(
     { role: loaded.role, state: loaded.state, mode: loaded.artifact.annotations },
     action,
@@ -718,6 +726,7 @@ export async function setAnnotationMode(
 ): Promise<Result<{ annotations: AnnotationsState }>> {
   const loaded = await load(db, input);
   if (!loaded) return missingArtifact();
+  if ("ok" in loaded) return loaded;
   const allowed = checkAnnotationModeChange({ role: loaded.role, state: loaded.state });
   if (!allowed.ok) return allowed;
   if (loaded.artifact.annotations === input.mode) return ok({ annotations: input.mode });
@@ -1595,14 +1604,11 @@ export async function annotationReader(
  * artifact, its effective state, the role (owner side, participant or nobody), the verified
  * address, the comment scope, the owner side and the owner's entitlements. Approval reviews
  * (./approval-reviews.ts) decide who sees what with it, so they never reimplement the rule.
- * Undefined for an artifact that does not exist.
+ * Undefined for an artifact that does not exist; a request policy's refusal as itself.
  */
 export type CommentStanding = Loaded;
 
-export function commentStanding(
-  db: RegionalDb,
-  input: AnnotationActor,
-): Promise<CommentStanding | undefined> {
+export function commentStanding(db: RegionalDb, input: AnnotationActor): Promise<LoadOutcome> {
   return load(db, input);
 }
 

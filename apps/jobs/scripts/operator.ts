@@ -8,7 +8,8 @@
 // dispatcher Miniflare routes them through.
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { type RegionEnv, regionsFromEnv } from "@portifact/db";
+import { BACKGROUND } from "@portifact/contracts";
+import { type RegionEnv, regionsFromEnv, withRequestContext } from "@portifact/db";
 import { domainDepsFromEnv } from "@portifact/services";
 import { getPlatformProxy } from "wrangler";
 import { OPERATOR_USAGE, operatorTarget, runOperator } from "../src/operator.ts";
@@ -55,7 +56,8 @@ try {
         )
       : null;
   const result = await runOperator(
-    regionsFromEnv(proxy.env),
+    // The operator answers no client: request policies never bind it (decision 0020).
+    regionsFromEnv(withRequestContext(proxy.env, BACKGROUND)),
     args,
     Date.now(),
     {

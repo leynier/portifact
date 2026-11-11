@@ -5,10 +5,11 @@
 import { env } from "cloudflare:test";
 import { READ_SESSION } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
-import { issueReadHandoff } from "@portifact/services";
+import { createShareLink, issueReadHandoff, openShareLink } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { READ_COOKIE, TRANSACTION_COOKIE_PREFIX } from "../src/cookies.ts";
 import { handle } from "../src/index.ts";
+import { SHARE_COOKIE } from "../src/share-session.ts";
 
 const ID = "w7d2qm4xab";
 const ORIGIN = `https://${ID}.portifact.dev`;
@@ -283,5 +284,139 @@ describe("workspace and domain artifacts on the artifact origin", () => {
     const later = NOW + CLAIMS_MS + 1_000;
     expect((await send("/", member, later)).status).toBe(200);
     expect((await send("/", colleague, later)).status).toBe(303);
+  });
+});
+
+describe("a workspace's network allowlist on the artifact origin (decision 0020)", () => {
+  const OFFICE = "192.0.2.10";
+  const HOME = "198.51.100.20";
+  const allowOnly = (ranges: string[]) =>
+    env.DB.prepare(
+      "UPDATE workspaces SET policy = ?, policy_revision = policy_revision + 1 WHERE id = ?",
+    )
+      .bind(
+        JSON.stringify({
+          publicAccess: "allowed",
+          defaultAccess: "restricted",
+          readerDomains: null,
+          shareLinks: "allowed",
+          shareLinkMaxDays: null,
+          ipAllowlist: ranges,
+          tokenIpAllowlist: null,
+        }),
+        WS,
+      )
+      .run();
+  const at = (ip: string | null, cookie: string, now = NOW + 1_000, testEnv = env) => {
+    const headers = new Headers(NAVIGATE);
+    headers.set("Cookie", cookie);
+    if (ip !== null) headers.set("CF-Connecting-IP", ip);
+    return handle(new Request(`${ORIGIN}/`, { headers }), testEnv, now);
+  };
+
+  it("serves a workspace artifact's members only from the allowed networks, on every request", async () => {
+    await seed("workspace");
+    const cookie = await signIn(MEMBER);
+    await allowOnly(["192.0.2.0/24", "2001:db8::/32"]);
+    expect((await at(OFFICE, cookie)).status).toBe(200);
+    expect((await at("2001:db8::7", cookie)).status).toBe(200);
+    expect((await at("::ffff:192.0.2.44", cookie)).status).toBe(200);
+    for (const ip of [HOME, "2001:db9::1", null]) {
+      const refused = await at(ip, cookie);
+      expect(refused.status).toBe(403);
+      const body = await refused.text();
+      // Nothing of the artifact: neither its content nor its name.
+      expect(body).toContain("approved networks");
+      expect(body).not.toContain("Team plan");
+      expect(body).not.toContain("Plan<");
+    }
+    // Lifting the allowlist serves the member again at once (one database: no cache).
+    await env.DB.prepare("UPDATE workspaces SET policy = NULL WHERE id = ?").bind(WS).run();
+    expect((await at(HOME, cookie)).status).toBe(200);
+  });
+
+  it("refuses with a page, never a 500, when the stored list does not parse, and logs where", async () => {
+    await seed("workspace");
+    const cookie = await signIn(MEMBER);
+    await allowOnly(["10.0.0.0/33"]);
+    const logged: string[] = [];
+    const error = console.error;
+    console.error = (line: string) => logged.push(line);
+    try {
+      const refused = await at(OFFICE, cookie);
+      expect(refused.status).toBe(403);
+      expect(await refused.text()).toContain("approved networks");
+    } finally {
+      console.error = error;
+    }
+    expect(logged.map((line) => JSON.parse(line))).toContainEqual({
+      event: "workspace_network_policy_unreadable",
+      workspaceId: WS,
+    });
+    expect(logged.join("")).not.toContain(OFFICE);
+    // The renewal decides through `actorOn`, which refuses it the same way.
+    expect((await at(OFFICE, cookie, NOW + CLAIMS_MS + 1_000)).status).toBe(303);
+  });
+
+  it("adds no D1 read to a warm request", async () => {
+    await seed("workspace");
+    const cookie = await signIn(MEMBER);
+    const before = counting();
+    expect((await at(HOME, cookie, NOW + 1_000, before.env)).status).toBe(200);
+    await allowOnly(["198.51.100.0/24"]);
+    const after = counting();
+    expect((await at(HOME, cookie, NOW + 1_000, after.env)).status).toBe(200);
+    expect(after.counter.statements).toBe(before.counter.statements);
+  });
+
+  it("binds members reading other modes when their session renews, never the outsiders named", async () => {
+    await seed("restricted");
+    await db()
+      .insert(schema.artifactReaders)
+      .values([
+        { artifactId: ID, email: "out@example.org" },
+        { artifactId: ID, email: "member@example.org" },
+      ]);
+    const outsider = await signIn(OUTSIDER);
+    const admin = await signIn(ADMIN);
+    await allowOnly(["192.0.2.0/24"]);
+    // Within the claims' lifetime both are served: the content Worker cannot tell a member here.
+    expect((await at(HOME, outsider)).status).toBe(200);
+    expect((await at(HOME, admin)).status).toBe(200);
+    const later = NOW + CLAIMS_MS + 1_000;
+    // At renewal the admin's role is decided again with this request's address: sign in again,
+    // where the app explains the network policy.
+    const renewed = await at(HOME, admin, later);
+    expect(renewed.status).toBe(303);
+    expect(renewed.headers.get("location")).toContain("/read/");
+    // The same session renews from an allowed network.
+    expect((await at(OFFICE, admin, later)).status).toBe(200);
+    // A listed outsider is someone the workspace chose to reach outside it: not bound.
+    expect((await at(HOME, outsider, later)).status).toBe(200);
+  });
+
+  it("never binds a share link's visitors", async () => {
+    await seed("workspace");
+    const created = await createShareLink(db(), {
+      userId: ADMIN,
+      artifactId: ID,
+      label: "Board",
+      expiresAt: null,
+      password: undefined,
+      now: NOW,
+    });
+    if (!created.ok) throw new Error(created.message);
+    const opened = await openShareLink([db()], {
+      customDomains: true,
+      token: created.value.token,
+      password: undefined,
+      now: NOW,
+      contentDomain: "portifact.dev",
+    });
+    if (opened.kind !== "opened") throw new Error(opened.kind);
+    const entered = await send(`/__portifact/link?code=${opened.code}`, undefined, NOW, FROM_APP);
+    const cookie = pairOf(entered, `${SHARE_COOKIE}=`);
+    await allowOnly(["192.0.2.0/24"]);
+    expect((await at(HOME, cookie)).status).toBe(200);
   });
 });

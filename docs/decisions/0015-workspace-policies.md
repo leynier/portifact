@@ -60,7 +60,7 @@ A restore of only the regional database brings back artifacts, readers and links
 
 ## Next
 
-Out of scope here, because each needs the content Worker or the auth layer:
+Out of scope here, because each needs the content Worker or the auth layer. [Decision 0020](0020-workspace-request-policies.md) adds the request context and the network allowlists, and designs the other two:
 
 - `sessionHours`: a maximum length of read, review and link sessions for the workspace's artifacts. Needs the content Worker to cap the session cookies and claims it issues by the owner's policy, which its delivery lookup would have to carry without a new read.
 - `allowedClients`: the OAuth clients allowed to act on the workspace (for example the CLI and one MCP client). Needs the token's client in `Actor` and a check in `authorizeResourceRequest` or `actorOn`, and a way to list clients an admin can recognize.
