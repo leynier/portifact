@@ -33,6 +33,10 @@ import { parseArtifactId } from "./artifacts.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError } from "./errors.ts";
 import { formatDate, annotationMessages as text } from "./messages.ts";
+import { plain } from "./plain.ts";
+
+export { plain };
+
 import type { Io, Runtime } from "./runtime.ts";
 import type { Session } from "./session.ts";
 import { parseVersionId } from "./versions.ts";
@@ -609,16 +613,6 @@ function writeDeleted(
   }
   io.stdout(`${summary}\n`);
   if (result.thread === null) io.stdout(`${text.threadGone(result.threadId)}\n`);
-}
-
-/**
- * Removes what could change the terminal or hide text: control characters other than line
- * feeds and tabs, line separators and bidirectional overrides.
- */
-export function plain(value: string): string {
-  return value.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]/gu, (character) =>
-    character === "\n" || character === "\t" ? character : "",
-  );
 }
 
 /** A thread as readable text; every reviewer-written value goes through `plain`. */

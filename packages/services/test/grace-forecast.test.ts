@@ -1,14 +1,15 @@
 // What a running plan grace will let go (decision 0022, second delivery): per kind, counts and the
 // first date, for the space's "Download your data" page and `portifact export --dry-run`.
 import { env } from "cloudflare:test";
-import { PLAN_GRACE_DAYS } from "@portifact/contracts";
+import { GRACE_FORECAST_LIMITS, PLAN_GRACE_DAYS } from "@portifact/contracts";
 import { accessSchema, createAccessDb, schema } from "@portifact/db";
 import { type Actor, personalActor } from "@portifact/domain";
-import { eq } from "drizzle-orm";
+import { count, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { recordOpenings } from "../src/access-log.ts";
+import { pruneAccessEvents, recordOpenings } from "../src/access-log.ts";
 import { applyOwnerRetention } from "../src/analytics.ts";
 import { getGraceForecast } from "../src/grace-forecast.ts";
+import { pruneVersions } from "../src/maintenance.ts";
 import { removeOwnerPlan, setOwnerPlan } from "../src/plans.ts";
 import { DAY, db, NOW, publishSite, user, value } from "./fixtures.ts";
 import { versions } from "./version-support.ts";
@@ -107,5 +108,77 @@ describe("the grace forecast", () => {
       },
     };
     expect((await forecast(token)).ok).toBe(true);
+  });
+
+  it("counts exactly what the scans delete after the grace", async () => {
+    const owner = await user("Pro");
+    const reader = await user("Reader");
+    value(await grant(owner.id, "pro", NOW - 100 * DAY));
+    await versions(owner.id, 6, { now: NOW - 50 * DAY });
+    await versions(owner.id, 4, { now: NOW - 2 * DAY });
+    const site = await publishSite(owner.id);
+    await recordOpenings(db(), access(), [
+      { artifactId: site.artifactId, userId: reader.id, at: NOW - 40 * DAY },
+      { artifactId: site.artifactId, userId: reader.id, at: NOW - 200 * DAY },
+    ]);
+    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW }));
+    await applyOwnerRetention(db(), access(), owner.id, NOW);
+    const byKind = Object.fromEntries(
+      value(await forecast(personalActor(owner.id))).kinds.map((k) => [k.kind, k.count]),
+    );
+    const countVersions = async () => {
+      const [row] = await db()
+        .select({ n: count() })
+        .from(schema.versions)
+        .innerJoin(schema.artifacts, eq(schema.artifacts.id, schema.versions.artifactId))
+        .where(eq(schema.artifacts.ownerId, owner.id));
+      return Number(row?.n ?? 0);
+    };
+    const countOpenings = async () => {
+      const e = accessSchema.accessEvents;
+      const [row] = await access().select({ n: count() }).from(e).where(eq(e.ownerId, owner.id));
+      return Number(row?.n ?? 0);
+    };
+    const versionsBefore = await countVersions();
+    const openingsBefore = await countOpenings();
+    const at = NOW + GRACE + 1;
+    for (let i = 0; i < 5; i += 1) await pruneVersions(db(), env.ARTIFACTS, at);
+    await pruneAccessEvents(access(), at);
+    expect(byKind.versions).toBe(versionsBefore - (await countVersions()));
+    expect(byKind.accessLog ?? 0).toBe(openingsBefore - (await countOpenings()));
+  });
+
+  it("forecasts nothing for an unreadable grace, which deletes nothing", async () => {
+    const owner = await user("Pro");
+    value(await grant(owner.id, "pro", NOW - 100 * DAY));
+    await versions(owner.id, 6, { now: NOW - 50 * DAY });
+    value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW }));
+    await db()
+      .global.update(schema.ownerPlans)
+      .set({ grace: "{not json" })
+      .where(eq(schema.ownerPlans.ownerId, owner.id));
+    const result = value(await forecast(personalActor(owner.id)));
+    expect(result.owner.grace?.unreadable).toBe(true);
+    expect(result.kinds).toEqual([]);
+  });
+
+  it("is rate limited per person, after authorization", async () => {
+    const owner = await user();
+    for (let i = 0; i < GRACE_FORECAST_LIMITS.perActorPerMinute; i += 1) {
+      expect((await forecast(personalActor(owner.id))).ok).toBe(true);
+    }
+    expect(await forecast(personalActor(owner.id))).toMatchObject({
+      ok: false,
+      code: "rate_limited",
+    });
+    // Another person is not affected, and a minute later it answers again.
+    expect((await forecast(personalActor((await user()).id))).ok).toBe(true);
+    expect((await forecast(personalActor(owner.id), NOW + 61_000)).ok).toBe(true);
+    // Someone with no role is refused before anything is counted.
+    const stranger = await user();
+    const outside = { ...personalActor(stranger.id), role: "member" as const };
+    for (let i = 0; i < GRACE_FORECAST_LIMITS.perActorPerMinute + 1; i += 1) {
+      expect(await forecast(outside)).toMatchObject({ code: "forbidden" });
+    }
   });
 });

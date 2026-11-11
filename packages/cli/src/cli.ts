@@ -231,13 +231,15 @@ export async function run(
   // arguments first, then the options and the command; commands take the options first.
   const execute =
     <T extends { json?: boolean }, A extends unknown[]>(
-      command: (io: Io, runtime: Runtime, options: T, ...args: A) => Promise<void>,
+      command: (io: Io, runtime: Runtime, options: T, ...args: A) => Promise<void | number>,
     ) =>
     async (...received: unknown[]) => {
       const args = received.slice(0, -2) as A;
       const options = received.at(-2) as T;
       try {
-        await command(io, runtime, options, ...args);
+        // A command that completed only in part answers its exit code (export: 1, run again).
+        const code = await command(io, runtime, options, ...args);
+        if (typeof code === "number") exitCode = code;
       } catch (error) {
         if (!(error instanceof CliError)) throw error;
         exitCode = exitCodeFor(error.code);

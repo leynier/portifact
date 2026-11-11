@@ -300,7 +300,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
   const state: FakeApiState = {
     artifacts: new Map(),
     accessLogs: new Map(),
-    graceForecast: { grace: null, kinds: [] },
+    graceForecast: { ownerId: "u_fake_owner", grace: null, kinds: [] },
     audit: new Map(),
     auditQueries: [],
     auditExportQueries: [],
@@ -1686,7 +1686,14 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     }
     if (route === "GET /artifacts") return listArtifacts(url, workspace);
     if (route === "GET /usage") return { status: 200, body: state.usage };
-    if (route === "GET /grace-forecast") return { status: 200, body: state.graceForecast };
+    if (route === "GET /grace-forecast") {
+      // Each space has its own owner ID, as the API answers it.
+      const space = url.searchParams.get("workspace");
+      return {
+        status: 200,
+        body: { ...state.graceForecast, ...(space ? { ownerId: `ws_fake_${space}` } : {}) },
+      };
+    }
     if (route === "GET /feedback") return feedbackPageOf(state, url, workspace);
     if (route === "GET /integrations") {
       const space = workspace ?? "personal";

@@ -12,7 +12,7 @@ import {
   type DownloadLink,
   VersionDownload,
 } from "@portifact/contracts";
-import { isGitSegment, validateManifestPaths } from "@portifact/domain";
+import { exportPathSegments, isGitSegment, validateManifestPaths } from "@portifact/domain";
 import { callApi, RETRY_ATTEMPTS, withRetries } from "./api.ts";
 import { parseArtifactId } from "./artifacts.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
@@ -136,8 +136,14 @@ export function fetchLinks(
 function plan(out: string, download: VersionDownload): Job[] {
   checkDownloadPaths(download);
   const root = join(out, download.kind);
+  const windows = process.platform === "win32";
   return download.files.map((file) => {
-    const target = join(root, ...file.path.split("/"));
+    // The same rules as `export`, Windows' device names and forbidden names included there.
+    const segments = exportPathSegments(file.path, windows);
+    if (!segments.ok) {
+      throw new CliError("server_error", messages.errors.unsafePath(file.path, segments.message));
+    }
+    const target = join(root, ...segments.value);
     const inside = relative(root, target);
     if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
       throw new CliError(
@@ -153,16 +159,23 @@ function plan(out: string, download: VersionDownload): Job[] {
  * Refuses a download whose paths are not already canonical, unique regardless of case and free of
  * `.git` segments, with the same rules the server applies to manifests.
  */
-export function checkDownloadPaths(download: VersionDownload): void {
+export function checkDownloadPaths(
+  download: VersionDownload,
+  describe: (path: string, reason: string) => string = messages.errors.unsafePath,
+): void {
   const paths = download.files.map((file) => file.path);
   const checked = validateManifestPaths(paths);
   if (!checked.ok) {
     const path = paths.find((p) => checked.message.startsWith(`${p}:`)) ?? "";
-    throw new CliError("server_error", messages.errors.unsafePath(path, checked.message));
+    // The reason repeats the path: only the part after it, so the path is printed once, cleaned.
+    const reason = checked.message.startsWith(`${path}:`)
+      ? checked.message.slice(path.length + 1).trim()
+      : checked.message;
+    throw new CliError("server_error", describe(path, reason));
   }
   download.files.forEach((file, index) => {
     if (checked.value[index] !== file.path) {
-      throw new CliError("server_error", messages.errors.unsafePath(file.path, "not canonical"));
+      throw new CliError("server_error", describe(file.path, "not canonical"));
     }
   });
 }

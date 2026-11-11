@@ -1,6 +1,12 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { isGitSegment, normalizePath, validateManifestPaths } from "./paths.ts";
+import {
+  collisionKey,
+  isGitSegment,
+  normalizePath,
+  validateManifestPaths,
+  windowsNameProblem,
+} from "./paths.ts";
 
 const value = (raw: string) => {
   const result = normalizePath(raw);
@@ -140,5 +146,44 @@ describe("validateManifestPaths", () => {
     const paths = Array.from({ length: 1001 }, (_, i) => `f${i}.txt`);
     expect(validateManifestPaths(paths)).toMatchObject({ ok: false, code: "quota_exceeded" });
     expect(validateManifestPaths(paths.slice(0, 1000)).ok).toBe(true);
+  });
+});
+
+describe("collisionKey", () => {
+  it.each([
+    ["A.md", "a.md"],
+    ["ſ.txt", "s.txt"],
+    ["K.txt", "k.txt"],
+    ["straße.md", "strasse.md"],
+    ["é.md", "é.md"],
+  ])("folds %s and %s to one key, as Windows and macOS store them", (a, b) => {
+    expect(collisionKey(a)).toBe(collisionKey(b));
+  });
+
+  it("refuses two manifest paths that would be one file on a folding file system", () => {
+    expect(validateManifestPaths(["ſ.txt", "s.txt"]).ok).toBe(false);
+    expect(validateManifestPaths(["docs/K.md", "docs/k.md"]).ok).toBe(false);
+    expect(validateManifestPaths(["a.md", "b.md"]).ok).toBe(true);
+  });
+});
+
+describe("windowsNameProblem", () => {
+  it.each([
+    "CON",
+    "CON .txt",
+    "com0",
+    "LPT0.txt",
+    "CONIN$",
+    "CONOUT$",
+    "CLOCK$",
+    "a:b",
+    "x.",
+    "y ",
+  ])("refuses %s", (segment) => {
+    expect(windowsNameProblem(segment)).not.toBeNull();
+  });
+
+  it.each(["console.txt", "com10", "a.b", "nulled"])("allows %s", (segment) => {
+    expect(windowsNameProblem(segment)).toBeNull();
   });
 });

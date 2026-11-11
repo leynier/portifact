@@ -37,6 +37,7 @@ export function usageView(report: AccountUsageReport): AccountUsageView {
 /** What a running grace will let go, as `GET /api/v1/grace-forecast` shows it. */
 export function graceForecastView(forecast: GraceForecast): GraceForecastView {
   return GraceForecastView.parse({
+    ownerId: forecast.ownerId,
     grace: planView(forecast.owner).grace ?? null,
     kinds: forecast.kinds.map((kind) => ({ ...kind, from: iso(kind.from) })),
   });

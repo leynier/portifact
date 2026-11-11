@@ -17,7 +17,9 @@ export type CliErrorCode =
   /** The user did not confirm a destructive action. */
   | "cancelled"
   /** `git` is not installed, or a git command the CLI needed failed. */
-  | "git_failed";
+  | "git_failed"
+  /** Another `portifact export` holds the folder's lock. */
+  | "folder_in_use";
 
 /** Documented exit codes (skills/portifact/SKILL.md). */
 export const EXIT = {
@@ -57,6 +59,7 @@ export function exitCodeFor(code: CliErrorCode): number {
     case "upload_incomplete":
     case "artifact_archived":
     case "sole_workspace_admin":
+    case "folder_in_use":
       return EXIT.conflict;
     case "quota_exceeded":
     case "seats_exhausted":

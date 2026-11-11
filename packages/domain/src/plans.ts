@@ -419,6 +419,9 @@ export function graceForecastSteps(
   record: OwnerPlanRecord | null,
   now: number,
 ): GraceForecastStep[] {
+  // An unreadable grace is read as holding everything, never as deleting (decision 0022): nothing
+  // is forecast to go until the operator stores a readable one.
+  if (readGrace(record).unreadable) return [];
   const own = ownEntitlements(record, now);
   const slots = liveGraceSlots(record, now);
   const holdsMore: Record<GraceForecastStep["kind"], (slot: GraceSlot) => boolean> = {

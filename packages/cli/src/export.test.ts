@@ -1,6 +1,6 @@
 // portifact export (decision 0022, second delivery): a space's every retained version, sources,
 // access logs, audit log and a manifest, into a folder; resumable, verified, never outside it.
-import { lstat, readdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ExportManifest } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -94,6 +94,7 @@ describe("portifact export", () => {
     };
     server.api.usage.plan = { ...server.api.usage.plan, grace };
     server.api.graceForecast = {
+      ownerId: "u_fake_owner",
       grace,
       kinds: [{ kind: "versions", count: 4, from: "2027-01-10T00:00:00.000Z" }],
     };
@@ -247,5 +248,204 @@ describe("portifact export", () => {
     expect(manifest.audit).toEqual({ skipped: "not_found" });
     expect(manifest.artifacts.every((a) => "skipped" in a.accessLog)).toBe(true);
     expect(manifest.totals.files).toBe(5);
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "R1: never writes through a link at a file's own name or a leftover partial name",
+    async () => {
+      h.signIn();
+      await mkdir(h.workspace, { recursive: true });
+      const doc = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+      server.api.seedVersion(doc, { published: { "index.md": "SERVER CONTENT", "b.md": "b" } });
+      server.api.audit.set("personal", []);
+      const victim = join(h.workspace, "victim.txt");
+      await writeFile(victim, "the user's own file");
+      const out = join(h.workspace, "export");
+      // A first run claims the folder; then links are planted where the files go.
+      expect((await h.invoke("export", out)).code).toBe(0);
+      const published = join(out, "artifacts", doc.id, "v1", "published");
+      await writeFile(join(published, "index.md"), "changed");
+      const { rm } = await import("node:fs/promises");
+      await rm(join(published, "index.md"));
+      await symlink(victim, join(published, "index.md"));
+      await symlink(victim, join(published, "b.md.part"));
+      const result = await h.invoke("export", out, "--json");
+      expect(result.code).toBe(2);
+      expect(JSON.parse(result.stdout).error.message).toContain("is a link or not a regular file");
+      expect(await readFile(victim, "utf8")).toBe("the user's own file");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "R2: never writes through a linked folder, whatever level it is at",
+    async () => {
+      h.signIn();
+      await mkdir(h.workspace, { recursive: true });
+      const doc = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+      server.api.seedVersion(doc, { published: { "index.md": "x" } });
+      server.api.audit.set("personal", []);
+      const elsewhere = join(h.workspace, "elsewhere");
+      await mkdir(elsewhere);
+      const out = join(h.workspace, "export");
+      await mkdir(out);
+      await writeFile(
+        join(out, ".portifact-export"),
+        `${JSON.stringify({ ownerId: "u_fake_owner" })}\n`,
+      );
+      await symlink(elsewhere, join(out, "artifacts"));
+      const result = await h.invoke("export", out, "--json");
+      expect(result.code).toBe(2);
+      expect(JSON.parse(result.stdout).error.message).toContain("is a link or not a folder");
+      expect(await readdir(elsewhere)).toEqual([]);
+    },
+  );
+
+  it("R3: skips an artifact deleted or purged while the export runs, and exports the rest", async () => {
+    h.signIn();
+    const good = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+    server.api.seedVersion(good, { published: { "index.md": "x" } });
+    const gone = server.api.seed({ type: "markdown", currentVersionId: null, versions: 0 });
+    server.api.seedVersion(gone, { published: { "index.md": "y" } });
+    server.api.audit.set("personal", []);
+    server.faults.push({
+      method: "GET",
+      path: new RegExp(`^/api/v1/artifacts/${gone.id}/versions`),
+      reply: {
+        status: 404,
+        body: Buffer.from(
+          JSON.stringify({ error: { code: "not_found", message: "Artifact not found." } }),
+        ),
+      },
+    });
+    const out = join(h.workspace, "export");
+    const result = await h.invoke("export", out);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(`Skipped ${gone.id}: it was deleted or is being purged.`);
+    const manifest = await manifestOf(out);
+    expect(manifest.artifacts.find((a) => a.id === gone.id)).toMatchObject({
+      skipped: "not_found",
+      versions: [],
+    });
+    expect(
+      await readFile(join(out, "artifacts", good.id, "v1", "published", "index.md"), "utf8"),
+    ).toBe("x");
+  });
+
+  it("R4: an artifact's `a` and `a.part` are two files, each with its own bytes", async () => {
+    h.signIn();
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const doc = server.api.seed({ type: "site", currentVersionId: null, versions: 0 });
+      server.api.seedVersion(
+        doc,
+        { published: { a: "A".repeat(200_000), "a.part": "B".repeat(10) } },
+        { entrypoint: "a" },
+      );
+      ids.push(doc.id);
+    }
+    server.api.audit.set("personal", []);
+    const out = join(h.workspace, "export");
+    expect((await h.invoke("export", out)).code).toBe(0);
+    for (const id of ids) {
+      const folder = join(out, "artifacts", id, "v1", "published");
+      expect(await readFile(join(folder, "a"), "utf8")).toBe("A".repeat(200_000));
+      expect(await readFile(join(folder, "a.part"), "utf8")).toBe("B".repeat(10));
+    }
+  });
+
+  it("keeps a second export out of a folder in use, and another owner's export out of it", async () => {
+    h.signIn();
+    space();
+    const out = join(h.workspace, "export");
+    expect((await h.invoke("export", out)).code).toBe(0);
+    await writeFile(join(out, ".portifact-export.lock"), "123\n");
+    const locked = await h.invoke("export", out, "--json");
+    expect(locked.code).toBe(6);
+    expect(JSON.parse(locked.stdout).error.code).toBe("folder_in_use");
+    const { rm } = await import("node:fs/promises");
+    await rm(join(out, ".portifact-export.lock"));
+    // The marker names the owner: a workspace's export never goes into a personal one.
+    server.api.workspaces = [{ slug: "acme", name: "Acme", role: "admin" }];
+    server.api.audit.set("acme", []);
+    const other = await h.invoke("export", out, "--workspace", "acme", "--json");
+    expect(other.code).toBe(2);
+    expect(JSON.parse(other.stdout).error.message).toContain("is not an export of this space");
+    expect(JSON.parse(await readFile(join(out, ".portifact-export"), "utf8"))).toEqual({
+      ownerId: "u_fake_owner",
+    });
+  });
+
+  it("exits 1 with everything else written when the audit log must wait, and a later run adds it", async () => {
+    h.signIn();
+    space();
+    server.faults.push({
+      method: "GET",
+      path: /^\/api\/v1\/audit\/export/,
+      reply: {
+        status: 429,
+        body: Buffer.from(JSON.stringify({ error: { code: "rate_limited", message: "Wait." } })),
+      },
+    });
+    const out = join(h.workspace, "export");
+    const first = await h.invoke("export", out);
+    expect(first.code).toBe(1);
+    expect(first.stdout).toContain("The audit log was not exported: the server asked to wait.");
+    expect(first.stdout).toContain("The export is not complete");
+    expect((await manifestOf(out)).audit).toEqual({ skipped: "rate_limited" });
+    expect((await manifestOf(out)).totals.files).toBe(5);
+    const second = await h.invoke("export", out, "--json");
+    expect(second.code).toBe(0);
+    expect(JSON.parse(second.stdout).complete).toBe(true);
+    expect((await manifestOf(out)).audit).toMatchObject({ file: "audit.jsonl" });
+  });
+
+  it("refuses two paths one file system would store as one, before writing either", async () => {
+    h.signIn();
+    const doc = server.api.seed({ type: "site", currentVersionId: null, versions: 0 });
+    server.api.seedVersion(
+      doc,
+      { published: { "index.html": "i", "\u017f.txt": "long s", "s.txt": "s" } },
+      { entrypoint: "index.html" },
+    );
+    server.api.audit.set("personal", []);
+    const out = join(h.workspace, "export");
+    const result = await h.invoke("export", out, "--json");
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.stdout).error.code).toBe("server_error");
+    expect((await files(out)).some((file) => file.endsWith(".txt"))).toBe(false);
+  });
+
+  it("prints no control or bidirectional characters from a server path", async () => {
+    h.signIn();
+    const doc = server.api.seed({ type: "site", currentVersionId: null, versions: 0 });
+    server.api.seedVersion(
+      doc,
+      { published: { "index.html": "i", "../\u009b31m\u202etxt.exe": "evil" } },
+      { entrypoint: "index.html" },
+    );
+    server.api.audit.set("personal", []);
+    const result = await h.invoke("export", join(h.workspace, "export"));
+    expect(result.code).toBe(1);
+    expect(result.stderr).not.toMatch(/[\u0080-\u009f\u202a-\u202e\u2066-\u2069]/);
+    expect(result.stderr).toContain("cannot be written safely here");
+  });
+
+  it("streams an access log of many pages to disk, every entry once", async () => {
+    h.signIn();
+    const { doc } = space();
+    server.api.accessLogs.set(
+      doc.id,
+      Array.from({ length: 250 }, (_, i) => ({
+        email: `reader${i}@example.com`,
+        openedAt: new Date(Date.UTC(2026, 10, 1) + i * MINUTE).toISOString(),
+      })),
+    );
+    const out = join(h.workspace, "export");
+    expect((await h.invoke("export", out)).code).toBe(0);
+    const lines = (await readFile(join(out, "artifacts", doc.id, "access-log.jsonl"), "utf8"))
+      .trim()
+      .split("\n");
+    expect(lines).toHaveLength(250);
+    expect(new Set(lines).size).toBe(250);
   });
 });

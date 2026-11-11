@@ -3,8 +3,17 @@
 // device user code, which the user must see to approve the login.
 import { VERSION_DIFF, WEBHOOK_EVENTS } from "@portifact/contracts";
 import { ISSUE_FAILURE_MESSAGES } from "@portifact/domain";
+import { oneLine } from "./plain.ts";
 
 const VERSION_DIFF_FILE_BYTES = VERSION_DIFF.fileBytes;
+
+/** Why an artifact is not in an export, in the summary's words. */
+const EXPORT_SKIP_LABELS: Record<string, string> = {
+  not_found: "it was deleted or is being purged",
+  forbidden: "you may not read it",
+  plan_required: "the plan does not include it",
+  rate_limited: "the server asked to wait; run the command again later",
+};
 
 /** What each kind a grace lets go is called in the dry run's lines. */
 const EXPORT_KIND_LABELS: Record<string, string> = {
@@ -477,10 +486,10 @@ export const messages = {
       `${path} already exists. pull writes into a new folder; choose a path that does not exist.`,
     outInsideGit: (path: string) => `${path} is inside a .git folder. Choose another folder.`,
     unsafePath: (path: string, reason: string) =>
-      `The server sent a file path that cannot be written safely (${JSON.stringify(path)}: ${reason}). Nothing was written.`,
-    downloadFailed: (path: string) => `Could not download ${path}. Run the command again.`,
+      `The server sent a file path that cannot be written safely (${JSON.stringify(oneLine(path))}: ${oneLine(reason)}). Nothing was written.`,
+    downloadFailed: (path: string) => `Could not download ${oneLine(path)}. Run the command again.`,
     downloadMismatch: (path: string) =>
-      `${path} did not match its size or SHA-256 after downloading, so the pull stopped. Run the command again.`,
+      `${oneLine(path)} did not match its size or SHA-256 after downloading, so the pull stopped. Run the command again.`,
     pullCleanedUp: (out: string) => `Removed the partial download in ${out}.`,
     gitNeedsSource:
       "--git works only with --source: it builds a Git history of the private sources.",
@@ -528,6 +537,22 @@ export const messages = {
       `The export stopped. What was verified is kept in ${out}; run the same command again to resume.`,
     notAnExport: (out: string) =>
       `${out} is not empty and is not an export of this space. Choose a new or empty folder, or the folder an earlier export of this space wrote.`,
+    locked: (out: string, lock: string) =>
+      `Another export is writing into ${out}. Wait for it to finish; if none is running (it was stopped), delete ${lock} in that folder and run the command again.`,
+    notAFolder: (path: string) =>
+      `${oneLine(path)} in the export folder is a link or not a folder, so the export does not write through it. Remove it, or choose another folder.`,
+    notAFile: (path: string) =>
+      `${oneLine(path)} in the export folder is a link or not a regular file, so the export does not replace it. Remove it, or choose another folder.`,
+    unsafePath: (path: string, reason: string) =>
+      `The server sent a file path that cannot be written safely here (${JSON.stringify(oneLine(path))}: ${oneLine(reason)}). The export stopped before writing it; what was verified is kept.`,
+    mismatch: (path: string) =>
+      `${oneLine(path)} did not match its size or SHA-256 on disk after downloading, so the export stopped and removed it. Run the same command again to resume.`,
+    skipped: (id: string, reason: string) =>
+      `Skipped ${id}: ${EXPORT_SKIP_LABELS[reason] ?? reason}.`,
+    auditLater:
+      "The audit log was not exported: the server asked to wait. Run the same command again later to add it.",
+    incomplete:
+      "The export is not complete: some parts must be fetched again later. Run the same command again; what is in the folder is kept.",
   },
   auditExport: {
     formatNeeded: "--format must be csv or jsonl.",

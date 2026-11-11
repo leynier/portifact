@@ -66,13 +66,13 @@ export function validateManifestPaths(rawPaths: readonly string[]): Result<strin
     if (result.value.split("/").some(isGitSegment)) {
       return fail("invalid_input", `${raw}: paths inside a .git folder are not allowed.`);
     }
-    const key = result.value.toLowerCase();
+    const key = collisionKey(result.value);
     if (seen.has(key)) return fail("invalid_input", `${raw}: collides with another file.`);
     seen.add(key);
     paths.push(result.value);
   }
   for (const path of paths) {
-    const segments = path.toLowerCase().split("/");
+    const segments = collisionKey(path).split("/");
     for (let i = 1; i < segments.length; i++) {
       if (seen.has(segments.slice(0, i).join("/"))) {
         return fail("invalid_input", `${path}: a parent of this file is also a file.`);
@@ -80,4 +80,35 @@ export function validateManifestPaths(rawPaths: readonly string[]): Result<strin
     }
   }
   return ok(paths);
+}
+
+/**
+ * What two paths share when a case-insensitive or normalizing file system would store them as one
+ * file: the canonical composition of their case-folded form (case through upper then lower, so
+ * `ſ`, `K` and `ß` meet `s`, `k` and `ss` as Windows and macOS fold them). Manifests and downloads
+ * refuse two paths with the same key, so writing a version's files never overwrites one with another.
+ */
+export function collisionKey(path: string): string {
+  return path.normalize("NFD").toUpperCase().toLowerCase().normalize("NFC");
+}
+
+/**
+ * Names Windows treats as devices whatever their extension and trailing spaces (`con.txt`,
+ * `CON .txt`, `com0`, `conin$`).
+ */
+const WINDOWS_DEVICE =
+  /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$|clock\$) *(\..*)?$/i;
+const WINDOWS_FORBIDDEN = /[<>:"|?*]/;
+
+/**
+ * Why Windows cannot store a path segment under that name, or null when it can: a device name,
+ * a character Windows forbids in names, or a trailing dot or space (which Windows drops, so the
+ * file would land under another name). The one rule `pull` and `export` apply on Windows.
+ */
+export function windowsNameProblem(segment: string): string | null {
+  if (WINDOWS_DEVICE.test(segment)) return "The path names a Windows device.";
+  if (WINDOWS_FORBIDDEN.test(segment) || /[. ]$/.test(segment)) {
+    return "The path holds a name Windows cannot store.";
+  }
+  return null;
 }

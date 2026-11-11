@@ -3,16 +3,21 @@
 // and, when there are any, the private sources), each artifact's access log and the space's audit
 // log when the caller may read them, and `manifest.json`, written last, describing what is there.
 // It only uses the routes `list`, `versions`, `pull`, `logs` and `audit export` use: the server
-// never builds an archive. Each file streams to disk while it is hashed, so memory stays bounded,
-// and is kept only once its size and SHA-256 match; a second run skips what is complete and
-// verified and fetches the rest again, so an interrupted export resumes where it stopped.
-import { createHash } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+// never builds an archive.
+//
+// The folder is handled by `SafeFolder`: nothing is written through a link, every file goes
+// through a temporary file of its own and counts only once read back from its place with the
+// right size and SHA-256. A lock file keeps two exports out of one folder, and the folder's marker
+// names the owner, so another space's export is never mixed in. A second run keeps what is
+// complete and verified and fetches the rest. Something the caller may not read, or that went
+// away while the export ran, is recorded as skipped; something the server asked to retry later
+// (a rate limit) makes the export exit 1 with everything else written, so running it again
+// completes it.
+import { constants } from "node:fs";
+import { open, readdir, rm } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import {
   AccessLogView,
-  AccountUsageView,
   ArtifactList,
   type ArtifactListItem,
   AUDIT_EXPORT_CURSOR_HEADER,
@@ -32,16 +37,19 @@ import {
 import { exportPathSegments, exportVersionFolder, isGitSegment } from "@portifact/domain";
 import { callApi, downloadApi, RETRY_ATTEMPTS, withRetries } from "./api.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
-import { CliError } from "./errors.ts";
+import { CliError, EXIT } from "./errors.ts";
 import { messages } from "./messages.ts";
-import { DOWNLOAD_CONCURRENCY, fetchLinks } from "./pull.ts";
+import { checkDownloadPaths, DOWNLOAD_CONCURRENCY, fetchLinks } from "./pull.ts";
 import type { Io, Runtime } from "./runtime.ts";
+import { SafeFolder, TEMP_FOLDER } from "./safe-folder.ts";
 import type { Session } from "./session.ts";
 import { URL_EXPIRY_MARGIN_MS } from "./upload.ts";
 import { chosenWorkspace, workspaceQuery } from "./workspaces.ts";
 
-/** The file that marks a folder as an export, so a run never writes into an unrelated folder. */
+/** The file that marks a folder as an export of one owner. */
 export const EXPORT_MARKER = ".portifact-export";
+/** The file that keeps a second export out of a folder while one runs. */
+export const EXPORT_LOCK = ".portifact-export.lock";
 const PAGE = 100;
 const RETRY_BASE_MS = 1_000;
 
@@ -55,14 +63,30 @@ export interface ExportOptions extends OutputOptions {
 interface Planned {
   artifact: ArtifactListItem;
   versions: VersionSummary[];
+  skipped?: ExportSkipReason;
 }
 
+/** Refusals that mean "not there to export" (or "not now") rather than a failure. */
+function skipReason(error: unknown): ExportSkipReason | null {
+  if (!(error instanceof CliError)) return null;
+  if (
+    error.code === "forbidden" ||
+    error.code === "plan_required" ||
+    error.code === "not_found" ||
+    error.code === "rate_limited"
+  ) {
+    return error.code;
+  }
+  return null;
+}
+
+/** Answers the exit code: 0 when complete, 1 when a part must be fetched again later. */
 export async function exportSpace(
   io: Io,
   runtime: Runtime,
   folder: string,
   options: ExportOptions,
-): Promise<void> {
+): Promise<number> {
   const out = resolve(folder);
   if (out.split(sep).some(isGitSegment)) {
     throw new CliError("invalid_input", messages.errors.outInsideGit(out));
@@ -71,72 +95,159 @@ export async function exportSpace(
   const workspace =
     options.workspace === undefined ? undefined : await chosenWorkspace(session, options.workspace);
   const space = workspace ?? "personal";
+  const forecast = await callApi(session, {
+    method: "GET",
+    path: `/grace-forecast${workspaceQuery(workspace)}`,
+    schema: GraceForecastView,
+  });
   const planned = await planExport(session, workspace);
-  const versions = planned.reduce((sum, item) => sum + item.versions.length, 0);
-  const bytes = planned.reduce(
-    (sum, item) =>
-      sum +
-      item.versions.reduce((v, version) => v + version.publishedBytes + version.sourceBytes, 0),
-    0,
-  );
-  const files = planned.reduce(
-    (sum, item) =>
-      sum +
-      item.versions.reduce((v, version) => v + version.publishedFiles + version.sourceFiles, 0),
-    0,
-  );
+  const live = planned.filter((item) => item.skipped === undefined);
+  const versions = live.reduce((sum, item) => sum + item.versions.length, 0);
+  const sum = (pick: (version: VersionSummary) => number) =>
+    live.reduce((total, item) => total + item.versions.reduce((v, x) => v + pick(x), 0), 0);
+  const bytes = sum((v) => v.publishedBytes + v.sourceBytes);
+  const files = sum((v) => v.publishedFiles + v.sourceFiles);
 
   if (options.dryRun) {
-    const grace = await graceOf(session, workspace);
+    const grace = forecast.grace ? forecast : null;
     if (options.json) {
       writeJson(io, {
         dryRun: true,
         space,
         out,
-        artifacts: planned.length,
+        artifacts: live.length,
         versions,
         files,
         bytes,
         grace,
       });
-      return;
+      return EXIT.ok;
     }
-    io.stdout(
-      `${messages.exportSpace.dryRun(space, planned.length, versions, files, bytes, out)}\n`,
-    );
+    io.stdout(`${messages.exportSpace.dryRun(space, live.length, versions, files, bytes, out)}\n`);
     for (const kind of grace?.kinds ?? []) {
       io.stdout(`${messages.exportSpace.goes(kind.kind, kind.count, kind.from)}\n`);
     }
-    return;
+    return EXIT.ok;
   }
 
-  await prepareFolder(out, space);
-  const windows = options.windows ?? process.platform === "win32";
+  const target = await SafeFolder.open(out);
+  await claimFolder(target, forecast.ownerId, out);
+  try {
+    return await writeExport(io, session, target, out, planned, {
+      workspace,
+      space,
+      ownerId: forecast.ownerId,
+      windows: options.windows ?? process.platform === "win32",
+      json: options.json === true,
+    });
+  } finally {
+    await rm(join(target.root, EXPORT_LOCK), { force: true });
+  }
+}
+
+/**
+ * Takes the folder for this run: refused when another export holds its lock, or when it holds
+ * anything but an earlier export of this same owner (its marker names the owner's ID). The lock is
+ * created exclusively, so two runs that start together never both get it.
+ */
+async function claimFolder(folder: SafeFolder, ownerId: string, out: string): Promise<void> {
+  const marker = await folder.readText([EXPORT_MARKER]);
+  const entries = (await readdir(folder.root)).filter((name) => name !== TEMP_FOLDER);
+  if (marker === null ? entries.length > 0 : markerOwner(marker) !== ownerId) {
+    throw new CliError("invalid_input", messages.exportSpace.notAnExport(out));
+  }
+  try {
+    const lock = await open(
+      join(folder.root, EXPORT_LOCK),
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0),
+      0o644,
+    );
+    await lock.write(`${process.pid}\n`);
+    await lock.close();
+  } catch {
+    throw new CliError("folder_in_use", messages.exportSpace.locked(out, EXPORT_LOCK));
+  }
+  try {
+    await folder.clearTemporary();
+    if (marker === null) {
+      await folder.writeText([EXPORT_MARKER], `${JSON.stringify({ ownerId })}\n`);
+    }
+  } catch (error) {
+    await rm(join(folder.root, EXPORT_LOCK), { force: true });
+    throw error;
+  }
+}
+
+function markerOwner(text: string): string | null {
+  try {
+    const value = JSON.parse(text) as { ownerId?: unknown };
+    return typeof value.ownerId === "string" ? value.ownerId : null;
+  } catch {
+    return null;
+  }
+}
+
+interface WriteContext {
+  workspace: string | undefined;
+  space: string;
+  ownerId: string;
+  windows: boolean;
+  json: boolean;
+}
+
+async function writeExport(
+  io: Io,
+  session: Session,
+  folder: SafeFolder,
+  out: string,
+  planned: Planned[],
+  context: WriteContext,
+): Promise<number> {
   const manifest: ExportManifest = {
     format: EXPORT_MANIFEST_FORMAT,
-    space,
-    exportedAt: new Date(runtime.now()).toISOString(),
+    space: context.space,
+    ownerId: context.ownerId,
+    exportedAt: new Date(session.runtime.now()).toISOString(),
     artifacts: [],
     audit: { skipped: "not_found" },
     totals: { artifacts: 0, versions: 0, files: 0, bytes: 0 },
   };
+  const total = planned.reduce((sum, item) => sum + item.versions.length, 0);
   let accessLogs: "allowed" | ExportSkipReason = "allowed";
   let done = 0;
   for (const item of planned) {
     const exported: ExportedVersion[] = [];
-    for (const version of item.versions) {
-      exported.push(await exportVersion(io, session, out, item.artifact.id, version, windows));
+    let skipped = item.skipped;
+    for (const version of skipped ? [] : item.versions) {
+      try {
+        exported.push(
+          await exportVersion(io, session, folder, out, item.artifact.id, version, context.windows),
+        );
+      } catch (error) {
+        // An artifact deleted or purged while the export ran, or a request the server asked to
+        // retry later: what was written stays, the rest of it is recorded as skipped.
+        const reason = skipReason(error);
+        if (reason !== "not_found" && reason !== "rate_limited") throw error;
+        skipped = reason;
+        break;
+      }
       done += 1;
       io.stderr(
-        `${messages.exportSpace.progress(done, versions, item.artifact.id, version.number)}\n`,
+        `${messages.exportSpace.progress(done, total, item.artifact.id, version.number)}\n`,
       );
     }
     let accessLog: ExportedLog;
-    if (accessLogs === "allowed") {
-      accessLog = await exportAccessLog(session, out, item.artifact.id);
+    if (skipped === "not_found") {
+      accessLog = { skipped: "not_found" };
+    } else if (accessLogs === "allowed") {
+      accessLog = await exportAccessLog(session, folder, item.artifact.id);
       // A role that may not read one artifact's access log reads none of the space's.
-      if ("skipped" in accessLog && accessLog.skipped !== "not_found")
+      if (
+        "skipped" in accessLog &&
+        (accessLog.skipped === "forbidden" || accessLog.skipped === "plan_required")
+      ) {
         accessLogs = accessLog.skipped;
+      }
     } else {
       accessLog = { skipped: accessLogs };
     }
@@ -145,9 +256,10 @@ export async function exportSpace(
       name: item.artifact.name,
       versions: exported,
       accessLog,
+      ...(skipped ? { skipped } : {}),
     });
   }
-  manifest.audit = await exportAudit(session, out, workspace);
+  manifest.audit = await exportAudit(session, folder, context.workspace);
   const all = manifest.artifacts.flatMap((a) => a.versions.flatMap((v) => v.files));
   manifest.totals = {
     artifacts: manifest.artifacts.length,
@@ -155,17 +267,40 @@ export async function exportSpace(
     files: all.length,
     bytes: all.reduce((sum, file) => sum + file.size, 0),
   };
-  await writeAtomically(
-    join(out, EXPORT_MANIFEST_FILE),
+  await folder.writeText(
+    [EXPORT_MANIFEST_FILE],
     `${JSON.stringify(ExportManifest.parse(manifest), null, 2)}\n`,
   );
-  if (options.json) {
-    writeJson(io, { out, ...manifest.totals, audit: manifest.audit });
-    return;
+
+  const skippedArtifacts = manifest.artifacts.filter((a) => a.skipped !== undefined);
+  const logs = [...manifest.artifacts.map((a) => a.accessLog), manifest.audit];
+  const retryLater =
+    skippedArtifacts.some((a) => a.skipped === "rate_limited") ||
+    logs.some((log) => "skipped" in log && log.skipped === "rate_limited");
+  if (context.json) {
+    writeJson(io, {
+      out,
+      ...manifest.totals,
+      complete: !retryLater,
+      skipped: skippedArtifacts.map((a) => ({ id: a.id, reason: a.skipped })),
+      audit: manifest.audit,
+    });
+  } else {
+    const { artifacts, versions, files, bytes } = manifest.totals;
+    io.stdout(
+      `${messages.exportSpace.done(context.space, artifacts, versions, files, bytes, out)}\n`,
+    );
+    for (const artifact of skippedArtifacts) {
+      io.stdout(
+        `${messages.exportSpace.skipped(artifact.id, artifact.skipped as ExportSkipReason)}\n`,
+      );
+    }
+    if ("skipped" in manifest.audit && manifest.audit.skipped === "rate_limited") {
+      io.stdout(`${messages.exportSpace.auditLater}\n`);
+    }
+    if (retryLater) io.stdout(`${messages.exportSpace.incomplete}\n`);
   }
-  io.stdout(
-    `${messages.exportSpace.done(space, manifest.totals.artifacts, manifest.totals.versions, manifest.totals.files, manifest.totals.bytes, out)}\n`,
-  );
+  return retryLater ? EXIT.failure : EXIT.ok;
 }
 
 /** Every artifact of the space and its retained versions, a page at a time. */
@@ -183,7 +318,13 @@ async function planExport(session: Session, workspace: string | undefined): Prom
       }),
     );
     for (const artifact of page.items) {
-      planned.push({ artifact, versions: await versionsOf(session, artifact.id) });
+      try {
+        planned.push({ artifact, versions: await versionsOf(session, artifact.id) });
+      } catch (error) {
+        const reason = skipReason(error);
+        if (reason !== "not_found" && reason !== "rate_limited") throw error;
+        planned.push({ artifact, versions: [], skipped: reason });
+      }
     }
     cursor = page.nextCursor;
   } while (cursor !== null);
@@ -209,45 +350,10 @@ async function versionsOf(session: Session, artifactId: string): Promise<Version
   return versions;
 }
 
-/** The running grace and what it lets go, for the dry run; null when the space has none. */
-async function graceOf(session: Session, workspace: string | undefined) {
-  const usage = await callApi(session, {
-    method: "GET",
-    path: `/usage${workspaceQuery(workspace)}`,
-    schema: AccountUsageView,
-  });
-  if (!usage.plan.grace) return null;
-  return callApi(session, {
-    method: "GET",
-    path: `/grace-forecast${workspaceQuery(workspace)}`,
-    schema: GraceForecastView,
-  });
-}
-
-/**
- * The folder is new, empty, or an earlier export of the same space: anything else is refused, so
- * an export never writes into an unrelated folder or mixes two spaces.
- */
-async function prepareFolder(out: string, space: string): Promise<void> {
-  await mkdir(out, { recursive: true });
-  const entries = await readdir(out);
-  const marker = join(out, EXPORT_MARKER);
-  if (entries.length > 0) {
-    let owner: string | null = null;
-    try {
-      owner = (await readText(marker)).trim();
-    } catch {
-      owner = null;
-    }
-    if (owner !== space) throw new CliError("invalid_input", messages.exportSpace.notAnExport(out));
-    return;
-  }
-  await writeAtomically(marker, `${space}\n`);
-}
-
 async function exportVersion(
   io: Io,
   session: Session,
+  folder: SafeFolder,
   out: string,
   artifactId: string,
   version: VersionSummary,
@@ -257,12 +363,15 @@ async function exportVersion(
   const files: ExportedFile[] = [];
   for (const kind of kinds) {
     const download = await fetchLinks(session, artifactId, version.id, kind);
-    const root = join(out, ...exportVersionFolder(artifactId, version.number, kind).split("/"));
-    const links = new Map(download.files.map((file) => [file.path, file]));
+    // The same rules as `pull`, before anything is written: canonical paths, no `.git`, and no
+    // two paths a case-insensitive or normalizing file system would store as one.
+    checkDownloadPaths(download, messages.exportSpace.unsafePath);
+    const base = exportVersionFolder(artifactId, version.number, kind).split("/");
     const jobs = download.files.map((file) => ({
       file,
-      target: targetFor(root, file.path, windows),
+      segments: [...base, ...segmentsOf(file.path, windows)],
     }));
+    const links = new Map(download.files.map((file) => [file.path, file]));
     let next = 0;
     let failure: { error: unknown } | undefined;
     const worker = async () => {
@@ -272,8 +381,9 @@ async function exportVersion(
         try {
           await fetchToFile(
             session,
+            folder,
             job.file.path,
-            job.target,
+            job.segments,
             () => links.get(job.file.path) as DownloadLink,
             async () => {
               const fresh = await fetchLinks(session, artifactId, version.id, kind, job.file.path);
@@ -288,7 +398,7 @@ async function exportVersion(
     };
     await Promise.all(Array.from({ length: Math.min(DOWNLOAD_CONCURRENCY, jobs.length) }, worker));
     if (failure) {
-      io.stderr(`${messages.exportSpace.resume(out)}\n`);
+      if (skipReason(failure.error) === null) io.stderr(`${messages.exportSpace.resume(out)}\n`);
       throw failure.error;
     }
     files.push(
@@ -309,37 +419,31 @@ async function exportVersion(
   };
 }
 
-/** Where a file goes, refused when it would leave its version's folder or is unsafe here. */
-export function targetFor(root: string, path: string, windows: boolean): string {
+/** A file's segments under its version's folder, refused when they are unsafe here. */
+export function segmentsOf(path: string, windows: boolean): string[] {
   const segments = exportPathSegments(path, windows);
   if (!segments.ok) {
-    throw new CliError("server_error", messages.errors.unsafePath(path, segments.message));
+    throw new CliError("server_error", messages.exportSpace.unsafePath(path, segments.message));
   }
-  const target = join(root, ...segments.value);
-  const inside = relative(root, target);
-  if (inside === "" || inside.startsWith("..") || isAbsolute(inside)) {
-    throw new CliError("server_error", messages.errors.unsafePath(path, "outside the folder"));
-  }
-  return target;
+  return segments.value;
 }
 
 /**
- * A file that is already complete and verified is kept; anything else is fetched again into a
- * `.part` file, hashed while it streams, and renamed into place only once its size and SHA-256
- * match. Storage links are renewed before they expire or once after storage refuses one, and
- * transient failures are retried with backoff.
+ * A file that is already in place and verified is kept; anything else is fetched again into a
+ * temporary file of its own, put in place, and read back: it counts only when the bytes at its
+ * final place have the right size and SHA-256. Storage links are renewed before they expire or
+ * once after storage refuses one, and transient failures are retried with backoff.
  */
 async function fetchToFile(
   session: Session,
+  folder: SafeFolder,
   path: string,
-  target: string,
+  segments: string[],
   link: () => DownloadLink,
   renew: () => Promise<void>,
 ): Promise<void> {
   const expected = link();
-  if (await matches(target, expected.size, expected.sha256)) return;
-  await mkdir(dirname(target), { recursive: true });
-  const part = `${target}.part`;
+  if (await folder.holds(segments, expected.size, expected.sha256)) return;
   const { runtime } = session;
   let renewed = false;
   let failures = 0;
@@ -356,12 +460,22 @@ async function fetchToFile(
       const response = await runtime.fetch(current.url, { method: "GET", redirect: "manual" });
       status = response.status;
       if (response.ok && response.body) {
-        const { size, sha256 } = await streamTo(response.body, part);
-        if (size !== current.size || sha256 !== current.sha256) {
-          await rm(part, { force: true });
-          throw new CliError("download_failed", messages.errors.downloadMismatch(path));
+        const temporary = await folder.temporary();
+        try {
+          const reader = response.body.getReader();
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            await temporary.handle.write(value);
+          }
+        } finally {
+          await temporary.handle.close();
         }
-        await rename(part, target);
+        const placed = await folder.place(temporary.path, segments);
+        if (!(await folder.holds(segments, current.size, current.sha256))) {
+          await rm(placed, { force: true });
+          throw new CliError("download_failed", messages.exportSpace.mismatch(path));
+        }
         return;
       }
       await response.body?.cancel();
@@ -384,48 +498,20 @@ async function fetchToFile(
   }
 }
 
-/** Writes a stream to `file` chunk by chunk, hashing it, and answers its size and SHA-256. */
-async function streamTo(body: ReadableStream<Uint8Array>, file: string) {
-  const handle = await open(file, "w");
-  const hash = createHash("sha256");
-  let size = 0;
-  try {
-    const reader = body.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      hash.update(value);
-      size += value.byteLength;
-      await handle.write(value);
-    }
-  } finally {
-    await handle.close();
-  }
-  return { size, sha256: hash.digest("hex") };
-}
-
-/** Whether `file` exists with exactly this size and SHA-256 (read as a stream). */
-async function matches(file: string, size: number, sha256: string): Promise<boolean> {
-  try {
-    if ((await stat(file)).size !== size) return false;
-  } catch {
-    return false;
-  }
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
-  return hash.digest("hex") === sha256;
-}
-
-/** One artifact's access log as JSON Lines, every page, or why the caller may not read it. */
+/**
+ * One artifact's access log as JSON Lines, written to disk page by page, or why the caller may not
+ * read it now.
+ */
 async function exportAccessLog(
   session: Session,
-  out: string,
+  folder: SafeFolder,
   artifactId: string,
 ): Promise<ExportedLog> {
   const file = `artifacts/${artifactId}/access-log.jsonl`;
-  const lines: string[] = [];
-  let cursor: string | null = null;
+  const temporary = await folder.temporary();
+  let lines = 0;
   try {
+    let cursor: string | null = null;
     do {
       const query = new URLSearchParams({ limit: String(PAGE) });
       if (cursor !== null) query.set("cursor", cursor);
@@ -436,28 +522,32 @@ async function exportAccessLog(
           schema: AccessLogView,
         }),
       );
-      for (const entry of page.entries) lines.push(JSON.stringify(entry));
+      for (const entry of page.entries) {
+        await temporary.handle.write(`${JSON.stringify(entry)}\n`);
+        lines += 1;
+      }
       cursor = page.nextCursor;
     } while (cursor !== null);
   } catch (error) {
+    await temporary.handle.close();
+    await rm(temporary.path, { force: true });
     const skipped = skipReason(error);
     if (skipped) return { skipped };
     throw error;
   }
-  await mkdir(join(out, "artifacts", artifactId), { recursive: true });
-  await writeAtomically(join(out, ...file.split("/")), lines.map((line) => `${line}\n`).join(""));
-  return { file, lines: lines.length };
+  await temporary.handle.close();
+  await folder.place(temporary.path, file.split("/"));
+  return { file, lines };
 }
 
-/** The space's audit log as JSON Lines, following every part, or why it is not there. */
+/** The space's audit log as JSON Lines, following every part, or why it is not there now. */
 async function exportAudit(
   session: Session,
-  out: string,
+  folder: SafeFolder,
   workspace: string | undefined,
 ): Promise<ExportedLog> {
   const file = "audit.jsonl";
-  const part = join(out, `${file}.part`);
-  const handle = await open(part, "w");
+  const temporary = await folder.temporary();
   let lines = 0;
   try {
     let cursor: string | null = null;
@@ -470,47 +560,18 @@ async function exportAudit(
         cursor === null
           ? await downloadApi(session, path)
           : await withRetries(session, () => downloadApi(session, path));
-      await handle.write(answer.text);
+      await temporary.handle.write(answer.text);
       lines += answer.text.split("\n").filter((line) => line !== "").length;
       cursor = answer.headers.get(AUDIT_EXPORT_CURSOR_HEADER);
     } while (cursor !== null);
   } catch (error) {
-    await handle.close();
-    await rm(part, { force: true });
+    await temporary.handle.close();
+    await rm(temporary.path, { force: true });
     const skipped = skipReason(error);
     if (skipped) return { skipped };
     throw error;
   }
-  await handle.close();
-  await rename(part, join(out, file));
+  await temporary.handle.close();
+  await folder.place(temporary.path, [file]);
   return { file, lines };
-}
-
-/** Refusals that mean "not yours to export" rather than a failure. */
-function skipReason(error: unknown): ExportSkipReason | null {
-  if (!(error instanceof CliError)) return null;
-  if (error.code === "forbidden" || error.code === "plan_required" || error.code === "not_found") {
-    return error.code;
-  }
-  return null;
-}
-
-async function writeAtomically(file: string, text: string): Promise<void> {
-  const part = `${file}.part`;
-  const handle = await open(part, "w");
-  try {
-    await handle.write(text);
-  } finally {
-    await handle.close();
-  }
-  await rename(part, file);
-}
-
-async function readText(file: string): Promise<string> {
-  const handle = await open(file, "r");
-  try {
-    return await handle.readFile("utf8");
-  } finally {
-    await handle.close();
-  }
 }

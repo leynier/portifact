@@ -3,12 +3,8 @@
 // once more that it stays inside it. The rules are `pull`'s (canonical, no `..`, relative, no
 // `.git` segment) plus, on Windows, no device name and no character Windows forbids in a name.
 import type { DownloadKind } from "@portifact/contracts";
-import { isGitSegment, normalizePath } from "./paths.ts";
+import { isGitSegment, normalizePath, windowsNameProblem } from "./paths.ts";
 import { fail, ok, type Result } from "./result.ts";
-
-/** Names Windows treats as devices whatever their extension (`con.txt` opens the console). */
-const WINDOWS_DEVICE = /^(con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(\..*)?$/i;
-const WINDOWS_FORBIDDEN = /[<>:"|?*]/;
 
 /** The folder of one version's files of a kind, relative to the export folder. */
 export function exportVersionFolder(
@@ -35,12 +31,8 @@ export function exportPathSegments(path: string, windows: boolean): Result<strin
   }
   if (windows) {
     for (const segment of segments) {
-      if (WINDOWS_DEVICE.test(segment.replace(/[. ]+$/, ""))) {
-        return fail("invalid_input", "The path names a Windows device.");
-      }
-      if (WINDOWS_FORBIDDEN.test(segment) || /[. ]$/.test(segment)) {
-        return fail("invalid_input", "The path holds a name Windows cannot store.");
-      }
+      const problem = windowsNameProblem(segment);
+      if (problem) return fail("invalid_input", problem);
     }
   }
   return ok(segments);

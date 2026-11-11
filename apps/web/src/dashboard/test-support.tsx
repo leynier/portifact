@@ -674,7 +674,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       locale: null,
     },
     usage: usageView(),
-    graceForecast: { grace: null, kinds: [] },
+    graceForecast: { ownerId: "u_owner", grace: null, kinds: [] },
     webhooks: { list: [], available: true, attempts: {} },
     webhookTests: [],
     integrations: {

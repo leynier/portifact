@@ -10,6 +10,7 @@ const sha = "a".repeat(64);
 const manifest = {
   format: EXPORT_MANIFEST_FORMAT,
   space: "personal",
+  ownerId: "u_owner",
   exportedAt: "2026-11-11T00:00:00.000Z",
   artifacts: [
     {
@@ -66,7 +67,7 @@ describe("the export manifest", () => {
       file: "audit.jsonl",
       lines: 0,
     });
-    for (const skipped of ["forbidden", "plan_required", "not_found"]) {
+    for (const skipped of ["forbidden", "plan_required", "not_found", "rate_limited"]) {
       expect(ExportedLog.parse({ skipped })).toEqual({ skipped });
     }
     expect(ExportedLog.safeParse({ skipped: "broken" }).success).toBe(false);

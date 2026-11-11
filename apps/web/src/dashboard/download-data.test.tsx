@@ -55,6 +55,7 @@ afterEach(() => {
 function inGrace() {
   server.usage = usageView({ plan: { ...usageView().plan, grace: GRACE } });
   server.graceForecast = {
+    ownerId: "u_owner",
     grace: GRACE,
     kinds: [
       { kind: "versions", count: 4, from: GRACE.until },
@@ -113,15 +114,44 @@ describe("the Download your data page", () => {
   });
 });
 
+/** The visible notice: the box around its title (the live region holds the same words). */
+async function graceNotice(): Promise<HTMLElement> {
+  const titles = await screen.findAllByText(/^What the Pro plan kept is held until /, {
+    selector: "p.font-semibold",
+  });
+  return (titles[0] as HTMLElement).closest("div.flex") as HTMLElement;
+}
+
 describe("the grace notice", () => {
+  it("is announced once, by one live region that stays across pages, not by the box", async () => {
+    inGrace();
+    const { router } = renderDashboard("/usage", server);
+    const notice = await graceNotice();
+    expect(notice.closest('[role="status"]')).toBeNull();
+    const region = await waitFor(() => {
+      const found = screen
+        .getAllByRole("status")
+        .find((node) => node.textContent?.startsWith("What the Pro plan kept is held until "));
+      if (!found) throw new Error("no live region yet");
+      return found;
+    });
+    const said = region.textContent;
+    await router.navigate({ to: "/" });
+    await screen.findByRole("heading", { level: 1 });
+    await router.navigate({ to: "/plan" });
+    await screen.findByRole("heading", { level: 1, name: "Plan" });
+    // The same node with the same words: nothing re-inserted, nothing announced again.
+    expect(region.isConnected).toBe(true);
+    expect(region.textContent).toBe(said);
+  });
+
   it.each(["light", "dark"] as const)(
     "shows on every page of the space with both actions, and hides for the day (%s)",
     async (theme) => {
       document.documentElement.dataset.theme = theme;
       inGrace();
       const first = renderDashboard("/usage", server);
-      const title = await screen.findByText(/^What the Pro plan kept is held until /);
-      const notice = title.closest('[role="status"]') as HTMLElement;
+      const notice = await graceNotice();
       expect(
         within(notice).getByRole("link", { name: "Download your data" }).getAttribute("href"),
       ).toBe("/data");
@@ -132,7 +162,7 @@ describe("the grace notice", () => {
       cleanup();
 
       renderDashboard("/", server);
-      await screen.findByText(/^What the Pro plan kept is held until /);
+      await graceNotice();
       fireEvent.click(screen.getByRole("button", { name: "Hide for today" }));
       await waitFor(() =>
         expect(screen.queryByRole("button", { name: "Hide for today" })).toBeNull(),
@@ -151,8 +181,7 @@ describe("the grace notice", () => {
       usage: usageView({ plan: { ...usageView().plan, limits: PLANS.free.limits, grace: GRACE } }),
     });
     renderDashboard("/usage?workspace=acme", server);
-    const title = await screen.findByText(/^What the Pro plan kept is held until /);
-    const notice = title.closest('[role="status"]') as HTMLElement;
+    const notice = await graceNotice();
     expect(within(notice).queryByRole("link")).toBeNull();
     expect(within(notice).getByText(/Ask an admin of this space/)).toBeTruthy();
   });

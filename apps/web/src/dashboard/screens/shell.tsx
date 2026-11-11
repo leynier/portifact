@@ -138,9 +138,22 @@ function GraceNotice({ space }: { space: Space }) {
   const usage = useUsage(space.slug, spaceCan(space, "usage"));
   const [hidden, setHidden] = useState(() => hiddenToday(space));
   const grace = usage.data?.plan.grace ?? null;
-  // The Plan page and the download page show the grace themselves.
-  if (!grace || hidden || pathname === "/data" || pathname === "/plan") return null;
   const admin = spaceCan(space, "plan");
+  const title = grace
+    ? t("shell.grace.title", {
+        plan: PLAN_LABELS[grace.plan],
+        date: formatDate(grace.until, true),
+      })
+    : "";
+  const body = admin ? t("shell.grace.body") : t("shell.grace.bodyAskAdmin");
+  // One polite live region, mounted with the shell, carries the notice: moving between pages
+  // re-inserts nothing, so it is announced once per change of what it says, not on every page.
+  const [spoken, setSpoken] = useState("");
+  const message = grace && !hidden ? `${title}. ${body}` : "";
+  useEffect(() => {
+    setSpoken(message);
+  }, [message]);
+  if (!grace || hidden) return null;
   const hide = () => {
     try {
       localStorage.setItem(GRACE_HIDDEN_KEY(space), today());
@@ -150,37 +163,43 @@ function GraceNotice({ space }: { space: Space }) {
     setHidden(true);
   };
   return (
-    <div className="mb-6">
-      <Callout
-        title={t("shell.grace.title", {
-          plan: PLAN_LABELS[grace.plan],
-          date: formatDate(grace.until, true),
-        })}
-        icon={<Clock className="size-5" />}
-        action={
-          <div className="flex flex-wrap items-center gap-3">
-            {admin ? (
-              <>
-                <Link to="/data" className={buttonClasses({ intent: "primary", size: "sm" })}>
-                  {t("shell.grace.download")}
-                </Link>
-                <a
-                  href={planRequestHref(grace.plan)}
-                  className={buttonClasses({ intent: "secondary", size: "sm" })}
-                >
-                  {t("shell.grace.request", { plan: PLAN_LABELS[grace.plan] })}
-                </a>
-              </>
-            ) : null}
-            <Button intent="ghost" size="sm" onClick={hide}>
-              {t("shell.grace.hide")}
-            </Button>
-          </div>
-        }
-      >
-        {admin ? t("shell.grace.body") : t("shell.grace.bodyAskAdmin")}
-      </Callout>
-    </div>
+    <>
+      <p className="sr-only" role="status">
+        {spoken}
+      </p>
+      {/* The Plan page and the download page show the grace themselves. */}
+      {pathname === "/data" || pathname === "/plan" ? null : (
+        <div className="mb-6">
+          <Callout
+            live={false}
+            title={title}
+            icon={<Clock className="size-5" />}
+            action={
+              <div className="flex flex-wrap items-center gap-3">
+                {admin ? (
+                  <>
+                    <Link to="/data" className={buttonClasses({ intent: "primary", size: "sm" })}>
+                      {t("shell.grace.download")}
+                    </Link>
+                    <a
+                      href={planRequestHref(grace.plan)}
+                      className={buttonClasses({ intent: "secondary", size: "sm" })}
+                    >
+                      {t("shell.grace.request", { plan: PLAN_LABELS[grace.plan] })}
+                    </a>
+                  </>
+                ) : null}
+                <Button intent="ghost" size="sm" onClick={hide}>
+                  {t("shell.grace.hide")}
+                </Button>
+              </div>
+            }
+          >
+            {body}
+          </Callout>
+        </div>
+      )}
+    </>
   );
 }
 

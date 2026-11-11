@@ -425,6 +425,11 @@ export type GraceForecastKind = z.infer<typeof GraceForecastKind>;
  * only: no names, no IDs.
  */
 export const GraceForecastView = z.object({
+  /**
+   * The space's owner, opaque (an account's or a workspace's ID): `portifact export` writes it in
+   * its folder's marker, so an export of another space is never mixed into the same folder.
+   */
+  ownerId: z.string().min(1).max(200),
   grace: PlanGraceView.nullable(),
   kinds: z.array(
     z.object({
@@ -435,6 +440,9 @@ export const GraceForecastView = z.object({
   ),
 });
 export type GraceForecastView = z.infer<typeof GraceForecastView>;
+
+/** How often one person or token may ask for a space's forecast (`rate_limits`, per minute). */
+export const GRACE_FORECAST_LIMITS = { perActorPerMinute: 30 } as const;
 
 /**
  * The owner's effective plan as the usage endpoint, `portifact usage`, `get_usage` and the

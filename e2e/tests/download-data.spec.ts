@@ -54,7 +54,10 @@ test("an owner in grace sees the notice, opens the download page and downloads a
   // The notice is on every page of the space.
   for (const path of ["/", "/usage"]) {
     await page.goto(`${APP_ORIGIN}${path}`);
-    await expect(page.getByText(/^What the Pro plan kept is held until /)).toBeVisible();
+    // The visible notice (its live region, read by screen readers, holds the same words).
+    await expect(
+      page.locator("p.font-semibold", { hasText: /^What the Pro plan kept is held until / }),
+    ).toBeVisible();
   }
   expect(await axeViolations(page)).toEqual([]);
 

@@ -2,12 +2,13 @@
 // "Download your data" page, per kind, how many items and from when. Counts only, owner-scoped,
 // read on this route alone: nothing here is on another request path. The kinds and dates come from
 // `graceForecastSteps` (@portifact/domain); each count is one bounded query on the owner's rows.
-import type { GraceForecastKind } from "@portifact/contracts";
+import { GRACE_FORECAST_LIMITS, type GraceForecastKind } from "@portifact/contracts";
 import {
   type AccessDb,
   accessSchema,
   bothSides,
   type Db,
+  hitRateLimit,
   type RegionalDb,
   schema,
 } from "@portifact/db";
@@ -17,6 +18,7 @@ import {
   authorize,
   type Entitlements,
   entitlements,
+  fail,
   graceForecastSteps,
   ok,
   ownEntitlements,
@@ -28,6 +30,7 @@ import { ownerPlanRecord } from "./plans.ts";
 import { previousRetainedSql } from "./retention.ts";
 
 export interface GraceForecast {
+  ownerId: string;
   /** The owner's entitlements, whose `grace` is the running grace or null. */
   owner: Entitlements;
   kinds: { kind: GraceForecastKind; count: number; from: number }[];
@@ -45,6 +48,16 @@ export async function getGraceForecast(
 ): Promise<Result<GraceForecast>> {
   const allowed = authorize(input.actor, "usage");
   if (!allowed.ok) return allowed;
+  // Each kind is a count over the owner's rows: bounded per person or token, after authorization.
+  const hit = await hitRateLimit(
+    db.global.$client,
+    `grace-forecast:${input.actor.userId}`,
+    60_000,
+    input.now,
+  );
+  if (hit.count > GRACE_FORECAST_LIMITS.perActorPerMinute) {
+    return fail("rate_limited", "Too many requests for this forecast. Try again in a minute.");
+  }
   const ownerId = input.actor.ownerId;
   const { now } = input;
   const record = await ownerPlanRecord(db.global, ownerId);
@@ -78,7 +91,7 @@ export async function getGraceForecast(
       kinds.push({ kind: "pins", count: await pinnedArtifacts(db, ownerId), from: step.from });
     }
   }
-  return ok({ owner, kinds });
+  return ok({ ownerId, owner, kinds });
 }
 
 /** Previous versions retained now that the plan's own retention no longer keeps at `from`. */
