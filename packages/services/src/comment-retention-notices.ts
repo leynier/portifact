@@ -12,7 +12,11 @@ import { checkNoticeCapacity, commentRetentionOf, logEvent, policyOf } from "@po
 import { eq } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
 import { ownerRecipients } from "./actors.ts";
-import { commentRetentionDueAt, commentRetentionImpact } from "./comment-retention.ts";
+import {
+  commentRetentionDueAt,
+  commentRetentionImpact,
+  guardAgreement,
+} from "./comment-retention.ts";
 import {
   emailsSentInCycle,
   isEmailSuppressed,
@@ -37,7 +41,7 @@ export interface CommentRetentionNotifier {
   }): Promise<void>;
 }
 
-type Skip = "changed" | "no_admin" | "suppressed" | "capacity";
+type Skip = "changed" | "not_in_force" | "no_admin" | "suppressed" | "capacity";
 
 function skipped(reason: Skip): JobOutcome {
   // Only the reason: never an address or the workspace.
@@ -61,6 +65,8 @@ export async function sendCommentRetentionNotice(
   now: number,
   notifier: CommentRetentionNotifier,
   regionDb?: (workspaceId: string) => Promise<RegionalDb | null>,
+  /** The workspace's region's bucket: a rule that is not in force is not announced. */
+  regionBucket?: (workspaceId: string) => Promise<R2Bucket | undefined>,
 ): Promise<JobOutcome> {
   const workspaceId = row.subject ?? "";
   let payload: unknown = row.payload;
@@ -99,6 +105,11 @@ export async function sendCommentRetentionNotice(
       counts = { threads: impact.threadsAtStart, messages: impact.messagesAtStart };
     }
   }
+  // Never announce a rule that is not in force (decision 0023, "Restores"): its policy and its
+  // guard record disagree, so it deletes nothing until an admin saves it again.
+  const inForce =
+    rule !== null &&
+    (await guardAgreement(await regionBucket?.(workspaceId), workspaceId, rule.token)) === "agrees";
   const claimed = await db
     .delete(schema.outbox)
     .where(eq(schema.outbox.id, row.id))
@@ -108,6 +119,7 @@ export async function sendCommentRetentionNotice(
     return skipped("changed");
   }
   if (notice.kind === "soon" && counts.threads === 0) return skipped("changed");
+  if (!inForce) return skipped("not_in_force");
   const recipients: { email: string; locale: LocaleCode | null }[] = [];
   for (const userId of await ownerRecipients(db.global, workspaceId)) {
     const [user] = await db.global

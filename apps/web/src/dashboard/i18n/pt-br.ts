@@ -2875,6 +2875,9 @@ export const ptBR = {
   "policies.comments.pending": "A retenção de comentários entra em vigor em {date}",
   "policies.comments.active":
     "As conversas de comentários são excluídas definitivamente {days} dias após a última atividade ou, para uma conversa aberta, {days} dias após a substituição da sua versão, se isso for depois. Conversas abertas na versão atual de um artefato são mantidas.",
+  "policies.comments.notInForce": "A retenção de comentários está definida, mas não está em vigor",
+  "policies.comments.notInForceHint":
+    "Nada é excluído por ela: isso acontece após a restauração de um backup ou quando um salvamento não conseguiu registrar a regra. Salve a regra de novo para colocá-la em vigor; como qualquer regra nova, ela passa a valer após o período de aviso.",
   "policies.impact.threads":
     "{count, plural, one {# thread de comentários é excluída para sempre no dia em que a retenção entra em vigor} other {# threads de comentários são excluídas para sempre no dia em que a retenção entra em vigor}}",
   "policies.impact.messages":

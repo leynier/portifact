@@ -2830,6 +2830,9 @@ export const en = {
   "policies.comments.pending": "Comment retention takes effect on {date}",
   "policies.comments.active":
     "Comment threads are deleted for good {days} days after their last activity, or, for an open thread, {days} days after its version was replaced when that is later. Open threads on an artifact's current version are kept.",
+  "policies.comments.notInForce": "Comment retention is set but not in force",
+  "policies.comments.notInForceHint":
+    "Nothing is deleted under it: this follows a backup restore, or a save whose rule could not be recorded. Save the rule again to put it in force; like any new rule, it takes effect after the notice period.",
   "policies.impact.threads":
     "{count, plural, one {# comment thread is deleted for good the day comment retention takes effect} other {# comment threads are deleted for good the day comment retention takes effect}}",
   "policies.impact.messages":

@@ -2852,6 +2852,9 @@ export const ja = {
   "policies.comments.pending": "コメントの保持期間は {date} に適用されます",
   "policies.comments.active":
     "コメントスレッドは最後のアクティビティから {days} 日後に完全に削除されます。未解決のスレッドは、そのバージョンが置き換えられてから {days} 日後のほうが遅ければ、その時点で削除されます。アーティファクトの現在のバージョンにある未解決のスレッドは保持されます。",
+  "policies.comments.notInForce": "コメントの保持期間は設定されていますが、有効になっていません",
+  "policies.comments.notInForceHint":
+    "このルールでは何も削除されません。バックアップからの復元後、またはルールを記録できなかった保存の後に起こります。ルールをもう一度保存すると有効になります。新しいルールと同じく、予告期間の後に適用されます。",
   "policies.impact.threads":
     "{count, plural, one {# 件のコメントスレッドが保持期間の適用日に完全に削除されます} other {# 件のコメントスレッドが保持期間の適用日に完全に削除されます}}",
   "policies.impact.messages":

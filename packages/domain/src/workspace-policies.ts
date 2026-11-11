@@ -63,6 +63,7 @@ export function storedPolicy(policy: WorkspacePolicy): Partial<WorkspacePolicy> 
     artifactMaxDaysFrom,
     commentRetentionDays,
     commentRetentionFrom,
+    commentRetentionToken,
     ...rest
   } = policy;
   return {
@@ -70,7 +71,14 @@ export function storedPolicy(policy: WorkspacePolicy): Partial<WorkspacePolicy> 
     // The maximum life (decision 0023) too: stored only while set.
     ...(artifactMaxDays === null ? {} : { artifactMaxDays, artifactMaxDaysFrom }),
     // Comment retention (decision 0023) too: stored only while set.
-    ...(commentRetentionDays === null ? {} : { commentRetentionDays, commentRetentionFrom }),
+    ...(commentRetentionDays === null
+      ? {}
+      : {
+          commentRetentionDays,
+          commentRetentionFrom,
+          // The restore guard's token (decision 0023) goes with the rule it names.
+          ...(commentRetentionToken === null ? {} : { commentRetentionToken }),
+        }),
     // "SSO required" too (decision 0021): stored only while set.
     ...(ssoRequired ? { ssoRequired } : {}),
     ...(ipAllowlist === null ? {} : { ipAllowlist }),
@@ -970,6 +978,8 @@ export function shownPolicy(policy: WorkspacePolicy, sees: boolean): WorkspacePo
     ...policy,
     ipAllowlist: shownNetworks(policy.ipAllowlist, sees),
     tokenIpAllowlist: shownNetworks(policy.tokenIpAllowlist, sees),
+    // The restore guard's token never leaves the server (decision 0023).
+    commentRetentionToken: null,
   };
 }
 
@@ -1157,12 +1167,18 @@ export interface CommentRetention {
   days: number;
   /** Nothing is deleted before this (milliseconds). */
   from: number;
+  /** The restore guard's token the rule was saved with (decision 0023); null: never in force. */
+  token?: string | null;
 }
 
 /** The comment retention a policy sets, or null. */
 export function commentRetentionOf(policy: WorkspacePolicy | undefined): CommentRetention | null {
   if (!policy || policy.commentRetentionDays === null) return null;
-  return { days: policy.commentRetentionDays, from: policy.commentRetentionFrom ?? 0 };
+  return {
+    days: policy.commentRetentionDays,
+    from: policy.commentRetentionFrom ?? 0,
+    token: policy.commentRetentionToken,
+  };
 }
 
 /**
@@ -1226,14 +1242,38 @@ export function threadDeletable(
 /**
  * The comment retention as it is stored after a save: the server decides when it takes effect.
  * A new or shorter one waits the notice period; a longer one keeps the date the current one has;
- * none clears it.
+ * none clears it. The restore guard's token (decision 0023, "Restores"): `fresh` whenever the
+ * rule changes (its days or its date), the current one when it stays as it is, never the
+ * client's; without `fresh` (a preview) the current one.
  */
 export function commentTiming(
   current: WorkspacePolicy,
   next: WorkspacePolicy,
   now: number,
+  fresh?: string,
 ): WorkspacePolicy {
-  if (next.commentRetentionDays === null) return { ...next, commentRetentionFrom: null };
+  const timed = commentDates(current, next, now);
+  if (timed.commentRetentionDays === null) return timed;
+  const same =
+    current.commentRetentionDays === timed.commentRetentionDays &&
+    current.commentRetentionFrom === timed.commentRetentionFrom &&
+    current.commentRetentionToken !== null;
+  return {
+    ...timed,
+    commentRetentionToken: same
+      ? current.commentRetentionToken
+      : (fresh ?? current.commentRetentionToken),
+  };
+}
+
+function commentDates(
+  current: WorkspacePolicy,
+  next: WorkspacePolicy,
+  now: number,
+): WorkspacePolicy {
+  if (next.commentRetentionDays === null) {
+    return { ...next, commentRetentionFrom: null, commentRetentionToken: null };
+  }
   const from = commentRetentionTightened(current, next)
     ? now + WORKSPACE_POLICIES.retentionNoticeDays * DAY_MS
     : (current.commentRetentionFrom ?? now + WORKSPACE_POLICIES.retentionNoticeDays * DAY_MS);

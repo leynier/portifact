@@ -37,7 +37,11 @@ import { type RetentionNotifier, sendRetentionNotice } from "./retention-notices
 import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
 import { runThreadIssue, type ThreadIssueDeps } from "./thread-issues.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
-import { runWorkspacePolicyJob, workspaceRegionDb } from "./workspace-policies.ts";
+import {
+  runWorkspacePolicyJob,
+  workspaceRegionBucket,
+  workspaceRegionDb,
+} from "./workspace-policies.ts";
 import { advanceWorkspaceDeletion, type DeletionRegions, singleRegion } from "./workspaces.ts";
 
 /** A relayed job that is not done after this long is sent again. */
@@ -283,8 +287,13 @@ async function runRow(
       if (!commentRetentionNotifier) {
         throw new Error("comment_retention_notice needs the comment retention notifier");
       }
-      return sendCommentRetentionNotice(db, row, now, commentRetentionNotifier, (workspaceId) =>
-        workspaceRegionDb(regions, workspaceId),
+      return sendCommentRetentionNotice(
+        db,
+        row,
+        now,
+        commentRetentionNotifier,
+        (workspaceId) => workspaceRegionDb(regions, workspaceId),
+        (workspaceId) => workspaceRegionBucket(regions, workspaceId),
       );
     case "comment_tombstones":
       // Written in the regional batch that deleted the threads (a separate regional database).

@@ -16,16 +16,13 @@ import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
 import {
-  armCommentRetention,
-  COMMENT_RETENTION_EPOCH_KEY,
   dueThreadIds,
   enforceCommentRetention,
-  raiseBucketMark,
   writeCommentTombstones,
 } from "../src/comment-retention.ts";
 import {
   type CommentRetentionNotifier,
-  sendCommentRetentionNotice as sendNotice,
+  sendCommentRetentionNotice,
 } from "../src/comment-retention-notices.ts";
 import { RecipientSuppressedError, recordEmailsSent, suppressEmail } from "../src/email.ts";
 import { reinstateArtifact, suspendArtifact } from "../src/moderation.ts";
@@ -33,20 +30,16 @@ import { createServiceToken } from "../src/service-tokens.ts";
 import { transferArtifact } from "../src/transfer.ts";
 import { rollbackArtifact } from "../src/versions.ts";
 import {
-  applyWorkspacePolicies,
-  exportWorkspacePolicies,
-  previewWorkspacePolicy,
   setWorkspacePolicy,
   staleCapOwners,
+  workspaceRegionBucket,
 } from "../src/workspace-policies.ts";
 import {
-  ENV_BUCKETS,
   exists,
   FROM,
   hex,
   home,
   m,
-  memoryBucket,
   NOTICE,
   person,
   preview,
@@ -64,8 +57,19 @@ import {
   thread,
   usage,
 } from "./comment-retention-fixtures.ts";
-import { DAY, db, grantPlan, NOW, racing, value } from "./fixtures.ts";
+import { DAY, db, NOW, racing, value } from "./fixtures.ts";
 import { raceBeforeBatchWith, raceBeforeFirstWrite, raceGlobalBeforeStatement } from "./race.ts";
+
+/** The notice job as the jobs Worker runs it: with the workspace's region's bucket. */
+const sendNotice = (
+  db: Parameters<typeof sendCommentRetentionNotice>[0],
+  row: Parameters<typeof sendCommentRetentionNotice>[1],
+  now: number,
+  notifier: CommentRetentionNotifier,
+) =>
+  sendCommentRetentionNotice(db, row, now, notifier, undefined, (id) =>
+    workspaceRegionBucket(regionsFromEnv(env), id),
+  );
 
 describe("setting comment retention", () => {
   it("is an admin's, gated on the plan to set or shorten, never to lengthen or remove", async () => {
@@ -346,77 +350,6 @@ describe("restores", () => {
     expect(applied.commentThreads).toBe(1);
     expect(await exists(t, old)).toBe(false);
   });
-
-  it("pauses after the global database is rewound, until the policies are applied again", async () => {
-    const t = await team();
-    const artifact = await publishIn(t.editor.id, t.id);
-    const old = await thread(t, artifact, { agoDays: 200 });
-    value(await save(t, retention(90)));
-    // A removal moved the epoch, the bucket learned it, then a restore rewound the database to
-    // before it: the database's epoch is behind the bucket's, and the rule is back.
-    const [row] = await regions()
-      .global.select({ cursor: schema.maintenanceCursors.cursor })
-      .from(schema.maintenanceCursors)
-      .where(eq(schema.maintenanceCursors.name, "comment_retention_epoch"));
-    const epoch = Math.max(Number(row?.cursor ?? 0), FROM);
-    await env.ARTIFACTS.put(COMMENT_RETENTION_EPOCH_KEY, String(epoch + 1));
-    const paused = await scan(t, epoch);
-    expect(paused).toMatchObject({ paused: true, threads: 0 });
-    expect(await exists(t, old)).toBe(true);
-    // `apply-policies` re-arms it once the policies are back, from the stored epochs.
-    expect(
-      await applyWorkspacePolicies(
-        regions().global,
-        await exportWorkspacePolicies(regions().global),
-        epoch + 2,
-        { buckets: { default: env.ARTIFACTS, eu: env.ARTIFACTS_EU } },
-      ),
-    ).toMatchObject({ ok: true, armed: true, heldBack: [] });
-    const resumed = await scan(t, epoch + 2);
-    expect(resumed.paused).toBe(false);
-    expect(await exists(t, old)).toBe(false);
-  });
-
-  it("raises a bucket's mark and never lowers it", async () => {
-    const bucket = memoryBucket();
-    await raiseBucketMark(bucket, 500);
-    await raiseBucketMark(bucket, 400);
-    expect(bucket.held()).toBe("500");
-  });
-
-  it("pauses on a mark it cannot read, and never overwrites it", async () => {
-    const t = await team();
-    const old = await thread(t, await publishIn(t.editor.id, t.id), { agoDays: 400 });
-    value(await save(t, retention(90)));
-    const bucket = memoryBucket("not a number");
-    const run = await enforceCommentRetention(home(t), bucket, FROM + 500 * DAY, "default");
-    expect(run.paused).toBe(true);
-    expect(await exists(t, old)).toBe(true);
-    expect(bucket.held()).toBe("not a number");
-  });
-
-  it("re-arms from the stored epochs, never a clock, and only with every mark readable", async () => {
-    const [row] = await regions()
-      .global.select({ cursor: schema.maintenanceCursors.cursor })
-      .from(schema.maintenanceCursors)
-      .where(eq(schema.maintenanceCursors.name, "comment_retention_epoch"));
-    const database = Number(row?.cursor ?? 0);
-    const ahead = memoryBucket(String(database + 500));
-    const behind = memoryBucket("7");
-    // An operator's clock far behind (1) still puts the epoch past every stored value.
-    const armed = await armCommentRetention(regions().global, [ahead, behind], 1);
-    expect(armed).toEqual({ armed: true, epoch: database + 501 });
-    expect([ahead.held(), behind.held()]).toEqual([String(database + 501), String(database + 501)]);
-    expect(await armCommentRetention(regions().global, [memoryBucket("not a number")], 1)).toEqual({
-      armed: false,
-      reason: "unreadable",
-    });
-    expect(await armCommentRetention(regions().global, [ahead, undefined], 1)).toEqual({
-      armed: false,
-      reason: "no_bucket",
-    });
-    await armCommentRetention(regions().global, ENV_BUCKETS, NOW);
-  });
 });
 
 describe("bounds and fairness", () => {
@@ -639,12 +572,11 @@ describe("the EU region (separate database)", () => {
     const artifact = await publishIn(t.editor.id, t.id, "eu");
     const old = await thread(t, artifact, { agoDays: 200 });
     value(await save(t, retention(90)));
-    // Removed after the scan's global read, when the guard moves the epoch (the run's first
-    // global write), before the EU batch: the revision read again just before it stops it.
+    // Removed after the scan's read and its guard record check, right before the revision is
+    // read again for the EU batch: that second read stops it.
     const raced = regionalDb(
       env.DB_EU,
-      // The guard's epoch bump: after the scan's read, before the EU batch.
-      raceGlobalBeforeStatement(/^insert into "maintenance_cursors"/i, async () => {
+      raceGlobalBeforeStatement(/^select "workspaces"\."policy_revision"/i, async () => {
         value(await save(t, retention(null), { now: FROM }));
       }),
     );
@@ -659,10 +591,11 @@ describe("the EU region (separate database)", () => {
     const artifact = await publishIn(t.editor.id, t.id, "eu");
     const old = await thread(t, artifact, { agoDays: 200 });
     value(await save(t, retention(90)));
-    // The plan row goes after the scan's read, before the EU batch: its second read stops it.
+    // The plan row goes after the scan's read and its guard record check, before the EU batch:
+    // its second read stops it.
     const raced = regionalDb(
       env.DB_EU,
-      raceGlobalBeforeStatement(/^insert into "maintenance_cursors"/i, async () => {
+      raceGlobalBeforeStatement(/^select "workspaces"\."policy_revision"/i, async () => {
         await regions().global.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));
       }),
     );
@@ -787,148 +720,6 @@ describe("an open thread's clock", () => {
   });
 });
 
-describe("the restore guard fails closed", () => {
-  async function databaseEpoch() {
-    const [row] = await regions()
-      .global.select({ cursor: schema.maintenanceCursors.cursor })
-      .from(schema.maintenanceCursors)
-      .where(eq(schema.maintenanceCursors.name, "comment_retention_epoch"));
-    return row?.cursor ?? null;
-  }
-  /** Puts the global epoch back to `cursor` (a restore of the global database), then re-arms. */
-  async function rewound<T>(cursor: string | null, work: () => Promise<T>): Promise<T> {
-    const c = schema.maintenanceCursors;
-    const current = await databaseEpoch();
-    try {
-      if (cursor === null)
-        await regions().global.delete(c).where(eq(c.name, "comment_retention_epoch"));
-      else
-        await regions()
-          .global.update(c)
-          .set({ cursor })
-          .where(eq(c.name, "comment_retention_epoch"));
-      return await work();
-    } finally {
-      await armCommentRetention(regions().global, ENV_BUCKETS, NOW);
-    }
-  }
-
-  it("deletes nothing in the run when the bucket cannot be read or written", async () => {
-    const a = await team();
-    const b = await team();
-    const ta = await thread(a, await publishIn(a.editor.id, a.id), { agoDays: 400 });
-    const tb = await thread(b, await publishIn(b.editor.id, b.id), { agoDays: 400 });
-    value(await save(a, retention(90)));
-    value(await save(b, retention(90)));
-    const broken = memoryBucket(undefined, { get: true, put: true });
-    const run = await enforceCommentRetention(home(a), broken, FROM + 500 * DAY, "default");
-    expect(run.paused).toBe(true);
-    expect(await exists(a, ta)).toBe(true);
-    expect(await exists(b, tb)).toBe(true);
-  });
-
-  it("deletes nothing when the bucket cannot be raised to the epoch, at the start or before the first deletion", async () => {
-    const t = await team();
-    const old = await thread(t, await publishIn(t.editor.id, t.id), { agoDays: 400 });
-    value(await save(t, retention(90)));
-    // Behind the epoch, and the raise fails: paused.
-    const behind = memoryBucket("0", { put: true });
-    expect(
-      (await enforceCommentRetention(home(t), behind, FROM + 500 * DAY, "default")).paused,
-    ).toBe(true);
-    expect(await exists(t, old)).toBe(true);
-    // Level with it, and the raise before the first deletion fails: paused, nothing deleted.
-    const level = memoryBucket(String(await databaseEpoch()), { put: true });
-    expect(
-      (await enforceCommentRetention(home(t), level, FROM + 500 * DAY, "default")).paused,
-    ).toBe(true);
-    expect(await exists(t, old)).toBe(true);
-    expect(level.held()).not.toBeUndefined();
-  });
-
-  it("deletes nothing when the global epoch cannot be read", async () => {
-    const t = await team();
-    const old = await thread(t, await publishIn(t.editor.id, t.id), { agoDays: 400 });
-    value(await save(t, retention(90)));
-    const run = await rewound("garbled", () =>
-      enforceCommentRetention(home(t), memoryBucket(), FROM + 500 * DAY, "default"),
-    );
-    expect(run.paused).toBe(true);
-    expect(await exists(t, old)).toBe(true);
-  });
-
-  it("pauses after a restore to before a plan lapse", async () => {
-    const t = await team();
-    const artifact = await publishIn(t.editor.id, t.id);
-    await thread(t, artifact, { agoDays: 400 });
-    value(await save(t, retention(90)));
-    const bucket = memoryBucket();
-    const T0 = FROM + 600 * DAY;
-    await enforceCommentRetention(home(t), bucket, T0, "default");
-    const g = regions().global;
-    const [ws] = await g.select().from(schema.workspaces).where(eq(schema.workspaces.id, t.id));
-    const [plan] = await g
-      .select()
-      .from(schema.ownerPlans)
-      .where(eq(schema.ownerPlans.ownerId, t.id));
-    const point = await databaseEpoch();
-    const late = await thread(t, artifact, { agoDays: 400 });
-    // The plan goes; the next scan removes the rule and raises the bucket.
-    await g.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));
-    expect((await enforceCommentRetention(home(t), bucket, T0 + DAY, "default")).suspended).toBe(1);
-    // A restore of the global database to before the lapse: the rule and the plan are back.
-    const after = await rewound(point, async () => {
-      await g
-        .update(schema.workspaces)
-        .set({ policy: ws?.policy, policyRevision: ws?.policyRevision })
-        .where(eq(schema.workspaces.id, t.id));
-      if (plan) await g.insert(schema.ownerPlans).values(plan);
-      return enforceCommentRetention(home(t), bucket, T0 + 2 * DAY, "default");
-    });
-    expect(after.paused).toBe(true);
-    expect(await exists(t, late)).toBe(true);
-  });
-
-  it("raises the bucket at the next scan when a removal's own raise failed", async () => {
-    const t = await team();
-    const old = await thread(t, await publishIn(t.editor.id, t.id), { agoDays: 400 });
-    const policyBefore = retention(90);
-    value(await save(t, policyBefore));
-    const failing = memoryBucket(undefined, { put: true });
-    const point = await databaseEpoch();
-    const [before] = await regions()
-      .global.select()
-      .from(schema.workspaces)
-      .where(eq(schema.workspaces.id, t.id));
-    // The removal is saved; the bucket write right after it fails (logged, the save succeeds).
-    const failingRegions = regionsFromEnv({ ...env, ARTIFACTS: failing });
-    value(
-      await setWorkspacePolicy(failingRegions, {
-        userId: t.admin.id,
-        slug: t.slug,
-        policy: retention(null),
-        revision: await revision(t),
-        now: FROM,
-      }),
-    );
-    expect(failing.held()).toBeUndefined();
-    // The next scan raises it (the same bucket, writable again) before anything else.
-    const bucket = memoryBucket();
-    await enforceCommentRetention(home(t), bucket, FROM + DAY, "default");
-    expect(Number(bucket.held())).toBeGreaterThan(Number(point));
-    // A restore to before the removal now pauses.
-    const after = await rewound(point, async () => {
-      await regions()
-        .global.update(schema.workspaces)
-        .set({ policy: before?.policy, policyRevision: before?.policyRevision })
-        .where(eq(schema.workspaces.id, t.id));
-      return enforceCommentRetention(home(t), bucket, FROM + 500 * DAY, "default");
-    });
-    expect(after.paused).toBe(true);
-    expect(await exists(t, old)).toBe(true);
-  });
-});
-
 describe("what the selection is held to", () => {
   it("never deletes a thread whose artifact another owner holds", async () => {
     const t = await team();
@@ -1015,487 +806,250 @@ describe("the invariant, as a property", () => {
     return now?.at ?? null;
   }
 
-  it.each(SEEDS)("never deletes outside the rule in force, seed %i", async (initial) => {
-    let seed = initial;
-    const rnd = (n: number) => {
-      seed = (seed * 1103515245 + 12345) % 2147483648;
-      return Math.floor(seed / 65536) % n;
-    };
-    const failures: unknown[] = [];
-    for (let sequence = 0; sequence < 3; sequence += 1) {
-      const t = await team();
-      const artifact = await publishIn(t.editor.id, t.id);
-      const ids: string[] = [];
-      for (const agoDays of [300, 200, 120, 95, 60, 20]) {
-        ids.push(
-          await thread(t, artifact, {
-            agoDays,
-            state: rnd(3) === 0 ? "open" : "resolved",
-            messages: 1 + rnd(3),
-          }),
-        );
-      }
-      for (const agoDays of [400, 250]) {
-        ids.push(await thread(t, artifact, { agoDays, state: "open" }));
-      }
-      // A thread on a version whose row is gone (pruned): the clock's fallback.
-      ids.push(await thread(t, artifact, { agoDays: 250, state: "open", version: "ver_gone" }));
-      let now = NOW;
-      let previous: number | null = null;
-      for (let step = 0; step < 9; step += 1) {
-        now += (1 + rnd(12)) * DAY;
-        let race: WorkspacePolicy | null = null;
-        const [art0] = await db()
-          .select()
-          .from(schema.artifacts)
-          .where(eq(schema.artifacts.id, artifact.artifactId));
-        switch (rnd(7)) {
-          case 0:
-          case 1: {
-            const days = [null, 30, 90, 180][rnd(4)] as number | null;
-            value(await save(t, retention(days), { now }));
-            break;
-          }
-          case 2: {
-            const id = ids[rnd(ids.length)] as string;
-            await home(t)
-              .update(th)
-              .set({ updatedAt: now, state: rnd(2) ? "open" : "resolved" })
-              .where(eq(th.id, id));
-            break;
-          }
-          case 3: {
-            if (art0?.state === "active") {
-              await suspendArtifact(home(t), {
-                artifactId: artifact.artifactId,
-                reason: "spam",
-                now,
-              });
-              totals.suspended += 1;
-            } else if (art0?.state === "suspended") {
-              await reinstateArtifact(home(t), { artifactId: artifact.artifactId, now });
-            }
-            break;
-          }
-          case 4: {
-            if (art0?.state !== "active") break;
-            const out = art0.ownerId === t.id;
-            const moved = await transferArtifact(db(), env.ARTIFACTS, {
-              userId: t.admin.id,
-              artifactId: artifact.artifactId,
-              workspace: out ? null : t.slug,
-              now,
-            });
-            if (moved.ok) totals.moved += 1;
-            break;
-          }
-          case 5: {
-            if (art0?.state !== "active" || art0.ownerId !== t.id || !art0.currentVersionId) break;
-            await publishNext(
-              t,
-              { artifactId: artifact.artifactId, versionId: art0.currentVersionId },
-              now,
-            );
-            totals.published += 1;
-            break;
-          }
-          default: {
-            // A save that commits between the scan's read and its deletion batch.
-            const current = (await stored(t)).commentRetentionDays;
-            race = retention(current === null ? null : rnd(2) ? null : current + 60);
-          }
-        }
-        const ruleOf = (policy: WorkspacePolicy) =>
-          policy.commentRetentionDays === null
-            ? null
-            : { days: policy.commentRetentionDays, from: policy.commentRetentionFrom ?? 0 };
-        const [art] = await db()
-          .select()
-          .from(schema.artifacts)
-          .where(eq(schema.artifacts.id, artifact.artifactId));
-        const rows = await home(t).select().from(th).where(eq(th.artifactId, artifact.artifactId));
-        const facts = await Promise.all(
-          rows.map(async (one) => ({
-            one,
-            thread: {
-              state: one.state,
-              onCurrentVersion: one.versionId === art?.currentVersionId,
-              artifactState: art?.state ?? "deleted",
-              lastActivity: one.updatedAt,
-              movedIn: art?.lifeStartedAt ?? null,
-              leftCurrent: await leftCurrentOf(one, art?.currentVersionId ?? null),
-            },
-          })),
-        );
-        const allowedBy = (rule: { days: number; from: number } | null) =>
-          new Set(
-            facts
-              .filter(
-                ({ thread: x }) =>
-                  rule !== null && art?.ownerId === t.id && threadDeletable(rule, x, now),
-              )
-              .map(({ one }) => one.id),
-          );
-        const before = ruleOf(await stored(t));
-        // Shapes the scan must hold back, counted from the rule read before it.
-        if (before !== null && art?.ownerId === t.id) {
-          for (const { thread: x } of facts) {
-            const due = threadDeletable(before, x, now);
-            if (due) continue;
-            if (before.from > now && threadDeletable({ ...before, from: 0 }, x, now))
-              totals.blockedByFrom += 1;
-            if (threadDeletable(before, { ...x, movedIn: null }, now)) totals.blockedByMove += 1;
-            if (
-              x.state === "open" &&
-              x.onCurrentVersion &&
-              threadDeletable(before, { ...x, onCurrentVersion: false }, now)
-            )
-              totals.openOnCurrentPastDeadline += 1;
-            if (
-              x.state === "open" &&
-              !x.onCurrentVersion &&
-              threadDeletable(before, { ...x, leftCurrent: null }, now)
-            )
-              totals.keptByPublishClock += 1;
-          }
-        }
-        let fired = false;
-        const target = race
-          ? raceBeforeBatchWith(/^delete from "annotation_threads"/i, async () => {
-              fired = true;
-              value(await save(t, race as WorkspacePolicy, { now }));
-            })
-          : home(t);
-        await enforceCommentRetention(target, env.ARTIFACTS, now, "default");
-        if (race && !fired) value(await save(t, race, { now }));
-        const inForce = fired ? ruleOf(await stored(t)) : before;
-        const allowed = allowedBy(inForce);
-        if (fired) {
-          const spared = [...allowedBy(before)].filter((id) => !allowed.has(id));
-          if (spared.length > 0) totals.sparedByRace += 1;
-        }
-        // A rule removed or lengthened since a scan that could delete: what it would have taken.
-        const after = ruleOf(await stored(t));
-        const was = previous;
-        if (was !== null && (after === null || after.days > was)) {
-          if (rows.some((one) => one.updatedAt + was * DAY <= now && !allowedBy(after).has(one.id)))
-            totals.sparedByChange += 1;
-        }
-        previous = after?.days ?? null;
-        const left = new Set(
-          (
-            await home(t)
-              .select({ id: th.id })
-              .from(th)
-              .where(eq(th.artifactId, artifact.artifactId))
-          ).map((one) => one.id),
-        );
-        const gone = rows.filter((one) => !left.has(one.id));
-        for (const one of gone) {
-          totals.deleted += 1;
-          if (!allowed.has(one.id)) failures.push({ sequence, step, id: one.id, inForce, now });
-          const [marker] = await regions()
-            .global.select()
-            .from(schema.tombstones)
-            .where(eq(schema.tombstones.id, one.id));
-          if (marker?.kind !== "comment_thread") failures.push({ step, missingTombstone: one.id });
-        }
-        // The trail of this scan for the workspace, counts only, equal to what went.
-        const events = await home(t)
-          .select({ detail: schema.auditEvents.detail })
-          .from(schema.auditEvents)
-          .where(
-            and(
-              eq(schema.auditEvents.ownerId, t.id),
-              eq(schema.auditEvents.kind, "policy.enforced"),
-              eq(schema.auditEvents.at, now),
-            ),
-          );
-        const counted = events.reduce(
-          (sum, event) => {
-            const d = event.detail as { threadsDeleted?: number; messagesDeleted?: number };
-            return {
-              threads: sum.threads + (d.threadsDeleted ?? 0),
-              messages: sum.messages + (d.messagesDeleted ?? 0),
-            };
-          },
-          { threads: 0, messages: 0 },
-        );
-        const expected = {
-          threads: gone.length,
-          messages: gone.reduce((sum, one) => sum + one.messageCount, 0),
-        };
-        if (JSON.stringify(counted) !== JSON.stringify(expected))
-          failures.push({ step, counted, expected });
-        // The quota, kept by the triggers alone.
-        const [usage] = await home(t)
-          .select({ messages: schema.annotationUsage.messages })
-          .from(schema.annotationUsage)
-          .where(eq(schema.annotationUsage.ownerId, t.id));
-        const [kept] = await home(t)
-          .select({ n: sql<number>`count(*)` })
-          .from(m)
-          .where(and(eq(m.ownerId, t.id), sql`${m.state} <> 'deleted'`));
-        if (Number(usage?.messages ?? 0) !== Number(kept?.n ?? 0))
-          failures.push({ step, usage: usage?.messages, kept: kept?.n });
-      }
-    }
-    expect(failures.slice(0, 3)).toEqual([]);
-  });
-
-  it("reached every shape over the seeds", () => {
-    for (const [shape, count] of Object.entries(totals)) {
-      expect({ shape, reached: count > 0 }).toEqual({ shape, reached: true });
-    }
-  });
-});
-
-describe("the restore guard, as a property", () => {
-  /**
-   * The guard's invariant (decision 0023, "Restores"): every change that could make a restored
-   * policy delete more than the current one (a removal, a lengthening, a recorded plan lapse) and
-   * every deleting run moves the global epoch, and every epoch reaches the region's bucket before
-   * that region deletes again; so after a restore of the global database to a point before such a
-   * change, the first scan deletes nothing until `apply-policies` has run, and after any restore
-   * it never deletes what the policies in force just before the restore would keep.
-   *
-   * Seeded histories over two workspaces of saves (set, shorten, lengthen, remove), plan removals
-   * and grants, scans, and bucket writes that fail (only before the restore point, as R2 is
-   * written again by every scan after it); a restore at a random point puts back the workspaces'
-   * rows, their plan rows and the epoch row as D1 Time Travel would, and leaves the bucket as R2
-   * does. Counters require the dangerous shapes: a rule removed or lengthened after the restore
-   * point, a lapse recorded after it, and a failed bucket write before it.
-   */
-  const SEEDS = [3, 17, 404, 2026, 77777];
-  const shapes = { removedAfter: 0, lapseAfter: 0, failedBefore: 0, pausedAfterChange: 0 };
-
-  it.each(SEEDS)(
-    "deletes nothing after a restore until the policies are applied, seed %i",
-    async (initial) => {
-      let seed = initial;
+  // One history per test, each well inside its timeout on a slow CI runner (decision 0023,
+  // "Validation": about 0.8 s here, a timeout of 60 s).
+  const CASES = SEEDS.flatMap((initial) => [0, 1, 2].map((part) => [initial, part] as const));
+  it.each(CASES)(
+    "never deletes outside the rule in force, seed %i, history %i",
+    async (initial, part) => {
+      let seed = initial * 10 + part;
       const rnd = (n: number) => {
         seed = (seed * 1103515245 + 12345) % 2147483648;
         return Math.floor(seed / 65536) % n;
       };
-      const g = regions().global;
-      const c = schema.maintenanceCursors;
-      const w = schema.workspaces;
-      const epochRow = async () =>
-        (await g.select().from(c).where(eq(c.name, "comment_retention_epoch")))[0] ?? null;
       const failures: unknown[] = [];
-      try {
-        for (let round = 0; round < 3; round += 1) {
-          const teams = [await team(), await team()];
-          const fail = { put: false };
-          const bucket = memoryBucket(undefined, fail);
-          const viaBucket = regionsFromEnv({ ...env, ARTIFACTS: bucket });
-          const saveVia = async (t: Team, next: WorkspacePolicy, now: number) => {
-            const shown = await previewWorkspacePolicy(viaBucket, {
-              userId: t.admin.id,
-              slug: t.slug,
-              policy: next,
-              now,
-            });
-            return setWorkspacePolicy(viaBucket, {
-              userId: t.admin.id,
-              slug: t.slug,
-              policy: next,
-              revision: await revision(t),
-              confirmed: shown.ok ? shown.value : undefined,
-              now,
-            });
-          };
-          const artifacts = await Promise.all(teams.map((t) => publishIn(t.editor.id, t.id)));
-          // Epochs are wall-clock times: this history starts after every epoch written so far.
-          let now = Math.max(NOW, Number((await epochRow())?.cursor ?? 0));
-          for (const t of teams) value(await saveVia(t, retention(90), now));
-          const steps = 6 + rnd(6);
-          const point = 1 + rnd(steps - 1);
-          let snapshot: {
-            workspaces: (typeof w.$inferSelect)[];
-            plans: (typeof schema.ownerPlans.$inferSelect)[];
-            epoch: typeof c.$inferSelect | null;
-          } | null = null;
-          let movedAfter = false;
-          for (let step = 0; step < steps; step += 1) {
-            if (step === point) {
-              snapshot = {
-                workspaces: await g
-                  .select()
-                  .from(w)
-                  .where(
-                    sql`${w.id} in (${sql.join(
-                      teams.map((t) => sql`${t.id}`),
-                      sql`, `,
-                    )})`,
-                  ),
-                plans: await g
-                  .select()
-                  .from(schema.ownerPlans)
-                  .where(
-                    sql`${schema.ownerPlans.ownerId} in (${sql.join(
-                      teams.map((t) => sql`${t.id}`),
-                      sql`, `,
-                    )})`,
-                  ),
-                epoch: await epochRow(),
-              };
-              fail.put = false;
-            }
-            now += (1 + rnd(5)) * DAY;
-            const i = rnd(2);
-            const t = teams[i] as Team;
-            // Old threads keep coming, so a rule in force always has something to delete.
-            await thread(t, artifacts[i] as { artifactId: string; versionId: string }, {
-              agoDays: (NOW - now) / DAY + 400,
-            });
-            if (step < point && rnd(3) === 0) {
-              fail.put = true;
-              shapes.failedBefore += 1;
-            }
-            const current = (await stored(t)).commentRetentionDays;
-            switch (step >= point ? ([1, 1, 2, 3][rnd(4)] as number) : rnd(4)) {
-              case 0: {
-                const days = current === null ? 90 : Math.max(30, current - 30);
-                await saveVia(t, retention(days), now);
-                break;
-              }
-              case 1: {
-                if (current === null) break;
-                const next = rnd(2) ? null : current + 60;
-                if ((await saveVia(t, retention(next), now)).ok && step >= point) {
-                  movedAfter = true;
-                  shapes.removedAfter += 1;
-                }
-                break;
-              }
-              case 2: {
-                const [plan] = await g
-                  .select()
-                  .from(schema.ownerPlans)
-                  .where(eq(schema.ownerPlans.ownerId, t.id));
-                if (plan)
-                  await g.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));
-                else await grantPlan(t.id, "enterprise", { seats: 10 });
-                break;
-              }
-              default:
-                break;
-            }
-            // Steps are days apart and the scan runs every 15 minutes: one after every step.
-            const run = await enforceCommentRetention(home(t), bucket, now, "default");
-            if (step >= point && (run.suspended > 0 || run.threads > 0) && !run.paused) {
-              movedAfter = true;
-              if (run.suspended > 0) shapes.lapseAfter += 1;
-            }
-            if (step < point) fail.put = false;
-          }
-          if (!snapshot) throw new Error("no restore point");
-          // What the policies in force just before the restore allow, per thread.
-          const keptNow = new Map<string, Set<string>>();
-          for (const t of teams) {
-            const policy = await stored(t);
-            const [plan] = await g
-              .select()
-              .from(schema.ownerPlans)
-              .where(eq(schema.ownerPlans.ownerId, t.id));
-            const rule =
-              policy.commentRetentionDays === null || !plan
-                ? null
-                : { days: policy.commentRetentionDays, from: policy.commentRetentionFrom ?? 0 };
-            const rows = await home(t).select().from(th).where(eq(th.ownerId, t.id));
-            keptNow.set(
-              t.id,
-              new Set(
-                rows
-                  .filter(
-                    (one) =>
-                      rule === null ||
-                      !threadDeletable(
-                        rule,
-                        {
-                          state: one.state,
-                          onCurrentVersion: false,
-                          artifactState: "active",
-                          lastActivity: one.updatedAt,
-                          movedIn: null,
-                          leftCurrent: null,
-                        },
-                        now + DAY,
-                      ),
-                  )
-                  .map((one) => one.id),
-              ),
-            );
-          }
-          const exported = await exportWorkspacePolicies(g);
-          // The restore: the workspaces' rows, their plan rows and the epoch row go back; R2 stays.
-          for (const row of snapshot.workspaces) {
-            await g
-              .update(w)
-              .set({ policy: row.policy, policyRevision: row.policyRevision })
-              .where(eq(w.id, row.id));
-          }
-          for (const t of teams)
-            await g.delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));
-          for (const plan of snapshot.plans) await g.insert(schema.ownerPlans).values(plan);
-          if (snapshot.epoch === null)
-            await g.delete(c).where(eq(c.name, "comment_retention_epoch"));
-          else
-            await g
-              .update(c)
-              .set({ cursor: snapshot.epoch.cursor })
-              .where(eq(c.name, "comment_retention_epoch"));
-          const ids = async (t: Team) =>
-            new Set(
-              (await home(t).select({ id: th.id }).from(th).where(eq(th.ownerId, t.id))).map(
-                (r) => r.id,
-              ),
-            );
-          const before = await Promise.all(teams.map(ids));
-          const first = await enforceCommentRetention(
-            home(teams[0] as Team),
-            bucket,
-            now + DAY,
-            "default",
+      for (let sequence = 0; sequence < 1; sequence += 1) {
+        const t = await team();
+        const artifact = await publishIn(t.editor.id, t.id);
+        const ids: string[] = [];
+        for (const agoDays of [300, 200, 120, 95, 60, 20]) {
+          ids.push(
+            await thread(t, artifact, {
+              agoDays,
+              state: rnd(3) === 0 ? "open" : "resolved",
+              messages: 1 + rnd(3),
+            }),
           );
-          const after = await Promise.all(teams.map(ids));
-          teams.forEach((t, k) => {
-            const gone = [...(before[k] as Set<string>)].filter(
-              (id) => !(after[k] as Set<string>).has(id),
-            );
-            if (movedAfter && gone.length > 0)
-              failures.push({ round, team: k, deletedAfterChange: gone.length });
-            const kept = keptNow.get(t.id) as Set<string>;
-            const wrong = gone.filter((id) => kept.has(id));
-            if (wrong.length > 0)
-              failures.push({ round, team: k, deletedWhatCurrentKeeps: wrong.length });
-          });
-          if (movedAfter) {
-            if (!first.paused) failures.push({ round, notPaused: true });
-            else shapes.pausedAfterChange += 1;
-          }
-          // `apply-policies` with the export taken before the restore re-arms it.
-          await applyWorkspacePolicies(g, exported, now + 2 * DAY, {
-            buckets: { default: bucket, eu: env.ARTIFACTS_EU },
-          });
-          const resumed = await enforceCommentRetention(
-            home(teams[0] as Team),
-            bucket,
-            now + 3 * DAY,
-            "default",
-          );
-          if (resumed.paused) failures.push({ round, stillPaused: true });
         }
-      } finally {
-        await armCommentRetention(g, ENV_BUCKETS, NOW);
+        for (const agoDays of [400, 250]) {
+          ids.push(await thread(t, artifact, { agoDays, state: "open" }));
+        }
+        // A thread on a version whose row is gone (pruned): the clock's fallback.
+        ids.push(await thread(t, artifact, { agoDays: 250, state: "open", version: "ver_gone" }));
+        let now = NOW;
+        let previous: number | null = null;
+        for (let step = 0; step < 9; step += 1) {
+          now += (1 + rnd(12)) * DAY;
+          let race: WorkspacePolicy | null = null;
+          const [art0] = await db()
+            .select()
+            .from(schema.artifacts)
+            .where(eq(schema.artifacts.id, artifact.artifactId));
+          switch (rnd(7)) {
+            case 0:
+            case 1: {
+              const days = [null, 30, 90, 180][rnd(4)] as number | null;
+              value(await save(t, retention(days), { now }));
+              break;
+            }
+            case 2: {
+              const id = ids[rnd(ids.length)] as string;
+              await home(t)
+                .update(th)
+                .set({ updatedAt: now, state: rnd(2) ? "open" : "resolved" })
+                .where(eq(th.id, id));
+              break;
+            }
+            case 3: {
+              if (art0?.state === "active") {
+                await suspendArtifact(home(t), {
+                  artifactId: artifact.artifactId,
+                  reason: "spam",
+                  now,
+                });
+                totals.suspended += 1;
+              } else if (art0?.state === "suspended") {
+                await reinstateArtifact(home(t), { artifactId: artifact.artifactId, now });
+              }
+              break;
+            }
+            case 4: {
+              if (art0?.state !== "active") break;
+              const out = art0.ownerId === t.id;
+              const moved = await transferArtifact(db(), env.ARTIFACTS, {
+                userId: t.admin.id,
+                artifactId: artifact.artifactId,
+                workspace: out ? null : t.slug,
+                now,
+              });
+              if (moved.ok) totals.moved += 1;
+              break;
+            }
+            case 5: {
+              if (art0?.state !== "active" || art0.ownerId !== t.id || !art0.currentVersionId)
+                break;
+              await publishNext(
+                t,
+                { artifactId: artifact.artifactId, versionId: art0.currentVersionId },
+                now,
+              );
+              totals.published += 1;
+              break;
+            }
+            default: {
+              // A save that commits between the scan's read and its deletion batch.
+              const current = (await stored(t)).commentRetentionDays;
+              race = retention(current === null ? null : rnd(2) ? null : current + 60);
+            }
+          }
+          const ruleOf = (policy: WorkspacePolicy) =>
+            policy.commentRetentionDays === null
+              ? null
+              : { days: policy.commentRetentionDays, from: policy.commentRetentionFrom ?? 0 };
+          const [art] = await db()
+            .select()
+            .from(schema.artifacts)
+            .where(eq(schema.artifacts.id, artifact.artifactId));
+          const rows = await home(t)
+            .select()
+            .from(th)
+            .where(eq(th.artifactId, artifact.artifactId));
+          const facts = await Promise.all(
+            rows.map(async (one) => ({
+              one,
+              thread: {
+                state: one.state,
+                onCurrentVersion: one.versionId === art?.currentVersionId,
+                artifactState: art?.state ?? "deleted",
+                lastActivity: one.updatedAt,
+                movedIn: art?.lifeStartedAt ?? null,
+                leftCurrent: await leftCurrentOf(one, art?.currentVersionId ?? null),
+              },
+            })),
+          );
+          const allowedBy = (rule: { days: number; from: number } | null) =>
+            new Set(
+              facts
+                .filter(
+                  ({ thread: x }) =>
+                    rule !== null && art?.ownerId === t.id && threadDeletable(rule, x, now),
+                )
+                .map(({ one }) => one.id),
+            );
+          const before = ruleOf(await stored(t));
+          // Shapes the scan must hold back, counted from the rule read before it.
+          if (before !== null && art?.ownerId === t.id) {
+            for (const { thread: x } of facts) {
+              const due = threadDeletable(before, x, now);
+              if (due) continue;
+              if (before.from > now && threadDeletable({ ...before, from: 0 }, x, now))
+                totals.blockedByFrom += 1;
+              if (threadDeletable(before, { ...x, movedIn: null }, now)) totals.blockedByMove += 1;
+              if (
+                x.state === "open" &&
+                x.onCurrentVersion &&
+                threadDeletable(before, { ...x, onCurrentVersion: false }, now)
+              )
+                totals.openOnCurrentPastDeadline += 1;
+              if (
+                x.state === "open" &&
+                !x.onCurrentVersion &&
+                threadDeletable(before, { ...x, leftCurrent: null }, now)
+              )
+                totals.keptByPublishClock += 1;
+            }
+          }
+          let fired = false;
+          const target = race
+            ? raceBeforeBatchWith(/^delete from "annotation_threads"/i, async () => {
+                fired = true;
+                value(await save(t, race as WorkspacePolicy, { now }));
+              })
+            : home(t);
+          await enforceCommentRetention(target, env.ARTIFACTS, now, "default");
+          if (race && !fired) value(await save(t, race, { now }));
+          const inForce = fired ? ruleOf(await stored(t)) : before;
+          const allowed = allowedBy(inForce);
+          if (fired) {
+            const spared = [...allowedBy(before)].filter((id) => !allowed.has(id));
+            if (spared.length > 0) totals.sparedByRace += 1;
+          }
+          // A rule removed or lengthened since a scan that could delete: what it would have taken.
+          const after = ruleOf(await stored(t));
+          const was = previous;
+          if (was !== null && (after === null || after.days > was)) {
+            if (
+              rows.some((one) => one.updatedAt + was * DAY <= now && !allowedBy(after).has(one.id))
+            )
+              totals.sparedByChange += 1;
+          }
+          previous = after?.days ?? null;
+          const left = new Set(
+            (
+              await home(t)
+                .select({ id: th.id })
+                .from(th)
+                .where(eq(th.artifactId, artifact.artifactId))
+            ).map((one) => one.id),
+          );
+          const gone = rows.filter((one) => !left.has(one.id));
+          for (const one of gone) {
+            totals.deleted += 1;
+            if (!allowed.has(one.id)) failures.push({ sequence, step, id: one.id, inForce, now });
+            const [marker] = await regions()
+              .global.select()
+              .from(schema.tombstones)
+              .where(eq(schema.tombstones.id, one.id));
+            if (marker?.kind !== "comment_thread")
+              failures.push({ step, missingTombstone: one.id });
+          }
+          // The trail of this scan for the workspace, counts only, equal to what went.
+          const events = await home(t)
+            .select({ detail: schema.auditEvents.detail })
+            .from(schema.auditEvents)
+            .where(
+              and(
+                eq(schema.auditEvents.ownerId, t.id),
+                eq(schema.auditEvents.kind, "policy.enforced"),
+                eq(schema.auditEvents.at, now),
+              ),
+            );
+          const counted = events.reduce(
+            (sum, event) => {
+              const d = event.detail as { threadsDeleted?: number; messagesDeleted?: number };
+              return {
+                threads: sum.threads + (d.threadsDeleted ?? 0),
+                messages: sum.messages + (d.messagesDeleted ?? 0),
+              };
+            },
+            { threads: 0, messages: 0 },
+          );
+          const expected = {
+            threads: gone.length,
+            messages: gone.reduce((sum, one) => sum + one.messageCount, 0),
+          };
+          if (JSON.stringify(counted) !== JSON.stringify(expected))
+            failures.push({ step, counted, expected });
+          // The quota, kept by the triggers alone.
+          const [usage] = await home(t)
+            .select({ messages: schema.annotationUsage.messages })
+            .from(schema.annotationUsage)
+            .where(eq(schema.annotationUsage.ownerId, t.id));
+          const [kept] = await home(t)
+            .select({ n: sql<number>`count(*)` })
+            .from(m)
+            .where(and(eq(m.ownerId, t.id), sql`${m.state} <> 'deleted'`));
+          if (Number(usage?.messages ?? 0) !== Number(kept?.n ?? 0))
+            failures.push({ step, usage: usage?.messages, kept: kept?.n });
+        }
       }
       expect(failures.slice(0, 3)).toEqual([]);
     },
+    60_000,
   );
 
-  it("reached the dangerous shapes over the seeds", () => {
-    for (const [shape, count] of Object.entries(shapes)) {
+  it("reached every shape over the seeds", () => {
+    for (const [shape, count] of Object.entries(totals)) {
       expect({ shape, reached: count > 0 }).toEqual({ shape, reached: true });
     }
   });

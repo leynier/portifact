@@ -2905,6 +2905,9 @@ export const es = {
   "policies.comments.pending": "La retención de comentarios entra en vigor el {date}",
   "policies.comments.active":
     "Los hilos de comentarios se eliminan definitivamente {days} días después de su última actividad o, si es un hilo abierto, {days} días después de que su versión fuera reemplazada, si eso es posterior. Los hilos abiertos en la versión actual de un artefacto se conservan.",
+  "policies.comments.notInForce": "La retención de comentarios está definida pero no está en vigor",
+  "policies.comments.notInForceHint":
+    "No se elimina nada con ella: ocurre tras restaurar una copia de seguridad o cuando un guardado no pudo registrar la regla. Guarda la regla de nuevo para ponerla en vigor; como toda regla nueva, se aplica tras el periodo de aviso.",
   "policies.impact.threads":
     "{count, plural, one {# hilo de comentarios se elimina definitivamente el día en que entra en vigor la retención} other {# hilos de comentarios se eliminan definitivamente el día en que entra en vigor la retención}}",
   "policies.impact.messages":

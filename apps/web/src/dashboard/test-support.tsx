@@ -414,6 +414,8 @@ export interface FakeWorkspace {
   /** Its policies' revision and plan (decision 0015); the policy itself is on `view`. */
   policyRevision: number;
   policiesAvailable: boolean;
+  /** Whether a set comment retention is in force (decision 0023); in force unless a test says. */
+  commentRetentionInForce?: boolean;
   /** What the fake preview answers; a save needs these counts confirmed while any is above zero. */
   policyImpact: PolicyImpact;
   /**
@@ -462,7 +464,16 @@ export function workspace(
     ...rest
   } = overrides;
   return {
-    view: { slug, name, role, region, createdAt: NOW, policy, blocked, blockedBy },
+    view: {
+      slug,
+      name,
+      role,
+      region,
+      createdAt: NOW,
+      policy: { ...policy, commentRetentionToken: null },
+      blocked,
+      blockedBy,
+    },
     members: [
       {
         userId: "u_ada",
@@ -1157,7 +1168,7 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
       role: invitation.role,
       region: "default",
       createdAt: NOW,
-      policy: DEFAULT_POLICY,
+      policy: { ...DEFAULT_POLICY, commentRetentionToken: null },
       blocked: false,
       blockedBy: null,
     };
@@ -2744,6 +2755,8 @@ function policyRoute(
     // The admin signed in three hours ago (decision 0021).
     yourSignInAt: admin ? Date.now() - 3 * 3_600_000 : null,
     sso: admin && w.ssoState ? { offered: true, ...w.ssoState } : null,
+    commentRetentionInForce:
+      w.view.policy.commentRetentionDays === null ? null : (w.commentRetentionInForce ?? true),
   });
   if (!match[2] && method === "GET") return json(state());
   if (!admin) return apiError("forbidden", 403);
@@ -2799,19 +2812,18 @@ function policyRoute(
     if (newlySso && w.ssoOutside > 0 && body?.confirmedOutsideProvider !== w.ssoOutside) {
       return apiError("policy_refused", 403);
     }
-    // As the API (decision 0023): the server decides when a maximum life takes effect.
-    w.view = {
-      ...w.view,
-      policy: commentTiming(
+    // As the API (decision 0023): the server decides when a maximum life takes effect, and its
+    // comment retention guard token is never shown.
+    const saved = commentTiming(
+      w.view.policy as WorkspacePolicy,
+      retentionTiming(
         w.view.policy as WorkspacePolicy,
-        retentionTiming(
-          w.view.policy as WorkspacePolicy,
-          body?.policy as WorkspacePolicy,
-          Date.now(),
-        ),
+        body?.policy as WorkspacePolicy,
         Date.now(),
       ),
-    };
+      Date.now(),
+    );
+    w.view = { ...w.view, policy: { ...saved, commentRetentionToken: null } };
     w.policyRevision += 1;
     return json(state());
   }

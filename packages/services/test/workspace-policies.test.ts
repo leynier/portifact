@@ -247,6 +247,7 @@ describe("reading, previewing and changing policies", () => {
         yourSignInAt: null,
         // Single sign-on is not offered on these handles (decision 0021).
         sso: null,
+        commentRetentionInForce: null,
       });
     }
     const missing = { ok: false, code: "not_found", message: "Workspace not found." };

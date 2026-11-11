@@ -68,7 +68,7 @@ import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ownerRetentionJob } from "./analytics.ts";
 import { auditEvent } from "./audit.ts";
-import { bumpEpochStatement, raiseBeforeLoosening } from "./comment-retention.ts";
+import { deleteGuardRecord } from "./comment-retention.ts";
 import {
   cursorFor,
   cursorRead,
@@ -177,11 +177,6 @@ export interface SetOwnerPlanInput {
    * abuse. Without it a grant that takes something away holds it for `PLAN_GRACE_DAYS`.
    */
   noGrace?: boolean;
-  /**
-   * The owner's region's bucket: a change that takes `policies` from a workspace with a comment
-   * retention raises the restore guard's mark there before moving the epoch (decision 0023).
-   */
-  bucket?: R2Bucket | undefined;
 }
 
 export interface OwnerPlanState {
@@ -473,30 +468,46 @@ function graceJson(slots: readonly GraceSlot[]): string | null {
 }
 
 /**
- * A plan change that takes `policies` from a workspace whose policy sets a comment retention
- * lapses that rule (the scan removes it, decision 0023): it moves the restore guard's epoch like
- * every loosening, the region's mark raised first (`raiseBeforeLoosening`), the epoch in the
- * change's own batch. Null (nothing to move) for every other owner and change, with no read for a
- * personal space. An unreadable policy counts as one that sets it.
+ * Before a plan change that takes `policies` from a workspace whose policy sets a comment
+ * retention (the scan then removes the rule, decision 0023): the workspace's guard record is
+ * deleted first, so a restore of the global database to before the change brings back a rule that
+ * no longer agrees with R2. Called by the operator before `setOwnerPlan` or `removeOwnerPlan`
+ * (`plan` null for a removal). `none`: nothing to do (a personal space, a plan that keeps
+ * `policies`, no rule; no read for a personal space). `released`: deleted. `kept`: no bucket bound
+ * or R2 refused, and the operator is told what to do. An unreadable policy counts as one that sets
+ * it.
  */
-async function lapseEpoch(
+export async function releaseGuardForPlan(
   global: GlobalDb,
-  ownerId: string,
-  after: Entitlements,
   bucket: R2Bucket | undefined,
+  ownerId: string,
+  plan: Pick<SetOwnerPlanInput, "plan" | "seats" | "validUntil" | "overrides"> | null,
   now: number,
-): Promise<number | null> {
-  if (!isWorkspaceId(ownerId) || hasFeature(after, "policies")) return null;
+): Promise<"none" | "released" | "kept"> {
+  if (!isWorkspaceId(ownerId)) return "none";
+  let after: Entitlements;
+  if (plan === null) after = entitlements(null, now);
+  else {
+    const overrides = checkGrant({ ...plan, ownerId, grantedBy: "operator", note: null, now });
+    if (!overrides.ok) return "none";
+    after = entitlements({ ...plan, overrides: overrides.value }, now);
+  }
+  if (hasFeature(after, "policies")) return "none";
   const w = schema.workspaces;
-  const [row] = await global.select({ policy: w.policy }).from(w).where(eq(w.id, ownerId)).limit(1);
-  if (!row) return null;
+  const [row] = await global
+    .select({ policy: sql<string | null>`${w.policy}` })
+    .from(w)
+    .where(eq(w.id, ownerId))
+    .limit(1);
+  if (!row) return "none";
   let sets = true;
   try {
     sets = commentRetentionOf(policyOf(row.policy)) !== null;
   } catch {
     sets = true;
   }
-  return sets ? (await raiseBeforeLoosening(global, bucket, now)).epoch : null;
+  if (!sets) return "none";
+  return (await deleteGuardRecord(bucket, ownerId)) ? "released" : "kept";
 }
 
 /**
@@ -531,7 +542,6 @@ export async function setOwnerPlan(
   const guard = grantableOwner(input.ownerId);
   const p = schema.ownerPlans;
   const same = sql`exists (select 1 from ${p} where ${p.ownerId} = ${input.ownerId} and ${p.plan} = ${input.plan} and ${p.seats} = ${input.seats} and ${p.validUntil} is ${input.validUntil} and ${p.overrides} is ${overrides === null ? null : JSON.stringify(overrides)})`;
-  const epoch = await lapseEpoch(db.global, input.ownerId, granted, input.bucket, input.now);
   let written = false;
   for (let attempt = 0; attempt < PLAN_CHANGE_ATTEMPTS && !written; attempt += 1) {
     const before = await planBefore(db.global, input.ownerId);
@@ -602,7 +612,6 @@ export async function setOwnerPlan(
       ...(isWorkspaceId(input.ownerId)
         ? ssoSuspensionStatements(w, { workspaceId: input.ownerId, now: input.now, cause: "plan" })
         : []),
-      ...(epoch === null ? [] : [bumpEpochStatement(w, epoch)]),
     ])) as unknown[][];
     written = (results[2 + graceEventCount(change)] ?? []).length > 0;
     if (!written && !(await isGrantable(db.global, input.ownerId))) {
@@ -636,19 +645,12 @@ async function isGrantable(global: GlobalDb, ownerId: string): Promise<boolean> 
  */
 export async function removeOwnerPlan(
   db: RegionalDb,
-  input: { ownerId: string; now: number; noGrace?: boolean; bucket?: R2Bucket | undefined },
+  input: { ownerId: string; now: number; noGrace?: boolean },
 ): Promise<Result<{ removed: boolean; state: OwnerPlanState }>> {
   // The same two shapes as `setOwnerPlan`.
   const both = bothSides(db);
   const w = both ?? db.global;
   const p = schema.ownerPlans;
-  const epoch = await lapseEpoch(
-    db.global,
-    input.ownerId,
-    entitlements(null, input.now),
-    input.bucket,
-    input.now,
-  );
   let done: { removed: boolean } | null = null;
   for (let attempt = 0; attempt < PLAN_CHANGE_ATTEMPTS && done === null; attempt += 1) {
     const before = await planBefore(db.global, input.ownerId);
@@ -702,7 +704,6 @@ export async function removeOwnerPlan(
       ...(isWorkspaceId(input.ownerId)
         ? ssoSuspensionStatements(w, { workspaceId: input.ownerId, now: input.now, cause: "plan" })
         : []),
-      ...(epoch === null ? [] : [bumpEpochStatement(w, epoch)]),
     ])) as unknown[][];
     const changed = (results[2 + graceEventCount(change)] ?? []).length;
     if (before === null || changed === 1) done = { removed: had && changed === 1 };

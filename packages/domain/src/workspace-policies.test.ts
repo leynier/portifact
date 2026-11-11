@@ -504,6 +504,7 @@ describe("describePolicy", () => {
         artifactMaxDaysFrom: null,
         commentRetentionDays: null,
         commentRetentionFrom: null,
+        commentRetentionToken: null,
       }),
     ).toEqual([
       "public access forbidden",

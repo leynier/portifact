@@ -427,6 +427,24 @@ describe("comment retention (decision 0023)", () => {
     await themes(container);
   });
 
+  it("says when the rule is set but not in force, and how to fix it", async () => {
+    acme("member", {
+      ...DEFAULT_POLICY,
+      commentRetentionDays: 90,
+      commentRetentionFrom: Date.now() - DAY,
+    });
+    const workspaceState = server.workspaces.acme;
+    if (!workspaceState) throw new Error("no workspace");
+    workspaceState.commentRetentionInForce = false;
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    expect(await screen.findByText("Comment retention is set but not in force")).toBeTruthy();
+    expect(screen.getByText(/Save the rule again to put it in force/)).toBeTruthy();
+    expect(
+      screen.queryByText(/Comment threads are deleted for good 90 days after their last activity/),
+    ).toBeNull();
+    await themes(container);
+  });
+
   it("tells every member the rule in effect", async () => {
     acme("member", {
       ...DEFAULT_POLICY,

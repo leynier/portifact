@@ -25,6 +25,7 @@ import {
   policyTouchesArtifacts,
   replacedMaxLife,
   retentionTiming,
+  shownPolicy,
   storedPolicy,
   threadClock,
   threadDeadline,
@@ -314,6 +315,30 @@ describe("comment retention (decision 0023)", () => {
     expect(liftedFields(current, next)).toEqual([]);
   });
 
+  it("gives the restore guard a fresh token whenever the rule changes, and keeps it otherwise", () => {
+    const set = commentTiming(DEFAULT_POLICY, rule(90, 0), NOW, "t1");
+    expect(set.commentRetentionToken).toBe("t1");
+    // Another field saved, the rule as it was: the same token, no new guard write.
+    const same = commentTiming(set, { ...set, publicAccess: "forbidden" }, NOW + DAY, "t2");
+    expect(same.commentRetentionToken).toBe("t1");
+    // Lengthened (same date) or shortened (new date): a new token.
+    expect(commentTiming(set, rule(180, 0), NOW + DAY, "t3").commentRetentionToken).toBe("t3");
+    expect(commentTiming(set, rule(30, 0), NOW + DAY, "t4").commentRetentionToken).toBe("t4");
+    // Removed: none. A client's token is never kept, and a preview keeps the current one.
+    expect(commentTiming(set, DEFAULT_POLICY, NOW, "t5").commentRetentionToken).toBeNull();
+    expect(
+      commentTiming(set, { ...rule(30, 0), commentRetentionToken: "client" }, NOW, "t6")
+        .commentRetentionToken,
+    ).toBe("t6");
+    expect(commentTiming(set, rule(30, 0), NOW).commentRetentionToken).toBe("t1");
+    // Stored with the rule only, and never shown.
+    expect(storedPolicy(DEFAULT_POLICY)).toEqual(
+      storedPolicy({ ...DEFAULT_POLICY, commentRetentionToken: "x" }),
+    );
+    expect(storedPolicy(set)).toMatchObject({ commentRetentionToken: "t1" });
+    expect(shownPolicy(set, true).commentRetentionToken).toBeNull();
+  });
+
   it("starts after the notice period, keeps its date when lengthened, and clears it when removed", () => {
     expect(commentTiming(DEFAULT_POLICY, rule(90, 0), NOW).commentRetentionFrom).toBe(NOW + NOTICE);
     expect(commentTiming(rule(90, NOW - DAY), rule(180, 0), NOW).commentRetentionFrom).toBe(
@@ -460,7 +485,7 @@ describe("comment retention (decision 0023)", () => {
       commentRetentionDays: 90,
       commentRetentionFrom: NOW,
     });
-    expect(commentRetentionOf(rule(90, NOW))).toEqual({ days: 90, from: NOW });
+    expect(commentRetentionOf(rule(90, NOW))).toEqual({ days: 90, from: NOW, token: null });
     expect(commentRetentionOf(DEFAULT_POLICY)).toBeNull();
   });
 });

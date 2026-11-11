@@ -5,13 +5,10 @@ import { DEFAULT_POLICY, WORKSPACE_POLICIES, type WorkspacePolicy } from "@porti
 import { type Regions, regionsFromEnv, schema } from "@portifact/db";
 import { policyOf } from "@portifact/domain";
 import { eq } from "drizzle-orm";
-import { COMMENT_RETENTION_EPOCH_KEY, enforceCommentRetention } from "../src/comment-retention.ts";
+import { enforceCommentRetention } from "../src/comment-retention.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { previewWorkspacePolicy, setWorkspacePolicy } from "../src/workspace-policies.ts";
 import { DAY, db, grantPlan, NOW, sha256, value } from "./fixtures.ts";
-
-/** Every region's real bucket, for re-arming the guard after a test that rewound the epoch. */
-export const ENV_BUCKETS = [env.ARTIFACTS, env.ARTIFACTS_EU];
 
 export const hex = () => crypto.randomUUID().replaceAll("-", "");
 export const regions = (): Regions => regionsFromEnv(env);
@@ -211,50 +208,47 @@ export async function stored(t: Team) {
 
 /** An in-memory bucket for the restore guard's mark, so a test never leaves the shared one paused. */
 /**
- * An in-memory bucket for the restore guard's mark, modelling what the guard relies on in R2:
- * an etag per write and conditional puts (`onlyIf` on an etag or on absence) that answer null when
- * the precondition fails. `fail` makes reads or writes throw; `beforePut` runs between a writer's
- * read and its write, to interleave another writer. A test never leaves the shared bucket paused.
+ * An in-memory bucket for the comment retention guard records (decision 0023, "Restores"), so a
+ * test can make R2 refuse reads or writes (`fail`), run something between a writer's call and its
+ * effect (`beforeWrite`), and count reads. Keys are whatever the code writes.
  */
 export function memoryBucket(
-  initial?: string,
-  fail: { get?: boolean; put?: boolean } = {},
-  hooks: { beforePut?: () => Promise<void> } = {},
+  fail: { get?: boolean; put?: boolean; delete?: boolean } = {},
+  hooks: { beforeWrite?: () => Promise<void> } = {},
 ) {
-  let held = initial;
-  let etag = initial === undefined ? 0 : 1;
+  const held = new Map<string, string>();
+  let reads = 0;
+  const readsByKey = new Map<string, number>();
+  const hook = async () => {
+    const run = hooks.beforeWrite;
+    delete hooks.beforeWrite;
+    if (run) await run();
+  };
   const bucket = {
     get: async (key: string) => {
+      reads += 1;
+      readsByKey.set(key, (readsByKey.get(key) ?? 0) + 1);
       if (fail.get) throw new Error("r2 unavailable");
-      const seen = held;
-      const tag = String(etag);
-      return key === COMMENT_RETENTION_EPOCH_KEY && seen !== undefined
-        ? { text: async () => seen as string, etag: tag }
-        : null;
+      const seen = held.get(key);
+      return seen === undefined ? null : { text: async () => seen };
     },
-    put: async (
-      key: string,
-      text: string,
-      options?: { onlyIf?: { etagMatches?: string; etagDoesNotMatch?: string } },
-    ) => {
-      const hook = hooks.beforePut;
-      delete hooks.beforePut;
-      if (hook) await hook();
+    put: async (key: string, text: string) => {
+      await hook();
       if (fail.put) throw new Error("r2 unavailable");
-      if (key !== COMMENT_RETENTION_EPOCH_KEY) return {};
-      const only = options?.onlyIf;
-      if (only?.etagDoesNotMatch === "*" && held !== undefined) return null;
-      if (
-        only?.etagMatches !== undefined &&
-        (held === undefined || only.etagMatches !== String(etag))
-      )
-        return null;
-      held = text;
-      etag += 1;
-      return { etag: String(etag) };
+      held.set(key, text);
+      return {};
+    },
+    delete: async (key: string) => {
+      await hook();
+      if (fail.delete ?? fail.put) throw new Error("r2 unavailable");
+      held.delete(key);
     },
   };
-  return Object.assign(bucket as unknown as R2Bucket, { held: () => held });
+  return Object.assign(bucket as unknown as R2Bucket, {
+    held: (key: string) => held.get(key),
+    reads: (key?: string) => (key === undefined ? reads : (readsByKey.get(key) ?? 0)),
+    fail,
+  });
 }
 
 export const scan = (t: { region: "default" | "eu" }, now: number) =>

@@ -54,6 +54,7 @@ import {
   WorkspaceSlug,
   WorkspaceView,
 } from "@portifact/contracts";
+import { isRegion } from "@portifact/db";
 import { domainRecord, shownPolicy } from "@portifact/domain";
 import { invitationEmail } from "@portifact/emails";
 import {
@@ -940,8 +941,16 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
   routes.get(
     "/api/v1/workspaces/:slug/policies",
     policyRoute(async (c, ids) =>
-      reply(c, await getWorkspacePolicy(global(c), { ...ids, now: deps.now() }), (state) =>
-        c.json(policyView(state)),
+      reply(
+        c,
+        await getWorkspacePolicy(global(c), {
+          ...ids,
+          now: deps.now(),
+          // Read only here, and only while a rule is set (decision 0023, "Restores").
+          bucketOf: (region) =>
+            isRegion(region) ? regionsOf(c.env).get(region).bucket : undefined,
+        }),
+        (state) => c.json(policyView(state)),
       ),
     ),
   );

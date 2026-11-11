@@ -2935,6 +2935,10 @@ export const fr = {
   "policies.comments.pending": "La conservation des commentaires s’applique le {date}",
   "policies.comments.active":
     "Les fils de commentaires sont supprimés définitivement {days} jours après leur dernière activité ou, pour un fil ouvert, {days} jours après le remplacement de sa version si c'est plus tard. Les fils ouverts sur la version actuelle d'un artefact sont conservés.",
+  "policies.comments.notInForce":
+    "La conservation des commentaires est définie mais pas en vigueur",
+  "policies.comments.notInForceHint":
+    "Rien n'est supprimé en vertu de celle-ci : cela suit une restauration de sauvegarde, ou un enregistrement dont la règle n'a pas pu être consignée. Enregistrez de nouveau la règle pour la mettre en vigueur ; comme toute nouvelle règle, elle s'applique après la période de préavis.",
   "policies.impact.threads":
     "{count, plural, one {# fil de commentaires est supprimé définitivement le jour où la conservation s’applique} other {# fils de commentaires sont supprimés définitivement le jour où la conservation s’applique}}",
   "policies.impact.messages":

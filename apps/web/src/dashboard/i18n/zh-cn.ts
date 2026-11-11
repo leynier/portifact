@@ -2625,6 +2625,9 @@ export const zhCN = {
   "policies.comments.pending": "评论保留期限将于 {date} 生效",
   "policies.comments.active":
     "评论会话在最后一次活动 {days} 天后被永久删除；未解决的会话如果其版本被替换的时间更晚，则在替换 {days} 天后删除。工件当前版本上的未解决会话会被保留。",
+  "policies.comments.notInForce": "评论保留期限已设置，但未生效",
+  "policies.comments.notInForceHint":
+    "不会依据它删除任何内容：这发生在从备份恢复之后，或某次保存未能记录该规则时。再次保存该规则即可使其生效；与任何新规则一样，它会在通知期之后开始执行。",
   "policies.impact.threads":
     "{count, plural, one {# 个评论线程将在保留期限生效当天被永久删除} other {# 个评论线程将在保留期限生效当天被永久删除}}",
   "policies.impact.messages":

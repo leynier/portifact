@@ -27,6 +27,7 @@ const POLICY = {
   artifactMaxDaysFrom: null,
   commentRetentionDays: null,
   commentRetentionFrom: null,
+  commentRetentionToken: null,
 };
 
 async function workspace(policy: unknown) {
@@ -118,6 +119,7 @@ describe("operator policy commands", () => {
       artifactMaxDaysFrom: _from,
       commentRetentionDays: _comments,
       commentRetentionFrom: _commentsFrom,
+      commentRetentionToken: _token,
       ...older
     } = POLICY;
     const id = await workspace(older);
@@ -129,7 +131,7 @@ describe("operator policy commands", () => {
       },
     });
     expect(written.get("p.jsonl")).toContain(
-      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null, ssoRequired: false, artifactMaxDays: null, artifactMaxDaysFrom: null, commentRetentionDays: null, commentRetentionFrom: null })}}`,
+      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null, ssoRequired: false, artifactMaxDays: null, artifactMaxDaysFrom: null, commentRetentionDays: null, commentRetentionFrom: null, commentRetentionToken: null })}}`,
     );
   });
 });
@@ -327,23 +329,14 @@ describe("listing the workspaces that require single sign-on (decision 0021)", (
   });
 });
 
-describe("re-arming comment retention (decision 0023)", () => {
-  it("says the scans stay paused and exits 1 without every region's bucket", async () => {
+describe("comment retention after apply-policies (decision 0023)", () => {
+  it("says it resumes by itself where the guard agrees, and that the export comes before the restore", async () => {
     const result = await runOperator(db(), ["apply-policies", "--file", "empty"], NOW, {
       read: async () => "",
       write: async () => {},
     });
-    expect(result.exitCode).toBe(1);
-    expect(result.output).toContain("Comment retention stays paused (no deletion anywhere)");
-    expect(result.output).toContain("a region's bucket is not bound in operator.wrangler.jsonc");
-  });
-
-  it("re-arms and exits 0 with them", async () => {
-    const result = await runOperator(all(), ["apply-policies", "--file", "empty"], NOW, {
-      read: async () => "",
-      write: async () => {},
-    });
-    expect(result.output).toContain("Comment retention is armed again");
     expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("Comment retention deletes again by itself");
+    expect(result.output).toContain("Take the export before the restore");
   });
 });

@@ -246,6 +246,8 @@ export function policyOfDraft(
       artifactMaxDaysFrom: null,
       commentRetentionDays: comments,
       commentRetentionFrom: null,
+      // The server decides it (decision 0023): never the client.
+      commentRetentionToken: null,
     },
   };
 }
@@ -845,6 +847,18 @@ function CommentRetentionBanner({ view }: { view: WorkspacePolicyView }) {
   const formatDate = useFormatDate();
   const { commentRetentionDays: days, commentRetentionFrom: from } = view.policy;
   if (days === null) return null;
+  if (view.commentRetentionInForce === false) {
+    // The policy and its guard record disagree (decision 0023, "Restores"): nothing is deleted.
+    return (
+      <Callout
+        tone="error"
+        title={t("policies.comments.notInForce")}
+        icon={<MessageSquareX className="size-5" />}
+      >
+        {t("policies.comments.notInForceHint")}
+      </Callout>
+    );
+  }
   const pending = from !== null && from > Date.now();
   return (
     <Callout

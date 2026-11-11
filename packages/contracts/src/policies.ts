@@ -174,6 +174,12 @@ export const WorkspacePolicy = z.strictObject({
    * server on every save, like `artifactMaxDaysFrom`; whatever a client sends is ignored.
    */
   commentRetentionFrom: z.int().min(0).nullable().default(null),
+  /**
+   * Comment retention's restore guard (decision 0023, "Restores"): a random token the server
+   * writes with every save that sets or changes the rule, also kept in the workspace's region's R2
+   * bucket; the scan deletes only while the two agree. Never shown, never taken from a client.
+   */
+  commentRetentionToken: z.string().min(1).max(64).nullable().default(null),
 });
 export type WorkspacePolicy = z.infer<typeof WorkspacePolicy>;
 
@@ -189,6 +195,8 @@ export const WorkspacePolicyShown = z.object({
   ...WorkspacePolicy.shape,
   ipAllowlist: IpAllowlistView,
   tokenIpAllowlist: IpAllowlistView,
+  /** Never shown: the guard's token stays on the server. */
+  commentRetentionToken: z.null().default(null),
 });
 export type WorkspacePolicyShown = z.infer<typeof WorkspacePolicyShown>;
 
@@ -207,6 +215,7 @@ export const DEFAULT_POLICY: WorkspacePolicy = {
   artifactMaxDaysFrom: null,
   commentRetentionDays: null,
   commentRetentionFrom: null,
+  commentRetentionToken: null,
 };
 
 /** The fields of a policy, for the audit log and the dashboard. */
@@ -339,6 +348,12 @@ export const WorkspacePolicyView = z.object({
   editable: z.boolean(),
   /** Whether the workspace has a verified email domain, which the `domain` default needs. */
   domainVerified: z.boolean(),
+  /**
+   * Whether the comment retention set is in force (decision 0023): false when the policy and the
+   * region's guard record disagree (a restore, or a save whose guard write failed), so nothing is
+   * deleted until an admin saves it again; null when no rule is set.
+   */
+  commentRetentionInForce: z.boolean().nullable().default(null),
   /**
    * The caller's address as the app sees it (`CF-Connecting-IP`), shown only to admins so they
    * can include their own network before saving an allowlist; null otherwise. Never stored.

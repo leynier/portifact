@@ -10,11 +10,11 @@
 //   artifacts in one database, each statement checks the workspace's policy revision and its plan
 //   row as the scan read them; with a separate regional database both are read again right before
 //   each batch (the window is one round trip and one batch of at most 50 threads).
-// - It pauses after a D1 Time Travel restore of the global database (the restore guard): a
-//   restore can bring back a rule an admin had removed, and nothing may be deleted by it before the
-//   operator re-applies the policies.
-// - It fails closed: any error while deciding whether deletion is allowed (the guard, the rule,
-//   the plan) means nothing is deleted in that run, or for that workspace.
+// - It happens only while the policy and the workspace's guard record in R2 agree on the rule's
+//   token (the restore guard): a D1 Time Travel restore can bring back a rule an admin had
+//   removed or lengthened, and its token no longer agrees with R2's.
+// - It fails closed: any error while deciding whether deletion is allowed (the guard record, the
+//   rule, the plan) means nothing is deleted in that run for that workspace.
 //
 // Every statement selects its own rows and binds a fixed number of parameters (D1 allows 100).
 import {
@@ -292,217 +292,104 @@ export async function writeCommentTombstones(
   return "done";
 }
 
-// The restore guard
+// The restore guard (decision 0023, "Restores")
 //
-// Its invariant (decision 0023, "Restores", with its state table): the bucket's mark is
-// raise-only, and every change that could make a restored policy delete more than the current one
-// (a removal or lengthening saved or applied, a plan lapse recorded by the scan or caused by the
-// operator) raises the mark of the workspace's region to the epoch it is about to write before
-// writing it; every deleting run moves the epoch, global first, then the mark, before deleting;
-// and a scan deletes only while the global epoch is not behind the mark. So a restore of the
-// global database to before any of them leaves the epoch behind the mark, and nothing is deleted
-// until `apply-policies` re-arms it. A raise that fails is retried by every scan before it does
-// anything else; the change goes through anyway (removing is never blocked), so the one window
-// left is a restore made while the region's R2 cannot be written.
+// Agreement between two stores on a random token per save, per workspace, with no shared
+// counter: the token in the stored policy, next to the rule (D1, which a Time Travel restore
+// rewinds), and the workspace's guard record in its region's R2 bucket (which no D1 restore
+// rewinds). The scan deletes for a workspace only when, in this run, right before its batch, it
+// read that record and its token equals the one in the policy the batch is held to. A restore
+// cannot make them agree unless D1's rule is the very rule of the last save that wrote R2: tokens
+// are random per save and R2 holds only the last one. Nothing about other workspaces, other
+// regions or the operator's commands enters a workspace's agreement, so there is nothing to arm.
+//
+// Only synchronous paths write the record, each in the order that fails closed: a save that sets
+// or shortens the rule writes D1, then R2; a save that lengthens or removes it, a lapse the scan
+// records and the operator's plan commands that take `policies` away write R2 first, then D1.
+// Never the scan for a deletion and never an outbox job: a restore rewinds the outbox together
+// with the rule, so a job retried after a restore would re-arm exactly what the guard must stop.
 
-const EPOCH = "comment_retention_epoch";
-/** Where the high-water mark lives in each region's bucket: R2 is never rewound by D1. */
-export const COMMENT_RETENTION_EPOCH_KEY = "system/comment-retention-epoch";
+/** Where a workspace's guard record lives in its region's bucket. */
+export function guardKey(workspaceId: string): string {
+  return `system/comment-retention/${workspaceId}`;
+}
+
+/** What the scan, the notices and the Policies page learn from the record. */
+export type GuardAgreement = "agrees" | "missing" | "different" | "unreadable" | "unavailable";
 
 /**
- * The restore guard's statement for a global batch: moves the epoch to at least `at` (and past
- * its current value), so a later restore of the global database leaves it behind the marks.
+ * Whether the workspace's guard record holds `token`: read now, never cached. Anything but
+ * `agrees` (no record, another token, an unreadable record, no bucket, an R2 error) means the
+ * rule is not in force.
  */
-export function bumpEpochStatement(global: Db, at: number) {
-  return global
-    .insert(c)
-    .values({ name: EPOCH, cursor: String(at), passStartedAt: at, updatedAt: at })
-    .onConflictDoUpdate({
-      target: c.name,
-      set: {
-        cursor: sql`cast(max(cast(${c.cursor} as integer) + 1, cast(${at} as integer)) as text)`,
-        updatedAt: at,
-      },
-    });
-}
-
-/** The epoch the global database holds (no row: none ever moved it). */
-export function epochRead(global: Db) {
-  return global.select({ cursor: c.cursor }).from(c).where(eq(c.name, EPOCH));
-}
-
-/**
- * An epoch as stored: a non-negative integer (SQLite may have written it as `123.0`), or the
- * guard cannot be decided (thrown).
- */
-function epochValue(text: string | null | undefined): number {
-  if (text === null || text === undefined) return 0;
-  const value = Number(text);
-  if (!/^\d+(\.0+)?$/.test(text) || !Number.isSafeInteger(value)) {
-    throw new Error("unreadable comment retention epoch");
-  }
-  return value;
-}
-
-type PlanRowRead = Parameters<typeof entitlements>[0];
-
-/** The mark as stored: its value, and the etag a conditional write must match (none: absent). */
-async function readMark(
-  bucket: R2Bucket,
-  key: string,
-): Promise<{ value: number; etag: string | null }> {
-  const object = await bucket.get(key);
-  if (!object) return { value: 0, etag: null };
-  // Thrown when unreadable: never overwritten, it may be the one that says a restore happened.
-  return { value: epochValue(await object.text()), etag: object.etag };
-}
-
-/** How many times a raise reads again after another writer changed the mark first. */
-const RAISE_ATTEMPTS = 5;
-
-/**
- * Raises a region's mark to `epoch`, never lowers it, whoever else writes it meanwhile: each write
- * is conditional on the object read (`onlyIf` on its etag, or on its absence), so a writer that
- * read an older mark fails its precondition, reads again and stops once the mark is at least its
- * epoch. Throws when the bucket cannot be read or written, or holds a mark it cannot read.
- */
-export async function raiseMarkAt(bucket: R2Bucket, key: string, epoch: number): Promise<void> {
-  for (let attempt = 0; attempt < RAISE_ATTEMPTS; attempt += 1) {
-    const mark = await readMark(bucket, key);
-    if (mark.value >= epoch) return;
-    const written = await bucket.put(key, String(epoch), {
-      onlyIf: mark.etag === null ? { etagDoesNotMatch: "*" } : { etagMatches: mark.etag },
-    });
-    if (written !== null) return;
-  }
-  throw new Error("comment retention mark kept changing");
-}
-
-/** `raiseMarkAt` for the restore guard's own key. */
-export function raiseBucketMark(bucket: R2Bucket, epoch: number): Promise<void> {
-  return raiseMarkAt(bucket, COMMENT_RETENTION_EPOCH_KEY, epoch);
-}
-
-/**
- * Before a write that loosens or removes a rule (a save, a lapse, an operator's plan change, an
- * applied policy): the epoch it will write, `max(global epoch + 1, now)`, raised in the region's
- * mark first. The write then puts the epoch at `max(epoch + 1, it)` in its own batch
- * (`bumpEpochStatement`). If the batch fails after the raise, the mark is ahead and the scans
- * pause until `apply-policies`: closed. If the raise fails, the write still goes through
- * (removing is never blocked) and every scan raises it before anything else; `raised` says which.
- */
-export async function raiseBeforeLoosening(
-  global: Db,
+export async function guardAgreement(
   bucket: R2Bucket | undefined,
-  now: number,
-): Promise<{ epoch: number; raised: boolean }> {
-  const [row] = await epochRead(global);
-  const epoch = Math.max((Number(row?.cursor ?? 0) || 0) + 1, now);
-  if (!bucket) return { epoch, raised: false };
+  workspaceId: string,
+  token: string | null | undefined,
+): Promise<GuardAgreement> {
+  if (!bucket) return "unavailable";
+  let text: string;
   try {
-    await raiseBucketMark(bucket, epoch);
-    return { epoch, raised: true };
-  } catch (error) {
-    logEvent("error", "comment_retention_epoch_sync_failed", { error: errorLabel(error) });
-    return { epoch, raised: false };
+    const object = await bucket.get(guardKey(workspaceId));
+    if (!object) return "missing";
+    text = await object.text();
+  } catch {
+    return "unavailable";
   }
+  let stored: unknown;
+  try {
+    stored = JSON.parse(text);
+  } catch {
+    return "unreadable";
+  }
+  const held =
+    typeof stored === "object" && stored !== null && "token" in stored
+      ? (stored as { token: unknown }).token
+      : null;
+  if (typeof held !== "string" || held.length === 0) return "unreadable";
+  return typeof token === "string" && held === token ? "agrees" : "different";
 }
 
-export type ArmResult =
-  | { armed: true; epoch: number }
-  | { armed: false; reason: "no_bucket" | "unreadable" };
-
-/**
- * Re-arms comment retention after a restore (run by `apply-policies`, once the policies are back
- * and none is stricter than the file's). The new epoch comes from the stored values, never a
- * clock: one more than the highest of the global epoch and every region's mark, written to every
- * mark first (raise-only), then to the global database. Not armed when a region's bucket is
- * missing or its mark cannot be read: the scans stay paused and the operator is told.
- */
-export async function armCommentRetention(
-  global: GlobalDb,
-  buckets: readonly (R2Bucket | undefined)[],
-  now: number,
-): Promise<ArmResult> {
-  if (buckets.length === 0 || buckets.some((bucket) => bucket === undefined)) {
-    return { armed: false, reason: "no_bucket" };
-  }
-  try {
-    const [row] = await epochRead(global);
-    const marks = await Promise.all(
-      buckets.map(
-        async (bucket) => (await readMark(bucket as R2Bucket, COMMENT_RETENTION_EPOCH_KEY)).value,
-      ),
-    );
-    const epoch = Math.max(Number(row?.cursor ?? 0) || 0, ...marks) + 1;
-    for (const bucket of buckets) await raiseBucketMark(bucket as R2Bucket, epoch);
-    await global
-      .insert(c)
-      .values({ name: EPOCH, cursor: String(epoch), passStartedAt: now, updatedAt: now })
-      .onConflictDoUpdate({ target: c.name, set: { cursor: String(epoch), updatedAt: now } });
-    return { armed: true, epoch };
-  } catch (error) {
-    logEvent("error", "comment_retention_arm_failed", { error: errorLabel(error) });
-    return { armed: false, reason: "unreadable" };
-  }
+/** A fresh token for a save that sets or changes the rule. */
+export function newGuardToken(): string {
+  return crypto.randomUUID().replaceAll("-", "");
 }
 
 /**
- * The last global epoch this isolate saw the mark of a bucket at or above: with no rule in the
- * region and the epoch unchanged since, the run has nothing to raise and nothing to delete, so it
- * skips reading R2. The mark is raise-only, so it is still at least that value.
+ * Writes the workspace's guard record (a save of the rule, only). False when there is no bucket
+ * or R2 refused it: the caller decides what that means for its order.
  */
-const confirmed = new WeakMap<R2Bucket, number>();
-
-/**
- * The guard at the start of a run: `allowed` only when the mark was read, is not ahead of the
- * global epoch (a restore of the global database) and, when behind it, was raised to it. Anything
- * else, a thrown error included, is `paused` for the whole run.
- */
-async function openGuard(
+export async function writeGuardRecord(
   bucket: R2Bucket | undefined,
-  read: string | undefined,
-): Promise<"allowed" | "paused"> {
-  if (!bucket) {
-    logEvent("error", "comment_retention_no_bucket");
-    return "paused";
-  }
+  workspaceId: string,
+  token: string,
+): Promise<boolean> {
+  if (!bucket) return false;
   try {
-    const database = epochValue(read);
-    const held = (await readMark(bucket, COMMENT_RETENTION_EPOCH_KEY)).value;
-    if (database < held) {
-      logEvent("error", "comment_retention_paused");
-      return "paused";
-    }
-    if (database > held) await raiseBucketMark(bucket, database);
-    confirmed.set(bucket, database);
-    return "allowed";
-  } catch (error) {
-    logEvent("error", "comment_retention_guard_failed", { error: errorLabel(error) });
-    return "paused";
-  }
-}
-
-/**
- * Before a run's first deletion: the epoch moves forward, global first, then the mark, so a
- * restore to before this run pauses the next one. False (and the run deletes nothing) when either
- * write fails; a global epoch left ahead of the mark is raised by the next run's `openGuard`. The
- * mark after the epoch here, unlike a loosening's: a run moves the epoch only to date its own
- * deletions, and a mark ahead of a batch that failed would pause the region for nothing.
- */
-async function advanceGuard(global: GlobalDb, bucket: R2Bucket, now: number): Promise<boolean> {
-  try {
-    await bumpEpochStatement(global, now);
-    const [row] = await epochRead(global);
-    const epoch = epochValue(row?.cursor);
-    await raiseBucketMark(bucket, epoch);
-    confirmed.set(bucket, epoch);
+    await bucket.put(guardKey(workspaceId), JSON.stringify({ token }));
     return true;
   } catch (error) {
-    logEvent("error", "comment_retention_guard_failed", { error: errorLabel(error) });
+    logEvent("error", "comment_retention_guard_write_failed", { error: errorLabel(error) });
     return false;
   }
 }
+
+/** Deletes the workspace's guard record (a removal, a lapse, a deleted workspace). */
+export async function deleteGuardRecord(
+  bucket: R2Bucket | undefined,
+  workspaceId: string,
+): Promise<boolean> {
+  if (!bucket) return false;
+  try {
+    await bucket.delete(guardKey(workspaceId));
+    return true;
+  } catch (error) {
+    logEvent("error", "comment_retention_guard_write_failed", { error: errorLabel(error) });
+    return false;
+  }
+}
+
+type PlanRowRead = Parameters<typeof entitlements>[0];
 
 // The scan
 
@@ -530,26 +417,26 @@ export interface CommentRetentionRun {
   threads: number;
   /** Rules suspended because the plan no longer includes `policies`. */
   suspended: number;
-  /** True when the restore guard held the run back (a restore, or the guard undecidable). */
+  /** True when the restore guard held at least one workspace back this run. */
   paused: boolean;
+  /** Workspaces with threads due whose policy and guard record did not agree this run. */
+  heldBack: number;
   failed: number;
 }
 
 /**
  * The comment retention scan, per run and region (decision 0023, "Comment retention"):
- * - One global batch reads the saved cursor, up to 100 workspaces of this region with a comment
- *   retention after it (with their plan rows and whether their second notice was decided), and
- *   the restore guard's epoch. With no rule and no epoch anywhere that is the only call.
- * - The guard (`openGuard`), every run with an epoch or a rule: paused when the global epoch is
- *   behind this region's bucket (a D1 Time Travel restore) or anything about it fails; the bucket
- *   raised to the epoch when behind it.
+ * - One global batch reads the saved cursor and up to 100 workspaces of this region with a comment
+ *   retention after it (with their plan rows and whether their second notice was decided). With
+ *   no rule in the region that is the only call.
  * - A workspace whose plan no longer includes `policies` has its rule removed by the system
- *   (`policy.changed`, reason `plan_lapsed`): its comments are kept until an admin sets it again,
- *   with a new notice and confirmation.
+ *   (`policy.changed`, reason `plan_lapsed`), its guard record deleted first: its comments are
+ *   kept until an admin sets it again, with a new notice and confirmation.
  * - The second notice is decided once per effective date (`decideSecondNotice`).
- * - Then, unless paused, the epoch moves forward before the first deletion (`advanceGuard`), and
- *   one batch per workspace (at most 50 threads), until the run's 200, in turn from the cursor,
- *   so a large workspace never starves the others.
+ * - Then, for a workspace with threads due, its guard record is read and compared with the token
+ *   of the policy the batch is held to (`guardAgreement`); only when they agree does one batch
+ *   (at most 50 threads) run, until the run's 200, in turn from the cursor, so a large workspace
+ *   never starves the others. Nothing here writes the record.
  */
 export async function enforceCommentRetention(
   db: RegionalDb,
@@ -562,12 +449,13 @@ export async function enforceCommentRetention(
     threads: 0,
     suspended: 0,
     paused: false,
+    heldBack: 0,
     failed: 0,
   };
   const global = db.global;
   const name = `${SCAN}:${region}`;
   try {
-    const [saved, rows, epochRows] = await global.batch([
+    const [saved, rows] = await global.batch([
       cursorRead(global, name),
       global
         .select({
@@ -598,30 +486,14 @@ export async function enforceCommentRetention(
         )
         .orderBy(asc(w.id))
         .limit(100),
-      epochRead(global),
     ]);
     const started = saved[0]?.cursor ?? "";
     const list = rows as RuleRow[];
     run.checked = list.length;
-    if (list.length === 0 && epochRows.length === 0) {
+    if (list.length === 0) {
       await resumeAt(global, name, started, null, now);
       return run;
     }
-    const database = epochRows[0]?.cursor;
-    if (
-      list.length === 0 &&
-      bucket !== undefined &&
-      database !== undefined &&
-      confirmed.get(bucket) === Number(database)
-    ) {
-      // No rule in the region and the epoch as this isolate last saw the mark hold it: nothing
-      // to raise, nothing to delete (decision 0023, "What it costs").
-      await resumeAt(global, name, started, null, now);
-      return run;
-    }
-    let guard = await openGuard(bucket, database);
-    let advanced = false;
-    run.paused = guard === "paused";
     let budget: number = WORKSPACE_POLICIES.commentDeleteRun;
     let resume: string | null = started;
     let ended = list.length < 100;
@@ -646,27 +518,21 @@ export async function enforceCommentRetention(
         row.plan?.updatedAt == null ? null : { ...row.plan, updatedAt: row.plan.updatedAt };
       if (plan === null || !hasFeature(entitlements(plan as PlanRowRead, now), "policies")) {
         const lapse = await suspendForPlan(global, bucket, row, policy, now);
-        if (lapse.changed) run.suspended += 1;
-        if (!lapse.raised) {
-          // The mark is behind the epoch the lapse wrote: nothing more this run.
-          guard = "paused";
-          run.paused = true;
-        }
+        if (lapse) run.suspended += 1;
         continue;
       }
       const read: InForce = { revision: row.revision, planUpdatedAt: plan.updatedAt };
       try {
-        // Nothing is announced or deleted while paused.
-        if (guard !== "allowed" || !bucket) continue;
         await decideSecondNotice(db, row, rule, now);
         if (rule.from > now) continue;
-        if (!advanced) {
-          advanced = true;
-          if (!(await advanceGuard(global, bucket, now))) {
-            guard = "paused";
-            run.paused = true;
-            continue;
-          }
+        // R2 is read only for a workspace with something to delete in this run.
+        if ((await db.all(dueThreadIds(row.id, rule, now, 1))).length === 0) continue;
+        const agreement = await guardAgreement(bucket, row.id, rule.token);
+        if (agreement !== "agrees") {
+          run.paused = true;
+          run.heldBack += 1;
+          logEvent("log", "comment_retention_held", { reason: agreement });
+          continue;
         }
         const deleted = await deleteDueThreads(db, {
           workspaceId: row.id,
@@ -692,11 +558,12 @@ export async function enforceCommentRetention(
 
 /**
  * A workspace whose plan no longer includes `policies`: its comment retention is removed by the
- * system, in one global batch on the revision read, with `policy.changed` (reason
- * `plan_lapsed`), and the epoch moves, raised in the region's mark first
- * (`raiseBeforeLoosening`), so a restore to before it pauses deletions. Nothing is deleted
- * meanwhile, and an admin sets it again (with a new notice and confirmation) once the plan is
- * back. Returns whether it changed the row, and whether the mark was raised.
+ * system, in one global batch on the revision read, with `policy.changed` (reason `plan_lapsed`).
+ * The guard record goes first (decision 0023, "Restores": a loosening writes R2 before D1), so a
+ * restore to before the lapse brings back a rule that no longer agrees with R2. When R2 cannot be
+ * written the lapse waits for the next run; nothing is deleted meanwhile, since the plan lacks
+ * `policies`. An admin sets the rule again (with a new notice and confirmation) once the plan is
+ * back. Returns whether it changed the row.
  */
 async function suspendForPlan(
   global: GlobalDb,
@@ -704,9 +571,17 @@ async function suspendForPlan(
   row: RuleRow,
   policy: WorkspacePolicy,
   now: number,
-): Promise<{ changed: boolean; raised: boolean }> {
-  const { epoch, raised } = await raiseBeforeLoosening(global, bucket, now);
-  const next = { ...policy, commentRetentionDays: null, commentRetentionFrom: null };
+): Promise<boolean> {
+  if (!(await deleteGuardRecord(bucket, row.id))) {
+    logEvent("error", "comment_retention_lapse_deferred");
+    return false;
+  }
+  const next = {
+    ...policy,
+    commentRetentionDays: null,
+    commentRetentionFrom: null,
+    commentRetentionToken: null,
+  };
   const condition = sql`exists (select 1 from ${w} where ${w.id} = ${row.id} and ${w.policyRevision} = ${row.revision})`;
   const results = await global.batch([
     auditEvent(
@@ -727,14 +602,13 @@ async function suspendForPlan(
       },
       condition,
     ),
-    bumpEpochStatement(global, epoch),
     global
       .update(w)
       .set({ policy: storedPolicy(next), policyRevision: row.revision + 1, updatedAt: now })
       .where(and(eq(w.id, row.id), eq(w.policyRevision, row.revision)))
       .returning({ id: w.id }),
   ]);
-  return { changed: (results.at(-1) as unknown[]).length > 0, raised };
+  return (results.at(-1) as unknown[]).length > 0;
 }
 
 /**

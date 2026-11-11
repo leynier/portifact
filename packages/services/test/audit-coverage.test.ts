@@ -301,8 +301,8 @@ reason("the email of a policy change already recorded as policy.changed (decisio
   "sendCommentRetentionNotice",
 ]);
 reason(
-  "the restore guard's bookkeeping: the operator's apply-policies records each policy it sets (decision 0023)",
-  ["armCommentRetention", "raiseMarkAt", "raiseBeforeLoosening"],
+  "the restore guard's record in R2, beside a policy change or lapse recorded as policy.changed, or a read (decision 0023)",
+  ["writeGuardRecord", "deleteGuardRecord", "releaseGuardForPlan", "guardAgreement"],
 );
 reason(
   "tombstones of threads whose deletion its batch already recorded as policy.enforced (decision 0023)",

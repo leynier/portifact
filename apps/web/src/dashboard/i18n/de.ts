@@ -2921,6 +2921,10 @@ export const de = {
   "policies.comments.pending": "Die Aufbewahrung von Kommentaren gilt ab {date}",
   "policies.comments.active":
     "Kommentar-Threads werden {days} Tage nach ihrer letzten Aktivität endgültig gelöscht, ein offener Thread {days} Tage nach dem Ersetzen seiner Version, wenn das später ist. Offene Threads auf der aktuellen Version eines Artefakts bleiben erhalten.",
+  "policies.comments.notInForce":
+    "Die Aufbewahrung von Kommentaren ist festgelegt, aber nicht in Kraft",
+  "policies.comments.notInForceHint":
+    "Danach wird nichts gelöscht: Das folgt auf eine Wiederherstellung aus einer Sicherung oder auf ein Speichern, dessen Regel nicht festgehalten werden konnte. Speichere die Regel erneut, um sie in Kraft zu setzen; wie jede neue Regel gilt sie nach der Ankündigungsfrist.",
   "policies.impact.threads":
     "{count, plural, one {# Kommentar-Thread wird an dem Tag endgültig gelöscht, an dem die Aufbewahrung gilt} other {# Kommentar-Threads werden an dem Tag endgültig gelöscht, an dem die Aufbewahrung gilt}}",
   "policies.impact.messages":
