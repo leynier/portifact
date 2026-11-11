@@ -283,6 +283,8 @@ export interface ApplyTombstonesResult {
   invitations: number;
   /** Memberships a directory ended before the restore, ended again. */
   members: number;
+  /** Threads comment retention deleted before the restore, deleted again (decision 0023). */
+  commentThreads: number;
 }
 
 /** The databases a restore re-applies tombstones to: the global one and the regions given. */
@@ -299,6 +301,7 @@ const REGIONAL_KINDS = [
   "share_link",
   "webhook",
   "audit_stream",
+  "comment_thread",
 ] as const;
 type RegionalKind = (typeof REGIONAL_KINDS)[number];
 
@@ -363,6 +366,7 @@ interface Refs {
   links: SQL;
   webhooks: SQL;
   auditStreams: SQL;
+  commentThreads: SQL;
 }
 
 const t = schema.tombstones;
@@ -383,6 +387,7 @@ const SUBQUERIES: Refs = {
   links: sql`select ${t.id} from ${t} where ${t.kind} = 'share_link'`,
   webhooks: sql`select ${t.id} from ${t} where ${t.kind} = 'webhook'`,
   auditStreams: sql`select ${t.id} from ${t} where ${t.kind} = 'audit_stream'`,
+  commentThreads: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_thread'`,
 };
 
 /** A JSON list as the body of an `in (...)` subquery. */
@@ -499,6 +504,18 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
           .set({ revokedAt: now })
           .where(sql`${l.revokedAt} is null and ${l.id} in (${refs.links})`)
           .returning({ id: l.id }),
+    },
+    // Threads comment retention deleted (decision 0023): never brought back by a restore. Their
+    // messages, comment notices and issue requests go with them by foreign key, and the
+    // `annotation_usage` triggers keep the quota right.
+    {
+      name: "commentThreads",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .delete(schema.annotationThreads)
+          .where(sql`${schema.annotationThreads.id} in (${refs.commentThreads})`)
+          .returning({ id: schema.annotationThreads.id }),
     },
     {
       name: "reporters",
@@ -790,6 +807,7 @@ async function applyRegionalTombstones(
       links: part(lists.share_link),
       webhooks: part(lists.webhook),
       auditStreams: part(lists.audit_stream),
+      commentThreads: part(lists.comment_thread),
     };
     for (const [name, rows] of await runEntries(db, regional, refs)) {
       counts.set(name, (counts.get(name) ?? 0) + rows.length);
@@ -887,6 +905,7 @@ export async function applyTombstones(
     scimUsers: count("scimUsers"),
     invitations: count("invitations"),
     members: count("members"),
+    commentThreads: count("commentThreads"),
     directoryRoles: roles.workspaces,
   };
 }

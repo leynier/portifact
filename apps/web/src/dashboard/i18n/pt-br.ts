@@ -2859,4 +2859,39 @@ export const ptBR = {
     "{count, plural, one {devolveu o tempo de # artifact} other {devolveu o tempo de # artifacts}}",
   "transfer.confirm.maxLife":
     "{space} arquiva artifacts {days} dias após a última publicação, restauração ou transferência: movido agora, este é arquivado no máximo em {date}, a menos que alguém o publique de novo, e lá não pode ser fixado.",
+  "policies.comments.unavailable":
+    "A regra de retenção de comentários não pôde ser alterada agora, então nada foi salvo. Tente de novo em alguns minutos.",
+  "policies.comments.legend": "Retenção de comentários",
+  "policies.comments.hint":
+    "Exclui cada conversa de comentários do espaço de trabalho, com todas as mensagens, quando ela fica um número de dias sem atividade. Uma conversa aberta na versão atual de um artefato é mantida, para que o que os revisores aguardam nunca se perca; quando uma nova versão substitui essa versão, a conversa recebe o período inteiro de novo a partir desse momento. Ninguém pode recuperar conversas excluídas, nem a Portifact.",
+  "policies.comments.any": "Manter os comentários",
+  "policies.comments.anyHint": "As threads ficam até alguém excluí-las ou o artifact ser excluído.",
+  "policies.comments.only": "Excluir threads antigas",
+  "policies.comments.onlyHint":
+    "Uma conversa resolvida é excluída quando sua última atividade é mais antiga que o período. Uma conversa aberta em uma versão anterior é excluída quando o período passou tanto desde sua última atividade quanto desde que sua versão foi substituída. Uma resposta reinicia o período.",
+  "policies.comments.days": "Dias após a última atividade de uma thread",
+  "policies.comments.daysHint": "De {min} a {max} dias.",
+  "policies.comments.daysError": "Escreva um número inteiro de dias entre {min} e {max}.",
+  "policies.comments.notice":
+    "Uma retenção nova ou menor entra em vigor {days} dias depois de salva, e cada administrador recebe um e-mail, e outro pouco antes da primeira exclusão se ela vier muito depois. Uma retenção maior, ou nenhuma, vale na hora. Se o plano do workspace vencer, nada é excluído e a retenção é removida até um administrador defini-la de novo.",
+  "policies.comments.pending": "A retenção de comentários entra em vigor em {date}",
+  "policies.comments.active":
+    "As conversas de comentários são excluídas definitivamente {days} dias após a última atividade ou, para uma conversa aberta, {days} dias após a substituição da sua versão, se isso for depois. Conversas abertas na versão atual de um artefato são mantidas.",
+  "policies.comments.notInForce": "A retenção de comentários está definida, mas não está em vigor",
+  "policies.comments.notInForceHint":
+    "Nada é excluído por ela: isso acontece após a restauração de um backup ou quando um salvamento não conseguiu registrar a regra. Salve a regra de novo para colocá-la em vigor; como qualquer regra nova, ela passa a valer após o período de aviso.",
+  "policies.impact.threads":
+    "{count, plural, one {# thread de comentários é excluída para sempre no dia em que a retenção entra em vigor} other {# threads de comentários são excluídas para sempre no dia em que a retenção entra em vigor}}",
+  "policies.impact.messages":
+    "{count, plural, one {# mensagem nelas é excluída junto} other {# mensagens nelas são excluídas junto}}",
+  "policies.impact.threadsSoon":
+    "{count, plural, one {mais # thread é excluída nos 30 dias seguintes} other {mais # threads são excluídas nos 30 dias seguintes}}",
+  "policies.impact.openThreads":
+    "Conversas abertas na versão atual de um artefato não são contadas: elas são mantidas e, quando uma nova versão a substitui, cada uma recebe o período inteiro a partir desse momento.",
+  "audit.policy.comments": "threads de comentários excluídas {days} dias após a última atividade",
+  "audit.policy.commentsNone": "sem retenção de comentários",
+  "audit.policy.planLapsed": "(o plano não inclui mais políticas)",
+  "audit.policy.threadsDeleted":
+    "{count, plural, one {excluiu # thread de comentários} other {excluiu # threads de comentários}}",
+  "audit.policy.messagesDeleted": "{count, plural, one {com # mensagem} other {com # mensagens}}",
 } satisfies Catalog;

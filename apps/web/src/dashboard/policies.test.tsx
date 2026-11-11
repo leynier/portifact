@@ -227,6 +227,8 @@ describe("policyOfDraft", () => {
     ssoRequired: false,
     lifeLimited: false,
     lifeDays: "",
+    commentsLimited: false,
+    commentDays: "",
   };
   it("splits domains on spaces, commas and lines and reads the days", () => {
     expect(policyOfDraft(draft)).toEqual({
@@ -251,6 +253,8 @@ describe("policyOfDraft", () => {
     [{ lifeLimited: true, lifeDays: "6" }, "lifeDays"],
     [{ lifeLimited: true, lifeDays: "3651" }, "lifeDays"],
     [{ lifeLimited: true, lifeDays: "" }, "lifeDays"],
+    [{ commentsLimited: true, commentDays: "29" }, "commentDays"],
+    [{ commentsLimited: true, commentDays: "3651" }, "commentDays"],
   ] as const)("refuses %j", (change, field) => {
     expect(policyOfDraft({ ...draft, ...change })).toEqual({ ok: false, field });
   });
@@ -372,6 +376,122 @@ describe("the maximum life of artifacts (decision 0023)", () => {
       ),
     ).toBeTruthy();
     expect(within(details).queryByRole("button", { name: "Pin" })).toBeNull();
+    await themes(container);
+  });
+});
+
+describe("comment retention (decision 0023)", () => {
+  const DAY = 86_400_000;
+  const group = "Comment retention";
+
+  it("lets an admin set it after confirming the threads and messages it deletes", async () => {
+    acme("admin");
+    const workspaceState = server.workspaces.acme;
+    if (!workspaceState) throw new Error("no workspace");
+    workspaceState.policyImpact = {
+      ...NO_IMPACT,
+      threadsAtStart: 3,
+      messagesAtStart: 14,
+      threadsSoon: 2,
+    };
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    await screen.findByRole("group", { name: group });
+    expect(
+      screen.getByText(/Deleted threads cannot be recovered by anyone, Portifact included\./),
+    ).toBeTruthy();
+    fireEvent.click(radio("Delete old threads", group));
+    const days = screen.getByRole("textbox", { name: /Days after a thread's last activity/ });
+    fireEvent.change(days, { target: { value: "10" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    expect(await screen.findByText("Write a whole number of days from 30 to 3650.")).toBeTruthy();
+    await themes(container);
+    fireEvent.change(days, { target: { value: "180" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain(
+      "3 comment threads are deleted for good the day comment retention takes effect",
+    );
+    expect(dialog.textContent).toContain("14 messages in them are deleted with them");
+    expect(dialog.textContent).toContain("2 more threads are deleted within 30 days after that");
+    expect(dialog.textContent).toContain(
+      "Open threads on an artifact's current version are not counted: they are kept, and when a new version replaces it, each gets the whole period from that moment.",
+    );
+    await themes(container);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply and save" }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(server.bodies.at(-1)).toMatchObject({
+      policy: { commentRetentionDays: 180, commentRetentionFrom: null },
+      confirmed: { threadsAtStart: 3, messagesAtStart: 14, threadsSoon: 2 },
+    });
+    expect(await screen.findByText(/^Comment retention takes effect on /)).toBeTruthy();
+    await themes(container);
+  });
+
+  it("says when the rule is set but not in force, and how to fix it", async () => {
+    acme("member", {
+      ...DEFAULT_POLICY,
+      commentRetentionDays: 90,
+      commentRetentionFrom: Date.now() - DAY,
+    });
+    const workspaceState = server.workspaces.acme;
+    if (!workspaceState) throw new Error("no workspace");
+    workspaceState.commentRetentionInForce = false;
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    expect(await screen.findByText("Comment retention is set but not in force")).toBeTruthy();
+    expect(screen.getByText(/Save the rule again to put it in force/)).toBeTruthy();
+    expect(
+      screen.queryByText(/Comment threads are deleted for good 90 days after their last activity/),
+    ).toBeNull();
+    await themes(container);
+  });
+
+  it("says the rule could not be changed when its guard record cannot be, and nothing else for capacity", async () => {
+    acme("admin");
+    const workspaceState = server.workspaces.acme;
+    if (!workspaceState) throw new Error("no workspace");
+    workspaceState.commentRetentionRefusal = "guard";
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    await screen.findByRole("group", { name: group });
+    fireEvent.click(radio("Delete old threads", group));
+    fireEvent.change(screen.getByRole("textbox", { name: /Days after a thread's last activity/ }), {
+      target: { value: "180" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    expect(
+      await screen.findByText(
+        "The comment retention rule could not be changed right now, so nothing was saved. Try again in a few minutes.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Portifact is at capacity right now. Try again later.")).toBeNull();
+    expect(workspaceState.view.policy.commentRetentionDays).toBeNull();
+    await themes(container);
+    // The same code without the detail is the general capacity refusal, not this sentence.
+    workspaceState.commentRetentionRefusal = "capacity";
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    expect(
+      await screen.findByText("Portifact is at capacity right now. Try again later."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/The comment retention rule could not be changed/)).toBeNull();
+  });
+
+  it("tells every member the rule in effect", async () => {
+    acme("member", {
+      ...DEFAULT_POLICY,
+      commentRetentionDays: 90,
+      commentRetentionFrom: Date.now() - DAY,
+    });
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    expect(
+      await screen.findByText(
+        "Comment threads are deleted for good 90 days after their last activity, or, for an open thread, 90 days after its version was replaced when that is later. Open threads on an artifact's current version are kept.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /when a new version replaces that version, the thread gets the whole period again from that moment\./,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save policies" })).toBeNull();
     await themes(container);
   });
 });

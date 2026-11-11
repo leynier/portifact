@@ -63,7 +63,9 @@ const DEVELOP = {
   // Plus the grace emails (decision 0022, third delivery): the scan's one call (its saved cursor
   // and first page together), and here one batch (the job and the mark) for the grantee whose
   // removal above started a hold.
-  runMaintenance: 61,
+  // Plus comment retention's one global call while no workspace of the region sets it (decision
+  // 0023): its cursor, its workspaces and the restore guard's epoch in one batch.
+  runMaintenance: 62,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads

@@ -26,6 +26,7 @@ import {
   type Db,
   type GlobalDb,
   isRegion,
+  type Region,
   type RegionalDb,
   type Regions,
   schema,
@@ -41,6 +42,9 @@ import {
   checkSingleFamily,
   checkSsoOutside,
   checkSsoRequirement,
+  commentRetentionOf,
+  commentRetentionTightened,
+  commentTiming,
   type Entitlements,
   entitlements,
   errorLabel,
@@ -76,6 +80,15 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { actorOn } from "./actors.ts";
 import { approvalAccessStatements } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
+import {
+  commentRetentionImpact,
+  commentRetentionNoticeJob,
+  confirmGuardRecord,
+  deleteGuardRecord,
+  guardAgreement,
+  newGuardToken,
+  writeGuardRecord,
+} from "./comment-retention.ts";
 import {
   cursorFor,
   cursorRead,
@@ -124,6 +137,12 @@ export interface PolicyState {
    * whenever this Worker does not offer single sign-on.
    */
   sso: { usable: boolean; yourSession: boolean; offered: boolean } | null;
+  /**
+   * Whether the comment retention set is in force (decision 0023, "Restores"): its token agrees
+   * with the region's guard record, read on this page only and only while a rule is set. Null
+   * without a rule.
+   */
+  commentRetentionInForce: boolean | null;
 }
 
 interface PolicyRow {
@@ -175,9 +194,11 @@ async function stateOf(
   row: PolicyRow,
   actor: Actor,
   now: number,
+  bucket?: R2Bucket | undefined,
 ): Promise<PolicyState> {
   // Reaching here means the network policy admitted the caller, so an admin sees the networks.
   const admin = can(actor, "policies");
+  const rule = commentRetentionOf(row.policy);
   return {
     policy: shownPolicy(row.policy, admin),
     revision: row.revision,
@@ -188,6 +209,8 @@ async function stateOf(
     serviceTokens: admin ? await activeTokens(global, row.id, now) : null,
     yourSignInAt: admin ? ownSignIn(global, actor.userId) : null,
     sso: admin ? await ssoState(global, row, actor.userId, now) : null,
+    commentRetentionInForce:
+      rule === null ? null : (await guardAgreement(bucket, row.id, rule)) === "agrees",
   };
 }
 
@@ -246,11 +269,69 @@ async function activeTokens(global: GlobalDb, workspaceId: string, now: number):
  */
 export async function getWorkspacePolicy(
   global: GlobalDb,
-  input: { userId: string; slug: string; now: number },
+  input: {
+    userId: string;
+    slug: string;
+    now: number;
+    /** The workspace's region's bucket, to tell whether its comment retention is in force. */
+    bucketOf?: ((region: string) => R2Bucket | undefined) | undefined;
+  },
 ): Promise<Result<PolicyState>> {
   const found = await scopedPolicy(global, input.userId, input.slug, "read");
   if (!found.ok) return found;
-  return ok(await stateOf(global, found.value.row, found.value.actor, input.now));
+  const { row, actor } = found.value;
+  return ok(await stateOf(global, row, actor, input.now, input.bucketOf?.(row.region)));
+}
+
+/**
+ * The stored policy as a save or preview of comment retention starts from (decision 0023,
+ * "Restores" and "Concurrent saves"). A loosening is always decided against the stored policy,
+ * never against this: a removal always runs, whatever the guard record says. A rule whose guard
+ * record is `missing` or `different` (not in force) counts as none here, so saving it again sets
+ * it as a new rule, with a new notice period, confirmation and token. When the record cannot be
+ * read (`unavailable`, `unreadable`), a save that keeps the stored rule or removes it goes
+ * through with the stored rule as it is (no new date, no new token); one that changes the rule is
+ * refused whole, so a save is never half applied. The record is read only while a rule is stored.
+ */
+async function commentBase(
+  row: PolicyRow,
+  bucket: R2Bucket | undefined,
+  requestedDays: number | null,
+): Promise<Result<WorkspacePolicy>> {
+  const rule = commentRetentionOf(row.policy);
+  if (rule === null) return ok(row.policy);
+  const agreement = await guardAgreement(bucket, row.id, rule);
+  if (agreement === "agrees") return ok(row.policy);
+  if (agreement === "unavailable" || agreement === "unreadable") {
+    return requestedDays === null || requestedDays === rule.days
+      ? ok(row.policy)
+      : guardUnavailable();
+  }
+  return ok({
+    ...row.policy,
+    commentRetentionDays: null,
+    commentRetentionFrom: null,
+    commentRetentionToken: null,
+  });
+}
+
+/** A workspace's region's bucket, where its comment retention guard record lives. */
+function bucketOfRow(regions: Regions, row: { region: string }): R2Bucket | undefined {
+  return isRegion(row.region) ? regions.get(row.region).bucket : undefined;
+}
+
+/**
+ * Answered when comment retention's guard record cannot be read or written for a change, marked
+ * `comment_retention_guard` so the Policies page shows its own sentence.
+ */
+function guardUnavailable<T>(): Result<T> {
+  return {
+    ok: false,
+    code: "capacity_unavailable",
+    message:
+      "Comment retention cannot be changed right now, so nothing was saved. Try again in a few minutes.",
+    detail: "comment_retention_guard",
+  };
 }
 
 function regionalOf(regions: Regions, row: { id: string; region: string }): RegionalDb {
@@ -295,7 +376,13 @@ export async function policyImpact(
     artifactsSoon: 0,
     pinsLifted: 0,
   };
-  if (!policyTouchesArtifacts(next)) return zero;
+  // Comment retention (decision 0023): counted for a new or shorter one only, whatever else.
+  const rule =
+    current && commentRetentionTightened(current, next) ? commentRetentionOf(next) : null;
+  const comments = rule
+    ? await commentRetentionImpact(db, workspaceId, rule)
+    : { threadsAtStart: 0, messagesAtStart: 0, threadsSoon: 0 };
+  if (!policyTouchesArtifacts(next)) return { ...zero, ...comments };
   const owned = sql`${a.ownerId} = ${workspaceId} and ${present}`;
   const links = sql`from ${l} join ${a} on ${a.id} = ${l.artifactId} where ${owned} and ${live(now)}`;
   const cutoff = lifetimeCutoff(next, now);
@@ -331,6 +418,7 @@ export async function policyImpact(
     ...(current && maxLifeTightened(current, next)
       ? await maxLifeImpact(db, workspaceId, maxLifeOf(next) as MaxLife)
       : { artifactsAtStart: 0, artifactsSoon: 0, pinsLifted: 0 }),
+    ...comments,
   };
 }
 
@@ -413,13 +501,24 @@ export async function previewWorkspacePolicy(
     ssoProvider: provider,
   });
   if (!proposal.ok) return proposal;
-  const timed = retentionTiming(found.value.row.policy, proposal.value, input.now);
+  const based = await commentBase(
+    found.value.row,
+    bucketOfRow(regions, found.value.row),
+    proposal.value.commentRetentionDays,
+  );
+  if (!based.ok) return based;
+  const base = based.value;
+  const timed = commentTiming(
+    base,
+    retentionTiming(found.value.row.policy, proposal.value, input.now),
+    input.now,
+  );
   const impact = await policyImpact(
     regionalOf(regions, found.value.row),
     found.value.row.id,
     timed,
     input.now,
-    found.value.row.policy,
+    base,
   );
   return ok({
     ...impact,
@@ -626,11 +725,23 @@ export async function setWorkspacePolicy(
     ssoProvider: provider,
   });
   if (!proposal.ok) return proposal;
-  // When a maximum life takes effect is the server's to decide (decision 0023).
-  const next = retentionTiming(row.policy, proposal.value, input.now);
+  // When a maximum life takes effect is the server's to decide (decision 0023), and so is the
+  // comment retention's restore guard token: fresh whenever the rule changes. A rule that is not
+  // in force counts as none (`inForceBase`), so saving it again sets it as a new rule.
+  const bucket = bucketOfRow(regions, row);
+  const based = await commentBase(row, bucket, proposal.value.commentRetentionDays);
+  if (!based.ok) return based;
+  const base = based.value;
+  const next = commentTiming(
+    base,
+    retentionTiming(row.policy, proposal.value, input.now),
+    input.now,
+    newGuardToken(),
+  );
+  // Against the stored policy: a removal of a rule that is not in force is still a change.
   const fields = changedFields(row.policy, next);
-  if (fields.length === 0) return ok(await stateOf(global, row, actor, input.now));
-  if (policyChangeNeedsPlan(row.policy, next)) {
+  if (fields.length === 0) return ok(await stateOf(global, row, actor, input.now, bucket));
+  if (policyChangeNeedsPlan(base, next)) {
     const gate = requireFeature(await ownerEntitlements(global, row.id, input.now), "policies");
     if (!gate.ok) return gate;
   }
@@ -647,7 +758,7 @@ export async function setWorkspacePolicy(
     input.confirmedSingleFamily,
   );
   if (!families.ok) return families;
-  const impact = await policyImpact(regionalOf(regions, row), row.id, next, input.now, row.policy);
+  const impact = await policyImpact(regionalOf(regions, row), row.id, next, input.now, base);
   const confirmed = checkPolicyImpact(impact, input.confirmed);
   if (!confirmed.ok) return confirmed;
 
@@ -659,6 +770,27 @@ export async function setWorkspacePolicy(
       : sql.empty();
   const condition = sql`${stillAdmin(row.id, input.userId)} and exists (select 1 from ${w} where ${w.id} = ${row.id} and ${w.policyRevision} = ${row.revision})${providerKept}`;
   const stored = storedPolicy(next);
+  // The restore guard (decision 0023, "Restores" and "Concurrent saves"), decided against the
+  // stored policy. A removal deletes the record before and after its D1 write and is never
+  // refused: deleting a record can only pause. A longer rule writes its record first and is
+  // refused when R2 refuses, since a restore could otherwise make the stores agree on the rule it
+  // replaces. A new or shorter rule writes D1, then its record, then confirms the policy still
+  // holds its token, so a removal that landed in between always wins.
+  const guardToken = next.commentRetentionToken;
+  const tokenChanged = guardToken !== row.policy.commentRetentionToken;
+  const loosening = commentRetentionLoosened(row.policy, next);
+  // `commentTiming` always dates a rule it keeps, so the rule and its date come together.
+  const kept = commentRetentionOf(next);
+  const guarded =
+    guardToken === null || kept === null
+      ? null
+      : { token: guardToken, days: kept.days, from: kept.from };
+  if (loosening) {
+    if (guarded === null) await deleteGuardRecord(bucket, row.id);
+    else if (!(await writeGuardRecord(bucket, row.id, guarded))) {
+      return guardUnavailable();
+    }
+  }
   const results = await global.batch([
     auditEvent(
       global,
@@ -668,6 +800,7 @@ export async function setWorkspacePolicy(
         actor: { type: "user", id: input.userId },
         targetId: row.id,
         detail: {
+          // Against the stored policy, like the fields: what the row held before and after.
           ...policyChangeDetail(row.policy, next, input.confirmed !== undefined),
           ...(newlySso && outside > 0 ? { outsideProvider: outside } : {}),
         },
@@ -688,6 +821,27 @@ export async function setWorkspacePolicy(
         ]
       : []),
     // A new or shorter maximum life is told to the admins once, by email (decision 0023).
+    // A new or shorter comment retention is told to the admins once, by email (decision 0023);
+    // a longer or removed one moves the restore guard's epoch, so a restore to before this save
+    // pauses deletions until the policies are applied again.
+    ...(commentRetentionTightened(base, next)
+      ? [
+          commentRetentionNoticeJob(global, {
+            workspaceId: row.id,
+            payload: {
+              kind: "set" as const,
+              days: next.commentRetentionDays as number,
+              from: next.commentRetentionFrom as number,
+              at: next.commentRetentionFrom as number,
+              threads: impact.threadsAtStart,
+              messages: impact.messagesAtStart,
+              revision: row.revision + 1,
+            },
+            condition,
+            now: input.now,
+          }),
+        ]
+      : []),
     ...(maxLifeTightened(row.policy, next)
       ? [
           retentionNoticeJob(global, {
@@ -721,8 +875,25 @@ export async function setWorkspacePolicy(
     if (!again.ok) return again;
     return fail("version_conflict", "The policies changed meanwhile. Reload them and try again.");
   }
+  if (loosening && guarded === null) {
+    // After the D1 write too: a late write of an earlier save's record is deleted here.
+    await deleteGuardRecord(bucket, row.id);
+  }
+  if (!loosening && tokenChanged && guarded !== null) {
+    // Failing here leaves the rule saved but not in force: the answer says so (and to save again).
+    // Confirmed whatever the write answered: a write can land and still throw (a timeout after
+    // it), and the confirmation only ever deletes a record holding this save's own token.
+    await writeGuardRecord(bucket, row.id, guarded);
+    await confirmGuardRecord(global, bucket, row.id, guarded.token);
+  }
   return ok(
-    await stateOf(global, { ...row, policy: next, revision: row.revision + 1 }, actor, input.now),
+    await stateOf(
+      global,
+      { ...row, policy: next, revision: row.revision + 1 },
+      actor,
+      input.now,
+      bucket,
+    ),
   );
 }
 
@@ -1056,6 +1227,23 @@ export async function workspaceRegionDb(
   return regions.all().find((handles) => handles.region === row.region)?.db ?? null;
 }
 
+/** The bucket of a workspace's region (its comment retention guard record lives there). */
+export async function workspaceRegionBucket(
+  regions:
+    | { global: GlobalDb; all(): readonly { bucket: R2Bucket | undefined; region: string }[] }
+    | undefined,
+  workspaceId: string,
+): Promise<R2Bucket | undefined> {
+  if (!regions) return undefined;
+  const [row] = await regions.global
+    .select({ region: w.region })
+    .from(w)
+    .where(eq(w.id, workspaceId))
+    .limit(1);
+  if (!row) return undefined;
+  return regions.all().find((handles) => handles.region === row.region)?.bucket;
+}
+
 /**
  * One bounded step of the maximum life (decision 0023), in its own batch. First, capped artifacts
  * whose cap the current policy no longer asks for (it was lengthened, shortened to a later
@@ -1277,7 +1465,7 @@ export const STALE_CAPS_SWEEP = { owners: 20, artifacts: 200 } as const;
  */
 export function staleCapOwners(db: Db, now: number, maxed: string[], shared: boolean) {
   const withMaximum = shared
-    ? sql`select ${w.id} from ${w} where json_extract(${w.policy}, '$.artifactMaxDays') is not null`
+    ? sql`select ${w.id} from ${w} where json_valid(${w.policy}) and json_extract(${w.policy}, '$.artifactMaxDays') is not null`
     : sql`select value from json_each(${JSON.stringify(maxed)})`;
   return db
     .selectDistinct({ ownerId: a.ownerId })
@@ -1320,7 +1508,7 @@ async function sweepStaleCaps(db: RegionalDb, now: number, maxed: string[]): Pro
             .select({ id: w.id })
             .from(w)
             .where(
-              sql`${w.id} in (select value from json_each(${JSON.stringify(owners)})) and json_extract(${w.policy}, '$.artifactMaxDays') is not null`,
+              sql`${w.id} in (select value from json_each(${JSON.stringify(owners)})) and json_valid(${w.policy}) and json_extract(${w.policy}, '$.artifactMaxDays') is not null`,
             )
         ).map((row) => row.id),
       );
@@ -1366,7 +1554,7 @@ async function giveBackStep(
   const workspace = isWorkspaceId(ownerId);
   const still =
     shared && workspace
-      ? sql`not exists (select 1 from ${w} where ${w.id} = ${ownerId} and json_extract(${w.policy}, '$.artifactMaxDays') is not null)`
+      ? sql`not exists (select 1 from ${w} where ${w.id} = ${ownerId} and json_valid(${w.policy}) and json_extract(${w.policy}, '$.artifactMaxDays') is not null)`
       : sql`1`;
   // The owner sets no maximum: the plan's expiry each artifact kept is its target.
   const policy = undefined;
@@ -1496,20 +1684,27 @@ export type ApplyPoliciesResult =
       /**
        * Workspaces left as they are because the file would lift a restriction they have now (an
        * export older than it), with the fields; applied only with `allowLifting`. A longer or no
-       * maximum life in the file is applied anyway (decision 0023).
+       * maximum life or comment retention in the file is applied anyway (decision 0023).
        */
       lifting: { workspaceId: string; fields: PolicyField[] }[];
       /**
        * Workspaces left as they are because the file requires single sign-on and the workspace's
        * provider cannot sign anyone in now (decision 0021): never a requirement nobody can meet.
+       * A longer or no maximum life or comment retention in the file is applied anyway.
        */
       ssoUnusable: string[];
       /**
-       * Workspaces the file does not list whose maximum life was removed (decision 0023): the
-       * file was exported after the restore point, so a workspace missing from it had no policy
-       * then, and the restored maximum is one an admin had removed.
+       * Workspaces the file does not list whose maximum life or comment retention was removed
+       * (decision 0023): the file was exported after the restore point, so a workspace missing
+       * from it had no policy then, and the restored rule is one an admin had removed.
        */
       retentionCleared: string[];
+      /**
+       * Workspaces whose file holds a stricter comment retention than the stored one (shorter, a
+       * new one, or taking effect earlier): apply-policies never tightens deletion (decision
+       * 0023), so their comment retention was left as it is and the rest applied.
+       */
+      commentHeld: string[];
     }
   /** An item that is not a valid policy (its index in the file): nothing was applied. */
   | { ok: false; index: number; message: string };
@@ -1520,15 +1715,98 @@ export type ApplyPoliciesResult =
  * the admin saved would have; a file without one (edited by hand) gets the notice period.
  */
 function fileTiming(policy: WorkspacePolicy, now: number): WorkspacePolicy {
-  if (policy.artifactMaxDays === null) return { ...policy, artifactMaxDaysFrom: null };
+  const notice = now + WORKSPACE_POLICIES.retentionNoticeDays * 86_400_000;
   return {
     ...policy,
     artifactMaxDaysFrom:
-      policy.artifactMaxDaysFrom ?? now + WORKSPACE_POLICIES.retentionNoticeDays * 86_400_000,
+      policy.artifactMaxDays === null ? null : (policy.artifactMaxDaysFrom ?? notice),
+    // Comment retention the same way (decision 0023): never sooner than the date the file stores.
+    commentRetentionFrom:
+      policy.commentRetentionDays === null ? null : (policy.commentRetentionFrom ?? notice),
   };
 }
 
-/** One workspace's policy set by the operator, in one global batch on the revision read. */
+/**
+ * Whether a stored comment retention deletes more than the file's (decision 0023): set where the
+ * file has none, shorter, or taking effect earlier while the file's date is still ahead. A
+ * workspace missing from the file compares with none.
+ */
+function commentsStricter(
+  stored: WorkspacePolicy,
+  file: WorkspacePolicy | null,
+  now: number,
+): boolean {
+  if (stored.commentRetentionDays === null) return false;
+  if (file === null || file.commentRetentionDays === null) return true;
+  const storedFrom = stored.commentRetentionFrom ?? 0;
+  const fileFrom = file.commentRetentionFrom ?? 0;
+  return (
+    stored.commentRetentionDays < file.commentRetentionDays ||
+    (storedFrom < fileFrom && fileFrom > now)
+  );
+}
+
+/**
+ * What of the file only loosens deletion, applied whatever holds the rest of the item back
+ * (lifting, an unusable provider, a revision race): a longer or no maximum life, and comment
+ * retention no stricter than the file's (the longer days and the later date of the two, or none).
+ * Null when it changes nothing.
+ */
+function retentionLoosening(
+  current: WorkspacePolicy,
+  file: WorkspacePolicy | null,
+  now: number,
+): WorkspacePolicy | null {
+  let next = current;
+  const fileLife = file ?? { ...current, artifactMaxDays: null, artifactMaxDaysFrom: null };
+  if (replacedMaxLife(current, fileLife) !== null) {
+    next = {
+      ...next,
+      artifactMaxDays: fileLife.artifactMaxDays,
+      artifactMaxDaysFrom: fileLife.artifactMaxDaysFrom,
+    };
+  }
+  if (commentsStricter(current, file, now)) {
+    const days = file?.commentRetentionDays ?? null;
+    if (days === null) {
+      next = {
+        ...next,
+        commentRetentionDays: null,
+        commentRetentionFrom: null,
+        commentRetentionToken: null,
+      };
+    } else {
+      const merged = {
+        commentRetentionDays: Math.max(days, current.commentRetentionDays ?? days),
+        commentRetentionFrom: Math.max(
+          file?.commentRetentionFrom ?? 0,
+          current.commentRetentionFrom ?? 0,
+        ),
+      };
+      const same = (policy: WorkspacePolicy | null) =>
+        policy !== null &&
+        policy.commentRetentionDays === merged.commentRetentionDays &&
+        policy.commentRetentionFrom === merged.commentRetentionFrom;
+      // The token goes with the rule it was saved with; a rule neither had has none, so it is
+      // never in force until an admin saves it (decision 0023, "Restores").
+      next = {
+        ...next,
+        ...merged,
+        commentRetentionToken: same(file)
+          ? (file?.commentRetentionToken ?? null)
+          : same(current)
+            ? current.commentRetentionToken
+            : null,
+      };
+    }
+  }
+  return next === current ? null : next;
+}
+
+/**
+ * One workspace's policy set by the operator, in one global batch on the revision read. With
+ * `keepSso` (a change that only loosens retention) the SSO suspension is left as it is.
+ */
 async function applyOne(
   global: GlobalDb,
   workspaceId: string,
@@ -1537,6 +1815,7 @@ async function applyOne(
   next: WorkspacePolicy,
   provider: string | null,
   now: number,
+  options: { keepSso?: boolean } = {},
 ): Promise<boolean> {
   const kept =
     provider === null
@@ -1574,7 +1853,7 @@ async function applyOne(
         policyRevision: revision + 1,
         updatedAt: now,
         // Applied only where the provider is usable, or lifted: not suspended (0021).
-        ssoSuspended: 0,
+        ...(options.keepSso ? {} : { ssoSuspended: 0 }),
       })
       .where(and(eq(w.id, workspaceId), eq(w.policyRevision, revision), sql`1${kept}`))
       .returning({ id: w.id }),
@@ -1582,21 +1861,31 @@ async function applyOne(
   return (results.at(-1) as unknown[]).length > 0;
 }
 
+/** How many times one workspace's item is decided again after a save moved its revision. */
+const APPLY_ATTEMPTS = 3;
+
 /**
  * Sets the exported policies again after a D1 Time Travel restore, which rewinds them with the
  * workspace rows and could lift one an admin set after the restore point. Every item is
  * validated and normalized first, as a save would (`normalizePolicy`): one invalid item refuses
  * the whole file and nothing is applied, so a hand-edited or corrupted export can never store a
  * range enforcement cannot read. Each change records `policy.changed` with the operator as actor
- * and writes the `workspace_policy` job, in one global batch conditioned on the revision read. It
- * never lifts a restriction the workspace has now (`liftedFields`) unless `allowLifting` says
- * so: those workspaces are reported and left as they are. A workspace with a policy the file
- * does not list is reported. Running it again changes nothing.
+ * and writes the `workspace_policy` job, in one global batch conditioned on the revision read
+ * (decided again when a save moved it). It never lifts a restriction the workspace has now
+ * (`liftedFields`) unless `allowLifting` says so: those workspaces are reported and left as they
+ * are. A workspace with a policy the file does not list is reported. Running it again changes
+ * nothing.
  *
- * The maximum life of artifacts (decision 0023) is the other way round: there, the restored value
- * is the dangerous one, because it archives. A file's longer or removed maximum is always applied
- * (alone when the rest of the item is held back), a file's new or shorter one keeps the effective
- * date the file stores, and a workspace the file does not list loses a restored maximum life.
+ * Retention is the other way round (decision 0023): there, the restored value is the dangerous
+ * one, because it archives or deletes. A file's longer or removed maximum life and comment
+ * retention are always applied, alone when the rest of the item is held back for any reason, and a
+ * workspace the file does not list loses a restored one.
+ *
+ * It never writes a comment retention guard record (decision 0023, "Restores"): it writes the
+ * exported policies, tokens included, as it writes the rest. A workspace whose exported token is
+ * the one in its region's guard record deletes again by itself; one skipped, changed after the
+ * export or missing from the file keeps disagreeing and stays paused until an admin saves. Writing
+ * the records here would arm whatever the file says, a stale file included.
  */
 export async function applyWorkspacePolicies(
   global: GlobalDb,
@@ -1614,62 +1903,118 @@ export async function applyWorkspacePolicies(
   let skipped = 0;
   const lifting: { workspaceId: string; fields: PolicyField[] }[] = [];
   const ssoUnusable: string[] = [];
-  for (const item of items) {
-    const [row] = await global
-      .select({ policy: w.policy, revision: w.policyRevision })
-      .from(w)
-      .where(eq(w.id, item.workspaceId))
-      .limit(1);
-    const current = row ? policyOf(row.policy) : null;
-    if (!row || !current || changedFields(current, item.policy).length === 0) {
-      skipped += 1;
-      continue;
-    }
-    let next = item.policy;
-    const lifted = liftedFields(current, next);
-    if (lifted.length > 0 && !options.allowLifting) {
-      lifting.push({ workspaceId: item.workspaceId, fields: lifted });
-      // The rest waits for the operator; a longer or removed maximum life does not.
-      if (!replacedMaxLife(current, next)) continue;
-      next = {
-        ...current,
-        artifactMaxDays: next.artifactMaxDays,
-        artifactMaxDaysFrom: next.artifactMaxDaysFrom,
-      };
-    }
-    const provider = next.ssoRequired
-      ? await workspaceSsoProvider(global, item.workspaceId, now)
-      : null;
-    if (next.ssoRequired && provider === null) {
-      ssoUnusable.push(item.workspaceId);
-      continue;
-    }
-    if (await applyOne(global, item.workspaceId, current, row.revision, next, provider, now)) {
-      applied += 1;
-    } else skipped += 1;
-  }
-  const listed = new Set(items.map((item) => item.workspaceId));
-  const extra: string[] = [];
   const retentionCleared: string[] = [];
-  for (const item of await exportWorkspacePolicies(global)) {
-    if (listed.has(item.workspaceId)) continue;
-    extra.push(item.workspaceId);
-    if (item.policy.artifactMaxDays === null) continue;
-    const [row] = await global
-      .select({ revision: w.policyRevision })
-      .from(w)
-      .where(eq(w.id, item.workspaceId))
-      .limit(1);
-    if (!row) continue;
-    const next = { ...item.policy, artifactMaxDays: null, artifactMaxDaysFrom: null };
-    const provider = next.ssoRequired
-      ? await workspaceSsoProvider(global, item.workspaceId, now)
-      : null;
-    if (await applyOne(global, item.workspaceId, item.policy, row.revision, next, provider, now)) {
+  const commentHeld: string[] = [];
+
+  /**
+   * Applies `file` (or, with `file` null, clears the retention of a workspace the file does not
+   * list), deciding again when a save moved the revision. Returns what happened.
+   */
+  async function applyItem(
+    workspaceId: string,
+    exported: WorkspacePolicy | null,
+  ): Promise<"applied" | "loosened" | "unchanged" | "held"> {
+    for (let attempt = 0; attempt < APPLY_ATTEMPTS; attempt += 1) {
+      const [row] = await global
+        .select({ policy: w.policy, revision: w.policyRevision })
+        .from(w)
+        .where(eq(w.id, workspaceId))
+        .limit(1);
+      if (!row) return "unchanged";
+      const current = policyOf(row.policy);
+      // Never a stricter comment retention than the stored one: it keeps its own.
+      const tightens = exported !== null && commentsStricter(exported, current, now);
+      if (tightens && attempt === 0) commentHeld.push(workspaceId);
+      const file: WorkspacePolicy | null =
+        exported !== null && tightens
+          ? {
+              ...exported,
+              commentRetentionDays: current.commentRetentionDays,
+              commentRetentionFrom: current.commentRetentionFrom,
+              commentRetentionToken: current.commentRetentionToken,
+            }
+          : exported;
+      const loosening = retentionLoosening(current, file, now);
+      let next: WorkspacePolicy | null = null;
+      let provider: string | null = null;
+      let whole = false;
+      let held = false;
+      // Only the guard's token can differ (the same rule saved again): that is a change too.
+      const tokenOnly =
+        file !== null &&
+        file.commentRetentionDays !== null &&
+        current.commentRetentionDays === file.commentRetentionDays &&
+        current.commentRetentionFrom === file.commentRetentionFrom &&
+        current.commentRetentionToken !== file.commentRetentionToken;
+      if (file !== null && (changedFields(current, file).length > 0 || tokenOnly)) {
+        const lifted = liftedFields(current, file);
+        if (lifted.length > 0 && !options.allowLifting) {
+          if (attempt === 0) lifting.push({ workspaceId, fields: lifted });
+          held = true;
+        } else {
+          provider = file.ssoRequired ? await workspaceSsoProvider(global, workspaceId, now) : null;
+          if (file.ssoRequired && provider === null) {
+            if (attempt === 0) ssoUnusable.push(workspaceId);
+            held = true;
+          } else {
+            next = file;
+            whole = true;
+          }
+        }
+      }
+      if (next === null) {
+        // Held back, or nothing else to apply: only what loosens retention goes in.
+        if (loosening === null) return held ? "held" : "unchanged";
+        next = loosening;
+        provider = null;
+      }
+      const done = await applyOne(global, workspaceId, current, row.revision, next, provider, now, {
+        keepSso: !whole,
+      });
+      if (done) return whole ? "applied" : "loosened";
+    }
+    return "held";
+  }
+
+  for (const item of items) {
+    const outcome = await applyItem(item.workspaceId, item.policy);
+    if (outcome === "applied" || outcome === "loosened") applied += 1;
+    else if (outcome === "unchanged") skipped += 1;
+  }
+  const fileOf = new Map(items.map((item) => [item.workspaceId, item.policy]));
+  const extra: string[] = [];
+  // The raw text, so one malformed row is skipped here instead of failing the read.
+  const stored = await global
+    .select({ id: w.id, policy: sql<string | null>`${w.policy}` })
+    .from(w)
+    .where(sql`${w.policy} is not null`)
+    .orderBy(asc(w.id));
+  for (const row of stored) {
+    if (fileOf.has(row.id)) continue;
+    extra.push(row.id);
+    let policy: WorkspacePolicy;
+    try {
+      policy = policyOf(row.policy);
+    } catch {
+      // Unreadable: nothing can be applied to it (and its comment retention cannot agree).
+      continue;
+    }
+    const item = { workspaceId: row.id, policy };
+    if (item.policy.artifactMaxDays === null && item.policy.commentRetentionDays === null) continue;
+    if ((await applyItem(item.workspaceId, null)) === "loosened") {
       retentionCleared.push(item.workspaceId);
     }
   }
-  return { ok: true, applied, skipped, extra, lifting, ssoUnusable, retentionCleared };
+  return {
+    ok: true,
+    applied,
+    skipped,
+    extra,
+    lifting,
+    ssoUnusable,
+    retentionCleared,
+    commentHeld,
+  };
 }
 
 export type ClearRequestPoliciesResult =
@@ -1732,4 +2077,12 @@ export async function clearRequestPolicies(
     return clearRequestPolicies(global, workspaceId, now, attempt + 1);
   }
   return { outcome: "cleared", fields };
+}
+
+/** Whether a save removes or lengthens comment retention: what moves the restore guard. */
+function commentRetentionLoosened(current: WorkspacePolicy, next: WorkspacePolicy): boolean {
+  return (
+    current.commentRetentionDays !== null &&
+    (next.commentRetentionDays === null || next.commentRetentionDays > current.commentRetentionDays)
+  );
 }

@@ -79,6 +79,7 @@ import {
   auditExportLine,
   auditExportPreamble,
   checkSingleFamily,
+  commentTiming,
   diffText,
   normalizePolicy,
   noticeWindowEnd,
@@ -413,6 +414,13 @@ export interface FakeWorkspace {
   /** Its policies' revision and plan (decision 0015); the policy itself is on `view`. */
   policyRevision: number;
   policiesAvailable: boolean;
+  /** Whether a set comment retention is in force (decision 0023); in force unless a test says. */
+  commentRetentionInForce?: boolean;
+  /**
+   * How a save that changes comment retention is refused, as the API refuses it while the guard
+   * record cannot be read or written (`guard`, with its detail) or for capacity (`capacity`).
+   */
+  commentRetentionRefusal?: "guard" | "capacity";
   /** What the fake preview answers; a save needs these counts confirmed while any is above zero. */
   policyImpact: PolicyImpact;
   /**
@@ -433,6 +441,9 @@ export const NO_IMPACT: PolicyImpact = {
   artifactsAtStart: 0,
   artifactsSoon: 0,
   pinsLifted: 0,
+  threadsAtStart: 0,
+  messagesAtStart: 0,
+  threadsSoon: 0,
 };
 
 export function workspace(
@@ -458,7 +469,16 @@ export function workspace(
     ...rest
   } = overrides;
   return {
-    view: { slug, name, role, region, createdAt: NOW, policy, blocked, blockedBy },
+    view: {
+      slug,
+      name,
+      role,
+      region,
+      createdAt: NOW,
+      policy: { ...policy, commentRetentionToken: null },
+      blocked,
+      blockedBy,
+    },
     members: [
       {
         userId: "u_ada",
@@ -1153,7 +1173,7 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
       role: invitation.role,
       region: "default",
       createdAt: NOW,
-      policy: DEFAULT_POLICY,
+      policy: { ...DEFAULT_POLICY, commentRetentionToken: null },
       blocked: false,
       blockedBy: null,
     };
@@ -2740,6 +2760,8 @@ function policyRoute(
     // The admin signed in three hours ago (decision 0021).
     yourSignInAt: admin ? Date.now() - 3 * 3_600_000 : null,
     sso: admin && w.ssoState ? { offered: true, ...w.ssoState } : null,
+    commentRetentionInForce:
+      w.view.policy.commentRetentionDays === null ? null : (w.commentRetentionInForce ?? true),
   });
   if (!match[2] && method === "GET") return json(state());
   if (!admin) return apiError("forbidden", 403);
@@ -2772,6 +2794,20 @@ function policyRoute(
   }
   if (!match[2] && method === "PUT") {
     if (body?.revision !== w.policyRevision) return apiError("version_conflict", 409);
+    const asked = (body?.policy as WorkspacePolicy | undefined)?.commentRetentionDays ?? null;
+    if (w.commentRetentionRefusal && asked !== w.view.policy.commentRetentionDays) {
+      const reason = w.commentRetentionRefusal === "guard" ? "comment_retention_guard" : null;
+      return json(
+        {
+          error: {
+            code: "capacity_unavailable",
+            message: "x",
+            ...(reason && { details: { reason } }),
+          },
+        },
+        503,
+      );
+    }
     // As the API: a save that changes existing artifacts needs the impact the preview showed,
     // and is refused when a count grew past it since.
     const impact = Object.values(w.policyImpact).reduce((sum, count) => sum + count, 0);
@@ -2795,15 +2831,18 @@ function policyRoute(
     if (newlySso && w.ssoOutside > 0 && body?.confirmedOutsideProvider !== w.ssoOutside) {
       return apiError("policy_refused", 403);
     }
-    // As the API (decision 0023): the server decides when a maximum life takes effect.
-    w.view = {
-      ...w.view,
-      policy: retentionTiming(
+    // As the API (decision 0023): the server decides when a maximum life takes effect, and its
+    // comment retention guard token is never shown.
+    const saved = commentTiming(
+      w.view.policy as WorkspacePolicy,
+      retentionTiming(
         w.view.policy as WorkspacePolicy,
         body?.policy as WorkspacePolicy,
         Date.now(),
       ),
-    };
+      Date.now(),
+    );
+    w.view = { ...w.view, policy: { ...saved, commentRetentionToken: null } };
     w.policyRevision += 1;
     return json(state());
   }

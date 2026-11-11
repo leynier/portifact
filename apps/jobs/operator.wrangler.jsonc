@@ -1,6 +1,8 @@
 {
   // Configuration for the operator tool only (scripts/operator.ts): the production D1 databases
-  // of every region as remote bindings, reached with the deploy credentials. Never deployed.
+  // and R2 buckets of every region as remote bindings, reached with the deploy credentials. Never
+  // deployed. The buckets hold comment retention's restore guard marks (decision 0023): plan
+  // changes raise them and apply-policies reads and raises them to re-arm the scans.
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "portifact-operator",
   "main": "src/operator.ts",
@@ -17,6 +19,15 @@
       "binding": "DB_EU",
       "database_name": "portifact-control-eu",
       "database_id": "fb06a466-a5c3-4fda-a1dc-af6a4e12c9a4",
+      "remote": true
+    }
+  ],
+  "r2_buckets": [
+    { "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts", "remote": true },
+    {
+      "binding": "ARTIFACTS_EU",
+      "bucket_name": "portifact-artifacts-eu",
+      "jurisdiction": "eu",
       "remote": true
     }
   ]

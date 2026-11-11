@@ -26,6 +26,14 @@ export function raceGlobalBeforeFirstWrite(before: () => Promise<void>): GlobalD
 }
 
 /**
+ * The global database, running `before` right before the first statement whose SQL matches
+ * `pattern`: a race placed after a scan's reads and before a given write.
+ */
+export function raceGlobalBeforeStatement(pattern: RegExp, before: () => Promise<void>): GlobalDb {
+  return globalDb(aliasBinding(racedD1(before, env.DB, pattern), env.DB));
+}
+
+/**
  * The default region's handle over `env.DB`, running `before` right before the first statement
  * whose SQL matches `pattern`, whichever handle prepared it (one database: a path may run on the
  * handle `bothSides` gives).
@@ -34,10 +42,21 @@ export function raceBeforeStatement(pattern: RegExp, before: () => Promise<void>
   return regionalDb(aliasBinding(racedD1(before, env.DB, pattern), env.DB), globalDb(env.DB));
 }
 
+/**
+ * The default region's handle over `env.DB`, running `before` right before the first batch with a
+ * statement whose SQL matches `pattern`: a race placed just before a given batch of writes (one
+ * database, so whichever handle runs it).
+ */
+export function raceBeforeBatchWith(pattern: RegExp, before: () => Promise<void>): RegionalDb {
+  const raced = aliasBinding(racedD1(before, env.DB, pattern, true), env.DB);
+  return regionalDb(raced, globalDb(raced));
+}
+
 function racedD1(
   before: () => Promise<void>,
   d1: D1Database = env.DB,
   pattern: RegExp = WRITE,
+  batches = false,
 ): D1Database {
   let fired = false;
   const fire = async () => {
@@ -46,6 +65,7 @@ function racedD1(
     await before();
   };
   const real = new WeakMap<object, D1PreparedStatement>();
+  const queries = new WeakMap<object, string>();
   const wrap = (statement: D1PreparedStatement, query: string): D1PreparedStatement => {
     const wrapped = new Proxy(statement, {
       get(target, prop) {
@@ -64,6 +84,7 @@ function racedD1(
       },
     });
     real.set(wrapped, statement);
+    queries.set(wrapped, query);
     return wrapped;
   };
   const proxied = new Proxy(d1, {
@@ -71,7 +92,12 @@ function racedD1(
       if (prop === "prepare") return (query: string) => wrap(target.prepare(query), query);
       if (prop === "batch") {
         return async (statements: D1PreparedStatement[]) => {
-          if (pattern === WRITE) await fire();
+          if (
+            pattern === WRITE ||
+            (batches && statements.some((s) => pattern.test(queries.get(s) ?? "")))
+          ) {
+            await fire();
+          }
           return target.batch(statements.map((s) => real.get(s) ?? s));
         };
       }

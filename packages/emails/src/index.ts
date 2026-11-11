@@ -7,6 +7,11 @@ export {
   commentNoticeEmail,
 } from "./comment-notice.ts";
 export {
+  COMMENT_RETENTION_NOTICE_TEXT,
+  type CommentRetentionNoticeInput,
+  commentRetentionNoticeEmail,
+} from "./comment-retention-notice.ts";
+export {
   DIRECTORY_NOTICE_TEXT,
   type DirectoryNoticeInput,
   type DirectoryNoticeText,

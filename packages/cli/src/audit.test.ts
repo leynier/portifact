@@ -532,6 +532,42 @@ describe("plain words for every kind", () => {
     );
   });
 
+  it("says what comment retention changed and deleted (decision 0023)", () => {
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "policy.changed",
+          detail: {
+            fields: ["commentRetentionDays"],
+            commentRetentionDays: null,
+            commentRetentionFrom: null,
+            reason: "plan_lapsed",
+            confirmed: false,
+          },
+        }),
+      ),
+    ).toBe(
+      "Changed the workspace's policies: no comment retention, because the plan no longer includes policies",
+    );
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "policy.enforced",
+          detail: {
+            artifactsNarrowed: 0,
+            readersRemoved: 0,
+            linksRevoked: 0,
+            sessionsEnded: 0,
+            threadsDeleted: 3,
+            messagesDeleted: 11,
+          },
+        }),
+      ),
+    ).toBe(
+      "Applied the workspace's policies: 3 comment thread(s) deleted by comment retention, 11 message(s) in them",
+    );
+  });
+
   it("says when the workspace's policy changed access", () => {
     expect(
       auditSummary(

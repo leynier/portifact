@@ -167,6 +167,7 @@ describe("policies through the dashboard's session", () => {
       enabled: true,
       editable: true,
       domainVerified: false,
+      commentRetentionInForce: null,
       // The request carried no CF-Connecting-IP.
       yourIp: null,
       serviceTokens: 0,
@@ -188,6 +189,9 @@ describe("policies through the dashboard's session", () => {
       artifactsAtStart: 0,
       artifactsSoon: 0,
       pinsLifted: 0,
+      threadsAtStart: 0,
+      messagesAtStart: 0,
+      threadsSoon: 0,
       networks: null,
       signIns: null,
       sso: null,
@@ -487,5 +491,69 @@ describe("a maximum life of artifacts (decision 0023)", () => {
     );
     expect(removed.status).toBe(200);
     expect(await removed.json()).toMatchObject({ policy: { artifactMaxDays: null } });
+  });
+});
+
+describe("comment retention (decision 0023)", () => {
+  it("is saved through the session with its date, read by every client, and never by a bearer", async () => {
+    const t = await team("pol-comments");
+    const base = `/api/v1/workspaces/${t.slug}/policies`;
+    const cookie = await t.admin.h.signIn(t.admin.email);
+    const next = policy({ commentRetentionDays: 90 });
+    const seen = await (
+      await t.admin.h.request(`${base}/preview`, dashboard(cookie, "POST", { policy: next }))
+    ).json<Record<string, number>>();
+    expect(seen).toMatchObject({ threadsAtStart: 0, messagesAtStart: 0, threadsSoon: 0 });
+    // A bearer token never changes it.
+    const bearer = await t.admin.apiCall(base, json("PUT", { policy: next, revision: 0 }));
+    expect(bearer.status).toBe(403);
+    const saved = await t.admin.h.request(
+      base,
+      dashboard(cookie, "PUT", {
+        policy: { ...next, commentRetentionFrom: 0 },
+        revision: 0,
+        confirmed: seen,
+      }),
+    );
+    expect(saved.status).toBe(200);
+    const from = NOW + 7 * 86_400_000;
+    expect(await saved.json()).toMatchObject({
+      policy: { commentRetentionDays: 90, commentRetentionFrom: from },
+    });
+    const listed = await (await t.member.apiCall("/api/v1/workspaces")).json<{
+      items: { slug: string; policy: WorkspacePolicy }[];
+    }>();
+    expect(listed.items.find((item) => item.slug === t.slug)?.policy).toMatchObject({
+      commentRetentionDays: 90,
+      commentRetentionFrom: from,
+    });
+    const tool = await t.member.tool("list_workspaces", {});
+    expect(tool.structuredContent).toEqual(listed);
+    expect(JSON.stringify(tool.content)).toContain(
+      "comment threads are deleted 90 days after their last activity (an open one: after its version was replaced, when later), except open ones on the current version",
+    );
+    // While its guard record cannot be read, a change is refused with the detail the page reads.
+    await env.ARTIFACTS.put(`system/comment-retention/${t.id}`, "not a record");
+    const blocked = await t.admin.h.request(
+      base,
+      dashboard(cookie, "PUT", { policy: policy({ commentRetentionDays: 180 }), revision: 1 }),
+    );
+    expect(blocked.status).toBe(503);
+    expect(await blocked.json()).toEqual({
+      error: {
+        code: "capacity_unavailable",
+        message:
+          "Comment retention cannot be changed right now, so nothing was saved. Try again in a few minutes.",
+        details: { reason: "comment_retention_guard" },
+      },
+    });
+    // Removing it needs no plan and applies at once.
+    await db().delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));
+    const removed = await t.admin.h.request(
+      base,
+      dashboard(cookie, "PUT", { policy: DEFAULT_POLICY, revision: 1 }),
+    );
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toMatchObject({ policy: { commentRetentionDays: null } });
   });
 });

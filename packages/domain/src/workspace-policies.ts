@@ -61,12 +61,24 @@ export function storedPolicy(policy: WorkspacePolicy): Partial<WorkspacePolicy> 
     ssoRequired,
     artifactMaxDays,
     artifactMaxDaysFrom,
+    commentRetentionDays,
+    commentRetentionFrom,
+    commentRetentionToken,
     ...rest
   } = policy;
   return {
     ...rest,
     // The maximum life (decision 0023) too: stored only while set.
     ...(artifactMaxDays === null ? {} : { artifactMaxDays, artifactMaxDaysFrom }),
+    // Comment retention (decision 0023) too: stored only while set.
+    ...(commentRetentionDays === null
+      ? {}
+      : {
+          commentRetentionDays,
+          commentRetentionFrom,
+          // The restore guard's token (decision 0023) goes with the rule it names.
+          ...(commentRetentionToken === null ? {} : { commentRetentionToken }),
+        }),
     // "SSO required" too (decision 0021): stored only while set.
     ...(ssoRequired ? { ssoRequired } : {}),
     ...(ipAllowlist === null ? {} : { ipAllowlist }),
@@ -237,6 +249,16 @@ export function changedFields(current: WorkspacePolicy, next: WorkspacePolicy): 
   if (current.ssoRequired !== next.ssoRequired) fields.push("ssoRequired");
   // Its effective date is derived from the change (`retentionTiming`), never a field of its own.
   if (current.artifactMaxDays !== next.artifactMaxDays) fields.push("artifactMaxDays");
+  // Its date and its restore guard token are part of the rule (decision 0023): a change of either
+  // alone (`apply-policies` restoring an exported rule) is a change of the field.
+  if (
+    current.commentRetentionDays !== next.commentRetentionDays ||
+    (next.commentRetentionDays !== null &&
+      (current.commentRetentionFrom !== next.commentRetentionFrom ||
+        current.commentRetentionToken !== next.commentRetentionToken))
+  ) {
+    fields.push("commentRetentionDays");
+  }
   return fields;
 }
 
@@ -287,6 +309,13 @@ function loosens(field: PolicyField, current: WorkspacePolicy, next: WorkspacePo
       return (
         next.artifactMaxDays === null ||
         (current.artifactMaxDays !== null && next.artifactMaxDays > current.artifactMaxDays)
+      );
+    // A longer (or no) comment retention.
+    case "commentRetentionDays":
+      return (
+        next.commentRetentionDays === null ||
+        (current.commentRetentionDays !== null &&
+          next.commentRetentionDays > current.commentRetentionDays)
       );
   }
 }
@@ -340,7 +369,10 @@ export function impactTotal(impact: PolicyImpact): number {
     impact.linksOverLifetime +
     impact.artifactsAtStart +
     impact.artifactsSoon +
-    impact.pinsLifted
+    impact.pinsLifted +
+    impact.threadsAtStart +
+    impact.messagesAtStart +
+    impact.threadsSoon
   );
 }
 
@@ -353,6 +385,9 @@ const IMPACT_KEYS = [
   "artifactsAtStart",
   "artifactsSoon",
   "pinsLifted",
+  "threadsAtStart",
+  "messagesAtStart",
+  "threadsSoon",
 ] as const satisfies readonly (keyof PolicyImpact)[];
 
 /**
@@ -399,6 +434,19 @@ export function checkPolicyImpact(
       "would be archived within 30 days after that",
     ],
     [impact.pinsLifted, "pinned artifact", "pinned artifacts", "would be unpinned"],
+    [
+      impact.threadsAtStart,
+      "comment thread",
+      "comment threads",
+      "would be deleted for good when comment retention takes effect",
+    ],
+    [impact.messagesAtStart, "message", "messages", "in them would be deleted with them"],
+    [
+      impact.threadsSoon,
+      "comment thread",
+      "comment threads",
+      "would be deleted within 30 days after that",
+    ],
   ] as const;
   const listed = parts
     .filter(([count]) => count > 0)
@@ -543,6 +591,12 @@ export function policyChangeDetail(
     ...(fields.includes("artifactMaxDays")
       ? { artifactMaxDays: next.artifactMaxDays, artifactMaxDaysFrom: next.artifactMaxDaysFrom }
       : {}),
+    ...(fields.includes("commentRetentionDays")
+      ? {
+          commentRetentionDays: next.commentRetentionDays,
+          commentRetentionFrom: next.commentRetentionFrom,
+        }
+      : {}),
     confirmed,
   };
 }
@@ -586,6 +640,15 @@ export function describePolicy(policy: WorkspacePolicy | WorkspacePolicyShown): 
         : ` (from ${new Date(policy.artifactMaxDaysFrom).toISOString().slice(0, 10)})`;
     lines.push(
       `artifacts are archived ${policy.artifactMaxDays} days after their last publish or restore, and cannot be pinned${from}`,
+    );
+  }
+  if (policy.commentRetentionDays !== null) {
+    const from =
+      policy.commentRetentionFrom === null
+        ? ""
+        : ` (from ${new Date(policy.commentRetentionFrom).toISOString().slice(0, 10)})`;
+    lines.push(
+      `comment threads are deleted ${policy.commentRetentionDays} days after their last activity (an open one: after its version was replaced, when later), except open ones on the current version${from}`,
     );
   }
   return lines;
@@ -922,6 +985,8 @@ export function shownPolicy(policy: WorkspacePolicy, sees: boolean): WorkspacePo
     ...policy,
     ipAllowlist: shownNetworks(policy.ipAllowlist, sees),
     tokenIpAllowlist: shownNetworks(policy.tokenIpAllowlist, sees),
+    // The restore guard's token never leaves the server (decision 0023).
+    commentRetentionToken: null,
   };
 }
 
@@ -951,6 +1016,9 @@ export function liftedFields(current: WorkspacePolicy, next: WorkspacePolicy): P
       // A longer or no maximum life is never held back (decision 0023): there, re-applying the
       // older, tighter value is what would archive data, so `apply-policies` always applies it.
       case "artifactMaxDays":
+        return false;
+      // The same for comment retention, where re-applying would delete for good.
+      case "commentRetentionDays":
         return false;
       default:
         return loosens(field, current, next);
@@ -1099,4 +1167,134 @@ export function checkPolicyPin(policy: WorkspacePolicy | undefined): Result<true
     return refused(POLICY_MESSAGES.pinUnderMaxLife(policy.artifactMaxDays));
   }
   return ok(true);
+}
+
+/** A workspace's comment retention (decision 0023): days and when it takes effect. */
+export interface CommentRetention {
+  days: number;
+  /** Nothing is deleted before this (milliseconds). */
+  from: number;
+  /** The restore guard's token the rule was saved with (decision 0023); null: never in force. */
+  token?: string | null;
+}
+
+/** The comment retention a policy sets, or null. */
+export function commentRetentionOf(policy: WorkspacePolicy | undefined): CommentRetention | null {
+  if (!policy || policy.commentRetentionDays === null) return null;
+  return {
+    days: policy.commentRetentionDays,
+    from: policy.commentRetentionFrom ?? 0,
+    token: policy.commentRetentionToken,
+  };
+}
+
+/**
+ * Where a thread's retention period starts (decision 0023): a resolved thread's last activity; an
+ * open thread's last activity or the moment its version stopped being current (`leftCurrent`),
+ * whichever is later, so an open thread kept while its version was current gets the whole period
+ * once it is not. Never earlier than the last activity, which is why a range on `updated_at` is a
+ * correct pre-filter for the scan. Its SQL twin is in `threadDeadlineSql` in packages/services.
+ */
+export function threadClock(thread: {
+  state: "open" | "resolved";
+  lastActivity: number;
+  leftCurrent: number | null;
+}): number {
+  return thread.state === "open" && thread.leftCurrent !== null
+    ? Math.max(thread.lastActivity, thread.leftCurrent)
+    : thread.lastActivity;
+}
+
+/**
+ * When a thread may be deleted under comment retention (decision 0023): its clock
+ * (`threadClock`) plus the days, never before the rule takes effect, and never sooner than the
+ * move notice after its artifact moved into the workspace (`movedIn`, null when it never moved).
+ * Its SQL twin is `threadDeadlineSql` in packages/services.
+ */
+export function threadDeadline(
+  rule: CommentRetention,
+  clock: number,
+  movedIn: number | null,
+): number {
+  return Math.max(
+    rule.from,
+    movedIn === null ? 0 : movedIn + WORKSPACE_POLICIES.commentMoveNoticeDays * DAY_MS,
+    clock + rule.days * DAY_MS,
+  );
+}
+
+/**
+ * Whether comment retention may delete a thread at `now`: past its deadline, and not open on the
+ * artifact's current version (what reviewers are waiting on). Suspended artifacts are kept for
+ * the operator; deleted and purging ones are gone already.
+ */
+export function threadDeletable(
+  rule: CommentRetention,
+  thread: {
+    state: "open" | "resolved";
+    onCurrentVersion: boolean;
+    artifactState: string;
+    lastActivity: number;
+    movedIn: number | null;
+    /** When the thread's version stopped being current (null while it is, or unknown). */
+    leftCurrent: number | null;
+  },
+  now: number,
+): boolean {
+  if (thread.artifactState !== "active" && thread.artifactState !== "archived") return false;
+  if (thread.state === "open" && thread.onCurrentVersion) return false;
+  return threadDeadline(rule, threadClock(thread), thread.movedIn) <= now;
+}
+
+/**
+ * The comment retention as it is stored after a save: the server decides when it takes effect.
+ * A new or shorter one waits the notice period; a longer one keeps the date the current one has;
+ * none clears it. The restore guard's token (decision 0023, "Restores"): `fresh` whenever the
+ * rule changes (its days or its date), the current one when it stays as it is, never the
+ * client's; without `fresh` (a preview) the current one.
+ */
+export function commentTiming(
+  current: WorkspacePolicy,
+  next: WorkspacePolicy,
+  now: number,
+  fresh?: string,
+): WorkspacePolicy {
+  const timed = commentDates(current, next, now);
+  if (timed.commentRetentionDays === null) return timed;
+  const same =
+    current.commentRetentionDays === timed.commentRetentionDays &&
+    current.commentRetentionFrom === timed.commentRetentionFrom &&
+    current.commentRetentionToken !== null;
+  return {
+    ...timed,
+    commentRetentionToken: same
+      ? current.commentRetentionToken
+      : (fresh ?? current.commentRetentionToken),
+  };
+}
+
+function commentDates(
+  current: WorkspacePolicy,
+  next: WorkspacePolicy,
+  now: number,
+): WorkspacePolicy {
+  if (next.commentRetentionDays === null) {
+    return { ...next, commentRetentionFrom: null, commentRetentionToken: null };
+  }
+  const from = commentRetentionTightened(current, next)
+    ? now + WORKSPACE_POLICIES.retentionNoticeDays * DAY_MS
+    : (current.commentRetentionFrom ?? now + WORKSPACE_POLICIES.retentionNoticeDays * DAY_MS);
+  return { ...next, commentRetentionFrom: from };
+}
+
+/** Whether a change sets comment retention or shortens it: what needs the notice and the email. */
+export function commentRetentionTightened(
+  current: WorkspacePolicy,
+  next: WorkspacePolicy,
+): boolean {
+  return (
+    next.commentRetentionDays !== null &&
+    (current.commentRetentionDays === null ||
+      next.commentRetentionDays < current.commentRetentionDays)
+  );
 }

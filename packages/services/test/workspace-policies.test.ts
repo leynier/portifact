@@ -247,6 +247,7 @@ describe("reading, previewing and changing policies", () => {
         yourSignInAt: null,
         // Single sign-on is not offered on these handles (decision 0021).
         sso: null,
+        commentRetentionInForce: null,
       });
     }
     const missing = { ok: false, code: "not_found", message: "Workspace not found." };
@@ -434,6 +435,9 @@ describe("reading, previewing and changing policies", () => {
       artifactsAtStart: 0,
       artifactsSoon: 0,
       pinsLifted: 0,
+      threadsAtStart: 0,
+      messagesAtStart: 0,
+      threadsSoon: 0,
       networks: null,
       signIns: null,
       sso: null,
@@ -798,6 +802,9 @@ describe("the job and the scan", () => {
       artifactsAtStart: 0,
       artifactsSoon: 0,
       pinsLifted: 0,
+      threadsAtStart: 0,
+      messagesAtStart: 0,
+      threadsSoon: 0,
     });
   });
 });

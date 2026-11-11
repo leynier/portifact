@@ -21,6 +21,7 @@ import type { Region } from "@portifact/db";
 import { noticeNames } from "@portifact/domain";
 import {
   commentNoticeEmail,
+  commentRetentionNoticeEmail,
   directoryNoticeEmail,
   domainNoticeEmail,
   expiryNoticeEmail,
@@ -30,6 +31,7 @@ import {
 } from "@portifact/emails";
 import {
   type CommentNotifier,
+  type CommentRetentionNotifier,
   type DirectoryNotifier,
   type DomainNotifier,
   type ExpiringArtifact,
@@ -354,6 +356,36 @@ export function retentionNotifierFromEnv(
         from,
         atStart,
         soon,
+        policiesUrl: `${env.APP_ORIGIN}/policies?workspace=${encodeURIComponent(workspaceSlug)}`,
+        locale: locale ?? undefined,
+      });
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
+      } catch (error) {
+        // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+/**
+ * The admins' notices of a workspace's comment retention (decision 0023), linking its Policies
+ * page. Counts, days and dates only, so they are the same in every region.
+ */
+export function commentRetentionNotifierFromEnv(
+  env: Pick<NoticeEnv, "EMAIL" | "APP_ORIGIN">,
+): CommentRetentionNotifier {
+  return {
+    async send({ to, workspaceSlug, kind, days, from, at, threads, messages, locale }) {
+      const email = commentRetentionNoticeEmail({
+        kind,
+        days,
+        from,
+        at,
+        threads,
+        messages,
         policiesUrl: `${env.APP_ORIGIN}/policies?workspace=${encodeURIComponent(workspaceSlug)}`,
         locale: locale ?? undefined,
       });
