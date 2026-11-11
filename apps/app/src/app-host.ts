@@ -17,6 +17,7 @@ import { customDomainsServing, getViewerArtifact } from "@portifact/services";
 import { Hono } from "hono";
 import { hasSessionCookie, type SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
+import { auditStreamRoutes } from "./api/audit-streams.ts";
 import { integrationRoutes } from "./api/integrations.ts";
 import { noticeRoutes } from "./api/notices.ts";
 import { r2Presigner, storageEndpoint } from "./api/presign.ts";
@@ -391,6 +392,8 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       now: () => Date.now(),
     }),
   );
+  // Audit streams (decision 0019): the dashboard session only.
+  app.route("/", auditStreamRoutes({ session: sessionUserFor, now: () => Date.now() }));
   // Issue connections (decision 0018): the dashboard session only.
   app.route(
     "/",

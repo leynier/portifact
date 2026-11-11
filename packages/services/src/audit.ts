@@ -52,6 +52,7 @@ import {
   auditExportLine,
   auditExportPreamble,
   auditExportStop,
+  auditPruneCutoff,
   auditWindow,
   authorize,
   decodeAuditCursor,
@@ -160,11 +161,12 @@ export function auditEvent<K extends AuditKind>(
   const actorId =
     entry.actor.type === "user" || entry.actor.type === "directory" ? entry.actor.id : null;
   const actorType = actorId !== null && isServiceTokenId(actorId) ? "token" : entry.actor.type;
-  // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail.
+  // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail,
+  // recorded (the database's clock, decision 0019).
   return db
     .insert(ae)
     .select(
-      sql`select ${entry.id ?? newAuditEventId()}, ${entry.ownerId}, ${entry.now}, ${entry.kind}, ${actorType}, ${actorId}, ${entry.targetId}, ${entry.artifactId ?? null}, ${detail} where ${condition}`,
+      sql`select ${entry.id ?? newAuditEventId()}, ${entry.ownerId}, ${entry.now}, ${entry.kind}, ${actorType}, ${actorId}, ${entry.targetId}, ${entry.artifactId ?? null}, ${detail}, ${schema.recordedNow} where ${condition}`,
     );
 }
 
@@ -175,11 +177,12 @@ export function auditEvent<K extends AuditKind>(
  */
 export function accountLeftEvents(db: Db, userId: string, now: number): BatchItem<"sqlite"> {
   const m = schema.workspaceMembers;
-  // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail.
+  // Columns in schema order: id, owner, at, kind, actor type, actor, target, artifact, detail,
+  // recorded (the database's clock, decision 0019).
   return db
     .insert(ae)
     .select(
-      sql`select 'ae_' || lower(hex(randomblob(12))), ${m.workspaceId}, ${now}, 'member.left', 'system', null, ${m.userId}, null, json_object('role', ${m.role}) from ${m} where ${m.userId} = ${userId}`,
+      sql`select 'ae_' || lower(hex(randomblob(12))), ${m.workspaceId}, ${now}, 'member.left', 'system', null, ${m.userId}, null, json_object('role', ${m.role}), ${schema.recordedNow} from ${m} where ${m.userId} = ${userId}`,
     );
 }
 
@@ -679,6 +682,51 @@ async function* merged(
 }
 
 /**
+ * One database's events of an owner after a stream's position, in the order the database recorded
+ * them (`recorded_at`, then the ID; decision 0019): the kinds that database holds
+ * (`GLOBAL_AUDIT_KINDS` or the rest), recorded at least `settleMs` ago by the database's own clock,
+ * read in this same query, so no Worker's clock is involved. One indexed read on
+ * `(owner_id, recorded_at, id)`. A position without a time reads from the oldest row.
+ */
+export async function streamEventsAfter(
+  handle: Db,
+  input: {
+    ownerId: string;
+    source: "regional" | "global";
+    after: { at: number | null; id: string };
+    settleMs: number;
+    limit: number;
+  },
+): Promise<AuditRow[]> {
+  const kinds = input.source === "global" ? GLOBAL_AUDIT_KINDS : REGIONAL_AUDIT_KINDS;
+  const { at, id } = input.after;
+  return handle
+    .select()
+    .from(ae)
+    .where(
+      and(
+        eq(ae.ownerId, input.ownerId),
+        sql`${ae.kind} in ${ids(kinds)}`,
+        at === null
+          ? undefined
+          : or(gt(ae.recordedAt, at), and(eq(ae.recordedAt, at), gt(ae.id, id))),
+        sql`${ae.recordedAt} <= ${schema.recordedNow} - ${input.settleMs}`,
+      ),
+    )
+    .orderBy(asc(ae.recordedAt), asc(ae.id))
+    .limit(input.limit);
+}
+
+/** Events as the reader and the export show them, for a stream's batch (decision 0019). */
+export function presentAuditEvents(
+  db: RegionalDb,
+  ownerId: string,
+  rows: readonly AuditRow[],
+): Promise<AuditEventView[]> {
+  return present(db, ownerId, rows);
+}
+
+/**
  * A personal space's events for the account export: everything still kept, newest first, shown
  * the way the audit log shows them. Not behind the plan: an export is never refused.
  */
@@ -779,11 +827,11 @@ export async function pruneAuditEvents(
     }
   };
   await sweep(
-    sql`${ae.at} < ${auditCutoff(defaultDays, now)} and ${ae.ownerId} not in ${kept} and ${unchangedPlan}`,
+    sql`${ae.at} < ${auditPruneCutoff(defaultDays, now)} and ${ae.ownerId} not in ${kept} and ${unchangedPlan}`,
   );
   for (const [ownerId, days] of special) {
     await sweep(
-      sql`${ae.ownerId} = ${ownerId} and ${ae.at} < ${auditCutoff(days, now)} and ${unchangedPlan}`,
+      sql`${ae.ownerId} = ${ownerId} and ${ae.at} < ${auditPruneCutoff(days, now)} and ${unchangedPlan}`,
     );
   }
   return pruned;

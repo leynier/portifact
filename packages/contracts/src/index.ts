@@ -9,6 +9,7 @@ export * from "./annotations.ts";
 export * from "./approval-review-tools.ts";
 export * from "./approval-reviews.ts";
 export * from "./audit.ts";
+export * from "./audit-streams.ts";
 export * from "./branding.ts";
 export * from "./core.ts";
 export * from "./custom-domains.ts";

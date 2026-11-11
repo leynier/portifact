@@ -385,6 +385,10 @@ describe("plain words for every kind", () => {
       linksRevoked: 1,
       sessionsEnded: 3,
     },
+    "audit_stream.created": { host: "siem.example.com", start: "oldest" },
+    "audit_stream.changed": { host: "siem.example.com", url: true, secret: true, revoked: true },
+    "audit_stream.removed": { host: "siem.example.com" },
+    "audit_stream.paused": { host: "siem.example.com", reason: "failures" },
   };
   const expected: Record<AuditKind, string> = {
     "artifact.published": "Published version 3",
@@ -449,6 +453,13 @@ describe("plain words for every kind", () => {
       "Changed the workspace's policies: public access forbidden, readers only at corp.example, share links password required, share links at most 30 days (existing artifacts changed)",
     "policy.enforced":
       "Applied the workspace's policies: 2 artifact(s) made workspace-only, 1 share link(s) revoked, 3 link session(s) ended",
+    "audit_stream.created":
+      "Started streaming the audit log to siem.example.com from the oldest kept event",
+    "audit_stream.changed":
+      "Changed the audit stream to siem.example.com: its URL, a new signing secret, the old one revoked at once",
+    "audit_stream.removed": "Removed the audit stream to siem.example.com",
+    "audit_stream.paused":
+      "Paused the audit stream to siem.example.com (the endpoint kept failing)",
   };
 
   it.each(AUDIT_KINDS)("%s", (kind) => {

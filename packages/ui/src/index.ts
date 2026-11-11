@@ -6,6 +6,7 @@ export { BarChart, type BarChartDatum, type BarChartProps } from "./components/b
 export { BrandMark, type BrandMarkProps } from "./components/brand-mark.tsx";
 export { Button, type ButtonProps, buttonClasses } from "./components/button.tsx";
 export { Callout, type CalloutProps } from "./components/callout.tsx";
+export { CodeSample, type CodeSampleProps } from "./components/code-sample.tsx";
 export { ConfirmDialog, type ConfirmDialogProps } from "./components/confirm-dialog.tsx";
 export { CopyField, type CopyFieldProps } from "./components/copy-field.tsx";
 export { type DetailItem, DetailList, type DetailListProps } from "./components/detail-list.tsx";

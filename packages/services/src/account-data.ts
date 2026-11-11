@@ -26,6 +26,7 @@ import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { eraseApprovalAuthor } from "./approval-reviews.ts";
 import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
+import { deleteOwnerAuditStreams, exportAuditStreams } from "./audit-streams.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
@@ -240,6 +241,8 @@ export async function exportAccount(
       webhooks: await exportWebhooks(db, input.userId),
       // Connections by service and label: never the credential.
       integrations: await exportIntegrations(db, input.userId),
+      // Audit streams by label and host: never the URL, the secret or a position.
+      auditStreams: await exportAuditStreams(db, input.userId),
       auditEvents: await exportAuditEvents(db, input.userId, input.now),
       brand: await exportedBrand(db, input.userId),
       // The service tokens of the workspaces the account administers: never a secret or hash.
@@ -608,6 +611,13 @@ function regionalDeletion(
       .update(schema.integrationConnections)
       .set({ createdBy: null })
       .where(eq(schema.integrationConnections.createdBy, userId)),
+    // The account's audit streams stop at once, their sealed URL and secret with them (decision
+    // 0019); a workspace's stay, without who created them.
+    deleteOwnerAuditStreams(db, userId),
+    db
+      .update(schema.auditStreams)
+      .set({ createdBy: null })
+      .where(eq(schema.auditStreams.createdBy, userId)),
     forgetIssueRequester(db, userId),
     // Links the account created on artifacts it did not own (a workspace's) keep no trace of it.
     db

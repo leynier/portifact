@@ -5,6 +5,7 @@
 // never free text, comment text, artifact content, tokens, secrets, URLs or full addresses.
 import { z } from "zod";
 import { APPROVALS } from "./approval-reviews.ts";
+import { AuditStreamAutoPause, AuditStreamStart } from "./audit-streams.ts";
 import { AccessMode, CommentVisibility } from "./core.ts";
 import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import {
@@ -336,6 +337,23 @@ export const AUDIT_DETAILS = {
     from: z.iso.date().optional(),
     to: z.iso.date().optional(),
   }),
+  /**
+   * Audit streams (E3, decision 0019): the endpoint's host and where the stream started, never
+   * its URL, path or secret. Delivering never records an event.
+   */
+  "audit_stream.created": z.strictObject({ host: DnsName, start: AuditStreamStart }),
+  "audit_stream.changed": z.strictObject({
+    host: DnsName,
+    label: z.literal(true).optional(),
+    url: z.literal(true).optional(),
+    secret: z.literal(true).optional(),
+    /** The old secret was revoked at once (an emergency rotation). */
+    revoked: z.literal(true).optional(),
+    state: z.enum(["active", "paused"]).optional(),
+  }),
+  "audit_stream.removed": z.strictObject({ host: DnsName }),
+  /** The platform paused it: failures for days, a lapsed plan, a URL or key that no longer works. */
+  "audit_stream.paused": z.strictObject({ host: DnsName, reason: AuditStreamAutoPause }),
 } as const;
 
 export type AuditKind = keyof typeof AUDIT_DETAILS;
@@ -361,6 +379,7 @@ export const AUDIT_TARGET_TYPES = [
   "scim_token",
   "scim",
   "integration",
+  "audit_stream",
 ] as const;
 export const AuditTargetType = z.enum(AUDIT_TARGET_TYPES);
 export type AuditTargetType = z.infer<typeof AuditTargetType>;
@@ -424,6 +443,10 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "audit.exported": "audit_log",
   "policy.changed": "policy",
   "policy.enforced": "policy",
+  "audit_stream.created": "audit_stream",
+  "audit_stream.changed": "audit_stream",
+  "audit_stream.removed": "audit_stream",
+  "audit_stream.paused": "audit_stream",
 };
 
 /**

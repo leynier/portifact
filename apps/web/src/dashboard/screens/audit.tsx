@@ -41,6 +41,7 @@ import { refreshOptions } from "../refresh.ts";
 import { ROLE_LABELS, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { errorMessage } from "./artifact-list.tsx";
+import { AuditStreams } from "./audit-streams.tsx";
 import { SpaceBadge } from "./space-parts.tsx";
 
 type T = ReturnType<typeof useT>;
@@ -111,6 +112,13 @@ export const AUDIT_GROUPS = {
     "group.sync_stopped",
     "group.member_added",
     "group.member_removed",
+  ],
+  exports: [
+    "audit.exported",
+    "audit_stream.created",
+    "audit_stream.changed",
+    "audit_stream.removed",
+    "audit_stream.paused",
   ],
 } as const satisfies Record<string, readonly AuditKind[]>;
 type Group = "all" | keyof typeof AUDIT_GROUPS;
@@ -213,6 +221,7 @@ export function AuditScreen() {
           {t("audit.export.planRequired", { plan: PLAN_LABELS[lowestPlanWith("auditExport")] })}
         </p>
       )}
+      {exportable === undefined ? null : <AuditStreams slug={space.slug} days={days} />}
       {log.isPending ? (
         <LoadingState label={t("audit.loading")} />
       ) : log.isError && !log.data ? (
@@ -330,6 +339,7 @@ function AuditFilters(props: {
     { value: "members", label: t("audit.group.members") },
     { value: "groups", label: t("audit.group.groups") },
     { value: "policies", label: t("audit.group.policies") },
+    { value: "exports", label: t("audit.group.exports") },
   ];
   const periods: SelectOption<Period>[] = [
     { value: "all", label: t("audit.period.all") },
@@ -638,6 +648,18 @@ export function describeAuditEvent(
       return t("audit.kind.groupMemberRemoved", { member, group: groupName(t, event) });
     case "audit.exported":
       return t("audit.kind.exported", { format: String(d.format) });
+    case "audit_stream.created":
+      return t("audit.kind.streamCreated", { host: String(d.host), start: String(d.start) });
+    case "audit_stream.changed":
+      return t("audit.kind.streamChanged", {
+        host: String(d.host),
+        state: d.state === undefined ? "other" : String(d.state),
+        secret: flag(d.secret),
+      });
+    case "audit_stream.removed":
+      return t("audit.kind.streamRemoved", { host: String(d.host) });
+    case "audit_stream.paused":
+      return t("audit.kind.streamPaused", { host: String(d.host), reason: String(d.reason) });
     case "policy.changed":
       return t("audit.kind.policyChanged", { changes: policyChanges(t, d, locale) });
     case "policy.enforced":

@@ -76,8 +76,16 @@ test("connect GitHub, create an issue from a thread, and see its link", async ({
   await page.goto(`${APP_ORIGIN}/view/${artifactId}`);
   await page.getByRole("heading", { level: 1, name }).waitFor();
   const thread = page.getByRole("article", { name: "Thread 1" });
-  await thread.getByRole("button", { name: "More actions for thread 1" }).click();
-  await page.getByRole("menuitem", { name: "Create issue" }).click();
+  // The viewer is still settling when its heading shows: late content can shift the card between
+  // the press and the release, which focuses the button without opening its menu, and "Create
+  // issue" joins the menu only once the space's connections have loaded. Open it until it is there.
+  const more = thread.getByRole("button", { name: "More actions for thread 1" });
+  const createIssue = page.getByRole("menuitem", { name: "Create issue" });
+  await expect(async () => {
+    if ((await more.getAttribute("aria-expanded")) !== "true") await more.click();
+    await expect(createIssue).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  await createIssue.click();
   const dialog = page.getByRole("dialog", { name: "Create an issue from thread 1" });
   await expect(dialog.getByLabel("A link to this thread")).toBeChecked();
   await expect(dialog.getByLabel("The thread's first message")).not.toBeChecked();
