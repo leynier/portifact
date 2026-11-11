@@ -153,10 +153,13 @@ export class FakeGitHubIssuer {
     const head = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
     if (options.signing === "none") return `${head}.`;
     if (options.signing === "RS512") {
-      const jwk = await crypto.subtle.exportKey("jwk", key.pair.privateKey);
+      const { alg: _alg, ...jwk } = (await crypto.subtle.exportKey(
+        "jwk",
+        key.pair.privateKey,
+      )) as JsonWebKey;
       const sha512 = await crypto.subtle.importKey(
         "jwk",
-        { ...jwk, alg: undefined },
+        jwk,
         { name: "RSASSA-PKCS1-v1_5", hash: "SHA-512" },
         false,
         ["sign"],
