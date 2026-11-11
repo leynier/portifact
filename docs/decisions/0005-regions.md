@@ -332,7 +332,7 @@ What it found, all fixed here:
 4. A pre-existing bug the keyed test hit, not specific to the EU: comment notices marked their recipients with one `UNION` term per admin and editor, which D1 refuses ("too many terms in compound SELECT") once a workspace with comment notices has a handful of them, so every reply and resolution failed there. The owner side is now one `json_each` list (`markCommentActivity`), reproduced in `packages/services/test/comment-notices.test.ts`.
 5. The e2e storage stand-in wrote every presigned upload to the default bucket; it now writes to the bucket the URL names.
 
-The run does not cover the platform's own invocation logs (the Workers Logs row above), which no `console` guard can see.
+The run does not cover the platform's own invocation logs (the Workers Logs row above), which no `console` guard can see. Decided on 2026-11-11: they are turned off in the app and content Workers in the change that binds the EU resources (`docs/releasing.md`, "EU region", step 13); Portifact's own `logEvent` lines stay.
 
 What the run cannot prove without the real EU resources: that D1 and R2 actually store in the EU jurisdiction (the stack's databases and buckets are local), presigning and CORS against the real `https://<account>.eu.r2.cloudflarestorage.com` endpoint, Time Travel on a jurisdictional database, and whether one R2 token covers both buckets. `docs/releasing.md` ("EU region") runs the spec on the release commit and checks the notices and logs on staging before the first EU workspace.
 
