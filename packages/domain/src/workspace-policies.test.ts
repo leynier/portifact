@@ -41,6 +41,9 @@ const NONE: PolicyImpact = {
   linksRevoked: 0,
   linksWithoutPassword: 0,
   linksOverLifetime: 0,
+  artifactsAtStart: 0,
+  artifactsSoon: 0,
+  pinsLifted: 0,
 };
 
 describe("policyOf", () => {
@@ -234,6 +237,9 @@ describe("checkPolicyImpact", () => {
           linksRevoked: 3,
           linksWithoutPassword: 1,
           linksOverLifetime: 4,
+          artifactsAtStart: 0,
+          artifactsSoon: 0,
+          pinsLifted: 0,
         },
         undefined,
       ),
@@ -488,6 +494,8 @@ describe("describePolicy", () => {
         sessionMaxHours: null,
         allowedClients: null,
         ssoRequired: false,
+        artifactMaxDays: null,
+        artifactMaxDaysFrom: null,
       }),
     ).toEqual([
       "public access forbidden",

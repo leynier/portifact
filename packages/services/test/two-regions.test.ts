@@ -11,7 +11,7 @@ import {
 } from "@portifact/contracts";
 import { accessSchema, aliasBinding, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { entitlements, personalActor } from "@portifact/domain";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
 import { recordOpenings } from "../src/access-log.ts";
@@ -65,6 +65,12 @@ import { requestThreadIssue } from "../src/thread-issues.ts";
 import { transferArtifact } from "../src/transfer.ts";
 import { webhookKeys } from "../src/webhook-keys.ts";
 import { createWebhook, removeWebhook, sendTestEvent, type WebhookDeps } from "../src/webhooks.ts";
+import {
+  enforceWorkspacePolicies as enforceRetention,
+  enforceWorkspacePolicy as enforceRetentionStep,
+  previewWorkspacePolicy,
+  setWorkspacePolicy as saveRetention,
+} from "../src/workspace-policies.ts";
 import { createWorkspace, deleteWorkspace, resolveOwnerScope } from "../src/workspaces.ts";
 import { DAY, NOW, publishSite, session, sha256, user, value } from "./fixtures.ts";
 import { raceBeforeFirstWrite, raceBeforeStatementIn } from "./race.ts";
@@ -1374,5 +1380,110 @@ describe("EU scans and plan changes, second review", () => {
       await alignPlanLimits(eu().db, NOW, 50, "eu", caps);
     }
     expect(await aligned()).toBe(5);
+  });
+});
+
+describe("a maximum life of artifacts in the EU region (decision 0023)", () => {
+  it("caps and archives on the EU database, through its job and its scan", async () => {
+    const { ws, admin, slug } = await euWorkspace();
+    const published = await publishInEu(ws.id, admin.id);
+    // Published 60 days ago and renewed since.
+    await eu()
+      .db.update(schema.versions)
+      .set({ committedAt: NOW - 60 * DAY })
+      .where(eq(schema.versions.id, published.versionId));
+    await eu()
+      .db.update(schema.artifacts)
+      .set({ expiresAt: NOW + 20 * DAY })
+      .where(eq(schema.artifacts.id, published.artifactId));
+    const policy = { ...DEFAULT_POLICY, artifactMaxDays: 30, artifactMaxDaysFrom: null };
+    const shown = value(
+      await previewWorkspacePolicy(regions(), { userId: admin.id, slug, policy, now: NOW }),
+    );
+    expect(shown.artifactsAtStart).toBe(1);
+    value(
+      await saveRetention(regions(), {
+        userId: admin.id,
+        slug,
+        policy,
+        revision: 0,
+        confirmed: shown,
+        now: NOW,
+      }),
+    );
+    // The job sits in the global outbox and runs on the workspace's own region.
+    const [job] = await home()
+      .db.select()
+      .from(schema.outbox)
+      .where(and(eq(schema.outbox.topic, "workspace_policy"), eq(schema.outbox.subject, ws.id)));
+    await runJob(home().db, env.ARTIFACTS, { id: job?.id ?? 0, topic: "workspace_policy" }, NOW, {
+      regions: regions(),
+    });
+    const from = NOW + 7 * DAY;
+    expect((await artifactIn(eu().db, published.artifactId))?.expiresAt).toBe(from);
+    // A renewal that read the old policy is caught by the EU region's scan.
+    await eu()
+      .db.update(schema.artifacts)
+      .set({ expiresAt: NOW + 25 * DAY })
+      .where(eq(schema.artifacts.id, published.artifactId));
+    expect((await enforceRetention(eu().db, NOW)).failed).toBe(0);
+    expect((await artifactIn(eu().db, published.artifactId))?.expiresAt).toBe(from);
+    // Archived by the EU region's maintenance on the effective date, with the policy as cause.
+    await runRegionalMaintenance(eu().db, env.ARTIFACTS_EU, from, "eu");
+    expect((await artifactIn(eu().db, published.artifactId))?.state).toBe("archived");
+    const archived = await eu()
+      .db.select()
+      .from(schema.auditEvents)
+      .where(
+        and(
+          eq(schema.auditEvents.ownerId, ws.id),
+          eq(schema.auditEvents.kind, "artifact.archived"),
+        ),
+      );
+    expect(archived.map((event) => event.detail)).toEqual([{ policy: "artifactMaxDays" }]);
+  });
+
+  it("gives back at once what a step capped when the policy was loosened meanwhile", async () => {
+    const { ws, admin, slug } = await euWorkspace();
+    const published = await publishInEu(ws.id, admin.id);
+    await eu()
+      .db.update(schema.versions)
+      .set({ committedAt: NOW - 60 * DAY })
+      .where(eq(schema.versions.id, published.versionId));
+    await eu()
+      .db.update(schema.artifacts)
+      .set({ expiresAt: NOW + 20 * DAY })
+      .where(eq(schema.artifacts.id, published.artifactId));
+    const tight = { ...DEFAULT_POLICY, artifactMaxDays: 30, artifactMaxDaysFrom: null };
+    const shown = value(
+      await previewWorkspacePolicy(regions(), { userId: admin.id, slug, policy: tight, now: NOW }),
+    );
+    value(
+      await saveRetention(regions(), {
+        userId: admin.id,
+        slug,
+        policy: tight,
+        revision: 0,
+        confirmed: shown,
+        now: NOW,
+      }),
+    );
+    // No batch spans the global and the EU database: the admin removes the maximum after the
+    // step read it and before its EU batch lands.
+    const raced = raceBeforeFirstWrite(async () => {
+      value(
+        await saveRetention(regions(), {
+          userId: admin.id,
+          slug,
+          policy: DEFAULT_POLICY,
+          revision: 1,
+          now: NOW,
+        }),
+      );
+    }, env.DB_EU);
+    const step = await enforceRetentionStep(raced, ws.id, NOW);
+    expect(step.counts.deadlinesSet).toBe(1);
+    // The step saw the revision move and gave the time back itself.
+    expect((await artifactIn(eu().db, published.artifactId))?.expiresAt).toBe(NOW + 30 * DAY);
   });
 });

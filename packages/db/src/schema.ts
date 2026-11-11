@@ -118,6 +118,12 @@ export const artifacts = sqliteTable(
      * restriction. Null for artifacts created before the column. No foreign key.
      */
     createdBy: text("created_by"),
+    /**
+     * When the artifact was last restored from the archive (decision 0023): with its current
+     * version's `committed_at`, where a workspace's maximum life counts from. Null until then.
+     * Kept last because `ALTER TABLE ADD COLUMN` appends it.
+     */
+    restoredAt: timestamp("restored_at"),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
@@ -707,6 +713,7 @@ export const OUTBOX_TOPICS = [
   "thread_issue",
   "plan_region",
   "audit_stream",
+  "retention_notice",
 ] as const;
 
 /**

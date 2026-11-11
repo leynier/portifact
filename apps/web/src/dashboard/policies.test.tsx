@@ -225,6 +225,8 @@ describe("policyOfDraft", () => {
     clientsLimited: false,
     clients: ["cli", "oauth_apps"] as ClientKind[],
     ssoRequired: false,
+    lifeLimited: false,
+    lifeDays: "",
   };
   it("splits domains on spaces, commas and lines and reads the days", () => {
     expect(policyOfDraft(draft)).toEqual({
@@ -246,6 +248,9 @@ describe("policyOfDraft", () => {
     [{ maxDays: "1.5" }, "days"],
     [{ maxDays: "366" }, "days"],
     [{ maxDays: "x" }, "days"],
+    [{ lifeLimited: true, lifeDays: "6" }, "lifeDays"],
+    [{ lifeLimited: true, lifeDays: "3651" }, "lifeDays"],
+    [{ lifeLimited: true, lifeDays: "" }, "lifeDays"],
   ] as const)("refuses %j", (change, field) => {
     expect(policyOfDraft({ ...draft, ...change })).toEqual({ ok: false, field });
   });
@@ -288,5 +293,85 @@ describe("a control disabled by a policy on the artifact page", () => {
     expect(links.textContent).toContain("The workspace's policy limits share links to 7 days.");
     expect(within(links).getByRole("button", { name: "Create link" })).toBeTruthy();
     expect(radio("Public: anyone with the link").disabled).toBe(false);
+  });
+});
+
+describe("the maximum life of artifacts (decision 0023)", () => {
+  const DAY = 86_400_000;
+  const group = "Maximum life of artifacts";
+
+  it("lets an admin set one after confirming what it archives, then says when it starts", async () => {
+    acme("admin");
+    const workspaceState = server.workspaces.acme;
+    if (!workspaceState) throw new Error("no workspace");
+    workspaceState.policyImpact = {
+      ...NO_IMPACT,
+      artifactsAtStart: 2,
+      artifactsSoon: 3,
+      pinsLifted: 1,
+    };
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    await screen.findByRole("group", { name: group });
+    expect(
+      screen.getByText(/A new or shorter maximum takes effect 7 days after you save it/),
+    ).toBeTruthy();
+    fireEvent.click(radio("Archive after a maximum life", group));
+    const days = screen.getByRole("textbox", { name: /Days after the last publish or restore/ });
+    fireEvent.change(days, { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    expect(await screen.findByText("Write a whole number of days from 7 to 3650.")).toBeTruthy();
+    await themes(container);
+    fireEvent.change(days, { target: { value: "90" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain(
+      "2 active artifacts are archived the day the maximum life takes effect, unless someone publishes them again",
+    );
+    expect(dialog.textContent).toContain("3 more are archived within 30 days after that");
+    expect(dialog.textContent).toContain("1 pinned artifact is unpinned");
+    await themes(container);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Apply and save" }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(server.bodies.at(-1)).toMatchObject({
+      policy: { artifactMaxDays: 90, artifactMaxDaysFrom: null },
+      confirmed: { artifactsAtStart: 2, artifactsSoon: 3, pinsLifted: 1 },
+    });
+    expect(await screen.findByText(/^A maximum life takes effect on /)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "From then, artifacts are archived 90 days after their last publish or restore. Nothing is archived by it before that date.",
+      ),
+    ).toBeTruthy();
+    await themes(container);
+  });
+
+  it("shows every member the rule in effect, read-only", async () => {
+    acme("member", {
+      ...DEFAULT_POLICY,
+      artifactMaxDays: 30,
+      artifactMaxDaysFrom: Date.now() - DAY,
+    });
+    const { container } = renderDashboard("/policies?workspace=acme", server);
+    expect(
+      await screen.findByText(
+        "Artifacts are archived 30 days after their last publish or restore, and cannot be pinned.",
+      ),
+    ).toBeTruthy();
+    expect(radio("Archive after a maximum life", group).checked).toBe(true);
+    expect(screen.queryByRole("button", { name: "Save policies" })).toBeNull();
+    await themes(container);
+  });
+
+  it("says so on the artifact page, and offers no pin", async () => {
+    acme("editor", { ...DEFAULT_POLICY, artifactMaxDays: 30, artifactMaxDaysFrom: Date.now() });
+    const { container } = renderDashboard(`/artifacts/${ID}`, server);
+    const details = await screen.findByRole("region", { name: "Details" });
+    expect(
+      await within(details).findByText(
+        "This workspace archives artifacts 30 days after their last publish or restore: the expiry includes it, and pinning is off.",
+      ),
+    ).toBeTruthy();
+    expect(within(details).queryByRole("button", { name: "Pin" })).toBeNull();
+    await themes(container);
   });
 });

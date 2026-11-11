@@ -489,6 +489,49 @@ describe("plain words for every kind", () => {
     ).toBe(expected[kind]);
   });
 
+  it("says what a maximum life of artifacts changed (decision 0023)", () => {
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "policy.changed",
+          detail: {
+            fields: ["artifactMaxDays"],
+            artifactMaxDays: 90,
+            artifactMaxDaysFrom: 1,
+            confirmed: true,
+          },
+        }),
+      ),
+    ).toBe(
+      "Changed the workspace's policies: artifacts archived 90 days after their last publish (existing artifacts changed)",
+    );
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "policy.changed",
+          detail: { fields: ["artifactMaxDays"], artifactMaxDays: null, confirmed: false },
+        }),
+      ),
+    ).toBe("Changed the workspace's policies: no maximum life of artifacts");
+    expect(
+      auditSummary(
+        event(0, {
+          kind: "policy.enforced",
+          detail: {
+            artifactsNarrowed: 0,
+            readersRemoved: 0,
+            linksRevoked: 0,
+            sessionsEnded: 0,
+            deadlinesSet: 4,
+            deadlinesExtended: 2,
+          },
+        }),
+      ),
+    ).toBe(
+      "Applied the workspace's policies: 4 artifact expiry(ies) brought forward by the maximum life, 2 artifact expiry(ies) given back",
+    );
+  });
+
   it("says when the workspace's policy changed access", () => {
     expect(
       auditSummary(

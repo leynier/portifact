@@ -134,11 +134,16 @@ export const AUDIT_DETAILS = {
   "artifact.published": z.strictObject({ version, first: z.boolean() }),
   "artifact.rolled_back": z.strictObject({ version, from: version }),
   "artifact.renewed": empty,
-  "artifact.archived": empty,
+  /**
+   * By a person, or by the system when the expiry scan archived an artifact that reached its
+   * workspace's maximum life (decision 0023): then `policy` names it.
+   */
+  "artifact.archived": z.strictObject({ policy: z.literal("artifactMaxDays").optional() }),
   "artifact.restored": empty,
   "artifact.deleted": empty,
   "artifact.pinned": empty,
-  "artifact.unpinned": empty,
+  /** By a person, or by the system when a maximum life unpinned it (decision 0023). */
+  "artifact.unpinned": z.strictObject({ policy: z.literal("artifactMaxDays").optional() }),
   "artifact.transferred_in": z.strictObject({ from: ownerKind }),
   "artifact.transferred_out": z.strictObject({ to: ownerKind }),
   "access.changed": z.strictObject({
@@ -346,6 +351,15 @@ export const AUDIT_DETAILS = {
     allowedClients: z.array(AllowedClient).max(2).nullable().optional(),
     /** Whether single sign-on is required after the change (0021, "SSO required"). */
     ssoRequired: z.boolean().optional(),
+    /** The maximum life of artifacts after the change, in days; null when removed (0023). */
+    artifactMaxDays: z
+      .int()
+      .min(WORKSPACE_POLICIES.artifactMinDays)
+      .max(WORKSPACE_POLICIES.artifactMaxDays)
+      .nullable()
+      .optional(),
+    /** When that maximum life takes effect (milliseconds); null when removed (0023). */
+    artifactMaxDaysFrom: z.int().min(0).nullable().optional(),
     /**
      * Members the provider could not serve that the admin confirmed when requiring single
      * sign-on: a count only.
@@ -376,6 +390,13 @@ export const AUDIT_DETAILS = {
     readersRemoved: enforceCount,
     linksRevoked: enforceCount,
     sessionsEnded: enforceCount,
+    /**
+     * Artifacts whose expiry the maximum life brought forward (decision 0023), pinned ones among
+     * them unpinned, and capped ones given their time back when it was lengthened or removed.
+     * Absent in events recorded before it.
+     */
+    deadlinesSet: enforceCount.optional(),
+    deadlinesExtended: enforceCount.optional(),
   }),
   /**
    * An export of the audit log was started (E3): its format, how many kinds it filtered on (0 for

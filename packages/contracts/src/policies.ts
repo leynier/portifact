@@ -27,6 +27,19 @@ export const WORKSPACE_POLICIES = {
   /** The shortest and longest maximum session age a policy may set, in hours (decision 0021). */
   sessionMinHours: 1,
   sessionMaxHours: 720,
+  /**
+   * The shortest and longest maximum life of an artifact a policy may set, in days from its last
+   * publish or restore (decision 0023).
+   */
+  artifactMinDays: 7,
+  artifactMaxDays: 3650,
+  /**
+   * Days between saving a new or shorter maximum life and its taking effect (decision 0023): no
+   * artifact is archived by it before then, and the admins are told once.
+   */
+  retentionNoticeDays: 7,
+  /** How far past its effective date the preview counts the artifacts it archives. */
+  retentionHorizonDays: 30,
 } as const;
 
 /** A kind of client a policy may allow besides the dashboard (decision 0021). */
@@ -104,6 +117,26 @@ export const WorkspacePolicy = z.strictObject({
    * policies stored before it existed, and stored only while set.
    */
   ssoRequired: z.boolean().default(false),
+  /**
+   * The maximum life of the workspace's artifacts (decision 0023), in days from each one's last
+   * publish (a rollback is one) or restore from the archive; null for none. It only caps
+   * `expires_at`, so an artifact that reaches it is archived like any other expiry, and pinning
+   * is refused while it is set. Absent in policies stored before it existed, and stored only while
+   * set.
+   */
+  artifactMaxDays: z
+    .number()
+    .int()
+    .min(WORKSPACE_POLICIES.artifactMinDays)
+    .max(WORKSPACE_POLICIES.artifactMaxDays)
+    .nullable()
+    .default(null),
+  /**
+   * When the maximum life takes effect (milliseconds): no artifact's deadline is earlier. Decided
+   * by the server on every save (`retentionTiming`): a new or shorter maximum takes effect after
+   * the notice period, a longer one keeps the date it had. Whatever a client sends is ignored.
+   */
+  artifactMaxDaysFrom: z.int().min(0).nullable().default(null),
 });
 export type WorkspacePolicy = z.infer<typeof WorkspacePolicy>;
 
@@ -133,6 +166,8 @@ export const DEFAULT_POLICY: WorkspacePolicy = {
   sessionMaxHours: null,
   allowedClients: null,
   ssoRequired: false,
+  artifactMaxDays: null,
+  artifactMaxDaysFrom: null,
 };
 
 /** The fields of a policy, for the audit log and the dashboard. */
@@ -147,6 +182,7 @@ export const POLICY_FIELDS = [
   "sessionMaxHours",
   "allowedClients",
   "ssoRequired",
+  "artifactMaxDays",
 ] as const satisfies readonly (keyof WorkspacePolicy)[];
 export type PolicyField = (typeof POLICY_FIELDS)[number];
 
@@ -157,6 +193,13 @@ export type PolicyField = (typeof POLICY_FIELDS)[number];
  * - `linksRevoked`: active share links revoked because links are disabled.
  * - `linksWithoutPassword`: active links without a password, which stop opening.
  * - `linksOverLifetime`: active links older than the maximum lifetime, which stop opening.
+ * - `artifactsAtStart`: active artifacts a new or shorter maximum life archives on the day it
+ *   takes effect, unless someone publishes or restores them first (decision 0023).
+ * - `artifactsSoon`: active artifacts it archives within `retentionHorizonDays` after that, earlier
+ *   than their expiry would have.
+ * - `pinsLifted`: pinned artifacts it unpins, giving each its deadline.
+ * The last three default to 0 so a confirmation sent by a dashboard from before them still parses;
+ * a save that would change them is then refused until they are confirmed.
  */
 export const PolicyImpact = z.object({
   publicArtifacts: z.int().min(0),
@@ -164,6 +207,9 @@ export const PolicyImpact = z.object({
   linksRevoked: z.int().min(0),
   linksWithoutPassword: z.int().min(0),
   linksOverLifetime: z.int().min(0),
+  artifactsAtStart: z.int().min(0).default(0),
+  artifactsSoon: z.int().min(0).default(0),
+  pinsLifted: z.int().min(0).default(0),
 });
 export type PolicyImpact = z.infer<typeof PolicyImpact>;
 
@@ -301,8 +347,35 @@ export const WorkspacePolicyUpdate = z.strictObject({
 });
 export type WorkspacePolicyUpdate = z.infer<typeof WorkspacePolicyUpdate>;
 
-/** Payload of a `workspace_policy` job: the revision that asked for it (for the logs only). */
-export const WorkspacePolicyJobPayload = z.strictObject({ revision: z.int().min(0) });
+/**
+ * Payload of a `workspace_policy` job: the revision that asked for it (for the logs only) and,
+ * when the save lengthened or removed the maximum life (decision 0023), the maximum it replaced,
+ * so the job gives back the time the old one took from each artifact it had capped.
+ */
+export const WorkspacePolicyJobPayload = z.strictObject({
+  revision: z.int().min(0),
+  replacedMaxLife: z
+    .strictObject({
+      days: z.int().min(WORKSPACE_POLICIES.artifactMinDays).max(WORKSPACE_POLICIES.artifactMaxDays),
+      from: z.int().min(0),
+    })
+    .optional(),
+});
+export type WorkspacePolicyJobPayload = z.infer<typeof WorkspacePolicyJobPayload>;
+
+/**
+ * Payload of a `retention_notice` job (decision 0023; its subject is the workspace): the maximum
+ * life an admin set or shortened, when it takes effect, and the counts the preview showed. Counts
+ * and a date only, never a name, so the email is the same in every region.
+ */
+export const RetentionNoticePayload = z.strictObject({
+  days: z.int().min(WORKSPACE_POLICIES.artifactMinDays).max(WORKSPACE_POLICIES.artifactMaxDays),
+  from: z.int().min(0),
+  atStart: z.int().min(0),
+  soon: z.int().min(0),
+  revision: z.int().min(0),
+});
+export type RetentionNoticePayload = z.infer<typeof RetentionNoticePayload>;
 
 /**
  * One workspace's policies in the file `export-policies` writes before a D1 Time Travel restore

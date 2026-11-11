@@ -21,6 +21,7 @@ import {
   type MultipartConfig,
   nextExpiry,
   ok,
+  policyExpiry,
   type Result,
   type SourceOriginInput,
   validateManifestPaths,
@@ -802,7 +803,13 @@ export async function commitPublish(
     rendering = rendered.value;
   }
   const renderedHashes = rendering?.files.map((file) => file.sha256) ?? [];
-  const expiresAt = nextExpiry(new Date(input.now)).getTime();
+  // A workspace's maximum life (decision 0023) caps it; a publish starts a new life, so the cap
+  // is computed from now with the policy that came with the actor: no read for it.
+  const expiresAt = policyExpiry(
+    allowed.value.policy,
+    nextExpiry(new Date(input.now)).getTime(),
+    input.now,
+  );
   // Every write after the switch applies only if this commit performed it: the artifact now
   // points at this version and the session is still open. The session is closed last, so a
   // concurrent or repeated commit of the same session cannot apply the effects twice.

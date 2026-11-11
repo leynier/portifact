@@ -3,13 +3,18 @@
 // it cannot race with maintenance jobs or another request.
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
+  type Actor,
   checkPin,
+  checkPolicyPin,
   checkRestore,
   checkUnpin,
   effectiveArchivedAt,
   fail,
+  maxLifeOf,
   nextExpiry,
   ok,
+  POLICY_MESSAGES,
+  policyExpiry,
   purgeDate,
   type Result,
   requireFeature,
@@ -19,6 +24,7 @@ import { authorizeOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
 import { searchIndexJob } from "./content-search.ts";
 import { deleteArtifactData } from "./maintenance.ts";
+import { cappedExpirySql } from "./max-life.ts";
 import { OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
 
@@ -49,7 +55,7 @@ async function load(db: RegionalDb, input: LifecycleInput) {
   if (!artifact) return missing();
   const actor = await authorizeOn(db, input.userId, artifact, "lifecycle", missing);
   if (!actor.ok) return actor;
-  return ok(artifact);
+  return ok(Object.assign(artifact, { actor: actor.value as Actor }));
 }
 
 function record(artifact: {
@@ -140,22 +146,52 @@ export async function renewArtifact(
   ) {
     return fail("artifact_archived", "Only active artifacts can be renewed; restore it instead.");
   }
-  const expiresAt = nextExpiry(new Date(input.now)).getTime();
+  // A workspace's maximum life (decision 0023) caps the renewal at the artifact's deadline,
+  // counted from its last publish or restore, in the statement itself: no read for it.
+  const planExpiry = nextExpiry(new Date(input.now)).getTime();
+  const capped = cappedExpirySql(artifact.actor.policy, planExpiry);
+  // A renewal never archives: past its maximum life an artifact needs a new publish.
+  const within = sql`${guard(artifact)} and ${capped} > ${input.now}`;
   const [, updated] = await db.batch([
-    lifecycleEvent(db, artifact, input, "artifact.renewed"),
+    auditEvent(
+      db,
+      {
+        ownerId: artifact.ownerId,
+        kind: "artifact.renewed",
+        actor: { type: "user", id: input.userId },
+        targetId: artifact.id,
+        artifactId: artifact.id,
+        detail: {},
+        now: input.now,
+      },
+      sql`exists (select 1 from ${schema.artifacts} where ${within})`,
+    ),
     db
       .update(schema.artifacts)
       .set({
-        expiresAt,
+        expiresAt: capped,
         lifecycleGeneration: artifact.lifecycleGeneration + 1,
         updatedAt: input.now,
       })
-      .where(guard(artifact))
-      .returning({ id: schema.artifacts.id }),
+      .where(within)
+      .returning({ id: schema.artifacts.id, expiresAt: schema.artifacts.expiresAt }),
   ]);
-  if (updated.length === 0) return conflict();
+  const [renewed] = updated;
+  if (!renewed) {
+    // Only on this failure path, and only under a maximum life: which of the two it was.
+    const life = maxLifeOf(artifact.actor.policy);
+    if (life) {
+      const [still] = await db
+        .select({ id: schema.artifacts.id })
+        .from(schema.artifacts)
+        .where(guard(artifact))
+        .limit(1);
+      if (still) return fail("policy_refused", POLICY_MESSAGES.maxLifeReached(life.days));
+    }
+    return conflict();
+  }
   await recordLifecycleEvent(db, input, "renewed");
-  return ok({ state: "active", expiresAt, purgeAt: null, pinned: false });
+  return ok({ state: "active", expiresAt: renewed.expiresAt, purgeAt: null, pinned: false });
 }
 
 /**
@@ -214,7 +250,8 @@ export async function restoreArtifact(
   const owner = await ownerEntitlements(db.global, artifact.ownerId, input.now);
   const check = checkRestore(record(artifact), new Date(input.now), used, owner.limits);
   if (!check.ok) return check;
-  const expiresAt = check.value.expiresAt.getTime();
+  // Restoring starts a new life (decision 0023): a maximum life counts from now, like a publish.
+  const expiresAt = policyExpiry(artifact.actor.policy, check.value.expiresAt.getTime(), input.now);
 
   // An active artifact past its expiry still holds its slot (maintenance has not archived it),
   // so it only gets new dates; an archived one goes back to active and the trigger retakes the slot.
@@ -239,6 +276,7 @@ export async function restoreArtifact(
           archivedAt: null,
           purgeAt: null,
           pinned: false,
+          restoredAt: input.now,
           lifecycleGeneration: artifact.lifecycleGeneration + 1,
           updatedAt: input.now,
         })
@@ -310,6 +348,9 @@ export async function pinArtifact(
     "pin",
   );
   if (!gate.ok) return gate;
+  // A workspace's maximum life rules out "never expires" (decision 0023).
+  const policy = checkPolicyPin(artifact.actor.policy);
+  if (!policy.ok) return policy;
   const check = checkPin(record(artifact), new Date(input.now));
   if (!check.ok) return check;
   const pinned = { state: "active" as const, expiresAt: null, purgeAt: null, pinned: true };
@@ -347,23 +388,25 @@ export async function unpinArtifact(
   if (!check.ok) return check;
   const expiresAt = check.value.expiresAt?.getTime() ?? null;
   const outcome = { state: "active" as const, expiresAt, purgeAt: null, pinned: false };
-  if (!check.value.changed) return ok(outcome);
+  if (!check.value.changed || expiresAt === null) return ok(outcome);
   const [, updated] = await db.batch([
     lifecycleEvent(db, artifact, input, "artifact.unpinned"),
     db
       .update(schema.artifacts)
       .set({
         pinned: false,
-        expiresAt,
+        // Capped by a workspace's maximum life, like a renewal (decision 0023).
+        expiresAt: cappedExpirySql(artifact.actor.policy, expiresAt),
         lifecycleGeneration: artifact.lifecycleGeneration + 1,
         updatedAt: input.now,
       })
       .where(guard(artifact))
-      .returning({ id: schema.artifacts.id }),
+      .returning({ id: schema.artifacts.id, expiresAt: schema.artifacts.expiresAt }),
   ]);
-  if (updated.length === 0) return conflict();
+  const [unpinned] = updated;
+  if (!unpinned) return conflict();
   await recordLifecycleEvent(db, input, "unpinned");
-  return ok(outcome);
+  return ok({ ...outcome, expiresAt: unpinned.expiresAt });
 }
 
 async function recordLifecycleEvent(db: Db, input: LifecycleInput, event: string) {

@@ -21,6 +21,8 @@ const POLICY = {
   sessionMaxHours: null,
   allowedClients: null,
   ssoRequired: false,
+  artifactMaxDays: null,
+  artifactMaxDaysFrom: null,
 };
 
 async function workspace(policy: unknown) {
@@ -108,6 +110,8 @@ describe("operator policy commands", () => {
       sessionMaxHours: _age,
       allowedClients: _clients,
       ssoRequired: _sso,
+      artifactMaxDays: _life,
+      artifactMaxDaysFrom: _from,
       ...older
     } = POLICY;
     const id = await workspace(older);
@@ -119,7 +123,7 @@ describe("operator policy commands", () => {
       },
     });
     expect(written.get("p.jsonl")).toContain(
-      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null, ssoRequired: false })}}`,
+      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null, ssoRequired: false, artifactMaxDays: null, artifactMaxDaysFrom: null })}}`,
     );
   });
 });

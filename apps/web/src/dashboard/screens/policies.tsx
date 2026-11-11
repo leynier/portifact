@@ -41,11 +41,11 @@ import {
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { CircleAlert, Info, LogIn, Save, ShieldCheck } from "lucide-react";
+import { CalendarClock, CircleAlert, Info, LogIn, Save, ShieldCheck } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { ssoReauthUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
-import { useAnnounce, useDashboard, useT } from "../context.tsx";
+import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { type Space, useReadySpace, WORKSPACES_QUERY } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded } from "./account.tsx";
@@ -111,6 +111,8 @@ interface Draft {
   clientsLimited: boolean;
   clients: ClientKind[];
   ssoRequired: boolean;
+  lifeLimited: boolean;
+  lifeDays: string;
 }
 
 /** A shown allowlist's lines; a hidden one (not an admin, who cannot save) shows none. */
@@ -135,10 +137,12 @@ function draftOf(policy: WorkspacePolicyView["policy"]): Draft {
     clientsLimited: policy.allowedClients !== null,
     clients: policy.allowedClients ?? ["cli", "oauth_apps"],
     ssoRequired: policy.ssoRequired,
+    lifeLimited: policy.artifactMaxDays !== null,
+    lifeDays: policy.artifactMaxDays === null ? "" : String(policy.artifactMaxDays),
   };
 }
 
-type DraftField = "domains" | "days" | "networks" | "tokenNetworks" | "sessionHours";
+type DraftField = "domains" | "days" | "networks" | "tokenNetworks" | "sessionHours" | "lifeDays";
 
 /** The ranges a textarea lists, or null when they are not 1 to the maximum valid ranges. */
 function rangesOf(text: string): string[] | null {
@@ -187,6 +191,15 @@ export function policyOfDraft(
   ) {
     return { ok: false, field: "sessionHours" };
   }
+  const life = draft.lifeLimited ? Number(draft.lifeDays.trim() || Number.NaN) : null;
+  if (
+    life !== null &&
+    (!Number.isInteger(life) ||
+      life < WORKSPACE_POLICIES.artifactMinDays ||
+      life > WORKSPACE_POLICIES.artifactMaxDays)
+  ) {
+    return { ok: false, field: "lifeDays" };
+  }
   return {
     ok: true,
     policy: {
@@ -200,6 +213,9 @@ export function policyOfDraft(
       sessionMaxHours: hours,
       allowedClients: draft.clientsLimited ? draft.clients : null,
       ssoRequired: draft.ssoRequired,
+      artifactMaxDays: life,
+      // When it takes effect is the server's to decide (decision 0023); this is never read.
+      artifactMaxDaysFrom: null,
     },
   };
 }
@@ -339,6 +355,7 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
           {t("policies.planRequired")}
         </Callout>
       ) : null}
+      <MaxLifeBanner view={view} />
       <p className="flex items-center gap-2 text-sm font-medium">
         <ShieldCheck aria-hidden="true" className="size-4 shrink-0" />
         {t("policies.adminsToo")}
@@ -463,6 +480,14 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
           />
         </div>
       </Panel>
+      <MaxLifePanel
+        limited={draft.lifeLimited}
+        days={draft.lifeDays}
+        disabled={fieldsDisabled}
+        invalid={invalid === "lifeDays"}
+        onLimited={(value) => set("lifeLimited", value)}
+        onDays={(value) => set("lifeDays", value)}
+      />
       <NetworkPanel
         kind="people"
         view={view}
@@ -601,6 +626,9 @@ function ImpactList({ space, preview }: { space: Workspace; preview: PolicyPrevi
     [preview.linksRevoked, "policies.impact.revoked"],
     [preview.linksWithoutPassword, "policies.impact.password"],
     [preview.linksOverLifetime, "policies.impact.lifetime"],
+    [preview.artifactsAtStart, "policies.impact.atStart"],
+    [preview.artifactsSoon, "policies.impact.soon"],
+    [preview.pinsLifted, "policies.impact.pins"],
   ] as const;
   const artifacts = impactTotal(preview) > 0;
   const networks = preview.networks;
@@ -762,6 +790,94 @@ function SsoRequirementPanel(props: {
 }
 
 const HOUR_MS = 3_600_000;
+
+/**
+ * Every member sees a maximum life of artifacts that is set (decision 0023): their work has a
+ * deadline. While it waits for its effective date, the page says from when.
+ */
+function MaxLifeBanner({ view }: { view: WorkspacePolicyView }) {
+  const t = useT();
+  const formatDate = useFormatDate();
+  const { artifactMaxDays: days, artifactMaxDaysFrom: from } = view.policy;
+  if (days === null) return null;
+  if (from !== null && from > Date.now()) {
+    return (
+      <Callout
+        tone="info"
+        title={t("policies.maxLife.pending", { date: formatDate(new Date(from).toISOString()) })}
+        icon={<CalendarClock className="size-5" />}
+      >
+        {t("policies.maxLife.pendingBody", { days })}
+      </Callout>
+    );
+  }
+  return (
+    <Callout title={t("policies.maxLife.legend")} icon={<CalendarClock className="size-5" />}>
+      {t("policies.maxLife.active", { days })}
+    </Callout>
+  );
+}
+
+/**
+ * The maximum life of artifacts (decision 0023): days after an artifact's last publish or
+ * restore before it is archived. The page says what it does in plain words, and that a new or
+ * shorter one waits for the notice period.
+ */
+function MaxLifePanel(props: {
+  limited: boolean;
+  days: string;
+  disabled: boolean;
+  invalid: boolean;
+  onLimited: (limited: boolean) => void;
+  onDays: (days: string) => void;
+}) {
+  const t = useT();
+  const legend = t("policies.maxLife.legend");
+  const bounds = {
+    min: WORKSPACE_POLICIES.artifactMinDays,
+    max: WORKSPACE_POLICIES.artifactMaxDays,
+  };
+  return (
+    <Panel headingLevel={2} title={legend} description={t("policies.maxLife.hint")}>
+      <div className="flex flex-col gap-4">
+        <RadioGroup<"any" | "only">
+          legend={legend}
+          name="artifactMaxDays"
+          value={props.limited ? "only" : "any"}
+          disabled={props.disabled}
+          onChange={(value) => props.onLimited(value === "only")}
+          options={[
+            {
+              value: "any",
+              label: t("policies.maxLife.any"),
+              description: t("policies.maxLife.anyHint"),
+            },
+            {
+              value: "only",
+              label: t("policies.maxLife.only"),
+              description: t("policies.maxLife.onlyHint"),
+            },
+          ]}
+        />
+        {props.limited ? (
+          <TextInput
+            label={t("policies.maxLife.days")}
+            description={t("policies.maxLife.daysHint", bounds)}
+            inputMode="numeric"
+            autoComplete="off"
+            value={props.days}
+            disabled={props.disabled}
+            error={props.invalid ? t("policies.maxLife.daysError", bounds) : undefined}
+            onChange={(event) => props.onDays(event.currentTarget.value)}
+          />
+        ) : null}
+        <p className="text-sm text-text-muted">
+          {t("policies.maxLife.notice", { days: WORKSPACE_POLICIES.retentionNoticeDays })}
+        </p>
+      </div>
+    </Panel>
+  );
+}
 
 /**
  * The maximum session age (decision 0021): how long after signing in a person may act on the

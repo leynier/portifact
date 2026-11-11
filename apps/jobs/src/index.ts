@@ -51,6 +51,7 @@ import {
   domainNotifierFromEnv,
   expiryNotifierFromEnv,
   type NoticeEnv,
+  retentionNotifierFromEnv,
   reviewNotifierFromEnv,
 } from "./notices.ts";
 import {
@@ -319,6 +320,7 @@ export async function runQueue(
   });
   const domainNotifier = domainNotifierFromEnv(env);
   const directoryNotifier = directoryNotifierFromEnv(env);
+  const retentionNotifier = retentionNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
   const auditStreams = auditStreamDepsFromWebhooks(webhooks);
   const issues = await issueDepsFromEnv(env, fetcher);
@@ -342,6 +344,7 @@ export async function runQueue(
         domains,
         domainNotifier,
         directoryNotifier,
+        retentionNotifier,
         regions,
       });
       if (outcome === "pending") {

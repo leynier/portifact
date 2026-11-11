@@ -15,6 +15,7 @@ import {
   nextExpiry,
   normalizePath,
   ok,
+  policyExpiry,
   previousVersionExpiry,
   type Result,
   type SourceOriginInput,
@@ -525,7 +526,12 @@ export async function rollbackArtifact(
   if (!admission.ok) return admission;
 
   const versionId = `ver_${crypto.randomUUID().replaceAll("-", "")}`;
-  const expiresAt = nextExpiry(new Date(input.now)).getTime();
+  // A rollback is a publish: a workspace's maximum life (decision 0023) counts from now.
+  const expiresAt = policyExpiry(
+    managed.value.actor.policy,
+    nextExpiry(new Date(input.now)).getTime(),
+    input.now,
+  );
   const v = schema.versions;
   const files = schema.versionFiles;
   const targetRetained = exists(

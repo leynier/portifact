@@ -135,9 +135,13 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   // After a restore, with the operator as actor.
   applyWorkspacePolicies: ["policy.changed"],
   clearRequestPolicies: ["policy.changed"],
-  enforceWorkspacePolicy: ["policy.enforced", "access.changed"],
-  runWorkspacePolicyJob: ["policy.enforced", "access.changed"],
-  enforceWorkspacePolicies: ["policy.enforced", "access.changed"],
+  // The maximum life (decision 0023) also unpins, by the system, naming the policy.
+  enforceWorkspacePolicy: ["policy.enforced", "access.changed", "artifact.unpinned"],
+  runWorkspacePolicyJob: ["policy.enforced", "access.changed", "artifact.unpinned"],
+  enforceWorkspacePolicies: ["policy.enforced", "access.changed", "artifact.unpinned"],
+  // An artifact that reached its workspace's maximum life is archived with the trail of a manual
+  // archive, by the system (decision 0023); other expiries record nothing, as before.
+  archiveExpired: ["artifact.archived"],
   // A read that records that it was asked for, before it streams (the one event outside a batch).
   exportAuditLog: ["audit.exported"],
   // Audit streams (decision 0019): an admin's changes; the delivery job records only the
@@ -287,6 +291,9 @@ reason(
     "openCredential",
   ],
 );
+reason("the email of a policy change already recorded as policy.changed (decision 0023)", [
+  "sendRetentionNotice",
+]);
 reason("an issue request is recorded once the job creates the issue (issue.created)", [
   "requestThreadIssue",
 ]);
@@ -297,7 +304,6 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "requeueThreadIssues",
   "rewrapIntegrationKeys",
   "releaseMovedArtifactDomains",
-  "archiveExpired",
   "expireUploads",
   "pruneVersions",
   "purgeArchived",
@@ -380,6 +386,8 @@ const READ_NAMES = new Set([
   "appSessionSignIn",
   // Who requiring single sign-on would bind, counted for the preview and the save (0021).
   "ssoReach",
+  // What a maximum life would archive, counted for the preview and the save (0023).
+  "maxLifeImpact",
   "directoryGroupChoices",
   "directoryRoleHolders",
   "seatLimit",

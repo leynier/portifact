@@ -431,6 +431,9 @@ describe("reading, previewing and changing policies", () => {
       linksRevoked: 0,
       linksWithoutPassword: 1,
       linksOverLifetime: 1,
+      artifactsAtStart: 0,
+      artifactsSoon: 0,
+      pinsLifted: 0,
       networks: null,
       signIns: null,
       sso: null,
@@ -588,12 +591,26 @@ describe("applying the policies", () => {
     const first = await enforceWorkspacePolicy(db(), t.id, NOW, 2);
     expect(first).toEqual({
       outcome: "pending",
-      counts: { artifactsNarrowed: 0, readersRemoved: 0, linksRevoked: 2, sessionsEnded: 0 },
+      counts: {
+        artifactsNarrowed: 0,
+        readersRemoved: 0,
+        linksRevoked: 2,
+        sessionsEnded: 0,
+        deadlinesSet: 0,
+        deadlinesExtended: 0,
+      },
     });
     expect((await enforceWorkspacePolicy(db(), t.id, NOW, 2)).counts.linksRevoked).toBe(1);
     expect(await enforceWorkspacePolicy(db(), t.id, NOW, 2)).toEqual({
       outcome: "done",
-      counts: { artifactsNarrowed: 0, readersRemoved: 0, linksRevoked: 0, sessionsEnded: 0 },
+      counts: {
+        artifactsNarrowed: 0,
+        readersRemoved: 0,
+        linksRevoked: 0,
+        sessionsEnded: 0,
+        deadlinesSet: 0,
+        deadlinesExtended: 0,
+      },
     });
     const rows = await db()
       .select({ revokedAt: schema.shareLinks.revokedAt })
@@ -778,6 +795,9 @@ describe("the job and the scan", () => {
       linksRevoked: 0,
       linksWithoutPassword: 0,
       linksOverLifetime: 0,
+      artifactsAtStart: 0,
+      artifactsSoon: 0,
+      pinsLifted: 0,
     });
   });
 });

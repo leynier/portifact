@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_POLICY,
+  PolicyImpact,
   PolicyPreview,
+  RetentionNoticePayload,
   WORKSPACE_POLICIES,
   WorkspacePolicy,
   WorkspacePolicyExport,
+  WorkspacePolicyJobPayload,
   WorkspacePolicyUpdate,
   WorkspacePolicyView,
 } from "./policies.ts";
@@ -117,5 +120,50 @@ describe("SSO required contracts (decision 0021)", () => {
     expect(
       WorkspacePolicyView.parse({ ...view, sso: { usable: true, yourSession: false } }).sso,
     ).toEqual({ usable: true, yourSession: false, offered: true });
+  });
+});
+
+describe("the maximum life of artifacts (decision 0023)", () => {
+  it("bounds the days and reads a policy stored before it as none", () => {
+    expect(WorkspacePolicy.parse({ ...DEFAULT_POLICY, artifactMaxDays: 7 }).artifactMaxDays).toBe(
+      7,
+    );
+    for (const days of [6, 3651, 1.5]) {
+      expect(WorkspacePolicy.safeParse({ ...DEFAULT_POLICY, artifactMaxDays: days }).success).toBe(
+        false,
+      );
+    }
+    const { artifactMaxDays: _d, artifactMaxDaysFrom: _f, ...older } = DEFAULT_POLICY;
+    expect(WorkspacePolicy.parse(older)).toMatchObject({
+      artifactMaxDays: null,
+      artifactMaxDaysFrom: null,
+    });
+  });
+
+  it("defaults the new impact counts so an older confirmation still parses", () => {
+    expect(
+      PolicyImpact.parse({
+        publicArtifacts: 0,
+        readersOutside: 0,
+        linksRevoked: 0,
+        linksWithoutPassword: 0,
+        linksOverLifetime: 0,
+      }),
+    ).toMatchObject({ artifactsAtStart: 0, artifactsSoon: 0, pinsLifted: 0 });
+  });
+
+  it("validates the job and notice payloads", () => {
+    expect(WorkspacePolicyJobPayload.parse({ revision: 2 })).toEqual({ revision: 2 });
+    expect(
+      WorkspacePolicyJobPayload.parse({ revision: 2, replacedMaxLife: { days: 30, from: 5 } }),
+    ).toMatchObject({ replacedMaxLife: { days: 30, from: 5 } });
+    expect(
+      WorkspacePolicyJobPayload.safeParse({ revision: 2, replacedMaxLife: { days: 3, from: 5 } })
+        .success,
+    ).toBe(false);
+    const notice = { days: 30, from: 1, atStart: 2, soon: 0, revision: 1 };
+    expect(RetentionNoticePayload.parse(notice)).toEqual(notice);
+    expect(RetentionNoticePayload.safeParse({ ...notice, name: "x" }).success).toBe(false);
+    expect(RetentionNoticePayload.safeParse({ ...notice, atStart: -1 }).success).toBe(false);
   });
 });

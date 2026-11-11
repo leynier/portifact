@@ -15,6 +15,8 @@ import {
   type Entitlements,
   entitlements,
   FREE_LIMIT_COLUMNS,
+  type MaxLife,
+  maxLifeOf,
   purgeDate,
   type VersionRetention,
   versionRetention,
@@ -25,7 +27,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
-import { pruneAuditEvents } from "./audit.ts";
+import { auditEvent, pruneAuditEvents } from "./audit.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "./content-search.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
@@ -41,6 +43,7 @@ import {
   type ScanCaps,
   savedCursorSql,
 } from "./maintenance-cursors.ts";
+import { atMaxLifeSql } from "./max-life.ts";
 import { closeJobs, OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import {
   alignPlanLimits,
@@ -61,7 +64,7 @@ import { requeueThreadIssues } from "./thread-issues.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
 import { pruneArtifactGroups, pruneGroupTombstones } from "./workspace-groups.ts";
-import { enforceWorkspacePolicies } from "./workspace-policies.ts";
+import { enforceWorkspacePolicies, ownerEntitlementsAndPolicy } from "./workspace-policies.ts";
 import { type DeletionRegions, processWorkspaceDeletions, singleRegion } from "./workspaces.ts";
 
 const DEFAULT_BATCH = 50;
@@ -93,33 +96,56 @@ export async function archiveExpired(
     .limit(limit);
 
   let processed = 0;
-  const owners = new Map<string, Entitlements>();
+  const owners = new Map<string, { owner: Entitlements; life: MaxLife | null }>();
   for (const artifact of due) {
     // The archive starts at the expiry, not when this job happens to run.
     const archivedAt = artifact.expiresAt ?? now;
-    let owner = owners.get(artifact.ownerId);
-    if (!owner) {
-      owner = await ownerEntitlements(db.global, artifact.ownerId, now);
-      owners.set(artifact.ownerId, owner);
+    let found = owners.get(artifact.ownerId);
+    if (!found) {
+      // The plan and, for a workspace, its policy in one round trip, as the plan alone was.
+      const read = await ownerEntitlementsAndPolicy(db.global, artifact.ownerId, now);
+      found = { owner: read.owner, life: maxLifeOf(read.policy) };
+      owners.set(artifact.ownerId, found);
     }
-    const archived = await db
+    const still = and(
+      eq(schema.artifacts.id, artifact.id),
+      eq(schema.artifacts.state, "active"),
+      eq(schema.artifacts.lifecycleGeneration, artifact.generation),
+      lte(schema.artifacts.expiresAt, now),
+    );
+    const archive = db
       .update(schema.artifacts)
       .set({
         state: "archived",
         archivedAt,
-        purgeAt: purgeDate(new Date(archivedAt), owner.limits.archiveMonths).getTime(),
+        purgeAt: purgeDate(new Date(archivedAt), found.owner.limits.archiveMonths).getTime(),
         lifecycleGeneration: artifact.generation + 1,
         updatedAt: now,
       })
-      .where(
-        and(
-          eq(schema.artifacts.id, artifact.id),
-          eq(schema.artifacts.state, "active"),
-          eq(schema.artifacts.lifecycleGeneration, artifact.generation),
-          lte(schema.artifacts.expiresAt, now),
-        ),
-      )
+      .where(still)
       .returning({ id: schema.artifacts.id });
+    // An artifact that reached its workspace's maximum life (decision 0023) leaves the trail of a
+    // manual archive: `artifact.archived` by the system, naming the policy, in the same batch.
+    const archived = found.life
+      ? ((
+          await db.batch([
+            auditEvent(
+              db,
+              {
+                ownerId: artifact.ownerId,
+                kind: "artifact.archived",
+                actor: { type: "system" },
+                targetId: artifact.id,
+                artifactId: artifact.id,
+                detail: { policy: "artifactMaxDays" },
+                now,
+              },
+              sql`exists (select 1 from ${schema.artifacts} where ${still} and ${atMaxLifeSql(found.life)})`,
+            ),
+            archive,
+          ])
+        )[1] as { id: string }[])
+      : await archive;
     if (archived.length === 0) continue;
     processed += 1;
     await db.insert(schema.lifecycleEvents).values({

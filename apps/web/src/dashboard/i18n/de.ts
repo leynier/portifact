@@ -2816,4 +2816,37 @@ export const de = {
     "„Single Sign-on verlangt“ gilt wieder: Der Anbieter kann Personen anmelden ({cause, select, domain {eine verifizierte Domain hat sich geändert} plan {der Tarif hat sich geändert} provider {der Anbieter hat sich geändert} other {bei der täglichen Prüfung bemerkt}})",
   "policies.sso.switchedOff":
     "Single Sign-on wird verlangt, ist auf diesem Portifact aber abgeschaltet: Niemand kann sich über den Anbieter anmelden und niemand kann in diesem Workspace handeln, bis der Portifact-Support die Vorgabe aufhebt oder Single Sign-on wieder einschaltet. Wende dich an den Portifact-Support.",
+  "policies.maxLife.legend": "Maximale Lebensdauer von Artifacts",
+  "policies.maxLife.hint":
+    "Archiviert jedes Artifact des Workspace eine Anzahl Tage nach seiner letzten Veröffentlichung (ein Zurücksetzen zählt) oder Wiederherstellung. Sie zieht den Ablauf nur vor: Verlängern kann ihn nicht überschreiten, und ein archiviertes Artifact lässt sich wiederherstellen, bis sein Archiv endet. Gelöscht wird nichts.",
+  "policies.maxLife.any": "Kein Maximum",
+  "policies.maxLife.anyHint":
+    "Artifacts bleiben online, solange jemand sie verlängert oder veröffentlicht.",
+  "policies.maxLife.only": "Nach einer maximalen Lebensdauer archivieren",
+  "policies.maxLife.onlyHint":
+    "Solange sie gilt, ist Anheften aus, und angeheftete Artifacts werden mit ihrer Frist gelöst.",
+  "policies.maxLife.days": "Tage nach der letzten Veröffentlichung oder Wiederherstellung",
+  "policies.maxLife.daysHint": "Von {min} bis {max} Tagen.",
+  "policies.maxLife.daysError": "Geben Sie eine ganze Zahl von Tagen zwischen {min} und {max} ein.",
+  "policies.maxLife.notice":
+    "Ein neues oder kürzeres Maximum gilt {days} Tage nach dem Speichern, und alle Administratoren erhalten eine E-Mail. Bis dahin wird dadurch nichts archiviert, aber jedes Artifact zeigt schon seinen neuen Ablauf und die Eigentümer erhalten den üblichen Ablaufhinweis. Ein längeres Maximum oder keines gilt sofort.",
+  "policies.maxLife.pending": "Eine maximale Lebensdauer gilt ab {date}",
+  "policies.maxLife.pendingBody":
+    "Ab dann werden Artifacts {days} Tage nach ihrer letzten Veröffentlichung oder Wiederherstellung archiviert. Vor diesem Datum wird dadurch nichts archiviert.",
+  "policies.maxLife.active":
+    "Artifacts werden {days} Tage nach ihrer letzten Veröffentlichung oder Wiederherstellung archiviert und können nicht angeheftet werden.",
+  "policies.impact.atStart":
+    "{count, plural, one {# aktives Artifact wird an dem Tag archiviert, an dem die maximale Lebensdauer gilt, außer jemand veröffentlicht es erneut} other {# aktive Artifacts werden an dem Tag archiviert, an dem die maximale Lebensdauer gilt, außer jemand veröffentlicht sie erneut}}",
+  "policies.impact.soon":
+    "{count, plural, one {# weiteres wird in den 30 Tagen danach archiviert} other {# weitere werden in den 30 Tagen danach archiviert}}",
+  "policies.impact.pins":
+    "{count, plural, one {# angeheftetes Artifact wird gelöst} other {# angeheftete Artifacts werden gelöst}}",
+  "detail.maxLife":
+    "Dieser Workspace archiviert Artifacts {days} Tage nach ihrer letzten Veröffentlichung oder Wiederherstellung: Der Ablauf berücksichtigt das, und Anheften ist aus.",
+  "audit.policy.maxLife": "Artifacts {days} Tage nach ihrer letzten Veröffentlichung archiviert",
+  "audit.policy.maxLifeNone": "keine maximale Lebensdauer von Artifacts",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {den Ablauf von # Artifact vorgezogen} other {den Ablauf von # Artifacts vorgezogen}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {# Artifact seine Zeit zurückgegeben} other {# Artifacts ihre Zeit zurückgegeben}}",
 } satisfies Catalog;

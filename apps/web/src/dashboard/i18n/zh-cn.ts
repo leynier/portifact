@@ -2529,4 +2529,34 @@ export const zhCN = {
     "重新执行单点登录要求：提供商可以为成员登录（{cause, select, domain {已验证域名发生变化} plan {套餐发生变化} provider {提供商发生变化} other {每日检查发现}}）",
   "policies.sso.switchedOff":
     "已要求单点登录，但此 Portifact 已关闭单点登录：在 Portifact 支持解除该要求或重新开启单点登录之前，没人能通过提供商登录，也没人能操作此工作区。请联系 Portifact 支持。",
+  "policies.maxLife.legend": "artifact 的最长期限",
+  "policies.maxLife.hint":
+    "在工作区的每个 artifact 最后一次发布(回滚也算)或恢复后若干天将其归档。它只会提前到期时间:续期无法超过它,已归档的 artifact 在归档期结束前都可以恢复。不会删除任何内容。",
+  "policies.maxLife.any": "不设最长期限",
+  "policies.maxLife.anyHint": "只要有人续期或发布,artifact 就保持在线。",
+  "policies.maxLife.only": "超过最长期限后归档",
+  "policies.maxLife.onlyHint": "设置期间无法固定,已固定的 artifact 会被取消固定并获得期限。",
+  "policies.maxLife.days": "最后一次发布或恢复后的天数",
+  "policies.maxLife.daysHint": "{min} 到 {max} 天。",
+  "policies.maxLife.daysError": "请输入 {min} 到 {max} 之间的整数天数。",
+  "policies.maxLife.notice":
+    "新的或更短的最长期限在保存 {days} 天后生效,每位管理员都会收到邮件。在此之前不会因此归档任何内容,但每个 artifact 已显示新的到期时间,所有者也会收到通常的到期通知。更长的最长期限或取消设置会立即生效。",
+  "policies.maxLife.pending": "最长期限将于 {date} 生效",
+  "policies.maxLife.pendingBody":
+    "从那时起,artifact 会在最后一次发布或恢复后 {days} 天归档。在该日期之前不会因此归档任何内容。",
+  "policies.maxLife.active": "artifact 会在最后一次发布或恢复后 {days} 天归档,并且不能固定。",
+  "policies.impact.atStart":
+    "{count, plural, one {# 个活跃的 artifact 将在最长期限生效当天归档,除非有人重新发布} other {# 个活跃的 artifact 将在最长期限生效当天归档,除非有人重新发布}}",
+  "policies.impact.soon":
+    "{count, plural, one {另有 # 个将在之后 30 天内归档} other {另有 # 个将在之后 30 天内归档}}",
+  "policies.impact.pins":
+    "{count, plural, one {# 个已固定的 artifact 将被取消固定} other {# 个已固定的 artifact 将被取消固定}}",
+  "detail.maxLife":
+    "此工作区会在 artifact 最后一次发布或恢复后 {days} 天将其归档:到期时间已包含这一点,且无法固定。",
+  "audit.policy.maxLife": "artifact 在最后一次发布后 {days} 天归档",
+  "audit.policy.maxLifeNone": "不设 artifact 的最长期限",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {提前了 # 个 artifact 的到期时间} other {提前了 # 个 artifact 的到期时间}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {恢复了 # 个 artifact 的期限} other {恢复了 # 个 artifact 的期限}}",
 } satisfies Catalog;

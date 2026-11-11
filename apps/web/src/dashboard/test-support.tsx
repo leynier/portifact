@@ -81,6 +81,7 @@ import {
   diffText,
   normalizePolicy,
   noticeWindowEnd,
+  retentionTiming,
   singleFamilyLists,
   textDiffEligibility,
 } from "@portifact/domain";
@@ -428,6 +429,9 @@ export const NO_IMPACT: PolicyImpact = {
   linksRevoked: 0,
   linksWithoutPassword: 0,
   linksOverLifetime: 0,
+  artifactsAtStart: 0,
+  artifactsSoon: 0,
+  pinsLifted: 0,
 };
 
 export function workspace(
@@ -2782,7 +2786,15 @@ function policyRoute(
     if (newlySso && w.ssoOutside > 0 && body?.confirmedOutsideProvider !== w.ssoOutside) {
       return apiError("policy_refused", 403);
     }
-    w.view = { ...w.view, policy: body?.policy as WorkspacePolicy };
+    // As the API (decision 0023): the server decides when a maximum life takes effect.
+    w.view = {
+      ...w.view,
+      policy: retentionTiming(
+        w.view.policy as WorkspacePolicy,
+        body?.policy as WorkspacePolicy,
+        Date.now(),
+      ),
+    };
     w.policyRevision += 1;
     return json(state());
   }

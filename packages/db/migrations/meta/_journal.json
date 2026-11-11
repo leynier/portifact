@@ -435,6 +435,13 @@
       "when": 1794390420924,
       "tag": "0061_sign_in_method",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "6",
+      "when": 1794392447530,
+      "tag": "0062_artifact_restored_at",
+      "breakpoints": true
     }
   ]
 }
