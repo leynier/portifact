@@ -1644,6 +1644,12 @@ export const es = {
   "plan.current.hint": "Lo que tiene este espacio ahora. La página Uso muestra cuánto se usa.",
   "plan.current.limits": "Límites del plan actual",
   "plan.current.usageLink": "Ver el uso",
+  "plan.grace.title": "Lo que guardaba el plan {plan} se conserva hasta el {date}",
+  "plan.grace.body":
+    "Hasta entonces no se borra nada: hasta {versions} versiones anteriores de cada artefacto durante {days} días, y el registro de accesos y la analítica durante {log} días. Después de esa fecha se borra lo que el plan de este espacio no guarda.",
+  "plan.grace.reads": "Se puede seguir leyendo hasta entonces: {features}.",
+  "plan.grace.download":
+    "Descarga lo que necesites antes: el historial de cada artefacto tiene sus versiones, y el registro de accesos y el registro de auditoría tienen sus exportaciones. O pide el plan de nuevo para conservarlo todo.",
   "plan.loading": "Cargando el plan",
   "plan.error": "No se pudo cargar el plan.",
   "plan.compare.section": "Todos los planes",

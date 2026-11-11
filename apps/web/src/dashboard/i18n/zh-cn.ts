@@ -1493,6 +1493,12 @@ export const zhCN = {
   "plan.current.hint": "此空间当前拥有的内容。用量页面显示已使用多少。",
   "plan.current.limits": "当前方案的限额",
   "plan.current.usageLink": "查看用量",
+  "plan.grace.title": "{plan} 方案保留的内容保留到 {date}",
+  "plan.grace.body":
+    "在此之前不会删除任何内容：每个制品最多保留 {versions} 个以前的版本 {days} 天，访问日志和分析保留 {log} 天。该日期之后，此空间方案不保留的内容将被删除。",
+  "plan.grace.reads": "在此之前仍可读取：{features}。",
+  "plan.grace.download":
+    "请在此之前下载所需内容：每个制品的历史记录中有其版本，访问日志和审计日志可以导出。或者再次申请该方案以保留全部内容。",
   "plan.loading": "正在加载方案",
   "plan.error": "无法加载方案。",
   "plan.compare.section": "所有方案",

@@ -28,7 +28,7 @@ import {
   TableRowHeader,
 } from "@portifact/ui";
 import { Link } from "@tanstack/react-router";
-import { Lock } from "lucide-react";
+import { Clock, Lock } from "lucide-react";
 import { useMemo } from "react";
 import {
   featureName,
@@ -90,7 +90,14 @@ export function PlanScreen() {
       />
       {canSee ? (
         <Loaded query={usage} loading={t("plan.loading")} error={t("plan.error")}>
-          {(view) => <CurrentPlan plan={view.plan} />}
+          {(view) => (
+            <>
+              {view.plan.grace ? (
+                <PlanGrace grace={view.plan.grace} canRequest={spaceCan(space, "plan")} />
+              ) : null}
+              <CurrentPlan plan={view.plan} />
+            </>
+          )}
         </Loaded>
       ) : (
         <Callout title={t("space.notAllowed.title")} icon={<Lock className="size-5" />}>
@@ -99,6 +106,56 @@ export function PlanScreen() {
       )}
       <AllPlans space={space} current={usage.data?.plan.name} />
     </div>
+  );
+}
+
+/**
+ * A running grace (decision 0022): until when what the previous plan kept is held, what it keeps,
+ * the reads still open, and the two ways forward: take the data out, or ask for the plan again.
+ */
+function PlanGrace({
+  grace,
+  canRequest,
+}: {
+  grace: NonNullable<PlanView["grace"]>;
+  canRequest: boolean;
+}) {
+  const t = useT();
+  const formatDate = useFormatDate();
+  const { text } = usePlanText();
+  const request = planRequest(grace.plan, text);
+  const features = grace.features.map((feature) => featureName(feature, text));
+  return (
+    <Callout
+      title={t("plan.grace.title", {
+        plan: PLAN_LABELS[grace.plan],
+        date: formatDate(grace.until, true),
+      })}
+      icon={<Clock className="size-5" />}
+      action={
+        canRequest ? (
+          <a
+            href={request.href}
+            aria-label={request.accessibleName}
+            className={buttonClasses({ intent: "secondary" })}
+          >
+            {request.label}
+          </a>
+        ) : undefined
+      }
+    >
+      <p>
+        {t("plan.grace.body", {
+          versions: grace.limits.retainedPreviousVersions,
+          days: grace.limits.previousVersionRetentionDays,
+          log: grace.limits.accessLogRetentionDays,
+        })}
+      </p>
+      {features.length > 0 ? (
+        <p className="mt-1">{t("plan.grace.reads", { features: features.join(", ") })}</p>
+      ) : null}
+      <p className="mt-1">{t("plan.grace.download")}</p>
+    </Callout>
   );
 }
 

@@ -1657,6 +1657,12 @@ export const fr = {
     "Ce dont cet espace dispose maintenant. La page Utilisation montre ce qui en est utilisé.",
   "plan.current.limits": "Limites de l’offre actuelle",
   "plan.current.usageLink": "Voir l’utilisation",
+  "plan.grace.title": "Ce que gardait l'offre {plan} est conservé jusqu'au {date}",
+  "plan.grace.body":
+    "D'ici là rien n'est supprimé : jusqu'à {versions} versions précédentes de chaque artefact pendant {days} jours, et le journal d'accès et les statistiques pendant {log} jours. Après cette date, ce que l'offre de cet espace ne garde pas est supprimé.",
+  "plan.grace.reads": "Toujours lisible d'ici là : {features}.",
+  "plan.grace.download":
+    "Téléchargez ce dont vous avez besoin avant : l'historique de chaque artefact contient ses versions, et le journal d'accès et le journal d'audit ont leurs exports. Ou demandez à nouveau l'offre pour tout garder.",
   "plan.loading": "Chargement de l’offre",
   "plan.error": "Impossible de charger l’offre.",
   "plan.compare.section": "Toutes les offres",

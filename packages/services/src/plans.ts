@@ -1220,8 +1220,7 @@ export async function applyOwnerPlans(
   let skipped = 0;
   for (const plan of plans) {
     const record = { ...plan, grace: plan.grace ?? null };
-    const grants =
-      planActive(record, now) && (record.plan !== "free" || record.overrides !== null);
+    const grants = planActive(record, now) && (record.plan !== "free" || record.overrides !== null);
     if (!grants && liveGraceSlots(record, now).length === 0) {
       skipped += 1;
       continue;

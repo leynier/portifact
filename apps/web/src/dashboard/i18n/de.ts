@@ -1653,6 +1653,12 @@ export const de = {
     "Was dieser Bereich jetzt hat. Die Seite Nutzung zeigt, wie viel davon genutzt wird.",
   "plan.current.limits": "Limits des aktuellen Plans",
   "plan.current.usageLink": "Nutzung ansehen",
+  "plan.grace.title": "Was der Tarif {plan} aufbewahrte, bleibt bis {date} erhalten",
+  "plan.grace.body":
+    "Bis dahin wird nichts gelöscht: bis zu {versions} frühere Versionen jedes Artefakts für {days} Tage sowie das Zugriffsprotokoll und die Analysen für {log} Tage. Nach diesem Datum wird gelöscht, was der Tarif dieses Bereichs nicht aufbewahrt.",
+  "plan.grace.reads": "Bis dahin weiterhin lesbar: {features}.",
+  "plan.grace.download":
+    "Lade vorher herunter, was du brauchst: Der Verlauf jedes Artefakts enthält seine Versionen, und Zugriffs- und Auditprotokoll haben ihre Exporte. Oder fordere den Tarif erneut an, um alles zu behalten.",
   "plan.loading": "Plan wird geladen",
   "plan.error": "Der Plan konnte nicht geladen werden.",
   "plan.compare.section": "Alle Pläne",

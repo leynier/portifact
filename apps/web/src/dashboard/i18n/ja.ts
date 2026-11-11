@@ -1611,6 +1611,12 @@ export const ja = {
   "plan.current.hint": "このスペースの現在の内容です。使用量は使用状況ページで確認できます。",
   "plan.current.limits": "現在のプランの上限",
   "plan.current.usageLink": "使用状況を見る",
+  "plan.grace.title": "{plan} プランで保持していたものは {date} まで保持されます",
+  "plan.grace.body":
+    "それまでは何も削除されません。各アーティファクトの以前のバージョン最大 {versions} 件を {days} 日間、アクセスログと分析を {log} 日間保持します。その日以降、このスペースのプランで保持されないものは削除されます。",
+  "plan.grace.reads": "それまで引き続き読めるもの：{features}。",
+  "plan.grace.download":
+    "それまでに必要なものをダウンロードしてください。各アーティファクトの履歴にバージョンがあり、アクセスログと監査ログはエクスポートできます。すべてを残すには、もう一度プランを申請してください。",
   "plan.loading": "プランを読み込み中",
   "plan.error": "プランを読み込めませんでした。",
   "plan.compare.section": "すべてのプラン",

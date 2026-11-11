@@ -1625,6 +1625,12 @@ export const ptBR = {
   "plan.current.hint": "O que este espaço tem agora. A página Uso mostra quanto disso está em uso.",
   "plan.current.limits": "Limites do plano atual",
   "plan.current.usageLink": "Ver o uso",
+  "plan.grace.title": "O que o plano {plan} guardava fica até {date}",
+  "plan.grace.body":
+    "Até lá nada é apagado: até {versions} versões anteriores de cada artefato por {days} dias, e o registro de acessos e a análise por {log} dias. Depois dessa data, o que o plano deste espaço não guarda é apagado.",
+  "plan.grace.reads": "Ainda pode ser lido até lá: {features}.",
+  "plan.grace.download":
+    "Baixe o que precisar antes disso: o histórico de cada artefato tem as versões, e o registro de acessos e o registro de auditoria têm suas exportações. Ou peça o plano de novo para manter tudo.",
   "plan.loading": "Carregando o plano",
   "plan.error": "Não foi possível carregar o plano.",
   "plan.compare.section": "Todos os planos",

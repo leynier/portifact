@@ -1593,6 +1593,12 @@ export const en = {
   "plan.current.hint": "What this space has now. The Usage page shows how much of it is used.",
   "plan.current.limits": "Limits of the current plan",
   "plan.current.usageLink": "See usage",
+  "plan.grace.title": "What the {plan} plan kept is held until {date}",
+  "plan.grace.body":
+    "Until then nothing is deleted: up to {versions} previous versions of each artifact for {days} days, and the access log and analytics for {log} days. After that date, what this space's plan does not keep is deleted.",
+  "plan.grace.reads": "Still readable until then: {features}.",
+  "plan.grace.download":
+    "Download what you need before then: each artifact's history has its versions, and the access log and audit log have their exports. Or ask for the plan again to keep everything.",
   "plan.loading": "Loading the plan",
   "plan.error": "The plan could not be loaded.",
   "plan.compare.section": "All plans",
