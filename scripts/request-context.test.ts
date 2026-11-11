@@ -159,12 +159,60 @@ describe("the request context", () => {
     );
     expect(actors).toMatch(/return bound\(global, memberActor\(userId, ownerId, row\), "person"\)/);
     const deciding = sources("packages/services/src").filter((file) =>
-      /checkRequestPolicy\(/.test(read(file)),
+      /checkRequestPolicy\(|requestRefusal\(|signInVerdict\(/.test(read(file)),
     );
     // The list of workspaces marks a blocked one without a read; nothing else decides it.
     expect(deciding.sort()).toEqual([
       "packages/services/src/actors.ts",
       "packages/services/src/workspaces.ts",
+    ]);
+  });
+});
+
+// Decision 0021: a Worker that authenticates a person records how, from its own rows, where it
+// does, so the sign-in policies have the facts; one that forgot would fail closed, and these
+// checks keep a new authentication path from forgetting.
+describe("the credential on the request context", () => {
+  const app = sources("apps/app/src");
+
+  it("is recorded by every session lookup of the app: no other code reads a session", () => {
+    const reading = app.filter((file) => /\.api\.getSession\(/.test(read(file)));
+    expect(reading).toEqual(["apps/app/src/auth/credentials.ts"]);
+    expect(read("apps/app/src/auth/credentials.ts")).toMatch(
+      /const found = await auth\.api\.getSession\(\{ headers \}\);\s+if \(found\) \{\s+recordRequestCredential\(env, \{\s+kind: "session"/,
+    );
+  });
+
+  it("is recorded by every token introspection and service token check", () => {
+    const introspecting = app.filter((file) => /\.api\.introspectBearer\(/.test(read(file)));
+    expect(introspecting).toEqual(["apps/app/src/app-host.ts"]);
+    expect(read("apps/app/src/app-host.ts")).toMatch(
+      /api\.introspectBearer\(\{[\s\S]{0,120}\}\)\) as IntrospectionPayload;\s+recordToken\(env, payload\);/,
+    );
+    const checking = app.filter((file) => /authenticateServiceToken\(/.test(read(file)));
+    expect(checking).toEqual(["apps/app/src/api/routes.ts"]);
+    expect(read("apps/app/src/api/routes.ts")).toMatch(
+      /await authenticateServiceToken\([\s\S]{0,120}?\);\s+if \(auth\.ok\) recordServiceToken\(c\.env, auth\.tokenId\);/,
+    );
+  });
+
+  it("is recorded by the artifact origin's renewals before the access check decides the role", () => {
+    for (const file of [
+      "packages/services/src/read-access.ts",
+      "packages/services/src/review-access.ts",
+    ]) {
+      expect(read(file)).toMatch(
+        /recordSessionRenewal\(db, session\.userId, Number\(signedInAt\)\);\s+const access = await checkReadAccess\(/,
+      );
+    }
+  });
+
+  it("is never taken from a header", () => {
+    expect(read("apps/app/src/auth/credentials.ts")).not.toMatch(/headers\.get\(/);
+    // The context reads one header, the address Cloudflare sets, and nothing about credentials.
+    const context = read("packages/contracts/src/request-context.ts");
+    expect([...context.matchAll(/headers\.get\(([^)]*)\)/g)].map((m) => m[1])).toEqual([
+      '"cf-connecting-ip"',
     ]);
   });
 });

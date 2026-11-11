@@ -2411,4 +2411,51 @@ export const zhCN = {
     "旧密钥会立即停止签名。在你的端点拿到新密钥之前，它会拒绝 Portifact 的请求；不会丢失任何内容，端点接受后会重新发送。旧密钥泄露时使用此操作。",
   "audit.stream.revokedNow": "已为 {label} 设置新密钥；旧密钥不再签名",
   "audit.stream.revokeNow.body": "旧密钥不再签名。请立即把这个密钥交给你的端点。",
+  "policies.session.legend": "会话时长",
+  "policies.session.hint":
+    "登录后多长时间内可以在工作区中操作。超过后，控制台、CLI 和已连接的应用会要求重新登录；不会退出任何人，也不会删除任何内容。",
+  "policies.session.any": "不限制",
+  "policies.session.anyHint": "登录在有效期内都可以在工作区中操作。",
+  "policies.session.only": "要求重新登录",
+  "policies.session.onlyHint": "登录超过限制后，需要重新登录。",
+  "policies.session.hours": "登录后的小时数",
+  "policies.session.hoursHint": "{min} 到 {max} 之间的整数。",
+  "policies.session.hoursError": "请输入 {min} 到 {max} 之间的整数小时。",
+  "policies.session.yours":
+    "你在 {count, plural, one {# 小时} other {# 小时}}前登录。更短的限制会把你锁在外面，如需设置，请先重新登录。",
+  "policies.session.tokens": "服务令牌没有登录，不受限制。",
+  "policies.session.limits":
+    "CLI 从 `portifact login` 开始计时，应用从连接时开始计时，无论令牌刷新多少次。",
+  "policies.clients.legend": "可以操作的应用",
+  "policies.clients.hint": "哪些类型的应用可以凭个人登录在工作区中操作。控制台始终允许。",
+  "policies.clients.any": "所有应用",
+  "policies.clients.anyHint": "控制台、Portifact CLI 以及个人连接的应用，例如 MCP 客户端。",
+  "policies.clients.only": "仅限此处选择的应用",
+  "policies.clients.onlyHint": "其他应用会被拒绝，并附上原因说明。",
+  "policies.clients.which": "允许的应用",
+  "policies.clients.dashboard": "控制台（始终允许）",
+  "policies.clients.cli": "Portifact CLI",
+  "policies.clients.cliHint": "Portifact 自己的命令行，通过固定的客户端记录识别。",
+  "policies.clients.apps": "其他已连接的应用",
+  "policies.clients.appsHint": "MCP 客户端以及个人通过 OAuth 连接的其他应用。",
+  "policies.clients.tokens": "服务令牌不受限制。",
+  "policies.clients.limits":
+    "自行注册的应用可以自选名称，因此 Portifact 将它们作为一个整体允许或拒绝，从不按名称判断。这无法阻止有人把能读取的内容复制到其他应用。",
+  "policies.impact.signInsTitle": "更改此工作区的登录方式？",
+  "policies.impact.signInMembers": "{count, plural, one {# 名成员} other {# 名成员}}将受此限制",
+  "policies.impact.staleMembers":
+    "{count, plural, one {# 名成员} other {# 名成员}}没有比限制更新的登录，下次操作时需要重新登录",
+  "policies.impact.clientMembers":
+    "{count, plural, one {# 名成员} other {# 名成员}}在使用此设置会拒绝的应用",
+  "policies.impact.signInsNote":
+    "不会退出任何人：下次在工作区中操作时，会要求重新登录或改用其他应用。",
+  "policies.impact.signInsConfirm": "保存",
+  "space.blockedSession.title": "请重新登录以继续",
+  "space.blockedSession.body":
+    "{workspace} 每隔一段时间要求重新登录，而你的登录已超过允许的时长。重新登录后会回到这里。你的其他空间仍可正常使用。",
+  "space.blockedSession.action": "重新登录",
+  "audit.policy.session": "每 {count, plural, one {# 小时} other {# 小时}}重新登录",
+  "audit.policy.sessionAny": "不限制会话时长",
+  "audit.policy.clients":
+    "{kinds, select, none {仅控制台可以操作} cli {仅控制台和 CLI 可以操作} oauth_apps {仅控制台和已连接的应用可以操作} both {控制台、CLI 和已连接的应用可以操作} other {所有应用都可以操作}}",
 } satisfies Catalog;

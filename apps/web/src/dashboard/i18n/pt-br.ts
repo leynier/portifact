@@ -2648,4 +2648,56 @@ export const ptBR = {
   "audit.stream.revokedNow": "Novo segredo para {label}; o antigo não assina mais",
   "audit.stream.revokeNow.body":
     "O segredo antigo não assina mais. Passe este ao seu endpoint agora.",
+  "policies.session.legend": "Duração da sessão",
+  "policies.session.hint":
+    "Por quanto tempo depois de entrar uma pessoa pode agir no workspace. Passado esse tempo, o painel, a CLI e os apps conectados pedem que ela entre de novo; ninguém é desconectado e nada é apagado.",
+  "policies.session.any": "Sem limite",
+  "policies.session.anyHint": "Um login age no workspace enquanto durar.",
+  "policies.session.only": "Pedir um novo login",
+  "policies.session.onlyHint": "As pessoas entram de novo quando o login passa do limite.",
+  "policies.session.hours": "Horas depois do login",
+  "policies.session.hoursHint": "Um número inteiro entre {min} e {max}.",
+  "policies.session.hoursError": "Escreva um número inteiro de horas entre {min} e {max}.",
+  "policies.session.yours":
+    "Você entrou há {count, plural, one {# hora} other {# horas}}. Um limite menor deixaria você de fora, então entre de novo antes se precisar de um.",
+  "policies.session.tokens": "Tokens de serviço não fazem login e não são limitados.",
+  "policies.session.limits":
+    "A CLI conta a partir do `portifact login` e um app a partir de quando foi conectado, por mais que renovem seus tokens.",
+  "policies.clients.legend": "Apps que podem agir",
+  "policies.clients.hint":
+    "Quais tipos de app podem agir no workspace com o login de uma pessoa. O painel é sempre permitido.",
+  "policies.clients.any": "Qualquer app",
+  "policies.clients.anyHint":
+    "O painel, a CLI do Portifact e os apps que as pessoas conectam, como clientes MCP.",
+  "policies.clients.only": "Só os apps escolhidos aqui",
+  "policies.clients.onlyHint": "Os outros apps são recusados com uma mensagem que diz por quê.",
+  "policies.clients.which": "Apps permitidos",
+  "policies.clients.dashboard": "O painel (sempre permitido)",
+  "policies.clients.cli": "A CLI do Portifact",
+  "policies.clients.cliHint":
+    "A linha de comando do Portifact, reconhecida pelo seu registro de cliente fixo.",
+  "policies.clients.apps": "Outros apps conectados",
+  "policies.clients.appsHint":
+    "Clientes MCP e qualquer outro app que uma pessoa conecte por OAuth.",
+  "policies.clients.tokens": "Tokens de serviço não são limitados.",
+  "policies.clients.limits":
+    "Apps que se registram sozinhos escolhem o próprio nome, então o Portifact os permite ou recusa como um grupo só, nunca pelo nome. Isso não impede que alguém copie o que pode ler para outro app.",
+  "policies.impact.signInsTitle": "Mudar como as pessoas entram neste workspace?",
+  "policies.impact.signInMembers":
+    "{count, plural, one {# membro será limitado} other {# membros serão limitados}}",
+  "policies.impact.staleMembers":
+    "{count, plural, one {# membro não tem} other {# membros não têm}} um login mais recente que o limite e {count, plural, one {vai entrar} other {vão entrar}} de novo na próxima ação",
+  "policies.impact.clientMembers":
+    "{count, plural, one {# membro usa} other {# membros usam}} um app que isso recusaria",
+  "policies.impact.signInsNote":
+    "Ninguém é desconectado: as pessoas precisam entrar de novo, ou usar outro app, quando voltarem a agir no workspace.",
+  "policies.impact.signInsConfirm": "Salvar",
+  "space.blockedSession.title": "Entre de novo para continuar",
+  "space.blockedSession.body":
+    "{workspace} pede um novo login depois de um tempo, e o seu é mais antigo do que ele permite. Entre de novo para voltar aqui. Seus outros espaços continuam funcionando.",
+  "space.blockedSession.action": "Entrar de novo",
+  "audit.policy.session": "entrar de novo a cada {count, plural, one {# hora} other {# horas}}",
+  "audit.policy.sessionAny": "sem limite de duração da sessão",
+  "audit.policy.clients":
+    "{kinds, select, none {só o painel pode agir} cli {só o painel e a CLI podem agir} oauth_apps {só o painel e os apps conectados podem agir} both {o painel, a CLI e os apps conectados podem agir} other {qualquer app pode agir}}",
 } satisfies Catalog;

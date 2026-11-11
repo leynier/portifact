@@ -162,8 +162,16 @@ describe("workspace contracts", () => {
     };
     // A list without `blocked` (an older server) reads as not blocked (decision 0020).
     expect(WorkspaceList.parse({ items: [view] })).toEqual({
-      items: [{ ...view, blocked: false }],
+      items: [{ ...view, blocked: false, blockedBy: null }],
     });
+    // A server before the sign-in policies (decision 0021) sends no reason either.
+    expect(
+      WorkspaceList.parse({ items: [{ ...view, blocked: true, blockedBy: "session_age" }] })
+        .items[0],
+    ).toMatchObject({ blockedBy: "session_age", policy: { sessionMaxHours: null } });
+    expect(
+      WorkspaceList.safeParse({ items: [{ ...view, blocked: true, blockedBy: "sso" }] }).success,
+    ).toBe(false);
     expect(
       WorkspaceList.parse({
         items: [{ ...view, blocked: true, policy: { ...DEFAULT_POLICY, ipAllowlist: "hidden" } }],

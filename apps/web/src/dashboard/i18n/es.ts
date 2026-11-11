@@ -2670,4 +2670,59 @@ export const es = {
     "El secreto anterior deja de firmar de inmediato. Hasta que tu endpoint tenga el nuevo, rechazará las peticiones de Portifact; no se pierde nada, se envían de nuevo cuando las acepte. Úsalo si el secreto anterior se filtró.",
   "audit.stream.revokedNow": "Nuevo secreto para {label}; el anterior ya no firma",
   "audit.stream.revokeNow.body": "El secreto anterior ya no firma. Dale este a tu endpoint ahora.",
+  "policies.session.legend": "Duración de la sesión",
+  "policies.session.hint":
+    "Cuánto tiempo después de iniciar sesión puede una persona actuar en el espacio de trabajo. Pasado ese tiempo, el panel, la CLI y las apps conectadas le piden iniciar sesión de nuevo; no se cierra ninguna sesión ni se borra nada.",
+  "policies.session.any": "Sin límite",
+  "policies.session.anyHint": "Un inicio de sesión actúa en el espacio de trabajo mientras dure.",
+  "policies.session.only": "Pedir un nuevo inicio de sesión",
+  "policies.session.onlyHint":
+    "Las personas inician sesión de nuevo cuando su inicio de sesión supera el límite.",
+  "policies.session.hours": "Horas después de iniciar sesión",
+  "policies.session.hoursHint": "Un número entero entre {min} y {max}.",
+  "policies.session.hoursError": "Escribe un número entero de horas entre {min} y {max}.",
+  "policies.session.yours":
+    "Iniciaste sesión hace {count, plural, one {# hora} other {# horas}}. Un límite más corto te dejaría fuera, así que inicia sesión de nuevo antes si lo necesitas.",
+  "policies.session.tokens": "Los tokens de servicio no inician sesión y no quedan limitados.",
+  "policies.session.limits":
+    "La CLI cuenta desde `portifact login` y una app desde que se conectó, por mucho que renueven sus tokens.",
+  "policies.clients.legend": "Apps que pueden actuar",
+  "policies.clients.hint":
+    "Qué tipos de app pueden actuar en el espacio de trabajo con el inicio de sesión de una persona. El panel siempre está permitido.",
+  "policies.clients.any": "Cualquier app",
+  "policies.clients.anyHint":
+    "El panel, la CLI de Portifact y las apps que las personas conectan, como los clientes MCP.",
+  "policies.clients.only": "Solo las apps elegidas aquí",
+  "policies.clients.onlyHint": "Las demás apps se rechazan con un mensaje que explica por qué.",
+  "policies.clients.which": "Apps permitidas",
+  "policies.clients.dashboard": "El panel (siempre permitido)",
+  "policies.clients.cli": "La CLI de Portifact",
+  "policies.clients.cliHint":
+    "La línea de comandos de Portifact, reconocida por su registro de cliente fijo.",
+  "policies.clients.apps": "Otras apps conectadas",
+  "policies.clients.appsHint":
+    "Los clientes MCP y cualquier otra app que una persona conecte por OAuth.",
+  "policies.clients.tokens": "Los tokens de servicio no quedan limitados.",
+  "policies.clients.limits":
+    "Las apps que se registran solas eligen su propio nombre, así que Portifact las permite o rechaza como un solo grupo, nunca por nombre. Esto no impide que alguien copie lo que puede leer en otra app.",
+  "policies.impact.signInsTitle":
+    "¿Cambiar cómo inician sesión las personas en este espacio de trabajo?",
+  "policies.impact.signInMembers":
+    "{count, plural, one {# miembro quedará limitado} other {# miembros quedarán limitados}}",
+  "policies.impact.staleMembers":
+    "{count, plural, one {# miembro no tiene} other {# miembros no tienen}} un inicio de sesión más reciente que el límite y {count, plural, one {iniciará} other {iniciarán}} sesión de nuevo en su próxima acción",
+  "policies.impact.clientMembers":
+    "{count, plural, one {# miembro usa} other {# miembros usan}} una app que esto rechazaría",
+  "policies.impact.signInsNote":
+    "No se cierra la sesión de nadie: a las personas se les pide iniciar sesión de nuevo, o usar otra app, cuando vuelvan a actuar en el espacio de trabajo.",
+  "policies.impact.signInsConfirm": "Guardar",
+  "space.blockedSession.title": "Inicia sesión de nuevo para continuar",
+  "space.blockedSession.body":
+    "{workspace} pide un nuevo inicio de sesión pasado un tiempo, y el tuyo es más antiguo de lo que permite. Inicia sesión de nuevo para volver aquí. Tus otros espacios siguen funcionando.",
+  "space.blockedSession.action": "Iniciar sesión de nuevo",
+  "audit.policy.session":
+    "iniciar sesión de nuevo cada {count, plural, one {# hora} other {# horas}}",
+  "audit.policy.sessionAny": "sin límite de duración de sesión",
+  "audit.policy.clients":
+    "{kinds, select, none {solo el panel puede actuar} cli {solo el panel y la CLI pueden actuar} oauth_apps {solo el panel y las apps conectadas pueden actuar} both {el panel, la CLI y las apps conectadas pueden actuar} other {cualquier app puede actuar}}",
 } satisfies Catalog;

@@ -9,6 +9,7 @@ import type { Env } from "../env.ts";
 import { humanCheck } from "../turnstile.ts";
 import type { Auth } from "./auth.ts";
 import { AUTH_BASE_PATH, authUrls } from "./config.ts";
+import { sessionOf } from "./credentials.ts";
 import type { FetchLike } from "./deps.ts";
 import { VERIFY_HUMAN_PATH, verifyHuman } from "./human.ts";
 import { checkLimits, ENDPOINT_LIMITS, otpSendChecks, pruneOldCounters } from "./limits.ts";
@@ -109,7 +110,7 @@ export function authRoutes(authFor: (env: Env) => Auth, siteverifyFor: (env: Env
           db: c.env.DB,
           secret: c.env.BETTER_AUTH_SECRET,
           sessionUserId: async (req) =>
-            (await authFor(c.env).api.getSession({ headers: req.headers }))?.user.id,
+            (await sessionOf(authFor(c.env), c.env, req.headers))?.user.id,
           now: Date.now(),
         }),
       );

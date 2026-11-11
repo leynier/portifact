@@ -29,6 +29,8 @@ beforeEach(async () => {
         shareLinkMaxDays: 30,
         ipAllowlist: null,
         tokenIpAllowlist: null,
+        sessionMaxHours: null,
+        allowedClients: null,
       },
     },
     { slug: "readers", name: "Readers", role: "member" },
@@ -62,6 +64,8 @@ describe("portifact workspaces", () => {
       shareLinkMaxDays: null,
       ipAllowlist: null,
       tokenIpAllowlist: null,
+      sessionMaxHours: null,
+      allowedClients: null,
     });
   });
 
@@ -87,6 +91,37 @@ describe("portifact workspaces", () => {
       blocked: true,
       policy: { ipAllowlist: "hidden" },
     });
+  });
+
+  it("says which sign-in policy blocks this CLI, and the fix", async () => {
+    server.api.workspaces = [
+      {
+        slug: "acme",
+        name: "Acme Docs",
+        role: "member",
+        policy: { ...DEFAULT_POLICY, sessionMaxHours: 12 },
+        blocked: true,
+        blockedBy: "session_age",
+      },
+      {
+        slug: "beta",
+        name: "Beta",
+        role: "member",
+        policy: { ...DEFAULT_POLICY, allowedClients: [] },
+        blocked: true,
+        blockedBy: "client",
+      },
+    ];
+    h.signIn();
+    const result = await h.invoke("workspaces");
+    expect(result.stdout).toContain("Policies of acme: people sign in again every 12 hours.\n");
+    expect(result.stdout).toContain(
+      "acme asks for a recent sign-in, and this CLI's is older than it allows: run `portifact login` to sign in again.\n",
+    );
+    expect(result.stdout).toContain("Policies of beta: people act only through the dashboard.\n");
+    expect(result.stdout).toContain(
+      "beta does not allow the Portifact CLI to act on it: use the dashboard, or ask a workspace admin.\n",
+    );
   });
 });
 
@@ -128,6 +163,30 @@ describe("a policy refusal", () => {
     expect(plain.code).toBe(EXIT.limit);
     expect(plain.stderr.endsWith(`Error: ${NETWORK}\n`)).toBe(true);
   });
+
+  it.each([
+    [
+      "an old sign-in",
+      "This workspace's policy asks for a new sign-in every 8 hours, and your sign-in is older than that. Run `portifact login` to sign in again.",
+    ],
+    [
+      "a client the workspace does not allow",
+      "This workspace's policy does not allow the Portifact CLI to act on it. Use the dashboard, or ask a workspace admin.",
+    ],
+  ])(
+    "prints a sign-in policy's refusal for %s, naming its fix, and exits 7",
+    async (_, message) => {
+      h.signIn();
+      server.faults.push({
+        method: "GET",
+        path: /^\/api\/v1\/artifacts$/,
+        reply: error("policy_refused", message),
+      });
+      const plain = await h.invoke("list", "--workspace", "acme");
+      expect(plain.code).toBe(EXIT.limit);
+      expect(plain.stderr.endsWith(`Error: ${message}\n`)).toBe(true);
+    },
+  );
 
   it("maps to the limit exit code", () => {
     expect(exitCodeFor("policy_refused")).toBe(EXIT.limit);

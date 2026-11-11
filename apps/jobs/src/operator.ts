@@ -146,7 +146,8 @@ Commands:
   apply-policies --file <file> [--allow-lifting]
                                (--allow-lifting also lifts restrictions the file does not have)
   clear-request-policies <slug|workspace-id> --confirm <slug>
-                               (lifts the network allowlists only, for admins locked out)
+                               (lifts the request policies only: network allowlists, maximum
+                               session age, allowed clients; for admins locked out)
   workspaces
   workspace <slug|workspace-id>
   workspace-create <slug> --name <name> --admin <user-id|email>
@@ -1142,7 +1143,7 @@ export async function runOperator(
       if (!detail) return { exitCode: 1, output: "Workspace not found." };
       if (options.get("confirm") !== detail.slug) {
         return usage(
-          `clear-request-policies needs --confirm ${detail.slug} to lift its network allowlists.`,
+          `clear-request-policies needs --confirm ${detail.slug} to lift its request policies.`,
         );
       }
       const result = await clearRequestPolicies(global, detail.id, now);
@@ -1150,13 +1151,13 @@ export async function runOperator(
       if (result.outcome === "conflict") {
         return {
           exitCode: 1,
-          output: `The policies of ${detail.slug} kept changing while lifting its network allowlists; nothing was changed. Run the command again.`,
+          output: `The policies of ${detail.slug} kept changing while lifting its request policies; nothing was changed. Run the command again.`,
         };
       }
       if (result.outcome === "unchanged") {
         return {
           exitCode: 0,
-          output: `Workspace ${detail.slug} has no network allowlist; nothing changed.`,
+          output: `Workspace ${detail.slug} has no request policy; nothing changed.`,
         };
       }
       return {

@@ -18,6 +18,7 @@ import {
 import { LIMITS } from "./limits.ts";
 import { PlanName } from "./plans.ts";
 import {
+  AllowedClient,
   DefaultAccessPolicy,
   POLICY_FIELDS,
   PublicAccessPolicy,
@@ -319,6 +320,15 @@ export const AUDIT_DETAILS = {
      */
     ipRanges: z.int().min(1).max(WORKSPACE_POLICIES.ipRanges).nullable().optional(),
     tokenIpRanges: z.int().min(1).max(WORKSPACE_POLICIES.ipRanges).nullable().optional(),
+    /** The maximum session age after the change, in hours; null when it is lifted (0021). */
+    sessionMaxHours: z
+      .int()
+      .min(WORKSPACE_POLICIES.sessionMinHours)
+      .max(WORKSPACE_POLICIES.sessionMaxHours)
+      .nullable()
+      .optional(),
+    /** The kinds of client allowed after the change; null when every kind is again (0021). */
+    allowedClients: z.array(AllowedClient).max(2).nullable().optional(),
     /** The save accepted changes to existing artifacts (the preview's counts). */
     confirmed: z.boolean(),
   }),

@@ -71,6 +71,12 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
   if (providerError) {
     showSummary(summary, messages.providerErrors[providerError] ?? messages.providerErrorFallback);
   }
+  // A workspace's maximum session age asked for a new sign-in (decision 0021): sign in again
+  // although a session exists, alongside it, and go back to `next`. The old session is not ended.
+  const reauth = new URLSearchParams(location.search).get("reauth") === "session_age";
+  if (reauth) {
+    showSummary(summary, messages.providerErrors.session_age ?? messages.providerErrorFallback);
+  }
 
   const humanCopy = byId(doc, "human-check-copy");
   const humanGroup = byId(doc, "human-check");
@@ -362,6 +368,10 @@ export async function setupLogin(doc: Document, env: PageEnv): Promise<void> {
       setupReadConfirm(doc, env, { email: sessionEmail, entry, summary });
       return;
     }
+  }
+  if (reauth) {
+    showSignIn();
+    return;
   }
   if (sessionEmail && next) {
     location.assign(next);

@@ -3,7 +3,12 @@
 // comments live in its region's database. Each Worker builds one `Regions` value from its
 // bindings with `regionsFromEnv`, and adapters take their handles from it instead of calling
 // `createDb(env.DB)`. With one region both handles wrap the same binding.
-import { type RequestContext, UNKNOWN_REQUEST } from "@portifact/contracts";
+import {
+  type Credential,
+  type RequestContext,
+  recordCredential,
+  UNKNOWN_REQUEST,
+} from "@portifact/contracts";
 import { drizzle } from "drizzle-orm/d1";
 import * as accessSchema from "./access-schema.ts";
 import type { AccessDb, Db } from "./index.ts";
@@ -61,6 +66,17 @@ export function withRequestContext<E extends object>(
     [REQUEST_CONTEXT]: { value: request, enumerable: false },
     [BASE_ENV]: { value: baseEnv(env), enumerable: false },
   }) as E & { [REQUEST_CONTEXT]: RequestContext };
+}
+
+/**
+ * Records how the request these bindings answer authenticated (decision 0021), on its context:
+ * every handle `regionsFromEnv` built or will build for the request sees it. Bindings without a
+ * context (a handle built without one is `UNKNOWN_REQUEST`) record nothing, so the sign-in
+ * policies refuse: forgetting fails closed.
+ */
+export function recordRequestCredential(env: object, credential: Credential): void {
+  const context = (env as { [REQUEST_CONTEXT]?: RequestContext })[REQUEST_CONTEXT];
+  if (context) recordCredential(context, credential);
 }
 
 /**

@@ -400,6 +400,20 @@
       "when": 1794363466574,
       "tag": "0056_audit_streams",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1794372975110,
+      "tag": "0057_oauth_access_token_auth_time",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1794372975499,
+      "tag": "0058_oauth_access_token_auth_time_trigger",
+      "breakpoints": true
     }
   ]
 }

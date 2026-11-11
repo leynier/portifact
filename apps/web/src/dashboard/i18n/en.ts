@@ -2603,6 +2603,57 @@ export const en = {
     "The old secret stops signing at once. Until your endpoint has the new one it refuses Portifact's requests; nothing is lost, they are sent again once it accepts them. Use this when the old secret leaked.",
   "audit.stream.revokedNow": "New secret for {label}; the old one no longer signs",
   "audit.stream.revokeNow.body": "The old secret no longer signs. Give your endpoint this one now.",
+  "policies.session.legend": "Session length",
+  "policies.session.hint":
+    "How long after signing in a person may act on the workspace. Past it, the dashboard, the CLI and connected apps ask them to sign in again; nobody is signed out and nothing is deleted.",
+  "policies.session.any": "No limit",
+  "policies.session.anyHint": "A sign-in acts on the workspace for as long as it lasts.",
+  "policies.session.only": "Ask for a new sign-in",
+  "policies.session.onlyHint": "People sign in again once their sign-in is older than the limit.",
+  "policies.session.hours": "Hours after signing in",
+  "policies.session.hoursHint": "A whole number between {min} and {max}.",
+  "policies.session.hoursError": "Write a whole number of hours between {min} and {max}.",
+  "policies.session.yours":
+    "You signed in {count, plural, one {# hour} other {# hours}} ago. A shorter limit would lock you out, so sign in again first if you need one.",
+  "policies.session.tokens": "Service tokens have no sign-in and are not bound.",
+  "policies.session.limits":
+    "The CLI counts from `portifact login` and an app from when it was connected, however often they refresh their tokens.",
+  "policies.clients.legend": "Apps that may act",
+  "policies.clients.hint":
+    "Which kinds of app may act on the workspace with a person's sign-in. The dashboard is always allowed.",
+  "policies.clients.any": "Every app",
+  "policies.clients.anyHint":
+    "The dashboard, the Portifact CLI and apps people connect, such as MCP clients.",
+  "policies.clients.only": "Only the apps chosen here",
+  "policies.clients.onlyHint": "Other apps are refused with a message that says why.",
+  "policies.clients.which": "Allowed apps",
+  "policies.clients.dashboard": "The dashboard (always allowed)",
+  "policies.clients.cli": "The Portifact CLI",
+  "policies.clients.cliHint":
+    "Portifact's own command line, recognized by its fixed client record.",
+  "policies.clients.apps": "Other connected apps",
+  "policies.clients.appsHint": "MCP clients and any other app a person connects through OAuth.",
+  "policies.clients.tokens": "Service tokens are not bound.",
+  "policies.clients.limits":
+    "Apps that register themselves choose their own names, so Portifact allows or refuses them as one group, never by name. This does not stop someone from copying what they can read into another app.",
+  "policies.impact.signInsTitle": "Change how people sign in to this workspace?",
+  "policies.impact.signInMembers":
+    "{count, plural, one {# member} other {# members}} will be bound",
+  "policies.impact.staleMembers":
+    "{count, plural, one {# member has} other {# members have}} no sign-in younger than the limit and will sign in again at their next action",
+  "policies.impact.clientMembers":
+    "{count, plural, one {# member uses} other {# members use}} an app this would refuse",
+  "policies.impact.signInsNote":
+    "Nobody is signed out: people are asked to sign in again, or to use another app, when they next act on the workspace.",
+  "policies.impact.signInsConfirm": "Save",
+  "space.blockedSession.title": "Sign in again to continue",
+  "space.blockedSession.body":
+    "{workspace} asks for a new sign-in after a while, and yours is older than it allows. Sign in again to come back here. Your other spaces keep working.",
+  "space.blockedSession.action": "Sign in again",
+  "audit.policy.session": "sign in again every {count, plural, one {# hour} other {# hours}}",
+  "audit.policy.sessionAny": "no session length limit",
+  "audit.policy.clients":
+    "{kinds, select, none {only the dashboard may act} cli {only the dashboard and the CLI may act} oauth_apps {only the dashboard and connected apps may act} both {the dashboard, the CLI and connected apps may act} other {every app may act}}",
 } as const;
 
 export type MessageId = keyof typeof en;

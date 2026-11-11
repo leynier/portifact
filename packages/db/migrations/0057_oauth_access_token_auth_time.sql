@@ -1,0 +1,1 @@
+ALTER TABLE `oauth_access_tokens` ADD `auth_time` integer;

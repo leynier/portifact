@@ -230,6 +230,12 @@ export const oauthAccessTokens = sqliteTable(
     revoked: date("revoked"),
     confirmation: text("confirmation"),
     scopes: text("scopes").notNull(),
+    /**
+     * When the sign-in this token descends from happened (decision 0021): set by a trigger on
+     * insert from the refresh token's `auth_time` (kept through every rotation) or the session's
+     * `created_at`, so a refresh never resets it. The introspection plugin declares the field.
+     */
+    authTime: date("auth_time"),
   },
   (t) => [
     index("oauth_access_tokens_client_id_idx").on(t.clientId),

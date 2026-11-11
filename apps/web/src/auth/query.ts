@@ -60,3 +60,12 @@ export function safeNext(search: string, origin: string): string | undefined {
 export function loginUrl(path: string): string {
   return `/login?${new URLSearchParams({ next: path })}`;
 }
+
+/**
+ * The login page asked to sign in again although a session exists (decision 0021): a workspace's
+ * maximum session age refused the current one. It signs in alongside the old session, which it
+ * never ends, and goes back to `path`.
+ */
+export function reauthUrl(path: string): string {
+  return `/login?${new URLSearchParams({ reauth: "session_age", next: path })}`;
+}

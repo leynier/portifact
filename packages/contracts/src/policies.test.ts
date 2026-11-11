@@ -34,6 +34,30 @@ describe("workspace policy contracts", () => {
     }
   });
 
+  it("bounds the sign-in policies and reads a policy stored before them as unset (0021)", () => {
+    const stored = { ...DEFAULT_POLICY } as Record<string, unknown>;
+    delete stored.sessionMaxHours;
+    delete stored.allowedClients;
+    expect(WorkspacePolicy.parse(stored)).toEqual(DEFAULT_POLICY);
+    for (const good of [
+      { sessionMaxHours: WORKSPACE_POLICIES.sessionMinHours },
+      { sessionMaxHours: WORKSPACE_POLICIES.sessionMaxHours },
+      { allowedClients: [] },
+      { allowedClients: ["cli", "oauth_apps"] },
+    ]) {
+      expect(WorkspacePolicy.safeParse({ ...DEFAULT_POLICY, ...good }).success).toBe(true);
+    }
+    for (const bad of [
+      { sessionMaxHours: 0 },
+      { sessionMaxHours: WORKSPACE_POLICIES.sessionMaxHours + 1 },
+      { sessionMaxHours: 1.5 },
+      { allowedClients: ["dashboard"] },
+      { allowedClients: ["cli", "oauth_apps", "cli"] },
+    ]) {
+      expect(WorkspacePolicy.safeParse({ ...DEFAULT_POLICY, ...bad }).success).toBe(false);
+    }
+  });
+
   it("takes a revision and an optional confirmation on a save, and a workspace ID on an export", () => {
     expect(WorkspacePolicyUpdate.parse({ policy: DEFAULT_POLICY, revision: 0 })).toEqual({
       policy: DEFAULT_POLICY,

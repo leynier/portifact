@@ -2,6 +2,7 @@
 // updates or deletes) first runs `before`, so another request's change commits between the
 // service's reads and its writes, the way a concurrent request would.
 import { env } from "cloudflare:test";
+import type { RequestContext } from "@portifact/contracts";
 import { aliasBinding, type GlobalDb, globalDb, type RegionalDb, regionalDb } from "@portifact/db";
 
 const WRITE = /^\s*(insert|update|delete|with)\b/i;
@@ -14,8 +15,9 @@ const WRITE = /^\s*(insert|update|delete|with)\b/i;
 export function raceBeforeFirstWrite(
   before: () => Promise<void>,
   binding: D1Database = env.DB,
+  request?: RequestContext,
 ): RegionalDb {
-  return regionalDb(aliasBinding(racedD1(before, binding), binding), globalDb(env.DB));
+  return regionalDb(aliasBinding(racedD1(before, binding), binding), globalDb(env.DB, request));
 }
 
 /** The same, for services that take the global database. */
