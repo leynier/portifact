@@ -705,6 +705,7 @@ export const OUTBOX_TOPICS = [
   "workspace_policy",
   "directory_notice",
   "thread_issue",
+  "plan_region",
 ] as const;
 
 /**

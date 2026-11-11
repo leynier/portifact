@@ -11,7 +11,7 @@
 // capacity are respected, and every email sent is counted.
 import { DomainNoticePayload } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   checkNoticeCapacity,
   domainLimit,
@@ -44,7 +44,7 @@ export interface DomainNotifier {
   }): Promise<void>;
 }
 
-async function planRow(global: Db, ownerId: string) {
+async function planRow(global: GlobalDb, ownerId: string) {
   const [row] = await global
     .select({
       plan: schema.ownerPlans.plan,
@@ -59,7 +59,7 @@ async function planRow(global: Db, ownerId: string) {
 }
 
 /** The owner's domains that count, and what the plan allows now and as the grace reads it. */
-async function exposure(global: Db, ownerId: string, now: number) {
+async function exposure(global: GlobalDb, ownerId: string, now: number) {
   const plan = await planRow(global, ownerId);
   const domains = await global
     .select({ hostname: c.hostname, verifiedAt: c.verifiedAt, noticeFor: c.noticeFor })
@@ -78,7 +78,7 @@ async function exposure(global: Db, ownerId: string, now: number) {
  * the marks in one batch, both conditioned on a domain still unmarked for this detach time, so
  * overlapping runs schedule it once. Returns how many owners were scheduled.
  */
-export async function scheduleDomainNotices(global: Db, now: number): Promise<number> {
+export async function scheduleDomainNotices(global: GlobalDb, now: number): Promise<number> {
   const owners = await global
     .selectDistinct({ ownerId: c.ownerId })
     .from(c)

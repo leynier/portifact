@@ -172,9 +172,11 @@ describe("a restricted service token", () => {
     const more = await publishVersion(t.editor.id, { "index.html": "<p>z</p>" }, { ownerId: t.id });
     await seedIndex(t.id, more.artifactId, Array(2_000).fill("needle outside reach"));
     // 2,000 more matching chunks outside the reach: the restricted searches read no more of them,
-    // only the extra artifact row each one looks at to decide the reach.
-    expect(await rowsRead(own, "needle")).toBeLessThanOrEqual(before.own + 2);
-    expect(await rowsRead(key, "needle")).toBeLessThanOrEqual(before.key + 2);
+    // only the extra artifact row each one looks at to decide the reach and, depending on where
+    // the random IDs fall, a few more index pages (measured: 14 before, 14 to 18 after, against
+    // 617 before and over 1,617 after without a restriction).
+    expect(await rowsRead(own, "needle")).toBeLessThanOrEqual(before.own + 10);
+    expect(await rowsRead(key, "needle")).toBeLessThanOrEqual(before.key + 10);
     // Without a restriction the same search reads them all: the measure sees the difference.
     expect(await rowsRead(none, "needle")).toBeGreaterThan(before.none + 1_000);
     const found = value(

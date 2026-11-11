@@ -3,7 +3,7 @@
 // erasure that purges write.
 import { env } from "cloudflare:test";
 import { planRequiredMessage } from "@portifact/contracts";
-import { accessSchema, createAccessDb, schema } from "@portifact/db";
+import { accessSchema, createAccessDb, regionsFromEnv, schema } from "@portifact/db";
 import { and, asc, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { eraseAccessEvents, pruneAccessEvents, recordOpenings } from "../src/access-log.ts";
@@ -537,7 +537,7 @@ describe("retention by plan", () => {
     const owner = await user();
     const before = (await retentionJobs(owner.id)).length;
     const applied = await applyOwnerPlans(
-      db(),
+      regionsFromEnv(env),
       [
         {
           ownerId: owner.id,

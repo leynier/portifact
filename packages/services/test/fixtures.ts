@@ -110,14 +110,26 @@ export async function activeSlots(ownerId: string): Promise<number> {
 export function racingGlobally(before: () => Promise<unknown>) {
   // On the binding, so the batch races whichever handle runs it: with one database a deletion's
   // one batch runs on the handle that reaches both sides (`bothSides`).
+  // Only a batch that writes races: a scan's first read may be a batch too (its cursor and first
+  // page in one call).
   let raced = false;
+  const writes = new WeakSet<object>();
   const binding = aliasBinding(
     new Proxy(env.DB, {
       get(target, property) {
+        if (property === "prepare") {
+          return (query: string) => {
+            const statement = target.prepare(query);
+            if (/^\s*(insert|update|delete|with)\b/i.test(query)) markWrites(statement, writes);
+            return statement;
+          };
+        }
         if (property === "batch" && !raced) {
           return async (statements: D1PreparedStatement[]) => {
-            raced = true;
-            await before();
+            if (statements.some((statement) => writes.has(statement))) {
+              raced = true;
+              await before();
+            }
             return target.batch(statements);
           };
         }
@@ -130,19 +142,21 @@ export function racingGlobally(before: () => Promise<unknown>) {
   return regionsFromEnv({ ...env, DB: binding });
 }
 
+/** Marks a statement, and every statement `bind` makes from it, as a write. */
+function markWrites(statement: D1PreparedStatement, writes: WeakSet<object>) {
+  writes.add(statement);
+  const bind = statement.bind.bind(statement);
+  statement.bind = (...values: unknown[]) => {
+    const bound = bind(...values);
+    markWrites(bound, writes);
+    return bound;
+  };
+}
+
 export function racing(before: () => Promise<unknown>) {
-  const real = db();
-  let raced = false;
-  return new Proxy(real, {
-    get(target, property, receiver) {
-      if (property !== "batch" || raced) return Reflect.get(target, property, receiver);
-      return async (statements: Parameters<typeof real.batch>[0]) => {
-        raced = true;
-        await before();
-        return target.batch(statements);
-      };
-    },
-  }) as ReturnType<typeof db>;
+  // On the binding, so the first batch races whichever handle runs it: with one database a
+  // path that spans both sides batches on the handle `bothSides` gives.
+  return racingGlobally(before).get("default").db;
 }
 
 /**

@@ -23,6 +23,7 @@ export const OutboxTopic = z.enum([
   "workspace_policy",
   "directory_notice",
   "thread_issue",
+  "plan_region",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 

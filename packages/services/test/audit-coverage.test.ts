@@ -303,6 +303,9 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "sendDirectoryNotice",
   "alignPlanLimits",
   "unpinLapsedPlans",
+  // The regional half of a plan change (decision 0005): the change's `plan.granted` or
+  // `plan.removed` was recorded with its global half.
+  "applyOwnerPlanRegion",
   // Content search (decision 0012): the index is derived data, kept by a job and two scans.
   "runSearchIndex",
   "scheduleSearchIndexing",

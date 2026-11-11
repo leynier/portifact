@@ -5,11 +5,20 @@
 // restored database still holds are deleted again instead of coming back (docs/operations.md).
 
 import type { TombstoneMarker } from "@portifact/contracts";
-import { type Db, type GlobalDb, type Region, type RegionalDb, schema } from "@portifact/db";
-import { and, asc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import {
+  bothSides,
+  type Db,
+  type GlobalDb,
+  type Region,
+  type RegionalDb,
+  schema,
+} from "@portifact/db";
+import { and, asc, eq, gt, inArray, lt, type SQL, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAuditEventsOf } from "./audit.ts";
 import { purgeJobs } from "./outbox.ts";
 import { recomputeDirectoryRoles } from "./scim-groups.ts";
+import { chunked, JSON_CHUNK } from "./shapes.ts";
 import { revokedShareLinks } from "./share-links.ts";
 import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
@@ -274,6 +283,16 @@ export interface ApplyTombstonesResult {
   members: number;
 }
 
+/** The databases a restore re-applies tombstones to: the global one and the regions given. */
+export interface RestoreRegions {
+  global: GlobalDb;
+  all(): readonly { db: RegionalDb }[];
+}
+
+/** The kinds a regional statement needs as a list of IDs when its database is not the global one. */
+const REGIONAL_KINDS = ["artifact", "account", "workspace", "share_link", "webhook"] as const;
+type RegionalKind = (typeof REGIONAL_KINDS)[number];
+
 /** IDs read from the global database per page, and bound per statement (D1 allows 100). */
 const TOMBSTONE_PAGE = 90;
 
@@ -324,20 +343,462 @@ export async function applyIntegrationTombstones(regions: {
 }
 
 /**
- * Re-applies tombstones after a restore: stores the given markers as tombstones, then in one
- * batch claims for purging every artifact that has a tombstone or belongs to a tombstoned
- * account (each with its purge job), and deletes every tombstoned account the restore brought
- * back the way a deletion request does, with an `account_deletion` job that finishes it. The
- * jobs Worker purges the bytes. Running it again changes nothing.
+ * How a statement names the tombstoned IDs it needs: subqueries of `tombstones` when it runs on
+ * the global database (one database, the statements as they always were), or the IDs read from
+ * the global database as one JSON parameter when it runs on a separate regional one.
+ */
+interface Refs {
+  artifacts: SQL;
+  owners: SQL;
+  accounts: SQL;
+  links: SQL;
+  webhooks: SQL;
+}
+
+const t = schema.tombstones;
+const a = schema.artifacts;
+const u = schema.users;
+const l = schema.shareLinks;
+const st = schema.serviceTokens;
+const ws = schema.workspaces;
+const wd = schema.workspaceDeletions;
+
+const tombstonedAccounts = sql`select ${t.id} from ${t} where ${t.kind} = 'account'`;
+const tombstonedOwners = sql`select ${t.id} from ${t} where ${t.kind} in ('account', 'workspace')`;
+
+const SUBQUERIES: Refs = {
+  artifacts: sql`select ${t.id} from ${t} where ${t.kind} = 'artifact'`,
+  owners: tombstonedOwners,
+  accounts: tombstonedAccounts,
+  links: sql`select ${t.id} from ${t} where ${t.kind} = 'share_link'`,
+  webhooks: sql`select ${t.id} from ${t} where ${t.kind} = 'webhook'`,
+};
+
+/** A JSON list as the body of an `in (...)` subquery. */
+function listed(values: readonly string[]): SQL {
+  return sql`select value from json_each(${JSON.stringify(values)})`;
+}
+
+/**
+ * Whether a tombstoned owner has anything left: with one database the regional rows are looked
+ * up in the statement (as always); with separate regional databases `evidence` lists the owners
+ * whose rows the regions still hold, read from them first.
+ */
+function leftovers(kind: "account" | "workspace", oneDatabase: boolean, evidence: string[]) {
+  const global =
+    kind === "account"
+      ? sql`exists (select 1 from ${u} where ${u.id} = ${t.id})`
+      : sql`exists (select 1 from ${ws} where ${ws.id} = ${t.id})`;
+  const regional = oneDatabase
+    ? kind === "account"
+      ? sql` or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}) or exists (select 1 from ${schema.ownerBrands} where ${schema.ownerBrands.ownerId} = ${t.id})`
+      : sql` or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id})`
+    : sql``;
+  const elsewhere = evidence.length > 0 ? sql` or ${t.id} in (${listed(evidence)})` : sql``;
+  return sql`(${global}${regional}${elsewhere})`;
+}
+
+type Side = "global" | "regional" | "every";
+interface Entry {
+  name: string;
+  side: Side;
+  build(db: Db, refs: Refs): BatchItem<"sqlite">;
+}
+
+/**
+ * Every statement of the restore, in the order of the one batch it is with one database. With
+ * separate regional databases the `global` ones run on the global database, the `regional` ones on
+ * each region, and the `every` ones on both.
+ */
+function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): Entry[] {
+  // A workspace with anything left of it and no deletion in progress.
+  const resurrectedWorkspace = sql`${t.kind} = 'workspace' and not exists (select 1 from ${wd} where ${wd.workspaceId} = ${t.id}) and ${leftovers("workspace", oneDatabase, evidence)}`;
+  // An account with anything left of it and no deletion in progress.
+  const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and ${leftovers("account", oneDatabase, evidence)}`;
+  const resurrectedArtifact = (refs: Refs) =>
+    sql`${a.state} <> 'purging' and (${a.id} in (${refs.artifacts}) or ${a.ownerId} in (${refs.owners}))`;
+  return [
+    {
+      name: "accountJobs",
+      side: "global",
+      build: (db) =>
+        db
+          .insert(schema.outbox)
+          .select(
+            sql`select null, 'account_deletion', '{}', ${now}, null, 0, ${now}, ${t.id}, null from ${t} where ${resurrectedAccount}`,
+          ),
+    },
+    {
+      name: "accounts",
+      side: "global",
+      build: (db) =>
+        db
+          .insert(schema.accountDeletions)
+          .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedAccount}`)
+          .onConflictDoNothing()
+          .returning({ userId: schema.accountDeletions.userId }),
+    },
+    {
+      name: "workspaceJobs",
+      side: "global",
+      build: (db) =>
+        db
+          .insert(schema.outbox)
+          .select(
+            sql`select null, 'workspace_deletion', '{}', ${now}, null, 0, ${now}, ${t.id}, null from ${t} where ${resurrectedWorkspace}`,
+          ),
+    },
+    // Written before the workspace rows go, so the last-admin trigger lets their memberships go.
+    {
+      name: "workspaces",
+      side: "global",
+      build: (db) =>
+        db
+          .insert(wd)
+          .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedWorkspace}`)
+          .onConflictDoNothing()
+          .returning({ id: wd.workspaceId }),
+    },
+    {
+      name: "purgeJobs",
+      side: "regional",
+      build: (db, refs) => purgeJobs(db, resurrectedArtifact(refs), now),
+    },
+    {
+      name: "artifacts",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(a)
+          .set({
+            state: "purging",
+            suspensionReason: null,
+            lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
+            updatedAt: now,
+          })
+          .where(resurrectedArtifact(refs))
+          .returning({ id: a.id }),
+    },
+    {
+      name: "shareLinks",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(l)
+          .set({ revokedAt: now })
+          .where(sql`${l.revokedAt} is null and ${l.id} in (${refs.links})`)
+          .returning({ id: l.id }),
+    },
+    {
+      name: "reporters",
+      side: "global",
+      build: (db) =>
+        db
+          .update(schema.abuseReports)
+          .set({ reporterEmail: null })
+          .where(
+            sql`lower(${schema.abuseReports.reporterEmail}) in (select lower(${u.email}) from ${u} where ${u.id} in (${tombstonedAccounts}))`,
+          ),
+    },
+    {
+      name: "deviceCodes",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.deviceCodes)
+          .where(sql`${schema.deviceCodes.userId} in (${tombstonedAccounts})`),
+    },
+    // A revoked token, or one of a deleted workspace, must never authenticate again
+    // (decision 0011). Before the workspace rows go, so the count includes their tokens.
+    {
+      name: "serviceTokens",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(st)
+          .where(
+            sql`${st.id} in (select ${t.id} from ${t} where ${t.kind} = 'service_token') or ${st.workspaceId} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`,
+          )
+          .returning({ id: st.id }),
+    },
+    // Cascades to memberships, invitations and service tokens.
+    {
+      name: "workspaceRows",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(ws)
+          .where(sql`${ws.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`),
+    },
+    {
+      name: "linkAuthors",
+      side: "regional",
+      build: (db, refs) =>
+        db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${refs.accounts})`),
+    },
+    {
+      name: "tokenAuthors",
+      side: "global",
+      build: (db) =>
+        db
+          .update(st)
+          .set({ createdBy: null })
+          .where(sql`${st.createdBy} in (${tombstonedAccounts})`),
+    },
+    // A role a directory gave goes with the account (decision 0017).
+    {
+      name: "mappedRoles",
+      side: "global",
+      build: (db) =>
+        db
+          .update(schema.scimUsers)
+          .set({ mappedRole: null })
+          .where(sql`${schema.scimUsers.userId} in (${tombstonedAccounts})`),
+    },
+    // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
+    {
+      name: "users",
+      side: "global",
+      build: (db) => db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
+    },
+    // Removed webhooks and those of deleted accounts and workspaces: a restored destination must
+    // never receive.
+    {
+      name: "webhooks",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .delete(schema.webhooks)
+          .where(
+            sql`${schema.webhooks.id} in (${refs.webhooks}) or ${schema.webhooks.ownerId} in (${refs.owners})`,
+          )
+          .returning({ id: schema.webhooks.id }),
+    },
+    // A removed or lapsed email domain must not grant again (decision 0010); rows of deleted
+    // workspaces went with the workspace above. By row ID, so a later claim of the name survives.
+    {
+      name: "domains",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.workspaceDomains)
+          .where(
+            sql`${schema.workspaceDomains.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_domain')`,
+          )
+          .returning({ id: schema.workspaceDomains.id }),
+    },
+    // A deleted group, or a removed group membership, must not grant again (decision 0014). By
+    // row ID, so a later group or membership survives. Groups of deleted workspaces went with the
+    // workspace, memberships of deleted accounts with the account.
+    {
+      name: "groups",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.workspaceGroups)
+          .where(
+            sql`${schema.workspaceGroups.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_group')`,
+          )
+          .returning({ id: schema.workspaceGroups.id }),
+    },
+    {
+      name: "groupMembers",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.workspaceGroupMembers)
+          .where(
+            sql`${schema.workspaceGroupMembers.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_group_member')`,
+          )
+          .returning({ id: schema.workspaceGroupMembers.id }),
+    },
+    // The audit log of deleted accounts and workspaces (the restore brought it back), in every
+    // database that keeps one.
+    {
+      name: "audit",
+      side: "every",
+      build: (db, refs) => eraseAuditEventsOf(db, refs.owners),
+    },
+    // A removed single sign-on provider must never sign anyone in again (decision 0016), nor
+    // its linked identities; providers of deleted workspaces went with the workspace above.
+    {
+      name: "ssoIdentities",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.accounts)
+          .where(
+            sql`${schema.accounts.providerId} in (select 'sso:' || ${t.id} from ${t} where ${t.kind} = 'workspace_sso')`,
+          ),
+    },
+    {
+      name: "ssoProviders",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.workspaceSso)
+          .where(
+            sql`${schema.workspaceSso.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_sso')`,
+          )
+          .returning({ id: schema.workspaceSso.id }),
+    },
+    // Identities of providers that went above, removed or with a deleted workspace.
+    { name: "orphanIdentities", side: "global", build: (db) => deleteOrphanSsoIdentities(db) },
+    // SCIM (decision 0017): a revoked directory token must never authenticate again, a deleted
+    // directory user stays deleted, and what a directory withdrew stays withdrawn: its pending
+    // memberships by row ID, and memberships it ended when they are older than the tombstone
+    // (a later membership of the same person survives).
+    {
+      name: "scimTokens",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.scimTokens)
+          .where(
+            sql`${schema.scimTokens.id} in (select ${t.id} from ${t} where ${t.kind} = 'scim_token')`,
+          )
+          .returning({ id: schema.scimTokens.id }),
+    },
+    {
+      name: "scimUsers",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.scimUsers)
+          .where(
+            sql`${schema.scimUsers.id} in (select ${t.id} from ${t} where ${t.kind} = 'scim_user')`,
+          )
+          .returning({ id: schema.scimUsers.id }),
+    },
+    {
+      name: "invitations",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.workspaceInvitations)
+          .where(
+            sql`${schema.workspaceInvitations.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_invitation')`,
+          )
+          .returning({ id: schema.workspaceInvitations.id }),
+    },
+    // The single sign-on block goes back with them, or the provider would let them in again.
+    {
+      name: "removals",
+      side: "global",
+      build: (db) =>
+        db
+          .insert(schema.workspaceRemovals)
+          .select(
+            sql`select ${schema.workspaceMembers.workspaceId}, ${schema.workspaceMembers.userId}, ${t.deletedAt} from ${schema.workspaceMembers} inner join ${t} on ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} where ${schema.workspaceMembers.createdAt} <= ${t.deletedAt}`,
+          )
+          .onConflictDoNothing(),
+    },
+    {
+      name: "members",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.workspaceMembers)
+          .where(
+            sql`exists (select 1 from ${t} where ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} and ${schema.workspaceMembers.createdAt} <= ${t.deletedAt})`,
+          )
+          .returning({ userId: schema.workspaceMembers.userId }),
+    },
+  ];
+}
+
+async function runEntries(db: Db, entries: Entry[], refs: Refs): Promise<Map<string, unknown[]>> {
+  const results = await db.batch(
+    entries.map((entry) => entry.build(db, refs)) as [
+      BatchItem<"sqlite">,
+      ...BatchItem<"sqlite">[],
+    ],
+  );
+  return new Map(entries.map((entry, i) => [entry.name, (results[i] ?? []) as unknown[]]));
+}
+
+/** The tombstoned IDs a separate regional database needs, read from the global database. */
+async function regionalTombstones(global: GlobalDb): Promise<Record<RegionalKind, string[]>> {
+  const rows = await global
+    .select({ kind: t.kind, id: t.id })
+    .from(t)
+    .where(inArray(t.kind, [...REGIONAL_KINDS]));
+  const lists = Object.fromEntries(REGIONAL_KINDS.map((kind) => [kind, [] as string[]])) as Record<
+    RegionalKind,
+    string[]
+  >;
+  for (const row of rows) lists[row.kind as RegionalKind]?.push(row.id);
+  return lists;
+}
+
+/**
+ * One separate region's half of the restore: which tombstoned owners it still holds rows of
+ * (the evidence the global half needs), then its regional statements, a chunk of IDs at a time.
+ */
+async function applyRegionalTombstones(
+  db: RegionalDb,
+  lists: Record<RegionalKind, string[]>,
+  entries: Entry[],
+) {
+  const owners = [...lists.account, ...lists.workspace];
+  const evidence = new Set<string>();
+  for (const chunk of chunked(owners)) {
+    const ids = listed(chunk);
+    const rows = await db.all<{ owner: string }>(
+      sql`select ${a.ownerId} as owner from ${a} where ${a.ownerId} in (${ids}) union select ${schema.objects.ownerId} from ${schema.objects} where ${schema.objects.ownerId} in (${ids}) union select ${schema.ownerBrands.ownerId} from ${schema.ownerBrands} where ${schema.ownerBrands.ownerId} in (${ids})`,
+    );
+    for (const row of rows) evidence.add(row.owner);
+  }
+  const counts = new Map<string, number>();
+  const regional = entries.filter((entry) => entry.side !== "global");
+  const rounds = Math.max(
+    1,
+    ...REGIONAL_KINDS.map((kind) => Math.ceil(lists[kind].length / JSON_CHUNK)),
+    Math.ceil(owners.length / JSON_CHUNK),
+  );
+  for (let round = 0; round < rounds; round++) {
+    const part = (values: string[]) =>
+      listed(values.slice(round * JSON_CHUNK, (round + 1) * JSON_CHUNK));
+    const refs: Refs = {
+      artifacts: part(lists.artifact),
+      owners: part(owners),
+      accounts: part(lists.account),
+      links: part(lists.share_link),
+      webhooks: part(lists.webhook),
+    };
+    for (const [name, rows] of await runEntries(db, regional, refs)) {
+      counts.set(name, (counts.get(name) ?? 0) + rows.length);
+    }
+  }
+  return { evidence: [...evidence], counts };
+}
+
+/**
+ * Re-applies tombstones after a restore: stores the given markers as tombstones, then claims for
+ * purging every artifact that has a tombstone or belongs to a tombstoned account (each with its
+ * purge job), and deletes every tombstoned account the restore brought back the way a deletion
+ * request does, with an `account_deletion` job that finishes it. The jobs Worker purges the
+ * bytes. Running it again changes nothing.
+ *
+ * With one database (a region whose database is the global one) everything is one batch, as it
+ * always was. Each separate regional database is done first, with the tombstoned IDs read from
+ * the global database (which owners it still holds rows of is read there too), then the global
+ * half, which also deletes again the owners only a separate region still had rows of. A failure
+ * in between leaves the global half undone; running it again finishes it (decision 0005).
+ * `regions` may be one region's handle, or the regions a restore rewound (the operator's
+ * `--region`); the global half always runs.
  */
 export async function applyTombstones(
-  db: Db,
+  regions: RestoreRegions | RegionalDb,
   markers: readonly TombstoneMarker[],
   now: number,
 ): Promise<ApplyTombstonesResult> {
+  const target: RestoreRegions =
+    "batch" in regions ? { global: regions.global, all: () => [{ db: regions }] } : regions;
+  const global = target.global;
   let inserted = 0;
   for (let i = 0; i < markers.length; i += 25) {
-    const rows = await db
+    const rows = await global
       .insert(schema.tombstones)
       .values(
         markers.slice(i, i + 25).map((m) => ({ kind: m.kind, id: m.id, deletedAt: m.deletedAt })),
@@ -347,224 +808,59 @@ export async function applyTombstones(
     inserted += rows.length;
   }
 
-  const t = schema.tombstones;
-  const a = schema.artifacts;
-  const u = schema.users;
-  const tombstonedAccounts = sql`select ${t.id} from ${t} where ${t.kind} = 'account'`;
-  const tombstonedOwners = sql`select ${t.id} from ${t} where ${t.kind} in ('account', 'workspace')`;
-  const resurrectedArtifact = sql`${a.state} <> 'purging' and (${a.id} in (select ${t.id} from ${t} where ${t.kind} = 'artifact') or ${a.ownerId} in (${tombstonedOwners}))`;
-  const ws = schema.workspaces;
-  const wd = schema.workspaceDeletions;
-  // A workspace with anything left of it and no deletion in progress.
-  const resurrectedWorkspace = sql`${t.kind} = 'workspace' and not exists (select 1 from ${wd} where ${wd.workspaceId} = ${t.id}) and (exists (select 1 from ${ws} where ${ws.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}))`;
-  // An account with anything left of it and no deletion in progress.
-  const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and (exists (select 1 from ${u} where ${u.id} = ${t.id}) or exists (select 1 from ${a} where ${a.ownerId} = ${t.id}) or exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${t.id}) or exists (select 1 from ${schema.ownerBrands} where ${schema.ownerBrands.ownerId} = ${t.id}))`;
-
-  const l = schema.shareLinks;
-  const st = schema.serviceTokens;
-  const [
-    ,
-    deletions,
-    ,
-    workspaces,
-    ,
-    artifacts,
-    shareLinks,
-    ,
-    ,
-    serviceTokens,
-    ,
-    ,
-    ,
-    ,
-    ,
-    webhooks,
-    domains,
-    groups,
-    groupMembers,
-    ,
-    ,
-    ssoProviders,
-    ,
-    scimTokens,
-    scimUsers,
-    invitations,
-    ,
-    members,
-  ] = await db.batch([
-    db
-      .insert(schema.outbox)
-      .select(
-        sql`select null, 'account_deletion', '{}', ${now}, null, 0, ${now}, ${t.id}, null from ${t} where ${resurrectedAccount}`,
-      ),
-    db
-      .insert(schema.accountDeletions)
-      .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedAccount}`)
-      .onConflictDoNothing()
-      .returning({ userId: schema.accountDeletions.userId }),
-    db
-      .insert(schema.outbox)
-      .select(
-        sql`select null, 'workspace_deletion', '{}', ${now}, null, 0, ${now}, ${t.id}, null from ${t} where ${resurrectedWorkspace}`,
-      ),
-    // Written before the workspace rows go, so the last-admin trigger lets their memberships go.
-    db
-      .insert(wd)
-      .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedWorkspace}`)
-      .onConflictDoNothing()
-      .returning({ id: wd.workspaceId }),
-    purgeJobs(db, resurrectedArtifact, now),
-    db
-      .update(a)
-      .set({
-        state: "purging",
-        suspensionReason: null,
-        lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
-        updatedAt: now,
-      })
-      .where(resurrectedArtifact)
-      .returning({ id: a.id }),
-    db
-      .update(l)
-      .set({ revokedAt: now })
-      .where(
-        sql`${l.revokedAt} is null and ${l.id} in (select ${t.id} from ${t} where ${t.kind} = 'share_link')`,
-      )
-      .returning({ id: l.id }),
-    db
-      .update(schema.abuseReports)
-      .set({ reporterEmail: null })
-      .where(
-        sql`lower(${schema.abuseReports.reporterEmail}) in (select lower(${u.email}) from ${u} where ${u.id} in (${tombstonedAccounts}))`,
-      ),
-    db
-      .delete(schema.deviceCodes)
-      .where(sql`${schema.deviceCodes.userId} in (${tombstonedAccounts})`),
-    // A revoked token, or one of a deleted workspace, must never authenticate again
-    // (decision 0011). Before the workspace rows go, so the count includes their tokens.
-    db
-      .delete(st)
-      .where(
-        sql`${st.id} in (select ${t.id} from ${t} where ${t.kind} = 'service_token') or ${st.workspaceId} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`,
-      )
-      .returning({ id: st.id }),
-    // Cascades to memberships, invitations and service tokens.
-    db.delete(ws).where(sql`${ws.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`),
-    db.update(l).set({ createdBy: null }).where(sql`${l.createdBy} in (${tombstonedAccounts})`),
-    db.update(st).set({ createdBy: null }).where(sql`${st.createdBy} in (${tombstonedAccounts})`),
-    // A role a directory gave goes with the account (decision 0017).
-    db
-      .update(schema.scimUsers)
-      .set({ mappedRole: null })
-      .where(sql`${schema.scimUsers.userId} in (${tombstonedAccounts})`),
-    // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
-    db.delete(u).where(sql`${u.id} in (${tombstonedAccounts})`),
-    // Removed webhooks and those of deleted accounts and workspaces: a restored destination must
-    // never receive.
-    db
-      .delete(schema.webhooks)
-      .where(
-        sql`${schema.webhooks.id} in (select ${t.id} from ${t} where ${t.kind} = 'webhook') or ${schema.webhooks.ownerId} in (${tombstonedOwners})`,
-      )
-      .returning({ id: schema.webhooks.id }),
-    // A removed or lapsed email domain must not grant again (decision 0010); rows of deleted
-    // workspaces went with the workspace above. By row ID, so a later claim of the name survives.
-    db
-      .delete(schema.workspaceDomains)
-      .where(
-        sql`${schema.workspaceDomains.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_domain')`,
-      )
-      .returning({ id: schema.workspaceDomains.id }),
-    // A deleted group, or a removed group membership, must not grant again (decision 0014). By
-    // row ID, so a later group or membership survives. Groups of deleted workspaces went with the
-    // workspace, memberships of deleted accounts with the account.
-    db
-      .delete(schema.workspaceGroups)
-      .where(
-        sql`${schema.workspaceGroups.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_group')`,
-      )
-      .returning({ id: schema.workspaceGroups.id }),
-    db
-      .delete(schema.workspaceGroupMembers)
-      .where(
-        sql`${schema.workspaceGroupMembers.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_group_member')`,
-      )
-      .returning({ id: schema.workspaceGroupMembers.id }),
-    // The audit log of deleted accounts and workspaces (the restore brought it back).
-    eraseAuditEventsOf(db, tombstonedOwners),
-    // A removed single sign-on provider must never sign anyone in again (decision 0016), nor
-    // its linked identities; providers of deleted workspaces went with the workspace above.
-    db
-      .delete(schema.accounts)
-      .where(
-        sql`${schema.accounts.providerId} in (select 'sso:' || ${t.id} from ${t} where ${t.kind} = 'workspace_sso')`,
-      ),
-    db
-      .delete(schema.workspaceSso)
-      .where(
-        sql`${schema.workspaceSso.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_sso')`,
-      )
-      .returning({ id: schema.workspaceSso.id }),
-    // Identities of providers that went above, removed or with a deleted workspace.
-    deleteOrphanSsoIdentities(db),
-    // SCIM (decision 0017): a revoked directory token must never authenticate again, a deleted
-    // directory user stays deleted, and what a directory withdrew stays withdrawn: its pending
-    // memberships by row ID, and memberships it ended when they are older than the tombstone
-    // (a later membership of the same person survives).
-    db
-      .delete(schema.scimTokens)
-      .where(
-        sql`${schema.scimTokens.id} in (select ${t.id} from ${t} where ${t.kind} = 'scim_token')`,
-      )
-      .returning({ id: schema.scimTokens.id }),
-    db
-      .delete(schema.scimUsers)
-      .where(
-        sql`${schema.scimUsers.id} in (select ${t.id} from ${t} where ${t.kind} = 'scim_user')`,
-      )
-      .returning({ id: schema.scimUsers.id }),
-    db
-      .delete(schema.workspaceInvitations)
-      .where(
-        sql`${schema.workspaceInvitations.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace_invitation')`,
-      )
-      .returning({ id: schema.workspaceInvitations.id }),
-    // The single sign-on block goes back with them, or the provider would let them in again.
-    db
-      .insert(schema.workspaceRemovals)
-      .select(
-        sql`select ${schema.workspaceMembers.workspaceId}, ${schema.workspaceMembers.userId}, ${t.deletedAt} from ${schema.workspaceMembers} inner join ${t} on ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} where ${schema.workspaceMembers.createdAt} <= ${t.deletedAt}`,
-      )
-      .onConflictDoNothing(),
-    db
-      .delete(schema.workspaceMembers)
-      .where(
-        sql`exists (select 1 from ${t} where ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} and ${schema.workspaceMembers.createdAt} <= ${t.deletedAt})`,
-      )
-      .returning({ userId: schema.workspaceMembers.userId }),
-  ]);
+  const shared = target
+    .all()
+    .map(({ db }) => bothSides(db))
+    .find((both): both is Db => both !== null);
+  const separate = target.all().filter(({ db }) => bothSides(db) === null);
+  const counts = new Map<string, number>();
+  const add = (results: Map<string, unknown[]> | Map<string, number>) => {
+    for (const [name, value] of results) {
+      counts.set(
+        name,
+        (counts.get(name) ?? 0) + (typeof value === "number" ? value : value.length),
+      );
+    }
+  };
+  const evidence = new Set<string>();
+  if (separate.length > 0) {
+    const lists = await regionalTombstones(global);
+    const entries = restoreEntries(now, false, []);
+    for (const { db } of separate) {
+      const done = await applyRegionalTombstones(db, lists, entries);
+      for (const owner of done.evidence) evidence.add(owner);
+      add(done.counts);
+    }
+  }
+  if (shared) {
+    // The one batch of the default region, whose database is the global one.
+    add(await runEntries(shared, restoreEntries(now, true, [...evidence]), SUBQUERIES));
+  } else {
+    const entries = restoreEntries(now, false, [...evidence]).filter(
+      (entry) => entry.side !== "regional",
+    );
+    add(await runEntries(global, entries, SUBQUERIES));
+  }
   // Roles from directory groups, recomputed from what the restore and the tombstones left
   // (decision 0017): bounded per run (`recomputeDirectoryRoles`), run again while `more`.
-  // The mapping and the memberships are global rows: through the global handle when the caller
-  // gave a region's (the rest of this function is a known crossing, to split per database later).
-  const global = "global" in db ? (db as RegionalDb).global : (db as GlobalDb);
   const roles = await recomputeDirectoryRoles(global, now);
+  const count = (name: string) => counts.get(name) ?? 0;
   return {
     inserted,
-    artifacts: artifacts.length,
-    accounts: deletions.length,
-    workspaces: workspaces.length,
-    shareLinks: shareLinks.length,
-    webhooks: webhooks.length,
-    serviceTokens: serviceTokens.length,
-    domains: domains.length,
-    groups: groups.length,
-    groupMembers: groupMembers.length,
-    ssoProviders: ssoProviders.length,
-    scimTokens: scimTokens.length,
-    scimUsers: scimUsers.length,
-    invitations: invitations.length,
-    members: members.length,
+    artifacts: count("artifacts"),
+    accounts: count("accounts"),
+    workspaces: count("workspaces"),
+    shareLinks: count("shareLinks"),
+    webhooks: count("webhooks"),
+    serviceTokens: count("serviceTokens"),
+    domains: count("domains"),
+    groups: count("groups"),
+    groupMembers: count("groupMembers"),
+    ssoProviders: count("ssoProviders"),
+    scimTokens: count("scimTokens"),
+    scimUsers: count("scimUsers"),
+    invitations: count("invitations"),
+    members: count("members"),
     directoryRoles: roles.workspaces,
   };
 }

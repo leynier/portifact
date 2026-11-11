@@ -80,6 +80,7 @@ describe("job contracts", () => {
       "workspace_policy",
       "directory_notice",
       "thread_issue",
+      "plan_region",
     ]);
     for (const kind of [
       "artifact",

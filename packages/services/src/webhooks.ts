@@ -18,7 +18,7 @@ import {
   type WebhookState,
   type WebhookUpdate,
 } from "@portifact/contracts";
-import { type Db, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   authorize,
@@ -428,23 +428,35 @@ export async function removeWebhook(
   const allowed = authorize(input.actor, "webhooks");
   if (!allowed.ok) return allowed;
   const mine = sql`exists (select 1 from ${w} where ${w.id} = ${input.webhookId} and ${w.ownerId} = ${input.actor.ownerId})`;
-  const results = await db.batch([
-    webhookEvent(db, input.actor, input.webhookId, "webhook.removed", {
+  // With one database the tombstone rides the batch on the same condition, as it always has.
+  // With a separate one it is written globally first, once the webhook is known to be the
+  // owner's, so a restore never brings back a webhook whose removal it lost (decision 0005).
+  const both = bothSides(db);
+  const tombstone = (target: Db, condition: SQL) =>
+    target
+      .insert(schema.tombstones)
+      .select(sql`select 'webhook', ${input.webhookId}, ${input.now} where ${condition}`)
+      .onConflictDoNothing();
+  if (!both) {
+    if (!(await owned(db, input.actor, input.webhookId))) return missing();
+    await tombstone(db.global, sql`1`);
+  }
+  const target = both ?? db;
+  const removal = target
+    .delete(w)
+    .where(and(eq(w.id, input.webhookId), eq(w.ownerId, input.actor.ownerId)))
+    .returning({ id: w.id });
+  const results = await target.batch([
+    webhookEvent(target, input.actor, input.webhookId, "webhook.removed", {
       detail: {},
       now: input.now,
       condition: mine,
     }),
-    db
-      .insert(schema.tombstones)
-      .select(sql`select 'webhook', ${input.webhookId}, ${input.now} where ${mine}`)
-      .onConflictDoNothing(),
-    closeJobs(db, "webhook_delivery", input.webhookId, mine),
-    db
-      .delete(w)
-      .where(and(eq(w.id, input.webhookId), eq(w.ownerId, input.actor.ownerId)))
-      .returning({ id: w.id }),
+    ...(both ? [tombstone(both, mine)] : []),
+    closeJobs(target, "webhook_delivery", input.webhookId, mine),
+    removal,
   ]);
-  const deleted = results[3] as { id: string }[];
+  const deleted = results.at(-1) as { id: string }[];
   return deleted.length === 1 ? ok({ webhookId: input.webhookId }) : missing();
 }
 
@@ -540,6 +552,37 @@ function reschedule(db: RegionalDb, row: OutboxRow, at: number) {
 }
 
 /**
+ * A webhook with its owner's plan row: one joined read with one database (as always), the
+ * webhook regionally then the plan globally with a separate one.
+ */
+async function webhookWithPlan(db: RegionalDb, webhookId: string) {
+  const planColumns = {
+    plan: schema.ownerPlans.plan,
+    seats: schema.ownerPlans.seats,
+    validUntil: schema.ownerPlans.validUntil,
+    overrides: schema.ownerPlans.overrides,
+  };
+  const both = bothSides(db);
+  if (both) {
+    const [hook] = await both
+      .select({ webhook: w, plan: planColumns })
+      .from(w)
+      .leftJoin(schema.ownerPlans, eq(schema.ownerPlans.ownerId, w.ownerId))
+      .where(eq(w.id, webhookId))
+      .limit(1);
+    return hook;
+  }
+  const [webhook] = await db.select().from(w).where(eq(w.id, webhookId)).limit(1);
+  if (!webhook) return undefined;
+  const [plan] = await db.global
+    .select(planColumns)
+    .from(schema.ownerPlans)
+    .where(eq(schema.ownerPlans.ownerId, webhook.ownerId))
+    .limit(1);
+  return { webhook, plan: plan ?? null };
+}
+
+/**
  * Runs one `webhook_delivery` job (decision 0009, "Delivering"). Returns `done` when the job's
  * row may go, `stale` when the webhook no longer delivers, and `kept` when the job moved itself
  * to later or another run owns the attempt.
@@ -551,20 +594,7 @@ export async function deliverWebhook(
   deps: WebhookDeps,
 ): Promise<JobOutcome> {
   const webhookId = row.subject ?? "";
-  const [hook] = await db
-    .select({
-      webhook: w,
-      plan: {
-        plan: schema.ownerPlans.plan,
-        seats: schema.ownerPlans.seats,
-        validUntil: schema.ownerPlans.validUntil,
-        overrides: schema.ownerPlans.overrides,
-      },
-    })
-    .from(w)
-    .leftJoin(schema.ownerPlans, eq(schema.ownerPlans.ownerId, w.ownerId))
-    .where(eq(w.id, webhookId))
-    .limit(1);
+  const hook = await webhookWithPlan(db, webhookId);
   if (!hook) return "done";
   // A duplicate message before the job's time (a retry not due yet) does nothing.
   if (row.availableAt > now) return "kept";
