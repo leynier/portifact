@@ -519,6 +519,7 @@ describe("portifact export", () => {
         ...(json ? ["--json"] : []),
       );
       const printed = result.stderr + result.stdout;
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: the test looks for control characters
       expect(printed).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b\u202e]/);
       expect(printed).not.toContain("\\u001b");
       expect(printed).toContain("olleh");
