@@ -23,6 +23,8 @@ export interface IntrospectionPayload {
   sub?: string;
   client_id?: string;
   scope?: string;
+  /** When the sign-in the token descends from happened, in seconds (decision 0021). */
+  portifact_auth_time?: number;
 }
 
 export type Introspect = (token: string) => Promise<IntrospectionPayload>;

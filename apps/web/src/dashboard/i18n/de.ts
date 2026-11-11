@@ -2687,4 +2687,58 @@ export const de = {
   "audit.stream.revokedNow": "Neues Geheimnis für {label}; das alte signiert nicht mehr",
   "audit.stream.revokeNow.body":
     "Das alte Geheimnis signiert nicht mehr. Geben Sie Ihrem Endpunkt jetzt dieses.",
+  "policies.session.legend": "Sitzungsdauer",
+  "policies.session.hint":
+    "Wie lange nach der Anmeldung eine Person im Workspace handeln darf. Danach bitten das Dashboard, die CLI und verbundene Apps sie, sich erneut anzumelden; niemand wird abgemeldet und nichts gelöscht.",
+  "policies.session.any": "Keine Grenze",
+  "policies.session.anyHint": "Eine Anmeldung handelt im Workspace, solange sie besteht.",
+  "policies.session.only": "Neue Anmeldung verlangen",
+  "policies.session.onlyHint":
+    "Personen melden sich erneut an, sobald ihre Anmeldung älter als die Grenze ist.",
+  "policies.session.hours": "Stunden nach der Anmeldung",
+  "policies.session.hoursHint": "Eine ganze Zahl zwischen {min} und {max}.",
+  "policies.session.hoursError": "Gib eine ganze Zahl von Stunden zwischen {min} und {max} ein.",
+  "policies.session.yours":
+    "Du hast dich vor {count, plural, one {# Stunde} other {# Stunden}} angemeldet. Eine kürzere Grenze würde dich aussperren; melde dich also zuerst erneut an, wenn du eine brauchst.",
+  "policies.session.tokens": "Service-Tokens melden sich nicht an und sind nicht betroffen.",
+  "policies.session.limits":
+    "Die CLI zählt ab `portifact login` und eine App ab ihrer Verbindung, egal wie oft sie ihre Tokens erneuern.",
+  "policies.clients.legend": "Apps, die handeln dürfen",
+  "policies.clients.hint":
+    "Welche Arten von Apps mit der Anmeldung einer Person im Workspace handeln dürfen. Das Dashboard ist immer erlaubt.",
+  "policies.clients.any": "Jede App",
+  "policies.clients.anyHint":
+    "Das Dashboard, die Portifact-CLI und Apps, die Personen verbinden, etwa MCP-Clients.",
+  "policies.clients.only": "Nur die hier gewählten Apps",
+  "policies.clients.onlyHint":
+    "Andere Apps werden mit einer Meldung abgelehnt, die den Grund nennt.",
+  "policies.clients.which": "Erlaubte Apps",
+  "policies.clients.dashboard": "Das Dashboard (immer erlaubt)",
+  "policies.clients.cli": "Die Portifact-CLI",
+  "policies.clients.cliHint":
+    "Portifacts eigene Kommandozeile, erkannt an ihrem festen Client-Eintrag.",
+  "policies.clients.apps": "Andere verbundene Apps",
+  "policies.clients.appsHint":
+    "MCP-Clients und jede andere App, die eine Person über OAuth verbindet.",
+  "policies.clients.tokens": "Service-Tokens sind nicht betroffen.",
+  "policies.clients.limits":
+    "Apps, die sich selbst registrieren, wählen ihren Namen selbst, daher erlaubt oder verweigert Portifact sie als eine Gruppe, nie nach Namen. Das hindert niemanden daran, Lesbares in eine andere App zu kopieren.",
+  "policies.impact.signInsTitle": "Ändern, wie sich Personen in diesem Workspace anmelden?",
+  "policies.impact.signInMembers":
+    "{count, plural, one {# Mitglied ist} other {# Mitglieder sind}} betroffen",
+  "policies.impact.staleMembers":
+    "{count, plural, one {# Mitglied müsste} other {# Mitglieder müssten}} sich bei der nächsten Aktion erneut anmelden, im Dashboard, in der CLI oder in einer verbundenen App",
+  "policies.impact.clientMembers":
+    "{count, plural, one {# Mitglied nutzt} other {# Mitglieder nutzen}} eine App, die das ablehnen würde",
+  "policies.impact.signInsNote":
+    "Niemand wird abgemeldet: Personen werden bei ihrer nächsten Aktion im Workspace gebeten, sich erneut anzumelden oder eine andere App zu nutzen.",
+  "policies.impact.signInsConfirm": "Speichern",
+  "space.blockedSession.title": "Erneut anmelden, um fortzufahren",
+  "space.blockedSession.body":
+    "{workspace} verlangt nach einer Weile eine neue Anmeldung, und deine ist älter als erlaubt. Melde dich erneut an, um hierher zurückzukehren. Deine anderen Bereiche funktionieren weiter.",
+  "space.blockedSession.action": "Erneut anmelden",
+  "audit.policy.session": "alle {count, plural, one {# Stunde} other {# Stunden}} neu anmelden",
+  "audit.policy.sessionAny": "keine Grenze für die Sitzungsdauer",
+  "audit.policy.clients":
+    "{kinds, select, none {nur das Dashboard darf handeln} cli {nur das Dashboard und die CLI dürfen handeln} oauth_apps {nur das Dashboard und verbundene Apps dürfen handeln} both {das Dashboard, die CLI und verbundene Apps dürfen handeln} other {jede App darf handeln}}",
 } satisfies Catalog;

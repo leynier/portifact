@@ -31,6 +31,7 @@ import { tokenRoutes } from "./api/tokens.ts";
 import { invitationSender, workspaceRoutes } from "./api/workspaces.ts";
 import { type Auth, createAuth } from "./auth/auth.ts";
 import { authUrls, MCP_BASELINE_SCOPES } from "./auth/config.ts";
+import { recordToken, sessionOf } from "./auth/credentials.ts";
 import type { AuthDeps } from "./auth/deps.ts";
 import {
   authorizeResourceRequest,
@@ -266,12 +267,16 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     return auth;
   };
 
+  // Every token introspection records the token as the request's credential (decision 0021).
   const introspectFor =
     (env: Env): Introspect =>
-    async (token) =>
-      (await authFor(env).api.introspectBearer({
+    async (token) => {
+      const payload = (await authFor(env).api.introspectBearer({
         headers: new Headers({ authorization: `Bearer ${token}` }),
       })) as IntrospectionPayload;
+      recordToken(env, payload);
+      return payload;
+    };
 
   // The signed-in user behind the dashboard's session cookie, checked against D1. A session of
   // an account that has not accepted the current terms counts as none, so the dashboard sends
@@ -279,7 +284,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   const sessionUserFor =
     (env: Env): SessionLookup =>
     async (request) => {
-      const session = await authFor(env).api.getSession({ headers: request.headers });
+      const session = await sessionOf(authFor(env), env, request.headers);
       return session && !needsTermsAcceptance(session.user.termsVersion)
         ? session.user.id
         : undefined;
@@ -289,7 +294,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   const accountSessionFor =
     (env: Env): AccountSessionLookup =>
     async (request) => {
-      const found = await authFor(env).api.getSession({ headers: request.headers });
+      const found = await sessionOf(authFor(env), env, request.headers);
       return found ? { userId: found.user.id, sessionId: found.session.id } : undefined;
     };
 

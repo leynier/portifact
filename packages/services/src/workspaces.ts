@@ -11,6 +11,7 @@ import {
   isWorkspaceId,
   type OwnerView,
   type Region,
+  type RequestRefusal,
   type WorkspacePolicy,
   type WorkspacePolicyShown,
   type WorkspaceRole,
@@ -30,7 +31,6 @@ import {
   authorize,
   checkNewWorkspace,
   checkRemoval,
-  checkRequestPolicy,
   checkRoleChange,
   fail,
   ok,
@@ -38,6 +38,7 @@ import {
   policyOf,
   type RequestCaller,
   type Result,
+  requestRefusal,
   seesNetworks,
   shownPolicy,
 } from "@portifact/domain";
@@ -141,6 +142,8 @@ export interface UserWorkspace extends WorkspaceRow {
    * them, so the list itself is never refused.
    */
   blocked?: boolean;
+  /** Which request policy refuses it (decisions 0020 and 0021); null when none does. */
+  blockedBy?: RequestRefusal | null;
   /**
    * The policy as this caller sees it (`shownPolicy`): the networks only to an admin the network
    * policy admits, so a stolen admin session used from elsewhere never learns them. Absent where
@@ -171,7 +174,7 @@ export async function listUserWorkspaces(
       .innerJoin(w, eq(w.id, t.workspaceId))
       .where(eq(t.id, userId))
       .limit(1);
-    return rows.map((row) => listed(global, row, "token"));
+    return rows.map((row) => listed(global, { ...row, userId }, "token"));
   }
   const rows = await global
     .select({
@@ -187,22 +190,29 @@ export async function listUserWorkspaces(
     .innerJoin(w, eq(w.id, m.workspaceId))
     .where(eq(m.userId, userId))
     .orderBy(asc(w.name), asc(w.slug));
-  return rows.map((row) => listed(global, row, "person"));
+  return rows.map((row) => listed(global, { ...row, userId }, "person"));
 }
 
 function listed(
   global: GlobalDb,
-  row: Omit<UserWorkspace, "policy" | "region" | "blocked" | "shown"> & {
+  row: Omit<UserWorkspace, "policy" | "region" | "blocked" | "blockedBy" | "shown"> & {
     region: string;
     policy: unknown;
+    /** Who is listing: the sign-in policies apply the request's credential only to them. */
+    userId: string;
   },
   caller: RequestCaller,
 ): UserWorkspace {
   const policy = policyOf(row.policy);
   // The policy came with the row: deciding it reads nothing more.
-  const blocked = !checkRequestPolicy(policy, global.request, caller).ok;
+  const blockedBy = requestRefusal(policy, global.request, caller, {
+    userId: row.userId,
+    now: Date.now(),
+  });
+  const blocked = blockedBy !== null;
   const shown = shownPolicy(policy, seesNetworks(row.role, blocked));
-  return { ...row, region: regionOf(row), policy, blocked, shown };
+  const { userId: _, ...rest } = row;
+  return { ...rest, region: regionOf(row), policy, blocked, blockedBy, shown };
 }
 
 /**

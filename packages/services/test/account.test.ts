@@ -224,6 +224,14 @@ describe("connected apps", () => {
     });
   });
 
+  it("never shows an unknown sign-in time (0) as the approval date", async () => {
+    const userId = await user();
+    const app = await client("Legacy");
+    await refreshToken(userId, app, { authTime: 0, createdAt: NOW - DAY });
+    const [listed] = await listConnectedApps(db().global, { userId, now: NOW });
+    expect(listed?.approvedAt).toBe(NOW - DAY);
+  });
+
   it("orders apps with the same activity by client and reads plain-text lists", async () => {
     const userId = await user();
     const [first, second] = [await client("B"), await client("A")].sort();

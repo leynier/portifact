@@ -4,11 +4,15 @@
 // authorization; adapters never do.
 import {
   type AccessMode,
+  CLIENT_KINDS,
+  type ClientKind,
+  type Credential,
   DEFAULT_POLICY,
   type IpAllowlistView,
   type PolicyField,
   type PolicyImpact,
   type RequestContext,
+  type RequestRefusal,
   WorkspacePolicy,
   type WorkspacePolicyShown,
 } from "@portifact/contracts";
@@ -25,6 +29,7 @@ import {
 import { fail, ok, type Result } from "./result.ts";
 
 const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
 
 /**
  * The policy stored on a workspace's row: null is the defaults. A stored value was validated on
@@ -46,11 +51,14 @@ export function policyOf(stored: unknown): WorkspacePolicy {
  */
 export function storedPolicy(policy: WorkspacePolicy): Partial<WorkspacePolicy> | null {
   if (changedFields(DEFAULT_POLICY, policy).length === 0) return null;
-  const { ipAllowlist, tokenIpAllowlist, ...rest } = policy;
+  // The same for the sign-in policies (decision 0021): a row stores them only while they are set.
+  const { ipAllowlist, tokenIpAllowlist, sessionMaxHours, allowedClients, ...rest } = policy;
   return {
     ...rest,
     ...(ipAllowlist === null ? {} : { ipAllowlist }),
     ...(tokenIpAllowlist === null ? {} : { tokenIpAllowlist }),
+    ...(sessionMaxHours === null ? {} : { sessionMaxHours }),
+    ...(allowedClients === null ? {} : { allowedClients }),
   };
 }
 
@@ -87,9 +95,45 @@ export const POLICY_MESSAGES = {
       : `This allowlist does not include your current address (${ip}), so saving it would lock you out. Add your network first.`,
   networkUnreadable:
     "This workspace's network policy could not be read, so Portifact refuses requests until it is fixed. Ask a workspace admin to contact Portifact support.",
+  sessionAge: (hours: number, credential: Credential | null | undefined) =>
+    `This workspace's policy asks for a new sign-in every ${hoursText(hours)}, and ${signInSubject(credential)} is older than that. ${signInFix(credential)}`,
+  sessionUnknown: (credential: Credential | null | undefined) =>
+    `This workspace's policy limits how long a sign-in may act on it, and Portifact could not tell when ${signInSubject(credential)} happened. ${signInFix(credential)}`,
+  client: (kind: ClientKind) =>
+    kind === "cli"
+      ? "This workspace's policy does not allow the Portifact CLI to act on it. Use the dashboard, or ask a workspace admin."
+      : "This workspace's policy does not allow apps connected through OAuth, such as MCP clients, to act on it. Use the dashboard, or ask a workspace admin.",
+  clientUnknown:
+    "This workspace's policy limits which apps may act on it, and Portifact could not tell which app made this request. Use the dashboard, or ask a workspace admin.",
+  sessionLocksOut: (hours: number) =>
+    `Your own sign-in is older than ${hoursText(hours)}, so this maximum session age would lock you out. Sign in again first, or choose a longer maximum.`,
+  sessionLocksOutUnknown:
+    "Portifact could not tell when you signed in, so a maximum session age could lock you out. Sign in again first.",
   singleFamily: (lists: string) =>
     `${lists} only IPv4 or only IPv6 ranges. People on networks that use both reach Portifact over either, and requests over the other one would be refused. Add the other family's ranges, or confirm that the list covers only one.`,
 } as const;
+
+function hoursText(hours: number): string {
+  return hours % 24 === 0 && hours >= 24
+    ? `${hours / 24} ${hours === 24 ? "day" : "days"}`
+    : `${hours} ${hours === 1 ? "hour" : "hours"}`;
+}
+
+function signInSubject(credential: Credential | null | undefined): string {
+  return credential?.kind === "oauth" && credential.client === "oauth_apps"
+    ? "this app's connection to Portifact"
+    : "your sign-in";
+}
+
+/** What fixes a sign-in that is too old, in the words of the client that made the request. */
+function signInFix(credential: Credential | null | undefined): string {
+  if (credential?.kind === "oauth") {
+    return credential.client === "cli"
+      ? "Run `portifact login` to sign in again."
+      : "Ask the user to reconnect this app to Portifact, which signs them in again.";
+  }
+  return "Sign in again to continue.";
+}
 
 /**
  * A policy as an admin sent it, normalized: reader domains lowercased, deduplicated and sorted.
@@ -102,7 +146,15 @@ export function normalizePolicy(input: WorkspacePolicy): Result<WorkspacePolicy>
   const tokens =
     input.tokenIpAllowlist === null ? ok(null) : normalizeIpRanges(input.tokenIpAllowlist);
   if (!tokens.ok) return tokens;
-  const networks = { ipAllowlist: people.value, tokenIpAllowlist: tokens.value };
+  const networks = {
+    ipAllowlist: people.value,
+    tokenIpAllowlist: tokens.value,
+    // One spelling per set of kinds: no duplicates, in `CLIENT_KINDS` order.
+    allowedClients:
+      input.allowedClients === null
+        ? null
+        : CLIENT_KINDS.filter((kind) => input.allowedClients?.includes(kind)),
+  };
   if (input.readerDomains === null) return ok({ ...input, ...networks });
   const domains = new Set<string>();
   for (const written of input.readerDomains) {
@@ -141,6 +193,8 @@ export function changedFields(current: WorkspacePolicy, next: WorkspacePolicy): 
   if (!sameDomains(current.tokenIpAllowlist, next.tokenIpAllowlist)) {
     fields.push("tokenIpAllowlist");
   }
+  if (current.sessionMaxHours !== next.sessionMaxHours) fields.push("sessionMaxHours");
+  if (!sameDomains(current.allowedClients, next.allowedClients)) fields.push("allowedClients");
   return fields;
 }
 
@@ -173,6 +227,17 @@ function loosens(field: PolicyField, current: WorkspacePolicy, next: WorkspacePo
       return networksLoosen(current.ipAllowlist, next.ipAllowlist);
     case "tokenIpAllowlist":
       return networksLoosen(current.tokenIpAllowlist, next.tokenIpAllowlist);
+    // A longer (or no) maximum session age; every kind of client allowed before still is.
+    case "sessionMaxHours":
+      return (
+        next.sessionMaxHours === null ||
+        (current.sessionMaxHours !== null && next.sessionMaxHours > current.sessionMaxHours)
+      );
+    case "allowedClients":
+      return (
+        next.allowedClients === null ||
+        current.allowedClients?.every((kind) => next.allowedClients?.includes(kind)) === true
+      );
   }
 }
 
@@ -402,6 +467,8 @@ export function policyChangeDetail(
     ...(fields.includes("tokenIpAllowlist")
       ? { tokenIpRanges: next.tokenIpAllowlist?.length ?? null }
       : {}),
+    ...(fields.includes("sessionMaxHours") ? { sessionMaxHours: next.sessionMaxHours } : {}),
+    ...(fields.includes("allowedClients") ? { allowedClients: next.allowedClients } : {}),
     confirmed,
   };
 }
@@ -430,8 +497,20 @@ export function describePolicy(policy: WorkspacePolicy | WorkspacePolicyShown): 
   // Never the networks themselves: every member reads this line.
   if (policy.ipAllowlist) lines.push("people only from approved networks");
   if (policy.tokenIpAllowlist) lines.push("service tokens only from approved networks");
+  if (policy.sessionMaxHours !== null) {
+    lines.push(`people sign in again every ${hoursText(policy.sessionMaxHours)}`);
+  }
+  if (policy.allowedClients !== null) {
+    const allowed = ["the dashboard", ...policy.allowedClients.map((kind) => CLIENT_NAMES[kind])];
+    lines.push(`people act only through ${allowed.join(" and ")}`);
+  }
   return lines;
 }
+
+const CLIENT_NAMES: Record<ClientKind, string> = {
+  cli: "the Portifact CLI",
+  oauth_apps: "apps connected through OAuth",
+};
 
 /**
  * Who a request policy binds: a person (any role, admins included) or a workspace's service
@@ -440,26 +519,126 @@ export function describePolicy(policy: WorkspacePolicy | WorkspacePolicyShown): 
  */
 export type RequestCaller = "person" | "token";
 
+/** Who is asking and when, for the sign-in policies (decision 0021). */
+export interface RequestSubject {
+  /** The user (or service token) the role was decided for. */
+  userId: string;
+  now: number;
+}
+
 /**
- * Whether a request may act on a workspace under its request policies (decision 0020), from the
- * request context the Worker built: work no client is making (`background`) is never bound;
- * otherwise the caller's allowlist, if any, must admit the request's address. Refused with
- * `policy_refused` and a message naming the network policy and the caller's own address, never
+ * Whether a request may act on a workspace under its request policies (decisions 0020 and 0021),
+ * from the request context the Worker built: work no client is making (`background`) is never
+ * bound; otherwise the caller's allowlist, if any, must admit the request's address, and a
+ * person's credential must come from an allowed kind of client and a sign-in younger than the
+ * maximum age. Refused with `policy_refused` and a message naming the policy and its fix, never
  * the allowed networks.
  */
 export function checkRequestPolicy(
   policy: WorkspacePolicy | undefined,
   request: RequestContext,
   caller: RequestCaller,
+  subject: RequestSubject,
 ): Result<true> {
   const verdict = requestVerdict(policy, request, caller);
-  if (verdict === "allowed") return ok(true);
   // A stored list that does not parse refuses everyone it binds (fail closed), never throws.
   if (verdict === "unreadable") return refused(POLICY_MESSAGES.networkUnreadable);
-  const ip = request.kind === "request" ? request.ip : null;
-  return refused(
-    caller === "person" ? POLICY_MESSAGES.networkPerson(ip) : POLICY_MESSAGES.networkToken(ip),
-  );
+  if (verdict !== "allowed") {
+    const ip = request.kind === "request" ? request.ip : null;
+    return refused(
+      caller === "person" ? POLICY_MESSAGES.networkPerson(ip) : POLICY_MESSAGES.networkToken(ip),
+    );
+  }
+  const signIn = signInVerdict(policy, request, caller, subject);
+  if (signIn === "allowed") return ok(true);
+  const credential = request.kind === "request" ? request.credential : undefined;
+  const hours = policy?.sessionMaxHours ?? 0;
+  const because = (reason: RequestRefusal, message: string): Result<never> => ({
+    ok: false,
+    code: "policy_refused",
+    message,
+    reason,
+  });
+  switch (signIn) {
+    case "client":
+      return because(
+        "client",
+        credential?.kind === "oauth"
+          ? POLICY_MESSAGES.client(credential.client)
+          : POLICY_MESSAGES.clientUnknown,
+      );
+    case "client_unknown":
+      return because("client", POLICY_MESSAGES.clientUnknown);
+    case "session_age":
+      return because("session_age", POLICY_MESSAGES.sessionAge(hours, credential));
+    case "session_unknown":
+      return because("session_age", POLICY_MESSAGES.sessionUnknown(credential));
+  }
+}
+
+/** What the sign-in policies say about a request (decision 0021). */
+export type SignInVerdict =
+  | "allowed"
+  | "client"
+  | "client_unknown"
+  | "session_age"
+  | "session_unknown";
+
+/**
+ * What the sign-in policies (decision 0021) say about a person's request. Only facts the server
+ * recorded count (`RequestContext.credential`): a credential that is missing, unknown or belongs
+ * to someone else than the caller fails closed for a policy that needs it. The dashboard's
+ * session is always an allowed client. Service tokens have no sign-in and are not bound, and
+ * background work never is.
+ */
+export function signInVerdict(
+  policy: WorkspacePolicy | undefined,
+  request: RequestContext,
+  caller: RequestCaller,
+  subject: RequestSubject,
+): SignInVerdict {
+  if (!policy || request.kind === "background" || caller === "token") return "allowed";
+  const { sessionMaxHours, allowedClients } = policy;
+  if (sessionMaxHours === null && allowedClients === null) return "allowed";
+  const credential = request.credential;
+  const known =
+    credential && credential.userId === subject.userId && credential.kind !== "service_token"
+      ? credential
+      : null;
+  if (allowedClients !== null) {
+    if (!known) return "client_unknown";
+    if (known.kind === "oauth" && !allowedClients.includes(known.client)) return "client";
+  }
+  if (sessionMaxHours !== null) {
+    const signedInAt = known?.signedInAt ?? null;
+    if (signedInAt === null) return "session_unknown";
+    if (subject.now - signedInAt > sessionMaxHours * HOUR_MS) return "session_age";
+  }
+  return "allowed";
+}
+
+/**
+ * Which request policy refuses a request, for the workspace list and the dashboard's blocked page
+ * (`WorkspaceView.blockedBy`): null when none does. An unknown sign-in time is fixed like an old
+ * one, by signing in again.
+ */
+export function requestRefusal(
+  policy: WorkspacePolicy | undefined,
+  request: RequestContext,
+  caller: RequestCaller,
+  subject: RequestSubject,
+): RequestRefusal | null {
+  if (requestVerdict(policy, request, caller) !== "allowed") return "network";
+  switch (signInVerdict(policy, request, caller, subject)) {
+    case "allowed":
+      return null;
+    case "client":
+    case "client_unknown":
+      return "client";
+    case "session_age":
+    case "session_unknown":
+      return "session_age";
+  }
 }
 
 /**
@@ -485,10 +664,25 @@ export function requestVerdict(
 export function checkPolicyKeepsCaller(
   next: WorkspacePolicy,
   request: RequestContext,
+  subject: RequestSubject,
 ): Result<true> {
-  if (next.ipAllowlist === null || request.kind === "background") return ok(true);
-  if (networkVerdict(next.ipAllowlist, request.ip) === "allowed") return ok(true);
-  return fail("invalid_input", POLICY_MESSAGES.networkLocksOut(request.ip));
+  if (request.kind === "background") return ok(true);
+  if (next.ipAllowlist !== null && networkVerdict(next.ipAllowlist, request.ip) !== "allowed") {
+    return fail("invalid_input", POLICY_MESSAGES.networkLocksOut(request.ip));
+  }
+  // The sign-in policies (decision 0021): the admin's own sign-in must still be young enough.
+  // Saving goes through the dashboard's session, which every client policy allows.
+  const verdict = signInVerdict(next, request, "person", subject);
+  if (verdict === "session_age" && next.sessionMaxHours !== null) {
+    return fail("invalid_input", POLICY_MESSAGES.sessionLocksOut(next.sessionMaxHours));
+  }
+  if (verdict === "session_unknown") {
+    return fail("invalid_input", POLICY_MESSAGES.sessionLocksOutUnknown);
+  }
+  if (verdict === "client" || verdict === "client_unknown") {
+    return fail("invalid_input", POLICY_MESSAGES.clientUnknown);
+  }
+  return ok(true);
 }
 
 /** Which lists a save sets or changes that cover a single address family (decision 0020). */
@@ -593,9 +787,18 @@ export function liftedFields(current: WorkspacePolicy, next: WorkspacePolicy): P
   });
 }
 
-/** A policy with its request policies (the network allowlists) lifted: the operator's escape hatch. */
+/**
+ * A policy with its request policies lifted (the network allowlists, the maximum session age and
+ * the allowed clients): the operator's escape hatch.
+ */
 export function withoutRequestPolicies(policy: WorkspacePolicy): WorkspacePolicy {
-  return { ...policy, ipAllowlist: null, tokenIpAllowlist: null };
+  return {
+    ...policy,
+    ipAllowlist: null,
+    tokenIpAllowlist: null,
+    sessionMaxHours: null,
+    allowedClients: null,
+  };
 }
 
 /**

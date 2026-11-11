@@ -1,6 +1,6 @@
 # 0020 Workspace request policies
 
-- Status: accepted for the mechanism and the network allowlists; the maximum session age and the allowed OAuth clients are designed here and ship in a follow-up
+- Status: accepted for the mechanism and the network allowlists; the maximum session age and the allowed OAuth clients shipped with [decision 0021](0021-workspace-session-policies.md)
 - Date: 2026-11-11
 - Feature: premium plan E4, second half (`policies` in `PLANS`, Enterprise), after [decision 0015](0015-workspace-policies.md)
 
@@ -135,7 +135,7 @@ The allowlists are part of the policy, so `export-policies` and `apply-policies`
 
 ## Next
 
-The mechanism carries the request; the two remaining policies need more facts in it, all from the server's own records:
+Shipped by [decision 0021](0021-workspace-session-policies.md), which records the final design: the context carries the credential (`RequestContext.credential`), the OAuth sign-in time comes from a trigger-filled `oauth_access_tokens.auth_time`, and the allowed clients are the categories `cli` and `oauth_apps` with no per-client list. The sketch below was the plan before it:
 
 - **Maximum session age** (`sessionMaxHours`, 1 to 720): `RequestContext` gains `authenticatedAt`. The dashboard session: Better Auth's `sessions.created_at` (a refreshed session keeps its row and its creation time; a rotated one is a new sign-in). An OAuth access token: the time of the grant it descends from, carried through refreshes, so refreshing never resets the clock. A read or review session: its `auth_session_id`'s creation, joined in the renewal's existing read. Single sign-on: the same session clock, no dependency on the provider. Service tokens are not bound. A refusal sends the dashboard to sign in again with `next` back to the page, and the API, CLI and MCP say that signing in again fixes it; it never ends or deletes a session.
 - **Allowed OAuth clients** (`allowedClients`): `RequestContext` gains `client`, from the token's record, never the request: the dashboard session (always allowed), the first-party CLI client, or a dynamically registered MCP client. Dynamically registered client IDs and names are self-asserted, so the honest controls are categories (allow the CLI, allow MCP clients) and, at most, specific registered IDs an admin picks from those its members actually authorized, shown as untrusted names. The dashboard copy must say that a dynamically registered client can call itself anything.

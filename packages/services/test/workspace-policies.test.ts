@@ -244,6 +244,7 @@ describe("reading, previewing and changing policies", () => {
         yourIp: null,
         // Active service tokens are counted for admins only.
         serviceTokens: editable ? 0 : null,
+        yourSignInAt: null,
       });
     }
     const missing = { ok: false, code: "not_found", message: "Workspace not found." };
@@ -429,6 +430,7 @@ describe("reading, previewing and changing policies", () => {
       linksWithoutPassword: 1,
       linksOverLifetime: 1,
       networks: null,
+      signIns: null,
     });
     expect(value(await preview(policy({ shareLinks: "disabled" }))).linksRevoked).toBe(2);
     expect(value(await preview(policy({ shareLinkMaxDays: 1 }))).linksOverLifetime).toBe(2);

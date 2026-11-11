@@ -2,7 +2,7 @@
 // Workspace policies in the dashboard (premium plan E4, decision 0015): the Policies page, where
 // admins change them after seeing what a save changes, and the notes that name a policy on the
 // artifact page where it disables a control.
-import { DEFAULT_POLICY, type WorkspacePolicy } from "@portifact/contracts";
+import { type ClientKind, DEFAULT_POLICY, type WorkspacePolicy } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -220,6 +220,10 @@ describe("policyOfDraft", () => {
     networks: "",
     tokenNetworksLimited: false,
     tokenNetworks: "",
+    sessionLimited: false,
+    sessionHours: "",
+    clientsLimited: false,
+    clients: ["cli", "oauth_apps"] as ClientKind[],
   };
   it("splits domains on spaces, commas and lines and reads the days", () => {
     expect(policyOfDraft(draft)).toEqual({

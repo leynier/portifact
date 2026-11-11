@@ -420,11 +420,19 @@ export function workspace(
     policy?: WorkspacePolicy;
     /** Its network policy refuses this browser (decision 0020). */
     blocked?: boolean;
+    /** Which request policy refuses it (decision 0021). */
+    blockedBy?: WorkspaceView["blockedBy"];
   } = {},
 ): FakeWorkspace {
-  const { name = `Team ${slug}`, policy = DEFAULT_POLICY, blocked = false, ...rest } = overrides;
+  const {
+    name = `Team ${slug}`,
+    policy = DEFAULT_POLICY,
+    blocked = false,
+    blockedBy = blocked ? "network" : null,
+    ...rest
+  } = overrides;
   return {
-    view: { slug, name, role, region: "default", createdAt: NOW, policy, blocked },
+    view: { slug, name, role, region: "default", createdAt: NOW, policy, blocked, blockedBy },
     members: [
       {
         userId: "u_ada",
@@ -1116,6 +1124,7 @@ function workspaceRoute(server: FakeServer, method: string, url: URL): Response 
       createdAt: NOW,
       policy: DEFAULT_POLICY,
       blocked: false,
+      blockedBy: null,
     };
     server.workspaces[view.slug] = workspace(view.slug, view.role, { name: view.name });
     return json(view);
@@ -2691,6 +2700,8 @@ function policyRoute(
     domainVerified: w.domains.some((domain) => domain.state === "verified"),
     yourIp: admin ? "192.0.2.10" : null,
     serviceTokens: admin ? w.serviceTokens.length : null,
+    // The admin signed in three hours ago (decision 0021).
+    yourSignInAt: admin ? Date.now() - 3 * 3_600_000 : null,
   });
   if (!match[2] && method === "GET") return json(state());
   if (!admin) return apiError("forbidden", 403);
@@ -2709,7 +2720,12 @@ function policyRoute(
             ),
           }
         : null;
-    return json({ ...w.policyImpact, networks });
+    // Who the sign-in policies bind (decision 0021): every member, as the API counts them.
+    const signIns =
+      proposed && (proposed.sessionMaxHours !== null || proposed.allowedClients !== null)
+        ? { members: w.members.length, staleMembers: 1, clientMembers: 0 }
+        : null;
+    return json({ ...w.policyImpact, networks, signIns });
   }
   if (!match[2] && method === "PUT") {
     if (body?.revision !== w.policyRevision) return apiError("version_conflict", 409);
