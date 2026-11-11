@@ -1,6 +1,6 @@
 {
-  // Configuration for the operator tool only (scripts/operator.ts): the production D1 database
-  // as a remote binding, reached with the deploy credentials. Never deployed.
+  // Configuration for the operator tool only (scripts/operator.ts): the production D1 databases
+  // of every region as remote bindings, reached with the deploy credentials. Never deployed.
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "portifact-operator",
   "main": "src/operator.ts",
@@ -11,6 +11,12 @@
       "binding": "DB",
       "database_name": "portifact-control",
       "database_id": "6cf93803-aa3c-4859-9f58-e36e2fd784e3",
+      "remote": true
+    },
+    {
+      "binding": "DB_EU",
+      "database_name": "portifact-control-eu",
+      "database_id": "fb06a466-a5c3-4fda-a1dc-af6a4e12c9a4",
       "remote": true
     }
   ]

@@ -15,7 +15,7 @@ export default defineConfig(async () => {
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
           // The second region (decision 0005): its own control and access log databases and its
-          // own bucket, bound only in tests and the e2e Worker, never in wrangler.jsonc.
+          // own bucket. The configuration binds the real ones; tests use these local ones.
           d1Databases: ["DB_EU", "ACCESS_DB_EU"],
           r2Buckets: ["ARTIFACTS_EU"],
           bindings: {

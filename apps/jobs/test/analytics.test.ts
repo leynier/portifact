@@ -24,7 +24,8 @@ const answer = {
           { sum: { requests: 77 }, dimensions: { actionType: "DeleteObject" } },
           { sum: {}, dimensions: {} },
         ],
-        r2StorageAdaptiveGroups: [{ max: { payloadSize: 5_000, metadataSize: 25 } }],
+        storage0: [{ max: { payloadSize: 5_000, metadataSize: 25 } }],
+        storage1: [{ max: { payloadSize: 700, metadataSize: 5 } }],
         workersInvocationsAdaptive: [{ sum: { requests: 1_000 } }, { sum: { requests: 500 } }],
         d1AnalyticsAdaptiveGroups: [
           { sum: { rowsRead: 10, rowsWritten: 2 } },
@@ -65,7 +66,7 @@ describe("analytics collector", () => {
     expect(await collector?.collect(RANGE)).toEqual({
       r2ClassA: 150,
       r2ClassB: 1_000,
-      storedBytes: 5_025,
+      storedBytes: 5_730,
       workerRequests: 1_500,
       d1RowsRead: 15,
       d1RowsWritten: 2,
@@ -83,11 +84,13 @@ describe("analytics collector", () => {
         end: "2026-11-08T12:00:00.000Z",
         startDate: "2026-11-01",
         endDate: "2026-11-08",
-        bucket: "portifact-artifacts",
+        buckets: ["portifact-artifacts", "eu_portifact-artifacts-eu"],
         scripts: ["portifact-app", "portifact-content", "portifact-jobs"],
         databaseIds: [
           "6cf93803-aa3c-4859-9f58-e36e2fd784e3",
           "b5285aa9-aa8d-4c2c-9828-22e31c1aec9e",
+          "fb06a466-a5c3-4fda-a1dc-af6a4e12c9a4",
+          "5a29e108-935d-4e21-9429-a6bcde78659b",
         ],
       },
     });
@@ -95,13 +98,31 @@ describe("analytics collector", () => {
 
   it("leaves datasets missing from the answer unmeasured", () => {
     expect(parseBudgetData({ viewer: { accounts: [{}] } })).toEqual({});
-    expect(
-      parseBudgetData({ viewer: { accounts: [{ r2StorageAdaptiveGroups: [{ max: {} }] }] } }),
-    ).toEqual({ storedBytes: 0 });
+    expect(parseBudgetData({ viewer: { accounts: [{ storage0: [{ max: {} }] }] } })).toEqual({
+      storedBytes: 0,
+    });
     expect(() => parseBudgetData({ viewer: { accounts: [] } })).toThrow(
       /ANALYTICS_ACCOUNT_NOT_VISIBLE/,
     );
     expect(() => parseBudgetData({})).toThrow(/ANALYTICS_ACCOUNT_NOT_VISIBLE/);
+  });
+
+  it("adds each bucket's latest storage sample and asks for them one field per bucket", () => {
+    // The EU bucket alone has a sample, the default one is empty: its bytes are the total.
+    expect(
+      parseBudgetData({
+        viewer: { accounts: [{ storage0: [], storage1: [{ max: { payloadSize: 9 } }] }] },
+      }),
+    ).toEqual({ storedBytes: 9 });
+    // No bucket has a sample: unmeasured, never zero.
+    expect(parseBudgetData({ viewer: { accounts: [{ storage0: [], storage1: [] }] } })).toEqual({});
+    expect(BUDGET_QUERY).toContain(
+      'storage0: r2StorageAdaptiveGroups(limit: 1, filter: { datetime_geq: $start, datetime_lt: $end, bucketName: "portifact-artifacts" }',
+    );
+    expect(BUDGET_QUERY).toContain(
+      'storage1: r2StorageAdaptiveGroups(limit: 1, filter: { datetime_geq: $start, datetime_lt: $end, bucketName: "eu_portifact-artifacts-eu" }',
+    );
+    expect(BUDGET_QUERY).toContain("bucketName_in: $buckets");
   });
 
   it("fails without echoing the token or the response body", async () => {

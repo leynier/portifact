@@ -34,6 +34,9 @@
     "CONTENT_DOMAIN": "portifact.dev",
     "R2_ACCOUNT_ID": "6df65be91ad130fd6aa8cb64ac017f22",
     "R2_BUCKET": "portifact-artifacts",
+    // The EU region's bucket, signed against the EU endpoint with the secrets
+    // R2_ACCESS_KEY_ID_EU and R2_SECRET_ACCESS_KEY_EU (a token limited to that bucket).
+    "R2_BUCKET_EU": "portifact-artifacts-eu",
     "TURNSTILE_SITE_KEY": "0x4AAAAAAF462kw4p7tuP3gM"
   },
   "d1_databases": [
@@ -50,13 +53,34 @@
       "database_name": "portifact-access",
       "database_id": "b5285aa9-aa8d-4c2c-9828-22e31c1aec9e",
       "migrations_dir": "../../packages/db/access-migrations"
+    },
+    // The EU region's databases (decision 0005; docs/releasing.md, "EU region"), both in the EU
+    // jurisdiction. An EU workspace's data lives only there.
+    {
+      "binding": "DB_EU",
+      "database_name": "portifact-control-eu",
+      "database_id": "fb06a466-a5c3-4fda-a1dc-af6a4e12c9a4",
+      "migrations_dir": "../../packages/db/migrations"
+    },
+    {
+      "binding": "ACCESS_DB_EU",
+      "database_name": "portifact-access-eu",
+      "database_id": "5a29e108-935d-4e21-9429-a6bcde78659b",
+      "migrations_dir": "../../packages/db/access-migrations"
     }
   ],
+  "r2_buckets": [
+    { "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts" },
+    { "binding": "ARTIFACTS_EU", "bucket_name": "portifact-artifacts-eu", "jurisdiction": "eu" }
+  ],
   // Cloudflare Email Service, onboarded for portifact.com. Sends sign-in codes.
-  "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts" }],
   "send_email": [{ "name": "EMAIL" }],
+  // Portifact's own log lines (`logEvent`) are kept. Cloudflare's invocation logs are off: they
+  // record each request's URL, which for an EU workspace holds file paths and search text, and
+  // Workers Logs states no storage location (decision 0005, "What leaves the EU").
   "observability": {
     "enabled": true,
-    "head_sampling_rate": 0.1
+    "head_sampling_rate": 0.1,
+    "logs": { "enabled": true, "head_sampling_rate": 0.1, "invocation_logs": false }
   }
 }
