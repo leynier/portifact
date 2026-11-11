@@ -1499,6 +1499,54 @@ export const zhCN = {
   "plan.grace.reads": "在此之前仍可读取：{features}。",
   "plan.grace.download":
     "请在此之前下载所需内容：每个制品的历史记录中有其版本，访问日志和审计日志可以导出。或者再次申请该方案以保留全部内容。",
+  "data.title": "下载你的数据",
+  "data.description":
+    "此空间中可以带走的一切：每个制品保留的版本及其源文件、访问日志、审计日志，以及个人空间中你的账户数据。文件直接来自存储，服务器上不打包任何内容。",
+  "data.adminsOnly": "下载 {workspace} 的全部数据由其管理员进行。",
+  "data.grace.title": "会删除什么以及何时",
+  "data.grace.hint":
+    "已到期、被移除或被降级的方案会将其保留的内容再保留 60 天。之后，此空间方案不保留的内容将被删除。",
+  "data.grace.body": "请在这些日期之前下载你需要的内容，或再次申请该方案以保留全部内容。",
+  "data.grace.loading": "正在加载会删除什么以及何时",
+  "data.grace.error": "无法加载会删除什么以及何时。",
+  "data.grace.nothing": "宽限期结束时，保留中的内容不会被删除。",
+  "data.grace.caption": "宽限期结束时将删除的内容及开始日期",
+  "data.grace.column.kind": "内容",
+  "data.grace.column.count": "数量",
+  "data.grace.column.from": "开始于",
+  "data.kind.versions": "以前的版本",
+  "data.kind.accessLog": "访问日志条目",
+  "data.kind.analytics": "每日分析计数",
+  "data.kind.auditEvents": "审计事件",
+  "data.kind.pins": "已固定的制品（取消固定，然后照常归档）",
+  "data.artifacts.title": "制品",
+  "data.artifacts.hint": "打开一个制品即可下载它保留的任意版本，已发布文件或源文件。",
+  "data.artifacts.loading": "正在加载制品",
+  "data.artifacts.error": "无法加载制品。",
+  "data.artifacts.none": "此空间没有制品。",
+  "data.artifacts.more": "显示更多制品",
+  "data.artifact.summary": "{name}：{count, plural, one {保留 # 个版本} other {保留 # 个版本}}",
+  "data.versions.title": "{name} 的版本",
+  "data.versions.caption": "{name} 保留的版本，从新到旧",
+  "data.versions.size": "大小",
+  "data.accessLog.csv": "访问日志（CSV）",
+  "data.accessLog.json": "访问日志（JSON）",
+  "data.accessLog.saved": "访问日志已准备好。",
+  "data.logs.title": "日志和账户",
+  "data.logs.hint": "空间的审计日志有单独的导出，个人空间还包含你的账户数据。",
+  "data.logs.audit": "在审计日志页面导出审计日志",
+  "data.logs.account": "下载你的账户数据（JSON）",
+  "data.logs.cli":
+    "要一次性带走全部内容，请在终端运行 portifact export <文件夹>：它会获取每个保留的版本，中断后可继续，并写入清单。",
+  "shell.dataLink": "下载你的数据",
+  "shell.grace.title": "{plan} 方案保留的内容保留到 {date}",
+  "shell.grace.download": "下载你的数据",
+  "shell.grace.request": "再次申请 {plan}",
+  "shell.grace.hide": "今天隐藏",
+  "shell.grace.body":
+    "该日期之后，此空间方案不保留的内容将被删除。请下载你需要的内容，或再次申请该方案以保留全部内容。",
+  "shell.grace.bodyAskAdmin":
+    "该日期之后，此空间方案不保留的内容将被删除。请让此空间的管理员下载你需要的内容或再次申请该方案。",
   "plan.loading": "正在加载方案",
   "plan.error": "无法加载方案。",
   "plan.compare.section": "所有方案",
@@ -2529,4 +2577,36 @@ export const zhCN = {
     "重新执行单点登录要求：提供商可以为成员登录（{cause, select, domain {已验证域名发生变化} plan {套餐发生变化} provider {提供商发生变化} other {每日检查发现}}）",
   "policies.sso.switchedOff":
     "已要求单点登录，但此 Portifact 已关闭单点登录：在 Portifact 支持解除该要求或重新开启单点登录之前，没人能通过提供商登录，也没人能操作此工作区。请联系 Portifact 支持。",
+  "policies.maxLife.legend": "artifact 的最长期限",
+  "policies.maxLife.hint":
+    "在工作区的每个 artifact 最后一次发布(回滚也算)或恢复后若干天将其归档。它只会提前到期时间:续期无法超过它,已归档的 artifact 在归档期结束前都可以恢复。不会删除任何内容。将 artifact 移入工作区也会像发布一样开始新的期限。",
+  "policies.maxLife.any": "不设最长期限",
+  "policies.maxLife.anyHint": "只要有人续期或发布,artifact 就保持在线。",
+  "policies.maxLife.only": "超过最长期限后归档",
+  "policies.maxLife.onlyHint": "设置期间无法固定,已固定的 artifact 会被取消固定并获得期限。",
+  "policies.maxLife.days": "最后一次发布或恢复后的天数",
+  "policies.maxLife.daysHint": "{min} 到 {max} 天。",
+  "policies.maxLife.daysError": "请输入 {min} 到 {max} 之间的整数天数。",
+  "policies.maxLife.notice":
+    "新的或更短的最长期限在保存 {days} 天后生效,每位管理员都会收到邮件。在此之前不会因此归档任何内容,但每个 artifact 已显示新的到期时间,所有者也会收到通常的到期通知。更长的最长期限或取消设置会立即生效。",
+  "policies.maxLife.pending": "最长期限将于 {date} 生效",
+  "policies.maxLife.pendingBody":
+    "从那时起,artifact 会在最后一次发布或恢复后 {days} 天归档。在该日期之前不会因此归档任何内容。",
+  "policies.maxLife.active": "artifact 会在最后一次发布或恢复后 {days} 天归档,并且不能固定。",
+  "policies.impact.atStart":
+    "{count, plural, one {# 个活跃的 artifact 将在最长期限生效当天归档,除非有人重新发布} other {# 个活跃的 artifact 将在最长期限生效当天归档,除非有人重新发布}}",
+  "policies.impact.soon":
+    "{count, plural, one {另有 # 个将在之后 30 天内归档} other {另有 # 个将在之后 30 天内归档}}",
+  "policies.impact.pins":
+    "{count, plural, one {# 个已固定的 artifact 将被取消固定} other {# 个已固定的 artifact 将被取消固定}}",
+  "detail.maxLife":
+    "此工作区会在 artifact 最后一次发布或恢复后 {days} 天将其归档:到期时间已包含这一点,且无法固定。",
+  "audit.policy.maxLife": "artifact 在最后一次发布后 {days} 天归档",
+  "audit.policy.maxLifeNone": "不设 artifact 的最长期限",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {提前了 # 个 artifact 的到期时间} other {提前了 # 个 artifact 的到期时间}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {恢复了 # 个 artifact 的期限} other {恢复了 # 个 artifact 的期限}}",
+  "transfer.confirm.maxLife":
+    "{space} 会在 artifact 最后一次发布、恢复或移入后 {days} 天将其归档:现在移动的话,除非有人重新发布,它最迟会在 {date} 归档,并且在那里不能固定。",
 } satisfies Catalog;

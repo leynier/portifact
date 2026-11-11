@@ -392,6 +392,70 @@ export type GraceSlot = z.infer<typeof GraceSlot>;
 export const GraceSlots = z.array(GraceSlot).max(PLAN_GRACE_MAX_SLOTS);
 
 /**
+ * The three emails of a hold (decision 0022, third delivery), from the first to the most urgent:
+ * when it starts, when 14 days or less are left, when 3 days or less are left.
+ */
+export const GRACE_NOTICE_MOMENTS = ["start", "two_weeks", "three_days"] as const;
+export const GraceNoticeMoment = z.enum(GRACE_NOTICE_MOMENTS);
+export type GraceNoticeMoment = z.infer<typeof GraceNoticeMoment>;
+
+/** Time left at which each later moment is due. */
+export const GRACE_NOTICE_LEAD_MS = {
+  two_weeks: 14 * 86_400_000,
+  three_days: 3 * 86_400_000,
+} as const;
+
+/**
+ * How many times a job waits for its mark (written right after it, with a separate regional
+ * database), a few minutes each, before it counts as the job of a scan that crashed.
+ */
+export const GRACE_NOTICE_MARK_WAITS = 6;
+
+/** The per-scan token that ties a scheduled email to its mark (decision 0022, "At most once"). */
+const claim = z.string().min(1).max(64);
+
+/**
+ * The latest email a hold got, identified by its `from` and `until` (a fold keeps both), and the
+ * token of the scan that scheduled it: only the job carrying that token sends it.
+ */
+export const GraceNoticeMark = z.strictObject({
+  from: moment,
+  until: moment,
+  moment: GraceNoticeMoment,
+  claim: claim.optional(),
+  /**
+   * Set instead of an email for a hold whose end lets nothing go (another hold covers it): how
+   * many holds were stored when that was decided. The scan skips the hold while the grace still
+   * stores that many; any change to the holds makes it decide again.
+   */
+  covered: z.number().int().min(1).max(PLAN_GRACE_MAX_SLOTS).optional(),
+});
+export type GraceNoticeMark = z.infer<typeof GraceNoticeMark>;
+
+/** `owner_plans.grace_notices`: one mark per live hold that got an email. */
+export const GraceNoticeMarks = z.array(GraceNoticeMark).max(PLAN_GRACE_MAX_SLOTS);
+export type GraceNoticeMarks = z.infer<typeof GraceNoticeMarks>;
+
+/**
+ * Payload of a `plan_grace_notice` job (its subject is the owner): the hold, its moment and the
+ * scan's token, which the owner's mark must still hold when the job sends.
+ */
+export const GraceNoticePayload = z.strictObject({
+  from: moment,
+  until: moment,
+  moment: GraceNoticeMoment,
+  claim,
+  /** How many times the job waited for its mark to land (separate regional database). */
+  waits: z.number().int().min(1).max(GRACE_NOTICE_MARK_WAITS).optional(),
+  /**
+   * For a last warning put back after capacity ran out partway: the accounts still to be told
+   * (opaque IDs, rechecked against the owner's recipients when it runs). Absent: every recipient.
+   */
+  recipients: z.array(z.string().min(1).max(200)).min(1).max(100).optional(),
+});
+export type GraceNoticePayload = z.infer<typeof GraceNoticePayload>;
+
+/**
  * A running grace as the usage endpoint, `portifact usage`, `get_usage` and the account export
  * show it: until when, the highest plan held, what it keeps and the paid features whose data the
  * owner can still read and export (only those the plan it has now does not grant).
@@ -403,6 +467,47 @@ export const PlanGraceView = z.object({
   features: z.array(PlanFeature),
 });
 export type PlanGraceView = z.infer<typeof PlanGraceView>;
+
+/**
+ * What a running grace will let go, per kind (decision 0022, second delivery): previous versions
+ * the plan the owner has now does not keep, access log entries and analytics day counters that
+ * expire by then, audit events past the plan's retention, and pinned artifacts that are unpinned.
+ */
+export const GRACE_FORECAST_KINDS = [
+  "versions",
+  "accessLog",
+  "analytics",
+  "auditEvents",
+  "pins",
+] as const;
+export const GraceForecastKind = z.enum(GRACE_FORECAST_KINDS);
+export type GraceForecastKind = z.infer<typeof GraceForecastKind>;
+
+/**
+ * `GET /api/v1/grace-forecast`: the running grace, or null, and one entry per step in which a
+ * kind loses something: how many items and from when (the end of a hold at which the retention in
+ * force for that kind drops; a kind can have several, ordered by date). Counts only: no names, no
+ * IDs.
+ */
+export const GraceForecastView = z.object({
+  /**
+   * The space's owner, opaque (an account's or a workspace's ID): `portifact export` writes it in
+   * its folder's marker, so an export of another space is never mixed into the same folder.
+   */
+  ownerId: z.string().min(1).max(200),
+  grace: PlanGraceView.nullable(),
+  kinds: z.array(
+    z.object({
+      kind: GraceForecastKind,
+      count: z.number().int().nonnegative(),
+      from: z.iso.datetime(),
+    }),
+  ),
+});
+export type GraceForecastView = z.infer<typeof GraceForecastView>;
+
+/** How often one person or token may ask for a space's forecast (`rate_limits`, per minute). */
+export const GRACE_FORECAST_LIMITS = { perActorPerMinute: 30 } as const;
 
 /**
  * The owner's effective plan as the usage endpoint, `portifact usage`, `get_usage` and the
@@ -437,5 +542,7 @@ export const OwnerPlanExport = z.strictObject({
   note: z.string().max(500).nullable(),
   /** The drops still held (decision 0022); absent in exports made before graces existed. */
   grace: GraceSlots.nullable().optional(),
+  /** The grace emails already sent; absent in exports made before them. */
+  graceNotices: GraceNoticeMarks.nullable().optional(),
 });
 export type OwnerPlanExport = z.infer<typeof OwnerPlanExport>;

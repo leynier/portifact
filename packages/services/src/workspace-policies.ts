@@ -7,10 +7,12 @@ import {
   CLI_CLIENT_ID,
   CLIENT_KINDS,
   DEFAULT_POLICY,
+  isWorkspaceId,
   type PolicyField,
   type PolicyImpact,
   type PolicyPreview,
   type RequestContext,
+  RetentionNoticePayload,
   type SingleFamilyLists,
   signInMethodText,
   WORKSPACE_POLICIES,
@@ -20,6 +22,7 @@ import {
   type WorkspacePolicyShown,
 } from "@portifact/contracts";
 import {
+  bothSides,
   type Db,
   type GlobalDb,
   isRegion,
@@ -46,6 +49,9 @@ import {
   lifetimeCutoff,
   liftedFields,
   logEvent,
+  type MaxLife,
+  maxLifeOf,
+  maxLifeTightened,
   normalizePolicy,
   ok,
   policyChangeDetail,
@@ -55,7 +61,9 @@ import {
   type RequestSubject,
   type Result,
   readerAllowed,
+  replacedMaxLife,
   requireFeature,
+  retentionTiming,
   shownPolicy,
   singleFamilyLists,
   ssoOffered,
@@ -68,7 +76,21 @@ import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { actorOn } from "./actors.ts";
 import { approvalAccessStatements } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
-import { cursorFor, saveCursor } from "./maintenance-cursors.ts";
+import {
+  cursorFor,
+  cursorRead,
+  resumeAt,
+  saveCursor,
+  savedCursorSql,
+} from "./maintenance-cursors.ts";
+import {
+  capStatements,
+  giveBackIds,
+  giveBackStatement,
+  lifeStartSql,
+  maxLifeImpact,
+  overMaxLifeIds,
+} from "./max-life.ts";
 import type { JobOutcome } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { workspaceSsoProvider } from "./sso-required.ts";
@@ -260,6 +282,8 @@ export async function policyImpact(
   workspaceId: string,
   next: WorkspacePolicy,
   now: number,
+  /** The policy in effect: the maximum life is counted only when `next` sets or shortens it. */
+  current?: WorkspacePolicy,
 ): Promise<PolicyImpact> {
   const zero = {
     publicArtifacts: 0,
@@ -267,6 +291,9 @@ export async function policyImpact(
     linksRevoked: 0,
     linksWithoutPassword: 0,
     linksOverLifetime: 0,
+    artifactsAtStart: 0,
+    artifactsSoon: 0,
+    pinsLifted: 0,
   };
   if (!policyTouchesArtifacts(next)) return zero;
   const owned = sql`${a.ownerId} = ${workspaceId} and ${present}`;
@@ -300,6 +327,10 @@ export async function policyImpact(
             sql`select count(*) ${links} and ${l.createdAt} <= ${cutoff}${next.shareLinks === "password_required" ? sql` and ${l.passwordHash} is not null` : sql``}`,
           )
         : 0,
+    // A new or shorter maximum life (decision 0023); a longer one or none archives nothing sooner.
+    ...(current && maxLifeTightened(current, next)
+      ? await maxLifeImpact(db, workspaceId, maxLifeOf(next) as MaxLife)
+      : { artifactsAtStart: 0, artifactsSoon: 0, pinsLifted: 0 }),
   };
 }
 
@@ -382,11 +413,13 @@ export async function previewWorkspacePolicy(
     ssoProvider: provider,
   });
   if (!proposal.ok) return proposal;
+  const timed = retentionTiming(found.value.row.policy, proposal.value, input.now);
   const impact = await policyImpact(
     regionalOf(regions, found.value.row),
     found.value.row.id,
-    proposal.value,
+    timed,
     input.now,
+    found.value.row.policy,
   );
   return ok({
     ...impact,
@@ -516,7 +549,12 @@ async function signInReach(
 /** The `workspace_policy` job, in the batch that saves a policy, on the same condition. */
 export function workspacePolicyJob(
   db: Db,
-  input: { workspaceId: string; revision: number; condition: SQL; now: number },
+  input: {
+    workspaceId: string;
+    revision: number;
+    condition: SQL;
+    now: number;
+  },
 ): BatchItem<"sqlite"> {
   const payload = JSON.stringify(WorkspacePolicyJobPayload.parse({ revision: input.revision }));
   // Columns in schema order: id, topic, payload, available, dispatched, attempts, created,
@@ -525,6 +563,19 @@ export function workspacePolicyJob(
     .insert(schema.outbox)
     .select(
       sql`select null, 'workspace_policy', ${payload}, ${input.now}, null, 0, ${input.now}, ${input.workspaceId}, null where ${input.condition}`,
+    );
+}
+
+/** The `retention_notice` job (decision 0023), in the batch that saves the policy. */
+export function retentionNoticeJob(
+  db: Db,
+  input: { workspaceId: string; payload: RetentionNoticePayload; condition: SQL; now: number },
+): BatchItem<"sqlite"> {
+  const payload = JSON.stringify(RetentionNoticePayload.parse(input.payload));
+  return db
+    .insert(schema.outbox)
+    .select(
+      sql`select null, 'retention_notice', ${payload}, ${input.now}, null, 0, ${input.now}, ${input.workspaceId}, null where ${input.condition}`,
     );
 }
 
@@ -575,7 +626,8 @@ export async function setWorkspacePolicy(
     ssoProvider: provider,
   });
   if (!proposal.ok) return proposal;
-  const next = proposal.value;
+  // When a maximum life takes effect is the server's to decide (decision 0023).
+  const next = retentionTiming(row.policy, proposal.value, input.now);
   const fields = changedFields(row.policy, next);
   if (fields.length === 0) return ok(await stateOf(global, row, actor, input.now));
   if (policyChangeNeedsPlan(row.policy, next)) {
@@ -595,7 +647,7 @@ export async function setWorkspacePolicy(
     input.confirmedSingleFamily,
   );
   if (!families.ok) return families;
-  const impact = await policyImpact(regionalOf(regions, row), row.id, next, input.now);
+  const impact = await policyImpact(regionalOf(regions, row), row.id, next, input.now, row.policy);
   const confirmed = checkPolicyImpact(impact, input.confirmed);
   if (!confirmed.ok) return confirmed;
 
@@ -625,11 +677,28 @@ export async function setWorkspacePolicy(
     ),
     // Even with nothing counted: a request that read the old policy may still write, and the job
     // (and the scan after it) brings anything it let through back in line.
-    ...(policyTouchesArtifacts(next)
+    ...(policyTouchesArtifacts(next) || fields.includes("artifactMaxDays")
       ? [
           workspacePolicyJob(global, {
             workspaceId: row.id,
             revision: row.revision + 1,
+            condition,
+            now: input.now,
+          }),
+        ]
+      : []),
+    // A new or shorter maximum life is told to the admins once, by email (decision 0023).
+    ...(maxLifeTightened(row.policy, next)
+      ? [
+          retentionNoticeJob(global, {
+            workspaceId: row.id,
+            payload: {
+              days: next.artifactMaxDays as number,
+              from: next.artifactMaxDaysFrom as number,
+              atStart: impact.artifactsAtStart,
+              soon: impact.artifactsSoon,
+              revision: row.revision + 1,
+            },
             condition,
             now: input.now,
           }),
@@ -662,6 +731,10 @@ export interface EnforceCounts {
   readersRemoved: number;
   linksRevoked: number;
   sessionsEnded: number;
+  /** Artifacts whose expiry the maximum life brought forward (pinned ones unpinned). */
+  deadlinesSet: number;
+  /** Capped artifacts given time back after the maximum was lengthened or removed. */
+  deadlinesExtended: number;
 }
 
 /**
@@ -739,16 +812,40 @@ export async function enforceWorkspacePolicy(
   workspaceId: string,
   now: number,
   limit: number = WORKSPACE_POLICIES.enforceBatch,
+  /** A job's step (not the scan's): always gives capped time back, whatever the policy. */
+  giveBack = false,
 ): Promise<{ outcome: JobOutcome; counts: EnforceCounts }> {
-  const counts = { artifactsNarrowed: 0, readersRemoved: 0, linksRevoked: 0, sessionsEnded: 0 };
+  const counts: EnforceCounts = {
+    artifactsNarrowed: 0,
+    readersRemoved: 0,
+    linksRevoked: 0,
+    sessionsEnded: 0,
+    deadlinesSet: 0,
+    deadlinesExtended: 0,
+  };
   const [row] = await db.global
-    .select({ policy: w.policy })
+    .select({ policy: w.policy, revision: w.policyRevision })
     .from(w)
     .where(eq(w.id, workspaceId))
     .limit(1);
   if (!row) return { outcome: "stale", counts };
   const policy = policyOf(row.policy);
-  if (!policyTouchesArtifacts(policy)) return { outcome: "done", counts };
+  const retention = await enforceMaxLife(
+    db,
+    workspaceId,
+    policy,
+    row.revision,
+    now,
+    limit,
+    giveBack,
+  );
+  counts.deadlinesSet = retention.deadlinesSet;
+  counts.deadlinesExtended = retention.deadlinesExtended;
+  const retentionPending =
+    retention.deadlinesSet === limit || retention.deadlinesExtended === limit;
+  if (!policyTouchesArtifacts({ ...policy, artifactMaxDays: null })) {
+    return { outcome: retentionPending ? "pending" : "done", counts };
+  }
   const set = selections(workspaceId, policy, now, limit);
   const owner = await ownerEntitlements(db.global, workspaceId, now);
   const approvals = await approvalDrops(db, workspaceId, policy, set, owner, now);
@@ -846,6 +943,7 @@ export async function enforceWorkspacePolicy(
   }
   if (set.sessionIds) counts.sessionsEnded += rows(sessionIndex);
   const pending =
+    retentionPending ||
     counts.artifactsNarrowed === limit ||
     counts.readersRemoved === limit ||
     counts.linksRevoked === limit ||
@@ -941,14 +1039,132 @@ function enforceEvent(db: RegionalDb, workspaceId: string, set: Selections, now:
   );
 }
 
+/**
+ * The database of a workspace's region among the regions a job runs with, or null when the
+ * workspace is gone or its region is not bound there (the scan of that region catches up).
+ */
+export async function workspaceRegionDb(
+  regions: { global: GlobalDb; all(): readonly { db: RegionalDb; region: string }[] },
+  workspaceId: string,
+): Promise<RegionalDb | null> {
+  const [row] = await regions.global
+    .select({ region: w.region })
+    .from(w)
+    .where(eq(w.id, workspaceId))
+    .limit(1);
+  if (!row) return null;
+  return regions.all().find((handles) => handles.region === row.region)?.db ?? null;
+}
+
+/**
+ * One bounded step of the maximum life (decision 0023), in its own batch. First, capped artifacts
+ * whose cap the current policy no longer asks for (it was lengthened, shortened to a later
+ * effective date, or removed) get back the later of their cap and `min(the plan's expiry they
+ * kept, the current deadline)`; then the workspace's active artifacts get their deadline (never
+ * before now) as their expiry where it is earlier, pinned ones unpinned. Nothing is archived here:
+ * the expiry scan archives what reaches its expiry, as for any other. With the workspace and its
+ * artifacts in one database, every statement is held to the revision read, so a policy changed
+ * between the read and the write stops the batch. With a separate regional database no batch can
+ * say that: the revision is read again after the batch, and if it moved, the give-back runs again
+ * with the policy now in force, so the window of a stale cap ends with the step itself.
+ */
+async function enforceMaxLife(
+  db: RegionalDb,
+  workspaceId: string,
+  policy: WorkspacePolicy,
+  revision: number,
+  now: number,
+  limit: number,
+  giveBack: boolean,
+): Promise<{ deadlinesSet: number; deadlinesExtended: number }> {
+  const life = maxLifeOf(policy);
+  if (life === null && !giveBack) return { deadlinesSet: 0, deadlinesExtended: 0 };
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const keep = shared
+    ? sql`exists (select 1 from ${w} where ${w.id} = ${workspaceId} and ${w.policyRevision} = ${revision})`
+    : sql`1`;
+  const capIds = life ? overMaxLifeIds(workspaceId, life, now, limit) : null;
+  const backIds: SQL | null = giveBackIds(workspaceId, policy, now, limit);
+  const countOfIds = (ids: SQL | null) =>
+    ids ? sql<number>`(select count(*) from (${ids}))` : sql<number>`0`;
+  const computed = { deadlinesSet: countOfIds(capIds), deadlinesExtended: countOfIds(backIds) };
+  const statements: BatchItem<"sqlite">[] = [
+    auditEvent(
+      x,
+      {
+        ownerId: workspaceId,
+        kind: "policy.enforced",
+        actor: { type: "system" },
+        targetId: workspaceId,
+        detail: {
+          artifactsNarrowed: 0,
+          readersRemoved: 0,
+          linksRevoked: 0,
+          sessionsEnded: 0,
+          deadlinesSet: 0,
+          deadlinesExtended: 0,
+        },
+        computed,
+        now,
+      },
+      sql`${computed.deadlinesSet} + ${computed.deadlinesExtended} > 0 and ${keep}`,
+    ),
+  ];
+  // Given back first, so an artifact the new maximum caps again is capped from its new expiry.
+  const backIndex = statements.length;
+  if (backIds) statements.push(giveBackStatement(x, backIds, policy, now, keep));
+  const capIndex = statements.length + 2;
+  if (capIds && life) statements.push(...capStatements(x, capIds, life, now, keep));
+  const results = (await x.batch(
+    statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+  )) as unknown[];
+  const rows = (index: number) => (results[index] as unknown[] | undefined)?.length ?? 0;
+  const deadlinesSet = capIds ? rows(capIndex) : 0;
+  const deadlinesExtended = backIds ? rows(backIndex) : 0;
+  if (!shared && life && deadlinesSet > 0) {
+    await giveBackIfChanged(db, workspaceId, revision, now, limit);
+  }
+  return { deadlinesSet, deadlinesExtended };
+}
+
+/**
+ * With a separate regional database: if the policy changed while the step capped, gives back now
+ * what the policy in force allows (the job the save wrote may have run before this step's cap
+ * landed).
+ */
+async function giveBackIfChanged(
+  db: RegionalDb,
+  workspaceId: string,
+  revision: number,
+  now: number,
+  limit: number,
+) {
+  const [after] = await db.global
+    .select({ policy: w.policy, revision: w.policyRevision })
+    .from(w)
+    .where(eq(w.id, workspaceId))
+    .limit(1);
+  if (!after || after.revision === revision) return;
+  const current = policyOf(after.policy);
+  await giveBackStatement(db, giveBackIds(workspaceId, current, now, limit), current, now, sql`1`);
+}
+
 /** Runs a `workspace_policy` job: one bounded step, `pending` until nothing is left. */
 export async function runWorkspacePolicyJob(
   db: RegionalDb,
   row: { subject: string | null; payload: unknown },
   now: number,
+  /** The workspace's region's database, when the job runs where every region is bound. */
+  regionDb?: (workspaceId: string) => Promise<RegionalDb | null>,
 ): Promise<JobOutcome> {
   WorkspacePolicyJobPayload.parse(row.payload);
-  return (await enforceWorkspacePolicy(db, row.subject ?? "", now)).outcome;
+  const workspaceId = row.subject ?? "";
+  // The job is written in the global outbox; the workspace's artifacts are in its own region.
+  const target = (await regionDb?.(workspaceId)) ?? db;
+  return (
+    await enforceWorkspacePolicy(target, workspaceId, now, WORKSPACE_POLICIES.enforceBatch, true)
+  ).outcome;
 }
 
 const SCAN = "workspace_policies";
@@ -961,6 +1177,9 @@ function scanEntry(id: string, policy: WorkspacePolicy) {
     d: policy.readerDomains,
     l: policy.shareLinks,
     m: policy.shareLinkMaxDays,
+    // The maximum life (decision 0023): its days in milliseconds and when it takes effect.
+    x: policy.artifactMaxDays === null ? null : policy.artifactMaxDays * 86_400_000,
+    f: policy.artifactMaxDaysFrom ?? 0,
   };
 }
 
@@ -985,6 +1204,7 @@ export async function enforceWorkspacePolicies(
   let failed = 0;
   let checked = 0;
   let corrected = 0;
+  let maxed: string[] = [];
   try {
     const cursor = await cursorFor(db.global, SCAN);
     const rows = await db.global
@@ -1005,6 +1225,8 @@ export async function enforceWorkspacePolicies(
       }
     });
     const found = entries.length === 0 ? [] : await violations(db, entries, now);
+    // The workspaces this run read with a maximum life: the sweep below leaves them to the steps.
+    maxed = entries.filter((entry) => entry.x !== null).map((entry) => entry.id);
     for (const id of found) {
       try {
         await enforceWorkspacePolicy(db, id, now);
@@ -1024,7 +1246,163 @@ export async function enforceWorkspacePolicies(
     failed += 1;
     logEvent("error", "workspace_policy_scan_failed", { error: errorLabel(error) });
   }
+  try {
+    corrected += await sweepStaleCaps(db, now, maxed);
+  } catch (error) {
+    failed += 1;
+    logEvent("error", "stale_caps_sweep_failed", { error: errorLabel(error) });
+  }
   return { checked, corrected, failed };
+}
+
+const STALE_CAPS = "stale_caps";
+/**
+ * The sweep's bounds per run and region: at most 20 owners read, and at most 200 artifacts given
+ * back in all, each owner at most one batch (50) per visit, so one owner with many caps never
+ * holds up the owners after it: the cursor moves past it, and the next pass gives it its next
+ * batch.
+ */
+export const STALE_CAPS_SWEEP = { owners: 20, artifacts: 200 } as const;
+
+/**
+ * The owners the sweep reads: those with a live capped artifact, after the saved cursor, by ID,
+ * that do not set a maximum. With the workspace table in the same database (one region, today's
+ * production) that is decided for every workspace in the statement itself; with a separate
+ * regional database the workspaces this run's scan read with a maximum (at most
+ * `scanWorkspaces`, 500) come as one JSON parameter, and the sweep checks the owners it finds
+ * against the global database (a workspace with a maximum outside that page takes a slot and is
+ * skipped; the cursor moves past it). `+state` keeps SQLite on the partial index of capped rows
+ * (`artifacts_capped_owner_idx`): without table statistics (workerd's D1 has no `sqlite_stat1`)
+ * it would otherwise pick an index on `state` and read every active artifact each run.
+ */
+export function staleCapOwners(db: Db, now: number, maxed: string[], shared: boolean) {
+  const withMaximum = shared
+    ? sql`select ${w.id} from ${w} where json_extract(${w.policy}, '$.artifactMaxDays') is not null`
+    : sql`select value from json_each(${JSON.stringify(maxed)})`;
+  return db
+    .selectDistinct({ ownerId: a.ownerId })
+    .from(a)
+    .where(
+      sql`${a.uncappedExpiresAt} is not null and +${a.state} = 'active' and (${a.expiresAt} is null or ${a.expiresAt} > ${now}) and ${a.ownerId} > ${savedCursorSql(STALE_CAPS)} and ${a.ownerId} not in (${withMaximum})`,
+    )
+    .orderBy(asc(a.ownerId))
+    .limit(STALE_CAPS_SWEEP.owners);
+}
+
+/**
+ * Gives back every cap that no current rule asks for (decision 0023, "The invariant"), whatever
+ * the owner's policy now is: the steps above only visit workspaces that set a maximum, so after a
+ * removal (its job lost, or an artifact suspended or racing while it ran), or in a personal space
+ * an artifact moved to, nothing else would. Per run and region: one statement reads the saved
+ * cursor with the first owners `staleCapOwners` selects; with nothing capped that is the only
+ * call. With a separate regional database, one global read then drops the owners that do set a
+ * maximum. Then the idempotent give-back, one batch per owner (at most 50 artifacts), until the
+ * run's budget of artifacts is spent, and the cursor. Returns how many owners it gave back to.
+ */
+async function sweepStaleCaps(db: RegionalDb, now: number, maxed: string[]): Promise<number> {
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const [saved, first] = await x.batch([
+    cursorRead(x, STALE_CAPS),
+    staleCapOwners(x, now, maxed, shared !== null),
+  ]);
+  const started = saved[0]?.cursor ?? "";
+  const owners = first.map((row) => row.ownerId);
+  if (owners.length === 0) {
+    await resumeAt(x, STALE_CAPS, started, null, now);
+    return 0;
+  }
+  const maximum = shared
+    ? new Set<string>()
+    : new Set(
+        (
+          await db.global
+            .select({ id: w.id })
+            .from(w)
+            .where(
+              sql`${w.id} in (select value from json_each(${JSON.stringify(owners)})) and json_extract(${w.policy}, '$.artifactMaxDays') is not null`,
+            )
+        ).map((row) => row.id),
+      );
+  let given = 0;
+  let budget: number = STALE_CAPS_SWEEP.artifacts;
+  let resume: string | null = started;
+  let ended = owners.length < STALE_CAPS_SWEEP.owners;
+  for (const ownerId of owners) {
+    if (budget <= 0) {
+      ended = false;
+      break;
+    }
+    resume = ownerId;
+    // A workspace with a maximum is its step's (the scan's), never the sweep's.
+    if (maximum.has(ownerId)) continue;
+    const back = await giveBackStep(
+      db,
+      ownerId,
+      now,
+      Math.min(WORKSPACE_POLICIES.enforceBatch, budget),
+    );
+    budget -= back;
+    if (back > 0) given += 1;
+  }
+  await resumeAt(x, STALE_CAPS, started, ended ? null : resume, now);
+  return given;
+}
+
+/**
+ * One batch of the give-back for an owner whose policy sets no maximum: the plan's expiry each
+ * capped artifact kept comes back. For a workspace it records `policy.enforced` with the count,
+ * and with the workspace and its artifacts in one database it holds only while the workspace
+ * still sets no maximum (one set meanwhile is applied by its step).
+ */
+async function giveBackStep(
+  db: RegionalDb,
+  ownerId: string,
+  now: number,
+  limit: number,
+): Promise<number> {
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const workspace = isWorkspaceId(ownerId);
+  const still =
+    shared && workspace
+      ? sql`not exists (select 1 from ${w} where ${w.id} = ${ownerId} and json_extract(${w.policy}, '$.artifactMaxDays') is not null)`
+      : sql`1`;
+  // The owner sets no maximum: the plan's expiry each artifact kept is its target.
+  const policy = undefined;
+  const ids = giveBackIds(ownerId, policy, now, limit);
+  const extended = sql<number>`(select count(*) from (${ids}))`;
+  const statements: BatchItem<"sqlite">[] = [
+    ...(workspace
+      ? [
+          auditEvent(
+            x,
+            {
+              ownerId,
+              kind: "policy.enforced",
+              actor: { type: "system" },
+              targetId: ownerId,
+              detail: {
+                artifactsNarrowed: 0,
+                readersRemoved: 0,
+                linksRevoked: 0,
+                sessionsEnded: 0,
+                deadlinesSet: 0,
+                deadlinesExtended: 0,
+              },
+              computed: { deadlinesExtended: extended },
+              now,
+            },
+            sql`${extended} > 0 and ${still}`,
+          ),
+        ]
+      : []),
+    giveBackStatement(x, ids, policy, now, still),
+  ];
+  const results = (await x.batch(
+    statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+  )) as unknown[];
+  return (results.at(-1) as unknown[]).length;
 }
 
 /**
@@ -1041,7 +1419,8 @@ async function violations(
     with p as (
       select json_extract(value, '$.id') as id, json_extract(value, '$.p') as forbid,
         json_extract(value, '$.d') as domains, json_extract(value, '$.l') as links,
-        json_extract(value, '$.m') as days
+        json_extract(value, '$.m') as days, json_extract(value, '$.x') as life,
+        json_extract(value, '$.f') as life_from
       from json_each(${JSON.stringify(entries)})
     ),
     found as (
@@ -1052,6 +1431,10 @@ async function violations(
       select p.id, 2 from p where p.links = 'disabled' and exists (select 1 from ${l} join ${a} on ${a.id} = ${l.artifactId} where ${a.ownerId} = p.id and ${present} and ${live(now)})
       union all
       select p.id, 3 from p where p.links <> 'disabled' and (p.links = 'password_required' or p.days is not null) and exists (select 1 from ${s} join ${l} on ${l.id} = ${s.linkId} join ${a} on ${a.id} = ${l.artifactId} where ${a.ownerId} = p.id and ((p.links = 'password_required' and ${l.passwordHash} is null) or (p.days is not null and ${l.createdAt} <= ${now} - p.days * 86400000)))
+      union all
+      select p.id, 4 from p where p.life is not null and exists (select 1 from ${a} where ${a.ownerId} = p.id and ${a.state} = 'active' and (${a.expiresAt} is null or ${a.expiresAt} > ${now}) and (
+        ${a.pinned} = 1 or ${a.expiresAt} is null or ${a.expiresAt} > max(p.life_from, ${lifeStartSql} + p.life, ${now})
+        or (${a.uncappedExpiresAt} is not null and (${a.expiresAt} < min(${a.uncappedExpiresAt}, max(p.life_from, ${lifeStartSql} + p.life, ${now})) or ${a.uncappedExpiresAt} <= max(p.life_from, ${lifeStartSql} + p.life, ${now})))))
     )
     select id from found group by id order by min(rank), id limit ${WORKSPACE_POLICIES.scanSteps}
   `);
@@ -1112,7 +1495,8 @@ export type ApplyPoliciesResult =
       extra: string[];
       /**
        * Workspaces left as they are because the file would lift a restriction they have now (an
-       * export older than it), with the fields; applied only with `allowLifting`.
+       * export older than it), with the fields; applied only with `allowLifting`. A longer or no
+       * maximum life in the file is applied anyway (decision 0023).
        */
       lifting: { workspaceId: string; fields: PolicyField[] }[];
       /**
@@ -1120,9 +1504,83 @@ export type ApplyPoliciesResult =
        * provider cannot sign anyone in now (decision 0021): never a requirement nobody can meet.
        */
       ssoUnusable: string[];
+      /**
+       * Workspaces the file does not list whose maximum life was removed (decision 0023): the
+       * file was exported after the restore point, so a workspace missing from it had no policy
+       * then, and the restored maximum is one an admin had removed.
+       */
+      retentionCleared: string[];
     }
   /** An item that is not a valid policy (its index in the file): nothing was applied. */
   | { ok: false; index: number; message: string };
+
+/**
+ * The maximum life as the file says it (decision 0023), with its effective date: the one the
+ * file stores, never earlier, so applying a file never starts archiving sooner than the policy
+ * the admin saved would have; a file without one (edited by hand) gets the notice period.
+ */
+function fileTiming(policy: WorkspacePolicy, now: number): WorkspacePolicy {
+  if (policy.artifactMaxDays === null) return { ...policy, artifactMaxDaysFrom: null };
+  return {
+    ...policy,
+    artifactMaxDaysFrom:
+      policy.artifactMaxDaysFrom ?? now + WORKSPACE_POLICIES.retentionNoticeDays * 86_400_000,
+  };
+}
+
+/** One workspace's policy set by the operator, in one global batch on the revision read. */
+async function applyOne(
+  global: GlobalDb,
+  workspaceId: string,
+  current: WorkspacePolicy,
+  revision: number,
+  next: WorkspacePolicy,
+  provider: string | null,
+  now: number,
+): Promise<boolean> {
+  const kept =
+    provider === null
+      ? sql.empty()
+      : sql` and exists (select 1 from ${schema.workspaceSso} where ${schema.workspaceSso.id} = ${provider})`;
+  const condition = sql`exists (select 1 from ${w} where ${w.id} = ${workspaceId} and ${w.policyRevision} = ${revision})${kept}`;
+  const lifeChanged = current.artifactMaxDays !== next.artifactMaxDays;
+  const results = await global.batch([
+    auditEvent(
+      global,
+      {
+        ownerId: workspaceId,
+        kind: "policy.changed",
+        actor: { type: "operator" },
+        targetId: workspaceId,
+        detail: policyChangeDetail(current, next, true),
+        now,
+      },
+      condition,
+    ),
+    ...(policyTouchesArtifacts(next) || lifeChanged
+      ? [
+          workspacePolicyJob(global, {
+            workspaceId,
+            revision: revision + 1,
+            condition,
+            now,
+          }),
+        ]
+      : []),
+    global
+      .update(w)
+      .set({
+        policy: storedPolicy(next),
+        policyRevision: revision + 1,
+        updatedAt: now,
+        // Applied only where the provider is usable, or lifted: not suspended (0021).
+        ssoSuspended: 0,
+      })
+      .where(and(eq(w.id, workspaceId), eq(w.policyRevision, revision), sql`1${kept}`))
+      .returning({ id: w.id }),
+  ]);
+  return (results.at(-1) as unknown[]).length > 0;
+}
 
 /**
  * Sets the exported policies again after a D1 Time Travel restore, which rewinds them with the
@@ -1134,6 +1592,11 @@ export type ApplyPoliciesResult =
  * never lifts a restriction the workspace has now (`liftedFields`) unless `allowLifting` says
  * so: those workspaces are reported and left as they are. A workspace with a policy the file
  * does not list is reported. Running it again changes nothing.
+ *
+ * The maximum life of artifacts (decision 0023) is the other way round: there, the restored value
+ * is the dangerous one, because it archives. A file's longer or removed maximum is always applied
+ * (alone when the rest of the item is held back), a file's new or shorter one keeps the effective
+ * date the file stores, and a workspace the file does not list loses a restored maximum life.
  */
 export async function applyWorkspacePolicies(
   global: GlobalDb,
@@ -1145,7 +1608,7 @@ export async function applyWorkspacePolicies(
   for (const [index, item] of input.entries()) {
     const normalized = normalizePolicy(item.policy);
     if (!normalized.ok) return { ok: false, index, message: normalized.message };
-    items.push({ ...item, policy: normalized.value });
+    items.push({ ...item, policy: fileTiming(normalized.value, now) });
   }
   let applied = 0;
   let skipped = 0;
@@ -1162,66 +1625,51 @@ export async function applyWorkspacePolicies(
       skipped += 1;
       continue;
     }
-    const lifted = liftedFields(current, item.policy);
+    let next = item.policy;
+    const lifted = liftedFields(current, next);
     if (lifted.length > 0 && !options.allowLifting) {
       lifting.push({ workspaceId: item.workspaceId, fields: lifted });
-      continue;
+      // The rest waits for the operator; a longer or removed maximum life does not.
+      if (!replacedMaxLife(current, next)) continue;
+      next = {
+        ...current,
+        artifactMaxDays: next.artifactMaxDays,
+        artifactMaxDaysFrom: next.artifactMaxDaysFrom,
+      };
     }
-    const provider = item.policy.ssoRequired
+    const provider = next.ssoRequired
       ? await workspaceSsoProvider(global, item.workspaceId, now)
       : null;
-    if (item.policy.ssoRequired && provider === null) {
+    if (next.ssoRequired && provider === null) {
       ssoUnusable.push(item.workspaceId);
       continue;
     }
-    const kept =
-      provider === null
-        ? sql.empty()
-        : sql` and exists (select 1 from ${schema.workspaceSso} where ${schema.workspaceSso.id} = ${provider})`;
-    const condition = sql`exists (select 1 from ${w} where ${w.id} = ${item.workspaceId} and ${w.policyRevision} = ${row.revision})${kept}`;
-    const results = await global.batch([
-      auditEvent(
-        global,
-        {
-          ownerId: item.workspaceId,
-          kind: "policy.changed",
-          actor: { type: "operator" },
-          targetId: item.workspaceId,
-          detail: policyChangeDetail(current, item.policy, true),
-          now,
-        },
-        condition,
-      ),
-      ...(policyTouchesArtifacts(item.policy)
-        ? [
-            workspacePolicyJob(global, {
-              workspaceId: item.workspaceId,
-              revision: row.revision + 1,
-              condition,
-              now,
-            }),
-          ]
-        : []),
-      global
-        .update(w)
-        .set({
-          policy: storedPolicy(item.policy),
-          policyRevision: row.revision + 1,
-          updatedAt: now,
-          // Applied only where the provider is usable, or lifted: not suspended (0021).
-          ssoSuspended: 0,
-        })
-        .where(and(eq(w.id, item.workspaceId), eq(w.policyRevision, row.revision), sql`1${kept}`))
-        .returning({ id: w.id }),
-    ]);
-    if ((results.at(-1) as unknown[]).length > 0) applied += 1;
-    else skipped += 1;
+    if (await applyOne(global, item.workspaceId, current, row.revision, next, provider, now)) {
+      applied += 1;
+    } else skipped += 1;
   }
   const listed = new Set(items.map((item) => item.workspaceId));
-  const extra = (await exportWorkspacePolicies(global))
-    .map((item) => item.workspaceId)
-    .filter((id) => !listed.has(id));
-  return { ok: true, applied, skipped, extra, lifting, ssoUnusable };
+  const extra: string[] = [];
+  const retentionCleared: string[] = [];
+  for (const item of await exportWorkspacePolicies(global)) {
+    if (listed.has(item.workspaceId)) continue;
+    extra.push(item.workspaceId);
+    if (item.policy.artifactMaxDays === null) continue;
+    const [row] = await global
+      .select({ revision: w.policyRevision })
+      .from(w)
+      .where(eq(w.id, item.workspaceId))
+      .limit(1);
+    if (!row) continue;
+    const next = { ...item.policy, artifactMaxDays: null, artifactMaxDaysFrom: null };
+    const provider = next.ssoRequired
+      ? await workspaceSsoProvider(global, item.workspaceId, now)
+      : null;
+    if (await applyOne(global, item.workspaceId, item.policy, row.revision, next, provider, now)) {
+      retentionCleared.push(item.workspaceId);
+    }
+  }
+  return { ok: true, applied, skipped, extra, lifting, ssoUnusable, retentionCleared };
 }
 
 export type ClearRequestPoliciesResult =

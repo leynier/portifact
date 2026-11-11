@@ -3,7 +3,9 @@
 // with this same scenario; a change for a separate regional database must leave them as they are
 // (decision 0005, "Two-region audit").
 import { env } from "cloudflare:test";
+import { DEFAULT_POLICY } from "@portifact/contracts";
 import { schema } from "@portifact/db";
+import { storedPolicy } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { pruneAuditEvents } from "../src/audit.ts";
@@ -11,7 +13,8 @@ import { maintainAuditStreams, rewrapAuditStreamKeys } from "../src/audit-stream
 import { applyTombstones } from "../src/backups.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "../src/content-search.ts";
 import { scheduleExpiryNotices } from "../src/expiry-notices.ts";
-import { pruneVersions, runMaintenance } from "../src/maintenance.ts";
+import { archiveExpired, pruneVersions, runMaintenance } from "../src/maintenance.ts";
+import { scheduleGraceNotices } from "../src/plan-grace-notices.ts";
 import {
   alignPlanLimits,
   getOwnerPlan,
@@ -21,6 +24,7 @@ import {
   unpinLapsedPlans,
 } from "../src/plans.ts";
 import { webhookKeys } from "../src/webhook-keys.ts";
+import { enforceWorkspacePolicies, enforceWorkspacePolicy } from "../src/workspace-policies.ts";
 import { DAY, db, grantPlan, NOW, publishSite, user } from "./fixtures.ts";
 import { recording } from "./recording.ts";
 
@@ -54,7 +58,14 @@ const DEVELOP = {
   // cursor and its first page in one batch, nothing due here), the held row's page in the version
   // prune, and the re-dating pass's two calls on its first run (one on every later run).
   // Plus the one global read of "SSO required"'s suspension scan (`syncSsoRequirementStates`).
-  runMaintenance: 58,
+  // Plus the stale-cap sweep of the maximum life (decision 0023): with nothing capped, one call,
+  // its saved cursor and its first page together.
+  // Plus the grace emails (decision 0022, third delivery): the scan's one call (its saved cursor
+  // and first page together), and here one batch (the job and the mark) for the grantee whose
+  // removal above started a hold.
+  runMaintenance: 61,
+  // The grace email scan alone once nothing is due: one call.
+  scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads
   // the cursor with its first page in one call and marks itself done in another; every later run
   // costs one call, the cursor read.
@@ -133,6 +144,7 @@ describe("D1 calls of the scans and plan paths, one region", () => {
       ),
       runMaintenance: await counted((d) => runMaintenance(d, env.ARTIFACTS, NOW + DAY)),
       redateDatedPlansDone: await counted((d) => redateDatedPlans(d, NOW + DAY)),
+      scheduleGraceNotices: await counted((d) => scheduleGraceNotices(d, NOW + DAY)),
       maintainAuditStreams: await counted((d) => maintainAuditStreams(d, NOW)),
       rewrapAuditStreamKeys: await counted(async (d) =>
         rewrapAuditStreamKeys(d, await webhookKeys({ current: KEY })),
@@ -142,5 +154,78 @@ describe("D1 calls of the scans and plan paths, one region", () => {
       ),
     };
     expect(costs).toEqual(DEVELOP);
+  });
+});
+
+/**
+ * The maximum life of artifacts (decision 0023), measured when it was added, one region: the
+ * scan finds the workspace in its one regional query and runs one step; the step is one batch for
+ * the maximum life after the workspace's read (no access policy to apply); archiving an artifact
+ * that reached it is one batch with its audit event instead of the bare update, after one read of
+ * the plan and the policy together.
+ */
+const MAX_LIFE = {
+  // The cursor, the workspaces, the violations, the step (its read and batch), the cursor's write,
+  // and the stale-cap sweep's one call (the workspace has a maximum, so it is not swept).
+  enforceWorkspacePolicies: 7,
+  // Clean: the step's two calls are gone.
+  enforceWorkspacePoliciesClean: 5,
+  // After the maximum is removed and its job lost: the scan's cursor, workspaces and cursor
+  // write (three; no workspace has a policy to step), then the sweep finds the owner (one call
+  // with its cursor; with one database it decides there that the owner sets no maximum, so no
+  // global read) and gives back (one batch); its pass ends where it started, so no cursor write.
+  enforceWorkspacePoliciesStale: 5,
+  enforceWorkspacePolicy: 2,
+  // The due read, the plan and policy, the archive's batch, the lifecycle event.
+  archiveExpired: 4,
+};
+
+describe("D1 calls of the maximum life's scans, one region", () => {
+  it("are what they were measured at", async () => {
+    const admin = await user("Admin");
+    const id = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
+    await db()
+      .insert(schema.workspaces)
+      .values({
+        id,
+        slug: `c${crypto.randomUUID().slice(0, 12)}`,
+        name: "Costs",
+        createdBy: admin.id,
+        updatedAt: NOW,
+        policy: storedPolicy({
+          ...DEFAULT_POLICY,
+          artifactMaxDays: 30,
+          artifactMaxDaysFrom: NOW - DAY,
+        }),
+      });
+    await grantPlan(id, "enterprise", { seats: 2 });
+    await db()
+      .insert(schema.workspaceMembers)
+      .values({ workspaceId: id, userId: admin.id, role: "admin", updatedAt: NOW });
+    const old = await publishSite(admin.id, { "index.html": "<p>old</p>" }, NOW - 60 * DAY);
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: id, expiresAt: NOW + 20 * DAY })
+      .where(eq(schema.artifacts.id, old.artifactId));
+    const costs = {
+      enforceWorkspacePolicies: await counted((d) => enforceWorkspacePolicies(d, NOW)),
+      enforceWorkspacePoliciesClean: await counted((d) => enforceWorkspacePolicies(d, NOW)),
+      enforceWorkspacePolicy: await counted((d) => enforceWorkspacePolicy(d, id, NOW)),
+      archiveExpired: await counted((d) => archiveExpired(d, NOW + DAY)),
+      enforceWorkspacePoliciesStale: await (async () => {
+        // A second artifact, capped and still live, then the maximum removed with its job lost.
+        const kept = await publishSite(admin.id, { "index.html": "<p>kept</p>" }, NOW - 60 * DAY);
+        await db()
+          .update(schema.artifacts)
+          .set({ ownerId: id, expiresAt: NOW + 3 * DAY, uncappedExpiresAt: NOW + 20 * DAY })
+          .where(eq(schema.artifacts.id, kept.artifactId));
+        await db()
+          .update(schema.workspaces)
+          .set({ policy: null })
+          .where(eq(schema.workspaces.id, id));
+        return counted((d) => enforceWorkspacePolicies(d, NOW + DAY));
+      })(),
+    };
+    expect(costs).toEqual(MAX_LIFE);
   });
 });

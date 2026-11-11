@@ -1659,6 +1659,58 @@ export const de = {
   "plan.grace.reads": "Bis dahin weiterhin lesbar: {features}.",
   "plan.grace.download":
     "Lade vorher herunter, was du brauchst: Der Verlauf jedes Artefakts enthält seine Versionen, und Zugriffs- und Auditprotokoll haben ihre Exporte. Oder fordere den Tarif erneut an, um alles zu behalten.",
+  "data.title": "Daten herunterladen",
+  "data.description":
+    "Alles, was dieser Bereich enthält und du mitnehmen kannst: die aufbewahrten Versionen jedes Artefakts und ihre Quellen, Zugriffsprotokolle, das Auditprotokoll und für deinen persönlichen Bereich die Daten deines Kontos. Dateien kommen direkt aus dem Speicher; auf dem Server wird nichts gebündelt.",
+  "data.adminsOnly": "Alle Daten von {workspace} herunterzuladen, ist Sache seiner Admins.",
+  "data.grace.title": "Was wann gelöscht wird",
+  "data.grace.hint":
+    "Ein Tarif, der abgelaufen ist, entfernt oder herabgestuft wurde, bewahrt 60 Tage lang auf, was er aufbewahrte. Danach wird gelöscht, was der Tarif dieses Bereichs nicht aufbewahrt.",
+  "data.grace.body":
+    "Lade vor diesen Daten herunter, was du brauchst, oder fordere den Tarif erneut an, um alles zu behalten.",
+  "data.grace.loading": "Lade, was wann gelöscht wird",
+  "data.grace.error": "Was wann gelöscht wird, konnte nicht geladen werden.",
+  "data.grace.nothing": "Nichts Aufbewahrtes wird gelöscht, wenn die Schonfrist endet.",
+  "data.grace.caption": "Was am Ende der Schonfrist gelöscht wird, und ab wann",
+  "data.grace.column.kind": "Was",
+  "data.grace.column.count": "Anzahl",
+  "data.grace.column.from": "Ab",
+  "data.kind.versions": "Frühere Versionen",
+  "data.kind.accessLog": "Einträge im Zugriffsprotokoll",
+  "data.kind.analytics": "Tägliche Analysezähler",
+  "data.kind.auditEvents": "Audit-Ereignisse",
+  "data.kind.pins": "Angeheftete Artefakte (gelöst, dann wie üblich archiviert)",
+  "data.artifacts.title": "Artefakte",
+  "data.artifacts.hint":
+    "Öffne ein Artefakt, um jede aufbewahrte Version herunterzuladen, veröffentlichte Dateien oder Quellen.",
+  "data.artifacts.loading": "Lade Artefakte",
+  "data.artifacts.error": "Die Artefakte konnten nicht geladen werden.",
+  "data.artifacts.none": "Dieser Bereich hat keine Artefakte.",
+  "data.artifacts.more": "Weitere Artefakte anzeigen",
+  "data.artifact.summary":
+    "{name}: {count, plural, one {# aufbewahrte Version} other {# aufbewahrte Versionen}}",
+  "data.versions.title": "Versionen von {name}",
+  "data.versions.caption": "Aufbewahrte Versionen von {name}, neueste zuerst",
+  "data.versions.size": "Größe",
+  "data.accessLog.csv": "Zugriffsprotokoll als CSV",
+  "data.accessLog.json": "Zugriffsprotokoll als JSON",
+  "data.accessLog.saved": "Das Zugriffsprotokoll ist bereit.",
+  "data.logs.title": "Protokolle und Konto",
+  "data.logs.hint":
+    "Das Auditprotokoll des Bereichs hat einen eigenen Export, und dein persönlicher Bereich enthält die Daten deines Kontos.",
+  "data.logs.audit": "Exportiere das Auditprotokoll auf der Seite Auditprotokoll",
+  "data.logs.account": "Lade die Daten deines Kontos herunter (JSON)",
+  "data.logs.cli":
+    "Um alles auf einmal mitzunehmen, führe portifact export <Ordner> in einem Terminal aus: Es lädt jede aufbewahrte Version, setzt nach einer Unterbrechung fort und schreibt ein Manifest.",
+  "shell.dataLink": "Daten herunterladen",
+  "shell.grace.title": "Was der Tarif {plan} aufbewahrte, bleibt bis {date} erhalten",
+  "shell.grace.download": "Daten herunterladen",
+  "shell.grace.request": "{plan} erneut anfordern",
+  "shell.grace.hide": "Für heute ausblenden",
+  "shell.grace.body":
+    "Nach diesem Datum wird gelöscht, was der Tarif dieses Bereichs nicht aufbewahrt. Lade herunter, was du brauchst, oder fordere den Tarif erneut an, um alles zu behalten.",
+  "shell.grace.bodyAskAdmin":
+    "Nach diesem Datum wird gelöscht, was der Tarif dieses Bereichs nicht aufbewahrt. Bitte einen Admin dieses Bereichs, herunterzuladen, was du brauchst, oder den Tarif erneut anzufordern.",
   "plan.loading": "Plan wird geladen",
   "plan.error": "Der Plan konnte nicht geladen werden.",
   "plan.compare.section": "Alle Pläne",
@@ -2816,4 +2868,39 @@ export const de = {
     "„Single Sign-on verlangt“ gilt wieder: Der Anbieter kann Personen anmelden ({cause, select, domain {eine verifizierte Domain hat sich geändert} plan {der Tarif hat sich geändert} provider {der Anbieter hat sich geändert} other {bei der täglichen Prüfung bemerkt}})",
   "policies.sso.switchedOff":
     "Single Sign-on wird verlangt, ist auf diesem Portifact aber abgeschaltet: Niemand kann sich über den Anbieter anmelden und niemand kann in diesem Workspace handeln, bis der Portifact-Support die Vorgabe aufhebt oder Single Sign-on wieder einschaltet. Wende dich an den Portifact-Support.",
+  "policies.maxLife.legend": "Maximale Lebensdauer von Artifacts",
+  "policies.maxLife.hint":
+    "Archiviert jedes Artifact des Workspace eine Anzahl Tage nach seiner letzten Veröffentlichung (ein Zurücksetzen zählt) oder Wiederherstellung. Sie zieht den Ablauf nur vor: Verlängern kann ihn nicht überschreiten, und ein archiviertes Artifact lässt sich wiederherstellen, bis sein Archiv endet. Gelöscht wird nichts. Ein Artifact in den Workspace zu verschieben, beginnt ein neues Leben, wie eine Veröffentlichung.",
+  "policies.maxLife.any": "Kein Maximum",
+  "policies.maxLife.anyHint":
+    "Artifacts bleiben online, solange jemand sie verlängert oder veröffentlicht.",
+  "policies.maxLife.only": "Nach einer maximalen Lebensdauer archivieren",
+  "policies.maxLife.onlyHint":
+    "Solange sie gilt, ist Anheften aus, und angeheftete Artifacts werden mit ihrer Frist gelöst.",
+  "policies.maxLife.days": "Tage nach der letzten Veröffentlichung oder Wiederherstellung",
+  "policies.maxLife.daysHint": "Von {min} bis {max} Tagen.",
+  "policies.maxLife.daysError": "Geben Sie eine ganze Zahl von Tagen zwischen {min} und {max} ein.",
+  "policies.maxLife.notice":
+    "Ein neues oder kürzeres Maximum gilt {days} Tage nach dem Speichern, und alle Administratoren erhalten eine E-Mail. Bis dahin wird dadurch nichts archiviert, aber jedes Artifact zeigt schon seinen neuen Ablauf und die Eigentümer erhalten den üblichen Ablaufhinweis. Ein längeres Maximum oder keines gilt sofort.",
+  "policies.maxLife.pending": "Eine maximale Lebensdauer gilt ab {date}",
+  "policies.maxLife.pendingBody":
+    "Ab dann werden Artifacts {days} Tage nach ihrer letzten Veröffentlichung oder Wiederherstellung archiviert. Vor diesem Datum wird dadurch nichts archiviert.",
+  "policies.maxLife.active":
+    "Artifacts werden {days} Tage nach ihrer letzten Veröffentlichung oder Wiederherstellung archiviert und können nicht angeheftet werden.",
+  "policies.impact.atStart":
+    "{count, plural, one {# aktives Artifact wird an dem Tag archiviert, an dem die maximale Lebensdauer gilt, außer jemand veröffentlicht es erneut} other {# aktive Artifacts werden an dem Tag archiviert, an dem die maximale Lebensdauer gilt, außer jemand veröffentlicht sie erneut}}",
+  "policies.impact.soon":
+    "{count, plural, one {# weiteres wird in den 30 Tagen danach archiviert} other {# weitere werden in den 30 Tagen danach archiviert}}",
+  "policies.impact.pins":
+    "{count, plural, one {# angeheftetes Artifact wird gelöst} other {# angeheftete Artifacts werden gelöst}}",
+  "detail.maxLife":
+    "Dieser Workspace archiviert Artifacts {days} Tage nach ihrer letzten Veröffentlichung oder Wiederherstellung: Der Ablauf berücksichtigt das, und Anheften ist aus.",
+  "audit.policy.maxLife": "Artifacts {days} Tage nach ihrer letzten Veröffentlichung archiviert",
+  "audit.policy.maxLifeNone": "keine maximale Lebensdauer von Artifacts",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {den Ablauf von # Artifact vorgezogen} other {den Ablauf von # Artifacts vorgezogen}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {# Artifact seine Zeit zurückgegeben} other {# Artifacts ihre Zeit zurückgegeben}}",
+  "transfer.confirm.maxLife":
+    "{space} archiviert Artifacts {days} Tage nach ihrer letzten Veröffentlichung, Wiederherstellung oder Verschiebung dorthin: Jetzt verschoben, wird dieses spätestens am {date} archiviert, außer jemand veröffentlicht es erneut, und es kann dort nicht angeheftet werden.",
 } satisfies Catalog;

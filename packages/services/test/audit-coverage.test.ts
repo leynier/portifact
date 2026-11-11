@@ -16,7 +16,8 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   deleteArtifact: ["artifact.deleted"],
   pinArtifact: ["artifact.pinned"],
   unpinArtifact: ["artifact.unpinned"],
-  transferArtifact: ["artifact.transferred_in", "artifact.transferred_out"],
+  // A target's maximum life unpins a pinned artifact, by the system (decision 0023).
+  transferArtifact: ["artifact.transferred_in", "artifact.transferred_out", "artifact.unpinned"],
   updateAccess: ["access.changed"],
   createShareLink: ["share_link.created"],
   revokeShareLink: ["share_link.revoked"],
@@ -135,9 +136,13 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   // After a restore, with the operator as actor.
   applyWorkspacePolicies: ["policy.changed"],
   clearRequestPolicies: ["policy.changed"],
-  enforceWorkspacePolicy: ["policy.enforced", "access.changed"],
-  runWorkspacePolicyJob: ["policy.enforced", "access.changed"],
-  enforceWorkspacePolicies: ["policy.enforced", "access.changed"],
+  // The maximum life (decision 0023) also unpins, by the system, naming the policy.
+  enforceWorkspacePolicy: ["policy.enforced", "access.changed", "artifact.unpinned"],
+  runWorkspacePolicyJob: ["policy.enforced", "access.changed", "artifact.unpinned"],
+  enforceWorkspacePolicies: ["policy.enforced", "access.changed", "artifact.unpinned"],
+  // An artifact that reached its workspace's maximum life is archived with the trail of a manual
+  // archive, by the system (decision 0023); other expiries record nothing, as before.
+  archiveExpired: ["artifact.archived"],
   // A read that records that it was asked for, before it streams (the one event outside a batch).
   exportAuditLog: ["audit.exported"],
   // Audit streams (decision 0019): an admin's changes; the delivery job records only the
@@ -287,6 +292,9 @@ reason(
     "openCredential",
   ],
 );
+reason("the email of a policy change already recorded as policy.changed (decision 0023)", [
+  "sendRetentionNotice",
+]);
 reason("an issue request is recorded once the job creates the issue (issue.created)", [
   "requestThreadIssue",
 ]);
@@ -297,7 +305,6 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "requeueThreadIssues",
   "rewrapIntegrationKeys",
   "releaseMovedArtifactDomains",
-  "archiveExpired",
   "expireUploads",
   "pruneVersions",
   "purgeArchived",
@@ -328,6 +335,10 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "unpinLapsedPlans",
   // The one-time re-dating pass (decision 0022): writes retention jobs, changes nothing an owner has.
   "redateDatedPlans",
+  // Grace emails (decision 0022, third delivery): the hold's start and end are already events, and
+  // scheduling or sending an email changes nothing an owner has.
+  "scheduleGraceNotices",
+  "sendGraceNotice",
   // The regional half of a plan change (decision 0005): the change's `plan.granted` or
   // `plan.removed` was recorded with its global half.
   "applyOwnerPlanRegion",
@@ -374,12 +385,16 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // The grace forecast's counts (decision 0022), shared by its route and the grace emails.
+  "graceForecastKinds",
   // The thread a caller may read now (decision 0018): a read like every annotation read.
   "readableThread",
   "appSessionLive",
   "appSessionSignIn",
   // Who requiring single sign-on would bind, counted for the preview and the save (0021).
   "ssoReach",
+  // What a maximum life would archive, counted for the preview and the save (0023).
+  "maxLifeImpact",
   "directoryGroupChoices",
   "directoryRoleHolders",
   "seatLimit",

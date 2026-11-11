@@ -32,6 +32,8 @@ beforeEach(async () => {
         sessionMaxHours: null,
         allowedClients: null,
         ssoRequired: false,
+        artifactMaxDays: null,
+        artifactMaxDaysFrom: null,
       },
     },
     { slug: "readers", name: "Readers", role: "member" },
@@ -68,7 +70,29 @@ describe("portifact workspaces", () => {
       sessionMaxHours: null,
       allowedClients: null,
       ssoRequired: false,
+      artifactMaxDays: null,
+      artifactMaxDaysFrom: null,
     });
+  });
+
+  it("shows a workspace's maximum life of artifacts and when it takes effect (decision 0023)", async () => {
+    server.api.workspaces = [
+      {
+        slug: "acme",
+        name: "Acme Docs",
+        role: "editor",
+        policy: {
+          ...DEFAULT_POLICY,
+          artifactMaxDays: 90,
+          artifactMaxDaysFrom: Date.UTC(2026, 10, 18),
+        },
+      },
+    ];
+    h.signIn();
+    const result = await h.invoke("workspaces");
+    expect(result.stdout).toContain(
+      "Policies of acme: artifacts are archived 90 days after their last publish or restore, and cannot be pinned (from 2026-11-18).\n",
+    );
   });
 
   it("says a network policy exists, never its networks, and when it blocks this machine", async () => {

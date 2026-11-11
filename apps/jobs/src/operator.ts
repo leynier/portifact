@@ -1163,6 +1163,12 @@ export async function runOperator(
           ...result.extra.map((id) => `  ${id}`),
         );
       }
+      if (result.retentionCleared.length > 0) {
+        lines.push(
+          `${result.retentionCleared.length} of them had a maximum life of artifacts the restore brought back (an admin had removed it after the restore point); it was removed again so it archives nothing:`,
+          ...result.retentionCleared.map((id) => `  ${id}`),
+        );
+      }
       return { exitCode: 0, output: lines.join("\n") };
     }
     case "clear-request-policies": {

@@ -1599,6 +1599,58 @@ export const en = {
   "plan.grace.reads": "Still readable until then: {features}.",
   "plan.grace.download":
     "Download what you need before then: each artifact's history has its versions, and the access log and audit log have their exports. Or ask for the plan again to keep everything.",
+  "data.title": "Download your data",
+  "data.description":
+    "Everything this space holds that you can take out: each artifact's retained versions and their sources, access logs, the audit log and, for your personal space, your account's data. Files come straight from storage; nothing is bundled on the server.",
+  "data.adminsOnly": "Downloading all of {workspace}'s data is for its admins.",
+  "data.grace.title": "What goes and when",
+  "data.grace.hint":
+    "A plan that ended, was removed or was lowered keeps what it kept for 60 days. After that, what this space's plan does not keep is deleted.",
+  "data.grace.body":
+    "Download what you need before these dates, or ask for the plan again to keep everything.",
+  "data.grace.loading": "Loading what goes and when",
+  "data.grace.error": "What goes and when could not be loaded.",
+  "data.grace.nothing": "Nothing held now goes when the grace ends.",
+  "data.grace.caption": "What is deleted when the grace ends, and from when",
+  "data.grace.column.kind": "What",
+  "data.grace.column.count": "How many",
+  "data.grace.column.from": "From",
+  "data.kind.versions": "Previous versions",
+  "data.kind.accessLog": "Access log entries",
+  "data.kind.analytics": "Daily analytics counters",
+  "data.kind.auditEvents": "Audit events",
+  "data.kind.pins": "Pinned artifacts (unpinned, then archived as usual)",
+  "data.artifacts.title": "Artifacts",
+  "data.artifacts.hint":
+    "Open an artifact to download any version it keeps, published files or sources.",
+  "data.artifacts.loading": "Loading artifacts",
+  "data.artifacts.error": "The artifacts could not be loaded.",
+  "data.artifacts.none": "This space has no artifacts.",
+  "data.artifacts.more": "Show more artifacts",
+  "data.artifact.summary":
+    "{name}: {count, plural, one {# retained version} other {# retained versions}}",
+  "data.versions.title": "Versions of {name}",
+  "data.versions.caption": "Retained versions of {name}, newest first",
+  "data.versions.size": "Size",
+  "data.accessLog.csv": "Access log as CSV",
+  "data.accessLog.json": "Access log as JSON",
+  "data.accessLog.saved": "The access log is ready.",
+  "data.logs.title": "Logs and account",
+  "data.logs.hint":
+    "The space's audit log has its own export, and your personal space comes with your account's data.",
+  "data.logs.audit": "Export the audit log from the Audit log page",
+  "data.logs.account": "Download your account's data (JSON)",
+  "data.logs.cli":
+    "To take out everything at once, run portifact export <folder> in a terminal: it fetches every retained version, resumes when interrupted and writes a manifest.",
+  "shell.dataLink": "Download your data",
+  "shell.grace.title": "What the {plan} plan kept is held until {date}",
+  "shell.grace.download": "Download your data",
+  "shell.grace.request": "Ask for {plan} again",
+  "shell.grace.hide": "Hide for today",
+  "shell.grace.body":
+    "After that date, what this space's plan does not keep is deleted. Download what you need, or ask for the plan again to keep everything.",
+  "shell.grace.bodyAskAdmin":
+    "After that date, what this space's plan does not keep is deleted. Ask an admin of this space to download what you need or to ask for the plan again.",
   "plan.loading": "Loading the plan",
   "plan.error": "The plan could not be loaded.",
   "plan.compare.section": "All plans",
@@ -2727,6 +2779,40 @@ export const en = {
     "Single sign-on required applies again: the provider can sign people in ({cause, select, domain {a verified domain changed} plan {the plan changed} provider {the provider changed} other {noticed by the daily check}})",
   "policies.sso.switchedOff":
     "Single sign-on is required, but it is switched off on this Portifact, so nobody can sign in through the provider and nobody can act on this workspace until Portifact support lifts the requirement or switches single sign-on back on. Contact Portifact support.",
+  "policies.maxLife.legend": "Maximum life of artifacts",
+  "policies.maxLife.hint":
+    "Archive each artifact of the workspace a number of days after its last publish (a rollback counts) or restore. It only brings an expiry forward: renewing cannot move an artifact past it, and an archived artifact can be restored until its archive ends. Nothing is deleted by it. Moving an artifact into the workspace starts a new life, like a publish.",
+  "policies.maxLife.any": "No maximum",
+  "policies.maxLife.anyHint": "Artifacts stay online while someone renews or publishes them.",
+  "policies.maxLife.only": "Archive after a maximum life",
+  "policies.maxLife.onlyHint":
+    "Pinning is off while it is set, and pinned artifacts are unpinned with their deadline.",
+  "policies.maxLife.days": "Days after the last publish or restore",
+  "policies.maxLife.daysHint": "From {min} to {max} days.",
+  "policies.maxLife.daysError": "Write a whole number of days from {min} to {max}.",
+  "policies.maxLife.notice":
+    "A new or shorter maximum takes effect {days} days after you save it, and every admin gets an email. Until then nothing is archived by it, but each artifact already shows its new expiry and its owners get the usual expiry notice. A longer maximum, or none, applies at once.",
+  "policies.maxLife.pending": "A maximum life takes effect on {date}",
+  "policies.maxLife.pendingBody":
+    "From then, artifacts are archived {days} days after their last publish or restore. Nothing is archived by it before that date.",
+  "policies.maxLife.active":
+    "Artifacts are archived {days} days after their last publish or restore, and cannot be pinned.",
+  "policies.impact.atStart":
+    "{count, plural, one {# active artifact is archived the day the maximum life takes effect, unless someone publishes it again} other {# active artifacts are archived the day the maximum life takes effect, unless someone publishes them again}}",
+  "policies.impact.soon":
+    "{count, plural, one {# more is archived within 30 days after that} other {# more are archived within 30 days after that}}",
+  "policies.impact.pins":
+    "{count, plural, one {# pinned artifact is unpinned} other {# pinned artifacts are unpinned}}",
+  "detail.maxLife":
+    "This workspace archives artifacts {days} days after their last publish or restore: the expiry includes it, and pinning is off.",
+  "audit.policy.maxLife": "artifacts archived {days} days after their last publish",
+  "audit.policy.maxLifeNone": "no maximum life of artifacts",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {brought # artifact's expiry forward} other {brought # artifacts' expiry forward}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {gave # artifact its time back} other {gave # artifacts their time back}}",
+  "transfer.confirm.maxLife":
+    "{space} archives artifacts {days} days after their last publish, restore or move in: moved now, this one is archived by {date} at the latest unless someone publishes it again, and it cannot be pinned there.",
 } as const;
 
 export type MessageId = keyof typeof en;

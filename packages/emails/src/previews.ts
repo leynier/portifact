@@ -6,8 +6,10 @@ import { commentNoticeEmail } from "./comment-notice.ts";
 import { directoryNoticeEmail } from "./directory-notice.ts";
 import { domainNoticeEmail } from "./domain-notice.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
+import { graceNoticeEmail } from "./grace-notice.ts";
 import { invitationEmail } from "./invitation.ts";
 import type { EmailContent } from "./message.ts";
+import { retentionNoticeEmail } from "./retention-notice.ts";
 import { reviewNoticeEmail } from "./review-notice.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
 
@@ -65,6 +67,29 @@ const review = {
   unsubscribeUrl: "https://app.portifact.com/unsubscribe?token=cn1.sample.1794200000000.signature",
   names: true,
 };
+
+const DAY = 86_400_000;
+const graceEnd = CREATED_AT + 60 * DAY;
+/** A workspace's grace email (decision 0022, third delivery), as the jobs Worker builds it. */
+const grace = {
+  moment: "start" as const,
+  until: graceEnd,
+  plan: "Team",
+  kinds: [
+    { kind: "versions" as const, count: 1_240, from: graceEnd },
+    { kind: "accessLog" as const, count: 18_302, from: graceEnd },
+    { kind: "analytics" as const, count: 412, from: graceEnd },
+    { kind: "auditEvents" as const, count: 96, from: graceEnd },
+    { kind: "pins" as const, count: 3, from: graceEnd },
+  ],
+  workspace: "Analytical Engines",
+  names: true,
+  downloadUrl: "https://app.portifact.com/data?workspace=engines",
+  exportCommand: "portifact export ./portifact-export --workspace engines",
+  requestUrl: "mailto:hello@portifact.com?subject=Portifact%20Team%20plan%20request",
+};
+/** An EU workspace's (decision 0005): the workspace is linked, never named. */
+const graceWithoutNames = { ...grace, names: false };
 
 /** Every language besides English, each previewed in every user-facing email. */
 const TRANSLATED = LOCALE_CODES.filter((locale) => locale !== DEFAULT_LOCALE);
@@ -212,6 +237,27 @@ export function previews(): Preview[] {
       }),
     })),
     {
+      name: "retention-notice",
+      email: retentionNoticeEmail({
+        days: 90,
+        from: CREATED_AT + 7 * 86_400_000,
+        atStart: 4,
+        soon: 12,
+        policiesUrl: "https://app.portifact.com/policies?workspace=acme",
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `retention-notice-${locale.toLowerCase()}`,
+      email: retentionNoticeEmail({
+        days: 90,
+        from: CREATED_AT + 7 * 86_400_000,
+        atStart: 1,
+        soon: 0,
+        policiesUrl: "https://app.portifact.com/policies?workspace=acme",
+        locale,
+      }),
+    })),
+    {
       name: "directory-notice",
       email: directoryNoticeEmail({
         workspaceName: "Analytical Engines",
@@ -255,6 +301,36 @@ export function previews(): Preview[] {
     ...TRANSLATED.map((locale) => ({
       name: `invitation-${locale.toLowerCase()}`,
       email: invitationEmail({ ...invitation, locale }),
+    })),
+    { name: "grace-notice-start", email: graceNoticeEmail(grace) },
+    {
+      name: "grace-notice-two-weeks",
+      email: graceNoticeEmail({ ...grace, moment: "two_weeks" }),
+    },
+    {
+      name: "grace-notice-three-days",
+      email: graceNoticeEmail({ ...grace, moment: "three_days" }),
+    },
+    {
+      name: "grace-notice-personal",
+      email: graceNoticeEmail({
+        ...grace,
+        plan: "Pro",
+        workspace: null,
+        kinds: [{ kind: "versions", count: 12, from: graceEnd }],
+        downloadUrl: "https://app.portifact.com/data",
+        exportCommand: "portifact export ./portifact-export",
+        requestUrl: "mailto:hello@portifact.com?subject=Portifact%20Pro%20plan%20request",
+      }),
+    },
+    { name: "grace-notice-without-names", email: graceNoticeEmail(graceWithoutNames) },
+    ...TRANSLATED.map((locale) => ({
+      name: `grace-notice-${locale.toLowerCase()}`,
+      email: graceNoticeEmail({ ...grace, moment: "two_weeks", locale }),
+    })),
+    ...TRANSLATED.map((locale) => ({
+      name: `grace-notice-without-names-${locale.toLowerCase()}`,
+      email: graceNoticeEmail({ ...graceWithoutNames, moment: "three_days", locale }),
     })),
     { name: "review-requested", email: reviewNoticeEmail({ ...review, kind: "requested" }) },
     { name: "review-approved", email: reviewNoticeEmail({ ...review, kind: "approved" }) },

@@ -19,15 +19,21 @@ export interface CalloutProps extends VariantProps<typeof calloutClasses> {
   /** Optional control, such as a retry button. */
   action?: ReactNode;
   children?: ReactNode;
+  /**
+   * Whether it is a live region (the default). False for a notice that stays on screen across
+   * pages and announces its own changes elsewhere, so showing it again is not announced again.
+   */
+  live?: boolean;
 }
 
 /**
  * A message about the page or a section. Errors are announced as alerts, everything else
  * politely, so assistive technology hears it when it appears.
  */
-export function Callout({ tone, title, icon, action, children }: CalloutProps) {
+export function Callout({ tone, title, icon, action, children, live = true }: CalloutProps) {
+  const role = live ? (tone === "error" ? "alert" : "status") : undefined;
   return (
-    <div role={tone === "error" ? "alert" : "status"} className={calloutClasses({ tone })}>
+    <div role={role} className={calloutClasses({ tone })}>
       {icon ? (
         <span aria-hidden="true" className="mt-0.5 inline-flex shrink-0">
           {icon}

@@ -1650,6 +1650,58 @@ export const es = {
   "plan.grace.reads": "Se puede seguir leyendo hasta entonces: {features}.",
   "plan.grace.download":
     "Descarga lo que necesites antes: el historial de cada artefacto tiene sus versiones, y el registro de accesos y el registro de auditoría tienen sus exportaciones. O pide el plan de nuevo para conservarlo todo.",
+  "data.title": "Descarga tus datos",
+  "data.description":
+    "Todo lo que este espacio guarda y puedes llevarte: las versiones conservadas de cada artefacto y sus fuentes, los registros de acceso, el registro de auditoría y, en tu espacio personal, los datos de tu cuenta. Los archivos llegan directamente del almacenamiento; nada se empaqueta en el servidor.",
+  "data.adminsOnly": "Descargar todos los datos de {workspace} es cosa de sus administradores.",
+  "data.grace.title": "Qué se borra y cuándo",
+  "data.grace.hint":
+    "Un plan que venció, se retiró o se rebajó conserva lo que guardaba durante 60 días. Después se borra lo que el plan de este espacio no guarda.",
+  "data.grace.body":
+    "Descarga lo que necesites antes de estas fechas, o pide el plan de nuevo para conservarlo todo.",
+  "data.grace.loading": "Cargando qué se borra y cuándo",
+  "data.grace.error": "No se pudo cargar qué se borra y cuándo.",
+  "data.grace.nothing": "Nada de lo conservado se borra cuando termine el periodo de gracia.",
+  "data.grace.caption": "Qué se borra al terminar el periodo de gracia, y desde cuándo",
+  "data.grace.column.kind": "Qué",
+  "data.grace.column.count": "Cuántos",
+  "data.grace.column.from": "Desde",
+  "data.kind.versions": "Versiones anteriores",
+  "data.kind.accessLog": "Entradas del registro de accesos",
+  "data.kind.analytics": "Contadores diarios de analítica",
+  "data.kind.auditEvents": "Eventos de auditoría",
+  "data.kind.pins": "Artefactos fijados (se desfijan y luego se archivan como siempre)",
+  "data.artifacts.title": "Artefactos",
+  "data.artifacts.hint":
+    "Abre un artefacto para descargar cualquier versión que conserve, archivos publicados o fuentes.",
+  "data.artifacts.loading": "Cargando artefactos",
+  "data.artifacts.error": "No se pudieron cargar los artefactos.",
+  "data.artifacts.none": "Este espacio no tiene artefactos.",
+  "data.artifacts.more": "Mostrar más artefactos",
+  "data.artifact.summary":
+    "{name}: {count, plural, one {# versión conservada} other {# versiones conservadas}}",
+  "data.versions.title": "Versiones de {name}",
+  "data.versions.caption": "Versiones conservadas de {name}, de la más reciente a la más antigua",
+  "data.versions.size": "Tamaño",
+  "data.accessLog.csv": "Registro de accesos en CSV",
+  "data.accessLog.json": "Registro de accesos en JSON",
+  "data.accessLog.saved": "El registro de accesos está listo.",
+  "data.logs.title": "Registros y cuenta",
+  "data.logs.hint":
+    "El registro de auditoría del espacio tiene su propia exportación, y tu espacio personal incluye los datos de tu cuenta.",
+  "data.logs.audit": "Exporta el registro de auditoría desde la página Registro de auditoría",
+  "data.logs.account": "Descarga los datos de tu cuenta (JSON)",
+  "data.logs.cli":
+    "Para llevártelo todo de una vez, ejecuta portifact export <carpeta> en una terminal: descarga cada versión conservada, retoma si se interrumpe y escribe un manifiesto.",
+  "shell.dataLink": "Descarga tus datos",
+  "shell.grace.title": "Lo que guardaba el plan {plan} se conserva hasta el {date}",
+  "shell.grace.download": "Descarga tus datos",
+  "shell.grace.request": "Pide {plan} de nuevo",
+  "shell.grace.hide": "Ocultar por hoy",
+  "shell.grace.body":
+    "Después de esa fecha se borra lo que el plan de este espacio no guarda. Descarga lo que necesites o pide el plan de nuevo para conservarlo todo.",
+  "shell.grace.bodyAskAdmin":
+    "Después de esa fecha se borra lo que el plan de este espacio no guarda. Pide a un administrador del espacio que descargue lo que necesites o que pida el plan de nuevo.",
   "plan.loading": "Cargando el plan",
   "plan.error": "No se pudo cargar el plan.",
   "plan.compare.section": "Todos los planes",
@@ -2801,4 +2853,39 @@ export const es = {
     "El inicio de sesión único obligatorio vuelve a aplicarse: el proveedor puede iniciar sesiones ({cause, select, domain {cambió un dominio verificado} plan {cambió el plan} provider {cambió el proveedor} other {detectado en la revisión diaria}})",
   "policies.sso.switchedOff":
     "Se exige el inicio de sesión único, pero está desactivado en este Portifact: nadie puede iniciar sesión con el proveedor ni actuar en este espacio hasta que el soporte de Portifact retire el requisito o vuelva a activarlo. Contacta con el soporte de Portifact.",
+  "policies.maxLife.legend": "Vida máxima de los artifacts",
+  "policies.maxLife.hint":
+    "Archiva cada artifact del workspace un número de días después de su última publicación (una reversión cuenta) o restauración. Solo adelanta el vencimiento: renovar no puede llevar un artifact más allá, y un artifact archivado se puede restaurar hasta que termine su archivo. No elimina nada. Mover un artifact al workspace empieza una vida nueva, como una publicación.",
+  "policies.maxLife.any": "Sin máximo",
+  "policies.maxLife.anyHint":
+    "Los artifacts siguen en línea mientras alguien los renueve o publique.",
+  "policies.maxLife.only": "Archivar tras una vida máxima",
+  "policies.maxLife.onlyHint":
+    "Mientras esté fijada no se puede fijar ningún artifact, y los fijados dejan de estarlo con su fecha límite.",
+  "policies.maxLife.days": "Días después de la última publicación o restauración",
+  "policies.maxLife.daysHint": "De {min} a {max} días.",
+  "policies.maxLife.daysError": "Escribe un número entero de días entre {min} y {max}.",
+  "policies.maxLife.notice":
+    "Un máximo nuevo o más corto entra en vigor {days} días después de guardarlo, y cada administrador recibe un correo. Hasta entonces no archiva nada, pero cada artifact ya muestra su nuevo vencimiento y sus propietarios reciben el aviso de vencimiento habitual. Un máximo más largo, o ninguno, se aplica al momento.",
+  "policies.maxLife.pending": "Una vida máxima entra en vigor el {date}",
+  "policies.maxLife.pendingBody":
+    "Desde entonces, los artifacts se archivan {days} días después de su última publicación o restauración. Antes de esa fecha no archiva nada.",
+  "policies.maxLife.active":
+    "Los artifacts se archivan {days} días después de su última publicación o restauración, y no se pueden fijar.",
+  "policies.impact.atStart":
+    "{count, plural, one {# artifact activo se archiva el día en que entra en vigor la vida máxima, salvo que alguien lo vuelva a publicar} other {# artifacts activos se archivan el día en que entra en vigor la vida máxima, salvo que alguien los vuelva a publicar}}",
+  "policies.impact.soon":
+    "{count, plural, one {# más se archiva en los 30 días siguientes} other {# más se archivan en los 30 días siguientes}}",
+  "policies.impact.pins":
+    "{count, plural, one {# artifact fijado deja de estarlo} other {# artifacts fijados dejan de estarlo}}",
+  "detail.maxLife":
+    "Este workspace archiva los artifacts {days} días después de su última publicación o restauración: el vencimiento ya lo incluye, y fijar no está disponible.",
+  "audit.policy.maxLife": "artifacts archivados {days} días después de su última publicación",
+  "audit.policy.maxLifeNone": "sin vida máxima de los artifacts",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {adelantó el vencimiento de # artifact} other {adelantó el vencimiento de # artifacts}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {devolvió su tiempo a # artifact} other {devolvió su tiempo a # artifacts}}",
+  "transfer.confirm.maxLife":
+    "{space} archiva los artifacts {days} días después de su última publicación, restauración o traslado: si lo mueves ahora, este se archiva como tarde el {date} salvo que alguien lo vuelva a publicar, y allí no se puede fijar.",
 } satisfies Catalog;

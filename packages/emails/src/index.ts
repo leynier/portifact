@@ -24,12 +24,24 @@ export {
   formatExpiry,
 } from "./expiry-notice.ts";
 export {
+  GRACE_NOTICE_TEXT,
+  type GraceNoticeInput,
+  type GraceNoticeKind,
+  type GraceNoticeText,
+  graceNoticeEmail,
+} from "./grace-notice.ts";
+export {
   INVITATION_TEXT,
   type InvitationInput,
   invitationEmail,
 } from "./invitation.ts";
 export { type Block, type EmailLayout, escapeHtml, type Inline, renderEmail } from "./layout.ts";
 export type { EmailContent } from "./message.ts";
+export {
+  RETENTION_NOTICE_TEXT,
+  type RetentionNoticeInput,
+  retentionNoticeEmail,
+} from "./retention-notice.ts";
 export {
   REVIEW_TEXT,
   type ReviewNoticeInput,

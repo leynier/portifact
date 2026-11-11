@@ -398,6 +398,96 @@ export function graceScanStep(record: OwnerPlanRecord, now: number): GraceScanSt
   return { slots: compacted.slots, started, ended, folded: compacted.folded };
 }
 
+/** What the row grants by itself at `now`, without any grace: the plan's own entitlements. */
+export function ownEntitlements(record: OwnerPlanRecord | null, now: number): Entitlements {
+  return record === null || !planActive(record, now) ? free() : granted(record);
+}
+
+/**
+ * One step of what a running grace lets go (decision 0022): at `from`, the end of a hold, the
+ * retention in force for one kind drops from `before` to `after` (the granted plan plus the holds
+ * still running on each side of that moment). What `before` kept and `after` does not is what the
+ * scans delete then; a kind can drop at several hold ends.
+ */
+export interface GraceForecastStep {
+  kind: "versions" | "accessLog" | "auditEvents" | "pins";
+  from: number;
+  before: GraceLimits & { pin: boolean };
+  after: GraceLimits & { pin: boolean };
+}
+
+/** What is kept at `at`: the retention limits in force and whether pins are kept. */
+export function keptAt(record: OwnerPlanRecord | null, at: number): GraceLimits & { pin: boolean } {
+  const owner = entitlements(record, at);
+  return { ...graceLimitsOf(owner.limits), pin: holdsFeature(owner, "pin") };
+}
+
+const STEP_KINDS: readonly GraceForecastStep["kind"][] = [
+  "versions",
+  "accessLog",
+  "auditEvents",
+  "pins",
+];
+
+const drops: Record<
+  GraceForecastStep["kind"],
+  (before: GraceLimits & { pin: boolean }, after: GraceLimits & { pin: boolean }) => boolean
+> = {
+  versions: (b, a) =>
+    a.retainedPreviousVersions < b.retainedPreviousVersions ||
+    a.previousVersionRetentionDays < b.previousVersionRetentionDays,
+  accessLog: (b, a) => a.accessLogRetentionDays < b.accessLogRetentionDays,
+  auditEvents: (b, a) => a.auditRetentionDays < b.auditRetentionDays,
+  pins: (b, a) => b.pin && !a.pin,
+};
+
+/**
+ * The moments after `now` at which what is kept can change: each running hold's end, and a plan
+ * with an end's own end and the end of its natural hold.
+ */
+function changeMoments(record: OwnerPlanRecord | null, now: number): number[] {
+  const moments = liveGraceSlots(record, now).map((slot) => slot.until);
+  if (record?.validUntil != null) {
+    moments.push(record.validUntil, record.validUntil + PLAN_GRACE_MS);
+  }
+  return [...new Set(moments.filter((at) => at > now))].sort((a, b) => a - b);
+}
+
+/**
+ * What a running grace will let go, in order: for each hold end at which the retention in force
+ * for a kind drops (more previous versions or days, access log or audit days, or pins), the step
+ * with what is kept just before and from then on. Not "the earliest end of a hold that keeps more
+ * than the plan": while a later hold keeps the same, nothing goes at the earlier one's end. Empty
+ * without a grace, and for a grace that cannot be read (it holds everything, deletes nothing).
+ */
+export function graceForecastSteps(
+  record: OwnerPlanRecord | null,
+  now: number,
+): GraceForecastStep[] {
+  if (readGrace(record).unreadable) return [];
+  if (liveGraceSlots(record, now).length === 0) return [];
+  const steps: GraceForecastStep[] = [];
+  for (const at of changeMoments(record, now)) {
+    const before = keptAt(record, at - 1);
+    const after = keptAt(record, at);
+    for (const kind of STEP_KINDS) {
+      if (drops[kind](before, after)) steps.push({ kind, from: at, before, after });
+    }
+  }
+  return steps;
+}
+
+/**
+ * Whether the end of a hold lets anything go: a forecast step falls on it (decision 0022, third
+ * delivery). The same rule as the forecast, so an email and the forecast can never disagree: a
+ * hold another covers past its end, or one whose end only drops what deletes nothing (held reads,
+ * `archiveMonths`, which only dates archives made meanwhile and never moves a `purge_at`), is
+ * announced by nobody.
+ */
+export function graceHoldEndDrops(record: OwnerPlanRecord | null, slot: GraceSlot): boolean {
+  return graceForecastSteps(record, slot.until - 1).some((step) => step.from === slot.until);
+}
+
 /** Whether the owner's plan includes a feature. */
 export function hasFeature(owner: Entitlements, feature: PlanFeature): boolean {
   return owner.features.includes(feature);

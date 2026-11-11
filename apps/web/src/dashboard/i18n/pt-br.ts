@@ -1631,6 +1631,58 @@ export const ptBR = {
   "plan.grace.reads": "Ainda pode ser lido até lá: {features}.",
   "plan.grace.download":
     "Baixe o que precisar antes disso: o histórico de cada artefato tem as versões, e o registro de acessos e o registro de auditoria têm suas exportações. Ou peça o plano de novo para manter tudo.",
+  "data.title": "Baixe seus dados",
+  "data.description":
+    "Tudo o que este espaço guarda e você pode levar: as versões mantidas de cada artefato e suas fontes, os registros de acesso, o registro de auditoria e, no seu espaço pessoal, os dados da sua conta. Os arquivos vêm direto do armazenamento; nada é empacotado no servidor.",
+  "data.adminsOnly": "Baixar todos os dados de {workspace} cabe aos administradores.",
+  "data.grace.title": "O que é apagado e quando",
+  "data.grace.hint":
+    "Um plano que venceu, foi removido ou reduzido mantém o que guardava por 60 dias. Depois, o que o plano deste espaço não guarda é apagado.",
+  "data.grace.body":
+    "Baixe o que precisar antes dessas datas ou peça o plano de novo para manter tudo.",
+  "data.grace.loading": "Carregando o que é apagado e quando",
+  "data.grace.error": "Não foi possível carregar o que é apagado e quando.",
+  "data.grace.nothing": "Nada do que está mantido é apagado quando a carência terminar.",
+  "data.grace.caption": "O que é apagado quando a carência termina, e a partir de quando",
+  "data.grace.column.kind": "O quê",
+  "data.grace.column.count": "Quantos",
+  "data.grace.column.from": "A partir de",
+  "data.kind.versions": "Versões anteriores",
+  "data.kind.accessLog": "Entradas do registro de acesso",
+  "data.kind.analytics": "Contadores diários de análise",
+  "data.kind.auditEvents": "Eventos de auditoria",
+  "data.kind.pins": "Artefatos fixados (desafixados e depois arquivados como sempre)",
+  "data.artifacts.title": "Artefatos",
+  "data.artifacts.hint":
+    "Abra um artefato para baixar qualquer versão que ele mantém, arquivos publicados ou fontes.",
+  "data.artifacts.loading": "Carregando artefatos",
+  "data.artifacts.error": "Não foi possível carregar os artefatos.",
+  "data.artifacts.none": "Este espaço não tem artefatos.",
+  "data.artifacts.more": "Mostrar mais artefatos",
+  "data.artifact.summary":
+    "{name}: {count, plural, one {# versão mantida} other {# versões mantidas}}",
+  "data.versions.title": "Versões de {name}",
+  "data.versions.caption": "Versões mantidas de {name}, da mais nova para a mais antiga",
+  "data.versions.size": "Tamanho",
+  "data.accessLog.csv": "Registro de acesso em CSV",
+  "data.accessLog.json": "Registro de acesso em JSON",
+  "data.accessLog.saved": "O registro de acesso está pronto.",
+  "data.logs.title": "Registros e conta",
+  "data.logs.hint":
+    "O registro de auditoria do espaço tem sua própria exportação, e seu espaço pessoal inclui os dados da sua conta.",
+  "data.logs.audit": "Exporte o registro de auditoria na página Registro de auditoria",
+  "data.logs.account": "Baixe os dados da sua conta (JSON)",
+  "data.logs.cli":
+    "Para levar tudo de uma vez, rode portifact export <pasta> em um terminal: ele baixa cada versão mantida, retoma se for interrompido e grava um manifesto.",
+  "shell.dataLink": "Baixe seus dados",
+  "shell.grace.title": "O que o plano {plan} guardava fica até {date}",
+  "shell.grace.download": "Baixe seus dados",
+  "shell.grace.request": "Peça o {plan} de novo",
+  "shell.grace.hide": "Ocultar por hoje",
+  "shell.grace.body":
+    "Depois dessa data, o que o plano deste espaço não guarda é apagado. Baixe o que precisar ou peça o plano de novo para manter tudo.",
+  "shell.grace.bodyAskAdmin":
+    "Depois dessa data, o que o plano deste espaço não guarda é apagado. Peça a um administrador do espaço que baixe o que você precisa ou peça o plano de novo.",
   "plan.loading": "Carregando o plano",
   "plan.error": "Não foi possível carregar o plano.",
   "plan.compare.section": "Todos os planos",
@@ -2773,4 +2825,38 @@ export const ptBR = {
     "O login único exigido volta a valer: o provedor consegue conectar as pessoas ({cause, select, domain {um domínio verificado mudou} plan {o plano mudou} provider {o provedor mudou} other {detectado na verificação diária}})",
   "policies.sso.switchedOff":
     "O login único é exigido, mas está desligado neste Portifact: ninguém consegue entrar pelo provedor nem agir neste espaço até o suporte da Portifact retirar a exigência ou religar o login único. Fale com o suporte da Portifact.",
+  "policies.maxLife.legend": "Vida máxima dos artifacts",
+  "policies.maxLife.hint":
+    "Arquiva cada artifact do workspace um número de dias após a última publicação (uma reversão conta) ou restauração. Só antecipa o vencimento: renovar não leva um artifact além dele, e um artifact arquivado pode ser restaurado até o fim do arquivo. Nada é excluído. Mover um artifact para o workspace começa uma vida nova, como uma publicação.",
+  "policies.maxLife.any": "Sem máximo",
+  "policies.maxLife.anyHint": "Os artifacts continuam no ar enquanto alguém os renova ou publica.",
+  "policies.maxLife.only": "Arquivar após uma vida máxima",
+  "policies.maxLife.onlyHint":
+    "Enquanto estiver definida não é possível fixar, e os artifacts fixados deixam de estar com seu prazo.",
+  "policies.maxLife.days": "Dias após a última publicação ou restauração",
+  "policies.maxLife.daysHint": "De {min} a {max} dias.",
+  "policies.maxLife.daysError": "Escreva um número inteiro de dias entre {min} e {max}.",
+  "policies.maxLife.notice":
+    "Um máximo novo ou menor entra em vigor {days} dias depois de salvo, e cada administrador recebe um e-mail. Até lá nada é arquivado por ele, mas cada artifact já mostra o novo vencimento e os donos recebem o aviso de vencimento habitual. Um máximo maior, ou nenhum, vale na hora.",
+  "policies.maxLife.pending": "Uma vida máxima entra em vigor em {date}",
+  "policies.maxLife.pendingBody":
+    "A partir daí, os artifacts são arquivados {days} dias após a última publicação ou restauração. Nada é arquivado por ela antes dessa data.",
+  "policies.maxLife.active":
+    "Os artifacts são arquivados {days} dias após a última publicação ou restauração e não podem ser fixados.",
+  "policies.impact.atStart":
+    "{count, plural, one {# artifact ativo é arquivado no dia em que a vida máxima entra em vigor, a menos que alguém o publique de novo} other {# artifacts ativos são arquivados no dia em que a vida máxima entra em vigor, a menos que alguém os publique de novo}}",
+  "policies.impact.soon":
+    "{count, plural, one {mais # é arquivado nos 30 dias seguintes} other {mais # são arquivados nos 30 dias seguintes}}",
+  "policies.impact.pins":
+    "{count, plural, one {# artifact fixado deixa de estar} other {# artifacts fixados deixam de estar}}",
+  "detail.maxLife":
+    "Este workspace arquiva artifacts {days} dias após a última publicação ou restauração: o vencimento já inclui isso, e fixar não está disponível.",
+  "audit.policy.maxLife": "artifacts arquivados {days} dias após a última publicação",
+  "audit.policy.maxLifeNone": "sem vida máxima dos artifacts",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {antecipou o vencimento de # artifact} other {antecipou o vencimento de # artifacts}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {devolveu o tempo de # artifact} other {devolveu o tempo de # artifacts}}",
+  "transfer.confirm.maxLife":
+    "{space} arquiva artifacts {days} dias após a última publicação, restauração ou transferência: movido agora, este é arquivado no máximo em {date}, a menos que alguém o publique de novo, e lá não pode ser fixado.",
 } satisfies Catalog;

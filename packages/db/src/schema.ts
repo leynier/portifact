@@ -118,6 +118,19 @@ export const artifacts = sqliteTable(
      * restriction. Null for artifacts created before the column. No foreign key.
      */
     createdBy: text("created_by"),
+    /**
+     * When the artifact's current life started other than by a publish (decision 0023): its last
+     * restore from the archive or its move into another space. With its current version's
+     * `committed_at`, where a workspace's maximum life counts from. Null until then. Kept last
+     * because `ALTER TABLE ADD COLUMN` appends it.
+     */
+    lifeStartedAt: timestamp("life_started_at"),
+    /**
+     * The expiry the artifact's plan gave it before its workspace's maximum life brought it
+     * forward (decision 0023); null while the maximum did not. What the policy gives back when it
+     * is lengthened, shortened or removed, so no cap outlives the rule that set it.
+     */
+    uncappedExpiresAt: timestamp("uncapped_expires_at"),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),
@@ -129,6 +142,10 @@ export const artifacts = sqliteTable(
       .where(sql`${t.customHost} is not null`),
     // The scan that unpins the artifacts of owners whose plan no longer includes `pin`.
     index("artifacts_pinned_owner_idx").on(t.ownerId).where(sql`${t.pinned} = 1`),
+    // The sweep that gives back caps no rule asks for any more (decision 0023): owners with one.
+    index("artifacts_capped_owner_idx")
+      .on(t.ownerId)
+      .where(sql`${t.uncappedExpiresAt} is not null`),
     index("artifacts_state_expires_idx").on(t.state, t.expiresAt),
     index("artifacts_state_purge_idx").on(t.state, t.purgeAt),
     check("artifacts_id_format", sql`length(${t.id}) = 10`),
@@ -707,6 +724,8 @@ export const OUTBOX_TOPICS = [
   "thread_issue",
   "plan_region",
   "audit_stream",
+  "retention_notice",
+  "plan_grace_notice",
 ] as const;
 
 /**
@@ -1626,6 +1645,14 @@ export const ownerPlans = sqliteTable(
      */
     // Plain text, parsed only by `readGrace`: a malformed value must never throw in a reader.
     grace: text("grace"),
+    /**
+     * Which grace emails each live hold got (decision 0022, third delivery): a JSON list validated
+     * by `GraceNoticeMarks` when it is read (`readGraceNotices`), null when none. Written only by
+     * the grace notice scan and `applyOwnerPlans`; never touched by the plan's own writes, so it
+     * does not move `updated_at`.
+     */
+    // Plain text, like `grace`: a malformed value reads as no marks and never throws.
+    graceNotices: text("grace_notices"),
   },
   (t) => [
     check("owner_plans_plan", sql`${t.plan} in ('free', 'pro', 'team', 'enterprise')`),

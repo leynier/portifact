@@ -334,7 +334,7 @@ What it found, all fixed here:
 
 The run does not cover the platform's own invocation logs (the Workers Logs row above), which no `console` guard can see. Decided on 2026-11-11: they are turned off in the app and content Workers in the change that binds the EU resources (`docs/releasing.md`, "EU region", step 13); Portifact's own `logEvent` lines stay.
 
-What the run cannot prove without the real EU resources: that D1 and R2 actually store in the EU jurisdiction (the stack's databases and buckets are local), presigning and CORS against the real `https://<account>.eu.r2.cloudflarestorage.com` endpoint, Time Travel on a jurisdictional database, and whether one R2 token covers both buckets. `docs/releasing.md` ("EU region") runs the spec on the release commit and checks the notices and logs on staging before the first EU workspace.
+Checked with the real EU resources on 2026-11-11 (`docs/releasing.md`, "EU region", the end to end table). What the local run cannot prove without them: that D1 and R2 actually store in the EU jurisdiction (the stack's databases and buckets are local), presigning and CORS against the real `https://<account>.eu.r2.cloudflarestorage.com` endpoint, Time Travel on a jurisdictional database, and whether one R2 token covers both buckets. `docs/releasing.md` ("EU region") runs the spec on the release commit and checks the notices and logs on staging before the first EU workspace.
 
 ## Cost and effort
 

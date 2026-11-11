@@ -52,6 +52,10 @@ export const ALLOWED_FIELDS: Record<string, { holds: string; value: RegExp }> = 
     value: re(`${LITERAL}|emailEventKind\\(${PATH}\\)`),
   },
   topic: { holds: "an outbox topic (an enum)", value: re(`${PATH}\\.topic`) },
+  moment: {
+    holds: "a grace email's moment (an enum: start, two_weeks, three_days)",
+    value: re(`${LITERAL}|moment|${PATH}\\.moment`),
+  },
   error: {
     holds: "errorLabel(...): a name and codes, never a message",
     value: re(`errorLabel\\(${IDENT}\\)`),

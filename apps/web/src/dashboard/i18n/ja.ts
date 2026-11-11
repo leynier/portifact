@@ -1617,6 +1617,58 @@ export const ja = {
   "plan.grace.reads": "それまで引き続き読めるもの：{features}。",
   "plan.grace.download":
     "それまでに必要なものをダウンロードしてください。各アーティファクトの履歴にバージョンがあり、アクセスログと監査ログはエクスポートできます。すべてを残すには、もう一度プランを申請してください。",
+  "data.title": "データをダウンロード",
+  "data.description":
+    "このスペースに保存されていて持ち出せるもの：各アーティファクトの保持されたバージョンとそのソース、アクセスログ、監査ログ、そして個人スペースではアカウントのデータです。ファイルはストレージから直接届き、サーバーでまとめることはありません。",
+  "data.adminsOnly": "{workspace} のすべてのデータのダウンロードは管理者が行います。",
+  "data.grace.title": "削除されるものと時期",
+  "data.grace.hint":
+    "期限切れ、削除、引き下げとなったプランは、保持していたものを 60 日間保持します。その後、このスペースのプランで保持されないものは削除されます。",
+  "data.grace.body":
+    "これらの日付までに必要なものをダウンロードするか、すべてを残すためにもう一度プランを申請してください。",
+  "data.grace.loading": "削除されるものと時期を読み込んでいます",
+  "data.grace.error": "削除されるものと時期を読み込めませんでした。",
+  "data.grace.nothing": "猶予期間が終わっても、保持中のもので削除されるものはありません。",
+  "data.grace.caption": "猶予期間の終了時に削除されるものと、その時期",
+  "data.grace.column.kind": "内容",
+  "data.grace.column.count": "件数",
+  "data.grace.column.from": "開始日",
+  "data.kind.versions": "以前のバージョン",
+  "data.kind.accessLog": "アクセスログのエントリ",
+  "data.kind.analytics": "日ごとの分析カウンター",
+  "data.kind.auditEvents": "監査イベント",
+  "data.kind.pins": "ピン留めされたアーティファクト（ピンが外れ、通常どおりアーカイブされます）",
+  "data.artifacts.title": "アーティファクト",
+  "data.artifacts.hint":
+    "アーティファクトを開くと、保持されている任意のバージョン（公開ファイルまたはソース）をダウンロードできます。",
+  "data.artifacts.loading": "アーティファクトを読み込んでいます",
+  "data.artifacts.error": "アーティファクトを読み込めませんでした。",
+  "data.artifacts.none": "このスペースにはアーティファクトがありません。",
+  "data.artifacts.more": "さらにアーティファクトを表示",
+  "data.artifact.summary":
+    "{name}：保持されているバージョン {count, plural, one {# 件} other {# 件}}",
+  "data.versions.title": "{name} のバージョン",
+  "data.versions.caption": "{name} の保持されているバージョン（新しい順）",
+  "data.versions.size": "サイズ",
+  "data.accessLog.csv": "アクセスログ（CSV）",
+  "data.accessLog.json": "アクセスログ（JSON）",
+  "data.accessLog.saved": "アクセスログの準備ができました。",
+  "data.logs.title": "ログとアカウント",
+  "data.logs.hint":
+    "スペースの監査ログには専用のエクスポートがあり、個人スペースにはアカウントのデータが含まれます。",
+  "data.logs.audit": "監査ログページから監査ログをエクスポート",
+  "data.logs.account": "アカウントのデータをダウンロード（JSON）",
+  "data.logs.cli":
+    "すべてを一度に持ち出すには、ターミナルで portifact export <フォルダー> を実行してください。保持されているすべてのバージョンを取得し、中断しても再開し、マニフェストを書き出します。",
+  "shell.dataLink": "データをダウンロード",
+  "shell.grace.title": "{plan} プランで保持していたものは {date} まで保持されます",
+  "shell.grace.download": "データをダウンロード",
+  "shell.grace.request": "{plan} をもう一度申請",
+  "shell.grace.hide": "今日は非表示",
+  "shell.grace.body":
+    "その日以降、このスペースのプランで保持されないものは削除されます。必要なものをダウンロードするか、すべてを残すためにもう一度プランを申請してください。",
+  "shell.grace.bodyAskAdmin":
+    "その日以降、このスペースのプランで保持されないものは削除されます。必要なもののダウンロードかプランの再申請を、このスペースの管理者に依頼してください。",
   "plan.loading": "プランを読み込み中",
   "plan.error": "プランを読み込めませんでした。",
   "plan.compare.section": "すべてのプラン",
@@ -2750,4 +2802,38 @@ export const ja = {
     "シングルサインオン必須が再び適用されます。プロバイダーでサインインできます（{cause, select, domain {確認済みドメインが変更されました} plan {プランが変更されました} provider {プロバイダーが変更されました} other {日次チェックで検出}}）",
   "policies.sso.switchedOff":
     "シングルサインオンは必須ですが、この Portifact では無効になっています。Portifact サポートが要件を解除するかシングルサインオンを再び有効にするまで、誰もプロバイダーでサインインできず、このワークスペースで操作できません。Portifact サポートに連絡してください。",
+  "policies.maxLife.legend": "artifact の最長期間",
+  "policies.maxLife.hint":
+    "ワークスペースの各 artifact を、最後の公開(ロールバックを含む)または復元から指定した日数後にアーカイブします。期限を早めるだけで、更新しても最長期間を超えられません。アーカイブされた artifact はアーカイブ期間が終わるまで復元できます。削除されるものはありません。ワークスペースへの artifact の移動も、公開と同じく新しい期間の始まりになります。",
+  "policies.maxLife.any": "最長期間なし",
+  "policies.maxLife.anyHint": "誰かが更新または公開している限り、artifact は公開されたままです。",
+  "policies.maxLife.only": "最長期間を過ぎたらアーカイブ",
+  "policies.maxLife.onlyHint":
+    "設定中はピン留めできず、ピン留めされた artifact は期限付きでピン留めが外れます。",
+  "policies.maxLife.days": "最後の公開または復元からの日数",
+  "policies.maxLife.daysHint": "{min} から {max} 日。",
+  "policies.maxLife.daysError": "{min} から {max} までの整数の日数を入力してください。",
+  "policies.maxLife.notice":
+    "新しい、またはより短い最長期間は保存の {days} 日後に適用され、すべての管理者にメールが届きます。それまでこの設定でアーカイブされることはありませんが、各 artifact には新しい期限がすでに表示され、所有者には通常の期限通知が届きます。より長い最長期間、または設定なしはすぐに適用されます。",
+  "policies.maxLife.pending": "最長期間は {date} に適用されます",
+  "policies.maxLife.pendingBody":
+    "それ以降、artifact は最後の公開または復元から {days} 日後にアーカイブされます。その日までこの設定でアーカイブされることはありません。",
+  "policies.maxLife.active":
+    "artifact は最後の公開または復元から {days} 日後にアーカイブされ、ピン留めできません。",
+  "policies.impact.atStart":
+    "{count, plural, one {# 件の公開中の artifact が最長期間の適用日にアーカイブされます(誰かが再公開しない場合)} other {# 件の公開中の artifact が最長期間の適用日にアーカイブされます(誰かが再公開しない場合)}}",
+  "policies.impact.soon":
+    "{count, plural, one {さらに # 件がその後 30 日以内にアーカイブされます} other {さらに # 件がその後 30 日以内にアーカイブされます}}",
+  "policies.impact.pins":
+    "{count, plural, one {# 件のピン留めされた artifact のピン留めが外れます} other {# 件のピン留めされた artifact のピン留めが外れます}}",
+  "detail.maxLife":
+    "このワークスペースでは artifact は最後の公開または復元から {days} 日後にアーカイブされます。期限にはこれが反映されており、ピン留めはできません。",
+  "audit.policy.maxLife": "artifact を最後の公開から {days} 日後にアーカイブ",
+  "audit.policy.maxLifeNone": "artifact の最長期間なし",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {# 件の artifact の期限を早めました} other {# 件の artifact の期限を早めました}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {# 件の artifact の期限を戻しました} other {# 件の artifact の期限を戻しました}}",
+  "transfer.confirm.maxLife":
+    "{space} では artifact は最後の公開、復元、または移動から {days} 日後にアーカイブされます。今移動すると、誰かが再公開しない限り遅くとも {date} にアーカイブされ、そこではピン留めできません。",
 } satisfies Catalog;

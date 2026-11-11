@@ -26,11 +26,13 @@ import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { abortSessionMultipart } from "./multipart.ts";
+import { type GraceNotifier, sendGraceNotice } from "./plan-grace-notices.ts";
 import { applyOwnerPlanRegion } from "./plans.ts";
+import { type RetentionNotifier, sendRetentionNotice } from "./retention-notices.ts";
 import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
 import { runThreadIssue, type ThreadIssueDeps } from "./thread-issues.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
-import { runWorkspacePolicyJob } from "./workspace-policies.ts";
+import { runWorkspacePolicyJob, workspaceRegionDb } from "./workspace-policies.ts";
 import { advanceWorkspaceDeletion, type DeletionRegions, singleRegion } from "./workspaces.ts";
 
 /** A relayed job that is not done after this long is sent again. */
@@ -159,8 +161,12 @@ export interface JobDeps {
   reviewNotifier?: ReviewNotifier | undefined;
   /** Sends `directory_notice` emails (decision 0017). */
   directoryNotifier?: DirectoryNotifier | undefined;
+  /** Sends `retention_notice` emails (decision 0023). */
+  retentionNotifier?: RetentionNotifier | undefined;
   /** Creates issues from threads for `thread_issue` jobs (decision 0018). */
   issues?: ThreadIssueDeps | undefined;
+  /** Sends `plan_grace_notice` emails (decision 0022, third delivery). */
+  graceNotifier?: GraceNotifier | undefined;
   /** Every region, for the deletions that reach all of them; only the job's own without it. */
   regions?: DeletionRegions | undefined;
 }
@@ -198,7 +204,9 @@ async function runRow(
     domainNotifier,
     reviewNotifier,
     directoryNotifier,
+    retentionNotifier,
     issues,
+    graceNotifier,
     regions = singleRegion(db, bucket),
   }: JobDeps,
 ): Promise<JobOutcome> {
@@ -259,8 +267,15 @@ async function runRow(
       if (!directoryNotifier) throw new Error("directory_notice needs the directory notifier");
       return sendDirectoryNotice(db, row, now, directoryNotifier);
     case "workspace_policy":
-      // Written in the global batch that saved the policy (one database with one region).
-      return runWorkspacePolicyJob(db, row, now);
+      // Written in the global batch that saved the policy; it runs on the workspace's region.
+      return runWorkspacePolicyJob(db, row, now, (workspaceId) =>
+        workspaceRegionDb(regions, workspaceId),
+      );
+    case "retention_notice":
+      if (!retentionNotifier) throw new Error("retention_notice needs the retention notifier");
+      return sendRetentionNotice(db, row, now, retentionNotifier, (workspaceId) =>
+        workspaceRegionDb(regions, workspaceId),
+      );
     case "thread_issue":
       // Thrown, not reported done: the row stays and the job runs again where the network is.
       if (!issues) throw new Error("thread_issue needs the integration deps");
@@ -270,6 +285,11 @@ async function runRow(
       // gives the stream a job again once streams are switched on with a key (decision 0019).
       if (!auditStreams || auditStreams.keys.length === 0) return "stale";
       return deliverAuditStream(db, row, now, auditStreams);
+    case "plan_grace_notice":
+      // Thrown, not reported done: the row stays and the job runs again where both are bound.
+      if (!graceNotifier) throw new Error("plan_grace_notice needs the grace notifier");
+      if (!access) throw new Error("plan_grace_notice needs the access log database");
+      return sendGraceNotice(db, access, row, now, graceNotifier);
   }
 }
 

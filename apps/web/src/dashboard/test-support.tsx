@@ -34,6 +34,7 @@ import {
   DocumentPreviewRequest,
   type ErrorCode,
   type FileChange,
+  type GraceForecastView,
   type IncomingInvitationView,
   type IntegrationConnectionView,
   type InvitationLookup,
@@ -81,6 +82,7 @@ import {
   diffText,
   normalizePolicy,
   noticeWindowEnd,
+  retentionTiming,
   singleFamilyLists,
   textDiffEligibility,
 } from "@portifact/domain";
@@ -428,6 +430,9 @@ export const NO_IMPACT: PolicyImpact = {
   linksRevoked: 0,
   linksWithoutPassword: 0,
   linksOverLifetime: 0,
+  artifactsAtStart: 0,
+  artifactsSoon: 0,
+  pinsLifted: 0,
 };
 
 export function workspace(
@@ -545,6 +550,8 @@ export interface FakeServer {
   commentNotices: Record<string, CommentNoticeMute>;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
+  /** The body of GET /api/v1/grace-forecast (decision 0022), for every space. */
+  graceForecast: GraceForecastView;
   /** The account's webhooks and whether its plan includes them, as /api/v1/webhooks keeps them. */
   webhooks: {
     list: WebhookView[];
@@ -671,6 +678,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       locale: null,
     },
     usage: usageView(),
+    graceForecast: { ownerId: "u_owner", grace: null, kinds: [] },
     webhooks: { list: [], available: true, attempts: {} },
     webhookTests: [],
     integrations: {
@@ -1736,6 +1744,11 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       .map(({ artifactId: _id, ...hit }) => hit);
     return Response.json({ items, nextCursor: null });
   }
+  if (path === "/api/v1/grace-forecast" && method === "GET") {
+    const slug = url.searchParams.get("workspace");
+    if (slug && !server.workspaces[slug]) return apiError("not_found", 404);
+    return Response.json(server.graceForecast);
+  }
   if (path === "/api/v1/usage" && method === "GET") {
     const slug = url.searchParams.get("workspace");
     if (!slug) return Response.json(server.usage);
@@ -2782,7 +2795,15 @@ function policyRoute(
     if (newlySso && w.ssoOutside > 0 && body?.confirmedOutsideProvider !== w.ssoOutside) {
       return apiError("policy_refused", 403);
     }
-    w.view = { ...w.view, policy: body?.policy as WorkspacePolicy };
+    // As the API (decision 0023): the server decides when a maximum life takes effect.
+    w.view = {
+      ...w.view,
+      policy: retentionTiming(
+        w.view.policy as WorkspacePolicy,
+        body?.policy as WorkspacePolicy,
+        Date.now(),
+      ),
+    };
     w.policyRevision += 1;
     return json(state());
   }

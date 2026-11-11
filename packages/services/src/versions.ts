@@ -15,9 +15,11 @@ import {
   nextExpiry,
   normalizePath,
   ok,
+  policyExpiry,
   previousVersionExpiry,
   type Result,
   type SourceOriginInput,
+  uncappedExpiry,
   type VersionRetention,
   versionRetention,
 } from "@portifact/domain";
@@ -525,7 +527,10 @@ export async function rollbackArtifact(
   if (!admission.ok) return admission;
 
   const versionId = `ver_${crypto.randomUUID().replaceAll("-", "")}`;
-  const expiresAt = nextExpiry(new Date(input.now)).getTime();
+  // A rollback is a publish: a workspace's maximum life (decision 0023) counts from now.
+  const planExpiry = nextExpiry(new Date(input.now)).getTime();
+  const expiresAt = policyExpiry(managed.value.actor.policy, planExpiry, input.now, input.now);
+  const uncappedExpiresAt = uncappedExpiry(planExpiry, expiresAt);
   const v = schema.versions;
   const files = schema.versionFiles;
   const targetRetained = exists(
@@ -550,6 +555,7 @@ export async function rollbackArtifact(
       .set({
         currentVersionId: versionId,
         expiresAt: sql`case when ${schema.artifacts.pinned} then null else ${expiresAt} end`,
+        uncappedExpiresAt: sql`case when ${schema.artifacts.pinned} then null else ${uncappedExpiresAt} end`,
         lifecycleGeneration: sql`${schema.artifacts.lifecycleGeneration} + 1`,
         updatedAt: input.now,
       })

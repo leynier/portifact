@@ -359,6 +359,27 @@ describe("portifact pull", () => {
     expect(server.api.gets).toHaveLength(0);
   });
 
+  it("refuses names a folding file system stores as one (straße and strasse), before writing", async () => {
+    h.signIn();
+    for (const pair of [
+      ["stra\u00dfe.html", "strasse.html"],
+      ["\u017f.txt", "s.txt"],
+    ]) {
+      const artifact = server.api.seed({ type: "site", currentVersionId: null, versions: 0 });
+      server.api.seedVersion(
+        artifact,
+        { published: { "a.md": "a", [pair[0] as string]: "one", [pair[1] as string]: "two" } },
+        { entrypoint: "a.md" },
+      );
+      const out = join(h.workspace, `folding-${artifact.id}`);
+      const result = await h.invoke("pull", artifact.id, "--out", out, "--json");
+      expect(result.code, pair[0]).toBe(1);
+      expect(json(result).error.message, pair[0]).toContain("collides with another file");
+      await expect(lstat(out), pair[0]).rejects.toThrow();
+    }
+    expect(server.api.gets).toHaveLength(0);
+  });
+
   it("stops on bytes that do not match the manifest and removes the partial folder", async () => {
     h.signIn();
     const { artifact } = history();

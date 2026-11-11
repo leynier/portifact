@@ -13,6 +13,7 @@ import {
   type PolicyImpact,
   type RequestContext,
   type RequestRefusal,
+  WORKSPACE_POLICIES,
   WorkspacePolicy,
   type WorkspacePolicyShown,
 } from "@portifact/contracts";
@@ -52,10 +53,20 @@ export function policyOf(stored: unknown): WorkspacePolicy {
 export function storedPolicy(policy: WorkspacePolicy): Partial<WorkspacePolicy> | null {
   if (changedFields(DEFAULT_POLICY, policy).length === 0) return null;
   // The same for the sign-in policies (decision 0021): a row stores them only while they are set.
-  const { ipAllowlist, tokenIpAllowlist, sessionMaxHours, allowedClients, ssoRequired, ...rest } =
-    policy;
+  const {
+    ipAllowlist,
+    tokenIpAllowlist,
+    sessionMaxHours,
+    allowedClients,
+    ssoRequired,
+    artifactMaxDays,
+    artifactMaxDaysFrom,
+    ...rest
+  } = policy;
   return {
     ...rest,
+    // The maximum life (decision 0023) too: stored only while set.
+    ...(artifactMaxDays === null ? {} : { artifactMaxDays, artifactMaxDaysFrom }),
     // "SSO required" too (decision 0021): stored only while set.
     ...(ssoRequired ? { ssoRequired } : {}),
     ...(ipAllowlist === null ? {} : { ipAllowlist }),
@@ -125,6 +136,10 @@ export const POLICY_MESSAGES = {
     "Portifact could not tell when you signed in, so a maximum session age could lock you out. Sign in again first.",
   singleFamily: (lists: string) =>
     `${lists} only IPv4 or only IPv6 ranges. People on networks that use both reach Portifact over either, and requests over the other one would be refused. Add the other family's ranges, or confirm that the list covers only one.`,
+  maxLifeReached: (days: number) =>
+    `This artifact reached the workspace's maximum life of ${days} days since its last publish, so it cannot be renewed. Publish a new version to keep it online.`,
+  pinUnderMaxLife: (days: number) =>
+    `The workspace's policy archives artifacts ${days} days after their last publish, so they cannot be pinned. Publish a new version to keep it online longer.`,
 } as const;
 
 function hoursText(hours: number): string {
@@ -220,6 +235,8 @@ export function changedFields(current: WorkspacePolicy, next: WorkspacePolicy): 
   if (current.sessionMaxHours !== next.sessionMaxHours) fields.push("sessionMaxHours");
   if (!sameDomains(current.allowedClients, next.allowedClients)) fields.push("allowedClients");
   if (current.ssoRequired !== next.ssoRequired) fields.push("ssoRequired");
+  // Its effective date is derived from the change (`retentionTiming`), never a field of its own.
+  if (current.artifactMaxDays !== next.artifactMaxDays) fields.push("artifactMaxDays");
   return fields;
 }
 
@@ -265,6 +282,12 @@ function loosens(field: PolicyField, current: WorkspacePolicy, next: WorkspacePo
       );
     case "ssoRequired":
       return !next.ssoRequired;
+    // A longer (or no) maximum life.
+    case "artifactMaxDays":
+      return (
+        next.artifactMaxDays === null ||
+        (current.artifactMaxDays !== null && next.artifactMaxDays > current.artifactMaxDays)
+      );
   }
 }
 
@@ -302,7 +325,8 @@ export function policyTouchesArtifacts(policy: WorkspacePolicy): boolean {
     policy.publicAccess === "forbidden" ||
     policy.readerDomains !== null ||
     policy.shareLinks !== "allowed" ||
-    policy.shareLinkMaxDays !== null
+    policy.shareLinkMaxDays !== null ||
+    policy.artifactMaxDays !== null
   );
 }
 
@@ -313,7 +337,10 @@ export function impactTotal(impact: PolicyImpact): number {
     impact.readersOutside +
     impact.linksRevoked +
     impact.linksWithoutPassword +
-    impact.linksOverLifetime
+    impact.linksOverLifetime +
+    impact.artifactsAtStart +
+    impact.artifactsSoon +
+    impact.pinsLifted
   );
 }
 
@@ -323,6 +350,9 @@ const IMPACT_KEYS = [
   "linksRevoked",
   "linksWithoutPassword",
   "linksOverLifetime",
+  "artifactsAtStart",
+  "artifactsSoon",
+  "pinsLifted",
 ] as const satisfies readonly (keyof PolicyImpact)[];
 
 /**
@@ -356,6 +386,19 @@ export function checkPolicyImpact(
       "share links",
       "past the maximum lifetime would stop opening",
     ],
+    [
+      impact.artifactsAtStart,
+      "active artifact",
+      "active artifacts",
+      "would be archived when the maximum life takes effect",
+    ],
+    [
+      impact.artifactsSoon,
+      "active artifact",
+      "active artifacts",
+      "would be archived within 30 days after that",
+    ],
+    [impact.pinsLifted, "pinned artifact", "pinned artifacts", "would be unpinned"],
   ] as const;
   const listed = parts
     .filter(([count]) => count > 0)
@@ -497,6 +540,9 @@ export function policyChangeDetail(
     ...(fields.includes("sessionMaxHours") ? { sessionMaxHours: next.sessionMaxHours } : {}),
     ...(fields.includes("allowedClients") ? { allowedClients: next.allowedClients } : {}),
     ...(fields.includes("ssoRequired") ? { ssoRequired: next.ssoRequired } : {}),
+    ...(fields.includes("artifactMaxDays")
+      ? { artifactMaxDays: next.artifactMaxDays, artifactMaxDaysFrom: next.artifactMaxDaysFrom }
+      : {}),
     confirmed,
   };
 }
@@ -533,6 +579,15 @@ export function describePolicy(policy: WorkspacePolicy | WorkspacePolicyShown): 
     lines.push(`people act only through ${allowed.join(" and ")}`);
   }
   if (policy.ssoRequired) lines.push("people sign in through the workspace's single sign-on");
+  if (policy.artifactMaxDays !== null) {
+    const from =
+      policy.artifactMaxDaysFrom === null
+        ? ""
+        : ` (from ${new Date(policy.artifactMaxDaysFrom).toISOString().slice(0, 10)})`;
+    lines.push(
+      `artifacts are archived ${policy.artifactMaxDays} days after their last publish or restore, and cannot be pinned${from}`,
+    );
+  }
   return lines;
 }
 
@@ -893,6 +948,10 @@ export function liftedFields(current: WorkspacePolicy, next: WorkspacePolicy): P
         const now = next[field];
         return was !== null && (now === null || !rangesCovered(now, was));
       }
+      // A longer or no maximum life is never held back (decision 0023): there, re-applying the
+      // older, tighter value is what would archive data, so `apply-policies` always applies it.
+      case "artifactMaxDays":
+        return false;
       default:
         return loosens(field, current, next);
     }
@@ -941,4 +1000,103 @@ export function networkDecision(input: {
     return "allowed";
   }
   return networkVerdict(input.networks, input.ip);
+}
+
+/** A workspace's maximum life of artifacts (decision 0023): days and when it takes effect. */
+export interface MaxLife {
+  days: number;
+  /** No deadline is earlier than this (milliseconds). */
+  from: number;
+}
+
+/** The maximum life a policy sets, or null (no policy, or none set). */
+export function maxLifeOf(policy: WorkspacePolicy | undefined): MaxLife | null {
+  if (!policy || policy.artifactMaxDays === null) return null;
+  return { days: policy.artifactMaxDays, from: policy.artifactMaxDaysFrom ?? 0 };
+}
+
+/**
+ * When an artifact whose life started at `lifeStart` (its last publish, a rollback included, or
+ * restore) reaches the maximum: `days` after it, and never before the maximum takes effect. Its
+ * SQL twin is `maxLifeDeadlineSql` in packages/services, which must compute exactly this.
+ */
+export function maxLifeDeadline(life: MaxLife, lifeStart: number): number {
+  return Math.max(life.from, lifeStart + life.days * DAY_MS);
+}
+
+/**
+ * The expiry an artifact gets under its owner's policy: the plan's expiry (`planExpiry`, from a
+ * publish, renewal, restore, move or unpin), capped by the maximum life, and never earlier than
+ * `now`: a cap only ever brings an expiry forward to the present, never into the past, so an
+ * artifact that comes under a maximum late (a move, a reinstatement, a lapsed pin) is archived
+ * from the moment it was caught, never from before it. Never later than `planExpiry` when that is
+ * in the future. Its SQL twin is `cappedExpirySql` in packages/services.
+ */
+export function policyExpiry(
+  policy: WorkspacePolicy | undefined,
+  planExpiry: number,
+  lifeStart: number,
+  now: number,
+): number {
+  const life = maxLifeOf(policy);
+  if (life === null) return planExpiry;
+  return Math.min(planExpiry, Math.max(maxLifeDeadline(life, lifeStart), now));
+}
+
+/**
+ * What a write stores beside the expiry (`artifacts.uncapped_expires_at`): the plan's expiry when
+ * the maximum life brought it forward, null when it did not, so the policy can give it back.
+ */
+export function uncappedExpiry(planExpiry: number, expiry: number): number | null {
+  return expiry < planExpiry ? planExpiry : null;
+}
+
+/**
+ * The policy as it is stored after a save (decision 0023): the server, never the client, decides
+ * when a maximum life takes effect. A new or shorter maximum takes effect after the notice period
+ * (`retentionNoticeDays` from now); a longer one keeps the date the current one has, so lengthening
+ * during the notice period never makes it bind sooner; none clears the date.
+ */
+export function retentionTiming(
+  current: WorkspacePolicy,
+  next: WorkspacePolicy,
+  now: number,
+): WorkspacePolicy {
+  if (next.artifactMaxDays === null) return { ...next, artifactMaxDaysFrom: null };
+  const tightened =
+    current.artifactMaxDays === null || next.artifactMaxDays < current.artifactMaxDays;
+  const from = tightened
+    ? now + WORKSPACE_POLICIES.retentionNoticeDays * DAY_MS
+    : (current.artifactMaxDaysFrom ?? now + WORKSPACE_POLICIES.retentionNoticeDays * DAY_MS);
+  return { ...next, artifactMaxDaysFrom: from };
+}
+
+/** Whether a change sets a maximum life or shortens it: what needs the notice and the email. */
+export function maxLifeTightened(current: WorkspacePolicy, next: WorkspacePolicy): boolean {
+  return (
+    next.artifactMaxDays !== null &&
+    (current.artifactMaxDays === null || next.artifactMaxDays < current.artifactMaxDays)
+  );
+}
+
+/**
+ * The maximum life a change lengthens or removes, or null: the job gives the artifacts it capped
+ * their time back (decision 0023, "Loosening").
+ */
+export function replacedMaxLife(current: WorkspacePolicy, next: WorkspacePolicy): MaxLife | null {
+  const was = maxLifeOf(current);
+  if (was === null) return null;
+  if (next.artifactMaxDays !== null && next.artifactMaxDays <= was.days) return null;
+  return was;
+}
+
+/**
+ * Pinning means "never expires", which a maximum life rules out (decision 0023): while a policy
+ * sets one, pinning is refused, and the policy's job unpins what was pinned before.
+ */
+export function checkPolicyPin(policy: WorkspacePolicy | undefined): Result<true> {
+  if (policy?.artifactMaxDays != null) {
+    return refused(POLICY_MESSAGES.pinUnderMaxLife(policy.artifactMaxDays));
+  }
+  return ok(true);
 }
