@@ -5,7 +5,9 @@
 // like an unknown one. The role comes from `GET /api/v1/workspaces`; it only decides what the
 // screens offer, and the API stays the authority.
 import {
+  DEFAULT_REGION,
   type OwnerView,
+  type Region,
   type RequestRefusal,
   type RoleAction,
   type WorkspacePolicyShown,
@@ -40,6 +42,8 @@ export type Space =
       slug: string;
       name: string;
       role: WorkspaceRole;
+      /** Where its data is stored (decision 0005); absent reads as the default region. */
+      region?: Region;
       /** Its request policies refuse this browser's network (decision 0020). */
       blocked?: boolean;
       /** Which one refuses it: the network, or a sign-in too old (decision 0021). */
@@ -90,11 +94,17 @@ export function useSpace(): SpaceState {
       slug: found.slug,
       name: found.name,
       role: found.role,
+      region: found.region,
       blocked: found.blocked,
       blockedBy: found.blockedBy,
     },
     workspaces: items,
   };
+}
+
+/** Where a space's data is stored: a missing region reads as the default one (decision 0005). */
+export function spaceRegion(space: { region?: Region | undefined }): Region {
+  return space.region ?? DEFAULT_REGION;
 }
 
 /** The space once known; screens inside the shell only render when it is. */

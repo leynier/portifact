@@ -1,5 +1,6 @@
 // Test support for the dashboard: an in-memory /api/v1 and session endpoint behind the real
 // API client, and a renderer with memory history. Only used by tests.
+
 import type { I18n } from "@lingui/core";
 import { I18nProvider } from "@lingui/react";
 import type { AuditStreamAttempt, AuditStreamView } from "@portifact/contracts";
@@ -79,6 +80,7 @@ import {
   checkSingleFamily,
   diffText,
   normalizePolicy,
+  noticeWindowEnd,
   singleFamilyLists,
   textDiffEligibility,
 } from "@portifact/domain";
@@ -230,6 +232,13 @@ export interface FakeStorage extends StorageTransport {
   fail(fault: StorageFault, times?: number): void;
   /** Holds the next upload until the returned function is called or the upload is aborted. */
   hold(): () => void;
+}
+
+/** `expiring: "soon"` as the service decides it: active, expiring within the notices' window. */
+function expiringSoon(item: { state: string; expiresAt: string | null }, now = Date.now()) {
+  if (item.state !== "active" || item.expiresAt === null) return false;
+  const at = Date.parse(item.expiresAt);
+  return at > now && at <= noticeWindowEnd(now);
 }
 
 function base64OfHex(hex: string): string {
@@ -420,6 +429,8 @@ export function workspace(
     policy?: WorkspacePolicy;
     /** Its network policy refuses this browser (decision 0020). */
     blocked?: boolean;
+    /** Where its data is stored (decision 0005). */
+    region?: WorkspaceView["region"];
     /** Which request policy refuses it (decision 0021). */
     blockedBy?: WorkspaceView["blockedBy"];
   } = {},
@@ -428,11 +439,12 @@ export function workspace(
     name = `Team ${slug}`,
     policy = DEFAULT_POLICY,
     blocked = false,
+    region = "default",
     blockedBy = blocked ? "network" : null,
     ...rest
   } = overrides;
   return {
-    view: { slug, name, role, region: "default", createdAt: NOW, policy, blocked, blockedBy },
+    view: { slug, name, role, region, createdAt: NOW, policy, blocked, blockedBy },
     members: [
       {
         userId: "u_ada",
@@ -1887,7 +1899,8 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
         (filters.state === undefined || a.state === filters.state) &&
         (filters.type === undefined || a.type === filters.type) &&
         (filters.access === undefined || a.accessMode === filters.access) &&
-        (filters.annotations === undefined || a.annotations === filters.annotations),
+        (filters.annotations === undefined || a.annotations === filters.annotations) &&
+        (filters.expiring === undefined || expiringSoon(a)),
     );
     const start = Number(cursor ?? 0);
     const items = matching.slice(start, start + server.pageSize).map((a) => ({

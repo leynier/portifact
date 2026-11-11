@@ -1,11 +1,14 @@
+import { createHash } from "node:crypto";
 import { LOCALE_CODES } from "@portifact/contracts/locales";
 import { type DefaultTreeAdapterMap, parse } from "parse5";
 import { describe, expect, it } from "vitest";
 import { budgetAlertEmail } from "./budget-alert.ts";
+import { commentNoticeEmail } from "./comment-notice.ts";
 import { EXPIRY_TEXT, expiryNoticeEmail, formatExpiry } from "./expiry-notice.ts";
 import { INVITATION_TEXT, invitationEmail } from "./invitation.ts";
 import { escapeHtml, renderEmail } from "./layout.ts";
 import { previews } from "./previews.ts";
+import { reviewNoticeEmail } from "./review-notice.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
 import { DARK, FONT_SANS, fontSans, LIGHT } from "./theme.ts";
 
@@ -477,6 +480,89 @@ describe.each(LOCALE_CODES)("user-facing emails in %s", (locale) => {
     expect(bodyText(three.html)).toContain("6");
   });
 
+  it("leaves names and the list out for an EU owner, with the count, the date and the list link", () => {
+    const listUrl = "https://app.portifact.com/?workspace=engines&expiring=soon";
+    const eu = (artifacts: ReturnType<typeof artifact>[]) =>
+      expiryNoticeEmail({ ...base, names: false, listUrl, artifacts });
+    const euOne = eu([artifact("k7d2qm4xab", "Plan")]);
+    const euThree = eu([
+      artifact("k7d2qm4xab", "Plan"),
+      artifact("p4n8rt2vcd", "Notes", AT + 86_400_000),
+      artifact("z9w3hj6mef", "Draft", AT + 2 * 86_400_000),
+    ]);
+    const text = EXPIRY_TEXT[locale];
+    const first = formatExpiry(AT, locale);
+    for (const [email, count] of [
+      [euOne, 1],
+      [euThree, 3],
+    ] as const) {
+      for (const part of [email.subject, email.text, email.html]) {
+        for (const name of ["Plan", "Notes", "Draft", "portifact.dev", "/artifacts/"]) {
+          expect(part).not.toContain(name);
+        }
+      }
+      const links = elements(email.html)
+        .filter((e) => e.tagName === "a")
+        .map((e) => [textOf(e), attr(e, "href")]);
+      expect(links).toContainEqual([text.list(count), listUrl]);
+      expect(bodyText(email.html)).toContain(text.due(count, first));
+      expect(email.text).toContain(text.due(count, first));
+      expect(email.text).toContain(`${text.list(count)}: ${listUrl}`);
+      expect(elements(email.html).some((e) => e.tagName === "li")).toBe(false);
+    }
+    // The subject is the named one's: it never carried names.
+    expect(euThree.subject).toBe(three.subject);
+    expect(euOne.subject).toBe(one.subject);
+    expect(text.due(3, first)).not.toBe(text.due(1, first));
+    if (locale !== "en") {
+      expect(text.due(1, first)).not.toBe(EXPIRY_TEXT.en.due(1, first));
+      expect(text.list(3)).not.toBe(EXPIRY_TEXT.en.list(3));
+    }
+  });
+
+  it("names nothing and nobody in an EU owner's comment and review notices", () => {
+    const secret = "Confidential merger plan";
+    const links = {
+      settingsUrl: "https://app.portifact.com/settings",
+      unsubscribeUrl: "https://app.portifact.com/unsubscribe?token=t",
+    };
+    const emails = [
+      commentNoticeEmail({
+        ...links,
+        names: false,
+        more: 1,
+        locale,
+        artifacts: [
+          {
+            name: secret,
+            url: "https://app.portifact.com/view/k7d2qm4xab",
+            newThreads: 1,
+            newReplies: 2,
+            resolvedThreads: 1,
+          },
+        ],
+      }),
+      ...(["requested", "approved", "changes_requested"] as const).map((kind) =>
+        reviewNoticeEmail({
+          ...links,
+          names: false,
+          kind,
+          name: secret,
+          version: 3,
+          url: "https://app.portifact.com/view/k7d2qm4xab",
+          locale,
+        }),
+      ),
+    ];
+    for (const email of emails) {
+      for (const part of [email.subject, email.text, email.html]) {
+        expect(part).not.toContain(secret);
+        // No address at all: the recipient's is only in the envelope, nobody else's anywhere.
+        expect(part).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.]+/);
+      }
+    }
+  });
+
   it("keeps the code out of the subject and in the text version", () => {
     expect(signIn.subject).not.toContain("482913");
     expect(signIn.text.split("\n")).toContain("482913");
@@ -546,15 +632,46 @@ describe("emails in languages with more plural forms", () => {
 });
 
 describe("previews", () => {
-  it("list an EU workspace's expiring artifacts by address, never by name (decision 0005)", () => {
+  it("show an EU workspace's expiring artifacts as a count and a link, never names (decision 0005)", () => {
     const named = previews().find((p) => p.name === "expiry-notice")?.email;
-    const nameless = previews().find((p) => p.name === "expiry-notice-without-names")?.email;
+    const nameless = previews().filter((p) => p.name.startsWith("expiry-notice-without-names"));
     expect(named?.text).toContain("Q3 launch plan");
-    for (const part of [nameless?.subject, nameless?.text, nameless?.html]) {
-      expect(part).not.toContain("Q3 launch plan");
-      expect(part).not.toContain("Design review notes");
+    expect(nameless).toHaveLength(LOCALE_CODES.length + 1);
+    for (const { email } of nameless) {
+      for (const part of [email.subject, email.text, email.html]) {
+        expect(part).not.toContain("Q3 launch plan");
+        expect(part).not.toContain("Design review notes");
+        expect(part).not.toContain("k7d2qm4xab");
+      }
+      expect(email.text).toContain("expiring=soon");
     }
-    expect(nameless?.text).toContain("k7d2qm4xab.");
+    const review = previews().find((p) => p.name === "review-requested-without-names")?.email;
+    expect(`${review?.subject}${review?.text}${review?.html}`).not.toContain("Q3 launch plan");
+  });
+
+  it("keep the default region's expiry notice byte for byte (pinned before the EU variant)", () => {
+    const pinned: Record<string, string> = {
+      "expiry-notice": "97d90a5234c6591d848f8cee1215651c19da4c996a7073250eccd7a6e0c2e9c0",
+      "expiry-notice-one": "1149ca808bcdc9f0a722e425289d9374efdb779773ccd3cc0693b91fc646e4d2",
+      "expiry-notice-es": "5337c4873130134a9ea69efa672a794c7f9892abf61b46dd819b0e12ddaa2e03",
+      "expiry-notice-pt-br": "46eb40e2f4042e98859aff9bf6037b4f045ca06850f173b8640e137a20e7540b",
+      "expiry-notice-fr": "6a7a522cf1bfb3d1e018721dae271ab1645a4181614ada88e2390159c35b075f",
+      "expiry-notice-de": "46555fd573aff8d3a64b1dc77120f0da24524cfcb093849eab12a996fdecf82b",
+      "expiry-notice-ru": "118d32e6c14f61200eee7f34fc266875c837489b85c7b0e1e07656a7aea5655c",
+      "expiry-notice-ja": "0cd2cba1312c1f252b015e374b79af70fa3f81d47056a1ffd174173223d11e80",
+      "expiry-notice-zh-cn": "bc3c53769e9e76d6b3a0757a239d72c1d2061d32bfbdbd4b20004c8f20ceb46f",
+    };
+    const hashes = Object.fromEntries(
+      previews()
+        .filter((p) => p.name in pinned)
+        .map((p) => [
+          p.name,
+          createHash("sha256")
+            .update(`${p.email.subject}\n${p.email.text}\n${p.email.html}`)
+            .digest("hex"),
+        ]),
+    );
+    expect(hashes).toEqual(pinned);
   });
 
   it("cover every email with HTML and text", () => {
@@ -568,6 +685,7 @@ describe("previews", () => {
       "expiry-notice",
       "expiry-notice-one",
       "expiry-notice-without-names",
+      "expiry-notice-without-names-one",
       "comment-notice",
       "comment-notice-one",
       "comment-notice-without-names",
@@ -577,11 +695,13 @@ describe("previews", () => {
       "directory-notice",
       ...translated.map((code) => `directory-notice-${code}`),
       ...translated.map((code) => `expiry-notice-${code}`),
+      ...translated.map((code) => `expiry-notice-without-names-${code}`),
       "invitation",
       ...translated.map((code) => `invitation-${code}`),
       "review-requested",
       "review-approved",
       "review-changes-requested",
+      "review-requested-without-names",
       ...translated.map((code) => `review-requested-${code}`),
     ]);
     for (const { email } of previews()) {

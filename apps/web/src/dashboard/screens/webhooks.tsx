@@ -54,7 +54,7 @@ import { spaceCan, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
-import { SpaceBadge } from "./space-parts.tsx";
+import { LeavesRegionNotice, SpaceBadge } from "./space-parts.tsx";
 
 export const webhooksQuery = (slug: string | undefined) => ["webhooks", slug ?? ""] as const;
 const deliveriesQuery = (slug: string | undefined, id: string) =>
@@ -98,6 +98,7 @@ export function WebhooksScreen() {
         meta={space.kind === "workspace" ? <SpaceBadge owner={space} /> : undefined}
         description={t("webhooks.description")}
       />
+      <LeavesRegionNotice space={space} destination="webhooks" />
       {list.data && !offered ? (
         <Callout
           tone="info"

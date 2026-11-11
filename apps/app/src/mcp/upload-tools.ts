@@ -22,7 +22,6 @@ import {
   runIdempotent,
   uploadProgress,
 } from "@portifact/services";
-import { failure as storedFailure } from "../api/http.ts";
 import { preparedPublish, prepareUpload } from "../api/uploads.ts";
 import { artifactRegion, bucketOf, ownerScope, regionsOf, uploadRegion } from "../regions.ts";
 import { committedPublish } from "./present.ts";
@@ -89,8 +88,21 @@ export function registerUploadTools(
         return failure("invalid_input", `${where}${issue?.message ?? "Invalid input."}`);
       }
       const now = context.now();
+      // The upload, its presigned targets and the idempotency record that holds them all live in
+      // the owner's region (decision 0005). A new artifact goes to the space the call names, the
+      // personal space without one.
+      let handles: RegionHandles;
+      let ownerId: string | undefined;
+      if (request.data.artifactId) {
+        handles = await artifactRegion(context.env, request.data.artifactId);
+      } else {
+        const scope = await ownerScope(context.env, context.userId, workspace);
+        if (!scope.ok) return failure(scope.code, scope.message);
+        handles = regionsOf(context.env).get(scope.value.actor.region);
+        ownerId = scope.value.actor.ownerId;
+      }
       const outcome = await runIdempotent(
-        db,
+        handles.db,
         {
           actorId: context.userId,
           key: idempotencyKey,
@@ -98,29 +110,15 @@ export function registerUploadTools(
           requestHash: await hashRequest(workspace ? { ...request.data, workspace } : request.data),
           now,
         },
-        async () => {
-          if (request.data.artifactId) {
-            const handles = await artifactRegion(context.env, request.data.artifactId);
-            return prepareUpload(
-              handles.db,
-              uploadDeps(handles),
-              context.userId,
-              request.data,
-              now,
-            );
-          }
-          // A new artifact goes to the space the call names, the personal space without one.
-          const scope = await ownerScope(context.env, context.userId, workspace);
-          if (!scope.ok) return storedFailure(scope.code, scope.message);
-          return prepareUpload(
-            scope.value.db,
-            uploadDeps(regionsOf(context.env).get(scope.value.actor.region)),
+        () =>
+          prepareUpload(
+            handles.db,
+            uploadDeps(handles),
             context.userId,
             request.data,
             now,
-            scope.value.actor.ownerId,
-          );
-        },
+            ownerId,
+          ),
       );
       if (outcome.kind === "mismatch") {
         return failure("invalid_input", "This idempotency key was used for a different request.");

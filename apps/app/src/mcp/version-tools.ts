@@ -215,8 +215,10 @@ export function registerVersionTools(
     },
     async (args: RollbackArtifactInput) => {
       const { idempotencyKey, artifactId, versionId, baseVersionId } = args;
+      // The rollback and its record are in the artifact's region (decision 0005).
+      const owned = await artifactDb(context.env, artifactId);
       const run = async () =>
-        rollbackResponse(await artifactDb(context.env, artifactId), context.env, {
+        rollbackResponse(owned, context.env, {
           userId: context.userId,
           artifactId,
           request: { versionId, baseVersionId },
@@ -227,7 +229,7 @@ export function registerVersionTools(
         response = await run();
       } else {
         const outcome = await runIdempotent(
-          db,
+          owned,
           {
             actorId: context.userId,
             key: idempotencyKey,

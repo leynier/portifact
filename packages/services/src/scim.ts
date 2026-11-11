@@ -28,6 +28,7 @@ import {
   hasFeature,
   lastUsedDue,
   lastUsedPeriodStart,
+  logEvent,
   newAuditEventId,
   normalizeEmail,
   ok,
@@ -829,7 +830,7 @@ async function endPendingSessions(
     await endSessions(row.userId);
   } catch {
     // Only the event: never the account.
-    console.log(JSON.stringify({ event: "scim_sessions_not_ended" }));
+    logEvent("log", "scim_sessions_not_ended");
     return scimFail(503, SESSIONS_NOT_ENDED);
   }
   await global
@@ -1190,7 +1191,7 @@ async function sendInvitation(
       return;
     }
     // Only the event: never the address or the workspace.
-    console.log(JSON.stringify({ event: "scim_invitation_not_sent" }));
+    logEvent("log", "scim_invitation_not_sent");
     return;
   }
   await recordEmailsSent(global, now);

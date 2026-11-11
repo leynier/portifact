@@ -28,7 +28,7 @@ import {
 } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
-import { personalScope, regionsOf } from "../regions.ts";
+import { defaultDb, personalScope, regionsOf } from "../regions.ts";
 import { error, type Guarded, idempotent, iso, readJson } from "./http.ts";
 
 export function customDomainView(env: Pick<Env, "CONTENT_DOMAIN">, record: DomainRecord) {
@@ -93,7 +93,14 @@ export function domainRoutes(
       const at = now();
       return idempotent(
         c,
-        { userId, operation: "domain.add", request: { artifactId, ...body.value }, now: at },
+        {
+          // Custom domains and their claims are global (decision 0006): so is their record.
+          db: defaultDb(c.env),
+          userId,
+          operation: "domain.add",
+          request: { artifactId, ...body.value },
+          now: at,
+        },
         async () => {
           const result = await addCustomDomain(regionsOf(c.env), domainsFor(c.env), {
             userId,

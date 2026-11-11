@@ -154,6 +154,16 @@ describe("portifact list", () => {
     expect(quoted.stderr).toContain("--cursor c1 --search 'it'\\''s launch'`.");
   });
 
+  it("lists only active artifacts expiring soon with --expiring soon", async () => {
+    h.signIn();
+    const soon = seed({ name: "Launch plan", expiresAt: NOW + DAY });
+    seed({ name: "Roadmap", expiresAt: NOW + 30 * DAY });
+    seed({ name: "Old notes", state: "archived", expiresAt: NOW + DAY });
+    const result = await h.invoke("list", "--expiring", "soon", "--json");
+    expect(result.code).toBe(0);
+    expect(json(result).items.map((item: { id: string }) => item.id)).toEqual([soon.id]);
+  });
+
   it("refuses an unknown filter value or an empty search before any request", async () => {
     h.signIn();
     for (const args of [
@@ -161,6 +171,7 @@ describe("portifact list", () => {
       ["--type", "pdf"],
       ["--access", "private"],
       ["--annotations", "on"],
+      ["--expiring", "later"],
       ["--search", "   "],
       ["--search", "x".repeat(201)],
     ]) {

@@ -7,6 +7,7 @@
 // exact token rows the exchange issued. Nothing here comes from what a client sends but the codes
 // that find the rows; the time comes from the session row.
 import { schema } from "@portifact/db";
+import { errorLabel, logEvent } from "@portifact/domain";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Env } from "../env.ts";
 import { regionsOf } from "../regions.ts";
@@ -82,12 +83,10 @@ export async function exchangeDeviceCode(
   try {
     await stampTokens(auth, env, response.clone(), new Date(signedInAt));
   } catch (error) {
-    console.error(JSON.stringify({ event: "device_sign_in_time_failed", error: errorName(error) }));
+    logEvent("error", "device_sign_in_time_failed", { error: errorLabel(error) });
   }
   return response;
 }
-
-const errorName = (error: unknown) => (error instanceof Error ? error.name : "unknown");
 
 /** Writes the sign-in time onto the access and refresh token rows the answer's token names. */
 async function stampTokens(auth: Auth, env: Env, answer: Response, at: Date): Promise<void> {

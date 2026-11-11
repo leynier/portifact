@@ -370,6 +370,33 @@ describe("moving an artifact", () => {
     expect(server.bodies).toContainEqual({ workspace: null });
   });
 
+  it("offers only spaces in the artifact's region, and says so when none is left (decision 0005)", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme", region: "eu" });
+    server.workspaces.home = workspace("home", "admin", { name: "Home" });
+    const { container } = renderDashboard("/artifacts/w2w2w2w2w2?workspace=acme", server);
+    const section = await panel();
+    // Neither the personal space nor a workspace in the default region: an EU artifact stays.
+    expect(
+      await within(section).findByText(
+        "This space keeps its data in the EU, so the artifact can only move to another EU space, and you have none.",
+      ),
+    ).toBeTruthy();
+    expect(within(section).queryByRole("button", { name: "Move artifact" })).toBeNull();
+    expect(await axeViolations(container)).toEqual([]);
+    cleanup();
+
+    server.workspaces.berlin = workspace("berlin", "editor", { name: "Berlin", region: "eu" });
+    renderDashboard("/artifacts/w2w2w2w2w2?workspace=acme", server);
+    const again = await panel();
+    await moveButton(again);
+    fireEvent.click(within(again).getByRole("combobox", { name: "Destination" }));
+    expect(
+      within(screen.getByRole("listbox", { name: "Destination" }))
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Berlin (Editor)"]);
+  });
+
   it("says a workspace-shared artifact becomes restricted when it moves", async () => {
     server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
     const shared = server.artifacts.find((a) => a.id === "w2w2w2w2w2");

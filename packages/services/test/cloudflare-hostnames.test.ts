@@ -1,6 +1,7 @@
 // The Cloudflare custom hostnames client and the DNS over HTTPS lookup, against a fake `fetch`:
 // what they send, how they read answers and failures, and that nothing is built without the
 // explicit switch, the zone and the token.
+import { errorLabel } from "@portifact/domain";
 import { describe, expect, it, vi } from "vitest";
 import {
   CloudflareError,
@@ -62,7 +63,8 @@ describe("custom hostnames", () => {
     );
     const error = await client.create("docs.example.com").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(CloudflareError);
-    expect((error as CloudflareError).message).toBe("Cloudflare custom hostnames: 409 1406");
+    expect((error as CloudflareError).message).toBe("CF_HOSTNAMES_HTTP 409 1406");
+    expect(errorLabel(error)).toBe("Error:CF_HOSTNAMES_HTTP:409:1406");
     expect((error as CloudflareError).message).not.toContain(TOKEN);
     const broken = cloudflareHostnames(
       fakeFetch(() => new Response("<html>", { status: 502 })).fetcher,
@@ -175,9 +177,12 @@ describe("TXT over DNS over HTTPS", () => {
     expect(await dohTxt(fakeFetch(() => json({ Status: 3 })).fetcher)("x")).toEqual([]);
     expect(await dohTxt(fakeFetch(() => json({ Status: 0 })).fetcher)("x")).toEqual([]);
     await expect(dohTxt(fakeFetch(() => json({ Status: 2 })).fetcher)("x")).rejects.toThrow(
-      "rcode 2",
+      "DOH_RCODE 2",
     );
     await expect(dohTxt(fakeFetch(() => json({}, 503)).fetcher)("x")).rejects.toThrow("503");
+    // What a failed daily check logs: the code and the number, never the name looked up.
+    const failed = await dohTxt(fakeFetch(() => json({ Status: 2 })).fetcher)("x").catch((e) => e);
+    expect(errorLabel(failed)).toBe("Error:DOH_RCODE:2");
   });
 });
 
@@ -252,11 +257,11 @@ describe("the client's details", () => {
       TOKEN,
     );
     await expect(codes.create("a.example.com")).rejects.toThrow(
-      /^Cloudflare custom hostnames: 409 1406,1407$/,
+      /^CF_HOSTNAMES_HTTP 409 1406,1407$/,
     );
     const bare = cloudflareHostnames(fakeFetch(() => json({}, 500)).fetcher, ZONE, TOKEN);
     const error = (await bare.create("a.example.com").catch((e: unknown) => e)) as CloudflareError;
-    expect(error.message).toBe("Cloudflare custom hostnames: 500 ");
+    expect(error.message).toBe("CF_HOSTNAMES_HTTP 500");
     expect(error.codes).toEqual([]);
     const missing = cloudflareHostnames(fakeFetch(() => json({}, 404)).fetcher, ZONE, TOKEN);
     const notFound = (await missing
@@ -346,7 +351,7 @@ describe("zone apexes over DNS over HTTPS", () => {
     );
     await expect(
       dohZoneApex(fakeFetch(() => json({ Status: 2 })).fetcher)("x.example"),
-    ).rejects.toThrow("rcode 2");
+    ).rejects.toThrow("DOH_RCODE 2");
     await expect(dohZoneApex(fakeFetch(() => json({}, 500)).fetcher)("x.example")).rejects.toThrow(
       "500",
     );
@@ -437,7 +442,7 @@ describe("where a name points", () => {
     expect(gone.sent).toHaveLength(2);
     const failing = dns({ "docs.example.com A": 2 });
     await expect(dohPointing(failing.fetcher, TARGET)("docs.example.com")).rejects.toThrow(
-      "rcode 2",
+      "DOH_RCODE 2",
     );
     const down = fakeFetch(() => json({}, 503));
     await expect(dohPointing(down.fetcher, TARGET)("docs.example.com")).rejects.toThrow("503");

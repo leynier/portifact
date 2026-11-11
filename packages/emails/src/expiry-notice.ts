@@ -1,11 +1,12 @@
 // The expiry notice the jobs Worker sends an owner a few days before their artifacts expire
 // (docs/operations.md, "Expiry notices"): one email per account listing every artifact about to
 // expire, each with its link, its expiry and where to renew it, and how to turn the emails off.
-// Names are the owner's own input and are only ever escaped, never put in the subject, and left
-// out with `names: false` (decision 0005: a workspace whose data stays in the EU), where each
-// artifact is listed by its address instead. It is
-// written in the owner's language (account settings), English when they chose none; the texts
-// are typed by the locale list, so a new language fails the typecheck until it is here.
+// Names are the owner's own input and are only ever escaped, never put in the subject. With
+// `names: false` (decision 0005: a workspace whose data stays in the EU, `noticeDetail` in
+// packages/domain) the email lists nothing: it says how many artifacts expire and when the first
+// does, and links the dashboard's list filtered to them. It is written in the owner's language
+// (account settings), English when they chose none; the texts are typed by the locale list, so a
+// new language fails the typecheck until it is here.
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import { type Block, type Inline, renderEmail } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
@@ -20,11 +21,9 @@ export interface ExpiryNoticeArtifact {
   expiresAt: number;
 }
 
-export interface ExpiryNoticeInput {
+interface ExpiryNoticeBase {
   /** Soonest first; at least one. */
   artifacts: ExpiryNoticeArtifact[];
-  /** Whether artifact names may appear; false lists each by its address. True when absent. */
-  names?: boolean | undefined;
   /** The dashboard's settings page, where the notices are turned off. */
   settingsUrl: string;
   /** How long a renewal keeps an artifact online. */
@@ -34,6 +33,13 @@ export interface ExpiryNoticeInput {
   /** The owner's language; English when absent. */
   locale?: LocaleCode | undefined;
 }
+
+/**
+ * With names (the default), each artifact is listed. Without, only the count and the soonest
+ * expiry, and `listUrl`, the dashboard's list of the owner's artifacts expiring soon.
+ */
+export type ExpiryNoticeInput = ExpiryNoticeBase &
+  ({ names?: true | undefined } | { names: false; listUrl: string });
 
 /** The text of the notice in one language. Dates come in already formatted, with "UTC". */
 export interface ExpiryText {
@@ -52,6 +58,10 @@ export interface ExpiryText {
   expiresLine(date: string): string;
   /** The renew link's text; the text version writes it as "<renew>: <url>". */
   renew: string;
+  /** Without names: when the only, or the first, artifact expires, as a sentence. */
+  due(count: number, date: string): string;
+  /** Without names: the text of the link to the list; the text version writes "<list>: <url>". */
+  list(count: number): string;
   /** Followed by the settings link (or its address in the text version), after `gap`. */
   optOut: string;
   /** The settings link's text. */
@@ -81,6 +91,9 @@ export const EXPIRY_TEXT: { readonly [code in LocaleCode]: ExpiryText } = {
     expires: (date) => ` expires ${date}. `,
     expiresLine: (date) => `Expires ${date}`,
     renew: "Renew",
+    due: (count, date) =>
+      plural(count, `It expires ${date}.`, `The first of them expires ${date}.`),
+    list: (count) => plural(count, "See it in the dashboard", "See them in the dashboard"),
     optOut: "Do not want these emails? Turn off expiry notices in your settings:",
     settings: "Settings",
     optOutEnd: ".",
@@ -104,6 +117,8 @@ export const EXPIRY_TEXT: { readonly [code in LocaleCode]: ExpiryText } = {
     expires: (date) => ` vence el ${date}. `,
     expiresLine: (date) => `Vence el ${date}`,
     renew: "Renovar",
+    due: (count, date) => plural(count, `Vence el ${date}.`, `El primero vence el ${date}.`),
+    list: (count) => plural(count, "Míralo en el panel", "Míralos en el panel"),
     optOut: "¿No quieres estos correos? Desactiva los avisos de vencimiento en tu configuración:",
     settings: "Configuración",
     optOutEnd: ".",
@@ -127,6 +142,8 @@ export const EXPIRY_TEXT: { readonly [code in LocaleCode]: ExpiryText } = {
     expires: (date) => ` expira em ${date}. `,
     expiresLine: (date) => `Expira em ${date}`,
     renew: "Renovar",
+    due: (count, date) => plural(count, `Expira em ${date}.`, `O primeiro expira em ${date}.`),
+    list: (count) => plural(count, "Veja-o no painel", "Veja-os no painel"),
     optOut:
       "Não quer receber estes e-mails? Desative os avisos de expiração nas suas configurações:",
     settings: "Configurações",
@@ -153,6 +170,14 @@ export const EXPIRY_TEXT: { readonly [code in LocaleCode]: ExpiryText } = {
     expires: (date) => ` expire le ${date}. `,
     expiresLine: (date) => `Expire le ${date}`,
     renew: "Renouveler",
+    due: (count, date) =>
+      pluralCategory("fr", count) === "one"
+        ? `Il expire le ${date}.`
+        : `Le premier expire le ${date}.`,
+    list: (count) =>
+      pluralCategory("fr", count) === "one"
+        ? "Le voir dans le tableau de bord"
+        : "Les voir dans le tableau de bord",
     optOut:
       "Vous ne souhaitez plus recevoir ces e-mails ? Désactivez les avis d’expiration dans vos paramètres :",
     settings: "Paramètres",
@@ -177,6 +202,9 @@ export const EXPIRY_TEXT: { readonly [code in LocaleCode]: ExpiryText } = {
     expires: (date) => ` läuft am ${date} ab. `,
     expiresLine: (date) => `Läuft am ${date} ab`,
     renew: "Verlängern",
+    due: (count, date) =>
+      plural(count, `Es läuft am ${date} ab.`, `Das erste davon läuft am ${date} ab.`),
+    list: () => "Im Dashboard ansehen",
     optOut:
       "Du möchtest diese E-Mails nicht? Schalte die Ablaufhinweise in deinen Einstellungen aus:",
     settings: "Einstellungen",
@@ -205,6 +233,9 @@ export const EXPIRY_TEXT: { readonly [code in LocaleCode]: ExpiryText } = {
     expires: (date) => `: срок истекает ${date}. `,
     expiresLine: (date) => `Срок истекает ${date}`,
     renew: "Продлить",
+    due: (count, date) =>
+      count === 1 ? `Срок истекает ${date}.` : `Срок первого из них истекает ${date}.`,
+    list: () => "Открыть в кабинете",
     optOut:
       "Не хотите получать такие письма? Отключите напоминания об истечении срока в настройках:",
     settings: "Настройки",
@@ -228,6 +259,11 @@ export const EXPIRY_TEXT: { readonly [code in LocaleCode]: ExpiryText } = {
     expires: (date) => `：${date}に期限切れ。`,
     expiresLine: (date) => `${date}に期限切れ`,
     renew: "延長",
+    due: (count, date) =>
+      count === 1
+        ? `${date}に期限切れになります。`
+        : `最初のartifactは${date}に期限切れになります。`,
+    list: () => "ダッシュボードで確認",
     optOut: "このメールが不要な場合は、設定で有効期限の通知をオフにしてください：",
     settings: "設定",
     optOutEnd: "",
@@ -246,6 +282,8 @@ export const EXPIRY_TEXT: { readonly [code in LocaleCode]: ExpiryText } = {
     expires: (date) => ` 将于 ${date} 到期。`,
     expiresLine: (date) => `将于 ${date} 到期`,
     renew: "续期",
+    due: (count, date) => (count === 1 ? `它将于 ${date} 到期。` : `最早的一个将于 ${date} 到期。`),
+    list: () => "在控制台中查看",
     optOut: "不想收到这些邮件？请在设置中关闭到期通知：",
     settings: "设置",
     optOutEnd: "。",
@@ -302,9 +340,7 @@ export function expiryNoticeEmail(input: ExpiryNoticeInput): EmailContent {
   const intro = t.intro(input.activeDays);
   const restore = t.restore(input.archiveMonths);
 
-  // Without names, an artifact is its address: nothing the owner wrote leaves the region.
-  const label = (artifact: ExpiryNoticeArtifact) =>
-    input.names === false ? display(artifact.url) : oneLine(artifact.name);
+  const label = (artifact: ExpiryNoticeArtifact) => oneLine(artifact.name);
   const items: Inline[][] = input.artifacts.map((artifact) => [
     { strong: label(artifact) },
     t.expires(date(artifact.expiresAt)),
@@ -312,9 +348,19 @@ export function expiryNoticeEmail(input: ExpiryNoticeInput): EmailContent {
     " | ",
     { href: artifact.renewUrl, text: t.renew },
   ]);
+  // Without names nothing about the artifacts leaves the region but how many there are and
+  // when: the list stays in the dashboard.
+  const due = soonest ? t.due(count, date(soonest.expiresAt)) : "";
+  const listing: Block =
+    input.names === false
+      ? {
+          kind: "paragraph",
+          content: [due + gap(due), { href: input.listUrl, text: t.list(count) }],
+        }
+      : { kind: "list", items };
   const blocks: Block[] = [
     { kind: "paragraph", content: [intro] },
-    { kind: "list", items },
+    listing,
     { kind: "divider" },
     { kind: "paragraph", content: [restore], muted: true },
     {
@@ -342,12 +388,14 @@ export function expiryNoticeEmail(input: ExpiryNoticeInput): EmailContent {
     "",
     intro,
     "",
-    ...input.artifacts.flatMap((artifact) => [
-      `- ${label(artifact)}`,
-      `  ${t.expiresLine(date(artifact.expiresAt))}`,
-      `  ${artifact.url}`,
-      `  ${t.renew}: ${artifact.renewUrl}`,
-    ]),
+    ...(input.names === false
+      ? [due, `${t.list(count)}: ${input.listUrl}`]
+      : input.artifacts.flatMap((artifact) => [
+          `- ${label(artifact)}`,
+          `  ${t.expiresLine(date(artifact.expiresAt))}`,
+          `  ${artifact.url}`,
+          `  ${t.renew}: ${artifact.renewUrl}`,
+        ])),
     "",
     restore,
     `${t.optOut}${gap(t.optOut)}${input.settingsUrl}`,

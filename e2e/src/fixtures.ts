@@ -138,6 +138,8 @@ export function nextSsoIdentity(input: { sub: string; email: string; name?: stri
 
 /** A share link of the artifact, created by its owner; the URL holds the token. */
 export function createShareLink(input: {
+  /** The owner's region (decision 0005); the default one without it. */
+  region?: "default" | "eu";
   ownerId: string;
   artifactId: string;
   label?: string;
@@ -230,8 +232,9 @@ export async function routeStorage(page: Page): Promise<void> {
       return;
     }
     const url = new URL(request.url());
-    const [, ...key] = url.pathname.split("/").slice(1).map(decodeURIComponent);
-    const query = new URLSearchParams({ key: key.join("/") });
+    const [bucket = "", ...key] = url.pathname.split("/").slice(1).map(decodeURIComponent);
+    // The bucket the URL was signed for: an EU workspace's uploads go to the EU bucket.
+    const query = new URLSearchParams({ key: key.join("/"), bucket });
     for (const name of ["uploadId", "partNumber"]) {
       const value = url.searchParams.get(name);
       if (value !== null) query.set(name, value);

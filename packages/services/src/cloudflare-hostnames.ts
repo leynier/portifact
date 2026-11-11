@@ -3,8 +3,10 @@
 // `DomainDeps`, injected into the services, so tests and the e2e stack use `FakeDomains` and never
 // reach Cloudflare. `domainDepsFromEnv` builds the real ones only when a deployment switched the
 // feature on and holds the token; otherwise custom domains are unavailable and nothing calls out.
+
 import { cnameTarget } from "@portifact/contracts";
 import type { CloudflareStatus } from "@portifact/domain";
+import { CodedError, logEvent } from "@portifact/domain";
 
 const API = "https://api.cloudflare.com/client/v4";
 const DOH = "https://cloudflare-dns.com/dns-query";
@@ -42,12 +44,13 @@ export interface DomainDeps {
 export type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 /** A Cloudflare error without the token or the request: the status and Cloudflare's codes. */
-export class CloudflareError extends Error {
+/** A failed call to Cloudflare's custom hostnames API: its status and Cloudflare's error codes. */
+export class CloudflareError extends CodedError {
   constructor(
-    readonly status: number,
+    override readonly status: number,
     readonly codes: number[],
   ) {
-    super(`Cloudflare custom hostnames: ${status} ${codes.join(",")}`);
+    super("CF_HOSTNAMES_HTTP", status, codes);
   }
 }
 
@@ -152,14 +155,14 @@ export function dohTxt(fetcher: Fetch): TxtLookup {
       headers: { accept: "application/dns-json" },
       redirect: "manual",
     });
-    if (!response.ok) throw new Error(`DNS over HTTPS: ${response.status}`);
+    if (!response.ok) throw new CodedError("DOH_HTTP", response.status);
     const body = (await response.json()) as {
       Status: number;
       Answer?: { type: number; data: string }[];
     };
     // NOERROR and NXDOMAIN are answers; anything else (SERVFAIL, REFUSED) is a failed lookup.
     if (body.Status === 3) return [];
-    if (body.Status !== 0) throw new Error(`DNS over HTTPS: rcode ${body.Status}`);
+    if (body.Status !== 0) throw new CodedError("DOH_RCODE", body.Status);
     // TXT data comes quoted, possibly as several quoted strings that make one value.
     return (body.Answer ?? [])
       .filter((answer) => answer.type === 16)
@@ -183,13 +186,13 @@ export function dohZoneApex(fetcher: Fetch): ZoneApexLookup {
       headers: { accept: "application/dns-json" },
       redirect: "manual",
     });
-    if (!response.ok) throw new Error(`DNS over HTTPS: ${response.status}`);
+    if (!response.ok) throw new CodedError("DOH_HTTP", response.status);
     const body = (await response.json()) as {
       Status: number;
       Answer?: { name: string; type: number }[];
     };
     if (body.Status === 3) return false;
-    if (body.Status !== 0) throw new Error(`DNS over HTTPS: rcode ${body.Status}`);
+    if (body.Status !== 0) throw new CodedError("DOH_RCODE", body.Status);
     const name = hostname.toLowerCase();
     return (body.Answer ?? []).some(
       (answer) => answer.type === 6 && answer.name.toLowerCase().replace(/\.$/, "") === name,
@@ -208,13 +211,13 @@ async function dohAnswers(
     headers: { accept: "application/dns-json" },
     redirect: "manual",
   });
-  if (!response.ok) throw new Error(`DNS over HTTPS: ${response.status}`);
+  if (!response.ok) throw new CodedError("DOH_HTTP", response.status);
   const body = (await response.json()) as {
     Status: number;
     Answer?: { type: number; data: string }[];
   };
   if (body.Status === 3) return [];
-  if (body.Status !== 0) throw new Error(`DNS over HTTPS: rcode ${body.Status}`);
+  if (body.Status !== 0) throw new CodedError("DOH_RCODE", body.Status);
   return body.Answer ?? [];
 }
 
@@ -282,7 +285,7 @@ export function domainDepsFromEnv(env: DomainEnv, fetcher: Fetch): DomainDeps | 
   const contentDomain = env.CONTENT_DOMAIN ?? "";
   if (!ZONE_ID.test(zone) || token.length < 20 || contentDomain === "") {
     // Switched on without the zone or the token: loudly, since the deployments disagree.
-    console.error(JSON.stringify({ event: "custom_domains_misconfigured" }));
+    logEvent("error", "custom_domains_misconfigured");
     return null;
   }
   return {

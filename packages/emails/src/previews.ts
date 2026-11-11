@@ -31,6 +31,12 @@ const notice = {
   archiveMonths: 6,
 };
 
+/** An EU workspace's notice (decision 0005): counts and a link to the filtered list. */
+const withoutNames = {
+  names: false as const,
+  listUrl: "https://app.portifact.com/?workspace=engines&expiring=soon",
+};
+
 const commentArtifact = (
   id: string,
   name: string,
@@ -130,11 +136,19 @@ export function previews(): Preview[] {
       name: "expiry-notice-without-names",
       email: expiryNoticeEmail({
         ...notice,
-        names: false,
+        ...withoutNames,
         artifacts: [
           noticeArtifact("k7d2qm4xab", "Q3 launch plan", 50),
           noticeArtifact("p4n8rt2vcd", "Design review notes", 66),
         ],
+      }),
+    },
+    {
+      name: "expiry-notice-without-names-one",
+      email: expiryNoticeEmail({
+        ...notice,
+        ...withoutNames,
+        artifacts: [noticeArtifact("k7d2qm4xab", "Q3 launch plan", 70)],
       }),
     },
     {
@@ -225,6 +239,18 @@ export function previews(): Preview[] {
         ],
       }),
     })),
+    ...TRANSLATED.map((locale) => ({
+      name: `expiry-notice-without-names-${locale.toLowerCase()}`,
+      email: expiryNoticeEmail({
+        ...notice,
+        ...withoutNames,
+        locale,
+        artifacts: [
+          noticeArtifact("k7d2qm4xab", "Q3 launch plan", 50),
+          noticeArtifact("p4n8rt2vcd", "Design review notes", 66),
+        ],
+      }),
+    })),
     { name: "invitation", email: invitationEmail(invitation) },
     ...TRANSLATED.map((locale) => ({
       name: `invitation-${locale.toLowerCase()}`,
@@ -235,6 +261,10 @@ export function previews(): Preview[] {
     {
       name: "review-changes-requested",
       email: reviewNoticeEmail({ ...review, kind: "changes_requested" }),
+    },
+    {
+      name: "review-requested-without-names",
+      email: reviewNoticeEmail({ ...review, kind: "requested", names: false }),
     },
     ...TRANSLATED.map((locale) => ({
       name: `review-requested-${locale.toLowerCase()}`,

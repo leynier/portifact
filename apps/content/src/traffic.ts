@@ -4,6 +4,7 @@
 // by up to one window per isolate, which is the accepted overshoot of the quota.
 
 import type { Region } from "@portifact/db";
+import { logEvent } from "@portifact/domain";
 import type { TrafficDelta } from "@portifact/services";
 
 /** How long an isolate gathers traffic before writing it; well under the 30 s of waitUntil. */
@@ -57,7 +58,7 @@ export class TrafficMeter {
     } catch {
       for (const delta of deltas) this.#add(delta);
       // No identifiers or amounts: the log is technical and sampled.
-      console.error("traffic metering write failed; kept for the next window");
+      logEvent("error", "traffic_write_failed");
     }
   }
 

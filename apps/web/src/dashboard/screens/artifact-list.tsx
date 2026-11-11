@@ -4,6 +4,7 @@ import {
   ArtifactListFilters,
   type ArtifactListItem,
   ArtifactType,
+  ExpiringFilter,
   LIST_SEARCH_MAX,
   ListedArtifactState,
   SEARCH_LIMITS,
@@ -89,7 +90,12 @@ interface FilterValues {
   type: string;
   access: string;
   annotations: string;
+  expiring: string;
 }
+
+/** The selects of the form, in the order they show. */
+const SELECTS = ["state", "type", "access", "annotations", "expiring"] as const;
+type SelectName = (typeof SELECTS)[number];
 
 function formValues(filters: ArtifactListFilters): FilterValues {
   return {
@@ -98,6 +104,7 @@ function formValues(filters: ArtifactListFilters): FilterValues {
     type: filters.type ?? ANY,
     access: filters.access ?? ANY,
     annotations: filters.annotations ?? ANY,
+    expiring: filters.expiring ?? ANY,
   };
 }
 
@@ -105,9 +112,7 @@ function filtersOf(values: FilterValues): ArtifactListFilters {
   return parseListSearch({
     search: values.search,
     ...Object.fromEntries(
-      (["state", "type", "access", "annotations"] as const)
-        .filter((name) => values[name] !== ANY)
-        .map((name) => [name, values[name]]),
+      SELECTS.filter((name) => values[name] !== ANY).map((name) => [name, values[name]]),
     ),
   });
 }
@@ -695,16 +700,10 @@ function FilterForm({
   const wide = useMediaQuery(WIDE_QUERY);
   const [sheet, setSheet] = useState(false);
   // Filters that are on, besides the search, for the narrow layout's "Filters" button.
-  const active = (["state", "type", "access", "annotations"] as const).filter(
-    (name) => filters[name] !== undefined,
-  ).length;
+  const active = SELECTS.filter((name) => filters[name] !== undefined).length;
   const any = { value: ANY, label: t("list.filter.any") };
   const applyOnChange = { onChange: () => void form.handleSubmit() };
-  const filter = (
-    name: "state" | "type" | "access" | "annotations",
-    label: string,
-    options: { value: string; label: string }[],
-  ) => (
+  const filter = (name: SelectName, label: string, options: { value: string; label: string }[]) => (
     <form.AppField name={name} listeners={applyOnChange}>
       {(field) => (
         <field.SelectField
@@ -740,6 +739,11 @@ function FilterForm({
           value,
           label: t(`list.annotations.${value}`),
         })),
+      )}
+      {filter(
+        "expiring",
+        t("list.filter.expiring"),
+        ExpiringFilter.options.map((value) => ({ value, label: t(`list.expiring.${value}`) })),
       )}
     </>
   );

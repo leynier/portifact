@@ -11,8 +11,10 @@
 // R2 checks again, and only then deletes the staging copy.
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
+  errorLabel,
   fail,
   isPlannedPart,
+  logEvent,
   type MultipartConfig,
   ok,
   type PartPlan,
@@ -250,13 +252,8 @@ async function completeUpload(
       .complete(parts.map((part) => ({ partNumber: part.partNumber, etag: bareEtag(part.etag) })));
     return null;
   } catch (error) {
-    // Only the error's name and message: they carry no token, key material or user content.
-    console.error(
-      JSON.stringify({
-        event: "multipart_complete_failed",
-        error: error instanceof Error ? `${error.name}: ${error.message}` : "unknown",
-      }),
-    );
+    // Only the error's label: R2's message can name the object's key, which holds the owner.
+    logEvent("error", "multipart_complete_failed", { error: errorLabel(error) });
     // A reported ETag or part R2 does not have: the client sends every part again.
     await forgetParts(db, input.sessionId, input.sha256);
     return `${input.sha256} could not be assembled from its parts; they must be uploaded again`;

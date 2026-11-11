@@ -90,7 +90,7 @@ const stackFetch: typeof fetch = async (input, init) => {
   // https://<account>.r2.cloudflarestorage.com/<bucket>/<key>?X-Amz-...
   const [bucket, ...key] = url.pathname.split("/").slice(1).map(decodeURIComponent);
   if (bucket !== BUCKET) throw new Error(`unexpected request to ${url.host}`);
-  const query = new URLSearchParams({ key: key.join("/") });
+  const query = new URLSearchParams({ key: key.join("/"), bucket });
   for (const name of ["uploadId", "partNumber"]) {
     const value = url.searchParams.get(name);
     if (value !== null) query.set(name, value);

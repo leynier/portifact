@@ -29,6 +29,7 @@ import {
   checkReviewNoticeCapacity,
   type Entitlements,
   effectiveState,
+  logEvent,
   reviewNoticeRecipient,
   reviewNoticesOn,
 } from "@portifact/domain";
@@ -93,7 +94,7 @@ type Skip =
 
 function skipped(reason: Skip, recipients = 1): JobOutcome {
   // Only the reason and a count: never an address, a name or anything about the review.
-  console.log(JSON.stringify({ event: "review_notice_skipped", reason, recipients }));
+  logEvent("log", "review_notice_skipped", { reason, recipients });
   return "stale";
 }
 

@@ -6,6 +6,7 @@ import {
   type Actor,
   authorize,
   fail,
+  noticeWindowEnd,
   ok,
   type Result,
   type VersionRetention,
@@ -18,7 +19,9 @@ import {
   eq,
   getTableColumns,
   getTableName,
+  gt,
   lt,
+  lte,
   ne,
   or,
   type SQL,
@@ -89,8 +92,10 @@ export function decodeCursor(cursor: string): { updatedAt: number; id: string } 
 /**
  * The search and filters as conditions. SQLite's `lower` folds only A to Z, so the search
  * ignores case for those letters and matches any other character exactly; IDs are lowercase.
+ * `expiring: "soon"` is the expiry notices' window (`noticeWindowEnd`), so the list an EU
+ * workspace's notice links holds what the notice counted.
  */
-function filterConditions(filters: ArtifactListFilters = {}) {
+function filterConditions(filters: ArtifactListFilters = {}, now: number) {
   const t = schema.artifacts;
   const search = filters.search;
   return [
@@ -105,6 +110,9 @@ function filterConditions(filters: ArtifactListFilters = {}) {
     filters.access === undefined ? undefined : eq(t.accessMode, filters.access),
     filters.annotations === undefined ? undefined : eq(t.annotations, filters.annotations),
     filters.key === undefined ? undefined : eq(t.externalKey, filters.key),
+    filters.expiring === undefined
+      ? undefined
+      : and(eq(t.state, "active"), gt(t.expiresAt, now), lte(t.expiresAt, noticeWindowEnd(now))),
   ];
 }
 
@@ -221,7 +229,7 @@ export async function listArtifacts(
         eq(t.ownerId, input.actor.ownerId),
         ne(t.state, "deleted"),
         ne(t.state, "draft"),
-        ...filterConditions(input.filters),
+        ...filterConditions(input.filters, input.now),
         reachConditions(input.actor),
         after
           ? or(

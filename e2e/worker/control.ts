@@ -1,7 +1,7 @@
 // Seeding and inspection for the end-to-end tests, through the same services and tables the
 // Workers use. Only the e2e Worker has these routes, on a host the browsers cannot reach.
-import { TERMS_VERSION } from "@portifact/contracts";
-import { regionsFromEnv, schema } from "@portifact/db";
+import { type JobMessage, type Region, TERMS_VERSION } from "@portifact/contracts";
+import { type RegionEnv, regionsFromEnv, schema } from "@portifact/db";
 import {
   commitPublish,
   createAnnotationThread,
@@ -17,8 +17,10 @@ import {
 } from "@portifact/services";
 import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
+import { type Env as JobsEnv, runQueue } from "../../apps/jobs/src/index.ts";
 import { issueDepsFromEnv } from "../../apps/jobs/src/integrations.ts";
 import { commentNotifierFromEnv } from "../../apps/jobs/src/notices.ts";
+import { runOperator } from "../../apps/jobs/src/operator.ts";
 import { auditStreamDepsFromWebhooks, webhookDepsFromEnv } from "../../apps/jobs/src/webhooks.ts";
 import { setContentClockOffset } from "./clock.ts";
 import { e2eDomains } from "./domains.ts";
@@ -36,9 +38,32 @@ export const RECEIVER_HOST = "hooks.receiver-e2e.example.com";
 export const COLLECTOR_PREFIX = "e2e-audit-streams/";
 /** The collector's host: audit stream requests to it never leave the stack. */
 export const COLLECTOR_HOST = "siem.collector-e2e.example.com";
-export type E2eEnv = AppEnv & ContentEnv;
+export type E2eEnv = AppEnv & ContentEnv & RegionEnv;
 
 const DAY = 86_400_000;
+
+/**
+ * One region's raw bindings (decision 0005): the e2e Worker binds the default region to `DB`,
+ * `ACCESS_DB` and `ARTIFACTS` and the EU to `DB_EU`, `ACCESS_DB_EU` and `ARTIFACTS_EU`. Raw
+ * statements here arrange and inspect rows, like a test file; product code reaches them only
+ * through `regionsFromEnv` and its guard.
+ */
+function regionBindings(env: E2eEnv, region: Region = "default") {
+  if (region === "default") return { db: env.DB, access: env.ACCESS_DB, bucket: env.ARTIFACTS };
+  if (!env.DB_EU || !env.ACCESS_DB_EU || !env.ARTIFACTS_EU) throw new Error("eu is not bound");
+  return { db: env.DB_EU, access: env.ACCESS_DB_EU, bucket: env.ARTIFACTS_EU };
+}
+
+/**
+ * The bucket a presigned URL names, by its bucket name (the first segment of its path), or null
+ * for any other name: an upload signed for a bucket the stack does not have is refused, never
+ * written to the default one.
+ */
+function bucketNamed(env: E2eEnv, name: string | null): R2Bucket | null {
+  if (name !== null && name === env.R2_BUCKET) return env.ARTIFACTS;
+  if (name !== null && name === env.R2_BUCKET_EU && env.ARTIFACTS_EU) return env.ARTIFACTS_EU;
+  return null;
+}
 
 /**
  * Seeded comments skip the human check on purpose: this Worker only runs in the e2e suite, and
@@ -83,9 +108,12 @@ interface PublishInput {
   bar?: boolean;
   /** Publishes a new version of this artifact on `baseVersionId` instead of a new artifact. */
   update?: { artifactId: string; baseVersionId: string };
+  /** The owner's region (decision 0005); the default one without it. */
+  region?: Region;
 }
 
 interface ThreadInput {
+  region?: Region;
   userId: string;
   artifactId: string;
   versionId: string;
@@ -103,6 +131,9 @@ interface ReviewCodeInput {
 }
 
 interface AccessInput {
+  region?: Region;
+  /** A new access mode, as the owner's access change sets it. */
+  mode?: "public" | "authenticated" | "restricted" | "workspace" | "domain";
   ownerId: string;
   artifactId: string;
   removeReaders?: string[];
@@ -110,6 +141,7 @@ interface AccessInput {
 }
 
 interface ShareLinkInput {
+  region?: Region;
   ownerId: string;
   artifactId: string;
   label?: string;
@@ -140,6 +172,8 @@ interface SqlInput {
   params?: (string | number | null)[];
   /** `access` runs it against the access log database instead of the control database. */
   database?: "control" | "access";
+  /** The region whose databases it runs against; the default one without it. */
+  region?: Region;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -161,9 +195,12 @@ const CONTENT_TYPES: Record<string, string> = {
  */
 async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Response> {
   const key = url.searchParams.get("key") ?? "";
+  // The bucket the URL was signed for: an EU workspace's uploads go to the EU bucket.
+  const bucket = bucketNamed(env, url.searchParams.get("bucket"));
+  if (!bucket) return new Response("Unknown bucket", { status: 400 });
   const size = Number(request.headers.get("content-length"));
   const uploadId = url.searchParams.get("uploadId");
-  if (uploadId !== null) return partPut(request, env, key, uploadId, url, size);
+  if (uploadId !== null) return partPut(request, bucket, key, uploadId, url, size);
   const checksum = request.headers.get("x-amz-checksum-sha256") ?? "";
   if (request.method !== "PUT" || !key.startsWith("objects/") || !request.body) {
     return new Response("Bad request", { status: 400 });
@@ -175,9 +212,7 @@ async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Resp
     .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
     .join("");
   try {
-    await env.ARTIFACTS.put(key, request.body.pipeThrough(new FixedLengthStream(size)), {
-      sha256,
-    });
+    await bucket.put(key, request.body.pipeThrough(new FixedLengthStream(size)), { sha256 });
   } catch {
     return new Response("Upload refused", { status: 400 });
   }
@@ -187,7 +222,7 @@ async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Resp
 /** S3 UploadPart into the R2 multipart upload the API opened, answering with the part's ETag. */
 async function partPut(
   request: Request,
-  env: E2eEnv,
+  bucket: R2Bucket,
   key: string,
   uploadId: string,
   url: URL,
@@ -201,10 +236,9 @@ async function partPut(
     return new Response("Missing signed headers", { status: 400 });
   }
   try {
-    const part = await env.ARTIFACTS.resumeMultipartUpload(key, uploadId).uploadPart(
-      partNumber,
-      request.body.pipeThrough(new FixedLengthStream(size)),
-    );
+    const part = await bucket
+      .resumeMultipartUpload(key, uploadId)
+      .uploadPart(partNumber, request.body.pipeThrough(new FixedLengthStream(size)));
     return new Response(null, { status: 200, headers: { etag: part.etag } });
   } catch {
     return new Response("Upload refused", { status: 400 });
@@ -253,6 +287,9 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
 
   if (path === "/publish") {
     const publish = input as PublishInput;
+    const region = publish.region ?? "default";
+    const raw = regionBindings(env, region);
+    const db = regionsFromEnv(env).get(region).db;
     const encoder = new TextEncoder();
     const entries = Object.entries(publish.files);
     const files = await Promise.all(
@@ -279,11 +316,11 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     if (!prepared.ok) return Response.json(prepared, { status: 400 });
     for (const [index, [, body]] of entries.entries()) {
       const hash = files[index]?.sha256 as string;
-      await env.ARTIFACTS.put(`objects/${publish.targetOwnerId ?? publish.ownerId}/${hash}`, body, {
+      await raw.bucket.put(`objects/${publish.targetOwnerId ?? publish.ownerId}/${hash}`, body, {
         sha256: hash,
       });
     }
-    const committed = await commitPublish(db, env.ARTIFACTS, {
+    const committed = await commitPublish(db, raw.bucket, {
       userId: publish.ownerId,
       sessionId: prepared.value.sessionId,
       now,
@@ -293,9 +330,10 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     if (publish.update) {
       return Response.json({ artifactId, versionId: committed.value.versionId });
     }
-    await env.DB.prepare(
-      "UPDATE artifacts SET access_mode = ?, annotations = ?, bar = ?, policy_generation = policy_generation + 1 WHERE id = ?",
-    )
+    await raw.db
+      .prepare(
+        "UPDATE artifacts SET access_mode = ?, annotations = ?, bar = ?, policy_generation = policy_generation + 1 WHERE id = ?",
+      )
       .bind(
         publish.accessMode ?? "restricted",
         publish.annotations ?? "open",
@@ -304,13 +342,13 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       )
       .run();
     for (const email of publish.readers ?? []) {
-      await env.DB.prepare("INSERT INTO artifact_readers (artifact_id, email) VALUES (?, ?)")
+      await raw.db
+        .prepare("INSERT INTO artifact_readers (artifact_id, email) VALUES (?, ?)")
         .bind(artifactId, email)
         .run();
     }
-    const version = await env.DB.prepare(
-      "SELECT current_version_id AS id FROM artifacts WHERE id = ?",
-    )
+    const version = await raw.db
+      .prepare("SELECT current_version_id AS id FROM artifacts WHERE id = ?")
       .bind(artifactId)
       .first<{ id: string }>();
     return Response.json({ artifactId, versionId: version?.id });
@@ -318,15 +356,18 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
 
   if (path === "/thread") {
     const thread = input as ThreadInput;
-    const result = await createAnnotationThread(db, {
-      humanCheck: HUMAN,
-      userId: thread.userId,
-      artifactId: thread.artifactId,
-      versionId: thread.versionId,
-      target: { schema: 1, path: thread.path, anchor: { kind: "document" } },
-      body: thread.body,
-      now: now - (thread.agoMs ?? 0),
-    });
+    const result = await createAnnotationThread(
+      regionsFromEnv(env).get(thread.region ?? "default").db,
+      {
+        humanCheck: HUMAN,
+        userId: thread.userId,
+        artifactId: thread.artifactId,
+        versionId: thread.versionId,
+        target: { schema: 1, path: thread.path, anchor: { kind: "document" } },
+        body: thread.body,
+        now: now - (thread.agoMs ?? 0),
+      },
+    );
     return Response.json(result, { status: result.ok ? 200 : 400 });
   }
 
@@ -349,11 +390,11 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
 
   // The owner's access change, through the same service the API, MCP and dashboard call.
   if (path === "/access") {
-    const { ownerId, artifactId, removeReaders, addReaders } = input as AccessInput;
-    const result = await updateAccess(db, {
+    const { ownerId, artifactId, removeReaders, addReaders, mode, region } = input as AccessInput;
+    const result = await updateAccess(regionsFromEnv(env).get(region ?? "default").db, {
       userId: ownerId,
       artifactId,
-      change: { removeReaders, addReaders },
+      change: { removeReaders, addReaders, ...(mode ? { mode } : {}) },
       now,
     });
     return Response.json(result, { status: result.ok ? 200 : 400 });
@@ -362,7 +403,9 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   // The owner's share links, through the same services the API, MCP and dashboard call. The
   // owner's plan must include them; tests grant it with a row in owner_plans.
   if (path === "/share-link") {
-    const { ownerId, artifactId, label, expiresAt, password, revoke } = input as ShareLinkInput;
+    const { ownerId, artifactId, label, expiresAt, password, revoke, region } =
+      input as ShareLinkInput;
+    const db = regionsFromEnv(env).get(region ?? "default").db;
     if (revoke) {
       const result = await revokeShareLink(db, {
         userId: ownerId,
@@ -577,9 +620,215 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     return Response.json({ id: created.value.id, slug, name });
   }
 
+  // The operator tool, as `bun run --cwd apps/jobs operator` runs it against the deployment's
+  // databases (workspace-create --region, set-plan, workspace-delete; docs/operations.md).
+  if (path === "/operator") {
+    const { argv } = input as { argv: string[] };
+    const result = await runOperator(regionsFromEnv(env), argv, now, undefined, e2eDomains);
+    return Response.json(result, { status: result.exitCode === 0 ? 200 : 400 });
+  }
+
+  // The jobs Worker's queue consumer, run now on every row waiting in each region's outbox, as
+  // the relay would send them (`JobMessage.region`): purges, deletions, erasures. Notices land
+  // where `/mail` reads them. Repeats while a round finished something, at most five rounds.
+  if (path === "/jobs") {
+    const { topics } = input as { topics?: string[] };
+    const captured = {
+      async send(message: { to: string }) {
+        await env.ARTIFACTS.put(
+          `${MAIL_PREFIX}${message.to.toLowerCase()}`,
+          JSON.stringify(message),
+        );
+        return { messageId: crypto.randomUUID() };
+      },
+    } as unknown as SendEmail;
+    const jobsEnv = { ...env, EMAIL: captured } as unknown as JobsEnv;
+    const ran: { region: Region; topic: string; acked: boolean }[] = [];
+    for (let round = 0; round < 5; round += 1) {
+      const before = ran.length;
+      for (const handles of regionsFromEnv(env).all()) {
+        const { results } = await regionBindings(env, handles.region)
+          .db.prepare("select id, topic from outbox order by id")
+          .all<{ id: number; topic: string }>();
+        const due = results.filter(
+          (row: { id: number; topic: string }) => !topics || topics.includes(row.topic),
+        );
+        for (const row of due) {
+          let acked = false;
+          const body: JobMessage = {
+            id: row.id,
+            topic: row.topic as JobMessage["topic"],
+            ...(handles.region === "default" ? {} : { region: handles.region }),
+          };
+          const message = {
+            id: `e2e-${row.id}`,
+            timestamp: new Date(now),
+            attempts: 1,
+            body,
+            ack: () => {
+              acked = true;
+            },
+            retry: () => {},
+          };
+          const batch = {
+            queue: "portifact-jobs",
+            messages: [message],
+            ackAll: () => {},
+            retryAll: () => {},
+          } as unknown as MessageBatch<unknown>;
+          await runQueue(batch, jobsEnv, now, e2eDomains);
+          ran.push({ region: handles.region, topic: row.topic, acked });
+        }
+      }
+      if (!ran.slice(before).some((job) => job.acked)) break;
+    }
+    return Response.json({ ran });
+  }
+
+  // Where an owner's rows and objects are (decision 0005, E5.8): counts per region's control
+  // database, access log database and bucket, and in the global tables, for an owner and its
+  // artifacts. Raw reads, so a row in the wrong database is seen, not refused by the guard.
+  if (path === "/where") {
+    const {
+      ownerId,
+      artifactIds = [],
+      actorIds = [],
+    } = input as { ownerId: string; artifactIds?: string[]; actorIds?: string[] };
+    const actors = JSON.stringify(actorIds);
+    const ids = JSON.stringify(artifactIds);
+    const count = async (database: D1Database, query: string, ...params: string[]) =>
+      (
+        await database
+          .prepare(query)
+          .bind(...params)
+          .first<{ n: number }>()
+      )?.n ?? 0;
+    const regional = async (region: Region) => {
+      const { db: d, access, bucket } = regionBindings(env, region);
+      const listed = await bucket.list({ prefix: `objects/${ownerId}/` });
+      return {
+        artifacts: await count(
+          d,
+          "select count(*) as n from artifacts where id in (select value from json_each(?)) or owner_id = ?",
+          ids,
+          ownerId,
+        ),
+        versions: await count(
+          d,
+          "select count(*) as n from versions where artifact_id in (select value from json_each(?))",
+          ids,
+        ),
+        versionFiles: await count(
+          d,
+          "select count(*) as n from version_files where owner_id = ?",
+          ownerId,
+        ),
+        objects: await count(d, "select count(*) as n from objects where owner_id = ?", ownerId),
+        usage: await count(
+          d,
+          "select count(*) as n from account_usage where owner_id = ?",
+          ownerId,
+        ),
+        threads: await count(
+          d,
+          "select count(*) as n from annotation_threads where owner_id = ?",
+          ownerId,
+        ),
+        messages: await count(
+          d,
+          "select count(*) as n from annotation_messages where owner_id = ?",
+          ownerId,
+        ),
+        shareLinks: await count(
+          d,
+          "select count(*) as n from share_links where artifact_id in (select value from json_each(?))",
+          ids,
+        ),
+        accessEvents: await count(
+          access,
+          "select count(*) as n from access_events where artifact_id in (select value from json_each(?)) or owner_id = ?",
+          ids,
+          ownerId,
+        ),
+        // Idempotency records of the people who acted: they hold responses (decision 0005).
+        operations: await count(
+          d,
+          "select count(*) as n from operations where actor_id in (select value from json_each(?))",
+          actors,
+        ),
+        traffic: await count(
+          d,
+          "select count(*) as n from traffic_counters where owner_id = ?",
+          ownerId,
+        ),
+        views: await count(
+          access,
+          "select count(*) as n from artifact_views where artifact_id in (select value from json_each(?)) or owner_id = ?",
+          ids,
+          ownerId,
+        ),
+        r2Objects: listed.objects.length,
+      };
+    };
+    const global = env.DB;
+    return Response.json({
+      default: await regional("default"),
+      eu: await regional("eu"),
+      global: {
+        directory: (
+          await global
+            .prepare(
+              "select id, region from artifact_directory where id in (select value from json_each(?)) order by id",
+            )
+            .bind(ids)
+            .all<{ id: string; region: string }>()
+        ).results,
+        workspaces: await count(
+          global,
+          "select count(*) as n from workspaces where id = ?",
+          ownerId,
+        ),
+        members: await count(
+          global,
+          "select count(*) as n from workspace_members where workspace_id = ?",
+          ownerId,
+        ),
+        plans: await count(
+          global,
+          "select count(*) as n from owner_plans where owner_id = ?",
+          ownerId,
+        ),
+        tombstones: (
+          await global
+            .prepare(
+              "select id, kind from tombstones where id = ? or id in (select value from json_each(?)) order by id",
+            )
+            .bind(ownerId, ids)
+            .all<{ id: string; kind: string }>()
+        ).results,
+      },
+      // A global table's copy in the EU database stays empty (decision 0005, section 1).
+      euGlobalCopies: {
+        workspaces: await count(
+          regionBindings(env, "eu").db,
+          "select count(*) as n from workspaces",
+        ),
+        directory: await count(
+          regionBindings(env, "eu").db,
+          "select count(*) as n from artifact_directory",
+        ),
+        tombstones: await count(
+          regionBindings(env, "eu").db,
+          "select count(*) as n from tombstones",
+        ),
+      },
+    });
+  }
+
   if (path === "/sql") {
-    const { query, params = [], database } = input as SqlInput;
-    const target = database === "access" ? env.ACCESS_DB : env.DB;
+    const { query, params = [], database, region } = input as SqlInput;
+    const raw = regionBindings(env, region);
+    const target = database === "access" ? raw.access : raw.db;
     const { results } = await target
       .prepare(query)
       .bind(...params)
