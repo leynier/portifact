@@ -42,7 +42,11 @@ function history(rand: () => number, seed: number): { path: number; changes: Cha
   const audit = { limits: { auditRetentionDays: 200 + Math.floor(rand() * 200) } };
   const paths: Change[][] = [
     // Team lowered to Pro, then Pro removed: two holds, two steps for versions.
-    [{ at: NOW - 300 * DAY, plan: "team" }, { at: t1, plan: "pro" }, { at: NOW, remove: true }],
+    [
+      { at: NOW - 300 * DAY, plan: "team" },
+      { at: t1, plan: "pro" },
+      { at: NOW, remove: true },
+    ],
     // Enterprise with a longer audit log, lowered to Pro, then removed: audit drops at the first end.
     [
       { at: NOW - 300 * DAY, plan: "enterprise", overrides: audit },
@@ -57,7 +61,10 @@ function history(rand: () => number, seed: number): { path: number; changes: Cha
       { at: NOW, remove: true },
     ],
     // Team removed: one hold.
-    [{ at: NOW - 300 * DAY, plan: "team" }, { at: t1, remove: true }],
+    [
+      { at: NOW - 300 * DAY, plan: "team" },
+      { at: t1, remove: true },
+    ],
   ];
   // Every path, in turn: the seeds cover each one twice.
   const path = seed % paths.length;

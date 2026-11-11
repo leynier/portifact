@@ -251,7 +251,7 @@ type Skip = "malformed" | "moot" | "no_account" | "suppressed" | "capacity";
 
 function skipped(reason: Skip, moment: GraceNoticeMoment | "unknown"): JobOutcome {
   // Only the reason and the moment: never the owner's people, names or counts of their data.
-  logEvent("log", "plan_grace_notice_skipped", { reason, type: moment });
+  logEvent("log", "plan_grace_notice_skipped", { reason, moment });
   return "stale";
 }
 
@@ -379,7 +379,7 @@ export async function sendGraceNotice(
       }
       if (sent > 0) {
         // Others already got it: a retry would send them a second copy, so this one is lost.
-        logEvent("log", "plan_grace_notice_failed", { type: notice.moment });
+        logEvent("log", "plan_grace_notice_failed", { moment: notice.moment });
         continue;
       }
       // Back in the outbox for the next delivery, which checks everything again.
@@ -407,7 +407,7 @@ export async function sendGraceNotice(
       subject: ownerId,
       attempts: row.attempts,
     });
-    logEvent("warn", "plan_grace_notice_waiting", { reason: "capacity", type: notice.moment });
+    logEvent("warn", "plan_grace_notice_waiting", { reason: "capacity", moment: notice.moment });
     return "kept";
   }
   return sent > 0 ? "done" : skipped(skip, notice.moment);
