@@ -206,18 +206,23 @@ export async function stored(t: Team) {
   return policyOf(row?.policy ?? null);
 }
 
-/** An in-memory bucket for the restore guard's mark, so a test never leaves the shared one paused. */
 /**
- * An in-memory bucket for the comment retention guard records (decision 0023, "Restores"), so a
- * test can make R2 refuse reads or writes (`fail`), run something between a writer's call and its
- * effect (`beforeWrite`), and count reads. Keys are whatever the code writes.
+ * An in-memory bucket for the guard records, which can refuse each operation and run a hook
+ * around the next write. Each record carries R2's `uploaded` (the wall clock at its write, moved
+ * back by `age`) and an etag that changes with every write, as the sweep reads them.
  */
 export function memoryBucket(
-  fail: { get?: boolean; put?: boolean; delete?: boolean } = {},
-  hooks: { beforeWrite?: () => Promise<void>; afterWrite?: () => Promise<void> } = {},
+  fail: { get?: boolean; put?: boolean; delete?: boolean; list?: boolean } = {},
+  hooks: {
+    beforeWrite?: () => Promise<void>;
+    afterWrite?: () => Promise<void>;
+    beforeDelete?: () => Promise<void>;
+  } = {},
 ) {
-  const held = new Map<string, string>();
+  const held = new Map<string, { text: string; uploaded: number; etag: string }>();
   let reads = 0;
+  let lists = 0;
+  let writes = 0;
   const readsByKey = new Map<string, number>();
   const hook = async () => {
     const run = hooks.beforeWrite;
@@ -230,12 +235,13 @@ export function memoryBucket(
       readsByKey.set(key, (readsByKey.get(key) ?? 0) + 1);
       if (fail.get) throw new Error("r2 unavailable");
       const seen = held.get(key);
-      return seen === undefined ? null : { text: async () => seen };
+      return seen === undefined ? null : { etag: seen.etag, text: async () => seen.text };
     },
     put: async (key: string, text: string) => {
       await hook();
       if (fail.put) throw new Error("r2 unavailable");
-      held.set(key, text);
+      writes += 1;
+      held.set(key, { text, uploaded: Date.now(), etag: crypto.randomUUID() });
       const after = hooks.afterWrite;
       delete hooks.afterWrite;
       if (after) await after();
@@ -243,16 +249,48 @@ export function memoryBucket(
     },
     delete: async (key: string) => {
       await hook();
+      const before = hooks.beforeDelete;
+      delete hooks.beforeDelete;
+      if (before) await before();
       if (fail.delete ?? fail.put) throw new Error("r2 unavailable");
       held.delete(key);
       const after = hooks.afterWrite;
       delete hooks.afterWrite;
       if (after) await after();
     },
+    list: async (options: { prefix?: string; limit?: number; startAfter?: string }) => {
+      lists += 1;
+      if (fail.list) throw new Error("r2 unavailable");
+      const keys = [...held.keys()]
+        .filter((key) => key.startsWith(options.prefix ?? ""))
+        .filter((key) => options.startAfter === undefined || key > options.startAfter)
+        .sort();
+      const limit = options.limit ?? 1000;
+      const page = keys.slice(0, limit);
+      return {
+        objects: page.map((key) => {
+          const entry = held.get(key) as { uploaded: number; etag: string };
+          return { key, uploaded: new Date(entry.uploaded), etag: entry.etag };
+        }),
+        truncated: keys.length > limit,
+        delimitedPrefixes: [],
+      };
+    },
   };
   return Object.assign(bucket as unknown as R2Bucket, {
-    held: (key: string) => held.get(key),
+    held: (key: string) => held.get(key)?.text,
+    keys: () => [...held.keys()],
+    /** Moves every record's `uploaded` back by `ms`, as if written that long ago. */
+    age: (ms: number) => {
+      for (const entry of held.values()) entry.uploaded -= ms;
+    },
+    /** Writes a record as a write path would, with no hook (a test's setup). */
+    plant: (key: string, text: string, agoMs = 0) => {
+      held.set(key, { text, uploaded: Date.now() - agoMs, etag: crypto.randomUUID() });
+    },
     reads: (key?: string) => (key === undefined ? reads : (readsByKey.get(key) ?? 0)),
+    lists: () => lists,
+    writes: () => writes,
     fail,
     hooks,
   });
