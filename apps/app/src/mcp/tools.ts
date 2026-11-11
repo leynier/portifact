@@ -330,7 +330,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
   lifecycle(
     "renew_artifact",
     "Renew an artifact",
-    "Restart the 30 days an active artifact stays published before it is archived. A pinned artifact has no expiry, so renewing it changes nothing. Fails for archived artifacts: restore those instead.",
+    "Restart the 30 days an active artifact stays published before it is archived. A pinned artifact has no expiry, so renewing it changes nothing. Fails for archived artifacts: restore those instead. In a workspace with a maximum life of artifacts (artifactMaxDays in list_workspaces), the new expiry never passes that many days after the last publish or restore, and renewing an artifact that reached it fails with policy_refused: publish a new version instead.",
     { destructiveHint: false, idempotentHint: true },
     renewArtifact,
   );
@@ -351,7 +351,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
   lifecycle(
     "pin_artifact",
     "Pin an artifact",
-    "Keep an active artifact published with no expiry until it is unpinned, so it is never archived for lack of renewal. Part of a paid plan: on a plan without it the call fails with plan_required. Pinning a pinned artifact changes nothing.",
+    "Keep an active artifact published with no expiry until it is unpinned, so it is never archived for lack of renewal. Part of a paid plan: on a plan without it the call fails with plan_required. Pinning a pinned artifact changes nothing. Refused with policy_refused in a workspace with a maximum life of artifacts.",
     { destructiveHint: false, idempotentHint: true },
     pinArtifact,
   );

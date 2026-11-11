@@ -1151,6 +1151,8 @@ export async function unpinLapsedPlans(
           .set({
             pinned: false,
             expiresAt,
+            // Not capped: a workspace's maximum life (decision 0023) caps it at its next scan.
+            uncappedExpiresAt: null,
             lifecycleGeneration: sql`${a.lifecycleGeneration} + 1`,
             updatedAt: now,
           })

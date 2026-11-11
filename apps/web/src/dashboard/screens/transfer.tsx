@@ -7,13 +7,14 @@
 // moves and what stays, and the API checks everything again (room in the destination, an open
 // upload, the roles).
 import { type ArtifactSummary, DEFAULT_REGION } from "@portifact/contracts";
+import { maxLifeDeadline } from "@portifact/domain";
 import { Button, Callout, ConfirmDialog, Panel, Select } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { ArrowRightLeft, CircleAlert, Info } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { ApiFailure } from "../api.ts";
-import { useAnnounce, useDashboard, useT } from "../context.tsx";
+import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import type { MessageId } from "../i18n/en.ts";
 import { ROLE_LABELS, spaceCan, spaceRegion, useWorkspaces, WORKSPACES_QUERY } from "../space.tsx";
 import { artifactQuery } from "./artifact-detail.tsx";
@@ -35,6 +36,7 @@ const TRANSFER_ERRORS: Partial<Record<string, MessageId>> = {
 
 export function TransferArtifact({ artifact }: { artifact: ArtifactSummary }) {
   const t = useT();
+  const formatDate = useFormatDate();
   const announce = useAnnounce();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -78,6 +80,25 @@ export function TransferArtifact({ artifact }: { artifact: ArtifactSummary }) {
     selected?.value === PERSONAL
       ? t("space.personal")
       : (items.find((w) => w.slug === selected?.value)?.name ?? "");
+  // The target's maximum life of artifacts (decision 0023): a move starts a new life there, so
+  // the person moving it learns by when it would be archived before confirming.
+  const destinationPolicy =
+    selected?.value === PERSONAL
+      ? undefined
+      : items.find((w) => w.slug === selected?.value)?.policy;
+  const maxLife =
+    artifact.state === "active" && destinationPolicy?.artifactMaxDays
+      ? {
+          days: destinationPolicy.artifactMaxDays,
+          by: maxLifeDeadline(
+            {
+              days: destinationPolicy.artifactMaxDays,
+              from: destinationPolicy.artifactMaxDaysFrom ?? 0,
+            },
+            Date.now(),
+          ),
+        }
+      : null;
 
   const move = useMutation({
     mutationFn: (to: string) => api.transferArtifact(artifact.id, to === PERSONAL ? null : to),
@@ -179,6 +200,15 @@ export function TransferArtifact({ artifact }: { artifact: ArtifactSummary }) {
           <li>{t("transfer.confirm.blocks", { space: destinationName })}</li>
           {artifact.accessMode === "workspace" || artifact.accessMode === "domain" ? (
             <li>{t("transfer.confirm.accessReset")}</li>
+          ) : null}
+          {maxLife ? (
+            <li>
+              {t("transfer.confirm.maxLife", {
+                space: destinationName,
+                days: maxLife.days,
+                date: formatDate(new Date(maxLife.by).toISOString()),
+              })}
+            </li>
           ) : null}
         </ul>
       </ConfirmDialog>

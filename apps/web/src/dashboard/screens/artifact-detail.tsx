@@ -37,6 +37,7 @@ import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import type { MessageId } from "../i18n/en.ts";
 import { AccessBadge, offeredActions, PinnedBadge, StateBadge } from "../presentation.tsx";
 import { refreshOptions } from "../refresh.ts";
+import { useOwnerPolicy } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { AccessLog } from "./access-log.tsx";
 import { CommentSettings, SharingSettings } from "./access-settings.tsx";
@@ -147,7 +148,10 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   // Pinning is part of the owner's plan; the API decides, this only explains it ahead of time.
   const usage = useUsage(artifact.owner.kind === "workspace" ? artifact.owner.slug : undefined);
-  const pinOffered = usage.isError || (usage.data?.plan.features.includes("pin") ?? false);
+  // A workspace's maximum life (decision 0023) rules pinning out; the API refuses it too.
+  const maxLife = useOwnerPolicy(artifact.owner)?.artifactMaxDays ?? null;
+  const pinOffered =
+    maxLife === null && (usage.isError || (usage.data?.plan.features.includes("pin") ?? false));
   const pinUnavailable = usage.data !== undefined && !usage.data.plan.features.includes("pin");
 
   const action = useMutation({
@@ -320,7 +324,12 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
             >
               <div className="flex flex-col gap-4">
                 {failedHere(keep)}
-                {active && !artifact.pinned && pinUnavailable ? (
+                {active && maxLife !== null ? (
+                  <p className="text-sm text-text-muted">
+                    {t("detail.maxLife", { days: maxLife })}
+                  </p>
+                ) : null}
+                {active && !artifact.pinned && pinUnavailable && maxLife === null ? (
                   <p className="text-sm text-text-muted">
                     {t("detail.pin.paid", { plan: PLAN_LABELS[lowestPlanWith("pin")] })}
                   </p>

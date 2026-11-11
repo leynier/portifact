@@ -2802,4 +2802,38 @@ export const ja = {
     "シングルサインオン必須が再び適用されます。プロバイダーでサインインできます（{cause, select, domain {確認済みドメインが変更されました} plan {プランが変更されました} provider {プロバイダーが変更されました} other {日次チェックで検出}}）",
   "policies.sso.switchedOff":
     "シングルサインオンは必須ですが、この Portifact では無効になっています。Portifact サポートが要件を解除するかシングルサインオンを再び有効にするまで、誰もプロバイダーでサインインできず、このワークスペースで操作できません。Portifact サポートに連絡してください。",
+  "policies.maxLife.legend": "artifact の最長期間",
+  "policies.maxLife.hint":
+    "ワークスペースの各 artifact を、最後の公開(ロールバックを含む)または復元から指定した日数後にアーカイブします。期限を早めるだけで、更新しても最長期間を超えられません。アーカイブされた artifact はアーカイブ期間が終わるまで復元できます。削除されるものはありません。ワークスペースへの artifact の移動も、公開と同じく新しい期間の始まりになります。",
+  "policies.maxLife.any": "最長期間なし",
+  "policies.maxLife.anyHint": "誰かが更新または公開している限り、artifact は公開されたままです。",
+  "policies.maxLife.only": "最長期間を過ぎたらアーカイブ",
+  "policies.maxLife.onlyHint":
+    "設定中はピン留めできず、ピン留めされた artifact は期限付きでピン留めが外れます。",
+  "policies.maxLife.days": "最後の公開または復元からの日数",
+  "policies.maxLife.daysHint": "{min} から {max} 日。",
+  "policies.maxLife.daysError": "{min} から {max} までの整数の日数を入力してください。",
+  "policies.maxLife.notice":
+    "新しい、またはより短い最長期間は保存の {days} 日後に適用され、すべての管理者にメールが届きます。それまでこの設定でアーカイブされることはありませんが、各 artifact には新しい期限がすでに表示され、所有者には通常の期限通知が届きます。より長い最長期間、または設定なしはすぐに適用されます。",
+  "policies.maxLife.pending": "最長期間は {date} に適用されます",
+  "policies.maxLife.pendingBody":
+    "それ以降、artifact は最後の公開または復元から {days} 日後にアーカイブされます。その日までこの設定でアーカイブされることはありません。",
+  "policies.maxLife.active":
+    "artifact は最後の公開または復元から {days} 日後にアーカイブされ、ピン留めできません。",
+  "policies.impact.atStart":
+    "{count, plural, one {# 件の公開中の artifact が最長期間の適用日にアーカイブされます(誰かが再公開しない場合)} other {# 件の公開中の artifact が最長期間の適用日にアーカイブされます(誰かが再公開しない場合)}}",
+  "policies.impact.soon":
+    "{count, plural, one {さらに # 件がその後 30 日以内にアーカイブされます} other {さらに # 件がその後 30 日以内にアーカイブされます}}",
+  "policies.impact.pins":
+    "{count, plural, one {# 件のピン留めされた artifact のピン留めが外れます} other {# 件のピン留めされた artifact のピン留めが外れます}}",
+  "detail.maxLife":
+    "このワークスペースでは artifact は最後の公開または復元から {days} 日後にアーカイブされます。期限にはこれが反映されており、ピン留めはできません。",
+  "audit.policy.maxLife": "artifact を最後の公開から {days} 日後にアーカイブ",
+  "audit.policy.maxLifeNone": "artifact の最長期間なし",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {# 件の artifact の期限を早めました} other {# 件の artifact の期限を早めました}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {# 件の artifact の期限を戻しました} other {# 件の artifact の期限を戻しました}}",
+  "transfer.confirm.maxLife":
+    "{space} では artifact は最後の公開、復元、または移動から {days} 日後にアーカイブされます。今移動すると、誰かが再公開しない限り遅くとも {date} にアーカイブされ、そこではピン留めできません。",
 } satisfies Catalog;

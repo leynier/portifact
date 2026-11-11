@@ -355,6 +355,13 @@ function policyParts(d: Record<string, unknown>): string[] {
     parts.push(d.ssoRequired ? "single sign-on required" : "single sign-on not required");
   }
   if (d.reason === "sso_removed") parts.push("because the single sign-on provider was removed");
+  if (d.artifactMaxDays !== undefined) {
+    parts.push(
+      d.artifactMaxDays === null
+        ? "no maximum life of artifacts"
+        : `artifacts archived ${d.artifactMaxDays} days after their last publish`,
+    );
+  }
   return parts;
 }
 
@@ -372,6 +379,8 @@ function enforcedParts(d: Record<string, unknown>): string[] {
     [d.readersRemoved, "reader(s) removed"],
     [d.linksRevoked, "share link(s) revoked"],
     [d.sessionsEnded, "link session(s) ended"],
+    [d.deadlinesSet, "artifact expiry(ies) brought forward by the maximum life"],
+    [d.deadlinesExtended, "artifact expiry(ies) given back"],
   ] as const;
   const listed = parts
     .filter(([count]) => Number(count) > 0)

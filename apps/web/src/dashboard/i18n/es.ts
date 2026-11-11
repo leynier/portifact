@@ -2853,4 +2853,39 @@ export const es = {
     "El inicio de sesión único obligatorio vuelve a aplicarse: el proveedor puede iniciar sesiones ({cause, select, domain {cambió un dominio verificado} plan {cambió el plan} provider {cambió el proveedor} other {detectado en la revisión diaria}})",
   "policies.sso.switchedOff":
     "Se exige el inicio de sesión único, pero está desactivado en este Portifact: nadie puede iniciar sesión con el proveedor ni actuar en este espacio hasta que el soporte de Portifact retire el requisito o vuelva a activarlo. Contacta con el soporte de Portifact.",
+  "policies.maxLife.legend": "Vida máxima de los artifacts",
+  "policies.maxLife.hint":
+    "Archiva cada artifact del workspace un número de días después de su última publicación (una reversión cuenta) o restauración. Solo adelanta el vencimiento: renovar no puede llevar un artifact más allá, y un artifact archivado se puede restaurar hasta que termine su archivo. No elimina nada. Mover un artifact al workspace empieza una vida nueva, como una publicación.",
+  "policies.maxLife.any": "Sin máximo",
+  "policies.maxLife.anyHint":
+    "Los artifacts siguen en línea mientras alguien los renueve o publique.",
+  "policies.maxLife.only": "Archivar tras una vida máxima",
+  "policies.maxLife.onlyHint":
+    "Mientras esté fijada no se puede fijar ningún artifact, y los fijados dejan de estarlo con su fecha límite.",
+  "policies.maxLife.days": "Días después de la última publicación o restauración",
+  "policies.maxLife.daysHint": "De {min} a {max} días.",
+  "policies.maxLife.daysError": "Escribe un número entero de días entre {min} y {max}.",
+  "policies.maxLife.notice":
+    "Un máximo nuevo o más corto entra en vigor {days} días después de guardarlo, y cada administrador recibe un correo. Hasta entonces no archiva nada, pero cada artifact ya muestra su nuevo vencimiento y sus propietarios reciben el aviso de vencimiento habitual. Un máximo más largo, o ninguno, se aplica al momento.",
+  "policies.maxLife.pending": "Una vida máxima entra en vigor el {date}",
+  "policies.maxLife.pendingBody":
+    "Desde entonces, los artifacts se archivan {days} días después de su última publicación o restauración. Antes de esa fecha no archiva nada.",
+  "policies.maxLife.active":
+    "Los artifacts se archivan {days} días después de su última publicación o restauración, y no se pueden fijar.",
+  "policies.impact.atStart":
+    "{count, plural, one {# artifact activo se archiva el día en que entra en vigor la vida máxima, salvo que alguien lo vuelva a publicar} other {# artifacts activos se archivan el día en que entra en vigor la vida máxima, salvo que alguien los vuelva a publicar}}",
+  "policies.impact.soon":
+    "{count, plural, one {# más se archiva en los 30 días siguientes} other {# más se archivan en los 30 días siguientes}}",
+  "policies.impact.pins":
+    "{count, plural, one {# artifact fijado deja de estarlo} other {# artifacts fijados dejan de estarlo}}",
+  "detail.maxLife":
+    "Este workspace archiva los artifacts {days} días después de su última publicación o restauración: el vencimiento ya lo incluye, y fijar no está disponible.",
+  "audit.policy.maxLife": "artifacts archivados {days} días después de su última publicación",
+  "audit.policy.maxLifeNone": "sin vida máxima de los artifacts",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {adelantó el vencimiento de # artifact} other {adelantó el vencimiento de # artifacts}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {devolvió su tiempo a # artifact} other {devolvió su tiempo a # artifacts}}",
+  "transfer.confirm.maxLife":
+    "{space} archiva los artifacts {days} días después de su última publicación, restauración o traslado: si lo mueves ahora, este se archiva como tarde el {date} salvo que alguien lo vuelva a publicar, y allí no se puede fijar.",
 } satisfies Catalog;

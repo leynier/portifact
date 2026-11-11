@@ -185,6 +185,9 @@ describe("policies through the dashboard's session", () => {
       linksRevoked: 0,
       linksWithoutPassword: 0,
       linksOverLifetime: 0,
+      artifactsAtStart: 0,
+      artifactsSoon: 0,
+      pinsLifted: 0,
       networks: null,
       signIns: null,
       sso: null,
@@ -417,3 +420,72 @@ describe("refusals, the same through the API and MCP", () => {
 function value(ok: boolean) {
   if (!ok) throw new Error("The policy was not saved");
 }
+
+describe("a maximum life of artifacts (decision 0023)", () => {
+  it("is saved through the session with its date, read by every client, and refused alike", async () => {
+    const t = await team("pol-life");
+    const base = `/api/v1/workspaces/${t.slug}/policies`;
+    const cookie = await t.admin.h.signIn(t.admin.email);
+    const artifactId = await publishIn(t.id, t.editor.userId);
+    const next = policy({ artifactMaxDays: 10 });
+    const seen = await (
+      await t.admin.h.request(`${base}/preview`, dashboard(cookie, "POST", { policy: next }))
+    ).json<Record<string, number>>();
+    // The artifact published now reaches 10 days after the effective date: none at the start.
+    expect(seen).toMatchObject({ artifactsAtStart: 0, artifactsSoon: 1, pinsLifted: 0 });
+    // A client's own effective date is ignored: the server decides it.
+    const saved = await t.admin.h.request(
+      base,
+      dashboard(cookie, "PUT", {
+        policy: { ...next, artifactMaxDaysFrom: 0 },
+        revision: 0,
+        confirmed: seen,
+      }),
+    );
+    expect(saved.status).toBe(200);
+    const from = NOW + 7 * 86_400_000;
+    expect(await saved.json()).toMatchObject({
+      policy: { artifactMaxDays: 10, artifactMaxDaysFrom: from },
+    });
+    // Every member reads it, in the workspace list (API and MCP) too.
+    const listed = await (await t.member.apiCall("/api/v1/workspaces")).json<{
+      items: { slug: string; policy: WorkspacePolicy }[];
+    }>();
+    expect(listed.items.find((item) => item.slug === t.slug)?.policy).toMatchObject({
+      artifactMaxDays: 10,
+      artifactMaxDaysFrom: from,
+    });
+    const tool = await t.member.tool("list_workspaces", {});
+    expect(JSON.stringify(tool.content)).toContain(
+      "artifacts are archived 10 days after their last publish or restore, and cannot be pinned",
+    );
+    // Pinning is refused with one body through the API and MCP.
+    const pinned = await t.editor.apiCall(`/api/v1/artifacts/${artifactId}/pin`, {
+      method: "POST",
+    });
+    expect(pinned.status).toBe(403);
+    const body = await pinned.json();
+    expect(body).toEqual(refusedBody(POLICY_MESSAGES.pinUnderMaxLife(10)));
+    const viaTool = await t.editor.tool("pin_artifact", { artifactId });
+    expect(viaTool.isError).toBe(true);
+    expect(viaTool.structuredContent).toEqual(body);
+    // A renewal is capped the same way through both: the artifact's last publish plus 10 days.
+    const renewed = await (
+      await t.editor.apiCall(`/api/v1/artifacts/${artifactId}/renew`, { method: "POST" })
+    ).json<{ expiresAt: number | string }>();
+    const renewedTool = await t.editor.tool("renew_artifact", { artifactId });
+    expect(renewedTool.structuredContent).toEqual(renewed);
+    const info = await (await t.editor.apiCall(`/api/v1/artifacts/${artifactId}`)).json<{
+      expiresAt: string;
+    }>();
+    expect(Date.parse(info.expiresAt)).toBe(NOW + 10 * 86_400_000);
+    // Removing it needs no plan and applies at once.
+    await db().delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));
+    const removed = await t.admin.h.request(
+      base,
+      dashboard(cookie, "PUT", { policy: DEFAULT_POLICY, revision: 1 }),
+    );
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toMatchObject({ policy: { artifactMaxDays: null } });
+  });
+});

@@ -2779,6 +2779,40 @@ export const en = {
     "Single sign-on required applies again: the provider can sign people in ({cause, select, domain {a verified domain changed} plan {the plan changed} provider {the provider changed} other {noticed by the daily check}})",
   "policies.sso.switchedOff":
     "Single sign-on is required, but it is switched off on this Portifact, so nobody can sign in through the provider and nobody can act on this workspace until Portifact support lifts the requirement or switches single sign-on back on. Contact Portifact support.",
+  "policies.maxLife.legend": "Maximum life of artifacts",
+  "policies.maxLife.hint":
+    "Archive each artifact of the workspace a number of days after its last publish (a rollback counts) or restore. It only brings an expiry forward: renewing cannot move an artifact past it, and an archived artifact can be restored until its archive ends. Nothing is deleted by it. Moving an artifact into the workspace starts a new life, like a publish.",
+  "policies.maxLife.any": "No maximum",
+  "policies.maxLife.anyHint": "Artifacts stay online while someone renews or publishes them.",
+  "policies.maxLife.only": "Archive after a maximum life",
+  "policies.maxLife.onlyHint":
+    "Pinning is off while it is set, and pinned artifacts are unpinned with their deadline.",
+  "policies.maxLife.days": "Days after the last publish or restore",
+  "policies.maxLife.daysHint": "From {min} to {max} days.",
+  "policies.maxLife.daysError": "Write a whole number of days from {min} to {max}.",
+  "policies.maxLife.notice":
+    "A new or shorter maximum takes effect {days} days after you save it, and every admin gets an email. Until then nothing is archived by it, but each artifact already shows its new expiry and its owners get the usual expiry notice. A longer maximum, or none, applies at once.",
+  "policies.maxLife.pending": "A maximum life takes effect on {date}",
+  "policies.maxLife.pendingBody":
+    "From then, artifacts are archived {days} days after their last publish or restore. Nothing is archived by it before that date.",
+  "policies.maxLife.active":
+    "Artifacts are archived {days} days after their last publish or restore, and cannot be pinned.",
+  "policies.impact.atStart":
+    "{count, plural, one {# active artifact is archived the day the maximum life takes effect, unless someone publishes it again} other {# active artifacts are archived the day the maximum life takes effect, unless someone publishes them again}}",
+  "policies.impact.soon":
+    "{count, plural, one {# more is archived within 30 days after that} other {# more are archived within 30 days after that}}",
+  "policies.impact.pins":
+    "{count, plural, one {# pinned artifact is unpinned} other {# pinned artifacts are unpinned}}",
+  "detail.maxLife":
+    "This workspace archives artifacts {days} days after their last publish or restore: the expiry includes it, and pinning is off.",
+  "audit.policy.maxLife": "artifacts archived {days} days after their last publish",
+  "audit.policy.maxLifeNone": "no maximum life of artifacts",
+  "audit.policy.deadlinesSet":
+    "{count, plural, one {brought # artifact's expiry forward} other {brought # artifacts' expiry forward}}",
+  "audit.policy.deadlinesExtended":
+    "{count, plural, one {gave # artifact its time back} other {gave # artifacts their time back}}",
+  "transfer.confirm.maxLife":
+    "{space} archives artifacts {days} days after their last publish, restore or move in: moved now, this one is archived by {date} at the latest unless someone publishes it again, and it cannot be pinned there.",
 } as const;
 
 export type MessageId = keyof typeof en;
