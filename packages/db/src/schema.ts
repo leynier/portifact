@@ -1836,6 +1836,23 @@ export const githubTrustRules = sqliteTable(
 );
 
 /**
+ * GitHub ID tokens already exchanged (decision 0024, "Review of the first version"): the SHA-256
+ * of the issuer and the token's `jti`, never the raw value, with when the token stops being
+ * acceptable. Nothing cascades into it, so changing or removing a rule never forgets a token.
+ * `claim` is the exchanging request's own value: its credential is written only when its insert
+ * won. Pruned by the maintenance scan once `expires_at` has passed.
+ */
+export const githubUsedTokens = sqliteTable(
+  "github_used_tokens",
+  {
+    jtiHash: text("jti_hash").primaryKey(),
+    claim: text("claim").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (t) => [index("github_used_tokens_expiry_idx").on(t.expiresAt)],
+);
+
+/**
  * Service tokens (premium plan T4, decision 0011): a workspace's credential for automation, with
  * a fixed role (never admin) and scopes. Only the SHA-256 of the secret is stored. Revoking
  * deletes the row and writes a `service_token` tombstone; deleting the workspace deletes its
@@ -1869,13 +1886,10 @@ export const serviceTokens = sqliteTable(
     trustRuleId: text("trust_rule_id").references(() => githubTrustRules.id, {
       onDelete: "cascade",
     }),
-    /** The GitHub ID token's `jti`, unique, so each ID token is exchanged once (decision 0024). */
-    federationJti: text("federation_jti"),
   },
   (t) => [
     uniqueIndex("service_tokens_hash_idx").on(t.tokenHash),
     index("service_tokens_workspace_idx").on(t.workspaceId),
-    uniqueIndex("service_tokens_jti_idx").on(t.federationJti),
     index("service_tokens_rule_idx").on(t.trustRuleId, t.expiresAt),
     check("service_tokens_role", sql`${t.role} = 'editor'`),
     check(

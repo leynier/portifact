@@ -1,6 +1,7 @@
 // What the GitHub OIDC exchange costs in D1 (decision 0024, "Costs"), pinned: one call for a
-// refusal before the signature check, three for a verified token the workspace refuses, four for
-// an issued credential; and a request with the credential costs what an admin's service token
+// token that fails verification (its address's failure counter), two for a verified token the
+// workspace refuses (the counters' batch and the read), three for an issued credential (and the
+// issuing batch, which also records the token as used); and a request with the credential costs what an admin's service token
 // costs within its hour (no `last_used_at` write).
 import { env } from "cloudflare:workers";
 import { githubAudience } from "@portifact/contracts";
@@ -130,13 +131,13 @@ describe("the D1 cost of the GitHub OIDC exchange", () => {
 
     taken();
     expect((await exchange("not-a-token")).status).toBe(401);
-    expect(taken(), "a refusal before the signature").toBe(1);
+    expect(taken(), "a token that fails verification").toBe(1);
     const untrusted = await issuer.token({ ...REPO, repositoryId: "1" }, { audience });
     expect((await exchange(untrusted)).status).toBe(401);
-    expect(taken(), "a verified token the workspace refuses").toBe(3);
+    expect(taken(), "a verified token the workspace refuses").toBe(2);
     const issued = await exchange(await issuer.token(REPO, { audience }));
     expect(issued.status).toBe(200);
-    expect(taken(), "an issued credential").toBe(4);
+    expect(taken(), "an issued credential").toBe(3);
 
     const credential = (await issued.json<{ token: string }>()).token;
     const list = (secret: string) =>

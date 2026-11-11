@@ -451,6 +451,7 @@ describe("purging archives", () => {
       workspaceDeletions: 0,
       expiredInvitations: 0,
       federatedCredentials: 0,
+      usedGitHubTokens: 0,
       directoryUsers: 0,
       prunedTrafficCounters: 0,
       prunedEmailCounters: 0,

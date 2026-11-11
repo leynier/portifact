@@ -4,6 +4,7 @@
 // The app verifies the token's signature and times (apps/app/src/auth/github-oidc.ts); this module
 // applies the rule and writes the rows. Rules and credentials are global (decision 0005).
 import {
+  GITHUB_OIDC_ISSUER,
   GITHUB_TRUST,
   GITHUB_TRUST_EVENTS,
   GITHUB_TRUST_SCOPES,
@@ -25,6 +26,7 @@ import {
   githubCredentialLabel,
   githubSetText,
   hasFeature,
+  newAuditEventId,
   ok,
   type Result,
   requireFeature,
@@ -219,9 +221,13 @@ function sameRule(row: RuleRow, body: GitHubTrustRuleUpdate): boolean {
 }
 
 /**
- * Changes a rule read at `revision`, gated on the plan. Its outstanding credentials are deleted
- * in the same batch, so what they may do never outlives the rule that issued them. A change that
- * changes nothing writes nothing.
+ * Changes a rule read at `revision`, gated on the plan. A change saves a new rule with a new ID
+ * and removes the old one with the `github_trust_rule` tombstone a removal writes, in one batch
+ * (decision 0024, "Review of the first version"): a D1 restore to before the change then brings
+ * back a rule that `applyTombstones` removes, never the wider rule silently, and the old rule's
+ * credentials end by the cascade. The batch is claimed by its audit event, whose ID is this
+ * request's own and which is written only while the rule is the one read. A change that changes
+ * nothing writes nothing.
  */
 export async function updateGitHubTrustRule(
   global: GlobalDb,
@@ -254,38 +260,41 @@ export async function updateGitHubTrustRule(
     const [unchanged] = await rulesOf(global, workspaceId, input.now, current.id);
     return unchanged ? ok(unchanged) : missingRule();
   }
+  const id = newId("gtr_");
+  const eventId = newAuditEventId();
   const read: SQL = sql`exists (select 1 from ${r} where ${r.id} = ${current.id} and ${r.workspaceId} = ${workspaceId} and ${r.revision} = ${body.revision}) and ${stillAdmin(workspaceId, input.userId)} and not exists (select 1 from ${r} as "other" where "other"."workspace_id" = ${workspaceId} and "other"."repository_id" = ${body.repositoryId} and "other"."id" <> ${current.id})`;
-  const [, , updated] = await global.batch([
+  const claimed = sql`exists (select 1 from ${schema.auditEvents} where ${schema.auditEvents.id} = ${eventId})`;
+  const events = githubSetText(GITHUB_TRUST_EVENTS, body.events);
+  const scopes = githubSetText(GITHUB_TRUST_SCOPES, body.scopes);
+  const [, , , inserted] = await global.batch([
     auditEvent(
       global,
       {
+        id: eventId,
         ownerId: workspaceId,
         kind: "github_trust.changed",
         actor: { type: "user", id: input.userId },
-        targetId: current.id,
+        targetId: id,
         detail: detailOf(body),
         now: input.now,
       },
       read,
     ),
-    global.delete(st).where(and(eq(st.trustRuleId, current.id), read)),
     global
-      .update(r)
-      .set({
-        repository: body.repository,
-        repositoryId: body.repositoryId,
-        repositoryOwnerId: body.repositoryOwnerId,
-        events: githubSetText(GITHUB_TRUST_EVENTS, body.events),
-        scopes: githubSetText(GITHUB_TRUST_SCOPES, body.scopes),
-        ref: body.ref,
-        environment: body.environment,
-        updatedAt: input.now,
-        revision: body.revision + 1,
-      })
-      .where(and(eq(r.id, current.id), read))
+      .insert(schema.tombstones)
+      .select(sql`select 'github_trust_rule', ${current.id}, ${input.now} where ${claimed}`)
+      .onConflictDoNothing(),
+    // The old rule's credentials go by the cascade.
+    global.delete(r).where(and(eq(r.id, current.id), claimed)),
+    // Every column in schema order (AGENTS.md, insert ... select).
+    global
+      .insert(r)
+      .select(
+        sql`select ${id}, ${workspaceId}, ${body.repositoryId}, ${body.repositoryOwnerId}, ${body.repository}, ${events}, ${body.ref}, ${body.environment}, ${scopes}, ${current.createdBy}, ${current.createdAt}, ${input.now}, ${body.revision + 1} where ${claimed}`,
+      )
       .returning({ id: r.id }),
   ]);
-  if (updated.length === 0) {
+  if (inserted.length === 0) {
     const again = await scoped(global, input.userId, input.slug, "federation");
     if (!again.ok) return again;
     const [other] = await global
@@ -296,7 +305,7 @@ export async function updateGitHubTrustRule(
     if (other && other.id !== current.id) return duplicateRule();
     return fail("version_conflict", "This rule changed since it was read. Reload and try again.");
   }
-  const [changed] = await rulesOf(global, workspaceId, input.now, current.id);
+  const [changed] = await rulesOf(global, workspaceId, input.now, id);
   return changed ? ok(changed) : missingRule();
 }
 
@@ -364,11 +373,19 @@ export type GitHubExchange =
     }
   | { ok: false; reason: GitHubRefusal };
 
+/** The used-token key: the SHA-256 of the issuer and the `jti`, never the raw value. */
+export function usedTokenKey(jti: string): Promise<string> {
+  return hashSecret(`${GITHUB_OIDC_ISSUER} ${jti}`);
+}
+
 /**
- * Issues a credential for a verified token's claims (decision 0024, "The exchange", steps 4 to 6):
- * one read of the workspace, the rule for the token's repository ID and the plan, then one batch
- * that inserts the credential and its `github_trust.exchanged` event, conditioned on the rule
- * being the one read and on the token's `jti` never having been exchanged.
+ * Issues a credential for a verified token's claims (decision 0024, "The exchange"): one read of
+ * the workspace, the rule for the token's repository ID and the plan, then one batch. The batch
+ * records the token as used in `github_used_tokens` with this request's own claim (a token already
+ * there keeps its row, so the insert loses), then writes the credential and its
+ * `github_trust.exchanged` event only when that insert won and the rule is still the one read.
+ * Nothing cascades into the used tokens, so changing or removing a rule never makes a token
+ * exchangeable again.
  */
 export async function exchangeGitHubToken(
   global: GlobalDb,
@@ -389,6 +406,7 @@ export async function exchangeGitHubToken(
         environment: r.environment,
         scopes: r.scopes,
         revision: r.revision,
+        updatedAt: r.updatedAt,
       },
       plan: {
         plan: p.plan,
@@ -412,6 +430,7 @@ export async function exchangeGitHubToken(
     events: storedGitHubEvents(rule.events),
     ref: rule.ref,
     environment: rule.environment,
+    savedAt: rule.updatedAt,
   });
   if (!verdict.ok) return verdict;
   if (!hasFeature(entitlements(row.plan ?? null, now), FEATURE)) {
@@ -420,20 +439,26 @@ export async function exchangeGitHubToken(
   const scopes = storedGitHubScopes(rule.scopes);
   if (scopes.length === 0) return { ok: false, reason: "no_rule" };
   const id = newId("st_");
+  const claim = newId("");
   const secret = newServiceTokenSecret();
   const tokenHash = await hashSecret(secret);
+  const jtiHash = await usedTokenKey(claims.jti);
   const keyPrefix = githubKeyPrefix(claims.repositoryId);
   const expiresAt = now + GITHUB_TRUST.credentialMinutes * 60_000;
   const label = githubCredentialLabel(claims.repository, claims.runId);
-  const still = sql`exists (select 1 from ${r} where ${r.id} = ${rule.id} and ${r.revision} = ${rule.revision}) and not exists (select 1 from ${st} where ${st.federationJti} = ${claims.jti})`;
-  const [inserted] = await global.batch([
+  const u = schema.githubUsedTokens;
+  // Kept until the token can no longer pass the time checks: its `exp` plus the skew accepted.
+  const usedUntil = claims.expiresAt + GITHUB_TRUST.clockSkewSeconds * 1000;
+  const won = sql`exists (select 1 from ${u} where ${u.jtiHash} = ${jtiHash} and ${u.claim} = ${claim})`;
+  const still = sql`${won} and exists (select 1 from ${r} where ${r.id} = ${rule.id} and ${r.revision} = ${rule.revision})`;
+  const [, inserted] = await global.batch([
+    global.insert(u).values({ jtiHash, claim, expiresAt: usedUntil }).onConflictDoNothing(),
     // Every column in schema order. `last_used_at` is set now, so the hourly write never runs.
     global
       .insert(st)
       .select(
-        sql`select ${id}, ${row.workspaceId}, ${label}, 'editor', ${scopes.join(" ")}, 'key', ${keyPrefix}, ${tokenHash}, null, ${now}, ${expiresAt}, ${now}, ${rule.id}, ${claims.jti} where ${still}`,
+        sql`select ${id}, ${row.workspaceId}, ${label}, 'editor', ${scopes.join(" ")}, 'key', ${keyPrefix}, ${tokenHash}, null, ${now}, ${expiresAt}, ${now}, ${rule.id} where ${still}`,
       )
-      .onConflictDoNothing()
       .returning({ id: st.id }),
     // The credential itself is the actor, so the log shows it by its label while it exists.
     auditEvent(
@@ -468,9 +493,30 @@ export async function exchangeGitHubToken(
 }
 
 /**
+ * Forgets used tokens that can no longer pass the exchange's time checks (`expires_at`, their
+ * `exp` plus the accepted skew, has passed), at most `GITHUB_TRUST.prunePerRun` per run, oldest
+ * first: one statement. A backlog drains over later runs.
+ */
+export async function pruneUsedGitHubTokens(global: GlobalDb, now: number): Promise<number> {
+  const u = schema.githubUsedTokens;
+  const due = global
+    .select({ jtiHash: u.jtiHash })
+    .from(u)
+    .where(lt(u.expiresAt, now))
+    .orderBy(asc(u.expiresAt))
+    .limit(GITHUB_TRUST.prunePerRun);
+  const deleted = await global
+    .delete(u)
+    .where(sql`${u.jtiHash} in (${due})`)
+    .returning({ jtiHash: u.jtiHash });
+  return deleted.length;
+}
+
+/**
  * Deletes credentials that expired more than `GITHUB_TRUST.pruneAfterMs` ago, at most
- * `GITHUB_TRUST.prunePerRun` per run, oldest first: one statement. Kept that long so a token's
- * `jti` outlives any ID token GitHub could still present. A backlog drains over later runs.
+ * `GITHUB_TRUST.prunePerRun` per run, oldest first: one statement. Which ID tokens were used is
+ * kept apart (`github_used_tokens`), so this prune never forgets one. A backlog drains over later
+ * runs.
  */
 export async function pruneFederatedCredentials(global: GlobalDb, now: number): Promise<number> {
   const due = global

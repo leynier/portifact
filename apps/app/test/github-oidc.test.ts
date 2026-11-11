@@ -123,10 +123,10 @@ async function sha256(text: string) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function publishWith(h: Harness, secret: string, ownerId: string, key?: string) {
+async function publishWith(h: Harness, secret: string, ownerId: string, key?: string, query = "") {
   const body = `<p>${crypto.randomUUID()}</p>`;
   const prepare = await h.request(
-    "/api/v1/publishes",
+    `/api/v1/publishes${query}`,
     bearer(secret, {
       method: "POST",
       headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
@@ -181,9 +181,17 @@ describe("trust rules from the dashboard", () => {
       dashboard(t.adminCookie, "PATCH", { ...RULE, events: ["push"], revision: 0 }),
     );
     expect(changed.status).toBe(200);
-    expect(await changed.json()).toMatchObject({ events: ["push"], revision: 1 });
-    const removed = await t.h.request(
+    const next = await changed.json<{ id: string; events: string[]; revision: number }>();
+    // A change saves a new rule (decision 0024, review): the old ID answers like a missing one.
+    expect(next).toMatchObject({ events: ["push"], revision: 1 });
+    expect(next.id).not.toBe(created.id);
+    const old = await t.h.request(
       `/api/v1/workspaces/${t.slug}/github-trust/${created.id}`,
+      dashboard(t.adminCookie, "DELETE"),
+    );
+    expect(old.status).toBe(404);
+    const removed = await t.h.request(
+      `/api/v1/workspaces/${t.slug}/github-trust/${next.id}`,
       dashboard(t.adminCookie, "DELETE"),
     );
     expect(removed.status).toBe(204);
@@ -429,22 +437,146 @@ describe("the exchange", () => {
     expect(await response.json()).toEqual(REFUSED);
   });
 
-  it("limits attempts per IP and verified tokens per repository", async () => {
+  it("limits verified exchanges per IP and per repository, and failures on their own budget", async () => {
     const t = await team();
     await trust(t);
     await db()
       .insert(schema.rateLimits)
-      .values({ key: "github-oidc:ip:203.0.113.9", windowStart: NOW, count: 300 });
+      .values({ key: "github-oidc:ip:203.0.113.9", windowStart: NOW, count: 300 })
+      .onConflictDoUpdate({
+        target: schema.rateLimits.key,
+        set: { windowStart: NOW, count: 300 },
+      });
     const byIp = await exchange(t, await mint(t), t.slug, "203.0.113.9");
     expect(byIp.status).toBe(429);
     expect(byIp.headers.get("retry-after")).toBe("600");
-    // A refusal before the signature never reaches GitHub's key set.
-    expect(t.issuer.calls).toEqual([]);
     await db()
       .insert(schema.rateLimits)
-      .values({ key: "github-oidc:repo:123456", windowStart: NOW, count: 60 });
+      .values({ key: "github-oidc:repo:123456", windowStart: NOW, count: 60 })
+      .onConflictDoUpdate({
+        target: schema.rateLimits.key,
+        set: { windowStart: NOW, count: 60 },
+      });
     const byRepository = await exchange(t, await mint(t));
     expect(byRepository.status).toBe(429);
+  });
+
+  it("never lets junk from a shared address keep a valid exchange from it", async () => {
+    const t = await team();
+    await trust(t);
+    const shared = "203.0.113.50";
+    for (let i = 0; i < 61; i += 1) await exchange(t, "junk", t.slug, shared);
+    const junk = await exchange(t, "junk", t.slug, shared);
+    expect(junk.status).toBe(429);
+    // The address's failures are spent; a verified token from it still gets its credential.
+    expect((await exchange(t, await mint(t), t.slug, shared)).status).toBe(200);
+  });
+
+  it("refuses an oversized body by its length, and caps the read of one without it", async () => {
+    const t = await team();
+    await trust(t);
+    const big = JSON.stringify({ workspace: t.slug, token: "x".repeat(20_000) });
+    const declared = await t.h.request("/api/v1/github/token", {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": String(big.length) },
+      body: big,
+    });
+    expect(declared.status).toBe(401);
+    expect(await declared.json()).toEqual(REFUSED);
+    let pulled = 0;
+    const chunk = new TextEncoder().encode("x".repeat(4096));
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        if (pulled > 1000) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    const streamed = await t.h.request("/api/v1/github/token", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: endless,
+      // @ts-expect-error: undici and workerd need this for a streamed request body
+      duplex: "half",
+    });
+    expect(streamed.status).toBe(401);
+    // Only a little past the 8.5 KiB cap was read, never the whole body.
+    expect(pulled).toBeLessThan(10);
+  });
+});
+
+describe("findings of the review of the first version", () => {
+  it("never exchanges a token again after its rule is removed and trusted again", async () => {
+    const t = await team();
+    const created = await trust(t);
+    const idToken = await mint(t);
+    expect((await exchange(t, idToken)).status).toBe(200);
+    expect((await exchange(t, idToken)).status).toBe(401);
+    await t.h.request(
+      `/api/v1/workspaces/${t.slug}/github-trust/${created.id}`,
+      dashboard(t.adminCookie, "DELETE"),
+    );
+    await trust(t);
+    expect((await exchange(t, idToken)).status).toBe(401);
+  });
+
+  it("never exchanges a token again after its rule is changed", async () => {
+    const t = await team();
+    const created = await trust(t);
+    const idToken = await mint(t);
+    expect((await exchange(t, idToken)).status).toBe(200);
+    const patched = await t.h.request(
+      `/api/v1/workspaces/${t.slug}/github-trust/${created.id}`,
+      dashboard(t.adminCookie, "PATCH", {
+        ...RULE,
+        scopes: ["artifacts:read", "artifacts:write"],
+        revision: created.revision,
+      }),
+    );
+    expect(patched.status).toBe(200);
+    expect((await exchange(t, idToken)).status).toBe(401);
+  });
+
+  it("lists, reads and deletes nothing a person published outside the namespace", async () => {
+    const t = await team();
+    await trust(t);
+    const access = await apiToken(t.h, t.adminEmail, SCOPES);
+    const hand = await publishWith(t.h, access, t.id, undefined, `?workspace=${t.slug}`);
+    const keyed = await publishWith(t.h, access, t.id, "gh-123456/hand", `?workspace=${t.slug}`);
+    expect([hand.status, keyed.status]).toEqual([200, 200]);
+    const handId = (hand.body as { artifactId: string }).artifactId;
+    const keyedId = (keyed.body as { artifactId: string }).artifactId;
+    const run = await credential(t);
+    const listed = await (await t.h.request("/api/v1/artifacts", bearer(run.token))).json<{
+      items: { id: string }[];
+    }>();
+    expect(listed.items.map((item) => item.id)).toEqual([keyedId]);
+    expect((await t.h.request(`/api/v1/artifacts/${handId}`, bearer(run.token))).status).toBe(404);
+    const deleted = await t.h.request(
+      `/api/v1/artifacts/${handId}`,
+      bearer(run.token, { method: "DELETE", headers: { "idempotency-key": crypto.randomUUID() } }),
+    );
+    expect(deleted.status).toBe(404);
+    for (const path of [
+      `/api/v1/audit?workspace=${t.slug}`,
+      `/api/v1/workspaces/${t.slug}/members`,
+      `/api/v1/workspaces/${t.slug}/github-trust`,
+    ]) {
+      expect([401, 403, 404], path).toContain((await t.h.request(path, bearer(run.token))).status);
+    }
+  });
+
+  it("refuses an audience with a suffix or in another case, and claims of another type", async () => {
+    const t = await team();
+    await trust(t);
+    const a = audience(t.slug);
+    for (const token of [
+      await mint(t, { audience: `${a}x` }),
+      await mint(t, { audience: a.toUpperCase() }),
+      await mint(t, { claims: { repository_id: 123456 } }),
+    ]) {
+      expect((await exchange(t, token)).status).toBe(401);
+    }
   });
 });
 
@@ -466,6 +598,10 @@ describe("GitHub's key set", () => {
     await trust(t);
     await credential(t);
     await t.issuer.rotate();
+    // The set was fetched a moment ago: a new `kid` waits for the next allowed fetch.
+    expect((await exchange(t, await mint(t))).status).toBe(401);
+    expect(gitHubKeyFetches()).toBe(1);
+    vi.setSystemTime(NOW + 61_000);
     await credential(t);
     expect(gitHubKeyFetches()).toBe(2);
     // Made-up keys cannot make every exchange call GitHub.
@@ -473,8 +609,70 @@ describe("GitHub's key set", () => {
       expect((await exchange(t, await mint(t, { signing: "stray" }))).status).toBe(401);
     }
     expect(gitHubKeyFetches()).toBe(2);
-    vi.setSystemTime(NOW + 61_000);
+    vi.setSystemTime(NOW + 122_000);
     expect((await exchange(t, await mint(t, { signing: "stray" }))).status).toBe(401);
+    expect(gitHubKeyFetches()).toBe(3);
+  });
+
+  it("calls GitHub at most once for many forged tokens while it is down and nothing is cached", async () => {
+    const t = await team();
+    await trust(t);
+    t.issuer.override = () => new Response("down", { status: 503 });
+    for (let i = 0; i < 20; i += 1) {
+      expect((await exchange(t, await mint(t, { header: { kid: `k${i}` } }))).status).toBe(401);
+    }
+    expect(gitHubKeyFetches()).toBe(1);
+    // Once the interval has passed it tries again, once.
+    vi.setSystemTime(NOW + 61_000);
+    for (let i = 0; i < 5; i += 1) {
+      expect((await exchange(t, await mint(t))).status).toBe(401);
+    }
+    expect(gitHubKeyFetches()).toBe(2);
+  });
+
+  it("shares one fetch among concurrent requests on a cold isolate", async () => {
+    const t = await team();
+    await trust(t);
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const real = t.issuer.fetch;
+    t.issuer.override = null;
+    const slow = async (input: RequestInfo | URL, init?: RequestInit) => {
+      await gate;
+      return real(input, init);
+    };
+    const h = createHarness({ githubOidcFetch: slow });
+    const tokens = await Promise.all(Array.from({ length: 8 }, () => mint(t)));
+    const pending = tokens.map((token) =>
+      h.request("/api/v1/github/token", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ workspace: t.slug, token }),
+      }),
+    );
+    release();
+    const answers = await Promise.all(pending);
+    expect(answers.map((answer) => answer.status)).toEqual(Array(8).fill(200));
+    expect(gitHubKeyFetches()).toBe(1);
+  });
+
+  it("keeps verifying with a stale key set while GitHub is down, calling it once a minute", async () => {
+    const t = await team();
+    await trust(t);
+    await credential(t);
+    expect(gitHubKeyFetches()).toBe(1);
+    t.issuer.override = () => new Response("down", { status: 503 });
+    vi.setSystemTime(NOW + 2 * 60 * 60_000);
+    for (let i = 0; i < 5; i += 1) await credential(t);
+    for (let i = 0; i < 10; i += 1) {
+      expect((await exchange(t, await mint(t, { header: { kid: `k${i}` } }))).status).toBe(401);
+    }
+    expect(gitHubKeyFetches()).toBe(2);
+    // A day after the last good fetch, the stale set no longer serves.
+    vi.setSystemTime(NOW + 25 * 60 * 60_000);
+    expect((await exchange(t, await mint(t))).status).toBe(401);
     expect(gitHubKeyFetches()).toBe(3);
   });
 

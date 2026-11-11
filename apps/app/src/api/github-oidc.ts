@@ -3,9 +3,10 @@
 // credentials, so it is rate limited per IP before anything else and per repository once the
 // token is verified. Switched off (404) without `GITHUB_OIDC_ENABLED="true"`.
 //
-// D1 calls: a refusal before the signature check costs one (the IP counter); a verified token
-// costs three more at most (the repository counter, the read of the workspace, rule and plan,
-// and the batch that issues). Pinned in test/github-oidc-cost.test.ts.
+// D1 calls: a token that fails verification costs one (its address's failure counter); a
+// verified token costs one batch of its address's and its repository's counters, the read of
+// the workspace, rule and plan, and the batch that issues: three. Pinned in
+// test/github-oidc-cost.test.ts.
 import {
   GITHUB_EXCHANGE_REFUSED,
   GITHUB_TRUST,
@@ -13,7 +14,7 @@ import {
   GitHubTokenExchanged,
   githubAudience,
 } from "@portifact/contracts";
-import { hitRateLimit } from "@portifact/db";
+import { hitRateLimit, hitRateLimits } from "@portifact/db";
 import { type GitHubRefusal, logEvent } from "@portifact/domain";
 import { exchangeGitHubToken, type SsoFetch } from "@portifact/services";
 import { Hono } from "hono";
@@ -51,32 +52,39 @@ export function githubOidcRoutes(deps: GitHubOidcDeps) {
     if (!githubOidcEnabled(c.env)) return c.notFound();
     const now = deps.now();
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
-    const perIp = await hitRateLimit(
-      c.env.DB,
-      `github-oidc:ip:${ip}`,
-      GITHUB_TRUST.rateWindowMs,
-      now,
-    );
-    if (perIp.count > GITHUB_TRUST.perIpLimit) return limited(c, perIp.resetAt, now);
+    // Requests that fail before verification are counted on their own, lower budget, after the
+    // check: junk from an address (GitHub-hosted runners share them) never spends what a verified
+    // exchange from the same address needs, and never keeps one from being verified.
+    const failed = async (reason: GitHubRefusal) => {
+      const hit = await hitRateLimit(
+        c.env.DB,
+        `github-oidc:ipfail:${ip}`,
+        GITHUB_TRUST.rateWindowMs,
+        now,
+      );
+      if (hit.count > GITHUB_TRUST.perIpFailureLimit) return limited(c, hit.resetAt, now);
+      return refused(c, reason);
+    };
 
-    const body = await readJson(c, GitHubTokenExchange, GITHUB_TRUST.tokenMaxLength + 512);
-    if (!body.ok) return refused(c, "malformed");
+    const body = await readJson(c, GitHubTokenExchange, GITHUB_TRUST.bodyMaxBytes);
+    if (!body.ok) return failed("malformed");
     const audience = githubAudience(authUrls(c.env.APP_ORIGIN).origin, body.value.workspace);
     const verified = await verifyGitHubToken(deps.fetch(c.env), body.value.token, audience, now);
     if (!verified.ok) {
       if (verified.reason === "jwks_unavailable") {
         logEvent("error", "github_oidc_jwks_unavailable");
       }
-      return refused(c, verified.reason);
+      return failed(verified.reason);
     }
     const { claims } = verified;
-    const perRepository = await hitRateLimit(
+    const [perIp, perRepository] = await hitRateLimits(
       c.env.DB,
-      `github-oidc:repo:${claims.repositoryId}`,
+      [`github-oidc:ip:${ip}`, `github-oidc:repo:${claims.repositoryId}`],
       GITHUB_TRUST.rateWindowMs,
       now,
     );
-    if (perRepository.count > GITHUB_TRUST.perRepositoryLimit) {
+    if (perIp && perIp.count > GITHUB_TRUST.perIpLimit) return limited(c, perIp.resetAt, now);
+    if (perRepository && perRepository.count > GITHUB_TRUST.perRepositoryLimit) {
       return limited(c, perRepository.resetAt, now);
     }
     const issued = await exchangeGitHubToken(regionsOf(c.env).global, {

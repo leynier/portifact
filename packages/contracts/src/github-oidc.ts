@@ -16,7 +16,7 @@ export const GITHUB_TRUST = {
   perWorkspace: 20,
   /** How long an issued credential lives. */
   credentialMinutes: 15,
-  /** Credentials are pruned this long after they expire, so their `jti` outlives any ID token. */
+  /** Credentials are pruned this long after they expire (used tokens are kept apart). */
   pruneAfterMs: 60 * 60 * 1000,
   /** At most this many credential rows are pruned per run. */
   prunePerRun: 500,
@@ -27,12 +27,20 @@ export const GITHUB_TRUST = {
   /** Key set cache and forced refresh per isolate. */
   jwksCacheMs: 60 * 60 * 1000,
   jwksRefetchMs: 60 * 1000,
-  /** Exchanges per IP (every attempt) and per repository (verified tokens), per window. */
+  /** How long a key set that once worked keeps serving while GitHub cannot be reached. */
+  jwksStaleMs: 24 * 60 * 60 * 1000,
+  /**
+   * Per window: verified exchanges per IP and per repository, and, on their own budget,
+   * requests from an IP that fail before verification (decision 0024, "Review of the first
+   * version"). A busy repository runs a few exchanges per pull request push; runners share IPs.
+   */
   perIpLimit: 300,
   perRepositoryLimit: 60,
+  perIpFailureLimit: 60,
   rateWindowMs: 10 * 60 * 1000,
-  /** The largest ID token read. */
+  /** The largest ID token read, and the largest exchange body read. */
   tokenMaxLength: 8192,
+  bodyMaxBytes: 8192 + 512,
   refMaxLength: 255,
   environmentMaxLength: 255,
 } as const;

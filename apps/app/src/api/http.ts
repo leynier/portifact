@@ -39,7 +39,40 @@ export function iso(ms: number): string {
 }
 
 /**
- * Reads and validates a JSON body. With `maxBytes`, a larger body is refused before parsing.
+ * The body as text, or null when it is larger than `maxBytes`: refused by its `Content-Length`
+ * before reading, and for a body without one, read only up to `maxBytes` and one byte more, so
+ * an endpoint without credentials never buffers more than its cap.
+ */
+async function boundedText(request: Request, maxBytes: number): Promise<string | null> {
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maxBytes) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > maxBytes) return null;
+      chunks.push(chunk.value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Reads and validates a JSON body. With `maxBytes`, a larger body is refused before parsing, by
+ * its `Content-Length` first and without reading more than the cap.
  */
 export async function readJson<T extends z.ZodType>(
   c: ApiContext,
@@ -51,8 +84,9 @@ export async function readJson<T extends z.ZodType>(
   }
   let raw: unknown;
   try {
-    const text = await c.req.text();
-    if (maxBytes !== undefined && new TextEncoder().encode(text).length > maxBytes) {
+    const text =
+      maxBytes === undefined ? await c.req.text() : await boundedText(c.req.raw, maxBytes);
+    if (text === null) {
       return {
         ok: false,
         response: error(c, "invalid_input", `The body can be at most ${maxBytes} bytes.`),

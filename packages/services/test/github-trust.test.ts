@@ -21,8 +21,10 @@ import {
   exchangeGitHubToken,
   listGitHubTrustRules,
   pruneFederatedCredentials,
+  pruneUsedGitHubTokens,
   removeGitHubTrustRule,
   updateGitHubTrustRule,
+  usedTokenKey,
 } from "../src/github-trust.ts";
 import { deleteArtifact } from "../src/lifecycle.ts";
 import { commitPublish, type ManifestEntry, preparePublish } from "../src/publish.ts";
@@ -95,6 +97,8 @@ function claims(over: Partial<GitHubClaims> = {}): GitHubClaims {
     environment: null,
     runId: "9001",
     runAttempt: 1,
+    issuedAt: NOW,
+    expiresAt: NOW + 5 * MINUTE,
     ...over,
   };
 }
@@ -225,7 +229,7 @@ describe("trust rules", () => {
   it("records creating, changing and removing in the audit log", async () => {
     const t = await team();
     const created = await rule(t, { environment: "preview" });
-    value(
+    const changed = value(
       await updateGitHubTrustRule(db().global, {
         userId: t.admin.id,
         slug: t.slug,
@@ -238,7 +242,7 @@ describe("trust rules", () => {
       await removeGitHubTrustRule(db().global, {
         userId: t.admin.id,
         slug: t.slug,
-        ruleId: created.id,
+        ruleId: changed.id,
         now: NOW,
       }),
     );
@@ -277,7 +281,7 @@ describe("trust rules", () => {
       }),
     );
     expect(same.revision).toBe(0);
-    value(
+    const changed = value(
       await updateGitHubTrustRule(db().global, {
         userId: t.admin.id,
         slug: t.slug,
@@ -286,10 +290,25 @@ describe("trust rules", () => {
         now: NOW,
       }),
     );
-    const stale = await updateGitHubTrustRule(db().global, {
+    // A change saves a new rule: the old ID is gone, the new one is at the next revision.
+    expect(changed.id).not.toBe(created.id);
+    expect(changed).toMatchObject({
+      revision: 1,
+      createdAt: created.createdAt,
+      createdBy: { name: "Admin" },
+    });
+    const gone = await updateGitHubTrustRule(db().global, {
       userId: t.admin.id,
       slug: t.slug,
       ruleId: created.id,
+      body: { ...BODY, revision: 1 },
+      now: NOW,
+    });
+    expect(gone).toMatchObject({ ok: false, code: "not_found" });
+    const stale = await updateGitHubTrustRule(db().global, {
+      userId: t.admin.id,
+      slug: t.slug,
+      ruleId: changed.id,
       body: { ...BODY, revision: 0 },
       now: NOW,
     });
@@ -324,6 +343,164 @@ describe("trust rules", () => {
       .from(schema.githubTrustRules)
       .where(eq(schema.githubTrustRules.id, created.id));
     expect(left).toEqual([]);
+  });
+});
+
+describe("each ID token is exchanged once (review of the first version)", () => {
+  it("stays used after its rule is changed, or removed and trusted again", async () => {
+    const t = await team();
+    const created = await rule(t);
+    const once = claims();
+    expect(
+      (await exchangeGitHubToken(db().global, { slug: t.slug, claims: once, now: NOW })).ok,
+    ).toBe(true);
+    const changed = value(
+      await updateGitHubTrustRule(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        ruleId: created.id,
+        body: { ...BODY, scopes: ["artifacts:read"], revision: 0 },
+        now: NOW,
+      }),
+    );
+    expect(
+      await exchangeGitHubToken(db().global, { slug: t.slug, claims: once, now: NOW }),
+    ).toEqual({ ok: false, reason: "replayed" });
+    value(
+      await removeGitHubTrustRule(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        ruleId: changed.id,
+        now: NOW,
+      }),
+    );
+    await rule(t);
+    expect(
+      await exchangeGitHubToken(db().global, { slug: t.slug, claims: once, now: NOW }),
+    ).toEqual({ ok: false, reason: "replayed" });
+    // Only a hash of the issuer and the `jti` is kept, never the raw value.
+    const used = await db().select().from(schema.githubUsedTokens);
+    expect(JSON.stringify(used)).not.toContain(once.jti);
+  });
+
+  it("lets only one of two concurrent exchanges of the same token win", async () => {
+    const t = await team();
+    await rule(t);
+    const once = claims();
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () =>
+        exchangeGitHubToken(db().global, { slug: t.slug, claims: once, now: NOW }),
+      ),
+    );
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    const credentials = await db()
+      .select({ id: schema.serviceTokens.id })
+      .from(schema.serviceTokens)
+      .where(eq(schema.serviceTokens.workspaceId, t.id));
+    expect(credentials).toHaveLength(1);
+  });
+
+  it("refuses a token GitHub issued before the rule's current version was saved", async () => {
+    const t = await team();
+    const created = await rule(t);
+    const minted = claims({ issuedAt: NOW + MINUTE });
+    value(
+      await updateGitHubTrustRule(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        ruleId: created.id,
+        body: {
+          ...BODY,
+          events: ["push", "pull_request"],
+          scopes: ["artifacts:read"],
+          revision: 0,
+        },
+        now: NOW + 2 * MINUTE,
+      }),
+    );
+    expect(
+      await exchangeGitHubToken(db().global, {
+        slug: t.slug,
+        claims: minted,
+        now: NOW + 2 * MINUTE,
+      }),
+    ).toEqual({ ok: false, reason: "stale" });
+    const fresh = claims({ issuedAt: NOW + 2 * MINUTE });
+    expect(
+      (
+        await exchangeGitHubToken(db().global, {
+          slug: t.slug,
+          claims: fresh,
+          now: NOW + 2 * MINUTE,
+        })
+      ).ok,
+    ).toBe(true);
+  });
+
+  it("forgets a used token only once it could no longer pass the time checks", async () => {
+    const t = await team();
+    await rule(t);
+    const once = claims({ expiresAt: NOW + 5 * MINUTE });
+    expect(
+      (await exchangeGitHubToken(db().global, { slug: t.slug, claims: once, now: NOW })).ok,
+    ).toBe(true);
+    const key = await usedTokenKey(once.jti);
+    const held = async () =>
+      (
+        await db()
+          .select()
+          .from(schema.githubUsedTokens)
+          .where(eq(schema.githubUsedTokens.jtiHash, key))
+      ).length;
+    // Its credential is pruned an hour after it expires; the used token is kept regardless.
+    await pruneFederatedCredentials(db().global, NOW + 2 * 60 * MINUTE);
+    // Kept through `exp` plus the 60 seconds of skew the exchange accepts.
+    await pruneUsedGitHubTokens(db().global, NOW + 6 * MINUTE - 1);
+    expect(await held()).toBe(1);
+    await pruneUsedGitHubTokens(db().global, NOW + 6 * MINUTE + 1);
+    expect(await held()).toBe(0);
+  });
+});
+
+describe("a restore and a narrowed rule (review of the first version)", () => {
+  it("removes the wider rule a restore brings back, and refuses its exchanges", async () => {
+    const t = await team();
+    const wide = await rule(t, {
+      events: ["pull_request", "pull_request_target"],
+      privilegedConfirmed: true,
+    });
+    const [stored] = await db()
+      .select()
+      .from(schema.githubTrustRules)
+      .where(eq(schema.githubTrustRules.id, wide.id));
+    const narrow = value(
+      await updateGitHubTrustRule(db().global, {
+        userId: t.admin.id,
+        slug: t.slug,
+        ruleId: wide.id,
+        body: { ...BODY, events: ["pull_request"], environment: "preview", revision: 0 },
+        now: NOW,
+      }),
+    );
+    const markers = await exportTombstones(regionsFromEnv(env));
+    expect(markers).toContainEqual({ kind: "github_trust_rule", id: wide.id, deletedAt: NOW });
+    // A restore to before the change: the narrowed rule is gone, the wider one is back.
+    if (!stored) throw new Error("no rule");
+    await db().delete(schema.githubTrustRules).where(eq(schema.githubTrustRules.id, narrow.id));
+    await db().insert(schema.githubTrustRules).values(stored);
+    const target = claims({ eventName: "pull_request_target" });
+    expect(
+      (await exchangeGitHubToken(db().global, { slug: t.slug, claims: target, now: NOW })).ok,
+    ).toBe(true);
+    const applied = await applyTombstones(db(), markers, NOW);
+    expect(applied.githubTrustRules).toBe(1);
+    expect(
+      await exchangeGitHubToken(db().global, {
+        slug: t.slug,
+        claims: claims({ eventName: "pull_request_target" }),
+        now: NOW,
+      }),
+    ).toEqual({ ok: false, reason: "no_rule" });
   });
 });
 
@@ -625,7 +802,7 @@ describe("the credential", () => {
     const t = await team();
     const created = await rule(t);
     const before = await issued(t);
-    value(
+    const changed = value(
       await updateGitHubTrustRule(db().global, {
         userId: t.admin.id,
         slug: t.slug,
@@ -644,7 +821,7 @@ describe("the credential", () => {
       await removeGitHubTrustRule(db().global, {
         userId: t.admin.id,
         slug: t.slug,
-        ruleId: created.id,
+        ruleId: changed.id,
         now: NOW,
       }),
     );

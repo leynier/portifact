@@ -20,6 +20,8 @@ const PAYLOAD = {
   ref: "refs/pull/7/merge",
   run_id: "9001",
   run_attempt: "2",
+  iat: 1_000,
+  exp: 1_300,
 };
 
 const RULE: GitHubTrustRuleCheck = {
@@ -28,6 +30,7 @@ const RULE: GitHubTrustRuleCheck = {
   events: ["pull_request", "push"],
   ref: null,
   environment: null,
+  savedAt: 1_000_000,
 };
 
 const claims = (over: Partial<GitHubClaims> = {}): GitHubClaims => ({
@@ -47,6 +50,8 @@ describe("githubClaims", () => {
       environment: "preview",
       runId: "9001",
       runAttempt: 2,
+      issuedAt: 1_000_000,
+      expiresAt: 1_300_000,
     });
     expect(githubClaims(PAYLOAD)?.environment).toBeNull();
   });
@@ -70,6 +75,8 @@ describe("githubClaims", () => {
     ["run_attempt", "0"],
     ["environment", ""],
     ["environment", 7],
+    ["iat", undefined],
+    ["exp", "1300"],
     ["jti", ""],
   ])("refuses %s = %j", (field, value) => {
     const payload: Record<string, unknown> = { ...PAYLOAD, [field]: value };
@@ -120,6 +127,10 @@ describe("githubClaimsVerdict", () => {
       { ...RULE, environment: "preview" },
       null,
     ],
+    // A token minted under an older version of the rule (its whole second ended before the save).
+    ["a token issued before the rule was saved", claims({ issuedAt: 998_000 }), RULE, "stale"],
+    ["a token issued in the second the rule was saved", claims({ issuedAt: 999_001 }), RULE, null],
+    ["a token issued after the rule was saved", claims({ issuedAt: 1_000_000 }), RULE, null],
     // Exact, not a prefix or a case-insensitive match.
     [
       "a ref prefix",

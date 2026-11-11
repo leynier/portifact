@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9904109f-e637-43b1-8b15-ca76d2c86552",
+  "id": "22314778-276f-4698-ae02-3f486e55dc91",
   "prevId": "506f531e-7c7a-47d7-8687-10407d247d3b",
   "tables": {
     "abuse_reports": {
@@ -2312,6 +2312,43 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "github_used_tokens": {
+      "name": "github_used_tokens",
+      "columns": {
+        "jti_hash": {
+          "name": "jti_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "claim": {
+          "name": "claim",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "github_used_tokens_expiry_idx": {
+          "name": "github_used_tokens_expiry_idx",
+          "columns": ["expires_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
@@ -4661,13 +4698,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "federation_jti": {
-          "name": "federation_jti",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
         }
       },
       "indexes": {
@@ -4680,11 +4710,6 @@
           "name": "service_tokens_workspace_idx",
           "columns": ["workspace_id"],
           "isUnique": false
-        },
-        "service_tokens_jti_idx": {
-          "name": "service_tokens_jti_idx",
-          "columns": ["federation_jti"],
-          "isUnique": true
         },
         "service_tokens_rule_idx": {
           "name": "service_tokens_rule_idx",

@@ -148,7 +148,7 @@ export async function createServiceToken(
     global
       .insert(t)
       .select(
-        sql`select ${id}, ${workspaceId}, ${input.body.label}, ${input.body.role}, ${scopes}, ${restriction}, ${keyPrefix}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt}, null, null, null where ${stillAdmin(workspaceId, input.userId)} and ${count} < ${SERVICE_TOKENS.perWorkspace}`,
+        sql`select ${id}, ${workspaceId}, ${input.body.label}, ${input.body.role}, ${scopes}, ${restriction}, ${keyPrefix}, ${tokenHash}, ${input.userId}, ${input.now}, ${expiresAt}, null, null where ${stillAdmin(workspaceId, input.userId)} and ${count} < ${SERVICE_TOKENS.perWorkspace}`,
       )
       .returning(),
     // Recorded only when the row above was written: the ID is this request's own.

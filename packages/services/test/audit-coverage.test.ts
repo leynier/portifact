@@ -187,7 +187,7 @@ reason(
 );
 reason(
   "expired GitHub run credentials, an hour after they stopped working: their exchange was recorded (decision 0024)",
-  ["pruneFederatedCredentials"],
+  ["pruneFederatedCredentials", "pruneUsedGitHubTokens"],
 );
 reason("reads at most a few bytes of a response and cancels the rest", ["drain"]);
 reason("approval reviews: who can still open the artifact counts again; nobody's choice changed", [

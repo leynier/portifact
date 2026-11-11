@@ -135,7 +135,7 @@ export class FakeGitHubIssuer {
       runner_environment: "github-hosted",
       iss: this.issuer,
       nbf: now - 5,
-      iat: now - 5,
+      iat: now,
       exp: now + 300,
       ...(run.environment === undefined ? {} : { environment: run.environment }),
       ...options.claims,

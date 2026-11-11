@@ -42,6 +42,7 @@ export const TABLE_HOMES = {
   workspace_deletions: "global",
   service_tokens: "global",
   github_trust_rules: "global",
+  github_used_tokens: "global",
   owner_plans: "global",
   // Platform and operator data.
   artifact_directory: "global",

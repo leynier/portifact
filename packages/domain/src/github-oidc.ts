@@ -27,6 +27,9 @@ export interface GitHubClaims {
   environment: string | null;
   runId: string;
   runAttempt: number;
+  /** `iat` and `exp`, in milliseconds. */
+  issuedAt: number;
+  expiresAt: number;
 }
 
 /**
@@ -46,7 +49,8 @@ export type GitHubRefusal =
   | "ref"
   | "environment"
   | "plan"
-  | "replayed";
+  | "replayed"
+  | "stale";
 
 /** The rule as checked: what the admin trusted. */
 export interface GitHubTrustRuleCheck {
@@ -55,6 +59,11 @@ export interface GitHubTrustRuleCheck {
   events: readonly GitHubTrustEvent[];
   ref: string | null;
   environment: string | null;
+  /**
+   * When this version of the rule was saved (`updated_at`; a change saves a new rule, so it is
+   * also its creation). A token GitHub issued before it was minted under an older rule.
+   */
+  savedAt: number;
 }
 
 const text = (value: unknown, max = 255): string | null =>
@@ -74,6 +83,11 @@ export function githubClaims(payload: Record<string, unknown>): GitHubClaims | n
   const runId = text(payload.run_id, 20);
   const runAttempt = text(payload.run_attempt, 4);
   const environment = payload.environment === undefined ? null : text(payload.environment);
+  const iat = payload.iat;
+  const exp = payload.exp;
+  if (typeof iat !== "number" || typeof exp !== "number" || !Number.isFinite(iat + exp)) {
+    return null;
+  }
   if (
     !jti ||
     !repositoryId ||
@@ -102,6 +116,8 @@ export function githubClaims(payload: Record<string, unknown>): GitHubClaims | n
     environment,
     runId,
     runAttempt: Number(runAttempt),
+    issuedAt: iat * 1000,
+    expiresAt: exp * 1000,
   };
 }
 
@@ -116,6 +132,10 @@ export function githubClaimsVerdict(
   rule: GitHubTrustRuleCheck,
 ): GitHubVerdict {
   if (claims.repositoryId !== rule.repositoryId) return { ok: false, reason: "no_rule" };
+  // A token minted before this version of the rule was saved belongs to the rule it replaced.
+  // `iat` has whole seconds: only a token whose whole second ended before the save is refused,
+  // and no clock skew is granted in this direction (decision 0024, "Review of the first version").
+  if (claims.issuedAt + 999 < rule.savedAt) return { ok: false, reason: "stale" };
   if (claims.repositoryOwnerId !== rule.repositoryOwnerId) return { ok: false, reason: "owner" };
   if (!(rule.events as readonly string[]).includes(claims.eventName)) {
     return { ok: false, reason: "event" };

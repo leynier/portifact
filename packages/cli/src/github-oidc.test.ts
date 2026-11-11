@@ -139,6 +139,6 @@ describe("PORTIFACT_GITHUB_OIDC", () => {
         ACTIONS_ID_TOKEN_REQUEST_TOKEN: REQUEST,
         PORTIFACT_GITHUB_OIDC: "acme",
       }),
-    ).toEqual({ PATH: "/usr/bin", PORTIFACT_GITHUB_OIDC: "acme" });
+    ).toEqual({ PATH: "/usr/bin" });
   });
 });

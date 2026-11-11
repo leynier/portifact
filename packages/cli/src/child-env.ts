@@ -1,7 +1,7 @@
 // The environment of the programs the CLI starts (git, gh). A workspace's service token
 // (decision 0011) is for Portifact's API only, so it never reaches a child process, and neither do
-// GitHub's ID token request variables a run's OIDC federation uses (decision 0024): a child could
-// otherwise mint ID tokens for any audience.
+// the OIDC federation's switch and GitHub's ID token request variables (decision 0024): a child
+// could otherwise mint ID tokens for any audience.
 
 /** The variable a CI job puts a service token in. */
 export const SERVICE_TOKEN_ENV = "PORTIFACT_TOKEN";
@@ -17,6 +17,7 @@ export function childEnvironment(
 ): Record<string, string | undefined> {
   const {
     [SERVICE_TOKEN_ENV]: _token,
+    [GITHUB_OIDC_ENV]: _oidc,
     [ID_TOKEN_REQUEST_URL_ENV]: _url,
     [ID_TOKEN_REQUEST_TOKEN_ENV]: _request,
     ...rest

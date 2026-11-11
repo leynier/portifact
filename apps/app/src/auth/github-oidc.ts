@@ -27,13 +27,17 @@ export function githubOidcEnabled(env: Pick<Env, "GITHUB_OIDC_ENABLED">): boolea
 }
 
 let cached: { at: number; keys: JSONWebKeySet } | null = null;
-let refetchedAt: number | null = null;
+/** When this isolate last tried to fetch the key set, whether it worked or not. */
+let attemptedAt: number | null = null;
+/** The fetch in flight, shared by every request that needs it. */
+let inflight: Promise<void> | null = null;
 let fetches = 0;
 
 /** Forgets the isolate's key set; tests use it between cases. */
 export function clearGitHubKeyCache(): void {
   cached = null;
-  refetchedAt = null;
+  attemptedAt = null;
+  inflight = null;
   fetches = 0;
 }
 
@@ -48,20 +52,50 @@ function isKeySet(value: unknown): value is JSONWebKeySet {
   );
 }
 
+/**
+ * Fetches the key set at most once per `GITHUB_TRUST.jwksRefetchMs` per isolate, whether the
+ * last attempt worked or failed, and shares one fetch among concurrent requests: neither a
+ * failing GitHub, a cold isolate under load nor a flood of made-up `kid`s makes the Worker call
+ * GitHub more than that (decision 0024, "Review of the first version").
+ */
+async function refresh(fetch: SsoFetch, now: number): Promise<void> {
+  if (inflight) return inflight;
+  if (attemptedAt !== null && now - attemptedAt < GITHUB_TRUST.jwksRefetchMs) return;
+  attemptedAt = now;
+  fetches += 1;
+  inflight = (async () => {
+    const fetched = await fetchSsoJson(fetch, GITHUB_OIDC_JWKS_URL);
+    if (!fetched.ok || !isKeySet(fetched.value)) return;
+    // Only RSA signing keys are kept: anything else in the set can never verify a token here.
+    cached = {
+      at: now,
+      keys: {
+        keys: fetched.value.keys.filter(
+          (key) =>
+            key.kty === "RSA" &&
+            (key.alg === undefined || key.alg === "RS256") &&
+            key.use !== "enc",
+        ),
+      },
+    };
+  })().finally(() => {
+    inflight = null;
+  });
+  return inflight;
+}
+
+/**
+ * The key set to verify with: the cached one while it is younger than an hour; otherwise (or
+ * when `fresh`, for an unknown `kid`) after a refresh the limit allows. When refreshing fails, a
+ * set that once worked keeps serving for `GITHUB_TRUST.jwksStaleMs` (GitHub publishes a new key
+ * before it signs with it, so a stale set still verifies the tokens of the current key), then
+ * nothing verifies until GitHub answers again.
+ */
 async function keySet(fetch: SsoFetch, now: number, fresh: boolean): Promise<JSONWebKeySet | null> {
   if (!fresh && cached && now - cached.at < GITHUB_TRUST.jwksCacheMs) return cached.keys;
-  fetches += 1;
-  const fetched = await fetchSsoJson(fetch, GITHUB_OIDC_JWKS_URL);
-  if (!fetched.ok || !isKeySet(fetched.value)) return cached?.keys ?? null;
-  // Only RSA signing keys are kept: anything else in the set can never verify a token here.
-  const keys = {
-    keys: fetched.value.keys.filter(
-      (key) =>
-        key.kty === "RSA" && (key.alg === undefined || key.alg === "RS256") && key.use !== "enc",
-    ),
-  };
-  cached = { at: now, keys };
-  return keys;
+  await refresh(fetch, now);
+  if (cached && now - cached.at < GITHUB_TRUST.jwksStaleMs) return cached.keys;
+  return null;
 }
 
 export type GitHubVerification =
@@ -107,12 +141,8 @@ export async function verifyGitHubToken(
   } catch (error) {
     if (!(error instanceof joseErrors.JWKSNoMatchingKey))
       return { ok: false, reason: refusalOf(error) };
-    // A `kid` the cached set lacks may follow a rotation, or be made up: fetch the set again, at
-    // most once a minute per isolate, so made-up keys cannot make every exchange call GitHub.
-    if (refetchedAt !== null && now - refetchedAt < GITHUB_TRUST.jwksRefetchMs) {
-      return { ok: false, reason: "signature" };
-    }
-    refetchedAt = now;
+    // A `kid` the cached set lacks may follow a rotation, or be made up: the set is fetched again
+    // only as often as `refresh` allows.
     try {
       payload = await attempt(true);
     } catch (again) {
