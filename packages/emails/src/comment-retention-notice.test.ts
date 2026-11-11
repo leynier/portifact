@@ -23,7 +23,9 @@ describe("the notices of a workspace's comment retention", () => {
     expect(email.text).toContain(
       "set its comment retention to 90 days. From Wed, Nov 18, 2026, 12:00 UTC, a comment thread is deleted for good",
     );
-    expect(email.text).toContain("Open threads on an artifact's current version are kept.");
+    expect(email.text).toContain(
+      "Open threads on an artifact's current version are kept; once a new version replaces it, each gets the whole period again from that moment.",
+    );
     expect(email.text).toContain(
       "Threads deleted on Wed, Nov 18, 2026, 12:00 UTC: 4, with 21 messages.",
     );

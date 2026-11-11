@@ -633,7 +633,7 @@ export function describePolicy(policy: WorkspacePolicy | WorkspacePolicyShown): 
         ? ""
         : ` (from ${new Date(policy.commentRetentionFrom).toISOString().slice(0, 10)})`;
     lines.push(
-      `comment threads are deleted ${policy.commentRetentionDays} days after their last activity, except open ones on the current version${from}`,
+      `comment threads are deleted ${policy.commentRetentionDays} days after their last activity (an open one: after its version was replaced, when later), except open ones on the current version${from}`,
     );
   }
   return lines;
@@ -1166,20 +1166,37 @@ export function commentRetentionOf(policy: WorkspacePolicy | undefined): Comment
 }
 
 /**
- * When a thread may be deleted under comment retention (decision 0023): its last activity plus
- * the days, never before the rule takes effect, and never sooner than the move notice after its
- * artifact moved into the workspace (`movedIn`, null when it never moved). Its SQL twin is
- * `threadDeadlineSql` in packages/services.
+ * Where a thread's retention period starts (decision 0023): a resolved thread's last activity; an
+ * open thread's last activity or the moment its version stopped being current (`leftCurrent`),
+ * whichever is later, so an open thread kept while its version was current gets the whole period
+ * once it is not. Never earlier than the last activity, which is why a range on `updated_at` is a
+ * correct pre-filter for the scan. Its SQL twin is in `threadDeadlineSql` in packages/services.
+ */
+export function threadClock(thread: {
+  state: "open" | "resolved";
+  lastActivity: number;
+  leftCurrent: number | null;
+}): number {
+  return thread.state === "open" && thread.leftCurrent !== null
+    ? Math.max(thread.lastActivity, thread.leftCurrent)
+    : thread.lastActivity;
+}
+
+/**
+ * When a thread may be deleted under comment retention (decision 0023): its clock
+ * (`threadClock`) plus the days, never before the rule takes effect, and never sooner than the
+ * move notice after its artifact moved into the workspace (`movedIn`, null when it never moved).
+ * Its SQL twin is `threadDeadlineSql` in packages/services.
  */
 export function threadDeadline(
   rule: CommentRetention,
-  lastActivity: number,
+  clock: number,
   movedIn: number | null,
 ): number {
   return Math.max(
     rule.from,
     movedIn === null ? 0 : movedIn + WORKSPACE_POLICIES.commentMoveNoticeDays * DAY_MS,
-    lastActivity + rule.days * DAY_MS,
+    clock + rule.days * DAY_MS,
   );
 }
 
@@ -1196,12 +1213,14 @@ export function threadDeletable(
     artifactState: string;
     lastActivity: number;
     movedIn: number | null;
+    /** When the thread's version stopped being current (null while it is, or unknown). */
+    leftCurrent: number | null;
   },
   now: number,
 ): boolean {
   if (thread.artifactState !== "active" && thread.artifactState !== "archived") return false;
   if (thread.state === "open" && thread.onCurrentVersion) return false;
-  return threadDeadline(rule, thread.lastActivity, thread.movedIn) <= now;
+  return threadDeadline(rule, threadClock(thread), thread.movedIn) <= now;
 }
 
 /**

@@ -727,6 +727,7 @@ export const OUTBOX_TOPICS = [
   "retention_notice",
   "plan_grace_notice",
   "comment_retention_notice",
+  "comment_tombstones",
 ] as const;
 
 /**

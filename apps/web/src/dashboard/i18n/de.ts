@@ -2905,13 +2905,13 @@ export const de = {
     "{space} archiviert Artifacts {days} Tage nach ihrer letzten Veröffentlichung, Wiederherstellung oder Verschiebung dorthin: Jetzt verschoben, wird dieses spätestens am {date} archiviert, außer jemand veröffentlicht es erneut, und es kann dort nicht angeheftet werden.",
   "policies.comments.legend": "Aufbewahrung von Kommentaren",
   "policies.comments.hint":
-    "Löscht jeden Kommentar-Thread des Workspace mit allen Nachrichten eine Anzahl Tage nach seiner letzten Aktivität. Offene Threads auf der aktuellen Version eines Artifacts bleiben erhalten, damit nie verloren geht, worauf Prüfende warten. Gelöschte Threads kann niemand wiederherstellen, auch Portifact nicht.",
+    "Löscht jeden Kommentar-Thread des Arbeitsbereichs mit allen Nachrichten, sobald er eine Anzahl von Tagen inaktiv war. Ein offener Thread auf der aktuellen Version eines Artefakts bleibt erhalten, damit nie verloren geht, worauf Prüfende warten; ersetzt eine neue Version diese Version, erhält der Thread ab diesem Moment wieder den ganzen Zeitraum. Gelöschte Threads kann niemand wiederherstellen, auch Portifact nicht.",
   "policies.comments.any": "Kommentare behalten",
   "policies.comments.anyHint":
     "Threads bleiben, bis jemand sie löscht oder ihr Artifact gelöscht wird.",
   "policies.comments.only": "Alte Threads löschen",
   "policies.comments.onlyHint":
-    "Erledigte Threads und offene Threads auf früheren Versionen werden gelöscht, sobald ihre letzte Aktivität älter als die Frist ist. Eine Antwort startet sie neu.",
+    "Ein erledigter Thread wird gelöscht, sobald seine letzte Aktivität älter als der Zeitraum ist. Ein offener Thread auf einer früheren Version wird gelöscht, sobald der Zeitraum sowohl seit seiner letzten Aktivität als auch seit dem Ersetzen seiner Version vergangen ist. Eine Antwort startet den Zeitraum neu.",
   "policies.comments.days": "Tage nach der letzten Aktivität eines Threads",
   "policies.comments.daysHint": "Von {min} bis {max} Tagen.",
   "policies.comments.daysError":
@@ -2920,13 +2920,15 @@ export const de = {
     "Eine neue oder kürzere Aufbewahrung gilt {days} Tage nach dem Speichern, und alle Administratoren erhalten eine E-Mail sowie eine zweite kurz vor der ersten Löschung, wenn diese viel später kommt. Eine längere Aufbewahrung oder keine gilt sofort. Läuft der Tarif des Workspace ab, wird nichts gelöscht und die Aufbewahrung entfernt, bis sie jemand aus der Administration erneut festlegt.",
   "policies.comments.pending": "Die Aufbewahrung von Kommentaren gilt ab {date}",
   "policies.comments.active":
-    "Kommentar-Threads werden {days} Tage nach ihrer letzten Aktivität endgültig gelöscht, außer offenen Threads auf der aktuellen Version eines Artifacts.",
+    "Kommentar-Threads werden {days} Tage nach ihrer letzten Aktivität endgültig gelöscht, ein offener Thread {days} Tage nach dem Ersetzen seiner Version, wenn das später ist. Offene Threads auf der aktuellen Version eines Artefakts bleiben erhalten.",
   "policies.impact.threads":
     "{count, plural, one {# Kommentar-Thread wird an dem Tag endgültig gelöscht, an dem die Aufbewahrung gilt} other {# Kommentar-Threads werden an dem Tag endgültig gelöscht, an dem die Aufbewahrung gilt}}",
   "policies.impact.messages":
     "{count, plural, one {# Nachricht darin wird mit gelöscht} other {# Nachrichten darin werden mit gelöscht}}",
   "policies.impact.threadsSoon":
     "{count, plural, one {# weiterer Thread wird in den 30 Tagen danach gelöscht} other {# weitere Threads werden in den 30 Tagen danach gelöscht}}",
+  "policies.impact.openThreads":
+    "Offene Threads auf der aktuellen Version eines Artefakts werden nicht gezählt: Sie bleiben erhalten, und ersetzt eine neue Version diese, erhält jeder ab diesem Moment den ganzen Zeitraum.",
   "audit.policy.comments": "Kommentar-Threads {days} Tage nach ihrer letzten Aktivität gelöscht",
   "audit.policy.commentsNone": "keine Aufbewahrung von Kommentaren",
   "audit.policy.planLapsed": "(der Tarif enthält keine Richtlinien mehr)",

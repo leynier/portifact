@@ -302,7 +302,11 @@ reason("the email of a policy change already recorded as policy.changed (decisio
 ]);
 reason(
   "the restore guard's bookkeeping: the operator's apply-policies records each policy it sets (decision 0023)",
-  ["armCommentRetention", "syncBucketEpoch"],
+  ["armCommentRetention", "syncBucketEpoch", "raiseBucketEpoch"],
+);
+reason(
+  "tombstones of threads whose deletion its batch already recorded as policy.enforced (decision 0023)",
+  ["writeCommentTombstones"],
 );
 reason("an issue request is recorded once the job creates the issue (issue.created)", [
   "requestThreadIssue",

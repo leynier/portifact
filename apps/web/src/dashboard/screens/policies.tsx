@@ -688,6 +688,9 @@ function ImpactList({ space, preview }: { space: Workspace; preview: PolicyPrevi
                 <li key={message}>{t(message, { count })}</li>
               ))}
           </ul>
+          {preview.threadsAtStart + preview.threadsSoon > 0 ? (
+            <p className="text-text-muted">{t("policies.impact.openThreads")}</p>
+          ) : null}
           <p className="text-text-muted">{t("policies.impact.note")}</p>
         </>
       ) : null}

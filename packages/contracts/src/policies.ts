@@ -435,6 +435,17 @@ export const CommentRetentionNoticePayload = z.strictObject({
 export type CommentRetentionNoticePayload = z.infer<typeof CommentRetentionNoticePayload>;
 
 /**
+ * The `comment_tombstones` job (decision 0023, "Restores"): written in the regional batch that
+ * deleted the threads, on the same condition, when the region has its own database; it writes
+ * their `comment_thread` tombstones in the global database. At most one batch of threads.
+ */
+export const CommentTombstonesPayload = z.strictObject({
+  ids: z.array(z.string().min(1).max(64)).min(1).max(WORKSPACE_POLICIES.commentDeleteBatch),
+  at: z.int().min(0),
+});
+export type CommentTombstonesPayload = z.infer<typeof CommentTombstonesPayload>;
+
+/**
  * One workspace's policies in the file `export-policies` writes before a D1 Time Travel restore
  * and `apply-policies` reads after it (docs/operations.md). Only workspaces with a policy.
  */

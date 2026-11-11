@@ -50,7 +50,7 @@ export const COMMENT_RETENTION_NOTICE_TEXT: {
     heading: { set: "Comment retention was set", soon: "Comment threads will be deleted soon" },
     preheader: (date) => `The first threads are deleted on ${date}.`,
     rule: (days, date) =>
-      `An admin of your workspace set its comment retention to ${days} days. From ${date}, a comment thread is deleted for good, with every message in it, once its last activity is ${days} days old. Open threads on an artifact's current version are kept.`,
+      `An admin of your workspace set its comment retention to ${days} days. From ${date}, a comment thread is deleted for good, with every message in it, once its last activity is ${days} days old. Open threads on an artifact's current version are kept; once a new version replaces it, each gets the whole period again from that moment.`,
     counts: (threads, messages, date) =>
       `Threads deleted on ${date}: ${threads}, with ${messages} messages.`,
     kept: "A reply or any other change to a thread restarts its time. An artifact moved into the workspace keeps its threads for at least 7 days.",
@@ -72,7 +72,7 @@ export const COMMENT_RETENTION_NOTICE_TEXT: {
     },
     preheader: (date) => `Los primeros hilos se eliminan el ${date}.`,
     rule: (days, date) =>
-      `Un administrador de tu workspace fijó su retención de comentarios en ${days} días. Desde el ${date}, un hilo de comentarios se elimina definitivamente, con todos sus mensajes, cuando su última actividad tiene ${days} días. Los hilos abiertos en la versión actual de un artifact se conservan.`,
+      `Un administrador de tu workspace fijó su retención de comentarios en ${days} días. Desde el ${date}, un hilo de comentarios se elimina definitivamente, con todos sus mensajes, cuando su última actividad tiene ${days} días. Los hilos abiertos en la versión actual de un artifact se conservan; cuando una nueva versión la reemplaza, cada uno vuelve a tener el periodo completo desde ese momento.`,
     counts: (threads, messages, date) =>
       `Hilos que se eliminan el ${date}: ${threads}, con ${messages} mensajes.`,
     kept: "Una respuesta o cualquier otro cambio en un hilo reinicia su plazo. Un artifact trasladado al workspace conserva sus hilos al menos 7 días.",
@@ -94,7 +94,7 @@ export const COMMENT_RETENTION_NOTICE_TEXT: {
     },
     preheader: (date) => `As primeiras threads são excluídas em ${date}.`,
     rule: (days, date) =>
-      `Um administrador do seu workspace definiu a retenção de comentários em ${days} dias. A partir de ${date}, uma thread de comentários é excluída para sempre, com todas as mensagens, quando a última atividade tem ${days} dias. Threads abertas na versão atual de um artifact são mantidas.`,
+      `Um administrador do seu workspace definiu a retenção de comentários em ${days} dias. A partir de ${date}, uma thread de comentários é excluída para sempre, com todas as mensagens, quando a última atividade tem ${days} dias. Threads abertas na versão atual de um artifact são mantidas; quando uma nova versão a substitui, cada uma recebe o período inteiro de novo a partir desse momento.`,
     counts: (threads, messages, date) =>
       `Threads excluídas em ${date}: ${threads}, com ${messages} mensagens.`,
     kept: "Uma resposta ou qualquer outra mudança na thread reinicia o prazo. Um artifact movido para o workspace mantém as threads por pelo menos 7 dias.",
@@ -116,7 +116,7 @@ export const COMMENT_RETENTION_NOTICE_TEXT: {
     },
     preheader: (date) => `Les premiers fils sont supprimés le ${date}.`,
     rule: (days, date) =>
-      `Un administrateur de votre workspace a fixé la conservation des commentaires à ${days} jours. À partir du ${date}, un fil de commentaires est supprimé définitivement, avec tous ses messages, quand sa dernière activité date de ${days} jours. Les fils ouverts sur la version actuelle d’un artifact sont conservés.`,
+      `Un administrateur de votre workspace a fixé la conservation des commentaires à ${days} jours. À partir du ${date}, un fil de commentaires est supprimé définitivement, avec tous ses messages, quand sa dernière activité date de ${days} jours. Les fils ouverts sur la version actuelle d’un artifact sont conservés ; quand une nouvelle version la remplace, chacun retrouve la période entière à partir de ce moment.`,
     counts: (threads, messages, date) =>
       `Fils supprimés le ${date} : ${threads}, avec ${messages} messages.`,
     kept: "Une réponse ou toute autre modification d’un fil relance son délai. Un artifact déplacé dans le workspace garde ses fils au moins 7 jours.",
@@ -138,7 +138,7 @@ export const COMMENT_RETENTION_NOTICE_TEXT: {
     },
     preheader: (date) => `Die ersten Threads werden am ${date} gelöscht.`,
     rule: (days, date) =>
-      `Eine Administratorin oder ein Administrator Ihres Workspace hat die Aufbewahrung von Kommentaren auf ${days} Tage festgelegt. Ab ${date} wird ein Kommentar-Thread mit allen Nachrichten endgültig gelöscht, sobald seine letzte Aktivität ${days} Tage zurückliegt. Offene Threads auf der aktuellen Version eines Artifacts bleiben erhalten.`,
+      `Eine Administratorin oder ein Administrator Ihres Workspace hat die Aufbewahrung von Kommentaren auf ${days} Tage festgelegt. Ab ${date} wird ein Kommentar-Thread mit allen Nachrichten endgültig gelöscht, sobald seine letzte Aktivität ${days} Tage zurückliegt. Offene Threads auf der aktuellen Version eines Artifacts bleiben erhalten; ersetzt eine neue Version diese, erhält jeder ab diesem Moment wieder den ganzen Zeitraum.`,
     counts: (threads, messages, date) =>
       `Am ${date} gelöschte Threads: ${threads}, mit ${messages} Nachrichten.`,
     kept: "Eine Antwort oder jede andere Änderung an einem Thread startet seine Frist neu. Ein in den Workspace verschobenes Artifact behält seine Threads mindestens 7 Tage.",
@@ -160,7 +160,7 @@ export const COMMENT_RETENTION_NOTICE_TEXT: {
     },
     preheader: (date) => `Первые обсуждения будут удалены ${date}.`,
     rule: (days, date) =>
-      `Администратор вашего рабочего пространства установил срок хранения комментариев (дней: ${days}). С ${date} обсуждение удаляется навсегда вместе со всеми сообщениями, когда с последней активности прошло это число дней. Открытые обсуждения текущей версии artifact сохраняются.`,
+      `Администратор вашего рабочего пространства установил срок хранения комментариев (дней: ${days}). С ${date} обсуждение удаляется навсегда вместе со всеми сообщениями, когда с последней активности прошло это число дней. Открытые обсуждения текущей версии artifact сохраняются; когда новая версия её заменяет, каждое снова получает весь срок с этого момента.`,
     counts: (threads, messages, date) =>
       `Обсуждений будет удалено ${date}: ${threads}, сообщений в них: ${messages}.`,
     kept: "Ответ или любое другое изменение обсуждения начинает срок заново. Artifact, перенесённый в пространство, сохраняет обсуждения не меньше 7 дней.",
@@ -182,7 +182,7 @@ export const COMMENT_RETENTION_NOTICE_TEXT: {
     },
     preheader: (date) => `最初のスレッドは ${date} に削除されます。`,
     rule: (days, date) =>
-      `ワークスペースの管理者がコメントの保持期間を ${days} 日に設定しました。${date} 以降、コメントスレッドは最後のアクティビティから ${days} 日経つと、すべてのメッセージとともに完全に削除されます。artifact の現在のバージョンで未解決のスレッドは保持されます。`,
+      `ワークスペースの管理者がコメントの保持期間を ${days} 日に設定しました。${date} 以降、コメントスレッドは最後のアクティビティから ${days} 日経つと、すべてのメッセージとともに完全に削除されます。artifact の現在のバージョンで未解決のスレッドは保持されます。新しいバージョンがそれを置き換えると、各スレッドはその時点から再び期間全体を得ます。`,
     counts: (threads, messages, date) =>
       `${date} に削除されるスレッド: ${threads} 件 (メッセージ ${messages} 件)。`,
     kept: "返信やスレッドへのその他の変更で期間は最初から数え直されます。ワークスペースに移動した artifact のスレッドは少なくとも 7 日間保持されます。",
@@ -201,7 +201,7 @@ export const COMMENT_RETENTION_NOTICE_TEXT: {
     heading: { set: "已设置评论保留期限", soon: "评论线程即将被删除" },
     preheader: (date) => `第一批线程将于 ${date} 删除。`,
     rule: (days, date) =>
-      `你的工作区管理员将评论保留期限设为 ${days} 天。从 ${date} 起,评论线程在最后一次活动 ${days} 天后会连同所有消息被永久删除。artifact 当前版本上未解决的线程会保留。`,
+      `你的工作区管理员将评论保留期限设为 ${days} 天。从 ${date} 起,评论线程在最后一次活动 ${days} 天后会连同所有消息被永久删除。artifact 当前版本上未解决的线程会保留;当新版本替换该版本后,每个线程从那一刻起重新获得完整的期限。`,
     counts: (threads, messages, date) =>
       `${date} 删除的线程:${threads} 个,包含 ${messages} 条消息。`,
     kept: "回复或对线程的任何其他更改都会重新计时。移入工作区的 artifact 的线程至少保留 7 天。",

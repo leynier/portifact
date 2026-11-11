@@ -413,6 +413,9 @@ describe("comment retention (decision 0023)", () => {
     );
     expect(dialog.textContent).toContain("14 messages in them are deleted with them");
     expect(dialog.textContent).toContain("2 more threads are deleted within 30 days after that");
+    expect(dialog.textContent).toContain(
+      "Open threads on an artifact's current version are not counted: they are kept, and when a new version replaces it, each gets the whole period from that moment.",
+    );
     await themes(container);
     fireEvent.click(within(dialog).getByRole("button", { name: "Apply and save" }));
     await waitFor(() => expect(puts()).toHaveLength(1));
@@ -433,7 +436,12 @@ describe("comment retention (decision 0023)", () => {
     const { container } = renderDashboard("/policies?workspace=acme", server);
     expect(
       await screen.findByText(
-        "Comment threads are deleted for good 90 days after their last activity, except open threads on an artifact's current version.",
+        "Comment threads are deleted for good 90 days after their last activity, or, for an open thread, 90 days after its version was replaced when that is later. Open threads on an artifact's current version are kept.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /when a new version replaces that version, the thread gets the whole period again from that moment\./,
       ),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Save policies" })).toBeNull();

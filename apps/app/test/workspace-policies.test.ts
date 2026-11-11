@@ -529,7 +529,7 @@ describe("comment retention (decision 0023)", () => {
     const tool = await t.member.tool("list_workspaces", {});
     expect(tool.structuredContent).toEqual(listed);
     expect(JSON.stringify(tool.content)).toContain(
-      "comment threads are deleted 90 days after their last activity, except open ones on the current version",
+      "comment threads are deleted 90 days after their last activity (an open one: after its version was replaced, when later), except open ones on the current version",
     );
     // Removing it needs no plan and applies at once.
     await db().delete(schema.ownerPlans).where(eq(schema.ownerPlans.ownerId, t.id));

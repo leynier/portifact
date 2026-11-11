@@ -19,6 +19,7 @@ import { applyOwnerRetention, moveAccessHistory } from "./analytics.ts";
 import { type AuditStreamDeps, deliverAuditStream } from "./audit-streams.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
+import { writeCommentTombstones } from "./comment-retention.ts";
 import {
   type CommentRetentionNotifier,
   sendCommentRetentionNotice,
@@ -285,6 +286,9 @@ async function runRow(
       return sendCommentRetentionNotice(db, row, now, commentRetentionNotifier, (workspaceId) =>
         workspaceRegionDb(regions, workspaceId),
       );
+    case "comment_tombstones":
+      // Written in the regional batch that deleted the threads (a separate regional database).
+      return writeCommentTombstones(db, row);
     case "retention_notice":
       if (!retentionNotifier) throw new Error("retention_notice needs the retention notifier");
       return sendRetentionNotice(db, row, now, retentionNotifier, (workspaceId) =>

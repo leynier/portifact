@@ -84,8 +84,7 @@ import {
   bumpEpochStatement,
   commentRetentionImpact,
   commentRetentionNoticeJob,
-  epochRead,
-  syncBucketEpoch,
+  raiseBucketEpoch,
 } from "./comment-retention.ts";
 import {
   cursorFor,
@@ -773,13 +772,10 @@ export async function setWorkspacePolicy(
   // not only at the next scan, so a restore to before it pauses deletions whenever it happens.
   // Best effort: the scan raises it anyway, and a failure here never fails the save.
   if (commentRetentionLoosened(row.policy, next)) {
-    try {
-      const bucket = isRegion(row.region) ? regions.get(row.region).bucket : undefined;
-      const [epoch] = await epochRead(global);
-      if (bucket && epoch) await syncBucketEpoch(bucket, Number(epoch.cursor) || 0);
-    } catch (error) {
-      logEvent("error", "comment_retention_epoch_sync_failed", { error: errorLabel(error) });
-    }
+    await raiseBucketEpoch(
+      global,
+      isRegion(row.region) ? regions.get(row.region).bucket : undefined,
+    );
   }
   return ok(
     await stateOf(global, { ...row, policy: next, revision: row.revision + 1 }, actor, input.now),
@@ -1337,7 +1333,7 @@ export const STALE_CAPS_SWEEP = { owners: 20, artifacts: 200 } as const;
  */
 export function staleCapOwners(db: Db, now: number, maxed: string[], shared: boolean) {
   const withMaximum = shared
-    ? sql`select ${w.id} from ${w} where json_extract(${w.policy}, '$.artifactMaxDays') is not null`
+    ? sql`select ${w.id} from ${w} where json_valid(${w.policy}) and json_extract(${w.policy}, '$.artifactMaxDays') is not null`
     : sql`select value from json_each(${JSON.stringify(maxed)})`;
   return db
     .selectDistinct({ ownerId: a.ownerId })
@@ -1380,7 +1376,7 @@ async function sweepStaleCaps(db: RegionalDb, now: number, maxed: string[]): Pro
             .select({ id: w.id })
             .from(w)
             .where(
-              sql`${w.id} in (select value from json_each(${JSON.stringify(owners)})) and json_extract(${w.policy}, '$.artifactMaxDays') is not null`,
+              sql`${w.id} in (select value from json_each(${JSON.stringify(owners)})) and json_valid(${w.policy}) and json_extract(${w.policy}, '$.artifactMaxDays') is not null`,
             )
         ).map((row) => row.id),
       );
@@ -1426,7 +1422,7 @@ async function giveBackStep(
   const workspace = isWorkspaceId(ownerId);
   const still =
     shared && workspace
-      ? sql`not exists (select 1 from ${w} where ${w.id} = ${ownerId} and json_extract(${w.policy}, '$.artifactMaxDays') is not null)`
+      ? sql`not exists (select 1 from ${w} where ${w.id} = ${ownerId} and json_valid(${w.policy}) and json_extract(${w.policy}, '$.artifactMaxDays') is not null)`
       : sql`1`;
   // The owner sets no maximum: the plan's expiry each artifact kept is its target.
   const policy = undefined;

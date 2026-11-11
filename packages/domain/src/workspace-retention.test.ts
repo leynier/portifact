@@ -26,6 +26,7 @@ import {
   replacedMaxLife,
   retentionTiming,
   storedPolicy,
+  threadClock,
   threadDeadline,
   threadDeletable,
   uncappedExpiry,
@@ -324,31 +325,83 @@ describe("comment retention (decision 0023)", () => {
     expect(commentTiming(rule(90, NOW), DEFAULT_POLICY, NOW).commentRetentionFrom).toBeNull();
   });
 
-  // [what, state, on current version, artifact state, last activity, moved in, deletable at NOW]
-  const cases: [string, "open" | "resolved", boolean, string, number, number | null, boolean][] = [
-    ["a resolved thread past its period", "resolved", true, "active", 100, null, true],
-    ["an open thread on the current version", "open", true, "active", 400, null, false],
-    ["an open thread on an earlier version", "open", false, "active", 100, null, true],
-    ["a recent thread", "resolved", true, "active", 20, null, false],
-    ["a thread on an archived artifact", "resolved", true, "archived", 100, null, true],
-    ["a thread on a suspended artifact", "resolved", true, "suspended", 100, null, false],
-    ["a thread moved in yesterday", "resolved", true, "active", 400, 1, false],
-    ["a thread moved in 8 days ago", "resolved", true, "active", 400, 8, true],
+  // [what, state, on current version, artifact state, last activity, moved in, version replaced,
+  //  deletable at NOW], ages in days before NOW
+  const cases: [
+    string,
+    "open" | "resolved",
+    boolean,
+    string,
+    number,
+    number | null,
+    number | null,
+    boolean,
+  ][] = [
+    ["a resolved thread past its period", "resolved", true, "active", 100, null, null, true],
+    ["an open thread on the current version", "open", true, "active", 400, null, null, false],
+    ["an open thread on a version replaced long ago", "open", false, "active", 100, null, 95, true],
+    [
+      "an open thread whose version was replaced yesterday",
+      "open",
+      false,
+      "active",
+      400,
+      null,
+      1,
+      false,
+    ],
+    [
+      "an open thread whose version was replaced 91 days ago",
+      "open",
+      false,
+      "active",
+      400,
+      null,
+      91,
+      true,
+    ],
+    [
+      "a resolved thread on a version replaced yesterday",
+      "resolved",
+      false,
+      "active",
+      400,
+      null,
+      1,
+      true,
+    ],
+    ["a recent thread", "resolved", true, "active", 20, null, null, false],
+    ["a thread on an archived artifact", "resolved", true, "archived", 100, null, null, true],
+    ["a thread on a suspended artifact", "resolved", true, "suspended", 100, null, null, false],
+    ["a thread moved in yesterday", "resolved", true, "active", 400, 1, null, false],
+    ["a thread moved in 8 days ago", "resolved", true, "active", 400, 8, null, true],
   ];
-  it.each(cases)("%s", (_, state, onCurrentVersion, artifactState, ago, movedAgo, expected) => {
-    expect(
-      threadDeletable(
-        { days: 90, from: 0 },
-        {
-          state,
-          onCurrentVersion,
-          artifactState,
-          lastActivity: NOW - ago * DAY,
-          movedIn: movedAgo === null ? null : NOW - movedAgo * DAY,
-        },
-        NOW,
-      ),
-    ).toBe(expected);
+  it.each(cases)(
+    "%s",
+    (_, state, onCurrentVersion, artifactState, ago, movedAgo, replacedAgo, expected) => {
+      expect(
+        threadDeletable(
+          { days: 90, from: 0 },
+          {
+            state,
+            onCurrentVersion,
+            artifactState,
+            lastActivity: NOW - ago * DAY,
+            movedIn: movedAgo === null ? null : NOW - movedAgo * DAY,
+            leftCurrent: replacedAgo === null ? null : NOW - replacedAgo * DAY,
+          },
+          NOW,
+        ),
+      ).toBe(expected);
+    },
+  );
+
+  it("starts an open thread's clock when its version stopped being current, a resolved one's at its last activity", () => {
+    const at = { lastActivity: NOW - 400 * DAY, leftCurrent: NOW - DAY };
+    expect(threadClock({ state: "open", ...at })).toBe(NOW - DAY);
+    expect(threadClock({ state: "resolved", ...at })).toBe(NOW - 400 * DAY);
+    expect(threadClock({ state: "open", lastActivity: NOW, leftCurrent: NOW - DAY })).toBe(NOW);
+    expect(threadClock({ state: "open", lastActivity: NOW, leftCurrent: null })).toBe(NOW);
   });
 
   it("never puts a deadline before the rule takes effect or within the move notice", () => {
@@ -400,7 +453,7 @@ describe("comment retention (decision 0023)", () => {
 
   it("is described to the CLI and MCP, and recorded in the audit detail", () => {
     expect(describePolicy(rule(90, Date.UTC(2026, 10, 18)))).toEqual([
-      "comment threads are deleted 90 days after their last activity, except open ones on the current version (from 2026-11-18)",
+      "comment threads are deleted 90 days after their last activity (an open one: after its version was replaced, when later), except open ones on the current version (from 2026-11-18)",
     ]);
     expect(policyChangeDetail(DEFAULT_POLICY, rule(90, NOW), true)).toMatchObject({
       fields: ["commentRetentionDays"],

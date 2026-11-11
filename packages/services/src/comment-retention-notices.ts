@@ -12,7 +12,7 @@ import { checkNoticeCapacity, commentRetentionOf, logEvent, policyOf } from "@po
 import { eq } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
 import { ownerRecipients } from "./actors.ts";
-import { commentRetentionImpact } from "./comment-retention.ts";
+import { commentRetentionDueAt, commentRetentionImpact } from "./comment-retention.ts";
 import {
   emailsSentInCycle,
   isEmailSuppressed,
@@ -46,11 +46,14 @@ function skipped(reason: Skip): JobOutcome {
 }
 
 /**
- * Runs a `comment_retention_notice` job: claims it, checks the workspace still has comment
- * retention taking effect on the date the notice announces (removed, or replaced by one with
- * another date and its own notice, makes it moot), and emails each admin. A retention lengthened
- * before the relay keeps the date and writes no notice of its own, so this one goes out with the
- * days in force and, for `set`, the counts they give, read again from the workspace's region.
+ * Runs a `comment_retention_notice` job: checks the workspace still has comment retention taking
+ * effect on the date the notice announces (removed, or replaced by one with another date and its
+ * own notice, makes it moot), claims it, and emails each admin. Everything that can fail is read
+ * before the claim, so an error leaves the job for the outbox to run again instead of losing it.
+ * A retention lengthened before the relay keeps the date and writes no notice of its own, so a
+ * `set` notice goes out with the days in force and the counts they give; a `soon` notice always
+ * recounts what is due on the date it announces, with the same definition the scan deletes with,
+ * and is dropped when nothing is.
  */
 export async function sendCommentRetentionNotice(
   db: RegionalDb,
@@ -59,34 +62,52 @@ export async function sendCommentRetentionNotice(
   notifier: CommentRetentionNotifier,
   regionDb?: (workspaceId: string) => Promise<RegionalDb | null>,
 ): Promise<JobOutcome> {
+  const workspaceId = row.subject ?? "";
+  let payload: unknown = row.payload;
+  try {
+    if (typeof payload === "string") payload = JSON.parse(payload);
+  } catch {
+    payload = null;
+  }
+  const parsed = CommentRetentionNoticePayload.safeParse(payload);
+  const notice = parsed.success ? parsed.data : null;
+  const w = schema.workspaces;
+  const [workspace] = notice
+    ? await db.global
+        .select({ slug: w.slug, policy: w.policy })
+        .from(w)
+        .where(eq(w.id, workspaceId))
+        .limit(1)
+    : [];
+  // Thrown before the claim when the policy is unreadable: the job is run again.
+  const rule = workspace ? commentRetentionOf(policyOf(workspace.policy)) : null;
+  let counts = notice ? { threads: notice.threads, messages: notice.messages } : null;
+  if (notice && rule && rule.from === notice.from) {
+    if (notice.kind === "soon") {
+      counts = await commentRetentionDueAt(
+        (await regionDb?.(workspaceId)) ?? db,
+        workspaceId,
+        rule,
+        notice.at,
+      );
+    } else if (rule.days !== notice.days) {
+      const impact = await commentRetentionImpact(
+        (await regionDb?.(workspaceId)) ?? db,
+        workspaceId,
+        rule,
+      );
+      counts = { threads: impact.threadsAtStart, messages: impact.messagesAtStart };
+    }
+  }
   const claimed = await db
     .delete(schema.outbox)
     .where(eq(schema.outbox.id, row.id))
     .returning({ id: schema.outbox.id });
   if (claimed.length === 0) return "done";
-  const workspaceId = row.subject ?? "";
-  const parsed = CommentRetentionNoticePayload.safeParse(
-    typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload,
-  );
-  if (!parsed.success) return skipped("changed");
-  const notice = parsed.data;
-  const w = schema.workspaces;
-  const [workspace] = await db.global
-    .select({ slug: w.slug, policy: w.policy })
-    .from(w)
-    .where(eq(w.id, workspaceId))
-    .limit(1);
-  const rule = workspace ? commentRetentionOf(policyOf(workspace.policy)) : null;
-  if (!workspace || !rule || rule.from !== notice.from) return skipped("changed");
-  let counts = { threads: notice.threads, messages: notice.messages };
-  if (rule.days !== notice.days && notice.kind === "set") {
-    const impact = await commentRetentionImpact(
-      (await regionDb?.(workspaceId)) ?? db,
-      workspaceId,
-      rule,
-    );
-    counts = { threads: impact.threadsAtStart, messages: impact.messagesAtStart };
+  if (!notice || !workspace || !rule || !counts || rule.from !== notice.from) {
+    return skipped("changed");
   }
+  if (notice.kind === "soon" && counts.threads === 0) return skipped("changed");
   const recipients: { email: string; locale: LocaleCode | null }[] = [];
   for (const userId of await ownerRecipients(db.global, workspaceId)) {
     const [user] = await db.global
