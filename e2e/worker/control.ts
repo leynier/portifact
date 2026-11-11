@@ -19,7 +19,7 @@ import type { Env as AppEnv } from "../../apps/app/src/env.ts";
 import type { Env as ContentEnv } from "../../apps/content/src/index.ts";
 import { issueDepsFromEnv } from "../../apps/jobs/src/integrations.ts";
 import { commentNotifierFromEnv } from "../../apps/jobs/src/notices.ts";
-import { webhookDepsFromEnv } from "../../apps/jobs/src/webhooks.ts";
+import { auditStreamDepsFromWebhooks, webhookDepsFromEnv } from "../../apps/jobs/src/webhooks.ts";
 import { setContentClockOffset } from "./clock.ts";
 import { e2eDomains } from "./domains.ts";
 import { e2eTrackers } from "./integrations.ts";
@@ -32,6 +32,10 @@ export const MAIL_PREFIX = "e2e-mail/";
 export const WEBHOOK_PREFIX = "e2e-webhooks/";
 /** The receiver's host: webhook deliveries to it never leave the stack. */
 export const RECEIVER_HOST = "hooks.receiver-e2e.example.com";
+/** Where the stand-in SIEM collector keeps each audit stream request it got (decision 0019). */
+export const COLLECTOR_PREFIX = "e2e-audit-streams/";
+/** The collector's host: audit stream requests to it never leave the stack. */
+export const COLLECTOR_HOST = "siem.collector-e2e.example.com";
 export type E2eEnv = AppEnv & ContentEnv;
 
 const DAY = 86_400_000;
@@ -461,6 +465,39 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       await runJob(db, env.ARTIFACTS, { id, topic: "webhook_delivery" }, now, { webhooks });
     }
     const listed = await env.ARTIFACTS.list({ prefix: WEBHOOK_PREFIX });
+    const received = [];
+    for (const object of listed.objects.sort((a, b) => a.key.localeCompare(b.key))) {
+      received.push(await (await env.ARTIFACTS.get(object.key))?.json());
+    }
+    return Response.json({ ran: results.length, received });
+  }
+
+  // The jobs Worker's audit stream deliveries (decision 0019), run with its real deps `laterMs`
+  // from now and no settle window, except the network: requests to
+  // COLLECTOR_HOST land in the local bucket (the collector answers 200), anything else fails.
+  if (path === "/audit-streams") {
+    const { laterMs = 0 } = input as { laterMs?: number };
+    const at = now + laterMs;
+    const receive = async (target: string, init: RequestInit) => {
+      if (new URL(target).hostname !== COLLECTOR_HOST) throw new TypeError("not the collector");
+      const headers = Object.fromEntries(new Headers(init.headers).entries());
+      await env.ARTIFACTS.put(
+        `${COLLECTOR_PREFIX}${Date.now()}-${crypto.randomUUID()}`,
+        JSON.stringify({ url: target, headers, body: String(init.body) }),
+      );
+      return new Response("ok");
+    };
+    // Events are sent once the database recorded them two minutes ago; the stack cannot wait.
+    const auditStreams = auditStreamDepsFromWebhooks(await webhookDepsFromEnv(env, receive), 0);
+    const { results } = await env.DB.prepare(
+      "select id from outbox where topic = 'audit_stream' and available_at <= ?",
+    )
+      .bind(at)
+      .all<{ id: number }>();
+    for (const { id } of results) {
+      await runJob(db, env.ARTIFACTS, { id, topic: "audit_stream" }, at, { auditStreams });
+    }
+    const listed = await env.ARTIFACTS.list({ prefix: COLLECTOR_PREFIX });
     const received = [];
     for (const object of listed.objects.sort((a, b) => a.key.localeCompare(b.key))) {
       received.push(await (await env.ARTIFACTS.get(object.key))?.json());

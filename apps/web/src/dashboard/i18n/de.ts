@@ -2571,4 +2571,120 @@ export const de = {
   "policies.impact.unboundTokens":
     "{count, plural, one {# Service-Token funktioniert} other {# Service-Tokens funktionieren}} weiterhin aus jedem Netzwerk. Lege eine Liste für Service-Tokens fest, um sie ebenfalls einzuschränken",
   "policies.impact.familiesConfirm": "Verstanden, speichern",
+  "audit.group.exports": "Exporte und Streams",
+  "audit.kind.streamCreated":
+    "Hat begonnen, das Protokoll an {host} zu senden{start, select, oldest {, ab dem ältesten aufbewahrten Ereignis} other {}}",
+  "audit.kind.streamChanged":
+    "{state, select, active {Hat den Stream an {host} fortgesetzt} paused {Hat den Stream an {host} pausiert} other {{secret, select, true {Hat dem Stream an {host} ein neues Signaturgeheimnis gegeben} other {Hat den Stream an {host} geändert}}}}",
+  "audit.kind.streamRemoved": "Hat den Stream an {host} entfernt",
+  "audit.kind.streamPaused":
+    "{reason, select, failures {Stream an {host} pausiert: Der Endpunkt ist immer wieder fehlgeschlagen} plan {Stream an {host} pausiert: Der Tarif enthält ihn nicht mehr} invalid_url {Stream an {host} pausiert: Seine URL besteht die Prüfungen nicht mehr} other {Stream an {host} pausiert: URL und Geheimnis lassen sich nicht mehr öffnen}}",
+  "audit.stream.title": "An Ihr SIEM senden",
+  "audit.stream.description":
+    "Portifact sendet jedes Ereignis dieses Protokolls an einen HTTPS-Endpunkt, den Sie betreiben, als signierte JSON Lines, in Reihenfolge und mindestens einmal: Speichern Sie jede Ereignis-ID nur einmal. Ein Ereignis wird gesendet, sobald es {minutes} Minuten alt ist.",
+  "audit.stream.euTitle": "Ihr Endpunkt kann außerhalb der EU liegen",
+  "audit.stream.eu":
+    "Die Daten dieses Bereichs werden in der EU gespeichert. Der gewählte Endpunkt kann überall liegen: Die Ereignisse, die er empfängt, verlassen die EU.",
+  "audit.stream.planTitle": "Nicht in Ihrem Tarif",
+  "audit.stream.planRequired":
+    "Das Senden des Audit-Protokolls gehört zum Tarif {plan}. Bestehende Streams bleiben pausiert und behalten ihre Position.",
+  "audit.stream.list": "Ihre Audit-Streams",
+  "audit.stream.empty": "Noch kein Stream",
+  "audit.stream.emptyBody":
+    "Fügen Sie einen Endpunkt hinzu, um jedes neue Ereignis dieses Protokolls zu empfangen.",
+  "audit.stream.add.title": "Stream hinzufügen",
+  "audit.stream.add.label": "Name",
+  "audit.stream.add.url": "Endpunkt-URL",
+  "audit.stream.add.urlHint": "Nur HTTPS. Nach dem Speichern wird nur der Host angezeigt.",
+  "audit.stream.add.start": "Beginnen ab",
+  "audit.stream.add.submit": "Stream hinzufügen",
+  "audit.stream.add.limit":
+    "Ein Bereich kann höchstens {limit} Streams haben. Entfernen Sie einen, um einen weiteren hinzuzufügen.",
+  "audit.stream.start.now": "Jetzt",
+  "audit.stream.start.nowHint": "Nur Ereignisse ab jetzt.",
+  "audit.stream.start.oldest": "Dem ältesten aufbewahrten Ereignis",
+  "audit.stream.start.oldestHint":
+    "Alles, was das Protokoll noch aufbewahrt (bis zu {days} Tage), danach neue Ereignisse.",
+  "audit.stream.added": "Stream an {host} hinzugefügt",
+  "audit.stream.secret.title": "Kopieren Sie jetzt das Signaturgeheimnis",
+  "audit.stream.secret.body":
+    "Es wird nur dieses eine Mal angezeigt. Ihr Endpunkt prüft damit, dass jede Anfrage von Portifact kommt.",
+  "audit.stream.secret.label": "Signaturgeheimnis von {label} ({host})",
+  "audit.stream.secret.copy": "Geheimnis kopieren",
+  "audit.stream.secret.done": "Gespeichert",
+  "audit.stream.rotate.body":
+    "Das alte Geheimnis signiert 24 Stunden lang neben dem neuen weiter, damit Ihr Endpunkt ohne verlorene Anfrage wechseln kann.",
+  "audit.stream.verify.title": "Jede Anfrage prüfen",
+  "audit.stream.verify.body":
+    "Jede Anfrage trägt webhook-id, webhook-timestamp und webhook-signature, dasselbe Verfahren wie bei den Webhooks von Portifact. Berechnen Sie die Signatur über den unveränderten Body neu, lehnen Sie Zeitstempel ab, die mehr als 5 Minuten abweichen, und überspringen Sie Ereignisse, deren ID Sie schon gespeichert haben. Zeilen mit einem Feld record sind keine Ereignisse: eine Lücke oder ein Test.",
+  "audit.stream.verify.sample": "Signaturprüfung in Node.js",
+  "audit.stream.state.active": "Aktiv",
+  "audit.stream.state.paused": "Pausiert",
+  "audit.stream.state.attention": "Braucht Aufmerksamkeit",
+  "audit.stream.reason.manual": "Von einem Admin pausiert.",
+  "audit.stream.reason.plan":
+    "Pausiert: Der Tarif enthält das Senden des Protokolls nicht mehr. Setzen Sie ihn fort, sobald er es wieder enthält; er macht dort weiter, wo er stand.",
+  "audit.stream.reason.failures":
+    "Pausiert, nachdem der Endpunkt 3 Tage lang fehlgeschlagen ist. Beheben Sie das Problem, senden Sie einen Test und setzen Sie ihn dann fort.",
+  "audit.stream.reason.invalid_url":
+    "Pausiert: Seine URL besteht die Prüfungen von Portifact nicht mehr. Ändern Sie die URL.",
+  "audit.stream.reason.key_unavailable":
+    "Pausiert: URL und Geheimnis lassen sich nicht mehr öffnen. Entfernen Sie ihn und fügen Sie ihn neu hinzu.",
+  "audit.stream.through": "Zugestellt bis {when}",
+  "audit.stream.notYet": "Noch nichts zugestellt",
+  "audit.stream.failures":
+    "{count, plural, one {# Anfrage fehlgeschlagen} other {# Anfragen nacheinander fehlgeschlagen}}",
+  "audit.stream.lastAttempt": "Letzte Anfrage {when}: {outcome}",
+  "audit.stream.noAttempts": "Noch keine Anfrage",
+  "audit.stream.testPending": "Ein Test wartet darauf, gesendet zu werden.",
+  "audit.stream.gapTitle": "Einige Ereignisse erreichen diesen Endpunkt vielleicht nie",
+  "audit.stream.gap":
+    "Die zwischen {from} und {to} erfassten Ereignisse wurden oder werden durch die Aufbewahrung des Protokolls gelöscht, bevor dieser Endpunkt sie erhielt; was noch aufbewahrt war, wurde gesendet. Der Endpunkt hat einen Lückeneintrag erhalten, der das meldet.",
+  "audit.stream.test": "Test senden",
+  "audit.stream.testLabel": "Test senden an {label}",
+  "audit.stream.testQueued": "Test für {label} eingereiht",
+  "audit.stream.pause": "Pausieren",
+  "audit.stream.pauseLabel": "Den Stream {label} pausieren",
+  "audit.stream.paused": "Stream {label} pausiert",
+  "audit.stream.resume": "Fortsetzen",
+  "audit.stream.resumeLabel": "Den Stream {label} fortsetzen",
+  "audit.stream.resumed": "Stream {label} fortgesetzt",
+  "audit.stream.rotate": "Neues Geheimnis",
+  "audit.stream.rotateLabel": "Neues Geheimnis für {label}",
+  "audit.stream.rotated": "Neues Geheimnis für {label} erstellt",
+  "audit.stream.remove": "Entfernen",
+  "audit.stream.removeLabel": "Den Stream {label} entfernen",
+  "audit.stream.removed": "Stream {label} entfernt",
+  "audit.stream.confirm.title": "Den Stream {label} entfernen?",
+  "audit.stream.confirm.body":
+    "Portifact hört sofort auf zu senden. Ihr Endpunkt behält, was er erhalten hat; ein neuer Stream würde wieder ab jetzt beginnen.",
+  "audit.stream.failed": "Das hat nicht geklappt",
+  "audit.stream.deliveries": "Anfragen",
+  "audit.stream.deliveriesOf": "Anfragen des Streams {label}",
+  "audit.stream.deliveries.loading": "Anfragen werden geladen",
+  "audit.stream.deliveries.error": "Die Anfragen konnten nicht geladen werden.",
+  "audit.stream.deliveries.empty": "Keine Anfrage in den letzten {days} Tagen.",
+  "audit.stream.deliveries.time": "Zeit",
+  "audit.stream.deliveries.events": "Ereignisse",
+  "audit.stream.deliveries.outcome": "Ergebnis",
+  "audit.stream.outcome.delivered": "zugestellt",
+  "audit.stream.outcome.failed": "fehlgeschlagen",
+  "audit.stream.outcome.skipped": "übersprungen",
+  "audit.stream.outcome.test": "Test",
+  "audit.stream.error.unreachable": "keine Verbindung",
+  "audit.stream.error.certificate": "Zertifikat nicht akzeptiert",
+  "audit.stream.error.timeout": "Zeitüberschreitung",
+  "audit.stream.error.redirect": "umgeleitet, nicht gefolgt",
+  "audit.stream.error.refused": "abgelehnt",
+  "audit.stream.error.invalid_url": "URL nicht mehr akzeptiert",
+  "audit.stream.error.key_unavailable": "lässt sich nicht öffnen",
+  "audit.stream.error.daily_cap": "Tageslimit erreicht",
+  "audit.stream.revokeNow": "Jetzt ersetzen",
+  "audit.stream.revokeNowLabel": "Jetzt ersetzen: Geheimnis von {label}",
+  "audit.stream.revokeConfirm.title": "Das Geheimnis von {label} jetzt ersetzen?",
+  "audit.stream.revokeConfirm.body":
+    "Das alte Geheimnis signiert sofort nicht mehr. Bis Ihr Endpunkt das neue hat, lehnt er die Anfragen von Portifact ab; nichts geht verloren, sie werden erneut gesendet, sobald er sie annimmt. Verwenden Sie dies, wenn das alte Geheimnis bekannt geworden ist.",
+  "audit.stream.revokedNow": "Neues Geheimnis für {label}; das alte signiert nicht mehr",
+  "audit.stream.revokeNow.body":
+    "Das alte Geheimnis signiert nicht mehr. Geben Sie Ihrem Endpunkt jetzt dieses.",
 } satisfies Catalog;

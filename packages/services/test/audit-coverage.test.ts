@@ -130,6 +130,13 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   enforceWorkspacePolicies: ["policy.enforced", "access.changed"],
   // A read that records that it was asked for, before it streams (the one event outside a batch).
   exportAuditLog: ["audit.exported"],
+  // Audit streams (decision 0019): an admin's changes; the delivery job records only the
+  // platform's pause of a stream (failures, a lapsed plan, a URL or key that no longer works),
+  // never a delivery.
+  createAuditStream: ["audit_stream.created"],
+  updateAuditStream: ["audit_stream.changed"],
+  removeAuditStream: ["audit_stream.removed"],
+  deliverAuditStream: ["audit_stream.paused"],
 };
 
 /** Changes that record no event, and why. */
@@ -151,6 +158,11 @@ reason(
     "openSsoSecret",
   ],
 );
+reason(
+  "audit streams: a test record, the log's pruning, re-arming lost jobs and re-sealing with the current key change nothing an owner has (decision 0019)",
+  ["sendAuditStreamTest", "maintainAuditStreams", "rewrapAuditStreamKeys"],
+);
+reason("reads at most a few bytes of a response and cancels the rest", ["drain"]);
 reason("approval reviews: who can still open the artifact counts again; nobody's choice changed", [
   "recheckApprovalReviewers",
 ]);
@@ -378,6 +390,8 @@ const READ_NAMES = new Set([
   "openUnsubscribeToken",
   "resolveActor",
   "resolveOwnerScope",
+  // A stream's next events (decision 0019): a read.
+  "streamEventsAfter",
   // Content search is a read (decision 0012): it records nothing.
   "searchContent",
   "signUnsubscribeToken",

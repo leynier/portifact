@@ -432,7 +432,8 @@ function requested(): string[] {
       (r) =>
         r.method === "GET" &&
         r.path.startsWith("/api/v1/audit") &&
-        !r.path.startsWith("/api/v1/audit/export"),
+        !r.path.startsWith("/api/v1/audit/export") &&
+        !r.path.startsWith("/api/v1/audit/streams"),
     )
     .map((r) => r.path);
 }

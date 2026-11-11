@@ -372,7 +372,18 @@ bun run --cwd apps/jobs operator set-plan workspace:acme enterprise --seats 25 -
 
 Exports are rate limited per owner (30 starts an hour) and per person (10 an hour) through `rate_limits`; a customer who hits the limit waits for the hour to pass, and each start appears in the log as `audit.exported`.
 
-Next for E3: delivering audit events to a SIEM by webhook, and retention policies for artifacts and comments (a maximum artifact life, automatic archive and comment retention). Neither is built.
+Next for E3: retention policies for artifacts and comments (a maximum artifact life, automatic archive and comment retention). Not built. Streaming the log to a SIEM is built and switched off ("Audit streams" below).
+
+### Audit streams
+
+An owner's admins point its audit log at an HTTPS endpoint from the Audit page ([decision 0019](decisions/0019-audit-stream.md)). Streams are switched on and off with webhooks (`WEBHOOKS_ENABLED` and `WEBHOOK_KEY` on both Workers); `WEBHOOKS_PAUSED` on the jobs Worker holds them too, and budget protection from `block_uploads` defers them 15 minutes at a time.
+
+- **What the customer gets.** Signed JSON Lines, the export's bytes, at least once, ordered within each source (`portifact-audit-source: regional` or `global`) by when the database recorded each event, sent about 2 to 8 minutes after that: tell customers to keep each event ID once (a retry can carry more events than the first attempt, so the batch key is not a dedupe key) and to merge the two sources by `at` if they need one order. Lines with a `record` field are a gap (`"record":"gap"`: events recorded in that range were or will be deleted by retention and may be missing; anything still kept was sent anyway, and a quiet stream that sat paused past retention reports one even if nothing was deleted) or a test.
+- **The scan.** Per region and 15-minute run, while switched on, one batch prunes the delivery log past 7 days (500 rows at most) and gives a job to up to 100 active streams that lost theirs; the run's log line has `auditStreams` with `prunedDeliveries`, `armed`, `keysRewrapped` and `keysLeft`. Streams sealed with `WEBHOOK_KEY_PREVIOUS` are re-sealed by the same run as webhooks are, in every region (the re-seal reads nothing when no previous key is set); keep the previous key until `keysLeft` and `webhookKeysLeft` are both 0. During a rotation, setting `WEBHOOK_KEY_PREVIOUS` on `portifact-app` too lets admins change a stream that is not re-sealed yet.
+- **A stream in `attention`.** It failed for 72 hours, its URL no longer passes the checks, or no key opens it. The admin sees why on the Audit page (unreachable, refused with a status class, timed out, redirected, certificate) and in the log (`audit_stream.paused`); they fix the endpoint, send a test and resume, and it goes on from its position, with a gap record if retention passed it meanwhile. An endpoint down for longer than the owner's retention loses events to the stream; say so plainly, the gap record is the evidence.
+- **Daily cap.** 2,000 requests per owner and UTC day (`audit-stream:attempts:<owner>:<day>` in `rate_limits`); a capped stream waits for the next day with one `daily_cap` row in its log. A large backfill takes several days by design.
+- **Restores.** A restore that rewinds a stream's position makes it send again what it had sent since; nothing is skipped. Removed streams stay removed through their `audit_stream` tombstones (`export-tombstones` and `apply-tombstones` as for every restore).
+- **Never log** a stream's URL, its path, a secret or a body; the consumer logs only the job's ID, topic and outcome.
 
 ## Storage reconciliation
 

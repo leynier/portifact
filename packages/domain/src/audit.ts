@@ -45,6 +45,15 @@ export function auditCutoff(retentionDays: number, now: number): number {
   return now - retentionDays * DAY_MS;
 }
 
+/**
+ * What the retention sweep deletes before: events whose `at` is older. The sweep and audit
+ * streams' gap rule both use this one function, unrounded, so a stream can never think an event
+ * is still kept after the sweep deleted it (decision 0019, "Retention and gaps").
+ */
+export function auditPruneCutoff(retentionDays: number, now: number): number {
+  return auditCutoff(retentionDays, now);
+}
+
 export interface AuditWindow {
   /** Inclusive. */
   from: number;

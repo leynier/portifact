@@ -2,6 +2,7 @@
 // API client, and a renderer with memory history. Only used by tests.
 import type { I18n } from "@lingui/core";
 import { I18nProvider } from "@lingui/react";
+import type { AuditStreamAttempt, AuditStreamView } from "@portifact/contracts";
 import {
   type AccessLogEntry,
   type AccessLogView,
@@ -549,6 +550,19 @@ export interface FakeServer {
   /** The owner's plan's `auditRetentionDays`, as the audit page reports it. */
   auditRetentionDays: number;
   /**
+   * Audit streams by space (`""` for the personal space), as /api/v1/audit/streams keeps them
+   * (decision 0019). `offered` is the deployment's switch (off by default, as deployed), and
+   * `available` the plan's features.
+   */
+  auditStreams: {
+    offered: boolean;
+    available: boolean;
+    euOwner: boolean;
+    bySpace: Record<string, AuditStreamView[]>;
+    attempts: Record<string, AuditStreamAttempt[]>;
+    tests: string[];
+  };
+  /**
    * Analytics by artifact ID. An artifact without an entry answers `plan_required`, like an
    * owner on the free plan; the range asked for comes back as `from`.
    */
@@ -641,6 +655,14 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     auditExportable: new Set(),
     auditExportPart: 2,
     auditRetentionDays: 90,
+    auditStreams: {
+      offered: false,
+      available: true,
+      euOwner: false,
+      bySpace: {},
+      attempts: {},
+      tests: [],
+    },
     stats: {},
     shareLinks: {},
     approvals: {},
@@ -1629,6 +1651,7 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       exportable: server.auditExportable.has(slug),
     } satisfies AuditLogView);
   }
+  if (path.startsWith("/api/v1/audit/streams")) return auditStreamRoute(server, url, method);
   if (path === "/api/v1/audit/export" && method === "GET") {
     const slug = url.searchParams.get("workspace") ?? "";
     const events = server.audit[slug];
@@ -2712,4 +2735,91 @@ function policyRoute(
     return json(state());
   }
   return apiError("not_found", 404);
+}
+
+/** Audit streams (decision 0019), as the session-only routes answer them. */
+function auditStreamRoute(server: FakeServer, url: URL, method: string): Response {
+  const store = server.auditStreams;
+  const slug = url.searchParams.get("workspace") ?? "";
+  store.bySpace[slug] ??= [];
+  const list = store.bySpace[slug];
+  const error = (code: string, status: number, message = code) =>
+    Response.json({ error: { code, message } }, { status });
+  const path = url.pathname;
+  if (path === "/api/v1/audit/streams" && method === "GET") {
+    return Response.json({
+      streams: list,
+      available: store.available,
+      serviceAvailable: store.offered,
+      euOwner: store.euOwner,
+      limit: 2,
+      settleMinutes: 20,
+    });
+  }
+  if (path === "/api/v1/audit/streams" && method === "POST") {
+    if (!store.available)
+      return error("plan_required", 403, "Exporting the audit log is part of the Enterprise plan.");
+    const body = server.bodies.at(-1) as { label: string; url: string; start: string };
+    let host: string;
+    try {
+      const parsed = new URL(body.url);
+      if (parsed.protocol !== "https:") throw new Error("http");
+      host = parsed.hostname;
+    } catch {
+      return error("invalid_input", 400, "The URL must start with https://.");
+    }
+    const stream: AuditStreamView = {
+      id: `as_${String(list.length + 1).padStart(32, "0")}`,
+      label: body.label,
+      host,
+      state: "active",
+      pausedReason: null,
+      pausedAt: null,
+      deliveredThrough: null,
+      lagMs: null,
+      failures: 0,
+      failingSince: null,
+      lastAttempt: null,
+      lastGap: null,
+      testPending: false,
+      createdAt: "2026-11-10T09:00:00.000Z",
+      createdBy: "Ada",
+    };
+    list.push(stream);
+    return Response.json(
+      { stream, secret: "whsec_sample-stream-secret-for-tests" },
+      { status: 201 },
+    );
+  }
+  const match = /^\/api\/v1\/audit\/streams\/([^/]+)(\/test|\/deliveries)?$/.exec(path);
+  const found = match && list.find((one) => one.id === match[1]);
+  if (!match || !found) return error("not_found", 404, "Audit stream not found.");
+  if (match[2] === "/deliveries") {
+    return Response.json({
+      streamId: found.id,
+      attempts: store.attempts[found.id] ?? [],
+      retentionDays: 7,
+    });
+  }
+  if (match[2] === "/test") {
+    store.tests.push(found.id);
+    return Response.json({ streamId: found.id, queued: true }, { status: 202 });
+  }
+  if (method === "DELETE") {
+    store.bySpace[slug] = list.filter((one) => one.id !== found.id);
+    return Response.json({ streamId: found.id, removed: true });
+  }
+  const change = server.bodies.at(-1) as { state?: "active" | "paused"; rotateSecret?: true };
+  if (change.state === "active" && !store.available) return error("plan_required", 403);
+  const next: AuditStreamView =
+    change.state === "paused"
+      ? { ...found, state: "paused", pausedReason: "manual", pausedAt: "2026-11-10T10:00:00.000Z" }
+      : change.state === "active"
+        ? { ...found, state: "active", pausedReason: null, pausedAt: null, failures: 0 }
+        : found;
+  store.bySpace[slug] = list.map((one) => (one.id === found.id ? next : one));
+  return Response.json({
+    stream: next,
+    secret: change.rotateSecret ? "whsec_rotated-stream-secret-for-tests" : null,
+  });
 }

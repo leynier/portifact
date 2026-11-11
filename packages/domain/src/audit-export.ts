@@ -66,9 +66,23 @@ export function auditCsvRow(event: AuditEventView): string {
   ]);
 }
 
+/**
+ * Characters `JSON.stringify` leaves raw that some receivers read as line breaks (U+2028, U+2029,
+ * NEL): escaped, so one event is always one line whatever a display name holds.
+ */
+const LINE_BREAKS = /[\u0085\u2028\u2029]/g;
+
+/** JSON as one line: `JSON.stringify` with the line breaks it leaves raw escaped. */
+export function jsonOneLine(value: unknown): string {
+  return JSON.stringify(value).replace(
+    LINE_BREAKS,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 /** One event as a JSON Lines line: the same object the API and MCP return. */
 export function auditJsonLine(event: AuditEventView): string {
-  return `${JSON.stringify(event)}\n`;
+  return `${jsonOneLine(event)}\n`;
 }
 
 /** One event in the export's format. */

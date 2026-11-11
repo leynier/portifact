@@ -2,7 +2,7 @@
 // (global `fetch`, which `global_fetch_strictly_public` in wrangler.jsonc routes like any outside
 // client), the origins links use and the emergency stop. Nothing here logs a URL, a secret or a
 // body: the consumer logs only the job's ID, topic and outcome.
-import { type WebhookDeps, webhookKeys } from "@portifact/services";
+import { type AuditStreamDeps, type WebhookDeps, webhookKeys } from "@portifact/services";
 
 export interface WebhookEnv {
   APP_ORIGIN: string;
@@ -38,5 +38,23 @@ export async function webhookDepsFromEnv(
     contentDomain: env.CONTENT_DOMAIN,
     paused: Boolean(env.WEBHOOKS_PAUSED),
     enabled: webhooksEnabled(env),
+  };
+}
+
+/**
+ * What audit stream deliveries get (decision 0019): the same keys, network, emergency stop and
+ * switch as webhooks, so `WEBHOOKS_ENABLED` and `WEBHOOK_KEY` turn both on and off together.
+ */
+export function auditStreamDepsFromWebhooks(
+  webhooks: WebhookDeps,
+  /** Only the e2e stack, whose database clock cannot be moved, passes another window. */
+  settleMs?: number,
+): AuditStreamDeps {
+  return {
+    keys: webhooks.keys,
+    fetch: webhooks.fetch,
+    enabled: webhooks.enabled,
+    paused: webhooks.paused,
+    ...(settleMs === undefined ? {} : { settleMs }),
   };
 }

@@ -31,6 +31,14 @@ import {
   type AuditExportFormat,
   type AuditKind,
   AuditLogView,
+  type AuditStreamCreate,
+  AuditStreamDeliveries,
+  AuditStreamList,
+  AuditStreamRemoved,
+  AuditStreamTestQueued,
+  type AuditStreamUpdate,
+  AuditStreamView,
+  AuditStreamWithSecret,
   BrandSettings,
   type BrandUpdate,
   BrowserSessionList,
@@ -266,6 +274,25 @@ export interface DashboardApi {
   ): Promise<WorkspaceView | null>;
   /** Moves an artifact to a workspace, or to the personal space with `null`. */
   transferArtifact(artifactId: string, workspace: string | null): Promise<ArtifactSummary>;
+  /** A space's audit streams (decision 0019), for its admins, through the session only. */
+  auditStreams(workspace: string | undefined): Promise<AuditStreamList>;
+  /** Adds a stream; the answer holds its signing secret once. */
+  createAuditStream(
+    stream: AuditStreamCreate,
+    workspace: string | undefined,
+  ): Promise<AuditStreamWithSecret>;
+  /** Changes a stream; a rotation's answer holds the new secret once. */
+  updateAuditStream(
+    streamId: string,
+    update: AuditStreamUpdate,
+    workspace: string | undefined,
+  ): Promise<{ stream: AuditStreamView; secret: string | null }>;
+  removeAuditStream(streamId: string, workspace: string | undefined): Promise<AuditStreamRemoved>;
+  testAuditStream(streamId: string, workspace: string | undefined): Promise<AuditStreamTestQueued>;
+  auditStreamDeliveries(
+    streamId: string,
+    workspace: string | undefined,
+  ): Promise<AuditStreamDeliveries>;
   /** A space's webhooks (decision 0009): the personal space, or a workspace by slug. */
   webhooks(workspace: string | undefined): Promise<WebhookList>;
   /** Adds a webhook; the answer holds its signing secret once. */
@@ -637,6 +664,45 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     removeBrandLogo(workspace) {
       return call(inSpace(`${BRAND_PATH}/logo`, workspace), BrandSettings, "DELETE");
+    },
+    auditStreams(workspace) {
+      return call(inSpace("/api/v1/audit/streams", workspace), AuditStreamList);
+    },
+    createAuditStream(stream, workspace) {
+      return call(
+        inSpace("/api/v1/audit/streams", workspace),
+        AuditStreamWithSecret,
+        "POST",
+        stream,
+      );
+    },
+    updateAuditStream(streamId, update, workspace) {
+      return call(
+        inSpace(`/api/v1/audit/streams/${encodeURIComponent(streamId)}`, workspace),
+        z.object({ stream: AuditStreamView, secret: z.string().nullable() }),
+        "PATCH",
+        update,
+      );
+    },
+    removeAuditStream(streamId, workspace) {
+      return call(
+        inSpace(`/api/v1/audit/streams/${encodeURIComponent(streamId)}`, workspace),
+        AuditStreamRemoved,
+        "DELETE",
+      );
+    },
+    testAuditStream(streamId, workspace) {
+      return call(
+        inSpace(`/api/v1/audit/streams/${encodeURIComponent(streamId)}/test`, workspace),
+        AuditStreamTestQueued,
+        "POST",
+      );
+    },
+    auditStreamDeliveries(streamId, workspace) {
+      return call(
+        inSpace(`/api/v1/audit/streams/${encodeURIComponent(streamId)}/deliveries`, workspace),
+        AuditStreamDeliveries,
+      );
     },
     webhooks(workspace) {
       return call(inSpace("/api/v1/webhooks", workspace), WebhookList);

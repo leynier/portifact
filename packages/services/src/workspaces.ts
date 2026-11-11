@@ -45,6 +45,7 @@ import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import { claimArtifacts } from "./account-data.ts";
 import { actorOn } from "./actors.ts";
 import { type AuditActor, auditEvent, eraseOwnerAuditEvents } from "./audit.ts";
+import { deleteOwnerAuditStreams } from "./audit-streams.ts";
 import { eraseOwnerBrand } from "./branding.ts";
 import { domainDbsOf, releaseOwnerDomains } from "./custom-domains.ts";
 import { deleteOwnerConnections } from "./integrations.ts";
@@ -839,6 +840,8 @@ function claimOwnerStatements(db: Db, ownerId: string, now: number) {
     db.delete(schema.webhooks).where(eq(schema.webhooks.ownerId, ownerId)),
     // Its issue connections and their sealed credentials (decision 0018), the same way.
     deleteOwnerConnections(db, ownerId),
+    // Its audit streams and their delivery log (decision 0019), the same way.
+    deleteOwnerAuditStreams(db, ownerId),
   ] as const;
 }
 
@@ -1022,6 +1025,7 @@ export async function advanceWorkspaceDeletion(
       // Any webhook a restore or a race brought back since the deletion was requested.
       db.delete(schema.webhooks).where(and(eq(schema.webhooks.ownerId, workspaceId), nothingLeft)),
       deleteOwnerConnections(db, workspaceId, nothingLeft),
+      deleteOwnerAuditStreams(db, workspaceId, nothingLeft),
       db
         .delete(schema.accountUsage)
         .where(

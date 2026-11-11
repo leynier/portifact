@@ -259,6 +259,8 @@ export interface ApplyTombstonesResult {
   shareLinks: number;
   /** Webhooks removed before the restore that it brought back, removed again. */
   webhooks: number;
+  /** Audit streams removed before the restore, or of deleted owners, removed again (0019). */
+  auditStreams: number;
   /** Service tokens revoked before the restore, or of deleted workspaces, deleted again. */
   serviceTokens: number;
   /** Workspace email domains removed or lapsed before the restore that it brought back. */
@@ -290,7 +292,14 @@ export interface RestoreRegions {
 }
 
 /** The kinds a regional statement needs as a list of IDs when its database is not the global one. */
-const REGIONAL_KINDS = ["artifact", "account", "workspace", "share_link", "webhook"] as const;
+const REGIONAL_KINDS = [
+  "artifact",
+  "account",
+  "workspace",
+  "share_link",
+  "webhook",
+  "audit_stream",
+] as const;
 type RegionalKind = (typeof REGIONAL_KINDS)[number];
 
 /** IDs read from the global database per page, and bound per statement (D1 allows 100). */
@@ -353,6 +362,7 @@ interface Refs {
   accounts: SQL;
   links: SQL;
   webhooks: SQL;
+  auditStreams: SQL;
 }
 
 const t = schema.tombstones;
@@ -372,6 +382,7 @@ const SUBQUERIES: Refs = {
   accounts: tombstonedAccounts,
   links: sql`select ${t.id} from ${t} where ${t.kind} = 'share_link'`,
   webhooks: sql`select ${t.id} from ${t} where ${t.kind} = 'webhook'`,
+  auditStreams: sql`select ${t.id} from ${t} where ${t.kind} = 'audit_stream'`,
 };
 
 /** A JSON list as the body of an `in (...)` subquery. */
@@ -574,6 +585,19 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
           )
           .returning({ id: schema.webhooks.id }),
     },
+    // Removed audit streams and those of deleted owners (decision 0019): a restored endpoint
+    // must never receive the log again.
+    {
+      name: "auditStreams",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .delete(schema.auditStreams)
+          .where(
+            sql`${schema.auditStreams.id} in (${refs.auditStreams}) or ${schema.auditStreams.ownerId} in (${refs.owners})`,
+          )
+          .returning({ id: schema.auditStreams.id }),
+    },
     // A removed or lapsed email domain must not grant again (decision 0010); rows of deleted
     // workspaces went with the workspace above. By row ID, so a later claim of the name survives.
     {
@@ -765,6 +789,7 @@ async function applyRegionalTombstones(
       accounts: part(lists.account),
       links: part(lists.share_link),
       webhooks: part(lists.webhook),
+      auditStreams: part(lists.audit_stream),
     };
     for (const [name, rows] of await runEntries(db, regional, refs)) {
       counts.set(name, (counts.get(name) ?? 0) + rows.length);
@@ -852,6 +877,7 @@ export async function applyTombstones(
     workspaces: count("workspaces"),
     shareLinks: count("shareLinks"),
     webhooks: count("webhooks"),
+    auditStreams: count("auditStreams"),
     serviceTokens: count("serviceTokens"),
     domains: count("domains"),
     groups: count("groups"),

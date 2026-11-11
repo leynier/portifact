@@ -24,12 +24,14 @@ import {
   domainDbs,
   domainDepsFromEnv,
   type EmailDomainDeps,
+  maintainAuditStreams,
   personalHandles,
   pruneAccessEvents,
   recheckEmailDomains,
   reconcileStorage,
   recordEmailEvent,
   relayOutbox,
+  rewrapAuditStreamKeys,
   rewrapIntegrationKeys,
   rewrapWebhookKeys,
   runJob,
@@ -49,7 +51,13 @@ import {
   type NoticeEnv,
   reviewNotifierFromEnv,
 } from "./notices.ts";
-import { type Fetch, type WebhookEnv, webhookDepsFromEnv, webhooksEnabled } from "./webhooks.ts";
+import {
+  auditStreamDepsFromWebhooks,
+  type Fetch,
+  type WebhookEnv,
+  webhookDepsFromEnv,
+  webhooksEnabled,
+} from "./webhooks.ts";
 
 export interface Env
   extends AnalyticsEnv,
@@ -172,10 +180,21 @@ export async function runScheduled(
   // Webhooks sealed with `WEBHOOK_KEY_PREVIOUS` move to the current key (docs/releasing.md).
   // Switched off: no webhook stays enabled, so writes record no events (decision 0009).
   const webhooksStopped = webhooksEnabled(env) ? 0 : await stopWebhooksWhileOff(db, now);
-  const webhookKeyRotation = await rewrapWebhookKeys(
-    db,
-    await webhookKeys({ current: env.WEBHOOK_KEY, previous: env.WEBHOOK_KEY_PREVIOUS }),
-  );
+  const keys = await webhookKeys({ current: env.WEBHOOK_KEY, previous: env.WEBHOOK_KEY_PREVIOUS });
+  const webhookKeyRotation = await rewrapWebhookKeys(db, keys);
+  // Audit streams (decision 0019), in every region: re-sealed with the current key like webhooks,
+  // and, only while streams are switched on, the log pruned and lost jobs given back (two D1
+  // calls per region, whatever the number of owners).
+  const auditStreams = { prunedDeliveries: 0, armed: 0, keysRewrapped: 0, keysLeft: 0 };
+  for (const handles of regions.all()) {
+    const rotated = await rewrapAuditStreamKeys(handles.db, keys);
+    auditStreams.keysRewrapped += rotated.rewrapped;
+    auditStreams.keysLeft += rotated.left;
+    if (!webhooksEnabled(env)) continue;
+    const done = await maintainAuditStreams(handles.db, now);
+    auditStreams.prunedDeliveries += done.prunedDeliveries;
+    auditStreams.armed += done.armed;
+  }
   // Connection credentials sealed with `INTEGRATIONS_KEY_PREVIOUS` move to the current key, in
   // every region (decision 0018).
   const integrationKeys = await integrationKeysFromEnv(env);
@@ -221,6 +240,7 @@ export async function runScheduled(
     webhookKeysRewrapped: webhookKeyRotation.rewrapped,
     webhookKeysLeft: webhookKeyRotation.left,
     webhooksStopped,
+    auditStreams,
     integrationKeysRewrapped: integrationKeyRotation.rewrapped,
     integrationKeysLeft: integrationKeyRotation.left,
     customDomains,
@@ -302,6 +322,7 @@ export async function runQueue(
   const domainNotifier = domainNotifierFromEnv(env);
   const directoryNotifier = directoryNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
+  const auditStreams = auditStreamDepsFromWebhooks(webhooks);
   const issues = await issueDepsFromEnv(env, fetcher);
   const run = async (message: Message<unknown>) => {
     const parsed = JobMessage.safeParse(message.body);
@@ -318,6 +339,7 @@ export async function runQueue(
         access: handles.accessDb ?? createAccessDb(env.ACCESS_DB),
         ...notifiers(handles.region),
         webhooks,
+        auditStreams,
         issues,
         domains,
         domainNotifier,
@@ -337,12 +359,12 @@ export async function runQueue(
       message.retry({ delaySeconds: FAILED_RETRY_SECONDS });
     }
   };
-  // Webhook deliveries and issues wait on services outside Portifact: they run concurrently with
-  // each other and alongside the rest of the batch, so a slow receiver never delays a purge, a
-  // deletion or a notice in the same batch. The other jobs keep running one after another.
+  // Webhook deliveries, audit streams and issues wait on services outside Portifact: they run
+  // concurrently with each other and alongside the rest of the batch, so a slow receiver never
+  // delays a purge, a deletion or a notice in the same batch. The other jobs keep running one after another.
   const isDelivery = (message: Message<unknown>) => {
     const topic = JobMessage.safeParse(message.body).data?.topic;
-    return topic === "webhook_delivery" || topic === "thread_issue";
+    return topic === "webhook_delivery" || topic === "audit_stream" || topic === "thread_issue";
   };
   const deliveries = Promise.all(batch.messages.filter(isDelivery).map(run));
   for (const message of batch.messages.filter((m) => !isDelivery(m))) await run(message);
