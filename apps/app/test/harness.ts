@@ -65,6 +65,8 @@ export function createHarness(
     ssoFetch?: AuthDeps["ssoFetch"];
     /** GitHub and Linear for issue integrations; omitted, every call fails. */
     integrationFetch?: AuthDeps["integrationFetch"];
+    /** GitHub's OIDC key set for the Actions federation; omitted, every call fails. */
+    githubOidcFetch?: AuthDeps["githubOidcFetch"];
   } = {},
 ): Harness {
   const outbox: EmailMessage[] = [];
@@ -85,6 +87,11 @@ export function createHarness(
       options.integrationFetch ??
       (async () => {
         throw new Error("no issue tracker in this test");
+      }),
+    githubOidcFetch:
+      options.githubOidcFetch ??
+      (async () => {
+        throw new Error("no GitHub issuer in this test");
       }),
     email: options.email ?? {
       send: async (message) => {

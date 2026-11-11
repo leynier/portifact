@@ -1,6 +1,6 @@
 # Publishing from GitHub Actions
 
-A workspace on a plan with service tokens ([decision 0011](decisions/0011-service-tokens.md)) publishes a preview of every pull request with the Portifact action, `leynier/portifact/action`: it publishes the build with a publish key, keeps one comment on the pull request with the link, the version and the commit, and deletes the preview when the pull request closes. Plain CLI steps do the same without the action (see "Without the action"). Federation through GitHub's OIDC tokens (no stored secret) comes later.
+A workspace on a plan with service tokens ([decision 0011](decisions/0011-service-tokens.md)) publishes a preview of every pull request with the Portifact action, `leynier/portifact/action`: it publishes the build with a publish key, keeps one comment on the pull request with the link, the version and the commit, and deletes the preview when the pull request closes. Plain CLI steps do the same without the action (see "Without the action"). A workspace can also trust a repository instead of storing a token: the job then exchanges GitHub's OIDC ID token for a credential that lives 15 minutes (see "Without a stored token"; [decision 0024](decisions/0024-github-oidc-federation.md)). That mode ships switched off: it works only once Portifact turns it on (`GITHUB_OIDC_ENABLED`, [releasing.md](releasing.md), "GitHub OIDC"), and until then the dashboard says it is not available.
 
 ## Set up the token
 
@@ -60,17 +60,18 @@ Tags are created only by the release workflow ([releasing.md](releasing.md)), so
 
 ### Inputs
 
-| Input                | Default                    | Meaning                                                                                                               |
-| -------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `path`               | required                   | Folder or file to publish, relative to the workspace                                                                  |
-| `token`              | required                   | The service token, from `secrets.PORTIFACT_TOKEN`; the CLI gets it only as the `PORTIFACT_TOKEN` environment variable |
-| `key`                | `pr-<pull request number>` | Publish key: the first run creates the artifact, later runs publish new versions of it                                |
-| `name`               | `PR #<number>: <title>`    | Name of the artifact; control characters are removed and it is cut to 200 bytes                                       |
-| `comment`            | `true`                     | Create or update one comment on the pull request                                                                      |
-| `delete-on-close`    | `true`                     | Delete the preview when the pull request closes (merged or not)                                                       |
-| `fail-without-token` | `false`                    | Fail the job, instead of skipping with a warning, when the token is empty                                             |
-| `cli-version`        | the action's release       | CLI version to install, or `latest`                                                                                   |
-| `github-token`       | `github.token`             | Token for the comment; needs `pull-requests: write`                                                                   |
+| Input                | Default                    | Meaning                                                                                                                                   |
+| -------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`               | required                   | Folder or file to publish, relative to the workspace                                                                                      |
+| `token`              | empty                      | The service token, from `secrets.PORTIFACT_TOKEN`; the CLI gets it only as the `PORTIFACT_TOKEN` environment variable                     |
+| `workspace`          | empty                      | The workspace's slug, for the OIDC mode; used only when `token` is empty (see "Without a stored token")                                   |
+| `key`                | `pr-<pull request number>` | Publish key: the first run creates the artifact, later runs publish new versions of it; `gh-<repository ID>/pr-<number>` in the OIDC mode |
+| `name`               | `PR #<number>: <title>`    | Name of the artifact; control characters are removed and it is cut to 200 bytes                                                           |
+| `comment`            | `true`                     | Create or update one comment on the pull request                                                                                          |
+| `delete-on-close`    | `true`                     | Delete the preview when the pull request closes (merged or not)                                                                           |
+| `fail-without-token` | `false`                    | Fail the job, instead of skipping with a warning, when the token is empty                                                                 |
+| `cli-version`        | the action's release       | CLI version to install, or `latest`                                                                                                       |
+| `github-token`       | `github.token`             | Token for the comment; needs `pull-requests: write`                                                                                       |
 
 Outputs: `url`, `artifact-id` and `version` (the version number just published), set on publishing runs.
 
@@ -86,13 +87,71 @@ Outputs: `url`, `artifact-id` and `version` (the version number just published),
 
 `ubuntu-latest`, `macos-latest` and `windows-latest`, x64 and arm64. Linux and macOS install with `scripts/install.sh` and Windows with `scripts/install.ps1`; every platform runs the action's steps in bash (Git Bash on Windows) and needs `curl`, `jq` and `gh`, which GitHub's hosted runners include. A self-hosted runner without one of them fails with a message naming it.
 
+## Without a stored token
+
+With GitHub Actions OIDC ([decision 0024](decisions/0024-github-oidc-federation.md)) the repository keeps no Portifact secret. GitHub gives the job a signed ID token that says which repository, run and event it is; the CLI exchanges it at Portifact for a credential that lives 15 minutes, keeps it in memory and never writes, prints or passes it on. The mode ships switched off and needs a plan with service tokens.
+
+### Trust the repository
+
+1. Find the repository's numeric IDs, which trust is bound to (a renamed repository stays trusted; a deleted and re-created one with the same name does not): `gh api repos/OWNER/REPO --jq '.id, .owner.id'`. A run also has them as `GITHUB_REPOSITORY_ID` and `GITHUB_REPOSITORY_OWNER_ID`, and a refused exchange prints them.
+2. An admin of the workspace opens its Service tokens page, section GitHub Actions, and fills in the repository's `owner/name` (shown to people only), the two IDs, the events that may publish, optionally an exact ref or environment, and what its runs may do. For previews keep the default events (`pull_request`, `push`) and choose Read, Publish and Delete.
+3. The page shows the audience the workflow asks GitHub for, `https://app.portifact.com/workspaces/<slug>/github`. The action and the CLI build it from the workspace slug; nothing to copy unless you call the exchange yourself.
+
+Every credential is restricted to the publish keys that start with `gh-<repository ID>/`, so one repository's workflow can never touch another repository's previews or an artifact published by hand. It is an `editor` of the workspace and nothing else: no comments, no access changes (the scope is never offered), no MCP.
+
+### Which runs can publish
+
+- `pull_request`: GitHub gives a fork's run no ID token in a public repository, so only branches of the repository itself publish. In a private repository with "Send write tokens to workflows from pull requests" turned on, a fork's run gets one too, and nothing in the token tells it apart: leave the event off there, or require an environment with reviewers.
+- `pull_request_target` and `workflow_run` are privileged runs a fork's pull request can start; the dashboard asks for a confirmation before trusting them, and the action refuses `pull_request_target` anyway.
+- A ref narrows by exact match (`refs/heads/main`); a pull request run's ref is `refs/pull/<number>/merge`, so a branch ref lets no pull request publish. An environment narrows by exact name, and GitHub applies its protection rules (required reviewers, branch rules) before the job gets its token, which makes it the strongest narrowing.
+
+### Workflow
+
+```yaml
+name: Preview
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event.action != 'closed'
+        with:
+          persist-credentials: false
+      - name: Build
+        if: github.event.action != 'closed'
+        run: npm ci && npm run build
+      - uses: leynier/portifact/action@<commit SHA of a release tag> # vX.Y.Z
+        with:
+          path: dist
+          workspace: acme
+```
+
+`id-token: write` lets the job ask GitHub for an ID token; without it, or on a fork's pull request, the action skips with a warning (or fails with `fail-without-token: true`). The preview's key is `gh-<repository ID>/pr-<number>`. Without the action, set `PORTIFACT_GITHUB_OIDC` to the workspace slug in the CLI steps' `env` instead of `PORTIFACT_TOKEN`, grant `id-token: write`, and publish with keys under `gh-<repository ID>/` (`GITHUB_REPOSITORY_ID` is in every run's environment). The CLI does nothing with GitHub's token unless `PORTIFACT_GITHUB_OIDC` is set and `PORTIFACT_TOKEN` is not, so a job that grants `id-token: write` for a cloud login never talks to Portifact by accident.
+
+### Removing trust
+
+Removing the repository on the Service tokens page stops its credentials at once, including one a run holds right now, and a restore of Portifact's database cannot bring the trust back. Changing the rule ends its credentials the same way.
+
 ## Who can open a preview
 
 The action never widens access. A workspace's new artifacts start `restricted`, so the preview opens only for the workspace's admins and editors until someone shares it. Reviewers sign in to Portifact with an account that may read it: invite them to the workspace, add them as readers (`portifact access add <id> <email>` with a person's login), or, on plans with it, set the artifact to `workspace` or `domain` access from the dashboard. A token without `artifacts:share`, as recommended, cannot do any of this, by design.
 
 ## Pull requests from forks
 
-GitHub gives no secrets to `pull_request` runs of pull requests from forks, so the token input is empty. The action then skips with a warning and the job succeeds; set `fail-without-token: true` to fail it instead. A preview of a fork's pull request has to be published by a maintainer, for example by pushing the branch to the repository.
+GitHub gives no secrets and no ID token to `pull_request` runs of pull requests from forks, so the token input is empty and the OIDC mode has nothing to exchange. The action then skips with a warning and the job succeeds; set `fail-without-token: true` to fail it instead. A preview of a fork's pull request has to be published by a maintainer, for example by pushing the branch to the repository.
 
 Do not switch to `pull_request_target` to get the secret. That event runs with the repository's secrets and a writable `GITHUB_TOKEN`, and a workflow that checks out and builds the fork's code (`ref: ${{ github.event.pull_request.head.sha }}`) runs that code with them: the build scripts, the package manager's install hooks and anything they download could read `PORTIFACT_TOKEN` and the `GITHUB_TOKEN`. The action refuses to run on `pull_request_target`.
 

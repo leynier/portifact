@@ -93,6 +93,8 @@ const ADMIN: readonly RoleAction[] = [
   "scim",
   // Connections to GitHub or Linear hold a credential that acts outside Portifact (decision 0018).
   "integrations",
+  // Trusting a GitHub repository lets its workflows mint credentials (decision 0024).
+  "federation",
 ];
 
 /**

@@ -11,6 +11,12 @@ import {
   ERROR_STATUS,
   type ErrorCode,
   type ErrorDetail,
+  GitHubTrustRuleCreate,
+  GitHubTrustRuleId,
+  GitHubTrustRuleList,
+  GitHubTrustRuleUpdate,
+  GitHubTrustRuleView,
+  githubAudience,
   IncomingInvitationList,
   InvitationCreate,
   InvitationId,
@@ -63,6 +69,7 @@ import {
   addGroupMember,
   addWorkspaceDomain,
   changeMemberRole,
+  createGitHubTrustRule,
   createScimToken,
   createServiceToken,
   createWorkspaceGroup,
@@ -81,6 +88,7 @@ import {
   type InvitationSender,
   inviteMember,
   leaveWorkspace,
+  listGitHubTrustRules,
   listIncomingInvitations,
   listInvitations,
   listMembers,
@@ -92,6 +100,7 @@ import {
   type MemberRow,
   type PolicyState,
   previewWorkspacePolicy,
+  removeGitHubTrustRule,
   removeGroupMember,
   removeMember,
   removeSsoProvider,
@@ -109,6 +118,7 @@ import {
   stopDirectorySync,
   testSsoIssuer,
   type UserWorkspace,
+  updateGitHubTrustRule,
   updateScimSettings,
   verifyWorkspaceDomain,
   type WorkspaceDomainRow,
@@ -116,6 +126,7 @@ import {
 import { type Context, Hono } from "hono";
 import { AUTH_BASE_PATH, authUrls } from "../auth/config.ts";
 import type { EmailSender } from "../auth/email.ts";
+import { githubOidcEnabled } from "../auth/github-oidc.ts";
 import { ssoEnabled } from "../auth/sso.ts";
 import type { Env } from "../env.ts";
 import { regionsOf } from "../regions.ts";
@@ -461,6 +472,90 @@ export function workspaceRoutes(deps: WorkspaceDeps) {
         userId,
         slug,
         tokenId: tokenId.data,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.body(null, 204);
+    }),
+  );
+
+  // GitHub trust rules (decision 0024): only admins, only from the dashboard session, so no
+  // bearer token (a service token or a federated credential included) can trust a repository.
+  // Switched off without GITHUB_OIDC_ENABLED, except listing and removing.
+  const trustOnly = (handler: (c: WorkspaceContext, userId: string) => Promise<Response>) =>
+    sessionOnly(handler, "GitHub trust rules are managed from the dashboard.");
+  const trustOff = (c: WorkspaceContext) =>
+    error(c, "capacity_unavailable", "GitHub Actions federation is not available yet.");
+
+  routes.get(
+    "/api/v1/workspaces/:slug/github-trust",
+    trustOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const result = await listGitHubTrustRules(global(c), { userId, slug, now: deps.now() });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(
+        GitHubTrustRuleList.parse({
+          ...result.value,
+          enabled: githubOidcEnabled(c.env),
+          audience: githubAudience(authUrls(c.env.APP_ORIGIN).origin, slug),
+        }),
+      );
+    }),
+  );
+
+  routes.post(
+    "/api/v1/workspaces/:slug/github-trust",
+    trustOnly(async (c, userId) => {
+      if (!githubOidcEnabled(c.env)) return trustOff(c);
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const body = await readJson(c, GitHubTrustRuleCreate);
+      if (!body.ok) return body.response;
+      const result = await createGitHubTrustRule(global(c), {
+        userId,
+        slug,
+        body: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(GitHubTrustRuleView.parse(result.value), 201);
+    }),
+  );
+
+  routes.patch(
+    "/api/v1/workspaces/:slug/github-trust/:ruleId",
+    trustOnly(async (c, userId) => {
+      if (!githubOidcEnabled(c.env)) return trustOff(c);
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const ruleId = GitHubTrustRuleId.safeParse(c.req.param("ruleId"));
+      if (!ruleId.success) return error(c, "not_found", "GitHub trust rule not found.");
+      const body = await readJson(c, GitHubTrustRuleUpdate);
+      if (!body.ok) return body.response;
+      const result = await updateGitHubTrustRule(global(c), {
+        userId,
+        slug,
+        ruleId: ruleId.data,
+        body: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(GitHubTrustRuleView.parse(result.value));
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/workspaces/:slug/github-trust/:ruleId",
+    trustOnly(async (c, userId) => {
+      const slug = slugOf(c);
+      if (!slug) return error(c, "not_found", "Workspace not found.");
+      const ruleId = GitHubTrustRuleId.safeParse(c.req.param("ruleId"));
+      if (!ruleId.success) return error(c, "not_found", "GitHub trust rule not found.");
+      const result = await removeGitHubTrustRule(global(c), {
+        userId,
+        slug,
+        ruleId: ruleId.data,
         now: deps.now(),
       });
       if (!result.ok) return error(c, result.code, result.message);

@@ -79,6 +79,13 @@ export interface Env extends DomainEnv {
    */
   SCIM_ENABLED?: string | undefined;
   /**
+   * Exactly `"true"` offers GitHub Actions OIDC federation (decision 0024, "Switched off"): unset
+   * in the deployed configuration until the checks in docs/releasing.md ("GitHub OIDC") pass.
+   * Without it the exchange answers 404 and creating or changing a trust rule
+   * `capacity_unavailable`; listing and removing rules still work.
+   */
+  GITHUB_OIDC_ENABLED?: string | undefined;
+  /**
    * Seals single sign-on client secrets (decision 0016), and `SSO_KEY_PREVIOUS` opens those
    * sealed before a rotation. Without it saving a provider answers 503 and sign-ins stop.
    */

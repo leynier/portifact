@@ -813,7 +813,8 @@ export const tombstones = sqliteTable(
      * `workspace_invitation` a pending membership the directory withdrew by its row ID and
      * `workspace_member` a membership the directory ended, as `<workspace>:<user>`, which a
      * restore must not bring back if it was created before the tombstone (decision 0017);
-     * `audit_stream` a removed audit stream (decision 0019).
+     * `audit_stream` a removed audit stream (decision 0019); `github_trust_rule` a removed GitHub
+     * trust rule (decision 0024).
      */
     kind: text("kind", {
       enum: [
@@ -834,6 +835,7 @@ export const tombstones = sqliteTable(
         "integration_connection",
         "audit_stream",
         "comment_thread",
+        "github_trust_rule",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1805,6 +1807,52 @@ export const workspaceInvitations = sqliteTable(
 );
 
 /**
+ * GitHub repositories a workspace trusts to publish through OIDC (decision 0024), bound to
+ * GitHub's numeric IDs; `repository` is the name people see and is never compared. Global, next
+ * to the workspace's service tokens.
+ */
+export const githubTrustRules = sqliteTable(
+  "github_trust_rules",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    repositoryId: text("repository_id").notNull(),
+    repositoryOwnerId: text("repository_owner_id").notNull(),
+    repository: text("repository").notNull(),
+    /** Space-separated events from `GITHUB_TRUST_EVENTS`. */
+    events: text("events").notNull(),
+    ref: text("ref"),
+    environment: text("environment"),
+    /** Space-separated scopes from `GITHUB_TRUST_SCOPES`. */
+    scopes: text("scopes").notNull(),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    revision: integer("revision").notNull().default(0),
+  },
+  (t) => [uniqueIndex("github_trust_rules_repository_idx").on(t.workspaceId, t.repositoryId)],
+);
+
+/**
+ * GitHub ID tokens already exchanged (decision 0024, "Review of the first version"): the SHA-256
+ * of the issuer and the token's `jti`, never the raw value, with when the token stops being
+ * acceptable. Nothing cascades into it, so changing or removing a rule never forgets a token.
+ * `claim` is the exchanging request's own value: its credential is written only when its insert
+ * won. Pruned by the maintenance scan once `expires_at` has passed.
+ */
+export const githubUsedTokens = sqliteTable(
+  "github_used_tokens",
+  {
+    jtiHash: text("jti_hash").primaryKey(),
+    claim: text("claim").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (t) => [index("github_used_tokens_expiry_idx").on(t.expiresAt)],
+);
+
+/**
  * Service tokens (premium plan T4, decision 0011): a workspace's credential for automation, with
  * a fixed role (never admin) and scopes. Only the SHA-256 of the secret is stored. Revoking
  * deletes the row and writes a `service_token` tombstone; deleting the workspace deletes its
@@ -1831,10 +1879,18 @@ export const serviceTokens = sqliteTable(
     expiresAt: timestamp("expires_at").notNull(),
     /** Written at most once an hour (decision 0011, "Last used"). */
     lastUsedAt: timestamp("last_used_at"),
+    /**
+     * The GitHub trust rule a credential was issued for (decision 0024); null for an admin's
+     * token. Removing the rule removes its credentials.
+     */
+    trustRuleId: text("trust_rule_id").references(() => githubTrustRules.id, {
+      onDelete: "cascade",
+    }),
   },
   (t) => [
     uniqueIndex("service_tokens_hash_idx").on(t.tokenHash),
     index("service_tokens_workspace_idx").on(t.workspaceId),
+    index("service_tokens_rule_idx").on(t.trustRuleId, t.expiresAt),
     check("service_tokens_role", sql`${t.role} = 'editor'`),
     check(
       "service_tokens_restriction",

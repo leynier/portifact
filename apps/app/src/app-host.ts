@@ -20,6 +20,7 @@ import { Hono } from "hono";
 import { hasSessionCookie, type SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
 import { auditStreamRoutes } from "./api/audit-streams.ts";
+import { githubOidcRoutes } from "./api/github-oidc.ts";
 import { integrationRoutes } from "./api/integrations.ts";
 import { noticeRoutes } from "./api/notices.ts";
 import { r2Presigner, storageEndpoint } from "./api/presign.ts";
@@ -440,6 +441,14 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     }),
   );
   app.route("/", reportRoutes({ now: () => Date.now() }));
+  // GitHub Actions OIDC exchange (decision 0024): no credentials, switched off by default.
+  app.route(
+    "/",
+    githubOidcRoutes({
+      fetch: (env) => (input, init) => depsFor(env).githubOidcFetch(input, init),
+      now: () => Date.now(),
+    }),
+  );
   app.route(
     "/",
     shareOpenRoutes({ siteverify: (env) => depsFor(env).siteverify, now: () => Date.now() }),

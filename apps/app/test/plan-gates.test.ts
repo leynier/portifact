@@ -16,7 +16,8 @@
 // Service tokens (decision 0011) have one line: using a token of a workspace without the feature;
 // creating one is session-only and tested with the same body in service-tokens.test.ts.
 //
-// Single sign-on (decision 0016) is a line with the dashboard session only (no MCP tool).
+// Single sign-on (decision 0016) is a line with the dashboard session only (no MCP tool), and so are
+// creating and changing a GitHub trust rule (decision 0024).
 //
 // Other owner-level gates served only to the dashboard session, with no MCP tool or CLI command, are
 // not lines here: the brand (`branding`) is gated and tested in branding.test.ts with the same
@@ -149,6 +150,24 @@ function probe(feature: PlanFeature): GatedOperation {
       };
     },
   };
+}
+
+const GITHUB_RULE = {
+  repository: "gate/site",
+  repositoryId: "424242",
+  repositoryOwnerId: "4242",
+  events: ["pull_request"],
+  scopes: ["artifacts:read", "artifacts:write"],
+};
+
+async function workspaceSlugOf(artifactId: string): Promise<string> {
+  const [row] = await db()
+    .select({ slug: schema.workspaces.slug })
+    .from(schema.artifacts)
+    .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.artifacts.ownerId))
+    .where(eq(schema.artifacts.id, artifactId));
+  if (!row) throw new Error("The line needs a workspace's artifact");
+  return row.slug;
 }
 
 /** Every operation that reaches a paid feature: one line each (see the top of this file). */
@@ -430,6 +449,66 @@ const GATED: GatedOperation[] = [
           domains: ["gate.example.com"],
         }),
       });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
+  },
+  // GitHub trust rules (decision 0024) are created and changed only through the dashboard
+  // session, on a workspace, gated on `serviceTokens`; an exchange for a workspace without it is
+  // refused with the exchange's one answer (github-oidc.test.ts), so it is not a line here.
+  {
+    feature: "serviceTokens",
+    name: "trust a GitHub repository",
+    scope: "owner",
+    space: "workspace",
+    run: async (who, id) => {
+      const slug = await workspaceSlugOf(id);
+      const response = await who.sessionCall(`/api/v1/workspaces/${slug}/github-trust`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(GITHUB_RULE),
+      });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
+  },
+  {
+    feature: "serviceTokens",
+    name: "change a GitHub trust rule",
+    scope: "owner",
+    space: "workspace",
+    run: async (who, id) => {
+      const [row] = await db()
+        .select({ slug: schema.workspaces.slug, ownerId: schema.workspaces.id })
+        .from(schema.artifacts)
+        .innerJoin(schema.workspaces, eq(schema.workspaces.id, schema.artifacts.ownerId))
+        .where(eq(schema.artifacts.id, id));
+      if (!row) throw new Error("The GitHub trust line needs a workspace's artifact");
+      const ruleId = `gtr_${crypto.randomUUID().replaceAll("-", "")}`;
+      // Each case runs in a workspace the earlier cases may have used: a repository of its own.
+      const repositoryId = String(1 + Math.floor(Math.random() * 1e9));
+      await db().insert(schema.githubTrustRules).values({
+        id: ruleId,
+        workspaceId: row.ownerId,
+        repositoryId,
+        repositoryOwnerId: "2",
+        repository: "gate/site",
+        events: "push",
+        scopes: "artifacts:read",
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+      const response = await who.sessionCall(
+        `/api/v1/workspaces/${row.slug}/github-trust/${ruleId}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            ...GITHUB_RULE,
+            repositoryId,
+            repositoryOwnerId: "2",
+            revision: 0,
+          }),
+        },
+      );
       return { api: { status: response.status, body: await response.json<unknown>() } };
     },
   },
@@ -783,6 +862,8 @@ const IN_GRACE: Record<string, "held" | "refused"> = {
   "auditExport: stream the audit log to an endpoint": "refused",
   "contentSearch: search inside the space's artifacts": "refused",
   "serviceTokens: use a service token": "refused",
+  "serviceTokens: trust a GitHub repository": "refused",
+  "serviceTokens: change a GitHub trust rule": "refused",
   "reviews: request an approval review": "refused",
   "reviews: change an approval review": "refused",
   "workspaces: test-only probe": "refused",

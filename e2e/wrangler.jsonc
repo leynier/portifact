@@ -42,6 +42,9 @@
     // SCIM provisioning, driven by the test as the directory; the deployed app Worker leaves it
     // unset (decision 0017).
     "SCIM_ENABLED": "true",
+    // GitHub Actions OIDC federation against the fake issuer of worker/github-oidc.ts; the
+    // deployed app Worker leaves it unset (decision 0024).
+    "GITHUB_OIDC_ENABLED": "true",
     // Issue integrations against the fake GitHub and Linear of worker/integrations.ts; the
     // deployed Workers leave them unset (decision 0018).
     "INTEGRATIONS_ENABLED": "true",

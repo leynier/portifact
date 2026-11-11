@@ -9,10 +9,13 @@
 #
 # Values from the event (title, number, commit) and the inputs arrive in environment variables,
 # never in the script's text. The token is PORTIFACT_TOKEN, read only by the CLI; nothing here
-# prints, stores or passes it on.
+# prints, stores or passes it on. Without a token, the workspace input turns on GitHub Actions
+# OIDC (decision 0024): the CLI exchanges the run's ID token itself (PORTIFACT_GITHUB_OIDC), and
+# this script only checks that the job may ask GitHub for one.
 set -euo pipefail
 
 PF_KEY_PATTERN='^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$'
+PF_WORKSPACE_PATTERN='^[a-z0-9][a-z0-9-]{0,62}$'
 PF_NAME_MAX_BYTES=200
 PF_MARKER_PREFIX='<!-- portifact-preview:'
 
@@ -39,10 +42,12 @@ pf_is_true() {
   esac
 }
 
-# What the event does: publish, delete or skip. A pull request from a fork gets no secrets, so
-# without a token the preview is skipped with a warning, or fails when fail-without-token is set.
+# What the event does: publish, delete or skip. A pull request from a fork gets no secrets and no
+# ID token, so without a credential the preview is skipped with a warning, or fails when
+# fail-without-token is set. `credential` is non-empty when a token is set or, in OIDC mode
+# (`via` is oidc), when the job can ask GitHub for an ID token.
 pf_decide() {
-  local event="$1" action="$2" token="$3" delete_on_close="$4" fail_without_token="$5"
+  local event="$1" action="$2" token="$3" delete_on_close="$4" fail_without_token="$5" via="${6:-token}"
   if [ "$event" = "pull_request_target" ]; then
     pf_fail "This action refuses pull_request_target: that event hands secrets to a run that may build the fork's code. Use the pull_request event."
   fi
@@ -59,6 +64,9 @@ pf_decide() {
   esac
   if [ "$mode" != "skip" ] && [ -z "$token" ]; then
     local message="No Portifact token: the token input is empty. Pull requests from forks get no secrets, so their previews are skipped. Otherwise add the PORTIFACT_TOKEN secret to the repository."
+    if [ "$via" = "oidc" ]; then
+      message="No GitHub ID token: this job cannot ask GitHub for one. Pull requests from forks get none, so their previews are skipped. Otherwise give the job 'permissions: id-token: write'."
+    fi
     if pf_is_true "$fail_without_token"; then pf_fail "$message"; fi
     pf_command warning "$message"
     mode="skip"
@@ -66,20 +74,38 @@ pf_decide() {
   printf '%s' "$mode"
 }
 
+# The workspace input of the OIDC mode: a workspace slug, or empty.
+pf_workspace() {
+  local value="$1"
+  if [ -z "$value" ]; then return 0; fi
+  [[ "$value" =~ $PF_WORKSPACE_PATTERN ]] || pf_fail "The workspace input must be a workspace slug, such as acme."
+  printf '%s' "$value"
+}
+
+# The key prefix a run's credential is restricted to (decision 0024): gh-<repository ID>/.
+pf_oidc_prefix() {
+  local id="$1"
+  [[ "$id" =~ ^[1-9][0-9]{0,19}$ ]] || pf_fail "GITHUB_REPOSITORY_ID is missing; the OIDC mode runs only in GitHub Actions."
+  printf 'gh-%s/' "$id"
+}
+
 pf_valid_key() {
   [[ "$1" =~ $PF_KEY_PATTERN ]]
 }
 
-# The publish key: the input, or pr-<number>.
+# The publish key: the input, or <prefix>pr-<number> (the prefix is the OIDC mode's namespace).
 pf_key() {
-  local input="$1" number="$2" key
+  local input="$1" number="$2" prefix="${3:-}" key
   if [ -n "$input" ]; then
     key="$input"
   else
     [[ "$number" =~ ^[1-9][0-9]{0,9}$ ]] || pf_fail "The pull request number is missing; set the key input."
-    key="pr-$number"
+    key="${prefix}pr-$number"
   fi
   pf_valid_key "$key" || pf_fail "The key must be 1 to 128 letters, digits, '.', '_', '/' or '-', starting with a letter or digit."
+  if [ -n "$prefix" ] && [ "${key#"$prefix"}" = "$key" ]; then
+    pf_fail "In the OIDC mode the key must start with $prefix, the repository's namespace."
+  fi
   printf '%s' "$key"
 }
 
@@ -248,13 +274,19 @@ pf_valid_repo() {
 }
 
 pf_main_plan() {
-  local mode key version
-  mode="$(pf_decide "${GITHUB_EVENT_NAME:-}" "${PF_ACTION:-}" "${PF_TOKEN_SET:-}" "${PF_DELETE_ON_CLOSE:-true}" "${PF_FAIL_WITHOUT_TOKEN:-false}")"
+  local mode key version workspace via="token" credential="${PF_TOKEN_SET:-}" prefix=""
+  workspace="$(pf_workspace "${PF_WORKSPACE:-}")"
+  if [ -z "$credential" ] && [ -n "$workspace" ]; then
+    via="oidc"
+    if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then credential="yes"; fi
+  fi
+  mode="$(pf_decide "${GITHUB_EVENT_NAME:-}" "${PF_ACTION:-}" "$credential" "${PF_DELETE_ON_CLOSE:-true}" "${PF_FAIL_WITHOUT_TOKEN:-false}" "$via")"
   pf_output mode "$mode"
   if [ "$mode" = "skip" ]; then
     return 0
   fi
-  key="$(pf_key "${PF_INPUT_KEY:-}" "${PF_NUMBER:-}")"
+  if [ "$via" = "oidc" ]; then prefix="$(pf_oidc_prefix "${GITHUB_REPOSITORY_ID:-}")"; fi
+  key="$(pf_key "${PF_INPUT_KEY:-}" "${PF_NUMBER:-}" "$prefix")"
   version="$(pf_cli_version "${PF_CLI_VERSION:-}" "${GITHUB_ACTION_PATH:?}")"
   pf_output key "$key"
   pf_output cli-version "$version"
