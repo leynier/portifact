@@ -328,9 +328,10 @@ GitHub Actions OIDC federation ships switched off ([decision 0024](decisions/002
 4. **A pull request from a fork** of the public repository: the run gets no ID token and the action skips with its warning; nothing is exchanged. With `pull_request_target` trusted only after the confirmation, check the dashboard's warning.
 5. **A renamed repository.** Rename it: runs keep publishing (same `repository_id`). Transfer it to another owner: runs are refused until the rule's owner ID is updated. Delete it and create one with the same name: runs are refused.
 6. **A removed rule.** Remove the rule during a run that holds a credential: its next request is refused (401).
-7. **A replayed token.** Print an ID token in a scratch run (never in a real one), exchange it once, exchange it again: the second is refused.
+7. **A replayed token.** Print an ID token in a scratch run (never in a real one), exchange it once, exchange it again: the second is refused. Then change the rule (narrow its scopes) and exchange the same token again: refused. Remove the rule, trust the repository again and exchange it once more: refused. A new run after the change exchanges normally.
 8. **A wrong audience.** Ask GitHub for the default audience, another workspace's, and staging's against production: each is refused with the same body.
-9. **No secrets in logs.** Tail the Worker during the checks: only `github_oidc_issued`, `github_oidc_refused` with a reason and `github_oidc_jwks_unavailable` appear, never a token, claim or key set.
+9. **GitHub's key set.** Watch the Worker's outbound requests during a burst of exchanges from many runs: at most one request to `token.actions.githubusercontent.com` per isolate a minute.
+10. **No secrets in logs.** Tail the Worker during the checks: only `github_oidc_issued`, `github_oidc_refused` with a reason and `github_oidc_jwks_unavailable` appear, never a token, claim or key set.
 
 ### SCIM
 
