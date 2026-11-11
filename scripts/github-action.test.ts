@@ -155,6 +155,25 @@ describe("action.yml", () => {
     }
   });
 
+  it("documents the OIDC workflow with id-token: write and the workspace input, never a token", () => {
+    const doc = readFileSync(join(ROOT, "docs", "github-actions.md"), "utf8");
+    const workflows = [...doc.matchAll(/```yaml\n([\s\S]*?)```/g)].map(
+      (match) =>
+        parse(match[1] ?? "") as {
+          permissions?: Record<string, string>;
+          jobs: Record<string, { steps: Step[] & { with?: Record<string, string> }[] }>;
+        },
+    );
+    const oidc = workflows.filter((workflow) => workflow.permissions?.["id-token"] === "write");
+    expect(oidc).toHaveLength(1);
+    const steps = Object.values(oidc[0]?.jobs ?? {}).flatMap((job) => job.steps);
+    const action = steps.find((step) => step.uses?.startsWith("leynier/portifact/action@")) as
+      | (Step & { with?: Record<string, string> })
+      | undefined;
+    expect(action?.with?.workspace).toBeTruthy();
+    expect(action?.with?.token).toBeUndefined();
+  });
+
   it("documents workflows that follow the same rules and never use pull_request_target", () => {
     const workflows = docWorkflows();
     expect(workflows.length).toBeGreaterThan(0);
