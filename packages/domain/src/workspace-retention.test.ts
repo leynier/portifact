@@ -23,6 +23,7 @@ import {
   replacedMaxLife,
   retentionTiming,
   storedPolicy,
+  uncappedExpiry,
 } from "./workspace-policies.ts";
 
 const DAY = 86_400_000;
@@ -138,7 +139,8 @@ describe("the expiry cap", () => {
       NOW - 20 * DAY,
       NOW + 5 * DAY,
     ],
-    ["a renewal past the maximum", life(10, 0), plan, NOW - 20 * DAY, NOW - 10 * DAY],
+    // Never before now: the renewal service refuses this one (it would expire at once).
+    ["a renewal past the maximum", life(10, 0), plan, NOW - 20 * DAY, NOW],
     ["a rollback, which starts a new life", life(10, 0), plan, NOW, NOW + 10 * DAY],
     ["a restore, which starts a new life", life(10, 0), plan, NOW, NOW + 10 * DAY],
     [
@@ -150,7 +152,8 @@ describe("the expiry cap", () => {
     ],
   ];
   it.each(cases)("%s", (_, owner, planExpiry, lifeStart, expected) => {
-    expect(policyExpiry(owner, planExpiry, lifeStart)).toBe(expected);
+    expect(policyExpiry(owner, planExpiry, lifeStart, NOW)).toBe(expected);
+    expect(uncappedExpiry(planExpiry, expected)).toBe(expected < planExpiry ? planExpiry : null);
   });
 
   it("never extends an expiry", () => {
@@ -161,9 +164,27 @@ describe("the expiry cap", () => {
         fc.integer({ min: 0, max: 2 * NOW }),
         fc.integer({ min: 0, max: 2 * NOW }),
         (days, from, planExpiry, lifeStart) => {
-          expect(policyExpiry(life(days, from), planExpiry, lifeStart)).toBeLessThanOrEqual(
-            planExpiry,
-          );
+          expect(
+            policyExpiry(life(days, from), planExpiry, lifeStart, Math.min(planExpiry, NOW)),
+          ).toBeLessThanOrEqual(planExpiry);
+        },
+      ),
+    );
+  });
+
+  it("never writes an expiry before now, whatever the life start (review of PR 214)", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 7, max: 3650 }),
+        fc.integer({ min: 0, max: 2 * NOW }),
+        fc.integer({ min: 0, max: 2 * NOW }),
+        fc.integer({ min: 0, max: 2 * NOW }),
+        (days, from, lifeStart, now) => {
+          // Every caller's plan expiry is in the future: a publish, renewal, restore or move.
+          const planExpiry = now + LIMITS.activeDays * DAY;
+          const expiry = policyExpiry(life(days, from), planExpiry, lifeStart, now);
+          expect(expiry).toBeGreaterThanOrEqual(now);
+          expect(expiry).toBeLessThanOrEqual(planExpiry);
         },
       ),
     );
@@ -177,7 +198,7 @@ describe("the expiry cap", () => {
         fc.integer({ min: 0, max: 2 * NOW }),
         (days, from, now) => {
           const planExpiry = now + LIMITS.activeDays * DAY;
-          const expiry = policyExpiry(life(days, from), planExpiry, now);
+          const expiry = policyExpiry(life(days, from), planExpiry, now, now);
           expect(expiry).toBeGreaterThanOrEqual(now + 7 * DAY);
         },
       ),

@@ -2729,7 +2729,7 @@ export const en = {
     "Single sign-on is required, but it is switched off on this Portifact, so nobody can sign in through the provider and nobody can act on this workspace until Portifact support lifts the requirement or switches single sign-on back on. Contact Portifact support.",
   "policies.maxLife.legend": "Maximum life of artifacts",
   "policies.maxLife.hint":
-    "Archive each artifact of the workspace a number of days after its last publish (a rollback counts) or restore. It only brings an expiry forward: renewing cannot move an artifact past it, and an archived artifact can be restored until its archive ends. Nothing is deleted by it.",
+    "Archive each artifact of the workspace a number of days after its last publish (a rollback counts) or restore. It only brings an expiry forward: renewing cannot move an artifact past it, and an archived artifact can be restored until its archive ends. Nothing is deleted by it. Moving an artifact into the workspace starts a new life, like a publish.",
   "policies.maxLife.any": "No maximum",
   "policies.maxLife.anyHint": "Artifacts stay online while someone renews or publishes them.",
   "policies.maxLife.only": "Archive after a maximum life",
@@ -2759,6 +2759,8 @@ export const en = {
     "{count, plural, one {brought # artifact's expiry forward} other {brought # artifacts' expiry forward}}",
   "audit.policy.deadlinesExtended":
     "{count, plural, one {gave # artifact its time back} other {gave # artifacts their time back}}",
+  "transfer.confirm.maxLife":
+    "{space} archives artifacts {days} days after their last publish, restore or move in: moved now, this one is archived by {date} at the latest unless someone publishes it again, and it cannot be pinned there.",
 } as const;
 
 export type MessageId = keyof typeof en;

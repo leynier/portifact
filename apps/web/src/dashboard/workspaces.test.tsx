@@ -2,6 +2,7 @@
 // Workspaces in the dashboard (premium plan T1): the space menu and the URL that names the space,
 // the screens that follow it, the role in it deciding what is offered, the owner's plan deciding
 // the plan notes, the Members page, transfers and the account's workspaces.
+import { DEFAULT_POLICY } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -354,6 +355,29 @@ describe("moving an artifact", () => {
     expect(await screen.findByText("Personal notes moved to Acme.")).toBeTruthy();
     expect(server.bodies).toContainEqual({ workspace: "acme" });
     await waitFor(() => expect(router.state.location.search).toEqual({ workspace: "acme" }));
+  });
+
+  it("says by when a workspace's maximum life would archive it, before the move (decision 0023)", async () => {
+    server.workspaces.acme = workspace("acme", "editor", {
+      name: "Acme",
+      policy: {
+        ...DEFAULT_POLICY,
+        artifactMaxDays: 30,
+        artifactMaxDaysFrom: Date.now() - 86_400_000,
+      },
+    });
+    const { container } = renderDashboard("/artifacts/p2p2p2p2p2", server);
+    const section = await panel();
+    fireEvent.click(await moveButton(section));
+    const dialog = await screen.findByRole("dialog", { name: "Move Personal notes to Acme?" });
+    expect(dialog.textContent).toMatch(
+      /Acme archives artifacts 30 days after their last publish, restore or move in: moved now, this one is archived by .+ at the latest unless someone publishes it again, and it cannot be pinned there\./,
+    );
+    for (const colorScheme of ["light", "dark"] as const) {
+      document.documentElement.dataset.theme = colorScheme;
+      expect(await axeViolations(container), colorScheme).toEqual([]);
+    }
+    delete document.documentElement.dataset.theme;
   });
 
   it("moves a workspace's artifact out as its admin", async () => {

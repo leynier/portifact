@@ -1483,7 +1483,7 @@ describe("a maximum life of artifacts in the EU region (decision 0023)", () => {
     }, env.DB_EU);
     const step = await enforceRetentionStep(raced, ws.id, NOW);
     expect(step.counts.deadlinesSet).toBe(1);
-    // The step saw the revision move and gave the time back itself.
-    expect((await artifactIn(eu().db, published.artifactId))?.expiresAt).toBe(NOW + 30 * DAY);
+    // The step saw the revision move and gave back the expiry the plan had given it.
+    expect((await artifactIn(eu().db, published.artifactId))?.expiresAt).toBe(NOW + 20 * DAY);
   });
 });

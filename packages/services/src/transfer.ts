@@ -9,7 +9,7 @@
 // at the same R2 key (no bytes are copied), counted in the target's storage. The source keeps its
 // rows while other artifacts reference them; rows nothing references any more are released after
 // the batch (`releaseOrphans`), and an R2 key is deleted only once no row of any owner has it.
-import { isWorkspaceId } from "@portifact/contracts";
+import { isWorkspaceId, type WorkspacePolicy } from "@portifact/contracts";
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   authorize,
@@ -17,6 +17,9 @@ import {
   checkTransfer,
   checkTransferSize,
   fail,
+  maxLifeDeadline,
+  maxLifeOf,
+  nextExpiry,
   ok,
   type Result,
 } from "@portifact/domain";
@@ -337,6 +340,9 @@ export async function transferArtifact(
           // `workspace` and `domain` name the old owner's people (decision 0010): the artifact
           // becomes restricted (its reader list stays) wherever it goes.
           accessMode: sql`case when ${a.accessMode} in ('workspace', 'domain') then 'restricted' else ${a.accessMode} end`,
+          // A move starts a new life in the target (decision 0023): its maximum life, if it has
+          // one, counts from now, from the policy that came with the target's actor (no read).
+          ...maxLifeOnMove(policy, input.now),
         })
         // The same conditions as every other statement, so the row never moves without them.
         .where(and(eq(a.id, artifact.id), unchanged))
@@ -371,6 +377,37 @@ export async function transferArtifact(
     }
   }
   return moved ? ok(moved) : missingArtifact();
+}
+
+/**
+ * What a move does to an artifact's expiry (decision 0023). The move starts a new life, so a
+ * target's maximum life counts from now and never archives the artifact sooner than its days (at
+ * least 7) after the move; a pinned artifact is unpinned with a renewal's 30 days, capped the same
+ * way. Without a maximum in the target, a cap the source's maximum set is given back. Only an
+ * active artifact that is not already past its expiry changes; every assignment reads the row as
+ * it was before the update.
+ */
+function maxLifeOnMove(policy: WorkspacePolicy | undefined, now: number) {
+  const a = schema.artifacts;
+  const life = maxLifeOf(policy);
+  const live = sql`${a.state} = 'active' and (${a.expiresAt} is null or ${a.expiresAt} > ${now})`;
+  if (life === null) {
+    const back = sql`${live} and ${a.pinned} = 0 and ${a.uncappedExpiresAt} is not null`;
+    return {
+      lifeStartedAt: now,
+      expiresAt: sql`case when ${back} then max(${a.expiresAt}, ${a.uncappedExpiresAt}) else ${a.expiresAt} end`,
+      uncappedExpiresAt: null,
+    };
+  }
+  const target = maxLifeDeadline(life, now);
+  // The plan's expiry: the one a cap kept, a renewal's for a pinned artifact, or its own.
+  const base = sql`case when ${a.pinned} = 1 or ${a.expiresAt} is null then ${nextExpiry(new Date(now)).getTime()} else coalesce(${a.uncappedExpiresAt}, ${a.expiresAt}) end`;
+  return {
+    lifeStartedAt: now,
+    pinned: sql`case when ${live} then 0 else ${a.pinned} end`,
+    expiresAt: sql`case when ${live} then min(${base}, ${target}) else ${a.expiresAt} end`,
+    uncappedExpiresAt: sql`case when ${live} and ${base} > ${target} then ${base} else null end`,
+  };
 }
 
 /** The audit events of a move: out of the source and into the target, both on `condition`. */

@@ -11,8 +11,8 @@ import {
   type WorkspacePolicy,
 } from "@portifact/contracts";
 import { globalDb, type Regions, regionalDb, regionsFromEnv, schema } from "@portifact/db";
-import { POLICY_MESSAGES, policyOf } from "@portifact/domain";
-import { and, eq } from "drizzle-orm";
+import { POLICY_MESSAGES, policyExpiry, policyOf } from "@portifact/domain";
+import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getAuditLog } from "../src/audit.ts";
 import {
@@ -23,10 +23,14 @@ import {
   unpinArtifact,
 } from "../src/lifecycle.ts";
 import { archiveExpired } from "../src/maintenance.ts";
+import { cappedExpirySql } from "../src/max-life.ts";
+import { reinstateArtifact, suspendArtifact } from "../src/moderation.ts";
 import { runJob } from "../src/outbox.ts";
+import { unpinLapsedPlans } from "../src/plans.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { type RetentionNotifier, sendRetentionNotice } from "../src/retention-notices.ts";
 import { createServiceToken } from "../src/service-tokens.ts";
+import { transferArtifact } from "../src/transfer.ts";
 import { rollbackArtifact } from "../src/versions.ts";
 import {
   applyWorkspacePolicies,
@@ -331,7 +335,7 @@ describe("the preview, the confirmation and the notice period", () => {
     // Restoring starts a new life within the maximum, and the scan leaves it alone.
     const restored = value(await restoreArtifact(db(), lifecycle(t.editor.id, old, FROM + DAY)));
     expect(restored.expiresAt).toBe(FROM + DAY + 30 * DAY);
-    expect((await row(old)).restoredAt).toBe(FROM + DAY);
+    expect((await row(old)).lifeStartedAt).toBe(FROM + DAY);
     await enforceWorkspacePolicy(db(), t.id, FROM + DAY);
     expect((await row(old)).expiresAt).toBe(FROM + DAY + 30 * DAY);
   });
@@ -487,9 +491,9 @@ describe("the job and the scan", () => {
     expect((await row(mid)).expiresAt).toBe(FROM);
     value(await save(t, maxLife(null), { now: NOW + DAY }));
     await runJobs(t, NOW + DAY);
-    // Never earlier than it was, at most what a renewal gives.
-    expect((await row(old)).expiresAt).toBe(NOW + DAY + 30 * DAY);
-    expect((await row(mid)).expiresAt).toBe(NOW + DAY + 30 * DAY);
+    // The expiry their plan gave them, kept when the cap was set: no more, no less.
+    expect(await row(old)).toMatchObject({ expiresAt: NOW + 25 * DAY, uncappedExpiresAt: null });
+    expect(await row(mid)).toMatchObject({ expiresAt: NOW + 25 * DAY, uncappedExpiresAt: null });
     const extended = (await events(t, "policy.enforced")).map(
       (event) => (event.detail as { deadlinesExtended?: number }).deadlinesExtended,
     );
@@ -520,7 +524,7 @@ describe("apply-policies after a restore", () => {
     if (applied.ok) expect(applied.retentionCleared).toContain(t.id);
     expect(await stored(t)).toMatchObject({ artifactMaxDays: null, publicAccess: "forbidden" });
     await runJobs(t, NOW + DAY);
-    expect((await row(old)).expiresAt).toBe(NOW + DAY + 30 * DAY);
+    expect((await row(old)).expiresAt).toBe(NOW + 20 * DAY);
   });
 
   it("applies a file's longer maximum even when the rest of the item is held back", async () => {
@@ -583,11 +587,27 @@ describe("the admins' notice", () => {
     // Claimed: a second delivery sends nothing.
     expect(await sendRetentionNotice(db(), job, NOW, fake)).toBe("done");
     expect(fake.sent).toHaveLength(2);
+    // Removed before the relay: the notice is moot.
     value(await save(t, maxLife(14)));
+    value(await save(t, maxLife(null)));
+    const [removed] = (await jobs("retention_notice", t.id)).slice(-1);
+    if (!removed) throw new Error("no notice job");
+    expect(await sendRetentionNotice(db(), removed, NOW, notifier())).toBe("stale");
+  });
+
+  it("tells the admins about the maximum that binds when it was lengthened before the relay", async () => {
+    const t = await team();
+    value(await save(t, maxLife(14)));
+    // A lengthening writes no notice of its own, and keeps the first save's effective date.
     value(await save(t, maxLife(60)));
-    const [later] = (await jobs("retention_notice", t.id)).slice(-1);
-    if (!later) throw new Error("no notice job");
-    expect(await sendRetentionNotice(db(), later, NOW, notifier())).toBe("stale");
+    const notices = await jobs("retention_notice", t.id);
+    expect(notices).toHaveLength(1);
+    const fake = notifier();
+    expect(await sendRetentionNotice(db(), notices[0] as (typeof notices)[number], NOW, fake)).toBe(
+      "done",
+    );
+    expect(fake.sent).toHaveLength(2);
+    expect(fake.sent[0]).toMatchObject({ days: 60, from: FROM });
   });
 
   it("goes back to the outbox when the first send fails", async () => {
@@ -656,5 +676,219 @@ describe("cost on the write path", () => {
       counts.push([renewing.calls(), archiving.calls()]);
     }
     expect(counts[1]).toEqual(counts[0]);
+  });
+});
+
+describe("any sequence of saves (review of PR 214, finding 1)", () => {
+  /** An artifact last published 400 days ago, renewed to expire 25 days after NOW. */
+  const steps = async (t: Team, chain: [number, number | null][]) => {
+    for (const [day, days] of chain) {
+      value(await save(t, maxLife(days), { now: NOW + day * DAY }));
+      await runJobs(t, NOW + day * DAY);
+    }
+  };
+
+  it("set, shorten, remove: no cap survives the removal", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 25);
+    await steps(t, [[0, 90]]);
+    expect((await row(old)).expiresAt).toBe(FROM);
+    // Shortening never puts a deadline before its own effective date.
+    await steps(t, [[3, 30]]);
+    expect((await row(old)).expiresAt).toBe(NOW + 3 * DAY + NOTICE);
+    await steps(t, [[4, null]]);
+    const after = await row(old);
+    expect(after.expiresAt).toBe(NOW + 25 * DAY);
+    expect(after.uncappedExpiresAt).toBeNull();
+    await archiveExpired(db(), FROM + DAY);
+    expect((await row(old)).state).toBe("active");
+  });
+
+  it("set, shorten, lengthen: never before the current policy's effective date", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 25);
+    await steps(t, [
+      [0, 90],
+      [3, 30],
+      [4, 60],
+    ]);
+    const current = await stored(t);
+    expect(current.artifactMaxDaysFrom).toBe(NOW + 3 * DAY + NOTICE);
+    expect((await row(old)).expiresAt).toBe(current.artifactMaxDaysFrom);
+    await archiveExpired(db(), FROM + DAY);
+    expect((await row(old)).state).toBe("active");
+  });
+
+  it("set, shorten, shorten, remove: the plan's expiry comes back", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 25);
+    await steps(t, [
+      [0, 90],
+      [3, 30],
+      [5, 14],
+    ]);
+    expect((await row(old)).expiresAt).toBe(NOW + 5 * DAY + NOTICE);
+    await steps(t, [[6, null]]);
+    expect((await row(old)).expiresAt).toBe(NOW + 25 * DAY);
+  });
+
+  it("gives the time back through the scan too, whatever job ran", async () => {
+    const t = await team();
+    const old = await aged(t, 400, 25);
+    await steps(t, [[0, 90]]);
+    // Lengthened, and the save's job lost: the scan alone brings it back in line.
+    value(await save(t, maxLife(120), { now: NOW + DAY }));
+    await db().delete(schema.outbox).where(eq(schema.outbox.subject, t.id));
+    await enforceWorkspacePolicies(db(), NOW + DAY);
+    expect((await row(old)).expiresAt).toBe(FROM);
+    // A shortening whose job is lost: the scan raises the old cap to the new effective date.
+    value(await save(t, maxLife(30), { now: NOW + 2 * DAY }));
+    await db().delete(schema.outbox).where(eq(schema.outbox.subject, t.id));
+    await enforceWorkspacePolicies(db(), NOW + 2 * DAY);
+    expect((await row(old)).expiresAt).toBe(NOW + 2 * DAY + NOTICE);
+  });
+});
+
+describe("artifacts that come under a maximum late (review of PR 214, finding 2)", () => {
+  const LATER = NOW + 10 * DAY;
+
+  async function inEffect(days: number) {
+    const t = await team();
+    value(await save(t, maxLife(days)));
+    await runJobs(t);
+    return t;
+  }
+
+  it("starts a new life when an artifact moves in, and the scan leaves it", async () => {
+    const t = await inEffect(30);
+    const mine = await publishIn(t.editor.id, t.editor.id, LATER - 200 * DAY);
+    await db()
+      .update(schema.artifacts)
+      .set({ expiresAt: LATER + 25 * DAY })
+      .where(eq(schema.artifacts.id, mine.artifactId));
+    const moved = value(
+      await transferArtifact(db(), env.ARTIFACTS, {
+        userId: t.editor.id,
+        artifactId: mine.artifactId,
+        workspace: t.slug,
+        now: LATER,
+      }),
+    );
+    // Its own expiry is within the maximum counted from the move: kept.
+    expect(moved).toMatchObject({
+      ownerId: t.id,
+      expiresAt: LATER + 25 * DAY,
+      lifeStartedAt: LATER,
+    });
+    await enforceWorkspacePolicies(db(), LATER);
+    await archiveExpired(db(), LATER + 15 * 60_000);
+    expect(await row(mine.artifactId)).toMatchObject({
+      state: "active",
+      expiresAt: LATER + 25 * DAY,
+    });
+  });
+
+  it("unpins a pinned artifact that moves in, with its deadline from the move", async () => {
+    const t = await inEffect(14);
+    const mine = await publishIn(t.editor.id, t.editor.id, LATER - 200 * DAY);
+    await db()
+      .update(schema.artifacts)
+      .set({ pinned: true, expiresAt: null })
+      .where(eq(schema.artifacts.id, mine.artifactId));
+    const moved = value(
+      await transferArtifact(db(), env.ARTIFACTS, {
+        userId: t.editor.id,
+        artifactId: mine.artifactId,
+        workspace: t.slug,
+        now: LATER,
+      }),
+    );
+    expect(moved).toMatchObject({ pinned: false, expiresAt: LATER + 14 * DAY });
+    await enforceWorkspacePolicies(db(), LATER);
+    expect((await row(mine.artifactId)).expiresAt).toBe(LATER + 14 * DAY);
+  });
+
+  it("never writes an expiry before now for an active artifact the scan catches late", async () => {
+    const t = await inEffect(30);
+    // As `unpinLapsedPlans` or a reinstatement leaves it: active, 30 days from now, last
+    // published long ago.
+    const late = await aged(t, 400, 0);
+    await db()
+      .update(schema.artifacts)
+      .set({ expiresAt: LATER + 30 * DAY, uncappedExpiresAt: null })
+      .where(eq(schema.artifacts.id, late));
+    await enforceWorkspacePolicies(db(), LATER);
+    expect((await row(late)).expiresAt).toBe(LATER);
+    await archiveExpired(db(), LATER + 15 * 60_000);
+    expect(await row(late)).toMatchObject({ state: "archived", archivedAt: LATER });
+  });
+
+  it("does the same after a reinstatement from a suspension", async () => {
+    const t = await inEffect(30);
+    const late = await aged(t, 400, 25);
+    value(await suspendArtifact(db(), { artifactId: late, reason: "spam", now: NOW }));
+    await enforceWorkspacePolicies(db(), NOW);
+    value(await reinstateArtifact(db(), { artifactId: late, now: LATER }));
+    await enforceWorkspacePolicies(db(), LATER);
+    const after = await row(late);
+    expect(after.state).toBe("active");
+    expect(after.expiresAt).toBeGreaterThanOrEqual(LATER);
+  });
+
+  it("does the same after unpinLapsedPlans", async () => {
+    const t = await inEffect(30);
+    const late = await aged(t, 400, 0);
+    await db()
+      .update(schema.artifacts)
+      .set({ pinned: true, expiresAt: null })
+      .where(eq(schema.artifacts.id, late));
+    // The plan ended long ago (past its grace): pins lapse, the policy keeps running.
+    await db()
+      .update(schema.ownerPlans)
+      .set({ validUntil: NOW - 100 * DAY, grace: null })
+      .where(eq(schema.ownerPlans.ownerId, t.id));
+    await unpinLapsedPlans(db(), LATER);
+    expect((await row(late)).pinned).toBe(false);
+    await enforceWorkspacePolicies(db(), LATER);
+    expect((await row(late)).expiresAt).toBe(LATER);
+  });
+});
+
+describe("the SQL twin (review of PR 214, P1)", () => {
+  it("cappedExpirySql equals policyExpiry on the row's life start, 400 cases on D1", async () => {
+    const t = await team();
+    const p = await publishIn(t.editor.id, t.id, NOW);
+    const art = await row(p.artifactId);
+    let seed = 42;
+    const rnd = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
+    const pick = (max: number) => [0, 1, DAY, max, rnd(max), rnd(max) * 1000][rnd(6)] as number;
+    const mismatches: unknown[] = [];
+    for (let i = 0; i < 400; i++) {
+      const commit = NOW - pick(4000) * DAY + pick(DAY);
+      const restored = rnd(3) === 0 ? null : NOW - pick(4000) * DAY;
+      const days = rnd(4) === 0 ? null : 7 + rnd(3644);
+      const from = rnd(3) === 0 ? null : NOW + (rnd(2) ? 1 : -1) * pick(4000) * DAY;
+      const plan = NOW + pick(4000) * DAY;
+      const now = NOW + (rnd(2) ? 1 : -1) * pick(400) * DAY;
+      const committedNull = rnd(4) === 0;
+      await db()
+        .update(schema.versions)
+        .set({ committedAt: committedNull ? null : commit, createdAt: commit })
+        .where(eq(schema.versions.id, art.currentVersionId as string));
+      await db()
+        .update(schema.artifacts)
+        .set({ lifeStartedAt: restored })
+        .where(eq(schema.artifacts.id, art.id));
+      const policy = { ...maxLife(days), artifactMaxDaysFrom: days === null ? null : from };
+      const [r] = await db().all<{ v: number }>(
+        sql`select ${cappedExpirySql(policy, plan, now)} as v from ${schema.artifacts} where ${schema.artifacts.id} = ${art.id}`,
+      );
+      const js = policyExpiry(policy, plan, Math.max(commit, restored ?? 0), now);
+      if (Number(r?.v) !== js) mismatches.push({ commit, restored, days, from, plan, now, js });
+    }
+    expect(mismatches.slice(0, 3)).toEqual([]);
   });
 });

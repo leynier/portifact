@@ -154,12 +154,12 @@ describe("the maximum life of artifacts (decision 0023)", () => {
 
   it("validates the job and notice payloads", () => {
     expect(WorkspacePolicyJobPayload.parse({ revision: 2 })).toEqual({ revision: 2 });
+    expect(WorkspacePolicyJobPayload.parse({ revision: 2, maxLifeChanged: true })).toEqual({
+      revision: 2,
+      maxLifeChanged: true,
+    });
     expect(
-      WorkspacePolicyJobPayload.parse({ revision: 2, replacedMaxLife: { days: 30, from: 5 } }),
-    ).toMatchObject({ replacedMaxLife: { days: 30, from: 5 } });
-    expect(
-      WorkspacePolicyJobPayload.safeParse({ revision: 2, replacedMaxLife: { days: 3, from: 5 } })
-        .success,
+      WorkspacePolicyJobPayload.safeParse({ revision: 2, maxLifeChanged: false }).success,
     ).toBe(false);
     const notice = { days: 30, from: 1, atStart: 2, soon: 0, revision: 1 };
     expect(RetentionNoticePayload.parse(notice)).toEqual(notice);

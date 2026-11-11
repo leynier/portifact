@@ -2818,7 +2818,7 @@ export const de = {
     "Single Sign-on wird verlangt, ist auf diesem Portifact aber abgeschaltet: Niemand kann sich über den Anbieter anmelden und niemand kann in diesem Workspace handeln, bis der Portifact-Support die Vorgabe aufhebt oder Single Sign-on wieder einschaltet. Wende dich an den Portifact-Support.",
   "policies.maxLife.legend": "Maximale Lebensdauer von Artifacts",
   "policies.maxLife.hint":
-    "Archiviert jedes Artifact des Workspace eine Anzahl Tage nach seiner letzten Veröffentlichung (ein Zurücksetzen zählt) oder Wiederherstellung. Sie zieht den Ablauf nur vor: Verlängern kann ihn nicht überschreiten, und ein archiviertes Artifact lässt sich wiederherstellen, bis sein Archiv endet. Gelöscht wird nichts.",
+    "Archiviert jedes Artifact des Workspace eine Anzahl Tage nach seiner letzten Veröffentlichung (ein Zurücksetzen zählt) oder Wiederherstellung. Sie zieht den Ablauf nur vor: Verlängern kann ihn nicht überschreiten, und ein archiviertes Artifact lässt sich wiederherstellen, bis sein Archiv endet. Gelöscht wird nichts. Ein Artifact in den Workspace zu verschieben, beginnt ein neues Leben, wie eine Veröffentlichung.",
   "policies.maxLife.any": "Kein Maximum",
   "policies.maxLife.anyHint":
     "Artifacts bleiben online, solange jemand sie verlängert oder veröffentlicht.",
@@ -2849,4 +2849,6 @@ export const de = {
     "{count, plural, one {den Ablauf von # Artifact vorgezogen} other {den Ablauf von # Artifacts vorgezogen}}",
   "audit.policy.deadlinesExtended":
     "{count, plural, one {# Artifact seine Zeit zurückgegeben} other {# Artifacts ihre Zeit zurückgegeben}}",
+  "transfer.confirm.maxLife":
+    "{space} archiviert Artifacts {days} Tage nach ihrer letzten Veröffentlichung, Wiederherstellung oder Verschiebung dorthin: Jetzt verschoben, wird dieses spätestens am {date} archiviert, außer jemand veröffentlicht es erneut, und es kann dort nicht angeheftet werden.",
 } satisfies Catalog;

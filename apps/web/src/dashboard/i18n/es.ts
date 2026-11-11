@@ -2803,7 +2803,7 @@ export const es = {
     "Se exige el inicio de sesión único, pero está desactivado en este Portifact: nadie puede iniciar sesión con el proveedor ni actuar en este espacio hasta que el soporte de Portifact retire el requisito o vuelva a activarlo. Contacta con el soporte de Portifact.",
   "policies.maxLife.legend": "Vida máxima de los artifacts",
   "policies.maxLife.hint":
-    "Archiva cada artifact del workspace un número de días después de su última publicación (una reversión cuenta) o restauración. Solo adelanta el vencimiento: renovar no puede llevar un artifact más allá, y un artifact archivado se puede restaurar hasta que termine su archivo. No elimina nada.",
+    "Archiva cada artifact del workspace un número de días después de su última publicación (una reversión cuenta) o restauración. Solo adelanta el vencimiento: renovar no puede llevar un artifact más allá, y un artifact archivado se puede restaurar hasta que termine su archivo. No elimina nada. Mover un artifact al workspace empieza una vida nueva, como una publicación.",
   "policies.maxLife.any": "Sin máximo",
   "policies.maxLife.anyHint":
     "Los artifacts siguen en línea mientras alguien los renueve o publique.",
@@ -2834,4 +2834,6 @@ export const es = {
     "{count, plural, one {adelantó el vencimiento de # artifact} other {adelantó el vencimiento de # artifacts}}",
   "audit.policy.deadlinesExtended":
     "{count, plural, one {devolvió su tiempo a # artifact} other {devolvió su tiempo a # artifacts}}",
+  "transfer.confirm.maxLife":
+    "{space} archiva los artifacts {days} días después de su última publicación, restauración o traslado: si lo mueves ahora, este se archiva como tarde el {date} salvo que alguien lo vuelva a publicar, y allí no se puede fijar.",
 } satisfies Catalog;

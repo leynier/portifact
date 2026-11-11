@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d025b76d-d794-4e2f-98f1-dda061e565b1",
+  "id": "f4c5fa1b-43e8-4bfe-8a15-3dbae6eb2f9a",
   "prevId": "72c465f3-7a8f-45e4-8605-54e8abd9db2e",
   "tables": {
     "abuse_reports": {
@@ -1140,8 +1140,15 @@
           "notNull": false,
           "autoincrement": false
         },
-        "restored_at": {
-          "name": "restored_at",
+        "life_started_at": {
+          "name": "life_started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "uncapped_expires_at": {
+          "name": "uncapped_expires_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,

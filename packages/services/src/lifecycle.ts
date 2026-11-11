@@ -18,13 +18,14 @@ import {
   purgeDate,
   type Result,
   requireFeature,
+  uncappedExpiry,
 } from "@portifact/domain";
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
 import { searchIndexJob } from "./content-search.ts";
 import { deleteArtifactData } from "./maintenance.ts";
-import { cappedExpirySql } from "./max-life.ts";
+import { cappedExpirySql, uncappedExpirySql } from "./max-life.ts";
 import { OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
 
@@ -149,7 +150,7 @@ export async function renewArtifact(
   // A workspace's maximum life (decision 0023) caps the renewal at the artifact's deadline,
   // counted from its last publish or restore, in the statement itself: no read for it.
   const planExpiry = nextExpiry(new Date(input.now)).getTime();
-  const capped = cappedExpirySql(artifact.actor.policy, planExpiry);
+  const capped = cappedExpirySql(artifact.actor.policy, planExpiry, input.now);
   // A renewal never archives: past its maximum life an artifact needs a new publish.
   const within = sql`${guard(artifact)} and ${capped} > ${input.now}`;
   const [, updated] = await db.batch([
@@ -170,6 +171,7 @@ export async function renewArtifact(
       .update(schema.artifacts)
       .set({
         expiresAt: capped,
+        uncappedExpiresAt: uncappedExpirySql(artifact.actor.policy, planExpiry, input.now),
         lifecycleGeneration: artifact.lifecycleGeneration + 1,
         updatedAt: input.now,
       })
@@ -251,7 +253,8 @@ export async function restoreArtifact(
   const check = checkRestore(record(artifact), new Date(input.now), used, owner.limits);
   if (!check.ok) return check;
   // Restoring starts a new life (decision 0023): a maximum life counts from now, like a publish.
-  const expiresAt = policyExpiry(artifact.actor.policy, check.value.expiresAt.getTime(), input.now);
+  const planExpiry = check.value.expiresAt.getTime();
+  const expiresAt = policyExpiry(artifact.actor.policy, planExpiry, input.now, input.now);
 
   // An active artifact past its expiry still holds its slot (maintenance has not archived it),
   // so it only gets new dates; an archived one goes back to active and the trigger retakes the slot.
@@ -276,7 +279,8 @@ export async function restoreArtifact(
           archivedAt: null,
           purgeAt: null,
           pinned: false,
-          restoredAt: input.now,
+          lifeStartedAt: input.now,
+          uncappedExpiresAt: uncappedExpiry(planExpiry, expiresAt),
           lifecycleGeneration: artifact.lifecycleGeneration + 1,
           updatedAt: input.now,
         })
@@ -362,6 +366,7 @@ export async function pinArtifact(
       .set({
         pinned: true,
         expiresAt: null,
+        uncappedExpiresAt: null,
         lifecycleGeneration: artifact.lifecycleGeneration + 1,
         updatedAt: input.now,
       })
@@ -396,7 +401,8 @@ export async function unpinArtifact(
       .set({
         pinned: false,
         // Capped by a workspace's maximum life, like a renewal (decision 0023).
-        expiresAt: cappedExpirySql(artifact.actor.policy, expiresAt),
+        expiresAt: cappedExpirySql(artifact.actor.policy, expiresAt, input.now),
+        uncappedExpiresAt: uncappedExpirySql(artifact.actor.policy, expiresAt, input.now),
         lifecycleGeneration: artifact.lifecycleGeneration + 1,
         updatedAt: input.now,
       })

@@ -2775,7 +2775,7 @@ export const ptBR = {
     "O login único é exigido, mas está desligado neste Portifact: ninguém consegue entrar pelo provedor nem agir neste espaço até o suporte da Portifact retirar a exigência ou religar o login único. Fale com o suporte da Portifact.",
   "policies.maxLife.legend": "Vida máxima dos artifacts",
   "policies.maxLife.hint":
-    "Arquiva cada artifact do workspace um número de dias após a última publicação (uma reversão conta) ou restauração. Só antecipa o vencimento: renovar não leva um artifact além dele, e um artifact arquivado pode ser restaurado até o fim do arquivo. Nada é excluído.",
+    "Arquiva cada artifact do workspace um número de dias após a última publicação (uma reversão conta) ou restauração. Só antecipa o vencimento: renovar não leva um artifact além dele, e um artifact arquivado pode ser restaurado até o fim do arquivo. Nada é excluído. Mover um artifact para o workspace começa uma vida nova, como uma publicação.",
   "policies.maxLife.any": "Sem máximo",
   "policies.maxLife.anyHint": "Os artifacts continuam no ar enquanto alguém os renova ou publica.",
   "policies.maxLife.only": "Arquivar após uma vida máxima",
@@ -2805,4 +2805,6 @@ export const ptBR = {
     "{count, plural, one {antecipou o vencimento de # artifact} other {antecipou o vencimento de # artifacts}}",
   "audit.policy.deadlinesExtended":
     "{count, plural, one {devolveu o tempo de # artifact} other {devolveu o tempo de # artifacts}}",
+  "transfer.confirm.maxLife":
+    "{space} arquiva artifacts {days} dias após a última publicação, restauração ou transferência: movido agora, este é arquivado no máximo em {date}, a menos que alguém o publique de novo, e lá não pode ser fixado.",
 } satisfies Catalog;

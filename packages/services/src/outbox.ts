@@ -269,7 +269,9 @@ async function runRow(
       );
     case "retention_notice":
       if (!retentionNotifier) throw new Error("retention_notice needs the retention notifier");
-      return sendRetentionNotice(db, row, now, retentionNotifier);
+      return sendRetentionNotice(db, row, now, retentionNotifier, (workspaceId) =>
+        workspaceRegionDb(regions, workspaceId),
+      );
     case "thread_issue":
       // Thrown, not reported done: the row stays and the job runs again where the network is.
       if (!issues) throw new Error("thread_issue needs the integration deps");

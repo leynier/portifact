@@ -545,8 +545,8 @@ export function workspacePolicyJob(
   input: {
     workspaceId: string;
     revision: number;
-    /** The maximum life the save lengthened or removed, for the job to give time back. */
-    replacedMaxLife?: MaxLife | null;
+    /** Whether the save changed the maximum life, so the job also gives capped time back. */
+    maxLifeChanged?: boolean;
     condition: SQL;
     now: number;
   },
@@ -554,7 +554,7 @@ export function workspacePolicyJob(
   const payload = JSON.stringify(
     WorkspacePolicyJobPayload.parse({
       revision: input.revision,
-      ...(input.replacedMaxLife ? { replacedMaxLife: input.replacedMaxLife } : {}),
+      ...(input.maxLifeChanged ? { maxLifeChanged: true as const } : {}),
     }),
   );
   // Columns in schema order: id, topic, payload, available, dispatched, attempts, created,
@@ -677,12 +677,12 @@ export async function setWorkspacePolicy(
     ),
     // Even with nothing counted: a request that read the old policy may still write, and the job
     // (and the scan after it) brings anything it let through back in line.
-    ...(policyTouchesArtifacts(next) || replacedMaxLife(row.policy, next)
+    ...(policyTouchesArtifacts(next) || fields.includes("artifactMaxDays")
       ? [
           workspacePolicyJob(global, {
             workspaceId: row.id,
             revision: row.revision + 1,
-            replacedMaxLife: replacedMaxLife(row.policy, next),
+            maxLifeChanged: fields.includes("artifactMaxDays"),
             condition,
             now: input.now,
           }),
@@ -813,8 +813,8 @@ export async function enforceWorkspacePolicy(
   workspaceId: string,
   now: number,
   limit: number = WORKSPACE_POLICIES.enforceBatch,
-  /** The maximum life a save lengthened or removed (the job's payload), to give time back. */
-  replaced: MaxLife | null = null,
+  /** The save changed the maximum life (the job's payload): give capped time back. */
+  maxLifeChanged = false,
 ): Promise<{ outcome: JobOutcome; counts: EnforceCounts }> {
   const counts: EnforceCounts = {
     artifactsNarrowed: 0,
@@ -838,7 +838,7 @@ export async function enforceWorkspacePolicy(
     row.revision,
     now,
     limit,
-    replaced,
+    maxLifeChanged,
   );
   counts.deadlinesSet = retention.deadlinesSet;
   counts.deadlinesExtended = retention.deadlinesExtended;
@@ -1058,15 +1058,16 @@ export async function workspaceRegionDb(
 }
 
 /**
- * One bounded step of the maximum life (decision 0023), in its own batch: the workspace's active
- * artifacts get their deadline as their expiry where it is earlier (pinned ones are unpinned), and
- * after a save that lengthened or removed it, the ones the replaced maximum had capped get their
- * time back. Nothing is archived here: the expiry scan archives what reaches its expiry, as for
- * any other. With the workspace and its artifacts in one database, every statement is held to the
- * revision read, so a policy loosened between the read and the write stops the batch. With a
- * separate regional database no batch can say that: the revision is read again after the batch,
- * and if it moved to a policy that lengthened or removed the maximum, what this step capped is
- * given back at once, so the window of a stale cap ends with the step itself.
+ * One bounded step of the maximum life (decision 0023), in its own batch. First, capped artifacts
+ * whose cap the current policy no longer asks for (it was lengthened, shortened to a later
+ * effective date, or removed) get back the later of their cap and `min(the plan's expiry they
+ * kept, the current deadline)`; then the workspace's active artifacts get their deadline (never
+ * before now) as their expiry where it is earlier, pinned ones unpinned. Nothing is archived here:
+ * the expiry scan archives what reaches its expiry, as for any other. With the workspace and its
+ * artifacts in one database, every statement is held to the revision read, so a policy changed
+ * between the read and the write stops the batch. With a separate regional database no batch can
+ * say that: the revision is read again after the batch, and if it moved, the give-back runs again
+ * with the policy now in force, so the window of a stale cap ends with the step itself.
  */
 async function enforceMaxLife(
   db: RegionalDb,
@@ -1075,17 +1076,17 @@ async function enforceMaxLife(
   revision: number,
   now: number,
   limit: number,
-  replaced: MaxLife | null,
+  maxLifeChanged: boolean,
 ): Promise<{ deadlinesSet: number; deadlinesExtended: number }> {
   const life = maxLifeOf(policy);
-  if (life === null && replaced === null) return { deadlinesSet: 0, deadlinesExtended: 0 };
+  if (life === null && !maxLifeChanged) return { deadlinesSet: 0, deadlinesExtended: 0 };
   const shared = bothSides(db);
   const x: Db = shared ?? db;
   const keep = shared
     ? sql`exists (select 1 from ${w} where ${w.id} = ${workspaceId} and ${w.policyRevision} = ${revision})`
     : sql`1`;
-  const capIds = life ? overMaxLifeIds(workspaceId, life, limit) : null;
-  const backIds = replaced ? giveBackIds(workspaceId, replaced, now, limit) : null;
+  const capIds = life ? overMaxLifeIds(workspaceId, life, now, limit) : null;
+  const backIds: SQL | null = giveBackIds(workspaceId, policy, now, limit);
   const countOfIds = (ids: SQL | null) =>
     ids ? sql<number>`(select count(*) from (${ids}))` : sql<number>`0`;
   const computed = { deadlinesSet: countOfIds(capIds), deadlinesExtended: countOfIds(backIds) };
@@ -1123,20 +1124,19 @@ async function enforceMaxLife(
   const deadlinesSet = capIds ? rows(capIndex) : 0;
   const deadlinesExtended = backIds ? rows(backIndex) : 0;
   if (!shared && life && deadlinesSet > 0) {
-    await giveBackIfLoosened(db, workspaceId, policy, revision, now, limit);
+    await giveBackIfChanged(db, workspaceId, revision, now, limit);
   }
   return { deadlinesSet, deadlinesExtended };
 }
 
 /**
- * With a separate regional database: if the policy changed while the step capped, and the change
- * lengthened or removed the maximum it applied, gives the time back now (the job the save wrote
- * may have run before this step's cap landed).
+ * With a separate regional database: if the policy changed while the step capped, gives back now
+ * what the policy in force allows (the job the save wrote may have run before this step's cap
+ * landed).
  */
-async function giveBackIfLoosened(
+async function giveBackIfChanged(
   db: RegionalDb,
   workspaceId: string,
-  applied: WorkspacePolicy,
   revision: number,
   now: number,
   limit: number,
@@ -1148,9 +1148,7 @@ async function giveBackIfLoosened(
     .limit(1);
   if (!after || after.revision === revision) return;
   const current = policyOf(after.policy);
-  const was = replacedMaxLife(applied, current);
-  if (!was) return;
-  await giveBackStatement(db, giveBackIds(workspaceId, was, now, limit), current, now, sql`1`);
+  await giveBackStatement(db, giveBackIds(workspaceId, current, now, limit), current, now, sql`1`);
 }
 
 /** Runs a `workspace_policy` job: one bounded step, `pending` until nothing is left. */
@@ -1171,7 +1169,7 @@ export async function runWorkspacePolicyJob(
       workspaceId,
       now,
       WORKSPACE_POLICIES.enforceBatch,
-      payload.replacedMaxLife ?? null,
+      payload.maxLifeChanged === true,
     )
   ).outcome;
 }
@@ -1282,7 +1280,9 @@ async function violations(
       union all
       select p.id, 3 from p where p.links <> 'disabled' and (p.links = 'password_required' or p.days is not null) and exists (select 1 from ${s} join ${l} on ${l.id} = ${s.linkId} join ${a} on ${a.id} = ${l.artifactId} where ${a.ownerId} = p.id and ((p.links = 'password_required' and ${l.passwordHash} is null) or (p.days is not null and ${l.createdAt} <= ${now} - p.days * 86400000)))
       union all
-      select p.id, 4 from p where p.life is not null and exists (select 1 from ${a} where ${a.ownerId} = p.id and ${a.state} = 'active' and (${a.pinned} = 1 or ${a.expiresAt} is null or ${a.expiresAt} > max(p.life_from, ${lifeStartSql} + p.life)))
+      select p.id, 4 from p where p.life is not null and exists (select 1 from ${a} where ${a.ownerId} = p.id and ${a.state} = 'active' and (${a.expiresAt} is null or ${a.expiresAt} > ${now}) and (
+        ${a.pinned} = 1 or ${a.expiresAt} is null or ${a.expiresAt} > max(p.life_from, ${lifeStartSql} + p.life, ${now})
+        or (${a.uncappedExpiresAt} is not null and (${a.expiresAt} < min(${a.uncappedExpiresAt}, max(p.life_from, ${lifeStartSql} + p.life, ${now})) or ${a.uncappedExpiresAt} <= max(p.life_from, ${lifeStartSql} + p.life, ${now})))))
     )
     select id from found group by id order by min(rank), id limit ${WORKSPACE_POLICIES.scanSteps}
   `);
@@ -1391,7 +1391,7 @@ async function applyOne(
       ? sql.empty()
       : sql` and exists (select 1 from ${schema.workspaceSso} where ${schema.workspaceSso.id} = ${provider})`;
   const condition = sql`exists (select 1 from ${w} where ${w.id} = ${workspaceId} and ${w.policyRevision} = ${revision})${kept}`;
-  const replaced = replacedMaxLife(current, next);
+  const lifeChanged = current.artifactMaxDays !== next.artifactMaxDays;
   const results = await global.batch([
     auditEvent(
       global,
@@ -1405,12 +1405,12 @@ async function applyOne(
       },
       condition,
     ),
-    ...(policyTouchesArtifacts(next) || replaced
+    ...(policyTouchesArtifacts(next) || lifeChanged
       ? [
           workspacePolicyJob(global, {
             workspaceId,
             revision: revision + 1,
-            replacedMaxLife: replaced,
+            maxLifeChanged: lifeChanged,
             condition,
             now,
           }),

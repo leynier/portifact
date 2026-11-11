@@ -2752,7 +2752,7 @@ export const ja = {
     "シングルサインオンは必須ですが、この Portifact では無効になっています。Portifact サポートが要件を解除するかシングルサインオンを再び有効にするまで、誰もプロバイダーでサインインできず、このワークスペースで操作できません。Portifact サポートに連絡してください。",
   "policies.maxLife.legend": "artifact の最長期間",
   "policies.maxLife.hint":
-    "ワークスペースの各 artifact を、最後の公開(ロールバックを含む)または復元から指定した日数後にアーカイブします。期限を早めるだけで、更新しても最長期間を超えられません。アーカイブされた artifact はアーカイブ期間が終わるまで復元できます。削除されるものはありません。",
+    "ワークスペースの各 artifact を、最後の公開(ロールバックを含む)または復元から指定した日数後にアーカイブします。期限を早めるだけで、更新しても最長期間を超えられません。アーカイブされた artifact はアーカイブ期間が終わるまで復元できます。削除されるものはありません。ワークスペースへの artifact の移動も、公開と同じく新しい期間の始まりになります。",
   "policies.maxLife.any": "最長期間なし",
   "policies.maxLife.anyHint": "誰かが更新または公開している限り、artifact は公開されたままです。",
   "policies.maxLife.only": "最長期間を過ぎたらアーカイブ",
@@ -2782,4 +2782,6 @@ export const ja = {
     "{count, plural, one {# 件の artifact の期限を早めました} other {# 件の artifact の期限を早めました}}",
   "audit.policy.deadlinesExtended":
     "{count, plural, one {# 件の artifact の期限を戻しました} other {# 件の artifact の期限を戻しました}}",
+  "transfer.confirm.maxLife":
+    "{space} では artifact は最後の公開、復元、または移動から {days} 日後にアーカイブされます。今移動すると、誰かが再公開しない限り遅くとも {date} にアーカイブされ、そこではピン留めできません。",
 } satisfies Catalog;

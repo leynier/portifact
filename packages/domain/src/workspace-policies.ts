@@ -1026,17 +1026,29 @@ export function maxLifeDeadline(life: MaxLife, lifeStart: number): number {
 
 /**
  * The expiry an artifact gets under its owner's policy: the plan's expiry (`planExpiry`, from a
- * publish, renewal, restore or unpin), capped by the maximum life. Never later than `planExpiry`,
- * so a policy only ever brings an expiry forward; and for an artifact whose life starts now never
- * earlier than `now` plus the shortest maximum (7 days).
+ * publish, renewal, restore, move or unpin), capped by the maximum life, and never earlier than
+ * `now`: a cap only ever brings an expiry forward to the present, never into the past, so an
+ * artifact that comes under a maximum late (a move, a reinstatement, a lapsed pin) is archived
+ * from the moment it was caught, never from before it. Never later than `planExpiry` when that is
+ * in the future. Its SQL twin is `cappedExpirySql` in packages/services.
  */
 export function policyExpiry(
   policy: WorkspacePolicy | undefined,
   planExpiry: number,
   lifeStart: number,
+  now: number,
 ): number {
   const life = maxLifeOf(policy);
-  return life === null ? planExpiry : Math.min(planExpiry, maxLifeDeadline(life, lifeStart));
+  if (life === null) return planExpiry;
+  return Math.min(planExpiry, Math.max(maxLifeDeadline(life, lifeStart), now));
+}
+
+/**
+ * What a write stores beside the expiry (`artifacts.uncapped_expires_at`): the plan's expiry when
+ * the maximum life brought it forward, null when it did not, so the policy can give it back.
+ */
+export function uncappedExpiry(planExpiry: number, expiry: number): number | null {
+  return expiry < planExpiry ? planExpiry : null;
 }
 
 /**

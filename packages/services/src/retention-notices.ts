@@ -20,6 +20,7 @@ import {
   recordEmailsSent,
   suppressEmail,
 } from "./email.ts";
+import { maxLifeImpact } from "./max-life.ts";
 import type { JobOutcome } from "./outbox.ts";
 
 /** Sends the email; renders it with packages/emails in the jobs Worker. */
@@ -44,15 +45,19 @@ function skipped(reason: Skip): JobOutcome {
 }
 
 /**
- * Runs a `retention_notice` job: claims it, checks the workspace still has the maximum life the
- * save set (a later change makes this notice moot; a new or shorter one writes its own) and
- * emails each admin.
+ * Runs a `retention_notice` job: claims it, checks the workspace still has a maximum life taking
+ * effect on the date the save set, and emails each admin. A maximum removed since, or replaced by
+ * a new or shorter one (another date, with its own notice), makes it moot. One lengthened before
+ * the relay keeps the date and writes no notice of its own, so this one goes out with the days in
+ * force and the counts they give, read again from the workspace's region.
  */
 export async function sendRetentionNotice(
   db: RegionalDb,
   row: typeof schema.outbox.$inferSelect,
   now: number,
   notifier: RetentionNotifier,
+  /** The workspace's region's database, when the job runs where every region is bound. */
+  regionDb?: (workspaceId: string) => Promise<RegionalDb | null>,
 ): Promise<JobOutcome> {
   const claimed = await db
     .delete(schema.outbox)
@@ -72,13 +77,17 @@ export async function sendRetentionNotice(
     .where(eq(w.id, workspaceId))
     .limit(1);
   const policy = workspace ? policyOf(workspace.policy) : null;
-  if (
-    !workspace ||
-    policy?.artifactMaxDays !== notice.days ||
-    policy.artifactMaxDaysFrom !== notice.from
-  ) {
+  const days = policy?.artifactMaxDays ?? null;
+  if (!workspace || days === null || policy?.artifactMaxDaysFrom !== notice.from) {
     return skipped("changed");
   }
+  const counts =
+    days === notice.days
+      ? { artifactsAtStart: notice.atStart, artifactsSoon: notice.soon }
+      : await maxLifeImpact((await regionDb?.(workspaceId)) ?? db, workspaceId, {
+          days,
+          from: notice.from,
+        });
   const recipients: { email: string; locale: LocaleCode | null }[] = [];
   for (const userId of await ownerRecipients(db.global, workspaceId)) {
     const [user] = await db.global
@@ -106,10 +115,10 @@ export async function sendRetentionNotice(
       await notifier.send({
         to: recipient.email,
         workspaceSlug: workspace.slug,
-        days: notice.days,
+        days,
         from: notice.from,
-        atStart: notice.atStart,
-        soon: notice.soon,
+        atStart: counts.artifactsAtStart,
+        soon: counts.artifactsSoon,
         locale: recipient.locale,
       });
     } catch (error) {

@@ -2833,7 +2833,7 @@ export const fr = {
     "L’authentification unique est exigée, mais elle est désactivée sur ce Portifact : personne ne peut se connecter par le fournisseur ni agir sur cet espace tant que le support de Portifact n’a pas levé l’exigence ou réactivé l’authentification unique. Contactez le support de Portifact.",
   "policies.maxLife.legend": "Durée de vie maximale des artifacts",
   "policies.maxLife.hint":
-    "Archive chaque artifact du workspace un nombre de jours après sa dernière publication (un retour en arrière compte) ou restauration. Elle ne fait qu’avancer l’expiration : renouveler ne peut pas la dépasser, et un artifact archivé peut être restauré jusqu’à la fin de son archive. Rien n’est supprimé.",
+    "Archive chaque artifact du workspace un nombre de jours après sa dernière publication (un retour en arrière compte) ou restauration. Elle ne fait qu’avancer l’expiration : renouveler ne peut pas la dépasser, et un artifact archivé peut être restauré jusqu’à la fin de son archive. Rien n’est supprimé. Déplacer un artifact dans le workspace lui donne une nouvelle vie, comme une publication.",
   "policies.maxLife.any": "Pas de maximum",
   "policies.maxLife.anyHint":
     "Les artifacts restent en ligne tant que quelqu’un les renouvelle ou les publie.",
@@ -2864,4 +2864,6 @@ export const fr = {
     "{count, plural, one {a avancé l’expiration de # artifact} other {a avancé l’expiration de # artifacts}}",
   "audit.policy.deadlinesExtended":
     "{count, plural, one {a rendu son temps à # artifact} other {a rendu leur temps à # artifacts}}",
+  "transfer.confirm.maxLife":
+    "{space} archive les artifacts {days} jours après leur dernière publication, restauration ou arrivée : déplacé maintenant, celui-ci est archivé au plus tard le {date} sauf si quelqu’un le republie, et il ne peut pas y être épinglé.",
 } satisfies Catalog;

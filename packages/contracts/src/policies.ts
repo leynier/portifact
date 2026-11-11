@@ -349,17 +349,12 @@ export type WorkspacePolicyUpdate = z.infer<typeof WorkspacePolicyUpdate>;
 
 /**
  * Payload of a `workspace_policy` job: the revision that asked for it (for the logs only) and,
- * when the save lengthened or removed the maximum life (decision 0023), the maximum it replaced,
- * so the job gives back the time the old one took from each artifact it had capped.
+ * when the save changed the maximum life (decision 0023), `maxLifeChanged`, so the job also gives
+ * capped artifacts back what the policy now allows, even once no maximum is left to scan for.
  */
 export const WorkspacePolicyJobPayload = z.strictObject({
   revision: z.int().min(0),
-  replacedMaxLife: z
-    .strictObject({
-      days: z.int().min(WORKSPACE_POLICIES.artifactMinDays).max(WORKSPACE_POLICIES.artifactMaxDays),
-      from: z.int().min(0),
-    })
-    .optional(),
+  maxLifeChanged: z.literal(true).optional(),
 });
 export type WorkspacePolicyJobPayload = z.infer<typeof WorkspacePolicyJobPayload>;
 

@@ -119,11 +119,18 @@ export const artifacts = sqliteTable(
      */
     createdBy: text("created_by"),
     /**
-     * When the artifact was last restored from the archive (decision 0023): with its current
-     * version's `committed_at`, where a workspace's maximum life counts from. Null until then.
-     * Kept last because `ALTER TABLE ADD COLUMN` appends it.
+     * When the artifact's current life started other than by a publish (decision 0023): its last
+     * restore from the archive or its move into another space. With its current version's
+     * `committed_at`, where a workspace's maximum life counts from. Null until then. Kept last
+     * because `ALTER TABLE ADD COLUMN` appends it.
      */
-    restoredAt: timestamp("restored_at"),
+    lifeStartedAt: timestamp("life_started_at"),
+    /**
+     * The expiry the artifact's plan gave it before its workspace's maximum life brought it
+     * forward (decision 0023); null while the maximum did not. What the policy gives back when it
+     * is lengthened, shortened or removed, so no cap outlives the rule that set it.
+     */
+    uncappedExpiresAt: timestamp("uncapped_expires_at"),
   },
   (t) => [
     index("artifacts_owner_state_idx").on(t.ownerId, t.state),

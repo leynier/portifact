@@ -2531,7 +2531,7 @@ export const zhCN = {
     "已要求单点登录，但此 Portifact 已关闭单点登录：在 Portifact 支持解除该要求或重新开启单点登录之前，没人能通过提供商登录，也没人能操作此工作区。请联系 Portifact 支持。",
   "policies.maxLife.legend": "artifact 的最长期限",
   "policies.maxLife.hint":
-    "在工作区的每个 artifact 最后一次发布(回滚也算)或恢复后若干天将其归档。它只会提前到期时间:续期无法超过它,已归档的 artifact 在归档期结束前都可以恢复。不会删除任何内容。",
+    "在工作区的每个 artifact 最后一次发布(回滚也算)或恢复后若干天将其归档。它只会提前到期时间:续期无法超过它,已归档的 artifact 在归档期结束前都可以恢复。不会删除任何内容。将 artifact 移入工作区也会像发布一样开始新的期限。",
   "policies.maxLife.any": "不设最长期限",
   "policies.maxLife.anyHint": "只要有人续期或发布,artifact 就保持在线。",
   "policies.maxLife.only": "超过最长期限后归档",
@@ -2559,4 +2559,6 @@ export const zhCN = {
     "{count, plural, one {提前了 # 个 artifact 的到期时间} other {提前了 # 个 artifact 的到期时间}}",
   "audit.policy.deadlinesExtended":
     "{count, plural, one {恢复了 # 个 artifact 的期限} other {恢复了 # 个 artifact 的期限}}",
+  "transfer.confirm.maxLife":
+    "{space} 会在 artifact 最后一次发布、恢复或移入后 {days} 天将其归档:现在移动的话,除非有人重新发布,它最迟会在 {date} 归档,并且在那里不能固定。",
 } satisfies Catalog;
