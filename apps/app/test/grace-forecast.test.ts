@@ -3,7 +3,7 @@
 // like the usage body; MCP has no tool for it, since moving a space's data out is not something an
 // agent does inline.
 import { env } from "cloudflare:workers";
-import { GraceForecastView } from "@portifact/contracts";
+import { GRACE_FORECAST_LIMITS, GraceForecastView } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHarness, ORIGIN } from "./harness.ts";
 import { api, apiToken, connect, mcpToken } from "./mcp-helpers.ts";
@@ -26,7 +26,11 @@ describe("the grace forecast route", () => {
     const me = await (await api(h, token, "/api/v1/me")).json<{ userId: string }>();
     const none = await api(h, token, "/api/v1/grace-forecast");
     expect(none.status).toBe(200);
-    expect(GraceForecastView.parse(await none.json())).toEqual({ grace: null, kinds: [] });
+    expect(GraceForecastView.parse(await none.json())).toEqual({
+      ownerId: me.userId,
+      grace: null,
+      kinds: [],
+    });
 
     // A Pro plan that ended yesterday: its grace runs for 59 more days.
     await env.DB.prepare(
@@ -55,6 +59,17 @@ describe("the grace forecast route", () => {
     const token = await apiToken(h, "forecast-ws@example.test");
     const answer = await api(h, token, "/api/v1/grace-forecast?workspace=elsewhere");
     expect(answer.status).toBe(404);
+  });
+
+  it("answers 429 past its limit per person", async () => {
+    const h = createHarness();
+    const token = await apiToken(h, "forecast-limit@example.test");
+    for (let i = 0; i < GRACE_FORECAST_LIMITS.perActorPerMinute; i += 1) {
+      expect((await api(h, token, "/api/v1/grace-forecast")).status).toBe(200);
+    }
+    const refused = await api(h, token, "/api/v1/grace-forecast");
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toMatchObject({ error: { code: "rate_limited" } });
   });
 
   it("has no MCP tool", async () => {
