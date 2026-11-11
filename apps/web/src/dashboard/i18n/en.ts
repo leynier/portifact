@@ -2813,6 +2813,35 @@ export const en = {
     "{count, plural, one {gave # artifact its time back} other {gave # artifacts their time back}}",
   "transfer.confirm.maxLife":
     "{space} archives artifacts {days} days after their last publish, restore or move in: moved now, this one is archived by {date} at the latest unless someone publishes it again, and it cannot be pinned there.",
+  "policies.comments.legend": "Comment retention",
+  "policies.comments.hint":
+    "Delete each comment thread of the workspace, with every message in it, a number of days after its last activity. Open threads on an artifact's current version are kept, so what reviewers are waiting on is never lost. Deleted threads cannot be recovered by anyone, Portifact included.",
+  "policies.comments.any": "Keep comments",
+  "policies.comments.anyHint":
+    "Threads stay until someone deletes them, or their artifact is deleted.",
+  "policies.comments.only": "Delete old threads",
+  "policies.comments.onlyHint":
+    "Resolved threads, and open threads on earlier versions, are deleted once their last activity is older than the period. A reply restarts it.",
+  "policies.comments.days": "Days after a thread's last activity",
+  "policies.comments.daysHint": "From {min} to {max} days.",
+  "policies.comments.daysError": "Write a whole number of days from {min} to {max}.",
+  "policies.comments.notice":
+    "A new or shorter retention takes effect {days} days after you save it, and every admin gets an email, and a second one shortly before the first deletion when that comes much later. A longer retention, or none, applies at once. If the workspace's plan lapses, nothing is deleted and the retention is removed until an admin sets it again.",
+  "policies.comments.pending": "Comment retention takes effect on {date}",
+  "policies.comments.active":
+    "Comment threads are deleted for good {days} days after their last activity, except open threads on an artifact's current version.",
+  "policies.impact.threads":
+    "{count, plural, one {# comment thread is deleted for good the day comment retention takes effect} other {# comment threads are deleted for good the day comment retention takes effect}}",
+  "policies.impact.messages":
+    "{count, plural, one {# message in them is deleted with them} other {# messages in them are deleted with them}}",
+  "policies.impact.threadsSoon":
+    "{count, plural, one {# more thread is deleted within 30 days after that} other {# more threads are deleted within 30 days after that}}",
+  "audit.policy.comments": "comment threads deleted {days} days after their last activity",
+  "audit.policy.commentsNone": "no comment retention",
+  "audit.policy.planLapsed": "(the plan no longer includes policies)",
+  "audit.policy.threadsDeleted":
+    "{count, plural, one {deleted # comment thread} other {deleted # comment threads}}",
+  "audit.policy.messagesDeleted": "{count, plural, one {with # message} other {with # messages}}",
 } as const;
 
 export type MessageId = keyof typeof en;

@@ -2836,4 +2836,32 @@ export const ja = {
     "{count, plural, one {# 件の artifact の期限を戻しました} other {# 件の artifact の期限を戻しました}}",
   "transfer.confirm.maxLife":
     "{space} では artifact は最後の公開、復元、または移動から {days} 日後にアーカイブされます。今移動すると、誰かが再公開しない限り遅くとも {date} にアーカイブされ、そこではピン留めできません。",
+  "policies.comments.legend": "コメントの保持期間",
+  "policies.comments.hint":
+    "ワークスペースの各コメントスレッドを、最後のアクティビティから指定日数後にすべてのメッセージとともに削除します。artifact の現在のバージョンで未解決のスレッドは保持されるため、レビュー担当者が待っている内容は失われません。削除されたスレッドは Portifact を含め誰も復元できません。",
+  "policies.comments.any": "コメントを保持",
+  "policies.comments.anyHint": "誰かが削除するか artifact が削除されるまで、スレッドは残ります。",
+  "policies.comments.only": "古いスレッドを削除",
+  "policies.comments.onlyHint":
+    "解決済みのスレッドと以前のバージョンの未解決スレッドは、最後のアクティビティが期間を過ぎると削除されます。返信で期間は最初から数え直されます。",
+  "policies.comments.days": "スレッドの最後のアクティビティからの日数",
+  "policies.comments.daysHint": "{min} から {max} 日。",
+  "policies.comments.daysError": "{min} から {max} までの整数の日数を入力してください。",
+  "policies.comments.notice":
+    "新しい、またはより短い保持期間は保存の {days} 日後に適用され、すべての管理者にメールが届きます。最初の削除がずっと後の場合は、その少し前にもう一通届きます。より長い保持期間、または設定なしはすぐに適用されます。ワークスペースのプランが失効すると、何も削除されず、管理者が再設定するまで保持期間は解除されます。",
+  "policies.comments.pending": "コメントの保持期間は {date} に適用されます",
+  "policies.comments.active":
+    "コメントスレッドは最後のアクティビティから {days} 日後に完全に削除されます (artifact の現在のバージョンの未解決スレッドを除く)。",
+  "policies.impact.threads":
+    "{count, plural, one {# 件のコメントスレッドが保持期間の適用日に完全に削除されます} other {# 件のコメントスレッドが保持期間の適用日に完全に削除されます}}",
+  "policies.impact.messages":
+    "{count, plural, one {その中の # 件のメッセージも削除されます} other {その中の # 件のメッセージも削除されます}}",
+  "policies.impact.threadsSoon":
+    "{count, plural, one {さらに # 件がその後 30 日以内に削除されます} other {さらに # 件がその後 30 日以内に削除されます}}",
+  "audit.policy.comments": "コメントスレッドを最後のアクティビティから {days} 日後に削除",
+  "audit.policy.commentsNone": "コメントの保持期間なし",
+  "audit.policy.planLapsed": "(プランにポリシーが含まれなくなりました)",
+  "audit.policy.threadsDeleted":
+    "{count, plural, one {# 件のコメントスレッドを削除} other {# 件のコメントスレッドを削除}}",
+  "audit.policy.messagesDeleted": "{count, plural, one {メッセージ # 件} other {メッセージ # 件}}",
 } satisfies Catalog;

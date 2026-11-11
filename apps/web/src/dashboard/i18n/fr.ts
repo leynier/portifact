@@ -2918,4 +2918,34 @@ export const fr = {
     "{count, plural, one {a rendu son temps à # artifact} other {a rendu leur temps à # artifacts}}",
   "transfer.confirm.maxLife":
     "{space} archive les artifacts {days} jours après leur dernière publication, restauration ou arrivée : déplacé maintenant, celui-ci est archivé au plus tard le {date} sauf si quelqu’un le republie, et il ne peut pas y être épinglé.",
+  "policies.comments.legend": "Conservation des commentaires",
+  "policies.comments.hint":
+    "Supprime chaque fil de commentaires du workspace, avec tous ses messages, un nombre de jours après sa dernière activité. Les fils ouverts sur la version actuelle d’un artifact sont conservés : ce qu’attendent les relecteurs n’est jamais perdu. Personne ne peut récupérer les fils supprimés, pas même Portifact.",
+  "policies.comments.any": "Conserver les commentaires",
+  "policies.comments.anyHint":
+    "Les fils restent jusqu’à ce que quelqu’un les supprime, ou que leur artifact soit supprimé.",
+  "policies.comments.only": "Supprimer les anciens fils",
+  "policies.comments.onlyHint":
+    "Les fils résolus, et les fils ouverts sur des versions antérieures, sont supprimés quand leur dernière activité dépasse le délai. Une réponse le relance.",
+  "policies.comments.days": "Jours après la dernière activité d’un fil",
+  "policies.comments.daysHint": "De {min} à {max} jours.",
+  "policies.comments.daysError": "Saisissez un nombre entier de jours entre {min} et {max}.",
+  "policies.comments.notice":
+    "Une conservation nouvelle ou plus courte s’applique {days} jours après l’enregistrement, et chaque administrateur reçoit un e-mail, puis un second peu avant la première suppression si elle arrive bien plus tard. Une conservation plus longue, ou aucune, s’applique tout de suite. Si le forfait du workspace expire, rien n’est supprimé et la conservation est retirée jusqu’à ce qu’un administrateur la fixe de nouveau.",
+  "policies.comments.pending": "La conservation des commentaires s’applique le {date}",
+  "policies.comments.active":
+    "Les fils de commentaires sont supprimés définitivement {days} jours après leur dernière activité, sauf les fils ouverts sur la version actuelle d’un artifact.",
+  "policies.impact.threads":
+    "{count, plural, one {# fil de commentaires est supprimé définitivement le jour où la conservation s’applique} other {# fils de commentaires sont supprimés définitivement le jour où la conservation s’applique}}",
+  "policies.impact.messages":
+    "{count, plural, one {# message qu’ils contiennent est supprimé avec eux} other {# messages qu’ils contiennent sont supprimés avec eux}}",
+  "policies.impact.threadsSoon":
+    "{count, plural, one {# fil de plus est supprimé dans les 30 jours suivants} other {# fils de plus sont supprimés dans les 30 jours suivants}}",
+  "audit.policy.comments":
+    "fils de commentaires supprimés {days} jours après leur dernière activité",
+  "audit.policy.commentsNone": "aucune conservation des commentaires",
+  "audit.policy.planLapsed": "(le forfait n’inclut plus les règles)",
+  "audit.policy.threadsDeleted":
+    "{count, plural, one {a supprimé # fil de commentaires} other {a supprimé # fils de commentaires}}",
+  "audit.policy.messagesDeleted": "{count, plural, one {avec # message} other {avec # messages}}",
 } satisfies Catalog;

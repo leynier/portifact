@@ -26,6 +26,14 @@ export function raceGlobalBeforeFirstWrite(before: () => Promise<void>): GlobalD
 }
 
 /**
+ * The global database, running `before` right before the first statement whose SQL matches
+ * `pattern`: a race placed after a scan's reads and before a given write.
+ */
+export function raceGlobalBeforeStatement(pattern: RegExp, before: () => Promise<void>): GlobalDb {
+  return globalDb(aliasBinding(racedD1(before, env.DB, pattern), env.DB));
+}
+
+/**
  * The default region's handle over `env.DB`, running `before` right before the first statement
  * whose SQL matches `pattern`, whichever handle prepared it (one database: a path may run on the
  * handle `bothSides` gives).

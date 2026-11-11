@@ -59,7 +59,9 @@ const DEVELOP = {
   // Plus the one global read of "SSO required"'s suspension scan (`syncSsoRequirementStates`).
   // Plus the stale-cap sweep of the maximum life (decision 0023): with nothing capped, one call,
   // its saved cursor and its first page together.
-  runMaintenance: 59,
+  // Plus comment retention's one global call while no workspace of the region sets it (decision
+  // 0023): its cursor, its workspaces and the restore guard's epoch in one batch.
+  runMaintenance: 60,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads
   // the cursor with its first page in one call and marks itself done in another; every later run
   // costs one call, the cursor read.

@@ -26,6 +26,7 @@ export const OutboxTopic = z.enum([
   "plan_region",
   "audit_stream",
   "retention_notice",
+  "comment_retention_notice",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -183,6 +184,7 @@ export const TombstoneMarker = z.strictObject({
     "workspace_member",
     "integration_connection",
     "audit_stream",
+    "comment_thread",
   ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),

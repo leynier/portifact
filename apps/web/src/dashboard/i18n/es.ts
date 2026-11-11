@@ -2888,4 +2888,34 @@ export const es = {
     "{count, plural, one {devolvió su tiempo a # artifact} other {devolvió su tiempo a # artifacts}}",
   "transfer.confirm.maxLife":
     "{space} archiva los artifacts {days} días después de su última publicación, restauración o traslado: si lo mueves ahora, este se archiva como tarde el {date} salvo que alguien lo vuelva a publicar, y allí no se puede fijar.",
+  "policies.comments.legend": "Retención de comentarios",
+  "policies.comments.hint":
+    "Elimina cada hilo de comentarios del workspace, con todos sus mensajes, un número de días después de su última actividad. Los hilos abiertos en la versión actual de un artifact se conservan, así nunca se pierde lo que los revisores esperan. Nadie puede recuperar los hilos eliminados, tampoco Portifact.",
+  "policies.comments.any": "Conservar los comentarios",
+  "policies.comments.anyHint":
+    "Los hilos quedan hasta que alguien los elimina, o se elimina su artifact.",
+  "policies.comments.only": "Eliminar los hilos antiguos",
+  "policies.comments.onlyHint":
+    "Los hilos resueltos, y los abiertos en versiones anteriores, se eliminan cuando su última actividad supera el plazo. Una respuesta lo reinicia.",
+  "policies.comments.days": "Días después de la última actividad de un hilo",
+  "policies.comments.daysHint": "De {min} a {max} días.",
+  "policies.comments.daysError": "Escribe un número entero de días entre {min} y {max}.",
+  "policies.comments.notice":
+    "Una retención nueva o más corta entra en vigor {days} días después de guardarla, y cada administrador recibe un correo, y otro poco antes de la primera eliminación si llega mucho después. Una retención más larga, o ninguna, se aplica al momento. Si el plan del workspace vence, no se elimina nada y la retención se quita hasta que un administrador la vuelva a fijar.",
+  "policies.comments.pending": "La retención de comentarios entra en vigor el {date}",
+  "policies.comments.active":
+    "Los hilos de comentarios se eliminan definitivamente {days} días después de su última actividad, salvo los hilos abiertos en la versión actual de un artifact.",
+  "policies.impact.threads":
+    "{count, plural, one {# hilo de comentarios se elimina definitivamente el día en que entra en vigor la retención} other {# hilos de comentarios se eliminan definitivamente el día en que entra en vigor la retención}}",
+  "policies.impact.messages":
+    "{count, plural, one {# mensaje en ellos se elimina con ellos} other {# mensajes en ellos se eliminan con ellos}}",
+  "policies.impact.threadsSoon":
+    "{count, plural, one {# hilo más se elimina en los 30 días siguientes} other {# hilos más se eliminan en los 30 días siguientes}}",
+  "audit.policy.comments":
+    "hilos de comentarios eliminados {days} días después de su última actividad",
+  "audit.policy.commentsNone": "sin retención de comentarios",
+  "audit.policy.planLapsed": "(el plan ya no incluye políticas)",
+  "audit.policy.threadsDeleted":
+    "{count, plural, one {eliminó # hilo de comentarios} other {eliminó # hilos de comentarios}}",
+  "audit.policy.messagesDeleted": "{count, plural, one {con # mensaje} other {con # mensajes}}",
 } satisfies Catalog;

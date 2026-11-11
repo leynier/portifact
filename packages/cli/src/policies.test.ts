@@ -34,6 +34,8 @@ beforeEach(async () => {
         ssoRequired: false,
         artifactMaxDays: null,
         artifactMaxDaysFrom: null,
+        commentRetentionDays: null,
+        commentRetentionFrom: null,
       },
     },
     { slug: "readers", name: "Readers", role: "member" },
@@ -72,6 +74,8 @@ describe("portifact workspaces", () => {
       ssoRequired: false,
       artifactMaxDays: null,
       artifactMaxDaysFrom: null,
+      commentRetentionDays: null,
+      commentRetentionFrom: null,
     });
   });
 

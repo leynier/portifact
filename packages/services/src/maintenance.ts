@@ -28,6 +28,7 @@ import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
 import { auditEvent, pruneAuditEvents } from "./audit.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
+import { enforceCommentRetention } from "./comment-retention.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "./content-search.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
@@ -935,6 +936,8 @@ export async function runRegionalMaintenance(
     webhooks: await maintainWebhooks(db, now),
     threadIssues: await requeueThreadIssues(db, now),
     workspacePolicies: await enforceWorkspacePolicies(db, now),
+    // Comment retention (decision 0023): deletes for good, bounded, held to the rule in force.
+    commentRetention: await enforceCommentRetention(db, bucket, now, region),
     prunedAuditEvents: await pruneAuditEvents(db, db.global, now),
     // Last, with its own call and time budget, as in the default region.
     approvalReviewers: (await recheckApprovalReviewers(db, now)).checked,
@@ -995,6 +998,10 @@ export async function runMaintenance(
     // Workspace policies (decision 0015): brings back in line what a request that read a policy
     // before it tightened let through after the policy's job ran.
     workspacePolicies: await enforceWorkspacePolicies(db, now),
+    // Comment retention (decision 0023): deletes for good, bounded, held to the rule in force and
+    // paused after a restore of the global database until the policies are applied again. One
+    // global call while no workspace of the region sets it.
+    commentRetention: await enforceCommentRetention(db, bucket, now, DEFAULT_REGION),
     // The region's events, then the global ones (members, plans, domains); with one region both
     // passes read one database, and the second finds nothing left.
     prunedAuditEvents:

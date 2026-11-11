@@ -19,6 +19,10 @@ import { applyOwnerRetention, moveAccessHistory } from "./analytics.ts";
 import { type AuditStreamDeps, deliverAuditStream } from "./audit-streams.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
+import {
+  type CommentRetentionNotifier,
+  sendCommentRetentionNotice,
+} from "./comment-retention-notices.ts";
 import { runSearchIndex } from "./content-search.ts";
 import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
 import { type DirectoryNotifier, sendDirectoryNotice } from "./directory-notices.ts";
@@ -162,6 +166,8 @@ export interface JobDeps {
   directoryNotifier?: DirectoryNotifier | undefined;
   /** Sends `retention_notice` emails (decision 0023). */
   retentionNotifier?: RetentionNotifier | undefined;
+  /** Sends `comment_retention_notice` emails (decision 0023). */
+  commentRetentionNotifier?: CommentRetentionNotifier | undefined;
   /** Creates issues from threads for `thread_issue` jobs (decision 0018). */
   issues?: ThreadIssueDeps | undefined;
   /** Every region, for the deletions that reach all of them; only the job's own without it. */
@@ -202,6 +208,7 @@ async function runRow(
     reviewNotifier,
     directoryNotifier,
     retentionNotifier,
+    commentRetentionNotifier,
     issues,
     regions = singleRegion(db, bucket),
   }: JobDeps,
@@ -265,6 +272,13 @@ async function runRow(
     case "workspace_policy":
       // Written in the global batch that saved the policy; it runs on the workspace's region.
       return runWorkspacePolicyJob(db, row, now, (workspaceId) =>
+        workspaceRegionDb(regions, workspaceId),
+      );
+    case "comment_retention_notice":
+      if (!commentRetentionNotifier) {
+        throw new Error("comment_retention_notice needs the comment retention notifier");
+      }
+      return sendCommentRetentionNotice(db, row, now, commentRetentionNotifier, (workspaceId) =>
         workspaceRegionDb(regions, workspaceId),
       );
     case "retention_notice":

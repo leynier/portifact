@@ -464,6 +464,7 @@ describe("purging archives", () => {
       webhooks: { prunedDeliveries: 0, requeued: 0 },
       threadIssues: 0,
       workspacePolicies: { checked: 0, corrected: 0, failed: 0 },
+      commentRetention: { checked: 0, threads: 0, suspended: 0, paused: false, failed: 0 },
     });
   });
 });

@@ -41,7 +41,15 @@ import {
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { CalendarClock, CircleAlert, Info, LogIn, Save, ShieldCheck } from "lucide-react";
+import {
+  CalendarClock,
+  CircleAlert,
+  Info,
+  LogIn,
+  MessageSquareX,
+  Save,
+  ShieldCheck,
+} from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { ssoReauthUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
@@ -113,6 +121,8 @@ interface Draft {
   ssoRequired: boolean;
   lifeLimited: boolean;
   lifeDays: string;
+  commentsLimited: boolean;
+  commentDays: string;
 }
 
 /** A shown allowlist's lines; a hidden one (not an admin, who cannot save) shows none. */
@@ -139,10 +149,19 @@ function draftOf(policy: WorkspacePolicyView["policy"]): Draft {
     ssoRequired: policy.ssoRequired,
     lifeLimited: policy.artifactMaxDays !== null,
     lifeDays: policy.artifactMaxDays === null ? "" : String(policy.artifactMaxDays),
+    commentsLimited: policy.commentRetentionDays !== null,
+    commentDays: policy.commentRetentionDays === null ? "" : String(policy.commentRetentionDays),
   };
 }
 
-type DraftField = "domains" | "days" | "networks" | "tokenNetworks" | "sessionHours" | "lifeDays";
+type DraftField =
+  | "domains"
+  | "days"
+  | "networks"
+  | "tokenNetworks"
+  | "sessionHours"
+  | "lifeDays"
+  | "commentDays";
 
 /** The ranges a textarea lists, or null when they are not 1 to the maximum valid ranges. */
 function rangesOf(text: string): string[] | null {
@@ -200,6 +219,15 @@ export function policyOfDraft(
   ) {
     return { ok: false, field: "lifeDays" };
   }
+  const comments = draft.commentsLimited ? Number(draft.commentDays.trim() || Number.NaN) : null;
+  if (
+    comments !== null &&
+    (!Number.isInteger(comments) ||
+      comments < WORKSPACE_POLICIES.commentMinDays ||
+      comments > WORKSPACE_POLICIES.commentMaxDays)
+  ) {
+    return { ok: false, field: "commentDays" };
+  }
   return {
     ok: true,
     policy: {
@@ -216,6 +244,8 @@ export function policyOfDraft(
       artifactMaxDays: life,
       // When it takes effect is the server's to decide (decision 0023); this is never read.
       artifactMaxDaysFrom: null,
+      commentRetentionDays: comments,
+      commentRetentionFrom: null,
     },
   };
 }
@@ -356,6 +386,7 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
         </Callout>
       ) : null}
       <MaxLifeBanner view={view} />
+      <CommentRetentionBanner view={view} />
       <p className="flex items-center gap-2 text-sm font-medium">
         <ShieldCheck aria-hidden="true" className="size-4 shrink-0" />
         {t("policies.adminsToo")}
@@ -480,6 +511,14 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
           />
         </div>
       </Panel>
+      <CommentRetentionPanel
+        limited={draft.commentsLimited}
+        days={draft.commentDays}
+        disabled={fieldsDisabled}
+        invalid={invalid === "commentDays"}
+        onLimited={(value) => set("commentsLimited", value)}
+        onDays={(value) => set("commentDays", value)}
+      />
       <MaxLifePanel
         limited={draft.lifeLimited}
         days={draft.lifeDays}
@@ -629,6 +668,9 @@ function ImpactList({ space, preview }: { space: Workspace; preview: PolicyPrevi
     [preview.artifactsAtStart, "policies.impact.atStart"],
     [preview.artifactsSoon, "policies.impact.soon"],
     [preview.pinsLifted, "policies.impact.pins"],
+    [preview.threadsAtStart, "policies.impact.threads"],
+    [preview.messagesAtStart, "policies.impact.messages"],
+    [preview.threadsSoon, "policies.impact.threadsSoon"],
   ] as const;
   const artifacts = impactTotal(preview) > 0;
   const networks = preview.networks;
@@ -790,6 +832,93 @@ function SsoRequirementPanel(props: {
 }
 
 const HOUR_MS = 3_600_000;
+
+/**
+ * Every member sees a comment retention that is set (decision 0023): it deletes their comments
+ * for good. While it waits for its effective date, the page says from when.
+ */
+function CommentRetentionBanner({ view }: { view: WorkspacePolicyView }) {
+  const t = useT();
+  const formatDate = useFormatDate();
+  const { commentRetentionDays: days, commentRetentionFrom: from } = view.policy;
+  if (days === null) return null;
+  const pending = from !== null && from > Date.now();
+  return (
+    <Callout
+      tone={pending ? "info" : undefined}
+      title={
+        pending
+          ? t("policies.comments.pending", { date: formatDate(new Date(from).toISOString()) })
+          : t("policies.comments.legend")
+      }
+      icon={<MessageSquareX className="size-5" />}
+    >
+      {t("policies.comments.active", { days })}
+    </Callout>
+  );
+}
+
+/**
+ * Comment retention (decision 0023): days after a thread's last activity before it is deleted
+ * for good, with every message; open threads on an artifact's current version are kept. The page
+ * says what it deletes and that it cannot be undone, and that a new or shorter one waits for the
+ * notice period.
+ */
+function CommentRetentionPanel(props: {
+  limited: boolean;
+  days: string;
+  disabled: boolean;
+  invalid: boolean;
+  onLimited: (limited: boolean) => void;
+  onDays: (days: string) => void;
+}) {
+  const t = useT();
+  const legend = t("policies.comments.legend");
+  const bounds = {
+    min: WORKSPACE_POLICIES.commentMinDays,
+    max: WORKSPACE_POLICIES.commentMaxDays,
+  };
+  return (
+    <Panel headingLevel={2} title={legend} description={t("policies.comments.hint")}>
+      <div className="flex flex-col gap-4">
+        <RadioGroup<"any" | "only">
+          legend={legend}
+          name="commentRetentionDays"
+          value={props.limited ? "only" : "any"}
+          disabled={props.disabled}
+          onChange={(value) => props.onLimited(value === "only")}
+          options={[
+            {
+              value: "any",
+              label: t("policies.comments.any"),
+              description: t("policies.comments.anyHint"),
+            },
+            {
+              value: "only",
+              label: t("policies.comments.only"),
+              description: t("policies.comments.onlyHint"),
+            },
+          ]}
+        />
+        {props.limited ? (
+          <TextInput
+            label={t("policies.comments.days")}
+            description={t("policies.comments.daysHint", bounds)}
+            inputMode="numeric"
+            autoComplete="off"
+            value={props.days}
+            disabled={props.disabled}
+            error={props.invalid ? t("policies.comments.daysError", bounds) : undefined}
+            onChange={(event) => props.onDays(event.currentTarget.value)}
+          />
+        ) : null}
+        <p className="text-sm text-text-muted">
+          {t("policies.comments.notice", { days: WORKSPACE_POLICIES.retentionNoticeDays })}
+        </p>
+      </div>
+    </Panel>
+  );
+}
 
 /**
  * Every member sees a maximum life of artifacts that is set (decision 0023): their work has a

@@ -1,0 +1,146 @@
+// The admins' notices of a workspace's comment retention (decision 0023, "Comment retention"):
+// `set` when an admin sets or shortens it, written in the save's global batch, and `soon`
+// shortly before its first deletion when that comes long after the save, written by the scan.
+// Like the other notices each claims its row by deleting it before sending, puts it back when the
+// send fails before anyone got it, skips suppressed addresses, stops at the notice capacity and
+// counts every email. Counts, days and dates only, never a name or a word of a comment, so it is
+// the same in every region (decision 0005).
+import { CommentRetentionNoticePayload } from "@portifact/contracts";
+import type { LocaleCode } from "@portifact/contracts/locales";
+import { type RegionalDb, schema } from "@portifact/db";
+import { checkNoticeCapacity, commentRetentionOf, logEvent, policyOf } from "@portifact/domain";
+import { eq } from "drizzle-orm";
+import { loadSettings } from "./account-settings.ts";
+import { ownerRecipients } from "./actors.ts";
+import { commentRetentionImpact } from "./comment-retention.ts";
+import {
+  emailsSentInCycle,
+  isEmailSuppressed,
+  RecipientSuppressedError,
+  recordEmailsSent,
+  suppressEmail,
+} from "./email.ts";
+import type { JobOutcome } from "./outbox.ts";
+
+/** Sends the email; renders it with packages/emails in the jobs Worker. */
+export interface CommentRetentionNotifier {
+  send(notice: {
+    to: string;
+    workspaceSlug: string;
+    kind: "set" | "soon";
+    days: number;
+    from: number;
+    at: number;
+    threads: number;
+    messages: number;
+    locale: LocaleCode | null;
+  }): Promise<void>;
+}
+
+type Skip = "changed" | "no_admin" | "suppressed" | "capacity";
+
+function skipped(reason: Skip): JobOutcome {
+  // Only the reason: never an address or the workspace.
+  logEvent("log", "comment_retention_notice_skipped", { reason });
+  return "stale";
+}
+
+/**
+ * Runs a `comment_retention_notice` job: claims it, checks the workspace still has comment
+ * retention taking effect on the date the notice announces (removed, or replaced by one with
+ * another date and its own notice, makes it moot), and emails each admin. A retention lengthened
+ * before the relay keeps the date and writes no notice of its own, so this one goes out with the
+ * days in force and, for `set`, the counts they give, read again from the workspace's region.
+ */
+export async function sendCommentRetentionNotice(
+  db: RegionalDb,
+  row: typeof schema.outbox.$inferSelect,
+  now: number,
+  notifier: CommentRetentionNotifier,
+  regionDb?: (workspaceId: string) => Promise<RegionalDb | null>,
+): Promise<JobOutcome> {
+  const claimed = await db
+    .delete(schema.outbox)
+    .where(eq(schema.outbox.id, row.id))
+    .returning({ id: schema.outbox.id });
+  if (claimed.length === 0) return "done";
+  const workspaceId = row.subject ?? "";
+  const parsed = CommentRetentionNoticePayload.safeParse(
+    typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload,
+  );
+  if (!parsed.success) return skipped("changed");
+  const notice = parsed.data;
+  const w = schema.workspaces;
+  const [workspace] = await db.global
+    .select({ slug: w.slug, policy: w.policy })
+    .from(w)
+    .where(eq(w.id, workspaceId))
+    .limit(1);
+  const rule = workspace ? commentRetentionOf(policyOf(workspace.policy)) : null;
+  if (!workspace || !rule || rule.from !== notice.from) return skipped("changed");
+  let counts = { threads: notice.threads, messages: notice.messages };
+  if (rule.days !== notice.days && notice.kind === "set") {
+    const impact = await commentRetentionImpact(
+      (await regionDb?.(workspaceId)) ?? db,
+      workspaceId,
+      rule,
+    );
+    counts = { threads: impact.threadsAtStart, messages: impact.messagesAtStart };
+  }
+  const recipients: { email: string; locale: LocaleCode | null }[] = [];
+  for (const userId of await ownerRecipients(db.global, workspaceId)) {
+    const [user] = await db.global
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    if (user) {
+      recipients.push({
+        email: user.email,
+        locale: (await loadSettings(db.global, userId)).locale,
+      });
+    }
+  }
+  if (recipients.length === 0) return skipped("no_admin");
+  let sent = 0;
+  let skip: Skip = "suppressed";
+  for (const recipient of recipients) {
+    if (await isEmailSuppressed(db.global, recipient.email, now)) continue;
+    if (!checkNoticeCapacity(await emailsSentInCycle(db.global, now)).ok) {
+      skip = "capacity";
+      break;
+    }
+    try {
+      await notifier.send({
+        to: recipient.email,
+        workspaceSlug: workspace.slug,
+        kind: notice.kind,
+        days: rule.days,
+        from: notice.from,
+        at: notice.at,
+        threads: counts.threads,
+        messages: counts.messages,
+        locale: recipient.locale,
+      });
+    } catch (error) {
+      if (error instanceof RecipientSuppressedError) {
+        await suppressEmail(db.global, { email: recipient.email, reason: "provider", now });
+        continue;
+      }
+      // Someone got it: the rest is dropped, never sent twice to the ones who did.
+      if (sent > 0) continue;
+      await db.insert(schema.outbox).values({
+        topic: "comment_retention_notice",
+        payload: notice,
+        availableAt: now,
+        createdAt: row.createdAt,
+        subject: workspaceId,
+        attempts: row.attempts,
+      });
+      throw error;
+    }
+    await recordEmailsSent(db.global, now);
+    sent += 1;
+  }
+  return sent > 0 ? "done" : skipped(skip);
+}

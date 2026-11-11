@@ -79,6 +79,7 @@ import {
   auditExportLine,
   auditExportPreamble,
   checkSingleFamily,
+  commentTiming,
   diffText,
   normalizePolicy,
   noticeWindowEnd,
@@ -433,6 +434,9 @@ export const NO_IMPACT: PolicyImpact = {
   artifactsAtStart: 0,
   artifactsSoon: 0,
   pinsLifted: 0,
+  threadsAtStart: 0,
+  messagesAtStart: 0,
+  threadsSoon: 0,
 };
 
 export function workspace(
@@ -2798,9 +2802,13 @@ function policyRoute(
     // As the API (decision 0023): the server decides when a maximum life takes effect.
     w.view = {
       ...w.view,
-      policy: retentionTiming(
+      policy: commentTiming(
         w.view.policy as WorkspacePolicy,
-        body?.policy as WorkspacePolicy,
+        retentionTiming(
+          w.view.policy as WorkspacePolicy,
+          body?.policy as WorkspacePolicy,
+          Date.now(),
+        ),
         Date.now(),
       ),
     };

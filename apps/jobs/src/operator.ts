@@ -1165,7 +1165,7 @@ export async function runOperator(
       }
       if (result.retentionCleared.length > 0) {
         lines.push(
-          `${result.retentionCleared.length} of them had a maximum life of artifacts the restore brought back (an admin had removed it after the restore point); it was removed again so it archives nothing:`,
+          `${result.retentionCleared.length} of them had a maximum life of artifacts or a comment retention the restore brought back (an admin had removed it after the restore point); it was removed again so it archives or deletes nothing:`,
           ...result.retentionCleared.map((id) => `  ${id}`),
         );
       }

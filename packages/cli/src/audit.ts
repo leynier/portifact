@@ -362,6 +362,14 @@ function policyParts(d: Record<string, unknown>): string[] {
         : `artifacts archived ${d.artifactMaxDays} days after their last publish`,
     );
   }
+  if (d.commentRetentionDays !== undefined) {
+    parts.push(
+      d.commentRetentionDays === null
+        ? "no comment retention"
+        : `comment threads deleted ${d.commentRetentionDays} days after their last activity`,
+    );
+  }
+  if (d.reason === "plan_lapsed") parts.push("because the plan no longer includes policies");
   return parts;
 }
 
@@ -381,6 +389,8 @@ function enforcedParts(d: Record<string, unknown>): string[] {
     [d.sessionsEnded, "link session(s) ended"],
     [d.deadlinesSet, "artifact expiry(ies) brought forward by the maximum life"],
     [d.deadlinesExtended, "artifact expiry(ies) given back"],
+    [d.threadsDeleted, "comment thread(s) deleted by comment retention"],
+    [d.messagesDeleted, "message(s) in them"],
   ] as const;
   const listed = parts
     .filter(([count]) => Number(count) > 0)

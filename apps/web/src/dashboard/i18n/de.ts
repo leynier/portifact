@@ -2903,4 +2903,35 @@ export const de = {
     "{count, plural, one {# Artifact seine Zeit zurückgegeben} other {# Artifacts ihre Zeit zurückgegeben}}",
   "transfer.confirm.maxLife":
     "{space} archiviert Artifacts {days} Tage nach ihrer letzten Veröffentlichung, Wiederherstellung oder Verschiebung dorthin: Jetzt verschoben, wird dieses spätestens am {date} archiviert, außer jemand veröffentlicht es erneut, und es kann dort nicht angeheftet werden.",
+  "policies.comments.legend": "Aufbewahrung von Kommentaren",
+  "policies.comments.hint":
+    "Löscht jeden Kommentar-Thread des Workspace mit allen Nachrichten eine Anzahl Tage nach seiner letzten Aktivität. Offene Threads auf der aktuellen Version eines Artifacts bleiben erhalten, damit nie verloren geht, worauf Prüfende warten. Gelöschte Threads kann niemand wiederherstellen, auch Portifact nicht.",
+  "policies.comments.any": "Kommentare behalten",
+  "policies.comments.anyHint":
+    "Threads bleiben, bis jemand sie löscht oder ihr Artifact gelöscht wird.",
+  "policies.comments.only": "Alte Threads löschen",
+  "policies.comments.onlyHint":
+    "Erledigte Threads und offene Threads auf früheren Versionen werden gelöscht, sobald ihre letzte Aktivität älter als die Frist ist. Eine Antwort startet sie neu.",
+  "policies.comments.days": "Tage nach der letzten Aktivität eines Threads",
+  "policies.comments.daysHint": "Von {min} bis {max} Tagen.",
+  "policies.comments.daysError":
+    "Geben Sie eine ganze Zahl von Tagen zwischen {min} und {max} ein.",
+  "policies.comments.notice":
+    "Eine neue oder kürzere Aufbewahrung gilt {days} Tage nach dem Speichern, und alle Administratoren erhalten eine E-Mail sowie eine zweite kurz vor der ersten Löschung, wenn diese viel später kommt. Eine längere Aufbewahrung oder keine gilt sofort. Läuft der Tarif des Workspace ab, wird nichts gelöscht und die Aufbewahrung entfernt, bis sie jemand aus der Administration erneut festlegt.",
+  "policies.comments.pending": "Die Aufbewahrung von Kommentaren gilt ab {date}",
+  "policies.comments.active":
+    "Kommentar-Threads werden {days} Tage nach ihrer letzten Aktivität endgültig gelöscht, außer offenen Threads auf der aktuellen Version eines Artifacts.",
+  "policies.impact.threads":
+    "{count, plural, one {# Kommentar-Thread wird an dem Tag endgültig gelöscht, an dem die Aufbewahrung gilt} other {# Kommentar-Threads werden an dem Tag endgültig gelöscht, an dem die Aufbewahrung gilt}}",
+  "policies.impact.messages":
+    "{count, plural, one {# Nachricht darin wird mit gelöscht} other {# Nachrichten darin werden mit gelöscht}}",
+  "policies.impact.threadsSoon":
+    "{count, plural, one {# weiterer Thread wird in den 30 Tagen danach gelöscht} other {# weitere Threads werden in den 30 Tagen danach gelöscht}}",
+  "audit.policy.comments": "Kommentar-Threads {days} Tage nach ihrer letzten Aktivität gelöscht",
+  "audit.policy.commentsNone": "keine Aufbewahrung von Kommentaren",
+  "audit.policy.planLapsed": "(der Tarif enthält keine Richtlinien mehr)",
+  "audit.policy.threadsDeleted":
+    "{count, plural, one {# Kommentar-Thread gelöscht} other {# Kommentar-Threads gelöscht}}",
+  "audit.policy.messagesDeleted":
+    "{count, plural, one {mit # Nachricht} other {mit # Nachrichten}}",
 } satisfies Catalog;

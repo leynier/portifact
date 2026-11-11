@@ -360,6 +360,15 @@ export const AUDIT_DETAILS = {
       .optional(),
     /** When that maximum life takes effect (milliseconds); null when removed (0023). */
     artifactMaxDaysFrom: z.int().min(0).nullable().optional(),
+    /** Comment retention after the change, in days; null when removed (0023). */
+    commentRetentionDays: z
+      .int()
+      .min(WORKSPACE_POLICIES.commentMinDays)
+      .max(WORKSPACE_POLICIES.commentMaxDays)
+      .nullable()
+      .optional(),
+    /** When that comment retention takes effect (milliseconds); null when removed (0023). */
+    commentRetentionFrom: z.int().min(0).nullable().optional(),
     /**
      * Members the provider could not serve that the admin confirmed when requiring single
      * sign-on: a count only.
@@ -369,7 +378,7 @@ export const AUDIT_DETAILS = {
      * Why the system changed it, when it did: `sso_removed`, removing the provider cleared "SSO
      * required" in the same batch, so no workspace keeps a requirement nobody can meet.
      */
-    reason: z.enum(["sso_removed"]).optional(),
+    reason: z.enum(["sso_removed", "plan_lapsed"]).optional(),
     /** The save accepted changes to existing artifacts (the preview's counts). */
     confirmed: z.boolean(),
   }),
@@ -397,6 +406,9 @@ export const AUDIT_DETAILS = {
      */
     deadlinesSet: enforceCount.optional(),
     deadlinesExtended: enforceCount.optional(),
+    /** Threads, and the messages in them, comment retention deleted (decision 0023). */
+    threadsDeleted: enforceCount.optional(),
+    messagesDeleted: z.number().int().min(0).max(1_000_000).optional(),
   }),
   /**
    * An export of the audit log was started (E3): its format, how many kinds it filtered on (0 for
