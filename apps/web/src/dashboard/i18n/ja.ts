@@ -1950,6 +1950,7 @@ export const ja = {
   "github.off":
     "GitHub Actions によるサインインは、Portifact ではまだ利用できません。ここに表示されたリポジトリは削除できます。",
   "github.audience": "オーディエンス",
+  "github.audienceCopy": "オーディエンスをコピー",
   "github.audienceHint":
     "ワークフローはこのオーディエンスを指定して GitHub に ID トークンを要求します。プレビューのアクションと CLI が自動で行います。",
   "github.loading": "信頼したリポジトリを読み込んでいます",

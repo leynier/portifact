@@ -115,7 +115,7 @@ function CopyAudience({ audience }: { audience: string }) {
       <CopyField
         label={t("github.audience")}
         value={audience}
-        copyLabel={t("tokens.secret.copy")}
+        copyLabel={t("github.audienceCopy")}
         copiedLabel={t("copy.copied")}
         onCopied={() => announce(t("copy.done"))}
         onCopyFailed={() => announce(t("copy.failed"))}

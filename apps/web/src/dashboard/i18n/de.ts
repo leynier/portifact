@@ -2003,6 +2003,7 @@ export const de = {
   "github.off":
     "Die Anmeldung mit GitHub Actions ist auf Portifact noch nicht verfügbar. Die hier aufgeführten Repositorys können Sie trotzdem entfernen.",
   "github.audience": "Audience",
+  "github.audienceCopy": "Audience kopieren",
   "github.audienceHint":
     "Der Workflow fordert bei GitHub ein ID-Token mit dieser Audience an. Die Vorschau-Action und die CLI erledigen das für Sie.",
   "github.loading": "Vertrauenswürdige Repositorys werden geladen",

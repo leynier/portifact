@@ -1991,6 +1991,7 @@ export const es = {
   "github.off":
     "El acceso con GitHub Actions todavía no está disponible en Portifact. Aun así puedes quitar los repositorios de esta lista.",
   "github.audience": "Audiencia",
+  "github.audienceCopy": "Copiar audiencia",
   "github.audienceHint":
     "El workflow pide a GitHub un ID token con esta audiencia. La acción de previews y la CLI lo hacen por ti.",
   "github.loading": "Cargando repositorios de confianza",

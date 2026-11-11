@@ -1935,6 +1935,7 @@ export const en = {
   "github.off":
     "GitHub Actions sign-in is not available on Portifact yet. You can still remove the repositories listed here.",
   "github.audience": "Audience",
+  "github.audienceCopy": "Copy audience",
   "github.audienceHint":
     "The workflow asks GitHub for an ID token with this audience. The preview action and the CLI do it for you.",
   "github.loading": "Loading trusted repositories",

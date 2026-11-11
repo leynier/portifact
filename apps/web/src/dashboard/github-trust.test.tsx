@@ -54,6 +54,8 @@ describe("the GitHub Actions section", () => {
     expect(within(card).getByText("Environment: preview")).toBeTruthy();
     expect(within(card).getByText("1 live credential")).toBeTruthy();
     expect(screen.getByText("https://app.portifact.com/workspaces/acme/github")).toBeTruthy();
+    // Its own copy label, so the token's copy button stays the only "Copy token".
+    expect(screen.getByRole("button", { name: "Copy audience" })).toBeTruthy();
     for (const colorScheme of ["light", "dark"] as const) {
       document.documentElement.dataset.theme = colorScheme;
       expect(await axeViolations(container), colorScheme).toEqual([]);

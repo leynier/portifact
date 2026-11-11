@@ -1986,6 +1986,7 @@ export const ru = {
   "github.off":
     "Вход через GitHub Actions в Portifact пока недоступен. Перечисленные здесь репозитории всё равно можно удалить.",
   "github.audience": "Аудитория",
+  "github.audienceCopy": "Скопировать аудиторию",
   "github.audienceHint":
     "Workflow запрашивает у GitHub ID-токен с этой аудиторией. Action для превью и CLI делают это сами.",
   "github.loading": "Загрузка доверенных репозиториев",

@@ -1809,6 +1809,7 @@ export const zhCN = {
   "github.hint": "让受信任仓库的工作流无需保存的令牌即可发布预览。",
   "github.off": "Portifact 尚未提供 GitHub Actions 登录。你仍可以移除这里列出的仓库。",
   "github.audience": "受众",
+  "github.audienceCopy": "复制受众",
   "github.audienceHint":
     "工作流会用这个受众向 GitHub 请求 ID 令牌。预览 Action 和 CLI 会自动完成。",
   "github.loading": "正在加载受信任的仓库",

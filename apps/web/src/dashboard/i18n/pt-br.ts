@@ -1974,6 +1974,7 @@ export const ptBR = {
   "github.off":
     "O acesso com GitHub Actions ainda não está disponível no Portifact. Mesmo assim, você pode remover os repositórios desta lista.",
   "github.audience": "Audiência",
+  "github.audienceCopy": "Copiar audiência",
   "github.audienceHint":
     "O workflow pede ao GitHub um ID token com esta audiência. A ação de previews e a CLI fazem isso por você.",
   "github.loading": "Carregando repositórios confiáveis",

@@ -2008,6 +2008,7 @@ export const fr = {
   "github.off":
     "La connexion avec GitHub Actions n'est pas encore disponible sur Portifact. Vous pouvez quand même retirer les dépôts listés ici.",
   "github.audience": "Audience",
+  "github.audienceCopy": "Copier l'audience",
   "github.audienceHint":
     "Le workflow demande à GitHub un ID token avec cette audience. L'action d'aperçu et la CLI le font pour vous.",
   "github.loading": "Chargement des dépôts de confiance",
