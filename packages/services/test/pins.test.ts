@@ -333,8 +333,11 @@ describe("the scan for plans that lost pin", () => {
     value(await pinArtifact(db(), at(owner.id, second.artifactId)));
     await changePlan(owner.id, { validUntil: NOW + 10 * DAY });
     expect(await unpinLapsedPlans(db(), NOW + 5 * DAY)).toEqual({ processed: 0 });
+    // The pins are held for the plan's grace (decision 0022): day 59 after its end keeps them.
+    expect(await unpinLapsedPlans(db(), NOW + 69 * DAY)).toEqual({ processed: 0 });
+    expect((await artifactRow(artifactId))?.pinned).toBe(true);
 
-    const scan = NOW + 10 * DAY;
+    const scan = NOW + 70 * DAY;
     expect(await unpinLapsedPlans(db(), scan)).toEqual({ processed: 2 });
     for (const id of [artifactId, second.artifactId]) {
       expect(await artifactRow(id)).toMatchObject({
@@ -379,7 +382,8 @@ describe("the scan for plans that lost pin", () => {
   it("leaves suspended pinned artifacts until they are reinstated", async () => {
     const { owner, artifactId } = await pinnedSite();
     value(await suspendArtifact(db(), { artifactId, reason: "spam", now: NOW + 1 }));
-    await changePlan(owner.id, { validUntil: NOW + 2 });
+    // A plan whose grace (decision 0022) ended just now.
+    await changePlan(owner.id, { validUntil: NOW + 2 - 60 * DAY });
     expect(await unpinLapsedPlans(db(), NOW + 3)).toEqual({ processed: 0 });
     value(await reinstateArtifact(db(), { artifactId, now: NOW + 4 }));
     expect(await unpinLapsedPlans(db(), NOW + 5)).toEqual({ processed: 1 });
@@ -391,7 +395,7 @@ describe("the scan for plans that lost pin", () => {
 
   it("runs with the maintenance jobs", async () => {
     const { owner, artifactId } = await pinnedSite();
-    await changePlan(owner.id, { validUntil: NOW });
+    await changePlan(owner.id, { validUntil: NOW - 60 * DAY });
     const result = await runMaintenance(db(), env.ARTIFACTS, NOW + DAY);
     expect(result.unpinned).toBeGreaterThanOrEqual(1);
     expect((await artifactRow(artifactId))?.pinned).toBe(false);

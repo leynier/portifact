@@ -194,6 +194,10 @@ export function auditSummary(event: AuditEventView): string {
       return `Plan set to ${d.plan} with ${d.seats} seat${d.seats === 1 ? "" : "s"}${d.validUntil ? ` until ${formatDate(String(d.validUntil))}` : ""}`;
     case "plan.removed":
       return "Plan removed (back to free)";
+    case "plan.grace_started":
+      return `Grace started (${GRACE_STARTED[d.reason as keyof typeof GRACE_STARTED] ?? d.reason}): what the ${d.plan} plan kept is held until ${formatDate(String(d.until))}`;
+    case "plan.grace_ended":
+      return `Grace ended (${GRACE_ENDED[d.reason as keyof typeof GRACE_ENDED] ?? d.reason}) for what the ${d.plan} plan kept`;
     case "service_token.created":
       return `Created a service token (${(d.scopes as string[]).join(", ")}; ${d.days} day${d.days === 1 ? "" : "s"})`;
     case "service_token.revoked":
@@ -298,6 +302,20 @@ function scimChanges(d: Record<string, unknown>): string[] {
 const JOINED_VIA = {
   sso: " through single sign-on",
   directory: " through the directory",
+} as const;
+
+const GRACE_STARTED = {
+  lowered: "plan lowered",
+  removed: "plan removed",
+  expired: "plan ended",
+  unreadable: "stored grace unreadable",
+} as const;
+
+const GRACE_ENDED = {
+  renewed: "plan renewed",
+  operator: "ended by Portifact",
+  expired: "its days passed",
+  folded: "folded into a later hold",
 } as const;
 
 const SSO_FIELD = {

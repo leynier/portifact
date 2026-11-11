@@ -544,12 +544,16 @@ describe("retention set per plan", () => {
     const page = await listed(owner.id, NOW);
     expect(page.retentionDays).toBe(2557);
     expect(page.events.map((e) => e.id)).toEqual(["ae_200d", "ae_6y"]);
-    // A plan that lapses reads as free (90 days): the scan then deletes what is older.
+    // A plan that lapses keeps its retention for its grace (decision 0022) and the log stays
+    // readable; then it reads as free (90 days) and the scan deletes what is older.
     await grantPlan(owner.id, "enterprise", {
       validUntil: NOW + DAY,
       overrides: { limits: { auditRetentionDays: 2557 } },
     });
-    await pruneAuditEvents(db(), global(), NOW + 2 * DAY);
+    await pruneAuditEvents(db(), global(), NOW + 60 * DAY);
+    expect(await kept(owner.id)).toEqual(["ae_200d", "ae_6y"]);
+    expect((await listed(owner.id, NOW + 60 * DAY)).retentionDays).toBe(2557);
+    await pruneAuditEvents(db(), global(), NOW + 61 * DAY);
     expect(await kept(owner.id)).toEqual([]);
   });
 

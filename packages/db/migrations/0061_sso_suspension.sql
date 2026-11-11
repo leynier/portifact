@@ -1,2 +1,0 @@
-ALTER TABLE `workspaces` ADD `sso_suspended` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
-CREATE INDEX `oauth_refresh_tokens_user_client_rotated_idx` ON `oauth_refresh_tokens` (`user_id`,`client_id`,`rotated_at`);

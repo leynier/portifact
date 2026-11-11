@@ -349,6 +349,8 @@ describe("plain words for every kind", () => {
     "member.left": { role: "member" },
     "plan.granted": { plan: "team", seats: 1, validUntil: "2027-01-01T00:00:00.000Z" },
     "plan.removed": {},
+    "plan.grace_started": { reason: "lowered", plan: "pro", until: "2027-01-01T00:00:00.000Z" },
+    "plan.grace_ended": { reason: "expired", plan: "pro", until: "2027-01-01T00:00:00.000Z" },
     "service_token.created": {
       scopes: ["artifacts:read", "artifacts:write"],
       restriction: "key",
@@ -434,6 +436,9 @@ describe("plain words for every kind", () => {
     "member.left": "Grace left",
     "plan.granted": "Plan set to team with 1 seat until 2027-01-01 00:00 UTC",
     "plan.removed": "Plan removed (back to free)",
+    "plan.grace_started":
+      "Grace started (plan lowered): what the pro plan kept is held until 2027-01-01 00:00 UTC",
+    "plan.grace_ended": "Grace ended (its days passed) for what the pro plan kept",
     "service_token.created": "Created a service token (artifacts:read, artifacts:write; 30 days)",
     "service_token.revoked": "Revoked a service token",
     "email_domain.verified": "Verified the email domain corp.example",

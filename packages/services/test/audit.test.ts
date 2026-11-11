@@ -793,6 +793,10 @@ describe("plan events", () => {
     value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW + 3 }));
     value(await removeOwnerPlan(db(), { ownerId: owner.id, now: NOW + 4 }));
     const rows = await events(owner.id);
+    // Events of one moment are ordered by their random IDs: compare them in a fixed order.
+    const order = (kind: string) =>
+      ["plan.granted", "plan.grace_started", "plan.removed"].indexOf(kind);
+    rows.sort((a, b) => a.at - b.at || order(a.kind) - order(b.kind));
     expect(rows.map((row) => [row.kind, row.actorType, row.actorId, row.detail])).toEqual([
       [
         "plan.granted",
@@ -805,6 +809,12 @@ describe("plan events", () => {
         "operator",
         null,
         { plan: "team", seats: 4, validUntil: new Date(NOW + 30 * DAY).toISOString() },
+      ],
+      [
+        "plan.grace_started",
+        "operator",
+        null,
+        { reason: "removed", plan: "team", until: new Date(NOW + 3 + 60 * DAY).toISOString() },
       ],
       ["plan.removed", "operator", null, {}],
     ]);
@@ -1300,6 +1310,8 @@ describe("edges of reading and pruning", () => {
         "member.left",
         "plan.granted",
         "plan.removed",
+        "plan.grace_started",
+        "plan.grace_ended",
       ].sort(),
     );
   });

@@ -16,7 +16,7 @@ import {
   LinearTeamId,
 } from "./integrations.ts";
 import { LIMITS } from "./limits.ts";
-import { PlanName } from "./plans.ts";
+import { GraceEndReason, GraceStartReason, PlanName } from "./plans.ts";
 import {
   AllowedClient,
   DefaultAccessPolicy,
@@ -243,6 +243,21 @@ export const AUDIT_DETAILS = {
     validUntil: z.iso.datetime().nullable(),
   }),
   "plan.removed": empty,
+  /**
+   * A plan dropped and its retention is held (decision 0022): why, the highest plan held and the
+   * day the hold ends.
+   */
+  "plan.grace_started": z.strictObject({
+    reason: GraceStartReason,
+    plan: PlanName,
+    until: z.iso.datetime(),
+  }),
+  /** A hold ended: a plan that covers it again, the operator, or its days passed. */
+  "plan.grace_ended": z.strictObject({
+    reason: GraceEndReason,
+    plan: PlanName,
+    until: z.iso.datetime(),
+  }),
   /** A service token (decision 0011): what it may do, never its label, secret or key prefix. */
   "service_token.created": z.strictObject({
     scopes: z.array(ServiceTokenScope).min(1).max(ServiceTokenScope.options.length),
@@ -459,6 +474,8 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "member.left": "member",
   "plan.granted": "plan",
   "plan.removed": "plan",
+  "plan.grace_started": "plan",
+  "plan.grace_ended": "plan",
   "service_token.created": "service_token",
   "service_token.revoked": "service_token",
   "email_domain.verified": "email_domain",

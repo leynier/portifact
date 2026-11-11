@@ -1,5 +1,5 @@
 import { LIMITS, type PlanLimits } from "@portifact/contracts";
-import { type Entitlements, hasFeature } from "./plans.ts";
+import { type Entitlements, holdsFeature } from "./plans.ts";
 import { fail, ok, type Result } from "./result.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -133,5 +133,6 @@ export function checkUnpin(
  * or deleted on the spot.
  */
 export function pinsLapse(owner: Entitlements): boolean {
-  return !hasFeature(owner, "pin");
+  // A grace keeps the pins of the plan it holds (decision 0022); new pins still need `pin`.
+  return !holdsFeature(owner, "pin");
 }

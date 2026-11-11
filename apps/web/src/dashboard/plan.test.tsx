@@ -115,6 +115,75 @@ describe("the Plan page", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  it.each(["light", "dark"] as const)(
+    "shows a running grace: until when, what is held, the reads still open and the way back (%s)",
+    async (theme) => {
+      document.documentElement.dataset.theme = theme;
+      const grace = {
+        until: "2027-01-09T12:00:00.000Z",
+        plan: "team" as const,
+        limits: {
+          archiveMonths: 12,
+          retainedPreviousVersions: 100,
+          previousVersionRetentionDays: 365,
+          accessLogRetentionDays: 365,
+          auditRetentionDays: 90,
+        },
+        features: ["versionDiff" as const, "analytics" as const],
+      };
+      server.workspaces.acme = workspace("acme", "admin", {
+        name: "Acme",
+        usage: usageView({
+          plan: { ...usageView().plan, grace },
+        }),
+      });
+      const { container } = renderDashboard("/plan?workspace=acme", server);
+      await planPage();
+      const notice = await screen.findByText(/^What the Team plan kept is held until /);
+      const callout = notice.closest('[role="status"]') as HTMLElement;
+      expect(callout).toBeTruthy();
+      expect(
+        within(callout).getByText(/up to 100 previous versions of each artifact for 365 days/),
+      ).toBeTruthy();
+      expect(
+        within(callout).getByText(/Still readable until then: .*Seeing artifact analytics/i),
+      ).toBeTruthy();
+      const request = within(callout).getByRole("link", {
+        name: "Request access to the Team plan",
+      });
+      expect(request.getAttribute("href")).toBe(planRequestHref("team"));
+      expect(await axeViolations(container)).toEqual([]);
+    },
+  );
+
+  it("shows an editor the grace without the request", async () => {
+    server.workspaces.acme = workspace("acme", "editor", {
+      name: "Acme",
+      usage: usageView({
+        plan: {
+          ...usageView().plan,
+          grace: {
+            until: "2027-01-09T12:00:00.000Z",
+            plan: "pro",
+            limits: {
+              archiveMonths: 12,
+              retainedPreviousVersions: 50,
+              previousVersionRetentionDays: 90,
+              accessLogRetentionDays: 365,
+              auditRetentionDays: 90,
+            },
+            features: [],
+          },
+        },
+      }),
+    });
+    renderDashboard("/plan?workspace=acme", server);
+    const notice = await screen.findByText(/^What the Pro plan kept is held until /);
+    const callout = notice.closest('[role="status"]') as HTMLElement;
+    expect(within(callout).queryByRole("link")).toBeNull();
+    expect(within(callout).queryByText(/Still readable/)).toBeNull();
+  });
+
   it("shows a workspace editor the plan with a note instead of the requests", async () => {
     server.workspaces.acme = workspace("acme", "editor", { name: "Acme", usage: teamUsage() });
     const { container } = renderDashboard("/plan?workspace=acme", server);

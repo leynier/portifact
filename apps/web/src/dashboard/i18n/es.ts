@@ -1644,6 +1644,12 @@ export const es = {
   "plan.current.hint": "Lo que tiene este espacio ahora. La página Uso muestra cuánto se usa.",
   "plan.current.limits": "Límites del plan actual",
   "plan.current.usageLink": "Ver el uso",
+  "plan.grace.title": "Lo que guardaba el plan {plan} se conserva hasta el {date}",
+  "plan.grace.body":
+    "Hasta entonces no se borra nada: hasta {versions} versiones anteriores de cada artefacto durante {days} días, y el registro de accesos y la analítica durante {log} días. Después de esa fecha se borra lo que el plan de este espacio no guarda.",
+  "plan.grace.reads": "Se puede seguir leyendo hasta entonces: {features}.",
+  "plan.grace.download":
+    "Descarga lo que necesites antes: el historial de cada artefacto tiene sus versiones, y el registro de accesos y el registro de auditoría tienen sus exportaciones. O pide el plan de nuevo para conservarlo todo.",
   "plan.loading": "Cargando el plan",
   "plan.error": "No se pudo cargar el plan.",
   "plan.compare.section": "Todos los planes",
@@ -1817,6 +1823,18 @@ export const es = {
     "Puso el plan {plan} con {seats, plural, one {# puesto} other {# puestos}}",
   "audit.kind.planGrantedUntil":
     "Puso el plan {plan} con {seats, plural, one {# puesto} other {# puestos}} hasta el {until}",
+  "audit.kind.graceStarted":
+    "Empezó un periodo de gracia ({reason}): lo que guardaba el plan {plan} se conserva hasta el {until}",
+  "audit.kind.graceEnded":
+    "Terminó el periodo de gracia de lo que guardaba el plan {plan} ({reason})",
+  "audit.graceStart.lowered": "plan rebajado",
+  "audit.graceStart.removed": "plan retirado",
+  "audit.graceStart.expired": "plan vencido",
+  "audit.graceStart.unreadable": "periodo de gracia ilegible",
+  "audit.graceEnd.renewed": "plan renovado",
+  "audit.graceEnd.operator": "terminado por Portifact",
+  "audit.graceEnd.expired": "pasaron sus días",
+  "audit.graceEnd.folded": "fusionado con uno posterior",
   "audit.kind.planRemoved": "Quitó el plan, así que el espacio vuelve a Free",
   "audit.kind.tokenCreated":
     "Creó un token de servicio que vence en {days, plural, one {# día} other {# días}}",

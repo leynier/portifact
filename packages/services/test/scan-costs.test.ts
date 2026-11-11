@@ -15,6 +15,7 @@ import { pruneVersions, runMaintenance } from "../src/maintenance.ts";
 import {
   alignPlanLimits,
   getOwnerPlan,
+  redateDatedPlans,
   removeOwnerPlan,
   setOwnerPlan,
   unpinLapsedPlans,
@@ -34,20 +35,30 @@ const OLD_KEY = "the previous test-only scan cost key, long enough";
 
 /** The calls each path made on develop, with the scenario below. */
 const DEVELOP = {
-  setOwnerPlan: 4,
+  // Plan grace (decision 0022): a grant and a removal read the row they decide the grace from,
+  // one call each on the operator's path; no request path reads more.
+  setOwnerPlan: 5,
   getOwnerPlan: 3,
-  removeOwnerPlan: 4,
+  removeOwnerPlan: 5,
   alignPlanLimits: 5,
   unpinLapsedPlans: 3,
-  pruneVersions: 11,
+  // One more plan row here: the removal above keeps the grantee's row while its grace runs.
+  pruneVersions: 12,
   scheduleExpiryNotices: 4,
   scheduleSearchIndexing: 3,
   dropLapsedSearchIndexes: 4,
   pruneAuditEvents: 2,
   applyTombstones: 3,
-  // 52 measured on develop before issue integrations, plus their one requeue scan (`requeueThreadIssues`),
-  // plus the one global read of "SSO required"'s suspension scan (`syncSsoRequirementStates`).
-  runMaintenance: 54,
+  // 52 measured on develop before issue integrations, plus their one requeue scan (`requeueThreadIssues`).
+  // Plus plan grace (decision 0022): the grace scan's one call (`maintainPlanGraces`: the saved
+  // cursor and its first page in one batch, nothing due here), the held row's page in the version
+  // prune, and the re-dating pass's two calls on its first run (one on every later run).
+  // Plus the one global read of "SSO required"'s suspension scan (`syncSsoRequirementStates`).
+  runMaintenance: 58,
+  // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads
+  // the cursor with its first page in one call and marks itself done in another; every later run
+  // costs one call, the cursor read.
+  redateDatedPlansDone: 1,
   // Audit streams (decision 0019): one batch per region and run (prune the log, arm streams that
   // lost their job), whatever the number of owners or streams. Run by the jobs Worker only while
   // streams are switched on, outside `runMaintenance`, which it leaves as it was.
@@ -71,7 +82,8 @@ describe("D1 calls of the scans and plan paths, one region", () => {
       .set({ expiresAt: NOW + 2 * DAY })
       .where(eq(schema.artifacts.id, expiring.artifactId));
     const lapsed = await user("Lapsed");
-    await grantPlan(lapsed.id, "pro", { validUntil: NOW - DAY });
+    // Lapsed past its grace (decision 0022), so its pins and versions go as they always did.
+    await grantPlan(lapsed.id, "pro", { validUntil: NOW - 61 * DAY });
     const pinned = await publishSite(lapsed.id);
     await db()
       .update(schema.artifacts)
@@ -120,6 +132,7 @@ describe("D1 calls of the scans and plan paths, one region", () => {
         applyTombstones(d, [{ kind: "artifact", id: "gonegonego", deletedAt: NOW }], NOW),
       ),
       runMaintenance: await counted((d) => runMaintenance(d, env.ARTIFACTS, NOW + DAY)),
+      redateDatedPlansDone: await counted((d) => redateDatedPlans(d, NOW + DAY)),
       maintainAuditStreams: await counted((d) => maintainAuditStreams(d, NOW)),
       rewrapAuditStreamKeys: await counted(async (d) =>
         rewrapAuditStreamKeys(d, await webhookKeys({ current: KEY })),

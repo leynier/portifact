@@ -142,6 +142,8 @@ describe("the catalog's exact shapes", () => {
       "member.left": "member",
       "plan.granted": "plan",
       "plan.removed": "plan",
+      "plan.grace_started": "plan",
+      "plan.grace_ended": "plan",
       "service_token.created": "service_token",
       "service_token.revoked": "service_token",
       "email_domain.verified": "email_domain",

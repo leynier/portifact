@@ -1593,6 +1593,12 @@ export const en = {
   "plan.current.hint": "What this space has now. The Usage page shows how much of it is used.",
   "plan.current.limits": "Limits of the current plan",
   "plan.current.usageLink": "See usage",
+  "plan.grace.title": "What the {plan} plan kept is held until {date}",
+  "plan.grace.body":
+    "Until then nothing is deleted: up to {versions} previous versions of each artifact for {days} days, and the access log and analytics for {log} days. After that date, what this space's plan does not keep is deleted.",
+  "plan.grace.reads": "Still readable until then: {features}.",
+  "plan.grace.download":
+    "Download what you need before then: each artifact's history has its versions, and the access log and audit log have their exports. Or ask for the plan again to keep everything.",
   "plan.loading": "Loading the plan",
   "plan.error": "The plan could not be loaded.",
   "plan.compare.section": "All plans",
@@ -1764,6 +1770,17 @@ export const en = {
     "Set the plan to {plan} with {seats, plural, one {# seat} other {# seats}}",
   "audit.kind.planGrantedUntil":
     "Set the plan to {plan} with {seats, plural, one {# seat} other {# seats}} until {until}",
+  "audit.kind.graceStarted":
+    "Started a grace ({reason}): what the {plan} plan kept is held until {until}",
+  "audit.kind.graceEnded": "Ended the grace of what the {plan} plan kept ({reason})",
+  "audit.graceStart.lowered": "plan lowered",
+  "audit.graceStart.removed": "plan removed",
+  "audit.graceStart.expired": "plan ended",
+  "audit.graceStart.unreadable": "stored grace unreadable",
+  "audit.graceEnd.renewed": "plan renewed",
+  "audit.graceEnd.operator": "ended by Portifact",
+  "audit.graceEnd.expired": "its days passed",
+  "audit.graceEnd.folded": "folded into a later hold",
   "audit.kind.planRemoved": "Removed the plan, so the space is back on Free",
   "audit.kind.tokenCreated":
     "Created a service token that expires in {days, plural, one {# day} other {# days}}",

@@ -557,7 +557,7 @@ async function withServiceToken(who: Client): Promise<Answers> {
   await db()
     .insert(schema.workspaceMembers)
     .values({ workspaceId, userId: who.userId, role: "admin", updatedAt: NOW });
-  await onPlan(workspaceId, plan?.plan ?? "free");
+  await onPlan(workspaceId, plan?.plan ?? "free", plan?.validUntil ?? null);
   const secret = newServiceTokenSecret();
   await db()
     .insert(schema.serviceTokens)
@@ -606,7 +606,7 @@ async function onWebhook(who: Client, operation: "enable" | "test"): Promise<Ans
       .set({ disabledAt: NOW, disabledReason: "manual" })
       .where(eq(schema.webhooks.id, webhook.id));
   }
-  await onPlan(who.userId, plan?.plan ?? "free");
+  await onPlan(who.userId, plan?.plan ?? "free", plan?.validUntil ?? null);
   const [path, method, body] =
     operation === "enable"
       ? [`/api/v1/webhooks/${webhook.id}`, "PATCH", { enabled: true }]
@@ -711,11 +711,11 @@ async function threadOn(artifactId: string, authorId: string): Promise<string> {
 }
 
 /** Puts an owner (a user or a workspace) on a plan, as the operator's grant writes the row. */
-async function onPlan(ownerId: string, plan: PlanName) {
+async function onPlan(ownerId: string, plan: PlanName, validUntil: number | null = null) {
   await db()
     .insert(schema.ownerPlans)
-    .values({ ownerId, plan, seats: 1, grantedBy: "test", updatedAt: NOW })
-    .onConflictDoUpdate({ target: schema.ownerPlans.ownerId, set: { plan } });
+    .values({ ownerId, plan, seats: 1, validUntil, grantedBy: "test", updatedAt: NOW })
+    .onConflictDoUpdate({ target: schema.ownerPlans.ownerId, set: { plan, validUntil } });
 }
 
 /** One address per line of GATED: a feature may gate several operations. */
@@ -760,6 +760,70 @@ describe.each(GATED)("$feature: $name", (op) => {
 
     await onPlan(ownerId, lowestPlanWith(op.feature));
     expectNotRefused(await op.run(owner, id), lowestPlanWith(op.feature));
+  });
+});
+
+/**
+ * Plan grace (decision 0022): every line of GATED is either a read of data the owner's previous
+ * plan kept (`held`: open while a grace runs, refused after it) or new work (`refused`: refused as
+ * soon as the plan drops). A new line must be classified here, or the first test below fails.
+ */
+const IN_GRACE: Record<string, "held" | "refused"> = {
+  "pin: pin an artifact": "refused",
+  "shareLinks: create a share link": "refused",
+  "analytics: read an artifact's analytics": "held",
+  "versionDiff: compare two versions": "held",
+  "versionDiff: diff a file between two versions": "held",
+  "webhooks: create a webhook": "refused",
+  "webhooks: enable a webhook": "refused",
+  "webhooks: send a test event": "refused",
+  "customDomains: add a custom domain": "refused",
+  "audit: read the audit log": "held",
+  "auditExport: export the audit log": "held",
+  "auditExport: stream the audit log to an endpoint": "refused",
+  "contentSearch: search inside the space's artifacts": "refused",
+  "serviceTokens: use a service token": "refused",
+  "reviews: request an approval review": "refused",
+  "reviews: change an approval review": "refused",
+  "workspaces: test-only probe": "refused",
+  "workspaces: share with the workspace mode": "refused",
+  "workspaces: share with the domain mode": "refused",
+  "workspaces: add a group to an artifact": "refused",
+  "workspaces: list a workspace's open feedback": "refused",
+  "sso: set up single sign-on": "refused",
+  "scim: create a SCIM token": "refused",
+  "scim: map a directory group to a role": "refused",
+  "integrations: create an issue from a thread": "refused",
+  "integrations: connect an issue integration": "refused",
+  "policies: test-only probe": "refused",
+};
+
+const graceKey = (op: GatedOperation) => `${op.feature}: ${op.name}`;
+
+describe("plan grace classification", () => {
+  it("classifies every gated operation, and nothing else", () => {
+    expect(GATED.map(graceKey).filter((key) => !(key in IN_GRACE))).toEqual([]);
+    expect(
+      Object.keys(IN_GRACE).filter((key) => !GATED.some((op) => graceKey(op) === key)),
+    ).toEqual([]);
+  });
+});
+
+describe.each(GATED)("$feature: $name, in a grace", (op) => {
+  it("is open when it reads held data and refused when it is new work", async () => {
+    const owner = await client(`gate-grace-${slug(op)}@example.test`);
+    const space = op.space === "workspace" ? await workspaceWith(owner.userId, "admin") : null;
+    const ownerId = space ?? owner.userId;
+    const id = await publishIn(ownerId, owner.userId);
+    // The plan that granted the feature ended yesterday: its grace runs for 59 more days.
+    await onPlan(ownerId, lowestPlanWith(op.feature));
+    await db()
+      .update(schema.ownerPlans)
+      .set({ validUntil: NOW - 86_400_000 })
+      .where(eq(schema.ownerPlans.ownerId, ownerId));
+    const answers = await op.run(owner, id);
+    if (IN_GRACE[graceKey(op)] === "held") expectNotRefused(answers, "held in a grace");
+    else expectRefused(answers, op.feature, "new work in a grace");
   });
 });
 

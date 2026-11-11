@@ -8,6 +8,8 @@ import {
   type AuditEventView,
   type AuditExportFormat,
   type AuditKind,
+  type GraceEndReason,
+  type GraceStartReason,
   lowestPlanWith,
   PLAN_LABELS,
   type PlanName,
@@ -94,6 +96,8 @@ export const AUDIT_GROUPS = {
     "member.left",
     "plan.granted",
     "plan.removed",
+    "plan.grace_started",
+    "plan.grace_ended",
     "service_token.created",
     "service_token.revoked",
     "sso.created",
@@ -668,6 +672,17 @@ export function describeAuditEvent(
       return t("audit.kind.policySsoSuspended", { cause: String(d.cause) });
     case "policy.sso_resumed":
       return t("audit.kind.policySsoResumed", { cause: String(d.cause) });
+    case "plan.grace_started":
+      return t("audit.kind.graceStarted", {
+        reason: t(`audit.graceStart.${d.reason as GraceStartReason}`),
+        plan: PLAN_LABELS[d.plan as PlanName],
+        until: formatDate(String(d.until)),
+      });
+    case "plan.grace_ended":
+      return t("audit.kind.graceEnded", {
+        reason: t(`audit.graceEnd.${d.reason as GraceEndReason}`),
+        plan: PLAN_LABELS[d.plan as PlanName],
+      });
     case "plan.granted": {
       const values = { plan: PLAN_LABELS[d.plan as PlanName], seats: Number(d.seats) };
       return typeof d.validUntil === "string"

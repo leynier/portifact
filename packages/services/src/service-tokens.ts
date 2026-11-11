@@ -107,7 +107,13 @@ export async function listServiceTokens(
 async function planOf(global: GlobalDb, ownerId: string, now: number) {
   const p = schema.ownerPlans;
   const [row] = await global
-    .select({ plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides })
+    .select({
+      plan: p.plan,
+      seats: p.seats,
+      validUntil: p.validUntil,
+      overrides: p.overrides,
+      grace: p.grace,
+    })
     .from(p)
     .where(eq(p.ownerId, ownerId))
     .limit(1);
@@ -271,7 +277,13 @@ export async function authenticateServiceToken(
       scopes: t.scopes,
       expiresAt: t.expiresAt,
       lastUsedAt: t.lastUsedAt,
-      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+      plan: {
+        plan: p.plan,
+        seats: p.seats,
+        validUntil: p.validUntil,
+        overrides: p.overrides,
+        grace: p.grace,
+      },
     })
     .from(t)
     .leftJoin(p, eq(p.ownerId, t.workspaceId))

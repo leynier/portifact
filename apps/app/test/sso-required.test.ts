@@ -363,7 +363,7 @@ describe("sessions from before the method was recorded", () => {
       role: "member",
       updatedAt: Date.now(),
     });
-    // As a session created before migration 0060.
+    // As a session created before migration 0061.
     await global()
       .update(schema.sessions)
       .set({ signInMethod: null })

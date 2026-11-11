@@ -166,6 +166,7 @@ async function activeOwners(
         seats: p.seats,
         validUntil: p.validUntil,
         overrides: p.overrides,
+        grace: p.grace,
       })
       .from(p)
       .where(inArray(p.ownerId, ownerIds.slice(i, i + IN_CHUNK)))) {
@@ -188,7 +189,13 @@ async function joinedOwners(both: Db, ids: readonly string[]): Promise<Map<strin
       .select({
         id: schema.artifacts.id,
         ownerId: schema.artifacts.ownerId,
-        plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+        plan: {
+          plan: p.plan,
+          seats: p.seats,
+          validUntil: p.validUntil,
+          overrides: p.overrides,
+          grace: p.grace,
+        },
       })
       .from(schema.artifacts)
       .leftJoin(p, eq(p.ownerId, schema.artifacts.ownerId))

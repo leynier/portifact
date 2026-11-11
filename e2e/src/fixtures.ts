@@ -241,14 +241,18 @@ export async function routeStorage(page: Page): Promise<void> {
     }
     const body = request.postDataBuffer() ?? Buffer.alloc(0);
     const headers = await request.allHeaders();
-    const response = await fetch(`${controlUrl()}/storage?${query}`, {
-      method: request.method(),
-      headers: {
-        "content-length": String(body.byteLength),
-        "x-amz-checksum-sha256": headers["x-amz-checksum-sha256"] ?? "",
-      },
-      body: new Uint8Array(body),
-    });
+    // A presigned GET (a download) reads the object; everything else is an upload.
+    const response =
+      request.method() === "GET"
+        ? await fetch(`${controlUrl()}/storage?${query}`)
+        : await fetch(`${controlUrl()}/storage?${query}`, {
+            method: request.method(),
+            headers: {
+              "content-length": String(body.byteLength),
+              "x-amz-checksum-sha256": headers["x-amz-checksum-sha256"] ?? "",
+            },
+            body: new Uint8Array(body),
+          });
     await route.fulfill({
       status: response.status,
       headers: {

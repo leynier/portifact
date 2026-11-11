@@ -1657,6 +1657,12 @@ export const fr = {
     "Ce dont cet espace dispose maintenant. La page Utilisation montre ce qui en est utilisé.",
   "plan.current.limits": "Limites de l’offre actuelle",
   "plan.current.usageLink": "Voir l’utilisation",
+  "plan.grace.title": "Ce que gardait l'offre {plan} est conservé jusqu'au {date}",
+  "plan.grace.body":
+    "D'ici là rien n'est supprimé : jusqu'à {versions} versions précédentes de chaque artefact pendant {days} jours, et le journal d'accès et les statistiques pendant {log} jours. Après cette date, ce que l'offre de cet espace ne garde pas est supprimé.",
+  "plan.grace.reads": "Toujours lisible d'ici là : {features}.",
+  "plan.grace.download":
+    "Téléchargez ce dont vous avez besoin avant : l'historique de chaque artefact contient ses versions, et le journal d'accès et le journal d'audit ont leurs exports. Ou demandez à nouveau l'offre pour tout garder.",
   "plan.loading": "Chargement de l’offre",
   "plan.error": "Impossible de charger l’offre.",
   "plan.compare.section": "Toutes les offres",
@@ -1834,6 +1840,17 @@ export const fr = {
     "A défini l'offre {plan} avec {seats, plural, one {# siège} other {# sièges}}",
   "audit.kind.planGrantedUntil":
     "A défini l'offre {plan} avec {seats, plural, one {# siège} other {# sièges}} jusqu'au {until}",
+  "audit.kind.graceStarted":
+    "Délai de grâce commencé ({reason}) : ce que gardait l'offre {plan} est conservé jusqu'au {until}",
+  "audit.kind.graceEnded": "Délai de grâce terminé pour ce que gardait l'offre {plan} ({reason})",
+  "audit.graceStart.lowered": "offre réduite",
+  "audit.graceStart.removed": "offre retirée",
+  "audit.graceStart.expired": "offre expirée",
+  "audit.graceStart.unreadable": "délai illisible",
+  "audit.graceEnd.renewed": "offre renouvelée",
+  "audit.graceEnd.operator": "terminé par Portifact",
+  "audit.graceEnd.expired": "délai écoulé",
+  "audit.graceEnd.folded": "fusionné avec un délai ultérieur",
   "audit.kind.planRemoved": "A retiré l'offre : l'espace revient à Free",
   "audit.kind.tokenCreated":
     "A créé un jeton de service qui expire dans {days, plural, one {# jour} other {# jours}}",

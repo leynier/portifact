@@ -1,5 +1,5 @@
 // The triggers that carry how a grant's sign-in happened onto its OAuth tokens (decision 0021,
-// "SSO required", migration 0060), the way `auth_time` is carried. A migration that rebuilds one
+// "SSO required", migration 0061), the way `auth_time` is carried. A migration that rebuilds one
 // of these tables drops its triggers (AGENTS.md, database rule): the first test then fails.
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
@@ -180,7 +180,7 @@ describe("the sign-in method columns", () => {
 
 describe("the predecessor match's cost (review of PR 210)", () => {
   it("finds the rotated token through the user, client and rotation index, not the user's history", async () => {
-    // The trigger's own lookup (migration 0060), planned as SQLite plans it inside the trigger.
+    // The trigger's own lookup (migration 0061), planned as SQLite plans it inside the trigger.
     const { results } = await env.DB.prepare(
       `EXPLAIN QUERY PLAN
        SELECT CASE WHEN count(DISTINCT coalesce(p.sign_in_method, '')) = 1 THEN max(p.sign_in_method) END

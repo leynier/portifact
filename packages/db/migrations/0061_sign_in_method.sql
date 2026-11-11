@@ -1,6 +1,8 @@
+ALTER TABLE `workspaces` ADD `sso_suspended` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE `device_codes` ADD `approver_sign_in_method` text;--> statement-breakpoint
 ALTER TABLE `oauth_access_tokens` ADD `sign_in_method` text;--> statement-breakpoint
 ALTER TABLE `oauth_refresh_tokens` ADD `sign_in_method` text;--> statement-breakpoint
+CREATE INDEX `oauth_refresh_tokens_user_client_rotated_idx` ON `oauth_refresh_tokens` (`user_id`,`client_id`,`rotated_at`);--> statement-breakpoint
 ALTER TABLE `sessions` ADD `sign_in_method` text;--> statement-breakpoint
 -- Decision 0021, "SSO required": every OAuth token carries how the sign-in it descends from
 -- happened, so "SSO required" is checked from the token row the introspection already reads, as

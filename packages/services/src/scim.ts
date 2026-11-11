@@ -113,7 +113,13 @@ export function directoryPendingExpiry(now: number): number {
 async function planOf(global: GlobalDb, workspaceId: string, now: number) {
   const p = schema.ownerPlans;
   const [row] = await global
-    .select({ plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides })
+    .select({
+      plan: p.plan,
+      seats: p.seats,
+      validUntil: p.validUntil,
+      overrides: p.overrides,
+      grace: p.grace,
+    })
     .from(p)
     .where(eq(p.ownerId, workspaceId))
     .limit(1);
@@ -454,7 +460,13 @@ export async function authenticateScimToken(
       workspaceId: st.workspaceId,
       expiresAt: st.expiresAt,
       lastUsedAt: st.lastUsedAt,
-      plan: { plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides },
+      plan: {
+        plan: p.plan,
+        seats: p.seats,
+        validUntil: p.validUntil,
+        overrides: p.overrides,
+        grace: p.grace,
+      },
     })
     .from(st)
     .leftJoin(p, eq(p.ownerId, st.workspaceId))

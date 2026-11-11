@@ -76,6 +76,7 @@ describe("owner entitlements", () => {
       seats: 1,
       limits: PLANS.pro.limits,
       features: [...PLANS.pro.features],
+      grace: null,
     });
   });
 });

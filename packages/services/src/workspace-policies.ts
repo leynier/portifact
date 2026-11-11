@@ -1070,7 +1070,13 @@ export async function ownerEntitlementsAndPolicy(
   const p = schema.ownerPlans;
   const [plans, policies] = await global.batch([
     global
-      .select({ plan: p.plan, seats: p.seats, validUntil: p.validUntil, overrides: p.overrides })
+      .select({
+        plan: p.plan,
+        seats: p.seats,
+        validUntil: p.validUntil,
+        overrides: p.overrides,
+        grace: p.grace,
+      })
       .from(p)
       .where(eq(p.ownerId, ownerId))
       .limit(1),

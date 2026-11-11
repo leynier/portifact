@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ab29fcf5-2b1e-4bdc-a827-b56ec108fb6d",
-  "prevId": "9454904e-6ae3-4ef8-a05f-ad50105af533",
+  "id": "72c465f3-7a8f-45e4-8605-54e8abd9db2e",
+  "prevId": "3add95c1-932c-46aa-9487-a209bd1d9e19",
   "tables": {
     "abuse_reports": {
       "name": "abuse_reports",
@@ -2960,6 +2960,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "grace": {
+          "name": "grace",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         }
       },

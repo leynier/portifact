@@ -14,7 +14,7 @@ export const AUTH_TIME_CLAIM = "portifact_auth_time";
 /**
  * The claim with how the sign-in an active token descends from happened (decision 0021, "SSO
  * required"): `oauth_access_tokens.sign_in_method` from the row the provider just read, set by
- * the trigger of migration 0060. Absent when the row does not say. SERVER_ONLY, like the above.
+ * the trigger of migration 0061. Absent when the row does not say. SERVER_ONLY, like the above.
  */
 export const SIGN_IN_METHOD_CLAIM = "portifact_sign_in_method";
 
@@ -106,7 +106,7 @@ export function inProcessIntrospection(providerOptions: OAuthOptions<Scope[]>) {
         modelName: "oauthAccessToken",
         fields: {
           authTime: { type: "date", required: false, input: false },
-          // How that sign-in happened (migration 0060), for "SSO required" (decision 0021).
+          // How that sign-in happened (migration 0061), for "SSO required" (decision 0021).
           signInMethod: { type: "string", required: false, input: false },
         },
       },
