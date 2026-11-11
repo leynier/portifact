@@ -50,6 +50,7 @@ import {
   recordOpenings,
   recordTraffic,
   recordViews,
+  reportUnreadablePolicy,
 } from "@portifact/services";
 import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
@@ -498,14 +499,7 @@ async function serve(
   });
   if (network !== "allowed") {
     // A stored list that does not parse refuses (fail closed) and is logged by owner, no address.
-    if (network === "unreadable") {
-      console.error(
-        JSON.stringify({
-          event: "workspace_network_policy_unreadable",
-          workspaceId: artifact.ownerId,
-        }),
-      );
-    }
+    if (network === "unreadable") reportUnreadablePolicy(artifact.ownerId);
     return withCookies(message(403, PAGES.networkRefused), setCookies);
   }
   // The plan came with the artifact lookup, so the quota and the view count add no read.

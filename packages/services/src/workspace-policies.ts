@@ -50,6 +50,7 @@ import {
   requireFeature,
   shownPolicy,
   singleFamilyLists,
+  storedPolicy,
   withoutRequestPolicies,
 } from "@portifact/domain";
 import { and, asc, eq, gt, isNull, or, type SQL, sql } from "drizzle-orm";
@@ -384,7 +385,7 @@ export async function setWorkspacePolicy(
   if (!confirmed.ok) return confirmed;
 
   const condition = sql`${stillAdmin(row.id, input.userId)} and exists (select 1 from ${w} where ${w.id} = ${row.id} and ${w.policyRevision} = ${row.revision})`;
-  const stored = changedFields(DEFAULT_POLICY, next).length === 0 ? null : next;
+  const stored = storedPolicy(next);
   const results = await global.batch([
     auditEvent(
       global,
@@ -960,7 +961,11 @@ export async function applyWorkspacePolicies(
         : []),
       global
         .update(w)
-        .set({ policy: item.policy, policyRevision: row.revision + 1, updatedAt: now })
+        .set({
+          policy: storedPolicy(item.policy),
+          policyRevision: row.revision + 1,
+          updatedAt: now,
+        })
         .where(and(eq(w.id, item.workspaceId), eq(w.policyRevision, row.revision)))
         .returning({ id: w.id }),
     ]);
@@ -1007,7 +1012,7 @@ export async function clearRequestPolicies(
   const fields = changedFields(current, next);
   if (fields.length === 0) return { outcome: "unchanged" };
   const condition = sql`exists (select 1 from ${w} where ${w.id} = ${workspaceId} and ${w.policyRevision} = ${row.revision})`;
-  const stored = changedFields(DEFAULT_POLICY, next).length === 0 ? null : next;
+  const stored = storedPolicy(next);
   const results = await global.batch([
     auditEvent(
       global,

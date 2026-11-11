@@ -37,6 +37,23 @@ export function policyOf(stored: unknown): WorkspacePolicy {
   return WorkspacePolicy.parse(value);
 }
 
+/**
+ * What a workspace's row stores for a policy: null for the defaults, and otherwise the policy
+ * without a network list it does not set. The release before network lists reads a stored policy
+ * with a strict schema that does not know those fields, so a row that only restricts sharing must
+ * stay readable by it: a rollback then breaks only workspaces that did set a list, never all with
+ * a policy (docs/releasing.md, "Client addresses"). `policyOf` reads a missing list as none.
+ */
+export function storedPolicy(policy: WorkspacePolicy): Partial<WorkspacePolicy> | null {
+  if (changedFields(DEFAULT_POLICY, policy).length === 0) return null;
+  const { ipAllowlist, tokenIpAllowlist, ...rest } = policy;
+  return {
+    ...rest,
+    ...(ipAllowlist === null ? {} : { ipAllowlist }),
+    ...(tokenIpAllowlist === null ? {} : { tokenIpAllowlist }),
+  };
+}
+
 const refused = (message: string) => fail<never>("policy_refused", message);
 
 export const POLICY_MESSAGES = {

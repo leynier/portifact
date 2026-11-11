@@ -9,7 +9,7 @@ import {
   type WorkspacePolicy,
 } from "@portifact/contracts";
 import { globalDb, type Regions, regionalDb, regionsFromEnv, schema } from "@portifact/db";
-import { eventBit, POLICY_MESSAGES } from "@portifact/domain";
+import { eventBit, POLICY_MESSAGES, policyOf } from "@portifact/domain";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -177,12 +177,13 @@ async function artifactRow(id: string) {
   return row;
 }
 
+/** The row's policy as it is read (a list the row does not set is none), or null for none stored. */
 async function storedPolicy(t: Team) {
   const [row] = await db()
     .select({ policy: schema.workspaces.policy, revision: schema.workspaces.policyRevision })
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, t.id));
-  return row;
+  return row && { ...row, policy: row.policy === null ? null : policyOf(row.policy) };
 }
 
 async function token(t: Team, scopes: ServiceTokenScope[]) {

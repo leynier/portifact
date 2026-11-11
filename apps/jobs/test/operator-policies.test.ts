@@ -2,6 +2,7 @@
 // Time Travel restore and setting them again after it, so a restore never lifts one.
 import { env } from "cloudflare:test";
 import { createDb, schema } from "@portifact/db";
+import { policyOf } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { OPERATOR_USAGE, runOperator } from "../src/operator.ts";
@@ -75,7 +76,8 @@ describe("operator policy commands", () => {
       .select({ policy: schema.workspaces.policy })
       .from(schema.workspaces)
       .where(eq(schema.workspaces.id, kept));
-    expect(row?.policy).toEqual(POLICY);
+    // As it is read: a network list the row does not set is none (`storedPolicy`).
+    expect(policyOf(row?.policy)).toEqual(POLICY);
   });
 
   it("refuses a bad line and needs its paths", async () => {
@@ -133,7 +135,7 @@ describe("clear-request-policies", () => {
       .select({ policy: schema.workspaces.policy, revision: schema.workspaces.policyRevision })
       .from(schema.workspaces)
       .where(eq(schema.workspaces.id, id));
-    expect(row).toEqual({
+    expect(row && { ...row, policy: policyOf(row.policy) }).toEqual({
       policy: { ...POLICY, ipAllowlist: null, tokenIpAllowlist: null },
       revision: 2,
     });
@@ -231,7 +233,7 @@ describe("apply-policies after the review (decision 0020)", () => {
       filesWith(older),
     );
     expect(lifted.output).toContain("Applied 1 workspace policy(ies)");
-    expect(await stored()).toMatchObject({ publicAccess: "allowed", ipAllowlist: null });
+    expect(policyOf(await stored())).toMatchObject({ publicAccess: "allowed", ipAllowlist: null });
     expect(OPERATOR_USAGE).toContain("--allow-lifting");
   });
 });

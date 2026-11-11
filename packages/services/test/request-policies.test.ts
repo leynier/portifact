@@ -18,7 +18,7 @@ import {
   schema,
   withRequestContext,
 } from "@portifact/db";
-import { POLICY_MESSAGES } from "@portifact/domain";
+import { POLICY_MESSAGES, policyOf } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { getAccess, updateAccess } from "../src/access.ts";
@@ -563,7 +563,7 @@ describe("a stored allowlist", () => {
       .global.select({ policy: schema.workspaces.policy })
       .from(schema.workspaces)
       .where(and(eq(schema.workspaces.id, t.id)));
-    expect(row?.policy).toEqual(OFFICE_ONLY);
+    expect(policyOf(row?.policy)).toEqual(OFFICE_ONLY);
     // Not an IP anywhere else: the feature stores ranges an admin typed, never a visitor's address.
     expect(await sha256(JSON.stringify(row))).toBeTypeOf("string");
   });
@@ -683,10 +683,10 @@ describe("review fixes (decision 0020)", () => {
     } finally {
       console.error = error;
     }
-    expect(logged.map((line) => JSON.parse(line))).toContainEqual({
-      event: "workspace_network_policy_unreadable",
-      workspaceId: t.id,
-    });
+    // Said once for the workspace, however many requests it refuses.
+    expect(logged.map((line) => JSON.parse(line))).toEqual([
+      { event: "workspace_network_policy_unreadable", workspaceId: t.id },
+    ]);
     expect(logged.join("")).not.toContain("10.0.0.0");
     // The list still blocks, and the workspace still lists; the escape hatch fixes it.
     expect((await listUserWorkspaces(office().global, t.member.id))[0]?.blocked).toBe(true);
@@ -694,6 +694,30 @@ describe("review fixes (decision 0020)", () => {
       "cleared",
     );
     expect((await resolveActor(home().global, t.member.id, t.id)).ok).toBe(true);
+  });
+
+  it("stores no network field for a policy that sets no list, so the release before reads it", async () => {
+    const t = await team();
+    const stored = async () => {
+      const [row] = await regionsAt(BACKGROUND)
+        .global.select({ policy: schema.workspaces.policy })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, t.id));
+      return row?.policy as Record<string, unknown> | null;
+    };
+    value(await save(t, policy({ shareLinks: "disabled" })));
+    expect(Object.keys((await stored()) ?? {})).not.toContain("ipAllowlist");
+    expect(Object.keys((await stored()) ?? {})).not.toContain("tokenIpAllowlist");
+    expect((await resolveActor(home().global, t.member.id, t.id)).ok).toBe(true);
+    // A list is stored once it is set, and its sibling still is not.
+    value(await save(t, policy({ shareLinks: "disabled", ipAllowlist: OFFICE_ONLY.ipAllowlist })));
+    expect(await stored()).toMatchObject({ ipAllowlist: OFFICE_ONLY.ipAllowlist });
+    expect(Object.keys((await stored()) ?? {})).not.toContain("tokenIpAllowlist");
+    // Clearing the list takes the field away again, and clearing everything stores nothing.
+    value(await save(t, policy({ shareLinks: "disabled" })));
+    expect(Object.keys((await stored()) ?? {})).not.toContain("ipAllowlist");
+    value(await save(t, policy()));
+    expect(await stored()).toBeNull();
   });
 
   it("validates every exported policy before applying any, and never lifts one silently", async () => {
@@ -744,7 +768,7 @@ describe("review fixes (decision 0020)", () => {
     expect(
       await applyWorkspacePolicies(background, [older], NOW + 2, { allowLifting: true }),
     ).toMatchObject({ ok: true, applied: 1, lifting: [] });
-    expect(await stored(t.id)).toMatchObject({ ipAllowlist: null });
+    expect(policyOf(await stored(t.id))).toMatchObject({ ipAllowlist: null });
   });
 
   it("lets a blocked member leave, and keeps account-level actions working", async () => {

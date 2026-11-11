@@ -22,10 +22,12 @@ import {
   POLICY_MESSAGES,
   policyChangeDetail,
   policyChangeNeedsPlan,
+  policyOf,
   requestVerdict,
   seesNetworks,
   shownPolicy,
   singleFamilyLists,
+  storedPolicy,
   withoutRequestPolicies,
 } from "./workspace-policies.ts";
 
@@ -289,5 +291,48 @@ describe("review fixes", () => {
     ).toBe(false);
     // Lifting a broken list is loosening: it admitted nobody.
     expect(policyChangeNeedsPlan(broken, DEFAULT_POLICY)).toBe(false);
+  });
+});
+
+describe("what a workspace's row stores", () => {
+  const sharing: WorkspacePolicy = { ...DEFAULT_POLICY, shareLinks: "disabled" };
+
+  it("stores nothing for the defaults", () => {
+    expect(storedPolicy(DEFAULT_POLICY)).toBeNull();
+    expect(
+      storedPolicy({ ...DEFAULT_POLICY, ipAllowlist: null, tokenIpAllowlist: null }),
+    ).toBeNull();
+  });
+
+  it("leaves out a network list the policy does not set", () => {
+    // The release before network lists reads the row with a strict schema: a policy that only
+    // restricts sharing must not carry the new keys, or a rollback breaks its whole workspace.
+    const stored = storedPolicy(sharing);
+    expect(stored).not.toBeNull();
+    expect(Object.keys(stored ?? {})).not.toContain("ipAllowlist");
+    expect(Object.keys(stored ?? {})).not.toContain("tokenIpAllowlist");
+    expect(stored).toMatchObject({ shareLinks: "disabled" });
+  });
+
+  it("keeps the lists that are set, each on its own", () => {
+    const people = storedPolicy({ ...DEFAULT_POLICY, ipAllowlist: ["203.0.113.0/24"] });
+    expect(people).toMatchObject({ ipAllowlist: ["203.0.113.0/24"] });
+    expect(Object.keys(people ?? {})).not.toContain("tokenIpAllowlist");
+    const tokens = storedPolicy({ ...sharing, tokenIpAllowlist: ["2001:db8::/32"] });
+    expect(tokens).toMatchObject({ tokenIpAllowlist: ["2001:db8::/32"], shareLinks: "disabled" });
+    expect(Object.keys(tokens ?? {})).not.toContain("ipAllowlist");
+  });
+
+  it("reads back exactly the policy that was stored, as an object or as JSON", () => {
+    for (const policy of [
+      DEFAULT_POLICY,
+      sharing,
+      { ...sharing, ipAllowlist: ["203.0.113.0/24"] },
+      { ...DEFAULT_POLICY, ipAllowlist: ["203.0.113.0/24"], tokenIpAllowlist: ["2001:db8::/32"] },
+    ] satisfies WorkspacePolicy[]) {
+      const stored = storedPolicy(policy);
+      expect(policyOf(stored)).toEqual(policy);
+      expect(policyOf(stored === null ? null : JSON.stringify(stored))).toEqual(policy);
+    }
   });
 });

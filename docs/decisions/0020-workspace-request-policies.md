@@ -93,6 +93,9 @@ An independent review of the first version found these, all fixed in the same pu
 - **Downloads agree with reads.** A refused member downloads a public workspace document as anyone, as `checkReadAccess` reads it, and nothing else.
 - **The escape hatch is bounded.** `clearRequestPolicies` tries again at most `CLEAR_ATTEMPTS` (3) times when concurrent saves move the revision, then answers `conflict` and the operator runs it again.
 - **The guard finds new Workers.** `scripts/request-context.test.ts` enumerates every Worker configuration's entry points (the `main` module's handlers and the Durable Object classes) and fails for one that is not classified as request-bound, background, delegating or database-free.
+- Stored shape and rollback: a row stores a network list only while one is set (`storedPolicy` in the domain; `policyOf` reads a missing list as none). The release before this one parses the stored policy with a strict schema that does not know the two fields, so writing them as null on every save would have made a rollback fail every request of every workspace with any policy, lists or not. A rollback now breaks only workspaces that set a list, which the operator clears first (`docs/releasing.md`, "Client addresses").
+- A stored list that does not parse is reported once per isolate and workspace (`reportUnreadablePolicy`), not per refused request: on the artifact origin every subresource of a page would otherwise write a line.
+- Still open: a stored policy that fails the whole contract for another reason (an unknown field, a list over its bound) throws where it is read, as it did before this change, rather than refusing cleanly; no writer produces one. `acceptInvitation` and `listMembers` answer a workspace without `shown`, so the app hides the ranges there even from an admin (it fails safe; the Policies page is where admins read them).
 
 ## Lock-out safety
 

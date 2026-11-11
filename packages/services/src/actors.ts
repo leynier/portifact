@@ -87,6 +87,22 @@ export async function actorOn(
   return bound(global, memberActor(userId, ownerId, row), "person");
 }
 
+/** The workspaces this isolate already reported an unreadable network list for. */
+const reportedUnreadable = new Set<string>();
+const REPORTED_UNREADABLE_MAX = 1_000;
+
+/**
+ * Says once per isolate and workspace that its stored network list does not parse (the request
+ * is refused, fail closed): the workspace's ID only, never an address or a range. Every refused
+ * request, and on the artifact origin every subresource, would otherwise write a line.
+ */
+export function reportUnreadablePolicy(workspaceId: string): void {
+  if (reportedUnreadable.has(workspaceId)) return;
+  if (reportedUnreadable.size >= REPORTED_UNREADABLE_MAX) reportedUnreadable.clear();
+  reportedUnreadable.add(workspaceId);
+  console.error(JSON.stringify({ event: "workspace_network_policy_unreadable", workspaceId }));
+}
+
 /**
  * The actor, if the workspace's request policies admit the request the handle answers. Only an
  * actor is checked: someone with no role learns nothing about the workspace's policies.
@@ -99,10 +115,7 @@ function bound(
   if (!actor) return ok(null);
   const allowed = checkRequestPolicy(actor.policy, global.request, caller);
   if (!allowed.ok && requestVerdict(actor.policy, global.request, caller) === "unreadable") {
-    // Fail closed, and say where: the workspace's ID only, never an address or a range.
-    console.error(
-      JSON.stringify({ event: "workspace_network_policy_unreadable", workspaceId: actor.ownerId }),
-    );
+    reportUnreadablePolicy(actor.ownerId);
   }
   return allowed.ok ? ok(actor) : allowed;
 }
