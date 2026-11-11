@@ -10,6 +10,7 @@ import { type Regions, regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
+  confirmGuardRecord,
   deleteGuardRecord,
   enforceCommentRetention,
   guardAgreement,
@@ -577,6 +578,37 @@ describe("the save path decides a loosening against the stored rule (fourth chec
     };
     value(await save(t, retention(90), { via: r }));
     expect((await stored(t)).commentRetentionDays).toBeNull();
+    // A's late record is taken back: a restore to between the two saves finds no agreement.
+    expect(recordOf(bucket, t)).toBeNull();
+    expect(await survives(t, old, FROM + 100 * DAY, bucket)).toEqual({
+      threads: 0,
+      survives: true,
+    });
+  });
+
+  it("a new rule's record landing between a removal's first delete and its D1 write is deleted after it", async () => {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const t = await team();
+    const artifact = await publishIn(t.editor.id, t.id);
+    const old = await thread(t, artifact, { agoDays: 400 });
+    // A's D1 write committed; its record is still in flight.
+    bucket.fail.put = true;
+    value(await save(t, retention(90), { via: r }));
+    bucket.fail.put = false;
+    const a = await stored(t);
+    // B removes: right after B's first delete, A's record lands and A confirms (still its token).
+    bucket.hooks.afterWrite = async () => {
+      const rule = {
+        token: a.commentRetentionToken as string,
+        days: a.commentRetentionDays as number,
+        from: a.commentRetentionFrom as number,
+      };
+      await writeGuardRecord(bucket, t.id, rule);
+      await confirmGuardRecord(g(), bucket, t.id, rule.token);
+    };
+    value(await save(t, retention(null), { via: r, now: NOW + DAY }));
+    expect(recordOf(bucket, t)).toBeNull();
     expect(await survives(t, old, FROM + 100 * DAY, bucket)).toEqual({
       threads: 0,
       survives: true,
@@ -679,6 +711,7 @@ describe('concurrent saves (decision 0023, "Concurrent saves")', () => {
     value(await save(t, retention(90), { via: r, now: NOW + DAY }));
     // B's rule is the one stored; A's late record was taken back, so they never agree on A's.
     expect((await stored(t)).commentRetentionDays).toBe(365);
+    expect(recordOf(bucket, t)).toBeNull();
     expect(await survives(t, old, later, bucket)).toEqual({ threads: 0, survives: true });
   });
 

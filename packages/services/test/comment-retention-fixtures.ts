@@ -245,6 +245,9 @@ export function memoryBucket(
       await hook();
       if (fail.delete ?? fail.put) throw new Error("r2 unavailable");
       held.delete(key);
+      const after = hooks.afterWrite;
+      delete hooks.afterWrite;
+      if (after) await after();
     },
   };
   return Object.assign(bucket as unknown as R2Bucket, {
