@@ -84,7 +84,7 @@ const grace = {
   workspace: "Analytical Engines",
   names: true,
   downloadUrl: "https://app.portifact.com/data?workspace=engines",
-  exportCommand: "portifact export ./engines-export --workspace engines",
+  exportCommand: "portifact export ./portifact-export --workspace engines",
   requestUrl: "mailto:hello@portifact.com?subject=Portifact%20Team%20plan%20request",
 };
 /** An EU workspace's (decision 0005): the workspace is linked, never named. */
@@ -297,7 +297,7 @@ export function previews(): Preview[] {
         workspace: null,
         kinds: [{ kind: "versions", count: 12, from: graceEnd }],
         downloadUrl: "https://app.portifact.com/data",
-        exportCommand: "portifact export ./my-export",
+        exportCommand: "portifact export ./portifact-export",
         requestUrl: "mailto:hello@portifact.com?subject=Portifact%20Pro%20plan%20request",
       }),
     },

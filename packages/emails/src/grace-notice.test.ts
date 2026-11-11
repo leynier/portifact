@@ -1,6 +1,7 @@
 import { GRACE_NOTICE_MOMENTS } from "@portifact/contracts";
 import { LOCALE_CODES } from "@portifact/contracts/locales";
 import { describe, expect, it } from "vitest";
+import { formatExpiry } from "./expiry-notice.ts";
 import { GRACE_NOTICE_TEXT, type GraceNoticeInput, graceNoticeEmail } from "./grace-notice.ts";
 import { previews } from "./previews.ts";
 
@@ -8,7 +9,7 @@ const DAY = 86_400_000;
 const UNTIL = Date.UTC(2027, 0, 10, 12, 0, 0);
 const DOWNLOAD = "https://app.portifact.com/data?workspace=engines";
 const REQUEST = "mailto:hello@portifact.com?subject=Portifact%20Team%20plan%20request";
-const COMMAND = "portifact export ./engines-export --workspace engines";
+const COMMAND = "portifact export ./portifact-export --workspace engines";
 
 const input: GraceNoticeInput = {
   moment: "start",
@@ -28,10 +29,12 @@ const input: GraceNoticeInput = {
 describe("the grace email", () => {
   it("says until when the data is held, what goes and how much, and both actions", () => {
     const email = graceNoticeEmail(input);
-    expect(email.subject).toBe("Your data is held until Sun, Jan 10, 2027, 12:00 UTC");
+    // The audit events go on Jan 5, before the hold's end: every date comes from the steps.
+    expect(email.subject).toBe("Your data is held until Tue, Jan 5, 2027, 12:00 UTC");
     expect(email.text).toContain(
-      "The Team plan of this space ended or was lowered. What it kept is held until Sun, Jan 10, 2027, 12:00 UTC, and nothing is deleted before then.",
+      "The Team plan of this space ended or was lowered. What it kept is held until Sun, Jan 10, 2027, 12:00 UTC. Nothing held goes before Tue, Jan 5, 2027, 12:00 UTC.",
     );
+    expect(email.html).toContain("Nothing held goes before Tue, Jan 5, 2027, 12:00 UTC.");
     expect(email.text).toContain("Space: Analytical Engines");
     expect(email.text).toContain("- Previous versions: 1,240, from Sun, Jan 10, 2027, 12:00 UTC");
     expect(email.text).toContain("- Audit events: 96, from Tue, Jan 5, 2027, 12:00 UTC");
@@ -44,6 +47,30 @@ describe("the grace email", () => {
     expect(email.html).toContain(COMMAND);
     // A service notice: no unsubscribe link of any kind.
     for (const part of [email.text, email.html]) expect(part).not.toMatch(/unsubscribe/i);
+  });
+
+  it("never says nothing goes before a date later than the first step listed", () => {
+    // A later hold's start email while an earlier hold lets versions go first.
+    const email = graceNoticeEmail({
+      ...input,
+      until: UNTIL,
+      kinds: [{ kind: "versions", count: 40, from: UNTIL - 50 * DAY }],
+    });
+    expect(email.text).not.toContain("nothing is deleted before");
+    expect(email.subject).toBe("Your data is held until Sat, Nov 21, 2026, 12:00 UTC");
+    expect(email.text).toContain("Nothing held goes before Sat, Nov 21, 2026, 12:00 UTC.");
+    expect(email.text).toContain("held until Sun, Jan 10, 2027, 12:00 UTC");
+    for (const locale of LOCALE_CODES) {
+      const t = GRACE_NOTICE_TEXT[locale];
+      const localized = graceNoticeEmail({ ...input, locale, kinds: input.kinds });
+      expect(localized.text).toContain(t.safe(formatExpiry(UNTIL - 5 * DAY, locale)));
+    }
+  });
+
+  it("says no first date when nothing is counted, and dates the subject by the hold's end", () => {
+    const email = graceNoticeEmail({ ...input, kinds: [] });
+    expect(email.subject).toBe("Your data is held until Sun, Jan 10, 2027, 12:00 UTC");
+    expect(email.text).not.toContain("Nothing held goes before");
   });
 
   it.each([

@@ -46,8 +46,11 @@ export interface GraceNoticeInput {
 /** The email in one language. Dates come in already formatted, with "UTC". */
 export interface GraceNoticeText {
   subject: { readonly [moment in GraceNoticeMoment]: (date: string) => string };
+  /** With the first date anything held goes. */
   preheader(date: string): string;
   introStart(plan: string, date: string): string;
+  /** The first date anything held goes: the earliest step listed, never a later one. */
+  safe(date: string): string;
   introLater(plan: string, date: string): string;
   space: string;
   personal: string;
@@ -74,9 +77,10 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       two_weeks: (date) => `Two weeks left: your held data goes on ${date}`,
       three_days: (date) => `Three days left: your held data goes on ${date}`,
     },
-    preheader: (date) => `Nothing is deleted before ${date}. Download what you need.`,
+    preheader: (date) => `Nothing held goes before ${date}. Download what you need.`,
     introStart: (plan, date) =>
-      `The ${plan} plan of this space ended or was lowered. What it kept is held until ${date}, and nothing is deleted before then.`,
+      `The ${plan} plan of this space ended or was lowered. What it kept is held until ${date}.`,
+    safe: (date) => `Nothing held goes before ${date}.`,
     introLater: (plan, date) =>
       `What the ${plan} plan of this space kept is held only until ${date}.`,
     space: "Space",
@@ -107,9 +111,11 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       two_weeks: (date) => `Quedan dos semanas: tus datos conservados se borran el ${date}`,
       three_days: (date) => `Quedan tres días: tus datos conservados se borran el ${date}`,
     },
-    preheader: (date) => `No se borra nada antes del ${date}. Descarga lo que necesites.`,
+    preheader: (date) =>
+      `No se borra nada de lo conservado antes del ${date}. Descarga lo que necesites.`,
     introStart: (plan, date) =>
-      `El plan ${plan} de este espacio terminó o se redujo. Lo que guardaba se conserva hasta el ${date}, y no se borra nada antes.`,
+      `El plan ${plan} de este espacio terminó o se redujo. Lo que guardaba se conserva hasta el ${date}.`,
+    safe: (date) => `No se borra nada de lo conservado antes del ${date}.`,
     introLater: (plan, date) =>
       `Lo que guardaba el plan ${plan} de este espacio se conserva solo hasta el ${date}.`,
     space: "Espacio",
@@ -140,9 +146,11 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       two_weeks: (date) => `Faltam duas semanas: seus dados guardados são apagados em ${date}`,
       three_days: (date) => `Faltam três dias: seus dados guardados são apagados em ${date}`,
     },
-    preheader: (date) => `Nada é apagado antes de ${date}. Baixe o que precisar.`,
+    preheader: (date) =>
+      `Nada do que está guardado é apagado antes de ${date}. Baixe o que precisar.`,
     introStart: (plan, date) =>
-      `O plano ${plan} deste espaço terminou ou foi reduzido. O que ele guardava fica até ${date}, e nada é apagado antes disso.`,
+      `O plano ${plan} deste espaço terminou ou foi reduzido. O que ele guardava fica até ${date}.`,
+    safe: (date) => `Nada do que está guardado é apagado antes de ${date}.`,
     introLater: (plan, date) => `O que o plano ${plan} deste espaço guardava fica só até ${date}.`,
     space: "Espaço",
     personal: "Sua conta",
@@ -175,9 +183,10 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
         `Plus que trois jours : vos données conservées seront supprimées le ${date}`,
     },
     preheader: (date) =>
-      `Rien n’est supprimé avant le ${date}. Téléchargez ce dont vous avez besoin.`,
+      `Rien de ce qui est conservé n’est supprimé avant le ${date}. Téléchargez ce dont vous avez besoin.`,
     introStart: (plan, date) =>
-      `L’offre ${plan} de cet espace a pris fin ou a été réduite. Ce qu’elle gardait est conservé jusqu’au ${date}, et rien n’est supprimé avant.`,
+      `L’offre ${plan} de cet espace a pris fin ou a été réduite. Ce qu’elle gardait est conservé jusqu’au ${date}.`,
+    safe: (date) => `Rien de ce qui est conservé n’est supprimé avant le ${date}.`,
     introLater: (plan, date) =>
       `Ce que gardait l’offre ${plan} de cet espace n’est conservé que jusqu’au ${date}.`,
     space: "Espace",
@@ -208,9 +217,11 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       two_weeks: (date) => `Noch zwei Wochen: Ihre aufbewahrten Daten werden am ${date} gelöscht`,
       three_days: (date) => `Noch drei Tage: Ihre aufbewahrten Daten werden am ${date} gelöscht`,
     },
-    preheader: (date) => `Vor ${date} wird nichts gelöscht. Laden Sie herunter, was Sie brauchen.`,
+    preheader: (date) =>
+      `Vor ${date} wird nichts Aufbewahrtes gelöscht. Laden Sie herunter, was Sie brauchen.`,
     introStart: (plan, date) =>
-      `Der Tarif ${plan} dieses Bereichs ist abgelaufen oder wurde herabgestuft. Was er aufbewahrte, bleibt bis ${date} erhalten, und vorher wird nichts gelöscht.`,
+      `Der Tarif ${plan} dieses Bereichs ist abgelaufen oder wurde herabgestuft. Was er aufbewahrte, bleibt bis ${date} erhalten.`,
+    safe: (date) => `Vor ${date} wird nichts Aufbewahrtes gelöscht.`,
     introLater: (plan, date) =>
       `Was der Tarif ${plan} dieses Bereichs aufbewahrte, bleibt nur noch bis ${date} erhalten.`,
     space: "Bereich",
@@ -241,9 +252,10 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       two_weeks: (date) => `Осталось две недели: сохранённые данные будут удалены ${date}`,
       three_days: (date) => `Осталось три дня: сохранённые данные будут удалены ${date}`,
     },
-    preheader: (date) => `До ${date} ничего не удаляется. Скачайте нужное.`,
+    preheader: (date) => `Из сохранённого ничего не удаляется до ${date}. Скачайте нужное.`,
     introStart: (plan, date) =>
-      `Тариф ${plan} этого пространства закончился или был понижен. То, что он хранил, сохраняется до ${date}, и до этого ничего не удаляется.`,
+      `Тариф ${plan} этого пространства закончился или был понижен. То, что он хранил, сохраняется до ${date}.`,
+    safe: (date) => `Из сохранённого ничего не удаляется до ${date}.`,
     introLater: (plan, date) =>
       `То, что хранил тариф ${plan} этого пространства, сохраняется только до ${date}.`,
     space: "Пространство",
@@ -274,9 +286,11 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       two_weeks: (date) => `残り 2 週間: 保持中のデータは ${date} に削除されます`,
       three_days: (date) => `残り 3 日: 保持中のデータは ${date} に削除されます`,
     },
-    preheader: (date) => `${date} までは何も削除されません。必要なものをダウンロードしてください。`,
+    preheader: (date) =>
+      `保持中のものは ${date} までは削除されません。必要なものをダウンロードしてください。`,
     introStart: (plan, date) =>
-      `このスペースの ${plan} プランが終了したか、引き下げられました。そのプランで保持していたものは ${date} まで保持され、それまでは何も削除されません。`,
+      `このスペースの ${plan} プランが終了したか、引き下げられました。そのプランで保持していたものは ${date} まで保持されます。`,
+    safe: (date) => `保持中のものは ${date} までは削除されません。`,
     introLater: (plan, date) =>
       `このスペースの ${plan} プランで保持していたものは ${date} までしか保持されません。`,
     space: "スペース",
@@ -307,9 +321,10 @@ export const GRACE_NOTICE_TEXT: { readonly [code in LocaleCode]: GraceNoticeText
       two_weeks: (date) => `还剩两周：保留的数据将于 ${date} 删除`,
       three_days: (date) => `还剩三天：保留的数据将于 ${date} 删除`,
     },
-    preheader: (date) => `${date} 之前不会删除任何内容。请下载你需要的内容。`,
+    preheader: (date) => `保留的内容在 ${date} 之前不会被删除。请下载你需要的内容。`,
     introStart: (plan, date) =>
-      `此空间的 ${plan} 方案已结束或已降级。它保留的内容将保留到 ${date}，在此之前不会删除任何内容。`,
+      `此空间的 ${plan} 方案已结束或已降级。它保留的内容将保留到 ${date}。`,
+    safe: (date) => `保留的内容在 ${date} 之前不会被删除。`,
     introLater: (plan, date) => `此空间的 ${plan} 方案保留的内容只保留到 ${date}。`,
     space: "空间",
     personal: "你的账户",
@@ -344,8 +359,16 @@ export function graceNoticeEmail(input: GraceNoticeInput): EmailContent {
   const locale = input.locale ?? DEFAULT_LOCALE;
   const t = GRACE_NOTICE_TEXT[locale];
   const date = formatExpiry(input.until, locale);
-  const subject = t.subject[input.moment](date);
+  // The first date anything held goes comes from the steps listed, never from the hold's end
+  // alone: another hold can let something go earlier (decision 0022, third delivery).
+  const first =
+    input.kinds.length === 0
+      ? input.until
+      : Math.min(input.until, ...input.kinds.map((entry) => entry.from));
+  const firstDate = formatExpiry(first, locale);
+  const subject = t.subject[input.moment](input.moment === "start" ? firstDate : date);
   const intro = (input.moment === "start" ? t.introStart : t.introLater)(input.plan, date);
+  const safe = input.kinds.length === 0 ? null : t.safe(firstDate);
   const space =
     input.workspace === null
       ? t.personal
@@ -359,7 +382,7 @@ export function graceNoticeEmail(input: GraceNoticeInput): EmailContent {
   }));
   const requestLink = t.requestLink(input.plan);
   const blocks: Block[] = [
-    { kind: "paragraph", content: [intro] },
+    { kind: "paragraph", content: safe === null ? [intro] : [`${intro}${gap(intro)}${safe}`] },
     { kind: "facts", rows: [{ label: t.space, value: space }] },
     ...(rows.length > 0
       ? ([
@@ -380,7 +403,7 @@ export function graceNoticeEmail(input: GraceNoticeInput): EmailContent {
   ];
   const html = renderEmail({
     title: subject,
-    preheader: t.preheader(date),
+    preheader: t.preheader(firstDate),
     heading: subject,
     blocks,
     footer: t.reason,
@@ -389,7 +412,7 @@ export function graceNoticeEmail(input: GraceNoticeInput): EmailContent {
   const text = [
     subject,
     "",
-    intro,
+    safe === null ? intro : `${intro}${gap(intro)}${safe}`,
     "",
     `${t.space}: ${space}`,
     "",

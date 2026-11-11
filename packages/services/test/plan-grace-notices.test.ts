@@ -12,7 +12,14 @@ import {
   PLAN_GRACE_MS,
   PLANS,
 } from "@portifact/contracts";
-import { createAccessDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
+import {
+  aliasBinding,
+  createAccessDb,
+  globalDb,
+  regionalDb,
+  regionsFromEnv,
+  schema,
+} from "@portifact/db";
 import { graceNoticeDue, NOTICE_EMAILS_PER_CYCLE } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -27,6 +34,7 @@ import {
 import { runMaintenance, runRegionalMaintenance } from "../src/maintenance.ts";
 import { runJob } from "../src/outbox.ts";
 import {
+  GRACE_NOTICE_CAPACITY_RETRY_MS,
   GRACE_NOTICE_OWNERS_PER_RUN,
   type GraceNotifier,
   scheduleGraceNotices,
@@ -37,9 +45,64 @@ import { DAY, db, MINUTE, NOW, racing, session, user, value } from "./fixtures.t
 import { raceGlobalBeforeFirstWrite } from "./race.ts";
 
 const regions = () => regionsFromEnv(env);
+
+/**
+ * A D1 binding whose statements matching `pattern` fail (alone or in a batch), the way a Worker
+ * dying or a database error stops a write: `times` failures, then it works again.
+ */
+function failing(binding: D1Database, pattern: RegExp, times = 1): D1Database {
+  let left = times;
+  const fail = () => {
+    if (left <= 0) return false;
+    left -= 1;
+    return true;
+  };
+  const bad = new WeakSet<object>();
+  const proxy = new Proxy(binding, {
+    get(target, property) {
+      if (property === "prepare") {
+        return (query: string) => {
+          const statement = target.prepare(query);
+          if (!pattern.test(query)) return statement;
+          const wrap = (inner: D1PreparedStatement): D1PreparedStatement => {
+            const wrapped = new Proxy(inner, {
+              get(t, prop) {
+                if (prop === "bind") return (...values: unknown[]) => wrap(t.bind(...values));
+                if (prop === "run" || prop === "all" || prop === "raw" || prop === "first") {
+                  return async (...args: unknown[]) => {
+                    if (fail()) throw new Error("worker died");
+                    // biome-ignore lint/suspicious/noExplicitAny: forwarding the D1 call as is
+                    return (t as any)[prop](...args);
+                  };
+                }
+                const value = Reflect.get(t, prop);
+                return typeof value === "function" ? value.bind(t) : value;
+              },
+            });
+            bad.add(wrapped);
+            return wrapped;
+          };
+          return wrap(statement);
+        };
+      }
+      if (property === "batch") {
+        return async (statements: D1PreparedStatement[]) => {
+          if (statements.some((statement) => bad.has(statement)) && fail()) {
+            throw new Error("worker died");
+          }
+          return target.batch(statements);
+        };
+      }
+      const value = Reflect.get(target, property);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  return aliasBinding(proxy, binding);
+}
 const eu = () => regions().get("eu");
 const access = () => createAccessDb(env.ACCESS_DB);
 const euAccess = () => createAccessDb(env.ACCESS_DB_EU);
+const HOUR = 3_600_000;
 
 function slot(from: number, until = from + PLAN_GRACE_MS): GraceSlot {
   return {
@@ -55,6 +118,23 @@ function slot(from: number, until = from + PLAN_GRACE_MS): GraceSlot {
       auditRetentionDays: PLANS.pro.limits.auditRetentionDays,
     },
     features: ["pin"],
+  };
+}
+
+/** A hold of the Team plan's values, which keep more than Pro's. */
+function teamSlot(from: number, until = from + PLAN_GRACE_MS): GraceSlot {
+  const { limits } = PLANS.team;
+  return {
+    ...slot(from, until),
+    plan: "team",
+    limits: {
+      archiveMonths: limits.archiveMonths,
+      retainedPreviousVersions: limits.retainedPreviousVersions,
+      previousVersionRetentionDays: limits.previousVersionRetentionDays,
+      accessLogRetentionDays: limits.accessLogRetentionDays,
+      auditRetentionDays: limits.auditRetentionDays,
+    },
+    features: ["pin", "audit"],
   };
 }
 
@@ -165,10 +245,13 @@ describe("scheduleGraceNotices", () => {
 
     expect(await scheduleGraceNotices(db(), NOW + MINUTE)).toEqual({ scheduled: 1 });
     const job = await onlyJob(owner.id);
-    expect(job.payload).toEqual({ from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start" });
+    const claim = (job.payload as { claim: string }).claim;
+    expect(job.payload).toEqual({ from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start", claim });
+    expect(claim).toMatch(/^[0-9a-f-]{36}$/);
     expect(job.availableAt).toBe(NOW + MINUTE);
+    // The mark names the token of the one job that may send.
     expect(await marksOf(owner.id)).toEqual([
-      { from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start" },
+      { from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start", claim },
     ]);
     // The mark changes neither the grace nor `updated_at`, which other writers condition on.
     expect((await planRow(owner.id))?.updatedAt).toBe(NOW);
@@ -223,7 +306,8 @@ describe("scheduleGraceNotices", () => {
 
   it("announces one hold per owner and run, the one ending first, keeping earlier marks", async () => {
     const owner = await user();
-    const first = slot(NOW - 20 * DAY);
+    // Team lowered to Pro, then Pro removed: the Team hold keeps more and ends first.
+    const first = teamSlot(NOW - 20 * DAY);
     const second = slot(NOW);
     await holding(owner.id, [second, first]);
     await scheduleGraceNotices(db(), NOW);
@@ -248,6 +332,13 @@ describe("scheduleGraceNotices", () => {
       [[slot(NOW - 70 * DAY)], null],
       [[slot(NOW)], [{ from: 1, until: 2, moment: "three_days" }]],
       ["not json", null],
+      // A hold the SQL reads as due (an object with a live `until`) but `readGrace` refuses.
+      [
+        JSON.stringify([
+          { ...slot(NOW), limits: { ...slot(NOW).limits, auditRetentionDays: 999_999 } },
+        ]),
+        null,
+      ],
       [JSON.stringify([{ plan: "pro" }]), null],
       [[slot(NOW + DAY)], null],
     ];
@@ -349,7 +440,7 @@ describe("scheduleGraceNotices", () => {
         updatedAt: NOW - DAY,
       });
     await runMaintenance(db(), env.ARTIFACTS, NOW + MINUTE);
-    expect((await onlyJob(owner.id)).payload).toEqual({
+    expect((await onlyJob(owner.id)).payload).toMatchObject({
       from: NOW,
       until: NOW + PLAN_GRACE_MS,
       moment: "start",
@@ -472,13 +563,54 @@ describe("sendGraceNotice", () => {
     expect(await jobsFor(owner.id)).toHaveLength(0);
   });
 
-  it("stops on the expiry notices' rung of the capacity ladder and drops the job", async () => {
+  it("stops on the expiry notices' rung and drops a start or 14-day email", async () => {
     const { owner, job } = await scheduled();
     await recordEmailsSent(db().global, NOW, NOTICE_EMAILS_PER_CYCLE);
     const { graceNotifier, sent } = fakeNotifier();
     expect(await run(job, NOW + 2 * MINUTE, graceNotifier)).toBe("stale");
     expect(sent).toHaveLength(0);
     expect(await emailsSentInCycle(db().global, NOW)).toBe(NOTICE_EMAILS_PER_CYCLE);
+    expect(await jobsFor(owner.id)).toHaveLength(0);
+  });
+
+  it("keeps the last warning waiting for capacity, and sends it once there is room", async () => {
+    const owner = await removedPro();
+    const held = { from: NOW, until: NOW + PLAN_GRACE_MS };
+    const at = held.until - 2 * DAY;
+    await scheduleGraceNotices(db(), at);
+    const job = await onlyJob(owner.id);
+    expect(job.payload).toMatchObject({ moment: "three_days" });
+    await recordEmailsSent(db().global, at, NOTICE_EMAILS_PER_CYCLE);
+    const { graceNotifier, sent } = fakeNotifier();
+    expect(await run(job, at + MINUTE, graceNotifier)).toBe("kept");
+    expect(sent).toHaveLength(0);
+    const waiting = await onlyJob(owner.id);
+    expect(waiting.id).not.toBe(job.id);
+    expect(waiting.payload).toEqual(job.payload);
+    expect(waiting.availableAt).toBe(at + MINUTE + GRACE_NOTICE_CAPACITY_RETRY_MS);
+    // The scan does not schedule a second one meanwhile.
+    expect(await scheduleGraceNotices(db(), at + 2 * MINUTE)).toEqual({ scheduled: 0 });
+    // Still no room an hour later: it waits again.
+    const later = at + MINUTE + GRACE_NOTICE_CAPACITY_RETRY_MS;
+    expect(await run(waiting, later, graceNotifier)).toBe("kept");
+    // Room again (the counters of a new cycle): it is sent, once.
+    await env.DB.exec("DELETE FROM email_counters");
+    const again = await onlyJob(owner.id);
+    expect(await run(again, later + GRACE_NOTICE_CAPACITY_RETRY_MS, graceNotifier)).toBe("done");
+    expect(sent).toHaveLength(1);
+    expect(await jobsFor(owner.id)).toHaveLength(0);
+  });
+
+  it("stops waiting at the hold's end: the warning is then moot", async () => {
+    const owner = await removedPro();
+    const until = NOW + PLAN_GRACE_MS;
+    await scheduleGraceNotices(db(), until - DAY);
+    const job = await onlyJob(owner.id);
+    await recordEmailsSent(db().global, until - DAY, NOTICE_EMAILS_PER_CYCLE);
+    const { graceNotifier } = fakeNotifier();
+    expect(await run(job, until - DAY + MINUTE, graceNotifier)).toBe("kept");
+    const waiting = await onlyJob(owner.id);
+    expect(await run(waiting, until + MINUTE, graceNotifier)).toBe("stale");
     expect(await jobsFor(owner.id)).toHaveLength(0);
   });
 
@@ -678,7 +810,7 @@ describe("a restore", () => {
     const exported = await exportOwnerPlans(regions().global, NOW + 2 * MINUTE);
     const mine = exported.filter((plan) => plan.ownerId === owner.id);
     expect(mine[0]?.graceNotices).toEqual([
-      { from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start" },
+      { from: NOW, until: NOW + PLAN_GRACE_MS, moment: "start", claim: expect.any(String) },
     ]);
     // The restore rewinds the row to before the email.
     await regions()
@@ -704,5 +836,131 @@ describe("a restore", () => {
     expect(await marksOf(owner.id)).toEqual([]);
     expect(await scheduleGraceNotices(db(), NOW + 50 * DAY)).toEqual({ scheduled: 1 });
     expect((await onlyJob(owner.id)).payload).toMatchObject({ moment: "two_weeks" });
+  });
+});
+
+describe("the review's cases", () => {
+  it("never lets rows it cannot announce keep later owners waiting (the cursor moves on)", async () => {
+    const bad = slot(NOW);
+    bad.limits.auditRetentionDays = 999_999; // above RETENTION_LIMIT_MAX: unreadable for readGrace
+    for (let i = 0; i < GRACE_NOTICE_OWNERS_PER_RUN; i += 1) {
+      await holding(`0000-bad-${String(i).padStart(3, "0")}`, [bad]);
+    }
+    const owner = await removedPro();
+    for (let run = 0; run < 3; run += 1) {
+      await scheduleGraceNotices(db(), NOW + MINUTE + run * 15 * MINUTE);
+    }
+    expect(await jobsFor(owner.id)).toHaveLength(1);
+    await env.DB.exec("DELETE FROM owner_plans WHERE owner_id LIKE '0000-bad-%'");
+  });
+
+  it("dates every kind in a covering hold's email at that hold's end", async () => {
+    const owner = await user("Owner");
+    // Two Pro holds: the earlier one's end lets nothing go, so it is not announced.
+    const a = slot(NOW - 50 * DAY);
+    const b = slot(NOW);
+    await holding(owner.id, [a, b]);
+    await scheduleGraceNotices(db(), a.until - 10 * DAY);
+    const job = await onlyJob(owner.id);
+    expect(job.payload).toMatchObject({ from: b.from, until: b.until });
+    const { graceNotifier, sent } = fakeNotifier();
+    await run(job, a.until - 10 * DAY + MINUTE, graceNotifier);
+    expect(sent).toHaveLength(1);
+    for (const kind of sent[0]?.kinds ?? []) expect(kind.from).toBe(b.until);
+  });
+});
+
+describe("a crash between the job and the mark", () => {
+  async function euHolding(marks: GraceNoticeMark[] | null) {
+    const admin = await user("Admin");
+    const ws = value(
+      await createWorkspace(regions().global, {
+        slug: `eu-${crypto.randomUUID().slice(0, 8)}`,
+        name: "EU",
+        adminUserId: admin.id,
+        now: NOW,
+        region: "eu",
+      }),
+    );
+    const held = slot(NOW - 58 * DAY);
+    await holding(ws.id, [held], marks);
+    return { ws, held };
+  }
+
+  async function sendAll(ownerId: string, region?: "eu") {
+    const database = region ? eu().db : db();
+    const { graceNotifier, sent } = fakeNotifier();
+    for (const job of await jobsFor(ownerId, database)) {
+      await runJob(
+        database,
+        region ? env.ARTIFACTS_EU : env.ARTIFACTS,
+        message(job, region),
+        NOW + HOUR,
+        {
+          access: region ? euAccess() : access(),
+          graceNotifier,
+        },
+      );
+    }
+    return sent;
+  }
+
+  it("before the regional job: nothing is written and the next scan schedules it", async () => {
+    const { ws } = await euHolding([
+      { from: NOW - 58 * DAY, until: NOW + 2 * DAY, moment: "two_weeks" },
+    ]);
+    const broken = regionalDb(failing(env.DB_EU, /insert into "outbox"/), regions().global);
+    await expect(scheduleGraceNotices(broken, NOW, "eu")).rejects.toThrow();
+    expect((await marksOf(ws.id)).map((mark) => mark.moment)).toEqual(["two_weeks"]);
+    expect(await jobsFor(ws.id, eu().db)).toHaveLength(0);
+    expect(await scheduleGraceNotices(eu().db, NOW + 15 * MINUTE, "eu")).toEqual({ scheduled: 1 });
+    expect((await sendAll(ws.id, "eu")).map((notice) => notice.moment)).toEqual(["three_days"]);
+  });
+
+  it("between the regional job and the global mark: that job is moot and the next scan sends once", async () => {
+    const { ws } = await euHolding([
+      { from: NOW - 58 * DAY, until: NOW + 2 * DAY, moment: "two_weeks" },
+    ]);
+    const broken = regionalDb(env.DB_EU, globalDb(failing(env.DB, /update "owner_plans"/)));
+    await expect(scheduleGraceNotices(broken, NOW, "eu")).rejects.toThrow();
+    // The 3-day email is not lost: the mark did not land, so the next scan schedules it again.
+    expect((await marksOf(ws.id)).map((mark) => mark.moment)).toEqual(["two_weeks"]);
+    expect(await jobsFor(ws.id, eu().db)).toHaveLength(1);
+    for (let i = 1; i <= 3; i += 1) {
+      await scheduleGraceNotices(eu().db, NOW + i * 15 * MINUTE, "eu");
+    }
+    expect(await jobsFor(ws.id, eu().db)).toHaveLength(2);
+    // The stale job's token is in no mark: of the two, one email goes.
+    expect((await sendAll(ws.id, "eu")).map((notice) => notice.moment)).toEqual(["three_days"]);
+  });
+
+  it("with one database: the batch is all or nothing, and the next scan sends once", async () => {
+    const owner = await user();
+    await holding(
+      owner.id,
+      [slot(NOW - 58 * DAY)],
+      [{ from: NOW - 58 * DAY, until: NOW + 2 * DAY, moment: "two_weeks" }],
+    );
+    const binding = failing(env.DB, /update "owner_plans"/);
+    const broken = regionalDb(binding, globalDb(binding));
+    await expect(scheduleGraceNotices(broken, NOW)).rejects.toThrow("worker died");
+    expect(await jobsFor(owner.id)).toHaveLength(0);
+    expect((await marksOf(owner.id)).map((mark) => mark.moment)).toEqual(["two_weeks"]);
+    await scheduleGraceNotices(db(), NOW + 15 * MINUTE);
+    await scheduleGraceNotices(db(), NOW + 30 * MINUTE);
+    expect((await sendAll(owner.id)).map((notice) => notice.moment)).toEqual(["three_days"]);
+  });
+
+  it("two concurrent scans with a separate database send one email", async () => {
+    const { ws } = await euHolding(null);
+    const raced = regionalDb(
+      env.DB_EU,
+      raceGlobalBeforeFirstWrite(async () => {
+        await scheduleGraceNotices(eu().db, NOW, "eu");
+      }),
+    );
+    await scheduleGraceNotices(raced, NOW, "eu");
+    expect(await jobsFor(ws.id, eu().db)).toHaveLength(1);
+    expect(await sendAll(ws.id, "eu")).toHaveLength(1);
   });
 });

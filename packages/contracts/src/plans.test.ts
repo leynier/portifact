@@ -323,7 +323,11 @@ describe("plan grace", () => {
       three_days: 3 * 86_400_000,
     });
     expect(GraceNoticeMark.parse(mark)).toEqual(mark);
-    expect(GraceNoticePayload.parse(mark)).toEqual(mark);
+    expect(GraceNoticeMark.parse({ ...mark, claim: "c1" })).toEqual({ ...mark, claim: "c1" });
+    expect(GraceNoticeMark.safeParse({ ...mark, claim: "" }).success).toBe(false);
+    expect(GraceNoticePayload.parse({ ...mark, claim: "c1" })).toEqual({ ...mark, claim: "c1" });
+    // A job always carries the token of the scan that wrote it.
+    expect(GraceNoticePayload.safeParse(mark).success).toBe(false);
     expect(GraceNoticeMark.safeParse({ ...mark, moment: "later" }).success).toBe(false);
     expect(GraceNoticeMark.safeParse({ ...mark, extra: 1 }).success).toBe(false);
     expect(GraceNoticeMark.safeParse({ ...mark, from: -1 }).success).toBe(false);

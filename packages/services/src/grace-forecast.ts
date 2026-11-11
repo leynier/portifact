@@ -19,13 +19,13 @@ import {
   type Entitlements,
   entitlements,
   fail,
+  type GraceForecastStep,
   graceForecastSteps,
   ok,
-  ownEntitlements,
   type Result,
   versionRetention,
 } from "@portifact/domain";
-import { and, count, eq, gt, inArray, lt, lte, not } from "drizzle-orm";
+import { and, count, eq, gte, inArray, lt, not } from "drizzle-orm";
 import { ownerPlanRecord } from "./plans.ts";
 import { previousRetainedSql } from "./retention.ts";
 
@@ -65,7 +65,10 @@ export async function getGraceForecast(
 /**
  * The counts behind the forecast, for one owner, without authorization or rate limit: the route
  * above checks both, and the grace emails (decision 0022, third delivery) count the same way from
- * their job. One bounded count per kind on the owner's rows, never a read per artifact.
+ * their job. One entry per step of `graceForecastSteps` (a kind can go in several steps, one per
+ * hold end at which its retention drops), each counting exactly what the scans delete when the
+ * clock passes that step: what the retention just before kept and the one from then on does not.
+ * One bounded count per step on the owner's rows, never a read per artifact.
  */
 export async function graceForecastKinds(
   db: RegionalDb,
@@ -75,46 +78,44 @@ export async function graceForecastKinds(
 ): Promise<Omit<GraceForecast, "ownerId">> {
   const record = await ownerPlanRecord(db.global, ownerId);
   const owner = entitlements(record, now);
-  const own = ownEntitlements(record, now);
   const kinds: GraceForecast["kinds"] = [];
   for (const step of graceForecastSteps(record, now)) {
+    const { from, before, after } = step;
     if (step.kind === "versions") {
-      kinds.push({
-        kind: "versions",
-        count: await lettingGoVersions(db, ownerId, owner, own, now, step.from),
-        from: step.from,
-      });
+      kinds.push({ kind: "versions", count: await droppedVersions(db, ownerId, step), from });
     } else if (step.kind === "accessLog") {
-      const [openings, days] = await expiringRows(access, ownerId, now, step.from);
-      kinds.push({ kind: "accessLog", count: openings, from: step.from });
-      kinds.push({ kind: "analytics", count: days, from: step.from });
+      const [openings, days] = await expiringAt(access, ownerId, from);
+      kinds.push({ kind: "accessLog", count: openings, from });
+      kinds.push({ kind: "analytics", count: days, from });
     } else if (step.kind === "auditEvents") {
-      const cutoff = auditPruneCutoff(own.limits.auditRetentionDays, step.from);
+      // The sweep deletes events older than the retention in force: until `from` the one before,
+      // from then on the one after.
+      const window = {
+        from: auditPruneCutoff(before.auditRetentionDays, from),
+        to: auditPruneCutoff(after.auditRetentionDays, from),
+      };
       kinds.push({
         kind: "auditEvents",
         // The owner's events live in its region and, for global rows, the global database; with
         // one database both are the same rows, counted once.
         count: bothSides(db)
-          ? await olderEvents(db, ownerId, cutoff)
-          : (await olderEvents(db, ownerId, cutoff)) +
-            (await olderEvents(db.global, ownerId, cutoff)),
-        from: step.from,
+          ? await eventsBetween(db, ownerId, window)
+          : (await eventsBetween(db, ownerId, window)) +
+            (await eventsBetween(db.global, ownerId, window)),
+        from,
       });
     } else {
-      kinds.push({ kind: "pins", count: await pinnedArtifacts(db, ownerId), from: step.from });
+      kinds.push({ kind: "pins", count: await pinnedArtifacts(db, ownerId), from });
     }
   }
   return { owner, kinds };
 }
 
-/** Previous versions retained now that the plan's own retention no longer keeps at `from`. */
-async function lettingGoVersions(
+/** Previous versions the retention just before `from` keeps and the one from then on does not. */
+async function droppedVersions(
   db: RegionalDb,
   ownerId: string,
-  owner: Entitlements,
-  own: Entitlements,
-  now: number,
-  from: number,
+  step: GraceForecastStep,
 ): Promise<number> {
   const v = schema.versions;
   const a = schema.artifacts;
@@ -126,18 +127,21 @@ async function lettingGoVersions(
       and(
         eq(a.ownerId, ownerId),
         inArray(a.state, ["active", "archived", "suspended"]),
-        previousRetainedSql(versionRetention(owner.limits), now),
-        not(previousRetainedSql(versionRetention(own.limits), from)),
+        previousRetainedSql(versionRetention(step.before), step.from),
+        not(previousRetainedSql(versionRetention(step.after), step.from)),
       ),
     );
   return Number(row?.n ?? 0);
 }
 
-/** Access log openings and analytics day counters still kept now that expire by `from`. */
-async function expiringRows(
+/**
+ * Access log openings and analytics day counters dated to go exactly at `from`: a row's expiry is
+ * the moment the retention in force no longer keeps it (`retentionExpiry`), so a drop at a hold's
+ * end dates every row it lets go to that end, and the prune deletes them once it has passed.
+ */
+async function expiringAt(
   access: AccessDb,
   ownerId: string,
-  now: number,
   from: number,
 ): Promise<[number, number]> {
   const e = accessSchema.accessEvents;
@@ -146,22 +150,26 @@ async function expiringRows(
     access
       .select({ n: count() })
       .from(e)
-      .where(and(eq(e.ownerId, ownerId), gt(e.expiresAt, now), lte(e.expiresAt, from))),
+      .where(and(eq(e.ownerId, ownerId), eq(e.expiresAt, from))),
     access
       .select({ n: count() })
       .from(v)
-      .where(and(eq(v.ownerId, ownerId), gt(v.expiresAt, now), lte(v.expiresAt, from))),
+      .where(and(eq(v.ownerId, ownerId), eq(v.expiresAt, from))),
   ]);
   return [Number(openings[0]?.n ?? 0), Number(days[0]?.n ?? 0)];
 }
 
-/** The owner's audit events in one database older than `cutoff`. */
-async function olderEvents(db: Db, ownerId: string, cutoff: number): Promise<number> {
+/** The owner's audit events in one database recorded in `[from, to)`. */
+async function eventsBetween(
+  db: Db,
+  ownerId: string,
+  window: { from: number; to: number },
+): Promise<number> {
   const ae = schema.auditEvents;
   const [row] = await db
     .select({ n: count() })
     .from(ae)
-    .where(and(eq(ae.ownerId, ownerId), lt(ae.at, cutoff)));
+    .where(and(eq(ae.ownerId, ownerId), gte(ae.at, window.from), lt(ae.at, window.to)));
   return Number(row?.n ?? 0);
 }
 

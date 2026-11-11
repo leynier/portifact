@@ -30,6 +30,7 @@ import {
 } from "@portifact/db";
 import {
   checkNoticeCapacity,
+  type GraceNoticeRecord,
   graceNoticeDue,
   graceNoticeStillDue,
   logEvent,
@@ -44,12 +45,15 @@ import {
   suppressEmail,
 } from "./email.ts";
 import { graceForecastKinds } from "./grace-forecast.ts";
+import { cursorRead, resumeAt, type ScanCaps, savedCursorSql } from "./maintenance-cursors.ts";
 import type { JobOutcome } from "./outbox.ts";
-import { ownerPlanRecord } from "./plans.ts";
 import { ownerOfRegion } from "./shapes.ts";
 
-/** Owners one run of the scan schedules at most, per region. */
+/** Plan rows one page of the scan reads, per region. */
 export const GRACE_NOTICE_OWNERS_PER_RUN = 100;
+
+/** How long a `three_days` email refused for capacity waits before it is tried again. */
+export const GRACE_NOTICE_CAPACITY_RETRY_MS = 60 * 60_000;
 
 /** One kind of held data the email lists: how many items go, and from when. */
 export interface GraceNoticeKind {
@@ -103,64 +107,128 @@ export interface GraceNoticeScanResult {
 }
 
 /**
- * Schedules this run's grace emails for the owners of `region`: at most one per owner, for up to
- * `GRACE_NOTICE_OWNERS_PER_RUN` owners. One read when nothing is due.
+ * Plan rows the scan reads per run and region: three pages of `GRACE_NOTICE_OWNERS_PER_RUN`, then
+ * it resumes from `maintenance_cursors`, so rows it cannot announce (a grace the SQL reads but the
+ * domain refuses, a hold another covers) never keep later owners waiting.
+ */
+export const GRACE_NOTICE_CAPS: ScanCaps = { pageSize: GRACE_NOTICE_OWNERS_PER_RUN, maxPages: 3 };
+
+/**
+ * Schedules this run's grace emails for the owners of `region`: at most one per owner, reading at
+ * most `caps` and resuming where the last run stopped. One call when nothing is due (the saved
+ * cursor and the first page in one batch).
+ *
+ * At most once (decision 0022, "At most once"): every job carries a token of its own, and the
+ * owner's mark for the hold records the token of the job that may send. With one database the
+ * job and the mark go in one batch, both on the row as read. With a separate regional database
+ * (no batch spans both) the job goes first, then the mark with its token on the row as read: a
+ * crash in between leaves a job whose token no mark holds, which is moot when it runs, and the
+ * next scan schedules it again; of two concurrent scans one mark lands, and the other job is
+ * withdrawn (or moot).
  */
 export async function scheduleGraceNotices(
   db: RegionalDb,
   now: number,
   region: Region = DEFAULT_REGION,
+  caps: ScanCaps = GRACE_NOTICE_CAPS,
 ): Promise<GraceNoticeScanResult> {
-  const rows = await db.global
-    .select({
-      ownerId: p.ownerId,
-      plan: p.plan,
-      seats: p.seats,
-      validUntil: p.validUntil,
-      overrides: p.overrides,
-      grace: sql<string | null>`${p.grace}`,
-      graceNotices: sql<string | null>`${p.graceNotices}`,
-    })
-    .from(p)
-    .where(and(dueSql(now), ownerOfRegion(p.ownerId, region)))
-    .orderBy(asc(p.ownerId))
-    .limit(GRACE_NOTICE_OWNERS_PER_RUN);
-  const both = bothSides(db);
+  const global = db.global;
+  const name = `plan_grace_notices:${region}`;
+  const page = (after: SQL) =>
+    global
+      .select({
+        ownerId: p.ownerId,
+        plan: p.plan,
+        seats: p.seats,
+        validUntil: p.validUntil,
+        overrides: p.overrides,
+        grace: sql<string | null>`${p.grace}`,
+        graceNotices: sql<string | null>`${p.graceNotices}`,
+      })
+      .from(p)
+      .where(and(sql`${p.ownerId} > ${after}`, dueSql(now), ownerOfRegion(p.ownerId, region)))
+      .orderBy(asc(p.ownerId))
+      .limit(caps.pageSize);
   let scheduled = 0;
-  for (const row of rows) {
-    const due = graceNoticeDue(row, now);
-    // The SQL matches the rule; a grace that cannot be read is never announced.
-    if (due === null) continue;
-    // The exact row read: the raw grace and marks (no re-serialization).
-    const same = sql`exists (select 1 from ${p} where ${p.ownerId} = ${row.ownerId} and ${p.grace} is ${row.grace} and ${p.graceNotices} is ${row.graceNotices})`;
-    const payload = GraceNoticePayload.parse({
-      from: due.slot.from,
-      until: due.slot.until,
-      moment: due.moment,
-    });
-    const mark = (w: Db) =>
-      w
-        .update(p)
-        .set({ graceNotices: sql`${JSON.stringify(due.marks)}` })
-        .where(and(eq(p.ownerId, row.ownerId), same))
-        .returning({ ownerId: p.ownerId });
-    if (both) {
-      // One database: the job before the mark, on the same condition, as expiry notices do.
-      const [, marked] = await both.batch([
-        noticeJob(both, row.ownerId, payload, same, now),
-        mark(both),
+  let cursor: string | null = null;
+  let started = "";
+  let ended = false;
+  for (let pages = 0; pages < caps.maxPages; pages += 1) {
+    let rows: Awaited<ReturnType<typeof page>>;
+    if (cursor === null) {
+      const [saved, first] = await global.batch([
+        cursorRead(global, name),
+        page(savedCursorSql(name)),
       ]);
-      if (marked.length > 0) scheduled += 1;
-      continue;
+      started = saved[0]?.cursor ?? "";
+      rows = first;
+    } else {
+      rows = await page(sql`${cursor}`);
     }
-    // A separate regional database: the mark first; only the scan whose mark landed writes the
-    // job, so two scans write one. A failure in between loses this email, never sends two.
-    const marked = await mark(db.global);
-    if (marked.length === 0) continue;
-    await db.batch([noticeJob(db, row.ownerId, payload, sql`1`, now)]);
-    scheduled += 1;
+    if (rows.length > 0) cursor = rows.at(-1)?.ownerId ?? cursor;
+    else cursor ??= started;
+    for (const row of rows) {
+      if (await scheduleOne(db, row, now)) scheduled += 1;
+    }
+    if (rows.length < caps.pageSize) {
+      ended = true;
+      break;
+    }
   }
+  await resumeAt(global, name, started, ended ? null : cursor, now);
   return { scheduled };
+}
+
+async function scheduleOne(
+  db: RegionalDb,
+  row: GraceNoticeRecord & { ownerId: string; grace: string | null; graceNotices: string | null },
+  now: number,
+): Promise<boolean> {
+  const claim = crypto.randomUUID();
+  const due = graceNoticeDue(row, now, claim);
+  // The SQL only narrows: a grace that cannot be read, or a hold another covers past its end, is
+  // never announced, and the cursor moves past it.
+  if (due === null) return false;
+  // The exact row read: the raw grace and marks (no re-serialization).
+  const same = sql`exists (select 1 from ${p} where ${p.ownerId} = ${row.ownerId} and ${p.grace} is ${row.grace} and ${p.graceNotices} is ${row.graceNotices})`;
+  const payload = GraceNoticePayload.parse({
+    from: due.slot.from,
+    until: due.slot.until,
+    moment: due.moment,
+    claim,
+  });
+  const mark = (w: Db) =>
+    w
+      .update(p)
+      .set({ graceNotices: sql`${JSON.stringify(due.marks)}` })
+      .where(and(eq(p.ownerId, row.ownerId), same))
+      .returning({ ownerId: p.ownerId });
+  const both = bothSides(db);
+  if (both) {
+    // One database: the job before the mark, on the same condition, as expiry notices do.
+    const [, marked] = await both.batch([
+      noticeJob(both, row.ownerId, payload, same, now),
+      mark(both),
+    ]);
+    return marked.length > 0;
+  }
+  // A separate regional database: the job first, then the mark that names its token.
+  const [job] = await db
+    .insert(schema.outbox)
+    .values({
+      topic: "plan_grace_notice",
+      payload,
+      availableAt: now,
+      createdAt: now,
+      subject: row.ownerId,
+    })
+    .returning({ id: schema.outbox.id });
+  const marked = await mark(db.global);
+  if (marked.length > 0) return true;
+  // Another scan or an operator's change came first: this job's token is in no mark, so it would
+  // be moot; withdraw it now rather than let it run for nothing.
+  if (job) await db.delete(schema.outbox).where(eq(schema.outbox.id, job.id));
+  return false;
 }
 
 function noticeJob(
@@ -185,6 +253,23 @@ function skipped(reason: Skip, moment: GraceNoticeMoment | "unknown"): JobOutcom
   // Only the reason and the moment: never the owner's people, names or counts of their data.
   logEvent("log", "plan_grace_notice_skipped", { reason, type: moment });
   return "stale";
+}
+
+/** The owner's plan row with the marks of its grace emails, in one read. */
+async function planWithMarks(global: GlobalDb, ownerId: string): Promise<GraceNoticeRecord | null> {
+  const [row] = await global
+    .select({
+      plan: p.plan,
+      seats: p.seats,
+      validUntil: p.validUntil,
+      overrides: p.overrides,
+      grace: p.grace,
+      graceNotices: p.graceNotices,
+    })
+    .from(p)
+    .where(eq(p.ownerId, ownerId))
+    .limit(1);
+  return row ?? null;
 }
 
 interface Recipient {
@@ -235,8 +320,10 @@ async function graceRecipients(
  * Runs a `plan_grace_notice` job: claims it, checks the email is still due (the hold still held,
  * ending on that date, at that moment), then sends it to the owner, or to each admin of a
  * workspace, past suppressions and the notices' capacity. A failed send puts the job back only
- * when nobody got it yet, so nobody gets it twice; a capacity refusal drops it, as expiry notices
- * do (decision 0022, "Capacity").
+ * when nobody got it yet, so nobody gets it twice. A capacity refusal drops `start` and
+ * `two_weeks`, as expiry notices do; the `three_days` email is the last warning before the data
+ * goes, so it waits (`GRACE_NOTICE_CAPACITY_RETRY_MS`) and is tried again while it is still due,
+ * which ends at the hold's end (decision 0022, "Capacity").
  */
 export async function sendGraceNotice(
   db: RegionalDb,
@@ -256,7 +343,7 @@ export async function sendGraceNotice(
   if (!parsed.success) return skipped("malformed", "unknown");
   const notice = parsed.data;
   const ownerId = row.subject ?? "";
-  const held = graceNoticeStillDue(await ownerPlanRecord(db.global, ownerId), notice, now);
+  const held = graceNoticeStillDue(await planWithMarks(db.global, ownerId), notice, now);
   if (held === null) return skipped("moot", notice.moment);
 
   const { recipients, space } = await graceRecipients(db.global, ownerId);
@@ -308,6 +395,20 @@ export async function sendGraceNotice(
     }
     await recordEmailsSent(db.global, now);
     sent += 1;
+  }
+  if (sent === 0 && skip === "capacity" && notice.moment === "three_days") {
+    // The last warning waits for capacity instead of being dropped: back in the outbox for later.
+    // Each try checks again that it is still due, so it stops at the hold's end at the latest.
+    await db.insert(schema.outbox).values({
+      topic: "plan_grace_notice",
+      payload: notice,
+      availableAt: now + GRACE_NOTICE_CAPACITY_RETRY_MS,
+      createdAt: row.createdAt,
+      subject: ownerId,
+      attempts: row.attempts,
+    });
+    logEvent("warn", "plan_grace_notice_waiting", { reason: "capacity", type: notice.moment });
+    return "kept";
   }
   return sent > 0 ? "done" : skipped(skip, notice.moment);
 }

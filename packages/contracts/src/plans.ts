@@ -405,11 +405,18 @@ export const GRACE_NOTICE_LEAD_MS = {
   three_days: 3 * 86_400_000,
 } as const;
 
-/** The latest email a hold got, identified by its `from` and `until` (a fold keeps both). */
+/** The per-scan token that ties a scheduled email to its mark (decision 0022, "At most once"). */
+const claim = z.string().min(1).max(64);
+
+/**
+ * The latest email a hold got, identified by its `from` and `until` (a fold keeps both), and the
+ * token of the scan that scheduled it: only the job carrying that token sends it.
+ */
 export const GraceNoticeMark = z.strictObject({
   from: moment,
   until: moment,
   moment: GraceNoticeMoment,
+  claim: claim.optional(),
 });
 export type GraceNoticeMark = z.infer<typeof GraceNoticeMark>;
 
@@ -417,9 +424,17 @@ export type GraceNoticeMark = z.infer<typeof GraceNoticeMark>;
 export const GraceNoticeMarks = z.array(GraceNoticeMark).max(PLAN_GRACE_MAX_SLOTS);
 export type GraceNoticeMarks = z.infer<typeof GraceNoticeMarks>;
 
-/** Payload of a `plan_grace_notice` job (its subject is the owner): the hold and its moment. */
-export const GraceNoticePayload = GraceNoticeMark;
-export type GraceNoticePayload = GraceNoticeMark;
+/**
+ * Payload of a `plan_grace_notice` job (its subject is the owner): the hold, its moment and the
+ * scan's token, which the owner's mark must still hold when the job sends.
+ */
+export const GraceNoticePayload = z.strictObject({
+  from: moment,
+  until: moment,
+  moment: GraceNoticeMoment,
+  claim,
+});
+export type GraceNoticePayload = z.infer<typeof GraceNoticePayload>;
 
 /**
  * A running grace as the usage endpoint, `portifact usage`, `get_usage` and the account export
@@ -450,9 +465,10 @@ export const GraceForecastKind = z.enum(GRACE_FORECAST_KINDS);
 export type GraceForecastKind = z.infer<typeof GraceForecastKind>;
 
 /**
- * `GET /api/v1/grace-forecast`: the running grace, or null, and for each kind that will lose
- * something, how many items and from when (the end of the first hold that keeps them). Counts
- * only: no names, no IDs.
+ * `GET /api/v1/grace-forecast`: the running grace, or null, and one entry per step in which a
+ * kind loses something: how many items and from when (the end of a hold at which the retention in
+ * force for that kind drops; a kind can have several, ordered by date). Counts only: no names, no
+ * IDs.
  */
 export const GraceForecastView = z.object({
   /**

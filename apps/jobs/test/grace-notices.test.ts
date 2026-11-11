@@ -132,6 +132,8 @@ describe("grace emails end to end", () => {
         seats: 1,
         grantedBy: "test",
         updatedAt: from,
+        // The scan's mark names the token of the one job that may send.
+        graceNotices: JSON.stringify([{ from, until, moment: "start", claim: "scan-1" }]),
         grace: JSON.stringify([
           {
             plan: "team",
@@ -154,7 +156,7 @@ describe("grace emails end to end", () => {
       .insert(schema.outbox)
       .values({
         topic: "plan_grace_notice",
-        payload: { from, until, moment: "start" },
+        payload: { from, until, moment: "start", claim: "scan-1" },
         availableAt: from,
         subject: ws.value.id,
       })
