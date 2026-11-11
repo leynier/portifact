@@ -4,8 +4,9 @@
 // artifact gives. Adapters never decide a role: they pass the user and the owner (or the
 // artifact) and the services resolve the actor here.
 //
-// It is also the one choke point of a workspace's request policies (decision 0020): the global
-// handle carries the request context the Worker built (`GlobalDb.request`), the policy comes
+// It is also the one choke point of a workspace's request policies (decisions 0020 and 0021): the
+// global handle carries the request context the Worker built (`GlobalDb.request`), with how the
+// caller authenticated once the Worker recorded it, the policy comes
 // with the membership in the same query, and a request the policy refuses gets `policy_refused`
 // here, whatever interface, service or role it came through. Every caller handles that answer:
 // `actorOn` returns a `Result`, so none can mistake a refusal for a missing role.
@@ -114,7 +115,12 @@ function bound(
   caller: "person" | "token",
 ): Result<Actor | null> {
   if (!actor) return ok(null);
-  const allowed = checkRequestPolicy(actor.policy, global.request, caller);
+  // The sign-in policies (decision 0021) read the credential the Worker recorded for this
+  // request, and apply it only to the user it belongs to.
+  const allowed = checkRequestPolicy(actor.policy, global.request, caller, {
+    userId: actor.userId,
+    now: Date.now(),
+  });
   if (!allowed.ok && requestVerdict(actor.policy, global.request, caller) === "unreadable") {
     reportUnreadablePolicy(actor.ownerId);
   }

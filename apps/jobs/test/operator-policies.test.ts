@@ -18,6 +18,8 @@ const POLICY = {
   shareLinkMaxDays: null,
   ipAllowlist: ["192.0.2.0/24", "2001:db8::/32"],
   tokenIpAllowlist: null,
+  sessionMaxHours: null,
+  allowedClients: null,
 };
 
 async function workspace(policy: unknown) {
@@ -99,7 +101,13 @@ describe("operator policy commands", () => {
   });
 
   it("exports a policy stored before the network allowlists with them lifted", async () => {
-    const { ipAllowlist: _people, tokenIpAllowlist: _tokens, ...older } = POLICY;
+    const {
+      ipAllowlist: _people,
+      tokenIpAllowlist: _tokens,
+      sessionMaxHours: _age,
+      allowedClients: _clients,
+      ...older
+    } = POLICY;
     const id = await workspace(older);
     const written = new Map<string, string>();
     await runOperator(db(), ["export-policies", "--out", "p.jsonl"], NOW, {
@@ -109,7 +117,7 @@ describe("operator policy commands", () => {
       },
     });
     expect(written.get("p.jsonl")).toContain(
-      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null })}}`,
+      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null })}}`,
     );
   });
 });
@@ -162,7 +170,37 @@ describe("clear-request-policies", () => {
           NOW + 1,
         )
       ).output,
-    ).toBe(`Workspace ${slugOf(id)} has no network allowlist; nothing changed.`);
+    ).toBe(`Workspace ${slugOf(id)} has no request policy; nothing changed.`);
+  });
+
+  it("lifts the sign-in policies too (decision 0021), recorded with their new values", async () => {
+    const id = await workspace({
+      ...POLICY,
+      ipAllowlist: null,
+      sessionMaxHours: 8,
+      allowedClients: [],
+    });
+    const cleared = await runOperator(
+      db(),
+      ["clear-request-policies", slugOf(id), "--confirm", slugOf(id)],
+      NOW,
+    );
+    expect(cleared.output).toContain("Lifted sessionMaxHours and allowedClients");
+    const [row] = await db()
+      .select({ policy: schema.workspaces.policy })
+      .from(schema.workspaces)
+      .where(eq(schema.workspaces.id, id));
+    expect(policyOf(row?.policy)).toMatchObject({ sessionMaxHours: null, allowedClients: null });
+    const [event] = await db()
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.ownerId, id));
+    expect(event?.detail).toEqual({
+      fields: ["sessionMaxHours", "allowedClients"],
+      sessionMaxHours: null,
+      allowedClients: null,
+      confirmed: false,
+    });
   });
 
   it("stores no policy when the allowlists were all there was, and answers a missing one", async () => {

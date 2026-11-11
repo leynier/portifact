@@ -8,6 +8,7 @@ import {
   DEFAULT_REGION,
   type OwnerView,
   type Region,
+  type RequestRefusal,
   type RoleAction,
   type WorkspacePolicyShown,
   type WorkspaceRole,
@@ -45,6 +46,8 @@ export type Space =
       region?: Region;
       /** Its request policies refuse this browser's network (decision 0020). */
       blocked?: boolean;
+      /** Which one refuses it: the network, or a sign-in too old (decision 0021). */
+      blockedBy?: RequestRefusal | null;
     };
 
 export const PERSONAL: Space = { kind: "personal", slug: undefined, role: "admin" };
@@ -93,6 +96,7 @@ export function useSpace(): SpaceState {
       role: found.role,
       region: found.region,
       blocked: found.blocked,
+      blockedBy: found.blockedBy,
     },
     workspaces: items,
   };

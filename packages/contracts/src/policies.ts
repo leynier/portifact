@@ -3,6 +3,7 @@
 // tokens included. They are decided only in packages/domain and applied in the services; this
 // module holds their shape, their defaults and the bounds.
 import { z } from "zod";
+import { CLIENT_KINDS } from "./request-context.ts";
 
 export const WORKSPACE_POLICIES = {
   /** Email domains one reader allowlist names at most. */
@@ -23,7 +24,13 @@ export const WORKSPACE_POLICIES = {
   scanSteps: 20,
   /** IPv4 and IPv6 ranges one network allowlist names at most (decision 0020). */
   ipRanges: 50,
+  /** The shortest and longest maximum session age a policy may set, in hours (decision 0021). */
+  sessionMinHours: 1,
+  sessionMaxHours: 720,
 } as const;
+
+/** A kind of client a policy may allow besides the dashboard (decision 0021). */
+export const AllowedClient = z.enum(CLIENT_KINDS);
 
 export const PUBLIC_ACCESS_POLICIES = ["allowed", "forbidden"] as const;
 export const PublicAccessPolicy = z.enum(PUBLIC_ACCESS_POLICIES);
@@ -73,6 +80,23 @@ export const WorkspacePolicy = z.strictObject({
   ipAllowlist: IpAllowlist.default(null),
   /** The networks the workspace's service tokens may act from; null leaves tokens unbound. */
   tokenIpAllowlist: IpAllowlist.default(null),
+  /**
+   * How long a person's sign-in may act on the workspace, in hours from the sign-in (decision
+   * 0021); null for no maximum. Service tokens have no sign-in and are not bound.
+   */
+  sessionMaxHours: z
+    .number()
+    .int()
+    .min(WORKSPACE_POLICIES.sessionMinHours)
+    .max(WORKSPACE_POLICIES.sessionMaxHours)
+    .nullable()
+    .default(null),
+  /**
+   * The kinds of client that may act on the workspace with a person's authorization besides the
+   * dashboard, which is always allowed (decision 0021); null allows every kind, an empty list
+   * only the dashboard. Service tokens are not bound.
+   */
+  allowedClients: z.array(AllowedClient).max(CLIENT_KINDS.length).nullable().default(null),
 });
 export type WorkspacePolicy = z.infer<typeof WorkspacePolicy>;
 
@@ -99,6 +123,8 @@ export const DEFAULT_POLICY: WorkspacePolicy = {
   shareLinkMaxDays: null,
   ipAllowlist: null,
   tokenIpAllowlist: null,
+  sessionMaxHours: null,
+  allowedClients: null,
 };
 
 /** The fields of a policy, for the audit log and the dashboard. */
@@ -110,6 +136,8 @@ export const POLICY_FIELDS = [
   "shareLinkMaxDays",
   "ipAllowlist",
   "tokenIpAllowlist",
+  "sessionMaxHours",
+  "allowedClients",
 ] as const satisfies readonly (keyof WorkspacePolicy)[];
 export type PolicyField = (typeof POLICY_FIELDS)[number];
 
@@ -163,6 +191,20 @@ export const PolicyPreview = PolicyImpact.extend({
       singleFamily: SingleFamilyLists,
     })
     .nullable(),
+  /**
+   * Who the sign-in policies would bind (decision 0021), as counts, null when the policy sets
+   * neither: `members` it binds; `staleMembers`, members who would have to sign in again: no
+   * live dashboard session younger than the maximum, or a live CLI or app grant whose sign-in is
+   * older or not known; `clientMembers`, members who authorized a kind of client the policy would no longer allow. Service tokens are never bound by them.
+   */
+  signIns: z
+    .object({
+      members: z.int().min(0),
+      staleMembers: z.int().min(0),
+      clientMembers: z.int().min(0),
+    })
+    .nullable()
+    .default(null),
 });
 export type PolicyPreview = z.infer<typeof PolicyPreview>;
 
@@ -185,6 +227,11 @@ export const WorkspacePolicyView = z.object({
   yourIp: z.string().nullable(),
   /** The workspace's active service tokens, for admins only (null otherwise): counts, no names. */
   serviceTokens: z.int().min(0).nullable(),
+  /**
+   * When the caller's own sign-in happened (milliseconds), for admins only so the page can say
+   * whether a maximum session age would lock them out (decision 0021); null otherwise.
+   */
+  yourSignInAt: z.int().min(0).nullable().default(null),
 });
 export type WorkspacePolicyView = z.infer<typeof WorkspacePolicyView>;
 

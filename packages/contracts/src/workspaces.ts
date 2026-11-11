@@ -118,6 +118,11 @@ export const WorkspaceName = z
   // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point
   .refine((value) => !/[\u0000-\u001f\u007f]/.test(value), "No control characters");
 
+/** Which request policy refuses a request (decisions 0020 and 0021). */
+export const REQUEST_REFUSALS = ["network", "session_age", "client"] as const;
+export const RequestRefusal = z.enum(REQUEST_REFUSALS);
+export type RequestRefusal = z.infer<typeof RequestRefusal>;
+
 /** A workspace the caller belongs to, with their role (`GET /api/v1/workspaces`, `list_workspaces`). */
 export const WorkspaceView = z.object({
   slug: WorkspaceSlug,
@@ -136,6 +141,12 @@ export const WorkspaceView = z.object({
    * it from here answers `policy_refused`. Connect from an approved network.
    */
   blocked: z.boolean().default(false),
+  /**
+   * Which request policy refuses it, when `blocked` (decisions 0020 and 0021): `network` (connect
+   * from an approved network), `session_age` (sign in again), `client` (this kind of client may
+   * not act on it; use the dashboard). Null when it is not blocked.
+   */
+  blockedBy: RequestRefusal.nullable().default(null),
 });
 export type WorkspaceView = z.infer<typeof WorkspaceView>;
 

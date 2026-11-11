@@ -38,6 +38,7 @@ import {
   uploadProgress,
 } from "@portifact/services";
 import { Hono } from "hono";
+import { recordServiceToken } from "../auth/credentials.ts";
 import type { FetchLike } from "../auth/deps.ts";
 import type { Introspect, ProtectedResource } from "../auth/resource.ts";
 import type { Env } from "../env.ts";
@@ -116,8 +117,11 @@ export function apiRoutes(deps: ApiDeps) {
         introspect: deps.introspect(c.env),
         resource: deps.resource(c.env),
         session: deps.session(c.env),
-        serviceToken: (secret) =>
-          authenticateServiceToken(regionsOf(c.env).global, secret, deps.now()),
+        serviceToken: async (secret) => {
+          const auth = await authenticateServiceToken(regionsOf(c.env).global, secret, deps.now());
+          if (auth.ok) recordServiceToken(c.env, auth.tokenId);
+          return auth;
+        },
       },
       c.req.raw,
       scope,

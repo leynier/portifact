@@ -485,6 +485,8 @@ describe("describePolicy", () => {
         shareLinkMaxDays: 30,
         ipAllowlist: null,
         tokenIpAllowlist: null,
+        sessionMaxHours: null,
+        allowedClients: null,
       }),
     ).toEqual([
       "public access forbidden",

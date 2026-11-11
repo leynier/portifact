@@ -9,7 +9,9 @@ import type { Env } from "../env.ts";
 import { humanCheck } from "../turnstile.ts";
 import type { Auth } from "./auth.ts";
 import { AUTH_BASE_PATH, authUrls } from "./config.ts";
+import { sessionOf } from "./credentials.ts";
 import type { FetchLike } from "./deps.ts";
+import { exchangeDeviceCode, recordDeviceApproval } from "./device.ts";
 import { VERIFY_HUMAN_PATH, verifyHuman } from "./human.ts";
 import { checkLimits, ENDPOINT_LIMITS, otpSendChecks, pruneOldCounters } from "./limits.ts";
 import { ssoEnabled } from "./sso.ts";
@@ -109,7 +111,7 @@ export function authRoutes(authFor: (env: Env) => Auth, siteverifyFor: (env: Env
           db: c.env.DB,
           secret: c.env.BETTER_AUTH_SECRET,
           sessionUserId: async (req) =>
-            (await authFor(c.env).api.getSession({ headers: req.headers }))?.user.id,
+            (await sessionOf(authFor(c.env), c.env, req.headers))?.user.id,
           now: Date.now(),
         }),
       );
@@ -139,7 +141,18 @@ export function authRoutes(authFor: (env: Env) => Auth, siteverifyFor: (env: Env
       );
     }
 
-    return authHeaders(await authFor(c.env).handler(request));
+    // A device login inherits the approving session's sign-in (decision 0021): recorded at
+    // approval, copied onto the tokens at the exchange.
+    const auth = authFor(c.env);
+    if (path === "/device/approve") {
+      await recordDeviceApproval(auth, c.env, request.headers, await readBody(request));
+    }
+    if (path === "/oauth2/token") {
+      return authHeaders(
+        await exchangeDeviceCode(auth, c.env, await readBody(request), () => auth.handler(request)),
+      );
+    }
+    return authHeaders(await auth.handler(request));
   });
 
   return routes;

@@ -334,6 +334,15 @@ describe("login page", () => {
     expect(location.assigned).toEqual([]);
   });
 
+  it("asks for a new sign-in a workspace's session length needs, and goes back after it", async () => {
+    api.on("GET", "/get-session", session("ada@example.test"));
+    await open(`?${new URLSearchParams({ reauth: "session_age", next: "/?workspace=acme" })}`);
+    expect(element("error-summary").textContent).toBe(messages.providerErrors.session_age);
+    // A session exists, yet the page offers the sign-in instead of going on with it.
+    expect(location.assigned).toEqual([]);
+    expect(element("sign-in").hidden).toBe(false);
+  });
+
   it("explains that too many artifacts were opened in a short time", async () => {
     api.on("GET", "/get-session", session("ada@example.test"));
     await open("?error=read_rate_limited");

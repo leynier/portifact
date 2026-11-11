@@ -2634,4 +2634,55 @@ export const ja = {
   "audit.stream.revokedNow": "{label} の新しいシークレット。古いものはもう署名しません",
   "audit.stream.revokeNow.body":
     "古いシークレットはもう署名しません。今すぐこれをエンドポイントに設定してください。",
+  "policies.session.legend": "セッションの長さ",
+  "policies.session.hint":
+    "サインインしてからワークスペースで操作できる時間です。それを過ぎると、ダッシュボード、CLI、接続したアプリが再サインインを求めます。サインアウトや削除は行われません。",
+  "policies.session.any": "制限なし",
+  "policies.session.anyHint": "サインインが続く限りワークスペースで操作できます。",
+  "policies.session.only": "再サインインを求める",
+  "policies.session.onlyHint": "サインインが制限より古くなると、再サインインが必要になります。",
+  "policies.session.hours": "サインインからの時間",
+  "policies.session.hoursHint": "{min} から {max} までの整数。",
+  "policies.session.hoursError": "{min} から {max} までの整数で時間を入力してください。",
+  "policies.session.yours":
+    "あなたは {count, plural, one {# 時間} other {# 時間}}前にサインインしました。これより短い制限では締め出されるため、必要なら先に再サインインしてください。",
+  "policies.session.tokens": "サービストークンはサインインしないため対象外です。",
+  "policies.session.limits":
+    "CLI は `portifact login` から、アプリは接続した時点から数えます。トークンを何度更新しても変わりません。",
+  "policies.clients.legend": "操作できるアプリ",
+  "policies.clients.hint":
+    "個人のサインインでワークスペースを操作できるアプリの種類です。ダッシュボードは常に許可されます。",
+  "policies.clients.any": "すべてのアプリ",
+  "policies.clients.anyHint":
+    "ダッシュボード、Portifact CLI、MCP クライアントなど個人が接続するアプリ。",
+  "policies.clients.only": "ここで選んだアプリのみ",
+  "policies.clients.onlyHint": "その他のアプリは理由を示すメッセージとともに拒否されます。",
+  "policies.clients.which": "許可するアプリ",
+  "policies.clients.dashboard": "ダッシュボード（常に許可）",
+  "policies.clients.cli": "Portifact CLI",
+  "policies.clients.cliHint":
+    "Portifact 独自のコマンドライン。固定のクライアント登録で識別します。",
+  "policies.clients.apps": "その他の接続アプリ",
+  "policies.clients.appsHint": "MCP クライアントなど、個人が OAuth で接続するその他のアプリ。",
+  "policies.clients.tokens": "サービストークンは対象外です。",
+  "policies.clients.limits":
+    "自分で登録するアプリは名前を自由に付けられるため、Portifact は名前ではなく 1 つのグループとして許可または拒否します。読める内容を別のアプリにコピーすることは防げません。",
+  "policies.impact.signInsTitle": "このワークスペースのサインイン方法を変更しますか？",
+  "policies.impact.signInMembers":
+    "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}が対象になります",
+  "policies.impact.staleMembers":
+    "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}は次の操作で、ダッシュボード、CLI、または接続アプリで再サインインが必要になります",
+  "policies.impact.clientMembers":
+    "{count, plural, one {# 人のメンバー} other {# 人のメンバー}}が、これで拒否されるアプリを使っています",
+  "policies.impact.signInsNote":
+    "誰もサインアウトされません。次にワークスペースを操作するときに、再サインインまたは別のアプリの利用を求められます。",
+  "policies.impact.signInsConfirm": "保存",
+  "space.blockedSession.title": "続けるには再サインインしてください",
+  "space.blockedSession.body":
+    "{workspace} は一定時間ごとに新しいサインインを求めており、あなたのサインインは許可された時間より古くなっています。再サインインするとここに戻ります。他のスペースはそのまま使えます。",
+  "space.blockedSession.action": "再サインイン",
+  "audit.policy.session": "{count, plural, one {# 時間} other {# 時間}}ごとに再サインイン",
+  "audit.policy.sessionAny": "セッションの長さの制限なし",
+  "audit.policy.clients":
+    "{kinds, select, none {ダッシュボードのみ操作可能} cli {ダッシュボードと CLI のみ操作可能} oauth_apps {ダッシュボードと接続アプリのみ操作可能} both {ダッシュボード、CLI、接続アプリが操作可能} other {すべてのアプリが操作可能}}",
 } satisfies Catalog;

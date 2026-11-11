@@ -710,7 +710,26 @@ function policyChanges(t: T, d: Record<string, unknown>, locale: string | undefi
         : t("audit.policy.tokenNetworks", { count: Number(d.tokenIpRanges) }),
     );
   }
+  // The sign-in policies (decision 0021): hours and kinds of client, enums only.
+  if (d.sessionMaxHours !== undefined) {
+    parts.push(
+      d.sessionMaxHours === null
+        ? t("audit.policy.sessionAny")
+        : t("audit.policy.session", { count: Number(d.sessionMaxHours) }),
+    );
+  }
+  if (d.allowedClients !== undefined) {
+    parts.push(t("audit.policy.clients", { kinds: clientKinds(d.allowedClients) }));
+  }
   return new Intl.ListFormat(locale, { style: "long", type: "unit" }).format(parts);
+}
+
+/** The allowed clients of a policy change as one select case: which kinds besides the dashboard. */
+function clientKinds(value: unknown): "any" | "none" | "cli" | "oauth_apps" | "both" {
+  if (!Array.isArray(value)) return "any";
+  const cli = value.includes("cli");
+  const apps = value.includes("oauth_apps");
+  return cli && apps ? "both" : cli ? "cli" : apps ? "oauth_apps" : "none";
 }
 
 /** What one step of applying a policy changed, as counts. */

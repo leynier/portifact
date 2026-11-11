@@ -1,6 +1,6 @@
 # 0016 Single sign-on for workspaces with OpenID Connect, switched off
 
-- Status: accepted for the first delivery (OIDC only); SAML and "SSO required" open
+- Status: accepted for the first delivery (OIDC only); SAML open; "SSO required" designed in [decision 0021](0021-workspace-session-policies.md), not shipped yet
 - Date: 2026-11-10
 - Builds on: [0001](0001-oauth-server.md) (Better Auth), [0004](0004-workspace-model.md) (workspace model, SSO spike), [0010](0010-workspace-access-modes.md) (verified email domains)
 
@@ -50,7 +50,9 @@ SAML's assertion consumer is a cross-site `POST` from the identity provider, so 
 
 ## "SSO required": left out of this delivery
 
-A setting that makes a workspace's members act on it only with a session that came from its SSO cannot be enforced cleanly yet: roles are decided only in `resolveActor`/`actorOn`, which know the user but not the session, and the OAuth access tokens of the CLI and MCP are bound to a session only indirectly. Enforcing it would mean carrying the session's sign-in method and age into every actor resolution (a claim on the session row read in the same query) and deciding what a token minted before the setting, a service token and an MCP client get. Shipping a setting that only the dashboard honors would be worse than none, so it is not built. It returns with SCIM (E2) or on its own record.
+A setting that makes a workspace's members act on it only with a session that came from its SSO cannot be enforced cleanly yet: roles are decided only in `resolveActor`/`actorOn`, which know the user but not the session, and the OAuth access tokens of the CLI and MCP are bound to a session only indirectly. Enforcing it would mean carrying the session's sign-in method and age into every actor resolution (a claim on the session row read in the same query) and deciding what a token minted before the setting, a service token and an MCP client get. Shipping a setting that only the dashboard honors would be worse than none, so it is not built.
+
+Update (2026-11-11): the role decision now knows how the request authenticated. [Decision 0020](0020-workspace-request-policies.md) put the request context on the global handle, and [decision 0021](0021-workspace-session-policies.md) added the credential to it (the session's sign-in time, the token's client and the sign-in its grant descends from), enforced in `actorOn` for the maximum session age and the allowed clients. "SSO required" needs one more fact, the method a session signed in with, which Better Auth's `sessions` row does not record; decision 0021 ("SSO required") designs it, with the admins' break-glass, members the provider cannot serve, provider removal and plan lapse, and it ships in its own change.
 
 ## What was not verified
 

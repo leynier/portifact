@@ -36,6 +36,7 @@ const policy = (change: Partial<WorkspacePolicy>): WorkspacePolicy => ({
   ...change,
 });
 const from = (ip: string | null): RequestContext => ({ kind: "request", ip });
+const WHO = { userId: "u1", now: 0 };
 const OFFICE = policy({ ipAllowlist: ["192.0.2.0/24", "2001:db8::/32"] });
 
 describe("checking a request against the network allowlists", () => {
@@ -48,28 +49,28 @@ describe("checking a request against the network allowlists", () => {
     // Tokens have their own list, absent here: they are not bound by the people's list.
     ["198.51.100.1", "token", true],
   ] as const)("from %s, a %s is admitted: %s", (ip, caller, admitted) => {
-    expect(checkRequestPolicy(OFFICE, from(ip), caller).ok).toBe(admitted);
+    expect(checkRequestPolicy(OFFICE, from(ip), caller, WHO).ok).toBe(admitted);
   });
 
   it("binds tokens with their own list only", () => {
     const ci = policy({ tokenIpAllowlist: ["203.0.113.0/24"] });
-    expect(checkRequestPolicy(ci, from("203.0.113.4"), "token").ok).toBe(true);
-    expect(checkRequestPolicy(ci, from("192.0.2.9"), "token")).toEqual({
+    expect(checkRequestPolicy(ci, from("203.0.113.4"), "token", WHO).ok).toBe(true);
+    expect(checkRequestPolicy(ci, from("192.0.2.9"), "token", WHO)).toEqual({
       ok: false,
       code: "policy_refused",
       message: POLICY_MESSAGES.networkToken("192.0.2.9"),
     });
-    expect(checkRequestPolicy(ci, from("198.51.100.1"), "person").ok).toBe(true);
+    expect(checkRequestPolicy(ci, from("198.51.100.1"), "person", WHO).ok).toBe(true);
   });
 
   it("never binds background work, a personal space or the defaults", () => {
-    expect(checkRequestPolicy(OFFICE, BACKGROUND, "person").ok).toBe(true);
-    expect(checkRequestPolicy(undefined, from("198.51.100.1"), "person").ok).toBe(true);
-    expect(checkRequestPolicy(DEFAULT_POLICY, UNKNOWN_REQUEST, "person").ok).toBe(true);
+    expect(checkRequestPolicy(OFFICE, BACKGROUND, "person", WHO).ok).toBe(true);
+    expect(checkRequestPolicy(undefined, from("198.51.100.1"), "person", WHO).ok).toBe(true);
+    expect(checkRequestPolicy(DEFAULT_POLICY, UNKNOWN_REQUEST, "person", WHO).ok).toBe(true);
   });
 
   it("refuses naming the policy and the caller's own address, never the networks", () => {
-    const refused = checkRequestPolicy(OFFICE, from("198.51.100.1"), "person");
+    const refused = checkRequestPolicy(OFFICE, from("198.51.100.1"), "person", WHO);
     expect(refused).toEqual({
       ok: false,
       code: "policy_refused",
@@ -79,7 +80,7 @@ describe("checking a request against the network allowlists", () => {
     expect(refused.message).toContain("network policy");
     expect(refused.message).toContain("198.51.100.1");
     expect(refused.message).not.toContain("192.0.2");
-    expect(checkRequestPolicy(OFFICE, UNKNOWN_REQUEST, "person")).toMatchObject({
+    expect(checkRequestPolicy(OFFICE, UNKNOWN_REQUEST, "person", WHO)).toMatchObject({
       message: POLICY_MESSAGES.networkPerson(null),
     });
     expect(POLICY_MESSAGES.networkToken(null)).toContain("an unknown address");
@@ -88,23 +89,24 @@ describe("checking a request against the network allowlists", () => {
 
 describe("lock-out safety", () => {
   it("refuses a people allowlist that leaves out the saving admin's address", () => {
-    expect(checkPolicyKeepsCaller(OFFICE, from("192.0.2.9")).ok).toBe(true);
-    expect(checkPolicyKeepsCaller(OFFICE, from("198.51.100.1"))).toEqual({
+    expect(checkPolicyKeepsCaller(OFFICE, from("192.0.2.9"), WHO).ok).toBe(true);
+    expect(checkPolicyKeepsCaller(OFFICE, from("198.51.100.1"), WHO)).toEqual({
       ok: false,
       code: "invalid_input",
       message: POLICY_MESSAGES.networkLocksOut("198.51.100.1"),
     });
-    expect(checkPolicyKeepsCaller(OFFICE, UNKNOWN_REQUEST)).toMatchObject({
+    expect(checkPolicyKeepsCaller(OFFICE, UNKNOWN_REQUEST, WHO)).toMatchObject({
       message: POLICY_MESSAGES.networkLocksOut(null),
     });
   });
 
   it("does not check a token allowlist, no allowlist, or the operator", () => {
     expect(
-      checkPolicyKeepsCaller(policy({ tokenIpAllowlist: ["203.0.113.0/24"] }), from("1.1.1.1")).ok,
+      checkPolicyKeepsCaller(policy({ tokenIpAllowlist: ["203.0.113.0/24"] }), from("1.1.1.1"), WHO)
+        .ok,
     ).toBe(true);
-    expect(checkPolicyKeepsCaller(DEFAULT_POLICY, from("1.1.1.1")).ok).toBe(true);
-    expect(checkPolicyKeepsCaller(OFFICE, BACKGROUND).ok).toBe(true);
+    expect(checkPolicyKeepsCaller(DEFAULT_POLICY, from("1.1.1.1"), WHO).ok).toBe(true);
+    expect(checkPolicyKeepsCaller(OFFICE, BACKGROUND, WHO).ok).toBe(true);
   });
 });
 
@@ -272,7 +274,7 @@ describe("review fixes", () => {
   it("refuses everyone a stored list binds when it does not parse, without throwing", () => {
     const broken = policy({ ipAllowlist: ["10.0.0.0/33"] });
     expect(requestVerdict(broken, from("10.0.0.1"), "person")).toBe("unreadable");
-    expect(checkRequestPolicy(broken, from("10.0.0.1"), "person")).toEqual({
+    expect(checkRequestPolicy(broken, from("10.0.0.1"), "person", WHO)).toEqual({
       ok: false,
       code: "policy_refused",
       message: POLICY_MESSAGES.networkUnreadable,

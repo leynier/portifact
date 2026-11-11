@@ -2,7 +2,7 @@
 // issues a one-use handoff after checking access; the artifact origin redeems it into a read
 // session and later renews the session's claims through the same access check. A missing
 // artifact and a forbidden one give the same answer.
-import { type AccessMode, READ_SESSION } from "@portifact/contracts";
+import { type AccessMode, READ_SESSION, recordCredential } from "@portifact/contracts";
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   canRead,
@@ -66,6 +66,45 @@ export function liveAppSession(both: Db, authSessionId: SQLiteColumn, now: numbe
         and(eq(schema.sessions.id, authSessionId), gt(schema.sessions.expiresAt, new Date(now))),
       ),
   );
+}
+
+/**
+ * When the live app session behind a read or review session signed in (Better Auth's
+ * `sessions.created_at`, which it keeps when it extends a session), as a column of the renewal's
+ * own read with one database: null once the app session ended (decision 0021). Named with its
+ * table, because Drizzle leaves the outer column unqualified in select fields.
+ */
+export function appSessionSignInSql(table: "read_sessions" | "review_sessions", now: number) {
+  return sql<
+    number | null
+  >`(select "s"."created_at" from "sessions" "s" where "s"."id" = ${sql.raw(`"${table}"."auth_session_id"`)} and "s"."expires_at" > ${now})`;
+}
+
+/**
+ * When the live app session signed in, with a separate regional database: the one global read a
+ * renewal already made to check the app session is live, now also returning its sign-in time
+ * (null when it ended).
+ */
+export async function appSessionSignIn(
+  global: GlobalDb,
+  authSessionId: string,
+  now: number,
+): Promise<number | null> {
+  const [row] = await global
+    .select({ createdAt: schema.sessions.createdAt })
+    .from(schema.sessions)
+    .where(and(eq(schema.sessions.id, authSessionId), gt(schema.sessions.expiresAt, new Date(now))))
+    .limit(1);
+  return row ? row.createdAt.getTime() : null;
+}
+
+/**
+ * Records, on the request the renewal answers, that it acts for `userId` through the app session
+ * that signed in at `signedInAt` (decision 0021): `actorOn` then applies the workspace's sign-in
+ * policies to the renewal, as it does on the app.
+ */
+export function recordSessionRenewal(db: RegionalDb, userId: string, signedInAt: number): void {
+  recordCredential(db.global.request, { kind: "session", userId, signedInAt });
 }
 
 export async function appSessionLive(
@@ -380,6 +419,7 @@ export async function refreshReadSession(
       userId: schema.readSessions.userId,
       expiresAt: schema.readSessions.expiresAt,
       authSessionId: schema.readSessions.authSessionId,
+      signedInAt: both ? appSessionSignInSql("read_sessions", input.now) : sql<null>`null`,
     })
     .from(schema.readSessions)
     .where(
@@ -392,13 +432,15 @@ export async function refreshReadSession(
     )
     .limit(1);
   if (!session) return unavailable();
-  // One database: the app session was checked in the read above. Otherwise it is global and
-  // checked alongside the access check, adding no round trip.
-  const [live, access] = await Promise.all([
-    both ? true : appSessionLive(db.global, session.authSessionId, input.now),
-    checkReadAccess(db, { ...input, userId: session.userId }),
-  ]);
-  if (!live) return unavailable();
+  // One database: the app session and its sign-in time came with the read above. Otherwise they
+  // are global, in the one read that checks the app session is live, before the access check so
+  // that the workspace's sign-in policies apply to the renewal (decision 0021).
+  const signedInAt = both
+    ? session.signedInAt
+    : await appSessionSignIn(db.global, session.authSessionId, input.now);
+  if (signedInAt === null) return unavailable();
+  recordSessionRenewal(db, session.userId, Number(signedInAt));
+  const access = await checkReadAccess(db, { ...input, userId: session.userId });
   if (!access.ok) return access;
   return ok({
     userId: access.value.userId,

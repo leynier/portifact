@@ -19,6 +19,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { fromAppOrigin } from "./api/access.ts";
 import type { Auth } from "./auth/auth.ts";
+import { sessionOf } from "./auth/credentials.ts";
 import { checkLimits, READ_ENTRY_LIMIT } from "./auth/limits.ts";
 import type { Env } from "./env.ts";
 import { artifactDb } from "./regions.ts";
@@ -49,7 +50,7 @@ export function readRoutes(authFor: (env: Env) => Auth) {
 
     // The account always comes from the session cookie, never from the request.
     // An account that has not accepted the current terms accepts them on the login page first.
-    const session = await authFor(c.env).api.getSession({ headers: c.req.raw.headers });
+    const session = await sessionOf(authFor(c.env), c.env, c.req.raw.headers);
     if (!session || needsTermsAcceptance(session.user.termsVersion)) {
       const back = `/read/${id}?${new URLSearchParams(
         requestedHost === null ? { state } : { state, host: requestedHost },
@@ -88,7 +89,12 @@ export function readRoutes(authFor: (env: Env) => Auth) {
       state,
       confirmed: false,
     });
-    if (!issued.ok) return redirect(refusedUrl(issued.code));
+    if (!issued.ok) {
+      const back = `/read/${id}?${new URLSearchParams(
+        requestedHost === null ? { state } : { state, host: requestedHost },
+      )}`;
+      return redirect(refusedUrl(issued, back));
+    }
     return redirect(callbackUrl(issued.value));
   });
 
@@ -105,7 +111,7 @@ export function readRoutes(authFor: (env: Env) => Auth) {
     const id = c.req.param("id");
     const body = ReadConfirmation.safeParse(await c.req.json().catch(() => null));
     if (!ArtifactId.safeParse(id).success || !body.success) return next(UNAVAILABLE_URL);
-    const session = await authFor(c.env).api.getSession({ headers: c.req.raw.headers });
+    const session = await sessionOf(authFor(c.env), c.env, c.req.raw.headers);
     if (!session || needsTermsAcceptance(session.user.termsVersion)) {
       const back = `/read/${id}?${new URLSearchParams(body.data)}`;
       return next(`/login?${new URLSearchParams({ next: back })}`);
@@ -128,7 +134,11 @@ export function readRoutes(authFor: (env: Env) => Auth) {
       customDomains: customDomainsServing(c.env),
       confirmed: true,
     });
-    return next(issued.ok ? callbackUrl(issued.value) : refusedUrl(issued.code));
+    return next(
+      issued.ok
+        ? callbackUrl(issued.value)
+        : refusedUrl(issued, `/read/${id}?${new URLSearchParams(body.data)}`),
+    );
   });
 
   return routes;
@@ -141,12 +151,17 @@ const ReadConfirmation = z.strictObject({
 });
 
 /**
- * Where a refused entry goes: a workspace's network policy says so (the person is a member, so
- * they know the workspace; the page names neither it nor the artifact), anything else answers
- * like an unavailable artifact.
+ * Where a refused entry goes: a workspace's maximum session age (decision 0021) sends the person
+ * to sign in again and back to this entry; its network policy to a page that says so (the person
+ * is a member, so they know the workspace; neither page names it or the artifact); anything else
+ * answers like an unavailable artifact.
  */
-function refusedUrl(code: string): string {
-  return code === "policy_refused" ? NETWORK_REFUSED_URL : UNAVAILABLE_URL;
+function refusedUrl(refusal: { code: string; reason?: string }, back: string): string {
+  if (refusal.code !== "policy_refused") return UNAVAILABLE_URL;
+  if (refusal.reason === "session_age") {
+    return `/login?${new URLSearchParams({ reauth: "session_age", next: back })}`;
+  }
+  return NETWORK_REFUSED_URL;
 }
 
 /** The artifact origin's callback with the code; the host comes from the service. */

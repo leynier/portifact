@@ -3041,6 +3041,24 @@ describe("API and MCP parity for approval reviews", () => {
     return { owner, reviewer, viaApi, viaMcp };
   }
 
+  it("refuses a request, a change and a verdict whose body is not what the route takes", async () => {
+    const { owner, reviewer, viaApi } = await setup();
+    const base = `/api/v1/artifacts/${viaApi}/review`;
+    for (const [who, path, init] of [
+      [owner, `${base}/request`, json("POST", { reviewers: "ana" })],
+      [owner, `${base}/request`, json("PATCH", { requiredApprovals: -1 })],
+      [reviewer, `${base}/verdict`, json("POST", { verdict: "maybe" })],
+    ] as const) {
+      const answer = await who.apiCall(path, init);
+      expect(answer.status, `${init.method} ${path}`).toBe(400);
+      expect(await answer.json()).toMatchObject({ error: { code: "invalid_input" } });
+    }
+    // Nothing was requested by any of them.
+    const status = await owner.apiCall(`${base}/status`);
+    expect(status.status).toBe(200);
+    expect(await status.json()).toMatchObject({ review: { status: "none", reviewers: 0 } });
+  });
+
   it("requests, reads, gives verdicts, changes and cancels with the same bodies", async () => {
     const { owner, reviewer, viaApi, viaMcp } = await setup();
     const reviewers = ["parity-review-ana@example.test"];

@@ -143,6 +143,7 @@ describe("naming a workspace in the API and MCP", () => {
               createdAt: new Date(NOW).toISOString(),
               policy: DEFAULT_POLICY,
               blocked: false,
+              blockedBy: null,
             },
           ],
         },

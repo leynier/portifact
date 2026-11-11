@@ -4,6 +4,8 @@
 // column of the workspace's global row and comes with the actor (`actorOn`), so the services that
 // apply it (access, publish, share links, transfer) read nothing more.
 import {
+  CLI_CLIENT_ID,
+  CLIENT_KINDS,
   DEFAULT_POLICY,
   type PolicyField,
   type PolicyImpact,
@@ -47,6 +49,7 @@ import {
   policyChangeNeedsPlan,
   policyOf,
   policyTouchesArtifacts,
+  type RequestSubject,
   type Result,
   readerAllowed,
   requireFeature,
@@ -57,6 +60,7 @@ import {
 } from "@portifact/domain";
 import { and, asc, eq, gt, isNull, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import type { SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { actorOn } from "./actors.ts";
 import { approvalAccessStatements } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
@@ -85,6 +89,8 @@ export interface PolicyState {
   yourIp: string | null;
   /** Active service tokens, for admins only: what a people-only list leaves unbound. */
   serviceTokens: number | null;
+  /** When the caller's own sign-in happened, for admins only (decision 0021). */
+  yourSignInAt: number | null;
 }
 
 interface PolicyRow {
@@ -147,7 +153,17 @@ async function stateOf(
     domainVerified: await domainVerified(global, row.id),
     yourIp: admin && global.request.kind === "request" ? global.request.ip : null,
     serviceTokens: admin ? await activeTokens(global, row.id, now) : null,
+    yourSignInAt: admin ? ownSignIn(global, actor.userId) : null,
   };
+}
+
+/** When the caller's own sign-in happened, from the credential this request recorded. */
+function ownSignIn(global: GlobalDb, userId: string): number | null {
+  const credential = global.request.kind === "request" ? global.request.credential : null;
+  if (!credential || credential.userId !== userId || credential.kind === "service_token") {
+    return null;
+  }
+  return credential.signedInAt;
 }
 
 function activeTokensQuery(global: GlobalDb, workspaceId: string, now: number) {
@@ -256,10 +272,12 @@ async function checkProposal(
   global: GlobalDb,
   workspaceId: string,
   input: WorkspacePolicy,
+  subject: RequestSubject,
 ): Promise<Result<WorkspacePolicy>> {
   const normalized = normalizePolicy(input);
   if (!normalized.ok) return normalized;
-  const keeps = checkPolicyKeepsCaller(normalized.value, global.request);
+  // Lock-out safety: the network, and the saving admin's own sign-in (decision 0021).
+  const keeps = checkPolicyKeepsCaller(normalized.value, global.request, subject);
   if (!keeps.ok) return keeps;
   const defaults = checkPolicyDefaults(
     normalized.value,
@@ -304,7 +322,10 @@ export async function previewWorkspacePolicy(
 ): Promise<Result<PolicyPreview>> {
   const found = await scopedPolicy(regions.global, input.userId, input.slug, "policies");
   if (!found.ok) return found;
-  const proposal = await checkProposal(regions.global, found.value.row.id, input.policy);
+  const proposal = await checkProposal(regions.global, found.value.row.id, input.policy, {
+    userId: input.userId,
+    now: input.now,
+  });
   if (!proposal.ok) return proposal;
   const impact = await policyImpact(
     regionalOf(regions, found.value.row),
@@ -321,7 +342,72 @@ export async function previewWorkspacePolicy(
       proposal.value,
       input.now,
     ),
+    signIns: await signInReach(regions.global, found.value.row.id, proposal.value, input.now),
   });
+}
+
+/**
+ * Who the sign-in policies would bind (decision 0021), as counts, for the confirmation before a
+ * save: every member when either is set; the members who would have to sign in again (no live
+ * dashboard session younger than the maximum, or a live CLI or app grant whose sign-in is older
+ * or not known); and the members holding a live OAuth grant of a kind of client the policy would
+ * refuse.
+ * One batch of the global database, on the preview only.
+ */
+async function signInReach(
+  global: GlobalDb,
+  workspaceId: string,
+  next: WorkspacePolicy,
+  now: number,
+): Promise<PolicyPreview["signIns"]> {
+  if (next.sessionMaxHours === null && next.allowedClients === null) return null;
+  const m = schema.workspaceMembers;
+  const sess = schema.sessions;
+  const refresh = schema.oauthRefreshTokens;
+  const access = schema.oauthAccessTokens;
+  const at = new Date(now);
+  const cutoff = new Date(now - (next.sessionMaxHours ?? 0) * 3_600_000);
+  const refused = CLIENT_KINDS.filter((kind) => !next.allowedClients?.includes(kind));
+  const refusedClient = (column: SQLiteColumn) =>
+    refused.length === 2
+      ? sql`1`
+      : refused[0] === "cli"
+        ? sql`${column} = ${CLI_CLIENT_ID}`
+        : sql`${column} <> ${CLI_CLIENT_ID}`;
+  const holds = (table: typeof refresh | typeof access) =>
+    sql`exists (select 1 from ${table} where ${table.userId} = ${m.userId} and ${table.revoked} is null and ${table.expiresAt} > ${at.getTime()} and ${refusedClient(table.clientId)})`;
+  const staleGrant = (table: typeof refresh | typeof access) =>
+    sql`exists (select 1 from ${table} where ${table.userId} = ${m.userId} and ${table.revoked} is null and ${table.expiresAt} > ${at.getTime()} and coalesce(${table.authTime}, 0) < ${cutoff.getTime()})`;
+  const member = eq(m.workspaceId, workspaceId);
+  const [members, stale, clients] = await global.batch([
+    global.select({ n: sql<number>`count(*)` }).from(m).where(member),
+    global
+      .select({ n: sql<number>`count(*)` })
+      .from(m)
+      .where(
+        next.sessionMaxHours === null
+          ? sql`0`
+          : and(
+              member,
+              // No live dashboard session younger than the maximum, or a live CLI or app grant
+              // whose sign-in is older (0 and null read as not known, so older).
+              sql`(not exists (select 1 from ${sess} where ${sess.userId} = ${m.userId} and ${sess.expiresAt} > ${at.getTime()} and ${sess.createdAt} >= ${cutoff.getTime()}) or ${staleGrant(refresh)} or ${staleGrant(access)})`,
+            ),
+      ),
+    global
+      .select({ n: sql<number>`count(*)` })
+      .from(m)
+      .where(
+        next.allowedClients === null || refused.length === 0
+          ? sql`0`
+          : and(member, sql`(${holds(refresh)} or ${holds(access)})`),
+      ),
+  ]);
+  return {
+    members: Number(members[0]?.n ?? 0),
+    staleMembers: Number(stale[0]?.n ?? 0),
+    clientMembers: Number(clients[0]?.n ?? 0),
+  };
 }
 
 /** The `workspace_policy` job, in the batch that saves a policy, on the same condition. */
@@ -367,7 +453,10 @@ export async function setWorkspacePolicy(
   if (row.revision !== input.revision) {
     return fail("version_conflict", "The policies changed meanwhile. Reload them and try again.");
   }
-  const proposal = await checkProposal(global, row.id, input.policy);
+  const proposal = await checkProposal(global, row.id, input.policy, {
+    userId: input.userId,
+    now: input.now,
+  });
   if (!proposal.ok) return proposal;
   const next = proposal.value;
   const fields = changedFields(row.policy, next);
