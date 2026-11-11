@@ -25,6 +25,7 @@ export * from "./domain-notices.ts";
 export * from "./email.ts";
 export * from "./expiry-notices.ts";
 export * from "./feedback.ts";
+export * from "./grace-forecast.ts";
 export * from "./idempotency.ts";
 export {
   type CallOptions,
@@ -50,7 +51,6 @@ export {
   stagingKey,
 } from "./multipart.ts";
 export * from "./outbox.ts";
-export * from "./grace-forecast.ts";
 export * from "./plans.ts";
 export * from "./publish.ts";
 export * from "./read-access.ts";

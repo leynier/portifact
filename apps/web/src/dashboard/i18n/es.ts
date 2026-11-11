@@ -1650,6 +1650,58 @@ export const es = {
   "plan.grace.reads": "Se puede seguir leyendo hasta entonces: {features}.",
   "plan.grace.download":
     "Descarga lo que necesites antes: el historial de cada artefacto tiene sus versiones, y el registro de accesos y el registro de auditoría tienen sus exportaciones. O pide el plan de nuevo para conservarlo todo.",
+  "data.title": "Descarga tus datos",
+  "data.description":
+    "Todo lo que este espacio guarda y puedes llevarte: las versiones conservadas de cada artefacto y sus fuentes, los registros de acceso, el registro de auditoría y, en tu espacio personal, los datos de tu cuenta. Los archivos llegan directamente del almacenamiento; nada se empaqueta en el servidor.",
+  "data.adminsOnly": "Descargar todos los datos de {workspace} es cosa de sus administradores.",
+  "data.grace.title": "Qué se borra y cuándo",
+  "data.grace.hint":
+    "Un plan que venció, se retiró o se rebajó conserva lo que guardaba durante 60 días. Después se borra lo que el plan de este espacio no guarda.",
+  "data.grace.body":
+    "Descarga lo que necesites antes de estas fechas, o pide el plan de nuevo para conservarlo todo.",
+  "data.grace.loading": "Cargando qué se borra y cuándo",
+  "data.grace.error": "No se pudo cargar qué se borra y cuándo.",
+  "data.grace.nothing": "Nada de lo conservado se borra cuando termine el periodo de gracia.",
+  "data.grace.caption": "Qué se borra al terminar el periodo de gracia, y desde cuándo",
+  "data.grace.column.kind": "Qué",
+  "data.grace.column.count": "Cuántos",
+  "data.grace.column.from": "Desde",
+  "data.kind.versions": "Versiones anteriores",
+  "data.kind.accessLog": "Entradas del registro de accesos",
+  "data.kind.analytics": "Contadores diarios de analítica",
+  "data.kind.auditEvents": "Eventos de auditoría",
+  "data.kind.pins": "Artefactos fijados (se desfijan y luego se archivan como siempre)",
+  "data.artifacts.title": "Artefactos",
+  "data.artifacts.hint":
+    "Abre un artefacto para descargar cualquier versión que conserve, archivos publicados o fuentes.",
+  "data.artifacts.loading": "Cargando artefactos",
+  "data.artifacts.error": "No se pudieron cargar los artefactos.",
+  "data.artifacts.none": "Este espacio no tiene artefactos.",
+  "data.artifacts.more": "Mostrar más artefactos",
+  "data.artifact.summary":
+    "{name}: {count, plural, one {# versión conservada} other {# versiones conservadas}}",
+  "data.versions.title": "Versiones de {name}",
+  "data.versions.caption": "Versiones conservadas de {name}, de la más reciente a la más antigua",
+  "data.versions.size": "Tamaño",
+  "data.accessLog.csv": "Registro de accesos en CSV",
+  "data.accessLog.json": "Registro de accesos en JSON",
+  "data.accessLog.saved": "El registro de accesos está listo.",
+  "data.logs.title": "Registros y cuenta",
+  "data.logs.hint":
+    "El registro de auditoría del espacio tiene su propia exportación, y tu espacio personal incluye los datos de tu cuenta.",
+  "data.logs.audit": "Exporta el registro de auditoría desde la página Registro de auditoría",
+  "data.logs.account": "Descarga los datos de tu cuenta (JSON)",
+  "data.logs.cli":
+    "Para llevártelo todo de una vez, ejecuta portifact export <carpeta> en una terminal: descarga cada versión conservada, retoma si se interrumpe y escribe un manifiesto.",
+  "shell.dataLink": "Descarga tus datos",
+  "shell.grace.title": "Lo que guardaba el plan {plan} se conserva hasta el {date}",
+  "shell.grace.download": "Descarga tus datos",
+  "shell.grace.request": "Pide {plan} de nuevo",
+  "shell.grace.hide": "Ocultar por hoy",
+  "shell.grace.body":
+    "Después de esa fecha se borra lo que el plan de este espacio no guarda. Descarga lo que necesites o pide el plan de nuevo para conservarlo todo.",
+  "shell.grace.bodyAskAdmin":
+    "Después de esa fecha se borra lo que el plan de este espacio no guarda. Pide a un administrador del espacio que descargue lo que necesites o que pida el plan de nuevo.",
   "plan.loading": "Cargando el plan",
   "plan.error": "No se pudo cargar el plan.",
   "plan.compare.section": "Todos los planes",

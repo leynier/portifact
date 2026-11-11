@@ -53,7 +53,11 @@ export async function getGraceForecast(
   const kinds: GraceForecast["kinds"] = [];
   for (const step of graceForecastSteps(record, now)) {
     if (step.kind === "versions") {
-      kinds.push({ kind: "versions", count: await lettingGoVersions(db, ownerId, owner, own, now, step.from), from: step.from });
+      kinds.push({
+        kind: "versions",
+        count: await lettingGoVersions(db, ownerId, owner, own, now, step.from),
+        from: step.from,
+      });
     } else if (step.kind === "accessLog") {
       const [openings, days] = await expiringRows(access, ownerId, now, step.from);
       kinds.push({ kind: "accessLog", count: openings, from: step.from });
@@ -66,7 +70,8 @@ export async function getGraceForecast(
         // one database both are the same rows, counted once.
         count: bothSides(db)
           ? await olderEvents(db, ownerId, cutoff)
-          : (await olderEvents(db, ownerId, cutoff)) + (await olderEvents(db.global, ownerId, cutoff)),
+          : (await olderEvents(db, ownerId, cutoff)) +
+            (await olderEvents(db.global, ownerId, cutoff)),
         from: step.from,
       });
     } else {
