@@ -36,6 +36,7 @@ beforeEach(async () => {
         artifactMaxDaysFrom: null,
         commentRetentionDays: null,
         commentRetentionFrom: null,
+        commentRetentionToken: null,
       },
     },
     { slug: "readers", name: "Readers", role: "member" },
@@ -76,6 +77,7 @@ describe("portifact workspaces", () => {
       artifactMaxDaysFrom: null,
       commentRetentionDays: null,
       commentRetentionFrom: null,
+      commentRetentionToken: null,
     });
   });
 
@@ -87,6 +89,7 @@ describe("portifact workspaces", () => {
         role: "editor",
         policy: {
           ...DEFAULT_POLICY,
+          commentRetentionToken: null,
           artifactMaxDays: 90,
           artifactMaxDaysFrom: Date.UTC(2026, 10, 18),
         },
@@ -105,7 +108,12 @@ describe("portifact workspaces", () => {
         slug: "acme",
         name: "Acme Docs",
         role: "member",
-        policy: { ...DEFAULT_POLICY, ipAllowlist: "hidden", tokenIpAllowlist: "hidden" },
+        policy: {
+          ...DEFAULT_POLICY,
+          commentRetentionToken: null,
+          ipAllowlist: "hidden",
+          tokenIpAllowlist: "hidden",
+        },
         blocked: true,
       },
     ];
@@ -129,7 +137,7 @@ describe("portifact workspaces", () => {
         slug: "acme",
         name: "Acme Docs",
         role: "member",
-        policy: { ...DEFAULT_POLICY, sessionMaxHours: 12 },
+        policy: { ...DEFAULT_POLICY, commentRetentionToken: null, sessionMaxHours: 12 },
         blocked: true,
         blockedBy: "session_age",
       },
@@ -137,7 +145,7 @@ describe("portifact workspaces", () => {
         slug: "beta",
         name: "Beta",
         role: "member",
-        policy: { ...DEFAULT_POLICY, allowedClients: [] },
+        policy: { ...DEFAULT_POLICY, commentRetentionToken: null, allowedClients: [] },
         blocked: true,
         blockedBy: "client",
       },
@@ -145,7 +153,7 @@ describe("portifact workspaces", () => {
         slug: "corp",
         name: "Corp",
         role: "editor",
-        policy: { ...DEFAULT_POLICY, ssoRequired: true },
+        policy: { ...DEFAULT_POLICY, commentRetentionToken: null, ssoRequired: true },
         blocked: true,
         blockedBy: "sso",
       },

@@ -249,7 +249,14 @@ export function changedFields(current: WorkspacePolicy, next: WorkspacePolicy): 
   if (current.ssoRequired !== next.ssoRequired) fields.push("ssoRequired");
   // Its effective date is derived from the change (`retentionTiming`), never a field of its own.
   if (current.artifactMaxDays !== next.artifactMaxDays) fields.push("artifactMaxDays");
-  if (current.commentRetentionDays !== next.commentRetentionDays) {
+  // Its date and its restore guard token are part of the rule (decision 0023): a change of either
+  // alone (`apply-policies` restoring an exported rule) is a change of the field.
+  if (
+    current.commentRetentionDays !== next.commentRetentionDays ||
+    (next.commentRetentionDays !== null &&
+      (current.commentRetentionFrom !== next.commentRetentionFrom ||
+        current.commentRetentionToken !== next.commentRetentionToken))
+  ) {
     fields.push("commentRetentionDays");
   }
   return fields;

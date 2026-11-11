@@ -14,6 +14,7 @@ import {
   enforceCommentRetention,
   guardAgreement,
   guardKey,
+  writeGuardRecord,
 } from "../src/comment-retention.ts";
 import { sendCommentRetentionNotice } from "../src/comment-retention-notices.ts";
 import { releaseGuardForPlan, removeOwnerPlan } from "../src/plans.ts";
@@ -432,6 +433,98 @@ describe("apply-policies writes no record", () => {
     expect(recordOf(bucket, t)).not.toBeNull();
     await scanWith(t, bucket, FROM + 2 * DAY);
     expect(await exists(t, old)).toBe(true);
+  });
+});
+
+describe("the edges of the writers", () => {
+  it("writes no record without a bucket or when R2 refuses", async () => {
+    const t = await team();
+    expect(await writeGuardRecord(undefined, t.id, "x")).toBe(false);
+    const bucket = memoryBucket({ put: true });
+    expect(await writeGuardRecord(bucket, t.id, "x")).toBe(false);
+    expect(await deleteGuardRecord(bucket, t.id)).toBe(false);
+  });
+
+  it("releases nothing for an invalid plan, a missing workspace or no rule; an unreadable policy counts as one", async () => {
+    const bucket = memoryBucket();
+    const t = await team();
+    const bad = { plan: "team" as const, seats: 0, validUntil: null, overrides: null };
+    expect(await releaseGuardForPlan(g(), bucket, t.id, bad, NOW)).toBe("none");
+    expect(await releaseGuardForPlan(g(), bucket, "ws_missing", null, NOW)).toBe("none");
+    expect(await releaseGuardForPlan(g(), bucket, t.id, null, NOW)).toBe("none");
+    await g()
+      .update(W)
+      .set({ policy: { publicAccess: 5 } as never })
+      .where(eq(W.id, t.id));
+    expect(await releaseGuardForPlan(g(), bucket, t.id, null, NOW)).toBe("released");
+    await g().update(W).set({ policy: null }).where(eq(W.id, t.id));
+  });
+});
+
+describe("apply-policies' merge of a looser rule it must apply alone", () => {
+  /** A workspace whose stored rule is `stored`, with a provider it cannot use (so held back). */
+  async function heldBack(stored: { days: number; from: number; token: string }) {
+    const bucket = memoryBucket();
+    const r = via(bucket);
+    const { t } = await ruled(r);
+    await g()
+      .update(W)
+      .set({
+        policy: {
+          ...DEFAULT_POLICY,
+          ssoRequired: true,
+          commentRetentionDays: stored.days,
+          commentRetentionFrom: stored.from,
+          commentRetentionToken: stored.token,
+        } as never,
+      })
+      .where(eq(W.id, t.id));
+    return t;
+  }
+  const file = (days: number, from: number, token: string) => ({
+    ...DEFAULT_POLICY,
+    ssoRequired: true,
+    commentRetentionDays: days,
+    commentRetentionFrom: from,
+    commentRetentionToken: token,
+  });
+
+  it("takes the file's rule, with its token, when it is longer and no earlier", async () => {
+    const t = await heldBack({ days: 30, from: FROM, token: "stored" });
+    const result = await applyWorkspacePolicies(
+      g(),
+      [{ workspaceId: t.id, policy: file(120, FROM + DAY, "file") }],
+      NOW,
+    );
+    expect(result).toMatchObject({ ok: true, ssoUnusable: [t.id] });
+    expect(await stored(t)).toMatchObject({
+      commentRetentionDays: 120,
+      commentRetentionFrom: FROM + DAY,
+      commentRetentionToken: "file",
+    });
+  });
+
+  it("keeps the stored token when the merge is the stored rule, and none for a rule neither had", async () => {
+    // Longer days in the file, a later date in the store: the merge is neither's rule.
+    const t = await heldBack({ days: 30, from: FROM + 9 * DAY, token: "stored" });
+    await applyWorkspacePolicies(
+      g(),
+      [{ workspaceId: t.id, policy: file(120, FROM + DAY, "file") }],
+      NOW,
+    );
+    expect(await stored(t)).toMatchObject({
+      commentRetentionDays: 120,
+      commentRetentionFrom: FROM + 9 * DAY,
+      commentRetentionToken: null,
+    });
+    // Same days, a later date in the file (still ahead): the file's rule and token.
+    const u = await heldBack({ days: 90, from: FROM, token: "stored" });
+    await applyWorkspacePolicies(
+      g(),
+      [{ workspaceId: u.id, policy: file(90, FROM + 3 * DAY, "file") }],
+      NOW,
+    );
+    expect((await stored(u)).commentRetentionToken).toBe("file");
   });
 });
 

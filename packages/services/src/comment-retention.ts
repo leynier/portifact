@@ -527,11 +527,11 @@ export async function enforceCommentRetention(
         if (rule.from > now) continue;
         // R2 is read only for a workspace with something to delete in this run.
         if ((await db.all(dueThreadIds(row.id, rule, now, 1))).length === 0) continue;
-        const agreement = await guardAgreement(bucket, row.id, rule.token);
-        if (agreement !== "agrees") {
+        const reason = await guardAgreement(bucket, row.id, rule.token);
+        if (reason !== "agrees") {
           run.paused = true;
           run.heldBack += 1;
-          logEvent("log", "comment_retention_held", { reason: agreement });
+          logEvent("log", "comment_retention_held", { reason });
           continue;
         }
         const deleted = await deleteDueThreads(db, {

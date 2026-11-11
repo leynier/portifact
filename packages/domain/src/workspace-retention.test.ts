@@ -315,6 +315,17 @@ describe("comment retention (decision 0023)", () => {
     expect(liftedFields(current, next)).toEqual([]);
   });
 
+  it("counts a change of the rule's date or token alone as a change of the field", () => {
+    const set = commentTiming(DEFAULT_POLICY, rule(90, 0), NOW, "t1");
+    expect(changedFields(set, { ...set, commentRetentionFrom: NOW + DAY })).toEqual([
+      "commentRetentionDays",
+    ]);
+    expect(changedFields(set, { ...set, commentRetentionToken: "t2" })).toEqual([
+      "commentRetentionDays",
+    ]);
+    expect(changedFields(set, set)).toEqual([]);
+  });
+
   it("gives the restore guard a fresh token whenever the rule changes, and keeps it otherwise", () => {
     const set = commentTiming(DEFAULT_POLICY, rule(90, 0), NOW, "t1");
     expect(set.commentRetentionToken).toBe("t1");
