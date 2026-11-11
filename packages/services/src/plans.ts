@@ -507,7 +507,17 @@ async function applyPendingPlanRegion(db: RegionalDb, ownerId: string, now: numb
   return true;
 }
 
-/** The limit columns from the owner's current plan, and its retention job when asked. */
+/** How often the regional half is written again when the plan changed while it was written. */
+const PLAN_REGION_ROUNDS = 3;
+
+/**
+ * The limit columns from the owner's current plan, and its retention job when asked. No batch
+ * spans the two databases, so another change can commit, and write its own columns, between the
+ * read of the plan and this write, which would then land with the older plan's limits. The plan
+ * is read again after the write and the columns written again while it differs, so the last
+ * write is always from the plan as it was after it. Thrown when it never settles: the caller
+ * keeps the job, which runs again.
+ */
 async function planRegionBatch(
   db: RegionalDb,
   global: GlobalDb,
@@ -515,20 +525,32 @@ async function planRegionBatch(
   now: number,
   retention: boolean,
 ) {
-  const [plan] = await global
-    .select({
-      plan: schema.ownerPlans.plan,
-      seats: schema.ownerPlans.seats,
-      validUntil: schema.ownerPlans.validUntil,
-      overrides: schema.ownerPlans.overrides,
-    })
-    .from(schema.ownerPlans)
-    .where(eq(schema.ownerPlans.ownerId, ownerId));
-  const columns = limitColumns(entitlements(plan ?? null, now));
-  await db.batch([
-    ...limitStatements(db, ownerId, columns, sql`1`, now, plan !== undefined),
-    ...(retention ? [ownerRetentionJob(db, ownerId, sql`1`, now)] : []),
-  ]);
+  const read = async () => {
+    const [row] = await global
+      .select({
+        plan: schema.ownerPlans.plan,
+        seats: schema.ownerPlans.seats,
+        validUntil: schema.ownerPlans.validUntil,
+        overrides: schema.ownerPlans.overrides,
+        updatedAt: schema.ownerPlans.updatedAt,
+      })
+      .from(schema.ownerPlans)
+      .where(eq(schema.ownerPlans.ownerId, ownerId));
+    return row;
+  };
+  let plan = await read();
+  for (let round = 0; round < PLAN_REGION_ROUNDS; round += 1) {
+    const columns = limitColumns(entitlements(plan ?? null, now));
+    await db.batch([
+      ...limitStatements(db, ownerId, columns, sql`1`, now, plan !== undefined),
+      // The retention job reads the plan when it runs, so one is enough.
+      ...(retention && round === 0 ? [ownerRetentionJob(db, ownerId, sql`1`, now)] : []),
+    ]);
+    const after = await read();
+    if (JSON.stringify(after ?? null) === JSON.stringify(plan ?? null)) return;
+    plan = after;
+  }
+  throw new Error("plan_region: the plan kept changing while its region was written");
 }
 
 /**

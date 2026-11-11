@@ -55,7 +55,7 @@ import { webhookKeys } from "../src/webhook-keys.ts";
 import { createWebhook, removeWebhook, sendTestEvent, type WebhookDeps } from "../src/webhooks.ts";
 import { createWorkspace, deleteWorkspace, resolveOwnerScope } from "../src/workspaces.ts";
 import { DAY, NOW, publishSite, session, sha256, user, value } from "./fixtures.ts";
-import { raceBeforeStatementIn } from "./race.ts";
+import { raceBeforeFirstWrite, raceBeforeStatementIn } from "./race.ts";
 
 const regions = () => regionsFromEnv(env);
 const eu = () => regions().get("eu");
@@ -1110,6 +1110,36 @@ describe("EU scans and plan changes, second review", () => {
     expect((await usageIn(eu().db, ws.id))?.bytesLimit).toBe(
       entitlements(null, NOW).limits.accountBytes,
     );
+  });
+
+  it("leaves the newest plan's limits when two grants cross in the region", async () => {
+    const { ws } = await euWorkspace();
+    const grant = (plan: "pro" | "team", now: number) => ({
+      ownerId: ws.id,
+      plan,
+      seats: 1,
+      validUntil: null,
+      overrides: null,
+      grantedBy: "test",
+      note: null,
+      now,
+    });
+    // The first grant has read its plan row; a second grant commits whole, global row and
+    // regional columns, before the first one's regional write lands with the older plan.
+    const raced = raceBeforeFirstWrite(async () => {
+      value(await setOwnerPlan(eu().db, grant("pro", NOW + 1)));
+    }, env.DB_EU);
+    value(await setOwnerPlan(raced, grant("team", NOW)));
+    const [row] = await regions()
+      .global.select()
+      .from(schema.ownerPlans)
+      .where(eq(schema.ownerPlans.ownerId, ws.id));
+    expect(row?.plan).toBe("pro");
+    const pro = entitlements({ plan: "pro", seats: 1, validUntil: null, overrides: null }, NOW);
+    const team = entitlements({ plan: "team", seats: 1, validUntil: null, overrides: null }, NOW);
+    expect(pro.limits.accountBytes).not.toBe(team.limits.accountBytes);
+    expect((await usageIn(eu().db, ws.id))?.bytesLimit).toBe(pro.limits.accountBytes);
+    expect(await homeJobs("plan_region", ws.id)).toEqual([]);
   });
 
   it("writes no retention job when a removal removed nothing, in either layout", async () => {
