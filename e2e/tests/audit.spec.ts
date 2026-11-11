@@ -68,11 +68,17 @@ test("an admin reads back the changes they made, filters them, and an editor is 
     .click();
   await expect(page.getByText("Budget moved to Audit team.")).toBeVisible();
 
-  await page
+  // The move has just switched the page to the workspace and the sidebar is being drawn again
+  // for it: a click that lands while its links are replaced goes nowhere, so click until it took.
+  const auditLink = page
     .getByRole("navigation", { name: "Main" })
-    .getByRole("link", { name: "Audit log" })
-    .click();
-  await expect(page).toHaveURL(`${APP_ORIGIN}/audit?workspace=${workspace.slug}`);
+    .getByRole("link", { name: "Audit log" });
+  await expect(async () => {
+    await auditLink.click();
+    await expect(page).toHaveURL(`${APP_ORIGIN}/audit?workspace=${workspace.slug}`, {
+      timeout: 2_000,
+    });
+  }).toPass({ timeout: 30_000 });
   await page.getByRole("heading", { level: 1, name: "Audit log" }).waitFor();
   const table = page.getByRole("table", { name: "Changes in this space, newest first" });
   await expect(table.getByRole("row")).toHaveCount(5);

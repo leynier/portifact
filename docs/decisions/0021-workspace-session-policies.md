@@ -94,3 +94,7 @@ Designed here, shipped separately. The setting `ssoRequired` would let members a
 - **Pending, directory and invited members.** A pending membership is not a role, so it is not bound until it is claimed; accepting an invitation from a non-SSO session works (it changes only the person's own membership) and binds from the next request.
 - **Service tokens** are not bound. **A blocked member** sees the workspace in the list with a "Sign in with single sign-on" action that starts the provider's flow and returns them.
 - **Provider removed or SSO lapsing.** Removing the provider clears the setting in the same global batch, with its own audit event; a plan without `sso` (or `SSO_ENABLED` off) stops enforcing it and the dashboard says so, so a required method nobody can use can never remain. With `SSO_ENABLED` off the setting cannot be set and nothing about it is shown.
+
+## Cost of reading the sign-in time
+
+The sign-in time comes from the access token row the provider reads while it validates the token, captured by a watched adapter, so no read is added. The watched adapter is one per underlying adapter, never one per request, with the row handed to the call in progress through `AsyncLocalStorage`: the pinned provider keys what it does once per instance (seeding its `oauth_resources` rows) on the adapter object, and a fresh adapter per check made it read every resource again on every bearer request, two D1 reads each. `apps/app/test/introspection-cost.test.ts` pins a warm check at the five statements the release before made.
