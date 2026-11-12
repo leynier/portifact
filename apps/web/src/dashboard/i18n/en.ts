@@ -2454,9 +2454,9 @@ export const en = {
   "shell.integrationsLink": "Integrations",
   "integrations.title": "Integrations",
   "integrations.description":
-    "Turn a comment thread into an issue in GitHub or Linear. A connection acts with a credential an admin pastes, so issues appear as created by that account.",
+    "Turn a comment thread into an issue in GitHub, Linear or Jira. A connection acts with a credential an admin pastes, so issues appear as created by that account.",
   "integrations.adminOnly.title": "Only admins manage integrations",
-  "integrations.adminOnly.body": "Ask an admin of {workspace} to connect GitHub or Linear.",
+  "integrations.adminOnly.body": "Ask an admin of {workspace} to connect GitHub, Linear or Jira.",
   "integrations.planTitle": "Not in this plan",
   "integrations.planRequired":
     "Integrations are part of the {plan} plan. Connections already made are kept, but no issue can be created through them.",
@@ -2465,9 +2465,10 @@ export const en = {
   "integrations.list.error": "The connections could not be loaded.",
   "integrations.empty.title": "No connections yet",
   "integrations.empty.body":
-    "Connect GitHub or Linear so admins and editors can create issues from comment threads.",
+    "Connect GitHub, Linear or Jira so admins and editors can create issues from comment threads.",
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
+  "integrations.service.jira": "Jira",
   "integrations.add.title": "Connect a service",
   "integrations.add.hint":
     "The credential is checked with the service, stored encrypted and never shown again: Portifact shows only its last four characters.",
@@ -2476,13 +2477,24 @@ export const en = {
   "integrations.add.labelHint": "A name your team recognizes, such as Product repo.",
   "integrations.add.credential.github": "Fine-grained personal access token",
   "integrations.add.credential.linear": "Linear API key",
+  "integrations.add.credential.jira": "Atlassian API token with scopes",
   "integrations.add.targets.github": "Repositories",
   "integrations.add.targets.linear": "Team IDs",
+  "integrations.add.targets.jira": "Project keys",
   "integrations.add.targetsHint.github": "One owner/repository per line, at most {limit}.",
   "integrations.add.targetsHint.linear":
     "One team ID per line, at most {limit}. Linear shows it in the team's settings.",
+  "integrations.add.targetsHint.jira": "One project key per line, such as ENG, at most {limit}.",
+  "integrations.add.account": "Atlassian account email",
+  "integrations.add.accountHint":
+    "The email of the account that created the token. It is stored encrypted with the token and never shown again.",
+  "integrations.add.site": "Jira site",
+  "integrations.add.siteHint": "Such as acme.atlassian.net.",
+  "integrations.add.cloudId": "Cloud ID",
+  "integrations.add.cloudIdHint":
+    "Open your-site.atlassian.net/_edge/tenant_info in your browser and copy the cloudId value.",
   "integrations.add.failed":
-    "The service did not accept the credential or one of the repositories or teams. Check them against the steps above, then try again.",
+    "The service did not accept the credential or one of the repositories, teams or projects. Check them against the steps above, then try again.",
   "integrations.add.submit": "Connect",
   "integrations.add.limit":
     "A space can have at most {limit} connections. Remove one to add another.",
@@ -2504,9 +2516,20 @@ export const en = {
     "If Linear lets you limit the key, allow only creating issues, and only in the teams you list here.",
   "integrations.howto.linear.3":
     "Paste the key here. Issues appear as created by your Linear account.",
+  "integrations.howto.jira.title": "Create a least-privilege Jira token",
+  "integrations.howto.jira.1":
+    "Sign in to Atlassian as the account issues should come from (a dedicated account is best), open Account settings, then Security, and choose Create API token with scopes.",
+  "integrations.howto.jira.2": "Give it a name and an expiration, and choose Jira as the app.",
+  "integrations.howto.jira.3":
+    "Select only the scopes read:jira-user, read:jira-work and write:jira-work.",
+  "integrations.howto.jira.4":
+    "Create the token and paste it here with the account's email, the site and its cloud ID. A token without scopes does not work.",
+  "integrations.howto.jira.5":
+    "Issues appear as created by that account, in the projects you list here.",
   "integrations.connected": "Connected {label}.",
   "integrations.identity": "Acts as {identity}",
   "integrations.credential": "Credential ending in {hint}",
+  "integrations.site": "Site {site}",
   "integrations.attention.credential_rejected":
     "The service refused this credential. Paste a new one, then test it.",
   "integrations.attention.key_unavailable":
@@ -2516,7 +2539,7 @@ export const en = {
   "integrations.test": "Test",
   "integrations.testLabel": "Test {label}",
   "integrations.testPassed":
-    "{label} works. It acts as {identity}, and every repository or team is reachable.",
+    "{label} works. It acts as {identity}, and every repository, team or project is reachable.",
   "integrations.problem.credential_rejected":
     "The service refused the credential: it is wrong, expired or revoked.",
   "integrations.problem.missing_permission":
@@ -2527,10 +2550,13 @@ export const en = {
   "integrations.problem.service_unavailable": "The service did not answer. Try again later.",
   "integrations.problem.rate_limited":
     "The service is limiting requests from this credential. Try again later.",
+  "integrations.problem.site_mismatch":
+    "The cloud ID does not belong to that Jira site. Copy both again from the site.",
   "integrations.edit": "Change",
   "integrations.editLabel": "Change {label}",
   "integrations.edit.title": "Change {label}",
   "integrations.edit.credentialHint": "Leave it empty to keep the current credential.",
+  "integrations.edit.accountHint": "Needed with a new token: the email of its Atlassian account.",
   "integrations.edit.save": "Save",
   "integrations.saved": "Saved {label}.",
   "integrations.remove": "Remove",
@@ -2544,7 +2570,7 @@ export const en = {
   "issues.dialog.title": "Create an issue from thread {number}",
   "issues.dialog.close": "Close",
   "issues.dialog.connection": "Connection",
-  "issues.dialog.target": "Repository or team",
+  "issues.dialog.target": "Repository, team or project",
   "issues.dialog.issueTitle": "Issue title",
   "issues.dialog.parts": "What to send",
   "issues.dialog.part.link": "A link to this thread",
@@ -2560,8 +2586,9 @@ export const en = {
   "issues.dialog.never":
     "Never sent: readers' email addresses, the artifact's content, other messages of the thread or review notes.",
   "issues.dialog.visible":
-    "Everyone who can see this thread, readers outside your team included, sees the created issue's link and its repository or team name, even for a private repository.",
-  "issues.failure.target_removed": "an admin removed that repository or team from the connection.",
+    "Everyone who can see this thread, readers outside your team included, sees the created issue's link and the name of its repository, team or project, even a private one.",
+  "issues.failure.target_removed":
+    "an admin removed that repository, team or project from the connection.",
   "issues.failure.artifact_moved": "the artifact moved to another space.",
   "issues.failure.requester_left": "you can no longer create issues for this space.",
   "issues.failure.thread_gone": "the thread was deleted.",
@@ -2569,7 +2596,7 @@ export const en = {
     "This space keeps its data in the EU. What you send goes to {service}, outside the EU.",
   "issues.dialog.submit": "Create issue",
   "issues.dialog.noConnections":
-    "No connection can be used. Ask an admin to connect GitHub or Linear, or to fix a connection that needs attention.",
+    "No connection can be used. Ask an admin to connect GitHub, Linear or Jira, or to fix a connection that needs attention.",
   "issues.requested": "Issue requested. Its link appears on the thread within a few minutes.",
   "issues.list": "Issues",
   "issues.link": "Issue {key} in {target}",
@@ -2659,7 +2686,7 @@ export const en = {
   "region.leaves.webhooks":
     "This space's data is kept in the EU. Webhook deliveries go to the addresses you enter, which may be anywhere: what they carry leaves the EU.",
   "region.leaves.integrations":
-    "This space's data is kept in the EU. Issues you create go to GitHub or Linear, which may keep them anywhere: what you send leaves the EU.",
+    "This space's data is kept in the EU. Issues you create go to GitHub, Linear or Jira, which may keep them anywhere: what you send leaves the EU.",
   "audit.stream.euTitle": "Your endpoint may be outside the EU",
   "audit.stream.eu":
     "This space's data is kept in the EU. The endpoint you choose may be anywhere: the events it receives leave the EU.",

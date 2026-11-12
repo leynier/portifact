@@ -1,5 +1,5 @@
-// Issue integrations (premium plan T7, decision 0018): an owner's connections to GitHub Issues or
-// Linear. Only admins manage them (role action `integrations`), only through the dashboard
+// Issue integrations (premium plan T7, decision 0018): an owner's connections to GitHub Issues,
+// Linear or Jira Cloud. Only admins manage them (role action `integrations`), only through the dashboard
 // session; the owner side picks one to create an issue from a thread (./thread-issues.ts). The
 // credential an admin pastes is checked against the service, sealed (./integration-keys.ts) and
 // never returned or logged; Portifact shows only its last four characters and the identity the
@@ -23,6 +23,10 @@ import {
   credentialHint,
   fail,
   hasFeature,
+  type JiraSite,
+  jiraCloudId,
+  jiraCredential,
+  jiraSiteName,
   ok,
   type Result,
   requireFeature,
@@ -30,7 +34,7 @@ import {
 import { and, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
 import { actorOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
-import { type CallOptions, checkCredential } from "./integration-clients.ts";
+import { type CallOptions, type CheckedTarget, checkCredential } from "./integration-clients.ts";
 import { type IntegrationKey, openCredential, sealCredential } from "./integration-keys.ts";
 import { ownerEntitlements } from "./plans.ts";
 
@@ -54,23 +58,35 @@ function hexId(prefix: string): string {
   return `${prefix}${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
-/** The stored targets, or none when the column does not read as a list. */
-export function storedTargets(raw: string): IntegrationTarget[] {
+/**
+ * The stored targets, or none when the column does not read as a list. A Jira project also keeps
+ * the issue type checked with it (`issueType`), which only the job reads.
+ */
+export function storedTargets(raw: string): CheckedTarget[] {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((item) =>
-      typeof item === "object" &&
-      item !== null &&
-      typeof (item as IntegrationTarget).id === "string" &&
-      typeof (item as IntegrationTarget).name === "string"
-        ? [{ id: (item as IntegrationTarget).id, name: (item as IntegrationTarget).name }]
-        : [],
-    );
+    return parsed.flatMap((item) => {
+      if (typeof item !== "object" || item === null) return [];
+      const { id, name, issueType } = item as Record<string, unknown>;
+      if (typeof id !== "string" || typeof name !== "string") return [];
+      return [{ id, name, ...(typeof issueType === "string" ? { issueType } : {}) }];
+    });
   } catch {
     return [];
   }
 }
+
+/** A Jira connection's site, or null for other services (and a Jira row missing either value). */
+export function connectionSite(row: Pick<ConnectionRow, "site" | "cloudId">): JiraSite | null {
+  return row.site !== null && row.cloudId !== null
+    ? { name: row.site, cloudId: row.cloudId }
+    : null;
+}
+
+/** Targets as people see them: never the issue type kept for the job. */
+const shown = (targets: readonly CheckedTarget[]): IntegrationTarget[] =>
+  targets.map(({ id, name }) => ({ id, name }));
 
 export interface ConnectionChoice {
   id: string;
@@ -81,6 +97,8 @@ export interface ConnectionChoice {
 }
 
 export interface ConnectionRecord extends ConnectionChoice {
+  /** Jira: the site's name; null for other services. */
+  site: string | null;
   identity: string;
   credentialHint: string;
   attention: IntegrationAttention | null;
@@ -94,7 +112,7 @@ function choice(row: ConnectionRow): ConnectionChoice {
     id: row.id,
     service: row.service,
     label: row.label,
-    targets: storedTargets(row.targets),
+    targets: shown(storedTargets(row.targets)),
     usable: row.attention === null,
   };
 }
@@ -102,6 +120,7 @@ function choice(row: ConnectionRow): ConnectionChoice {
 function record(row: ConnectionRow, names: ReadonlyMap<string, string>): ConnectionRecord {
   return {
     ...choice(row),
+    site: row.site,
     identity: row.identity,
     credentialHint: row.credentialHint,
     attention: row.attention,
@@ -193,7 +212,11 @@ function writeScope(db: RegionalDb, actor: Actor): { w: Db; holds: SQL | undefin
   return { w: db, holds: undefined };
 }
 
-const SERVICE_NAMES: Record<IntegrationService, string> = { github: "GitHub", linear: "Linear" };
+const SERVICE_NAMES: Record<IntegrationService, string> = {
+  github: "GitHub",
+  linear: "Linear",
+  jira: "Jira",
+};
 
 /** What failed, in words for the admin (decision 0018: "Test reports in plain words"). */
 export function checkProblemMessage(
@@ -206,18 +229,29 @@ export function checkProblemMessage(
     case "credential_rejected":
       return service === "github"
         ? "GitHub refused the token: it is wrong, expired or revoked."
-        : "Linear refused the API key: it is wrong or revoked.";
+        : service === "linear"
+          ? "Linear refused the API key: it is wrong or revoked."
+          : "Jira refused the email and API token: they are wrong, the token expired or was revoked, or it is a token without scopes.";
     case "missing_permission":
       return `${name} accepted the credential but it cannot read its own account.`;
     case "target_unreachable":
       return service === "github"
         ? `The token cannot reach ${target ?? "a repository"}. Give it access to that repository with Issues read and write.`
-        : `The API key cannot see the team ${target ?? ""}. Check the team ID and that the key's account is in that team.`.replace(
-            " team .",
-            " team.",
-          );
+        : service === "linear"
+          ? `The API key cannot see the team ${target ?? ""}. Check the team ID and that the key's account is in that team.`.replace(
+              " team .",
+              " team.",
+            )
+          : `The token cannot see the project ${target ?? ""}. Check the project key, the token's scopes and that its account can browse that project.`.replace(
+              " project .",
+              " project.",
+            );
+    case "site_mismatch":
+      return "The cloud ID does not belong to that Jira site. Copy both again from the site.";
     case "issues_disabled":
-      return `Issues are turned off in ${target ?? "the repository"}.`;
+      return service === "jira"
+        ? `Portifact cannot create issues in ${target ?? "the project"}: it has no standard issue type.`
+        : `Issues are turned off in ${target ?? "the repository"}.`;
     case "rate_limited":
       return `${name} is limiting requests from this credential. Try again later.`;
     case "service_unavailable":
@@ -352,6 +386,11 @@ export async function createIntegrationConnection(
   const { service, label, credential } = input.connection;
   const targets = checkIntegrationTargets(service, input.connection.targets);
   if (!targets.ok) return targets;
+  const jira = service === "jira" ? jiraEndpoint(input.connection) : null;
+  if (jira && !jira.ok) return jira;
+  const site = jira?.value.site ?? null;
+  // Jira's token goes with its account's email; both are sealed together, never stored apart.
+  const sealed = jira ? jiraCredential(jira.value.account, credential) : credential;
   const [existing] = await db
     .select({ count: sql<number>`count(*)` })
     .from(c)
@@ -368,7 +407,7 @@ export async function createIntegrationConnection(
   if (!created.ok) return created;
   const limited = await checkLimit(db.global, input.actor, input.now);
   if (!limited.ok) return limited;
-  const checked = await checkCredential(service, credential, targets.value, input.deps);
+  const checked = await checkCredential(service, sealed, targets.value, input.deps, site);
   if (!checked.ok) {
     return fail("invalid_input", checkProblemMessage(service, checked.problem, checked.target));
   }
@@ -376,15 +415,15 @@ export async function createIntegrationConnection(
   if (!still.ok) return still;
   const { w, holds } = writeScope(db, input.actor);
   const id = hexId("ic_");
-  const box = await sealCredential(key, id, credential);
+  const box = await sealCredential(key, id, sealed);
   // Columns in schema order: id, owner, service, label, key, credential, hint, identity, targets,
-  // attention, attention at, revision, created, updated, created by. The count keeps concurrent
-  // creates under the cap.
+  // attention, attention at, revision, created, updated, created by, site, cloud ID. The count
+  // keeps concurrent creates under the cap.
   const [inserted] = await w.batch([
     w
       .insert(c)
       .select(
-        sql`select ${id}, ${ownerId}, ${service}, ${label}, ${key.id}, ${box}, ${credentialHint(credential)}, ${checked.identity}, ${JSON.stringify(checked.targets)}, null, null, 1, ${input.now}, ${input.now}, ${input.actor.userId} where (select count(*) from ${c} where ${c.ownerId} = ${ownerId}) < ${INTEGRATION_LIMITS.perOwner}${holds ? sql` and ${holds}` : sql``}`,
+        sql`select ${id}, ${ownerId}, ${service}, ${label}, ${key.id}, ${box}, ${credentialHint(credential)}, ${checked.identity}, ${JSON.stringify(checked.targets)}, null, null, 1, ${input.now}, ${input.now}, ${input.actor.userId}, ${site?.name ?? null}, ${site?.cloudId ?? null} where (select count(*) from ${c} where ${c.ownerId} = ${ownerId}) < ${INTEGRATION_LIMITS.perOwner}${holds ? sql` and ${holds}` : sql``}`,
       )
       .returning(),
     // After the insert, on the row it created: the service and how many targets, never the
@@ -405,6 +444,18 @@ export async function createIntegrationConnection(
     return again.ok ? full() : again;
   }
   return ok(await present(db, row));
+}
+
+/** A Jira connection's site, cloud ID and account, checked; the contract already requires them. */
+function jiraEndpoint(
+  connection: Pick<IntegrationCreate, "site" | "cloudId" | "account">,
+): Result<{ site: JiraSite; account: string }> {
+  const name = jiraSiteName(connection.site ?? "");
+  if (!name.ok) return name;
+  const cloudId = jiraCloudId(connection.cloudId ?? "");
+  if (!cloudId.ok) return cloudId;
+  if (!connection.account) return fail("invalid_input", "Jira needs the token's account email.");
+  return ok({ site: { name: name.value, cloudId: cloudId.value }, account: connection.account });
 }
 
 const full = () =>
@@ -440,6 +491,12 @@ export async function updateIntegrationConnection(
     INTEGRATION_FEATURE,
   );
   if (!gate.ok) return gate;
+  if (row.service === "jira" && input.update.credential !== undefined && !input.update.account) {
+    return fail("invalid_input", "Send the email of the new token's Atlassian account with it.");
+  }
+  if (row.service !== "jira" && input.update.account !== undefined) {
+    return fail("invalid_input", "Only Jira takes an account email.");
+  }
   const change: Partial<typeof c.$inferInsert> = {};
   const detail: AuditDetail<"integration.changed"> = {};
   if (input.update.label !== undefined && input.update.label !== row.label) {
@@ -456,7 +513,14 @@ export async function updateIntegrationConnection(
   const targetsChanged =
     targetIds.length !== current.length ||
     targetIds.some((id, i) => id.toLowerCase() !== current[i]?.id.toLowerCase());
-  const newCredential = input.update.credential;
+  const pasted = input.update.credential;
+  // The value sealed: a Jira token together with its account's email.
+  const newCredential =
+    pasted === undefined
+      ? undefined
+      : row.service === "jira"
+        ? jiraCredential(String(input.update.account), pasted)
+        : pasted;
   if (newCredential !== undefined || targetsChanged) {
     const credential =
       newCredential ??
@@ -469,7 +533,13 @@ export async function updateIntegrationConnection(
     }
     const limited = await checkLimit(db.global, input.actor, input.now);
     if (!limited.ok) return limited;
-    const checked = await checkCredential(row.service, credential, targetIds, input.deps);
+    const checked = await checkCredential(
+      row.service,
+      credential,
+      targetIds,
+      input.deps,
+      connectionSite(row),
+    );
     if (!checked.ok) {
       return fail(
         "invalid_input",
@@ -485,7 +555,8 @@ export async function updateIntegrationConnection(
       Object.assign(change, {
         keyId: key.id,
         credentialBox: await sealCredential(key, row.id, newCredential),
-        credentialHint: credentialHint(newCredential),
+        // The pasted token's end, never the email sealed with a Jira token.
+        credentialHint: credentialHint(String(pasted)),
         attention: null,
         attentionAt: null,
       });
@@ -577,6 +648,7 @@ export async function testIntegrationConnection(
     credential,
     storedTargets(row.targets).map((target) => target.id),
     input.deps,
+    connectionSite(row),
   );
   if (!checked.ok) {
     if (checked.problem === "credential_rejected") {
@@ -607,7 +679,7 @@ export async function testIntegrationConnection(
     identity: checked.identity,
     problem: null,
     target: null,
-    message: `Connected as ${checked.identity}. Every repository or team is reachable.`,
+    message: `Connected as ${checked.identity}. Every repository, team or project is reachable.`,
   });
 }
 
@@ -696,6 +768,7 @@ export async function exportIntegrations(db: RegionalDb, ownerId: string) {
     id: row.id,
     service: row.service,
     label: row.label,
+    site: row.site,
     identity: row.identity,
     targets: storedTargets(row.targets).map((target) => target.name),
     createdAt: new Date(row.createdAt).toISOString(),

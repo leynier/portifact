@@ -1,12 +1,12 @@
 // Shapes of issue integrations (premium plan T7, feature `integrations`, decision 0018): an
-// owner's connections to GitHub Issues or Linear, managed by its admins through the dashboard
+// owner's connections to GitHub Issues, Linear or Jira Cloud, managed by its admins through the dashboard
 // session only, and the issues the owner side creates from comment threads, which the jobs
 // Worker sends. Credentials never appear in any of these shapes after they are pasted.
 import { z } from "zod";
 import { ArtifactId } from "./core.ts";
 
 /** The services a connection can reach. Each has one fixed API host (decision 0018). */
-export const INTEGRATION_SERVICES = ["github", "linear"] as const;
+export const INTEGRATION_SERVICES = ["github", "linear", "jira"] as const;
 export const IntegrationService = z.enum(INTEGRATION_SERVICES);
 export type IntegrationService = z.infer<typeof IntegrationService>;
 
@@ -17,8 +17,10 @@ export const INTEGRATION_LIMITS = {
   /** Repositories or teams one connection allows. */
   targetsPerConnection: 10,
   labelMax: 60,
-  /** The longest credential accepted; GitHub tokens and Linear keys are far shorter. */
+  /** The longest credential accepted; GitHub tokens, Linear keys and Atlassian tokens are shorter. */
   credentialMax: 255,
+  /** The longest Atlassian account email accepted with a Jira token. */
+  accountMax: 254,
   credentialMin: 20,
   /** The identity the service reports, as kept for display. */
   identityMax: 100,
@@ -54,16 +56,26 @@ export const INTEGRATION_LIMITS = {
   recentIssuesChecked: 30,
 } as const;
 
-/** The fixed API endpoints. Never a host from input (decision 0018). */
+/**
+ * The fixed API endpoints. Never a host from input (decision 0018). Jira goes through Atlassian's
+ * API gateway, `https://api.atlassian.com/ex/jira/<cloudId>/rest/api/3/...`: the origin is fixed and
+ * the site is named only by its validated cloud ID in the path (decision 0018, "Jira").
+ */
 export const INTEGRATION_API = {
   github: "https://api.github.com",
   linear: "https://api.linear.app/graphql",
+  jira: "https://api.atlassian.com",
 } as const;
 
-/** The web hosts an issue's URL must be on, as each service returns it. */
+/**
+ * The web hosts an issue's URL must be on. Jira's is a suffix: an issue's link is
+ * `https://<site>.atlassian.net/browse/<KEY>`, built by Portifact from the site name the gateway
+ * confirmed and the key Jira returned, only ever rendered as a link and never fetched.
+ */
 export const INTEGRATION_WEB_HOSTS = {
   github: "github.com",
   linear: "linear.app",
+  jira: "atlassian.net",
 } as const;
 
 export const IntegrationConnectionId = z
@@ -90,6 +102,27 @@ export const LinearTeamId = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, "Use a team ID.");
 
+/**
+ * A Jira project key: an uppercase letter, then uppercase letters, digits or underscores, 2 to 10
+ * characters (Jira Cloud's rule). It is the target of a Jira connection.
+ */
+export const JiraProjectKey = z
+  .string()
+  .regex(/^[A-Z][A-Z0-9_]{1,9}$/, "Use a project key, such as ENG.");
+
+/** An Atlassian cloud ID (a UUID), as `https://<site>.atlassian.net/_edge/tenant_info` shows it. */
+export const JiraCloudId = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/, "Use the cloud ID.");
+
+/**
+ * A Jira Cloud site's name, the `<name>` of `<name>.atlassian.net`: one DNS label of lowercase
+ * letters, digits and hyphens. Never called: it only builds issue links (decision 0018, "Jira").
+ */
+export const JiraSiteName = z
+  .string()
+  .regex(/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/, "Use the site name, such as acme.");
+
 const label = z.string().trim().min(1).max(INTEGRATION_LIMITS.labelMax);
 const credential = z
   .string()
@@ -99,38 +132,74 @@ const credential = z
   .regex(/^[\x21-\x7e]+$/, "That does not look like a token or key.");
 const targets = z
   .array(z.string().trim().min(1).max(140))
-  .min(1, "Choose at least one repository or team.")
+  .min(1, "Choose at least one repository, team or project.")
   .max(INTEGRATION_LIMITS.targetsPerConnection)
   .refine((list) => new Set(list.map((t) => t.toLowerCase())).size === list.length, {
     message: "List each target once.",
   });
 
+/**
+ * The Atlassian account email a Jira API token goes with (Basic authentication). Part of the
+ * sealed credential: never stored in the clear, shown, logged or audited (decision 0018, "Jira").
+ */
+const account = z
+  .string()
+  .trim()
+  .min(3)
+  .max(INTEGRATION_LIMITS.accountMax)
+  .regex(/^[^\s@]+@[^\s@]+$/, "Use the email address of the token's Atlassian account.");
+
 /** Body of POST /api/v1/integrations/connections (dashboard session only). */
-export const IntegrationCreate = z.strictObject({
-  service: IntegrationService,
-  label,
-  credential,
-  /** GitHub: `owner/repo`; Linear: team IDs. Checked against the service before saving. */
-  targets,
-});
+export const IntegrationCreate = z
+  .strictObject({
+    service: IntegrationService,
+    label,
+    credential,
+    /** GitHub: `owner/repo`; Linear: team IDs; Jira: project keys. Checked before saving. */
+    targets,
+    /** Jira only: the token's Atlassian account email. */
+    account: account.optional(),
+    /** Jira only: the site name (`acme`, or `acme.atlassian.net`), checked against the cloud ID. */
+    site: z.string().trim().min(1).max(300).optional(),
+    /** Jira only: the site's cloud ID. */
+    cloudId: z.string().trim().toLowerCase().pipe(JiraCloudId).optional(),
+  })
+  .superRefine((body, ctx) => {
+    const jira = body.service === "jira";
+    for (const field of ["account", "site", "cloudId"] as const) {
+      if (jira && body[field] === undefined) {
+        ctx.addIssue({ code: "custom", path: [field], message: `Jira needs ${field}.` });
+      }
+      if (!jira && body[field] !== undefined) {
+        ctx.addIssue({ code: "custom", path: [field], message: `Only Jira takes ${field}.` });
+      }
+    }
+  });
 export type IntegrationCreate = z.infer<typeof IntegrationCreate>;
 
-/** Body of PATCH /api/v1/integrations/connections/:id: any of the three. */
+/**
+ * Body of PATCH /api/v1/integrations/connections/:id: any of label, credential and targets. A Jira
+ * token comes with its account's email (`account`), which is sealed with it.
+ */
 export const IntegrationUpdate = z
   .strictObject({
     label: label.optional(),
     credential: credential.optional(),
     targets: targets.optional(),
+    account: account.optional(),
   })
   .refine((body) => Object.keys(body).length > 0, {
     message: "Send label, credential or targets.",
+  })
+  .refine((body) => body.account === undefined || body.credential !== undefined, {
+    message: "Send the account's email only with a new token.",
   });
 export type IntegrationUpdate = z.infer<typeof IntegrationUpdate>;
 
 export const IntegrationTarget = z.object({
-  /** `owner/repo` or a Linear team ID. */
+  /** `owner/repo`, a Linear team ID or a Jira project key. */
   id: z.string(),
-  /** What people see: the repository, or the team's name as Linear reported it. */
+  /** What people see: the repository, or the team's or project's name as the service reported it. */
   name: z.string(),
 });
 export type IntegrationTarget = z.infer<typeof IntegrationTarget>;
@@ -167,6 +236,8 @@ export type IntegrationChoiceList = z.infer<typeof IntegrationChoiceList>;
 
 /** A connection as its admins see it: the credential only as its last four characters. */
 export const IntegrationConnectionView = IntegrationChoice.extend({
+  /** Jira: the site's name (`acme` for `acme.atlassian.net`); null for the other services. */
+  site: z.string().nullable(),
   /** The account the credential acts as, as the service reported it at the last check. */
   identity: z.string(),
   credentialHint: z.string(),
@@ -195,6 +266,8 @@ export const IntegrationCheckProblem = z.enum([
   "issues_disabled",
   "service_unavailable",
   "rate_limited",
+  /** Jira: the cloud ID is unknown, or its site is not the one named. */
+  "site_mismatch",
 ]);
 export type IntegrationCheckProblem = z.infer<typeof IntegrationCheckProblem>;
 
@@ -225,7 +298,7 @@ export type IssueParts = z.infer<typeof IssueParts>;
 /** Body of POST /api/v1/artifacts/:id/annotations/threads/:threadId/issue. */
 export const ThreadIssueCreate = z.strictObject({
   connectionId: IntegrationConnectionId,
-  /** `owner/repo` or a Linear team ID among the connection's targets. */
+  /** `owner/repo`, a Linear team ID or a Jira project key among the connection's targets. */
   target: z.string().trim().min(1).max(140),
   title: z.string().trim().min(1).max(INTEGRATION_LIMITS.titleMax),
   include: IssueParts.default({ link: true, artifactName: true, quote: false, message: false }),
@@ -254,7 +327,9 @@ export const CreateIssueFromThreadInput = z.object({
     .trim()
     .min(1)
     .max(140)
-    .describe("One of the connection's targets: owner/repo on GitHub, a team ID on Linear."),
+    .describe(
+      "One of the connection's targets: owner/repo on GitHub, a team ID on Linear, a project key on Jira.",
+    ),
   title: z.string().trim().min(1).max(INTEGRATION_LIMITS.titleMax).describe("The issue's title."),
   include: IssueParts.optional().describe(
     "Which parts go into the issue. link and artifactName default to true; quote and message (other people's words) default to false.",
@@ -281,7 +356,7 @@ export const ThreadIssueFailure = z.enum([
   "plan_lapsed",
   "service_unavailable",
   "invalid_response",
-  /** An admin removed the repository or team from the connection before the issue was sent. */
+  /** An admin removed the repository, team or project from the connection before the issue was sent. */
   "target_removed",
   /** The artifact moved to another owner before the issue was sent. */
   "artifact_moved",
@@ -299,10 +374,10 @@ export type ThreadIssueFailure = z.infer<typeof ThreadIssueFailure>;
 export const ThreadIssueView = z.object({
   id: ThreadIssueId,
   service: IntegrationService,
-  /** `owner/repo`, or the Linear team's name. */
+  /** `owner/repo`, or the Linear team's or Jira project's name. */
   target: z.string(),
   state: ThreadIssueState,
-  /** `#123` on GitHub, the identifier (`ENG-42`) on Linear; null until created. */
+  /** `#123` on GitHub, the identifier (`ENG-42`) on Linear and Jira; null until created. */
   key: z.string().nullable(),
   /** On the service's own web host; null until created. */
   url: z.url().nullable(),

@@ -294,7 +294,7 @@ reason("reads that find a custom host or the operator's block list", [
   "customHostHint",
 ]);
 reason(
-  "issue integrations: calls to GitHub or Linear and key handling change nothing an owner has",
+  "issue integrations: calls to GitHub, Linear or Jira and key handling change nothing an owner has",
   [
     "checkCredential",
     "createIssue",

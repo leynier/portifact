@@ -104,7 +104,7 @@ export interface ThreadCardProps {
   onHover(id: string | null): void;
   register(id: string, element: HTMLElement | null): void;
   /**
-   * The owner's connections to GitHub or Linear (decision 0018), for the owner side only; absent
+   * The owner's connections to GitHub, Linear or Jira (decision 0018), for the owner side only; absent
    * while integrations are not offered, so the card offers nothing.
    */
   issueChoices?: IntegrationChoiceList | undefined;

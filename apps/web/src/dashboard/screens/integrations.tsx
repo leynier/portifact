@@ -1,5 +1,5 @@
 // The Integrations page (`/integrations`, premium plan T7, decision 0018): the space's
-// connections to GitHub Issues or Linear, for its admins. Connecting takes a credential the admin
+// connections to GitHub Issues, Linear or Jira Cloud, for its admins. Connecting takes a credential the admin
 // pastes (with exact steps for the least-privilege token at each service), which the server
 // checks and seals; afterwards only its last four characters and the account it acts as are
 // shown. Each connection can be tested, changed and removed with a confirmation. Without the
@@ -7,6 +7,7 @@
 // them, the page shows nothing to do and the sidebar has no link to it.
 import {
   INTEGRATION_LIMITS,
+  INTEGRATION_SERVICES,
   type IntegrationConnectionView,
   type IntegrationService,
   type IntegrationTestResult,
@@ -167,7 +168,9 @@ function HowTo({ service }: { service: IntegrationService }) {
   const steps =
     service === "github"
       ? ([1, 2, 3, 4, 5] as const).map((n) => t(`integrations.howto.github.${n}`))
-      : ([1, 2, 3] as const).map((n) => t(`integrations.howto.linear.${n}`));
+      : service === "jira"
+        ? ([1, 2, 3, 4, 5] as const).map((n) => t(`integrations.howto.jira.${n}`))
+        : ([1, 2, 3] as const).map((n) => t(`integrations.howto.linear.${n}`));
   return (
     <Disclosure appearance="inline" summary={t(`integrations.howto.${service}.title`)}>
       <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm text-text-muted">
@@ -198,6 +201,11 @@ function Connect({
   const [label, setLabel] = useState("");
   const [credential, setCredential] = useState("");
   const [targets, setTargets] = useState("");
+  // Jira only: the token's account email (sealed with it), the site and its cloud ID.
+  const [account, setAccount] = useState("");
+  const [site, setSite] = useState("");
+  const [cloudId, setCloudId] = useState("");
+  const jira = service === "jira";
   const create = useMutation({
     mutationFn: () =>
       api.createIntegration(
@@ -206,6 +214,7 @@ function Connect({
           label: label.trim(),
           credential: credential.trim(),
           targets: targetLines(targets),
+          ...(jira ? { account: account.trim(), site: site.trim(), cloudId: cloudId.trim() } : {}),
         },
         slug,
       ),
@@ -213,6 +222,9 @@ function Connect({
       setLabel("");
       setCredential("");
       setTargets("");
+      setAccount("");
+      setSite("");
+      setCloudId("");
       await queryClient.invalidateQueries({ queryKey: ["integrations"] });
       announce(t("integrations.connected", { label: created.label }));
     },
@@ -235,7 +247,7 @@ function Connect({
           value={service}
           disabled={disabled}
           onChange={setService}
-          options={(["github", "linear"] as const).map((value) => ({
+          options={INTEGRATION_SERVICES.map((value) => ({
             value,
             label: t(`integrations.service.${value}`),
           }))}
@@ -250,6 +262,39 @@ function Connect({
           disabled={disabled}
           onChange={(event) => setLabel(event.currentTarget.value)}
         />
+        {jira ? (
+          <>
+            <TextInput
+              label={t("integrations.add.site")}
+              description={t("integrations.add.siteHint")}
+              required
+              spellCheck={false}
+              value={site}
+              disabled={disabled}
+              onChange={(event) => setSite(event.currentTarget.value)}
+            />
+            <TextInput
+              label={t("integrations.add.cloudId")}
+              description={t("integrations.add.cloudIdHint")}
+              required
+              spellCheck={false}
+              value={cloudId}
+              disabled={disabled}
+              onChange={(event) => setCloudId(event.currentTarget.value)}
+            />
+            <TextInput
+              label={t("integrations.add.account")}
+              description={t("integrations.add.accountHint")}
+              type="email"
+              autoComplete="off"
+              spellCheck={false}
+              required
+              value={account}
+              disabled={disabled}
+              onChange={(event) => setAccount(event.currentTarget.value)}
+            />
+          </>
+        ) : null}
         <TextInput
           label={t(`integrations.add.credential.${service}`)}
           type="password"
@@ -391,6 +436,9 @@ function ConnectionCard({
         </div>
       </div>
       <ul className="flex flex-col gap-1 text-sm text-text-muted">
+        {connection.site ? (
+          <li>{t("integrations.site", { site: `${connection.site}.atlassian.net` })}</li>
+        ) : null}
         <li>{t("integrations.identity", { identity: connection.identity })}</li>
         <li>{t("integrations.credential", { hint: connection.credentialHint })}</li>
         <li>{connection.targets.map((target) => target.name).join(", ")}</li>
@@ -459,6 +507,8 @@ function EditConnection({
   const { api } = useDashboard();
   const [label, setLabel] = useState(connection.label);
   const [credential, setCredential] = useState("");
+  const [account, setAccount] = useState("");
+  const jira = connection.service === "jira";
   const [targets, setTargets] = useState(connection.targets.map((target) => target.id).join("\n"));
   const save = useMutation({
     mutationFn: () => {
@@ -471,6 +521,7 @@ function EditConnection({
         {
           ...(label.trim() !== connection.label ? { label: label.trim() } : {}),
           ...(credential.trim() !== "" ? { credential: credential.trim() } : {}),
+          ...(jira && credential.trim() !== "" ? { account: account.trim() } : {}),
           ...(sameTargets ? {} : { targets: lines }),
         },
         slug,
@@ -478,6 +529,7 @@ function EditConnection({
     },
     onSuccess: async (saved) => {
       setCredential("");
+      setAccount("");
       await queryClient.invalidateQueries({ queryKey: ["integrations"] });
       announce(t("integrations.saved", { label: saved.label }));
       onClose();
@@ -518,6 +570,17 @@ function EditConnection({
           value={credential}
           onChange={(event) => setCredential(event.currentTarget.value)}
         />
+        {jira ? (
+          <TextInput
+            label={t("integrations.add.account")}
+            description={t("integrations.edit.accountHint")}
+            type="email"
+            autoComplete="off"
+            spellCheck={false}
+            value={account}
+            onChange={(event) => setAccount(event.currentTarget.value)}
+          />
+        ) : null}
         <TextArea
           label={t(`integrations.add.targets.${connection.service}`)}
           description={t(`integrations.add.targetsHint.${connection.service}`, {

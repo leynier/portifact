@@ -2472,10 +2472,10 @@ export const ja = {
   "shell.integrationsLink": "連携",
   "integrations.title": "連携",
   "integrations.description":
-    "コメントスレッドを GitHub または Linear の issue にします。接続は管理者が貼り付けた認証情報で動作するため、issue はそのアカウントが作成したものとして表示されます。",
+    "コメントスレッドを GitHub、Linear または Jira の issue にします。接続は管理者が貼り付けた認証情報で動作するため、issue はそのアカウントが作成したものとして表示されます。",
   "integrations.adminOnly.title": "連携を管理できるのは管理者だけです",
   "integrations.adminOnly.body":
-    "{workspace} の管理者に GitHub または Linear の接続を依頼してください。",
+    "{workspace} の管理者に GitHub、Linear または Jira の接続を依頼してください。",
   "integrations.planTitle": "このプランには含まれていません",
   "integrations.planRequired":
     "連携は {plan} プランに含まれます。既存の接続は残りますが、それを使って issue を作成することはできません。",
@@ -2484,9 +2484,10 @@ export const ja = {
   "integrations.list.error": "接続を読み込めませんでした。",
   "integrations.empty.title": "まだ接続はありません",
   "integrations.empty.body":
-    "GitHub または Linear を接続すると、管理者と編集者がコメントスレッドから issue を作成できます。",
+    "GitHub、Linear または Jira を接続すると、管理者と編集者がコメントスレッドから issue を作成できます。",
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
+  "integrations.service.jira": "Jira",
   "integrations.add.title": "サービスを接続",
   "integrations.add.hint":
     "認証情報はサービスで確認され、暗号化して保存され、再び表示されることはありません。Portifact が表示するのは最後の 4 文字だけです。",
@@ -2495,13 +2496,25 @@ export const ja = {
   "integrations.add.labelHint": "チームがわかる名前。例: プロダクトのリポジトリ。",
   "integrations.add.credential.github": "Fine-grained 個人アクセストークン",
   "integrations.add.credential.linear": "Linear の API キー",
+  "integrations.add.credential.jira": "スコープ付きの Atlassian API トークン",
   "integrations.add.targets.github": "リポジトリ",
   "integrations.add.targets.linear": "チーム ID",
+  "integrations.add.targets.jira": "プロジェクトキー",
   "integrations.add.targetsHint.github": "1 行に 1 つの owner/repository、最大 {limit} 件。",
   "integrations.add.targetsHint.linear":
     "1 行に 1 つのチーム ID、最大 {limit} 件。Linear ではチームの設定に表示されます。",
+  "integrations.add.targetsHint.jira":
+    "1 行に 1 つのプロジェクトキー（例: ENG）、最大 {limit} 件。",
+  "integrations.add.account": "Atlassian アカウントのメールアドレス",
+  "integrations.add.accountHint":
+    "トークンを作成したアカウントのメールアドレスです。トークンと一緒に暗号化して保存され、二度と表示されません。",
+  "integrations.add.site": "Jira サイト",
+  "integrations.add.siteHint": "例: acme.atlassian.net",
+  "integrations.add.cloudId": "クラウド ID",
+  "integrations.add.cloudIdHint":
+    "ブラウザーで your-site.atlassian.net/_edge/tenant_info を開き、cloudId の値をコピーしてください。",
   "integrations.add.failed":
-    "サービスが認証情報、またはリポジトリやチームのいずれかを受け付けませんでした。上の手順と照らし合わせて確認し、もう一度お試しください。",
+    "サービスが認証情報、またはリポジトリ・チーム・プロジェクトのいずれかを受け付けませんでした。上の手順と照らし合わせてから、もう一度お試しください。",
   "integrations.add.submit": "接続",
   "integrations.add.limit":
     "1 つのスペースに作成できる接続は最大 {limit} 件です。追加するには 1 つ削除してください。",
@@ -2523,9 +2536,20 @@ export const ja = {
     "Linear でキーを制限できる場合は、issue の作成だけを、ここに挙げるチームだけで許可します。",
   "integrations.howto.linear.3":
     "キーをここに貼り付けます。issue はあなたの Linear アカウントが作成したものとして表示されます。",
+  "integrations.howto.jira.title": "最小権限の Jira トークンを作成する",
+  "integrations.howto.jira.1":
+    "issue の作成元にするアカウント（専用アカウントが最適）で Atlassian にサインインし、アカウント設定、セキュリティを開いて、「スコープ付き API トークンを作成」を選びます。",
+  "integrations.howto.jira.2": "名前と有効期限を付け、アプリとして Jira を選びます。",
+  "integrations.howto.jira.3":
+    "スコープは read:jira-user、read:jira-work、write:jira-work だけを選びます。",
+  "integrations.howto.jira.4":
+    "トークンを作成し、アカウントのメールアドレス、サイト、そのクラウド ID と一緒にここに貼り付けます。スコープのないトークンは使えません。",
+  "integrations.howto.jira.5":
+    "issue はそのアカウントが作成したものとして、ここに指定したプロジェクトに表示されます。",
   "integrations.connected": "{label} を接続しました。",
   "integrations.identity": "{identity} として動作",
   "integrations.credential": "末尾が {hint} の認証情報",
+  "integrations.site": "サイト {site}",
   "integrations.attention.credential_rejected":
     "サービスがこの認証情報を拒否しました。新しいものを貼り付けてテストしてください。",
   "integrations.attention.key_unavailable":
@@ -2535,7 +2559,7 @@ export const ja = {
   "integrations.test": "テスト",
   "integrations.testLabel": "{label} をテスト",
   "integrations.testPassed":
-    "{label} は動作しています。{identity} として動作し、すべてのリポジトリまたはチームにアクセスできます。",
+    "{label} は動作しています。{identity} として動作し、すべてのリポジトリ・チーム・プロジェクトにアクセスできます。",
   "integrations.problem.credential_rejected":
     "サービスが認証情報を拒否しました。誤っているか、期限切れか、取り消されています。",
   "integrations.problem.missing_permission":
@@ -2547,10 +2571,14 @@ export const ja = {
     "サービスが応答しませんでした。後でもう一度お試しください。",
   "integrations.problem.rate_limited":
     "サービスがこの認証情報からのリクエストを制限しています。後でもう一度お試しください。",
+  "integrations.problem.site_mismatch":
+    "クラウド ID がその Jira サイトのものではありません。サイトから両方をコピーし直してください。",
   "integrations.edit": "変更",
   "integrations.editLabel": "{label} を変更",
   "integrations.edit.title": "{label} を変更",
   "integrations.edit.credentialHint": "現在の認証情報を残すには空欄のままにします。",
+  "integrations.edit.accountHint":
+    "新しいトークンでは必須です: その Atlassian アカウントのメールアドレス。",
   "integrations.edit.save": "保存",
   "integrations.saved": "{label} を保存しました。",
   "integrations.remove": "削除",
@@ -2564,7 +2592,7 @@ export const ja = {
   "issues.dialog.title": "スレッド {number} から issue を作成",
   "issues.dialog.close": "閉じる",
   "issues.dialog.connection": "接続",
-  "issues.dialog.target": "リポジトリまたはチーム",
+  "issues.dialog.target": "リポジトリ、チームまたはプロジェクト",
   "issues.dialog.issueTitle": "issue のタイトル",
   "issues.dialog.parts": "送信する内容",
   "issues.dialog.part.link": "このスレッドへのリンク",
@@ -2580,8 +2608,9 @@ export const ja = {
   "issues.dialog.never":
     "送信されないもの: 閲覧者のメールアドレス、artifact の内容、スレッドの他のメッセージ、レビューのメモ。",
   "issues.dialog.visible":
-    "このスレッドを見られる全員 (チーム外の閲覧者を含む) に、作成された issue のリンクとリポジトリまたはチームの名前が表示されます。非公開リポジトリでも同じです。",
-  "issues.failure.target_removed": "管理者がそのリポジトリまたはチームを接続から外しました。",
+    "このスレッドを見られる全員（チーム外の閲覧者を含む）が、作成された issue のリンクと、そのリポジトリ・チーム・プロジェクトの名前を見られます。非公開の場合も同じです。",
+  "issues.failure.target_removed":
+    "管理者がそのリポジトリ・チーム・プロジェクトを接続から外しました。",
   "issues.failure.artifact_moved": "artifact が別のスペースに移動しました。",
   "issues.failure.requester_left": "このスペースの issue を作成できなくなりました。",
   "issues.failure.thread_gone": "スレッドが削除されました。",
@@ -2589,7 +2618,7 @@ export const ja = {
     "このスペースはデータを EU 内に保存しています。送信する内容は EU 外の {service} に送られます。",
   "issues.dialog.submit": "issue を作成",
   "issues.dialog.noConnections":
-    "使用できる接続がありません。管理者に GitHub または Linear の接続、または要対応の接続の修正を依頼してください。",
+    "使える接続がありません。管理者に GitHub、Linear または Jira の接続か、対応が必要な接続の修正を依頼してください。",
   "issues.requested": "issue を依頼しました。数分以内にスレッドにリンクが表示されます。",
   "issues.list": "issue",
   "issues.link": "{target} の issue {key}",
@@ -2680,7 +2709,7 @@ export const ja = {
   "region.leaves.webhooks":
     "このスペースのデータはEU内に保存されます。Webhookの配信先は入力したアドレスで、どこにあってもかまいません。配信される内容はEUの外に出ます。",
   "region.leaves.integrations":
-    "このスペースのデータはEU内に保存されます。作成したissueはGitHubまたはLinearに送られ、どこに保存されるかはそれぞれのサービス次第です。送信する内容はEUの外に出ます。",
+    "このスペースのデータは EU に保存されています。作成した issue は GitHub、Linear または Jira に送られ、どこにでも保存される可能性があります。送った内容は EU の外に出ます。",
   "audit.stream.euTitle": "エンドポイントは EU 外にある可能性があります",
   "audit.stream.eu":
     "このスペースのデータは EU 内に保存されています。選んだエンドポイントはどこにあっても構いませんが、そこが受け取るイベントは EU の外に出ます。",

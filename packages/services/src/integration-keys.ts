@@ -1,7 +1,7 @@
 // Sealing of issue integration credentials (decision 0018): AES-256-GCM under a key derived with
 // HKDF from the secret `INTEGRATIONS_KEY`, held by the app Worker (seals what an admin pastes) and
 // the jobs Worker (opens it to create issues). Its own key rather than `WEBHOOK_KEY`: a GitHub
-// token or Linear key acts as a person at another service, so it rotates, leaks and switches on
+// token, Linear key or Jira token acts as a person at another service, so it rotates, leaks and switches on
 // independently of webhook URLs. Each sealed value names the key that sealed it and is bound to
 // its connection, so a value copied to another row does not open.
 

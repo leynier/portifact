@@ -2522,10 +2522,10 @@ export const es = {
   "shell.integrationsLink": "Integraciones",
   "integrations.title": "Integraciones",
   "integrations.description":
-    "Convierte un hilo de comentarios en un issue de GitHub o Linear. Una conexión actúa con una credencial que pega un administrador, así que los issues aparecen creados por esa cuenta.",
+    "Convierte un hilo de comentarios en un issue de GitHub, Linear o Jira. Una conexión actúa con una credencial que pega un administrador, así que los issues aparecen creados por esa cuenta.",
   "integrations.adminOnly.title": "Solo los administradores gestionan integraciones",
   "integrations.adminOnly.body":
-    "Pide a un administrador de {workspace} que conecte GitHub o Linear.",
+    "Pide a un administrador de {workspace} que conecte GitHub, Linear o Jira.",
   "integrations.planTitle": "No incluido en este plan",
   "integrations.planRequired":
     "Las integraciones son parte del plan {plan}. Las conexiones ya hechas se conservan, pero no se puede crear ningún issue con ellas.",
@@ -2534,9 +2534,10 @@ export const es = {
   "integrations.list.error": "No se pudieron cargar las conexiones.",
   "integrations.empty.title": "Aún no hay conexiones",
   "integrations.empty.body":
-    "Conecta GitHub o Linear para que administradores y editores creen issues desde hilos de comentarios.",
+    "Conecta GitHub, Linear o Jira para que administradores y editores creen issues desde hilos de comentarios.",
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
+  "integrations.service.jira": "Jira",
   "integrations.add.title": "Conectar un servicio",
   "integrations.add.hint":
     "La credencial se comprueba con el servicio, se guarda cifrada y no se vuelve a mostrar: Portifact solo muestra sus últimos cuatro caracteres.",
@@ -2545,14 +2546,26 @@ export const es = {
   "integrations.add.labelHint": "Un nombre que tu equipo reconozca, como Repositorio del producto.",
   "integrations.add.credential.github": "Token de acceso personal detallado (fine-grained)",
   "integrations.add.credential.linear": "Clave de API de Linear",
+  "integrations.add.credential.jira": "Token de API de Atlassian con ámbitos",
   "integrations.add.targets.github": "Repositorios",
   "integrations.add.targets.linear": "ID de equipos",
+  "integrations.add.targets.jira": "Claves de proyecto",
   "integrations.add.targetsHint.github":
     "Un propietario/repositorio por línea, como máximo {limit}.",
   "integrations.add.targetsHint.linear":
     "Un ID de equipo por línea, como máximo {limit}. Linear lo muestra en la configuración del equipo.",
+  "integrations.add.targetsHint.jira":
+    "Una clave de proyecto por línea, como ENG, como máximo {limit}.",
+  "integrations.add.account": "Correo de la cuenta de Atlassian",
+  "integrations.add.accountHint":
+    "El correo de la cuenta que creó el token. Se guarda cifrado junto al token y no se vuelve a mostrar.",
+  "integrations.add.site": "Sitio de Jira",
+  "integrations.add.siteHint": "Por ejemplo, acme.atlassian.net.",
+  "integrations.add.cloudId": "ID de nube (cloud ID)",
+  "integrations.add.cloudIdHint":
+    "Abre tu-sitio.atlassian.net/_edge/tenant_info en el navegador y copia el valor de cloudId.",
   "integrations.add.failed":
-    "El servicio no aceptó la credencial o alguno de los repositorios o equipos. Revísalos con los pasos de arriba y vuelve a intentarlo.",
+    "El servicio no aceptó la credencial o alguno de los repositorios, equipos o proyectos. Revísalos con los pasos de arriba y vuelve a intentarlo.",
   "integrations.add.submit": "Conectar",
   "integrations.add.limit":
     "Un espacio puede tener como máximo {limit} conexiones. Quita una para agregar otra.",
@@ -2574,9 +2587,20 @@ export const es = {
     "Si Linear te deja limitar la clave, permite solo crear issues y solo en los equipos que indicas aquí.",
   "integrations.howto.linear.3":
     "Pega la clave aquí. Los issues aparecen creados por tu cuenta de Linear.",
+  "integrations.howto.jira.title": "Crea un token de Jira con los mínimos permisos",
+  "integrations.howto.jira.1":
+    "Inicia sesión en Atlassian con la cuenta desde la que deben crearse los issues (mejor una cuenta dedicada), abre la configuración de la cuenta, luego Seguridad, y elige Crear token de API con ámbitos.",
+  "integrations.howto.jira.2": "Dale un nombre y una caducidad, y elige Jira como aplicación.",
+  "integrations.howto.jira.3":
+    "Selecciona solo los ámbitos read:jira-user, read:jira-work y write:jira-work.",
+  "integrations.howto.jira.4":
+    "Crea el token y pégalo aquí con el correo de la cuenta, el sitio y su ID de nube. Un token sin ámbitos no funciona.",
+  "integrations.howto.jira.5":
+    "Los issues aparecen creados por esa cuenta, en los proyectos que indiques aquí.",
   "integrations.connected": "Se conectó {label}.",
   "integrations.identity": "Actúa como {identity}",
   "integrations.credential": "Credencial terminada en {hint}",
+  "integrations.site": "Sitio {site}",
   "integrations.attention.credential_rejected":
     "El servicio rechazó esta credencial. Pega una nueva y pruébala.",
   "integrations.attention.key_unavailable":
@@ -2586,7 +2610,7 @@ export const es = {
   "integrations.test": "Probar",
   "integrations.testLabel": "Probar {label}",
   "integrations.testPassed":
-    "{label} funciona. Actúa como {identity} y todos los repositorios o equipos son accesibles.",
+    "{label} funciona. Actúa como {identity} y todos los repositorios, equipos o proyectos son accesibles.",
   "integrations.problem.credential_rejected":
     "El servicio rechazó la credencial: es incorrecta, venció o fue revocada.",
   "integrations.problem.missing_permission":
@@ -2597,10 +2621,14 @@ export const es = {
   "integrations.problem.service_unavailable": "El servicio no respondió. Inténtalo más tarde.",
   "integrations.problem.rate_limited":
     "El servicio está limitando las solicitudes de esta credencial. Inténtalo más tarde.",
+  "integrations.problem.site_mismatch":
+    "El ID de nube no pertenece a ese sitio de Jira. Vuelve a copiar ambos desde el sitio.",
   "integrations.edit": "Cambiar",
   "integrations.editLabel": "Cambiar {label}",
   "integrations.edit.title": "Cambiar {label}",
   "integrations.edit.credentialHint": "Déjalo vacío para conservar la credencial actual.",
+  "integrations.edit.accountHint":
+    "Necesario con un token nuevo: el correo de su cuenta de Atlassian.",
   "integrations.edit.save": "Guardar",
   "integrations.saved": "Se guardó {label}.",
   "integrations.remove": "Quitar",
@@ -2614,7 +2642,7 @@ export const es = {
   "issues.dialog.title": "Crear un issue desde el hilo {number}",
   "issues.dialog.close": "Cerrar",
   "issues.dialog.connection": "Conexión",
-  "issues.dialog.target": "Repositorio o equipo",
+  "issues.dialog.target": "Repositorio, equipo o proyecto",
   "issues.dialog.issueTitle": "Título del issue",
   "issues.dialog.parts": "Qué enviar",
   "issues.dialog.part.link": "Un enlace a este hilo",
@@ -2630,9 +2658,9 @@ export const es = {
   "issues.dialog.never":
     "Nunca se envían: los correos de los lectores, el contenido del artifact, otros mensajes del hilo ni las notas de revisión.",
   "issues.dialog.visible":
-    "Todos los que pueden ver este hilo, incluidos los lectores de fuera de tu equipo, ven el enlace del issue creado y el nombre de su repositorio o equipo, aunque el repositorio sea privado.",
+    "Todos los que ven este hilo, incluidos lectores de fuera de tu equipo, ven el enlace del issue creado y el nombre de su repositorio, equipo o proyecto, aunque sea privado.",
   "issues.failure.target_removed":
-    "un administrador quitó ese repositorio o equipo de la conexión.",
+    "un administrador quitó ese repositorio, equipo o proyecto de la conexión.",
   "issues.failure.artifact_moved": "el artifact se movió a otro espacio.",
   "issues.failure.requester_left": "ya no puedes crear issues para este espacio.",
   "issues.failure.thread_gone": "se eliminó el hilo.",
@@ -2640,7 +2668,7 @@ export const es = {
     "Este espacio guarda sus datos en la UE. Lo que envíes va a {service}, fuera de la UE.",
   "issues.dialog.submit": "Crear issue",
   "issues.dialog.noConnections":
-    "No hay ninguna conexión utilizable. Pide a un administrador que conecte GitHub o Linear, o que arregle una conexión que requiere atención.",
+    "No se puede usar ninguna conexión. Pide a un administrador que conecte GitHub, Linear o Jira, o que arregle una conexión que necesita atención.",
   "issues.requested": "Issue solicitado. Su enlace aparece en el hilo en unos minutos.",
   "issues.list": "Issues",
   "issues.link": "Issue {key} en {target}",
@@ -2732,7 +2760,7 @@ export const es = {
   "region.leaves.webhooks":
     "Los datos de este espacio se guardan en la UE. Las entregas de webhooks van a las direcciones que indicas, que pueden estar en cualquier lugar: lo que llevan sale de la UE.",
   "region.leaves.integrations":
-    "Los datos de este espacio se guardan en la UE. Las incidencias que creas van a GitHub o Linear, que pueden guardarlas en cualquier lugar: lo que envías sale de la UE.",
+    "Los datos de este espacio se guardan en la UE. Las incidencias que creas van a GitHub, Linear o Jira, que pueden guardarlas en cualquier lugar: lo que envías sale de la UE.",
   "audit.stream.euTitle": "Tu endpoint puede estar fuera de la UE",
   "audit.stream.eu":
     "Los datos de este espacio se guardan en la UE. El endpoint que elijas puede estar en cualquier lugar: los eventos que recibe salen de la UE.",

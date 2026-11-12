@@ -83,7 +83,11 @@ const ROLE = { admin: "admin", editor: "editor", member: "member" } as const;
 
 /** What happened, in plain words. */
 /** The services of issue integrations, by name. */
-const SERVICE: Readonly<Record<string, string>> = { github: "GitHub", linear: "Linear" };
+const SERVICE: Readonly<Record<string, string>> = {
+  github: "GitHub",
+  linear: "Linear",
+  jira: "Jira",
+};
 const service = (value: unknown) => SERVICE[String(value)] ?? String(value);
 
 export function auditSummary(event: AuditEventView): string {

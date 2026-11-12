@@ -2534,10 +2534,10 @@ export const de = {
   "shell.integrationsLink": "Integrationen",
   "integrations.title": "Integrationen",
   "integrations.description":
-    "Machen Sie aus einem Kommentar-Thread ein Issue in GitHub oder Linear. Eine Verbindung handelt mit Zugangsdaten, die ein Admin einfügt, daher erscheinen Issues als von diesem Konto erstellt.",
+    "Machen Sie aus einem Kommentar-Thread ein Issue in GitHub, Linear oder Jira. Eine Verbindung handelt mit Zugangsdaten, die ein Admin einfügt, daher erscheinen Issues als von diesem Konto erstellt.",
   "integrations.adminOnly.title": "Nur Admins verwalten Integrationen",
   "integrations.adminOnly.body":
-    "Bitten Sie einen Admin von {workspace}, GitHub oder Linear zu verbinden.",
+    "Bitten Sie einen Admin von {workspace}, GitHub, Linear oder Jira zu verbinden.",
   "integrations.planTitle": "Nicht in diesem Tarif",
   "integrations.planRequired":
     "Integrationen gehören zum Tarif {plan}. Bestehende Verbindungen bleiben erhalten, aber über sie können keine Issues erstellt werden.",
@@ -2546,9 +2546,10 @@ export const de = {
   "integrations.list.error": "Die Verbindungen konnten nicht geladen werden.",
   "integrations.empty.title": "Noch keine Verbindungen",
   "integrations.empty.body":
-    "Verbinden Sie GitHub oder Linear, damit Admins und Bearbeitende Issues aus Kommentar-Threads erstellen können.",
+    "Verbinden Sie GitHub, Linear oder Jira, damit Admins und Bearbeiter Issues aus Kommentar-Threads erstellen können.",
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
+  "integrations.service.jira": "Jira",
   "integrations.add.title": "Dienst verbinden",
   "integrations.add.hint":
     "Die Zugangsdaten werden beim Dienst geprüft, verschlüsselt gespeichert und nie wieder angezeigt: Portifact zeigt nur die letzten vier Zeichen.",
@@ -2557,13 +2558,25 @@ export const de = {
   "integrations.add.labelHint": "Ein Name, den Ihr Team erkennt, etwa Produkt-Repository.",
   "integrations.add.credential.github": "Feingranulares persönliches Zugriffstoken",
   "integrations.add.credential.linear": "Linear-API-Schlüssel",
+  "integrations.add.credential.jira": "Atlassian-API-Token mit Bereichen",
   "integrations.add.targets.github": "Repositorys",
   "integrations.add.targets.linear": "Team-IDs",
+  "integrations.add.targets.jira": "Projektschlüssel",
   "integrations.add.targetsHint.github": "Ein Besitzer/Repository pro Zeile, höchstens {limit}.",
   "integrations.add.targetsHint.linear":
     "Eine Team-ID pro Zeile, höchstens {limit}. Linear zeigt sie in den Team-Einstellungen.",
+  "integrations.add.targetsHint.jira":
+    "Ein Projektschlüssel pro Zeile, etwa ENG, höchstens {limit}.",
+  "integrations.add.account": "E-Mail des Atlassian-Kontos",
+  "integrations.add.accountHint":
+    "Die E-Mail des Kontos, das das Token erstellt hat. Sie wird mit dem Token verschlüsselt gespeichert und nie wieder angezeigt.",
+  "integrations.add.site": "Jira-Website",
+  "integrations.add.siteHint": "Zum Beispiel acme.atlassian.net.",
+  "integrations.add.cloudId": "Cloud-ID",
+  "integrations.add.cloudIdHint":
+    "Öffnen Sie ihre-website.atlassian.net/_edge/tenant_info im Browser und kopieren Sie den Wert von cloudId.",
   "integrations.add.failed":
-    "Der Dienst hat die Zugangsdaten oder eines der Repositorys oder Teams nicht akzeptiert. Prüfen Sie sie anhand der Schritte oben und versuchen Sie es erneut.",
+    "Der Dienst hat die Zugangsdaten oder eines der Repositorys, Teams oder Projekte nicht akzeptiert. Prüfen Sie sie anhand der Schritte oben und versuchen Sie es erneut.",
   "integrations.add.submit": "Verbinden",
   "integrations.add.limit":
     "Ein Bereich kann höchstens {limit} Verbindungen haben. Entfernen Sie eine, um eine weitere hinzuzufügen.",
@@ -2585,9 +2598,21 @@ export const de = {
     "Wenn Linear das Einschränken des Schlüssels erlaubt, erlauben Sie nur das Erstellen von Issues und nur in den hier aufgeführten Teams.",
   "integrations.howto.linear.3":
     "Fügen Sie den Schlüssel hier ein. Issues erscheinen als von Ihrem Linear-Konto erstellt.",
+  "integrations.howto.jira.title": "Ein Jira-Token mit minimalen Rechten erstellen",
+  "integrations.howto.jira.1":
+    "Melden Sie sich bei Atlassian mit dem Konto an, von dem die Issues kommen sollen (am besten ein eigenes Konto), öffnen Sie die Kontoeinstellungen, dann Sicherheit, und wählen Sie API-Token mit Bereichen erstellen.",
+  "integrations.howto.jira.2":
+    "Geben Sie ihm einen Namen und ein Ablaufdatum und wählen Sie Jira als App.",
+  "integrations.howto.jira.3":
+    "Wählen Sie nur die Bereiche read:jira-user, read:jira-work und write:jira-work.",
+  "integrations.howto.jira.4":
+    "Erstellen Sie das Token und fügen Sie es hier mit der E-Mail des Kontos, der Website und ihrer Cloud-ID ein. Ein Token ohne Bereiche funktioniert nicht.",
+  "integrations.howto.jira.5":
+    "Issues erscheinen als von diesem Konto erstellt, in den Projekten, die Sie hier angeben.",
   "integrations.connected": "{label} verbunden.",
   "integrations.identity": "Handelt als {identity}",
   "integrations.credential": "Zugangsdaten enden auf {hint}",
+  "integrations.site": "Website {site}",
   "integrations.attention.credential_rejected":
     "Der Dienst hat diese Zugangsdaten abgelehnt. Fügen Sie neue ein und testen Sie sie.",
   "integrations.attention.key_unavailable":
@@ -2597,7 +2622,7 @@ export const de = {
   "integrations.test": "Testen",
   "integrations.testLabel": "{label} testen",
   "integrations.testPassed":
-    "{label} funktioniert. Sie handelt als {identity}, und jedes Repository oder Team ist erreichbar.",
+    "{label} funktioniert. Es handelt als {identity}, und jedes Repository, Team oder Projekt ist erreichbar.",
   "integrations.problem.credential_rejected":
     "Der Dienst hat die Zugangsdaten abgelehnt: Sie sind falsch, abgelaufen oder widerrufen.",
   "integrations.problem.missing_permission":
@@ -2609,10 +2634,14 @@ export const de = {
     "Der Dienst hat nicht geantwortet. Versuchen Sie es später erneut.",
   "integrations.problem.rate_limited":
     "Der Dienst begrenzt Anfragen dieser Zugangsdaten. Versuchen Sie es später erneut.",
+  "integrations.problem.site_mismatch":
+    "Die Cloud-ID gehört nicht zu dieser Jira-Website. Kopieren Sie beide erneut von der Website.",
   "integrations.edit": "Ändern",
   "integrations.editLabel": "{label} ändern",
   "integrations.edit.title": "{label} ändern",
   "integrations.edit.credentialHint": "Leer lassen, um die aktuellen Zugangsdaten zu behalten.",
+  "integrations.edit.accountHint":
+    "Mit einem neuen Token nötig: die E-Mail seines Atlassian-Kontos.",
   "integrations.edit.save": "Speichern",
   "integrations.saved": "{label} gespeichert.",
   "integrations.remove": "Entfernen",
@@ -2626,7 +2655,7 @@ export const de = {
   "issues.dialog.title": "Issue aus Thread {number} erstellen",
   "issues.dialog.close": "Schließen",
   "issues.dialog.connection": "Verbindung",
-  "issues.dialog.target": "Repository oder Team",
+  "issues.dialog.target": "Repository, Team oder Projekt",
   "issues.dialog.issueTitle": "Titel des Issues",
   "issues.dialog.parts": "Was gesendet wird",
   "issues.dialog.part.link": "Ein Link zu diesem Thread",
@@ -2642,9 +2671,9 @@ export const de = {
   "issues.dialog.never":
     "Nie gesendet: E-Mail-Adressen der Lesenden, der Inhalt des Artifacts, andere Nachrichten des Threads oder Prüfnotizen.",
   "issues.dialog.visible":
-    "Alle, die diesen Thread sehen, auch Lesende außerhalb Ihres Teams, sehen den Link des erstellten Issues und den Namen seines Repositorys oder Teams, auch bei einem privaten Repository.",
+    "Alle, die diesen Thread sehen, auch Leser außerhalb Ihres Teams, sehen den Link des erstellten Issues und den Namen seines Repositorys, Teams oder Projekts, auch wenn es privat ist.",
   "issues.failure.target_removed":
-    "ein Admin hat dieses Repository oder Team aus der Verbindung entfernt.",
+    "ein Admin hat dieses Repository, Team oder Projekt aus der Verbindung entfernt.",
   "issues.failure.artifact_moved": "das Artifact wurde in einen anderen Bereich verschoben.",
   "issues.failure.requester_left": "Sie können für diesen Bereich keine Issues mehr erstellen.",
   "issues.failure.thread_gone": "der Thread wurde gelöscht.",
@@ -2652,7 +2681,7 @@ export const de = {
     "Dieser Bereich speichert seine Daten in der EU. Was Sie senden, geht an {service}, außerhalb der EU.",
   "issues.dialog.submit": "Issue erstellen",
   "issues.dialog.noConnections":
-    "Keine Verbindung ist nutzbar. Bitten Sie einen Admin, GitHub oder Linear zu verbinden oder eine Verbindung zu reparieren, die geprüft werden muss.",
+    "Keine Verbindung kann verwendet werden. Bitten Sie einen Admin, GitHub, Linear oder Jira zu verbinden oder eine Verbindung zu reparieren, die Aufmerksamkeit braucht.",
   "issues.requested": "Issue angefordert. Der Link erscheint in wenigen Minuten am Thread.",
   "issues.list": "Issues",
   "issues.link": "Issue {key} in {target}",
@@ -2745,7 +2774,7 @@ export const de = {
   "region.leaves.webhooks":
     "Die Daten dieses Bereichs werden in der EU gespeichert. Webhook-Zustellungen gehen an die Adressen, die du einträgst, und die können überall sein: Was sie enthalten, verlässt die EU.",
   "region.leaves.integrations":
-    "Die Daten dieses Bereichs werden in der EU gespeichert. Issues, die du erstellst, gehen an GitHub oder Linear, die sie überall speichern können: Was du sendest, verlässt die EU.",
+    "Die Daten dieses Bereichs werden in der EU gespeichert. Issues, die du erstellst, gehen an GitHub, Linear oder Jira, die sie überall speichern können: Was du sendest, verlässt die EU.",
   "audit.stream.euTitle": "Ihr Endpunkt kann außerhalb der EU liegen",
   "audit.stream.eu":
     "Die Daten dieses Bereichs werden in der EU gespeichert. Der gewählte Endpunkt kann überall liegen: Die Ereignisse, die er empfängt, verlassen die EU.",

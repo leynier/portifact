@@ -24,7 +24,32 @@ const TOKEN = "github_pat_jobs_suite_0123456789abcdefghijkl";
 const db = () => regionsFromEnv(env).get("default").db;
 const keyed = { ...env, INTEGRATIONS_KEY: KEY, INTEGRATIONS_ENABLED: "true" };
 
-async function requested(fake: FakeIssueTrackers) {
+const GITHUB = {
+  connection: {
+    service: "github" as const,
+    label: "Repo",
+    credential: TOKEN,
+    targets: ["acme/site"],
+  },
+  target: "acme/site",
+};
+const JIRA_ACCOUNT = "jira-bot@acme.example";
+const JIRA_TOKEN = "ATATT3x-jobs-suite-test-only-jira-token-0123";
+const CLOUD = "11223344-5566-4778-899a-abbccddeeff0";
+const JIRA = {
+  connection: {
+    service: "jira" as const,
+    label: "Jira",
+    credential: JIRA_TOKEN,
+    targets: ["ENG"],
+    account: JIRA_ACCOUNT,
+    site: "acme",
+    cloudId: CLOUD,
+  },
+  target: "ENG",
+};
+
+async function requested(fake: FakeIssueTrackers, spec: typeof GITHUB | typeof JIRA = GITHUB) {
   const ownerId = `u_${crypto.randomUUID()}`;
   await db()
     .insert(schema.users)
@@ -41,7 +66,7 @@ async function requested(fake: FakeIssueTrackers) {
     .values({ ownerId, plan: "team", seats: 1, grantedBy: "test", updatedAt: NOW });
   const connection = await createIntegrationConnection(db(), {
     actor: personalActor(ownerId),
-    connection: { service: "github", label: "Repo", credential: TOKEN, targets: ["acme/site"] },
+    connection: spec.connection,
     deps: {
       keys: await integrationKeys({ current: KEY }),
       service: { enabled: true },
@@ -102,7 +127,7 @@ async function requested(fake: FakeIssueTrackers) {
     threadId,
     request: {
       connectionId: connection.value.id,
-      target: "acme/site",
+      target: spec.target,
       title: "A title that is never logged",
       include: { link: true, artifactName: true, quote: false, message: false },
     },
@@ -141,6 +166,32 @@ describe("issues in the jobs Worker", () => {
     expect(await issueRow(issueId)).toMatchObject({ state: "created", issueKey: "#1" });
     expect(lines).toContain("thread_issue");
     for (const secret of [TOKEN, "never logged", "github.com"]) expect(lines).not.toContain(secret);
+  });
+
+  it("creates a Jira issue through the gateway, logging no email, token or site", async () => {
+    const fake = new FakeIssueTrackers()
+      .jiraSite({ site: "acme", cloudId: CLOUD })
+      .jira(JIRA_ACCOUNT, JIRA_TOKEN, {
+        displayName: "Jira Bot",
+        cloudId: CLOUD,
+        projects: [{ key: "ENG", name: "Engineering" }],
+      });
+    const { issueId, job } = await requested(fake, JIRA);
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await runQueue(batchOf(job), keyed, NOW, undefined, fake.fetch);
+    const lines = log.mock.calls.map((call) => String(call[0])).join("\n");
+    log.mockRestore();
+    expect(await issueRow(issueId)).toMatchObject({
+      state: "created",
+      issueKey: "ENG-1",
+      issueUrl: "https://acme.atlassian.net/browse/ENG-1",
+    });
+    expect(fake.requests.at(-1)?.url).toBe(
+      `https://api.atlassian.com/ex/jira/${CLOUD}/rest/api/3/issue`,
+    );
+    for (const secret of [JIRA_TOKEN, JIRA_ACCOUNT, "never logged", "atlassian"]) {
+      expect(lines).not.toContain(secret);
+    }
   });
 
   it("sends nothing while switched off, and the request fails with a plain reason", async () => {

@@ -37,6 +37,7 @@ function connection(overrides: Partial<IntegrationConnectionView> = {}): Integra
     id: `ic_${"a".repeat(32)}`,
     service: "github",
     label: "Product repo",
+    site: null,
     targets: [{ id: "acme/site", name: "acme/site" }],
     usable: true,
     identity: "octo-bot",
@@ -123,7 +124,7 @@ describe("integrations page", () => {
     fireEvent.click(within(main).getByRole("button", { name: "Test Product repo" }));
     expect(
       await within(main).findAllByText(
-        "Product repo works. It acts as octo-bot, and every repository or team is reachable.",
+        "Product repo works. It acts as octo-bot, and every repository, team or project is reachable.",
       ),
     ).toBeTruthy();
     fireEvent.click(within(main).getByRole("button", { name: "Test Broken" }));
@@ -157,6 +158,48 @@ describe("integrations page", () => {
       expect(within(off).queryByRole("region", { name: "Connect a service" })).toBeNull(),
     );
     expect(screen.queryByRole("link", { name: "Integrations" })).toBeNull();
+  });
+
+  it("connects Jira with its site, cloud ID and account email, and shows the site, never the email", async () => {
+    renderDashboard("/integrations", server);
+    const main = await page();
+    const form = within(main).getByRole("region", { name: "Connect a service" });
+    fireEvent.click(within(form).getByLabelText("Jira"));
+    fireEvent.click(within(form).getByText("Create a least-privilege Jira token"));
+    expect(
+      within(form).getByText(/read:jira-user, read:jira-work and write:jira-work/),
+    ).toBeTruthy();
+    fireEvent.change(within(form).getByLabelText(/^Label/), { target: { value: "Jira" } });
+    fireEvent.change(within(form).getByLabelText(/^Jira site/), {
+      target: { value: "acme.atlassian.net" },
+    });
+    fireEvent.change(within(form).getByLabelText(/^Cloud ID/), {
+      target: { value: "11223344-5566-4778-899a-abbccddeeff0" },
+    });
+    fireEvent.change(within(form).getByLabelText(/^Atlassian account email/), {
+      target: { value: "bot@acme.example" },
+    });
+    fireEvent.change(within(form).getByLabelText("Atlassian API token with scopes"), {
+      target: { value: "ATATT3x-dashboard-test-token-0123WXYZ" },
+    });
+    fireEvent.change(within(form).getByLabelText(/^Project keys/), {
+      target: { value: "ENG" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Connect" }));
+    const list = within(main).getByRole("region", { name: "Connections" });
+    expect(await within(list).findByRole("heading", { name: "Jira" })).toBeTruthy();
+    expect(server.bodies.at(-1)).toEqual({
+      service: "jira",
+      label: "Jira",
+      credential: "ATATT3x-dashboard-test-token-0123WXYZ",
+      targets: ["ENG"],
+      account: "bot@acme.example",
+      site: "acme.atlassian.net",
+      cloudId: "11223344-5566-4778-899a-abbccddeeff0",
+    });
+    expect(within(list).getByText("Site acme.atlassian.net")).toBeTruthy();
+    expect(document.body.innerHTML).not.toContain("bot@acme.example");
+    expect(await axeViolations(document.body)).toEqual([]);
   });
 
   it("splits the targets one per line", () => {
@@ -268,6 +311,30 @@ describe("the create issue dialog", () => {
     },
   );
 
+  it("previews a Jira issue from the Atlassian document it sends", async () => {
+    dialog({
+      connections: [
+        connection({
+          service: "jira",
+          site: "acme",
+          targets: [{ id: "ENG", name: "Engineering" }],
+        }),
+      ],
+    });
+    const sheet = await screen.findByRole("dialog", { name: "Create an issue from thread 3" });
+    fireEvent.click(within(sheet).getByLabelText("The thread's first message"));
+    const preview = (within(sheet).getByLabelText(/^Exactly what is sent/) as HTMLTextAreaElement)
+      .value;
+    expect(preview).toContain("Artifact: Launch plan");
+    expect(preview).toContain(
+      "First message:\n\n```\nSee ![x](https://evil.test/p.png) @octocat\n```",
+    );
+    expect(preview).toContain("---\n\nSent from Portifact. Reference: ti_…");
+    expect(
+      within(sheet).getByRole("combobox", { name: "Repository, team or project" }),
+    ).toBeTruthy();
+  });
+
   it("says the text leaves the EU for an owner in the EU, and when no connection can be used", async () => {
     dialog({ euResidency: true });
     const sheet = await screen.findByRole("dialog");
@@ -279,7 +346,7 @@ describe("the create issue dialog", () => {
     dialog({ connections: [connection({ usable: false })] });
     expect(
       await screen.findByText(
-        /No connection can be used\. Ask an admin to connect GitHub or Linear/,
+        /No connection can be used\. Ask an admin to connect GitHub, Linear or Jira/,
       ),
     ).toBeTruthy();
   });

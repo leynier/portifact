@@ -2547,10 +2547,10 @@ export const fr = {
   "shell.integrationsLink": "Intégrations",
   "integrations.title": "Intégrations",
   "integrations.description":
-    "Transformez un fil de commentaires en ticket GitHub ou Linear. Une connexion agit avec un identifiant collé par un administrateur : les tickets apparaissent comme créés par ce compte.",
+    "Transformez un fil de commentaires en ticket GitHub, Linear ou Jira. Une connexion agit avec un identifiant collé par un administrateur : les tickets apparaissent comme créés par ce compte.",
   "integrations.adminOnly.title": "Seuls les administrateurs gèrent les intégrations",
   "integrations.adminOnly.body":
-    "Demandez à un administrateur de {workspace} de connecter GitHub ou Linear.",
+    "Demandez à un administrateur de {workspace} de connecter GitHub, Linear ou Jira.",
   "integrations.planTitle": "Pas dans cette offre",
   "integrations.planRequired":
     "Les intégrations font partie de l'offre {plan}. Les connexions déjà faites sont conservées, mais aucun ticket ne peut être créé avec elles.",
@@ -2559,9 +2559,10 @@ export const fr = {
   "integrations.list.error": "Impossible de charger les connexions.",
   "integrations.empty.title": "Aucune connexion pour l'instant",
   "integrations.empty.body":
-    "Connectez GitHub ou Linear pour que les administrateurs et les éditeurs créent des tickets depuis les fils de commentaires.",
+    "Connectez GitHub, Linear ou Jira pour que les administrateurs et éditeurs créent des tickets depuis les fils de commentaires.",
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
+  "integrations.service.jira": "Jira",
   "integrations.add.title": "Connecter un service",
   "integrations.add.hint":
     "L'identifiant est vérifié auprès du service, stocké chiffré et jamais réaffiché : Portifact n'en montre que les quatre derniers caractères.",
@@ -2570,13 +2571,24 @@ export const fr = {
   "integrations.add.labelHint": "Un nom que votre équipe reconnaît, comme Dépôt produit.",
   "integrations.add.credential.github": "Jeton d'accès personnel à granularité fine",
   "integrations.add.credential.linear": "Clé d'API Linear",
+  "integrations.add.credential.jira": "Jeton d'API Atlassian avec portées",
   "integrations.add.targets.github": "Dépôts",
   "integrations.add.targets.linear": "ID d'équipes",
+  "integrations.add.targets.jira": "Clés de projet",
   "integrations.add.targetsHint.github": "Un propriétaire/dépôt par ligne, au plus {limit}.",
   "integrations.add.targetsHint.linear":
     "Un ID d'équipe par ligne, au plus {limit}. Linear l'affiche dans les réglages de l'équipe.",
+  "integrations.add.targetsHint.jira": "Une clé de projet par ligne, comme ENG, au plus {limit}.",
+  "integrations.add.account": "E-mail du compte Atlassian",
+  "integrations.add.accountHint":
+    "L'e-mail du compte qui a créé le jeton. Il est stocké chiffré avec le jeton et n'est plus jamais affiché.",
+  "integrations.add.site": "Site Jira",
+  "integrations.add.siteHint": "Par exemple acme.atlassian.net.",
+  "integrations.add.cloudId": "ID cloud",
+  "integrations.add.cloudIdHint":
+    "Ouvrez votre-site.atlassian.net/_edge/tenant_info dans le navigateur et copiez la valeur de cloudId.",
   "integrations.add.failed":
-    "Le service n'a pas accepté l'identifiant ou l'un des dépôts ou équipes. Vérifiez-les avec les étapes ci-dessus, puis réessayez.",
+    "Le service n'a pas accepté l'identifiant ou l'un des dépôts, équipes ou projets. Vérifiez-les avec les étapes ci-dessus, puis réessayez.",
   "integrations.add.submit": "Connecter",
   "integrations.add.limit":
     "Un espace peut avoir au plus {limit} connexions. Supprimez-en une pour en ajouter une autre.",
@@ -2598,9 +2610,21 @@ export const fr = {
     "Si Linear permet de limiter la clé, autorisez seulement la création de tickets, et seulement dans les équipes listées ici.",
   "integrations.howto.linear.3":
     "Collez la clé ici. Les tickets apparaissent comme créés par votre compte Linear.",
+  "integrations.howto.jira.title": "Créer un jeton Jira aux droits minimaux",
+  "integrations.howto.jira.1":
+    "Connectez-vous à Atlassian avec le compte d'où doivent venir les tickets (idéalement un compte dédié), ouvrez les paramètres du compte, puis Sécurité, et choisissez Créer un jeton d'API avec portées.",
+  "integrations.howto.jira.2":
+    "Donnez-lui un nom et une expiration, et choisissez Jira comme application.",
+  "integrations.howto.jira.3":
+    "Sélectionnez uniquement les portées read:jira-user, read:jira-work et write:jira-work.",
+  "integrations.howto.jira.4":
+    "Créez le jeton et collez-le ici avec l'e-mail du compte, le site et son ID cloud. Un jeton sans portées ne fonctionne pas.",
+  "integrations.howto.jira.5":
+    "Les tickets apparaissent comme créés par ce compte, dans les projets que vous indiquez ici.",
   "integrations.connected": "{label} connecté.",
   "integrations.identity": "Agit en tant que {identity}",
   "integrations.credential": "Identifiant se terminant par {hint}",
+  "integrations.site": "Site {site}",
   "integrations.attention.credential_rejected":
     "Le service a refusé cet identifiant. Collez-en un nouveau, puis testez-le.",
   "integrations.attention.key_unavailable":
@@ -2610,7 +2634,7 @@ export const fr = {
   "integrations.test": "Tester",
   "integrations.testLabel": "Tester {label}",
   "integrations.testPassed":
-    "{label} fonctionne. Elle agit en tant que {identity} et chaque dépôt ou équipe est accessible.",
+    "{label} fonctionne. Il agit en tant que {identity}, et chaque dépôt, équipe ou projet est accessible.",
   "integrations.problem.credential_rejected":
     "Le service a refusé l'identifiant : il est faux, expiré ou révoqué.",
   "integrations.problem.missing_permission":
@@ -2621,10 +2645,14 @@ export const fr = {
   "integrations.problem.service_unavailable": "Le service n'a pas répondu. Réessayez plus tard.",
   "integrations.problem.rate_limited":
     "Le service limite les requêtes de cet identifiant. Réessayez plus tard.",
+  "integrations.problem.site_mismatch":
+    "L'ID cloud n'appartient pas à ce site Jira. Copiez à nouveau les deux depuis le site.",
   "integrations.edit": "Modifier",
   "integrations.editLabel": "Modifier {label}",
   "integrations.edit.title": "Modifier {label}",
   "integrations.edit.credentialHint": "Laissez vide pour garder l'identifiant actuel.",
+  "integrations.edit.accountHint":
+    "Nécessaire avec un nouveau jeton : l'e-mail de son compte Atlassian.",
   "integrations.edit.save": "Enregistrer",
   "integrations.saved": "{label} enregistré.",
   "integrations.remove": "Supprimer",
@@ -2638,7 +2666,7 @@ export const fr = {
   "issues.dialog.title": "Créer un ticket depuis le fil {number}",
   "issues.dialog.close": "Fermer",
   "issues.dialog.connection": "Connexion",
-  "issues.dialog.target": "Dépôt ou équipe",
+  "issues.dialog.target": "Dépôt, équipe ou projet",
   "issues.dialog.issueTitle": "Titre du ticket",
   "issues.dialog.parts": "Ce qui est envoyé",
   "issues.dialog.part.link": "Un lien vers ce fil",
@@ -2654,9 +2682,9 @@ export const fr = {
   "issues.dialog.never":
     "Jamais envoyés : les adresses e-mail des lecteurs, le contenu de l'artifact, les autres messages du fil ou les notes de relecture.",
   "issues.dialog.visible":
-    "Toute personne qui voit ce fil, y compris les lecteurs extérieurs à votre équipe, voit le lien du ticket créé et le nom de son dépôt ou de son équipe, même pour un dépôt privé.",
+    "Toute personne qui voit ce fil, y compris les lecteurs extérieurs à votre équipe, voit le lien du ticket créé et le nom de son dépôt, équipe ou projet, même privé.",
   "issues.failure.target_removed":
-    "un administrateur a retiré ce dépôt ou cette équipe de la connexion.",
+    "un administrateur a retiré ce dépôt, cette équipe ou ce projet de la connexion.",
   "issues.failure.artifact_moved": "l'artifact a été déplacé vers un autre espace.",
   "issues.failure.requester_left": "vous ne pouvez plus créer de tickets pour cet espace.",
   "issues.failure.thread_gone": "le fil a été supprimé.",
@@ -2664,7 +2692,7 @@ export const fr = {
     "Cet espace garde ses données dans l'UE. Ce que vous envoyez va chez {service}, hors de l'UE.",
   "issues.dialog.submit": "Créer le ticket",
   "issues.dialog.noConnections":
-    "Aucune connexion utilisable. Demandez à un administrateur de connecter GitHub ou Linear, ou de réparer une connexion à vérifier.",
+    "Aucune connexion n'est utilisable. Demandez à un administrateur de connecter GitHub, Linear ou Jira, ou de réparer une connexion qui demande attention.",
   "issues.requested": "Ticket demandé. Son lien apparaît sur le fil dans quelques minutes.",
   "issues.list": "Tickets",
   "issues.link": "Ticket {key} dans {target}",
@@ -2757,7 +2785,7 @@ export const fr = {
   "region.leaves.webhooks":
     "Les données de cet espace sont conservées dans l’UE. Les envois de webhooks partent vers les adresses que vous indiquez, qui peuvent se trouver n’importe où : ce qu’ils contiennent quitte l’UE.",
   "region.leaves.integrations":
-    "Les données de cet espace sont conservées dans l’UE. Les tickets que vous créez partent vers GitHub ou Linear, qui peuvent les conserver n’importe où : ce que vous envoyez quitte l’UE.",
+    "Les données de cet espace sont conservées dans l'UE. Les tickets que vous créez vont à GitHub, Linear ou Jira, qui peuvent les conserver n'importe où : ce que vous envoyez quitte l'UE.",
   "audit.stream.euTitle": "Votre point de terminaison peut être hors de l’UE",
   "audit.stream.eu":
     "Les données de cet espace sont conservées dans l’UE. Le point de terminaison choisi peut se trouver n’importe où : les événements qu’il reçoit quittent l’UE.",

@@ -1,9 +1,9 @@
 // The "Create issue" dialog of a thread (premium plan T7, decision 0018): the owner side picks a
-// connection and a repository or team, edits the title (prefilled with the artifact's name) and
+// connection and a repository, team or project, edits the title (prefilled with the artifact's name) and
 // chooses what goes into the issue. The link and the artifact's name are on by default; the
 // quoted text and the first message are other people's words and are off until the person turns
-// them on. The preview is built by the domain's `issueBody`, the same function the jobs Worker
-// sends with, so it shows exactly what leaves Portifact. For an owner in the EU it says the text
+// them on. The preview is built by the domain's `issueBody` (GitHub, Linear) or `issueDocument`
+// (Jira), the same functions the jobs Worker sends with, so it shows exactly what leaves Portifact. For an owner in the EU it says the text
 // leaves the EU.
 import {
   type AnnotationThreadView,
@@ -12,7 +12,15 @@ import {
   type IntegrationChoiceList,
   type IssueParts,
 } from "@portifact/contracts";
-import { anchorQuote, issueBody, issueTitle, plainLine, threadLink } from "@portifact/domain";
+import {
+  anchorQuote,
+  issueBody,
+  issueDocument,
+  issueDocumentText,
+  issueTitle,
+  plainLine,
+  threadLink,
+} from "@portifact/domain";
 import { Button, Callout, Checkbox, Select, Sheet, TextArea, TextInput } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Globe, SquarePlus } from "lucide-react";
@@ -97,17 +105,16 @@ export function CreateIssueDialog({
   const first = thread.messages[0];
   const message = first && first.state === "visible" ? first.body : null;
   const service = connection?.service ?? "github";
-  const preview = issueBody(
-    {
-      service,
-      link: threadLink(window.location.origin, artifactId, thread.path, thread.id),
-      artifactName,
-      quote,
-      message,
-      reference: "ti_…",
-    },
-    parts,
-  );
+  const source = {
+    service,
+    link: threadLink(window.location.origin, artifactId, thread.path, thread.id),
+    artifactName,
+    quote,
+    message,
+    reference: "ti_…",
+  };
+  const preview =
+    service === "jira" ? issueDocumentText(issueDocument(source, parts)) : issueBody(source, parts);
 
   // The title as it goes out: inert, the same function the request applies.
   const checkedTitle = issueTitle(title);

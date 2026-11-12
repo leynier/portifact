@@ -1,15 +1,19 @@
-// Fake GitHub and Linear APIs for tests and the e2e stack (decision 0018): never the real
-// services. One `fetch` answers GitHub's REST endpoints Portifact uses (`/user`, a repository,
-// creating and listing its issues) and Linear's GraphQL operations (`PortifactCheck`,
-// `PortifactIssue`, `PortifactFind`), checks the credential like the services do, and keeps the
+// Fake GitHub, Linear and Jira Cloud APIs for tests and the e2e stack (decision 0018): never the
+// real services. One `fetch` answers GitHub's REST endpoints Portifact uses (`/user`, a
+// repository, creating and listing its issues), Linear's GraphQL operations (`PortifactCheck`,
+// `PortifactIssue`, `PortifactFind`) and Jira's REST API on Atlassian's gateway
+// (`/ex/jira/<cloudId>/rest/api/3/`: `serverInfo`, `myself`, a project, creating an issue and
+// `search/jql`, with Basic authentication by email and token), checks the credential like the
+// services do, and keeps the
 // issues it created. A test can script the next answers (a status, a redirect, a slow or huge
 // answer, a network error), lose the answer of a create, or revoke a credential. Never imported
 // by a deployed Worker.
 
 export interface FakeIssue {
-  service: "github" | "linear";
+  service: "github" | "linear" | "jira";
   target: string;
   title: string;
+  /** Markdown on GitHub and Linear; the JSON of the Atlassian document on Jira. */
   body: string;
   key: string;
   url: string;
@@ -45,13 +49,38 @@ interface LinearCredential {
   teams: Map<string, { id: string; name: string; key: string }>;
 }
 
+export interface FakeJiraProject {
+  key: string;
+  name: string;
+  /** The project's issue types; a `Task` (ID 10001) and a subtask type by default. */
+  issueTypes?: { id: string; name: string; subtask?: boolean; hierarchyLevel?: number }[];
+}
+
+export interface FakeJiraSite {
+  /** `acme` for `acme.atlassian.net`. */
+  site: string;
+  cloudId: string;
+}
+
+interface JiraCredential {
+  service: "jira";
+  displayName: string;
+  cloudId: string;
+  projects: Map<string, FakeJiraProject>;
+}
+
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(body, { status, headers });
 
 export class FakeIssueTrackers {
   readonly issues: FakeIssue[] = [];
   readonly requests: FakeRequest[] = [];
-  private readonly credentials = new Map<string, GitHubCredential | LinearCredential>();
+  private readonly credentials = new Map<
+    string,
+    GitHubCredential | LinearCredential | JiraCredential
+  >();
+  /** Jira sites by cloud ID: what `serverInfo` answers for each. */
+  private readonly sites = new Map<string, string>();
   private readonly script: Scripted[] = [];
   private counter = 0;
 
@@ -81,6 +110,50 @@ export class FakeIssueTrackers {
       service: "linear",
       name,
       teams: new Map(teams.map((team) => [team.id.toLowerCase(), team])),
+    });
+    return this;
+  }
+
+  /** A Jira Cloud site behind the gateway, by its cloud ID. */
+  jiraSite(site: FakeJiraSite) {
+    this.sites.set(site.cloudId, site.site);
+    return this;
+  }
+
+  /**
+   * A Jira API token of the Atlassian account `account` (shown as `displayName`) on one site,
+   * which can browse and create issues in these projects.
+   */
+  jira(
+    account: string,
+    token: string,
+    input: { displayName: string; cloudId: string; projects: readonly FakeJiraProject[] },
+  ) {
+    this.credentials.set(`${account}:${token}`, {
+      service: "jira",
+      displayName: input.displayName,
+      cloudId: input.cloudId,
+      projects: new Map(input.projects.map((project) => [project.key, project])),
+    });
+    return this;
+  }
+
+  /** Plants a Jira issue as someone else created it, for example one copying a reference line. */
+  plantJira(project: string, input: { text: string; author: string }) {
+    this.counter += 1;
+    const key = `${project}-${this.counter}`;
+    this.issues.push({
+      service: "jira",
+      target: project,
+      title: "Planted",
+      body: JSON.stringify({
+        version: 1,
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text: input.text }] }],
+      }),
+      key,
+      url: `https://planted.atlassian.net/browse/${key}`,
+      author: input.author,
     });
     return this;
   }
@@ -145,7 +218,102 @@ export class FakeIssueTrackers {
     if (parsed.origin === "https://api.github.com")
       return this.githubAnswer(parsed, method, headers, body);
     if (parsed.href === "https://api.linear.app/graphql") return this.linearAnswer(headers, body);
+    if (parsed.origin === "https://api.atlassian.com") {
+      return this.jiraAnswer(parsed, method, headers, body);
+    }
     return new Response("unknown host", { status: 404 });
+  }
+
+  private jiraAnswer(url: URL, method: string, headers: Record<string, string>, body: string) {
+    const match = /^\/ex\/jira\/([^/]+)\/rest\/api\/3\/(.+)$/.exec(url.pathname);
+    const site = match ? this.sites.get(match[1] ?? "") : undefined;
+    if (!match || site === undefined) return json({ message: "Not Found" }, 404);
+    const cloudId = match[1] ?? "";
+    const path = match[2] ?? "";
+    const basic = /^Basic (.+)$/.exec(headers.authorization ?? "");
+    let pair = "";
+    try {
+      pair = basic
+        ? new TextDecoder().decode(Uint8Array.from(atob(basic[1] ?? ""), (ch) => ch.charCodeAt(0)))
+        : "";
+    } catch {
+      pair = "";
+    }
+    const credential = this.credentials.get(pair);
+    // Atlassian answers 401 to wrong credentials, even where anonymous access would work.
+    if (!credential || credential.service !== "jira" || credential.cloudId !== cloudId) {
+      return json({ errorMessages: ["Client must be authenticated"] }, 401);
+    }
+    if (path === "serverInfo" && method === "GET") {
+      return json({ baseUrl: `https://${site}.atlassian.net`, deploymentType: "Cloud" });
+    }
+    if (path === "myself" && method === "GET") {
+      return json({ accountId: "5b10ac8d82e05b22cc7d4ef5", displayName: credential.displayName });
+    }
+    const projectMatch = /^project\/([^/]+)$/.exec(path);
+    if (projectMatch && method === "GET") {
+      const project = credential.projects.get(decodeURIComponent(projectMatch[1] ?? ""));
+      if (!project) return json({ errorMessages: ["No project could be found"] }, 404);
+      return json({
+        key: project.key,
+        name: project.name,
+        issueTypes: project.issueTypes ?? [
+          { id: "10002", name: "Sub-task", subtask: true, hierarchyLevel: -1 },
+          { id: "10001", name: "Task", subtask: false, hierarchyLevel: 0 },
+        ],
+      });
+    }
+    if (path === "issue" && method === "POST") {
+      const input = JSON.parse(body) as {
+        fields?: {
+          project?: { key?: string };
+          issuetype?: { id?: string };
+          summary?: string;
+          description?: unknown;
+        };
+      };
+      const project = credential.projects.get(String(input.fields?.project?.key));
+      if (!project) return json({ errorMessages: ["No project could be found"] }, 404);
+      if (!input.fields?.summary || !input.fields.issuetype?.id) {
+        return json({ errors: { summary: "You must specify a summary of the issue." } }, 400);
+      }
+      this.counter += 1;
+      const key = `${project.key}-${this.counter}`;
+      this.issues.push({
+        service: "jira",
+        target: project.key,
+        title: input.fields.summary,
+        body: JSON.stringify(input.fields.description ?? null),
+        key,
+        url: `https://${site}.atlassian.net/browse/${key}`,
+        author: credential.displayName,
+      });
+      return json(
+        {
+          id: String(10_000 + this.counter),
+          key,
+          self: `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/issue/${10_000 + this.counter}`,
+        },
+        201,
+      );
+    }
+    if (path === "search/jql" && method === "GET") {
+      const jql = url.searchParams.get("jql") ?? "";
+      const project = /^project = "([A-Z][A-Z0-9_]*)" AND creator = currentUser\(\)/.exec(jql)?.[1];
+      if (!project) return json({ errorMessages: ["Unsupported JQL in the fake"] }, 400);
+      const issues = this.issues
+        .filter(
+          (issue) =>
+            issue.service === "jira" &&
+            issue.target === project &&
+            issue.author === credential.displayName,
+        )
+        .reverse()
+        .slice(0, Number(url.searchParams.get("maxResults") ?? 50))
+        .map((issue) => ({ key: issue.key, fields: { description: JSON.parse(issue.body) } }));
+      return json({ issues, isLast: true });
+    }
+    return json({ errorMessages: ["Not Found"] }, 404);
   }
 
   private githubAnswer(url: URL, method: string, headers: Record<string, string>, body: string) {

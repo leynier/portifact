@@ -859,7 +859,7 @@ describe("asking for an issue", () => {
     const w = await world();
     expect(await ask(w, w.owner.id, { target: "acme/other" })).toMatchObject({
       code: "invalid_input",
-      message: "The connection does not allow that repository or team.",
+      message: "The connection does not allow that repository, team or project.",
     });
     const stranger = await person();
     await grantPlan(stranger.id, "team");
@@ -1224,6 +1224,7 @@ describe("deletion and export", () => {
         id: w.connection.id,
         service: "github",
         label: "Product repo",
+        site: null,
         identity: "octo-bot",
         targets: ["acme/site"],
         createdAt: new Date(NOW).toISOString(),

@@ -26,7 +26,7 @@ const TITLE = "Where you send it may be outside the EU";
 describe("the notice that a destination leaves the EU", () => {
   it.each([
     ["/webhooks", "Webhooks", "Webhook deliveries go to the addresses you enter"],
-    ["/integrations", "Integrations", "Issues you create go to GitHub or Linear"],
+    ["/integrations", "Integrations", "Issues you create go to GitHub, Linear or Jira"],
   ])("is on %s for an EU workspace", async (path, heading, body) => {
     const { container } = renderDashboard(`${path}?workspace=engines`, server);
     await screen.findByRole("heading", { level: 1, name: heading });

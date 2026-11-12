@@ -1,6 +1,7 @@
 // What the jobs Worker gives issue integrations (decision 0018): the sealing keys, the network
 // (global `fetch`, which `global_fetch_strictly_public` in wrangler.jsonc routes like any outside
-// client) and the origin thread links use. Calls go only to GitHub's and Linear's fixed API hosts.
+// client) and the origin thread links use. Calls go only to GitHub's, Linear's and Atlassian's fixed
+// API hosts.
 // Nothing here logs a credential, a title or a body: the consumer logs only the job's ID, topic
 // and outcome.
 import { integrationKeys, type ThreadIssueDeps } from "@portifact/services";

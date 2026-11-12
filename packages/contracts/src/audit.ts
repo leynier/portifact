@@ -21,6 +21,7 @@ import {
   INTEGRATION_LIMITS,
   IntegrationAttention,
   IntegrationService,
+  JiraProjectKey,
   LinearTeamId,
 } from "./integrations.ts";
 import { LIMITS } from "./limits.ts";
@@ -234,12 +235,12 @@ export const AUDIT_DETAILS = {
     reason: IntegrationAttention,
   }),
   /**
-   * An issue created from a thread: the service, the repository or Linear team ID, and which
-   * parts left Portifact, never the title, the issue's text or its URL.
+   * An issue created from a thread: the service, the repository, Linear team ID or Jira project
+   * key, and which parts left Portifact, never the title, the issue's text, its URL or the site.
    */
   "issue.created": z.strictObject({
     service: IntegrationService,
-    target: z.union([GitHubRepo, LinearTeamId]),
+    target: z.union([GitHubRepo, LinearTeamId, JiraProjectKey]),
     link: z.boolean(),
     artifactName: z.boolean(),
     quote: z.boolean(),
