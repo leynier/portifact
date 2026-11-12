@@ -28,6 +28,7 @@ import { actorOn, authorizeOn } from "./actors.ts";
 import { moveApprovalReview } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
 import { searchIndexJob } from "./content-search.ts";
+import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
@@ -390,7 +391,13 @@ export async function getVersionDownload(
   // and nothing else of the workspace (decision 0020).
   if (!resolved.ok && artifact.accessMode !== "public") return resolved;
   const actor = resolved.ok ? resolved.value : null;
-  if (!(actor && can(actor, "versions"))) {
+  if (actor && can(actor, "versions")) {
+    // Nothing of a held artifact's content is served, to the people who manage it either
+    // (docs/operations.md). Asked only of them, after authorization, so anyone else gets what a
+    // suspended or missing artifact gives, with the same reads; a held artifact is always
+    // suspended, so nothing else pays for the check.
+    if (artifact.state === "suspended" && (await isHeld(db, artifact.id))) return heldRefusal();
+  } else {
     if (input.kind !== "published" || artifact.type === "site") return missingVersion();
     const ref = input.versionId === CURRENT_VERSION ? artifact.currentVersionId : input.versionId;
     if (ref === null || ref !== artifact.currentVersionId) return missingVersion();

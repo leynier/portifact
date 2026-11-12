@@ -9,6 +9,8 @@ import {
   AnnotationEditResult,
   AnnotationExport,
   AnnotationExportQuery,
+  AnnotationHistoryPage,
+  AnnotationHistoryQuery,
   AnnotationListQuery,
   AnnotationModeUpdate,
   AnnotationModeView,
@@ -27,6 +29,7 @@ import {
   editAnnotationMessage,
   exportAnnotations,
   getAnnotationThread,
+  listAnnotationHistory,
   listAnnotations,
   moderateAnnotationMessage,
   replyToAnnotationThread,
@@ -38,7 +41,7 @@ import type { FetchLike } from "../auth/deps.ts";
 import type { Env } from "../env.ts";
 import { artifactDb } from "../regions.ts";
 import { humanCheck } from "../turnstile.ts";
-import { type ApiContext, error, failure, type Guarded, idempotent, readJson } from "./http.ts";
+import { type ApiContext, error, type Guarded, idempotentThread, readJson } from "./http.ts";
 
 const BASE = "/api/v1/artifacts/:artifactId/annotations";
 
@@ -109,6 +112,24 @@ export function annotationRoutes(
     }),
   );
 
+  // The comment action history without text, for the owner side (MCP get_comment_history,
+  // `portifact annotations history`, and both data exports).
+  api.get(
+    `${BASE}/history`,
+    guarded("annotations:read", async (c, userId) => {
+      const query = AnnotationHistoryQuery.safeParse(c.req.query());
+      if (!query.success) return error(c, "invalid_input", "Invalid cursor or limit.");
+      const result = await listAnnotationHistory(await artifactDb(c.env, artifactId(c)), {
+        userId,
+        artifactId: artifactId(c),
+        ...query.data,
+        now: now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(AnnotationHistoryPage.parse(result.value));
+    }),
+  );
+
   api.post(
     `${BASE}/threads`,
     guarded("annotations:write", async (c, userId) => {
@@ -118,22 +139,20 @@ export function annotationRoutes(
       const id = artifactId(c);
       const { turnstileToken, ...thread } = body.value;
       const db = await artifactDb(c.env, id);
-      return idempotent(
+      return idempotentThread(
         c,
         // The token is single use and not part of what the request asks for: a retry with the
         // same key replays the first answer whatever token it carries.
         { db, userId, operation: "annotations.thread.create", request: [id, thread], now: at },
-        async () => {
-          const result = await createAnnotationThread(db, {
+        { userId, artifactId: id, now: at },
+        () =>
+          createAnnotationThread(db, {
             userId,
             artifactId: id,
             ...thread,
             humanCheck: humanCheck(c.env, siteverify(c.env), c.req.raw, turnstileToken),
             now: at,
-          });
-          if (!result.ok) return failure(result.code, result.message);
-          return { status: 201, body: AnnotationThreadView.parse(result.value) };
-        },
+          }),
       );
     }),
   );
@@ -162,7 +181,7 @@ export function annotationRoutes(
       const threadId = param(c, "threadId");
       const { turnstileToken, ...reply } = body.value;
       const db = await artifactDb(c.env, id);
-      return idempotent(
+      return idempotentThread(
         c,
         {
           db,
@@ -171,18 +190,16 @@ export function annotationRoutes(
           request: [id, threadId, reply],
           now: at,
         },
-        async () => {
-          const result = await replyToAnnotationThread(db, {
+        { userId, artifactId: id, now: at },
+        () =>
+          replyToAnnotationThread(db, {
             userId,
             artifactId: id,
             threadId,
             body: reply.body,
             humanCheck: humanCheck(c.env, siteverify(c.env), c.req.raw, turnstileToken),
             now: at,
-          });
-          if (!result.ok) return failure(result.code, result.message);
-          return { status: 201, body: AnnotationThreadView.parse(result.value) };
-        },
+          }),
       );
     }),
   );

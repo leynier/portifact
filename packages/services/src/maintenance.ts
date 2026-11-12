@@ -27,6 +27,7 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
 import { auditEvent, pruneAuditEvents } from "./audit.ts";
+import { pruneAuthRecords } from "./auth-records.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
 import { enforceCommentRetention } from "./comment-retention.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "./content-search.ts";
@@ -35,9 +36,16 @@ import { renderDocument, renderingStatements, storeRenderings } from "./document
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
 import { pruneFederatedCredentials, pruneUsedGitHubTokens } from "./github-trust.ts";
+import {
+  markArtifactGone,
+  pruneGoneHistory,
+  pruneStaleFindings,
+  pruneUploadHistory,
+} from "./history-retention.ts";
 import { pruneOperations } from "./idempotency.ts";
 import { prunePendingConnections } from "./integrations.ts";
 import { pruneExpiredInvitations } from "./invitations.ts";
+import { releaseDueHolds } from "./legal-holds.ts";
 import {
   cursorFor,
   cursorRead,
@@ -664,6 +672,13 @@ export async function deleteArtifactData(
       event: "purged",
       at: now,
     }),
+    // Its suspensions start their retention now (`pruneGoneHistory`).
+    markArtifactGone(
+      db,
+      artifactId,
+      sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifactId} and ${schema.artifacts.state} = 'purging')`,
+      now,
+    ),
     // Its access log is in another database: a job erases it, written only by the batch that
     // deletes the artifact.
     eraseAccessEventsJob(
@@ -917,6 +932,9 @@ export async function runRegionalMaintenance(
   // global scans (deletions, invitations, directory users, email counters and suppressions, group
   // tombstones and the global audit events) run once, with the default region.
   return {
+    // Holds whose release date came (docs/operations.md, "Legal holds"): first, so deletions
+    // that waited for them go on in this run.
+    releasedHolds: await releaseDueHolds(db, now),
     archived: (await archiveExpired(db, now)).processed,
     expiryNotices: (await scheduleExpiryNotices(db, now)).owners,
     commentNotices: (await scheduleCommentNotices(db, now)).recipients,
@@ -926,6 +944,11 @@ export async function runRegionalMaintenance(
     orphanObjects: (await sweepOrphanObjects(db, bucket, now)).processed,
     rerendered: (await rerenderDocuments(db, bucket, now)).processed,
     prunedOperations: await pruneOperations(db, now),
+    // History retention: lifecycle and moderation records of what is gone, upload and usage
+    // history, stale storage findings (docs/operations.md, "History retention").
+    goneHistory: await pruneGoneHistory(db, now),
+    uploadHistory: await pruneUploadHistory(db, now),
+    staleFindings: await pruneStaleFindings(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
@@ -958,6 +981,9 @@ export async function runMaintenance(
   regions: DeletionRegions = singleRegion(db, bucket),
 ) {
   return {
+    // Holds whose release date came (docs/operations.md, "Legal holds"): first, so deletions
+    // that waited for them go on in this run.
+    releasedHolds: await releaseDueHolds(db, now),
     archived: (await archiveExpired(db, now)).processed,
     expiryNotices: (await scheduleExpiryNotices(db, now)).owners,
     commentNotices: (await scheduleCommentNotices(db, now)).recipients,
@@ -967,6 +993,13 @@ export async function runMaintenance(
     orphanObjects: (await sweepOrphanObjects(db, bucket, now)).processed,
     rerendered: (await rerenderDocuments(db, bucket, now)).processed,
     prunedOperations: await pruneOperations(db, now),
+    // History retention: lifecycle and moderation records of what is gone, upload and usage
+    // history, stale storage findings (docs/operations.md, "History retention").
+    goneHistory: await pruneGoneHistory(db, now),
+    uploadHistory: await pruneUploadHistory(db, now),
+    staleFindings: await pruneStaleFindings(db, now),
+    // Expired sign-in records and unused app registrations (global; docs/operations.md).
+    authRecords: await pruneAuthRecords(db.global, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
     // Artifact group rows whose group is gone grant nothing; the scan removes them (decision 0014):
     // one read of at most 500 rows, at most 6 global reads of 90 group IDs and at most 14 writes

@@ -470,6 +470,69 @@
       "when": 1794448217422,
       "tag": "0066_slack_integrations",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1794472688915,
+      "tag": "0067_terms_acceptances",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1794472689380,
+      "tag": "0068_terms_acceptances_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "6",
+      "when": 1794476898290,
+      "tag": "0069_history_and_auth_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "6",
+      "when": 1794476898699,
+      "tag": "0070_backfill_history_gone_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1794477113892,
+      "tag": "0071_auth_restore_markers",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "6",
+      "when": 1794479308184,
+      "tag": "0072_tombstones_kind_deleted",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "6",
+      "when": 1794482862087,
+      "tag": "0073_moderation_notices_and_holds",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "6",
+      "when": 1794482862519,
+      "tag": "0074_legal_hold_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "6",
+      "when": 1794482863001,
+      "tag": "0075_legal_hold_identities",
+      "breakpoints": true
     }
   ]
 }

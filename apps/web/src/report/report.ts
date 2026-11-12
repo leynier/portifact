@@ -1,6 +1,8 @@
 // The public report page (app.portifact.com/report): anyone can report an artifact that breaks
-// the Acceptable Use Policy. `?artifact=<id>` fills the artifact, which is how the reserved
-// `/__portifact/report` path of every artifact origin links here.
+// the Acceptable Use Policy, with a full notice of illegal content (the exact address, the
+// explanation, the reporter's name and the statement of good faith). `?artifact=<id>` fills the
+// artifact, which is how the reserved `/__portifact/report` path of every artifact origin links
+// here. The name is never asked for a report of content that sexualizes minors.
 import type { ApiResponse, PageLocation } from "../auth/api.ts";
 import { byId, hideSummary, setFieldError, showSummary, whileBusy } from "../auth/dom.ts";
 import { messages } from "../auth/messages.ts";
@@ -9,6 +11,8 @@ export interface ReportEnv {
   /** Sends the report as JSON to `/api/v1/reports` on this origin. */
   send(body: unknown): Promise<ApiResponse>;
   location: PageLocation;
+  /** The page's language, sent so the outcome email is written in it. */
+  locale?: string | undefined;
 }
 
 const ID_PATTERN = /^[a-z2-7]{10}$/;
@@ -30,17 +34,31 @@ export function setupReport(doc: Document, env: ReportEnv): void {
   const reason = byId<HTMLSelectElement>(doc, "reason");
   const details = byId<HTMLTextAreaElement>(doc, "details");
   const email = byId<HTMLInputElement>(doc, "email");
+  const name = byId<HTMLInputElement>(doc, "name");
+  const nameField = byId(doc, "name-field");
+  const confirmed = byId<HTMLInputElement>(doc, "confirmed");
   const errors = {
     artifact: byId(doc, "artifact-error"),
     reason: byId(doc, "reason-error"),
     details: byId(doc, "details-error"),
+    name: byId(doc, "name-error"),
     email: byId(doc, "email-error"),
+    confirmed: byId(doc, "confirmed-error"),
   };
-  const inputs = { artifact, reason, details, email } as const;
+  const inputs = { artifact, reason, details, name, email, confirmed } as const;
   type Field = keyof typeof inputs;
 
   const given = new URLSearchParams(env.location.search).get("artifact")?.trim().toLowerCase();
   if (given && ID_PATTERN.test(given)) artifact.value = given;
+
+  // A report of content that sexualizes minors never asks for the reporter's name.
+  const showName = () => {
+    const hide = reason.value === "child_safety";
+    nameField.hidden = hide;
+    if (hide) name.value = "";
+  };
+  reason.addEventListener("change", showName);
+  showName();
 
   const clear = () => {
     for (const name of Object.keys(inputs) as Field[]) {
@@ -60,6 +78,7 @@ export function setupReport(doc: Document, env: ReportEnv): void {
       artifact: artifact.value.trim(),
       reason: reason.value,
       details: details.value.trim(),
+      name: reason.value === "child_safety" ? "" : name.value.trim(),
       email: email.value.trim(),
     };
     if (!values.artifact) return fail("artifact", messages.report.artifactRequired);
@@ -67,12 +86,16 @@ export function setupReport(doc: Document, env: ReportEnv): void {
     if (values.email && !EMAIL_PATTERN.test(values.email)) {
       return fail("email", messages.report.emailInvalid);
     }
+    if (!confirmed.checked) return fail("confirmed", messages.report.confirmRequired);
     void whileBusy(button, async () => {
       const response = await env.send({
         artifact: values.artifact,
         reason: values.reason,
         ...(values.details ? { details: values.details } : {}),
+        ...(values.name ? { name: values.name } : {}),
         ...(values.email ? { email: values.email } : {}),
+        confirmed: true,
+        ...(env.locale ? { locale: env.locale } : {}),
       });
       if (response.status === 202) {
         form.hidden = true;
@@ -88,6 +111,7 @@ export function setupReport(doc: Document, env: ReportEnv): void {
         const field = invalidField(response.body);
         if (field === "details") return fail("details", messages.report.detailsInvalid);
         if (field === "email") return fail("email", messages.report.emailInvalid);
+        if (field === "name") return fail("name", messages.report.nameInvalid);
         if (field === "reason") return fail("reason", messages.report.reasonRequired);
         return fail("artifact", messages.report.artifactInvalid);
       }

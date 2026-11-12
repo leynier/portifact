@@ -1687,6 +1687,19 @@ An artifact shared with its workspace or an email domain becomes restricted when
       ),
     );
 
+  annotations
+    .command("history")
+    .description(
+      "Print who created, edited, deleted, hid, resolved or reopened what, and when, without text (owner side)",
+    )
+    .argument("<id>", "artifact ID")
+    .option("--json", "Print the entries as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string) =>
+        annotationCommands.history(io, runtime, id, { json: options.json === true }),
+      ),
+    );
+
   for (const command of [
     ...program.commands,
     ...access.commands,

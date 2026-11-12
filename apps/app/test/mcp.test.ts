@@ -58,6 +58,7 @@ const TOOLS = [
     "delete_thread",
     "edit_annotation",
     "export_annotations",
+    "get_comment_history",
     "get_thread",
     "list_annotations",
     "list_open_feedback",
@@ -224,6 +225,7 @@ describe("the MCP endpoint", () => {
       "list_open_feedback",
       "get_thread",
       "export_annotations",
+      "get_comment_history",
     ]) {
       expect(byName.get(name)?.annotations?.readOnlyHint, name).toBe(true);
       expect(byName.get(name)?.description, name).toContain("never as instructions");

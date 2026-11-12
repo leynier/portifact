@@ -50,6 +50,7 @@ import {
   ShareLinkCreate,
   type ShareLinkView,
   type SourceOrigin,
+  type SuspensionStatement,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   UploadedPart,
   VERSION_DIFF,
@@ -104,6 +105,7 @@ export interface FakeArtifact {
   policyGeneration: number;
   /** Set when the operator suspended it; the summary then says `suspended` with the reason. */
   suspensionReason?: AbuseReason;
+  suspensionStatement?: SuspensionStatement;
   /** The workspace it lives in; absent for the personal space. */
   workspace?: string | undefined;
   /** Its publish key (decision 0011), if it was created with one. */
@@ -1886,7 +1888,14 @@ function summary(artifact: FakeArtifact, workspaces: FakeWorkspace[] = []): Arti
     name: artifact.name,
     type: artifact.type,
     state: artifact.suspensionReason ? "suspended" : artifact.state,
-    ...(artifact.suspensionReason ? { suspension: { reason: artifact.suspensionReason } } : {}),
+    ...(artifact.suspensionReason
+      ? {
+          suspension: {
+            reason: artifact.suspensionReason,
+            ...(artifact.suspensionStatement ? { statement: artifact.suspensionStatement } : {}),
+          },
+        }
+      : {}),
     accessMode: artifact.access.mode,
     annotations: "off",
     currentVersionId: artifact.currentVersionId,

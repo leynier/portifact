@@ -1,5 +1,6 @@
 // Request and response helpers shared by the /api/v1 route modules.
 import {
+  AnnotationThreadView,
   ERROR_STATUS,
   type ErrorCode,
   IdempotencyKey,
@@ -7,7 +8,14 @@ import {
   WorkspaceParam,
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
-import { hashRequest, runIdempotent, type StoredResponse } from "@portifact/services";
+import type { Result } from "@portifact/domain";
+import {
+  type AnnotationActor,
+  hashRequest,
+  idempotentThreadWrite,
+  runIdempotent,
+  type StoredResponse,
+} from "@portifact/services";
 import type { Context } from "hono";
 import type { z } from "zod";
 import type { Env } from "../env.ts";
@@ -141,6 +149,43 @@ export async function idempotent(
     return error(c, "version_conflict", "A request with this Idempotency-Key is still running.");
   }
   return c.json(outcome.response.body, outcome.response.status as 201);
+}
+
+/**
+ * `idempotent` for a write that answers a thread (creating one, replying): the record keeps only
+ * the thread's ID, and a retry reads the thread again as the caller, so it never returns a
+ * comment deleted since or one the caller no longer sees (`idempotentThreadWrite`).
+ */
+export async function idempotentThread(
+  c: ApiContext,
+  input: { db: RegionalDb; userId: string; operation: string; request: unknown; now: number },
+  reader: AnnotationActor,
+  write: () => Promise<Result<AnnotationThreadView>>,
+): Promise<Response> {
+  const key = IdempotencyKey.safeParse(c.req.header("idempotency-key"));
+  if (!key.success) {
+    return error(c, "invalid_input", "Send an Idempotency-Key header (8 to 128 characters).");
+  }
+  const outcome = await idempotentThreadWrite(
+    input.db,
+    {
+      actorId: input.userId,
+      key: key.data,
+      operation: input.operation,
+      requestHash: await hashRequest(input.request),
+      now: input.now,
+    },
+    reader,
+    write,
+  );
+  if (outcome.kind === "mismatch") {
+    return error(c, "invalid_input", "This Idempotency-Key was used for a different request.");
+  }
+  if (outcome.kind === "in_progress") {
+    return error(c, "version_conflict", "A request with this Idempotency-Key is still running.");
+  }
+  if (!outcome.result.ok) return error(c, outcome.result.code, outcome.result.message);
+  return c.json(AnnotationThreadView.parse(outcome.result.value), 201);
 }
 
 /**

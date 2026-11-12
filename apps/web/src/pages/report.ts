@@ -7,9 +7,10 @@ void localizeAuthPage(document, {
   url: location.href,
   storage: browserStorage,
   languages: navigator.languages,
-}).then(() =>
+}).then((locale) =>
   setupReport(document, {
     send: reportSender((input, init) => fetch(input, init)),
     location: window.location,
+    locale,
   }),
 );

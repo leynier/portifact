@@ -5,6 +5,7 @@
 import { z } from "zod";
 import { AnnotationTarget } from "./anchors.ts";
 import {
+  ANNOTATION_HISTORY_PAGE,
   AnnotationBody,
   AnnotationId,
   AnnotationThreadState,
@@ -138,3 +139,20 @@ export const ExportAnnotationsInput = z.object({
   state,
 });
 export type ExportAnnotationsInput = z.infer<typeof ExportAnnotationsInput>;
+
+export const GetCommentHistoryInput = z.object({
+  artifactId,
+  cursor: z
+    .string()
+    .max(32)
+    .optional()
+    .describe("nextCursor of the previous page. Omit it to start from the first entry."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(ANNOTATION_HISTORY_PAGE.max)
+    .default(ANNOTATION_HISTORY_PAGE.default)
+    .describe(`How many entries to return, 1 to ${ANNOTATION_HISTORY_PAGE.max}.`),
+});
+export type GetCommentHistoryInput = z.infer<typeof GetCommentHistoryInput>;

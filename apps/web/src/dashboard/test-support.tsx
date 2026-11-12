@@ -10,7 +10,9 @@ import {
   type AccessPolicyView,
   AccessUpdate,
   type AccountSettings,
+  type AccountSuspensionView,
   type AccountUsageView,
+  type AnnotationHistoryEntry,
   type AnnotationMessageView,
   type AnnotationRole,
   type AnnotationsState,
@@ -337,6 +339,8 @@ export interface FakeAnnotations {
    * starting with `solved`, or the post answers `human_verification_required`.
    */
   humanChecks?: number;
+  /** The comment action history, oldest first, as GET .../history pages it (owner only). */
+  history?: AnnotationHistoryEntry[];
 }
 
 export function fakeMessage(overrides: Partial<AnnotationMessageView> = {}): AnnotationMessageView {
@@ -574,6 +578,8 @@ export interface FakeServer {
   apps: ConnectedApp[];
   /** The account's defaults for new artifacts. */
   settings: AccountSettings;
+  /** The body of GET /api/v1/account/suspension. */
+  accountSuspension: AccountSuspensionView;
   /** Comment notices by artifact: whether the owner's plan has them and the caller's mute. */
   commentNotices: Record<string, CommentNoticeMute>;
   /** The body of GET /api/v1/usage. */
@@ -698,6 +704,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     providers: [],
     sessions: [browserSession({ current: true })],
     apps: [],
+    accountSuspension: { suspended: false, reason: null, statement: null },
     settings: {
       defaultAccessMode: "restricted",
       defaultAnnotations: "off",
@@ -1539,6 +1546,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       server.commentNotices[id] = { ...current, muted };
     }
     return Response.json(server.commentNotices[id] ?? current);
+  }
+  if (path === "/api/v1/account/suspension" && method === "GET") {
+    return Response.json(server.accountSuspension);
   }
   if (path === "/api/v1/account/settings" && method === "GET") {
     return Response.json(server.settings);
@@ -2389,6 +2399,17 @@ function reviewRoute(
       removed: since > 0 ? store.deleted.filter((d) => d.seq > since).map((d) => d.id) : [],
       cursor: String(store.seq),
       hasMore: false,
+    });
+  }
+  if (rest === "/history" && method === "GET") {
+    if (store.role !== "owner") return apiError("forbidden", 403);
+    const all = store.history ?? [];
+    const from = Number(url.searchParams.get("cursor") ?? 0);
+    const limit = Number(url.searchParams.get("limit") ?? 200);
+    return Response.json({
+      artifactId: id,
+      entries: all.slice(from, from + limit),
+      nextCursor: from + limit < all.length ? String(from + limit) : null,
     });
   }
   if (rest === "/export" && method === "GET") {

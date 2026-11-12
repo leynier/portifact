@@ -225,6 +225,16 @@ export const ja = {
   "detail.suspended.title": "利用ポリシー違反の可能性により停止中",
   "detail.suspended.body":
     "審査の結果、Portifactはこのartifactを停止しました。誰にも配信されず、変更や公開もできません。理由：{reason}。誤りだと思われる場合は、artifactのアドレスを添えてabuse@portifact.comまでご連絡ください。",
+  "detail.suspended.facts": "根拠とした事実",
+  "detail.suspended.ground": "根拠(法律または利用規約の規定)とそれが適用される理由",
+  "detail.suspended.notice":
+    "{date} に、受け取った通報に基づいて決定しました。この決定は人が行いました。",
+  "detail.suspended.review":
+    "{date} に、当社自身の確認に基づいて決定しました。この決定は人が行いました。",
+  "settings.suspended.title": "アカウントは停止されています",
+  "settings.suspended.body":
+    "Portifact はあなたのアカウントを停止しました。公開できず、そのアーティファクトもあわせて停止されています。サインイン、データのエクスポート、アカウントの削除は引き続き行えます。理由: {reason}。見直しを求めるには abuse@portifact.com までご連絡ください。",
+  "branding.suspendedReason": "理由: {reason}。",
   "reason.phishing": "フィッシングまたは偽のサインインページ",
   "reason.malware": "マルウェア、エクスプロイト、暗号資産のマイニング",
   "reason.sexual_content": "露骨な性的コンテンツ",
@@ -462,9 +472,9 @@ export const ja = {
     "アカウントに保存されているすべての情報をJSONでダウンロードできます。プロフィール、artifactとそのアクセス設定、バージョン、ファイル一覧、コメントが含まれます。各バージョンには、そのファイルをダウンロードするリンクが記載されています。",
   "account.data.download": "アカウントのデータをダウンロード（JSON）",
   "account.data.spacePersonal":
-    "個人スペースに保存されているもの（各アーティファクトの保持されたバージョンとソース、アクセスログ、監査ログ）を取り出すには、スペースのダウンロードページを使ってください。",
+    "個人スペースに保存されているもの（各アーティファクトの保持されたバージョンとソース、アクセスログ、各アーティファクトとスペースの記録、監査ログ）を取り出すには、スペースのダウンロードページを使ってください。",
   "account.data.spaceWorkspace":
-    "ワークスペース {workspace} に保存されているもの（各アーティファクトの保持されたバージョンとソース、アクセスログ、監査ログ）を取り出すには、スペースのダウンロードページを使ってください。",
+    "ワークスペース {workspace} に保存されているもの（各アーティファクトの保持されたバージョンとソース、アクセスログ、各アーティファクトとスペースの記録、監査ログ）を取り出すには、スペースのダウンロードページを使ってください。",
   "account.data.spaceLink": "このスペースのデータをダウンロード",
   "account.delete.title": "アカウントを削除",
   "account.delete.hint":
@@ -1626,7 +1636,7 @@ export const ja = {
     "それまでに必要なものをダウンロードしてください。各アーティファクトの履歴にバージョンがあり、アクセスログと監査ログはエクスポートできます。すべてを残すには、もう一度プランを申請してください。",
   "data.title": "データをダウンロード",
   "data.description":
-    "このスペースに保存されていて持ち出せるもの：各アーティファクトの保持されたバージョンとそのソース、アクセスログ、監査ログ、そして個人スペースではアカウントのデータです。ファイルはストレージから直接届き、サーバーでまとめることはありません。",
+    "このスペースから持ち出せるすべて：各アーティファクトの保持されたバージョンとそのソース、アクセスログと記録（設定、アクセスルール、共有リンク、レビュー、アナリティクス、コメント）、スペースの記録、監査ログ、そして個人スペースの場合はアカウントのデータ。ファイルはストレージから直接届き、サーバーでまとめられることはありません。",
   "data.adminsOnly": "{workspace} のすべてのデータのダウンロードは管理者が行います。",
   "data.grace.title": "削除されるものと時期",
   "data.grace.hint":
@@ -1659,14 +1669,27 @@ export const ja = {
   "data.versions.size": "サイズ",
   "data.accessLog.csv": "アクセスログ（CSV）",
   "data.accessLog.json": "アクセスログ（JSON）",
+  "data.accessLog.csvLabel": "{name} のアクセスログを CSV で",
+  "data.accessLog.jsonLabel": "{name} のアクセスログを JSON で",
   "data.accessLog.saved": "アクセスログの準備ができました。",
+  "data.records.button": "記録 (JSON)",
+  "data.records.label": "{name} の記録 (JSON)",
+  "data.records.saved": "記録の準備ができました。",
+  "data.records.later":
+    "サーバーが待つよう求めたため、一部が欠けています。数分後にもう一度ダウンロードしてください。",
+  "data.records.failed": "記録をダウンロードできませんでした。",
+  "data.space.title": "スペースの記録",
+  "data.space.hint":
+    "スペースの設定（シークレットは含みません）：ワークスペースではメンバーとロール、グループとそのメンバー、招待、メールドメイン、ポリシー、シングルサインオン、サービストークン。すべてのスペースでブランディング、Webhook、連携、監査ストリーム。",
+  "data.space.download": "スペースの記録をダウンロード (JSON)",
+  "data.space.logo": "ブランドのロゴをダウンロード",
   "data.logs.title": "ログとアカウント",
   "data.logs.hint":
     "スペースの監査ログには専用のエクスポートがあり、個人スペースにはアカウントのデータが含まれます。",
   "data.logs.audit": "監査ログページから監査ログをエクスポート",
   "data.logs.account": "アカウントのデータをダウンロード（JSON）",
   "data.logs.cli":
-    "すべてを一度に持ち出すには、ターミナルで portifact export <フォルダー> を実行してください。保持されているすべてのバージョンを取得し、中断しても再開し、マニフェストを書き出します。",
+    "すべてを一度に持ち出すには、ターミナルで portifact export <フォルダー> を実行してください。保持されているすべてのバージョンと各アーティファクトの記録を取得し、中断しても再開し、マニフェストを書き出します。メンバー、招待など、ダッシュボードだけが読める設定は上のスペースの記録にあります。",
   "shell.grace.title": "{plan} プランで保持していたものは {date} まで保持されます",
   "shell.grace.download": "データをダウンロード",
   "shell.grace.request": "{plan} をもう一度申請",
@@ -2350,6 +2373,8 @@ export const ja = {
   "policies.note.linksLifetime":
     "ワークスペースのポリシーにより共有リンクは {days, plural, one {# 日} other {# 日}} までです。",
   "error.policy_refused": "ワークスペースのポリシーで許可されていません。",
+  "error.terms_not_accepted":
+    "続行するには現在の規約に同意してください。ページを再読み込みして確認してください。",
   "audit.group.policies": "ポリシー",
   "audit.kind.policyChanged": "ワークスペースのポリシーを変更しました: {changes}",
   "audit.kind.policyEnforced": "ワークスペースのポリシーを適用しました: {changes}",

@@ -5,16 +5,17 @@ import {
   AnnotationDeleteResult,
   AnnotationEditResult,
   AnnotationExport,
+  AnnotationHistoryPage,
   AnnotationModeView,
   AnnotationPage,
   AnnotationThreadView,
   CreateAnnotationInput,
   DeleteThreadInput,
   EditAnnotationInput,
-  ERROR_STATUS,
   type ErrorCode,
   ExportAnnotationsInput,
   FeedbackPage,
+  GetCommentHistoryInput,
   ListAnnotationsInput,
   ListOpenFeedbackInput,
   MessageRef,
@@ -35,11 +36,12 @@ import {
   exportAnnotations,
   getAnnotationThread,
   hashRequest,
+  idempotentThreadWrite,
+  listAnnotationHistory,
   listAnnotations,
   listOpenFeedback,
   moderateAnnotationMessage,
   replyToAnnotationThread,
-  runIdempotent,
   setAnnotationMode,
   setAnnotationThreadState,
 } from "@portifact/services";
@@ -56,6 +58,7 @@ export const ANNOTATION_TOOL_SCOPES: [string, OAuthScope][] = [
   ["list_open_feedback", "annotations:read"],
   ["get_thread", "annotations:read"],
   ["export_annotations", "annotations:read"],
+  ["get_comment_history", "annotations:read"],
   ["create_annotation", "annotations:write"],
   ["reply_annotation", "annotations:write"],
   ["edit_annotation", "annotations:write"],
@@ -235,6 +238,30 @@ export function registerAnnotationTools(
   );
 
   register(
+    "get_comment_history",
+    {
+      title: "Get the comment history",
+      description: `Page through an artifact's comment action history, oldest first (owner side only): who created, edited, deleted, hid, resolved or reopened which thread or message, and when, deleted threads included. It has no comment text; use export_annotations for that. Pass nextCursor to get the next page. ${UNTRUSTED}`,
+      inputSchema: GetCommentHistoryInput,
+      outputSchema: AnnotationHistoryPage,
+      annotations: READ_ONLY,
+    },
+    async (args: GetCommentHistoryInput) => {
+      const result = await listAnnotationHistory(await artifactDb(context.env, args.artifactId), {
+        ...actor(args.artifactId),
+        cursor: args.cursor,
+        limit: args.limit,
+      });
+      if (!result.ok) return failure(result.code, result.message);
+      const body = AnnotationHistoryPage.parse(result.value);
+      return success(
+        `${body.entries.length} history entr${body.entries.length === 1 ? "y" : "ies"} of ${body.artifactId}${body.nextCursor ? "; more with nextCursor" : ""}. ${UNTRUSTED}`,
+        body,
+      );
+    },
+  );
+
+  register(
     "create_annotation",
     {
       title: "Create an annotation",
@@ -255,6 +282,7 @@ export function registerAnnotationTools(
         idempotencyKey,
         "mcp.create_annotation",
         [artifactId, request],
+        artifactId,
         async () =>
           createAnnotationThread(owned, {
             userId: context.userId,
@@ -288,6 +316,7 @@ export function registerAnnotationTools(
         idempotencyKey,
         "mcp.reply_annotation",
         [artifactId, threadId, { body }],
+        artifactId,
         async () =>
           replyToAnnotationThread(owned, {
             userId: context.userId,
@@ -466,7 +495,8 @@ function deleteResponse(result: Outcome<AnnotationDeleteResult>, summary: string
 
 /**
  * Runs a create once per idempotency key, like the API's Idempotency-Key header: a retry with the
- * same key and arguments returns the first result, and a key reused for other arguments fails.
+ * same key and arguments reads the thread again as the caller (the record keeps only its ID, so
+ * a comment deleted since is never returned), and a key reused for other arguments fails.
  */
 async function idempotent(
   db: RegionalDb,
@@ -474,26 +504,21 @@ async function idempotent(
   key: string,
   operation: string,
   request: unknown,
+  artifactId: string,
   run: () => Promise<Outcome<AnnotationThreadView>>,
 ): Promise<Outcome<AnnotationThreadView>> {
-  const outcome = await runIdempotent(
+  const now = context.now();
+  const outcome = await idempotentThreadWrite(
     db,
     {
       actorId: context.userId,
       key,
       operation,
       requestHash: await hashRequest(request),
-      now: context.now(),
+      now,
     },
-    async () => {
-      const result = await run();
-      return result.ok
-        ? { status: 201, body: AnnotationThreadView.parse(result.value) }
-        : {
-            status: ERROR_STATUS[result.code],
-            body: { error: { code: result.code, message: result.message } },
-          };
-    },
+    { userId: context.userId, artifactId, now },
+    run,
   );
   if (outcome.kind === "mismatch") {
     return fail("invalid_input", "This idempotency key was used for a different request.");
@@ -501,10 +526,7 @@ async function idempotent(
   if (outcome.kind === "in_progress") {
     return fail("version_conflict", "A request with this idempotency key is still running.");
   }
-  const body = outcome.response.body as
-    | AnnotationThreadView
-    | { error: { code: ErrorCode; message: string } };
-  return "error" in body ? fail(body.error.code, body.error.message) : { ok: true, value: body };
+  return outcome.result;
 }
 
 function fail(code: ErrorCode, message: string): Outcome<never> {

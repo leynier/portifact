@@ -662,7 +662,11 @@ export const usageEvents = sqliteTable(
     amount: integer("amount").notNull(),
     at: timestamp("at").notNull(),
   },
-  (t) => [index("usage_events_owner_kind_at_idx").on(t.ownerId, t.kind, t.at)],
+  (t) => [
+    index("usage_events_owner_kind_at_idx").on(t.ownerId, t.kind, t.at),
+    // Pruned once no 24-hour window can count them (`pruneUploadHistory`).
+    index("usage_events_at_idx").on(t.at),
+  ],
 );
 
 /**
@@ -728,6 +732,9 @@ export const OUTBOX_TOPICS = [
   "plan_grace_notice",
   "comment_retention_notice",
   "comment_tombstones",
+  "moderation_notice",
+  "report_outcome",
+  "legal_hold_release",
 ] as const;
 
 /**
@@ -792,7 +799,15 @@ export const lifecycleEvents = sqliteTable(
     details: text("details", { mode: "json" }),
     at: timestamp("at").notNull(),
   },
-  (t) => [index("lifecycle_events_artifact_at_idx").on(t.artifactId, t.at)],
+  (t) => [
+    index("lifecycle_events_artifact_at_idx").on(t.artifactId, t.at),
+    // The history of purged artifacts, oldest first, for its retention (`pruneGoneHistory`).
+    index("lifecycle_events_purged_at_idx")
+      .on(t.at, t.artifactId)
+      .where(sql`${t.event} = 'purged'`),
+    // An account's actions, forgotten when it is deleted (`eraseAccountTraces`).
+    index("lifecycle_events_actor_idx").on(t.actorId).where(sql`${t.actorId} is not null`),
+  ],
 );
 
 /**
@@ -814,7 +829,16 @@ export const tombstones = sqliteTable(
      * `workspace_member` a membership the directory ended, as `<workspace>:<user>`, which a
      * restore must not bring back if it was created before the tombstone (decision 0017);
      * `audit_stream` a removed audit stream (decision 0019); `github_trust_rule` a removed GitHub
-     * trust rule (decision 0024).
+     * trust rule (decision 0024). `comment_thread` and `comment_message` a deleted thread or message,
+     * `workspace_member` also an admin's removal and `workspace_member_left` a member leaving,
+     * `workspace_invitation` also a revoked or declined invitation, `notice_opt_out` an email
+     * preference turned off (`<user>:<preference>`) and `comment_notice_mute` a per-artifact mute
+     * (`<artifact>:<user>`), and, written by triggers on the identity tables (migration 0071),
+     * `session` an unexpired browser session that ended, `oauth_token` an unexpired OAuth access or
+     * refresh token deleted or revoked and `oauth_grant` a consent deleted (an app disconnected):
+     * these are pruned after the Time Travel window (`WINDOW_TOMBSTONE_KINDS`,
+     * docs/operations.md, "Restoring a backup"). The directory's `workspace_member` and
+     * `workspace_invitation` tombstones are pruned with them (decision 0017).
      */
     kind: text("kind", {
       enum: [
@@ -836,18 +860,32 @@ export const tombstones = sqliteTable(
         "audit_stream",
         "comment_thread",
         "github_trust_rule",
+        "comment_message",
+        "workspace_member_left",
+        "notice_opt_out",
+        "comment_notice_mute",
+        "session",
+        "oauth_token",
+        "oauth_grant",
       ],
     }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.kind, t.id] })],
+  (t) => [
+    primaryKey({ columns: [t.kind, t.id] }),
+    // The prune of restore markers reads each kind oldest first (`pruneGroupTombstones`).
+    index("tombstones_kind_deleted_idx").on(t.kind, t.deletedAt),
+  ],
 );
 
 /**
  * Reports sent through the public report form (`POST /api/v1/reports`). Untrusted text; the
- * operator reads them with the operator tool (docs/operations.md). The reporter's email is
- * optional and erased when that address's account is deleted.
+ * operator reads them with the operator tool (docs/operations.md). The reporter's email and name
+ * are optional and erased when that address's account is deleted. `address` is the exact address
+ * reported, in full; `confirmed` the reporter's statement that the report is accurate, complete
+ * and sent in good faith (a full notice). `outcome_notice` records the email that told the
+ * reporter the decision: `sent`, `withheld` by the operator, or `undeliverable`.
  */
 export const abuseReports = sqliteTable(
   "abuse_reports",
@@ -855,12 +893,25 @@ export const abuseReports = sqliteTable(
     id: text("id").primaryKey(),
     artifactId: text("artifact_id").notNull(),
     reporterEmail: text("reporter_email"),
+    /**
+     * The keyed hash of the reporter's email (the sign-in limits' `keyedHash`), which keys the
+     * outcome emails' daily counter; erased with the email.
+     */
+    reporterEmailKey: text("reporter_email_key"),
+    reporterName: text("reporter_name"),
+    address: text("address"),
+    confirmed: integer("confirmed", { mode: "boolean" }).notNull().default(false),
+    locale: text("locale"),
     reason: text("reason").notNull(),
     details: text("details"),
     status: text("status", { enum: ["open", "actioned", "dismissed"] })
       .notNull()
       .default("open"),
     resolvedAt: timestamp("resolved_at"),
+    outcomeNotice: text("outcome_notice", {
+      enum: ["pending", "sent", "withheld", "undeliverable"],
+    }),
+    outcomeNotifiedAt: timestamp("outcome_notified_at"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -892,13 +943,124 @@ export const suspensions = sqliteTable(
     note: text("note"),
     createdAt: createdAt(),
     liftedAt: timestamp("lifted_at"),
+    /**
+     * When the artifact was purged or the account deleted; null while it exists. The record is
+     * deleted `HISTORY_RETENTION_DAYS` after it (`pruneGoneHistory`).
+     */
+    targetGoneAt: timestamp("target_gone_at"),
   },
   (t) => [
     uniqueIndex("suspensions_open_target_idx")
       .on(t.kind, t.targetId)
       .where(sql`${t.liftedAt} is null`),
     index("suspensions_parent_idx").on(t.parentId),
+    index("suspensions_target_gone_idx")
+      .on(t.targetGoneAt)
+      .where(sql`${t.targetGoneAt} is not null`),
   ],
+);
+
+/**
+ * The operator's moderation decisions about an artifact, an account or a brand (suspending and
+ * reinstating them), with the statement of reasons sent to the people affected (the account of a
+ * personal space, or a workspace's admins): the facts and the ground the operator wrote, whether
+ * it followed a notice or the operator's own review, and the state of the email. Written in the
+ * batch of the change it explains, in the region of what it is about, with the
+ * `moderation_notice` job. No foreign keys: the record outlives what it points at.
+ */
+export const moderationDecisions = sqliteTable(
+  "moderation_decisions",
+  {
+    id: text("id").primaryKey(),
+    targetKind: text("target_kind", { enum: ["artifact", "account", "brand"] }).notNull(),
+    targetId: text("target_id").notNull(),
+    /** The owner whose people are told: the account, or the workspace. */
+    ownerId: text("owner_id").notNull(),
+    action: text("action", { enum: ["suspend", "reinstate"] }).notNull(),
+    reason: text("reason", { enum: ABUSE_REASONS }),
+    suspensionId: text("suspension_id"),
+    reportId: text("report_id"),
+    source: text("source", { enum: ["notice", "review"] }).notNull(),
+    facts: text("facts").notNull(),
+    ground: text("ground"),
+    /**
+     * `pending` until the job sends it; `sent` to at least one person, `no_recipient` when no
+     * one could be told (no account, suppressed addresses), `withheld` by the operator where the
+     * law requires silence.
+     */
+    notice: text("notice", { enum: ["pending", "sent", "no_recipient", "withheld"] }).notNull(),
+    recipients: integer("recipients").notNull().default(0),
+    notifiedAt: timestamp("notified_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("moderation_decisions_target_idx").on(t.targetKind, t.targetId, t.createdAt),
+    index("moderation_decisions_suspension_idx").on(t.suspensionId),
+  ],
+);
+
+/** Each person a statement of reasons was sent to, and when: the operator's proof of sending. */
+export const moderationNoticeSends = sqliteTable(
+  "moderation_notice_sends",
+  {
+    decisionId: text("decision_id").notNull(),
+    userId: text("user_id").notNull(),
+    sentAt: timestamp("sent_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.decisionId, t.userId] })],
+);
+
+/**
+ * Legal holds (docs/operations.md, "Legal holds"): an artifact the operator must preserve for an
+ * authority. While a hold is open (`released_at` null) the artifact stays suspended, nothing
+ * deletes it, moves it or prunes its versions, and its content is served to nobody, its owner
+ * included; triggers back the services (`legal_holds` migration). Set, listed and released only
+ * with the operator tool; `export-tombstones` carries every hold across a restore. `owner_email`
+ * is the account's address when the hold was set (null for a workspace), kept until release.
+ */
+export const legalHolds = sqliteTable(
+  "legal_holds",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    ownerEmail: text("owner_email"),
+    /** The suspension's category when the hold was set, to suspend again after a restore. */
+    reason: text("reason", { enum: ABUSE_REASONS }).notNull(),
+    /** The legal ground, written by the operator; never shown to the owner. */
+    ground: text("ground").notNull(),
+    createdAt: createdAt(),
+    /** When the hold is planned to end; the maintenance scan releases it then. */
+    releaseAt: timestamp("release_at"),
+    releasedAt: timestamp("released_at"),
+  },
+  (t) => [
+    uniqueIndex("legal_holds_open_artifact_idx")
+      .on(t.artifactId)
+      .where(sql`${t.releasedAt} is null`),
+    index("legal_holds_release_idx").on(t.releasedAt, t.releaseAt),
+  ],
+);
+
+/**
+ * Who a legal hold keeps (docs/operations.md, "Legal holds"): the owner account, the account or
+ * token that created the artifact and the publisher of each of its committed versions, with the
+ * account's email when the hold was set (null for a token or an account already gone). Kept with
+ * the hold in the artifact's region, deleted at release, never in an export; a restore captures
+ * them again (`applyLegalHolds`).
+ */
+export const legalHoldIdentities = sqliteTable(
+  "legal_hold_identities",
+  {
+    holdId: text("hold_id").notNull(),
+    role: text("role", { enum: ["owner", "creator", "publisher"] }).notNull(),
+    /** The version a publisher published; empty for the owner and the creator. */
+    versionId: text("version_id").notNull().default(""),
+    actorId: text("actor_id").notNull(),
+    email: text("email"),
+    recordedAt: timestamp("recorded_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.holdId, t.role, t.versionId, t.actorId] })],
 );
 
 /**
@@ -910,6 +1072,11 @@ export const suspensions = sqliteTable(
 export const accountDeletions = sqliteTable("account_deletions", {
   userId: text("user_id").primaryKey(),
   requestedAt: timestamp("requested_at").notNull(),
+  /**
+   * When a run last found it still pending; runs take the least recently tried first, so a
+   * deletion that waits (a legal hold on one of its artifacts) never stops the others.
+   */
+  attemptedAt: timestamp("attempted_at"),
 });
 
 /**
@@ -958,6 +1125,10 @@ export const annotationThreads = sqliteTable(
     ),
     index("annotation_threads_artifact_change_idx").on(t.artifactId, t.changeSeq),
     index("annotation_threads_author_idx").on(t.authorId),
+    // Who resolved a thread, forgotten when the account is deleted (`eraseAccountTraces`).
+    index("annotation_threads_resolved_by_idx")
+      .on(t.resolvedBy)
+      .where(sql`${t.resolvedBy} is not null`),
     // A space's open feedback: an owner's open threads, newest activity first.
     index("annotation_threads_owner_state_updated_idx").on(t.ownerId, t.state, t.updatedAt, t.id),
     check("annotation_threads_target_bytes", sql`${t.targetBytes} between 1 and 8192`),
@@ -1647,6 +1818,42 @@ export const accountSettings = sqliteTable(
   ],
 );
 
+/**
+ * How an account accepted a version of the terms (docs/legal.md, "Acceptance at sign-in"):
+ * `sign_up` when choosing a sign-in method created the account, `sign_in` when an existing
+ * account chose one below the notice, `review` with "Agree and continue" on the login page's
+ * review screen, and `backfill` for the acceptance an account held when the history started,
+ * whose action was not recorded.
+ */
+export const TERMS_ACCEPTANCE_ACTIONS = ["sign_up", "sign_in", "review", "backfill"] as const;
+
+/**
+ * Every version of the terms each account accepted, with when and how: the evidence of
+ * acceptance, kept for the life of the account (it cascades from `users`). `users.terms_version`
+ * and `terms_accepted_at` stay the fast path the sign-in hooks read. A row is written by the
+ * statement that records the acceptance: the `terms_acceptances_sign_up` trigger on the insert
+ * of the account (migration 0068), or the batch of `recordTermsAcceptance` in
+ * `apps/app/src/auth/terms.ts`. One row per version: the first acceptance of it counts.
+ */
+export const termsAcceptances = sqliteTable(
+  "terms_acceptances",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    version: text("version").notNull(),
+    acceptedAt: timestamp("accepted_at").notNull(),
+    action: text("action", { enum: TERMS_ACCEPTANCE_ACTIONS }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.version] }),
+    check(
+      "terms_acceptances_action",
+      sql`${t.action} in ('sign_up', 'sign_in', 'review', 'backfill')`,
+    ),
+  ],
+);
+
 /** Plan names; their limits and features live in PLANS (@portifact/contracts). */
 export const OWNER_PLAN_NAMES = ["free", "pro", "team", "enterprise"] as const;
 
@@ -2232,6 +2439,8 @@ export const workspaceGroupMembers = sqliteTable(
 export const workspaceDeletions = sqliteTable("workspace_deletions", {
   workspaceId: text("workspace_id").primaryKey(),
   requestedAt: timestamp("requested_at").notNull(),
+  /** As `account_deletions.attempted_at`: the least recently tried runs first. */
+  attemptedAt: timestamp("attempted_at"),
 });
 
 /**

@@ -535,11 +535,14 @@ describe("a stored answer after the role is gone", () => {
  * test with develop's `apps/app/src/api/{http,annotations,approval-reviews,domains,routes}.ts` and
  * `apps/app/src/mcp/{tools,annotation-tools,review-tools,upload-tools,version-tools}.ts` on
  * 2026-11-11 (the same numbers). With a second region bound, a replay on an artifact reads the
- * directory once more than develop did (the record now lives in the artifact's region).
+ * directory once more than develop did (the record now lives in the artifact's region). A thread
+ * replay then reads the thread again as the caller (its authorization and the thread, four calls),
+ * because the record keeps only the thread's ID (`idempotentThreadWrite`): the write path is
+ * unchanged.
  */
 const DEVELOP_CALLS = {
   apiThreadCreate: 17,
-  apiThreadReplay: 8,
+  apiThreadReplay: 12,
   mcpPublishDocument: 30,
   mcpPublishReplay: 9,
   apiPrepare: 20,

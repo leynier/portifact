@@ -36,6 +36,18 @@ export const NOTICE_EMAIL_RESERVE = 5_000;
 /** Expiry notices Portifact sends in one cycle at most, counting every email sent before them. */
 export const NOTICE_EMAILS_PER_CYCLE = SIGN_IN_EMAILS_PER_CYCLE - NOTICE_EMAIL_RESERVE;
 
+/**
+ * Whether the cycle still has room for a moderation email: a statement of reasons or the outcome
+ * of a report (docs/operations.md, "Reports"). The law requires them and a person decides each
+ * one, so they are few: they share the sign-in codes' limit and stop only where codes stop, and a
+ * refused one waits for the next cycle instead of being dropped.
+ */
+export function checkModerationNoticeCapacity(sentThisCycle: number): Result<true> {
+  return sentThisCycle >= SIGN_IN_EMAILS_PER_CYCLE
+    ? fail("capacity_unavailable", "Moderation emails wait for the next cycle.")
+    : ok(true);
+}
+
 /** Whether the cycle still has room for an expiry notice. */
 export function checkNoticeCapacity(sentThisCycle: number): Result<true> {
   return sentThisCycle >= NOTICE_EMAILS_PER_CYCLE

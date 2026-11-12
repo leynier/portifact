@@ -106,12 +106,16 @@ const messages = {
   unknownScope: (name: string) => `Die Berechtigung „${name}“ verwenden`,
   languageLabel: "Sprache",
   report: {
-    artifactRequired: "Gib die Adresse oder die ID des Artifacts ein.",
+    artifactRequired: "Geben Sie die genaue Adresse oder die ID des Artifacts ein.",
     artifactInvalid:
       "Gib eine Adresse wie https://abcdefghij.portifact.dev/ oder eine 10-stellige ID ein.",
     reasonRequired: "Wähle aus, was mit dem Artifact nicht stimmt.",
     detailsInvalid: "Entferne Steuerzeichen oder kürze die Details.",
     emailInvalid: "Gib eine gültige E-Mail-Adresse ein oder lass das Feld leer.",
+    nameInvalid:
+      "Geben Sie Ihren Namen in einer Zeile mit höchstens 200 Zeichen ein oder lassen Sie das Feld leer.",
+    confirmRequired:
+      "Bestätigen Sie, dass die Angaben richtig und vollständig sind und Sie sie in gutem Glauben senden.",
     rateLimited:
       "Zu viele Meldungen von hier. Versuch es später noch einmal oder schreib an abuse@portifact.com.",
     network: "Portifact war nicht erreichbar. Prüfe deine Verbindung und versuch es noch einmal.",
@@ -245,7 +249,6 @@ export const de: AuthCatalog = {
     "report.heading": "Artifact melden",
     "report.intro":
       'Informiere uns über Inhalte, die gegen die <a href="https://portifact.com/acceptable-use">Richtlinie zur zulässigen Nutzung</a> verstoßen. Du brauchst kein Konto. Wir bemühen uns, innerhalb von 48 Stunden zu antworten.',
-    "report.artifactLabel": "Adresse oder ID des Artifacts",
     "report.reasonLabel": "Was stimmt nicht",
     "report.reason.none": "Grund auswählen",
     "report.reason.phishing": "Phishing oder eine gefälschte Anmeldeseite",
@@ -258,13 +261,22 @@ export const de: AuthCatalog = {
     "report.reason.private_information": "Private Informationen über eine Person",
     "report.reason.spam": "Spam",
     "report.reason.other": "Etwas anderes, das gegen die Regeln verstößt",
-    "report.detailsLabel": 'Details <span class="font-normal text-text-muted">(optional)</span>',
-    "report.detailsHint":
-      "Was du gesehen hast und wo. Füge kein illegales Material ein; die Adresse reicht. Bis zu 2.000 Zeichen.",
     "report.emailLabel":
       'Deine E-Mail-Adresse <span class="font-normal text-text-muted">(optional)</span>',
+    "report.artifactLabel": "Genaue Adresse des Inhalts",
+    "report.artifactHint":
+      "Der vollständige Link, einschließlich der Seite im Artifact, etwa https://abcdefghij.portifact.dev/page.html. Die 10-stellige ID des Artifacts geht auch.",
+    "report.detailsLabel":
+      'Warum es rechtswidrig ist oder gegen die Regeln verstößt <span class="font-normal text-text-muted">(optional)</span>',
+    "report.detailsHint":
+      "Erklären Sie, was Sie gesehen haben, wo und warum Sie es für rechtswidrig oder einen Verstoß gegen die Richtlinie zur zulässigen Nutzung halten. Fügen Sie kein rechtswidriges Material ein; die Adresse genügt. Bis zu 8.000 Zeichen.",
+    "report.nameLabel": 'Ihr Name <span class="font-normal text-text-muted">(optional)</span>',
+    "report.nameHint":
+      "Eine vollständige Meldung rechtswidriger Inhalte enthält Ihren Namen. Wir speichern ihn mit der Meldung.",
     "report.emailHint":
-      'Nur, wenn wir dir antworten können sollen. Siehe die <a href="https://portifact.com/privacy">Datenschutzerklärung</a>.',
+      'Wir nutzen sie, um Ihnen unsere Entscheidung mitzuteilen und zu antworten. Siehe die <a href="https://portifact.com/privacy">Datenschutzerklärung</a>.',
+    "report.confirmLabel":
+      "Ich bestätige, dass die Angaben in dieser Meldung nach bestem Wissen richtig und vollständig sind und dass ich sie in gutem Glauben sende",
     "report.send": "Meldung senden",
     "report.doneHeading": "Danke, wir haben deine Meldung erhalten",
     "report.doneBody":

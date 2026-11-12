@@ -37,8 +37,9 @@
 
           <form id="report-form" class="mt-6 space-y-6" novalidate>
             <div>
-              <label for="artifact" class="block text-sm font-medium" data-i18n="report.artifactLabel">Artifact address or ID</label>
-              <input id="artifact" name="artifact" type="text" autocomplete="off" spellcheck="false" required maxlength="300" class="mt-2 h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-base aria-invalid:border-2 aria-invalid:border-text font-mono" />
+              <label for="artifact" class="block text-sm font-medium" data-i18n="report.artifactLabel">Exact address of the content</label>
+              <p id="artifact-hint" class="mt-1 text-sm break-words text-text-muted" data-i18n="report.artifactHint">The full link, including the page within the artifact, like https://abcdefghij.portifact.dev/page.html. The artifact's 10-character ID also works.</p>
+              <input id="artifact" name="artifact" type="text" autocomplete="off" spellcheck="false" required maxlength="2048" aria-describedby="artifact-hint" class="mt-2 h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-base aria-invalid:border-2 aria-invalid:border-text font-mono" />
               <p id="artifact-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
             </div>
             <div>
@@ -59,16 +60,29 @@
               <p id="reason-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
             </div>
             <div>
-              <label for="details" class="block text-sm font-medium" data-i18n="report.detailsLabel">Details <span class="font-normal text-text-muted">(optional)</span></label>
-              <p id="details-hint" class="mt-1 text-sm text-text-muted" data-i18n="report.detailsHint">What you saw and where. Do not paste illegal material; the address is enough. Up to 2,000 characters.</p>
-              <textarea id="details" name="details" rows="5" maxlength="2000" aria-describedby="details-hint" class="mt-2 w-full rounded-md border border-border-strong bg-canvas px-3 py-2 text-base aria-invalid:border-2 aria-invalid:border-text"></textarea>
+              <label for="details" class="block text-sm font-medium" data-i18n="report.detailsLabel">Why it is illegal or breaks the rules <span class="font-normal text-text-muted">(optional)</span></label>
+              <p id="details-hint" class="mt-1 text-sm text-text-muted" data-i18n="report.detailsHint">Explain what you saw, where, and why you believe it is illegal or breaks the Acceptable Use Policy. Do not paste illegal material; the address is enough. Up to 8,000 characters.</p>
+              <textarea id="details" name="details" rows="8" maxlength="8000" aria-describedby="details-hint" class="mt-2 w-full rounded-md border border-border-strong bg-canvas px-3 py-2 text-base aria-invalid:border-2 aria-invalid:border-text"></textarea>
               <p id="details-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
+            </div>
+            <div id="name-field">
+              <label for="name" class="block text-sm font-medium" data-i18n="report.nameLabel">Your name <span class="font-normal text-text-muted">(optional)</span></label>
+              <p id="name-hint" class="mt-1 text-sm text-text-muted" data-i18n="report.nameHint">A full notice of illegal content includes your name. We keep it with the report.</p>
+              <input id="name" name="name" type="text" autocomplete="name" maxlength="200" aria-describedby="name-hint" class="mt-2 h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-base aria-invalid:border-2 aria-invalid:border-text" />
+              <p id="name-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
             </div>
             <div>
               <label for="email" class="block text-sm font-medium" data-i18n="report.emailLabel">Your email <span class="font-normal text-text-muted">(optional)</span></label>
-              <p id="email-hint" class="mt-1 text-sm text-text-muted" data-i18n="report.emailHint">Only if you want us to be able to reply. See the <a href="https://portifact.com/privacy">Privacy Policy</a>.</p>
+              <p id="email-hint" class="mt-1 text-sm text-text-muted" data-i18n="report.emailHint">We use it to tell you what we decided and to reply. See the <a href="https://portifact.com/privacy">Privacy Policy</a>.</p>
               <input id="email" name="email" type="email" autocomplete="email" maxlength="254" aria-describedby="email-hint" class="mt-2 h-11 w-full rounded-md border border-border-strong bg-canvas px-3 text-base aria-invalid:border-2 aria-invalid:border-text" />
               <p id="email-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
+            </div>
+            <div>
+              <div class="flex items-start gap-3">
+                <input id="confirmed" name="confirmed" type="checkbox" required class="mt-0.5 size-5 shrink-0 accent-text" />
+                <label for="confirmed" class="text-sm" data-i18n="report.confirmLabel">I confirm that, to the best of my knowledge, the information in this report is accurate and complete, and that I send it in good faith</label>
+              </div>
+              <p id="confirmed-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
             </div>
             <button id="send" type="submit" class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="report.send">Send report</button>
           </form>

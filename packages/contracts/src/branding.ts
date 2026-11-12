@@ -3,6 +3,7 @@
 // design system derives its tokens from, an `https` link and an uploaded raster logo checked by
 // its bytes. The rules are in packages/domain/src/branding.ts.
 import { z } from "zod";
+import { AbuseReason, SuspensionStatement } from "./moderation-core.ts";
 import { PlanName } from "./plans.ts";
 
 export const BRAND_LIMITS = {
@@ -69,6 +70,9 @@ export const BrandSettings = z.strictObject({
   available: z.boolean(),
   lowestPlan: PlanName,
   suspended: z.boolean(),
+  /** While suspended, the category, and the statement of reasons unless it was withheld. */
+  reason: AbuseReason.nullable().optional(),
+  statement: SuspensionStatement.nullable().optional(),
   brand: Brand.nullable(),
 });
 export type BrandSettings = z.infer<typeof BrandSettings>;

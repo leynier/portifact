@@ -16,6 +16,7 @@ import {
 } from "../src/annotations.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { createShareLink, openShareLink, redeemShareHandoff } from "../src/share-links.ts";
+import { idempotentThreadWrite } from "../src/thread-idempotency.ts";
 import { createWorkspace } from "../src/workspaces.ts";
 import { db, NOW, publishSite, sha256, user } from "./fixtures.ts";
 import { recording } from "./recording.ts";
@@ -338,5 +339,45 @@ describe("D1 calls on the write paths, a region with its own database", () => {
       if (!result.ok) throw new Error(result.message);
     }, env.DB_EU);
     expect(access).toBe(DEVELOP.accessWorkspace);
+  });
+});
+
+describe("D1 calls of a keyed comment, one region", () => {
+  it("are the post's own plus the key's record, and a retry rereads the thread as the caller", async () => {
+    const owner = await user("Owner");
+    const reader = await user("Reader");
+    const { artifactId, versionId } = await publishSite(owner.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ annotations: "open" })
+      .where(eq(schema.artifacts.id, artifactId));
+    await db().insert(schema.artifactReaders).values({ artifactId, email: reader.email });
+    const request = {
+      actorId: reader.id,
+      key: crypto.randomUUID(),
+      operation: "annotations.thread.create",
+      requestHash: "h",
+      now: NOW,
+    };
+    const post = (d: RegionalDb) =>
+      idempotentThreadWrite(d, request, { userId: reader.id, artifactId, now: NOW }, () =>
+        createAnnotationThread(d, {
+          humanCheck: HUMAN,
+          userId: reader.id,
+          artifactId,
+          versionId,
+          target: DOC,
+          body: "A comment",
+          now: NOW,
+        }),
+      );
+    // The first post: the comment's own calls (`comment` above) and the record's three (free a
+    // stale key, claim, store the thread's ID); nothing is read for the answer. The retry: the
+    // record's three (free, claim refused, read the record) and the six of reading the thread
+    // again as the caller, its authorization and scope included (`getAnnotationThread`).
+    expect({ first: await counted(post), retry: await counted(post) }).toEqual({
+      first: DEVELOP.comment + 3,
+      retry: 9,
+    });
   });
 });

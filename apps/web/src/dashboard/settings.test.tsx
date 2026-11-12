@@ -89,6 +89,30 @@ describe("settings page", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  it("tells a suspended account why, with the statement of reasons, and says nothing otherwise", async () => {
+    renderDashboard("/settings", server);
+    await screen.findByRole("region", { name: "Email notices" });
+    expect(screen.queryByText("Your account is suspended")).toBeNull();
+    cleanup();
+    server.accountSuspension = {
+      suspended: true,
+      reason: "spam",
+      statement: {
+        facts: "Hundreds of pages of advertising.",
+        ground: "Acceptable Use Policy: spam.",
+        source: "review",
+        decidedAt: "2026-11-08T12:00:00.000Z",
+      },
+    };
+    const { container } = renderDashboard("/settings", server);
+    expect(await screen.findByText("Your account is suspended")).toBeTruthy();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("Reason: spam.");
+    expect(alert.textContent).toContain("Hundreds of pages of advertising.");
+    expect(alert.textContent).toContain("after our own review");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
   it("shows the saved defaults and says they apply only to new artifacts", async () => {
     server.settings = { ...BUILT_IN, defaultAnnotations: "open", defaultBar: false };
     renderDashboard("/settings", server);

@@ -30,8 +30,10 @@ import { deleteOwnerAuditStreams, exportAuditStreams } from "./audit-streams.ts"
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
+import { eraseAccountTraces, markAccountGone } from "./history-retention.ts";
 import { deleteOwnerConnections, exportIntegrations } from "./integrations.ts";
 import { listIncomingInvitations } from "./invitations.ts";
+import { notHeldSql } from "./legal-holds.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
@@ -73,17 +75,21 @@ export async function exportAccount(
   db: RegionalDb,
   input: { userId: string; now: number },
 ): Promise<Result<AccountExport>> {
-  const [user] = await db.global
-    .select()
-    .from(schema.users)
-    .where(eq(schema.users.id, input.userId))
-    .limit(1);
+  // The account, its sign-in methods and its history of accepted terms, in one round trip.
+  const [[user], methods, acceptances] = await db.global.batch([
+    db.global.select().from(schema.users).where(eq(schema.users.id, input.userId)).limit(1),
+    db.global
+      .select({ provider: schema.accounts.providerId, createdAt: schema.accounts.createdAt })
+      .from(schema.accounts)
+      .where(eq(schema.accounts.userId, input.userId))
+      .orderBy(asc(schema.accounts.createdAt)),
+    db.global
+      .select()
+      .from(schema.termsAcceptances)
+      .where(eq(schema.termsAcceptances.userId, input.userId))
+      .orderBy(asc(schema.termsAcceptances.acceptedAt), asc(schema.termsAcceptances.version)),
+  ]);
   if (!user) return fail("unauthenticated", "Sign in to export your data.");
-  const methods = await db.global
-    .select({ provider: schema.accounts.providerId, createdAt: schema.accounts.createdAt })
-    .from(schema.accounts)
-    .where(eq(schema.accounts.userId, input.userId))
-    .orderBy(asc(schema.accounts.createdAt));
 
   const artifacts = await db
     .select()
@@ -132,7 +138,13 @@ export async function exportAccount(
       ...(await db
         .select()
         .from(schema.annotationThreads)
-        .where(inArray(schema.annotationThreads.artifactId, ids))
+        // A held artifact's comments are read by nobody but the operator (legal-holds.ts).
+        .where(
+          and(
+            inArray(schema.annotationThreads.artifactId, ids),
+            notHeldSql(sql`${schema.annotationThreads.artifactId}`),
+          ),
+        )
         .orderBy(asc(schema.annotationThreads.createdAt))),
     );
   }
@@ -230,6 +242,11 @@ export async function exportAccount(
       createdAt: user.createdAt.toISOString(),
       termsVersion: user.termsVersion,
       termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
+      termsAcceptances: acceptances.map((row) => ({
+        version: row.version,
+        acceptedAt: iso(row.acceptedAt),
+        action: row.action,
+      })),
       signInMethods: methods.map((method) => ({
         provider: method.provider,
         connectedAt: method.createdAt.toISOString(),
@@ -554,7 +571,7 @@ async function deletionBatch(
       .onConflictDoNothing(),
     db
       .update(schema.abuseReports)
-      .set({ reporterEmail: null })
+      .set({ reporterEmail: null, reporterEmailKey: null, reporterName: null })
       .where(sql`lower(${schema.abuseReports.reporterEmail}) = ${email}`),
     db.delete(schema.deviceCodes).where(eq(schema.deviceCodes.userId, input.userId)),
     // A workspace's service tokens stay with it (decision 0011); who created them goes.
@@ -643,14 +660,17 @@ function regionalDeletion(
 }
 
 /**
- * Moves every artifact of the account that is still around to `purging`, with a purge job for
- * each written first on the same old state.
+ * Moves every artifact of the owner that is still around to `purging`, with a purge job for
+ * each written first on the same old state, except those under a legal hold: they stay
+ * suspended, and the deletion stays pending until their holds are released.
  */
 export function claimArtifacts(db: Db, ownerId: string, now: number) {
   const a = schema.artifacts;
+  // An artifact under a legal hold is left out; the deletion waits for its release.
   const claimable = and(
     eq(a.ownerId, ownerId),
     inArray(a.state, ["draft", "active", "archived", "suspended"]),
+    notHeldSql(),
   ) as SQL;
   return [
     purgeJobs(db, claimable, now),
@@ -674,7 +694,14 @@ async function threadsToErase(db: Db, userId: string, limit: number): Promise<st
   const m = schema.annotationMessages;
   const rows = await db.all<{ thread_id: string }>(sql`
     select distinct mine.thread_id from ${m} as mine
-    where mine.author_id = ${userId} and mine.owner_id <> ${userId} and (
+    where mine.author_id = ${userId} and mine.owner_id <> ${userId}
+    -- Words on a held artifact stay until the hold is released (legal-holds.ts).
+    and not exists (
+      select 1 from "annotation_threads" as held_thread
+      join "legal_holds" as hold on hold.artifact_id = held_thread.artifact_id
+      where held_thread.id = mine.thread_id and hold.released_at is null
+    )
+    and (
       mine.state <> 'deleted' or not exists (
         select 1 from ${m} as reply
         where reply.thread_id = mine.thread_id and reply.author_id <> ${userId}
@@ -696,15 +723,20 @@ export async function processAccountDeletions(
   limit = 5,
   threadsPerAccount = 25,
 ): Promise<{ processed: number; finished: number }> {
+  const d = schema.accountDeletions;
+  // The least recently tried first: a deletion that waits (a legal hold) never stops the others.
   const pending = await regions.global
-    .select({ userId: schema.accountDeletions.userId })
-    .from(schema.accountDeletions)
-    .orderBy(asc(schema.accountDeletions.requestedAt))
+    .select({ userId: d.userId })
+    .from(d)
+    .orderBy(asc(sql`coalesce(${d.attemptedAt}, ${d.requestedAt})`), asc(d.userId))
     .limit(limit);
   let finished = 0;
   for (const deletion of pending) {
     const state = await advanceAccountDeletion(regions, deletion.userId, now, threadsPerAccount);
     if (state === "finished") finished += 1;
+    else if (state === "pending") {
+      await regions.global.update(d).set({ attemptedAt: now }).where(eq(d.userId, deletion.userId));
+    }
   }
   return { processed: pending.length, finished };
 }
@@ -747,6 +779,8 @@ export async function advanceAccountDeletion(
       await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
     }
     if (threads.length > 0) pending = true;
+    // Once its comments are erased, what stays with other people's artifacts forgets the account.
+    else if ((await eraseAccountTraces(db, userId)).more) pending = true;
     const [left] = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.artifacts)
@@ -784,6 +818,8 @@ export async function advanceAccountDeletion(
         .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),
       // The audit log goes with its owner (the global copy, the plan's events, above).
       eraseOwnerAuditEvents(db, userId, nothingLeft),
+      // Its suspensions start their retention now (`pruneGoneHistory`).
+      markAccountGone(db, userId, nothingLeft, now),
       db
         .delete(schema.accountUsage)
         .where(

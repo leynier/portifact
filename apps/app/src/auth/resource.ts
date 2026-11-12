@@ -1,4 +1,5 @@
 import type { TokenPrincipal } from "@portifact/contracts";
+import { needsTermsAcceptance } from "@portifact/domain";
 import { bearerToken } from "./introspection.ts";
 
 export interface ProtectedResource {
@@ -13,7 +14,8 @@ export interface ProtectedResource {
 }
 
 export type ResourceDecision =
-  | { ok: true; principal: TokenPrincipal }
+  /** `termsAccepted`: the token's account accepted the current terms (docs/legal.md). */
+  | { ok: true; principal: TokenPrincipal; termsAccepted: boolean }
   | { ok: false; response: Response };
 
 /** RFC 7662 shaped result of validating an access token. */
@@ -27,6 +29,8 @@ export interface IntrospectionPayload {
   portifact_auth_time?: number;
   /** How that sign-in happened (decision 0021, "SSO required"), from the token row. */
   portifact_sign_in_method?: string;
+  /** The terms version the token's account accepted (`TERMS_VERSION_CLAIM`), absent if none. */
+  portifact_terms_version?: string;
 }
 
 export type Introspect = (token: string) => Promise<IntrospectionPayload>;
@@ -73,7 +77,11 @@ export async function authorizeResourceRequest(
   if (missing.length > 0) {
     return deny(403, resource, { error: "insufficient_scope", scope: requiredScopes });
   }
-  return { ok: true, principal };
+  return {
+    ok: true,
+    principal,
+    termsAccepted: !needsTermsAcceptance(payload.portifact_terms_version),
+  };
 }
 
 // Only active tokens issued to a user through a client are accepted.

@@ -220,6 +220,15 @@ export const en = {
   "detail.suspended.title": "Suspended for a possible Acceptable Use Policy violation",
   "detail.suspended.body":
     "Portifact suspended this artifact after a review. It is not served to anyone and cannot be changed or published to. Reason: {reason}. If you think this is a mistake, write to abuse@portifact.com with the artifact's address.",
+  "detail.suspended.facts": "The facts we relied on",
+  "detail.suspended.ground": "The ground (the law or the rule of our terms) and why it applies",
+  "detail.suspended.notice":
+    "Decided on {date} after a notice we received. A person took this decision.",
+  "detail.suspended.review": "Decided on {date} after our own review. A person took this decision.",
+  "settings.suspended.title": "Your account is suspended",
+  "settings.suspended.body":
+    "Portifact suspended your account. It cannot publish, and its artifacts are suspended with it. You can still sign in, export your data and delete your account. Reason: {reason}. To ask for a review, write to abuse@portifact.com.",
+  "branding.suspendedReason": "Reason: {reason}.",
   "reason.phishing": "phishing or a fake sign-in page",
   "reason.malware": "malware, exploits or cryptocurrency mining",
   "reason.sexual_content": "sexually explicit content",
@@ -459,9 +468,9 @@ export const en = {
     "Download everything your account holds as JSON: your profile, artifacts with their access, versions and file lists, and comments. Each version lists a link that downloads its files.",
   "account.data.download": "Download your account's data (JSON)",
   "account.data.spacePersonal":
-    "To take out what your personal space holds (each artifact's retained versions and sources, the access logs and the audit log), use the space's download page.",
+    "To take out what your personal space holds (each artifact's retained versions and sources, the access logs, each artifact's records, the space's records and the audit log), use the space's download page.",
   "account.data.spaceWorkspace":
-    "To take out what the workspace {workspace} holds (each artifact's retained versions and sources, the access logs and the audit log), use the space's download page.",
+    "To take out what the workspace {workspace} holds (each artifact's retained versions and sources, the access logs, each artifact's records, the space's records and the audit log), use the space's download page.",
   "account.data.spaceLink": "Download this space's data",
   "account.delete.title": "Delete account",
   "account.delete.hint":
@@ -1608,7 +1617,7 @@ export const en = {
     "Download what you need before then: each artifact's history has its versions, and the access log and audit log have their exports. Or ask for the plan again to keep everything.",
   "data.title": "Download your data",
   "data.description":
-    "Everything this space holds that you can take out: each artifact's retained versions and their sources, access logs, the audit log and, for your personal space, your account's data. Files come straight from storage; nothing is bundled on the server.",
+    "Everything this space holds that you can take out: each artifact's retained versions and their sources, access logs and records (settings, access rules, share links, reviews, analytics and comments), the space's records, the audit log and, for your personal space, your account's data. Files come straight from storage; nothing is bundled on the server.",
   "data.adminsOnly": "Downloading all of {workspace}'s data is for its admins.",
   "data.grace.title": "What goes and when",
   "data.grace.hint":
@@ -1641,14 +1650,27 @@ export const en = {
   "data.versions.size": "Size",
   "data.accessLog.csv": "Access log as CSV",
   "data.accessLog.json": "Access log as JSON",
+  "data.accessLog.csvLabel": "Access log as CSV of {name}",
+  "data.accessLog.jsonLabel": "Access log as JSON of {name}",
   "data.accessLog.saved": "The access log is ready.",
+  "data.records.button": "Records (JSON)",
+  "data.records.label": "Records (JSON) of {name}",
+  "data.records.saved": "The records are ready.",
+  "data.records.later":
+    "Some parts are missing because the server asked to wait. Download again in a few minutes.",
+  "data.records.failed": "The records could not be downloaded.",
+  "data.space.title": "Space records",
+  "data.space.hint":
+    "The space's settings, without secrets: for a workspace, its members and roles, groups and their members, invitations, email domains, policies, single sign-on and service tokens; for every space, branding, webhooks, integrations and audit streams.",
+  "data.space.download": "Download the space's records (JSON)",
+  "data.space.logo": "Download the brand logo",
   "data.logs.title": "Logs and account",
   "data.logs.hint":
     "The space's audit log has its own export, and your personal space comes with your account's data.",
   "data.logs.audit": "Export the audit log from the Audit log page",
   "data.logs.account": "Download your account's data (JSON)",
   "data.logs.cli":
-    "To take out everything at once, run portifact export <folder> in a terminal: it fetches every retained version, resumes when interrupted and writes a manifest.",
+    "To take out everything at once, run portifact export <folder> in a terminal: it fetches every retained version and each artifact's records, resumes when interrupted and writes a manifest. Members, invitations and other settings only the dashboard reads are in the space's records above.",
   "shell.grace.title": "What the {plan} plan kept is held until {date}",
   "shell.grace.download": "Download your data",
   "shell.grace.request": "Ask for {plan} again",
@@ -2331,6 +2353,8 @@ export const en = {
   "policies.note.linksLifetime":
     "The workspace's policy limits share links to {days, plural, one {# day} other {# days}}.",
   "error.policy_refused": "A workspace policy does not allow this.",
+  "error.terms_not_accepted":
+    "Accept the current terms to continue. Reload the page to review them.",
   "audit.group.policies": "Policies",
   "audit.kind.policyChanged": "Changed the workspace's policies: {changes}",
   "audit.kind.policyEnforced": "Applied the workspace's policies: {changes}",

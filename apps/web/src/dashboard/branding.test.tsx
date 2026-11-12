@@ -167,6 +167,30 @@ describe("Branding page", () => {
     ).toBe(true);
   });
 
+  it("shows the category and the statement of reasons of a suspended brand, as written", async () => {
+    server.branding = {
+      available: true,
+      lowestPlan: "pro",
+      suspended: true,
+      reason: "impersonation",
+      statement: {
+        facts: "The logo copies <b>another</b> company's mark.",
+        ground: "Acceptable Use Policy: impersonation.",
+        source: "notice",
+        decidedAt: "2026-11-08T12:00:00.000Z",
+      },
+      brand: null,
+    };
+    const { container } = renderDashboard("/branding", server);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Reason: impersonation.");
+    expect(alert.textContent).toContain("The facts we relied on");
+    expect(alert.textContent).toContain("The logo copies <b>another</b> company's mark.");
+    expect(alert.querySelector("b")).toBeNull();
+    expect(alert.textContent).toContain("after a notice we received");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
   it("sends empty optional values as none", () => {
     expect(brandUpdate({ name: " Acme ", link: " ", accentColor: "" })).toEqual({
       name: "Acme",

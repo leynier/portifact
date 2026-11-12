@@ -106,6 +106,8 @@ describe("who manages a brand and which plan allows it", () => {
       available: false,
       lowestPlan: "pro",
       suspended: false,
+      reason: null,
+      statement: null,
       brand: null,
     });
 

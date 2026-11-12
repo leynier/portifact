@@ -21,7 +21,7 @@ import {
   policyDefaultAccess,
   type Result,
 } from "@portifact/domain";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 /** The stored defaults, or the built-in ones without a row. */
 export async function loadSettings(db: GlobalDb, userId: string): Promise<AccountSettings> {
@@ -82,24 +82,52 @@ export async function updateAccountSettings(
   if (!next.ok) return next;
   const values = { ...next.value, updatedAt: input.now };
   const s = schema.accountSettings;
-  await db
-    .insert(s)
-    .values({
-      userId: input.userId,
-      ...values,
-      // A new row only changes the notices from their default when it turns them off.
-      commentNoticesChangedAt: values.commentNotices ? null : input.now,
-    })
-    .onConflictDoUpdate({
-      target: s.userId,
-      set: {
+  await db.batch([
+    db
+      .insert(s)
+      .values({
+        userId: input.userId,
         ...values,
-        // Unsubscribe links issued before a change of the preference stop working
-        // (`unsubscribeUsable`), so an old link never undoes turning the notices back on.
-        commentNoticesChangedAt: sql`case when ${s.commentNotices} = ${values.commentNotices ? 1 : 0} then ${s.commentNoticesChangedAt} else ${input.now} end`,
-      },
-    });
+        // A new row only changes the notices from their default when it turns them off.
+        commentNoticesChangedAt: values.commentNotices ? null : input.now,
+      })
+      .onConflictDoUpdate({
+        target: s.userId,
+        set: {
+          ...values,
+          // Unsubscribe links issued before a change of the preference stop working
+          // (`unsubscribeUsable`), so an old link never undoes turning the notices back on.
+          commentNoticesChangedAt: sql`case when ${s.commentNotices} = ${values.commentNotices ? 1 : 0} then ${s.commentNoticesChangedAt} else ${input.now} end`,
+        },
+      }),
+    noticeOptOutMarker(db, input.userId, "comment_notices", values.commentNotices, input.now),
+    noticeOptOutMarker(db, input.userId, "expiry_notices", values.expiryNotices, input.now),
+  ]);
   return next;
+}
+
+/** The email preferences a person can turn off, as the suffix of their `notice_opt_out` tombstone. */
+export type NoticePreference = "comment_notices" | "expiry_notices";
+
+/**
+ * The `notice_opt_out` tombstone of an email preference (`<user>:<preference>`), in the batch
+ * that saves it, so a backup restore cannot turn back on notices the person turned off
+ * (docs/operations.md, "Restoring a backup"): written when it is off (keeping the time it was
+ * first turned off), deleted when it is on. Pruned after the backup window like the other
+ * restore markers (`pruneGroupTombstones`).
+ */
+export function noticeOptOutMarker(
+  db: GlobalDb,
+  userId: string,
+  preference: NoticePreference,
+  on: boolean,
+  now: number,
+) {
+  const t = schema.tombstones;
+  const id = `${userId}:${preference}`;
+  return on
+    ? db.delete(t).where(and(eq(t.kind, "notice_opt_out"), eq(t.id, id)))
+    : db.insert(t).values({ kind: "notice_opt_out", id, deletedAt: now }).onConflictDoNothing();
 }
 
 /**

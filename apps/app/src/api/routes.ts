@@ -76,6 +76,7 @@ import type { Presigner } from "./presign.ts";
 import { searchRoutes } from "./search.ts";
 import { shareLinkRoutes } from "./share-links.ts";
 import { statsRoutes } from "./stats.ts";
+import { apiTermsOperation } from "./terms-operations.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
 import { versionRoutes } from "./versions.ts";
@@ -125,6 +126,7 @@ export function apiRoutes(deps: ApiDeps) {
       },
       c.req.raw,
       scope,
+      apiTermsOperation(c.req.method, c.req.routePath),
     );
     return decision.ok ? handler(c, decision.userId) : decision.response;
   };
@@ -138,6 +140,7 @@ export function apiRoutes(deps: ApiDeps) {
         session: deps.session(c.env),
       },
       c.req.raw,
+      apiTermsOperation(c.req.method, c.req.routePath),
     );
     if (!decision.ok) return decision.response;
     c.header("Cache-Control", "no-store");

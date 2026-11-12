@@ -43,6 +43,20 @@ export {
 export { type Block, type EmailLayout, escapeHtml, type Inline, renderEmail } from "./layout.ts";
 export type { EmailContent } from "./message.ts";
 export {
+  MODERATION_NOTICE_TEXT,
+  type ModerationAction,
+  type ModerationNoticeInput,
+  type ModerationNoticeText,
+  type ModerationTarget,
+  moderationNoticeEmail,
+} from "./moderation-notice.ts";
+export {
+  REPORT_OUTCOME_TEXT,
+  type ReportOutcome,
+  type ReportOutcomeInput,
+  reportOutcomeEmail,
+} from "./report-outcome.ts";
+export {
   RETENTION_NOTICE_TEXT,
   type RetentionNoticeInput,
   retentionNoticeEmail,

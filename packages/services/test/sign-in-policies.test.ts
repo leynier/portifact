@@ -68,6 +68,7 @@ const session = (userId: string, hoursAgo = 1): Credential => ({
 });
 const cli = (userId: string, hoursAgo: number | null = 1): Credential => ({
   kind: "oauth",
+  termsAccepted: true,
   userId,
   clientId: CLI_CLIENT_ID,
   client: "cli",
@@ -76,6 +77,7 @@ const cli = (userId: string, hoursAgo: number | null = 1): Credential => ({
 });
 const app = (userId: string, hoursAgo = 1): Credential => ({
   kind: "oauth",
+  termsAccepted: true,
   userId,
   clientId: "dcr_client",
   client: "oauth_apps",

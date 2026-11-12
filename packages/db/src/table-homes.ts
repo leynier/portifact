@@ -24,6 +24,7 @@ export const TABLE_HOMES = {
   rate_limits: "global",
   // Accounts, workspaces and what hangs off them.
   account_settings: "global",
+  terms_acceptances: "global",
   account_deletions: "global",
   workspaces: "global",
   workspace_members: "global",
@@ -84,6 +85,10 @@ export const TABLE_HOMES = {
   storage_findings: "regional",
   lifecycle_events: "regional",
   suspensions: "regional",
+  moderation_decisions: "regional",
+  moderation_notice_sends: "regional",
+  legal_holds: "regional",
+  legal_hold_identities: "regional",
   annotation_threads: "regional",
   annotation_messages: "regional",
   annotation_events: "regional",

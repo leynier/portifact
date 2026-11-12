@@ -26,6 +26,7 @@ import {
   domainDbs,
   domainDepsFromEnv,
   type EmailDomainDeps,
+  heldArtifactIds,
   maintainAuditStreams,
   personalHandles,
   pruneAccessEvents,
@@ -52,7 +53,9 @@ import {
   domainNotifierFromEnv,
   expiryNotifierFromEnv,
   graceNotifierFromEnv,
+  moderationNotifierFromEnv,
   type NoticeEnv,
+  reportOutcomeNotifierFromEnv,
   retentionNotifierFromEnv,
   reviewNotifierFromEnv,
 } from "./notices.ts";
@@ -218,7 +221,8 @@ export async function runScheduled(
   for (const handles of regions.all()) {
     try {
       const access = handles.accessDb ?? createAccessDb(env.ACCESS_DB);
-      const pruned = await pruneAccessEvents(access, now);
+      // A legal hold keeps its artifact's rows past their expiry (legal-holds.ts).
+      const pruned = await pruneAccessEvents(access, now, 10, await heldArtifactIds(handles.db));
       if (prunedAccessEvents !== "failed") prunedAccessEvents += pruned;
     } catch (error) {
       prunedAccessEvents = "failed";
@@ -320,11 +324,13 @@ export async function runQueue(
     commentNotifier: commentNotifierFromEnv(env, region),
     reviewNotifier: reviewNotifierFromEnv(env, region),
     graceNotifier: graceNotifierFromEnv(env, region),
+    moderationNotifier: moderationNotifierFromEnv(env, region),
   });
   const domainNotifier = domainNotifierFromEnv(env);
   const directoryNotifier = directoryNotifierFromEnv(env);
   const retentionNotifier = retentionNotifierFromEnv(env);
   const commentRetentionNotifier = commentRetentionNotifierFromEnv(env);
+  const reportOutcomeNotifier = reportOutcomeNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
   const auditStreams = auditStreamDepsFromWebhooks(webhooks);
   const issues = await issueDepsFromEnv(env, fetcher);
@@ -350,6 +356,7 @@ export async function runQueue(
         directoryNotifier,
         retentionNotifier,
         commentRetentionNotifier,
+        reportOutcomeNotifier,
         regions,
       });
       if (outcome === "pending") {

@@ -380,4 +380,5 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   seats_exhausted: 409,
   plan_required: 403,
   policy_refused: 403,
+  terms_not_accepted: 403,
 };

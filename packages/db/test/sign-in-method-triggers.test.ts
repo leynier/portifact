@@ -93,12 +93,17 @@ const methodOf = async (table: string, id: string) =>
 
 describe("the sign-in method triggers on the token tables", () => {
   it("exist after every migration, beside the sign-in time triggers", async () => {
+    // Beside the restore marker triggers of migration 0071 (auth-restore-markers.test.ts).
     expect(await triggersOn("oauth_refresh_tokens")).toEqual([
       "oauth_refresh_tokens_auth_time",
+      "oauth_refresh_tokens_restore_marker_delete",
+      "oauth_refresh_tokens_restore_marker_revoke",
       "oauth_refresh_tokens_sign_in_method",
     ]);
     expect(await triggersOn("oauth_access_tokens")).toEqual([
       "oauth_access_tokens_auth_time",
+      "oauth_access_tokens_restore_marker_delete",
+      "oauth_access_tokens_restore_marker_revoke",
       "oauth_access_tokens_sign_in_method",
     ]);
   });

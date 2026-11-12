@@ -39,6 +39,7 @@ import {
   renderDelivery,
   requireFeature,
   utcDayStart,
+  webhookUpdateOnlyNarrows,
 } from "@portifact/domain";
 import { and, desc, eq, gte, inArray, lt, lte, ne, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -47,6 +48,7 @@ import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import { closeJobs, type JobOutcome } from "./outbox.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { actsWithoutCurrentTerms, narrowingOnly } from "./terms.ts";
 import { deliveryJobs, markWebhookTest, noFreshJob, WEBHOOK_FEATURE } from "./webhook-activity.ts";
 import {
   newWebhookSecret,
@@ -353,6 +355,10 @@ export async function updateWebhook(
 ): Promise<Result<WebhookRecord>> {
   const allowed = authorize(input.actor, "webhooks");
   if (!allowed.ok) return allowed;
+  // Without the current terms a person may turn a webhook off, never on or wider.
+  if (actsWithoutCurrentTerms(db.global) && !webhookUpdateOnlyNarrows(input.update)) {
+    return narrowingOnly();
+  }
   const row = await owned(db, input.actor, input.webhookId);
   if (!row) return missing();
   const enabled = input.update.enabled ?? row.disabledAt === null;

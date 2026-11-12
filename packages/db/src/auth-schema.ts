@@ -10,6 +10,7 @@
 // Array and JSON fields are plain text: Better Auth serializes them itself for SQLite, so a
 // Drizzle JSON column would encode them twice. Dates are integer milliseconds, like the rest of
 // the schema.
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const date = (name: string) => integer(name, { mode: "timestamp_ms" });
@@ -53,7 +54,11 @@ export const sessions = sqliteTable(
      */
     signInMethod: text("sign_in_method"),
   },
-  (t) => [index("sessions_user_id_idx").on(t.userId)],
+  (t) => [
+    index("sessions_user_id_idx").on(t.userId),
+    // The cleanup of expired sessions (`pruneAuthRecords`).
+    index("sessions_expires_at_idx").on(t.expiresAt),
+  ],
 );
 
 /**
@@ -93,7 +98,11 @@ export const verifications = sqliteTable(
     createdAt: date("created_at").notNull(),
     updatedAt: date("updated_at").notNull().$onUpdate(touchedAt),
   },
-  (t) => [index("verifications_identifier_idx").on(t.identifier)],
+  (t) => [
+    index("verifications_identifier_idx").on(t.identifier),
+    // The cleanup of expired records (`pruneAuthRecords`).
+    index("verifications_expires_at_idx").on(t.expiresAt),
+  ],
 );
 
 /** OAuth clients: the CLI (seeded) and MCP clients from dynamic registration. */
@@ -137,7 +146,11 @@ export const oauthClients = sqliteTable(
     referenceId: text("reference_id"),
     metadata: text("metadata"),
   },
-  (t) => [index("oauth_clients_user_id_idx").on(t.userId)],
+  (t) => [
+    index("oauth_clients_user_id_idx").on(t.userId),
+    // Registrations made without an account, oldest first, for their cleanup (`pruneAuthRecords`).
+    index("oauth_clients_unowned_created_idx").on(t.createdAt).where(sql`${t.userId} is null`),
+  ],
 );
 
 /** Protected resources (RFC 8707): the API and the MCP endpoint. */
@@ -216,6 +229,8 @@ export const oauthRefreshTokens = sqliteTable(
     index("oauth_refresh_tokens_client_id_idx").on(t.clientId),
     index("oauth_refresh_tokens_session_id_idx").on(t.sessionId),
     index("oauth_refresh_tokens_user_id_idx").on(t.userId),
+    // The cleanup of expired tokens (`pruneAuthRecords`).
+    index("oauth_refresh_tokens_expires_at_idx").on(t.expiresAt),
     index("oauth_refresh_tokens_authorization_code_id_idx").on(t.authorizationCodeId),
     // The sign-in method trigger's predecessor match (migration 0061, decision 0021): the token a
     // new one rotates, found without scanning the user's whole refresh history.
@@ -263,6 +278,8 @@ export const oauthAccessTokens = sqliteTable(
     index("oauth_access_tokens_client_id_idx").on(t.clientId),
     index("oauth_access_tokens_session_id_idx").on(t.sessionId),
     index("oauth_access_tokens_user_id_idx").on(t.userId),
+    // The cleanup of expired tokens (`pruneAuthRecords`).
+    index("oauth_access_tokens_expires_at_idx").on(t.expiresAt),
     index("oauth_access_tokens_authorization_code_id_idx").on(t.authorizationCodeId),
     index("oauth_access_tokens_refresh_id_idx").on(t.refreshId),
   ],
@@ -291,10 +308,15 @@ export const oauthConsents = sqliteTable(
 );
 
 /** Single-use client assertion IDs (private_key_jwt replay protection). */
-export const oauthClientAssertions = sqliteTable("oauth_client_assertions", {
-  id: text("id").primaryKey(),
-  expiresAt: date("expires_at").notNull(),
-});
+export const oauthClientAssertions = sqliteTable(
+  "oauth_client_assertions",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: date("expires_at").notNull(),
+  },
+  // The cleanup of expired records (`pruneAuthRecords`).
+  (t) => [index("oauth_client_assertions_expires_at_idx").on(t.expiresAt)],
+);
 
 /** Device authorization requests (RFC 8628) from the CLI. */
 export const deviceCodes = sqliteTable(
@@ -329,6 +351,8 @@ export const deviceCodes = sqliteTable(
   (t) => [
     uniqueIndex("device_codes_device_code_idx").on(t.deviceCode),
     uniqueIndex("device_codes_user_code_idx").on(t.userCode),
+    // The cleanup of expired records (`pruneAuthRecords`).
+    index("device_codes_expires_at_idx").on(t.expiresAt),
   ],
 );
 

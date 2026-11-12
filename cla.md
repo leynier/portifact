@@ -1,49 +1,105 @@
 # Portifact Individual Contributor License Agreement
 
-Version 1.0
+Version 2.0
 
-> **Draft pending legal review.** This agreement has not been reviewed by a lawyer. It is adapted from the Apache Software Foundation's Individual Contributor License Agreement, version 2.0, which many open source projects use as a model. It may change after review; a new version gets a new number and a new signature statement, and signatures of earlier versions keep applying to the contributions they covered.
+This agreement is adapted from the Apache Software Foundation's Individual Contributor License Agreement, version 2.0, and was prepared without legal counsel.
 
-Thank you for your interest in Portifact. To make clear the license granted with contributions to Portifact, the Maintainer must have a Contributor License Agreement from each person who contributes, indicating agreement to the terms below. This agreement protects you as a Contributor as well as the Maintainer and the users of Portifact. It does not change your rights to use your own Contributions for any other purpose. You keep the copyright of your Contributions: this agreement grants a license, it does not assign copyright.
+Each version of this agreement is identified by its number and by the SHA-256 digest of this file's text, and a signature applies only to the version and digest it names.
 
-You accept and agree to the following terms and conditions for your present and future Contributions submitted to the Maintainer. Except for the licenses granted here to the Maintainer and to recipients of software distributed by the Maintainer, you reserve all right, title and interest in and to your Contributions.
+Thank you for your interest in Portifact. This agreement sets the terms on which You license Your Contributions to the Maintainer. You keep the copyright of Your Contributions: this agreement grants licenses, it does not assign copyright. It does not limit Your right to use Your own Contributions for any other purpose. Except for the licenses granted in this agreement, You keep all right, title and interest in Your Contributions.
 
 ## 1 Definitions
 
-"Maintainer" means Leynier Gutiérrez González, the copyright holder and maintainer of Portifact, and their successors and assigns, including any company to which they transfer the Portifact project.
+"Maintainer" means Leynier Gutiérrez González, acting as an individual, and any successor or assignee that acquires the relevant Portifact business or project rights through a documented transfer. You consent to the assignment of the licenses and of this agreement with that transfer, subject to mandatory law. The transferee must assume the Maintainer's obligations under this agreement. Forming a company, or being affiliated with one, does not by itself make that company a transferee.
 
-"You" (or "Your") means the copyright owner or legal entity authorized by the copyright owner that is making this agreement with the Maintainer. For legal entities, the entity making a Contribution and all other entities that control, are controlled by or are under common control with that entity are considered a single Contributor. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
+"You" (or "Your") means the individual identified in the signature record. You grant only rights that You own or are specifically authorized to license on the terms of this agreement. Your signature does not bind an employer, client, university, affiliate or other rights holder unless that rights holder has separately executed a written authorization or grant covering those rights.
 
-"Contribution" means any original work of authorship, including any modifications or additions to an existing work, that is intentionally submitted by You to the Maintainer for inclusion in, or documentation of, Portifact (the "Work"). For the purposes of this definition, "submitted" means any form of electronic, verbal or written communication sent to the Maintainer or its representatives, including but not limited to pull requests, issues, comments and other communication on the source code repository at https://github.com/leynier/portifact or on any electronic mailing list or issue tracking system managed by or on behalf of the Maintainer for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by You as "Not a Contribution."
+"Work" means Portifact's software, tests, documentation, translations and project assets, as kept in the repository at https://github.com/leynier/portifact.
 
-## 2 Grant of copyright license
+"Contribution" means existing original material that You intentionally offer for inclusion in the Work and identify in a submission record in which You adopt this agreement. It excludes pre-existing project material, third-party material identified under section 9, content merely published through the Portifact service, and material designated "Not a Contribution" when it is submitted. Oral discussions and other communications are not Contributions until their relevant content is recorded and expressly confirmed by You through the procedure in section 13. A later "Not a Contribution" notice does not by itself revoke a grant already validly made. Reporting a bug or suggesting an idea does not require this agreement.
 
-Subject to the terms and conditions of this agreement, You hereby grant to the Maintainer and to recipients of software distributed by the Maintainer a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare derivative works of, publicly display, publicly perform, sublicense and distribute Your Contributions and such derivative works. This license includes the right for the Maintainer to license Your Contributions, as part of the Work or of derivative works of it, under the GNU Affero General Public License and under any other license terms, including commercial and proprietary terms.
+"Statement" means the text quoted in section 13, by which You adopt this agreement.
 
-## 3 Grant of patent license
+"Submission record" means a comment You post through Your own authenticated GitHub account on the pull request that carries Your Contributions: the comment carrying the statement, and any comment in which You identify earlier Contributions.
 
-Subject to the terms and conditions of this agreement, You hereby grant to the Maintainer and to recipients of software distributed by the Maintainer a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import and otherwise transfer the Work, where such license applies only to those patent claims licensable by You that are necessarily infringed by Your Contribution(s) alone or by combination of Your Contribution(s) with the Work to which such Contribution(s) was submitted. If any entity institutes patent litigation against You or any other entity (including a cross-claim or counterclaim in a lawsuit) alleging that Your Contribution, or the Work to which You have contributed, constitutes direct or contributory patent infringement, then any patent licenses granted to that entity under this agreement for that Contribution or Work shall terminate as of the date such litigation is filed.
+"Signature record" means the line in `cla-signers.md` that names Your GitHub login and numeric account ID, Your full legal name, the date, and the version and digest of the agreement You signed.
 
-## 4 Your right to grant the licenses
+## 2 What this agreement covers
 
-You represent that You are legally entitled to grant the above licenses. If Your employer(s) has rights to intellectual property that You create that includes Your Contributions, You represent that You have received permission to make Contributions on behalf of that employer, that Your employer has waived such rights for Your Contributions to the Maintainer, or that Your employer has executed a separate agreement with the Maintainer covering them.
+This agreement sets the terms on which You may license individual Contributions. Its grants attach to the existing Contributions identified in a submission record in which You expressly adopt this agreement. Earlier Contributions are included only when a submission record identifies them by pull request, commit, file or another sufficiently specific description. For those identified earlier Contributions, You also authorize the Maintainer's earlier exercise of the licensed rights, to the extent You have authority to do so. You are not required to create or submit future work. Each later submission identifies its own Contributions and adopts the agreement version that applies to that submission.
 
-## 5 Original works
+## 3 Grant of copyright license
 
-You represent that each of Your Contributions is Your original creation (see section 7 for submissions on behalf of others). You represent that Your Contribution submissions include complete details of any third-party license or other restriction (including, but not limited to, related patents and trademarks) of which You are personally aware and which are associated with any part of Your Contributions.
+You grant the Maintainer a worldwide, non-exclusive, royalty-free copyright license to reproduce, execute, modify, translate, prepare derivative works of, publicly display, publicly perform, communicate and make available to the public, and distribute each covered Contribution and its derivative works. The license lasts for the full duration of the applicable rights. It is irrevocable except where mandatory law provides otherwise. "Irrevocable" means that You cannot revoke it by contractual choice, except as this agreement states; it does not exclude termination or other rights that applicable law makes nonwaivable.
 
-## 6 No obligation to support
+The Maintainer may exercise these rights in source or executable form, through hosted services, and in electronic or printed documentation, separately or combined with other material. The Maintainer may license and sublicense these rights through multiple tiers under any terms, including the GNU Affero General Public License and commercial or proprietary terms, with or without charging recipients. Recipients receive copyright permissions under the license offered to them, not an additional direct copyright license under this agreement.
 
-You are not expected to provide support for Your Contributions, except to the extent You desire to provide support. You may provide support for free, for a fee, or not at all. Unless required by applicable law or agreed to in writing, You provide Your Contributions on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE.
+## 4 Grant of patent license
 
-## 7 Work that is not Your original creation
+You grant the Maintainer, its authorized sublicensees, and persons receiving or using the Work directly or indirectly through them a worldwide, non-exclusive, royalty-free patent license to make, have made, use, offer to sell, sell, import and otherwise transfer Your Contributions and the Work, including in modified versions. The license lasts for the duration of the licensed patent claims. It is irrevocable except as stated below or as mandatory law requires. The Maintainer may sublicense this patent license through multiple tiers under open source or proprietary terms.
 
-Should You wish to submit work that is not Your original creation, You may submit it to the Maintainer separately from any Contribution, identifying the complete details of its source and of any license or other restriction (including, but not limited to, related patents, trademarks and license agreements) of which You are personally aware, and conspicuously marking the work as "Submitted on behalf of a third party: [named here]".
+The license covers only patent claims that You now or later have authority to license and that are necessarily infringed by Your Contribution alone or by its combination with the Work to which it was submitted. Modified versions are covered only to the extent they practice those same licensed claims. This is not patent clearance, and it gives no protection against unrelated patents.
 
-## 8 Notice of changes
+If any entity institutes patent litigation against You or any other entity, including a cross-claim or counterclaim in a lawsuit, alleging that Your Contribution, or the Work to which You contributed, constitutes direct or contributory patent infringement, then the patent licenses granted to that entity under this agreement for that Contribution or Work terminate as of the date the litigation is filed. Termination under this section affects only the patent licenses granted under this agreement to the entity bringing that litigation. It does not terminate copyright licenses, the licenses of other persons, or rights granted independently under another license.
 
-You agree to notify the Maintainer of any facts or circumstances of which You become aware that would make these representations inaccurate in any respect.
+## 5 Moral rights
 
-## 9 How You sign
+For each covered Contribution, You consent to the editing, translation, adaptation, combination and publication that this agreement authorizes. To the extent applicable law permits, You waive and agree not to assert moral rights against those authorized acts by the Maintainer and its licensees. Where a waiver or a promise not to assert is not permitted, this section is consent only to the extent it is legally effective. It does not waive nonwaivable rights of attribution or integrity, authorize false attribution, or imply that You endorse a product or a person.
 
-You sign this agreement by adding a line with Your GitHub login, Your full name, the date and the signature statement to `cla-signers.md` in a pull request authored by You, as `contributing.md` describes. The line, the pull request and its Git history are the record of Your agreement.
+## 6 Proprietary use, remuneration and unknown uses
+
+The grants are intended to be voluntary and royalty-free, including for proprietary exploitation. They do not exclude remuneration, information, adjustment, revocation or other author rights that applicable law makes nonwaivable. The authorized exploitation includes the software, hosted service and documentation uses listed in section 3. Where mandatory law requires a separate agreement, a prescribed form, additional consent or remuneration for a type of exploitation that was unknown when You granted the license, that type is excluded until those requirements are met.
+
+## 7 Your authority and capacity
+
+You represent that You have the legal authority to grant the rights in this agreement for each Contribution. You represent that You are at least 18 years old and have legal capacity, under the law that applies to You, to enter this agreement. If You do not meet both requirements, do not sign through this procedure.
+
+Before a Contribution is accepted, You must identify any employer, client, university or other person that owns or controls rights in it. If another person owns or controls those rights, the Maintainer must receive that person's written grant or authorization, expressly covering this agreement's copyright and patent licenses, proprietary sublicensing and permitted transfers. General permission to take part in open source is not enough. Each legal entity granting rights must be identified by its legal name and signed for by an authorized representative. Affiliation alone does not bind another entity.
+
+## 8 Your Contributions
+
+Except for pre-existing project material and third-party material identified under section 9, You represent that the material You identify as Your Contribution was created by You and that You have authority to grant the rights in this agreement. You must identify co-authors. You must disclose third-party material and every associated license, confidentiality obligation, patent restriction and other restriction You are aware of. Do not represent material as Your original creation merely because You submitted it or obtained it from an automated tool.
+
+## 9 Third-party material
+
+Identify third-party material separately, by source, version, affected files or passages, rights holder and applicable license or permission. Your submission does not grant rights that third party owns. Before accepting that material, the Maintainer must establish independently a permission sufficient for each intended distribution, including proprietary distribution where it applies.
+
+## 10 No obligation to support, and no warranty
+
+You are not expected to support Your Contributions, except to the extent You wish to. You may provide support for free, for a fee, or not at all. Unless applicable law requires otherwise or You agree otherwise in writing, You provide Your Contributions "AS IS", WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, express or implied, including any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. This disclaimer does not negate Your express representations or notification duties under sections 7, 8, 9 and 11, and it does not exclude liability that applicable law does not allow to be excluded.
+
+## 11 Notice of inaccuracies
+
+You must promptly notify hello@portifact.com when You become aware of facts that make a representation in this agreement materially inaccurate, identifying the affected Contribution. The Maintainer may reject, remove or replace affected material and seek the remedies applicable law provides. Neither a representation nor a remedy creates rights that another person owns.
+
+## 12 The Maintainer's undertakings
+
+In exchange for Your grants and promises, the Maintainer agrees to evaluate each properly submitted Contribution for possible inclusion, to keep the applicable agreement text and Your assent record, and to give You a copy of that record on request. The Maintainer need not accept, use, maintain, distribute or support a Contribution. These undertakings are contractual promises, not conditions of the copyright license. Their breach does not terminate the licenses granted, except where mandatory law requires otherwise.
+
+## 13 How You sign and submit
+
+You sign by personally posting, through Your own authenticated GitHub account, a comment on the pull request that carries Your Contributions. The comment contains only the statement below, with `<digest>` replaced by the SHA-256 digest of this agreement's text, which `contributing.md` gives for this version:
+
+```text
+I have read and agree to the Portifact Individual Contributor License Agreement, version 2.0, identified by the SHA-256 digest <digest> of cla.md. I intend this comment to be my electronic signature. I grant its licenses for my contributions in this pull request and for any earlier contributions I identify in it, and I understand that they permit proprietary licensing without payment except where mandatory law requires otherwise. I have identified in this pull request any material in it that I did not create.
+```
+
+Each pull request needs its own statement, which covers Your Contributions in that pull request. If You opened the pull request, You control its branch, so Your statement covers the commits You author in it whenever You push them. Anyone else whose material is in the pull request, such as another commit author or a co-author, adds a second line naming, by its full SHA, the head commit they approve:
+
+```text
+Head commit: <full SHA of the head commit>
+```
+
+That statement counts only while that commit is the pull request's head; after a later push, it must be posted again. A statement counts only in a comment that was never edited. You may identify earlier Contributions to cover in a separate comment on the same pull request. The first time You sign, a Signature record for You is added to `cla-signers.md`.
+
+The Maintainer verifies the authenticated account that posted the comment and keeps its numeric GitHub account ID. A commit author field, an email associated with an account, a co-author trailer, or a Signature record entered by another person is not evidence of Your assent. Each contributor assents separately. The public `cla-signers.md` file is an index of recorded agreements, not independent proof that the named person signed.
+
+You and the Maintainer agree to transact electronically, and You intend the authenticated comment to be Your signature of this agreement. You must be able to keep a copy of it. The Maintainer keeps the exact agreement text and digest, Your statement, Your GitHub account ID and login at signing, the platform's timestamp, the covered Contributions, the acceptance record and any ownership authorization. Renaming or deleting Your account, or changing the public index, does not by itself revoke a valid grant. Where applicable law requires a different form of execution, that form must be completed before the affected grant is relied on.
+
+## 14 Versions and amendments
+
+Each version of this agreement is identified by its exact published text and its SHA-256 digest. A signature applies only to the version and digest named in its record. Changing a file, a branch of the repository or a linked page does not amend an agreement already signed. An amendment binds You only through Your express assent to the identified amended text.
+
+## 15 Governing law and severability
+
+This agreement is governed by applicable United States federal law and the law of the State of Florida, excluding its conflict of laws rules to the extent permitted. This choice does not take away laws or protections that apply whatever law the parties choose, including nonwaivable author, consumer and employee protections and the rights that the law of the place where You live gives You and that cannot be waived. No provision selects an exclusive court or requires arbitration. If a provision is unenforceable, the remaining provisions continue to the extent applicable law permits. An invalid provision is never treated as granting rights that the law does not allow to be granted.

@@ -12,7 +12,7 @@ import {
 import { Callout, PageHeader, SectionedPage, ThemeSwitcher } from "@portifact/ui";
 import { revalidateLogic, useAppForm } from "@portifact/ui/forms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Save } from "lucide-react";
+import { Ban, CircleAlert, Save } from "lucide-react";
 import { type Account, ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
@@ -22,6 +22,7 @@ import { errorMessage } from "./artifact-list.tsx";
 import { LanguageChoice, SETTINGS_QUERY } from "./language.tsx";
 import { MyWorkspaces } from "./my-workspaces.tsx";
 import { ACCOUNT_QUERY, themeLabels } from "./shell.tsx";
+import { SuspensionReasons } from "./suspension-reasons.tsx";
 
 export { SETTINGS_QUERY } from "./language.tsx";
 
@@ -62,6 +63,7 @@ export function SettingsScreen() {
   return (
     <>
       <PageHeader title={t("settings.title")} description={t("settings.description")} />
+      <AccountSuspension />
       <SectionedPage
         label={t("settings.sectionsNav")}
         title={t("sections.title")}
@@ -350,5 +352,25 @@ function NoticesForm({ saved }: { saved: Notices }) {
         </div>
       </form.Form>
     </form.AppForm>
+  );
+}
+
+/** The operator's suspension of the account, with its reasons; nothing when there is none. */
+function AccountSuspension() {
+  const t = useT();
+  const { api } = useDashboard();
+  const suspension = useQuery({
+    queryKey: ["account-suspension"],
+    queryFn: () => api.accountSuspension(),
+  });
+  const view = suspension.data;
+  if (!view?.suspended) return null;
+  return (
+    <div className="mb-8">
+      <Callout tone="error" title={t("settings.suspended.title")} icon={<Ban className="size-5" />}>
+        {t("settings.suspended.body", { reason: view.reason ? t(`reason.${view.reason}`) : "" })}
+        {view.statement ? <SuspensionReasons statement={view.statement} /> : null}
+      </Callout>
+    </div>
   );
 }

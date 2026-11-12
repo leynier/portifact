@@ -228,6 +228,17 @@ export const ptBR = {
   "detail.suspended.title": "Suspenso por uma possível violação da Política de Uso Aceitável",
   "detail.suspended.body":
     "O Portifact suspendeu este artifact após uma análise. Ele não é servido para ninguém e não pode ser alterado nem receber publicações. Motivo: {reason}. Se você acha que é um engano, escreva para abuse@portifact.com com o endereço do artifact.",
+  "detail.suspended.facts": "Os fatos em que nos baseamos",
+  "detail.suspended.ground":
+    "O fundamento (a lei ou a regra dos nossos termos) e por que ele se aplica",
+  "detail.suspended.notice":
+    "Decidido em {date} a partir de uma notificação que recebemos. Uma pessoa tomou esta decisão.",
+  "detail.suspended.review":
+    "Decidido em {date} depois da nossa própria análise. Uma pessoa tomou esta decisão.",
+  "settings.suspended.title": "Sua conta está suspensa",
+  "settings.suspended.body":
+    "O Portifact suspendeu sua conta. Ela não pode publicar, e seus artifacts ficam suspensos com ela. Você ainda pode entrar, exportar seus dados e excluir sua conta. Motivo: {reason}. Para pedir uma revisão, escreva para abuse@portifact.com.",
+  "branding.suspendedReason": "Motivo: {reason}.",
   "reason.phishing": "phishing ou uma página de login falsa",
   "reason.malware": "malware, exploits ou mineração de criptomoedas",
   "reason.sexual_content": "conteúdo sexualmente explícito",
@@ -468,9 +479,9 @@ export const ptBR = {
     "Baixe tudo o que sua conta guarda em JSON: seu perfil, os artifacts com o acesso, as versões e as listas de arquivos, e os comentários. Cada versão lista um link que baixa os arquivos dela.",
   "account.data.download": "Baixar os dados da sua conta (JSON)",
   "account.data.spacePersonal":
-    "Para levar o que seu espaço pessoal guarda (as versões mantidas e as fontes de cada artefato, os registros de acesso e o registro de auditoria), use a página de download do espaço.",
+    "Para levar o que seu espaço pessoal guarda (as versões mantidas e as fontes de cada artefato, os registros de acesso, os dados de cada artefato e do espaço e o registro de auditoria), use a página de download do espaço.",
   "account.data.spaceWorkspace":
-    "Para levar o que o espaço de trabalho {workspace} guarda (as versões mantidas e as fontes de cada artefato, os registros de acesso e o registro de auditoria), use a página de download do espaço.",
+    "Para levar o que o espaço de trabalho {workspace} guarda (as versões mantidas e as fontes de cada artefato, os registros de acesso, os dados de cada artefato e do espaço e o registro de auditoria), use a página de download do espaço.",
   "account.data.spaceLink": "Baixar os dados deste espaço",
   "account.delete.title": "Excluir conta",
   "account.delete.hint":
@@ -1640,7 +1651,7 @@ export const ptBR = {
     "Baixe o que precisar antes disso: o histórico de cada artefato tem as versões, e o registro de acessos e o registro de auditoria têm suas exportações. Ou peça o plano de novo para manter tudo.",
   "data.title": "Baixe seus dados",
   "data.description":
-    "Tudo o que este espaço guarda e você pode levar: as versões mantidas de cada artefato e suas fontes, os registros de acesso, o registro de auditoria e, no seu espaço pessoal, os dados da sua conta. Os arquivos vêm direto do armazenamento; nada é empacotado no servidor.",
+    "Tudo o que este espaço guarda e você pode levar: as versões mantidas de cada artefato e suas fontes, os registros de acesso e os dados de cada um (configurações, regras de acesso, links de compartilhamento, revisões, análises e comentários), os dados do espaço, o registro de auditoria e, para o seu espaço pessoal, os dados da sua conta. Os arquivos vêm direto do armazenamento; nada é empacotado no servidor.",
   "data.adminsOnly": "Baixar todos os dados de {workspace} cabe aos administradores.",
   "data.grace.title": "O que é apagado e quando",
   "data.grace.hint":
@@ -1673,14 +1684,27 @@ export const ptBR = {
   "data.versions.size": "Tamanho",
   "data.accessLog.csv": "Registro de acesso em CSV",
   "data.accessLog.json": "Registro de acesso em JSON",
+  "data.accessLog.csvLabel": "Registro de acesso em CSV de {name}",
+  "data.accessLog.jsonLabel": "Registro de acesso em JSON de {name}",
   "data.accessLog.saved": "O registro de acesso está pronto.",
+  "data.records.button": "Dados (JSON)",
+  "data.records.label": "Dados (JSON) de {name}",
+  "data.records.saved": "Os dados estão prontos.",
+  "data.records.later":
+    "Faltam algumas partes porque o servidor pediu para esperar. Baixe de novo em alguns minutos.",
+  "data.records.failed": "Não foi possível baixar os dados.",
+  "data.space.title": "Dados do espaço",
+  "data.space.hint":
+    "As configurações do espaço, sem segredos: para um workspace, seus membros e papéis, grupos e seus membros, convites, domínios de e-mail, políticas, login único e tokens de serviço; para qualquer espaço, a marca, os webhooks, as integrações e os fluxos de auditoria.",
+  "data.space.download": "Baixar os dados do espaço (JSON)",
+  "data.space.logo": "Baixar o logotipo da marca",
   "data.logs.title": "Registros e conta",
   "data.logs.hint":
     "O registro de auditoria do espaço tem sua própria exportação, e seu espaço pessoal inclui os dados da sua conta.",
   "data.logs.audit": "Exporte o registro de auditoria na página Registro de auditoria",
   "data.logs.account": "Baixe os dados da sua conta (JSON)",
   "data.logs.cli":
-    "Para levar tudo de uma vez, rode portifact export <pasta> em um terminal: ele baixa cada versão mantida, retoma se for interrompido e grava um manifesto.",
+    "Para levar tudo de uma vez, rode portifact export <pasta> em um terminal: ele baixa cada versão mantida e os dados de cada artefato, retoma se for interrompido e grava um manifesto. Membros, convites e outras configurações que só o painel lê estão nos dados do espaço acima.",
   "shell.grace.title": "O que o plano {plan} guardava fica até {date}",
   "shell.grace.download": "Baixe seus dados",
   "shell.grace.request": "Peça o {plan} de novo",
@@ -2377,6 +2401,8 @@ export const ptBR = {
   "policies.note.linksLifetime":
     "A política do espaço de trabalho limita os links a {days, plural, one {# dia} other {# dias}}.",
   "error.policy_refused": "Uma política do espaço de trabalho não permite isso.",
+  "error.terms_not_accepted":
+    "Aceite os termos atuais para continuar. Recarregue a página para revisá-los.",
   "audit.group.policies": "Políticas",
   "audit.kind.policyChanged": "Mudou as políticas do espaço de trabalho: {changes}",
   "audit.kind.policyEnforced": "Aplicou as políticas do espaço de trabalho: {changes}",

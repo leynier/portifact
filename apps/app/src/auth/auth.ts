@@ -23,7 +23,7 @@ import { humanHooks } from "./human.ts";
 import { inProcessIntrospection } from "./introspection.ts";
 import { sessionSignInMethod } from "./sign-in-method.ts";
 import { workspaceSso } from "./sso.ts";
-import { termsHooks } from "./terms.ts";
+import { termsHooks, termsVersionClaim } from "./terms.ts";
 
 /** Session cookies are `__Host-pf.<name>`: Secure, Path=/, no Domain (docs/security.md). */
 export const COOKIE_PREFIX = "__Host-pf";
@@ -76,6 +76,10 @@ export function createAuth(env: Env, deps: AuthDeps) {
     // A client may only request resources it is linked to (RFC 8707). Every new client is
     // linked to the MCP resource; the CLI client is linked to the API by migration 0003.
     clientRegistrationDefaultResources: [urls.mcpResource],
+    // The terms version the token's account accepted, from the user row the provider already
+    // reads to validate an opaque token, so the API and MCP gates refuse an account on an older
+    // version without a read of their own (docs/legal.md, "API and MCP clients").
+    customAccessTokenClaims: ({ user }) => termsVersionClaim(user),
   });
 
   return betterAuth({

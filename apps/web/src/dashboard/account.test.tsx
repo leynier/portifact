@@ -433,7 +433,7 @@ describe("your data", () => {
       const { container, router } = renderDashboard("/settings", server);
       const data = await region("Your data");
       expect(data.textContent).toContain(
-        "To take out what your personal space holds (each artifact's retained versions and sources, the access logs and the audit log), use the space's download page.",
+        "To take out what your personal space holds (each artifact's retained versions and sources, the access logs, each artifact's records, the space's records and the audit log), use the space's download page.",
       );
       const link = within(data).getByRole("link", { name: "Download this space's data" });
       expect(link.getAttribute("href")).toBe("/data");

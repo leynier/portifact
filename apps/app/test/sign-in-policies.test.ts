@@ -144,6 +144,7 @@ describe("the maximum session age through the app Worker", () => {
       refused(
         POLICY_MESSAGES.sessionAge(8, {
           kind: "oauth",
+          termsAccepted: true,
           userId: t.member.userId,
           clientId: CLI_CLIENT_ID,
           client: "cli",
@@ -158,6 +159,7 @@ describe("the maximum session age through the app Worker", () => {
       refused(
         POLICY_MESSAGES.sessionAge(8, {
           kind: "oauth",
+          termsAccepted: true,
           userId: t.member.userId,
           clientId: t.member.mcpClientId,
           client: "oauth_apps",
@@ -203,6 +205,7 @@ describe("the maximum session age through the app Worker", () => {
       refused(
         POLICY_MESSAGES.sessionAge(8, {
           kind: "oauth",
+          termsAccepted: true,
           userId: t.member.userId,
           clientId: CLI_CLIENT_ID,
           client: "cli",

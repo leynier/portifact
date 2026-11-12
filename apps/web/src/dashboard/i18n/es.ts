@@ -229,6 +229,17 @@ export const es = {
   "detail.suspended.title": "Suspendido por una posible infracción de la Política de uso aceptable",
   "detail.suspended.body":
     "Portifact suspendió este artifact después de una revisión. No se sirve a nadie y no se puede modificar ni recibir publicaciones. Motivo: {reason}. Si crees que es un error, escribe a abuse@portifact.com con la dirección del artifact.",
+  "detail.suspended.facts": "Los hechos en los que nos basamos",
+  "detail.suspended.ground":
+    "El fundamento (la ley o la regla de nuestros términos) y por qué se aplica",
+  "detail.suspended.notice":
+    "Decidido el {date} a partir de un aviso que recibimos. Una persona tomó esta decisión.",
+  "detail.suspended.review":
+    "Decidido el {date} después de nuestra propia revisión. Una persona tomó esta decisión.",
+  "settings.suspended.title": "Tu cuenta está suspendida",
+  "settings.suspended.body":
+    "Portifact suspendió tu cuenta. No puede publicar y sus artifacts quedan suspendidos con ella. Todavía puedes iniciar sesión, exportar tus datos y eliminar tu cuenta. Motivo: {reason}. Para pedir una revisión, escribe a abuse@portifact.com.",
+  "branding.suspendedReason": "Motivo: {reason}.",
   "reason.phishing": "phishing o una página de inicio de sesión falsa",
   "reason.malware": "malware, exploits o minería de criptomonedas",
   "reason.sexual_content": "contenido sexual explícito",
@@ -477,9 +488,9 @@ export const es = {
     "Descarga en JSON todo lo que contiene tu cuenta: tu perfil, los artifacts con su acceso, versiones y listas de archivos, y los comentarios. Cada versión incluye un enlace que descarga sus archivos.",
   "account.data.download": "Descargar los datos de tu cuenta (JSON)",
   "account.data.spacePersonal":
-    "Para llevarte lo que guarda tu espacio personal (las versiones conservadas y las fuentes de cada artefacto, los registros de accesos y el registro de auditoría), usa la página de descarga del espacio.",
+    "Para llevarte lo que guarda tu espacio personal (las versiones conservadas y las fuentes de cada artefacto, los registros de accesos, los datos de cada artefacto y del espacio y el registro de auditoría), usa la página de descarga del espacio.",
   "account.data.spaceWorkspace":
-    "Para llevarte lo que guarda el espacio de trabajo {workspace} (las versiones conservadas y las fuentes de cada artefacto, los registros de accesos y el registro de auditoría), usa la página de descarga del espacio.",
+    "Para llevarte lo que guarda el espacio de trabajo {workspace} (las versiones conservadas y las fuentes de cada artefacto, los registros de accesos, los datos de cada artefacto y del espacio y el registro de auditoría), usa la página de descarga del espacio.",
   "account.data.spaceLink": "Descargar los datos de este espacio",
   "account.delete.title": "Eliminar cuenta",
   "account.delete.hint":
@@ -1659,7 +1670,7 @@ export const es = {
     "Descarga lo que necesites antes: el historial de cada artefacto tiene sus versiones, y el registro de accesos y el registro de auditoría tienen sus exportaciones. O pide el plan de nuevo para conservarlo todo.",
   "data.title": "Descarga tus datos",
   "data.description":
-    "Todo lo que este espacio guarda y puedes llevarte: las versiones conservadas de cada artefacto y sus fuentes, los registros de acceso, el registro de auditoría y, en tu espacio personal, los datos de tu cuenta. Los archivos llegan directamente del almacenamiento; nada se empaqueta en el servidor.",
+    "Todo lo que guarda este espacio y puedes llevarte: las versiones conservadas de cada artefacto y sus fuentes, los registros de acceso y los datos de cada uno (ajustes, reglas de acceso, enlaces compartidos, revisiones, analíticas y comentarios), los datos del espacio, el registro de auditoría y, para tu espacio personal, los datos de tu cuenta. Los archivos vienen directamente del almacenamiento; nada se empaqueta en el servidor.",
   "data.adminsOnly": "Descargar todos los datos de {workspace} es cosa de sus administradores.",
   "data.grace.title": "Qué se borra y cuándo",
   "data.grace.hint":
@@ -1692,14 +1703,27 @@ export const es = {
   "data.versions.size": "Tamaño",
   "data.accessLog.csv": "Registro de accesos en CSV",
   "data.accessLog.json": "Registro de accesos en JSON",
+  "data.accessLog.csvLabel": "Registro de accesos en CSV de {name}",
+  "data.accessLog.jsonLabel": "Registro de accesos en JSON de {name}",
   "data.accessLog.saved": "El registro de accesos está listo.",
+  "data.records.button": "Datos (JSON)",
+  "data.records.label": "Datos (JSON) de {name}",
+  "data.records.saved": "Los datos están listos.",
+  "data.records.later":
+    "Faltan algunas partes porque el servidor pidió esperar. Vuelve a descargarlos en unos minutos.",
+  "data.records.failed": "No se pudieron descargar los datos.",
+  "data.space.title": "Datos del espacio",
+  "data.space.hint":
+    "Los ajustes del espacio, sin secretos: para un espacio de trabajo, sus miembros y roles, grupos y sus miembros, invitaciones, dominios de correo, políticas, inicio de sesión único y tokens de servicio; para cualquier espacio, la marca, los webhooks, las integraciones y los flujos de auditoría.",
+  "data.space.download": "Descargar los datos del espacio (JSON)",
+  "data.space.logo": "Descargar el logotipo de la marca",
   "data.logs.title": "Registros y cuenta",
   "data.logs.hint":
     "El registro de auditoría del espacio tiene su propia exportación, y tu espacio personal incluye los datos de tu cuenta.",
   "data.logs.audit": "Exporta el registro de auditoría desde la página Registro de auditoría",
   "data.logs.account": "Descarga los datos de tu cuenta (JSON)",
   "data.logs.cli":
-    "Para llevártelo todo de una vez, ejecuta portifact export <carpeta> en una terminal: descarga cada versión conservada, retoma si se interrumpe y escribe un manifiesto.",
+    "Para llevártelo todo de una vez, ejecuta portifact export <carpeta> en una terminal: descarga cada versión conservada y los datos de cada artefacto, retoma si se interrumpe y escribe un manifiesto. Los miembros, las invitaciones y otros ajustes que solo lee el panel están en los datos del espacio de arriba.",
   "shell.grace.title": "Lo que guardaba el plan {plan} se conserva hasta el {date}",
   "shell.grace.download": "Descarga tus datos",
   "shell.grace.request": "Pide {plan} de nuevo",
@@ -2401,6 +2425,8 @@ export const es = {
   "policies.note.linksLifetime":
     "La política del espacio de trabajo limita los enlaces a {days, plural, one {# día} other {# días}}.",
   "error.policy_refused": "Una política del espacio de trabajo no lo permite.",
+  "error.terms_not_accepted":
+    "Acepta los términos vigentes para continuar. Recarga la página para revisarlos.",
   "audit.group.policies": "Políticas",
   "audit.kind.policyChanged": "Cambió las políticas del espacio de trabajo: {changes}",
   "audit.kind.policyEnforced": "Aplicó las políticas del espacio de trabajo: {changes}",

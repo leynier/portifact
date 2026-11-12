@@ -220,15 +220,18 @@ describe("tombstones after a restore", () => {
       artifactId: purged.artifactId,
       now: NOW,
     });
+    const leavingSession = await session(leaving.id);
     await requestAccountDeletion(regionsFromEnv(env), {
       userId: leaving.id,
-      sessionId: await session(leaving.id),
+      sessionId: leavingSession,
       confirmEmail: leaving.email,
       now: NOW,
     });
     await runMaintenance(db(), env.ARTIFACTS, NOW);
     await runMaintenance(db(), env.ARTIFACTS, NOW);
     const markers = await exportTombstones(regionsFromEnv(env));
+    // The account's live session ended with it (migration 0071's marker).
+    expect(markers.some((m) => m.kind === "session" && m.id === leavingSession)).toBe(true);
     expect(markers).toEqual(
       expect.arrayContaining([
         { kind: "artifact", id: purged.artifactId, deletedAt: NOW },
@@ -238,7 +241,7 @@ describe("tombstones after a restore", () => {
     expect(markers.some((marker) => marker.id === kept.artifactId)).toBe(false);
 
     // The restore brings everything back and loses the tombstones written since.
-    await restore(before, [purged.artifactId, leavingSite.artifactId, leaving.id]);
+    await restore(before, [purged.artifactId, leavingSite.artifactId, leaving.id, leavingSession]);
     expect((await artifactRow(purged.artifactId))?.state).toBe("active");
 
     const applied = await applyTombstones(db(), markers, NOW + DAY);
@@ -261,6 +264,12 @@ describe("tombstones after a restore", () => {
       invitations: 0,
       members: 0,
       commentThreads: 0,
+      commentMessages: 0,
+      noticeOptOuts: 0,
+      noticeMutes: 0,
+      sessions: expect.any(Number),
+      oauthTokens: 0,
+      oauthGrants: 0,
       directoryRoles: 0,
     });
     expect((await artifactRow(purged.artifactId))?.state).toBe("purging");
@@ -326,6 +335,12 @@ describe("tombstones after a restore", () => {
       invitations: 0,
       members: 0,
       commentThreads: 0,
+      commentMessages: 0,
+      noticeOptOuts: 0,
+      noticeMutes: 0,
+      sessions: expect.any(Number),
+      oauthTokens: 0,
+      oauthGrants: 0,
       directoryRoles: 0,
     });
     expect((await artifactRow(kept.artifactId))?.state).toBe("active");

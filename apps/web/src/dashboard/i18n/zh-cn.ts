@@ -214,6 +214,14 @@ export const zhCN = {
   "detail.suspended.title": "因可能违反可接受使用政策而停用",
   "detail.suspended.body":
     "经过审查，Portifact 停用了此 artifact。它不会向任何人提供，也无法更改或发布新版本。原因：{reason}。如果你认为这是误判，请将 artifact 的地址发送至 abuse@portifact.com。",
+  "detail.suspended.facts": "我们依据的事实",
+  "detail.suspended.ground": "依据(法律或我们条款中的规则)以及适用的理由",
+  "detail.suspended.notice": "于 {date} 根据收到的通知作出决定。此决定由人作出。",
+  "detail.suspended.review": "于 {date} 根据我们自己的审查作出决定。此决定由人作出。",
+  "settings.suspended.title": "你的账户已被暂停",
+  "settings.suspended.body":
+    "Portifact 已暂停你的账户。它不能发布内容,其 artifact 也随之暂停。你仍然可以登录、导出数据和删除账户。原因:{reason}。如需请求复核,请写信至 abuse@portifact.com。",
+  "branding.suspendedReason": "原因:{reason}。",
   "reason.phishing": "网络钓鱼或伪造的登录页面",
   "reason.malware": "恶意软件、漏洞利用或加密货币挖矿",
   "reason.sexual_content": "露骨的色情内容",
@@ -437,9 +445,9 @@ export const zhCN = {
     "以 JSON 格式下载你账号中的全部内容：个人资料、artifact 及其访问权限、版本和文件列表，以及评论。每个版本都附有一个下载其文件的链接。",
   "account.data.download": "下载你的账户数据（JSON）",
   "account.data.spacePersonal":
-    "要取出你的个人空间保存的内容（每个制品保留的版本和源文件、访问日志和审计日志），请使用该空间的下载页面。",
+    "要取出你的个人空间保存的内容（每个制品保留的版本和源文件、访问日志、每个制品和空间的记录以及审计日志），请使用该空间的下载页面。",
   "account.data.spaceWorkspace":
-    "要取出工作空间 {workspace} 保存的内容（每个制品保留的版本和源文件、访问日志和审计日志），请使用该空间的下载页面。",
+    "要取出工作空间 {workspace} 保存的内容（每个制品保留的版本和源文件、访问日志、每个制品和空间的记录以及审计日志），请使用该空间的下载页面。",
   "account.data.spaceLink": "下载此空间的数据",
   "account.delete.title": "删除账号",
   "account.delete.hint":
@@ -1508,7 +1516,7 @@ export const zhCN = {
     "请在此之前下载所需内容：每个制品的历史记录中有其版本，访问日志和审计日志可以导出。或者再次申请该方案以保留全部内容。",
   "data.title": "下载你的数据",
   "data.description":
-    "此空间中可以带走的一切：每个制品保留的版本及其源文件、访问日志、审计日志，以及个人空间中你的账户数据。文件直接来自存储，服务器上不打包任何内容。",
+    "此空间中你可以带走的一切：每个制品保留的版本及其源文件、访问日志和记录（设置、访问规则、分享链接、审阅、分析和评论）、空间的记录、审计日志，以及个人空间的账户数据。文件直接来自存储；服务器不会打包任何内容。",
   "data.adminsOnly": "下载 {workspace} 的全部数据由其管理员进行。",
   "data.grace.title": "会删除什么以及何时",
   "data.grace.hint":
@@ -1538,13 +1546,25 @@ export const zhCN = {
   "data.versions.size": "大小",
   "data.accessLog.csv": "访问日志（CSV）",
   "data.accessLog.json": "访问日志（JSON）",
+  "data.accessLog.csvLabel": "{name} 的访问日志 (CSV)",
+  "data.accessLog.jsonLabel": "{name} 的访问日志 (JSON)",
   "data.accessLog.saved": "访问日志已准备好。",
+  "data.records.button": "记录 (JSON)",
+  "data.records.label": "{name} 的记录 (JSON)",
+  "data.records.saved": "记录已准备好。",
+  "data.records.later": "由于服务器要求稍候，部分内容缺失。请几分钟后再次下载。",
+  "data.records.failed": "无法下载记录。",
+  "data.space.title": "空间记录",
+  "data.space.hint":
+    "空间的设置，不含机密：对于工作区，包括成员和角色、群组及其成员、邀请、电子邮件域、策略、单点登录和服务令牌；对于所有空间，包括品牌、Webhook、集成和审计流。",
+  "data.space.download": "下载空间记录 (JSON)",
+  "data.space.logo": "下载品牌标志",
   "data.logs.title": "日志和账户",
   "data.logs.hint": "空间的审计日志有单独的导出，个人空间还包含你的账户数据。",
   "data.logs.audit": "在审计日志页面导出审计日志",
   "data.logs.account": "下载你的账户数据（JSON）",
   "data.logs.cli":
-    "要一次性带走全部内容，请在终端运行 portifact export <文件夹>：它会获取每个保留的版本，中断后可继续，并写入清单。",
+    "要一次性带走全部内容，请在终端运行 portifact export <文件夹>：它会获取每个保留的版本和每个制品的记录，中断后可继续，并写入清单。成员、邀请以及只有控制台能读取的其他设置在上方的空间记录中。",
   "shell.grace.title": "{plan} 方案保留的内容保留到 {date}",
   "shell.grace.download": "下载你的数据",
   "shell.grace.request": "再次申请 {plan}",
@@ -2170,6 +2190,7 @@ export const zhCN = {
   "policies.note.linksLifetime":
     "工作区策略将分享链接限制为 {days, plural, one {# 天} other {# 天}}。",
   "error.policy_refused": "工作区策略不允许此操作。",
+  "error.terms_not_accepted": "请接受当前条款以继续。重新加载页面以查看条款。",
   "audit.group.policies": "策略",
   "audit.kind.policyChanged": "更改了工作区策略：{changes}",
   "audit.kind.policyEnforced": "应用了工作区策略：{changes}",

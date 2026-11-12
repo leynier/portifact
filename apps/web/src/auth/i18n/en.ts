@@ -104,12 +104,15 @@ export const en = {
   languageLabel: "Language",
   /** The report page (src/report/report.ts). */
   report: {
-    artifactRequired: "Enter the artifact's address or ID.",
+    artifactRequired: "Enter the exact address or the artifact's ID.",
     artifactInvalid:
       "Enter an address like https://abcdefghij.portifact.dev/ or a 10-character ID.",
     reasonRequired: "Choose what is wrong with the artifact.",
     detailsInvalid: "Remove control characters or shorten the details.",
     emailInvalid: "Enter a valid email address, or leave it empty.",
+    nameInvalid: "Enter your name on one line, up to 200 characters, or leave it empty.",
+    confirmRequired:
+      "Confirm that the information is accurate and complete and that you send it in good faith.",
     rateLimited: "Too many reports from here. Try again later or write to abuse@portifact.com.",
     network: "Portifact could not be reached. Check your connection and try again.",
     failed: "The report could not be sent. Try again or write to abuse@portifact.com.",

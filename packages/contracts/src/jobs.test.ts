@@ -7,6 +7,7 @@ import {
   EXPIRY_NOTICE_ARTIFACTS_MAX,
   ExpiryNoticePayload,
   JobMessage,
+  LegalHoldLine,
   LIMITS,
   OutboxTopic,
   ReviewNoticePayload,
@@ -86,6 +87,9 @@ describe("job contracts", () => {
       "plan_grace_notice",
       "comment_retention_notice",
       "comment_tombstones",
+      "moderation_notice",
+      "report_outcome",
+      "legal_hold_release",
     ]);
     for (const kind of [
       "artifact",
@@ -198,5 +202,28 @@ describe("ReviewNoticePayload", () => {
     ]) {
       expect(ReviewNoticePayload.safeParse(bad).success).toBe(false);
     }
+  });
+});
+
+describe("legal hold lines", () => {
+  it("parse a hold as export-tombstones writes it, and nothing looser", () => {
+    const line = {
+      legalHold: {
+        id: `hold_${"a".repeat(32)}`,
+        artifactId: "k7d2qm4xab",
+        ownerId: "u_1",
+        ownerEmail: null,
+        reason: "child_safety",
+        ground: "Authority",
+        createdAt: 1,
+        releaseAt: null,
+        releasedAt: 2,
+      },
+    };
+    expect(LegalHoldLine.parse(line)).toEqual(line);
+    expect(
+      LegalHoldLine.safeParse({ legalHold: { ...line.legalHold, id: "hold_x" } }).success,
+    ).toBe(false);
+    expect(LegalHoldLine.safeParse({ ...line, extra: 1 }).success).toBe(false);
   });
 });

@@ -2,7 +2,7 @@
 // "Download your data" and the grace notice (decision 0022, second delivery): the page lists every
 // artifact with its retained versions and downloads, the logs and, during a grace, what goes on
 // which date; the notice shows on every page of the space until hidden for the day.
-import { PLANS } from "@portifact/contracts";
+import { ArtifactRecords, PLANS, SpaceRecords } from "@portifact/contracts";
 import { planRequestHref } from "@portifact/contracts/plans";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -94,7 +94,7 @@ describe("the Download your data page", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Download sources of version 1" }));
       await waitFor(() => expect(saved).toHaveLength(1));
       expect(saved[0]?.fileName).toBe("src.zip");
-      expect(screen.getByRole("button", { name: "Access log as CSV" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Access log as CSV of Launch plan" })).toBeTruthy();
       expect(
         screen.getByRole("link", { name: "Download your account's data (JSON)" }),
       ).toBeTruthy();
@@ -131,6 +131,136 @@ describe("the Download your data page", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Download your data" })).toBeNull();
     expect(await axeViolations(container)).toEqual([]);
+  });
+});
+
+async function savedJson(saved: { blob: Blob }[]) {
+  return JSON.parse(await (saved.at(-1) as { blob: Blob }).blob.text());
+}
+
+describe("the records downloads", () => {
+  it("saves an artifact's records: settings, access, comments and every page of their history", async () => {
+    const entries = Array.from({ length: 501 }, (_, i) => ({
+      seq: i + 1,
+      threadId: "th_1",
+      messageId: null,
+      kind: "thread_created" as const,
+      actor: { id: "u-bea", name: "Bea", image: null },
+      at: "2026-11-01T00:00:00.000Z",
+    }));
+    server.annotations[ID] = {
+      mode: "open",
+      role: "owner",
+      currentVersionId: "v_current",
+      threads: [],
+      deleted: [],
+      seq: 0,
+      history: entries,
+    };
+    const { container, saved } = renderDashboard("/data", server);
+    fireEvent.click(await screen.findByText(/^Launch plan: 2 retained versions$/));
+    fireEvent.click(await screen.findByRole("button", { name: "Records (JSON) of Launch plan" }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]?.fileName).toBe(`${ID}-records.json`);
+    const records = ArtifactRecords.parse(await savedJson(saved));
+    expect(records).toMatchObject({
+      kind: "artifact",
+      artifact: { id: ID, name: "Launch plan" },
+      access: { mode: expect.any(String) },
+      comments: { artifact: { id: ID }, threads: [] },
+    });
+    expect(records.commentHistory).toEqual(entries);
+    expect(
+      server.requests.filter((r) =>
+        r.path.startsWith(`/api/v1/artifacts/${ID}/annotations/history?`),
+      ),
+    ).toHaveLength(2);
+    expect(await screen.findByText("The records are ready.")).toBeTruthy();
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("names each artifact's download buttons after the artifact", async () => {
+    server = fakeServer([
+      artifact(ID, { name: "Launch plan" }),
+      artifact("m3c7qn5ycd", { name: "Budget" }),
+    ]);
+    for (const id of [ID, "m3c7qn5ycd"]) {
+      server.activity[id] = {
+        versions: 1,
+        currentBytes: 1,
+        openThreads: 0,
+        lastAnnotationAt: null,
+      };
+      await seedVersion(server, id, [{ path: "index.html", text: "<h1>x</h1>" }]);
+    }
+    const { container } = renderDashboard("/data", server);
+    fireEvent.click(await screen.findByText(/^Launch plan: 1 retained version$/));
+    fireEvent.click(await screen.findByText(/^Budget: 1 retained version$/));
+    for (const name of ["Launch plan", "Budget"]) {
+      expect(await screen.findByRole("button", { name: `Records (JSON) of ${name}` })).toBeTruthy();
+      expect(screen.getByRole("button", { name: `Access log as CSV of ${name}` })).toBeTruthy();
+      expect(screen.getByRole("button", { name: `Access log as JSON of ${name}` })).toBeTruthy();
+    }
+    expect(screen.queryAllByRole("button", { name: "Records (JSON)" })).toHaveLength(0);
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("records what may not be read instead of failing the download", async () => {
+    const { saved } = renderDashboard("/data", server);
+    fireEvent.click(await screen.findByText(/^Launch plan: 2 retained versions$/));
+    fireEvent.click(await screen.findByRole("button", { name: "Records (JSON) of Launch plan" }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    const records = ArtifactRecords.parse(await savedJson(saved));
+    // No annotations store in the fake: the comment routes answer like a missing artifact.
+    expect(records.comments).toEqual({ skipped: "not_found" });
+    expect(records.commentHistory).toEqual({ skipped: "not_found" });
+  });
+
+  it("saves a personal space's records with the brand and links its logo", async () => {
+    server.branding = {
+      ...server.branding,
+      brand: {
+        name: "Ada Studio",
+        accentColor: "#112233",
+        link: null,
+        logo: { sha256: "a".repeat(64), type: "image/png", width: 10, height: 10, bytes: 100 },
+        updatedAt: "2026-11-01T00:00:00.000Z",
+      },
+    };
+    const { saved } = renderDashboard("/data", server);
+    const logo = await screen.findByRole("link", { name: "Download the brand logo" });
+    expect(logo.getAttribute("href")).toBe("/api/v1/account/branding/logo");
+    fireEvent.click(screen.getByRole("button", { name: "Download the space's records (JSON)" }));
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]?.fileName).toBe("personal-space-records.json");
+    const records = SpaceRecords.parse(await savedJson(saved));
+    expect(records).toMatchObject({
+      space: { slug: null },
+      workspace: null,
+      members: null,
+      branding: { brand: { name: "Ada Studio" } },
+    });
+  });
+
+  it("saves a workspace's people and settings for its admins, without secrets", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    const { saved } = renderDashboard("/data?workspace=acme", server);
+    await screen.findByRole("heading", { level: 1, name: "Download your data" });
+    expect(screen.queryByRole("link", { name: "Download the brand logo" })).toBeNull();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Download the space's records (JSON)" }),
+    );
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]?.fileName).toBe("acme-space-records.json");
+    const text = await (saved[0] as { blob: Blob }).blob.text();
+    const records = SpaceRecords.parse(JSON.parse(text));
+    expect(records.space.slug).toBe("acme");
+    expect(records.workspace).toMatchObject({ slug: "acme", name: "Acme" });
+    for (const part of [records.members, records.invitations, records.groups, records.policies]) {
+      expect(part).not.toBeNull();
+      expect(part).not.toHaveProperty("skipped");
+    }
+    expect(text).not.toMatch(/pfst_|pfsc_|xoxb-|secret/i);
   });
 });
 

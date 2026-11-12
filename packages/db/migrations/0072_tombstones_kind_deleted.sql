@@ -1,0 +1,1 @@
+CREATE INDEX `tombstones_kind_deleted_idx` ON `tombstones` (`kind`,`deleted_at`);

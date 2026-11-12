@@ -79,6 +79,7 @@ export function signInMethodKind(stored: unknown): SignInMethodKind {
  * - `oauth`: an OAuth access token. `clientId` is the token row's; `signedInAt` the sign-in its
  *   grant came from (`oauth_access_tokens.auth_time`, carried through every refresh), null when
  *   the record does not say.
+ *   `termsAccepted` says whether its account accepted the current terms.
  * - `service_token`: a workspace's service token; it has no sign-in.
  * `method` is how the sign-in the credential descends from happened (`SignInMethod`), null when
  * the record does not say; "SSO required" refuses that.
@@ -93,6 +94,12 @@ export type Credential =
       client: ClientKind;
       signedInAt: number | null;
       method: SignInMethod | null;
+      /**
+       * Whether the token's account accepted the current terms (docs/legal.md, "API and MCP
+       * clients"), from the claim the provider adds when it validates the token. Without them
+       * only reads and changes that remove or narrow run.
+       */
+      termsAccepted: boolean;
     }
   | { kind: "service_token"; userId: string };
 

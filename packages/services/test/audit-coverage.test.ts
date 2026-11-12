@@ -274,6 +274,33 @@ reason("the owner is erased with its events", [
   "deleteArtifactData",
   "eraseOwnerBrand",
 ]);
+reason("a keyed hash for rate limit keys: it computes and changes nothing", ["keyedHash"]);
+reason(
+  "legal holds: operator-only, kept in legal_holds and never shown to the owner side, whose audit log must not reveal a hold",
+  [
+    "placeLegalHold",
+    "releaseLegalHold",
+    "releaseDueHolds",
+    "applyLegalHolds",
+    "isHeld",
+    "updateHoldRelease",
+    "openHold",
+    "heldArtifactIds",
+    "holdIdentities",
+    "runHoldRelease",
+  ],
+);
+reason(
+  "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",
+  [
+    "sendModerationNotice",
+    "sendReportOutcome",
+    "suspensionStatement",
+    "sendSuspensionStatement",
+    "accountSuspensionView",
+    "brandSuspensionStatement",
+  ],
+);
 reason("operator moderation and platform controls, kept by the operator tool's own records", [
   "suspendArtifact",
   "reinstateArtifact",
@@ -340,6 +367,17 @@ reason("an issue request is recorded once the job creates the issue (issue.creat
 reason("restores re-apply removals already recorded (operator only)", [
   "applyIntegrationTombstones",
 ]);
+reason(
+  'retention of history about what is already gone (docs/operations.md, "History retention")',
+  ["pruneGoneHistory", "pruneUploadHistory", "pruneStaleFindings", "eraseAccountTraces"],
+);
+reason("expired sign-in records and unused app registrations: identity, not an owner's data", [
+  "pruneAuthRecords",
+]);
+reason(
+  "restore markers and idempotency records: the change they belong to is recorded (or is a person's own preference)",
+  ["idempotentThreadWrite"],
+);
 reason("scheduled jobs and their consequences of changes already recorded", [
   "requeueThreadIssues",
   "rewrapIntegrationKeys",

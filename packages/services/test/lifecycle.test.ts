@@ -431,6 +431,7 @@ describe("purging archives", () => {
   it("runs every job from the scheduled entry point", async () => {
     await publish({ "index.html": "<h1>a</h1>" });
     expect(await runMaintenance(db(), env.ARTIFACTS, T0 + 31 * DAY)).toEqual({
+      releasedHolds: 0,
       archived: 1,
       expiryNotices: 0,
       commentNotices: 0,
@@ -440,6 +441,19 @@ describe("purging archives", () => {
       orphanObjects: 0,
       prunedAuditEvents: 0,
       prunedOperations: 0,
+      goneHistory: { artifacts: 0, suspensions: 0 },
+      // The publish's usage events are a month old by then: past their week.
+      uploadHistory: { usageEvents: 3, uploads: 0 },
+      staleFindings: 0,
+      authRecords: {
+        sessions: 0,
+        verifications: 0,
+        accessTokens: 0,
+        refreshTokens: 0,
+        deviceCodes: 0,
+        clientAssertions: 0,
+        clients: 0,
+      },
       readSessions: 0,
       artifactGroups: 0,
       groupTombstones: 0,

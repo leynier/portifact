@@ -381,7 +381,8 @@ export const messages = {
     expired: "The login code expired before it was approved. Run `portifact login` to try again.",
     network: (origin: string) => `Could not reach ${origin}. Check your connection and try again.`,
     rateLimited: "Too many requests. Wait a minute and try again.",
-    server: (origin: string) => `${origin} sent a response the CLI did not expect. Try again.`,
+    server: (origin: string) =>
+      `${origin} sent a response the CLI did not expect. Try again. If it keeps happening, update the Portifact CLI, or open the Portifact dashboard in case something waits for you there, such as new terms to accept.`,
     revokeFailed: (origin: string) =>
       `Could not revoke your tokens on ${origin}, so they were kept on this device. Run \`portifact logout\` again.`,
     invalidOrigin:
@@ -573,6 +574,11 @@ export const messages = {
       `Could not write ${oneLine(path)} to the export folder (${code}). Check the folder's permissions and free space, then run the same command again.`,
     auditLater:
       "The audit log was not exported: the server asked to wait. Run the same command again later to add it.",
+    dashboardOnly:
+      "Members, invitations, group members, email domains, service tokens, branding and other settings only the dashboard may read are in the Space records download of the dashboard's Download your data page.",
+    dashboardOnlyPersonal:
+      "Branding, integrations and audit streams are in the Space records download of the dashboard's Download your data page.",
+    workspaceGone: "The workspace is no longer listed for your account.",
     incomplete:
       "The export is not complete (exit 8): some parts must be fetched again later. Run the same command again; what is in the folder is kept.",
   },
@@ -611,6 +617,9 @@ export const annotationMessages = {
   element: (tagName: string, fingerprint: string) =>
     `Element: <${tagName}> ${JSON.stringify(fingerprint)}`,
   goneAuthor: "(deleted account)",
+  historyEmpty: (id: string) => `${id} has no comment history yet.`,
+  historyLine: (at: string, kind: string, thread: string, message: string | null, actor: string) =>
+    `${at}  ${kind.replaceAll("_", " ")}  thread ${thread}${message === null ? "" : `, message ${message}`}  by ${actor}`,
   issue: (
     state: "pending" | "created" | "failed",
     key: string | null,

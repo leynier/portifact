@@ -8,6 +8,7 @@ import { RENDERER_VERSION } from "@portifact/render";
 import {
   clearBudgetOverride,
   createWorkspace,
+  placeLegalHold,
   runJob,
   setBudgetOverride,
   suspendArtifact,
@@ -19,6 +20,7 @@ import { TOOL_SCOPES } from "../src/mcp/tools.ts";
 import { pastHumanCheck } from "./api-client.ts";
 import { createHarness, type Harness } from "./harness.ts";
 import {
+  ALL_SCOPES,
   api,
   apiToken,
   callTool,
@@ -247,15 +249,143 @@ describe("API and MCP parity", () => {
       artifactId: id,
       reason: "phishing",
       note: "operator only",
+      statement: {
+        facts: "It asks for bank passwords.",
+        ground: "Acceptable Use Policy: phishing.",
+        source: "review",
+        withhold: false,
+      },
       now: NOW,
     });
     const viaApi = await fromApi(await b.apiCall(`/api/v1/artifacts/${id}`));
-    expect(viaApi.body).toMatchObject({ state: "suspended", suspension: { reason: "phishing" } });
+    expect(viaApi.body).toMatchObject({
+      state: "suspended",
+      suspension: {
+        reason: "phishing",
+        statement: {
+          facts: "It asks for bank passwords.",
+          ground: "Acceptable Use Policy: phishing.",
+          source: "review",
+          decidedAt: new Date(NOW).toISOString(),
+        },
+      },
+    });
     expect(JSON.stringify(viaApi.body)).not.toContain("operator only");
     expect(fromTool(await b.tool("get_artifact", { artifactId: id }))).toEqual(viaApi);
+    // The list shows the category only; the statement is on the single artifact's view.
+    const listed = await fromApi(await b.apiCall("/api/v1/artifacts"));
+    const item = (listed.body as { items: { id: string; suspension?: unknown }[] }).items.find(
+      (entry) => entry.id === id,
+    );
+    expect(item?.suspension).toEqual({ reason: "phishing" });
     expect(fromTool(await b.tool("renew_artifact", { artifactId: id }))).toEqual(
       await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/renew`, { method: "POST" })),
     );
+  });
+
+  it("refuse deleting and downloading a held artifact the same way, without saying why", async () => {
+    const b = await both("parity-held@example.test");
+    const id = (
+      fromTool(await b.tool("publish_document", { type: "text", name: "Held", content: "h" }))
+        .body as { artifactId: string }
+    ).artifactId;
+    const db = regionsFromEnv(env).get("default").db;
+    await suspendArtifact(db, { artifactId: id, reason: "child_safety", now: NOW });
+    await placeLegalHold(db, { artifactId: id, ground: "Authority", releaseAt: null, now: NOW });
+    const deleted = await fromApi(await b.apiCall(`/api/v1/artifacts/${id}`, { method: "DELETE" }));
+    expect(deleted.body).toMatchObject({ error: { code: "forbidden" } });
+    expect(JSON.stringify(deleted.body)).not.toMatch(/hold|legal|authorit/i);
+    expect(fromTool(await b.tool("delete_artifact", { artifactId: id, confirm: id }))).toEqual(
+      deleted,
+    );
+    const download = await fromApi(
+      await b.apiCall(`/api/v1/artifacts/${id}/versions/current/download`),
+    );
+    expect(download.body).toMatchObject({ error: { code: "forbidden" } });
+    expect(fromTool(await b.tool("get_download", { artifactId: id }))).toEqual(download);
+    expect(fromTool(await b.tool("read_artifact", { artifactId: id })).body).toMatchObject({
+      error: { code: "forbidden" },
+    });
+  });
+
+  it("answer a held artifact's reads, comment history included, exactly as a suspended one's, to its owner and to a stranger", async () => {
+    const scope = `${ALL_SCOPES} annotations:read`;
+    const b = await both("parity-held-reads@example.test", scope);
+    const stranger = await both("parity-held-stranger@example.test", scope);
+    const publish = async (name: string) =>
+      (
+        fromTool(await b.tool("publish_document", { type: "text", name, content: name })).body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    const held = await publish("Held");
+    const twin = await publish("Twin");
+    const db = regionsFromEnv(env).get("default").db;
+    for (const id of [held, twin]) {
+      await suspendArtifact(db, { artifactId: id, reason: "child_safety", now: NOW });
+    }
+    await placeLegalHold(db, { artifactId: held, ground: "Authority", releaseAt: null, now: NOW });
+    // What differs between two artifacts by construction: IDs, names, content hashes and sizes.
+    const normal = (text: string, id: string) =>
+      text
+        .replaceAll(id, "ID")
+        .replaceAll(/ver_[0-9a-f]{32}/g, "VER")
+        .replaceAll(/[0-9a-f]{64}/g, "SHA")
+        .replaceAll(/"name":"(Held|Twin)"/g, '"name":"N"');
+    const reads = async (who: typeof b, id: string) => {
+      const out: unknown[] = [];
+      // The reads `portifact export` makes for `records.json`, and the artifact's own view.
+      for (const path of [
+        "",
+        "/annotations/history",
+        "/versions",
+        "/annotations?version=current",
+        "/access",
+        "/share-links",
+        "/review/status",
+        "/stats",
+        "/annotations/export?format=json&version=current",
+      ]) {
+        const answer = await fromApi(await who.apiCall(`/api/v1/artifacts/${id}${path}`));
+        out.push(JSON.parse(normal(JSON.stringify(answer), id)));
+      }
+      out.push(
+        JSON.parse(
+          normal(
+            JSON.stringify(fromTool(await who.tool("get_comment_history", { artifactId: id }))),
+            id,
+          ),
+        ),
+      );
+      return out;
+    };
+    // Its owner reads its view and versions, but none of its comments, history, review or
+    // analytics: the same generic refusal as downloads, through the API and MCP.
+    for (const path of [
+      "/annotations/history",
+      "/annotations?version=current",
+      "/review/status",
+      "/stats",
+      "/annotations/export?format=json&version=current",
+      "/access-log",
+    ]) {
+      const answer = await fromApi(await b.apiCall(`/api/v1/artifacts/${held}${path}`));
+      expect(answer.body, path).toMatchObject({ error: { code: "forbidden" } });
+      expect(JSON.stringify(answer.body)).not.toMatch(/hold|legal|authorit/i);
+    }
+    expect(fromTool(await b.tool("get_comment_history", { artifactId: held })).body).toMatchObject({
+      error: { code: "forbidden" },
+    });
+    expect(fromTool(await b.tool("list_annotations", { artifactId: held })).body).toMatchObject({
+      error: { code: "forbidden" },
+    });
+    const strangerHeld = await reads(stranger, held);
+    expect(strangerHeld).toEqual(await reads(stranger, twin));
+    expect(strangerHeld).toEqual(await reads(stranger, "zzzzzzzzzz"));
+    expect(fromTool(await b.tool("get_comment_history", { artifactId: held })).body).toEqual(
+      (await fromApi(await b.apiCall(`/api/v1/artifacts/${held}/annotations/history`))).body,
+    );
+    void twin;
   });
 
   it("refuses the same way: missing, another user's, stale base, archived and bad cursor", async () => {
@@ -1686,6 +1816,18 @@ describe("API and MCP parity for annotations", () => {
     expect(markdown.structuredContent).toEqual(
       await (await owner.apiCall(`${base}/export?state=open`)).json(),
     );
+
+    // The comment action history: the same pages, the same refusal for a reader.
+    const history = fromTool(await owner.tool("get_comment_history", { artifactId: id, limit: 1 }));
+    expect(history).toEqual(await fromApi(await owner.apiCall(`${base}/history?limit=1`)));
+    const next = (history.body as { nextCursor: string | null }).nextCursor;
+    expect(next).not.toBeNull();
+    expect(
+      fromTool(await owner.tool("get_comment_history", { artifactId: id, cursor: next })),
+    ).toEqual(await fromApi(await owner.apiCall(`${base}/history?cursor=${next}`)));
+    const refused = await fromApi(await reader.apiCall(`${base}/history`));
+    expect(refused.body).toMatchObject({ error: { code: "forbidden" } });
+    expect(fromTool(await reader.tool("get_comment_history", { artifactId: id }))).toEqual(refused);
   });
 
   it("hides another reader's threads the same way: list, get by ID, export and cursor", async () => {
@@ -1991,6 +2133,9 @@ describe("API and MCP parity for annotations", () => {
     );
     expect(fromTool(await stranger.tool("export_annotations", { artifactId: id }))).toEqual(
       await fromApi(await stranger.apiCall(`${base}/export`)),
+    );
+    expect(fromTool(await stranger.tool("get_comment_history", { artifactId: id }))).toEqual(
+      await fromApi(await stranger.apiCall(`${base}/history`)),
     );
     const [strangerApi, strangerMcp] = await create(stranger, {});
     expect(strangerMcp).toEqual(strangerApi);

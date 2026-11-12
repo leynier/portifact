@@ -451,13 +451,20 @@ export type CommentRetentionNoticePayload = z.infer<typeof CommentRetentionNotic
 
 /**
  * The `comment_tombstones` job (decision 0023, "Restores"): written in the regional batch that
- * deleted the threads, on the same condition, when the region has its own database; it writes
- * their `comment_thread` tombstones in the global database. At most one batch of threads.
+ * deleted the threads (comment retention, or a person deleting a thread), or a message, on the
+ * same condition, when the region has its own database; it writes their `comment_thread` and
+ * `comment_message` tombstones in the global database. At most one batch of threads.
  */
-export const CommentTombstonesPayload = z.strictObject({
-  ids: z.array(z.string().min(1).max(64)).min(1).max(WORKSPACE_POLICIES.commentDeleteBatch),
-  at: z.int().min(0),
-});
+export const CommentTombstonesPayload = z
+  .strictObject({
+    ids: z.array(z.string().min(1).max(64)).max(WORKSPACE_POLICIES.commentDeleteBatch),
+    /** Messages deleted while their thread stays (the "message deleted" marker). */
+    messages: z.array(z.string().min(1).max(64)).max(1).optional(),
+    at: z.int().min(0),
+  })
+  .refine((payload) => payload.ids.length + (payload.messages?.length ?? 0) > 0, {
+    message: "A comment_tombstones job names at least one thread or message.",
+  });
 export type CommentTombstonesPayload = z.infer<typeof CommentTombstonesPayload>;
 
 /**

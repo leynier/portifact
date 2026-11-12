@@ -3,19 +3,27 @@
 // so it accepts only the app's own pages (exact Origin and same-origin fetch metadata, which a
 // sibling artifact cannot fake, and a JSON body, which a cross-site form cannot send), limits
 // requests per IP, per artifact and globally in the D1 counters, and answers the same whether
-// or not the artifact exists.
+// or not the artifact exists. A report may be a full notice of illegal content: the exact
+// address (kept in full), the reporter's name and their statement of good faith.
 import {
   AbuseReportInput,
   AbuseReportReceipt,
   REPORT_LIMITS,
+  reportedAddress,
   reportedArtifactId,
+  reportedHost,
 } from "@portifact/contracts";
-import { submitAbuseReport } from "@portifact/services";
+import {
+  customDomainsServing,
+  customHostHint,
+  keyedHash,
+  submitAbuseReport,
+} from "@portifact/services";
 import { Hono } from "hono";
 import { authUrls } from "../auth/config.ts";
 import { checkLimits } from "../auth/limits.ts";
 import type { Env } from "../env.ts";
-import { artifactDb } from "../regions.ts";
+import { artifactDb, regionsOf } from "../regions.ts";
 import { type ApiContext, error, readJson } from "./http.ts";
 
 export const REPORTS_PATH = "/api/v1/reports";
@@ -43,7 +51,15 @@ export function reportRoutes(deps: { now(): number }) {
 
     const body = await readJson(c, AbuseReportInput, REPORT_LIMITS.bodyMaxBytes);
     if (!body.ok) return body.response;
-    const artifactId = reportedArtifactId(body.value.artifact, c.env.CONTENT_DOMAIN);
+    // An address on an artifact's active custom host names that artifact, while they serve.
+    const host = reportedHost(body.value.artifact);
+    const custom =
+      host && !host.endsWith(`.${c.env.CONTENT_DOMAIN}`) && customDomainsServing(c.env)
+        ? await customHostHint(regionsOf(c.env).global, host)
+        : null;
+    const customHost = custom && host ? { hostname: host, artifactId: custom.artifactId } : null;
+    const artifactId =
+      customHost?.artifactId ?? reportedArtifactId(body.value.artifact, c.env.CONTENT_DOMAIN);
     if (!artifactId) {
       return error(c, "invalid_input", "artifact: Enter the artifact's address or ID.");
     }
@@ -62,6 +78,15 @@ export function reportRoutes(deps: { now(): number }) {
       reason: body.value.reason,
       details: body.value.details,
       email: body.value.email,
+      // The keyed hash the sign-in limits use, for the outcome emails' daily counter.
+      emailKey: body.value.email
+        ? await keyedHash(c.env.BETTER_AUTH_SECRET, body.value.email.toLowerCase())
+        : undefined,
+      // The exact address, kept in full, and the parts of a full notice (docs/operations.md).
+      address: reportedAddress(body.value.artifact, c.env.CONTENT_DOMAIN, customHost),
+      name: body.value.name,
+      confirmed: body.value.confirmed,
+      locale: body.value.locale,
       now,
     });
     return c.json(AbuseReportReceipt.parse({ received: true }), 202);

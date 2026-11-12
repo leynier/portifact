@@ -46,6 +46,7 @@ import { ApprovalReviewPanel, ApprovalStatusBadge } from "./approval-review.tsx"
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { BackToList } from "./not-found.tsx";
 import { SpaceBadge } from "./space-parts.tsx";
+import { SuspensionReasons } from "./suspension-reasons.tsx";
 import { TransferArtifact } from "./transfer.tsx";
 import { useUsage } from "./usage.tsx";
 
@@ -305,6 +306,9 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
             icon={<Ban className="size-5" />}
           >
             {t("detail.suspended.body", { reason: t(`reason.${artifact.suspension.reason}`) })}
+            {artifact.suspension.statement ? (
+              <SuspensionReasons statement={artifact.suspension.statement} />
+            ) : null}
           </Callout>
         </div>
       ) : null}
