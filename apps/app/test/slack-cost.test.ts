@@ -298,6 +298,17 @@ async function pinned(s: Setup) {
   // Previews made exactly the two calls above.
   expect(fake.requests.length - slackBefore).toBe(2);
   expect(slackBefore).toBe(slackCallsBefore);
+
+  // A plan without `integrations`: the read (and the plan's, with a separate regional database),
+  // no read of the artifacts and no call, like any connection that is not usable.
+  const plans = regionsFromEnv(env).global;
+  const planOf = (plan: "pro" | "team") =>
+    plans.update(schema.ownerPlans).set({ plan }).where(eq(schema.ownerPlans.ownerId, s.ownerId));
+  await planOf("pro");
+  taken();
+  await share("a plan without integrations", [open], s.region === "default" ? 1 : 2, 0);
+  await planOf("team");
+  taken();
   const slackCalls = fake.requests.length;
 
   // app_uninstalled twice: the read and one guarded batch, then only the read.

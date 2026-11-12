@@ -357,6 +357,12 @@ export const SLACK_PREVIEW_NAMES_OUTSIDE_DEFAULT_REGION = true;
 
 export const SLACK_UNNAMED_ARTIFACT = "An artifact on Portifact";
 
+/**
+ * Half of a surrogate pair on its own: not a character, and JSON a service may refuse. Removed
+ * before the name is cleaned, so a preview is never dropped for it.
+ */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
 /** The preview's first line: the cleaned, bounded name, `Untitled` when empty. */
 export function slackPreviewTitle(
   name: string,
@@ -364,7 +370,7 @@ export function slackPreviewTitle(
   namesOutsideDefault: boolean = SLACK_PREVIEW_NAMES_OUTSIDE_DEFAULT_REGION,
 ): string {
   if (!namesOutsideDefault && !noticeNames(region)) return SLACK_UNNAMED_ARTIFACT;
-  return plainLine(name, SLACK_LIMITS.nameMax) ?? "Untitled";
+  return plainLine(name.replace(LONE_SURROGATE, ""), SLACK_LIMITS.nameMax) ?? "Untitled";
 }
 
 /** The preview's second line: one of three fixed English labels. */

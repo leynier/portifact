@@ -250,7 +250,7 @@ export const de = {
     "Alle mit dem Link, die sich bei Portifact anmelden, mit einem beliebigen Konto.",
   "accessSettings.mode.public": "Alle mit dem Link, ohne Anmeldung.",
   "accessSettings.mode.publicSlack":
-    "Wenn dieser Bereich Slack verbunden hat, zeigt ein dort geposteter Link darauf seinen Namen und Typ, und Slack behält diese Vorschau, auch wenn er nicht mehr öffentlich ist.",
+    "Wenn dieser Bereich Slack verbunden hat, zeigt ein dort geposteter Link darauf seinen Namen und Typ, und Slack behält diese Vorschau, auch wenn das Artifact nicht mehr öffentlich ist.",
   "accessSettings.mode.publicFrom":
     "Verfügbar ab {date}. Neue Konten warten {minutes} Minuten, bevor sie ein Artifact öffentlich machen können.",
   "accessSettings.indexable.label": "Suchmaschinen dürfen es listen",

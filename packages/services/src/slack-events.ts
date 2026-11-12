@@ -163,7 +163,11 @@ export interface SlackSharedLinks {
 
 /** What previews need besides the database: the connection's region, the hosts, keys and Slack. */
 export interface SlackPreviewDeps {
-  /** `SLACK_ENABLED` with the integrations switch, read again when the work starts. */
+  /**
+   * `SLACK_ENABLED` with the integrations switch, as the request's handler read it. The endpoint
+   * does not exist while it is off, so the app always passes true; the field is for other callers
+   * and tests.
+   */
   enabled: boolean;
   region: Region;
   domains: SlackLinkDomains;

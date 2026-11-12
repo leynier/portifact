@@ -346,6 +346,7 @@ describe("which links a preview considers", () => {
     `http://${ID}.portifact.dev/`,
     `HTTPS://${ID}.portifact.dev/`,
     `https://${ID}.portifact.dev:8443/`,
+    `https://app.portifact.com:8443/view/${ID}`,
     `https://${ID}.portifact.dev:443@evil.example/`,
     `https://user@${ID}.portifact.dev/`,
     `https://user:pw@app.portifact.com/view/${ID}`,
@@ -435,6 +436,10 @@ describe("what a preview shows", () => {
   it("cleans and bounds the name, Untitled when empty", () => {
     expect(slackPreviewTitle("  Q3\nplan\u202e\u200b ", "default")).toBe("Q3 plan");
     expect(slackPreviewTitle("\u200b\u2066 \n", "default")).toBe("Untitled");
+    // Half a surrogate pair is dropped, a whole pair is kept.
+    expect(slackPreviewTitle("a\ud800b\udc00c", "default")).toBe("abc");
+    expect(slackPreviewTitle("\ud800", "default")).toBe("Untitled");
+    expect(slackPreviewTitle("a\ud83d\ude00b", "default")).toBe("a\ud83d\ude00b");
     const long = slackPreviewTitle("n".repeat(400), "default");
     expect([...long]).toHaveLength(SLACK_LIMITS.nameMax);
     expect(long.endsWith("\u2026")).toBe(true);
