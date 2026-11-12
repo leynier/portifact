@@ -81,6 +81,10 @@ Every Vitest config sets `testTimeout: 30_000` and `hookTimeout: 30_000` (the sp
 
 The Workers test pool (`@cloudflare/vitest-pool-workers`) sends every module of a test file's graph, already transformed, in one WebSocket message, and workerd refuses a message over 32 MiB: the files of the suite then crash with "Message is too large" before any test runs. `apps/app` imports the most code and reached the limit as features were added (33.5 MB measured, three quarters of it the inline source maps of dependencies). Its `vitest.config.ts` has a small plugin that drops the source maps of modules under `node_modules`, which more than halves the message; this package's own code keeps its maps, so coverage and stack traces into `src` are unchanged. If another Workers suite fails that way, give it the same plugin.
 
+## Suggestion planners
+
+The planners of decision 0027 (`packages/domain/src/suggestions`) are tested against an independent checker in `packages/domain/src/testing/suggestions/checker.ts`, test code that shares nothing with them: it reads pages with happy-dom (the planners use parse5), compares IDs and references with a regular expression and the markup with text removed, checks the bytes outside the approved range itself, and compares text nodes at their DOM paths with the old text changed at the reviewer's location. `checker.test.ts` holds its mutation tests (a wrong repeated occurrence, a hidden comment change, an offset mistake): keep them failing for wrong results. The seeded corpus (`corpus.ts`) and every counterexample of the two design reviews (`review-findings.test.ts`) run in `bun run test`. Budgets are asserted by counting work (`Work`: parses, renders, anchor indexes, source maps), never by time; the wall-clock benchmark at the size limits stays in the spike (`bun run --cwd spikes/edit-suggestions bench`), outside `bun run test`. Test pages are positioned with happy-dom and `packages/anchors` over the page's `body`, as the bridge positions them.
+
 ## Required cases
 
 Every feature covers:

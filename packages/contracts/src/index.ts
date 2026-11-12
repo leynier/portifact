@@ -40,6 +40,7 @@ export * from "./search.ts";
 export * from "./service-tokens.ts";
 export * from "./share-links.ts";
 export * from "./sso.ts";
+export * from "./suggestions.ts";
 export * from "./usage.ts";
 export * from "./versions.ts";
 export * from "./webhooks.ts";

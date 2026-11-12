@@ -96,6 +96,13 @@ export const TABLE_HOMES = {
   annotation_usage: "regional",
   comment_notices: "regional",
   comment_notice_mutes: "regional",
+  // Edit suggestions (decision 0027): with the artifact's threads.
+  change_items: "regional",
+  edit_drafts: "regional",
+  suggestion_plans: "regional",
+  acceptance_attempts: "regional",
+  acceptance_claims: "regional",
+  preview_codes: "regional",
   review_requests: "regional",
   review_reviewers: "regional",
   review_verdicts: "regional",

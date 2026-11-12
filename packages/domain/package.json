@@ -8,7 +8,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./locale": "./src/locale.ts",
-    "./testing/images": "./src/testing/images.ts"
+    "./testing/images": "./src/testing/images.ts",
+    "./suggestions": "./src/suggestions/index.ts",
+    "./suggestion-display": "./src/suggestions/display.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -16,14 +18,18 @@
     "test:mutation": "NODE_OPTIONS=--max-old-space-size=1024 stryker run"
   },
   "dependencies": {
-    "@portifact/contracts": "workspace:*"
+    "@portifact/anchors": "workspace:*",
+    "@portifact/contracts": "workspace:*",
+    "parse5": "8.1.0"
   },
   "devDependencies": {
+    "@portifact/render": "workspace:*",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
     "fast-check": "^4.0.0",
+    "happy-dom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

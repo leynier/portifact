@@ -137,7 +137,8 @@ export function markAccountGone(db: Db, userId: string, condition: SQL, now: num
  * Forgets a deleted account in the records that stay with other people's artifacts, except those
  * of a held artifact, which the hold's release job erases (`runHoldRelease`): who acted in
  * the lifecycle records (null) and in the comment actions, who wrote the "message deleted"
- * markers and the threads others replied to, and who resolved a thread (`ERASED_ACCOUNT`, or null).
+ * markers and the threads others replied to, and who resolved a thread (`ERASED_ACCOUNT`, or null), and its traces on edit suggestions
+ * (decision 0027): who decided, accepted, closed or ran an acceptance (null), and its drafts.
  * Run once the account's comments are erased (`eraseAuthorFromThread`), so the markers left are
  * those others replied to. At most `limit` rows per statement; `more` while any statement was full.
  */
@@ -150,6 +151,9 @@ export async function eraseAccountTraces(
   const e = schema.annotationEvents;
   const th = schema.annotationThreads;
   const m = schema.annotationMessages;
+  const ci = schema.changeItems;
+  const aa = schema.acceptanceAttempts;
+  const ed = schema.editDrafts;
   const results = (await db.batch([
     db
       .update(le)
@@ -186,6 +190,43 @@ export async function eraseAccountTraces(
         sql`rowid in (select rowid from ${m} where ${m.authorId} = ${userId} and ${m.state} = 'deleted' and not exists (select 1 from ${th} join "legal_holds" on "legal_holds"."artifact_id" = ${th.artifactId} and "legal_holds"."released_at" is null where ${th.id} = ${m.threadId}) limit ${limit})`,
       )
       .returning({ id: m.id }),
+    // Edit suggestions (decision 0027): who decided a suggestion, who accepted or closed a
+    // change-list item and who ran an acceptance are forgotten; the account's drafts go (a held
+    // artifact's stay until its release, which runs this again).
+    db
+      .update(th)
+      .set({ decidedBy: null })
+      .where(
+        sql`rowid in (select rowid from ${th} where ${th.decidedBy} = ${userId} and not ${onHeld(sql`${th.artifactId}`)} limit ${limit})`,
+      )
+      .returning({ id: th.id }),
+    db
+      .update(ci)
+      .set({ createdBy: null })
+      .where(
+        sql`rowid in (select rowid from ${ci} where ${ci.createdBy} = ${userId} and not ${onHeld(sql`${ci.artifactId}`)} limit ${limit})`,
+      )
+      .returning({ id: ci.id }),
+    db
+      .update(ci)
+      .set({ closedBy: null })
+      .where(
+        sql`rowid in (select rowid from ${ci} where ${ci.closedBy} = ${userId} and not ${onHeld(sql`${ci.artifactId}`)} limit ${limit})`,
+      )
+      .returning({ id: ci.id }),
+    db
+      .update(aa)
+      .set({ userId: null })
+      .where(
+        sql`rowid in (select rowid from ${aa} where ${aa.userId} = ${userId} and not ${onHeld(sql`${aa.artifactId}`)} limit ${limit})`,
+      )
+      .returning({ id: aa.id }),
+    db
+      .delete(ed)
+      .where(
+        sql`rowid in (select rowid from ${ed} where ${ed.userId} = ${userId} and not ${onHeld(sql`${ed.artifactId}`)} limit ${limit})`,
+      )
+      .returning({ id: ed.userId }),
   ])) as unknown[][];
   return { more: results.some((rows) => rows.length >= limit) };
 }

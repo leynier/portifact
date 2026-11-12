@@ -48,6 +48,7 @@ export * from "./share-links.ts";
 export * from "./slack.ts";
 export * from "./sources.ts";
 export * from "./sso.ts";
+export * from "./suggestions-switch.ts";
 export * from "./terms.ts";
 export * from "./text-diff.ts";
 export * from "./text-read.ts";

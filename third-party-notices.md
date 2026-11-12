@@ -151,7 +151,7 @@ The CLI binary is compiled with Bun and embeds the Bun runtime, which is MIT lic
 | dompurify | (MPL-2.0 OR Apache-2.0) | Workers |
 | drizzle-orm | Apache-2.0 | Workers |
 | elkjs | EPL-2.0 OR GPL-3.0-or-later | Workers |
-| entities | BSD-2-Clause | Workers |
+| entities | BSD-2-Clause | Workers, Web pages, CLI |
 | es-toolkit | MIT | Workers |
 | fflate | MIT | Web pages |
 | github-slugger | ISC | Workers |
@@ -185,6 +185,7 @@ The CLI binary is compiled with Bun and embeds the Bun runtime, which is MIT lic
 | nanostores | MIT | Workers |
 | normalize-path | MIT | Web pages |
 | package-manager-detector | MIT | Workers |
+| parse5 | MIT | Workers, Web pages, CLI |
 | path-data-parser | MIT | Workers |
 | points-on-curve | MIT | Workers |
 | points-on-path | MIT | Workers |
@@ -8168,6 +8169,35 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### parse5
+
+- License: MIT
+- Source: https://github.com/inikulin/parse5
+
+LICENSE:
+
+```text
+Copyright (c) 2013-2019 Ivan Nikulin (ifaaan@gmail.com, https://github.com/inikulin)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 ### path-data-parser

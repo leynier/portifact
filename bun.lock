@@ -224,14 +224,18 @@
       "name": "@portifact/domain",
       "version": "0.0.0",
       "dependencies": {
+        "@portifact/anchors": "workspace:*",
         "@portifact/contracts": "workspace:*",
+        "parse5": "8.1.0",
       },
       "devDependencies": {
+        "@portifact/render": "workspace:*",
         "@stryker-mutator/core": "catalog:",
         "@stryker-mutator/vitest-runner": "catalog:",
         "@types/node": "catalog:",
         "@vitest/coverage-istanbul": "catalog:",
         "fast-check": "^4.0.0",
+        "happy-dom": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },

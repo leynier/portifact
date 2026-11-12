@@ -412,6 +412,10 @@ Question 2 of decision 0025 (may an EU owner's preview name the artifact) is ass
 
 Released CLIs: Slack connections never appear in the owner side's listing, so no CLI release has to come first.
 
+### Suggestions
+
+Edit suggestions ship switched off ([decision 0027](decisions/0027-edit-suggestions.md)). The text delivery is built as stacked pull requests; `SUGGESTIONS_ENABLED="true"` goes on `portifact-app` and `portifact-jobs` (never in a `wrangler.jsonc`) only when the whole delivery works and its release checks pass: the decision's "Deliveries" lists them (the e2e suite in every project, the browser differential with WebKit, crash tests for every recovery row and a screen reader pass). The legal pages and `TERMS_VERSION` change in the delivery's last pull request. A test in `packages/domain` fails when the variable appears in a Worker's `wrangler.jsonc`.
+
 ## Platforms
 
 `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64` and `windows-arm64`. Unix archives are `.tar.gz` and Windows archives are `.zip`; each holds a single executable that does not need Node or Bun.

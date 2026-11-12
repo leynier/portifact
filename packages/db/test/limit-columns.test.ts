@@ -195,17 +195,12 @@ describe("migration 0027: account limits as columns", () => {
   it("still keeps annotation usage on every write and refuses one past the limit", async () => {
     const owner = "u_annotator";
     await insertArtifact("annotate01", owner, "draft");
-    await db().insert(schema.annotationThreads).values({
-      id: "t1",
-      artifactId: "annotate01",
-      versionId: "v1",
-      ownerId: owner,
-      authorId: "u_author",
-      target: "{}",
-      targetBytes: 30,
-      path: "index.html",
-      updatedAt: NOW,
-    });
+    // Raw SQL: the schema has columns added after migration 0027 (decision 0027's suggestions).
+    await env.MIGRATION_DB.prepare(
+      "INSERT INTO annotation_threads (id, artifact_id, version_id, owner_id, author_id, target, target_bytes, path, updated_at) VALUES ('t1', 'annotate01', 'v1', ?, 'u_author', '{}', 30, 'index.html', ?)",
+    )
+      .bind(owner, NOW)
+      .run();
     const message = (id: string, bodyBytes: number) =>
       db()
         .insert(schema.annotationMessages)

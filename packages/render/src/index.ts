@@ -29,6 +29,15 @@ export {
   type PolicyOptions,
 } from "./policy.ts";
 export { assertSourceSize, decodeSource, MAX_SOURCE_BYTES, utf8ByteLength } from "./source.ts";
+export {
+  BLOCK_MAP_CONTENT_TYPE,
+  DOCUMENT_RENDERER,
+  RENDERED_CONTENT_TYPE,
+  renderStoredDocument,
+  STORED_RENDERING,
+  type StoredDocumentFile,
+  type StoredDocumentOptions,
+} from "./stored.ts";
 export { escapeText, type RenderedText, renderText } from "./text.ts";
 export { classifyUrl, type UrlTarget } from "./urls.ts";
 export { RENDERER_VERSION, SECURE_RENDERER_VERSION } from "./version.ts";

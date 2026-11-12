@@ -540,6 +540,20 @@
       "when": 1794487730792,
       "tag": "0076_account_deletion_codes",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "6",
+      "when": 1794497711693,
+      "tag": "0077_edit_suggestions",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "6",
+      "when": 1794497712142,
+      "tag": "0078_edit_suggestions_triggers",
+      "breakpoints": true
     }
   ]
 }
