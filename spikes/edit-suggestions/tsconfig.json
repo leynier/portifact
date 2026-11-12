@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": [
+    "src",
+    "test",
+    "bench",
+    "browser",
+    "vitest.config.ts",
+    "vitest.bench.config.ts",
+    "playwright.config.ts"
+  ]
+}
