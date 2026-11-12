@@ -278,6 +278,15 @@ export function valueCountDeltas(
   return [...deltas.values()].filter((entry) => entry.delta !== 0);
 }
 
+/**
+ * A value count after a change: the row is deleted (null) when nothing holds the value any more,
+ * so no indexed value of a removed or erased document stays anywhere.
+ */
+export function nextValueCount(current: number, delta: number): number | null {
+  const next = current + delta;
+  return next > 0 ? next : null;
+}
+
 /** One body of a bulk write, validated. */
 export interface BulkBody {
   text: string;

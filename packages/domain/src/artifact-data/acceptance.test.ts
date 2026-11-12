@@ -596,6 +596,8 @@ describe("erasure", () => {
       operations: 0,
       counts: 0,
       connections: 0,
+      rights: 0,
+      orphanValues: 0,
     });
     expect(object.durable.barriers.get(visitorId("gone"))?.complete).toBe(true);
     const evidence = [...object.durable.ops.values()].filter(
@@ -760,7 +762,11 @@ describe("counting and limits", () => {
     for (const entry of object.charges.filter(
       (item) => item.kind === "index_step" || item.kind === "declare",
     )) {
-      expect(entry.cost.rowsRead).toBeLessThanOrEqual(ARTIFACT_DATA.caps.indexStepDocuments + 20);
+      // A step reads each document it covers, its value and its count once, never every document.
+      expect(entry.cost.rowsRead).toBeLessThanOrEqual(
+        3 * ARTIFACT_DATA.caps.indexStepDocuments + protocols.COMMAND_ROWS,
+      );
+      expect(protocols.withinBound(entry.kind as protocols.OperationKind, entry.cost)).toBe(true);
     }
     const page = value<{ documents: { tag: number }[] }>(
       object.query(
@@ -815,14 +821,17 @@ describe("counting and limits", () => {
     const { object, base } = withCollection("append", { limits });
     const mine = value<{ _id: string }>(object.create(op(base), alice, "items", { n: 1 }, tight));
     const other = value<{ _id: string }>(object.create(op(base), bob, "items", { n: 2 }, tight));
-    while (object.create(op(base), OWNER, "items", { fill: true }, tight).ok) {
-      // spend growth
+    const fills: string[] = [];
+    for (;;) {
+      const filled = object.create(op(base), OWNER, "items", { fill: true }, tight);
+      if (!filled.ok) break;
+      fills.push(value<{ _id: string }>(filled)._id);
     }
     while (object.exportPage(base, OWNER, null, 500, tight).ok) {
       // spend export
     }
-    while (object.bulkRemove(op(base), OWNER, "items", ["missing"], tight).ok) {
-      // spend cleanup
+    for (const id of fills) {
+      if (!object.remove(op(base), OWNER, "items", id, tight).ok) break;
     }
     expect(object.remove(op(base), OWNER, "items", other._id, tight)).toMatchObject({
       ok: false,
@@ -874,7 +883,8 @@ describe("counting and limits", () => {
     const downgraded = context({ limits: { ...ROOMY, documentsPerCollection: 5 } });
     const counted = object.count(base, OWNER, { collection: "items" }, downgraded);
     expect(value(counted)).toEqual({ documents: 12 });
-    expect(counted.cost.rowsRead).toBeLessThanOrEqual(3);
+    // The control record, the collection and its counter: no document row.
+    expect(counted.cost.rowsRead).toBeLessThanOrEqual(5);
     expect(
       value(object.count(base, OWNER, { collection: "items", by: visitorId("bob") }, downgraded)),
     ).toEqual({
@@ -1178,7 +1188,8 @@ describe("live, storage, audit, export", () => {
       for (const shape of shapes) {
         const answer = object.query(base, OWNER, { ...shape, limit }, ctx);
         expect(answer.ok).toBe(true);
-        expect(answer.cost.rowsRead).toBeLessThanOrEqual(limit + 1 + 5);
+        // The page plus one, and fixed rows: the control record, the collection, its fields and the seek.
+        expect(answer.cost.rowsRead).toBeLessThanOrEqual(limit + 1 + 7);
       }
     }
     for (const shape of [

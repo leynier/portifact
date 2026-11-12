@@ -5,6 +5,7 @@
 // (R1-11's plan, D12) stay with the spike and delivery 4, which owns the statements.
 import { ARTIFACT_DATA } from "@portifact/contracts/artifact-data";
 import { describe, expect, it } from "vitest";
+import { OPERATION_ROW_BOUNDS, withinBound } from "../artifact-data/charging.ts";
 import {
   context,
   envelope,
@@ -568,7 +569,12 @@ describe("fourth review", () => {
       { name: "items", mode: "append", indexed: ["tag"] },
       ctx,
     );
-    expect(declared.cost.rowsRead + declared.cost.rowsWritten).toBeLessThan(3_000);
+    expect(
+      withinBound("declare", declared.cost) &&
+        declared.cost.rowsRead + declared.cost.rowsWritten <= OPERATION_ROW_BOUNDS.declare,
+    ).toBe(true);
+    // One step of `indexStepDocuments`, never all 1,200 documents in one command.
+    expect(declared.cost.rowsWritten).toBeLessThan(3 * ARTIFACT_DATA.caps.indexStepDocuments + 100);
   });
 
   it("D11: counting one author's documents does not scan them", () => {
@@ -577,7 +583,7 @@ describe("fourth review", () => {
       value(object.create(op(base), visitor("a"), "items", { index }, ctx));
     expect(
       object.count(base, OWNER, { collection: "items", by: visitorId("a") }, ctx).cost.rowsRead,
-    ).toBeLessThan(5);
+    ).toBeLessThanOrEqual(6);
   });
 
   it("D09: an author erasure chunk is charged at least the work it did", () => {

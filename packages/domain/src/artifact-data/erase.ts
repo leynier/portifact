@@ -67,8 +67,9 @@ const OLDER = refuse("stale", "this step is older than the prepared erase");
 /**
  * Step one: records `erasing { id, generation, epoch }` and closes live connections at that
  * barrier. On an empty object it binds the identity. The same ID repeats while its target holds;
- * another ID while one is prepared is a conflict. Only a new intent passes the issue-time horizon
- * and the day's admission of distinct intents (`erase.intentsPerDay`).
+ * another ID while one is prepared is a conflict. Only a new intent passes the issue-time horizon,
+ * and only an optional owner reset the day's admission of distinct intents (`erase.intentsPerDay`):
+ * an erase the lifecycle requires (`requiredErase`) is never rate limited.
  */
 export function prepareErase(
   stored: DataControl | null,
@@ -89,7 +90,7 @@ export function prepareErase(
   }
   const horizon = checkHorizon(eraseId, now);
   if (!horizon.ok) return horizon;
-  if (intentsToday >= ARTIFACT_DATA.erase.intentsPerDay) {
+  if (envelope.requiredErase === undefined && intentsToday >= ARTIFACT_DATA.erase.intentsPerDay) {
     return refuse("rate_limited", "too many erase intents today, try again tomorrow");
   }
   return accept({

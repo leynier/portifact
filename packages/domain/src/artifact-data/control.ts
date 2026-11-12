@@ -22,7 +22,8 @@ export function namesAnotherArtifact(stored: DataControl, envelope: DataEnvelope
 }
 
 /**
- * The one rule, checked in this order: another artifact or region is refused in every mode;
+ * The one rule, checked in this order: a request carrying a required erase's reason is refused
+ * (only the jobs Worker sets it, on erase steps); another artifact or region is refused in every mode;
  * maintenance needs only that. A quarantine refuses all but the operator. Another owner is stale
  * (ownership moves only by a fence). An older epoch is stale; a newer one is admitted and never
  * adopted, so a request never consumes the epoch a pending fence needs. Another generation is
@@ -34,6 +35,9 @@ export function admit(
   envelope: DataEnvelope,
   mode: AdmitMode,
 ): Verdict {
+  if (mode.kind === "request" && envelope.requiredErase !== undefined) {
+    return refuse("invalid_input", "a document command cannot carry an erase reason");
+  }
   if (stored === null) return { ok: true, empty: true };
   if (namesAnotherArtifact(stored, envelope)) return FORBIDDEN;
   if (mode.kind === "maintenance") return { ok: true, empty: false };

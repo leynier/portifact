@@ -26,9 +26,11 @@ import {
   authorTraces,
   type Doc,
   MemoryObject,
+  orphanValueCounts,
 } from "../testing/artifact-data-object.ts";
-import { classLimit, measuredCharge } from "./charging.ts";
+import { classLimit, measuredCharge, withinBound } from "./charging.ts";
 import type { Caller } from "./documents.ts";
+import { COUNTER_WRITE_ROWS } from "./metering.ts";
 
 const AUTHORS = ["a", "b", "c"] as const;
 const COLLECTIONS = ["mine", "board", "wiki"] as const;
@@ -247,7 +249,9 @@ function checkStep(
     applied.add(key);
   }
   // Every row accessed is accounted for, by an oracle no charge reads.
-  expect(object.accounted()).toBeGreaterThanOrEqual(object.accesses);
+  expect(object.accounted(), JSON.stringify(step.command)).toBe(
+    object.accesses + COUNTER_WRITE_ROWS * object.counterWrites,
+  );
   // Author erasure is terminal.
   for (const [author, barrier] of after.barriers) {
     if (barrier.complete) erased.add(author);
@@ -261,8 +265,14 @@ function checkStep(
       operations: 0,
       counts: 0,
       connections: 0,
+      rights: 0,
+      orphanValues: 0,
     });
   }
+  // No indexed value of a removed or erased document stays anywhere.
+  expect(orphanValueCounts(object)).toBe(0);
+  // No operation exceeded its bound (the object throws on one, so this restates it).
+  for (const entry of object.checked) expect(withinBound(entry.kind, entry.cost)).toBe(true);
 }
 
 /** In `own` collections a visitor's answers and live messages name only their own documents. */

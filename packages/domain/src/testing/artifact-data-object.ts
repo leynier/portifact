@@ -54,7 +54,7 @@ import {
   type ExportPage,
   editorAfter,
   emptyDay,
-  flushed,
+  flushPending,
   growthRefusal,
   type IndexField,
   inbound,
@@ -74,7 +74,9 @@ import {
   newControl,
   nextAlarm,
   nextBuild,
+  nextValueCount,
   noPendingReads,
+  OPERATION_ROW_BOUNDS,
   type OperationKind,
   operationKey,
   outbound,
@@ -95,6 +97,8 @@ import {
   pruneAllowed,
   pruneCutoffs,
   quarantine,
+  RETAINED_CLASSES,
+  type RetainedClass,
   readScope,
   readyFields,
   receives,
@@ -111,7 +115,6 @@ import {
   touched,
   uniqueValue,
   valueCountDeltas,
-  withinBound,
 } from "../artifact-data/index.ts";
 
 export interface Doc {
@@ -248,6 +251,7 @@ export interface Faults {
 }
 
 type Context = { now: number; limits: ArtifactDataLimits };
+type TopLevel = { control: DataControl | null; fields: IndexField[]; alarm: number | null };
 type Proceed = Extract<MutationPlan, { decision: "proceed" }>;
 
 const key2 = (...parts: (string | number)[]) => parts.join("\u0000");
@@ -260,10 +264,8 @@ export class MemoryObject {
   attempts = new Map<string, number>();
   sockets = new Map<string, Socket>();
   charges: ChargeEntry[] = [];
-  /** Operations whose measured rows passed their stated bound (`withinBound`). */
-  exceeded: { kind: OperationKind; cost: Cost }[] = [];
   faults: Faults = {};
-  /** The independent oracle: every row accessed, never reset, read by no charge. */
+  /** The independent oracle: every row the store saw, never reset, read by no charge. */
   accesses = 0;
   /** Accounted rows that left the day counters: pruned day rows and pending lost to eviction. */
   retired = 0;
@@ -271,22 +273,88 @@ export class MemoryObject {
   #ids = 0;
   /** The open transaction's undo log, or null outside one. */
   #undo: (() => void)[] | null = null;
+  #raw: TopLevel = { control: null, fields: [], alarm: null };
+  #active = 0;
+  #bookkeeping = 0;
+  /** Rows metering took (charged, counted or deferred): every access must reach it. */
+  #metered = 0;
+  /** Day rows metering wrote: each costs the stated fixed overhead (`COUNTER_WRITE_ROWS`). */
+  counterWrites = 0;
+  /** Every operation checked against its bound: a bound passed throws. */
+  checked: { kind: OperationKind; cost: Cost; failed: boolean }[] = [];
+  /** The bounds checked: `OPERATION_ROW_BOUNDS`, which a negative-control test may tighten. */
+  rowBounds: Record<OperationKind, number> = { ...OPERATION_ROW_BOUNDS };
 
   constructor(readonly name = "obj") {
-    this.durable = this.#watchAll(emptyDurable());
+    this.durable = this.#instrument(emptyDurable());
   }
 
-  // Primitive accesses, each counted as a row.
+  // The instrumented store. Every map of `durable` counts its own reads (`get`, `has`, each entry
+  // an iteration yields) and writes (`set`, `delete`), and `control`, `fields` and `alarm` count
+  // through accessors, while a command is running; nested index values count where they are
+  // written (`#tickValues`). A seek through an index counts the rows it returns plus its probe
+  // (`#select`). Metering's own writes are bookkeeping: counted apart, as the stated fixed overhead
+  // of each counter write. Nothing the object does to durable state escapes the count.
 
-  #read<T>(value: T): T {
-    this.#cost.rowsRead += 1;
-    this.accesses += 1;
+  #tick(rows: number, write: boolean): void {
+    if (this.#active === 0 || this.#bookkeeping > 0 || rows === 0) return;
+    if (write) this.#cost.rowsWritten += rows;
+    else this.#cost.rowsRead += rows;
+    this.accesses += rows;
+  }
+
+  /** Index value rows, which the model keeps inside their document. */
+  #tickValues(rows: number): void {
+    this.#tick(rows, true);
+  }
+
+  /** Runs object code against the store: accesses count only inside it. */
+  #running<T>(work: () => T): T {
+    const outer = this.#active === 0;
+    const seen = this.accesses;
+    const metered = this.#metered;
+    this.#active += 1;
+    let value: T;
+    try {
+      value = work();
+    } finally {
+      this.#active -= 1;
+    }
+    // No code path may touch the store without metering what it touched.
+    if (outer && this.accesses - seen !== this.#metered - metered) {
+      throw new Error(
+        `unmetered access: the store saw ${this.accesses - seen} rows, metering took ${this.#metered - metered}`,
+      );
+    }
     return value;
   }
 
-  #wrote(rows = 1): void {
-    this.#cost.rowsWritten += rows;
-    this.accesses += rows;
+  /** Metering's own writes: bookkeeping, not counted as work. */
+  #keeping<T>(work: () => T): T {
+    this.#bookkeeping += 1;
+    try {
+      return work();
+    } finally {
+      this.#bookkeeping -= 1;
+    }
+  }
+
+  /**
+   * A seek through an index: the entries that match, in order, at most `limit`; it counts the
+   * rows it returns plus its probe, as an index seek in SQLite reads them.
+   */
+  #select<K, V>(
+    map: Map<K, V>,
+    keep: (key: K, value: V) => boolean,
+    options: { order?: (a: [K, V], b: [K, V]) => number; limit?: number } = {},
+  ): [K, V][] {
+    let rows = [...(Map.prototype.entries.call(map) as IterableIterator<[K, V]>)].filter(
+      ([key, value]) => keep(key, value),
+    );
+    if (options.order !== undefined) rows.sort(options.order);
+    if (options.limit !== undefined) rows = rows.slice(0, options.limit);
+    this.#tick(rows.length + 1, false);
+    return rows;
   }
 
   #newId(): string {
@@ -298,14 +366,14 @@ export class MemoryObject {
    * A transaction: what it changed is undone when the function throws. Storage maps record every
    * `set` and `delete` in an undo log (`#watch`), an entry mutated in place is first replaced by a
    * copy (`#own`), so the logged value stays intact, and the top-level fields are restored from a
-   * shallow copy. The cost is the rows a command touches, not the size of the state.
+   * capture. The cost is the rows a command touches, not the size of the state.
    */
   #transaction<T>(work: () => T): T {
     const outer = this.#undo === null;
     const undo = this.#undo ?? [];
     this.#undo = undo;
     const mark = undo.length;
-    const top = { ...this.durable };
+    const top = this.#capture();
     try {
       const value = work();
       if (outer) this.#undo = null;
@@ -313,13 +381,26 @@ export class MemoryObject {
     } catch (error) {
       for (let index = undo.length - 1; index >= mark; index--) (undo[index] as () => void)();
       undo.length = mark;
-      Object.assign(this.durable, top);
+      this.#restore(top);
       if (outer) this.#undo = null;
       throw error;
     }
   }
 
-  /** Records every change of a storage map in the open transaction's undo log. */
+  #capture(): { maps: Record<string, unknown>; raw: TopLevel } {
+    const maps: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(Object.getOwnPropertyDescriptors(this.durable))) {
+      if ("value" in value) maps[name] = value.value;
+    }
+    return { maps, raw: { ...this.#raw } };
+  }
+
+  #restore(top: { maps: Record<string, unknown>; raw: TopLevel }): void {
+    Object.assign(this.durable, top.maps);
+    Object.assign(this.#raw, top.raw);
+  }
+
+  /** Counts every access of a storage map and records every change in the undo log. */
   #watch<K, V>(map: Map<K, V>): Map<K, V> {
     const note = (key: K) => {
       if (this.#undo === null) return;
@@ -330,21 +411,60 @@ export class MemoryObject {
         else Map.prototype.delete.call(map, key);
       });
     };
-    const define = (name: string, value: unknown) =>
+    const define = (name: string | symbol, value: unknown) =>
       Object.defineProperty(map, name, { value, enumerable: false, configurable: true });
+    const counted = <T>(iterator: Iterable<T>) => {
+      const self = this;
+      return (function* () {
+        for (const item of iterator) {
+          self.#tick(1, false);
+          yield item;
+        }
+      })();
+    };
+    define("get", (key: K) => {
+      this.#tick(1, false);
+      return Map.prototype.get.call(map, key);
+    });
+    define("has", (key: K) => {
+      this.#tick(1, false);
+      return Map.prototype.has.call(map, key);
+    });
     define("set", (key: K, value: V) => {
+      this.#tick(1, true);
       note(key);
       return Map.prototype.set.call(map, key, value);
     });
     define("delete", (key: K) => {
+      this.#tick(1, true);
       note(key);
       return Map.prototype.delete.call(map, key);
     });
+    define("values", () => counted(Map.prototype.values.call(map) as Iterable<V>));
+    define("keys", () => counted(Map.prototype.keys.call(map) as Iterable<K>));
+    define("entries", () => counted(Map.prototype.entries.call(map) as Iterable<[K, V]>));
+    define(Symbol.iterator, () => counted(Map.prototype.entries.call(map) as Iterable<[K, V]>));
     return map;
   }
 
-  #watchAll(durable: Durable): Durable {
+  /** Watches every map and puts `control`, `fields` and `alarm` behind counting accessors. */
+  #instrument(durable: Durable): Durable {
     for (const value of Object.values(durable)) if (value instanceof Map) this.#watch(value);
+    for (const name of ["control", "fields", "alarm"] as const) {
+      (this.#raw as Record<string, unknown>)[name] = durable[name];
+      Object.defineProperty(durable, name, {
+        enumerable: true,
+        configurable: true,
+        get: () => {
+          this.#tick(1, false);
+          return this.#raw[name];
+        },
+        set: (value: unknown) => {
+          this.#tick(1, true);
+          (this.#raw as Record<string, unknown>)[name] = value;
+        },
+      });
+    }
     return durable;
   }
 
@@ -355,13 +475,19 @@ export class MemoryObject {
     return copy;
   }
 
+  /**
+   * The answer's storage report: the control record the command already holds and the file's size
+   * (`databaseSize` on real storage), so it reads no rows and is not work.
+   */
   #storage(): StorageReport {
-    const control = this.durable.control;
-    return {
-      generation: control?.generation ?? 0,
-      seq: control?.storageSeq ?? 0,
-      bytes: this.fileBytes(),
-    };
+    return this.#keeping(() => {
+      const control = this.durable.control;
+      return {
+        generation: control?.generation ?? 0,
+        seq: control?.storageSeq ?? 0,
+        bytes: this.fileBytes(),
+      };
+    });
   }
 
   dataBytes(): number {
@@ -380,7 +506,8 @@ export class MemoryObject {
       d.rates.size +
       d.days.size +
       d.ended.size +
-      d.rights.size;
+      d.rights.size +
+      d.valueCounts.size;
     return this.dataBytes() + 64 * (rows + d.documents.size) + 1024;
   }
 
@@ -426,30 +553,64 @@ export class MemoryObject {
    * day's pending usage, the charge or a synchronous flush, a visitor's rights row) and touches
    * the control record when a counter row was written by anything but the work's own charge.
    */
-  #meter(terminal: Terminal, now: number, kind: OperationKind | null): DayCounters | null {
+  #meter(
+    terminal: Terminal,
+    now: number,
+    kind: OperationKind | null,
+    failed = false,
+  ): DayCounters | null {
     const cost = { ...this.#cost };
-    if (kind !== null && !withinBound(kind, cost)) this.exceeded.push({ kind, cost });
-    const control = this.durable.control;
-    const author = terminal.kind === "charged" ? (terminal.author ?? null) : null;
-    const result = meter({
-      terminal,
-      cost,
-      pending: this.pending,
-      day: (day) => this.#dayRow(day),
-      ...(author === null ? {} : { rightsUsed: this.#rightsUsed(author, now) }),
-      bound: control !== null,
-      now,
+    this.#metered += cost.rowsRead + cost.rowsWritten;
+    if (kind !== null) {
+      this.checked.push({ kind, cost, failed });
+      // A bound that can be passed is a defect: every test running the object fails on it.
+      if (cost.rowsRead + cost.rowsWritten > this.rowBounds[kind]) {
+        throw new Error(
+          `${kind} measured ${cost.rowsRead + cost.rowsWritten} rows, past its bound`,
+        );
+      }
+    }
+    const last = this.#keeping(() => {
+      const control = this.durable.control;
+      const author = terminal.kind === "charged" ? (terminal.author ?? null) : null;
+      const result = meter({
+        terminal,
+        cost,
+        pending: this.pending,
+        day: (day) => this.#dayRow(day),
+        ...(author === null ? {} : { rightsUsed: this.#rightsUsed(author, now) }),
+        bound: control !== null,
+        now,
+      });
+      for (const day of result.days) this.durable.days.set(day.day, day);
+      this.counterWrites += result.days.length;
+      if (result.rights !== null) {
+        this.durable.rights.set(key2(result.rights.author, dayOf(now)), result.rights.used);
+      }
+      this.pending = result.pending;
+      if (terminal.kind !== "charged" && result.days.length > 0 && control !== null) {
+        this.durable.control = touched(control, false);
+      }
+      return result.days.at(-1) ?? null;
     });
-    for (const day of result.days) this.durable.days.set(day.day, day);
-    if (result.rights !== null) {
-      this.durable.rights.set(key2(result.rights.author, dayOf(now)), result.rights.used);
-    }
-    this.pending = result.pending;
-    if (terminal.kind === "uncharged" && result.days.length > 0 && control !== null) {
-      this.durable.control = touched(control, false);
-    }
     this.#rearm(now);
-    return result.days.at(-1) ?? null;
+    return last;
+  }
+
+  /**
+   * Live work outside a command (a renewal, an inbound message, a notification): what it read is
+   * metered as an uncharged outcome of its own, refused when `refused` says so.
+   */
+  #uncharged<T>(now: number, work: () => T, refused: (value: T) => boolean = () => false): T {
+    const saved = this.#cost;
+    this.#cost = { rowsRead: 0, rowsWritten: 0 };
+    try {
+      const value = work();
+      this.#meterUncharged(refused(value), now, null);
+      return value;
+    } finally {
+      this.#cost = saved;
+    }
   }
 
   /** Meters an outcome that wrote nothing durable but may flush, in its own transaction. */
@@ -465,12 +626,24 @@ export class MemoryObject {
     author: string | null = null,
     bound: OperationKind | null = null,
   ): void {
-    const usedBefore = author === null ? this.#used(charge, now) : this.#rightsUsed(author, now);
-    const folded = charge === "protected" ? this.pending.deferred : 0;
+    const before = this.#keeping(() => ({
+      used: author === null ? this.#used(charge, now) : this.#rightsUsed(author, now),
+      folded: charge === "protected" ? this.pending.deferred : 0,
+    }));
     const cost = { ...this.#cost };
-    const day = this.#meter({ kind: "charged", charge, author }, now, bound) as DayCounters;
-    const dayAfter = author === null ? day[charge] : this.#rightsUsed(author, now);
-    this.charges.push({ kind, charge, cost, usedBefore, dayAfter, folded, failed });
+    const day = this.#meter({ kind: "charged", charge, author }, now, bound, failed) as DayCounters;
+    const dayAfter = this.#keeping(() =>
+      author === null ? day[charge] : this.#rightsUsed(author, now),
+    );
+    this.charges.push({
+      kind,
+      charge,
+      cost,
+      usedBefore: before.used,
+      dayAfter,
+      folded: before.folded,
+      failed,
+    });
   }
 
   #protected(kind: string, now: number): void {
@@ -499,16 +672,15 @@ export class MemoryObject {
   }
 
   #setControl(control: DataControl): void {
-    this.#wrote();
     this.durable.control = control;
   }
 
   #barred(author: string): boolean {
-    return this.#read(this.durable.barriers.has(author));
+    return this.durable.barriers.has(author);
   }
 
   #facts(name: string): CollectionFacts | null {
-    const collection = this.#read(this.durable.collections.get(name));
+    const collection = this.durable.collections.get(name);
     if (collection === undefined) return null;
     return { ...collection, fields: declaredFields(this.durable.fields, name) };
   }
@@ -516,61 +688,79 @@ export class MemoryObject {
   #reads(now: number, actor: MutationActor): MutationReads {
     let attempts: number | null = null;
     return {
-      prior: (key) => this.#read(this.durable.ops.get(key)) ?? null,
+      prior: (key) => this.durable.ops.get(key) ?? null,
       barred: (author) => this.#barred(author),
       collection: (name) => this.#facts(name),
       document: (collection, id) => {
-        const doc = this.#read(this.durable.documents.get(key2(collection, id)));
+        const doc = this.durable.documents.get(key2(collection, id));
         return doc === undefined ? null : { creator: doc.author, size: doc.size };
       },
-      documentsSize: (collection, ids) => {
-        let size = 0;
-        for (const id of ids) {
-          const doc = this.#read(this.durable.documents.get(key2(collection, id)));
-          if (doc === undefined) return null;
-          size += doc.size;
-        }
-        return size;
-      },
-      used: (charge) => this.#read(this.#used(charge, now)),
-      rights: (author) => this.#read(this.#rightsUsed(author, now)),
+      used: (charge) => this.#used(charge, now),
+      rights: (author) => this.#rightsUsed(author, now),
       callerAttempts: () => {
         attempts ??= this.#attempt(actor, now);
         return attempts;
       },
-      rate: (subject, kind, window) =>
-        this.#read(this.durable.rates.get(key2(subject, kind, window)) ?? 0),
+      rate: (subject, kind, window) => this.durable.rates.get(key2(subject, kind, window)) ?? 0,
     };
   }
 
+  /**
+   * Sets the next alarm from the oldest row of each retained class (one index seek each) and the
+   * pending deadline. Its accesses are protected bookkeeping, deferred to the next counter write
+   * like an alarm's pruning, so scheduling never writes a day row of its own.
+   */
   #rearm(now: number, more = false): void {
+    const saved = this.#cost;
+    this.#cost = { rowsRead: 0, rowsWritten: 0 };
     const d = this.durable;
-    const min = (values: Iterable<number>) => {
-      let best: number | null = null;
-      for (const value of values) best = best === null || value < best ? value : best;
-      return best;
+    const oldest = <K, V>(
+      map: Map<K, V>,
+      age: (key: K, value: V) => number,
+      keep = (_k: K, _v: V) => true,
+    ) => {
+      const [row] = this.#select(map, keep, {
+        order: (a, b) => age(a[0], a[1]) - age(b[0], b[1]),
+        limit: 1,
+      });
+      return row === undefined ? null : age(row[0], row[1]);
+    };
+    const part = (key: string, index: number) => Number(key.split("\u0000")[index]);
+    const min = (...values: (number | null)[]) => {
+      const present = values.filter((value): value is number => value !== null);
+      return present.length === 0 ? null : Math.min(...present);
     };
     const deadlines = [...this.sockets.values()]
       .filter((socket) => socket.closed === null)
       .map((socket) => socket.attachment.deadline);
+    const control = d.control;
     d.alarm = nextAlarm({
-      control: d.control,
+      control,
       deadlines,
       oldest: {
-        operation: min([...d.ops.values(), ...d.ended.values()].map((row) => row.at)),
-        delivered: min(
-          [...d.audit.values()].filter((row) => row.state === "delivered").map((row) => row.at),
+        operation: min(
+          oldest(d.ops, (_k, v) => v.at),
+          oldest(d.ended, (_k, v) => v.at),
         ),
-        rateWindow: min([...d.rates.keys()].map((key) => Number(key.split("\u0000")[2]))),
-        day: min([
-          ...d.days.keys(),
-          ...[...d.rights.keys()].map((key) => Number(key.split("\u0000")[1])),
-        ]),
+        delivered: oldest(
+          d.audit,
+          (_k, v) => v.at,
+          (_k, v) => v.state === "delivered",
+        ),
+        rateWindow: oldest(d.rates, (k) => part(k, 2)),
+        day: min(
+          oldest(d.days, (k) => k),
+          oldest(d.rights, (k) => part(k, 1)),
+        ),
       },
       more,
-      pendingFlushAt: d.control === null ? null : pendingDeadline(this.pending),
+      pendingFlushAt: control === null ? null : pendingDeadline(this.pending),
       now,
     });
+    const rows = this.#cost.rowsRead + this.#cost.rowsWritten;
+    this.#metered += rows;
+    this.pending = { ...this.pending, deferred: this.pending.deferred + rows };
+    this.#cost = saved;
   }
 
   // The mutation shape.
@@ -596,67 +786,77 @@ export class MemoryObject {
     },
     after?: (value: T) => void,
   ): Answer<T> {
-    let plan: MutationPlan | null = null;
-    const now = context.now;
-    const answer = this.#answer(() => {
-      try {
-        return this.#transaction(() => {
-          plan = planMutation(
-            this.#read(this.durable.control),
-            {
+    return this.#running(() => {
+      let plan: MutationPlan | null = null;
+      const now = context.now;
+      const answer = this.#answer(() => {
+        try {
+          return this.#transaction(() => {
+            plan = planMutation(
+              this.durable.control,
+              {
+                kind,
+                envelope,
+                actor,
+                now,
+                limits: context.limits,
+                hash: requestHash(request),
+                ...extra,
+              },
+              this.#reads(now, actor),
+            );
+            if (plan.decision === "refused") fail(plan.refusal);
+            if (plan.decision === "replayed") {
+              return { __replayed: plan.answer } as unknown as T;
+            }
+            if (plan.binds) this.#setControl(plan.control);
+            if (plan.rate !== null) this.#countRate(plan.rate);
+            const done = work(plan);
+            if (this.faults.afterWork?.(kind)) throw new Failure("conflict", "injected fault");
+            const audit = auditObligation(
               kind,
-              envelope,
               actor,
-              now,
-              limits: context.limits,
-              hash: requestHash(request),
-              ...extra,
-            },
-            this.#reads(now, actor),
-          );
-          if (plan.decision === "refused") fail(plan.refusal);
-          if (plan.decision === "replayed") {
-            return { __replayed: plan.answer } as unknown as T;
-          }
-          if (plan.binds) this.#setControl(plan.control);
-          if (plan.rate !== null) this.#countRate(plan.rate);
-          const done = work(plan);
-          if (this.faults.afterWork?.(kind)) throw new Failure("conflict", "injected fault");
-          const audit = auditObligation(kind, actor, done.detail ?? { documents: done.documents });
-          if (audit !== null) this.#audit(plan, envelope.ownerId, audit, now);
-          this.durable.control = touched(
-            this.durable.control as DataControl,
-            payloadChanged({ documents: done.documents, declared: done.declared }),
-          );
-          this.#charge(kind, plan.charge, now, false, plan.rightsAuthor, kind);
-          return done.value;
-        });
-      } catch (error) {
-        const proceeded = plan as MutationPlan | null;
-        if (proceeded !== null && proceeded.decision === "proceed") {
-          this.#transaction(() => {
-            if (this.durable.control === null) this.#setControl(proceeded.control);
-            if (proceeded.rate !== null) this.#countRate(proceeded.rate);
-            this.durable.control = touched(this.durable.control as DataControl, false);
-            this.#charge(kind, proceeded.charge, now, true, proceeded.rightsAuthor);
+              done.detail ?? { documents: done.documents },
+            );
+            if (audit !== null) this.#audit(plan, envelope.ownerId, audit, now);
+            this.durable.control = touched(
+              this.durable.control as DataControl,
+              payloadChanged({ documents: done.documents, declared: done.declared }),
+            );
+            this.#charge(kind, plan.charge, now, false, plan.rightsAuthor, kind);
+            return done.value;
           });
-        } else {
-          this.#meterUncharged(true, now, kind);
+        } catch (error) {
+          const proceeded = plan as MutationPlan | null;
+          if (proceeded !== null && proceeded.decision === "proceed") {
+            this.#transaction(() => {
+              if (this.durable.control === null) this.#setControl(proceeded.control);
+              if (proceeded.rate !== null) this.#countRate(proceeded.rate);
+              this.durable.control = touched(this.durable.control as DataControl, false);
+              this.#charge(kind, proceeded.charge, now, true, proceeded.rightsAuthor, kind);
+            });
+          } else {
+            this.#meterUncharged(true, now, kind);
+          }
+          throw error;
         }
-        throw error;
+      });
+      if (answer.ok && "replayed" in answer) {
+        const replayed = plan as MutationPlan | null;
+        if (replayed?.decision === "replayed" && replayed.charge === "protected") {
+          this.#transaction(() => this.#charge(kind, "protected", now, false, null, kind));
+        } else {
+          this.#meterUncharged(false, now, kind);
+        }
+        return { ...answer, storage: this.#storage() };
       }
+      if (answer.ok) after?.(answer.value);
+      return answer;
     });
-    if (answer.ok && "replayed" in answer) {
-      this.#meterUncharged(false, now, kind);
-      return { ...answer, storage: this.#storage() };
-    }
-    if (answer.ok) after?.(answer.value);
-    return answer;
   }
 
   #countRate(rate: { subject: string; kind: string; window: number }): void {
     const key = key2(rate.subject, rate.kind, rate.window);
-    this.#wrote();
     this.durable.rates.set(key, (this.durable.rates.get(key) ?? 0) + 1);
   }
 
@@ -670,7 +870,6 @@ export class MemoryObject {
     result: Record<string, number> | null = null,
   ): void {
     if (plan.key === null) return;
-    this.#wrote();
     this.durable.ops.set(plan.key, {
       actor: mutationActorName(actor),
       requestHash: hash,
@@ -689,14 +888,12 @@ export class MemoryObject {
     now: number,
   ): void {
     if (plan.key === null || this.durable.audit.has(plan.key)) return;
-    this.#wrote();
     this.durable.audit.set(plan.key, { ...obligation, owner, state: "pending", at: now });
   }
 
   #advance(scope: string): number {
     if (!sequenceAdvances(scope, (author) => this.#barred(author))) return 0;
     const value = (this.durable.seq.get(scope) ?? 0) + 1;
-    this.#wrote();
     this.durable.seq.set(scope, value);
     return value;
   }
@@ -704,8 +901,9 @@ export class MemoryObject {
   #countValues(collection: string, deltas: { field: string; value: string; delta: number }[]) {
     for (const { field, value, delta } of deltas) {
       const key = key2(collection, field, value);
-      this.#wrote();
-      this.durable.valueCounts.set(key, (this.durable.valueCounts.get(key) ?? 0) + delta);
+      const next = nextValueCount(this.durable.valueCounts.get(key) ?? 0, delta);
+      if (next === null) this.durable.valueCounts.delete(key);
+      else this.durable.valueCounts.set(key, next);
     }
   }
 
@@ -718,21 +916,20 @@ export class MemoryObject {
     this.#countValues(doc.collection, valueCountDeltas(before, after));
     doc.values = {};
     for (const entry of after) {
-      this.#wrote();
+      this.#tickValues(1);
       doc.values[entry.field] = entry.value;
     }
   }
 
   #countAuthor(collection: string, author: string, delta: number): void {
     const key = key2(collection, author);
-    this.#wrote();
     this.durable.authorCounts.set(key, (this.durable.authorCounts.get(key) ?? 0) + delta);
   }
 
   #deleteDoc(doc: Doc): number {
     const d = this.durable;
     d.documents.delete(key2(doc.collection, doc.id));
-    this.#wrote(1 + Object.keys(doc.values).length);
+    this.#tickValues(Object.keys(doc.values).length);
     this.#countValues(
       doc.collection,
       valueCountDeltas(
@@ -744,29 +941,29 @@ export class MemoryObject {
     const collection = this.#own(d.collections, doc.collection) as Collection;
     collection.documents -= 1;
     collection.bytes -= doc.size;
-    this.#wrote();
     return this.#advance(sequenceScope(collection.mode, doc.collection, doc.author));
   }
 
   #indexStep(): number {
     const field = nextBuild(this.durable.fields);
     if (field !== null) {
-      const covered = [...this.durable.documents.values()]
-        .filter(
-          (doc) =>
-            doc.collection === field.collection && (field.cursor === null || doc.id > field.cursor),
-        )
-        .sort((a, b) => (a.id < b.id ? -1 : 1))
-        .slice(0, ARTIFACT_DATA.caps.indexStepDocuments);
+      const covered = this.#select(
+        this.durable.documents,
+        (_key, doc) =>
+          doc.collection === field.collection && (field.cursor === null || doc.id > field.cursor),
+        {
+          order: (a, b) => (a[1].id < b[1].id ? -1 : 1),
+          limit: ARTIFACT_DATA.caps.indexStepDocuments,
+        },
+      ).map(([, doc]) => doc);
       for (const found of covered) {
-        this.#read(found);
         if (found.values[field.field] !== undefined) continue;
         const doc = this.#own(this.durable.documents, key2(found.collection, found.id)) as Doc;
         const body = JSON.parse(doc.body) as Record<string, unknown>;
         const entries = indexEntries(body, [field.field]);
         this.#countValues(doc.collection, valueCountDeltas([], entries));
         for (const entry of entries) {
-          this.#wrote();
+          this.#tickValues(1);
           doc.values[entry.field] = entry.value;
         }
       }
@@ -777,7 +974,6 @@ export class MemoryObject {
       this.durable.fields = this.durable.fields.map((item) =>
         item.collection === field.collection && item.field === field.field ? next : item,
       );
-      this.#wrote();
     }
     return this.durable.fields.filter((item) => item.state === "building").length;
   }
@@ -797,17 +993,16 @@ export class MemoryObject {
       if (!decided.ok) fail(decided);
       unique = decided.value;
     }
-    this.#read(unique);
-    for (const doc of this.durable.documents.values()) {
-      if (
+    const taken = this.#select(
+      this.durable.documents,
+      (_key, doc) =>
         doc.collection === collection &&
         doc.author === author &&
         doc.unique === unique &&
-        doc.id !== except
-      ) {
-        fail({ code: "conflict", message: "already exists" });
-      }
-    }
+        doc.id !== except,
+      { limit: 1 },
+    );
+    if (taken.length > 0) fail({ code: "conflict", message: "already exists" });
     return unique;
   }
 
@@ -833,14 +1028,12 @@ export class MemoryObject {
       size,
       values: {},
     };
-    this.#wrote();
     this.durable.documents.set(key2(collection, doc.id), doc);
     this.#index(doc);
     this.#countAuthor(collection, author, 1);
     const stored = this.#own(this.durable.collections, collection) as Collection;
     stored.documents += 1;
     stored.bytes += size;
-    this.#wrote();
     return doc;
   }
 
@@ -868,11 +1061,9 @@ export class MemoryObject {
     doc.updated = now;
     doc.editor = editorAfter(doc.author, editor);
     doc.seq = this.#advance(sequenceScope(facts.mode, doc.collection, doc.author));
-    this.#wrote();
     this.#index(doc);
     const stored = this.#own(this.durable.collections, doc.collection) as Collection;
     stored.bytes += size - old;
-    this.#wrote();
     return size - old;
   }
 
@@ -895,7 +1086,6 @@ export class MemoryObject {
       );
       if (!decided.ok) fail(decided);
       if (decided.value.create) {
-        this.#wrote();
         this.durable.collections.set(declaration.name, {
           mode: declaration.mode,
           uniqueKey: declaration.uniqueKey ?? null,
@@ -904,7 +1094,6 @@ export class MemoryObject {
         });
       }
       for (const field of decided.value.addFields) {
-        this.#wrote();
         this.durable.fields = [
           ...this.durable.fields,
           { collection: declaration.name, field, state: "building", cursor: null },
@@ -1201,16 +1390,13 @@ export class MemoryObject {
       caller,
       context,
       request,
-      { collection },
+      { collection, documentIds: ids },
       (plan) => {
-        if (ids.length === 0 || ids.length > ARTIFACT_DATA.caps.bulkDocuments) {
-          fail({ code: "invalid_input", message: "between 1 and 100 documents" });
-        }
         const mode = (this.durable.collections.get(collection) as Collection).mode;
         let removed = 0;
         for (const id of ids) {
-          const doc = this.#read(this.durable.documents.get(key2(collection, id)));
-          if (doc === undefined) continue;
+          // Every target was authorized by `planMutation`; one refused target refused them all.
+          const doc = this.durable.documents.get(key2(collection, id)) as Doc;
           const seq = this.#deleteDoc(doc);
           removed += 1;
           notices.push({ mode, doc: { ...doc, seq } });
@@ -1245,74 +1431,67 @@ export class MemoryObject {
       { author },
       (plan) => {
         const d = this.durable;
-        if (!this.#read(d.barriers.has(author))) {
-          this.#wrote();
+        if (!d.barriers.has(author)) {
           d.barriers.set(author, { at: context.now, complete: false });
           for (const socket of this.sockets.values()) {
             if (socket.attachment.author === author) this.#close(socket, 4410);
           }
-          if (d.seq.delete(`author:${author}`)) this.#wrote();
+          d.seq.delete(`author:${author}`);
         }
-        const created = [...d.documents.values()]
-          .filter((doc) => doc.author === author)
-          .sort((a, b) => (key2(a.collection, a.id) < key2(b.collection, b.id) ? -1 : 1))
-          .slice(0, take);
+        const created = this.#select(d.documents, (_key, doc) => doc.author === author, {
+          order: (a, b) => (a[0] < b[0] ? -1 : 1),
+          limit: take,
+        }).map(([, doc]) => doc);
         for (const doc of created) {
-          this.#read(doc);
           const mode = (d.collections.get(doc.collection) as Collection).mode;
           const seq = this.#deleteDoc(doc);
           notices.push({ mode, doc: { ...doc, seq }, kind: "deleted" });
         }
-        const edited = [...d.documents.values()]
-          .filter((doc) => doc.editor === author)
-          .slice(0, take);
+        const edited = this.#select(d.documents, (_key, doc) => doc.editor === author, {
+          limit: take,
+        }).map(([, doc]) => doc);
         for (const found of edited) {
-          this.#read(found);
           const doc = this.#own(d.documents, key2(found.collection, found.id)) as Doc;
           const mode = (d.collections.get(doc.collection) as Collection).mode;
           doc.editor = ERASED_EDITOR;
           doc.seq = this.#advance(sequenceScope(mode, doc.collection, doc.author));
-          this.#wrote();
           notices.push({ mode, doc: { ...doc }, kind: "updated" });
         }
-        const ops = [...d.ops.entries()].filter(([, row]) => row.actor === author).slice(0, take);
+        const ops = this.#select(d.ops, (_key, row) => row.actor === author, { limit: take });
         for (const [key] of ops) d.ops.delete(key);
-        this.#wrote(ops.length);
-        const rates = [...d.rates.keys()]
-          .filter((key) => key.split("\u0000")[0] === author)
-          .slice(0, take);
-        for (const key of rates) d.rates.delete(key);
-        this.#wrote(rates.length);
+        const mine = (key: string, part: number) => key.split("\u0000")[part] === author;
+        const rates = this.#select(d.rates, (key) => mine(key, 0), { limit: take });
+        for (const [key] of rates) d.rates.delete(key);
+        const rights = this.#select(d.rights, (key) => mine(key, 0), { limit: take });
+        for (const [key] of rights) d.rights.delete(key);
         let more = chunkLeavesMore(
           {
             documents: created.length,
             edits: edited.length,
             operations: ops.length,
             rates: rates.length,
+            rights: rights.length,
           },
           take,
         );
         if (!more) {
           const left = {
-            created: this.#read([...d.documents.values()].filter((doc) => doc.author === author))
+            created: this.#select(d.documents, (_key, doc) => doc.author === author, { limit: 1 })
               .length,
-            edited: this.#read([...d.documents.values()].filter((doc) => doc.editor === author))
+            edited: this.#select(d.documents, (_key, doc) => doc.editor === author, { limit: 1 })
               .length,
+            rights: this.#select(d.rights, (key) => mine(key, 0), { limit: 1 }).length,
           };
           more = !completes(left);
           if (!more) {
             d.seq.delete(`author:${author}`);
-            for (const key of [...d.authorCounts.keys()]) {
-              if (key.split("\u0000")[1] === author) {
-                d.authorCounts.delete(key);
-                this.#wrote();
-              }
+            for (const [key] of this.#select(d.authorCounts, (key) => mine(key, 1))) {
+              d.authorCounts.delete(key);
             }
             d.barriers.set(author, {
               at: (d.barriers.get(author) as { at: number }).at,
               complete: true,
             });
-            this.#wrote(2);
           }
         }
         const result = { documents: created.length, edits: edited.length, more };
@@ -1346,37 +1525,50 @@ export class MemoryObject {
     empty: () => T,
     work: () => T,
   ): Answer<T> {
-    const answer = this.#answer(() => {
-      const plan = planRead({
-        stored: this.#read(this.durable.control),
-        envelope,
-        caller,
-        limits: context.limits,
-        callerReads: this.#attempt(caller, context.now),
-        used: this.#used("read", context.now),
-        barred: caller.kind === "visitor" && this.#barred(caller.author),
+    return this.#running(() => {
+      const answer = this.#answer(() => {
+        const plan = planRead({
+          stored: this.durable.control,
+          envelope,
+          caller,
+          limits: context.limits,
+          callerReads: this.#attempt(caller, context.now),
+          used: this.#used("read", context.now),
+          barred: caller.kind === "visitor" && this.#barred(caller.author),
+        });
+        if (plan.decision === "empty") return empty();
+        if (plan.decision === "refused") fail(plan.refusal);
+        return work();
       });
-      if (plan.decision === "empty") return empty();
-      if (plan.decision === "refused") fail(plan.refusal);
-      return work();
+      this.#meterUncharged(!answer.ok, context.now, kind);
+      return { ...answer, storage: this.#storage() } as Answer<T>;
     });
-    this.#meterUncharged(!answer.ok, context.now, kind);
-    return { ...answer, storage: this.#storage() } as Answer<T>;
   }
 
   /** Writes all pending usage now (the alarm's flush), an earlier day's into that day. */
+  /**
+   * The alarm's flush, through the same metering as everything else: an earlier day's reads into
+   * that day, today's into today's row with deferred usage, each write's overhead under protected;
+   * deferred usage alone stays pending.
+   */
   flushReads(now: number): void {
-    const control = this.durable.control;
-    if (control === null) return;
-    const { previous, current } = rollPending(this.pending, now);
-    let wrote = false;
-    for (const pending of [previous, current]) {
-      if (pending === null || (pending.rows === 0 && pending.refused === 0)) continue;
-      this.durable.days.set(pending.day, flushed(this.#dayRow(pending.day), pending));
-      wrote = true;
-    }
-    this.pending = wrote ? noPendingReads(now) : current;
-    if (wrote) this.durable.control = touched(control, false);
+    this.#running(() =>
+      this.#keeping(() => {
+        const control = this.durable.control;
+        const result = flushPending({
+          pending: this.pending,
+          day: (day) => this.#dayRow(day),
+          bound: control !== null,
+          now,
+        });
+        for (const day of result.days) this.durable.days.set(day.day, day);
+        this.counterWrites += result.days.length;
+        this.pending = result.pending;
+        if (result.days.length > 0 && control !== null) {
+          this.durable.control = touched(control, false);
+        }
+      }),
+    );
   }
 
   get(
@@ -1391,7 +1583,7 @@ export class MemoryObject {
       const facts = this.#facts(collection);
       if (facts === null) missing();
       const scope = readScope((facts as CollectionFacts).mode, caller);
-      const doc = this.#read(this.durable.documents.get(key2(collection, id)));
+      const doc = this.durable.documents.get(key2(collection, id));
       if (doc === undefined || scope === "none") return missing();
       if (scope === "own" && doc.author !== (caller as { author: string }).author) return missing();
       return presentDocument(doc);
@@ -1422,14 +1614,18 @@ export class MemoryObject {
         if (!planned.ok) fail(planned);
         const plan = planned.value;
         if (plan.kind === "empty") return { documents: [], next: null };
-        const rows = [...this.durable.documents.values()]
-          .filter((doc) => doc.collection === query.collection && planMatches(plan, doc))
-          .sort((a, b) => {
-            const order = a.created === b.created ? (a.id < b.id ? -1 : 1) : a.created - b.created;
-            return plan.descending ? -order : order;
-          })
-          .slice(0, plan.fetch);
-        for (const row of rows) this.#read(row);
+        const rows = this.#select(
+          this.durable.documents,
+          (_key, doc) => doc.collection === query.collection && planMatches(plan, doc),
+          {
+            order: ([, a], [, b]) => {
+              const order =
+                a.created === b.created ? (a.id < b.id ? -1 : 1) : a.created - b.created;
+              return plan.descending ? -order : order;
+            },
+            limit: plan.fetch,
+          },
+        ).map(([, doc]) => doc);
         const page = pageOf(rows, plan.limit);
         return { documents: page.rows.map(presentDocument), next: page.next };
       },
@@ -1465,7 +1661,7 @@ export class MemoryObject {
             ? key2(count.collection, plan.author)
             : key2(count.collection, plan.field, plan.value);
         const map = plan.kind === "author" ? this.durable.authorCounts : this.durable.valueCounts;
-        return { documents: this.#read(map.get(key) ?? 0) };
+        return { documents: map.get(key) ?? 0 };
       },
     );
   }
@@ -1478,16 +1674,16 @@ export class MemoryObject {
       today: emptyDay(dayOf(context.now)),
     });
     return this.#readCommand(envelope, caller, context, "describe", emptyDescription, () => {
-      const collections = [...this.durable.collections.entries()].map(([name, facts]) => {
-        this.#read(facts);
-        return describeCollection(name, facts, this.durable.fields);
-      });
+      const fields = this.durable.fields;
+      const collections = [...this.durable.collections.entries()].map(([name, facts]) =>
+        describeCollection(name, facts, fields),
+      );
       const control = this.durable.control as DataControl;
       const decided = describe(caller, {
         generation: control.generation,
         revision: control.payloadRevision,
         collections,
-        today: this.#read(this.#dayRow(dayOf(context.now))),
+        today: this.#dayRow(dayOf(context.now)),
       });
       if (!decided.ok) fail(decided);
       return decided.value;
@@ -1502,50 +1698,55 @@ export class MemoryObject {
     take: number,
     context: Context,
   ): Answer<ExportPage> {
-    const now = context.now;
-    let charged = false;
-    const answer = this.#answer(() =>
-      this.#transaction(() => {
-        const plan = planExport({
-          stored: this.#read(this.durable.control),
-          envelope,
-          who,
-          limits: context.limits,
-          used: (charge) =>
-            this.#read(
+    return this.#running(() => {
+      const now = context.now;
+      let charged = false;
+      const answer = this.#answer(() =>
+        this.#transaction(() => {
+          const plan = planExport({
+            stored: this.durable.control,
+            envelope,
+            who,
+            limits: context.limits,
+            used: (charge) =>
               author !== null && charge === "rights"
                 ? this.#rightsUsed(author, now)
                 : this.#used(charge, now),
-            ),
-          barred: author !== null && this.#barred(author),
-        });
-        if (plan.decision === "empty") return { rows: [], next: null, revision: 0, bytes: 0 };
-        if (plan.decision === "refused") fail(plan.refusal);
-        const candidates: ExportDocument[] = [...this.durable.documents.values()]
-          .filter((doc) => author === null || doc.author === author)
-          .filter((doc) => after === null || keyBefore(after, doc))
-          .sort((a, b) => (keyBefore(a, b) ? -1 : 1))
-          .slice(0, Math.min(take, ARTIFACT_DATA.caps.exportRows) + 1)
-          .map((doc) => ({
-            collection: doc.collection,
-            id: doc.id,
-            by: doc.author,
-            editedBy: doc.editor,
-            created: doc.created,
-            updated: doc.updated,
-            body: doc.body,
-          }));
-        for (const row of candidates) this.#read(row);
-        const control = this.durable.control as DataControl;
-        const page = cutPage(candidates, take, control.payloadRevision);
-        this.durable.control = touched(control, false);
-        charged = true;
-        this.#charge("export_page", plan.charge, now, false, author, "export_page");
-        return page;
-      }),
-    );
-    if (!charged || !answer.ok) this.#meterUncharged(!answer.ok, now, "export_page");
-    return { ...answer, storage: this.#storage() } as Answer<ExportPage>;
+            barred: author !== null && this.#barred(author),
+          });
+          if (plan.decision === "empty") return { rows: [], next: null, revision: 0, bytes: 0 };
+          if (plan.decision === "refused") fail(plan.refusal);
+          const candidates: ExportDocument[] = this.#select(
+            this.durable.documents,
+            (_key, doc) =>
+              (author === null || doc.author === author) &&
+              (after === null || keyBefore(after, doc)),
+            {
+              order: ([, a], [, b]) => (keyBefore(a, b) ? -1 : 1),
+              limit: Math.min(take, ARTIFACT_DATA.caps.exportRows) + 1,
+            },
+          )
+            .map(([, doc]) => doc)
+            .map((doc) => ({
+              collection: doc.collection,
+              id: doc.id,
+              by: doc.author,
+              editedBy: doc.editor,
+              created: doc.created,
+              updated: doc.updated,
+              body: doc.body,
+            }));
+          const control = this.durable.control as DataControl;
+          const page = cutPage(candidates, take, control.payloadRevision);
+          this.durable.control = touched(control, false);
+          charged = true;
+          this.#charge("export_page", plan.charge, now, false, author, "export_page");
+          return page;
+        }),
+      );
+      if (!charged || !answer.ok) this.#meterUncharged(!answer.ok, now, "export_page");
+      return { ...answer, storage: this.#storage() } as Answer<ExportPage>;
+    });
   }
 
   exportPage(
@@ -1582,19 +1783,21 @@ export class MemoryObject {
 
   /** Runs a control command: protected when it wrote, otherwise metered as uncharged. */
   #control<T>(now: number, kind: string, work: () => { value: T; wrote: boolean }): Answer<T> {
-    let wrote = false;
-    const answer = this.#answer(() =>
-      this.#transaction(() => {
-        const done = work();
-        if (done.wrote) {
-          wrote = true;
-          this.#protected(kind, now);
-        }
-        return done.value;
-      }),
-    );
-    if (!wrote || !answer.ok) this.#meterUncharged(!answer.ok, now, null);
-    return { ...answer, storage: this.#storage() } as Answer<T>;
+    return this.#running(() => {
+      let wrote = false;
+      const answer = this.#answer(() =>
+        this.#transaction(() => {
+          const done = work();
+          if (done.wrote) {
+            wrote = true;
+            this.#protected(kind, now);
+          }
+          return done.value;
+        }),
+      );
+      if (!wrote || !answer.ok) this.#meterUncharged(!answer.ok, now, null);
+      return { ...answer, storage: this.#storage() } as Answer<T>;
+    });
   }
 
   fence(
@@ -1603,13 +1806,12 @@ export class MemoryObject {
     now: number,
   ): Answer<{ epoch: number; held: boolean; ownerId: string }> {
     return this.#control(now, "fence", () => {
-      const applied = applyFence(this.#read(this.durable.control), envelope, fence, now);
+      const applied = applyFence(this.durable.control, envelope, fence, now);
       if (!applied.ok) fail(applied);
       const { control, repeated, cancelledErase, closeConnections } = applied.value;
       if (!repeated) {
         this.#setControl(control);
         if (cancelledErase !== null) {
-          this.#wrote();
           this.durable.ended.set(cancelledErase, { outcome: "cancelled", at: now });
         }
         if (closeConnections) this.closeAll(4003);
@@ -1623,7 +1825,7 @@ export class MemoryObject {
 
   quarantine(envelope: DataEnvelope, reason: QuarantineReason, now: number): Answer<boolean> {
     return this.#control(now, "quarantine", () => {
-      const decided = quarantine(this.#read(this.durable.control), envelope, reason, now);
+      const decided = quarantine(this.durable.control, envelope, reason, now);
       if (!decided.ok) fail(decided);
       if (decided.value.changed) {
         this.#setControl(decided.value.control);
@@ -1639,11 +1841,10 @@ export class MemoryObject {
     now: number,
   ): Answer<null> {
     return this.#control(now, "resolve_quarantine", () => {
-      const decided = resolveQuarantine(this.#read(this.durable.control), envelope, decision);
+      const decided = resolveQuarantine(this.durable.control, envelope, decision);
       if (!decided.ok) fail(decided);
       if (decided.value.erasePayload) this.#erasePayload();
       if (decided.value.endedErase !== null) {
-        this.#wrote();
         this.durable.ended.set(decided.value.endedErase, { outcome: "committed", at: now });
       }
       this.#setControl(decided.value.control);
@@ -1654,14 +1855,27 @@ export class MemoryObject {
   /** Deletes every payload row, each counted: the work grows with the data, as it does in SQL. */
   #erasePayload(): void {
     const d = this.durable;
-    let rows = d.collections.size + d.fields.length + d.authorCounts.size + d.valueCounts.size;
-    rows += d.seq.size + d.ops.size;
-    for (const doc of d.documents.values()) rows += 1 + Object.keys(doc.values).length;
-    for (let index = 0; index < rows; index++) this.#read(null);
-    this.#wrote(rows);
-    const fresh = this.#watchAll(emptyDurable());
+    // Every payload row is read and deleted: the work grows with the data, as it does in SQL.
+    let rows = this.#raw.fields.length;
     for (const table of PAYLOAD) {
-      (d as unknown as Record<string, unknown>)[table] = fresh[table];
+      if (table === "fields") continue;
+      const map = d[table] as Map<unknown, unknown>;
+      rows += map.size;
+      if (table !== "documents") continue;
+      for (const doc of Map.prototype.values.call(map) as Iterable<Doc>) {
+        rows += Object.keys(doc.values).length;
+      }
+    }
+    this.#tick(rows, false);
+    this.#tick(rows, true);
+    const fresh = emptyDurable();
+    for (const table of PAYLOAD) {
+      if (table === "fields") {
+        this.#raw.fields = [];
+        continue;
+      }
+      const map = this.#watch(fresh[table] as Map<unknown, unknown>);
+      (d as unknown as Record<string, unknown>)[table] = map;
     }
     this.closeAll(4003);
   }
@@ -1673,8 +1887,8 @@ export class MemoryObject {
     now: number,
   ) {
     return this.#control(now, `erase_${step}`, () => {
-      const ended = this.#read(this.durable.ended.get(eraseId)?.outcome ?? null);
-      const stored = this.#read(this.durable.control);
+      const ended = this.durable.ended.get(eraseId)?.outcome ?? null;
+      const stored = this.durable.control;
       const intents = this.#dayRow(dayOf(now)).intents;
       const decided =
         step === "prepare"
@@ -1686,7 +1900,6 @@ export class MemoryObject {
       const result = decided.value;
       if (result.erasePayload) this.#erasePayload();
       if (result.ended !== null) {
-        this.#wrote();
         this.durable.ended.set(result.ended.id, { outcome: result.ended.outcome, at: now });
       }
       if (result.control !== null) this.#setControl(result.control);
@@ -1720,7 +1933,7 @@ export class MemoryObject {
     now: number,
   ): SettleDecision["answer"] {
     const answer = this.#control(now, "settle", () => {
-      const stored = this.#read(this.durable.control);
+      const stored = this.durable.control;
       const verdict = admit(stored, envelope, { kind: "maintenance" });
       if (!verdict.ok) {
         return { value: { state: "refused" as const, code: verdict.code }, wrote: false };
@@ -1728,8 +1941,8 @@ export class MemoryObject {
       const key = operationKey(actor, envelope.generation, opId);
       const decided = settleDecision(
         {
-          obligation: this.#read(this.durable.audit.get(key)) ?? null,
-          record: this.#read(this.durable.ops.get(key)) ?? null,
+          obligation: this.durable.audit.get(key) ?? null,
+          record: this.durable.ops.get(key) ?? null,
           barred: this.#barred(actor),
           currentGeneration: stored === null || stored.generation === envelope.generation,
         },
@@ -1738,7 +1951,6 @@ export class MemoryObject {
       );
       if (decided.writeAborted) {
         this.#setControl(touched(stored ?? newControl(envelope, now), false));
-        this.#wrote();
         this.durable.ops.set(key, {
           actor,
           requestHash: "",
@@ -1756,17 +1968,16 @@ export class MemoryObject {
 
   acknowledge(envelope: DataEnvelope, actor: string, opId: string, now: number): boolean {
     const answer = this.#control(now, "acknowledge", () => {
-      const stored = this.#read(this.durable.control);
+      const stored = this.durable.control;
       if (stored === null || !admit(stored, envelope, { kind: "maintenance" }).ok) {
         return { value: false, wrote: false };
       }
       const key = operationKey(actor, envelope.generation, opId);
-      const found = this.#read(this.durable.audit.get(key));
+      const found = this.durable.audit.get(key);
       if (found === undefined || found.state !== "pending") return { value: false, wrote: false };
       const row = this.#own(this.durable.audit, key) as AuditRow;
       row.state = "delivered";
       row.at = now;
-      this.#wrote();
       this.durable.control = touched(stored, false);
       return { value: true, wrote: true };
     });
@@ -1777,83 +1988,88 @@ export class MemoryObject {
 
   /** One alarm: closes expired connections, prunes a bounded pass of everything due, flushes. */
   alarm(now: number): { pruned: number } {
-    for (const socket of this.sockets.values()) {
-      if (socket.closed === null && socket.attachment.deadline <= now) this.#close(socket, 4001);
-    }
-    const d = this.durable;
-    let pruned = 0;
-    let more = false;
-    this.#cost = { rowsRead: 0, rowsWritten: 0 };
-    if (pruneAllowed(d.control)) {
+    return this.#running(() => {
+      for (const socket of this.sockets.values()) {
+        if (socket.closed === null && socket.attachment.deadline <= now) this.#close(socket, 4001);
+      }
+      const d = this.durable;
+      let pruned = 0;
+      let more = false;
+      this.#cost = { rowsRead: 0, rowsWritten: 0 };
       this.#transaction(() => {
-        const cut = pruneCutoffs(now);
-        const cap = ARTIFACT_DATA.caps.pruneRows;
-        const take = <K, V>(
-          map: Map<K, V>,
-          old: (key: K, value: V) => boolean,
-          age: (key: K, value: V) => number,
-          retire?: (value: V) => void,
-        ) => {
-          const keys = [...map.entries()]
-            .filter(([k, v]) => old(k, v))
-            .sort((a, b) => age(a[0], a[1]) - age(b[0], b[1]))
-            .slice(0, cap)
-            .map(([k]) => k);
-          for (const k of keys) {
-            this.#read(k);
-            this.#wrote();
-            retire?.(map.get(k) as V);
-            map.delete(k);
-          }
-          return keys.length;
-        };
-        const window = (key: string, part: number) => Number(key.split("\u0000")[part]);
-        const counts = [
-          take(
-            d.ops,
-            (_k, v) => v.at < cut.operationsBefore,
-            (_k, v) => v.at,
-          ),
-          take(
-            d.ended,
-            (_k, v) => v.at < cut.operationsBefore,
-            (_k, v) => v.at,
-          ),
-          take(
-            d.audit,
-            (_k, v) => v.state === "delivered" && v.at < cut.deliveredBefore,
-            (_k, v) => v.at,
-          ),
-          take(
-            d.rates,
-            (k) => window(k, 2) < cut.rateWindowBefore,
-            (k) => window(k, 2),
-          ),
-          take(
-            d.days,
-            (k) => k < cut.dayBefore,
-            (k) => k,
-            (row) => {
-              for (const field of ACCOUNTED) this.retired += row[field];
-            },
-          ),
-          take(
-            d.rights,
-            (k) => window(k, 1) < cut.dayBefore,
-            (k) => window(k, 1),
-          ),
-        ];
-        pruned = counts.reduce((sum, n) => sum + n, 0);
-        more = passLeftMore(counts);
-        if (pruned > 0) {
-          this.durable.control = touched(d.control as DataControl, false);
-          this.#meter({ kind: "housekeeping" }, now, "prune");
+        if (pruneAllowed(d.control)) {
+          const cut = pruneCutoffs(now);
+          const cap = ARTIFACT_DATA.caps.pruneRows;
+          const take = <K, V>(
+            map: Map<K, V>,
+            old: (key: K, value: V) => boolean,
+            age: (key: K, value: V) => number,
+            retire?: (value: V) => void,
+          ) => {
+            const rows = this.#select(map, old, {
+              order: (a, b) => age(a[0], a[1]) - age(b[0], b[1]),
+              limit: cap,
+            });
+            for (const [k, v] of rows) {
+              retire?.(v);
+              map.delete(k);
+            }
+            return rows.length;
+          };
+          const window = (key: string, part: number) => Number(key.split("\u0000")[part]);
+          const classes: Record<RetainedClass, () => number> = {
+            operations: () =>
+              take(
+                d.ops,
+                (_k, v) => v.at < cut.operationsBefore,
+                (_k, v) => v.at,
+              ),
+            ended: () =>
+              take(
+                d.ended,
+                (_k, v) => v.at < cut.operationsBefore,
+                (_k, v) => v.at,
+              ),
+            delivered: () =>
+              take(
+                d.audit,
+                (_k, v) => v.state === "delivered" && v.at < cut.deliveredBefore,
+                (_k, v) => v.at,
+              ),
+            rates: () =>
+              take(
+                d.rates,
+                (k) => window(k, 2) < cut.rateWindowBefore,
+                (k) => window(k, 2),
+              ),
+            days: () =>
+              take(
+                d.days,
+                (k) => k < cut.dayBefore,
+                (k) => k,
+                (row) => {
+                  for (const field of ACCOUNTED) this.retired += row[field];
+                },
+              ),
+            rights: () =>
+              take(
+                d.rights,
+                (k) => window(k, 1) < cut.dayBefore,
+                (k) => window(k, 1),
+              ),
+          };
+          const counts = RETAINED_CLASSES.map((name) => classes[name]());
+          pruned = counts.reduce((sum, n) => sum + n, 0);
+          more = passLeftMore(counts);
+          if (pruned > 0) this.durable.control = touched(d.control as DataControl, false);
         }
+        // Every pass is metered, an empty one's probes included: deferred, never a day row.
+        this.#meter({ kind: "housekeeping" }, now, "prune");
       });
-    }
-    this.flushReads(now);
-    this.#rearm(now, more);
-    return { pruned };
+      this.flushReads(now);
+      this.#rearm(now, more);
+      return { pruned };
+    });
   }
 
   /** An eviction: memory goes (pending usage, attempts, connections); storage stays. */
@@ -1881,52 +2097,53 @@ export class MemoryObject {
     deadline: number,
     context: Context,
   ): Answer<string> {
-    const now = context.now;
-    let charged = false;
-    const answer = this.#answer(() =>
-      this.#transaction(() => {
-        const stored = this.#read(this.durable.control);
-        const open = [...this.sockets.values()].filter((socket) => socket.closed === null);
-        const rate = { subject: author ?? "readers", kind: "connects", window: minuteOf(now) };
-        const refused = planConnect({
-          stored,
-          envelope,
-          barred: author !== null && this.#barred(author),
-          deadline,
-          now,
-          open: open.length,
-          openForAuthor: open.filter((socket) => socket.attachment.author === author).length,
-          limits: context.limits,
-          usedGrowth: this.#read(this.#used("growth", now)),
-          connectsThisMinute: this.#read(
-            this.durable.rates.get(key2(rate.subject, rate.kind, rate.window)) ?? 0,
-          ),
-        });
-        if (refused !== null) fail(refused);
-        this.#countRate(rate);
-        const control = stored as DataControl;
-        this.durable.control = touched(control, false);
-        const socketId = this.#newId();
-        this.sockets.set(socketId, {
-          attachment: newAttachment({
-            socketId,
-            author,
-            principal,
-            generation: control.generation,
+    return this.#running(() => {
+      const now = context.now;
+      let charged = false;
+      const answer = this.#answer(() =>
+        this.#transaction(() => {
+          const stored = this.durable.control;
+          const open = [...this.sockets.values()].filter((socket) => socket.closed === null);
+          const rate = { subject: author ?? "readers", kind: "connects", window: minuteOf(now) };
+          const refused = planConnect({
+            stored,
+            envelope,
+            barred: author !== null && this.#barred(author),
             deadline,
             now,
+            open: open.length,
+            openForAuthor: open.filter((socket) => socket.attachment.author === author).length,
             limits: context.limits,
-          }),
-          received: [],
-          closed: null,
-        });
-        charged = true;
-        this.#charge("connect", "growth", now, false);
-        return socketId;
-      }),
-    );
-    if (!charged || !answer.ok) this.#meterUncharged(true, now, null);
-    return answer;
+            usedGrowth: this.#used("growth", now),
+            connectsThisMinute:
+              this.durable.rates.get(key2(rate.subject, rate.kind, rate.window)) ?? 0,
+          });
+          if (refused !== null) fail(refused);
+          this.#countRate(rate);
+          const control = stored as DataControl;
+          this.durable.control = touched(control, false);
+          const socketId = this.#newId();
+          this.sockets.set(socketId, {
+            attachment: newAttachment({
+              socketId,
+              author,
+              principal,
+              generation: control.generation,
+              deadline,
+              now,
+              limits: context.limits,
+            }),
+            received: [],
+            closed: null,
+          });
+          charged = true;
+          this.#charge("connect", "growth", now, false);
+          return socketId;
+        }),
+      );
+      if (!charged || !answer.ok) this.#meterUncharged(true, now, null);
+      return answer;
+    });
   }
 
   renew(
@@ -1936,24 +2153,43 @@ export class MemoryObject {
     deadline: number,
     context: Context,
   ): boolean {
-    if (!admit(this.durable.control, envelope, { kind: "request", create: false }).ok) return false;
-    const socket = this.sockets.get(socketId);
-    if (socket === undefined || socket.closed !== null) return false;
-    const decided = renewDecision(
-      socket.attachment,
-      principal,
-      deadline,
-      context.now,
-      context.limits,
+    return this.#running(() =>
+      this.#uncharged(
+        context.now,
+        () => this.#renew(envelope, socketId, principal, deadline, context),
+        (ok) => !ok,
+      ),
     );
-    if ("close" in decided) {
-      this.#close(socket, decided.close);
-      return false;
+  }
+
+  #renew(
+    envelope: DataEnvelope,
+    socketId: string,
+    principal: string,
+    deadline: number,
+    context: Context,
+  ): boolean {
+    {
+      if (!admit(this.durable.control, envelope, { kind: "request", create: false }).ok)
+        return false;
+      const socket = this.sockets.get(socketId);
+      if (socket === undefined || socket.closed !== null) return false;
+      const decided = renewDecision(
+        socket.attachment,
+        principal,
+        deadline,
+        context.now,
+        context.limits,
+      );
+      if ("close" in decided) {
+        this.#close(socket, decided.close);
+        return false;
+      }
+      if ("refused" in decided) return false;
+      socket.attachment = decided.attachment;
+      this.#rearm(context.now);
+      return true;
     }
-    if ("refused" in decided) return false;
-    socket.attachment = decided.attachment;
-    this.#rearm(context.now);
-    return true;
   }
 
   #live(socket: Socket, now: number): LiveAttachment | null {
@@ -1981,10 +2217,9 @@ export class MemoryObject {
       this.#cost = { rowsRead: 0, rowsWritten: 0 };
       let granted = 0;
       this.#transaction(() => {
-        const day = this.#read(this.#dayRow(dayOf(now)));
+        const day = this.#dayRow(dayOf(now));
         granted = liveReservation(day.live, attachment.liveMessagesPerDay);
         if (granted > 0) {
-          this.#wrote(2);
           this.durable.days.set(day.day, { ...day, live: day.live + granted });
           this.durable.control = touched(this.durable.control as DataControl, false);
           this.#protected("live_reservation", now);
@@ -2005,33 +2240,39 @@ export class MemoryObject {
   }
 
   message(socketId: string, text: string, now: number): void {
-    const socket = this.sockets.get(socketId);
-    if (socket === undefined) return;
-    const current = this.#live(socket, now);
-    if (current === null) return;
-    const received = inbound(current, new TextEncoder().encode(text).length);
-    if ("close" in received) {
-      this.#close(socket, received.close);
-      return;
+    this.#running(() => this.#uncharged(now, () => this.#message(socketId, text, now)));
+  }
+
+  #message(socketId: string, text: string, now: number): void {
+    {
+      const socket = this.sockets.get(socketId);
+      if (socket === undefined) return;
+      const current = this.#live(socket, now);
+      if (current === null) return;
+      const received = inbound(current, new TextEncoder().encode(text).length);
+      if ("close" in received) {
+        this.#close(socket, received.close);
+        return;
+      }
+      socket.attachment = received.attachment;
+      let name = "";
+      try {
+        name = String((JSON.parse(text) as { subscribe?: unknown }).subscribe);
+      } catch {
+        name = "";
+      }
+      const collection = this.durable.collections.get(name);
+      const caller: Caller =
+        current.author === null
+          ? { kind: "reader" }
+          : { kind: "visitor", author: current.author, canWrite: false };
+      if (collection === undefined || readScope(collection.mode, caller) === "none") {
+        this.#send(socket, received.attachment, JSON.stringify({ error: "not_found" }), now);
+        return;
+      }
+      const subscribedTo = subscribed(received.attachment, name);
+      this.#send(socket, subscribedTo, JSON.stringify({ subscribed: name }), now);
     }
-    socket.attachment = received.attachment;
-    let name = "";
-    try {
-      name = String((JSON.parse(text) as { subscribe?: unknown }).subscribe);
-    } catch {
-      name = "";
-    }
-    const collection = this.durable.collections.get(name);
-    const caller: Caller =
-      current.author === null
-        ? { kind: "reader" }
-        : { kind: "visitor", author: current.author, canWrite: false };
-    if (collection === undefined || readScope(collection.mode, caller) === "none") {
-      this.#send(socket, received.attachment, JSON.stringify({ error: "not_found" }), now);
-      return;
-    }
-    const subscribedTo = subscribed(received.attachment, name);
-    this.#send(socket, subscribedTo, JSON.stringify({ subscribed: name }), now);
   }
 
   #notify(
@@ -2047,11 +2288,15 @@ export class MemoryObject {
       seq: doc.seq,
       by: doc.author,
     });
-    for (const socket of this.sockets.values()) {
-      const attachment = this.#live(socket, now);
-      if (attachment === null || !receives(attachment, doc.collection, mode, doc.author)) continue;
-      this.#send(socket, attachment, text, now);
-    }
+    if (this.sockets.size === 0) return;
+    this.#uncharged(now, () => {
+      for (const socket of this.sockets.values()) {
+        const attachment = this.#live(socket, now);
+        if (attachment === null || !receives(attachment, doc.collection, mode, doc.author))
+          continue;
+        this.#send(socket, attachment, text, now);
+      }
+    });
   }
 }
 
@@ -2068,7 +2313,25 @@ export function authorTraces(object: MemoryObject, author: string) {
     connections: [...object.sockets.values()].filter(
       (socket) => socket.closed === null && socket.attachment.author === author,
     ).length,
+    rights: [...d.rights.keys()].filter((key) => key.split("\u0000")[0] === author).length,
+    /** Value-count rows no current document holds: values of removed or erased documents. */
+    orphanValues: orphanValueCounts(object),
   };
+}
+
+/** Value-count rows that do not match the indexed values of the current documents exactly. */
+export function orphanValueCounts(object: MemoryObject): number {
+  const d = object.durable;
+  const expected = new Map<string, number>();
+  for (const doc of d.documents.values()) {
+    for (const [field, value] of Object.entries(doc.values)) {
+      const key = [doc.collection, field, value].join("\u0000");
+      expected.set(key, (expected.get(key) ?? 0) + 1);
+    }
+  }
+  let orphans = 0;
+  for (const [key, count] of d.valueCounts) if (expected.get(key) !== count) orphans += 1;
+  return orphans + [...expected.keys()].filter((key) => !d.valueCounts.has(key)).length;
 }
 
 /** Storage without the alarm, which the first pending usage arms: what "writes nothing" compares. */

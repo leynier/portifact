@@ -46,6 +46,14 @@ export const ERASED_EDITOR = "erased";
 /** The system actor that runs erasure steps. */
 export const ERASURE_ACTOR = "system:erasure";
 
+/**
+ * Why a whole erase is required by the lifecycle: set only by the jobs Worker for a purge or an
+ * account or workspace deletion, never by the document API, and never rate limited.
+ */
+export const REQUIRED_ERASES = ["purge", "account_deletion", "workspace_deletion"] as const;
+export const RequiredErase = z.enum(REQUIRED_ERASES);
+export type RequiredErase = z.infer<typeof RequiredErase>;
+
 /** What every command carries, filled by the calling Worker from D1. */
 export const DataEnvelope = z.strictObject({
   artifactId: ArtifactId,
@@ -54,6 +62,8 @@ export const DataEnvelope = z.strictObject({
   generation: Count,
   epoch: Count,
   opId: OperationId.optional(),
+  /** Only on an erase step the lifecycle requires; a document command carrying it is refused. */
+  requiredErase: RequiredErase.optional(),
 });
 export type DataEnvelope = z.infer<typeof DataEnvelope>;
 

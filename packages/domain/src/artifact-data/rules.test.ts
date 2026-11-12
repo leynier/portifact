@@ -27,6 +27,8 @@ import {
   barrierRefusal,
   batched,
   beginGate,
+  COMMAND_ROWS,
+  COUNTER_WRITE_ROWS,
   cancelErase,
   charged,
   checkHorizon,
@@ -41,6 +43,7 @@ import {
   counted,
   createRefusal,
   cutPage,
+  DOCUMENT_ROWS,
   dayOf,
   declareCollection,
   declaredFields,
@@ -55,7 +58,9 @@ import {
   exportHeader,
   exportLine,
   fenceEpochAdmitted,
+  flushPending,
   growthRefusal,
+  INDEX_STEP_ROWS,
   inbound,
   indexEntries,
   issuedAt,
@@ -77,6 +82,7 @@ import {
   nextAlarm,
   nextBuild,
   noPendingReads,
+  OPERATION_ROW_BOUNDS,
   outbound,
   pageOf,
   parseExportFile,
@@ -92,6 +98,7 @@ import {
   pruneAllowed,
   pruneCutoffs,
   quarantine,
+  RETAINED_CLASSES,
   rateRefusal,
   reaches,
   readScope,
@@ -935,8 +942,20 @@ describe("charging", () => {
   });
 
   it("bounds operations by their caps", () => {
-    expect(withinBound("get", { rowsRead: 20, rowsWritten: 0 })).toBe(true);
-    expect(withinBound("get", { rowsRead: 20, rowsWritten: 1 })).toBe(false);
+    const get = OPERATION_ROW_BOUNDS.get;
+    expect(withinBound("get", { rowsRead: get, rowsWritten: 0 })).toBe(true);
+    expect(withinBound("get", { rowsRead: get, rowsWritten: 1 })).toBe(false);
+    // Derived from the constants the work uses, so they cannot drift from it.
+    expect(OPERATION_ROW_BOUNDS.prune).toBe(
+      COMMAND_ROWS + RETAINED_CLASSES.length * (2 * ARTIFACT_DATA.caps.pruneRows + 1),
+    );
+    expect(RETAINED_CLASSES).toHaveLength(6);
+    expect(OPERATION_ROW_BOUNDS.declare).toBeGreaterThan(
+      INDEX_STEP_ROWS * ARTIFACT_DATA.caps.indexStepDocuments,
+    );
+    expect(OPERATION_ROW_BOUNDS.bulk_replace).toBe(
+      COMMAND_ROWS + ARTIFACT_DATA.caps.bulkDocuments * 2 * DOCUMENT_ROWS,
+    );
   });
 });
 
@@ -1346,17 +1365,18 @@ describe("author erasure rules", () => {
       chunkSize(501),
       chunkSize(-3),
     ]).toEqual([1, 1, 2, 1, 500, 1]);
-    const none = { documents: 0, edits: 0, operations: 0, rates: 0 };
+    const none = { documents: 0, edits: 0, operations: 0, rates: 0, rights: 0 };
     expect(chunkLeavesMore(none, 3)).toBe(false);
-    for (const part of ["documents", "edits", "operations", "rates"] as const) {
+    for (const part of ["documents", "edits", "operations", "rates", "rights"] as const) {
       expect(chunkLeavesMore({ ...none, [part]: 3 }, 3)).toBe(true);
       expect(chunkLeavesMore({ ...none, [part]: 2 }, 3)).toBe(false);
     }
     expect([
-      completes({ created: 0, edited: 0 }),
-      completes({ created: 1, edited: 0 }),
-      completes({ created: 0, edited: 1 }),
-    ]).toEqual([true, false, false]);
+      completes({ created: 0, edited: 0, rights: 0 }),
+      completes({ created: 0, edited: 0, rights: 1 }),
+      completes({ created: 1, edited: 0, rights: 0 }),
+      completes({ created: 0, edited: 1, rights: 0 }),
+    ]).toEqual([true, false, false, false]);
   });
 });
 
@@ -1955,7 +1975,9 @@ describe("pipelines", () => {
       bound: true,
       now: NOW + ARTIFACT_DATA.readFlush.ms,
     });
-    expect(due.days).toEqual([{ ...emptyDay(today), read: 6, refused: 1 }]);
+    expect(due.days).toEqual([
+      { ...emptyDay(today), read: 6, refused: 1, protected: COUNTER_WRITE_ROWS },
+    ]);
     expect(due.pending).toEqual(noPendingReads(NOW + ARTIFACT_DATA.readFlush.ms));
     const yesterday = { day: today - 1, rows: 4, refused: 0, since: NOW - 86_400_000, deferred: 0 };
     const rolled = meter({
@@ -1966,7 +1988,9 @@ describe("pipelines", () => {
       bound: true,
       now: NOW,
     });
-    expect(rolled.days).toEqual([{ ...emptyDay(today - 1), read: 5 }]);
+    expect(rolled.days).toEqual([
+      { ...emptyDay(today - 1), read: 5, protected: COUNTER_WRITE_ROWS },
+    ]);
     expect(rolled.pending).toEqual({ day: today, rows: 3, refused: 0, since: NOW, deferred: 0 });
     const unbound = meter({
       terminal: { kind: "uncharged", refused: false },
@@ -1980,6 +2004,34 @@ describe("pipelines", () => {
       days: [],
       rights: null,
       pending: { ...yesterday, day: today, rows: 7 },
+    });
+    // An alarm's pruning is deferred, with no counter write of its own.
+    expect(
+      meter({ terminal: { kind: "housekeeping" }, cost, pending, day, bound: true, now: NOW }),
+    ).toEqual({ days: [], rights: null, pending: { ...pending, deferred: 3 } });
+  });
+
+  it("flushes pending usage but never deferred usage alone, across midnight included", () => {
+    const today = dayOf(NOW);
+    const day = (d: number) => emptyDay(d);
+    const deferredOnly = { ...noPendingReads(NOW), deferred: 9 };
+    expect(flushPending({ pending: deferredOnly, day, bound: true, now: NOW })).toEqual({
+      days: [],
+      pending: deferredOnly,
+    });
+    const tomorrow = NOW + 86_400_000;
+    expect(flushPending({ pending: deferredOnly, day, bound: true, now: tomorrow })).toEqual({
+      days: [],
+      pending: { ...noPendingReads(tomorrow), deferred: 9 },
+    });
+    const withReads = { ...deferredOnly, rows: 2 };
+    expect(flushPending({ pending: withReads, day, bound: true, now: NOW })).toEqual({
+      days: [{ ...emptyDay(today), read: 2, protected: 9 + COUNTER_WRITE_ROWS }],
+      pending: noPendingReads(NOW),
+    });
+    expect(flushPending({ pending: withReads, day, bound: false, now: NOW })).toEqual({
+      days: [],
+      pending: withReads,
     });
   });
 

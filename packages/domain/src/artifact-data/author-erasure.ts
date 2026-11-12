@@ -40,6 +40,8 @@ export interface ChunkWork {
   edits: number;
   operations: number;
   rates: number;
+  /** The author's own rights rows (one per day they used them). */
+  rights: number;
 }
 
 /**
@@ -48,15 +50,19 @@ export interface ChunkWork {
  */
 export function chunkLeavesMore(work: ChunkWork, take: number): boolean {
   return (
-    work.documents >= take || work.edits >= take || work.operations >= take || work.rates >= take
+    work.documents >= take ||
+    work.edits >= take ||
+    work.operations >= take ||
+    work.rates >= take ||
+    work.rights >= take
   );
 }
 
 /**
  * The terminal condition, checked in the completing chunk's transaction: no document is created
- * or last edited by the author. Then the chunk deletes any remaining sequence and count of the
- * author and marks the barrier complete.
+ * or last edited by the author and no rights row of theirs is left. Then the chunk deletes any
+ * remaining sequence and count of the author and marks the barrier complete.
  */
-export function completes(left: { created: number; edited: number }): boolean {
-  return left.created === 0 && left.edited === 0;
+export function completes(left: { created: number; edited: number; rights: number }): boolean {
+  return left.created === 0 && left.edited === 0 && left.rights === 0;
 }

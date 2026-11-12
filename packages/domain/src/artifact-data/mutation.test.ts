@@ -102,8 +102,6 @@ function reads(world: Partial<World> = {}) {
       asked.push(`document:${collection}/${id}`);
       return w.document;
     },
-    documentsSize: (_collection, ids) =>
-      w.document === null ? null : ids.length * w.document.size,
     used: (charge) => w.used[charge] ?? 0,
     rights: (who) => w.rights[who] ?? 0,
     callerAttempts: () => w.attempts,
@@ -197,6 +195,7 @@ describe("planMutation", () => {
     expect(planMutation(stored, request("create", a), fake)).toEqual({
       decision: "replayed",
       answer: { kind: "document", target: "items/d", result: null },
+      charge: "read",
     });
     expect(asked[0]).toBe(`prior:${author}|0|${op}`);
     expect(asked).toContain("collection:items");
@@ -338,7 +337,9 @@ describe("planMutation", () => {
     expect(plan("remove", OWNER, { document: { creator: "", size: 1 } })).toMatchObject({
       charge: "cleanup",
     });
-    expect(plan("bulk_remove", OWNER)).toMatchObject({ charge: "cleanup" });
+    expect(plan("bulk_remove", OWNER, {}, { documentIds: ["d"] })).toMatchObject({
+      charge: "cleanup",
+    });
   });
 
   it("refuses a spent class before the rate, except for erasure", () => {
@@ -352,7 +353,9 @@ describe("planMutation", () => {
     expect(plan("erase_author_chunk", { kind: "erasure" }, spent)).toMatchObject({
       decision: "proceed",
     });
-    expect(plan("bulk_remove", OWNER, spent)).toMatchObject({ refusal: { code: "rate_limited" } });
+    expect(plan("bulk_remove", OWNER, spent, { documentIds: ["d"] })).toMatchObject({
+      refusal: { code: "rate_limited" },
+    });
     expect(plan("create", a, { used: { growth: ROOMY.rowsWrittenPerDay - 1 } })).toMatchObject({
       decision: "proceed",
     });
@@ -491,7 +494,7 @@ describe("the rules added after the review of PR 254", () => {
     });
     expect(bulk({ documentIds: ["a", "a"] })).toEqual({
       decision: "refused",
-      refusal: refuse("invalid_input", "a bulk replace names each document once"),
+      refusal: refuse("invalid_input", "a bulk command names each document once"),
     });
     expect(bulk({}, { document: null })).toEqual({
       decision: "refused",
@@ -499,9 +502,50 @@ describe("the rules added after the review of PR 254", () => {
     });
     expect(bulk({ newSize: 21 })).toMatchObject({ decision: "proceed", charge: "growth" });
     expect(bulk({ newSize: 20 })).toMatchObject({ decision: "proceed", charge: "cleanup" });
-    expect(bulk({ documentIds: undefined } as unknown as Partial<MutationRequest>)).toMatchObject({
-      decision: "proceed",
+    expect(bulk({ documentIds: undefined } as unknown as Partial<MutationRequest>)).toEqual({
+      decision: "refused",
+      refusal: refuse("invalid_input", "between 1 and 100 documents"),
     });
+    expect(bulk({ documentIds: [] })).toMatchObject({ refusal: { code: "invalid_input" } });
+    const many = Array.from({ length: 101 }, (_, i) => `d${i}`);
+    expect(bulk({ documentIds: many })).toMatchObject({ refusal: { code: "invalid_input" } });
+  });
+
+  it("authorizes every bulk target exactly as the single command, barrier included", () => {
+    const barred = { document: { creator: "gone", size: 1 }, barred: ["gone"] };
+    expect(plan("bulk_replace", OWNER, barred, { documentIds: ["a"], newSize: 1 })).toEqual(
+      plan("replace", OWNER, barred, { documentId: "a", newSize: 1 }),
+    );
+    expect(plan("bulk_replace", OWNER, barred, { documentIds: ["a"] })).toEqual({
+      decision: "refused",
+      refusal: refuse("conflict", "this document's creator is being erased"),
+    });
+    expect(plan("bulk_remove", OWNER, { document: null }, { documentIds: ["a"] })).toEqual(
+      plan("remove", OWNER, { document: null }, { documentId: "a" }),
+    );
+    // Mixed targets: one refusal refuses the whole command, whichever position it holds.
+    const mixed = (ids: string[], kind: "bulk_replace" | "bulk_remove") => {
+      const fake = reads().fake;
+      const world: MutationReads = {
+        ...fake,
+        document: (_c, id) =>
+          id === "gone"
+            ? { creator: "gone", size: 1 }
+            : id === "missing"
+              ? null
+              : { creator: author, size: 1 },
+        barred: (who) => who === "gone",
+      };
+      return planMutation(stored, request(kind, OWNER, { documentIds: ids, newSize: 1 }), world);
+    };
+    expect(mixed(["a", "b", "gone"], "bulk_replace")).toMatchObject({
+      refusal: { code: "conflict" },
+    });
+    expect(mixed(["gone", "a"], "bulk_replace")).toMatchObject({ refusal: { code: "conflict" } });
+    expect(mixed(["a", "missing"], "bulk_remove")).toMatchObject({
+      refusal: { code: "not_found" },
+    });
+    expect(mixed(["a", "gone"], "bulk_remove")).toMatchObject({ decision: "proceed" });
   });
 
   it("spends a visitor's own rights row, nobody else's, and refuses it at its limit", () => {
@@ -538,7 +582,7 @@ describe("the rules added after the review of PR 254", () => {
     });
     expect(plan("create", a, { prior, attempts: 4 }, { limits })).toEqual({
       decision: "refused",
-      refusal: refuse("rate_limited", "too many reads, try again in a minute"),
+      refusal: refuse("rate_limited", "too many requests, try again in a minute"),
     });
     expect(plan("create", OWNER, { prior, attempts: 99 }, { limits })).toMatchObject({
       decision: "replayed",
@@ -554,7 +598,23 @@ describe("the rules added after the review of PR 254", () => {
         { prior, used: { read: 5 }, attempts: 99 },
         { limits },
       ),
-    ).toMatchObject({ decision: "replayed" });
+    ).toMatchObject({ decision: "replayed", charge: "protected" });
+  });
+
+  it("refuses visitors and readers whose minute is spent, before anything else, refusals included", () => {
+    const limits = { ...ROOMY, readsPerCallerPerMinute: 3 };
+    for (const caller of [a, READER]) {
+      const { fake, asked } = reads({ attempts: 4, collection: null });
+      expect(planMutation(stored, request("create", caller, { limits }), fake)).toEqual({
+        decision: "refused",
+        refusal: refuse("rate_limited", "too many requests, try again in a minute"),
+      });
+      expect(asked).toEqual([]);
+    }
+    expect(plan("create", a, { attempts: 3 }, { limits })).toMatchObject({ decision: "proceed" });
+    expect(plan("create", OWNER, { attempts: 99 }, { limits })).toMatchObject({
+      decision: "proceed",
+    });
   });
 
   it("raises the payload revision and writes audit obligations by the record's rules", () => {

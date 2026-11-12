@@ -22,7 +22,7 @@ import type {
   DataControl,
   DataEnvelope,
 } from "@portifact/contracts/artifact-data";
-import { ERASURE_ACTOR } from "@portifact/contracts/artifact-data";
+import { ARTIFACT_DATA, ERASURE_ACTOR } from "@portifact/contracts/artifact-data";
 import { barrierRefusal } from "./author-erasure.ts";
 import { minuteOf, rateRefusal, spentRefusal } from "./charging.ts";
 import { admit, newControl } from "./control.ts";
@@ -65,7 +65,7 @@ export interface MutationRequest {
   collection?: string;
   /** The document a replace or remove names. */
   documentId?: string;
-  /** The documents a bulk replace names. */
+  /** The documents a bulk replace or remove names. */
   documentIds?: string[];
   /** A replacement's new body size (all new bodies for a bulk replace), which decides its class. */
   newSize?: number;
@@ -80,8 +80,6 @@ export interface MutationReads {
   collection(name: string): CollectionFacts | null;
   /** A document's creator and stored size. */
   document(collection: string, id: string): { creator: string; size: number } | null;
-  /** The total stored size of documents, or null when one of them is missing. */
-  documentsSize(collection: string, ids: readonly string[]): number | null;
   /** The day's counter of a class, reads counted in memory included. */
   used(charge: ChargeClass): number;
   /** A visitor's own rights row for today. */
@@ -112,6 +110,8 @@ export type MutationPlan =
   | {
       decision: "replayed";
       answer: { kind: string; target: string; result: Record<string, number> | null };
+      /** How the replay's own lookup is metered (`replayCharge`). */
+      charge: "read" | "protected";
     }
   | Proceed;
 
@@ -171,25 +171,65 @@ function authorizeCaller(
   return { collection };
 }
 
-/** The rest of step 4 for document commands: the document, its reach and its creator's barrier. */
-function authorizeDocument(
-  request: MutationRequest,
+/**
+ * The single-document authorization of one target, shared by every path that names documents
+ * (replace, remove and both bulk kinds): the document exists within the caller's scope for the
+ * command, and a replacement never edits a document whose creator's erasure has begun.
+ */
+export function authorizeTarget(
+  command: "replace" | "remove",
+  caller: Caller,
   collection: CollectionFacts,
-  reads: MutationReads,
+  found: { creator: string; size: number } | null,
+  barred: (author: string) => boolean,
 ): Refusal | { creator: string; size: number } {
-  const caller = request.actor as Caller;
-  const found = reads.document(request.collection ?? "", request.documentId ?? "");
   const scope =
-    request.kind === "replace"
+    command === "replace"
       ? writeScope(collection.mode, caller)
       : deleteScope(collection.mode, caller);
   if (found === null || !reaches(scope, caller, found.creator)) {
     return refuse("not_found", "no such document");
   }
-  if (request.kind === "replace" && reads.barred(found.creator)) {
+  if (command === "replace" && barred(found.creator)) {
     return barrierRefusal({ kind: "edit_created_by" });
   }
   return found;
+}
+
+/**
+ * Every target of a command, through `authorizeTarget`: one refused target refuses the whole
+ * command before anything changes. Answers the targets' total stored size.
+ */
+function authorizeTargets(
+  request: MutationRequest,
+  collection: CollectionFacts,
+  reads: MutationReads,
+): Refusal | { creator: string; size: number } {
+  const bulk = request.kind === "bulk_replace" || request.kind === "bulk_remove";
+  const ids = bulk ? (request.documentIds ?? []) : [request.documentId ?? ""];
+  if (bulk && (ids.length === 0 || ids.length > ARTIFACT_DATA.caps.bulkDocuments)) {
+    return refuse("invalid_input", `between 1 and ${ARTIFACT_DATA.caps.bulkDocuments} documents`);
+  }
+  if (new Set(ids).size !== ids.length) {
+    return refuse("invalid_input", "a bulk command names each document once");
+  }
+  const command =
+    request.kind === "replace" || request.kind === "bulk_replace" ? "replace" : "remove";
+  let size = 0;
+  let creator = "";
+  for (const id of ids) {
+    const found = authorizeTarget(
+      command,
+      request.actor as Caller,
+      collection,
+      reads.document(request.collection ?? "", id),
+      (author) => reads.barred(author),
+    );
+    if ("ok" in found) return found;
+    size += found.size;
+    creator = found.creator;
+  }
+  return { creator, size };
 }
 
 function chargeOf(
@@ -228,6 +268,8 @@ export function planMutation(
   request: MutationRequest,
   reads: MutationReads,
 ): MutationPlan {
+  const attempt = minuteRefusal(request, reads);
+  if (attempt !== null) return refused(attempt);
   const verdict = admit(stored, request.envelope, { kind: "request", create: mayBind(request) });
   if (!verdict.ok) return refused(verdict);
   let control = stored;
@@ -252,9 +294,16 @@ export function planMutation(
     if (replay.value.kind === "replay") {
       const again = authorizeCaller(request, reads);
       if ("ok" in again) return refused(again);
-      const attempt = replayAttempt(request, reads);
-      if (attempt !== null) return refused(attempt);
-      return { decision: "replayed", answer: replay.value.answer };
+      const spent =
+        request.actor.kind === "erasure"
+          ? null
+          : spentRefusal("read", reads.used("read"), request.limits);
+      if (spent !== null) return refused(spent);
+      return {
+        decision: "replayed",
+        answer: replay.value.answer,
+        charge: replayCharge(request.actor),
+      };
     }
   }
   if (opId !== undefined) {
@@ -264,19 +313,10 @@ export function planMutation(
   const caller = authorizeCaller(request, reads);
   if ("ok" in caller) return refused(caller);
   let document: { creator: string; size: number } | null = null;
-  if (request.kind === "replace" || request.kind === "remove") {
-    const found = authorizeDocument(request, caller.collection as CollectionFacts, reads);
+  if (TARGETED.includes(request.kind)) {
+    const found = authorizeTargets(request, caller.collection as CollectionFacts, reads);
     if ("ok" in found) return refused(found);
     document = found;
-  }
-  if (request.kind === "bulk_replace") {
-    const ids = request.documentIds ?? [];
-    if (new Set(ids).size !== ids.length) {
-      return refused(refuse("invalid_input", "a bulk replace names each document once"));
-    }
-    const size = reads.documentsSize(request.collection ?? "", ids);
-    if (size === null) return refused(refuse("not_found", "no such document"));
-    document = { creator: "", size };
   }
   const charge = chargeOf(request, document);
   const rightsAuthor = charge === "rights" ? (request.actor as { author: string }).author : null;
@@ -304,18 +344,29 @@ export function planMutation(
   };
 }
 
+const TARGETED: readonly MutationKind[] = ["replace", "remove", "bulk_replace", "bulk_remove"];
+
 /**
- * A replay is a read attempt: it repeats no effect and no charge of the original operation, but
- * it passes the caller's minute (visitors and readers) and the read class like any read. The
- * erasure job's replays are protected.
+ * Every mutation attempt of a visitor or a reader counts once against the caller's minute, kept
+ * in memory and shared with their reads (`readsPerCallerPerMinute`), whatever its outcome: a
+ * refusal at admission, authorization, the horizon or a replay conflict included, so a caller who
+ * burned the minute on refusals is refused next. The owner side and the erasure job are not
+ * counted. The durable write and delete rates count admitted attempts on top of this.
  */
-function replayAttempt(request: MutationRequest, reads: MutationReads): Refusal | null {
+function minuteRefusal(request: MutationRequest, reads: MutationReads): Refusal | null {
   const kind = request.actor.kind;
-  if (kind === "erasure") return null;
-  if (kind !== "owner" && reads.callerAttempts() > request.limits.readsPerCallerPerMinute) {
-    return refuse("rate_limited", "too many reads, try again in a minute");
-  }
-  return spentRefusal("read", reads.used("read"), request.limits);
+  if (kind !== "visitor" && kind !== "reader") return null;
+  if (reads.callerAttempts() <= request.limits.readsPerCallerPerMinute) return null;
+  return refuse("rate_limited", "too many requests, try again in a minute");
+}
+
+/**
+ * How a replay is metered: as a read attempt (it passed the caller's minute and the read class),
+ * or, for the erasure job, as protected work. It never repeats the original operation's effect,
+ * charge or notification.
+ */
+export function replayCharge(actor: MutationActor): "read" | "protected" {
+  return actor.kind === "erasure" ? "protected" : "read";
 }
 
 /** What a mutation's work changed, as the work reports it. */

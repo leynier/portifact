@@ -221,27 +221,53 @@ export function liveReservation(used: number, limit: number): number {
   return Math.max(0, Math.min(ARTIFACT_DATA.live.reserveChunk, limit - used));
 }
 
-/**
- * The most rows one document's write or delete touches: its row read and written, a value per
- * indexed field written and deleted (at most `MAX_INDEXED_FIELDS`, retained fields after a
- * downgrade included), its value counts, the author count, the collection, the sequence and the
- * unique-key lookup.
- */
-export const DOCUMENT_ROWS = 2 + 3 * MAX_INDEXED_FIELDS + 8;
-/** A command's fixed rows: the control record, the operation record, the barrier, the counters. */
-export const COMMAND_ROWS = 20;
+/** The retained control classes one pruning pass walks, each at most `caps.pruneRows`. */
+export const RETAINED_CLASSES = [
+  "operations",
+  "ended",
+  "delivered",
+  "rates",
+  "days",
+  "rights",
+] as const;
+export type RetainedClass = (typeof RETAINED_CLASSES)[number];
 
 /**
- * Upper bounds of the rows one operation measures, derived from its per-operation caps, the
- * absolute index cap and the rows per document. The documents object checks every measured cost
- * against them (`withinBound`); delivery 4's cost tests assert that its SQL stays within them.
- * The overshoot of a spent counter is at most one charge, so at most the operation's bound plus
- * the charge's own rows. Committing a whole erase is not listed: it is protected work, never
- * refused, and bounded by the artifact's data limits instead.
+ * A command's fixed rows: the control record, the operation record and its audit obligation, the
+ * barrier, the collection and its fields, the counters and rates it reads, the storage it touches.
+ */
+export const COMMAND_ROWS = 100;
+/** Rows one indexed value costs at most: the value written, its count read and written, twice
+ * over for a replacement (the old value's count and the new). */
+export const VALUE_ROWS = 5;
+/**
+ * The most rows one document's write or delete touches besides its values: the document read,
+ * copied and written, its sequence, author count and collection read and written, its unique-key
+ * probe and its operation's target.
+ */
+export const DOCUMENT_BASE_ROWS = 16;
+export const DOCUMENT_ROWS = DOCUMENT_BASE_ROWS + VALUE_ROWS * MAX_INDEXED_FIELDS;
+/** One document an index step covers: its seek, its copy written, one value and its count. */
+export const INDEX_STEP_ROWS = 6;
+/** One edit an erasure chunk re-attributes: its seek, the copy written, the collection, the sequence. */
+export const EDIT_ROWS = 6;
+/** One operation, rate or rights row an erasure chunk deletes: its seek and its delete. */
+export const ERASED_ROW_ROWS = 2;
+
+/**
+ * Upper bounds of the rows one operation measures, derived from the per-operation caps, the
+ * absolute index and collection caps and the per-row constants above, which name what the work
+ * does. Every operation the documents object runs is checked against its bound and a bound passed
+ * fails (the in-memory object throws), at the densest legal shapes and in the property sequences;
+ * delivery 4's cost tests assert that its SQL stays within them. The overshoot of a spent counter
+ * is at most one charge, so at most the operation's bound plus the charge's own rows. Committing a
+ * whole erase is not listed: it is protected work, never refused, bounded by the artifact's data
+ * limits instead.
  */
 export const OPERATION_ROW_BOUNDS = {
-  declare: COMMAND_ROWS + MAX_INDEXED_FIELDS + 2 * ARTIFACT_DATA.caps.indexStepDocuments,
-  index_step: COMMAND_ROWS + 3 * ARTIFACT_DATA.caps.indexStepDocuments,
+  declare:
+    COMMAND_ROWS + 2 * MAX_INDEXED_FIELDS + INDEX_STEP_ROWS * ARTIFACT_DATA.caps.indexStepDocuments,
+  index_step: COMMAND_ROWS + INDEX_STEP_ROWS * ARTIFACT_DATA.caps.indexStepDocuments,
   create: COMMAND_ROWS + DOCUMENT_ROWS,
   replace: COMMAND_ROWS + 2 * DOCUMENT_ROWS,
   remove: COMMAND_ROWS + DOCUMENT_ROWS,
@@ -250,14 +276,13 @@ export const OPERATION_ROW_BOUNDS = {
   bulk_remove: COMMAND_ROWS + ARTIFACT_DATA.caps.bulkDocuments * DOCUMENT_ROWS,
   erase_author_chunk:
     COMMAND_ROWS +
-    ARTIFACT_DATA.caps.eraseChunkDocuments * (DOCUMENT_ROWS + 4 + 2 + 2) +
-    COMMAND_ROWS,
+    ARTIFACT_DATA.caps.eraseChunkDocuments * (DOCUMENT_ROWS + EDIT_ROWS + 3 * ERASED_ROW_ROWS),
   get: COMMAND_ROWS,
   query: COMMAND_ROWS + 2 * (ARTIFACT_DATA.caps.pageDocuments + 1),
   count: COMMAND_ROWS,
   describe: COMMAND_ROWS + MAX_COLLECTIONS * (2 + MAX_INDEXED_FIELDS),
   export_page: COMMAND_ROWS + ARTIFACT_DATA.caps.exportRows + 1,
-  prune: COMMAND_ROWS + 5 * 2 * ARTIFACT_DATA.caps.pruneRows,
+  prune: COMMAND_ROWS + RETAINED_CLASSES.length * (2 * ARTIFACT_DATA.caps.pruneRows + 1),
 } as const;
 export type OperationKind = keyof typeof OPERATION_ROW_BOUNDS;
 

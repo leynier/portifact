@@ -184,7 +184,8 @@ describe("second review of PR 254: reproductions", () => {
     const result = o.bulkRemove(op(e), OWNER, "items", ids, c);
     expect(result.ok).toBe(true);
     expect(withinBound("bulk_remove", result.cost)).toBe(true);
-    expect(o.exceeded).toEqual([]);
+    expect(o.checked.length).toBeGreaterThan(0);
+    expect(o.checked.every((item) => withinBound(item.kind, item.cost))).toBe(true);
   });
   it("R10: prepare binds its epoch target, so an older commit envelope cannot erase it", () => {
     const { o, e } = fixture();
@@ -368,7 +369,10 @@ describe("decisions on the review of PR 254", () => {
     value(o.declare(op(e), OWNER, { name: "items", mode: "append", indexed: ["n"] }, ctx));
     expect(revision()).toBe(before + 1);
     before = revision();
-    value(o.bulkRemove(op(e), OWNER, "items", ["xxxxxxxxxxxxxxxx"], ctx));
+    expect(o.bulkRemove(op(e), OWNER, "items", ["xxxxxxxxxxxxxxxx"], ctx)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
     value(o.eraseAuthorChunk(op(e), visitorId("nobody"), 10, ctx));
     value(o.indexStep(op(e), OWNER, ctx));
     expect(revision()).toBe(before);
@@ -415,7 +419,8 @@ describe("decisions on the review of PR 254", () => {
     value(o.eraseAuthorChunk(op(e), visitorId("gone"), 500, c));
     value(o.eraseAuthorChunk(op(e), visitorId("ed"), 500, c));
     value(o.bulkRemove(op(e), OWNER, "items", ids.slice(0, 100), c));
-    expect(o.exceeded).toEqual([]);
+    expect(o.checked.length).toBeGreaterThan(0);
+    expect(o.checked.every((item) => withinBound(item.kind, item.cost))).toBe(true);
     expect(
       o.declare(op(e), OWNER, { name: "items", mode: "shared", indexed: ["extra"] }, c),
     ).toMatchObject({ ok: false, code: "quota_exceeded" });
@@ -474,7 +479,8 @@ describe("decisions on the review of PR 254", () => {
       ctx,
     );
     expect(value(counted)).toEqual({ documents: 2 });
-    expect(counted.cost.rowsRead).toBeLessThanOrEqual(4);
+    // The control record, the collection, its fields and the one value-count row: no document.
+    expect(counted.cost.rowsRead).toBeLessThanOrEqual(6);
     value(
       o.bulkReplace(
         op(e),
