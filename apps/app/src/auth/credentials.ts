@@ -6,6 +6,7 @@
 // credential: one that forgot would fail closed.
 import { clientKindOf, parseSignInMethod } from "@portifact/contracts";
 import { recordRequestCredential } from "@portifact/db";
+import { needsTermsAcceptance } from "@portifact/domain";
 import type { Auth } from "./auth.ts";
 import { AUTH_TIME_CLAIM, SIGN_IN_METHOD_CLAIM } from "./introspection.ts";
 import type { IntrospectionPayload } from "./resource.ts";
@@ -48,6 +49,7 @@ export function recordToken(env: object, payload: IntrospectionPayload): void {
     client: clientKindOf(payload.client_id),
     signedInAt: typeof authTime === "number" ? authTime * 1000 : null,
     method: parseSignInMethod(payload[SIGN_IN_METHOD_CLAIM]),
+    termsAccepted: !needsTermsAcceptance(payload.portifact_terms_version),
   });
 }
 

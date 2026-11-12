@@ -128,6 +128,7 @@ describe("recording how a request authenticated", () => {
   it("compares OAuth credentials by client and sign-in, and tokens by ID", () => {
     const token = {
       kind: "oauth",
+      termsAccepted: true,
       userId: "u1",
       clientId: CLI_CLIENT_ID,
       client: "cli",

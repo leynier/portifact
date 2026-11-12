@@ -122,6 +122,29 @@ describe("API access decision", () => {
       }
     });
 
+    it("lets an operation that only removes or narrows through, by its name", async () => {
+      const archived = await authorizeApiRequest(
+        bearer("2000-01-01", "artifacts:write"),
+        withBearer(),
+        "artifacts:write",
+        "archive_artifact",
+      );
+      expect(archived).toEqual({ ok: true, userId: "u1" });
+      const published = await authorizeApiRequest(
+        bearer("2000-01-01", "artifacts:write"),
+        withBearer(),
+        "artifacts:write",
+        "publish_document",
+      );
+      expect(published.ok).toBe(false);
+      const removed = await authorizeAccountRequest(
+        bearer("2000-01-01", "credentials:manage"),
+        withBearer(),
+        "delete_webhook",
+      );
+      expect(removed).toMatchObject({ ok: true, userId: "u1" });
+    });
+
     it("lets the same token act once the account accepted", async () => {
       const decision = await authorizeApiRequest(
         bearer(TERMS_VERSION, "artifacts:write"),

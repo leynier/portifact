@@ -162,9 +162,26 @@ describe("POST /api/auth/accept-terms", () => {
     const cookie = await h.signIn(email);
     const first = await termsOf(email);
     const history = await historyOf(email);
-    await h.request("/api/auth/accept-terms", json(TERMS_ACCEPTANCE, { cookie }));
+    const again = await h.request("/api/auth/accept-terms", json(TERMS_ACCEPTANCE, { cookie }));
+    expect(again.status).toBe(200);
     expect(await termsOf(email)).toEqual(first);
     expect(await historyOf(email)).toEqual(history);
+  });
+
+  it("records one history row when the same account accepts twice at once", async () => {
+    const h = createHarness();
+    const email = "accept-concurrently@example.test";
+    const cookie = await h.signIn(email);
+    await forgetTerms(email);
+    const responses = await Promise.all([
+      h.request("/api/auth/accept-terms", json(TERMS_ACCEPTANCE, { cookie })),
+      h.request("/api/auth/accept-terms", json(TERMS_ACCEPTANCE, { cookie })),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    const recorded = await termsOf(email);
+    expect(await historyOf(email)).toEqual([
+      { version: TERMS_VERSION, accepted_at: recorded?.terms_accepted_at, action: "review" },
+    ]);
   });
 });
 

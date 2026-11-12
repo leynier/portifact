@@ -38,6 +38,19 @@ describe("terms_not_accepted", () => {
     expect(server.requests.filter((r) => r.path === "/api/v1/artifacts")).toHaveLength(1);
   });
 
+  it("tells an older-style unexpected answer to update the CLI or open the dashboard", async () => {
+    h.signIn();
+    server.faults.push({
+      method: "GET",
+      path: /^\/api\/v1\/artifacts$/,
+      reply: { status: 403, body: { error: { code: "a_code_from_the_future", message: "x" } } },
+    });
+    const plain = await h.invoke("list");
+    expect(plain.code).toBe(1);
+    expect(plain.stderr).toContain("update the Portifact CLI");
+    expect(plain.stderr).toContain("new terms to accept");
+  });
+
   it("reports the code and the message with --json", async () => {
     h.signIn();
     const message = termsRefusalMessage(server.origin);
