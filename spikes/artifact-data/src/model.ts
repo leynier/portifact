@@ -1,37 +1,44 @@
-// The document model of decision 0026: collections with a mode, documents whose server fields
-// the caller never sets, and queries the server builds. Pure: no storage, so the rules can be
-// read and tested without the object.
+// The document model of decision 0026: collections with a mode, documents whose server fields the
+// caller never sets, query shapes whose scan is bounded by an index seek, and the budgets every
+// operation is charged against. Pure: no storage.
 
 /** Who may read and write a collection's documents from the page (decision 0026, "Modes"). */
 export const MODES = ["own", "append", "read", "shared"] as const;
 export type Mode = (typeof MODES)[number];
 
 /**
- * The caller as the Worker decided it, never as the page says. `visitor` is a person (an
- * account behind a read or review session, or an anonymous visitor cookie) with an opaque
- * per-artifact `author` ID; `reader` can open the artifact but names nobody (a share link
- * session, an anonymous visitor where writing is closed); `owner` is the owner side (API, MCP,
- * CLI), never the page.
+ * The caller as the Worker decided it, never as the page says. `visitor` is a person or an
+ * anonymous visitor who granted this artifact an identity on the app origin (decision 0026,
+ * "The grant"), with an opaque per-artifact `author` ID; `reader` can open the artifact but has
+ * no grant (or only a share link); `owner` is the owner side (API, MCP, CLI), never the page.
  */
 export type Caller =
   | { kind: "visitor"; author: string; canWrite: boolean }
   | { kind: "reader" }
   | { kind: "owner" };
 
-/** The author recorded on documents the owner side creates. */
 export const OWNER_AUTHOR = "owner";
 
-/** The limits the object enforces, from the owner's plan; the Worker passes them on each call. */
+/** The plan's limits for one artifact, passed by the Worker on every call. */
 export interface DataLimits {
-  /** The object's whole database, documents and owner tables together. */
   bytesPerArtifact: number;
-  /** One document's JSON body. */
   documentBytes: number;
   documentsPerCollection: number;
   collections: number;
+  indexedFields: number;
+  /** Writes (create and replace) per author per minute, attempts included. */
   writesPerAuthorPerMinute: number;
+  /** Deletes per author per minute: a separate cleanup allowance. */
+  deletesPerAuthorPerMinute: number;
+  readsPerCallerPerMinute: number;
+  /** Rows the artifact may read and write per UTC day, all callers and attempts together. */
+  rowsReadPerDay: number;
+  rowsWrittenPerDay: number;
   connectionsPerArtifact: number;
   connectionsPerAuthor: number;
+  connectsPerAuthorPerMinute: number;
+  /** Bytes the live channel may send per UTC day (charged to traffic). */
+  liveBytesPerDay: number;
 }
 
 export type DataErrorCode =
@@ -40,7 +47,9 @@ export type DataErrorCode =
   | "invalid_input"
   | "quota_exceeded"
   | "rate_limited"
-  | "conflict";
+  | "conflict"
+  | "stale"
+  | "held";
 
 export class DataError extends Error {
   constructor(
@@ -52,17 +61,20 @@ export class DataError extends Error {
 }
 
 const COLLECTION_NAME = /^[a-z][a-z0-9_]{0,31}$/;
-const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
-/** Nesting a body may have: deep enough for app state, shallow enough for `json_extract`. */
+export const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_]{0,31}$/;
 export const MAX_DEPTH = 16;
-/** Page size cap: every query reads at most this many documents past its filters. */
 export const MAX_PAGE = 100;
-/** Values one `in` filter may list. */
-export const MAX_IN_VALUES = 20;
 
 export function collectionName(name: unknown): string {
   if (typeof name !== "string" || !COLLECTION_NAME.test(name)) {
     throw new DataError("invalid_input", "collection names are 1 to 32 of a-z, 0-9 and _");
+  }
+  return name;
+}
+
+export function fieldName(name: unknown): string {
+  if (typeof name !== "string" || !FIELD_NAME.test(name)) {
+    throw new DataError("invalid_input", "field names are 1 to 32 letters, digits and _");
   }
   return name;
 }
@@ -74,14 +86,12 @@ export function mode(value: unknown): Mode {
   return value as Mode;
 }
 
-/** Whether the caller reads every document of the collection (`all`), only its own, or none. */
 export function readScope(mode: Mode, caller: Caller): "all" | "own" | "none" {
   if (caller.kind === "owner") return "all";
   if (mode !== "own") return "all";
   return caller.kind === "visitor" ? "own" : "none";
 }
 
-/** Whether the caller may create documents, and whose documents it may change. */
 export function writeScope(mode: Mode, caller: Caller): "all" | "own" | "none" {
   if (caller.kind === "owner") return "all";
   if (caller.kind !== "visitor" || !caller.canWrite || mode === "read") return "none";
@@ -90,11 +100,6 @@ export function writeScope(mode: Mode, caller: Caller): "all" | "own" | "none" {
 
 function depthOf(value: unknown, depth: number): number {
   if (depth > MAX_DEPTH) return depth;
-  if (Array.isArray(value)) {
-    let deepest = depth;
-    for (const item of value) deepest = Math.max(deepest, depthOf(item, depth + 1));
-    return deepest;
-  }
   if (value !== null && typeof value === "object") {
     let deepest = depth;
     for (const item of Object.values(value)) deepest = Math.max(deepest, depthOf(item, depth + 1));
@@ -103,11 +108,6 @@ function depthOf(value: unknown, depth: number): number {
   return depth;
 }
 
-/**
- * A document body: a plain JSON object whose top-level keys never start with `_` (the server's
- * fields), at most MAX_DEPTH deep and `documentBytes` long once serialized. Returns the text the
- * object stores and its size in UTF-8 bytes.
- */
 export function documentBody(body: unknown, documentBytes: number): { text: string; size: number } {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     throw new DataError("invalid_input", "a document is a JSON object");
@@ -127,39 +127,37 @@ export function documentBody(body: unknown, documentBytes: number): { text: stri
   return { text, size };
 }
 
-/** One filter of a query. Only the server's fields and top-level body fields, never SQL. */
-export interface Filter {
-  field: string;
-  op: "eq" | "lt" | "lte" | "gt" | "gte" | "in";
-  value: string | number | boolean | null | (string | number)[];
+/**
+ * The unique key's value: a string, a finite number or a boolean, stored as its JSON text, so
+ * `1` and `"1"` differ and `1.0` equals `1`. Anything else is refused, so the key cannot be
+ * dodged with an object or an array.
+ */
+export function uniqueValue(body: Record<string, unknown>, key: string): string {
+  const value = body[key];
+  const scalar =
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value));
+  if (!scalar) throw new DataError("invalid_input", `the unique field ${key} must be a scalar`);
+  return JSON.stringify(value);
 }
 
+/**
+ * A query, in the shapes whose scan an index seek bounds (decision 0026, "Queries"): at most one
+ * equality (`_by` outside `own` mode, or a declared indexed field) and at most one range on
+ * `_created`, ordered by `_created`. Everything else is refused, because an index that only
+ * orders the result does not bound how many rows a sparse or empty match reads.
+ */
 export interface QuerySpec {
   collection: string;
-  filters?: Filter[];
+  equals?: { field: string; value: string | number | boolean };
+  created?: { op: "gt" | "gte" | "lt" | "lte"; value: number };
   order?: "created" | "-created";
   limit?: number;
   after?: string;
 }
 
-const OPS = { eq: "=", lt: "<", lte: "<=", gt: ">", gte: ">=" } as const;
-
-function scalar(value: unknown): string | number | null {
-  if (value === null || typeof value === "string" || typeof value === "number") return value;
-  if (typeof value === "boolean") return value ? 1 : 0;
-  throw new DataError("invalid_input", "filter values are strings, numbers, booleans or null");
-}
-
-/** The SQL expression a filter field reads: a server column or a top-level body field. */
-function column(field: string): string {
-  if (field === "_by") return "author";
-  if (field === "_created") return "created";
-  if (field === "_updated") return "updated";
-  if (field === "_id") return "id";
-  if (!FIELD_NAME.test(field)) throw new DataError("invalid_input", "unknown filter field");
-  // The field name passed the pattern above, so it can be part of the JSON path literal.
-  return `json_extract(body, '$.${field}')`;
-}
+const RANGE = { gt: ">", gte: ">=", lt: "<", lte: "<=" } as const;
 
 export function encodeCursor(created: number, id: string): string {
   return btoa(JSON.stringify([created, id])).replaceAll("=", "");
@@ -182,43 +180,54 @@ function decodeCursor(cursor: string): [number, string] {
   throw new DataError("invalid_input", "invalid cursor");
 }
 
+/** The index an indexed body field uses; created by the object when the field is declared. */
+export function fieldIndex(field: string): string {
+  return `pf_field_${fieldName(field)}`;
+}
+
 /**
- * The one SELECT a query runs. `author` is bound whenever the caller reads only its own
- * documents, after and independently of every filter, so no filter, cursor or ID can reach
- * another author's rows in `own` mode. Every query has a LIMIT of at most MAX_PAGE + 1 (one more
- * to know whether a next page exists), and the rows it can scan are bounded by the collection's
- * document cap.
+ * The one SELECT a query runs, with its index named (`indexed by`), so SQLite seeks to the
+ * matching range and walks it in order: rows read are at most the page plus one, whether the
+ * match is dense, sparse or empty. In `own` mode the author is bound from the caller and is the
+ * index prefix.
  */
 export function buildQuery(
   spec: QuerySpec,
   scope: "all" | "own",
   author: string | null,
-): { sql: string; params: (string | number | null)[]; limit: number } {
+  indexed: readonly string[],
+): { sql: string; params: (string | number)[]; limit: number } {
+  const params: (string | number)[] = [collectionName(spec.collection)];
   const conditions = ["collection = ?"];
-  const params: (string | number | null)[] = [collectionName(spec.collection)];
+  let index = "pf_documents_created";
   if (scope === "own") {
-    conditions.push("author = ?");
-    params.push(author);
-  }
-  const filters = spec.filters ?? [];
-  if (filters.length > 4) throw new DataError("invalid_input", "at most 4 filters");
-  for (const filter of filters) {
-    const expression = column(filter.field);
-    if (filter.op === "in") {
-      if (!Array.isArray(filter.value) || filter.value.length === 0) {
-        throw new DataError("invalid_input", "in takes a list");
-      }
-      if (filter.value.length > MAX_IN_VALUES) {
-        throw new DataError("invalid_input", `in takes at most ${MAX_IN_VALUES} values`);
-      }
-      conditions.push(`${expression} in (${filter.value.map(() => "?").join(", ")})`);
-      for (const value of filter.value) params.push(scalar(value));
-    } else if (filter.op in OPS) {
-      conditions.push(`${expression} ${OPS[filter.op]} ?`);
-      params.push(scalar(filter.value));
-    } else {
-      throw new DataError("invalid_input", "unknown filter operator");
+    if (spec.equals !== undefined) {
+      throw new DataError("invalid_input", "own collections are filtered only by _created");
     }
+    index = "pf_documents_author";
+    conditions.push("author = ?");
+    params.push(author as string);
+  } else if (spec.equals !== undefined) {
+    const { field, value } = spec.equals;
+    if (field === "_by") {
+      if (typeof value !== "string") throw new DataError("invalid_input", "_by is a string");
+      index = "pf_documents_author";
+      conditions.push("author = ?");
+      params.push(value);
+    } else if (indexed.includes(field)) {
+      index = fieldIndex(field);
+      conditions.push(`json_extract(body, '$.${fieldName(field)}') = ?`);
+      params.push(typeof value === "boolean" ? (value ? 1 : 0) : value);
+    } else {
+      throw new DataError("invalid_input", "filter only on _by or a declared indexed field");
+    }
+  }
+  if (spec.created !== undefined) {
+    if (!(spec.created.op in RANGE) || !Number.isSafeInteger(spec.created.value)) {
+      throw new DataError("invalid_input", "a _created range takes an operator and a time");
+    }
+    conditions.push(`created ${RANGE[spec.created.op]} ?`);
+    params.push(spec.created.value);
   }
   const descending = spec.order === "-created";
   if (spec.after !== undefined) {
@@ -229,6 +238,20 @@ export function buildQuery(
   const limit = Math.min(Math.max(Math.trunc(spec.limit ?? 20), 1), MAX_PAGE);
   params.push(limit + 1);
   const direction = descending ? "desc" : "asc";
-  const sql = `select id, author, created, updated, seq, body from pf_documents where ${conditions.join(" and ")} order by created ${direction}, id ${direction} limit ?`;
+  const sql = `select id, author, created, updated, seq, editor, body from pf_documents indexed by ${index} where ${conditions.join(" and ")} order by created ${direction}, id ${direction} limit ?`;
   return { sql, params, limit };
+}
+
+/** A size report's place in the object's history, so a late report never replaces a newer one. */
+export interface SizeReport {
+  generation: number;
+  revision: number;
+  bytes: number;
+}
+
+/** Whether `incoming` should replace `current` in D1: later generation, or same and later revision. */
+export function newerReport(current: SizeReport | null, incoming: SizeReport): boolean {
+  if (current === null) return true;
+  if (incoming.generation !== current.generation) return incoming.generation > current.generation;
+  return incoming.revision > current.revision;
 }

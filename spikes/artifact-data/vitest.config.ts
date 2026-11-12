@@ -1,7 +1,7 @@
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
-// The runner is the data Worker of decision 0026: it exports `ArtifactData` (wrangler.jsonc).
+// The runner is the data Worker of decision 0026: it exports `ArtifactDocuments` (wrangler.jsonc).
 // `portifact-app-spike` stands for every other Worker that binds the class by `script_name`
 // (the content, app and jobs Workers): a separate script whose binding names the data Worker.
 // The pool renames the runner to `vitest-plugin-runner-<project name>`, so the auxiliary
@@ -12,7 +12,7 @@ const APP_WORKER = `
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const stub = env.ARTIFACT_DATA.get(env.ARTIFACT_DATA.idFromName(url.searchParams.get("artifact")));
+    const stub = env.DOCUMENTS.get(env.DOCUMENTS.idFromName(url.searchParams.get("artifact")));
     return stub.fetch("https://data.internal/peek" + url.search);
   },
 };
@@ -31,7 +31,7 @@ export default defineConfig({
             script: APP_WORKER,
             compatibilityDate: "2026-08-01",
             durableObjects: {
-              ARTIFACT_DATA: { className: "ArtifactData", scriptName: DATA_WORKER },
+              DOCUMENTS: { className: "ArtifactDocuments", scriptName: DATA_WORKER },
             },
           },
         ],

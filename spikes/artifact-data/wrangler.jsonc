@@ -1,12 +1,17 @@
 {
-  // Test-only configuration of the spike's data Worker (decision 0026): it exports the one
-  // Durable Object class and nothing else. Never deployed.
+  // Test-only configuration of the spike's data Worker (decision 0026). Never deployed.
   "name": "portifact-data-spike",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
-    "bindings": [{ "name": "ARTIFACT_DATA", "class_name": "ArtifactData" }]
+    "bindings": [
+      { "name": "DOCUMENTS", "class_name": "ArtifactDocuments" },
+      { "name": "SANDBOX", "class_name": "ArtifactSandbox" },
+      { "name": "LEDGER", "class_name": "OwnerLedger" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArtifactData"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ArtifactDocuments", "ArtifactSandbox", "OwnerLedger"] }
+  ]
 }

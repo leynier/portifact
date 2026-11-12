@@ -1,24 +1,30 @@
-// Owner SQL checks that run before SQLite sees a statement (decision 0026, "Owner SQL"). A lexer,
-// not a parser: it only needs to know where strings, identifiers and comments end, so it can
-// refuse a second statement and a few keywords. Everything about which tables a statement
-// writes is decided by SQLite itself (`EXPLAIN`, in the object), never by reading the text.
+// Owner SQL checks for the sandbox (decision 0026, "Owner SQL"). Fail closed: a statement runs
+// only if its shape is on the allowlist below and every opcode of SQLite's own program for it is
+// on the opcode allowlist; anything new, unknown or unclassified is refused. The sandbox holds no
+// documents and no reserved SQL objects (its own state is in the object's key-value store, which
+// SQL cannot reach), so these checks protect the platform's resources and the read-only promise,
+// not the documents. Read-only execution is also enforced by running reads in a transaction that
+// is always rolled back (`sandbox.ts`), whatever this file concludes.
 
-/** The longest statement the owner side may send. Cloudflare's own limit is 100 KB. */
 export const MAX_STATEMENT_BYTES = 16 * 1024;
-/** Bound parameters per statement: Cloudflare's limit for Durable Object SQL. */
 export const MAX_PARAMS = 100;
+/** Bytes of all parameters together, measured before anything is parsed. */
+export const MAX_PARAM_BYTES = 128 * 1024;
 
 /**
- * Keywords refused anywhere outside strings and identifiers. `RECURSIVE` is the one way to write
- * a statement that never ends over a small database; `TRIGGER` would let a write to the owner's
- * own table write the reserved tables in a subprogram `EXPLAIN` does not show. Transactions,
- * `ATTACH`, `PRAGMA` and `VACUUM` are refused by workerd's own authorizer (measured in the spike);
- * they are listed here too so the caller gets a clear `invalid_input` instead of a platform error.
- * (`END` is not listed: `CASE ... END` needs it, and workerd refuses `END TRANSACTION` itself.)
+ * Words refused anywhere outside strings and quoted identifiers. `WITH` covers every common
+ * table expression, recursive or not, with or without `RECURSIVE` (finding 6): a later version may
+ * allow non-recursive ones once a check can prove a CTE never names itself. `TRIGGER` and
+ * `VIRTUAL` would add code or modules that run inside later statements; `TEMP` objects shadow
+ * names for the connection; the rest is session and file control.
  */
-export const REFUSED_KEYWORDS = new Set([
+export const REFUSED_WORDS = new Set([
+  "WITH",
   "RECURSIVE",
   "TRIGGER",
+  "VIRTUAL",
+  "TEMP",
+  "TEMPORARY",
   "ATTACH",
   "DETACH",
   "PRAGMA",
@@ -28,15 +34,19 @@ export const REFUSED_KEYWORDS = new Set([
   "ROLLBACK",
   "SAVEPOINT",
   "RELEASE",
+  "REINDEX",
+  "ANALYZE",
+  "LOAD_EXTENSION",
 ]);
 
-export type GuardResult = { ok: true } | { ok: false; reason: string };
+export type Shape = "read" | "write";
+
+export type GuardResult = { ok: true; shape: Shape } | { ok: false; reason: string };
 
 function isWordChar(char: string): boolean {
   return /[A-Za-z0-9_$]/.test(char);
 }
 
-/** Where a quoted run that opens at `start` with `close` ends (doubled quotes escape it). */
 function skipQuoted(sql: string, start: number, close: string): number {
   let at = start + 1;
   while (at < sql.length) {
@@ -52,15 +62,11 @@ function skipQuoted(sql: string, start: number, close: string): number {
   return -1;
 }
 
-/** One statement, no refused keyword, within the size and parameter limits. */
-export function checkStatement(sql: string, params: readonly unknown[]): GuardResult {
-  if (new TextEncoder().encode(sql).length > MAX_STATEMENT_BYTES) {
-    return { ok: false, reason: "statement too long" };
-  }
-  if (params.length > MAX_PARAMS) return { ok: false, reason: "too many parameters" };
+/** The statement's bare words, in order, outside strings, quoted identifiers and comments. */
+export function words(sql: string): { words: string[] } | { error: string } {
+  const found: string[] = [];
   let at = 0;
   let ended = false;
-  let sawStatement = false;
   while (at < sql.length) {
     const char = sql[at] as string;
     const next = sql[at + 1];
@@ -71,7 +77,7 @@ export function checkStatement(sql: string, params: readonly unknown[]): GuardRe
     }
     if (char === "/" && next === "*") {
       const end = sql.indexOf("*/", at + 2);
-      if (end === -1) return { ok: false, reason: "unterminated comment" };
+      if (end === -1) return { error: "unterminated comment" };
       at = end + 2;
       continue;
     }
@@ -79,72 +85,294 @@ export function checkStatement(sql: string, params: readonly unknown[]): GuardRe
       at += 1;
       continue;
     }
-    if (ended) return { ok: false, reason: "one statement per call" };
+    if (ended) return { error: "one statement per call" };
     if (char === ";") {
       ended = true;
       at += 1;
       continue;
     }
-    sawStatement = true;
     if (char === "'" || char === '"' || char === "`" || char === "[") {
       const end = skipQuoted(sql, at, char === "[" ? "]" : char);
-      if (end === -1) return { ok: false, reason: "unterminated quote" };
+      if (end === -1) return { error: "unterminated quote" };
       at = end;
       continue;
     }
     if (isWordChar(char)) {
       let end = at;
       while (end < sql.length && isWordChar(sql[end] as string)) end += 1;
-      const word = sql.slice(at, end).toUpperCase();
-      if (REFUSED_KEYWORDS.has(word)) return { ok: false, reason: `${word} is not allowed` };
+      found.push(sql.slice(at, end).toUpperCase());
       at = end;
       continue;
     }
     at += 1;
   }
-  return sawStatement ? { ok: true } : { ok: false, reason: "empty statement" };
+  return { words: found };
+}
+
+function paramBytes(params: readonly unknown[]): number {
+  let total = 0;
+  for (const param of params) {
+    if (typeof param === "string") total += new TextEncoder().encode(param).length;
+    else total += 16;
+  }
+  return total;
 }
 
 /**
- * Opcodes of an `EXPLAIN` listing that write a b-tree, with the operand that names its root
- * page. A statement may not run any of them on a reserved table or index, and a read-only call
- * may not run any of them at all.
+ * The statement's shape, from its first words, against the allowlist: reads are `SELECT`;
+ * writes are `INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, `CREATE [UNIQUE] INDEX`,
+ * `CREATE VIEW`, `DROP TABLE|INDEX|VIEW` and `ALTER TABLE`. Everything else is refused.
  */
-export const WRITE_OPCODES: Readonly<Record<string, "p1" | "p2" | null>> = {
-  OpenWrite: "p2",
-  Clear: "p1",
-  Destroy: "p1",
-  CreateBtree: null,
-  ParseSchema: null,
-  DropTable: null,
-  DropIndex: null,
-  DropTrigger: null,
-  VDestroy: null,
-};
+export function classify(sql: string, params: readonly unknown[]): GuardResult {
+  if (new TextEncoder().encode(sql).length > MAX_STATEMENT_BYTES) {
+    return { ok: false, reason: "statement too long" };
+  }
+  if (params.length > MAX_PARAMS) return { ok: false, reason: "too many parameters" };
+  if (paramBytes(params) > MAX_PARAM_BYTES) return { ok: false, reason: "parameters too large" };
+  const lexed = words(sql);
+  if ("error" in lexed) return { ok: false, reason: lexed.error };
+  const list = lexed.words;
+  if (list.length === 0) return { ok: false, reason: "empty statement" };
+  for (const word of list) {
+    if (REFUSED_WORDS.has(word)) return { ok: false, reason: `${word} is not allowed` };
+  }
+  const [first, second, third] = list;
+  if (first === "SELECT") return { ok: true, shape: "read" };
+  if (first === "INSERT" || first === "UPDATE" || first === "DELETE")
+    return { ok: true, shape: "write" };
+  if (first === "CREATE") {
+    if (second === "TABLE" || second === "INDEX" || second === "VIEW")
+      return { ok: true, shape: "write" };
+    if (second === "UNIQUE" && third === "INDEX") return { ok: true, shape: "write" };
+  }
+  if (first === "DROP" && (second === "TABLE" || second === "INDEX" || second === "VIEW")) {
+    return { ok: true, shape: "write" };
+  }
+  if (first === "ALTER" && second === "TABLE") return { ok: true, shape: "write" };
+  return { ok: false, reason: "this kind of statement is not supported" };
+}
+
+/**
+ * Opcodes a read may run (SQLite's VDBE, measured over the spike's corpus of supported reads).
+ * Any other opcode refuses the statement: new SQLite features stay refused until reviewed. Row
+ * operations (`Insert`, `Delete`) appear in reads on temporary cursors (sorting, window
+ * functions); writing a stored table needs `OpenWrite` first, which only writes may run, and the
+ * read call's rollback holds whatever this list says.
+ */
+export const READ_OPCODES = new Set([
+  "Delete",
+  "IdxDelete",
+  "RowSetAdd",
+  "RowSetRead",
+  "RowSetTest",
+  "IfEmpty",
+  "Init",
+  "Goto",
+  "Halt",
+  "Transaction",
+  "TableLock",
+  "OpenRead",
+  "OpenEphemeral",
+  "OpenPseudo",
+  "OpenDup",
+  "OpenAutoindex",
+  "SorterOpen",
+  "SorterInsert",
+  "SorterSort",
+  "SorterData",
+  "SorterNext",
+  "SorterCompare",
+  "Rewind",
+  "Next",
+  "Prev",
+  "SeekRowid",
+  "SeekGE",
+  "SeekGT",
+  "SeekLE",
+  "SeekLT",
+  "SeekEnd",
+  "SeekHit",
+  "SeekScan",
+  "NotFound",
+  "Found",
+  "NoConflict",
+  "NotExists",
+  "IdxGE",
+  "IdxGT",
+  "IdxLE",
+  "IdxLT",
+  "IdxRowid",
+  "DeferredSeek",
+  "Column",
+  "Rowid",
+  "NullRow",
+  "Offset",
+  "ResultRow",
+  "MakeRecord",
+  "IdxInsert",
+  "Insert",
+  "NewRowid",
+  "Integer",
+  "Int64",
+  "Real",
+  "String8",
+  "String",
+  "Null",
+  "SoftNull",
+  "Blob",
+  "Variable",
+  "Copy",
+  "SCopy",
+  "IntCopy",
+  "Move",
+  "Function",
+  "PureFunc",
+  "AggStep",
+  "AggStep1",
+  "AggFinal",
+  "AggValue",
+  "AggInverse",
+  "Add",
+  "Subtract",
+  "Multiply",
+  "Divide",
+  "Remainder",
+  "Concat",
+  "BitAnd",
+  "BitOr",
+  "BitNot",
+  "ShiftLeft",
+  "ShiftRight",
+  "AddImm",
+  "MustBeInt",
+  "RealAffinity",
+  "Cast",
+  "Affinity",
+  "Eq",
+  "Ne",
+  "Lt",
+  "Le",
+  "Gt",
+  "Ge",
+  "ElseEq",
+  "Compare",
+  "Jump",
+  "If",
+  "IfNot",
+  "IfPos",
+  "IfNotZero",
+  "IfNullRow",
+  "IsNull",
+  "NotNull",
+  "IsTrue",
+  "IsType",
+  "ZeroOrNull",
+  "Not",
+  "And",
+  "Or",
+  "Once",
+  "Gosub",
+  "Return",
+  "BeginSubrtn",
+  "Yield",
+  "InitCoroutine",
+  "EndCoroutine",
+  "DecrJumpZero",
+  "OffsetLimit",
+  "Sequence",
+  "SequenceTest",
+  "Count",
+  "Filter",
+  "FilterAdd",
+  "CollSeq",
+  "Permutation",
+  "Noop",
+  "Explain",
+  "ReadCookie",
+  "RowData",
+  "MemMax",
+  "ResetSorter",
+  "Close",
+  "ColumnsUsed",
+  "TypeCheck",
+  "HaltIfNull",
+  "ReleaseReg",
+  "CursorHint",
+  "CursorLock",
+  "CursorUnlock",
+  "IfNoHope",
+  "IFindKey",
+  "RowCell",
+  "IfSizeBetween",
+  "Last",
+]);
+
+/** Opcodes a write may run on top of a read's. */
+export const WRITE_OPCODES = new Set([
+  "OpenWrite",
+  "SetCookie",
+  "Clear",
+  "CreateBtree",
+  "ParseSchema",
+  "SqlExec",
+  "Destroy",
+  "DropTable",
+  "DropIndex",
+  "ResetCount",
+  "FkCheck",
+  "FkCounter",
+  "FkIfZero",
+  "Program",
+  "Param",
+  "VerifyCookie",
+  "AutoCommit",
+  "RenameTable",
+  "AlterTable",
+  "Expire",
+  "MaxPgcnt",
+  "Pagecount",
+]);
+
+/**
+ * Opcodes refused even in writes because they run code or modules the platform does not
+ * review: virtual tables (`VCreate`, `VUpdate`, `VOpen`, …, finding 1), triggers and nested
+ * programs are refused by the lexer already; listing them here makes the refusal explicit.
+ */
+export const NEVER_OPCODES = new Set([
+  "VBegin",
+  "VCreate",
+  "VDestroy",
+  "VOpen",
+  "VCheck",
+  "VInitIn",
+  "VFilter",
+  "VColumn",
+  "VNext",
+  "VRename",
+  "VUpdate",
+  "LoadAnalysis",
+  "Vacuum",
+  "JournalMode",
+  "IncrVacuum",
+]);
 
 export interface ExplainRow {
   opcode: string;
-  p1: number;
-  p2: number;
 }
 
-/**
- * Decides from SQLite's own program whether a statement may run: a read may write nothing; a
- * write may not write a root page in `reserved` (the reserved tables and their indexes). Schema
- * changes (page 1) pass here and are checked after running, by comparing the reserved schema.
- */
-export function checkProgram(
-  program: readonly ExplainRow[],
-  reserved: ReadonlySet<number>,
-  write: boolean,
-): GuardResult {
-  for (const row of program) {
-    if (!(row.opcode in WRITE_OPCODES)) continue;
-    if (!write) return { ok: false, reason: "this call only reads" };
-    const operand = WRITE_OPCODES[row.opcode];
-    if (operand !== null && operand !== undefined && reserved.has(row[operand])) {
-      return { ok: false, reason: "reserved tables are written only through the document API" };
-    }
+/** Fail closed over SQLite's own program: only allowlisted opcodes, writes only in write calls. */
+export function checkProgram(program: readonly ExplainRow[], shape: Shape): GuardResult {
+  for (const { opcode } of program) {
+    if (NEVER_OPCODES.has(opcode)) return { ok: false, reason: `${opcode} is not allowed` };
+    if (READ_OPCODES.has(opcode)) continue;
+    if (shape === "write" && WRITE_OPCODES.has(opcode)) continue;
+    return {
+      ok: false,
+      reason:
+        shape === "read" && WRITE_OPCODES.has(opcode)
+          ? "this call only reads"
+          : `${opcode} is not supported`,
+    };
   }
-  return { ok: true };
+  return { ok: true, shape };
 }
