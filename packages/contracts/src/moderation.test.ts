@@ -6,6 +6,7 @@ import {
   REPORT_LIMITS,
   reportedAddress,
   reportedArtifactId,
+  reportedHost,
   STATEMENT_LIMITS,
   StatementText,
   SuspensionView,
@@ -129,10 +130,25 @@ describe("full notices and statements of reasons", () => {
       "ftp://k7d2qm4xab.portifact.dev/",
       "https://user:pass@k7d2qm4xab.portifact.dev/",
       "https://[bad",
+      "https://k7d2qm4xab/page",
+      "k7d2qm4xab/page",
+      "https://k7d2qm4xab.portifact.dev.evil.example/",
       `https://k7d2qm4xab.portifact.dev/${"a".repeat(REPORT_LIMITS.addressMax)}`,
     ]) {
       expect(reportedAddress(value, "portifact.dev"), value).toBeNull();
     }
+  });
+
+  it("keeps the address on an active custom host of the artifact, and only that host", () => {
+    const custom = { hostname: "docs.example.com", artifactId: "k7d2qm4xab" };
+    expect(reportedAddress("https://Docs.Example.com/a?b=1", "portifact.dev", custom)).toBe(
+      "https://docs.example.com/a?b=1",
+    );
+    expect(reportedAddress("https://other.example.com/a", "portifact.dev", custom)).toBeNull();
+    expect(reportedAddress("https://docs.example.com/a", "portifact.dev", null)).toBeNull();
+    expect(reportedHost(" https://Docs.Example.com/a ")).toBe("docs.example.com");
+    expect(reportedHost("k7d2qm4xab")).toBeNull();
+    expect(reportedHost("https://[bad")).toBeNull();
   });
 
   it("takes the notice's parts as optional, and refuses a bad name, statement or language", () => {

@@ -240,6 +240,10 @@ export const de = {
     "Am {date} aufgrund einer erhaltenen Meldung entschieden. Ein Mensch hat diese Entscheidung getroffen.",
   "detail.suspended.review":
     "Am {date} nach unserer eigenen Prüfung entschieden. Ein Mensch hat diese Entscheidung getroffen.",
+  "settings.suspended.title": "Ihr Konto ist gesperrt",
+  "settings.suspended.body":
+    "Portifact hat Ihr Konto gesperrt. Es kann nicht veröffentlichen, und seine Artifacts sind mit ihm gesperrt. Sie können sich weiterhin anmelden, Ihre Daten exportieren und Ihr Konto löschen. Grund: {reason}. Für eine Überprüfung schreiben Sie an abuse@portifact.com.",
+  "branding.suspendedReason": "Grund: {reason}.",
   "reason.phishing": "Phishing oder eine gefälschte Anmeldeseite",
   "reason.malware": "Malware, Exploits oder Kryptomining",
   "reason.sexual_content": "sexuell explizite Inhalte",

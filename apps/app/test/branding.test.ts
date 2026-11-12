@@ -93,6 +93,8 @@ describe("the brand routes", () => {
       available: false,
       lowestPlan: "pro",
       suspended: false,
+      reason: null,
+      statement: null,
       brand: null,
     });
   });

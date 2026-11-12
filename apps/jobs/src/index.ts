@@ -26,6 +26,7 @@ import {
   domainDbs,
   domainDepsFromEnv,
   type EmailDomainDeps,
+  heldArtifactIds,
   maintainAuditStreams,
   personalHandles,
   pruneAccessEvents,
@@ -220,7 +221,8 @@ export async function runScheduled(
   for (const handles of regions.all()) {
     try {
       const access = handles.accessDb ?? createAccessDb(env.ACCESS_DB);
-      const pruned = await pruneAccessEvents(access, now);
+      // A legal hold keeps its artifact's rows past their expiry (legal-holds.ts).
+      const pruned = await pruneAccessEvents(access, now, 10, await heldArtifactIds(handles.db));
       if (prunedAccessEvents !== "failed") prunedAccessEvents += pruned;
     } catch (error) {
       prunedAccessEvents = "failed";

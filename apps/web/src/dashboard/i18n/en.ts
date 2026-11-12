@@ -225,6 +225,10 @@ export const en = {
   "detail.suspended.notice":
     "Decided on {date} after a notice we received. A person took this decision.",
   "detail.suspended.review": "Decided on {date} after our own review. A person took this decision.",
+  "settings.suspended.title": "Your account is suspended",
+  "settings.suspended.body":
+    "Portifact suspended your account. It cannot publish, and its artifacts are suspended with it. You can still sign in, export your data and delete your account. Reason: {reason}. To ask for a review, write to abuse@portifact.com.",
+  "branding.suspendedReason": "Reason: {reason}.",
   "reason.phishing": "phishing or a fake sign-in page",
   "reason.malware": "malware, exploits or cryptocurrency mining",
   "reason.sexual_content": "sexually explicit content",

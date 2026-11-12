@@ -7,9 +7,18 @@
 // `legal_hold_triggers` migration back every one of those. Releasing the hold (by hand, or by the
 // maintenance scan at its release date) lets a deferred deletion go on at its next run.
 import { type AbuseReason, isWorkspaceId, type LegalHoldLine } from "@portifact/contracts";
-import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
+import {
+  type AccessDb,
+  accessSchema,
+  type Db,
+  type GlobalDb,
+  type RegionalDb,
+  schema,
+} from "@portifact/db";
 import { checkHoldPlacement, fail, HELD_MESSAGE, ok, type Result } from "@portifact/domain";
-import { and, asc, eq, isNotNull, isNull, lte, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, type SQL, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
+import { eraseAuthorFromThread } from "./annotations.ts";
 import { suspendArtifact } from "./moderation.ts";
 
 const h = schema.legalHolds;
@@ -40,10 +49,92 @@ export async function isHeld(db: Db, artifactId: string): Promise<boolean> {
   return row !== undefined;
 }
 
+/** The artifacts with an open hold in this region, for the scans that cannot join the hold. */
+export async function heldArtifactIds(db: Db): Promise<string[]> {
+  const rows = await db.select({ id: h.artifactId }).from(h).where(isNull(h.releasedAt));
+  return rows.map((row) => row.id);
+}
+
 /** The refusal of every owner-side change a hold stops; it never says why. */
 export const heldRefusal = () => fail<never>("forbidden", HELD_MESSAGE);
 
 export type LegalHoldRow = typeof schema.legalHolds.$inferSelect;
+export type HoldIdentity = typeof schema.legalHoldIdentities.$inferSelect;
+
+const hi = schema.legalHoldIdentities;
+
+/**
+ * The people a hold keeps for an artifact: its owner account, whoever created it and the
+ * publisher of each committed version, with their emails now (null for a token or an account
+ * already gone). Read before the hold's batch; users are global, the rows regional.
+ */
+async function identitiesOf(
+  db: RegionalDb,
+  holdId: string,
+  artifact: { id: string; ownerId: string; createdBy: string | null },
+  now: number,
+): Promise<HoldIdentity[]> {
+  const versions = await db
+    .select({ id: schema.versions.id, authorId: schema.versions.authorId })
+    .from(schema.versions)
+    .where(
+      and(eq(schema.versions.artifactId, artifact.id), eq(schema.versions.state, "committed")),
+    );
+  const people: { role: HoldIdentity["role"]; versionId: string; actorId: string }[] = [
+    ...(isWorkspaceId(artifact.ownerId)
+      ? []
+      : [{ role: "owner" as const, versionId: "", actorId: artifact.ownerId }]),
+    ...(artifact.createdBy
+      ? [{ role: "creator" as const, versionId: "", actorId: artifact.createdBy }]
+      : []),
+    ...versions.map((v) => ({ role: "publisher" as const, versionId: v.id, actorId: v.authorId })),
+  ];
+  const ids = [...new Set(people.map((p) => p.actorId))];
+  const emails = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += 90) {
+    const rows = await db.global
+      .select({ id: schema.users.id, email: schema.users.email })
+      .from(schema.users)
+      .where(inArray(schema.users.id, ids.slice(i, i + 90)));
+    for (const row of rows) emails.set(row.id, row.email);
+  }
+  return people.map((p) => ({
+    holdId,
+    ...p,
+    email: emails.get(p.actorId) ?? null,
+    recordedAt: now,
+  }));
+}
+
+/** Statements that store a hold's identities, replacing what it kept before. */
+function identityStatements(db: Db, holdId: string, rows: readonly HoldIdentity[]) {
+  return [
+    db.delete(hi).where(eq(hi.holdId, holdId)),
+    ...chunks(rows, 10).map((chunk) => db.insert(hi).values(chunk).onConflictDoNothing()),
+  ];
+}
+
+function chunks<T>(items: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** The identities an artifact's open hold keeps, for the operator tool and the tests. */
+export async function holdIdentities(db: Db, artifactId: string): Promise<HoldIdentity[]> {
+  return db
+    .select({
+      holdId: hi.holdId,
+      role: hi.role,
+      versionId: hi.versionId,
+      actorId: hi.actorId,
+      email: hi.email,
+      recordedAt: hi.recordedAt,
+    })
+    .from(hi)
+    .innerJoin(h, eq(h.id, hi.holdId))
+    .where(and(eq(h.artifactId, artifactId), isNull(h.releasedAt)));
+}
 
 function newHoldId(): string {
   return `hold_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -78,6 +169,7 @@ export async function placeLegalHold(
       state: schema.artifacts.state,
       ownerId: schema.artifacts.ownerId,
       reason: schema.artifacts.suspensionReason,
+      createdBy: schema.artifacts.createdBy,
     })
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, input.artifactId))
@@ -98,8 +190,13 @@ export async function placeLegalHold(
     releaseAt: input.releaseAt,
     releasedAt: null,
   };
+  const identities = await identitiesOf(db, row.id, artifact, input.now);
   try {
-    await db.insert(h).values(row);
+    // The hold and who it keeps in one batch: a hold the trigger refuses stores nobody.
+    await db.batch([
+      db.insert(h).values(row),
+      ...identityStatements(db, row.id, identities),
+    ] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
   } catch (error) {
     // A concurrent hold won the open slot, or the artifact was reinstated in between.
     const won = await openHold(db, artifact.id);
@@ -137,12 +234,37 @@ export async function releaseLegalHold(
   db: RegionalDb,
   input: { artifactId: string; now: number },
 ): Promise<{ released: boolean }> {
+  // The job that applies what the hold deferred is written in the release's batch, on the hold
+  // still being open, before the release.
+  const open = sql`${h.artifactId} = ${input.artifactId} and ${h.releasedAt} is null`;
+  const [, rows] = (await db.batch([
+    releaseJobs(db, open, input.now),
+    db
+      .update(h)
+      .set({ releasedAt: input.now, ownerEmail: null })
+      .where(and(eq(h.artifactId, input.artifactId), isNull(h.releasedAt)))
+      .returning({ id: h.id }),
+    forgetReleasedIdentities(db),
+  ])) as unknown as [unknown, { id: string }[]];
+  return { released: rows.length > 0 };
+}
+
+/** Moves an open hold's planned release date, which must be in the future. */
+export async function updateHoldRelease(
+  db: Db,
+  input: { artifactId: string; releaseAt: number; now: number },
+): Promise<Result<{ releaseAt: number }>> {
+  if (input.releaseAt <= input.now) {
+    return fail("invalid_input", "The release date must be in the future.");
+  }
   const rows = await db
     .update(h)
-    .set({ releasedAt: input.now, ownerEmail: null })
+    .set({ releaseAt: input.releaseAt })
     .where(and(eq(h.artifactId, input.artifactId), isNull(h.releasedAt)))
     .returning({ id: h.id });
-  return { released: rows.length > 0 };
+  return rows.length > 0
+    ? ok({ releaseAt: input.releaseAt })
+    : fail("not_found", "This artifact has no open hold.");
 }
 
 /** The region's holds, open ones first, then the released ones when `all`. */
@@ -160,15 +282,130 @@ export async function listLegalHolds(
 
 /** The maintenance scan's part: releases the holds whose release date has come. */
 export async function releaseDueHolds(db: Db, now: number): Promise<number> {
-  const rows = await db
-    .update(h)
-    .set({ releasedAt: now, ownerEmail: null })
-    .where(and(isNull(h.releasedAt), isNotNull(h.releaseAt), lte(h.releaseAt, now)))
-    .returning({ id: h.id });
+  const due = sql`${h.releasedAt} is null and ${h.releaseAt} is not null and ${h.releaseAt} <= ${now}`;
+  const [, rows] = (await db.batch([
+    releaseJobs(db, due, now),
+    db
+      .update(h)
+      .set({ releasedAt: now, ownerEmail: null })
+      .where(and(isNull(h.releasedAt), isNotNull(h.releaseAt), lte(h.releaseAt, now)))
+      .returning({ id: h.id }),
+    forgetReleasedIdentities(db),
+  ])) as unknown as [unknown, { id: string }[]];
   return rows.length;
 }
 
-/** Every region's holds, for `export-tombstones` before a restore. */
+/** One `legal_hold_release` job per hold that `which` selects, subject the artifact. */
+function releaseJobs(db: Db, which: SQL, now: number) {
+  // Columns in schema order: id, topic, payload, available, dispatched, attempts, created,
+  // subject, generation.
+  return db
+    .insert(schema.outbox)
+    .select(
+      sql`select null, 'legal_hold_release', '{}', ${now}, null, 0, ${now}, ${h.artifactId}, null from ${h} where ${which}`,
+    );
+}
+
+/** People whose deletion the hold deferred: those of `ids` with an `account` tombstone. */
+async function tombstonedAccounts(global: GlobalDb, ids: readonly string[]): Promise<string[]> {
+  const gone: string[] = [];
+  const t = schema.tombstones;
+  for (let i = 0; i < ids.length; i += 90) {
+    const rows = await global
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.kind, "account"), inArray(t.id, ids.slice(i, i + 90))));
+    gone.push(...rows.map((row) => row.id));
+  }
+  return gone;
+}
+
+/** Threads a `legal_hold_release` job erases a deleted author from per run. */
+const RELEASE_THREADS = 25;
+
+/**
+ * Runs a `legal_hold_release` job: applies what the hold deferred for accounts deleted while it
+ * lasted (found by their tombstones): their comments and review verdicts on the artifact and
+ * their openings of it in the access log. Normal expiry needs nothing: the prunes stop skipping
+ * the artifact once it is no longer held. Bounded per run (`pending` to go on), idempotent, and
+ * nothing while the artifact is held again.
+ */
+export async function runHoldRelease(
+  db: RegionalDb,
+  access: AccessDb | undefined,
+  artifactId: string,
+  now: number,
+): Promise<"done" | "pending"> {
+  if (await isHeld(db, artifactId)) return "done";
+  const th = schema.annotationThreads;
+  const m = schema.annotationMessages;
+  const authors = await db
+    .selectDistinct({ authorId: m.authorId })
+    .from(m)
+    .innerJoin(th, eq(th.id, m.threadId))
+    .where(eq(th.artifactId, artifactId));
+  const rq = schema.reviewRequests;
+  const rv = schema.reviewVerdicts;
+  const reviewers = await db
+    .selectDistinct({ authorId: rv.authorId })
+    .from(rv)
+    .innerJoin(rq, eq(rq.id, rv.requestId))
+    .where(eq(rq.artifactId, artifactId));
+  const e = accessSchema.accessEvents;
+  const visitors = access
+    ? await access.selectDistinct({ userId: e.userId }).from(e).where(eq(e.artifactId, artifactId))
+    : [];
+  const gone = await tombstonedAccounts(db.global, [
+    ...new Set([
+      ...authors.map((row) => row.authorId),
+      ...reviewers.map((row) => row.authorId),
+      ...visitors.map((row) => row.userId),
+    ]),
+  ]);
+  if (gone.length === 0) return "done";
+  let erased = 0;
+  for (const authorId of gone) {
+    const threads = await db
+      .selectDistinct({ threadId: m.threadId })
+      .from(m)
+      .innerJoin(th, eq(th.id, m.threadId))
+      .where(
+        and(eq(th.artifactId, artifactId), eq(m.authorId, authorId), sql`${m.state} <> 'deleted'`),
+      );
+    for (const { threadId } of threads) {
+      if (erased >= RELEASE_THREADS) return "pending";
+      await eraseAuthorFromThread(db, { authorId, threadId, now });
+      erased += 1;
+    }
+  }
+  for (let i = 0; i < gone.length; i += 90) {
+    const some = gone.slice(i, i + 90);
+    await db
+      .delete(rv)
+      .where(
+        and(
+          inArray(rv.authorId, some),
+          sql`${rv.requestId} in (select ${rq.id} from ${rq} where ${rq.artifactId} = ${artifactId})`,
+        ),
+      );
+    if (access) {
+      await access.delete(e).where(and(eq(e.artifactId, artifactId), inArray(e.userId, some)));
+    }
+  }
+  return "done";
+}
+
+/** Deletes the identities of every hold that is no longer open: idempotent, one statement. */
+function forgetReleasedIdentities(db: Db) {
+  return db
+    .delete(hi)
+    .where(sql`${hi.holdId} not in (select ${h.id} from ${h} where ${h.releasedAt} is null)`);
+}
+
+/**
+ * Every region's holds, for `export-tombstones` before a restore: never an address (the owner's
+ * and the identities stay in the database; `applyLegalHolds` captures them again).
+ */
 export async function exportLegalHolds(regions: {
   all(): readonly { db: RegionalDb }[];
 }): Promise<LegalHoldLine[]> {
@@ -180,7 +417,7 @@ export async function exportLegalHolds(regions: {
           id: row.id,
           artifactId: row.artifactId,
           ownerId: row.ownerId,
-          ownerEmail: row.ownerEmail,
+          ownerEmail: null,
           reason: row.reason,
           ground: row.ground,
           createdAt: row.createdAt,
@@ -268,6 +505,28 @@ export async function applyLegalHolds(
         await db.update(h).set({ releasedAt: null }).where(eq(h.id, line.id));
       } else if (!(await openHold(db, line.artifactId))) {
         await db.insert(h).values(values).onConflictDoNothing();
+      }
+      // The addresses never travel in the file: captured again from the accounts as they are.
+      const [restoredArtifact] = await db
+        .select({
+          id: schema.artifacts.id,
+          ownerId: schema.artifacts.ownerId,
+          createdBy: schema.artifacts.createdBy,
+        })
+        .from(schema.artifacts)
+        .where(eq(schema.artifacts.id, line.artifactId))
+        .limit(1);
+      const open = await openHold(db, line.artifactId);
+      if (restoredArtifact && open) {
+        const owner = await ownerEmail(db.global, restoredArtifact.ownerId);
+        await db.batch([
+          db.update(h).set({ ownerEmail: owner }).where(eq(h.id, open.id)),
+          ...identityStatements(
+            db,
+            open.id,
+            await identitiesOf(db, open.id, restoredArtifact, now),
+          ),
+        ] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
       }
       result.restored += 1;
     }

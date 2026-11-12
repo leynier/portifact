@@ -218,6 +218,10 @@ export const zhCN = {
   "detail.suspended.ground": "依据(法律或我们条款中的规则)以及适用的理由",
   "detail.suspended.notice": "于 {date} 根据收到的通知作出决定。此决定由人作出。",
   "detail.suspended.review": "于 {date} 根据我们自己的审查作出决定。此决定由人作出。",
+  "settings.suspended.title": "你的账户已被暂停",
+  "settings.suspended.body":
+    "Portifact 已暂停你的账户。它不能发布内容,其 artifact 也随之暂停。你仍然可以登录、导出数据和删除账户。原因:{reason}。如需请求复核,请写信至 abuse@portifact.com。",
+  "branding.suspendedReason": "原因:{reason}。",
   "reason.phishing": "网络钓鱼或伪造的登录页面",
   "reason.malware": "恶意软件、漏洞利用或加密货币挖矿",
   "reason.sexual_content": "露骨的色情内容",

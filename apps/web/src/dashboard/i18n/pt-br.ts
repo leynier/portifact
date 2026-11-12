@@ -235,6 +235,10 @@ export const ptBR = {
     "Decidido em {date} a partir de uma notificação que recebemos. Uma pessoa tomou esta decisão.",
   "detail.suspended.review":
     "Decidido em {date} depois da nossa própria análise. Uma pessoa tomou esta decisão.",
+  "settings.suspended.title": "Sua conta está suspensa",
+  "settings.suspended.body":
+    "O Portifact suspendeu sua conta. Ela não pode publicar, e seus artifacts ficam suspensos com ela. Você ainda pode entrar, exportar seus dados e excluir sua conta. Motivo: {reason}. Para pedir uma revisão, escreva para abuse@portifact.com.",
+  "branding.suspendedReason": "Motivo: {reason}.",
   "reason.phishing": "phishing ou uma página de login falsa",
   "reason.malware": "malware, exploits ou mineração de criptomoedas",
   "reason.sexual_content": "conteúdo sexualmente explícito",

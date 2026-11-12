@@ -155,7 +155,13 @@ describe("operator arguments", () => {
       ["decisions", "thing", "x"],
       ["hold-artifact", "abc"],
       ["hold-artifact", "abc", "--ground", "g", "--until", "never"],
+      ["hold-artifact", "abc", "--ground", "g", "--until", "12/11/2027"],
+      ["hold-artifact", "abc", "--ground", "g", "--until", "2027-11-12T10:00:00"],
+      ["hold-artifact", "abc", "--ground", "g", "--until", "2027-02-30"],
+      ["send-statement", "artifact"],
+      ["send-statement", "thing", "x"],
       ["release-hold"],
+      ["hold"],
       ["holds", "--limit", "0"],
     ]) {
       const result = await run(...argv);
@@ -655,6 +661,52 @@ describe("notices, statements of reasons and legal holds", () => {
     });
   });
 
+  it("refuses a --report that names no report", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    expect(
+      await run("suspend-artifact", id, "--reason", "spam", ...WHY, "--report", "rep_nope"),
+    ).toEqual({
+      exitCode: 1,
+      output: "No report with that ID.",
+    });
+    const [row] = await db().select().from(schema.artifacts).where(eq(schema.artifacts.id, id));
+    expect(row?.state).toBe("active");
+  });
+
+  it("sends a withheld statement later, once", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    await run("suspend-artifact", id, "--reason", "child_safety", ...WHY, "--withhold-notice");
+    expect((await run("send-statement", "artifact", id)).output).toMatch(
+      /^Sending the withheld statement dec_\w+; the people affected are emailed shortly/,
+    );
+    expect((await run("send-statement", "artifact", id)).exitCode).toBe(1);
+    expect((await run("send-statement", "artifact", id, ...WHY)).output).toMatch(
+      /^Recorded and sending dec_/,
+    );
+    expect((await run("decisions", "artifact", id)).output).toContain("notice pending");
+  });
+
+  it("shows how many reports one email sent in the last day, so spam can be withheld", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    for (const n of [1, 2, 3]) {
+      await db()
+        .insert(schema.abuseReports)
+        .values({
+          id: `rep_spammy_${n}`,
+          artifactId: id,
+          reporterEmail: "Spammy@example.test",
+          reason: "spam",
+          createdAt: NOW - n * 1000,
+        });
+    }
+    expect((await run("report", "rep_spammy_1")).output).toContain(
+      "email      given (3 report(s) with it in the last 24 hours)",
+    );
+  });
+
   it("records a statement of reasons, withheld or sent, and lists who it was sent to", async () => {
     const user = await owner();
     const id = await artifact(user.id);
@@ -703,10 +755,24 @@ describe("notices, statements of reasons and legal holds", () => {
     expect(held.output).toMatch(
       new RegExp(`^Held ${id} \\(hold_\\w+\\) until 2027-11-12T00:00:00.000Z\\.`),
     );
-    expect((await run("hold-artifact", id, "--ground", "Again")).output).toContain(
-      "was already held",
-    );
+    expect(await run("hold-artifact", id, "--ground", "Again")).toMatchObject({
+      exitCode: 1,
+      output: expect.stringContaining("is already held"),
+    });
+    expect(
+      await run("hold-artifact", id, "--ground", "Again", "--until", "2028-01-31T12:00:00Z"),
+    ).toEqual({
+      exitCode: 0,
+      output: expect.stringMatching(/release date is now 2028-01-31T12:00:00.000Z/),
+    });
     expect((await run("holds")).output).toContain(`${id}  open`);
+    const shown = await run("hold", id);
+    expect(shown.output).toContain('ground    "Authority request 7"');
+    expect(shown.output).toContain(`owner     ${user.id}  ${user.email}`);
+    expect(await run("hold", "zzzzzzzzzz")).toEqual({
+      exitCode: 1,
+      output: "zzzzzzzzzz has no open hold.",
+    });
     expect((await run("reinstate-artifact", id, ...LIFT)).output).toBe(
       "This artifact has a legal hold; release it first.",
     );

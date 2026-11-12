@@ -29,6 +29,7 @@ import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
 import { type DirectoryNotifier, sendDirectoryNotice } from "./directory-notices.ts";
 import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
+import { heldArtifactIds, runHoldRelease } from "./legal-holds.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import {
   type ModerationNotifier,
@@ -250,7 +251,9 @@ async function runRow(
       // Thrown, not reported done: the row stays and the job runs again where the binding is.
       if (!access) throw new Error("erase_access_events needs the access log database");
       const { kind } = EraseAccessEventsPayload.parse(row.payload);
-      return eraseAccessEvents(access, kind, row.subject ?? "");
+      // An account's openings of a held artifact stay until the hold is released.
+      const held = kind === "user" ? await heldArtifactIds(db) : [];
+      return eraseAccessEvents(access, kind, row.subject ?? "", 10, held);
     }
     case "plan_region":
       return applyOwnerPlanRegion(regions, row.subject ?? "", now);
@@ -333,6 +336,9 @@ async function runRow(
       // Thrown, not reported done: the row stays and the job runs again where the sender is.
       if (!moderationNotifier) throw new Error("moderation_notice needs the moderation notifier");
       return sendModerationNotice(db, row, now, moderationNotifier);
+    case "legal_hold_release":
+      // What a hold deferred (legal-holds.ts); the access log is on the job's own region.
+      return runHoldRelease(db, access, row.subject ?? "", now);
     case "report_outcome":
       if (!reportOutcomeNotifier) throw new Error("report_outcome needs the report notifier");
       return sendReportOutcome(db, row, now, reportOutcomeNotifier);

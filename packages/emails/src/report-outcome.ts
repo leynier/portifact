@@ -1,7 +1,9 @@
 // The outcome of a report (docs/operations.md, "Reports"): when the operator resolves a report
 // that came with an email address, the reporter learns what was decided and how to ask for a
-// review. It never names the people who manage the content: only the address or ID the reporter
-// gave, the date of the report and the decision. Written in the report form's language.
+// review. It never names the people who manage the content, and never repeats the reporter's text
+// or the path they gave (the address is not verified, so mail must not carry a link of their
+// choosing): only the artifact's own origin, the date of the report and the decision. Written in
+// the report form's language.
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import { formatExpiry } from "./expiry-notice.ts";
 import { type Block, renderEmail, textSignature } from "./layout.ts";
@@ -11,8 +13,8 @@ export type ReportOutcome = "actioned" | "dismissed";
 
 export interface ReportOutcomeInput {
   outcome: ReportOutcome;
-  /** What the reporter named: the exact address they gave, or the artifact's ID. */
-  reported: string;
+  /** The artifact's own origin, `https://<id>.<content domain>`, built by Portifact. */
+  artifactOrigin: string;
   reportedAt: number;
   locale?: LocaleCode | undefined;
 }
@@ -124,13 +126,16 @@ export const REPORT_OUTCOME_TEXT: { readonly [code in LocaleCode]: ReportOutcome
   },
 };
 
-// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it removes
-const oneLine = (text: string) => text.replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim();
+/** An artifact's origin and nothing more: no path, query, fragment or other host. */
+const ARTIFACT_ORIGIN = /^https:\/\/[a-z2-7]{10}\.[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
 export function reportOutcomeEmail(input: ReportOutcomeInput): EmailContent {
   const locale = input.locale ?? DEFAULT_LOCALE;
   const t = REPORT_OUTCOME_TEXT[locale];
-  const intro = t.intro(oneLine(input.reported), formatExpiry(input.reportedAt, locale));
+  if (!ARTIFACT_ORIGIN.test(input.artifactOrigin)) {
+    throw new Error("A report outcome names only an artifact's origin.");
+  }
+  const intro = t.intro(input.artifactOrigin, formatExpiry(input.reportedAt, locale));
   const decision = input.outcome === "actioned" ? t.actioned : t.dismissed;
   const blocks: Block[] = [
     { kind: "paragraph", content: [intro] },

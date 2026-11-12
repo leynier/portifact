@@ -231,6 +231,10 @@ export const ja = {
     "{date} に、受け取った通報に基づいて決定しました。この決定は人が行いました。",
   "detail.suspended.review":
     "{date} に、当社自身の確認に基づいて決定しました。この決定は人が行いました。",
+  "settings.suspended.title": "アカウントは停止されています",
+  "settings.suspended.body":
+    "Portifact はあなたのアカウントを停止しました。公開できず、そのアーティファクトもあわせて停止されています。サインイン、データのエクスポート、アカウントの削除は引き続き行えます。理由: {reason}。見直しを求めるには abuse@portifact.com までご連絡ください。",
+  "branding.suspendedReason": "理由: {reason}。",
   "reason.phishing": "フィッシングまたは偽のサインインページ",
   "reason.malware": "マルウェア、エクスプロイト、暗号資産のマイニング",
   "reason.sexual_content": "露骨な性的コンテンツ",

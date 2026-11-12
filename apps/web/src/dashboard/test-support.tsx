@@ -10,6 +10,7 @@ import {
   type AccessPolicyView,
   AccessUpdate,
   type AccountSettings,
+  type AccountSuspensionView,
   type AccountUsageView,
   type AnnotationHistoryEntry,
   type AnnotationMessageView,
@@ -577,6 +578,8 @@ export interface FakeServer {
   apps: ConnectedApp[];
   /** The account's defaults for new artifacts. */
   settings: AccountSettings;
+  /** The body of GET /api/v1/account/suspension. */
+  accountSuspension: AccountSuspensionView;
   /** Comment notices by artifact: whether the owner's plan has them and the caller's mute. */
   commentNotices: Record<string, CommentNoticeMute>;
   /** The body of GET /api/v1/usage. */
@@ -701,6 +704,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     providers: [],
     sessions: [browserSession({ current: true })],
     apps: [],
+    accountSuspension: { suspended: false, reason: null, statement: null },
     settings: {
       defaultAccessMode: "restricted",
       defaultAnnotations: "off",
@@ -1542,6 +1546,9 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       server.commentNotices[id] = { ...current, muted };
     }
     return Response.json(server.commentNotices[id] ?? current);
+  }
+  if (path === "/api/v1/account/suspension" && method === "GET") {
+    return Response.json(server.accountSuspension);
   }
   if (path === "/api/v1/account/settings" && method === "GET") {
     return Response.json(server.settings);

@@ -449,13 +449,18 @@ export function moderationNotifierFromEnv(
   };
 }
 
-/** The outcome of a report, to the address the reporter gave; never who manages the content. */
-export function reportOutcomeNotifierFromEnv(env: Pick<NoticeEnv, "EMAIL">): ReportOutcomeNotifier {
+/**
+ * The outcome of a report, to the address the reporter gave: the artifact's own origin and the
+ * date, never who manages the content, the path or anything the reporter typed.
+ */
+export function reportOutcomeNotifierFromEnv(
+  env: Pick<NoticeEnv, "EMAIL" | "CONTENT_DOMAIN">,
+): ReportOutcomeNotifier {
   return {
     async send(notice) {
       const email = reportOutcomeEmail({
         outcome: notice.outcome,
-        reported: notice.reported,
+        artifactOrigin: `https://${notice.artifactId}.${env.CONTENT_DOMAIN}`,
         reportedAt: notice.reportedAt,
         locale: notice.locale ?? undefined,
       });

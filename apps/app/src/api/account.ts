@@ -8,6 +8,7 @@ import {
   AccountExport,
   AccountSettings,
   AccountSettingsUpdate,
+  AccountSuspensionView,
   type AppResource,
   ArtifactId,
   BRAND_LIMITS,
@@ -25,6 +26,7 @@ import {
   WorkspaceParam,
 } from "@portifact/contracts";
 import {
+  accountSuspensionView,
   type ConnectedAppRow,
   deleteBrand,
   disconnectApp,
@@ -159,6 +161,17 @@ export function accountRoutes(deps: AccountDeps) {
         DisconnectResult.parse({ clientId: result.value.clientId, disconnected: true }),
       );
     }),
+  );
+
+  // Whether the operator suspended this account, with the statement of reasons (operations.md,
+  // "Reports"), for the Settings page. Session only, like every account endpoint.
+  routes.get(
+    "/api/v1/account/suspension",
+    sessionOnly(async (c, session) =>
+      c.json(
+        AccountSuspensionView.parse(await accountSuspensionView(defaultDb(c.env), session.userId)),
+      ),
+    ),
   );
 
   // Defaults for new artifacts, applied by the publish service for every client.

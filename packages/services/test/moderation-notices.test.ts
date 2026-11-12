@@ -3,13 +3,14 @@
 // reporter learns the outcome; suppressed addresses, a full cycle and a withheld notice are
 // honored, and every send is recorded.
 import { env } from "cloudflare:test";
-import type { JobMessage } from "@portifact/contracts";
+import { type JobMessage, REPORT_LIMITS } from "@portifact/contracts";
 import { schema } from "@portifact/db";
 import { SIGN_IN_EMAILS_PER_CYCLE } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { actorOn } from "../src/actors.ts";
 import { getArtifact } from "../src/artifacts.ts";
-import { reinstateBrand, suspendBrand } from "../src/branding.ts";
+import { getBrandSettings, reinstateBrand, suspendBrand } from "../src/branding.ts";
 import { recordEmailsSent, suppressEmail } from "../src/email.ts";
 import {
   listAbuseReports,
@@ -21,10 +22,12 @@ import {
   suspendArtifact,
 } from "../src/moderation.ts";
 import {
+  accountSuspensionView,
   type DecisionStatement,
   listDecisions,
   type ModerationNotice,
   type ReportOutcomeNotice,
+  sendSuspensionStatement,
   suspensionStatement,
 } from "../src/moderation-notices.ts";
 import { runJob } from "../src/outbox.ts";
@@ -130,6 +133,36 @@ describe("the statement of reasons", () => {
     expect(after?.sends).toEqual([{ decisionId: decision?.id, userId: owner.id, sentAt: NOW }]);
     // The job is gone: nobody is told twice.
     expect(await jobsAbout(decision?.id ?? "")).toEqual([]);
+  });
+
+  it("is sent at most once when two runs of its job overlap", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    value(
+      await suspendArtifact(db(), { artifactId, reason: "spam", statement: STATEMENT, now: NOW }),
+    );
+    const [decision] = await decisionsOf("artifact", artifactId);
+    const [row] = await jobsAbout(decision?.id ?? "");
+    const sends: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = {
+      moderationNotifier: {
+        async send(notice: ModerationNotice) {
+          sends.push(notice.to);
+          await gate;
+        },
+      },
+    };
+    const message = { id: row?.id ?? 0, topic: "moderation_notice" } as JobMessage;
+    const first = runJob(db(), env.ARTIFACTS, message, NOW, slow);
+    const second = runJob(db(), env.ARTIFACTS, message, NOW, slow);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release();
+    await Promise.all([first, second]);
+    expect(sends).toEqual([owner.email]);
   });
 
   it("is shown next to the category, and not when withheld", async () => {
@@ -304,6 +337,184 @@ describe("the statement of reasons", () => {
   });
 });
 
+describe("the statement shown for a brand and an account", () => {
+  it("shows a suspended brand's reason and statement on its settings, and not once withheld or lifted", async () => {
+    const owner = await user();
+    await db()
+      .insert(schema.ownerBrands)
+      .values({ ownerId: owner.id, name: "Mine", updatedAt: NOW });
+    const actor = value(await actorOn(db().global, owner.id, owner.id));
+    if (!actor) throw new Error("no actor");
+    expect(value(await getBrandSettings(db(), { actor, now: NOW }))).toMatchObject({
+      suspended: false,
+      reason: null,
+      statement: null,
+    });
+    value(
+      await suspendBrand(db(), {
+        ownerId: owner.id,
+        reason: "impersonation",
+        statement: STATEMENT,
+        now: NOW,
+      }),
+    );
+    expect(value(await getBrandSettings(db(), { actor, now: NOW }))).toMatchObject({
+      suspended: true,
+      reason: "impersonation",
+      statement: { facts: STATEMENT.facts, ground: STATEMENT.ground, source: "notice" },
+    });
+    value(
+      await reinstateBrand(db(), {
+        ownerId: owner.id,
+        statement: { facts: "Back.", source: "review", withhold: false },
+        now: NOW + 1,
+      }),
+    );
+    value(
+      await suspendBrand(db(), {
+        ownerId: owner.id,
+        reason: "spam",
+        statement: { ...STATEMENT, withhold: true },
+        now: NOW + 2,
+      }),
+    );
+    expect(value(await getBrandSettings(db(), { actor, now: NOW + 2 }))).toMatchObject({
+      suspended: true,
+      reason: "spam",
+      statement: null,
+    });
+  });
+
+  it("shows a suspended account its reason and statement, and nothing otherwise", async () => {
+    const owner = await user();
+    expect(await accountSuspensionView(db(), owner.id)).toEqual({
+      suspended: false,
+      reason: null,
+      statement: null,
+    });
+    value(
+      await suspendAccount(db(), {
+        userId: owner.id,
+        reason: "malware",
+        statement: STATEMENT,
+        now: NOW,
+      }),
+    );
+    expect(await accountSuspensionView(db(), owner.id)).toEqual({
+      suspended: true,
+      reason: "malware",
+      statement: {
+        facts: STATEMENT.facts,
+        ground: STATEMENT.ground,
+        source: "notice",
+        decidedAt: new Date(NOW).toISOString(),
+      },
+    });
+    value(await reinstateAccount(db(), { userId: owner.id, now: NOW + 1 }));
+    expect((await accountSuspensionView(db(), owner.id)).suspended).toBe(false);
+  });
+});
+
+describe("sending a statement once silence ends", () => {
+  it("sends the withheld statement of an open suspension once, with the same recipients and rules", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    value(
+      await suspendArtifact(db(), {
+        artifactId,
+        reason: "child_safety",
+        statement: { ...STATEMENT, withhold: true },
+        now: NOW,
+      }),
+    );
+    expect(await suspensionStatement(db(), artifactId)).toBeNull();
+    const sent = value(
+      await sendSuspensionStatement(db(), {
+        targetKind: "artifact",
+        targetId: artifactId,
+        now: NOW + 1,
+      }),
+    );
+    expect(sent.recorded).toBe(false);
+    expect(await suspensionStatement(db(), artifactId)).toMatchObject({ facts: STATEMENT.facts });
+    const mail = notifiers();
+    await runJobsAbout(sent.decisionId, mail.deps);
+    expect(mail.moderation.map((notice) => notice.to)).toEqual([owner.email]);
+    // Nothing withheld is left: a second call refuses, and sends nothing.
+    expect(
+      await sendSuspensionStatement(db(), {
+        targetKind: "artifact",
+        targetId: artifactId,
+        now: NOW + 2,
+      }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+
+  it("records and sends a new statement for an open suspension, and refuses one that is not open", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    value(await suspendArtifact(db(), { artifactId, reason: "spam", now: NOW }));
+    const recorded = value(
+      await sendSuspensionStatement(db(), {
+        targetKind: "artifact",
+        targetId: artifactId,
+        statement: { facts: "Later facts.", ground: "AUP: spam.", source: "review" },
+        now: NOW + 1,
+      }),
+    );
+    expect(recorded.recorded).toBe(true);
+    expect(await suspensionStatement(db(), artifactId)).toMatchObject({ facts: "Later facts." });
+    expect(await jobsAbout(recorded.decisionId)).toHaveLength(1);
+    const other = await publishSite(owner.id);
+    expect(
+      await sendSuspensionStatement(db(), {
+        targetKind: "artifact",
+        targetId: other.artifactId,
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
+    // An account and a brand work the same way.
+    value(
+      await suspendAccount(db(), {
+        userId: owner.id,
+        reason: "spam",
+        statement: { ...STATEMENT, withhold: true },
+        now: NOW + 2,
+      }),
+    );
+    expect(
+      value(
+        await sendSuspensionStatement(db(), {
+          targetKind: "account",
+          targetId: owner.id,
+          now: NOW + 3,
+        }),
+      ).recorded,
+    ).toBe(false);
+    await db().insert(schema.ownerBrands).values({ ownerId: owner.id, name: "B", updatedAt: NOW });
+    value(
+      await suspendBrand(db(), {
+        ownerId: owner.id,
+        reason: "spam",
+        statement: { ...STATEMENT, withhold: true },
+        now: NOW + 4,
+      }),
+    );
+    expect(
+      value(
+        await sendSuspensionStatement(db(), {
+          targetKind: "brand",
+          targetId: owner.id,
+          now: NOW + 5,
+        }),
+      ).recorded,
+    ).toBe(false);
+    expect(
+      await sendSuspensionStatement(db(), { targetKind: "brand", targetId: "u_none", now: NOW }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+});
+
 describe("the jobs", () => {
   it("wait where the sender is missing, and end when the decision or report is gone or done", async () => {
     const owner = await user();
@@ -462,7 +673,7 @@ describe("reports and their outcome", () => {
         to: "one@example.test",
         locale: "de",
         outcome: "actioned",
-        reported: `https://${artifactId}.portifact.dev/page`,
+        artifactId,
         reportedAt: NOW,
       },
     ]);
@@ -480,6 +691,97 @@ describe("reports and their outcome", () => {
       ok: false,
       code: "not_found",
     });
+  });
+
+  it("emails one address at most the daily limit of outcomes, counted like the other email limits", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    const email = `target-${crypto.randomUUID()}@example.test`;
+    const ids: string[] = [];
+    for (let i = 0; i <= REPORT_LIMITS.outcomeEmailsPerRecipient.max; i += 1) {
+      await submitAbuseReport(db(), {
+        artifactId,
+        reason: "spam",
+        details: `report ${i}`,
+        email,
+        address: `https://${artifactId}.portifact.dev/a?n=${i}`,
+        now: NOW + i,
+      });
+    }
+    const reports = (await listAbuseReports(db().global, { status: "open", limit: 500 })).filter(
+      (report) => report.reporterEmail === email,
+    );
+    for (const report of reports) {
+      ids.push(report.id);
+      value(
+        await resolveAbuseReport(db().global, {
+          reportId: report.id,
+          status: "dismissed",
+          now: NOW,
+        }),
+      );
+    }
+    const sent = notifiers();
+    for (const id of ids) await runJobsAbout(id, sent.deps, NOW + 10);
+    expect(sent.outcomes).toHaveLength(REPORT_LIMITS.outcomeEmailsPerRecipient.max);
+    // Only the origin: never the path or anything the reporter typed.
+    expect(sent.outcomes.every((notice) => notice.artifactId === artifactId)).toBe(true);
+    expect(JSON.stringify(sent.outcomes)).not.toContain("?n=");
+    const states = (await listAbuseReports(db().global, { limit: 500 }))
+      .filter((report) => report.reporterEmail === email)
+      .map((report) => report.outcomeNotice)
+      .sort();
+    expect(states.filter((state) => state === "sent")).toHaveLength(
+      REPORT_LIMITS.outcomeEmailsPerRecipient.max,
+    );
+    expect(states.filter((state) => state === "undeliverable")).toHaveLength(1);
+  });
+
+  it("emails the outcome once when two runs overlap, and gives the claim back when a send fails", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    const email = `twice-${crypto.randomUUID()}@example.test`;
+    await submitAbuseReport(db(), {
+      artifactId,
+      reason: "spam",
+      details: undefined,
+      email,
+      now: NOW,
+    });
+    const [report] = (await listAbuseReports(db().global, { status: "open", limit: 500 })).filter(
+      (r) => r.reporterEmail === email,
+    );
+    value(
+      await resolveAbuseReport(db().global, {
+        reportId: report?.id ?? "",
+        status: "actioned",
+        now: NOW,
+      }),
+    );
+    await expect(runJobsAbout(report?.id ?? "", notifiers(true).deps)).rejects.toThrow();
+    const [row] = await jobsAbout(report?.id ?? "");
+    const sends: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow = {
+      reportOutcomeNotifier: {
+        async send(notice: ReportOutcomeNotice) {
+          sends.push(notice.to);
+          await gate;
+        },
+      },
+    };
+    const message = { id: row?.id ?? 0, topic: "report_outcome" } as JobMessage;
+    const runs = [
+      runJob(db(), env.ARTIFACTS, message, NOW, slow),
+      runJob(db(), env.ARTIFACTS, message, NOW, slow),
+    ];
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release();
+    await Promise.all(runs);
+    expect(sends).toEqual([email]);
   });
 
   it("marks the outcome undeliverable when the reporter's email is gone or suppressed", async () => {

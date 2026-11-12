@@ -77,6 +77,7 @@ import {
   getOwnerPlan,
   getWorkspaceDetail,
   hashSecret,
+  holdIdentities,
   liftEmailSuppression,
   listAbuseReports,
   listAllWorkspaces,
@@ -100,6 +101,7 @@ import {
   releaseLegalHold,
   removeOwnerPlan,
   resolveAbuseReport,
+  sendSuspensionStatement,
   setBudgetOverride,
   setOwnerPlan,
   showBrand,
@@ -107,6 +109,7 @@ import {
   suspendArtifact,
   suspendBrand,
   unblockHostname,
+  updateHoldRelease,
   type WorkspaceDetail,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
@@ -135,9 +138,12 @@ Commands:
   suspend-brand <owner> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--withhold-notice]
   reinstate-brand <owner> --facts <text> [--source notice|review] [--withhold-notice]
   decisions artifact|account|brand <id|email>   (statements of reasons and who they were sent to)
+  send-statement artifact|account|brand <id|email> [--facts <text> --ground <text> [--source notice|review]]
+                               (sends the withheld statement of an open suspension, or records and sends a new one)
   hold-artifact <artifact-id> --ground <text> [--until <date>]   (a suspended artifact only)
   release-hold <artifact-id>
   holds [--all] [--limit N]
+  hold <artifact-id>           (an open hold's ground and the people it keeps, with their emails)
   storage-report [--limit N]
   export-tombstones --out <file> [--region all|<region>]   (with more than one region: all, or a region with its own database)
   apply-tombstones [--file <file>] [--region all|<region>]
@@ -334,6 +340,25 @@ function oneLine(text: string | null): string {
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
+
+/**
+ * An explicit UTC date (`2027-11-12`, midnight UTC) or UTC timestamp (`2027-11-12T10:00:00Z`) as
+ * milliseconds; null for anything else, including a local time or an impossible date.
+ */
+export function parseUtcDate(value: string): number | null {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const stamp = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z$/.exec(value);
+  const parts = day ?? stamp;
+  if (!parts) return null;
+  const at = day
+    ? Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
+    : Date.parse(value);
+  if (Number.isNaN(at)) return null;
+  // An impossible date (February 30) rolls over: refuse it rather than move it.
+  return new Date(at).toISOString().slice(0, 10) === `${parts[1]}-${parts[2]}-${parts[3]}`
+    ? at
+    : null;
+}
 const usd = (value: number) => `US$${value.toFixed(2)}`;
 const list = (actions: readonly string[]) => (actions.length > 0 ? actions.join(", ") : "none");
 
@@ -766,6 +791,17 @@ export async function runOperator(
   const artifactDb = async (artifactId: string) =>
     (await artifactHandles(regions, artifactId))?.db ?? db;
   const reasonOption = () => AbuseReason.safeParse(options.get("reason"));
+  /** A `--report` must name a report that exists; a string is the refusal. */
+  const reportMissing = async (): Promise<string | null> => {
+    const reportId = options.get("report");
+    if (!reportId) return null;
+    const [found] = await global
+      .select({ id: schema.abuseReports.id })
+      .from(schema.abuseReports)
+      .where(eq(schema.abuseReports.id, reportId))
+      .limit(1);
+    return found ? null : "No report with that ID.";
+  };
   const suspendOptions = () => ({
     reportId: options.get("report") || undefined,
     note: options.get("note") || undefined,
@@ -826,6 +862,17 @@ export async function runOperator(
     }
     case "report": {
       const [reportId] = args;
+      // How many reports one address sent lately, so the operator can withhold outcome emails
+      // to an address someone else typed; the address itself is never printed.
+      const reportsFromEmail = async (email: string) => {
+        const [row] = await global
+          .select({ count: sql<number>`count(*)` })
+          .from(schema.abuseReports)
+          .where(
+            sql`lower(${schema.abuseReports.reporterEmail}) = ${email.toLowerCase()} and ${schema.abuseReports.createdAt} > ${now - 86_400_000}`,
+          );
+        return Number(row?.count ?? 0);
+      };
       if (!reportId) return usage("report needs a report ID.");
       const [r] = await global
         .select()
@@ -844,7 +891,7 @@ export async function runOperator(
           `reason     ${r.reason}`,
           `notice     ${r.confirmed ? "full: the reporter confirmed it is accurate, complete and in good faith" : "not confirmed"}`,
           `name       ${r.reporterName === null ? "none" : JSON.stringify(oneLine(r.reporterName))}`,
-          `email      ${r.reporterEmail ? "given" : "none"}`,
+          `email      ${r.reporterEmail ? `given (${await reportsFromEmail(r.reporterEmail)} report(s) with it in the last 24 hours)` : "none"}`,
           `language   ${r.locale ?? "en"}`,
           `outcome    ${r.outcomeNotice ?? "none"}${r.outcomeNotifiedAt ? ` ${iso(r.outcomeNotifiedAt)}` : ""}`,
           `details    ${JSON.stringify(r.details ?? "")}`,
@@ -989,6 +1036,8 @@ export async function runOperator(
       }
       const statement = statementOption(true);
       if (typeof statement === "string") return usage(statement);
+      const noReport = await reportMissing();
+      if (noReport) return { exitCode: 1, output: noReport };
       const result = await suspendArtifact(await artifactDb(artifactId), {
         artifactId,
         reason: reason.data,
@@ -1029,6 +1078,8 @@ export async function runOperator(
       }
       const statement = statementOption(true);
       if (typeof statement === "string") return usage(statement);
+      const noReport = await reportMissing();
+      if (noReport) return { exitCode: 1, output: noReport };
       const userId = await userIdFor(global, who);
       if (!userId) return { exitCode: 1, output: "Account not found." };
       const result = await suspendAccount(db, {
@@ -1095,6 +1146,8 @@ export async function runOperator(
       }
       const statement = statementOption(true);
       if (typeof statement === "string") return usage(statement);
+      const noReport = await reportMissing();
+      if (noReport) return { exitCode: 1, output: noReport };
       const ownerId = await userIdFor(global, who);
       if (!ownerId) return { exitCode: 1, output: "Account not found." };
       const result = await suspendBrand(db, {
@@ -1126,6 +1179,33 @@ export async function runOperator(
         output: result.value.reinstated
           ? `Reinstated the brand of ${ownerId}. ${noticeLine(statement.withhold)}`
           : `The brand of ${ownerId} was not suspended.`,
+      };
+    }
+    case "send-statement": {
+      const [kind, who] = args;
+      if ((kind !== "artifact" && kind !== "account" && kind !== "brand") || !who) {
+        return usage("send-statement needs artifact, account or brand and an ID or email.");
+      }
+      let statement: { facts: string; ground?: string; source: "notice" | "review" } | undefined;
+      if (options.has("facts") || options.has("ground")) {
+        const given = statementOption(true);
+        if (typeof given === "string") return usage(given);
+        if (given.withhold) return usage("send-statement sends; leave out --withhold-notice.");
+        statement = { facts: given.facts, ground: given.ground ?? "", source: given.source };
+      }
+      const targetId = kind === "artifact" ? who : await userIdFor(global, who);
+      if (!targetId) return { exitCode: 1, output: "Account not found." };
+      const where = kind === "artifact" ? await artifactDb(targetId) : db;
+      const result = await sendSuspensionStatement(where, {
+        targetKind: kind,
+        targetId,
+        statement,
+        now,
+      });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      return {
+        exitCode: 0,
+        output: `${result.value.recorded ? "Recorded and sending" : "Sending the withheld statement"} ${result.value.decisionId}; the people affected are emailed shortly (see: decisions).`,
       };
     }
     case "decisions": {
@@ -1160,9 +1240,11 @@ export async function runOperator(
         return usage("hold-artifact needs an artifact ID and --ground <text>.");
       }
       const until = options.get("until");
-      const releaseAt = until === undefined ? null : Date.parse(until);
-      if (releaseAt !== null && Number.isNaN(releaseAt)) {
-        return usage("--until must be a date, like 2027-11-12.");
+      const releaseAt = until === undefined ? null : parseUtcDate(until);
+      if (until !== undefined && releaseAt === null) {
+        return usage(
+          "--until must be a UTC date (2027-11-12) or a UTC timestamp (2027-11-12T10:00:00Z).",
+        );
       }
       const result = await placeLegalHold(await artifactDb(artifactId), {
         artifactId,
@@ -1172,11 +1254,28 @@ export async function runOperator(
       });
       if (!result.ok) return { exitCode: 1, output: result.message };
       const hold = result.value.hold;
+      if (result.value.changed) {
+        return {
+          exitCode: 0,
+          output: `Held ${artifactId} (${hold.id})${hold.releaseAt ? ` until ${iso(hold.releaseAt)}` : " until released"}. Nothing deletes, moves or serves it meanwhile.`,
+        };
+      }
+      // Already held: only a new --until changes it, and says so; the ground stays the first.
+      if (releaseAt === null) {
+        return {
+          exitCode: 1,
+          output: `${artifactId} is already held (${hold.id}); nothing changed. Give --until to change its release date, or release-hold.`,
+        };
+      }
+      const moved = await updateHoldRelease(await artifactDb(artifactId), {
+        artifactId,
+        releaseAt,
+        now,
+      });
+      if (!moved.ok) return { exitCode: 1, output: moved.message };
       return {
         exitCode: 0,
-        output: result.value.changed
-          ? `Held ${artifactId} (${hold.id})${hold.releaseAt ? ` until ${iso(hold.releaseAt)}` : " until released"}. Nothing deletes, moves or serves it meanwhile.`
-          : `${artifactId} was already held (${hold.id}).`,
+        output: `${artifactId} is already held (${hold.id}); its release date is now ${iso(releaseAt)}.`,
       };
     }
     case "release-hold": {
@@ -1189,6 +1288,28 @@ export async function runOperator(
             output: `Released the hold on ${artifactId}. It stays suspended until reinstate-artifact; a deletion that waited goes on at its next run.`,
           }
         : { exitCode: 1, output: `${artifactId} has no open hold.` };
+    }
+    case "hold": {
+      const [artifactId] = args;
+      if (!artifactId) return usage("hold needs an artifact ID.");
+      const where = await artifactDb(artifactId);
+      const people = await holdIdentities(where, artifactId);
+      const [open] = (await listLegalHolds(where, { all: false, limit: 500 })).filter(
+        (row) => row.artifactId === artifactId,
+      );
+      if (!open) return { exitCode: 1, output: `${artifactId} has no open hold.` };
+      // For the authority's request only: addresses are printed, nothing else is.
+      return {
+        exitCode: 0,
+        output: [
+          `hold      ${open.id}  since ${iso(open.createdAt)}  until ${open.releaseAt === null ? "released" : iso(open.releaseAt)}`,
+          `ground    ${JSON.stringify(oneLine(open.ground))}`,
+          ...people.map(
+            (p) =>
+              `${p.role.padEnd(9)} ${p.actorId}${p.versionId ? ` (${p.versionId})` : ""}  ${p.email ?? "no email"}`,
+          ),
+        ].join("\n"),
+      };
     }
     case "holds": {
       const limit = Number(options.get("limit") ?? 100);
@@ -1257,7 +1378,14 @@ export async function runOperator(
       const chosen = restoreRegions(regions, regionOption);
       if (typeof chosen === "string") return usage(chosen);
       // Holds first: a re-applied deletion never takes an artifact a hold keeps.
-      const held = await applyLegalHolds(chosen, holds, now);
+      // Holds of artifacts in a region this restore did not cover are left alone, not missing.
+      const covered = new Set(chosen.all().map((h) => h.region));
+      const inScope: LegalHoldLine[] = [];
+      for (const line of holds) {
+        const home = await artifactHandles(regions, line.legalHold.artifactId);
+        if (!home || covered.has(home.region)) inScope.push(line);
+      }
+      const held = await applyLegalHolds(chosen, inScope, now);
       const result = await applyTombstones(chosen, markers, now);
       // Issue connections, per region from the stored markers (decision 0018).
       const { integrations } = await applyIntegrationTombstones(chosen);

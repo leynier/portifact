@@ -276,11 +276,28 @@ reason("the owner is erased with its events", [
 ]);
 reason(
   "legal holds: operator-only, kept in legal_holds and never shown to the owner side, whose audit log must not reveal a hold",
-  ["placeLegalHold", "releaseLegalHold", "releaseDueHolds", "applyLegalHolds", "isHeld"],
+  [
+    "placeLegalHold",
+    "releaseLegalHold",
+    "releaseDueHolds",
+    "applyLegalHolds",
+    "isHeld",
+    "updateHoldRelease",
+    "heldArtifactIds",
+    "holdIdentities",
+    "runHoldRelease",
+  ],
 );
 reason(
   "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",
-  ["sendModerationNotice", "sendReportOutcome", "suspensionStatement"],
+  [
+    "sendModerationNotice",
+    "sendReportOutcome",
+    "suspensionStatement",
+    "sendSuspensionStatement",
+    "accountSuspensionView",
+    "brandSuspensionStatement",
+  ],
 );
 reason("operator moderation and platform controls, kept by the operator tool's own records", [
   "suspendArtifact",

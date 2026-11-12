@@ -413,14 +413,20 @@ export async function eraseArtifactViews(
 }
 
 /** Deletes view rows past their expiry, at most `rounds` bounded statements per run. */
-export async function pruneArtifactViews(access: AccessDb, now: number, rounds = 10) {
+export async function pruneArtifactViews(
+  access: AccessDb,
+  now: number,
+  rounds = 10,
+  /** Artifacts under a legal hold, whose counts are kept past their expiry. */
+  held: readonly string[] = [],
+) {
   const v = accessSchema.artifactViews;
   let pruned = 0;
   for (let round = 0; round < rounds; round += 1) {
     const deleted = await access
       .delete(v)
       .where(
-        sql`(${v.artifactId}, ${v.day}) in (select ${v.artifactId}, ${v.day} from ${v} where ${v.expiresAt} < ${now} limit ${ANALYTICS_ROW_BATCH})`,
+        sql`(${v.artifactId}, ${v.day}) in (select ${v.artifactId}, ${v.day} from ${v} where ${v.expiresAt} < ${now} and ${v.artifactId} not in (select value from json_each(${JSON.stringify(held)})) limit ${ANALYTICS_ROW_BATCH})`,
       )
       .returning({ day: v.day });
     pruned += deleted.length;

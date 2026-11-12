@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { regionsFromEnv } from "@portifact/db";
-import { pruneAuthRecords } from "@portifact/services";
+import { pruneAuthRecords, suspendAccount } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { publishSite, tokenClient } from "./api-client.ts";
 import {
@@ -327,6 +327,7 @@ describe("account endpoint access", () => {
     ["POST", "/api/v1/account/delete"],
     ["GET", "/api/v1/account/settings"],
     ["PATCH", "/api/v1/account/settings"],
+    ["GET", "/api/v1/account/suspension"],
   ];
 
   it("refuses session requests that do not come from the app's own pages", async () => {
@@ -387,6 +388,30 @@ describe("account endpoint access", () => {
         );
       }
     }
+  });
+});
+
+describe("the account's suspension", () => {
+  it("tells a suspended account the category and the statement, and nothing otherwise", async () => {
+    const h = createHarness();
+    const owner = await tokenClient(h, "account-suspended@example.test");
+    const read = async () =>
+      (await h.request("/api/v1/account/suspension", dashboard(owner.cookie))).json();
+    expect(await read()).toEqual({ suspended: false, reason: null, statement: null });
+    const me = await env.DB.prepare("select id from users where email = ?")
+      .bind("account-suspended@example.test")
+      .first<{ id: string }>();
+    await suspendAccount(regionsFromEnv(env).get("default").db, {
+      userId: me?.id ?? "",
+      reason: "spam",
+      statement: { facts: "Bulk spam.", ground: "AUP: spam.", source: "review", withhold: false },
+      now: Date.now(),
+    });
+    expect(await read()).toMatchObject({
+      suspended: true,
+      reason: "spam",
+      statement: { facts: "Bulk spam.", ground: "AUP: spam.", source: "review" },
+    });
   });
 });
 

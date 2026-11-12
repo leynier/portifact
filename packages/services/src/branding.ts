@@ -40,7 +40,12 @@ import {
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { auditEvent } from "./audit.ts";
-import { type DecisionStatement, decisionStatements, newDecisionId } from "./moderation-notices.ts";
+import {
+  brandSuspensionStatement,
+  type DecisionStatement,
+  decisionStatements,
+  newDecisionId,
+} from "./moderation-notices.ts";
 import { sha256Hex } from "./objects.ts";
 import { OUTBOX_INLINE_GRACE_MS } from "./outbox.ts";
 import { ownerEntitlements, ownerPlanRecord } from "./plans.ts";
@@ -110,7 +115,16 @@ export async function getBrandSettings(
 ): Promise<Result<BrandSettings>> {
   const allowed = authorize(input.actor, "brand");
   if (!allowed.ok) return allowed;
-  return ok(await currentSettings(db, input.actor.ownerId, input.now));
+  const settings = await currentSettings(db, input.actor.ownerId, input.now);
+  const row = settings.suspended ? await loadBrand(db, input.actor.ownerId) : null;
+  // While suspended, the category and the statement of reasons next to it (operations.md).
+  return ok({
+    ...settings,
+    reason: row?.suspensionReason ?? null,
+    statement: row?.suspendedAt
+      ? await brandSuspensionStatement(db, input.actor.ownerId, row.suspendedAt)
+      : null,
+  });
 }
 
 /**

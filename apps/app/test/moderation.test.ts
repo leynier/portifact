@@ -86,6 +86,37 @@ describe("public abuse reports", () => {
     ]);
   });
 
+  it("keeps an address on an artifact's active custom host only while custom domains serve", async () => {
+    const off = createHarness();
+    const owner = await tokenClient(off, "custom-report@example.test");
+    const id = await publishSite(owner);
+    const hostname = `docs-${crypto.randomUUID().slice(0, 8)}.example.com`;
+    await env.DB.prepare(
+      "INSERT INTO custom_domains (hostname, artifact_id, owner_id, region, state, token, verified_at, checked_at) VALUES (?, ?, 'u_x', 'default', 'active', 't', 0, 0)",
+    )
+      .bind(hostname, id)
+      .run();
+    const body = { artifact: `https://${hostname}/page?x=1`, reason: "spam" };
+    expect((await off.request("/api/v1/reports", report(body))).status).toBe(400);
+    const on = createHarness({ env: { CUSTOM_DOMAINS_ENABLED: "true" } });
+    await env.DB.exec("DELETE FROM rate_limits");
+    expect((await on.request("/api/v1/reports", report(body))).status).toBe(202);
+    const rows = (
+      await env.DB.prepare("select address from abuse_reports where artifact_id = ?").bind(id).all()
+    ).results;
+    expect(rows).toEqual([{ address: `https://${hostname}/page?x=1` }]);
+    // A host that is a bare ID is not an artifact's host.
+    await env.DB.exec("DELETE FROM rate_limits");
+    expect(
+      (
+        await on.request(
+          "/api/v1/reports",
+          report({ artifact: `https://${id}/page`, reason: "spam" }),
+        )
+      ).status,
+    ).toBe(400);
+  });
+
   it("drops the name of a report about minors and still takes an older page's report", async () => {
     const h = createHarness();
     const owner = await tokenClient(h, "notice-minors@example.test");

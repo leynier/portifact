@@ -366,6 +366,12 @@ export async function getAccessLog(
  * Deletes up to `ACCESS_DELETE_BATCH` rows that match `where`; true when it may have left some.
  * The table has a rowid, so a bounded delete goes through a subquery on it.
  */
+/** Openings of artifacts that are not held, with the held IDs as one JSON parameter. */
+function notHeldEvents(held: readonly string[]): SQL {
+  const e = accessSchema.accessEvents;
+  return sql`${e.artifactId} not in (select value from json_each(${JSON.stringify(held)}))`;
+}
+
 async function deleteSome(access: AccessDb, where: SQL): Promise<number> {
   const e = accessSchema.accessEvents;
   const deleted = await access
@@ -385,9 +391,14 @@ export async function eraseAccessEvents(
   kind: EraseAccessEventsPayload["kind"],
   subject: string,
   rounds = 10,
+  /** Artifacts under a legal hold: an account's openings of them stay until the release. */
+  held: readonly string[] = [],
 ): Promise<"done" | "pending"> {
   const e = accessSchema.accessEvents;
-  const where = kind === "artifact" ? eq(e.artifactId, subject) : eq(e.userId, subject);
+  const where =
+    kind === "artifact"
+      ? eq(e.artifactId, subject)
+      : (and(eq(e.userId, subject), notHeldEvents(held)) as SQL);
   let finished = false;
   for (let round = 0; round < rounds && !finished; round += 1) {
     finished = (await deleteSome(access, where)) < ACCESS_DELETE_BATCH;
@@ -401,11 +412,23 @@ export async function eraseAccessEvents(
  * free 30 days), at most `rounds` bounded statements per table and run; the next scheduled run
  * goes on where it stopped.
  */
-export async function pruneAccessEvents(access: AccessDb, now: number, rounds = 10) {
+export async function pruneAccessEvents(
+  access: AccessDb,
+  now: number,
+  rounds = 10,
+  /**
+   * Artifacts under a legal hold in the region (`heldArtifactIds`): the access database cannot
+   * join the hold, so the caller reads them; their rows are kept past their expiry.
+   */
+  held: readonly string[] = [],
+) {
   const e = accessSchema.accessEvents;
-  const where = or(
-    lt(e.expiresAt, now),
-    and(isNull(e.expiresAt), lt(e.openedAt, now - FREE_RETENTION_DAYS * DAY_MS)),
+  const where = and(
+    or(
+      lt(e.expiresAt, now),
+      and(isNull(e.expiresAt), lt(e.openedAt, now - FREE_RETENTION_DAYS * DAY_MS)),
+    ),
+    notHeldEvents(held),
   ) as SQL;
   let pruned = 0;
   for (let round = 0; round < rounds; round += 1) {
@@ -413,7 +436,7 @@ export async function pruneAccessEvents(access: AccessDb, now: number, rounds = 
     pruned += deleted;
     if (deleted < ACCESS_DELETE_BATCH) break;
   }
-  return pruned + (await pruneArtifactViews(access, now, rounds));
+  return pruned + (await pruneArtifactViews(access, now, rounds, held));
 }
 
 /**

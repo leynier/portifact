@@ -88,6 +88,7 @@ export const TABLE_HOMES = {
   moderation_decisions: "regional",
   moderation_notice_sends: "regional",
   legal_holds: "regional",
+  legal_hold_identities: "regional",
   annotation_threads: "regional",
   annotation_messages: "regional",
   annotation_events: "regional",

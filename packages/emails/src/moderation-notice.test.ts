@@ -97,32 +97,46 @@ describe("the statement of reasons", () => {
 });
 
 describe("the outcome of a report", () => {
-  it("tells the decision and how to ask for a review, never who manages the content", () => {
+  const ORIGIN = "https://k7d2qm4xab.portifact.dev";
+  it("names only the artifact's origin and the date, never a path or the reporter's text", () => {
     const email = reportOutcomeEmail({
       outcome: "actioned",
-      reported: "https://k7d2qm4xab.portifact.dev/login",
+      artifactOrigin: ORIGIN,
       reportedAt: AT,
     });
     expect(email.subject).toBe("The outcome of your report to Portifact");
-    expect(email.text).toContain("https://k7d2qm4xab.portifact.dev/login");
+    expect(email.text).toContain(ORIGIN);
     expect(email.text).toContain(
       "We reviewed it and restricted the content. A person took this decision.",
     );
     expect(email.text).toContain("write to abuse@portifact.com");
     const dismissed = reportOutcomeEmail({
       outcome: "dismissed",
-      reported: "x\ny",
+      artifactOrigin: ORIGIN,
       reportedAt: AT,
     });
     expect(dismissed.text).toContain("we took no action");
-    expect(dismissed.text).toContain("Portifact: x y");
+  });
+
+  it("refuses anything but an artifact's origin", () => {
+    for (const artifactOrigin of [
+      "https://k7d2qm4xab.portifact.dev/login",
+      "https://evil.example",
+      "http://k7d2qm4xab.portifact.dev",
+      "https://k7d2qm4xab.portifact.dev?x=1",
+    ]) {
+      expect(
+        () => reportOutcomeEmail({ outcome: "actioned", artifactOrigin, reportedAt: AT }),
+        artifactOrigin,
+      ).toThrow();
+    }
   });
 
   it("is written in every language", () => {
     for (const locale of LOCALE_CODES) {
       const email = reportOutcomeEmail({
         outcome: "dismissed",
-        reported: "k7d2qm4xab",
+        artifactOrigin: ORIGIN,
         reportedAt: AT,
         locale,
       });

@@ -236,6 +236,10 @@ export const es = {
     "Decidido el {date} a partir de un aviso que recibimos. Una persona tomó esta decisión.",
   "detail.suspended.review":
     "Decidido el {date} después de nuestra propia revisión. Una persona tomó esta decisión.",
+  "settings.suspended.title": "Tu cuenta está suspendida",
+  "settings.suspended.body":
+    "Portifact suspendió tu cuenta. No puede publicar y sus artifacts quedan suspendidos con ella. Todavía puedes iniciar sesión, exportar tus datos y eliminar tu cuenta. Motivo: {reason}. Para pedir una revisión, escribe a abuse@portifact.com.",
+  "branding.suspendedReason": "Motivo: {reason}.",
   "reason.phishing": "phishing o una página de inicio de sesión falsa",
   "reason.malware": "malware, exploits o minería de criptomonedas",
   "reason.sexual_content": "contenido sexual explícito",

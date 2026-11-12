@@ -109,6 +109,8 @@ function lifecycleEvent(
     | "artifact.deleted"
     | "artifact.pinned"
     | "artifact.unpinned",
+  /** The claim the change's guarded update uses, when it holds more than the guard. */
+  condition: SQL = stillAsRead(artifact),
 ) {
   return auditEvent(
     db,
@@ -121,7 +123,7 @@ function lifecycleEvent(
       detail: {},
       now: input.now,
     },
-    stillAsRead(artifact),
+    condition,
   );
 }
 
@@ -321,7 +323,14 @@ export async function deleteArtifact(
   const unchanged = and(guard(artifact), notHeldSql()) as SQL;
   const [, , claimed] = await db.batch([
     purgeJobs(db, unchanged, input.now, input.now + OUTBOX_INLINE_GRACE_MS),
-    lifecycleEvent(db, artifact, input, "artifact.deleted"),
+    // On the claim itself: a hold placed after the check writes no event either.
+    lifecycleEvent(
+      db,
+      artifact,
+      input,
+      "artifact.deleted",
+      sql`exists (select 1 from ${schema.artifacts} where ${unchanged})`,
+    ),
     db
       .update(schema.artifacts)
       .set({

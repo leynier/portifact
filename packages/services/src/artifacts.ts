@@ -276,7 +276,9 @@ export async function getArtifact(
   const actor = await authorizeOn(db, input.userId, row, "list", missing);
   if (!actor.ok) return actor;
   const [review] = await approvalSummaries(db, [approvalReview]);
-  // The statement of reasons next to the category, for the managers of a suspended artifact.
-  const statement = row.state === "suspended" ? await suspensionStatement(db, row.id) : null;
+  // The statement of reasons next to the category, for the people who manage a suspended
+  // artifact (admins and editors); a service token gets the category only.
+  const statement =
+    row.state === "suspended" && !actor.value.token ? await suspensionStatement(db, row.id) : null;
   return ok({ ...row, review: review as ApprovalSummary, statement });
 }

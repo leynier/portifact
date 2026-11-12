@@ -2,27 +2,16 @@
 // 5 and 13). Report text and the reporter's email are untrusted input from anyone on the web.
 
 import { z } from "zod";
+import { AbuseReason, SuspensionStatement } from "./moderation-core.ts";
+
+export { AbuseReason, DecisionSource, SuspensionStatement } from "./moderation-core.ts";
+
 import { AccountSettings, Locale } from "./account.ts";
 import { AuditEventView } from "./audit.ts";
 import { Brand } from "./branding.ts";
 import { AccessMode, ArtifactId, Email } from "./core.ts";
 import { PlanView } from "./plans.ts";
 import { ServiceTokenView } from "./service-tokens.ts";
-
-/** Categories of the Acceptable Use Policy, used by reports and by suspensions. */
-export const AbuseReason = z.enum([
-  "phishing",
-  "malware",
-  "sexual_content",
-  "child_safety",
-  "copyright",
-  "impersonation",
-  "harassment",
-  "private_information",
-  "spam",
-  "other",
-]);
-export type AbuseReason = z.infer<typeof AbuseReason>;
 
 export const REPORT_LIMITS = {
   /** Code points of the free-text explanation. */
@@ -34,6 +23,11 @@ export const REPORT_LIMITS = {
   /** Bytes of the whole request body: the explanation at four bytes a code point, and the rest. */
   bodyMaxBytes: 49_152,
   perIp: { max: 10, windowSeconds: 3_600 },
+  /**
+   * Outcome emails to one reporter address a day: the address is not verified, so the form must
+   * not become a way to mail someone repeatedly.
+   */
+  outcomeEmailsPerRecipient: { max: 3, windowSeconds: 86_400 },
   perArtifact: { max: 50, windowSeconds: 86_400 },
   global: { max: 1_000, windowSeconds: 86_400 },
 } as const;
@@ -103,11 +97,16 @@ export function reportedArtifactId(value: string, contentDomain: string): string
 }
 
 /**
- * The exact address a report names, kept in full (its path, query and fragment) when it is an
- * address of an artifact on the content domain: `https://<id>.<domain>/...`, no credentials, at
- * most `REPORT_LIMITS.addressMax` characters. Null for a bare ID or anything else.
+ * The exact address a report names, kept in full (its path, query and fragment) when its host is
+ * an artifact's host on the content domain (`<id>.<domain>`) or the active custom host the caller
+ * looked up for it: https or http, no credentials, at most `REPORT_LIMITS.addressMax` characters.
+ * Null for a bare ID or anything else.
  */
-export function reportedAddress(value: string, contentDomain: string): string | null {
+export function reportedAddress(
+  value: string,
+  contentDomain: string,
+  customHost: { hostname: string; artifactId: string } | null = null,
+): string | null {
   const trimmed = value.trim();
   if (!trimmed.includes("://") && ArtifactId.safeParse(trimmed.toLowerCase()).success) return null;
   let url: URL;
@@ -118,16 +117,28 @@ export function reportedAddress(value: string, contentDomain: string): string | 
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
   if (url.username || url.password) return null;
-  if (reportedArtifactId(url.hostname, contentDomain) === null) return null;
+  const suffix = `.${contentDomain.toLowerCase()}`;
+  const onContentDomain =
+    url.hostname.endsWith(suffix) &&
+    ArtifactId.safeParse(url.hostname.slice(0, -suffix.length)).success;
+  const onCustomHost = customHost !== null && url.hostname === customHost.hostname.toLowerCase();
+  if (!onContentDomain && !onCustomHost) return null;
   return url.href.length <= REPORT_LIMITS.addressMax ? url.href : null;
+}
+
+/** The host of a reported address, lowercased, or null when it is not an address at all. */
+export function reportedHost(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed.includes("://") && ArtifactId.safeParse(trimmed.toLowerCase()).success) return null;
+  try {
+    return new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`).hostname;
+  } catch {
+    return null;
+  }
 }
 
 /** Bounds of the operator's text in a statement of reasons (code points). */
 export const STATEMENT_LIMITS = { factsMax: 2_000, groundMax: 500 } as const;
-
-/** Whether a restriction followed a notice (a report or an email) or the operator's own review. */
-export const DecisionSource = z.enum(["notice", "review"]);
-export type DecisionSource = z.infer<typeof DecisionSource>;
 
 /**
  * The operator's part of a statement of reasons: the facts relied on and the ground (the law or
@@ -138,15 +149,6 @@ export const StatementText = z.strictObject({
   ground: reportText(STATEMENT_LIMITS.groundMax, "Ground").pipe(z.string().min(1)),
 });
 export type StatementText = z.infer<typeof StatementText>;
-
-/** The statement of reasons the managers of a suspended artifact see next to the category. */
-export const SuspensionStatement = z.object({
-  facts: z.string(),
-  ground: z.string(),
-  source: DecisionSource,
-  decidedAt: z.iso.datetime(),
-});
-export type SuspensionStatement = z.infer<typeof SuspensionStatement>;
 
 /** Why the owner sees an artifact suspended. The operator's notes are never included. */
 export const SuspensionView = z.object({
@@ -159,6 +161,18 @@ export const SuspensionView = z.object({
   statement: SuspensionStatement.nullable().optional(),
 });
 export type SuspensionView = z.infer<typeof SuspensionView>;
+
+/**
+ * Whether the operator suspended the signed-in account, for its Settings page
+ * (`GET /api/v1/account/suspension`, session only): the category, and the statement of reasons
+ * unless it was withheld.
+ */
+export const AccountSuspensionView = z.strictObject({
+  suspended: z.boolean(),
+  reason: AbuseReason.nullable(),
+  statement: SuspensionStatement.nullable(),
+});
+export type AccountSuspensionView = z.infer<typeof AccountSuspensionView>;
 
 /** Deleting the account: the user types their email to confirm. */
 export const AccountDeletionInput = z.object({ confirmEmail: z.string().max(254) }).strict();

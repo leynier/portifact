@@ -688,7 +688,14 @@ async function threadsToErase(db: Db, userId: string, limit: number): Promise<st
   const m = schema.annotationMessages;
   const rows = await db.all<{ thread_id: string }>(sql`
     select distinct mine.thread_id from ${m} as mine
-    where mine.author_id = ${userId} and mine.owner_id <> ${userId} and (
+    where mine.author_id = ${userId} and mine.owner_id <> ${userId}
+    -- Words on a held artifact stay until the hold is released (legal-holds.ts).
+    and not exists (
+      select 1 from "annotation_threads" as held_thread
+      join "legal_holds" as hold on hold.artifact_id = held_thread.artifact_id
+      where held_thread.id = mine.thread_id and hold.released_at is null
+    )
+    and (
       mine.state <> 'deleted' or not exists (
         select 1 from ${m} as reply
         where reply.thread_id = mine.thread_id and reply.author_id <> ${userId}

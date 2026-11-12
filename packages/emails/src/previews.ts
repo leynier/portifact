@@ -418,7 +418,7 @@ export function previews(): Preview[] {
       name: "report-outcome-actioned",
       email: reportOutcomeEmail({
         outcome: "actioned",
-        reported: "https://k7d2qm4xab.portifact.dev/login",
+        artifactOrigin: "https://k7d2qm4xab.portifact.dev",
         reportedAt: CREATED_AT,
       }),
     },
@@ -426,7 +426,7 @@ export function previews(): Preview[] {
       name: "report-outcome-dismissed",
       email: reportOutcomeEmail({
         outcome: "dismissed",
-        reported: "k7d2qm4xab",
+        artifactOrigin: "https://k7d2qm4xab.portifact.dev",
         reportedAt: CREATED_AT,
       }),
     },
@@ -434,7 +434,7 @@ export function previews(): Preview[] {
       name: `report-outcome-${locale.toLowerCase()}`,
       email: reportOutcomeEmail({
         outcome: "actioned",
-        reported: "https://k7d2qm4xab.portifact.dev/login",
+        artifactOrigin: "https://k7d2qm4xab.portifact.dev",
         reportedAt: CREATED_AT,
         locale,
       }),

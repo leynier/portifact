@@ -43,6 +43,52 @@ async function claimedInEu() {
   return { id, job };
 }
 
+describe("restoring one region with legal holds", () => {
+  it("never reports another region's held artifact as missing", async () => {
+    const id = artifactId();
+    const regions = regionsFromEnv(env);
+    await regions.get("default").db.insert(schema.artifacts).values({
+      id,
+      ownerId: "u_held",
+      type: "site",
+      name: "Held",
+      state: "suspended",
+    });
+    await regions.global
+      .insert(schema.artifactDirectory)
+      .values({ id, region: "default", createdAt: NOW });
+    const line = {
+      legalHold: {
+        id: `hold_${"2".repeat(32)}`,
+        artifactId: id,
+        ownerId: "u_held",
+        ownerEmail: null,
+        reason: "spam",
+        ground: "Authority",
+        createdAt: NOW,
+        releaseAt: null,
+        releasedAt: null,
+      },
+    };
+    const files = new Map([["h.jsonl", `${JSON.stringify(line)}\n`]]);
+    const io = {
+      read: async (path: string) => files.get(path) ?? "",
+      write: async (path: string, text: string) => {
+        files.set(path, text);
+      },
+    };
+    const applied = await runOperator(
+      regions,
+      ["apply-tombstones", "--file", "h.jsonl", "--region", "eu"],
+      NOW,
+      io,
+    );
+    expect(applied.exitCode).toBe(0);
+    expect(applied.output).toContain("0 legal hold(s) put back");
+    expect(applied.output).not.toContain("missing");
+  });
+});
+
 describe("the jobs Worker with an EU region", () => {
   it("relays the EU outbox with the region in each message, and the default one without", async () => {
     const { job } = await claimedInEu();

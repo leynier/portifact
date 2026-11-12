@@ -386,15 +386,18 @@ export async function getVersionDownload(
   }
   const artifact = await loadArtifact(db, input.artifactId);
   if (!artifact) return missingVersion();
-  // Nothing of a held artifact's content is served, to its owner either (docs/operations.md);
-  // it is always suspended, so nothing else pays for the check.
-  if (artifact.state === "suspended" && (await isHeld(db, artifact.id))) return heldRefusal();
   const resolved = await actorOn(db.global, input.userId, artifact);
   // As `checkReadAccess`: a person a request policy refuses reads a public document as anyone,
   // and nothing else of the workspace (decision 0020).
   if (!resolved.ok && artifact.accessMode !== "public") return resolved;
   const actor = resolved.ok ? resolved.value : null;
-  if (!(actor && can(actor, "versions"))) {
+  if (actor && can(actor, "versions")) {
+    // Nothing of a held artifact's content is served, to the people who manage it either
+    // (docs/operations.md). Asked only of them, after authorization, so anyone else gets what a
+    // suspended or missing artifact gives, with the same reads; a held artifact is always
+    // suspended, so nothing else pays for the check.
+    if (artifact.state === "suspended" && (await isHeld(db, artifact.id))) return heldRefusal();
+  } else {
     if (input.kind !== "published" || artifact.type === "site") return missingVersion();
     const ref = input.versionId === CURRENT_VERSION ? artifact.currentVersionId : input.versionId;
     if (ref === null || ref !== artifact.currentVersionId) return missingVersion();

@@ -89,6 +89,7 @@ describe("job contracts", () => {
       "comment_tombstones",
       "moderation_notice",
       "report_outcome",
+      "legal_hold_release",
     ]);
     for (const kind of [
       "artifact",

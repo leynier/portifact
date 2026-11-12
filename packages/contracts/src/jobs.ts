@@ -31,6 +31,7 @@ export const OutboxTopic = z.enum([
   "comment_tombstones",
   "moderation_notice",
   "report_outcome",
+  "legal_hold_release",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 

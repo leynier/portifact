@@ -734,6 +734,7 @@ export const OUTBOX_TOPICS = [
   "comment_tombstones",
   "moderation_notice",
   "report_outcome",
+  "legal_hold_release",
 ] as const;
 
 /**
@@ -1034,6 +1035,27 @@ export const legalHolds = sqliteTable(
       .where(sql`${t.releasedAt} is null`),
     index("legal_holds_release_idx").on(t.releasedAt, t.releaseAt),
   ],
+);
+
+/**
+ * Who a legal hold keeps (docs/operations.md, "Legal holds"): the owner account, the account or
+ * token that created the artifact and the publisher of each of its committed versions, with the
+ * account's email when the hold was set (null for a token or an account already gone). Kept with
+ * the hold in the artifact's region, deleted at release, never in an export; a restore captures
+ * them again (`applyLegalHolds`).
+ */
+export const legalHoldIdentities = sqliteTable(
+  "legal_hold_identities",
+  {
+    holdId: text("hold_id").notNull(),
+    role: text("role", { enum: ["owner", "creator", "publisher"] }).notNull(),
+    /** The version a publisher published; empty for the owner and the creator. */
+    versionId: text("version_id").notNull().default(""),
+    actorId: text("actor_id").notNull(),
+    email: text("email"),
+    recordedAt: timestamp("recorded_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.holdId, t.role, t.versionId, t.actorId] })],
 );
 
 /**

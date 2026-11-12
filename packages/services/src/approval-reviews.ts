@@ -996,7 +996,15 @@ export function cancelApprovalReviewOnTransfer(
  */
 export function eraseApprovalAuthor(db: Db, userId: string): BatchItem<"sqlite">[] {
   return [
-    db.delete(rv).where(eq(rv.authorId, userId)),
+    // A verdict on a held artifact stays until the hold is released (legal-holds.ts).
+    db
+      .delete(rv)
+      .where(
+        and(
+          eq(rv.authorId, userId),
+          sql`not exists (select 1 from "review_requests" as held_request join "legal_holds" as hold on hold.artifact_id = held_request.artifact_id where held_request.id = ${rv.requestId} and hold.released_at is null)`,
+        ),
+      ),
     db.update(rq).set({ requestedBy: null }).where(eq(rq.requestedBy, userId)),
   ];
 }
