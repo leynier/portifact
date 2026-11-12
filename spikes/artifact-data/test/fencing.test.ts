@@ -207,13 +207,13 @@ describe("restore reconciliation", () => {
         { ownerId: "new", generation: 0, epoch: 2, held: false },
         { ...object, erasing: { id: "e", generation: 1, epoch: 5 } },
       ),
-    ).toEqual({ action: "resume_erase", generation: 1, epoch: 5 });
+    ).toEqual({ action: "resume_erase", eraseId: "e", generation: 1, epoch: 5 });
     expect(
       reconcile(
         { ownerId: "new", generation: 1, epoch: 5, held: false },
         { ...object, quarantine: { reason: "owner", at: NOW } },
       ),
-    ).toEqual({ action: "operator", reason: "quarantined" });
+    ).toEqual({ action: "operator" });
     expect(reconcile({ ownerId: "new", generation: 1, epoch: 5, held: false }, null)).toEqual({
       action: "none",
     });

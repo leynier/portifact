@@ -96,30 +96,6 @@ export function mode(value: unknown): Mode {
   return value as Mode;
 }
 
-export function readScope(mode: Mode, caller: Caller): "all" | "own" | "none" {
-  if (caller.kind === "owner") return "all";
-  if (mode !== "own") return "all";
-  return caller.kind === "visitor" ? "own" : "none";
-}
-
-/**
- * Who may delete a document: the owner side always; its creator always, with or without write
- * permission or the current terms (cleanup of one's own data is never gated); in `shared` mode
- * any writer.
- */
-export function deleteScope(mode: Mode, caller: Caller): "all" | "own" | "none" {
-  if (caller.kind === "owner") return "all";
-  if (caller.kind !== "visitor") return "none";
-  if (mode === "shared" && caller.canWrite) return "all";
-  return "own";
-}
-
-export function writeScope(mode: Mode, caller: Caller): "all" | "own" | "none" {
-  if (caller.kind === "owner") return "all";
-  if (caller.kind !== "visitor" || !caller.canWrite || mode === "read") return "none";
-  return mode === "shared" ? "all" : "own";
-}
-
 function depthOf(value: unknown, depth: number): number {
   if (depth > MAX_DEPTH) return depth;
   if (value !== null && typeof value === "object") {
@@ -276,9 +252,5 @@ export interface SizeReport {
   bytes: number;
 }
 
-/** Whether `incoming` should replace `current` in D1: a later generation, or the same and a later sequence. */
-export function newerReport(current: SizeReport | null, incoming: SizeReport): boolean {
-  if (current === null) return true;
-  if (incoming.generation !== current.generation) return incoming.generation > current.generation;
-  return incoming.seq > current.seq;
-}
+// The scopes and the report order are the production rules (decision 0026, delivery 3).
+export { deleteScope, newerReport, readScope, writeScope } from "@portifact/domain/artifact-data";
