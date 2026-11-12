@@ -79,6 +79,7 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   operatorRevokeServiceToken: ["service_token.revoked"],
   // The workspaces the account was in each record that the member is gone.
   requestAccountDeletion: ["member.left"],
+  deleteAccountWithCode: ["member.left"],
   createWorkspaceGroup: ["group.created"],
   renameWorkspaceGroup: ["group.renamed"],
   deleteWorkspaceGroup: ["group.deleted"],
@@ -259,6 +260,7 @@ reason("whether an artifact takes comments is outside the T10 catalog for now", 
 ]);
 reason("the account's own preferences and sign-ins, not an owner's shared state", [
   "updateAccountSettings",
+  "issueAccountDeletionCode",
   "setCommentNoticeMute",
   "unsubscribeCommentNotices",
   "disconnectApp",

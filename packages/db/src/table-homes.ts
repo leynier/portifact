@@ -26,6 +26,7 @@ export const TABLE_HOMES = {
   account_settings: "global",
   terms_acceptances: "global",
   account_deletions: "global",
+  account_deletion_codes: "global",
   workspaces: "global",
   workspace_members: "global",
   workspace_invitations: "global",

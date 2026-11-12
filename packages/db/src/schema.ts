@@ -12,7 +12,7 @@ import {
   text,
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
-import { users } from "./auth-schema.ts";
+import { sessions, users } from "./auth-schema.ts";
 
 /** Regions and roles, as in @portifact/contracts (packages/db does not depend on it). */
 export const REGIONS = ["default", "eu"] as const;
@@ -1078,6 +1078,34 @@ export const accountDeletions = sqliteTable("account_deletions", {
    */
   attemptedAt: timestamp("attempted_at"),
 });
+
+/**
+ * The account deletion code (docs/security.md, "Identity"): one live code per account, emailed
+ * to its address so a person who will not accept new terms can prove they hold the account and
+ * delete it without a sign-in. Only a keyed hash of the code is stored. It is bound to the
+ * account and to the session that asked for it, and goes with either by cascade; it is spent by
+ * the statement that matches it, and a wrong attempt counts. Better Auth never reads this table,
+ * so the code can never sign anyone in.
+ */
+export const accountDeletionCodes = sqliteTable(
+  "account_deletion_codes",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: timestamp("created_at").notNull(),
+  },
+  (t) => [
+    index("account_deletion_codes_session_idx").on(t.sessionId),
+    index("account_deletion_codes_expires_idx").on(t.expiresAt),
+  ],
+);
 
 /**
  * Annotation threads (plan section 8). A thread points at one immutable version and a target;

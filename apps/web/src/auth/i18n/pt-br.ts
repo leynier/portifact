@@ -31,6 +31,14 @@ const messages = {
   ssoFor: (email: string) => `${email} entra pelo provedor de identidade da sua organização.`,
   ssoShown: "Sua organização usa login único. Continue com ele, ou receba um código por e-mail.",
   termsUpdateFor: (email: string) => `Conectado como ${email}`,
+  leaveCodeSent: (email: string) => `Enviamos um código de exclusão de 6 dígitos para ${email}.`,
+  leaveDeleted: "Sua conta foi excluída.",
+  leaveSoleAdmin:
+    "Você é o único admin de um workspace, e os membros dele não podem ser alterados sem aceitar os termos. Aceite os termos, torne outro membro admin e depois exclua sua conta em Configurações, ou escreva para privacy@portifact.com e nós cuidamos disso.",
+  leaveEmailSuppressed:
+    "Não conseguimos enviar e-mails para o endereço da sua conta porque mensagens anteriores voltaram ou foram marcadas como spam. Escreva para privacy@portifact.com para excluir sua conta.",
+  leaveEmailCapacity:
+    "Agora não é possível enviar códigos por e-mail porque o Portifact atingiu seu limite mensal de e-mails. Tente mais tarde, ou escreva para privacy@portifact.com para excluir sua conta.",
   providerErrors: {
     human_verification_required:
       "Contas novas precisam de uma verificação rápida de que você é humano, e ela não foi concluída. Tente de novo; se uma verificação aparecer abaixo das opções de login, conclua-a. Se nada aparecer, recarregue a página ou permita challenges.cloudflare.com.",
@@ -187,6 +195,26 @@ export const ptBR: AuthCatalog = {
     "login.termsUpdateBody": `Sua conta ainda não aceitou a versão atual dos termos. <a href="https://portifact.com/terms#what-changed" target="_blank" rel="noopener">Veja o que mudou</a> (abre em uma nova aba).`,
     "login.termsUpdateNotice": `Ao selecionar Concordar e continuar, ${termsConditions}`,
     "login.agreeAndContinue": "Concordar e continuar",
+    "login.leaveHeading": "Sair sem aceitar",
+    "login.leaveBody":
+      "Se você não concorda com os novos termos, pode baixar seus dados e excluir sua conta sem aceitá-los.",
+    "login.leaveDownload": "Baixar meus dados",
+    "login.leaveDelete": "Excluir minha conta",
+    "login.leaveDeleteHeading": "Excluir sua conta para sempre",
+    "login.leaveDeleteWhat":
+      'Excluir sua conta remove seus artifacts, sessões, apps e métodos de login, e seus comentários em artifacts de outras pessoas. Um comentário que alguém respondeu vira uma marca de "mensagem excluída". Os endereços dos artifacts nunca são dados a mais ninguém. Isso não pode ser desfeito, então baixe seus dados primeiro.',
+    "login.leaveDeleteStays":
+      "Artifacts que pertencem a um workspace ficam com o workspace. Se você é o único admin de um workspace, não pode excluir sua conta aqui, porque os membros dele não podem ser alterados sem aceitar os termos: aceite os termos, torne outro membro admin e exclua sua conta em Configurações, ou escreva para privacy@portifact.com e nós cuidamos disso.",
+    "login.leaveDeleteProof":
+      "Para provar que é você, enviamos um código para o endereço da sua conta. Digitá-lo exclui a conta; não faz login nem aceita os termos.",
+    "login.leaveSendCode": "Enviar um código de exclusão",
+    "login.leaveCodeLabel": "Código de exclusão de 6 dígitos",
+    "login.leaveCodeHint":
+      "O código expira em 5 minutos e funciona uma vez. Digitá-lo exclui sua conta para sempre.",
+    "login.leaveConfirm": "Excluir minha conta para sempre",
+    "login.leaveDoneHeading": "Sua conta foi excluída",
+    "login.leaveDoneBody":
+      "Seus artifacts pararam de funcionar e tudo o que foi listado está sendo excluído. Você saiu da conta.",
     "login.termsNotice": `Ao continuar com Google, GitHub ou um código por e-mail, ${termsConditions}`,
     "login.termsNoticeSso": `Ao continuar com Google, GitHub, um código por e-mail ou login único, ${termsConditions}`,
     "login.ssoHeading": "Sua organização usa login único",

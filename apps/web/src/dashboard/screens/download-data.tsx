@@ -12,6 +12,7 @@ import type {
   GraceForecastKind,
   VersionSummary,
 } from "@portifact/contracts";
+import { accountExportFileName } from "@portifact/contracts/account-export";
 import { PLAN_LABELS } from "@portifact/contracts/plans";
 import {
   Button,
@@ -422,7 +423,11 @@ function LogsSection({ space }: { space: Space }) {
         ) : null}
         {space.kind === "personal" ? (
           <li>
-            <a href={ACCOUNT_EXPORT_PATH} download className="font-semibold">
+            <a
+              href={ACCOUNT_EXPORT_PATH}
+              download={accountExportFileName(Date.now())}
+              className="font-semibold"
+            >
               {t("data.logs.account")}
             </a>
           </li>

@@ -1,6 +1,7 @@
 // Sample renderings of every email, for scripts/preview.ts and the tests. A new email adds its
 // samples here, so `bun run --cwd packages/emails preview` always shows all of them.
 import { DEFAULT_LOCALE, LOCALE_CODES } from "@portifact/contracts/locales";
+import { accountDeletionCodeEmail } from "./account-deletion-code.ts";
 import { budgetAlertEmail } from "./budget-alert.ts";
 import { commentNoticeEmail } from "./comment-notice.ts";
 import { commentRetentionNoticeEmail } from "./comment-retention-notice.ts";
@@ -129,6 +130,23 @@ export function previews(): Preview[] {
     ...TRANSLATED.map((locale) => ({
       name: `sign-in-code-${locale.toLowerCase()}`,
       email: signInCodeEmail({
+        email: "ada@example.com",
+        code: "482913",
+        expiresInMinutes: 5,
+        locale,
+      }),
+    })),
+    {
+      name: "account-deletion-code",
+      email: accountDeletionCodeEmail({
+        email: "ada@example.com",
+        code: "482913",
+        expiresInMinutes: 5,
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `account-deletion-code-${locale.toLowerCase()}`,
+      email: accountDeletionCodeEmail({
         email: "ada@example.com",
         code: "482913",
         expiresInMinutes: 5,

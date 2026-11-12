@@ -86,7 +86,19 @@ export function signInMethodKind(stored: unknown): SignInMethodKind {
  * `userId` is who the credential belongs to; the policies apply its facts only to that caller.
  */
 export type Credential =
-  | { kind: "session"; userId: string; signedInAt: number; method: SignInMethod | null }
+  | {
+      kind: "session";
+      userId: string;
+      signedInAt: number;
+      method: SignInMethod | null;
+      /**
+       * Whether the dashboard session's account accepted the current terms, recorded where the
+       * app reads the session (`sessionOf`); read and review sessions do not say. A session
+       * without them reaches only the account routes that let a person leave (docs/legal.md,
+       * "Leaving without accepting"), and their narrowing changes check it in the service.
+       */
+      termsAccepted?: boolean;
+    }
   | {
       kind: "oauth";
       userId: string;

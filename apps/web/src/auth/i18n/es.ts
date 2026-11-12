@@ -33,6 +33,14 @@ const messages = {
   ssoShown:
     "Tu organización usa inicio de sesión único. Continúa con él, o pide un código por correo.",
   termsUpdateFor: (email: string) => `Sesión iniciada como ${email}`,
+  leaveCodeSent: (email: string) => `Enviamos un código de eliminación de 6 dígitos a ${email}.`,
+  leaveDeleted: "Tu cuenta se eliminó.",
+  leaveSoleAdmin:
+    "Eres el único admin de un espacio de trabajo, y sus miembros no se pueden cambiar sin aceptar los términos. Acepta los términos, haz admin a otro miembro y luego elimina tu cuenta desde Configuración, o escribe a privacy@portifact.com y nos encargamos.",
+  leaveEmailSuppressed:
+    "No podemos enviar correos a la dirección de tu cuenta porque mensajes anteriores rebotaron o se marcaron como spam. Escribe a privacy@portifact.com para eliminar tu cuenta.",
+  leaveEmailCapacity:
+    "Ahora no se pueden enviar códigos por correo porque Portifact alcanzó su límite mensual de correos. Inténtalo más tarde, o escribe a privacy@portifact.com para eliminar tu cuenta.",
   providerErrors: {
     human_verification_required:
       "Las cuentas nuevas necesitan una verificación rápida de que eres una persona, y no terminó. Inténtalo de nuevo; si aparece una verificación debajo de las opciones para iniciar sesión, complétala. Si no aparece nada, recarga la página o permite challenges.cloudflare.com.",
@@ -188,6 +196,26 @@ export const es: AuthCatalog = {
     "login.termsUpdateBody": `Tu cuenta todavía no aceptó la versión actual de los términos. <a href="https://portifact.com/terms#what-changed" target="_blank" rel="noopener">Mira qué cambió</a> (se abre en una pestaña nueva).`,
     "login.termsUpdateNotice": `Al seleccionar Aceptar y continuar, ${termsConditions}`,
     "login.agreeAndContinue": "Aceptar y continuar",
+    "login.leaveHeading": "Salir sin aceptar",
+    "login.leaveBody":
+      "Si no estás de acuerdo con los nuevos términos, puedes descargar tus datos y eliminar tu cuenta sin aceptarlos.",
+    "login.leaveDownload": "Descargar mis datos",
+    "login.leaveDelete": "Eliminar mi cuenta",
+    "login.leaveDeleteHeading": "Eliminar tu cuenta para siempre",
+    "login.leaveDeleteWhat":
+      'Eliminar tu cuenta borra tus artifacts, sesiones, apps y métodos de inicio de sesión, y tus comentarios en artifacts de otras personas. Un comentario que alguien respondió pasa a ser una marca de "mensaje eliminado". Las direcciones de los artifacts nunca se le dan a nadie más. No se puede deshacer, así que descarga tus datos primero.',
+    "login.leaveDeleteStays":
+      "Los artifacts que pertenecen a un espacio de trabajo se quedan en el espacio de trabajo. Si eres el único admin de un espacio de trabajo, no puedes eliminar tu cuenta aquí, porque sus miembros no se pueden cambiar sin aceptar los términos: acepta los términos, haz admin a otro miembro y elimina tu cuenta desde Configuración, o escribe a privacy@portifact.com y nos encargamos.",
+    "login.leaveDeleteProof":
+      "Para comprobar que eres tú, enviamos un código a la dirección de tu cuenta. Al ingresarlo se elimina la cuenta; no inicia sesión ni acepta los términos.",
+    "login.leaveSendCode": "Enviarme un código de eliminación",
+    "login.leaveCodeLabel": "Código de eliminación de 6 dígitos",
+    "login.leaveCodeHint":
+      "El código vence en 5 minutos y funciona una sola vez. Al ingresarlo, tu cuenta se elimina para siempre.",
+    "login.leaveConfirm": "Eliminar mi cuenta para siempre",
+    "login.leaveDoneHeading": "Tu cuenta se eliminó",
+    "login.leaveDoneBody":
+      "Tus artifacts dejaron de funcionar y todo lo indicado se está eliminando. Cerraste sesión.",
     "login.termsNotice": `Al continuar con Google, GitHub o un código por correo, ${termsConditions}`,
     "login.termsNoticeSso": `Al continuar con Google, GitHub, un código por correo o el inicio de sesión único, ${termsConditions}`,
     "login.ssoHeading": "Tu organización usa inicio de sesión único",

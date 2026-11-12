@@ -129,6 +129,38 @@ describe("login page accessibility", () => {
     expect(element("terms-update").hidden).toBe(false);
     await expectAccessible();
 
+    // Leaving without accepting: the deletion step, the code form with an error, and the end.
+    open("login");
+    let deleted = false;
+    await setupLogin(document, {
+      ...pageEnv(api, fakeLocation()),
+      fetch: async (path) =>
+        new Response(
+          JSON.stringify(
+            path === "/api/v1/account/deletion-code"
+              ? { sent: true, expiresInMinutes: 5 }
+              : deleted
+                ? { deleted: true }
+                : { error: { code: "invalid_input", message: "x" } },
+          ),
+          { status: path === "/api/v1/account/deletion-code" || deleted ? 200 : 400 },
+        ),
+    });
+    element("leave-delete").click();
+    await expectAccessible();
+    element("leave-send-code").click();
+    await settle();
+    element<HTMLInputElement>("leave-code").value = "000000";
+    submit(element<HTMLFormElement>("leave-code-form"));
+    await settle();
+    expect(element("leave-code-error").hidden).toBe(false);
+    await expectAccessible();
+    deleted = true;
+    submit(element<HTMLFormElement>("leave-code-form"));
+    await settle();
+    expect(element("leave-done").hidden).toBe(false);
+    await expectAccessible();
+
     // The read entry's confirmation before an artifact opens on its owner's own address.
     api.on("GET", "/get-session", session("ada@example.test"));
     open("login");

@@ -528,7 +528,7 @@ export function brandLogoPreview(sha256: string, workspace?: string): string {
 const workspacePath = (slug: string) => `/api/v1/workspaces/${encodeURIComponent(slug)}`;
 
 /** The account's data as a JSON download (a plain link: the browser saves the attachment). */
-export const ACCOUNT_EXPORT_PATH = "/api/v1/account/export";
+export { ACCOUNT_EXPORT_PATH } from "@portifact/contracts/account-export";
 
 const SessionBody = z.object({
   user: z.object({

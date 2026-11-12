@@ -10,6 +10,7 @@ import {
 import { type GlobalDb, schema } from "@portifact/db";
 import {
   type Actor,
+  accountSettingsUpdateOnlyNarrows,
   BUILT_IN_SETTINGS,
   changeSettings,
   type Entitlements,
@@ -22,6 +23,7 @@ import {
   type Result,
 } from "@portifact/domain";
 import { and, eq, sql } from "drizzle-orm";
+import { actsWithoutCurrentTerms, narrowingOnly } from "./terms.ts";
 
 /** The stored defaults, or the built-in ones without a row. */
 export async function loadSettings(db: GlobalDb, userId: string): Promise<AccountSettings> {
@@ -71,6 +73,11 @@ export async function updateAccountSettings(
   db: GlobalDb,
   input: { userId: string; update: AccountSettingsUpdate; now: number },
 ): Promise<Result<AccountSettings>> {
+  // Someone who declines the current terms can still turn email notices off, and nothing else
+  // (docs/legal.md, "Leaving without accepting").
+  if (actsWithoutCurrentTerms(db) && !accountSettingsUpdateOnlyNarrows(input.update)) {
+    return narrowingOnly();
+  }
   const createdAt = await accountCreatedAt(db, input.userId);
   if (!createdAt) return fail("unauthenticated", "Sign in to change your settings.");
   const next = changeSettings(

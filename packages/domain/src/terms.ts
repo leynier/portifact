@@ -75,6 +75,69 @@ export function usableWithoutCurrentTerms(input: {
   return input.operation !== null && Object.hasOwn(TERMS_OPEN_OPERATIONS, input.operation);
 }
 
+/**
+ * What a dashboard session of an account without the current terms may do on the account routes
+ * (`/api/v1/account`, docs/legal.md, "Leaving without accepting"), by operation name. Every
+ * account route is named in `ACCOUNT_ROUTE_OPERATIONS` (apps/app/src/api/terms-operations.ts) and
+ * classified here: `read` only reads, `removes` only removes or ends something, `narrowing` runs
+ * only when the change narrows (`accountSettingsUpdateOnlyNarrows`,
+ * `commentNoticeMuteOnlyNarrows`, applied by the service), `leaving` takes the data out or deletes
+ * the account, and `refused` acts anew and waits for the acceptance. A route without a name, or an
+ * operation not listed, is refused (fail closed); `apps/app/test/terms-operations.test.ts` fails
+ * for an account route that is not named and classified.
+ */
+export const ACCOUNT_SESSION_OPERATIONS = {
+  list_browser_sessions: "read",
+  sign_out_other_sessions: "removes",
+  list_connected_apps: "read",
+  disconnect_app: "removes",
+  read_account_suspension: "read",
+  read_account_settings: "read",
+  update_account_settings: "narrowing",
+  read_comment_notice_mute: "read",
+  set_comment_notice_mute: "narrowing",
+  read_branding: "read",
+  update_branding: "refused",
+  delete_branding: "removes",
+  read_branding_logo: "read",
+  set_branding_logo: "refused",
+  remove_branding_logo: "removes",
+  export_account: "leaving",
+  delete_account: "leaving",
+  request_account_deletion_code: "leaving",
+  delete_account_with_code: "leaving",
+} as const satisfies Record<string, "read" | "removes" | "narrowing" | "leaving" | "refused">;
+
+export type AccountSessionOperation = keyof typeof ACCOUNT_SESSION_OPERATIONS;
+
+/** Whether a session without the current terms may run an account operation (fail closed). */
+export function accountSessionUsableWithoutCurrentTerms(operation: string | null): boolean {
+  if (operation === null || !Object.hasOwn(ACCOUNT_SESSION_OPERATIONS, operation)) return false;
+  return ACCOUNT_SESSION_OPERATIONS[operation as AccountSessionOperation] !== "refused";
+}
+
+/** The email notices a settings change may turn off without the current terms. */
+const NOTICE_SETTINGS = ["expiryNotices", "commentNotices"] as const;
+
+/**
+ * Whether an account settings change only turns email notices off: someone who declines the
+ * terms can always stop the emails, and nothing else in the settings changes for them.
+ */
+export function accountSettingsUpdateOnlyNarrows(update: Record<string, unknown>): boolean {
+  const changed = Object.entries(update).filter(([, value]) => value !== undefined);
+  return (
+    changed.length > 0 &&
+    changed.every(
+      ([key, value]) => (NOTICE_SETTINGS as readonly string[]).includes(key) && value === false,
+    )
+  );
+}
+
+/** Whether a comment notice change only mutes: unmuting would send email again. */
+export function commentNoticeMuteOnlyNarrows(update: { muted: boolean }): boolean {
+  return update.muted;
+}
+
 /** Who may read an artifact in each mode is a superset of the modes listed for it. */
 const NARROWER_MODES: Record<AccessMode, readonly AccessMode[]> = {
   public: ["authenticated", "domain", "workspace", "restricted"],

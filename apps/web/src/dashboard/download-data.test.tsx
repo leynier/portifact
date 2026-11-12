@@ -96,8 +96,10 @@ describe("the Download your data page", () => {
       expect(saved[0]?.fileName).toBe("src.zip");
       expect(screen.getByRole("button", { name: "Access log as CSV of Launch plan" })).toBeTruthy();
       expect(
-        screen.getByRole("link", { name: "Download your account's data (JSON)" }),
-      ).toBeTruthy();
+        screen
+          .getByRole("link", { name: "Download your account's data (JSON)" })
+          .getAttribute("download"),
+      ).toMatch(/^portifact-export-\d{4}-\d{2}-\d{2}\.json$/);
       expect(await axeViolations(container)).toEqual([]);
     },
   );

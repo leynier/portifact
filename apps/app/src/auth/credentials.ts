@@ -28,6 +28,7 @@ export async function sessionOf(auth: Auth, env: object, headers: Headers): Prom
       userId: found.user.id,
       signedInAt: new Date(found.session.createdAt).getTime(),
       method: parseSignInMethod(found.session.signInMethod),
+      termsAccepted: !needsTermsAcceptance(found.user.termsVersion),
     });
   }
   return found;

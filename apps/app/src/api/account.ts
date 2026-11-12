@@ -2,15 +2,25 @@
 // browser sessions, connected apps, defaults for new artifacts, data export and deletion. They answer only the dashboard's session cookie from the
 // app's own pages. Bearer tokens are refused: account management has no OAuth scope. The CLI
 // lists and revokes the same connected apps through ./tokens.ts, with its own narrow scope.
+//
+// A session of an account that has not accepted the current terms reaches only what lets a
+// person leave without accepting them (docs/legal.md, "Leaving without accepting"): each route is
+// named in `ACCOUNT_ROUTE_OPERATIONS` and classified by `accountSessionUsableWithoutCurrentTerms`
+// (reads, removals, narrowing changes, the export and the deletions); anything else, or a route
+// without a name, answers `terms_not_accepted` (fail closed).
 import {
+  AccountDeletionCodeRequest,
+  AccountDeletionCodeSent,
   AccountDeletionInput,
   AccountDeletionResult,
+  AccountDeletionWithCodeInput,
   AccountExport,
   AccountSettings,
   AccountSettingsUpdate,
   AccountSuspensionView,
   type AppResource,
   ArtifactId,
+  accountExportFileName,
   BRAND_LIMITS,
   BrandSettings,
   BrandUpdate,
@@ -22,20 +32,25 @@ import {
   DisconnectResult,
   ERROR_STATUS,
   type ErrorCode,
+  type ErrorDetail,
   SignOutOthersResult,
   WorkspaceParam,
 } from "@portifact/contracts";
+import { accountSessionUsableWithoutCurrentTerms } from "@portifact/domain";
 import {
   accountSuspensionView,
   type ConnectedAppRow,
+  deleteAccountWithCode,
   deleteBrand,
   disconnectApp,
   exportAccount,
   getAccountSettings,
   getBrandSettings,
   getCommentNoticeMute,
+  issueAccountDeletionCode,
   listBrowserSessions,
   listConnectedApps,
+  RecipientSuppressedError,
   readBrandLogo,
   removeBrandLogo,
   requestAccountDeletion,
@@ -47,15 +62,20 @@ import {
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
+import { deliverAccountDeletionCode, type EmailSender, emailLocale } from "../auth/email.ts";
+import { checkLimits, deletionCodeAttemptChecks, deletionCodeSendChecks } from "../auth/limits.ts";
 import type { Env } from "../env.ts";
 import { artifactDb, bucketOf, defaultDb, ownerScope, regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
 import { readJson } from "./http.ts";
+import { accountRouteOperation } from "./terms-operations.ts";
 
 /** The dashboard session behind a request: its user and the session's own ID. */
 export interface AccountSession {
   userId: string;
   sessionId: string;
+  /** Whether the account accepted the current terms (`needsTermsAcceptance`). */
+  termsAccepted: boolean;
 }
 
 export type AccountSessionLookup = (request: Request) => Promise<AccountSession | undefined>;
@@ -67,6 +87,8 @@ export interface AccountDeps {
    * run: they revoke the tokens that apps received through those browser sessions.
    */
   signOutOthers(env: Env): (request: Request) => Promise<void>;
+  /** Sends the account deletion code. */
+  email(env: Env): EmailSender;
   now(): number;
 }
 
@@ -80,7 +102,11 @@ export function accountRoutes(deps: AccountDeps) {
     c.res.headers.set("Cache-Control", "no-store");
   });
 
-  /** Runs `handler` for the dashboard session of the request, or refuses it. */
+  /**
+   * Runs `handler` for the dashboard session of the request, or refuses it. A session of an
+   * account without the current terms runs only the operations the domain rule leaves open, by
+   * the route's name (`accountRouteOperation`); an unnamed route is refused to it.
+   */
   const sessionOnly =
     (handler: (c: AccountContext, session: AccountSession) => Promise<Response>) =>
     async (c: AccountContext) => {
@@ -96,6 +122,14 @@ export function accountRoutes(deps: AccountDeps) {
       }
       const session = await deps.session(c.env)(request);
       if (!session) return error(c, "unauthenticated", "Sign in to see your account.");
+      const operation = accountRouteOperation(c.req.method, c.req.routePath);
+      if (!session.termsAccepted && !accountSessionUsableWithoutCurrentTerms(operation)) {
+        return error(
+          c,
+          "terms_not_accepted",
+          "Accept the current terms in the dashboard to change your account.",
+        );
+      }
       return handler(c, session);
     };
 
@@ -355,8 +389,7 @@ export function accountRoutes(deps: AccountDeps) {
       const now = deps.now();
       const result = await exportAccount(defaultDb(c.env), { userId: session.userId, now });
       if (!result.ok) return error(c, result.code, result.message);
-      const day = new Date(now).toISOString().slice(0, 10);
-      c.header("Content-Disposition", `attachment; filename="portifact-export-${day}.json"`);
+      c.header("Content-Disposition", `attachment; filename="${accountExportFileName(now)}"`);
       return c.json(AccountExport.parse(result.value));
     }),
   );
@@ -372,6 +405,81 @@ export function accountRoutes(deps: AccountDeps) {
         sessionId: session.sessionId,
         confirmEmail: body.value.confirmEmail,
         now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      // The session row is gone with the user; the browser forgets the cookie too.
+      c.header(
+        "Set-Cookie",
+        `${SESSION_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`,
+      );
+      return c.json(AccountDeletionResult.parse({ deleted: true }));
+    }),
+  );
+
+  // Leaving without accepting new terms (docs/legal.md, "Leaving without accepting"): the
+  // account deletion code, emailed to the account's address for a session of an account without
+  // the current terms. It never signs anyone in and records no acceptance; the code is never
+  // logged or returned.
+  routes.post(
+    "/api/v1/account/deletion-code",
+    sessionOnly(async (c, session) => {
+      const body = await readJson(c, AccountDeletionCodeRequest, 256);
+      if (!body.ok) return body.response;
+      const now = deps.now();
+      const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+      const limited = await checkLimits(c.env.DB, deletionCodeSendChecks(session.userId, ip), now);
+      if (!limited.ok) return tooMany(c, limited.retryAfterSeconds);
+      const global = regionsOf(c.env).global;
+      const issued = await issueAccountDeletionCode(global, {
+        userId: session.userId,
+        sessionId: session.sessionId,
+        secret: c.env.BETTER_AUTH_SECRET,
+        now,
+      });
+      if (!issued.ok) return error(c, issued.code, issued.message, issued.detail);
+      try {
+        await deliverAccountDeletionCode(global, deps.email(c.env), {
+          email: issued.value.email,
+          code: issued.value.code,
+          expiresInMinutes: issued.value.expiresInMinutes,
+          now: deps.now,
+          locale: emailLocale(c.req.raw.headers),
+        });
+      } catch (failure) {
+        if (failure instanceof RecipientSuppressedError) {
+          return error(
+            c,
+            "forbidden",
+            "We cannot send email to your account's address because earlier messages to it bounced or were reported as spam. Write to privacy@portifact.com to delete your account.",
+            "email_suppressed",
+          );
+        }
+        return error(c, "capacity_unavailable", "The email could not be sent. Try again later.");
+      }
+      return c.json(
+        AccountDeletionCodeSent.parse({
+          sent: true,
+          expiresInMinutes: issued.value.expiresInMinutes,
+        }),
+      );
+    }),
+  );
+
+  routes.post(
+    "/api/v1/account/delete-with-code",
+    sessionOnly(async (c, session) => {
+      const body = await readJson(c, AccountDeletionWithCodeInput, 256);
+      if (!body.ok) return body.response;
+      const now = deps.now();
+      const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+      const limited = await checkLimits(c.env.DB, deletionCodeAttemptChecks(ip), now);
+      if (!limited.ok) return tooMany(c, limited.retryAfterSeconds);
+      const result = await deleteAccountWithCode(regionsOf(c.env), {
+        userId: session.userId,
+        sessionId: session.sessionId,
+        secret: c.env.BETTER_AUTH_SECRET,
+        code: body.value.code,
+        now,
       });
       if (!result.ok) return error(c, result.code, result.message);
       // The session row is gone with the user; the browser forgets the cookie too.
@@ -440,6 +548,17 @@ async function readBounded(request: Request, max: number): Promise<Uint8Array | 
   return bytes;
 }
 
-function error(c: AccountContext, code: ErrorCode, message: string): Response {
-  return c.json({ error: { code, message } }, ERROR_STATUS[code] as 400);
+function error(
+  c: AccountContext,
+  code: ErrorCode,
+  message: string,
+  detail?: ErrorDetail | undefined,
+): Response {
+  const body = detail ? { code, message, details: { reason: detail } } : { code, message };
+  return c.json({ error: body }, ERROR_STATUS[code] as 400);
+}
+
+function tooMany(c: AccountContext, retryAfterSeconds: number): Response {
+  c.header("Retry-After", String(retryAfterSeconds));
+  return error(c, "rate_limited", "Too many requests. Wait a moment and try again.");
 }

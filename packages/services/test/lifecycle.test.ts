@@ -453,6 +453,7 @@ describe("purging archives", () => {
         deviceCodes: 0,
         clientAssertions: 0,
         clients: 0,
+        deletionCodes: 0,
       },
       readSessions: 0,
       artifactGroups: 0,

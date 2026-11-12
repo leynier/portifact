@@ -16,6 +16,7 @@ void localizeAuthPage(document, {
     api: browserApi((input, init) => fetch(input, init), { locale }),
     location: window.location,
     origin: window.location.origin,
+    locale,
     humanCheck: turnstileWidget(document, HUMAN_CHECK_ACTIONS.signUp),
   }),
 );

@@ -34,6 +34,14 @@ const messages = {
   ssoShown:
     "Deine Organisation nutzt Single Sign-on. Fahre damit fort, oder lass dir stattdessen einen Code per E-Mail schicken.",
   termsUpdateFor: (email: string) => `Angemeldet als ${email}`,
+  leaveCodeSent: (email: string) => `Wir haben einen 6-stelligen Löschcode an ${email} gesendet.`,
+  leaveDeleted: "Dein Konto wurde gelöscht.",
+  leaveSoleAdmin:
+    "Du bist der einzige Admin eines Workspaces, und seine Mitglieder können nicht geändert werden, ohne den Bedingungen zuzustimmen. Stimme den Bedingungen zu, mach ein anderes Mitglied zum Admin und lösche dein Konto dann in den Einstellungen, oder schreib an privacy@portifact.com, dann kümmern wir uns darum.",
+  leaveEmailSuppressed:
+    "Wir können keine E-Mails an die Adresse deines Kontos senden, weil frühere Nachrichten unzustellbar waren oder als Spam gemeldet wurden. Schreib an privacy@portifact.com, um dein Konto zu löschen.",
+  leaveEmailCapacity:
+    "Codes können gerade nicht per E-Mail gesendet werden, weil Portifact sein monatliches E-Mail-Limit erreicht hat. Versuche es später erneut oder schreib an privacy@portifact.com, um dein Konto zu löschen.",
   providerErrors: {
     human_verification_required:
       "Neue Konten brauchen eine kurze Prüfung, dass du ein Mensch bist, und sie wurde nicht abgeschlossen. Versuch es noch einmal; wenn unter den Anmeldeoptionen eine Prüfung erscheint, schließ sie ab. Wenn nichts erscheint, lade die Seite neu oder erlaube challenges.cloudflare.com.",
@@ -193,6 +201,26 @@ export const de: AuthCatalog = {
     "login.termsUpdateBody": `Dein Konto hat der aktuellen Version der Bedingungen noch nicht zugestimmt. <a href="https://portifact.com/terms#what-changed" target="_blank" rel="noopener">Sieh dir an, was sich geändert hat</a> (öffnet sich in einem neuen Tab).`,
     "login.termsUpdateNotice": `Wenn du Zustimmen und fortfahren wählst, ${termsConditions}`,
     "login.agreeAndContinue": "Zustimmen und fortfahren",
+    "login.leaveHeading": "Ohne Zustimmung gehen",
+    "login.leaveBody":
+      "Wenn du mit den neuen Bedingungen nicht einverstanden bist, kannst du deine Daten herunterladen und dein Konto löschen, ohne ihnen zuzustimmen.",
+    "login.leaveDownload": "Meine Daten herunterladen",
+    "login.leaveDelete": "Mein Konto löschen",
+    "login.leaveDeleteHeading": "Dein Konto endgültig löschen",
+    "login.leaveDeleteWhat":
+      'Wenn du dein Konto löschst, werden deine Artifacts, Sitzungen, Apps und Anmeldemethoden entfernt, ebenso deine Kommentare zu Artifacts anderer Personen. Ein Kommentar, auf den jemand geantwortet hat, wird zur Markierung "Nachricht gelöscht". Artifact-Adressen werden niemals an andere vergeben. Das lässt sich nicht rückgängig machen, lade deine Daten also zuerst herunter.',
+    "login.leaveDeleteStays":
+      "Artifacts, die zu einem Workspace gehören, bleiben beim Workspace. Wenn du der einzige Admin eines Workspaces bist, kannst du dein Konto hier nicht löschen, weil seine Mitglieder nicht geändert werden können, ohne den Bedingungen zuzustimmen: Stimme den Bedingungen zu, mach ein anderes Mitglied zum Admin und lösche dein Konto in den Einstellungen, oder schreib an privacy@portifact.com, dann kümmern wir uns darum.",
+    "login.leaveDeleteProof":
+      "Um zu prüfen, dass du es bist, senden wir einen Code an die Adresse deines Kontos. Die Eingabe löscht das Konto; sie meldet dich nicht an und stimmt den Bedingungen nicht zu.",
+    "login.leaveSendCode": "Löschcode per E-Mail senden",
+    "login.leaveCodeLabel": "6-stelliger Löschcode",
+    "login.leaveCodeHint":
+      "Der Code läuft in 5 Minuten ab und funktioniert einmal. Die Eingabe löscht dein Konto endgültig.",
+    "login.leaveConfirm": "Mein Konto endgültig löschen",
+    "login.leaveDoneHeading": "Dein Konto wurde gelöscht",
+    "login.leaveDoneBody":
+      "Deine Artifacts funktionieren nicht mehr, und alles Genannte wird gelöscht. Du bist abgemeldet.",
     "login.termsNotice": `Wenn du mit Google, GitHub oder einem Code per E-Mail fortfährst, ${termsConditions}`,
     "login.termsNoticeSso": `Wenn du mit Google, GitHub, einem Code per E-Mail oder Single Sign-on fortfährst, ${termsConditions}`,
     "login.ssoHeading": "Deine Organisation nutzt Single Sign-on",

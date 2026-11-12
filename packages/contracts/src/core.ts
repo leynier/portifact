@@ -99,7 +99,11 @@ export type ErrorCode = z.infer<typeof ErrorCode>;
  * comment retention rule could not be changed because its restore guard record could not be
  * read or written (decision 0023, "Restores").
  */
-export const ERROR_DETAILS = ["comment_retention_guard"] as const;
+export const ERROR_DETAILS = [
+  "comment_retention_guard",
+  /** Mail to the account's address bounced or was reported (the account deletion code). */
+  "email_suppressed",
+] as const;
 export const ErrorDetail = z.enum(ERROR_DETAILS);
 export type ErrorDetail = z.infer<typeof ErrorDetail>;
 

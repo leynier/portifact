@@ -225,6 +225,31 @@ describe("expired sign-in records", () => {
     expect(cli).toBeDefined();
   });
 
+  it("deletes expired account deletion codes and keeps live ones", async () => {
+    const expired = await user();
+    const live = await user();
+    const rows = [
+      { userId: expired.id, expiresAt: EXPIRED.getTime() },
+      { userId: live.id, expiresAt: LIVE.getTime() },
+    ];
+    for (const row of rows) {
+      await global()
+        .insert(schema.accountDeletionCodes)
+        .values({
+          ...row,
+          sessionId: await sessionRow(row.userId, LIVE),
+          codeHash: "hash",
+          createdAt: NOW,
+        });
+    }
+    expect((await pruneAuthRecords(global(), LATER)).deletionCodes).toBe(1);
+    const left = await global()
+      .select({ userId: schema.accountDeletionCodes.userId })
+      .from(schema.accountDeletionCodes);
+    expect(left.map((row) => row.userId)).toContain(live.id);
+    expect(left.map((row) => row.userId)).not.toContain(expired.id);
+  });
+
   it("deletes at most the limit per kind in one run", async () => {
     const person = await user();
     for (let i = 0; i < 3; i++) await sessionRow(person.id, EXPIRED);
@@ -248,6 +273,10 @@ describe("the cleanup's query plans", () => {
     [
       "oauth_client_assertions",
       "select id from oauth_client_assertions where expires_at < 1 limit 500",
+    ],
+    [
+      "account_deletion_codes",
+      "select user_id from account_deletion_codes where expires_at < 1 limit 500",
     ],
     [
       "oauth_clients",

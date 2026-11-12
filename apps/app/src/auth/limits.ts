@@ -86,6 +86,31 @@ export async function otpSendChecks(
 
 export const GLOBAL_OTP_KEY = "otp:global";
 
+/**
+ * The checks for sending an account deletion code (docs/legal.md, "Leaving without accepting"):
+ * the sign-in code's limits, per IP, per account (an account has one address) and the same global
+ * budget, so the two kinds of code share one daily allowance. Keys hold the account's ID, never
+ * its address.
+ */
+export function deletionCodeSendChecks(
+  userId: string,
+  ip: string,
+): { key: string; limit: Limit }[] {
+  return [
+    { key: `delete-code:ip:${ip}`, limit: OTP_LIMITS.perIp },
+    { key: `delete-code:cooldown:${userId}`, limit: OTP_LIMITS.perEmailCooldown },
+    { key: `delete-code:user:${userId}`, limit: OTP_LIMITS.perEmail },
+    { key: GLOBAL_OTP_KEY, limit: OTP_LIMITS.global },
+  ];
+}
+
+/** Attempts at a deletion code per IP: the sign-in code's guessing limit. */
+export function deletionCodeAttemptChecks(ip: string): { key: string; limit: Limit }[] {
+  return [
+    { key: `delete-code-attempt:ip:${ip}`, limit: ENDPOINT_LIMITS["/sign-in/email-otp"] as Limit },
+  ];
+}
+
 /** Removes counters older than the longest window. */
 export function pruneOldCounters(d1: D1Database, now: number): Promise<number> {
   return pruneRateLimits(d1, now - 2 * OTP_LIMITS.global.windowSeconds * 1000);
