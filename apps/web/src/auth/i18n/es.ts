@@ -36,7 +36,7 @@ const messages = {
   leaveCodeSent: (email: string) => `Enviamos un código de eliminación de 6 dígitos a ${email}.`,
   leaveDeleted: "Tu cuenta se eliminó.",
   leaveSoleAdmin:
-    "Eres el único admin de un espacio de trabajo, así que tu cuenta todavía no se puede eliminar. Haz admin a otro miembro, o pide a Portifact en hello@portifact.com que elimine el espacio de trabajo, y vuelve a intentarlo.",
+    "Eres el único admin de un espacio de trabajo, y sus miembros no se pueden cambiar sin aceptar los términos. Acepta los términos, haz admin a otro miembro y luego elimina tu cuenta desde Configuración, o escribe a privacy@portifact.com y nos encargamos.",
   leaveEmailSuppressed:
     "No podemos enviar correos a la dirección de tu cuenta porque mensajes anteriores rebotaron o se marcaron como spam. Escribe a privacy@portifact.com para eliminar tu cuenta.",
   leaveEmailCapacity:
@@ -205,7 +205,7 @@ export const es: AuthCatalog = {
     "login.leaveDeleteWhat":
       'Eliminar tu cuenta borra tus artifacts, sesiones, apps y métodos de inicio de sesión, y tus comentarios en artifacts de otras personas. Un comentario que alguien respondió pasa a ser una marca de "mensaje eliminado". Las direcciones de los artifacts nunca se le dan a nadie más. No se puede deshacer, así que descarga tus datos primero.',
     "login.leaveDeleteStays":
-      "Los artifacts que pertenecen a un espacio de trabajo se quedan en el espacio de trabajo. Si eres el único admin de un espacio de trabajo, haz admin a otro miembro primero.",
+      "Los artifacts que pertenecen a un espacio de trabajo se quedan en el espacio de trabajo. Si eres el único admin de un espacio de trabajo, no puedes eliminar tu cuenta aquí, porque sus miembros no se pueden cambiar sin aceptar los términos: acepta los términos, haz admin a otro miembro y elimina tu cuenta desde Configuración, o escribe a privacy@portifact.com y nos encargamos.",
     "login.leaveDeleteProof":
       "Para comprobar que eres tú, enviamos un código a la dirección de tu cuenta. Al ingresarlo se elimina la cuenta; no inicia sesión ni acepta los términos.",
     "login.leaveSendCode": "Enviarme un código de eliminación",

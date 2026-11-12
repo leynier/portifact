@@ -8,9 +8,19 @@
 // - `ungated`: a person's token reaches it and it never asks (revoking the account's own tokens);
 // - `no_person_token`: a person's OAuth token never reaches it (the dashboard session, a service,
 //   SCIM or federation credential, or no credential at all).
-import { TERMS_EXEMPT_SCOPES, TERMS_OPEN_OPERATIONS } from "@portifact/domain";
+import {
+  ACCOUNT_SESSION_OPERATIONS,
+  accountSessionUsableWithoutCurrentTerms,
+  TERMS_EXEMPT_SCOPES,
+  TERMS_OPEN_OPERATIONS,
+} from "@portifact/domain";
 import { describe, expect, it } from "vitest";
-import { API_TERMS_OPERATIONS, apiTermsOperation } from "../src/api/terms-operations.ts";
+import { accountRoutes } from "../src/api/account.ts";
+import {
+  ACCOUNT_ROUTE_OPERATIONS,
+  API_TERMS_OPERATIONS,
+  apiTermsOperation,
+} from "../src/api/terms-operations.ts";
 import { createAppHost } from "../src/app-host.ts";
 import { TOOL_SCOPES } from "../src/mcp/tools.ts";
 
@@ -235,6 +245,64 @@ describe("classifying operations for accounts without the current terms", () => 
     const named = new Set([...Object.values(API_TERMS_OPERATIONS), ...toolNames]);
     for (const operation of Object.keys(TERMS_OPEN_OPERATIONS)) {
       expect(named.has(operation as never), operation).toBe(true);
+    }
+  });
+});
+
+/**
+ * Every account route the dashboard session reaches (`accountRoutes`), and whether a session of
+ * an account without the current terms may use it: the one rule is
+ * `accountSessionUsableWithoutCurrentTerms` over `ACCOUNT_SESSION_OPERATIONS`; a route without a
+ * name is refused (fail closed). A new account route fails here until it is named and classified.
+ */
+const ACCOUNT_ROUTES: Record<string, "open" | "refused"> = {
+  "GET /api/v1/account/sessions": "open",
+  "POST /api/v1/account/sessions/sign-out-others": "open",
+  "GET /api/v1/account/apps": "open",
+  "DELETE /api/v1/account/apps/:clientId": "open",
+  "GET /api/v1/account/suspension": "open",
+  "GET /api/v1/account/settings": "open",
+  "PATCH /api/v1/account/settings": "open",
+  "GET /api/v1/account/comment-notices/:artifactId": "open",
+  "PUT /api/v1/account/comment-notices/:artifactId": "open",
+  "GET /api/v1/account/branding": "open",
+  "PUT /api/v1/account/branding": "refused",
+  "DELETE /api/v1/account/branding": "open",
+  "PUT /api/v1/account/branding/logo": "refused",
+  "DELETE /api/v1/account/branding/logo": "open",
+  "GET /api/v1/account/branding/logo": "open",
+  "GET /api/v1/account/export": "open",
+  "POST /api/v1/account/delete": "open",
+  "POST /api/v1/account/deletion-code": "open",
+  "POST /api/v1/account/delete-with-code": "open",
+};
+
+describe("account routes for sessions without the current terms", () => {
+  const live = () => {
+    const routes = accountRoutes({
+      session: () => async () => undefined,
+      signOutOthers: () => async () => undefined,
+      email: () => ({ send: async () => undefined }),
+      now: () => 0,
+    });
+    return routes.routes
+      .filter((route) => route.method !== "ALL")
+      .map((route) => `${route.method} ${route.path}`);
+  };
+
+  it("names every account route as an operation, and nothing else", () => {
+    const routes = live();
+    expect(routes.filter((route) => !(route in ACCOUNT_ROUTE_OPERATIONS))).toEqual([]);
+    expect(Object.keys(ACCOUNT_ROUTE_OPERATIONS).filter((r) => !routes.includes(r))).toEqual([]);
+    expect(routes.filter((route) => !(route in ACCOUNT_ROUTES))).toEqual([]);
+  });
+
+  it("classifies each named operation in the domain rule", () => {
+    for (const [route, operation] of Object.entries(ACCOUNT_ROUTE_OPERATIONS)) {
+      expect(Object.hasOwn(ACCOUNT_SESSION_OPERATIONS, operation), route).toBe(true);
+      expect(accountSessionUsableWithoutCurrentTerms(operation) ? "open" : "refused", route).toBe(
+        ACCOUNT_ROUTES[route],
+      );
     }
   });
 });

@@ -27,6 +27,7 @@ import {
   COMMENT_NOTICE,
   COMMENT_NOTICE_FEATURE,
   checkCommentNoticeCapacity,
+  commentNoticeMuteOnlyNarrows,
   commentNoticeSettledBefore,
   fail,
   groupActivity,
@@ -48,6 +49,7 @@ import {
   suppressEmail,
 } from "./email.ts";
 import type { JobOutcome } from "./outbox.ts";
+import { actsWithoutCurrentTerms, narrowingOnly } from "./terms.ts";
 
 const cn = schema.commentNotices;
 const o = schema.outbox;
@@ -304,6 +306,10 @@ export async function setCommentNoticeMute(
   db: RegionalDb,
   input: { userId: string; artifactId: string; muted: boolean; now: number },
 ): Promise<Result<CommentNoticeMute>> {
+  // Muting stops email, so someone who declines the current terms may; unmuting waits.
+  if (actsWithoutCurrentTerms(db.global) && !commentNoticeMuteOnlyNarrows(input)) {
+    return narrowingOnly();
+  }
   const reader = await annotationReader(db, input);
   if (!reader.ok) return reader;
   const m = schema.commentNoticeMutes;

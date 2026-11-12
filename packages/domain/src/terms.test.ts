@@ -1,7 +1,11 @@
 import { TERMS_VERSION } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  ACCOUNT_SESSION_OPERATIONS,
   accessChangeOnlyNarrows,
+  accountSessionUsableWithoutCurrentTerms,
+  accountSettingsUpdateOnlyNarrows,
+  commentNoticeMuteOnlyNarrows,
   needsTermsAcceptance,
   TERMS_AGENT_SENTENCE,
   TERMS_EXEMPT_SCOPES,
@@ -131,5 +135,62 @@ describe("termsRefusalMessage", () => {
     expect(termsRefusalMessage(null)).toContain("open the Portifact dashboard in a browser");
     expect(termsRefusalMessage(null)).toContain(TERMS_VERSION);
     expect(TERMS_AGENT_SENTENCE).toMatch(/^Ask the user to do it, and do not retry/);
+  });
+});
+
+describe("account session operations without the current terms", () => {
+  it("leave open reads, removals, narrowing changes and the ways to leave", () => {
+    for (const operation of [
+      "read_account_settings",
+      "export_account",
+      "request_account_deletion_code",
+      "delete_account_with_code",
+      "delete_account",
+      "sign_out_other_sessions",
+      "disconnect_app",
+      "delete_branding",
+      "remove_branding_logo",
+      "update_account_settings",
+      "set_comment_notice_mute",
+    ]) {
+      expect(accountSessionUsableWithoutCurrentTerms(operation), operation).toBe(true);
+    }
+  });
+
+  it("refuse what acts anew, and anything unnamed or unknown (fail closed)", () => {
+    expect(accountSessionUsableWithoutCurrentTerms("update_branding")).toBe(false);
+    expect(accountSessionUsableWithoutCurrentTerms("set_branding_logo")).toBe(false);
+    expect(accountSessionUsableWithoutCurrentTerms(null)).toBe(false);
+    expect(accountSessionUsableWithoutCurrentTerms("toString")).toBe(false);
+    expect(accountSessionUsableWithoutCurrentTerms("something_new")).toBe(false);
+  });
+
+  it("classify every operation with one of the known kinds", () => {
+    for (const kind of Object.values(ACCOUNT_SESSION_OPERATIONS)) {
+      expect(["read", "removes", "narrowing", "leaving", "refused"]).toContain(kind);
+    }
+  });
+
+  it("count a settings change as narrowing only when it turns notices off and nothing else", () => {
+    expect(accountSettingsUpdateOnlyNarrows({ expiryNotices: false })).toBe(true);
+    expect(accountSettingsUpdateOnlyNarrows({ commentNotices: false })).toBe(true);
+    expect(accountSettingsUpdateOnlyNarrows({ expiryNotices: false, commentNotices: false })).toBe(
+      true,
+    );
+    expect(accountSettingsUpdateOnlyNarrows({})).toBe(false);
+    expect(accountSettingsUpdateOnlyNarrows({ expiryNotices: true })).toBe(false);
+    expect(accountSettingsUpdateOnlyNarrows({ commentNotices: false, locale: "es" })).toBe(false);
+    expect(accountSettingsUpdateOnlyNarrows({ defaultBar: false })).toBe(false);
+    expect(
+      accountSettingsUpdateOnlyNarrows({ commentNotices: false, defaultAccessMode: "restricted" }),
+    ).toBe(false);
+    expect(accountSettingsUpdateOnlyNarrows({ commentNotices: false, locale: undefined })).toBe(
+      true,
+    );
+  });
+
+  it("count muting as narrowing, never unmuting", () => {
+    expect(commentNoticeMuteOnlyNarrows({ muted: true })).toBe(true);
+    expect(commentNoticeMuteOnlyNarrows({ muted: false })).toBe(false);
   });
 });

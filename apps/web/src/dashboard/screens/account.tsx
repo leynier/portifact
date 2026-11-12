@@ -514,7 +514,9 @@ export function AccountData() {
   return (
     <Section id="data" title={t("account.data.title")} hint={t("account.data.hint")}>
       <div className="flex flex-col items-start gap-4">
-        <a href={ACCOUNT_EXPORT_PATH} download className={buttonClasses({ intent: "secondary" })}>
+        {/* No `download` attribute: WebKit then names the file after the URL ("export.json") and
+            ignores the response's Content-Disposition, which names it portifact-export-<date>.json. */}
+        <a href={ACCOUNT_EXPORT_PATH} className={buttonClasses({ intent: "secondary" })}>
           <Download aria-hidden="true" className="size-4" />
           {t("account.data.download")}
         </a>

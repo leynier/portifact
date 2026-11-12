@@ -33,7 +33,7 @@ export const en = {
   leaveCodeSent: (email: string) => `We sent a 6-digit deletion code to ${email}.`,
   leaveDeleted: "Your account was deleted.",
   leaveSoleAdmin:
-    "You are the only admin of a workspace, so your account cannot be deleted yet. Make another member its admin, or ask Portifact at hello@portifact.com to delete the workspace, then try again.",
+    "You are the only admin of a workspace, and its members cannot be changed without accepting the terms. Either accept the terms, make another member its admin and then delete your account from Settings, or write to privacy@portifact.com and we will handle it.",
   leaveEmailSuppressed:
     "We cannot send email to your account's address because earlier messages to it bounced or were reported as spam. Write to privacy@portifact.com to delete your account.",
   leaveEmailCapacity:

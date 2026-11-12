@@ -18,13 +18,18 @@ describe("account deletion code email", () => {
     }
   });
 
-  it("says what entering it does, that it signs nobody in, and that it can be ignored", () => {
+  it("says what entering it does, that it signs nobody in, and what to do if someone else asked", () => {
     const email = accountDeletionCodeEmail(input);
     expect(email.subject).toBe("Your code to delete your Portifact account");
     expect(email.text).toContain("It expires in 5 minutes and works once.");
     expect(email.text).toContain("deletes the account for good, without accepting the new terms");
     expect(email.text).toContain("This code cannot be used to sign in.");
-    expect(email.text).toContain("Nothing is deleted without the code.");
+    expect(email.text).toContain("Nothing is deleted without this code.");
+    expect(email.text).not.toContain("ignore this email");
+    expect(email.text).toContain("someone may be signed in to your account");
+    expect(email.text).toContain('"Sign out other sessions" on the Apps page');
+    expect(email.text).toContain("privacy@portifact.com");
+    expect(email.html).toContain("Sign out other sessions");
     expect(email.text).toContain("service email sent only on request");
     expect(email.text).toMatch(/: https:\/\/portifact\.com\/privacy$/m);
     expect(email.html).toContain('href="https://portifact.com/privacy"');

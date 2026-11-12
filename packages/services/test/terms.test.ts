@@ -25,6 +25,20 @@ describe("actsWithoutCurrentTerms", () => {
     expect(on({ kind: "request", ip: null, credential: null })).toBe(true);
   });
 
+  it("is true for a dashboard session whose account declined the current terms", () => {
+    const session = (termsAccepted?: boolean): Credential => ({
+      kind: "session",
+      userId: "u1",
+      signedInAt: 1,
+      method: null,
+      ...(termsAccepted === undefined ? {} : { termsAccepted }),
+    });
+    expect(on({ kind: "request", ip: null, credential: session(false) })).toBe(true);
+    expect(on({ kind: "request", ip: null, credential: session(true) })).toBe(false);
+    // Read and review sessions on the artifact origin do not say; they never reach these writes.
+    expect(on({ kind: "request", ip: null, credential: session() })).toBe(false);
+  });
+
   it("is false for everyone else", () => {
     expect(on({ kind: "request", ip: null, credential: oauth(true) })).toBe(false);
     expect(

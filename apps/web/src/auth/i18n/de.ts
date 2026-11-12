@@ -37,7 +37,7 @@ const messages = {
   leaveCodeSent: (email: string) => `Wir haben einen 6-stelligen Löschcode an ${email} gesendet.`,
   leaveDeleted: "Dein Konto wurde gelöscht.",
   leaveSoleAdmin:
-    "Du bist der einzige Admin eines Workspaces, daher kann dein Konto noch nicht gelöscht werden. Mach ein anderes Mitglied zum Admin oder bitte Portifact unter hello@portifact.com, den Workspace zu löschen, und versuche es dann erneut.",
+    "Du bist der einzige Admin eines Workspaces, und seine Mitglieder können nicht geändert werden, ohne den Bedingungen zuzustimmen. Stimme den Bedingungen zu, mach ein anderes Mitglied zum Admin und lösche dein Konto dann in den Einstellungen, oder schreib an privacy@portifact.com, dann kümmern wir uns darum.",
   leaveEmailSuppressed:
     "Wir können keine E-Mails an die Adresse deines Kontos senden, weil frühere Nachrichten unzustellbar waren oder als Spam gemeldet wurden. Schreib an privacy@portifact.com, um dein Konto zu löschen.",
   leaveEmailCapacity:
@@ -210,7 +210,7 @@ export const de: AuthCatalog = {
     "login.leaveDeleteWhat":
       'Wenn du dein Konto löschst, werden deine Artifacts, Sitzungen, Apps und Anmeldemethoden entfernt, ebenso deine Kommentare zu Artifacts anderer Personen. Ein Kommentar, auf den jemand geantwortet hat, wird zur Markierung "Nachricht gelöscht". Artifact-Adressen werden niemals an andere vergeben. Das lässt sich nicht rückgängig machen, lade deine Daten also zuerst herunter.',
     "login.leaveDeleteStays":
-      "Artifacts, die zu einem Workspace gehören, bleiben beim Workspace. Wenn du der einzige Admin eines Workspaces bist, mach zuerst ein anderes Mitglied zum Admin.",
+      "Artifacts, die zu einem Workspace gehören, bleiben beim Workspace. Wenn du der einzige Admin eines Workspaces bist, kannst du dein Konto hier nicht löschen, weil seine Mitglieder nicht geändert werden können, ohne den Bedingungen zuzustimmen: Stimme den Bedingungen zu, mach ein anderes Mitglied zum Admin und lösche dein Konto in den Einstellungen, oder schreib an privacy@portifact.com, dann kümmern wir uns darum.",
     "login.leaveDeleteProof":
       "Um zu prüfen, dass du es bist, senden wir einen Code an die Adresse deines Kontos. Die Eingabe löscht das Konto; sie meldet dich nicht an und stimmt den Bedingungen nicht zu.",
     "login.leaveSendCode": "Löschcode per E-Mail senden",

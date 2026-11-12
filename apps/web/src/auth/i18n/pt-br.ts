@@ -34,7 +34,7 @@ const messages = {
   leaveCodeSent: (email: string) => `Enviamos um código de exclusão de 6 dígitos para ${email}.`,
   leaveDeleted: "Sua conta foi excluída.",
   leaveSoleAdmin:
-    "Você é o único admin de um workspace, então sua conta ainda não pode ser excluída. Torne outro membro admin, ou peça ao Portifact em hello@portifact.com para excluir o workspace, e tente de novo.",
+    "Você é o único admin de um workspace, e os membros dele não podem ser alterados sem aceitar os termos. Aceite os termos, torne outro membro admin e depois exclua sua conta em Configurações, ou escreva para privacy@portifact.com e nós cuidamos disso.",
   leaveEmailSuppressed:
     "Não conseguimos enviar e-mails para o endereço da sua conta porque mensagens anteriores voltaram ou foram marcadas como spam. Escreva para privacy@portifact.com para excluir sua conta.",
   leaveEmailCapacity:
@@ -204,7 +204,7 @@ export const ptBR: AuthCatalog = {
     "login.leaveDeleteWhat":
       'Excluir sua conta remove seus artifacts, sessões, apps e métodos de login, e seus comentários em artifacts de outras pessoas. Um comentário que alguém respondeu vira uma marca de "mensagem excluída". Os endereços dos artifacts nunca são dados a mais ninguém. Isso não pode ser desfeito, então baixe seus dados primeiro.',
     "login.leaveDeleteStays":
-      "Artifacts que pertencem a um workspace ficam com o workspace. Se você é o único admin de um workspace, torne outro membro admin primeiro.",
+      "Artifacts que pertencem a um workspace ficam com o workspace. Se você é o único admin de um workspace, não pode excluir sua conta aqui, porque os membros dele não podem ser alterados sem aceitar os termos: aceite os termos, torne outro membro admin e exclua sua conta em Configurações, ou escreva para privacy@portifact.com e nós cuidamos disso.",
     "login.leaveDeleteProof":
       "Para provar que é você, enviamos um código para o endereço da sua conta. Digitá-lo exclui a conta; não faz login nem aceita os termos.",
     "login.leaveSendCode": "Enviar um código de exclusão",

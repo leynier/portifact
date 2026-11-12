@@ -16,7 +16,9 @@ export function actsWithoutCurrentTerms(global: GlobalDb): boolean {
   const request = global.request;
   if (request.kind !== "request") return false;
   if (request.credential === null) return true;
-  return request.credential?.kind === "oauth" && !request.credential.termsAccepted;
+  const credential = request.credential;
+  if (credential?.kind === "oauth") return !credential.termsAccepted;
+  return credential?.kind === "session" && credential.termsAccepted === false;
 }
 
 /** The refusal of a change that does not only narrow, for such a request. */

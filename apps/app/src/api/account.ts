@@ -4,9 +4,10 @@
 // lists and revokes the same connected apps through ./tokens.ts, with its own narrow scope.
 //
 // A session of an account that has not accepted the current terms reaches only what lets a
-// person leave without accepting them (docs/legal.md, "Leaving without accepting"): reads, the
-// export, removals and the deletion, including the deletion with an emailed code. Every change
-// that acts anew (settings, mutes, branding) answers `terms_not_accepted`.
+// person leave without accepting them (docs/legal.md, "Leaving without accepting"): each route is
+// named in `ACCOUNT_ROUTE_OPERATIONS` and classified by `accountSessionUsableWithoutCurrentTerms`
+// (reads, removals, narrowing changes, the export and the deletions); anything else, or a route
+// without a name, answers `terms_not_accepted` (fail closed).
 import {
   AccountDeletionCodeRequest,
   AccountDeletionCodeSent,
@@ -34,6 +35,7 @@ import {
   SignOutOthersResult,
   WorkspaceParam,
 } from "@portifact/contracts";
+import { accountSessionUsableWithoutCurrentTerms } from "@portifact/domain";
 import {
   accountSuspensionView,
   type ConnectedAppRow,
@@ -65,6 +67,7 @@ import type { Env } from "../env.ts";
 import { artifactDb, bucketOf, defaultDb, ownerScope, regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
 import { readJson } from "./http.ts";
+import { accountRouteOperation } from "./terms-operations.ts";
 
 /** The dashboard session behind a request: its user and the session's own ID. */
 export interface AccountSession {
@@ -99,15 +102,12 @@ export function accountRoutes(deps: AccountDeps) {
   });
 
   /**
-   * Runs `handler` for the dashboard session of the request, or refuses it. `actsAnew` routes
-   * also need the current terms; the rest only read, export, remove or delete, which a person
-   * may always do (docs/legal.md, "Leaving without accepting").
+   * Runs `handler` for the dashboard session of the request, or refuses it. A session of an
+   * account without the current terms runs only the operations the domain rule leaves open, by
+   * the route's name (`accountRouteOperation`); an unnamed route is refused to it.
    */
   const sessionOnly =
-    (
-      handler: (c: AccountContext, session: AccountSession) => Promise<Response>,
-      options: { actsAnew?: true } = {},
-    ) =>
+    (handler: (c: AccountContext, session: AccountSession) => Promise<Response>) =>
     async (c: AccountContext) => {
       const request = c.req.raw;
       if (request.headers.has("authorization")) {
@@ -121,7 +121,8 @@ export function accountRoutes(deps: AccountDeps) {
       }
       const session = await deps.session(c.env)(request);
       if (!session) return error(c, "unauthenticated", "Sign in to see your account.");
-      if (options.actsAnew && !session.termsAccepted) {
+      const operation = accountRouteOperation(c.req.method, c.req.routePath);
+      if (!session.termsAccepted && !accountSessionUsableWithoutCurrentTerms(operation)) {
         return error(
           c,
           "terms_not_accepted",
@@ -218,20 +219,17 @@ export function accountRoutes(deps: AccountDeps) {
 
   routes.patch(
     "/api/v1/account/settings",
-    sessionOnly(
-      async (c, session) => {
-        const body = await readJson(c, AccountSettingsUpdate, 1024);
-        if (!body.ok) return body.response;
-        const result = await updateAccountSettings(regionsOf(c.env).global, {
-          userId: session.userId,
-          update: body.value,
-          now: deps.now(),
-        });
-        if (!result.ok) return error(c, result.code, result.message);
-        return c.json(AccountSettings.parse(result.value));
-      },
-      { actsAnew: true },
-    ),
+    sessionOnly(async (c, session) => {
+      const body = await readJson(c, AccountSettingsUpdate, 1024);
+      if (!body.ok) return body.response;
+      const result = await updateAccountSettings(regionsOf(c.env).global, {
+        userId: session.userId,
+        update: body.value,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(AccountSettings.parse(result.value));
+    }),
   );
 
   // The caller's comment notices for one artifact: whether the owner's plan has them and the
@@ -254,23 +252,20 @@ export function accountRoutes(deps: AccountDeps) {
 
   routes.put(
     muteRoute,
-    sessionOnly(
-      async (c, session) => {
-        const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
-        if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
-        const body = await readJson(c, CommentNoticeMuteUpdate, 256);
-        if (!body.ok) return body.response;
-        const result = await setCommentNoticeMute(await artifactDb(c.env, artifactId.data), {
-          userId: session.userId,
-          artifactId: artifactId.data,
-          muted: body.value.muted,
-          now: deps.now(),
-        });
-        if (!result.ok) return error(c, result.code, result.message);
-        return c.json(CommentNoticeMute.parse(result.value));
-      },
-      { actsAnew: true },
-    ),
+    sessionOnly(async (c, session) => {
+      const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+      if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
+      const body = await readJson(c, CommentNoticeMuteUpdate, 256);
+      if (!body.ok) return body.response;
+      const result = await setCommentNoticeMute(await artifactDb(c.env, artifactId.data), {
+        userId: session.userId,
+        artifactId: artifactId.data,
+        muted: body.value.muted,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(CommentNoticeMute.parse(result.value));
+    }),
   );
 
   // The brand of the account's space on the viewer's bar (premium plan P9). Session only, like
@@ -303,25 +298,22 @@ export function accountRoutes(deps: AccountDeps) {
 
   routes.put(
     brandRoute,
-    sessionOnly(
-      async (c, session) => {
-        const body = await readJson(c, BrandUpdate, 4096);
-        if (!body.ok) return body.response;
-        const scope = await brandScope(c, session);
-        if (!scope.ok) return error(c, scope.code, scope.message);
-        const { actor, db } = scope.value;
-        return brandAnswer(
-          c,
-          await updateBrand(db, {
-            actor,
-            update: body.value,
-            blockedHosts: [new URL(c.env.APP_ORIGIN).hostname, c.env.CONTENT_DOMAIN],
-            now: deps.now(),
-          }),
-        );
-      },
-      { actsAnew: true },
-    ),
+    sessionOnly(async (c, session) => {
+      const body = await readJson(c, BrandUpdate, 4096);
+      if (!body.ok) return body.response;
+      const scope = await brandScope(c, session);
+      if (!scope.ok) return error(c, scope.code, scope.message);
+      const { actor, db } = scope.value;
+      return brandAnswer(
+        c,
+        await updateBrand(db, {
+          actor,
+          update: body.value,
+          blockedHosts: [new URL(c.env.APP_ORIGIN).hostname, c.env.CONTENT_DOMAIN],
+          now: deps.now(),
+        }),
+      );
+    }),
   );
 
   routes.delete(
@@ -338,24 +330,21 @@ export function accountRoutes(deps: AccountDeps) {
   // the services judge it by its bytes.
   routes.put(
     `${brandRoute}/logo`,
-    sessionOnly(
-      async (c, session) => {
-        const bytes = await readBounded(c.req.raw, BRAND_LIMITS.logoMaxBytes);
-        if (bytes === null) {
-          return error(
-            c,
-            "invalid_input",
-            `logo: Use an image of at most ${BRAND_LIMITS.logoMaxBytes / 1000} KB.`,
-          );
-        }
-        const scope = await brandScope(c, session);
-        if (!scope.ok) return error(c, scope.code, scope.message);
-        const { actor, db } = scope.value;
-        const bucket = bucketOf(regionsOf(c.env).get(actor.region));
-        return brandAnswer(c, await setBrandLogo(db, bucket, { actor, bytes, now: deps.now() }));
-      },
-      { actsAnew: true },
-    ),
+    sessionOnly(async (c, session) => {
+      const bytes = await readBounded(c.req.raw, BRAND_LIMITS.logoMaxBytes);
+      if (bytes === null) {
+        return error(
+          c,
+          "invalid_input",
+          `logo: Use an image of at most ${BRAND_LIMITS.logoMaxBytes / 1000} KB.`,
+        );
+      }
+      const scope = await brandScope(c, session);
+      if (!scope.ok) return error(c, scope.code, scope.message);
+      const { actor, db } = scope.value;
+      const bucket = bucketOf(regionsOf(c.env).get(actor.region));
+      return brandAnswer(c, await setBrandLogo(db, bucket, { actor, bytes, now: deps.now() }));
+    }),
   );
 
   routes.delete(

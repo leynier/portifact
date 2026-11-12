@@ -122,3 +122,25 @@ test("an owner in grace sees the notice, opens the download page and downloads a
   });
   expect(await axeViolations(page)).toEqual([]);
 });
+
+test("the account's export downloads under the server's name in every browser", async ({
+  page,
+  context,
+}) => {
+  const owner = await createUser("Exporter");
+  await signIn(context, owner);
+  const named = /^portifact-export-\d{4}-\d{2}-\d{2}\.json$/;
+
+  // Settings: the name comes from the response's Content-Disposition, which WebKit ignores when
+  // the link carries a `download` attribute.
+  await page.goto(`${APP_ORIGIN}/settings`);
+  const fromSettings = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download your account's data (JSON)" }).click();
+  expect((await fromSettings).suggestedFilename()).toMatch(named);
+
+  // The space's download page offers the same file.
+  await page.goto(`${APP_ORIGIN}/data`);
+  const fromData = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download your account's data" }).first().click();
+  expect((await fromData).suggestedFilename()).toMatch(named);
+});

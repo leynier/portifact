@@ -115,26 +115,73 @@ describe("a session without the current terms", () => {
     expect(await termsVersion(email)).toBe("2000-01-01");
   });
 
-  it("cannot change the account's settings, mutes or brand", async () => {
+  it("can turn email notices off, and nothing else, in the settings", async () => {
     const h = createHarness();
-    const cookie = await leaving(h, "acts-anew@example.test");
-    const settings = await h.request(
-      "/api/v1/account/settings",
-      page(cookie, "PATCH", { expiryNotices: false }),
-    );
-    expect(settings.status).toBe(403);
-    expect((await settings.json<{ error: { code: string } }>()).error.code).toBe(
+    const cookie = await leaving(h, "settings-old@example.test");
+    const patch = (body: unknown) =>
+      h.request("/api/v1/account/settings", page(cookie, "PATCH", body));
+    for (const body of [
+      { expiryNotices: false },
+      { commentNotices: false, expiryNotices: false },
+    ]) {
+      expect((await patch(body)).status, JSON.stringify(body)).toBe(200);
+    }
+    for (const body of [
+      { expiryNotices: true },
+      { commentNotices: true },
+      { commentNotices: false, locale: "es" },
+      { defaultAccessMode: "public" },
+      { defaultBar: false },
+    ]) {
+      const refused = await patch(body);
+      expect(refused.status, JSON.stringify(body)).toBe(403);
+      expect((await refused.json<{ error: { code: string } }>()).error.code).toBe(
+        "terms_not_accepted",
+      );
+    }
+    const read = await h.request("/api/v1/account/settings", page(cookie));
+    expect(await read.json()).toMatchObject({ expiryNotices: false, commentNotices: false });
+  });
+
+  it("can mute an artifact's comment notices, never unmute one", async () => {
+    const h = createHarness();
+    const cookie = await leaving(h, "mute-old@example.test");
+    const put = (muted: boolean) =>
+      h.request("/api/v1/account/comment-notices/k7d2qm4xab", page(cookie, "PUT", { muted }));
+    // Muting passes the terms gate and reaches the service, which finds no such artifact.
+    expect((await put(true)).status).toBe(404);
+    const unmute = await put(false);
+    expect(unmute.status).toBe(403);
+    expect((await unmute.json<{ error: { code: string } }>()).error.code).toBe(
       "terms_not_accepted",
     );
+  });
+
+  it("cannot change the brand, and can still remove it", async () => {
+    const h = createHarness();
+    const cookie = await leaving(h, "brand-old@example.test");
     const brand = await h.request("/api/v1/account/branding", page(cookie, "PUT", { name: "X" }));
     expect(brand.status).toBe(403);
-    const mute = await h.request(
-      "/api/v1/account/comment-notices/k7d2qm4xab",
-      page(cookie, "PUT", { muted: true }),
-    );
-    expect(mute.status).toBe(403);
-    // Reads stay open.
-    expect((await h.request("/api/v1/account/settings", page(cookie))).status).toBe(200);
+    const logo = await h.request("/api/v1/account/branding/logo", page(cookie, "PUT", {}));
+    expect(logo.status).toBe(403);
+    for (const path of ["/api/v1/account/branding", "/api/v1/account/branding/logo"]) {
+      const removed = await h.request(path, page(cookie, "DELETE"));
+      const body = await removed.json<{ error?: { code: string } }>();
+      expect(body.error?.code, path).not.toBe("terms_not_accepted");
+    }
+  });
+
+  it("reads every account page it reached before", async () => {
+    const h = createHarness();
+    const cookie = await leaving(h, "reads-old@example.test");
+    for (const path of [
+      "/api/v1/account/settings",
+      "/api/v1/account/sessions",
+      "/api/v1/account/apps",
+      "/api/v1/account/suspension",
+    ]) {
+      expect((await h.request(path, page(cookie))).status, path).toBe(200);
+    }
   });
 });
 
@@ -372,6 +419,9 @@ describe("deleting the account with an emailed code", () => {
     expect(response.status).toBe(409);
     const body = await response.json<{ error: { code: string; message: string } }>();
     expect(body.error.code).toBe("sole_workspace_admin");
-    expect(body.error.message).toContain("Make another member its admin");
+    // Members cannot be changed without the current terms: say what the person can do.
+    expect(body.error.message).toContain("accept the terms");
+    expect(body.error.message).toContain("Settings");
+    expect(body.error.message).toContain("privacy@portifact.com");
   });
 });

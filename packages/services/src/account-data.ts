@@ -529,6 +529,8 @@ interface ProvenDeletion {
 async function deleteAccountNow(
   regions: DeletionRegions,
   input: ProvenDeletion,
+  /** The sole admin's refusal, worded for the path that asked (`soleAdminLeaving`). */
+  refuseSoleAdmin: () => Result<never> = soleAdmin,
 ): Promise<Result<{ deleted: true }>> {
   const global = regions.global;
   const email = input.email.toLowerCase();
@@ -549,7 +551,7 @@ async function deleteAccountNow(
       both ? regionalDeletion(both, input.userId, input.now, true) : [],
     );
   } catch (error) {
-    if (causeIncludes(error, "sole_workspace_admin")) return soleAdmin();
+    if (causeIncludes(error, "sole_workspace_admin")) return refuseSoleAdmin();
     throw error;
   }
   for (const { db } of separateRegions(regions)) {
@@ -624,7 +626,7 @@ export async function issueAccountDeletionCode(
 ): Promise<Result<{ email: string; code: string; expiresInMinutes: number }>> {
   const account = await codeAccount(global, input.userId, input.sessionId);
   if (!account.ok) return account;
-  if (await soleAdminOf(global, input.userId)) return soleAdmin();
+  if (await soleAdminOf(global, input.userId)) return soleAdminLeaving();
   const check = await checkSignInEmail(global, account.value.email, input.now);
   if (!check.ok) {
     return check.code === "capacity_unavailable"
@@ -677,7 +679,7 @@ export async function deleteAccountWithCode(
   const global = regions.global;
   const account = await codeAccount(global, input.userId, input.sessionId);
   if (!account.ok) return account;
-  if (await soleAdminOf(global, input.userId)) return soleAdmin();
+  if (await soleAdminOf(global, input.userId)) return soleAdminLeaving();
   const c = schema.accountDeletionCodes;
   const digest = await deletionCodeDigest(input.secret, input.userId, input.code);
   const mine = and(eq(c.userId, input.userId), eq(c.sessionId, input.sessionId));
@@ -689,6 +691,9 @@ export async function deleteAccountWithCode(
           mine,
           eq(c.codeHash, digest),
           sql`${c.expiresAt} > ${input.now}`,
+          // Defence in depth: the cleanup below deletes a code at its last attempt in the same
+          // batch, so no stored code has run out of attempts when this runs; the condition keeps
+          // the claim right even if that cleanup ever changes or a row is written another way.
           sql`${c.attempts} < ${ACCOUNT_DELETION_CODE.allowedAttempts}`,
         ),
       )
@@ -708,17 +713,27 @@ export async function deleteAccountWithCode(
       ),
   ]);
   if (claimed.length === 0) return fail("invalid_input", WRONG_CODE);
-  return deleteAccountNow(regions, {
-    userId: input.userId,
-    email: account.value.email,
-    now: input.now,
-  });
+  return deleteAccountNow(
+    regions,
+    { userId: input.userId, email: account.value.email, now: input.now },
+    soleAdminLeaving,
+  );
 }
 
 const soleAdmin = () =>
   fail<never>(
     "sole_workspace_admin",
     "You are the only admin of a workspace. Make another member its admin first, or ask Portifact at hello@portifact.com to delete the workspace, then delete your account.",
+  );
+
+/**
+ * The sole admin's refusal on the way out without accepting the terms: members cannot be changed
+ * from a session without the current terms, so it names what does work.
+ */
+const soleAdminLeaving = () =>
+  fail<never>(
+    "sole_workspace_admin",
+    "You are the only admin of a workspace, and its members cannot be changed without the current terms. Either accept the terms, make another member its admin and then delete your account from Settings, or write to privacy@portifact.com and we will handle it.",
   );
 
 function causeIncludes(error: unknown, text: string): boolean {

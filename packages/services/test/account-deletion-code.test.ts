@@ -152,7 +152,8 @@ describe("issuing an account deletion code", () => {
     );
     const refused = await issue(a);
     expect(refused).toMatchObject({ ok: false, code: "sole_workspace_admin" });
-    expect(refused.ok ? "" : refused.message).toContain("Make another member its admin");
+    expect(refused.ok ? "" : refused.message).toContain("accept the terms");
+    expect(refused.ok ? "" : refused.message).toContain("privacy@portifact.com");
     expect(await storedCode(a.id)).toBeUndefined();
   });
 });

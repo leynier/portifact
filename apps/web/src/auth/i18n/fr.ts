@@ -38,7 +38,7 @@ const messages = {
     `Nous avons envoyé un code de suppression à 6 chiffres à ${email}.`,
   leaveDeleted: "Votre compte a été supprimé.",
   leaveSoleAdmin:
-    "Vous êtes le seul admin d’un espace de travail, votre compte ne peut donc pas encore être supprimé. Nommez un autre membre admin, ou demandez à Portifact à hello@portifact.com de supprimer l’espace de travail, puis réessayez.",
+    "Vous êtes le seul admin d’un espace de travail, et ses membres ne peuvent pas être modifiés sans accepter les conditions. Acceptez les conditions, nommez un autre membre admin puis supprimez votre compte depuis les Paramètres, ou écrivez à privacy@portifact.com et nous nous en chargeons.",
   leaveEmailSuppressed:
     "Nous ne pouvons pas envoyer d’e-mail à l’adresse de votre compte, car des messages précédents ont été rejetés ou signalés comme spam. Écrivez à privacy@portifact.com pour supprimer votre compte.",
   leaveEmailCapacity:
@@ -210,7 +210,7 @@ export const fr: AuthCatalog = {
     "login.leaveDeleteWhat":
       'Supprimer votre compte supprime vos artifacts, sessions, apps et méthodes de connexion, ainsi que vos commentaires sur les artifacts d’autres personnes. Un commentaire auquel quelqu’un a répondu devient une marque "message supprimé". Les adresses des artifacts ne sont jamais données à quelqu’un d’autre. C’est irréversible : téléchargez d’abord vos données.',
     "login.leaveDeleteStays":
-      "Les artifacts qui appartiennent à un espace de travail restent dans l’espace de travail. Si vous êtes le seul admin d’un espace de travail, nommez d’abord un autre membre admin.",
+      "Les artifacts qui appartiennent à un espace de travail restent dans l’espace de travail. Si vous êtes le seul admin d’un espace de travail, vous ne pouvez pas supprimer votre compte ici, car ses membres ne peuvent pas être modifiés sans accepter les conditions : acceptez les conditions, nommez un autre membre admin et supprimez votre compte depuis les Paramètres, ou écrivez à privacy@portifact.com et nous nous en chargeons.",
     "login.leaveDeleteProof":
       "Pour prouver que c’est vous, nous envoyons un code à l’adresse de votre compte. Le saisir supprime le compte ; cela ne vous connecte pas et n’accepte pas les conditions.",
     "login.leaveSendCode": "M’envoyer un code de suppression",

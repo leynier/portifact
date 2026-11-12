@@ -33,7 +33,7 @@ const messages = {
   leaveCodeSent: (email: string) => `我们已向 ${email} 发送 6 位删除验证码。`,
   leaveDeleted: "你的账号已删除。",
   leaveSoleAdmin:
-    "你是某个工作区唯一的管理员，因此暂时无法删除你的账号。请先将另一位成员设为管理员，或发送邮件至 hello@portifact.com 请 Portifact 删除该工作区，然后再试一次。",
+    "你是某个工作区唯一的管理员，不接受条款就无法更改其成员。你可以接受条款，将另一位成员设为管理员，然后在设置中删除账号；也可以发送邮件至 privacy@portifact.com，由我们处理。",
   leaveEmailSuppressed:
     "由于之前发往你账号地址的邮件被退回或被举报为垃圾邮件，我们无法向该地址发送邮件。如需删除账号，请发送邮件至 privacy@portifact.com。",
   leaveEmailCapacity:
@@ -183,7 +183,7 @@ export const zhCN: AuthCatalog = {
     "login.leaveDeleteWhat":
       "删除账号会移除你的 artifact、会话、应用和登录方式，以及你在他人 artifact 上的评论。有人回复过的评论会变成“消息已删除”标记。artifact 的地址永远不会分配给其他人。此操作无法撤销，请先下载你的数据。",
     "login.leaveDeleteStays":
-      "属于工作区的 artifact 会保留在工作区中。如果你是某个工作区唯一的管理员，请先将另一位成员设为管理员。",
+      "属于工作区的 artifact 会保留在工作区中。如果你是某个工作区唯一的管理员，由于不接受条款就无法更改其成员，你不能在这里删除账号：你可以接受条款，将另一位成员设为管理员，然后在设置中删除账号；也可以发送邮件至 privacy@portifact.com，由我们处理。",
     "login.leaveDeleteProof":
       "为确认是你本人，我们会向你账号的地址发送验证码。输入后即删除账号；这不会让你登录，也不会接受条款。",
     "login.leaveSendCode": "给我发送删除验证码",

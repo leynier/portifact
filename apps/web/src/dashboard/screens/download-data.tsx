@@ -422,7 +422,8 @@ function LogsSection({ space }: { space: Space }) {
         ) : null}
         {space.kind === "personal" ? (
           <li>
-            <a href={ACCOUNT_EXPORT_PATH} download className="font-semibold">
+            {/* No `download` attribute, so every browser takes the server's file name (account.tsx). */}
+            <a href={ACCOUNT_EXPORT_PATH} className="font-semibold">
               {t("data.logs.account")}
             </a>
           </li>

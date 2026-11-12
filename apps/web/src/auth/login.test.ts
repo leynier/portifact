@@ -693,7 +693,9 @@ describe("leaving without accepting the current terms", () => {
       ).toBeTruthy();
     }
     expect(element("leave-download").getAttribute("href")).toBe("/api/v1/account/export");
-    expect(element("leave-download").hasAttribute("download")).toBe(true);
+    // The server names the file (Content-Disposition); a `download` attribute makes WebKit name it
+    // after the URL instead.
+    expect(element("leave-download").hasAttribute("download")).toBe(false);
     for (const id of ["leave-download", "leave-delete", "leave-send-code", "leave-confirm"]) {
       expect(element(id).getAttribute("aria-describedby") ?? "", id).not.toContain(
         "terms-update-notice",
@@ -711,6 +713,11 @@ describe("leaving without accepting the current terms", () => {
     expect(document.activeElement?.id).toBe("leave-delete-heading");
     expect(element("leave-delete-what").textContent).toContain("cannot be undone");
     expect(element("leave-delete-stays").textContent).toContain("stay with the workspace");
+    // A sole admin cannot change members without the current terms: the screen says what works.
+    expect(element("leave-delete-stays").textContent).toContain("accept the terms");
+    expect(element("leave-delete-stays").textContent).toContain("privacy@portifact.com");
+    expect(messages.leaveSoleAdmin).toContain("privacy@portifact.com");
+    expect(messages.leaveSoleAdmin).toContain("accept the terms");
     expect(fetched).toEqual([]);
     element("leave-delete").click();
     expect(element("leave-delete").getAttribute("aria-expanded")).toBe("false");
