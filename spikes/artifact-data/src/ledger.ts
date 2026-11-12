@@ -18,6 +18,25 @@ export type Pool = (typeof POOLS)[number];
 
 export class OwnerLedger extends DurableObject<Env> {
   #ready = false;
+  /** Spike only: a latch that holds the next lease, so tests can act during that await. */
+  #latch: { promise: Promise<void>; open: () => void; waiting: boolean } | null = null;
+
+  arm(): void {
+    let open = () => {};
+    const promise = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    this.#latch = { promise, open, waiting: false };
+  }
+
+  waiting(): boolean {
+    return this.#latch?.waiting ?? false;
+  }
+
+  release(): void {
+    this.#latch?.open();
+    this.#latch = null;
+  }
 
   #schema(): void {
     if (this.#ready) return;
@@ -48,7 +67,11 @@ export class OwnerLedger extends DurableObject<Env> {
   }
 
   /** Grants up to `want` while the balance is positive; nothing while it is spent or in debt. */
-  lease(pool: Pool, day: number, want: number, limit: number): number {
+  async lease(pool: Pool, day: number, want: number, limit: number): Promise<number> {
+    if (this.#latch !== null) {
+      this.#latch.waiting = true;
+      await this.#latch.promise;
+    }
     this.#schema();
     return this.ctx.storage.transactionSync(() => {
       const balance = this.#refill(pool, day, limit);
