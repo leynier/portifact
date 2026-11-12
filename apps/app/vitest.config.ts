@@ -82,6 +82,8 @@ export default defineConfig(async () => {
       // CI runs every package's tests at once on one runner; time budgets are asserted
       // explicitly where they matter, so the timeout only catches hangs.
       testTimeout: 30_000,
+      // Hooks start the Worker and its databases; the 10 second default fails on a slow runner.
+      hookTimeout: 30_000,
       include: ["test/**/*.test.ts"],
       setupFiles: ["./test/apply-migrations.ts"],
       coverage: {

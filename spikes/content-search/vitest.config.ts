@@ -19,6 +19,8 @@ export default defineConfig({
     // The spike measures: it writes megabytes into D1 and times queries, which takes several
     // times longer on a loaded CI runner than the default five seconds allow.
     testTimeout: 60_000,
+    // Hooks start the Worker and its databases; the 10 second default fails on a slow runner.
+    hookTimeout: 60_000,
     include: ["test/**/*.test.ts"],
     setupFiles: ["./test/apply-migrations.ts"],
     coverage: {

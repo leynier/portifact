@@ -4,6 +4,8 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     testTimeout: 30_000,
+    // Hooks start the Worker and its databases; the 10 second default fails on a slow runner.
+    hookTimeout: 30_000,
     include: ["src/**/*.test.ts"],
     coverage: {
       provider: "istanbul",
