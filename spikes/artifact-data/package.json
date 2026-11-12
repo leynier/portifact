@@ -1,0 +1,19 @@
+{
+  "name": "@portifact/spike-artifact-data",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Spike for decision 0026: one SQLite-backed Durable Object per artifact, reached from two Workers, with the document API, owner SQL, bounds and live updates, in workerd only. Never deployed.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.6.0",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

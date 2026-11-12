@@ -345,6 +345,17 @@
         "vitest": "catalog:",
       },
     },
+    "spikes/artifact-data": {
+      "name": "@portifact/spike-artifact-data",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@cloudflare/vitest-plugin": "^1.6.0",
+        "@cloudflare/workers-types": "^5.0.0",
+        "@vitest/coverage-istanbul": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "spikes/content-search": {
       "name": "@portifact/spike-content-search",
       "version": "0.0.0",
@@ -900,6 +911,8 @@
     "@portifact/services": ["@portifact/services@workspace:packages/services"],
 
     "@portifact/spike-artifact-analytics": ["@portifact/spike-artifact-analytics@workspace:spikes/artifact-analytics"],
+
+    "@portifact/spike-artifact-data": ["@portifact/spike-artifact-data@workspace:spikes/artifact-data"],
 
     "@portifact/spike-content-search": ["@portifact/spike-content-search@workspace:spikes/content-search"],
 
