@@ -58,6 +58,14 @@ export async function createUser(name: string, at?: string): Promise<User> {
   return { ...user, email, name };
 }
 
+/** The user signed in again: a new browser session, as after signing in with a code. */
+export async function signInAgain(user: User): Promise<User> {
+  const session = await control<{ sessionId: string; cookie: string }>("/session", {
+    userId: user.userId,
+  });
+  return { ...user, ...session };
+}
+
 export function publish(input: {
   ownerId: string;
   /** A workspace to publish into as `ownerId`. */

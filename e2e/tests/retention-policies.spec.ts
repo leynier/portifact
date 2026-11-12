@@ -12,6 +12,7 @@ import {
   expect,
   publish,
   signIn,
+  signInAgain,
   sql,
   test,
 } from "../src/fixtures.ts";
@@ -116,6 +117,11 @@ test("a maximum life archives only what reached it, after its notice period", as
     expect((await state(old.artifactId))?.state).toBe("archived");
   }).toPass({ intervals: [0], timeout: 60_000 });
   expect((await state(fresh.artifactId))?.state).toBe("active");
+  // Eight days on, the admin's 7-day browser session has expired and the cleanup of expired
+  // sign-in records has deleted it (docs/operations.md, "Expired sign-in records"): they sign in
+  // again, as a person coming back after a week does.
+  await context.clearCookies();
+  await signIn(context, await signInAgain(admin));
 
   // The archived one can be restored, and gets a new life within the maximum.
   await open(page, `/artifacts/${old.artifactId}?workspace=${slug}`, "Old plan");

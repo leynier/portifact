@@ -30,6 +30,7 @@ import { deleteOwnerAuditStreams, exportAuditStreams } from "./audit-streams.ts"
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
+import { eraseAccountTraces, markAccountGone } from "./history-retention.ts";
 import { deleteOwnerConnections, exportIntegrations } from "./integrations.ts";
 import { listIncomingInvitations } from "./invitations.ts";
 import { releaseOrphans } from "./maintenance.ts";
@@ -756,6 +757,8 @@ export async function advanceAccountDeletion(
       await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
     }
     if (threads.length > 0) pending = true;
+    // Once its comments are erased, what stays with other people's artifacts forgets the account.
+    else if ((await eraseAccountTraces(db, userId)).more) pending = true;
     const [left] = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.artifacts)
@@ -793,6 +796,8 @@ export async function advanceAccountDeletion(
         .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),
       // The audit log goes with its owner (the global copy, the plan's events, above).
       eraseOwnerAuditEvents(db, userId, nothingLeft),
+      // Its suspensions start their retention now (`pruneGoneHistory`).
+      markAccountGone(db, userId, nothingLeft, now),
       db
         .delete(schema.accountUsage)
         .where(

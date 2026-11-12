@@ -283,13 +283,17 @@ export async function writeCommentTombstones(
     logEvent("error", "comment_tombstones_unreadable");
     return "stale";
   }
-  await db.global
-    .insert(schema.tombstones)
-    .select(
-      // `where 1`: SQLite reads `on conflict` after a bare `from` as part of the join.
-      sql`select 'comment_thread', value, ${parsed.data.at} from json_each(${JSON.stringify(parsed.data.ids)}) where 1`,
-    )
-    .onConflictDoNothing();
+  const marker = (kind: "comment_thread" | "comment_message", ids: readonly string[]) =>
+    db.global
+      .insert(schema.tombstones)
+      .select(
+        // `where 1`: SQLite reads `on conflict` after a bare `from` as part of the join.
+        sql`select ${kind}, value, ${parsed.data.at} from json_each(${JSON.stringify(ids)}) where 1`,
+      )
+      .onConflictDoNothing();
+  if (parsed.data.ids.length > 0) await marker("comment_thread", parsed.data.ids);
+  const messages = parsed.data.messages ?? [];
+  if (messages.length > 0) await marker("comment_message", messages);
   return "done";
 }
 

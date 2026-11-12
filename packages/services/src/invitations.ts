@@ -358,7 +358,7 @@ export async function revokeInvitation(
     eq(inv.workspaceId, scope.value.id),
     stillAdmin(scope.value.id, input.userId),
   ) as SQL;
-  const [, , deleted] = await global.batch([
+  const [, , , deleted] = await global.batch([
     // Withdrawing a pending membership the directory provisioned holds against its routine sync
     // (decision 0017), like removing a member does.
     global
@@ -379,6 +379,7 @@ export async function revokeInvitation(
       },
       sql`exists (select 1 from ${inv} where ${where})`,
     ),
+    invitationTombstone(global, where, input.now ?? Date.now()),
     global.delete(inv).where(where).returning({ id: inv.id }),
   ]);
   if (deleted.length === 1) return ok({ revoked: true });
@@ -603,11 +604,24 @@ export async function declineInvitation(
 ): Promise<Result<{ declined: true }>> {
   const found = await inviteeScope(global, input);
   if (!found.ok) return found;
-  const deleted = await global
-    .delete(inv)
-    .where(eq(inv.id, found.value.id))
-    .returning({ id: inv.id });
+  const [, deleted] = await global.batch([
+    invitationTombstone(global, eq(inv.id, found.value.id) as SQL, input.now),
+    global.delete(inv).where(eq(inv.id, found.value.id)).returning({ id: inv.id }),
+  ]);
   return deleted.length === 1 ? ok({ declined: true }) : fail("not_found", MISSING_INVITATION);
+}
+
+/**
+ * The `workspace_invitation` tombstone of an invitation revoked or declined, in the batch that
+ * deletes it, so a backup restore cannot bring its link back (docs/operations.md, "Restoring a
+ * backup"). By row ID: a later invitation of the same address is another row and survives.
+ */
+function invitationTombstone(global: GlobalDb, where: SQL, now: number) {
+  // Columns in schema order: kind, id, deleted at.
+  return global
+    .insert(schema.tombstones)
+    .select(sql`select 'workspace_invitation', ${inv.id}, ${now} from ${inv} where ${where}`)
+    .onConflictDoNothing();
 }
 
 /** Deletes invitations that expired (a maintenance scan); an expired one already holds no seat. */

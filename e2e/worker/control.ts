@@ -291,6 +291,23 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
     });
   }
 
+  // A new browser session for an existing user, as signing in again gives (a test whose clock
+  // jumps past the 7-day life of the first one, which the expired-record cleanup then deletes).
+  if (path === "/session") {
+    const { userId } = input as { userId: string };
+    const sessionId = crypto.randomUUID();
+    const token = crypto.randomUUID().replaceAll("-", "");
+    await db.insert(schema.sessions).values({
+      id: sessionId,
+      token,
+      userId,
+      expiresAt: new Date(now + 7 * DAY),
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    });
+    return Response.json({ sessionId, cookie: await signedToken(token, env.BETTER_AUTH_SECRET) });
+  }
+
   if (path === "/publish") {
     const publish = input as PublishInput;
     const region = publish.region ?? "default";

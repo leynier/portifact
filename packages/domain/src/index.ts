@@ -24,6 +24,7 @@ export * from "./feedback.ts";
 export * from "./files.ts";
 export * from "./github-oidc.ts";
 export * from "./groups.ts";
+export * from "./history.ts";
 export * from "./html-text.ts";
 export * from "./ids.ts";
 export * from "./integrations.ts";

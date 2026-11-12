@@ -573,9 +573,22 @@ async function dropMember(
               target: [schema.workspaceRemovals.workspaceId, schema.workspaceRemovals.userId],
               set: { removedAt: by.now },
             }),
+          // A restore must not bring the membership back (docs/operations.md, "Restoring a
+          // backup"): an admin's removal as `workspace_member` (with its single sign-on block),
+          // leaving as `workspace_member_left` (none). The newest removal's time wins, so a
+          // membership created after it survives a restore.
+          global
+            .insert(schema.tombstones)
+            .select(
+              sql`select ${self ? "workspace_member_left" : "workspace_member"}, ${workspaceId} || ':' || ${memberId}, ${by.now} where exists (select 1 from ${m} where ${where})`,
+            )
+            .onConflictDoUpdate({
+              target: [schema.tombstones.kind, schema.tombstones.id],
+              set: { deletedAt: by.now },
+            }),
           global.delete(m).where(where).returning({ userId: m.userId }),
         ])
-      )[4],
+      )[5],
     () => checkRemoval("admin", 1, leaving) as Result<never>,
   );
   if (!removed.ok) return removed;

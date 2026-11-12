@@ -1,4 +1,6 @@
 import { env } from "cloudflare:workers";
+import { regionsFromEnv } from "@portifact/db";
+import { pruneAuthRecords } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { publishSite, tokenClient } from "./api-client.ts";
 import {
@@ -129,12 +131,31 @@ describe("browser sessions", () => {
     const agent = await connectMcp(h, cli.cookie);
     expect((await callMcp(h, agent.token)).status).toBe(200);
 
+    const before = await env.DB.prepare(
+      "SELECT s.id FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.email = ?",
+    )
+      .bind("sessions-out@example.test")
+      .all<{ id: string }>();
     const response = await h.request(
       "/api/v1/account/sessions/sign-out-others",
       dashboard(current, "POST"),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ signedOut: 1 });
+    // Ended through Better Auth: the ended session and the tokens its hook revoked carry restore
+    // markers (migration 0071), so a backup restore cannot sign it in again.
+    const ended = await env.DB.prepare(
+      `SELECT count(*) AS n FROM tombstones WHERE kind = 'session' AND id IN (${before.results.map(() => "?").join(", ")})`,
+    )
+      .bind(...before.results.map((row) => row.id))
+      .first<{ n: number }>();
+    expect(ended?.n).toBe(1);
+    const revoked = await env.DB.prepare(
+      "SELECT count(*) AS n FROM tombstones t JOIN oauth_access_tokens a ON a.id = t.id WHERE t.kind = 'oauth_token' AND a.client_id = ?",
+    )
+      .bind(agent.clientId)
+      .first<{ n: number }>();
+    expect(revoked?.n).toBeGreaterThan(0);
 
     expect((await sessions(h, current)).map((s) => s.current)).toEqual([true]);
     const signedOut = await h.request("/api/v1/account/sessions", dashboard(cli.cookie));
@@ -154,6 +175,54 @@ describe("browser sessions", () => {
     );
     // As with signing out (decision 0001), the agent recovers by refreshing; only
     // disconnecting the app ends its access.
+    expect(refreshed.status).toBe(200);
+    const renewed = await refreshed.json<TokenResponse>();
+    expect((await callMcp(h, renewed.access_token)).status).toBe(200);
+  });
+});
+
+describe("the cleanup of expired browser sessions", () => {
+  it("deletes an expired session only once Better Auth's sign-out would change nothing more, with the same result", async () => {
+    const h = createHarness();
+    const email = "sessions-cleanup@example.test";
+    const cookie = await h.signIn(email);
+    // An agent approved in this browser holds tokens bound to its session.
+    const agent = await connectMcp(h, cookie);
+    const user = await env.DB.prepare("SELECT id FROM users WHERE email = ?")
+      .bind(email)
+      .first<{ id: string }>();
+    const now = Date.now();
+    const past = now - 2 * 86_400_000;
+    await env.DB.prepare("UPDATE sessions SET expires_at = ? WHERE user_id = ?")
+      .bind(past, user?.id)
+      .run();
+    const left = async () =>
+      (
+        await env.DB.prepare("SELECT count(*) AS n FROM sessions WHERE user_id = ?")
+          .bind(user?.id)
+          .first<{ n: number }>()
+      )?.n;
+
+    // Its access token is still live: signing out would revoke it, so the cleanup leaves it.
+    expect((await pruneAuthRecords(regionsFromEnv(env).global, now)).sessions).toBe(0);
+    expect(await left()).toBe(1);
+
+    await env.DB.prepare("UPDATE oauth_access_tokens SET expires_at = ? WHERE client_id = ?")
+      .bind(past, agent.clientId)
+      .run();
+    expect((await pruneAuthRecords(regionsFromEnv(env).global, now)).sessions).toBe(1);
+    expect(await left()).toBe(0);
+    // As after Better Auth's sign-out (above): the access token no longer works, and the agent
+    // recovers by refreshing.
+    expect((await callMcp(h, agent.token)).status).toBe(401);
+    const refreshed = await h.request(
+      "/api/auth/oauth2/token",
+      form({
+        grant_type: "refresh_token",
+        refresh_token: agent.refresh,
+        client_id: agent.clientId,
+      }),
+    );
     expect(refreshed.status).toBe(200);
     const renewed = await refreshed.json<TokenResponse>();
     expect((await callMcp(h, renewed.access_token)).status).toBe(200);

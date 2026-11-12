@@ -60,6 +60,7 @@ import {
   checkThreadWritable,
   commentScope,
   type Entitlements,
+  ERASED_ACCOUNT,
   effectiveState,
   emailDomainOf,
   entitlements,
@@ -535,7 +536,7 @@ interface Claim {
 }
 
 /** Inserts the event that claims a change, only when `guard` holds. Returns its ID if it did. */
-function claim(db: RegionalDb, writeId: string, event: Claim, guard: SQL) {
+function claim(db: Db, writeId: string, event: Claim, guard: SQL) {
   // Drizzle lists every column in schema order for an insert from raw SQL; `null` is the ID.
   return db
     .insert(schema.annotationEvents)
@@ -546,7 +547,7 @@ function claim(db: RegionalDb, writeId: string, event: Claim, guard: SQL) {
 }
 
 /** Bumps the thread's revision and points its refresh cursor at the claiming event. */
-function touchThread(db: RegionalDb, threadId: string, writeId: string, now: number, extra = {}) {
+function touchThread(db: Db, threadId: string, writeId: string, now: number, extra = {}) {
   const th = schema.annotationThreads;
   return db
     .update(th)
@@ -560,6 +561,43 @@ function touchThread(db: RegionalDb, threadId: string, writeId: string, now: num
 }
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
+
+/**
+ * What keeps a deleted thread or message deleted through a backup restore (docs/operations.md,
+ * "Restoring a backup"), on the claim: with one database its `comment_thread` or
+ * `comment_message` tombstone itself; with a separate regional database a `comment_tombstones`
+ * job in the regional batch, which writes the tombstone in the global database. `x` is the handle
+ * the whole batch is built on (`bothSides` with one database). Pruned after the backup window
+ * (`pruneGroupTombstones`).
+ */
+function deletionMarker(
+  x: Db,
+  shared: boolean,
+  writeId: string,
+  target: { kind: "thread" | "message"; id: string; artifactId: string },
+  now: number,
+): BatchItem<"sqlite"> {
+  if (shared) {
+    // Columns in schema order: kind, id, deleted at.
+    return x
+      .insert(schema.tombstones)
+      .select(
+        sql`select ${target.kind === "thread" ? "comment_thread" : "comment_message"}, ${target.id}, ${now} where ${claimed(writeId)}`,
+      )
+      .onConflictDoNothing();
+  }
+  const payload =
+    target.kind === "thread"
+      ? { ids: [target.id], at: now }
+      : { ids: [], messages: [target.id], at: now };
+  // Columns in schema order: id, topic, payload, available, dispatched, attempts, created,
+  // subject, generation.
+  return x
+    .insert(schema.outbox)
+    .select(
+      sql`select null, 'comment_tombstones', ${JSON.stringify(payload)}, ${now}, null, 0, ${now}, ${target.artifactId}, null where ${claimed(writeId)}`,
+    );
+}
 
 /**
  * The comment notice mark and the webhook events of a claimed write, each only when the owner's
@@ -601,7 +639,7 @@ function noticeMark(
  * Runs a claimed batch. Returns whether the claim happened; a CHECK constraint failure (the
  * owner's quota or a full thread, after a race) becomes `quota_exceeded`.
  */
-async function runClaimed(db: RegionalDb, statements: Batch): Promise<Result<boolean>> {
+async function runClaimed(db: Db, statements: Batch): Promise<Result<boolean>> {
   try {
     const [first] = (await db.batch(statements)) as [{ id: number }[]];
     return ok(first.length === 1);
@@ -1141,19 +1179,27 @@ async function removeMessage(
             : "message_deleted",
         now: input.now,
       };
+      // With one database the whole batch runs on the handle that also writes the tombstone.
+      const shared = bothSides(db);
+      const x: Db = shared ?? db;
+      const target = removesThread
+        ? { kind: "thread" as const, id: found.thread.id, artifactId: loaded.artifact.id }
+        : { kind: "message" as const, id: input.messageId, artifactId: loaded.artifact.id };
       if (removesThread) {
-        return runClaimed(db, [
-          claim(db, writeId, event, guard),
-          db.delete(th).where(and(eq(th.id, found.thread.id), claimed(writeId))),
+        return runClaimed(x, [
+          claim(x, writeId, event, guard),
+          deletionMarker(x, shared !== null, writeId, target, input.now),
+          x.delete(th).where(and(eq(th.id, found.thread.id), claimed(writeId))),
         ]);
       }
-      return runClaimed(db, [
-        claim(db, writeId, event, guard),
-        db
+      return runClaimed(x, [
+        claim(x, writeId, event, guard),
+        deletionMarker(x, shared !== null, writeId, target, input.now),
+        x
           .update(m)
           .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
           .where(and(eq(m.id, input.messageId), claimed(writeId))),
-        touchThread(db, found.thread.id, writeId, input.now),
+        touchThread(x, found.thread.id, writeId, input.now),
       ]);
     },
     async ({ loaded, found, removesThread }): Promise<Result<AnnotationDeleteResult>> => {
@@ -1236,10 +1282,13 @@ export async function deleteAnnotationThread(
       const thread = await findThread(db, loaded.value, input.threadId);
       return thread ? ok(loaded.value) : missingThread();
     },
-    (loaded) =>
-      runClaimed(db, [
+    (loaded) => {
+      // With one database the whole batch runs on the handle that also writes the tombstone.
+      const shared = bothSides(db);
+      const x: Db = shared ?? db;
+      return runClaimed(x, [
         claim(
-          db,
+          x,
           writeId,
           {
             artifactId: loaded.artifact.id,
@@ -1251,8 +1300,16 @@ export async function deleteAnnotationThread(
           },
           sql`${artifactGuard(loaded, "moderate", input.now)} and exists (select 1 from ${th} where ${th.id} = ${input.threadId})`,
         ),
-        db.delete(th).where(and(eq(th.id, input.threadId), claimed(writeId))),
-      ]),
+        deletionMarker(
+          x,
+          shared !== null,
+          writeId,
+          { kind: "thread", id: input.threadId, artifactId: loaded.artifact.id },
+          input.now,
+        ),
+        x.delete(th).where(and(eq(th.id, input.threadId), claimed(writeId))),
+      ]);
+    },
     async () => ok({ threadId: input.threadId }),
   );
 }
@@ -1492,7 +1549,12 @@ export async function listAnnotationHistory(
     .limit(input.limit + 1);
   const page = rows.slice(0, input.limit);
   const actors = new Map<string, AnnotationAuthor>();
-  for (const ids of chunks([...new Set(page.map((row) => row.actorId))])) {
+  // A deleted account's actions name nobody, whether its ID is still there or already erased
+  // (`ERASED_ACCOUNT`, never looked up): the history and the exports built on it show `null`.
+  const actorIds = [...new Set(page.map((row) => row.actorId))].filter(
+    (id) => id !== ERASED_ACCOUNT,
+  );
+  for (const ids of chunks(actorIds)) {
     // Actors are global accounts (decision 0005): their names come from the global database.
     const users = await db.global
       .select({ id: schema.users.id, name: schema.users.name, image: schema.users.image })

@@ -662,7 +662,11 @@ export const usageEvents = sqliteTable(
     amount: integer("amount").notNull(),
     at: timestamp("at").notNull(),
   },
-  (t) => [index("usage_events_owner_kind_at_idx").on(t.ownerId, t.kind, t.at)],
+  (t) => [
+    index("usage_events_owner_kind_at_idx").on(t.ownerId, t.kind, t.at),
+    // Pruned once no 24-hour window can count them (`pruneUploadHistory`).
+    index("usage_events_at_idx").on(t.at),
+  ],
 );
 
 /**
@@ -792,7 +796,15 @@ export const lifecycleEvents = sqliteTable(
     details: text("details", { mode: "json" }),
     at: timestamp("at").notNull(),
   },
-  (t) => [index("lifecycle_events_artifact_at_idx").on(t.artifactId, t.at)],
+  (t) => [
+    index("lifecycle_events_artifact_at_idx").on(t.artifactId, t.at),
+    // The history of purged artifacts, oldest first, for its retention (`pruneGoneHistory`).
+    index("lifecycle_events_purged_at_idx")
+      .on(t.at, t.artifactId)
+      .where(sql`${t.event} = 'purged'`),
+    // An account's actions, forgotten when it is deleted (`eraseAccountTraces`).
+    index("lifecycle_events_actor_idx").on(t.actorId).where(sql`${t.actorId} is not null`),
+  ],
 );
 
 /**
@@ -814,7 +826,16 @@ export const tombstones = sqliteTable(
      * `workspace_member` a membership the directory ended, as `<workspace>:<user>`, which a
      * restore must not bring back if it was created before the tombstone (decision 0017);
      * `audit_stream` a removed audit stream (decision 0019); `github_trust_rule` a removed GitHub
-     * trust rule (decision 0024).
+     * trust rule (decision 0024). `comment_thread` and `comment_message` a deleted thread or message,
+     * `workspace_member` also an admin's removal and `workspace_member_left` a member leaving,
+     * `workspace_invitation` also a revoked or declined invitation, `notice_opt_out` an email
+     * preference turned off (`<user>:<preference>`) and `comment_notice_mute` a per-artifact mute
+     * (`<artifact>:<user>`), and, written by triggers on the identity tables (migration 0071),
+     * `session` an unexpired browser session that ended, `oauth_token` an unexpired OAuth access or
+     * refresh token deleted or revoked and `oauth_grant` a consent deleted (an app disconnected):
+     * these are pruned after the Time Travel window (`WINDOW_TOMBSTONE_KINDS`,
+     * docs/operations.md, "Restoring a backup"). The directory's `workspace_member` and
+     * `workspace_invitation` tombstones are pruned with them (decision 0017).
      */
     kind: text("kind", {
       enum: [
@@ -836,12 +857,23 @@ export const tombstones = sqliteTable(
         "audit_stream",
         "comment_thread",
         "github_trust_rule",
+        "comment_message",
+        "workspace_member_left",
+        "notice_opt_out",
+        "comment_notice_mute",
+        "session",
+        "oauth_token",
+        "oauth_grant",
       ],
     }).notNull(),
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.kind, t.id] })],
+  (t) => [
+    primaryKey({ columns: [t.kind, t.id] }),
+    // The prune of restore markers reads each kind oldest first (`pruneGroupTombstones`).
+    index("tombstones_kind_deleted_idx").on(t.kind, t.deletedAt),
+  ],
 );
 
 /**
@@ -892,12 +924,20 @@ export const suspensions = sqliteTable(
     note: text("note"),
     createdAt: createdAt(),
     liftedAt: timestamp("lifted_at"),
+    /**
+     * When the artifact was purged or the account deleted; null while it exists. The record is
+     * deleted `HISTORY_RETENTION_DAYS` after it (`pruneGoneHistory`).
+     */
+    targetGoneAt: timestamp("target_gone_at"),
   },
   (t) => [
     uniqueIndex("suspensions_open_target_idx")
       .on(t.kind, t.targetId)
       .where(sql`${t.liftedAt} is null`),
     index("suspensions_parent_idx").on(t.parentId),
+    index("suspensions_target_gone_idx")
+      .on(t.targetGoneAt)
+      .where(sql`${t.targetGoneAt} is not null`),
   ],
 );
 
@@ -958,6 +998,10 @@ export const annotationThreads = sqliteTable(
     ),
     index("annotation_threads_artifact_change_idx").on(t.artifactId, t.changeSeq),
     index("annotation_threads_author_idx").on(t.authorId),
+    // Who resolved a thread, forgotten when the account is deleted (`eraseAccountTraces`).
+    index("annotation_threads_resolved_by_idx")
+      .on(t.resolvedBy)
+      .where(sql`${t.resolvedBy} is not null`),
     // A space's open feedback: an owner's open threads, newest activity first.
     index("annotation_threads_owner_state_updated_idx").on(t.ownerId, t.state, t.updatedAt, t.id),
     check("annotation_threads_target_bytes", sql`${t.targetBytes} between 1 and 8192`),

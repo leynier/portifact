@@ -1,4 +1,8 @@
+import { env } from "cloudflare:workers";
 import { ANNOTATION_LIMITS, UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
+import { regionsFromEnv } from "@portifact/db";
+import { ERASED_ACCOUNT } from "@portifact/domain";
+import { eraseAccountTraces, hashRequest } from "@portifact/services";
 import { describe, expect, it, vi } from "vitest";
 import { pastHumanCheck, publishSite, type TokenClient, tokenClient } from "./api-client.ts";
 import {
@@ -138,6 +142,43 @@ describe("annotations API", () => {
     expect(list.threads.map((t) => [t.id, t.author?.id])).toEqual([[thread.id, s.reader.userId]]);
   });
 
+  it("never replays a deleted comment, answers a running key and replays a refusal", async () => {
+    const s = await setup();
+    const key = crypto.randomUUID();
+    const body = { versionId: s.versionId, target: DOC, body: "Delete me" };
+    const first = await s.reader.call(`${s.base}/threads`, keyed(body, key));
+    expect(first.status).toBe(201);
+    const thread = await first.json<Thread>();
+    const deleted = await s.reader.call(`${s.base}/messages/${thread.messages[0]?.id}`, {
+      method: "DELETE",
+    });
+    expect(deleted.status).toBe(200);
+    // The retry reads the thread again as the caller: it is gone, and its text is not returned.
+    const retry = await s.reader.call(`${s.base}/threads`, keyed(body, key));
+    expect(retry.status).toBe(404);
+    expect(await retry.text()).not.toContain("Delete me");
+
+    // A request still running under the key.
+    const running = crypto.randomUUID();
+    await env.DB.prepare(
+      "INSERT INTO operations (actor_id, idempotency_key, operation, request_hash, status, result, created_at) VALUES (?, ?, 'annotations.thread.create', ?, NULL, NULL, ?)",
+    )
+      .bind(s.reader.userId, running, await hashRequest([s.id, body]), Date.now())
+      .run();
+    const busy = await s.reader.call(`${s.base}/threads`, keyed(body, running));
+    expect(busy.status).toBe(409);
+
+    // A refusal is kept for its key and replayed as the same error.
+    const off = await s.owner.call(`${s.base}/mode`, json("PUT", { mode: "off" }));
+    expect(off.status).toBe(200);
+    const refusedKey = crypto.randomUUID();
+    const refused = await s.reader.call(`${s.base}/threads`, keyed(body, refusedKey));
+    expect(refused.status).toBeGreaterThanOrEqual(400);
+    const again = await s.reader.call(`${s.base}/threads`, keyed(body, refusedKey));
+    expect(again.status).toBe(refused.status);
+    expect(await again.json()).toEqual(await refused.json());
+  });
+
   it("refuses oversized and invalid comments", async () => {
     const s = await setup();
     const huge = await s.reader.call(
@@ -186,6 +227,26 @@ describe("annotations API", () => {
     expect((await s.stranger.call(`${s.base}/history`)).status).toBe(404);
     expect((await s.reader.call(`${s.base}/history`)).status).toBe(403);
     expect((await s.owner.call(`${s.base}/history`)).status).toBe(200);
+  });
+
+  it("serves a deleted account's comment actions with no actor, before and after its ID is erased", async () => {
+    const s = await setup();
+    await startThread(s, s.reader);
+    const read = async () =>
+      (
+        await (
+          await s.owner.call(`${s.base}/history`)
+        ).json<{
+          entries: { kind: string; actor: { id: string } | null }[];
+        }>()
+      ).entries.filter((entry) => entry.kind === "thread_created");
+    await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(s.reader.userId).run();
+    expect((await read()).map((entry) => entry.actor)).toEqual([null]);
+    // The account deletion then replaces its ID in the actions (`eraseAccountTraces`).
+    await eraseAccountTraces(regionsFromEnv(env).get("default").db, s.reader.userId);
+    const after = await read();
+    expect(after.map((entry) => entry.actor)).toEqual([null]);
+    expect(JSON.stringify(after)).not.toContain(ERASED_ACCOUNT);
   });
 
   it("checks the annotation scopes of the token", async () => {

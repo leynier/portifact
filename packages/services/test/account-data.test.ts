@@ -1,6 +1,7 @@
 import { env } from "cloudflare:test";
 import { AccountExport, type AnnotationTarget, FRESH_SESSION_MS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
+import { ERASED_ACCOUNT } from "@portifact/domain";
 import { eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -496,8 +497,9 @@ describe("finishing the deletion", () => {
     await finishDeletions(tick());
 
     expect(await threadRow(alone.id)).toBeUndefined();
+    // The marker others replied to keeps its place without naming the account.
     expect(await messagesOf(answered.id)).toEqual([
-      { authorId: leaving.id, state: "deleted", body: null },
+      { authorId: ERASED_ACCOUNT, state: "deleted", body: null },
       { authorId: reader.id, state: "visible", body: "Answer" },
     ]);
     expect(await threadRow(answered.id)).toMatchObject({ messageCount: 2 });

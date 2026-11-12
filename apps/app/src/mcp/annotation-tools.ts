@@ -12,7 +12,6 @@ import {
   CreateAnnotationInput,
   DeleteThreadInput,
   EditAnnotationInput,
-  ERROR_STATUS,
   type ErrorCode,
   ExportAnnotationsInput,
   FeedbackPage,
@@ -37,12 +36,12 @@ import {
   exportAnnotations,
   getAnnotationThread,
   hashRequest,
+  idempotentThreadWrite,
   listAnnotationHistory,
   listAnnotations,
   listOpenFeedback,
   moderateAnnotationMessage,
   replyToAnnotationThread,
-  runIdempotent,
   setAnnotationMode,
   setAnnotationThreadState,
 } from "@portifact/services";
@@ -283,6 +282,7 @@ export function registerAnnotationTools(
         idempotencyKey,
         "mcp.create_annotation",
         [artifactId, request],
+        artifactId,
         async () =>
           createAnnotationThread(owned, {
             userId: context.userId,
@@ -316,6 +316,7 @@ export function registerAnnotationTools(
         idempotencyKey,
         "mcp.reply_annotation",
         [artifactId, threadId, { body }],
+        artifactId,
         async () =>
           replyToAnnotationThread(owned, {
             userId: context.userId,
@@ -494,7 +495,8 @@ function deleteResponse(result: Outcome<AnnotationDeleteResult>, summary: string
 
 /**
  * Runs a create once per idempotency key, like the API's Idempotency-Key header: a retry with the
- * same key and arguments returns the first result, and a key reused for other arguments fails.
+ * same key and arguments reads the thread again as the caller (the record keeps only its ID, so
+ * a comment deleted since is never returned), and a key reused for other arguments fails.
  */
 async function idempotent(
   db: RegionalDb,
@@ -502,26 +504,21 @@ async function idempotent(
   key: string,
   operation: string,
   request: unknown,
+  artifactId: string,
   run: () => Promise<Outcome<AnnotationThreadView>>,
 ): Promise<Outcome<AnnotationThreadView>> {
-  const outcome = await runIdempotent(
+  const now = context.now();
+  const outcome = await idempotentThreadWrite(
     db,
     {
       actorId: context.userId,
       key,
       operation,
       requestHash: await hashRequest(request),
-      now: context.now(),
+      now,
     },
-    async () => {
-      const result = await run();
-      return result.ok
-        ? { status: 201, body: AnnotationThreadView.parse(result.value) }
-        : {
-            status: ERROR_STATUS[result.code],
-            body: { error: { code: result.code, message: result.message } },
-          };
-    },
+    { userId: context.userId, artifactId, now },
+    run,
   );
   if (outcome.kind === "mismatch") {
     return fail("invalid_input", "This idempotency key was used for a different request.");
@@ -529,10 +526,7 @@ async function idempotent(
   if (outcome.kind === "in_progress") {
     return fail("version_conflict", "A request with this idempotency key is still running.");
   }
-  const body = outcome.response.body as
-    | AnnotationThreadView
-    | { error: { code: ErrorCode; message: string } };
-  return "error" in body ? fail(body.error.code, body.error.message) : { ok: true, value: body };
+  return outcome.result;
 }
 
 function fail(code: ErrorCode, message: string): Outcome<never> {

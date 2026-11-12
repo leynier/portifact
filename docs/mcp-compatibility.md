@@ -45,13 +45,20 @@ Verified by the maintainer with a custom connector, "Sign in now" and "Use Claud
 - Refresh re-checked on v0.13.0: Codex stores the token with `expires_in` 3600 and refreshes only once it has expired, so the check signed in at 21:02 UTC, kept the Worker warm with a request every 30 seconds and ran `codex exec` at 22:04 UTC. With `RUST_LOG=rmcp=debug` the log shows the 401, `refresh token present, attempting refresh` and the MCP session initializing under a second later; both tool calls passed and the new token kept every scope. `chatgpt.com` still answers `Cache-Control: public, max-age=300` with an `ETag` and a 304 to `If-None-Match`. Which isolate answered, and so whether this refresh revalidated the cached document, cannot be seen from outside; the regression test covers that path.
 - Revocation: after "Disconnect" on the Account page, the next `codex exec` got 401 `invalid_token` and had no Portifact tools.
 
+## Deleted registrations
+
+The maintenance run deletes an app registration made without an account once it is 30 days old and no consent, token or device code uses it ([operations.md](operations.md), "Expired sign-in records"): a client nobody approved, and one every person disconnected ("Disconnect" deletes its tokens and consent). A connected client keeps its registration, because its consent stays until the person disconnects it.
+
+- **Clients with a Client ID Metadata Document** (Claude.ai, Claude Code and Codex in the runs above): the client ID is the document's URL, and the provider reads the document again when the client next authorizes, so a deleted row changes nothing the person sees.
+- **Clients that registered dynamically** and cached the `client_id` they got: their next authorization request names a client the server no longer knows, and the provider answers `invalid_client` (on the browser's authorization page, or from the token endpoint). Clients that follow the MCP authorization spec register again on that error. One that does not keeps failing: the person removes the server from the client and adds it again (for example `claude mcp remove portifact` then `claude mcp add`, or the client's equivalent for clearing a server's stored authorization), and the client registers and asks for approval again. Not yet checked with a real client (see below).
+
 ## Not covered yet
 
 - A refusal for terms not accepted ([legal.md](legal.md), "API and MCP clients"): when the account has not accepted the current terms, every tool that creates, publishes, widens, invites or sends returns a tool error result with `terms_not_accepted` and a message asking the agent to send the user to the dashboard; the read tools, `tools/list` and the tools that only remove or narrow keep working. Tested in process with the official SDK client (`apps/app/test/terms-tokens.test.ts`); not yet checked with a real client.
 
 - Single sign-on for workspaces ([decision 0016](decisions/0016-workspace-sso.md), switched off): a sign-in that an MCP client's authorization request started and that the person finishes through their workspace's identity provider lands on the dashboard instead of continuing to consent; connecting the client again finds the session. OAuth clients are otherwise unaffected (single sign-on adds no scope, token or client path).
 
-- Dynamic client registration with a real client (`codex mcp login --oauth-client-registration dcr`), to avoid leaving a registered client in production.
+- Dynamic client registration with a real client (`codex mcp login --oauth-client-registration dcr`), to avoid leaving a registered client in production, including what it does when its cached `client_id` was deleted ("Deleted registrations" above).
 - Claude Desktop and Claude.ai's get, versions and delete tools, error results and refresh.
 - Annotation tools with Claude.ai, Claude Desktop and Claude Code.
 - The sharing, upload and read tools (`set_access`, `add_reader`, `remove_reader`, `prepare_upload`, `get_upload_status`, `commit_upload` and `read_artifact`), added after the last run, with any real client: in particular whether an agent without the CLI hashes the files, sends each presigned `PUT` with exactly the listed headers and commits. The tool counts above predate them.
