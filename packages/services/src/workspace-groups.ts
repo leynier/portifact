@@ -654,8 +654,8 @@ export const GROUP_TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 /**
  * The tombstones pruned after `GROUP_TOMBSTONE_RETENTION_MS` (docs/operations.md, "Restoring a
  * backup"): deleted groups and group memberships (decision 0014), deleted comment threads and
- * messages, ended memberships and withdrawn invitations, email preferences turned off and
- * per-artifact mutes. Every other kind (artifacts, accounts, workspaces, credentials, links,
+ * messages, ended memberships and withdrawn invitations, email preferences turned off,
+ * per-artifact mutes, and ended sessions, revoked or deleted OAuth tokens and deleted consents. Every other kind (artifacts, accounts, workspaces, credentials, links,
  * webhooks and the rest) is kept for good, because an ID that must never come back or be reused
  * is still guarded after the window.
  */
@@ -669,6 +669,9 @@ export const WINDOW_TOMBSTONE_KINDS = [
   "workspace_invitation",
   "notice_opt_out",
   "comment_notice_mute",
+  "session",
+  "oauth_token",
+  "oauth_grant",
 ] as const;
 
 const PRUNE_TOMBSTONES = { batch: 500, rounds: 4 } as const;

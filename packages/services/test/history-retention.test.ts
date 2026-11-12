@@ -279,7 +279,20 @@ describe("upload and usage history and storage findings", () => {
         session(`${tag}-failed-gone`, "failed", `${tag}-no-version`),
         session(`${tag}-failed-kept`, "failed", site.versionId),
         session(`${tag}-open`, "uploading", `${tag}-v`),
+        session(`${tag}-multipart`, "committed", site.versionId),
       ]);
+    // A closed session whose multipart upload the `abort_multipart` job has not aborted yet.
+    await db()
+      .insert(schema.multipartUploads)
+      .values({
+        sessionId: `${tag}-multipart`,
+        sha256: "b".repeat(64),
+        ownerId: owner.id,
+        r2Key: `uploads/${tag}`,
+        uploadId: "upload",
+        partSize: 5,
+        partCount: 2,
+      });
     for (let run = 0; run < 20; run++) {
       const done = await pruneUploadHistory(db(), NOW);
       if (done.usageEvents === 0 && done.uploads === 0) break;
@@ -295,7 +308,11 @@ describe("upload and usage history and storage findings", () => {
       .select({ id: schema.uploadSessions.id })
       .from(schema.uploadSessions)
       .where(like(schema.uploadSessions.id, `${tag}%`));
-    expect(uploads.map((row) => row.id).sort()).toEqual([`${tag}-failed-kept`, `${tag}-open`]);
+    expect(uploads.map((row) => row.id).sort()).toEqual([
+      `${tag}-failed-kept`,
+      `${tag}-multipart`,
+      `${tag}-open`,
+    ]);
   });
 
   it("prunes storage findings no pass has seen for a long time", async () => {

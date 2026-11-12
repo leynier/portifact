@@ -131,12 +131,31 @@ describe("browser sessions", () => {
     const agent = await connectMcp(h, cli.cookie);
     expect((await callMcp(h, agent.token)).status).toBe(200);
 
+    const before = await env.DB.prepare(
+      "SELECT s.id FROM sessions s JOIN users u ON u.id = s.user_id WHERE u.email = ?",
+    )
+      .bind("sessions-out@example.test")
+      .all<{ id: string }>();
     const response = await h.request(
       "/api/v1/account/sessions/sign-out-others",
       dashboard(current, "POST"),
     );
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ signedOut: 1 });
+    // Ended through Better Auth: the ended session and the tokens its hook revoked carry restore
+    // markers (migration 0071), so a backup restore cannot sign it in again.
+    const ended = await env.DB.prepare(
+      `SELECT count(*) AS n FROM tombstones WHERE kind = 'session' AND id IN (${before.results.map(() => "?").join(", ")})`,
+    )
+      .bind(...before.results.map((row) => row.id))
+      .first<{ n: number }>();
+    expect(ended?.n).toBe(1);
+    const revoked = await env.DB.prepare(
+      "SELECT count(*) AS n FROM tombstones t JOIN oauth_access_tokens a ON a.id = t.id WHERE t.kind = 'oauth_token' AND a.client_id = ?",
+    )
+      .bind(agent.clientId)
+      .first<{ n: number }>();
+    expect(revoked?.n).toBeGreaterThan(0);
 
     expect((await sessions(h, current)).map((s) => s.current)).toEqual([true]);
     const signedOut = await h.request("/api/v1/account/sessions", dashboard(cli.cookie));

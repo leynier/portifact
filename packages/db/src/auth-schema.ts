@@ -149,9 +149,7 @@ export const oauthClients = sqliteTable(
   (t) => [
     index("oauth_clients_user_id_idx").on(t.userId),
     // Registrations made without an account, oldest first, for their cleanup (`pruneAuthRecords`).
-    index("oauth_clients_unowned_created_idx")
-      .on(t.createdAt)
-      .where(sql`${t.userId} is null`),
+    index("oauth_clients_unowned_created_idx").on(t.createdAt).where(sql`${t.userId} is null`),
   ],
 );
 

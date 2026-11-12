@@ -6,6 +6,7 @@ import { env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { disconnectApp } from "../src/account.ts";
 import { updateAccountSettings } from "../src/account-settings.ts";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
 import { setCommentNoticeMute } from "../src/comment-notices.ts";
@@ -21,12 +22,14 @@ import {
   WINDOW_TOMBSTONE_KINDS,
 } from "../src/workspace-groups.ts";
 import { createWorkspace, leaveWorkspace, removeMember } from "../src/workspaces.ts";
+import { publishIn, team as team_ } from "./comment-retention-fixtures.ts";
 import { DAY, db, grantPlan, NOW, publishSite, user, value } from "./fixtures.ts";
 
 const regions = () => regionsFromEnv(env);
 const global = () => db().global;
 const wm = schema.workspaceMembers;
 const t = schema.tombstones;
+const t_ = schema.tombstones;
 const silent: InvitationSender = { async send() {} };
 
 async function team() {
@@ -397,6 +400,25 @@ describe("email preferences and mutes through a restore", () => {
 });
 
 describe("pruning restore markers", () => {
+  it("prunes exactly these kinds after the backup window", () => {
+    expect([...WINDOW_TOMBSTONE_KINDS].sort()).toEqual(
+      [
+        "comment_message",
+        "comment_notice_mute",
+        "comment_thread",
+        "notice_opt_out",
+        "oauth_grant",
+        "oauth_token",
+        "session",
+        "workspace_group",
+        "workspace_group_member",
+        "workspace_invitation",
+        "workspace_member",
+        "workspace_member_left",
+      ].sort(),
+    );
+  });
+
   it("prunes every window kind after the backup window and keeps the permanent kinds", async () => {
     const old = NOW - GROUP_TOMBSTONE_RETENTION_MS - DAY;
     const tag = crypto.randomUUID();
@@ -420,5 +442,168 @@ describe("pruning restore markers", () => {
       .from(t)
       .where(eq(t.id, `${tag}:recent`));
     expect(recent).toHaveLength(WINDOW_TOMBSTONE_KINDS.length);
+  });
+});
+
+describe("restore markers on a region with its own database", () => {
+  it("never mutes again for a deleted account, whichever round of IDs its mute falls in", async () => {
+    const t = await team_("eu");
+    const artifact = await publishIn(t.editor.id, t.id, "eu");
+    const ghost = `zzzz_ghost_${crypto.randomUUID()}`;
+    const live = Array.from({ length: 500 }, (_, i) => `u_live_${String(i).padStart(3, "0")}`);
+    const markers = [
+      { kind: "account" as const, id: ghost, deletedAt: NOW },
+      // The deleted account's marker sorts after the 500 others, in the second round.
+      ...[...live, ghost].map((person) => ({
+        kind: "comment_notice_mute" as const,
+        id: `${artifact.artifactId}:${person}`,
+        deletedAt: NOW,
+      })),
+    ];
+    for (let i = 0; i < markers.length; i += 30) {
+      await global()
+        .insert(t_)
+        .values(markers.slice(i, i + 30));
+    }
+    const eu = regions().get("eu").db;
+    await applyTombstones({ global: global(), all: () => [{ db: eu }] }, [], NOW + DAY);
+    const mutes = await eu
+      .select({ userId: schema.commentNoticeMutes.userId })
+      .from(schema.commentNoticeMutes)
+      .where(eq(schema.commentNoticeMutes.artifactId, artifact.artifactId));
+    expect(mutes.map((row) => row.userId)).not.toContain(ghost);
+    expect(mutes).toHaveLength(500);
+  });
+});
+
+describe("sign-outs, revoked tokens and disconnected apps through a restore", () => {
+  const LIVE = () => new Date(Date.now() + 7 * DAY);
+  async function grant() {
+    const person = await user();
+    const clientId = `c_${crypto.randomUUID()}`;
+    await global()
+      .insert(schema.oauthClients)
+      .values({ id: clientId, clientId, redirectUris: "[]", createdAt: new Date(NOW) });
+    const sessionId = `s_${crypto.randomUUID()}`;
+    const session = {
+      id: sessionId,
+      token: `t_${crypto.randomUUID()}`,
+      userId: person.id,
+      createdAt: new Date(NOW),
+      updatedAt: new Date(NOW),
+      expiresAt: LIVE(),
+    };
+    await global().insert(schema.sessions).values(session);
+    const refresh = {
+      id: `rt_${crypto.randomUUID()}`,
+      token: `rt_${crypto.randomUUID()}`,
+      clientId,
+      userId: person.id,
+      sessionId,
+      scopes: '["artifacts:read"]',
+      expiresAt: LIVE(),
+      createdAt: new Date(NOW),
+    };
+    await global().insert(schema.oauthRefreshTokens).values(refresh);
+    const access = {
+      id: `at_${crypto.randomUUID()}`,
+      token: `at_${crypto.randomUUID()}`,
+      clientId,
+      userId: person.id,
+      sessionId,
+      refreshId: refresh.id,
+      scopes: '["artifacts:read"]',
+      expiresAt: LIVE(),
+      createdAt: new Date(NOW),
+    };
+    await global().insert(schema.oauthAccessTokens).values(access);
+    const consent = {
+      id: `co_${crypto.randomUUID()}`,
+      clientId,
+      userId: person.id,
+      scopes: '["artifacts:read"]',
+      createdAt: new Date(NOW),
+      updatedAt: new Date(NOW),
+    };
+    await global().insert(schema.oauthConsents).values(consent);
+    return { person, clientId, session, refresh, access, consent };
+  }
+  const row = async (
+    table: typeof schema.oauthAccessTokens | typeof schema.oauthRefreshTokens,
+    id: string,
+  ) => (await global().select().from(table).where(eq(table.id, id)))[0];
+
+  it("keeps a disconnected app's tokens unusable and its consent gone", async () => {
+    const g = await grant();
+    value(await disconnectApp(global(), { userId: g.person.id, clientId: g.clientId }));
+    const markers = await exportTombstones(regions());
+    for (const id of [g.access.id, g.refresh.id, g.consent.id]) {
+      expect(markers.some((m) => m.id === id)).toBe(true);
+    }
+    // The restore brings the rows back and rewinds the markers.
+    await rewind(
+      async () => {
+        await global().insert(schema.oauthRefreshTokens).values(g.refresh);
+        await global().insert(schema.oauthAccessTokens).values(g.access);
+        await global().insert(schema.oauthConsents).values(g.consent);
+      },
+      markers.filter((m) => [g.access.id, g.refresh.id, g.consent.id].includes(m.id)),
+    );
+    const applied = await applyTombstones(regions(), markers, Date.now());
+    expect(applied.oauthTokens).toBeGreaterThanOrEqual(2);
+    expect((await row(schema.oauthRefreshTokens, g.refresh.id))?.revoked).not.toBeNull();
+    expect((await row(schema.oauthAccessTokens, g.access.id))?.revoked).not.toBeNull();
+    const consents = await global()
+      .select()
+      .from(schema.oauthConsents)
+      .where(eq(schema.oauthConsents.id, g.consent.id));
+    expect(consents).toEqual([]);
+  });
+
+  it("keeps a signed-out session ended and a revoked token revoked", async () => {
+    const g = await grant();
+    // What Better Auth's sign-out and its hook do: revoke what the session issued, delete it.
+    await global()
+      .update(schema.oauthRefreshTokens)
+      .set({ revoked: new Date() })
+      .where(eq(schema.oauthRefreshTokens.id, g.refresh.id));
+    await global().delete(schema.sessions).where(eq(schema.sessions.id, g.session.id));
+    const markers = await exportTombstones(regions());
+    expect(markers.some((m) => m.kind === "session" && m.id === g.session.id)).toBe(true);
+    expect(markers.some((m) => m.kind === "oauth_token" && m.id === g.refresh.id)).toBe(true);
+    await rewind(
+      async () => {
+        await global().insert(schema.sessions).values(g.session);
+        await global()
+          .update(schema.oauthRefreshTokens)
+          .set({ revoked: null, sessionId: g.session.id })
+          .where(eq(schema.oauthRefreshTokens.id, g.refresh.id));
+      },
+      markers.filter((m) => m.id === g.session.id || m.id === g.refresh.id),
+    );
+    const applied = await applyTombstones(regions(), markers, Date.now());
+    expect(applied.sessions).toBe(1);
+    expect(
+      await global().select().from(schema.sessions).where(eq(schema.sessions.id, g.session.id)),
+    ).toEqual([]);
+    expect((await row(schema.oauthRefreshTokens, g.refresh.id))?.revoked).not.toBeNull();
+  });
+
+  it("writes no marker for an expired session or token, which a restore cannot make usable", async () => {
+    const g = await grant();
+    await global()
+      .update(schema.sessions)
+      .set({ expiresAt: new Date(Date.now() - DAY) })
+      .where(eq(schema.sessions.id, g.session.id));
+    await global().delete(schema.sessions).where(eq(schema.sessions.id, g.session.id));
+    await global()
+      .update(schema.oauthAccessTokens)
+      .set({ expiresAt: new Date(Date.now() - DAY) })
+      .where(eq(schema.oauthAccessTokens.id, g.access.id));
+    await global()
+      .delete(schema.oauthAccessTokens)
+      .where(eq(schema.oauthAccessTokens.id, g.access.id));
+    expect(await marker("session", g.session.id)).toBeUndefined();
+    expect(await marker("oauth_token", g.access.id)).toBeUndefined();
   });
 });

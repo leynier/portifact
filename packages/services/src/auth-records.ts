@@ -1,7 +1,8 @@
 // The cleanup of expired sign-in records (docs/operations.md, "Expired sign-in records"): Better
 // Auth reads none of them once expired and deletes one only when something touches it again, so
 // the maintenance run deletes them, bounded per run, a day after they expired, and app
-// registrations made without an account that nobody ever authorized. Global tables only.
+// registrations made without an account that nothing uses any more (never approved, or
+// disconnected by everyone). Global tables only.
 import { type GlobalDb, schema } from "@portifact/db";
 import { daysBefore, EXPIRED_AUTH_GRACE_MS, UNUSED_APP_REGISTRATION_DAYS } from "@portifact/domain";
 import { type SQL, sql } from "drizzle-orm";

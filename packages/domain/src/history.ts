@@ -53,9 +53,11 @@ export const ERASED_ACCOUNT = "deleted";
 export const EXPIRED_AUTH_GRACE_MS = DAY_MS;
 
 /**
- * An app registered without an account (dynamic client registration, MCP) and never authorized
- * by anyone (no consent, no token) is deleted this long after it registered. An MCP client
- * registers when it first connects and gets a consent as soon as a person approves it; one that
- * comes back with a deleted client ID is told the client is unknown and registers again.
+ * An app registered without an account (dynamic client registration, MCP) is deleted once it is
+ * this old and nothing uses it now: no consent, no token and no device code. That is a
+ * registration nobody approved, and also one that was approved and later disconnected by every
+ * person who used it (disconnecting deletes the consent and tokens). An MCP client registers when
+ * it first connects and gets a consent as soon as a person approves it; one that comes back with
+ * a deleted client ID is told the client is unknown (docs/mcp-compatibility.md).
  */
 export const UNUSED_APP_REGISTRATION_DAYS = 30;

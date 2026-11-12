@@ -498,6 +498,13 @@
       "when": 1794476898699,
       "tag": "0070_backfill_history_gone_at",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "6",
+      "when": 1794477113892,
+      "tag": "0071_auth_restore_markers",
+      "breakpoints": true
     }
   ]
 }

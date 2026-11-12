@@ -830,8 +830,12 @@ export const tombstones = sqliteTable(
      * `workspace_member` also an admin's removal and `workspace_member_left` a member leaving,
      * `workspace_invitation` also a revoked or declined invitation, `notice_opt_out` an email
      * preference turned off (`<user>:<preference>`) and `comment_notice_mute` a per-artifact mute
-     * (`<artifact>:<user>`): these are pruned after the Time Travel window
-     * (`WINDOW_TOMBSTONE_KINDS`, docs/operations.md, "Restoring a backup").
+     * (`<artifact>:<user>`), and, written by triggers on the identity tables (migration 0071),
+     * `session` an unexpired browser session that ended, `oauth_token` an unexpired OAuth access or
+     * refresh token deleted or revoked and `oauth_grant` a consent deleted (an app disconnected):
+     * these are pruned after the Time Travel window (`WINDOW_TOMBSTONE_KINDS`,
+     * docs/operations.md, "Restoring a backup"). The directory's `workspace_member` and
+     * `workspace_invitation` tombstones are pruned with them (decision 0017).
      */
     kind: text("kind", {
       enum: [
@@ -857,6 +861,9 @@ export const tombstones = sqliteTable(
         "workspace_member_left",
         "notice_opt_out",
         "comment_notice_mute",
+        "session",
+        "oauth_token",
+        "oauth_grant",
       ],
     }).notNull(),
     id: text("id").notNull(),

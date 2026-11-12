@@ -232,3 +232,29 @@ describe("expired sign-in records", () => {
     expect(first.sessions).toBe(2);
   });
 });
+
+describe("the cleanup's query plans", () => {
+  const plan = async (query: string) =>
+    (
+      await db().global.$client.prepare(`explain query plan ${query}`).all<{ detail: string }>()
+    ).results.map((row) => row.detail);
+
+  it.each([
+    ["sessions", "select id from sessions where expires_at < 1 limit 500"],
+    ["verifications", "select id from verifications where expires_at < 1 limit 500"],
+    ["oauth_access_tokens", "select id from oauth_access_tokens where expires_at < 1 limit 500"],
+    ["oauth_refresh_tokens", "select id from oauth_refresh_tokens where expires_at < 1 limit 500"],
+    ["device_codes", "select id from device_codes where expires_at < 1 limit 500"],
+    [
+      "oauth_client_assertions",
+      "select id from oauth_client_assertions where expires_at < 1 limit 500",
+    ],
+    [
+      "oauth_clients",
+      "select id from oauth_clients where user_id is null and created_at is not null and created_at < 1 limit 500",
+    ],
+  ])("reads %s through an index, never a full scan", async (table, query) => {
+    const details = await plan(query);
+    expect(details.join(" | ")).toMatch(new RegExp(`SEARCH ${table} USING (COVERING )?INDEX`));
+  });
+});

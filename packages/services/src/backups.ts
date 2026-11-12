@@ -299,6 +299,12 @@ export interface ApplyTombstonesResult {
   noticeOptOuts: number;
   /** Per-artifact comment notice mutes set before the restore that it lost, set again. */
   noticeMutes: number;
+  /** Browser sessions that ended before the restore (sign-outs), ended again. */
+  sessions: number;
+  /** OAuth access and refresh tokens revoked or deleted before the restore, revoked again. */
+  oauthTokens: number;
+  /** Consents deleted before the restore (apps disconnected), deleted again. */
+  oauthGrants: number;
 }
 
 /** The databases a restore re-applies tombstones to: the global one and the regions given. */
@@ -697,6 +703,47 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
           .set({ mappedRole: null })
           .where(sql`${schema.scimUsers.userId} in (${tombstonedAccounts})`),
     },
+    // What ended before the restore point stays ended (migration 0071's markers): tokens revoked
+    // or deleted (a revoked row is as unusable as a deleted one), sessions signed out and consents
+    // of disconnected apps.
+    ...([schema.oauthAccessTokens, schema.oauthRefreshTokens] as const).map(
+      (table): Entry => ({
+        name: table === schema.oauthAccessTokens ? "oauthAccessTokens" : "oauthRefreshTokens",
+        side: "global",
+        build: (db) =>
+          db
+            .update(table)
+            .set({
+              revoked: sql`(select ${t.deletedAt} from ${t} where ${t.kind} = 'oauth_token' and ${t.id} = ${table.id})`,
+            })
+            .where(
+              sql`${table.revoked} is null and ${table.id} in (select ${t.id} from ${t} where ${t.kind} = 'oauth_token')`,
+            )
+            .returning({ id: table.id }),
+      }),
+    ),
+    {
+      name: "sessions",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.sessions)
+          .where(
+            sql`${schema.sessions.id} in (select ${t.id} from ${t} where ${t.kind} = 'session')`,
+          )
+          .returning({ id: schema.sessions.id }),
+    },
+    {
+      name: "oauthGrants",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(schema.oauthConsents)
+          .where(
+            sql`${schema.oauthConsents.id} in (select ${t.id} from ${t} where ${t.kind} = 'oauth_grant')`,
+          )
+          .returning({ id: schema.oauthConsents.id }),
+    },
     // Cascades to sessions, identities, OAuth tokens and consents, read sessions and handoffs.
     {
       name: "users",
@@ -935,6 +982,12 @@ async function applyRegionalTombstones(
   entries: Entry[],
 ) {
   const owners = [...lists.account, ...lists.workspace];
+  // A mute of a deleted account never comes back. The statement's `not in` only sees one round's
+  // slice of the accounts, so the full set filters the mutes here, before they are chunked.
+  const deletedAccounts = new Set(lists.account);
+  const mutes = lists.comment_notice_mute.filter(
+    (ref) => !deletedAccounts.has(ref.slice(ref.indexOf(":") + 1)),
+  );
   const evidence = new Set<string>();
   for (const chunk of chunked(owners)) {
     const ids = listed(chunk);
@@ -962,9 +1015,7 @@ async function applyRegionalTombstones(
       auditStreams: part(lists.audit_stream),
       commentThreads: part(lists.comment_thread),
       commentMessages: part(lists.comment_message),
-      mutes: listedRefs(
-        lists.comment_notice_mute.slice(round * JSON_CHUNK, (round + 1) * JSON_CHUNK),
-      ),
+      mutes: listedRefs(mutes.slice(round * JSON_CHUNK, (round + 1) * JSON_CHUNK)),
     };
     for (const [name, rows] of await runEntries(db, regional, refs)) {
       counts.set(name, (counts.get(name) ?? 0) + rows.length);
@@ -1067,6 +1118,9 @@ export async function applyTombstones(
     commentMessages: count("commentMessages"),
     noticeOptOuts: count("noticeOptOuts:comment_notices") + count("noticeOptOuts:expiry_notices"),
     noticeMutes: count("noticeMutes"),
+    sessions: count("sessions"),
+    oauthTokens: count("oauthAccessTokens") + count("oauthRefreshTokens"),
+    oauthGrants: count("oauthGrants"),
     directoryRoles: roles.workspaces,
   };
 }
