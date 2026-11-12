@@ -321,6 +321,7 @@ export const landing: PageMessages = {
   "landing.footer.terms": "利用規約",
   "landing.footer.privacy": "プライバシーポリシー",
   "landing.footer.acceptableUse": "利用ポリシー",
+  "landing.footer.dpa": "データ処理補遺",
   "landing.footer.report": "artifactを報告",
   "landing.nav.plans": "プラン",
   "landing.plans.eyebrow": "プラン",

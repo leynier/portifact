@@ -8,7 +8,7 @@
 // setting, so the footer says so and carries the same one-click unsubscribe link.
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import { gap } from "./expiry-notice.ts";
-import { type Block, type Inline, renderEmail } from "./layout.ts";
+import { type Block, type Inline, renderEmail, textSignature } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
 
 export type ReviewNoticeKind = "requested" | "approved" | "changes_requested";
@@ -438,7 +438,7 @@ export function reviewNoticeEmail(input: ReviewNoticeInput): EmailContent {
     `${t.unsubscribe}${gap(t.unsubscribe)}${input.unsubscribeUrl}`,
     "",
     reason,
-    "Portifact, https://portifact.com",
+    ...textSignature(locale),
   ].join("\n");
   return { subject: t.subject[kind], text, html };
 }

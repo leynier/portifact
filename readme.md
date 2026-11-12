@@ -112,7 +112,7 @@ Opening an artifact's link shows it in Portifact's viewer, with a Portifact bar 
 - [Releasing](docs/releasing.md): versions, installers and supported platforms.
 - [Security](docs/security.md): the security model and how to report a vulnerability.
 - [Operations](docs/operations.md): how abuse reports and suspensions are handled.
-- [Terms of Service](https://portifact.com/terms), [Privacy Policy](https://portifact.com/privacy) and [Acceptable Use Policy](https://portifact.com/acceptable-use): drafts pending legal review. Portifact is for people 18 or older; report abuse with the [report form](https://app.portifact.com/report) or to abuse@portifact.com. How the pages and the sign-up acceptance work is in [docs/legal.md](docs/legal.md).
+- [Terms of Service](https://portifact.com/terms), [Privacy Policy](https://portifact.com/privacy) and [Acceptable Use Policy](https://portifact.com/acceptable-use), with the [Data Processing Addendum](https://portifact.com/dpa) for workspaces. Portifact is for people 18 or older; report abuse with the [report form](https://app.portifact.com/report) or to abuse@portifact.com. How the pages and the sign-up acceptance work is in [docs/legal.md](docs/legal.md).
 - [Testing](docs/testing.md), [Design system](docs/design.md) and [Accessibility](docs/accessibility.md): how the project is built.
 - [Contributing](contributing.md): how to contribute and sign the contributor license agreement.
 - [Licensing](docs/licensing.md): the AGPL, what it asks of people who host Portifact, and the commercial license.

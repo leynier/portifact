@@ -6,7 +6,7 @@
  * date. The three pages show it, the login page sends it, and accounts store the version they
  * accepted. Changing it asks every account to accept again at its next sign-in.
  */
-export const TERMS_VERSION = "2026-11-08";
+export const TERMS_VERSION = "2026-11-13";
 
 /** Error code when a sign-in or a session needs the current terms to be accepted first. */
 export const TERMS_NOT_ACCEPTED = "terms_not_accepted";

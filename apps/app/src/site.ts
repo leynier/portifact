@@ -20,8 +20,11 @@ const appOnlyPaths = new Set<string>(
   [...AUTH_PAGES, DASHBOARD_PAGE].flatMap((page) => [page, `${page}.html`]),
 );
 
-/** The Terms of Service, Privacy Policy and Acceptable Use Policy, built by apps/web. */
-export const LEGAL_PAGES = ["/terms", "/privacy", "/acceptable-use"] as const;
+/**
+ * The Terms of Service, Privacy Policy, Acceptable Use Policy and Data Processing Addendum, built
+ * by apps/web.
+ */
+export const LEGAL_PAGES = ["/terms", "/privacy", "/acceptable-use", "/dpa"] as const;
 
 /** Static documents served like the legal pages: the MCP compatibility matrix (plan section 17). */
 export const DOCUMENT_PAGES = [...LEGAL_PAGES, "/mcp-compatibility"] as const;

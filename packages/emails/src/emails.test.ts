@@ -650,16 +650,17 @@ describe("previews", () => {
   });
 
   it("keep the default region's expiry notice byte for byte (pinned before the EU variant)", () => {
+    // Re-pinned when every email gained the Privacy Policy link in its footer (docs/legal.md).
     const pinned: Record<string, string> = {
-      "expiry-notice": "97d90a5234c6591d848f8cee1215651c19da4c996a7073250eccd7a6e0c2e9c0",
-      "expiry-notice-one": "1149ca808bcdc9f0a722e425289d9374efdb779773ccd3cc0693b91fc646e4d2",
-      "expiry-notice-es": "5337c4873130134a9ea69efa672a794c7f9892abf61b46dd819b0e12ddaa2e03",
-      "expiry-notice-pt-br": "46eb40e2f4042e98859aff9bf6037b4f045ca06850f173b8640e137a20e7540b",
-      "expiry-notice-fr": "6a7a522cf1bfb3d1e018721dae271ab1645a4181614ada88e2390159c35b075f",
-      "expiry-notice-de": "46555fd573aff8d3a64b1dc77120f0da24524cfcb093849eab12a996fdecf82b",
-      "expiry-notice-ru": "118d32e6c14f61200eee7f34fc266875c837489b85c7b0e1e07656a7aea5655c",
-      "expiry-notice-ja": "0cd2cba1312c1f252b015e374b79af70fa3f81d47056a1ffd174173223d11e80",
-      "expiry-notice-zh-cn": "bc3c53769e9e76d6b3a0757a239d72c1d2061d32bfbdbd4b20004c8f20ceb46f",
+      "expiry-notice": "3766b0ebedf8ab1dcf5834796a2088700f9bea97387dbdcdd9c9f21abbf46775",
+      "expiry-notice-one": "7e5c37f66516d3ec7271e30695634d09f905bdd1bf06616c00e0afa4caecb6e3",
+      "expiry-notice-es": "5213debeff83edce063cfbccf8cd53b97f193025cf5560cbd83bfc22cb6eb785",
+      "expiry-notice-pt-br": "5e45d9e73188bc3aaf15e1ad53ad60f816958fb44c87d820879eb271846d746a",
+      "expiry-notice-fr": "3c759caec870501abe6a4430ce204fdd41107990cfd48dd0eb6cd04b6df80fbf",
+      "expiry-notice-de": "3a21ed03f5c4711a2aac683d77d62829397e6f3599e8d54f059d5650db45dd47",
+      "expiry-notice-ru": "049576dd5f00d34d1628ee37bcf6c3223848f328ab04c03c7eb5fc86ee5e1e22",
+      "expiry-notice-ja": "b77e76c2ceb9dcf1df9dea5b483bf9d2309eeccb38bc780e4631e1899a2d3c72",
+      "expiry-notice-zh-cn": "f7a2210a6916f6232690cd8265af57317982c49dbc86370fd619ce784cdef2c2",
     };
     const hashes = Object.fromEntries(
       previews()
@@ -672,6 +673,18 @@ describe("previews", () => {
         ]),
     );
     expect(hashes).toEqual(pinned);
+  });
+
+  it("link the Privacy Policy from every email, HTML and text, in its language", () => {
+    for (const { name, email } of previews()) {
+      expect(email.html, name).toContain('href="https://portifact.com/privacy"');
+      // The budget alert goes only to the operator, so its text needs no link.
+      if (!name.startsWith("budget-alert")) {
+        expect(email.text, name).toMatch(/: https:\/\/portifact\.com\/privacy$/m);
+      }
+    }
+    const spanish = previews().find((p) => p.name === "invitation-es");
+    expect(spanish?.email.text).toContain("Privacidad: https://portifact.com/privacy");
   });
 
   it("cover every email with HTML and text", () => {

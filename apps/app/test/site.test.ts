@@ -55,7 +55,7 @@ describe("portifact.com", () => {
   });
 
   it("applies the stored theme on every site page with the one inline script its policy allows", async () => {
-    const pages = ["/", "/terms", "/privacy", "/acceptable-use", "/mcp-compatibility"];
+    const pages = ["/", "/terms", "/privacy", "/acceptable-use", "/dpa", "/mcp-compatibility"];
     // The pages prerendered in Spanish carry the same script, byte for byte, so the hash holds.
     for (const path of [...pages, ...pages.map((page) => `/es${page}`)]) {
       const response = await get(`https://portifact.com${path}`);
@@ -74,6 +74,7 @@ describe("portifact.com", () => {
       ["/terms", "Terms of Service"],
       ["/privacy", "Privacy Policy"],
       ["/acceptable-use", "Acceptable Use Policy"],
+      ["/dpa", "Data Processing Addendum"],
     ] as const) {
       const response = await get(`https://portifact.com${path}`);
       expect(response.status, path).toBe(200);
@@ -122,7 +123,7 @@ describe("portifact.com", () => {
 
   it("links the legal pages from the landing page", async () => {
     const html = await (await get("https://portifact.com/")).text();
-    for (const path of ["/terms", "/privacy", "/acceptable-use"]) {
+    for (const path of ["/terms", "/privacy", "/acceptable-use", "/dpa"]) {
       expect(html).toContain(`href="${path}"`);
     }
   });
@@ -180,6 +181,7 @@ describe("portifact.com", () => {
       "/es/terms",
       "/es/privacy",
       "/es/acceptable-use",
+      "/es/dpa",
       "/es/mcp-compatibility",
     ]) {
       const response = await get(`https://portifact.com${path}`);
@@ -222,7 +224,7 @@ describe("portifact.com", () => {
       }
       expect(html).toContain(`href="https://app.portifact.com/?lang=${code}"`);
       expect(html).not.toContain("data-i18n");
-      for (const path of ["/terms", "/privacy", "/acceptable-use", "/mcp-compatibility"]) {
+      for (const path of ["/terms", "/privacy", "/acceptable-use", "/dpa", "/mcp-compatibility"]) {
         const response = await get(`https://portifact.com${prefix}${path}`);
         expect(response.status, path).toBe(200);
         expect(response.headers.get("content-security-policy"), path).toBe(PAGE_CSP);
