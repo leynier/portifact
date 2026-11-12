@@ -20,13 +20,21 @@ interface Tally {
   reasons: Record<string, number>;
 }
 
-/** Plans random edits on a seeded corpus and checks every applied one independently. */
-async function runCorpus(
-  documents: number,
-  editsPer: number,
+/**
+ * Plans random edits on a seeded corpus and checks every applied one independently. The corpus
+ * runs in several tests that share one generator and one tally, in order, so the edits are the
+ * same as in one run and no single test outgrows the time limit on a loaded CI runner; the last
+ * test judges the whole corpus.
+ */
+function corpus(
+  name: string,
   afters: readonly string[],
   seed: number,
-) {
+  verdict: (tally: Tally) => void,
+): void {
+  const documents = 15;
+  const editsPer = 25;
+  const perTest = 3;
   const tally: Tally = {
     edits: 0,
     certain: 0,
@@ -38,7 +46,8 @@ async function runCorpus(
     reasons: {},
   };
   const rand = random(seed);
-  for (let doc = 0; doc < documents; doc++) {
+  let done = 0;
+  const one = async (doc: number) => {
     const source = markdownDocument(seed * 1_000 + doc, 12);
     const text = await pageTextOf("markdown", source);
     for (let n = 0; n < editsPer; n++) {
@@ -59,25 +68,42 @@ async function runCorpus(
         tally.reasons[result.reason] = (tally.reasons[result.reason] ?? 0) + 1;
       }
     }
+    done += 1;
+  };
+  for (let first = 0; first < documents; first += perTest) {
+    it(`${name} (documents ${first + 1} to ${first + perTest} of ${documents})`, async () => {
+      for (let doc = first; doc < first + perTest; doc++) await one(doc);
+    });
   }
-  return tally;
+  it(`${name} (the whole corpus)`, () => {
+    expect(done).toBe(documents);
+    verdict(tally);
+  });
 }
 
 describe("the Markdown planner", () => {
-  it("maps plain edits, and every applied one passes the independent checker", async () => {
-    const tally = await runCorpus(15, 25, PLAIN_AFTERS, 7);
-    expect(tally.edits).toBeGreaterThan(300);
-    expect(tally.certain / tally.edits).toBeGreaterThan(0.4);
-    for (const shape of ["replacement", "insertion", "deletion"] as const) {
-      expect(tally.byShape[shape].certain, shape).toBeGreaterThan(0);
-    }
-  });
+  corpus(
+    "maps plain edits, and every applied one passes the independent checker",
+    PLAIN_AFTERS,
+    7,
+    (tally) => {
+      expect(tally.edits).toBeGreaterThan(300);
+      expect(tally.certain / tally.edits).toBeGreaterThan(0.4);
+      for (const shape of ["replacement", "insertion", "deletion"] as const) {
+        expect(tally.byShape[shape].certain, shape).toBeGreaterThan(0);
+      }
+    },
+  );
 
-  it("writes hostile text as text: no element, attribute, ID or reference appears", async () => {
-    const tally = await runCorpus(15, 25, HOSTILE_AFTERS, 11);
-    expect(tally.edits).toBeGreaterThan(300);
-    expect(tally.certain).toBeGreaterThan(0);
-  });
+  corpus(
+    "writes hostile text as text: no element, attribute, ID or reference appears",
+    HOSTILE_AFTERS,
+    11,
+    (tally) => {
+      expect(tally.edits).toBeGreaterThan(300);
+      expect(tally.certain).toBeGreaterThan(0);
+    },
+  );
 
   it("refuses a heading edit that changes an ID", async () => {
     const source = "# Title\n\nBody.";

@@ -315,6 +315,7 @@ const envelope = {
   context: { before: "", after: " c", omittedBefore: 0, omittedAfter: 0 },
   destinations: [
     {
+      origin: "https://k7d2qm4xab.portifact.dev",
       authored: "/pay",
       effective: "https://k7d2qm4xab.portifact.dev/pay",
       resolved: true,
@@ -407,6 +408,9 @@ describe("shapes released clients parse", () => {
       Envelope.safeParse({ ...envelope, binding: { ...envelope.binding, fileSha256: "x" } })
         .success,
     ).toBe(false);
+    // A destination always carries its origin, whole: an envelope without it is refused.
+    const { origin: _origin, ...withoutOrigin } = envelope.destinations[0] as { origin: string };
+    expect(Envelope.safeParse({ ...envelope, destinations: [withoutOrigin] }).success).toBe(false);
   });
 
   it("validate marking, confirming, proofs and tokens strictly", () => {
