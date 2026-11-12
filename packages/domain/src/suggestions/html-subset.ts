@@ -16,7 +16,9 @@ import {
   type P5Element,
   type P5Node,
   type ParsedHtml,
+  parseHtml,
 } from "./html-dom.ts";
+import { newWork, type Work } from "./work.ts";
 
 const GLOBAL = new Set([
   "id",
@@ -211,4 +213,14 @@ export function decodeHtml(bytes: Uint8Array): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a stored HTML file is in the eligible subset, parsing it on its own: `null` when it is,
+ * else why not. Over the size limit nothing is parsed. The one entry point for callers outside the
+ * planners (a carry, a preview), so none of them parses or checks the subset another way.
+ */
+export function htmlEligibility(html: string, work: Work = newWork()): SubsetRefusal | null {
+  if (new TextEncoder().encode(html).length > PLAN_LIMITS.htmlBytes) return "too_large";
+  return subsetRefusal(html, parseHtml(html, work));
 }

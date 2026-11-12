@@ -7,22 +7,27 @@
 // page text. The new file's stored rendering is derived once for the plan's output.
 import { normalizeText } from "@portifact/anchors";
 import { type DocumentRenderer, PLAN_LIMITS } from "@portifact/contracts";
-import { sha256Hex } from "./digest.ts";
+import { utf8Length } from "./digest.ts";
 import { changedRegion, codePoints, type TextEdit, validAfter } from "./edit.ts";
 import {
   applyPatches,
   byOperation,
+  listedPatch,
+  PENDING_SHA256,
   type PlannedFile,
   type PlannedListed,
   type PlannedPatch,
+  unplaced,
   withoutOverlaps,
 } from "./planned.ts";
 import { newWork, type Work } from "./work.ts";
 
-/** The identity of every text node of a text document: its `pre` inside the document's `main`. */
+/** The identity of a text document's one text node: its `pre`, `main`, `body` and root. */
 export const TEXT_IDENTITY: readonly string[] = [
-  'pre[class="pf-text"]',
-  'main[class="pf-document"]',
+  'pre[:class="pf-text"]',
+  'main[:class="pf-document"]',
+  "body[]",
+  'html[:lang="en"]',
 ];
 
 const CLUSTER = /[\s\p{Cc}]+|[^\s\p{Cc}][\p{M}ᅠ-ᇿ]*/gu;
@@ -66,7 +71,36 @@ type Mapped =
   | { ok: true; patch: Omit<PlannedPatch, "operation"> }
   | { ok: false; reason: PlannedListed["reason"] };
 
-function mapEdit(source: string, map: SourceMap, edit: TextEdit): Mapped {
+/**
+ * Offsets of the rendered text node, whose data is the source with every CRLF and lone CR read as
+ * one line feed (as the HTML parser does): the proof's context comes from it, the patch's offsets
+ * from the source.
+ */
+class RenderedText {
+  readonly text: string;
+  private readonly pairs: number[] = [];
+
+  constructor(source: string) {
+    for (let at = source.indexOf("\r\n"); at >= 0; at = source.indexOf("\r\n", at + 2)) {
+      this.pairs.push(at);
+    }
+    this.text = source.replace(/\r\n?/g, "\n");
+  }
+
+  /** The rendered offset of a source offset outside any CRLF pair. */
+  offset(at: number): number {
+    let low = 0;
+    let high = this.pairs.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((this.pairs[middle] as number) + 1 < at) low = middle + 1;
+      else high = middle;
+    }
+    return at - low;
+  }
+}
+
+function mapEdit(source: string, map: SourceMap, rendered: RenderedText, edit: TextEdit): Mapped {
   if (!validAfter(edit)) return { ok: false, reason: "invalid_after" };
   if (
     edit.start < 0 ||
@@ -90,6 +124,8 @@ function mapEdit(source: string, map: SourceMap, edit: TextEdit): Mapped {
   const start = rawFrom + prefix;
   const end = start + change.deleted.length;
   const context = PLAN_LIMITS.proofContextUnits;
+  const shownStart = rendered.offset(start);
+  const shownEnd = shownStart + change.deleted.length;
   return {
     ok: true,
     patch: {
@@ -105,8 +141,8 @@ function mapEdit(source: string, map: SourceMap, edit: TextEdit): Mapped {
         after: change.inserted,
         shownBefore: change.deleted,
         shownAfter: change.inserted,
-        nodeLeft: source.slice(Math.max(0, start - context), start),
-        nodeRight: source.slice(end, end + context),
+        nodeLeft: rendered.text.slice(Math.max(0, shownStart - context), shownStart),
+        nodeRight: rendered.text.slice(shownEnd, shownEnd + context),
         identity: [...TEXT_IDENTITY],
       },
     },
@@ -126,34 +162,36 @@ export interface TextPlanInput {
  * source, touching ranges are listed (`overlap`), the rest are applied together from the end and
  * the result is checked once against the page text with every change spliced in.
  */
-export async function planText(input: TextPlanInput): Promise<PlannedFile> {
+export function planText(input: TextPlanInput): PlannedFile {
   const { source, edits } = input;
   const work = input.work ?? newWork();
   const listed: PlannedListed[] = [];
-  if (source.length > PLAN_LIMITS.documentUnits) {
+  if (utf8Length(source) > PLAN_LIMITS.documentBytes) {
     return {
       applied: [],
-      listed: edits.map((edit, operation) => ({
-        operation,
-        reason: edit === null ? "not_text" : "too_large",
-      })),
+      listed: edits.map((edit, operation) =>
+        unplaced(operation, edit === null ? "not_text" : "too_large"),
+      ),
       work,
     };
   }
   const map = sourceMap(source, work);
+  const rendered = new RenderedText(source);
   const found: (PlannedPatch & { edit: TextEdit })[] = [];
   for (const [operation, edit] of edits.entries()) {
     if (edit === null) {
-      listed.push({ operation, reason: "not_text" });
+      listed.push(unplaced(operation, "not_text"));
       continue;
     }
     if (operation >= PLAN_LIMITS.operationsMax) {
-      listed.push({ operation, reason: "too_large" });
+      listed.push(unplaced(operation, "too_large"));
       continue;
     }
-    const mapped = mapEdit(source, map, edit);
+    const mapped = mapEdit(source, map, rendered, edit);
+    // A text document has no links, so its links are always known: there are none.
     if (mapped.ok) found.push({ operation, ...mapped.patch, edit });
-    else listed.push({ operation, reason: mapped.reason });
+    else
+      listed.push({ operation, reason: mapped.reason, destinations: [], destinationsKnown: true });
   }
   const kept = withoutOverlaps(found, listed);
   if (kept.length === 0) return { applied: [], listed: byOperation(listed), work };
@@ -165,14 +203,12 @@ export async function planText(input: TextPlanInput): Promise<PlannedFile> {
   }
   const strip = ({ edit: _edit, ...patch }: PlannedPatch & { edit: TextEdit }) => patch;
   if (normalizeText(next) !== normalizeText(expected.join(""))) {
-    for (const item of kept) {
-      listed.push({ operation: item.operation, reason: "would_change_page", proof: item.proof });
-    }
+    for (const item of kept) listed.push(listedPatch(item, "would_change_page"));
     return { applied: [], listed: byOperation(listed), work };
   }
   const files = input.renderer.stored("text", next, {
     title: input.title,
-    sourceSha256: await sha256Hex(next),
+    sourceSha256: PENDING_SHA256,
   });
   work.renders++;
   return {

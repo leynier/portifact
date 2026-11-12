@@ -9,10 +9,13 @@
 //    range, shows each marker exactly once, in a text node with the same identity and the same
 //    node-local context. Then its page position is found again.
 //
-// Anything else is outdated, keeping its original version and target. Every operation of one file
+// An HTML page must be in the eligible subset before and after; a page outside it is carried
+// only unchanged with every other file of its version (`otherFilesUnchanged`). Anything else is
+// outdated, keeping its original version and target. Every operation of one file
 // is carried together: two renders (marked and unmarked) whatever their number.
 import type { CarryOutdatedReason, DocumentRenderer, FileKind, Proof } from "@portifact/contracts";
 import { changedRegion, codePoints, type TextEdit } from "./edit.ts";
+import { htmlEligibility } from "./html-subset.ts";
 import { sameIdentity } from "./identity.ts";
 import { CONTEXT_WINDOW, type RenderedNode, renderedPage } from "./rendered.ts";
 import { newWork, type Work } from "./work.ts";
@@ -36,6 +39,13 @@ export interface CarryOptions {
   title: string;
   pageUrl: string;
   renderer: DocumentRenderer;
+  /**
+   * Whether every other file of the version is unchanged from the old version, which the service
+   * reads from the two versions' file lists. An HTML page outside the eligible subset may run
+   * scripts that read any of them, so it is carried only when its own bytes and all of these are
+   * the same. Required: a caller that does not know must pass false.
+   */
+  otherFilesUnchanged: boolean;
   work?: Work;
 }
 
@@ -46,11 +56,22 @@ export function carryAll(
   items: readonly Carriable[],
   options: CarryOptions,
 ): Carry[] {
-  if (oldSource === newSource) return items.map((item) => ({ status: "carried", ...item }));
-  if (MARKERS.test(newSource) || items.length > MARKER_BATCH_MAX) {
-    return items.map(() => ({ status: "outdated", reason: "marker_in_source" }));
-  }
   const work = options.work ?? newWork();
+  const outdated = (reason: CarryOutdatedReason): Carry[] =>
+    items.map(() => ({ status: "outdated", reason }));
+  // An HTML page is carried only while it runs nothing: eligible before and after, or, for a page
+  // outside the subset, unchanged together with every other file of the version.
+  const oldEligible = kind !== "html" || htmlEligibility(oldSource, work) === null;
+  if (oldSource === newSource) {
+    if (!oldEligible && options.otherFilesUnchanged !== true) return outdated("not_eligible");
+    return items.map((item) => ({ status: "carried", ...item }));
+  }
+  if (!oldEligible || (kind === "html" && htmlEligibility(newSource, work) !== null)) {
+    return outdated("not_eligible");
+  }
+  if (MARKERS.test(newSource) || items.length > MARKER_BATCH_MAX) {
+    return outdated("marker_in_source");
+  }
   let prefix = 0;
   const shortest = Math.min(oldSource.length, newSource.length);
   while (prefix < shortest && oldSource[prefix] === newSource[prefix]) prefix++;

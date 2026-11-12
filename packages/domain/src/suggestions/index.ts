@@ -9,6 +9,7 @@ export {
   inspect,
   isSpecialCharacter,
   omitted,
+  shortenDestination,
   tokens,
   visible,
 } from "./display.ts";
@@ -18,11 +19,23 @@ export {
   envelopeBytes,
   envelopeOperation,
   locationOf,
+  presentEnvelope,
   renderEnvelope,
 } from "./envelope.ts";
 export { escapeHtml, planHtml } from "./html-planner.ts";
-export { decodeHtml, type SubsetRefusal, subsetRefusal } from "./html-subset.ts";
-export { identityOf, linksAround, sameIdentity } from "./identity.ts";
+export {
+  decodeHtml,
+  htmlEligibility,
+  type SubsetRefusal,
+  subsetRefusal,
+} from "./html-subset.ts";
+export {
+  identityOf,
+  type LinkContext,
+  linkContext,
+  linksAroundAll,
+  sameIdentity,
+} from "./identity.ts";
 export { planMarkdown } from "./markdown-planner.ts";
 export {
   admitItems,
@@ -37,7 +50,13 @@ export {
   type StoredRendering,
 } from "./plan.ts";
 export { onlyApprovedBytes, type PlannedFile } from "./planned.ts";
-export { buildPreview, PREVIEW_POLICY, previewable, previewHeaders } from "./preview.ts";
+export {
+  buildPreview,
+  PREVIEW_POLICY,
+  previewable,
+  previewHeaders,
+  withoutMotion,
+} from "./preview.ts";
 export {
   type Carriable,
   type Carry,

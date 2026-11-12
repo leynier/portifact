@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { elementOperation, textOperation } from "../testing/suggestions/harness.ts";
 import { canonicalJson, sha256Hex } from "./digest.ts";
-import { destination, omitted } from "./display.ts";
+import { destination, omitted, shortenDestination } from "./display.ts";
 import { changedRegion, occurrences, textEditOf, validAfter } from "./edit.ts";
 import { applyPatches, onlyApprovedBytes } from "./planned.ts";
 
@@ -14,14 +14,20 @@ describe("suggestion helpers", () => {
   });
 
   it("bound destinations and say when one cannot be resolved", () => {
-    expect(destination("http://[", "https://x.example/")).toMatchObject({
+    expect(destination("http://[", "https://x.example/", null)).toMatchObject({
       effective: "",
       authored: "http://[",
     });
-    const long = destination(`/${"a".repeat(600)}`, "https://x.example/");
-    expect(long.authored).toHaveLength(512);
-    expect(long.authoredOmitted).toBe(89);
-    expect(long.effectiveOmitted).toBeGreaterThan(0);
+    const long = destination(`/${"a".repeat(600)}`, "https://x.example/", null);
+    expect(long.authored).toHaveLength(601);
+    expect(long).toMatchObject({ authoredOmitted: 0, effectiveOmitted: 0, resolved: true });
+    expect(destination("/x", null, null)).toMatchObject({ effective: "", resolved: false });
+    const short = shortenDestination(long, 100);
+    expect(short).toMatchObject({
+      authoredOmitted: 501,
+      effectiveOmitted: long.effective.length - 100,
+    });
+    expect(short.authored).toHaveLength(100);
     expect(omitted(0)).toBe("");
     expect(omitted(3)).toBe("⟦3 characters omitted⟧");
   });

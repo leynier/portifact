@@ -4,12 +4,17 @@
 // withdrawn when its author's words are erased, and a transfer moves the change list and drops
 // the drafts and plans made under the old owner.
 import { env } from "cloudflare:test";
+import { ANCHOR_SCHEMA_VERSION, DELETED_ACCOUNT, Envelope } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
+import { buildPlan, presentEnvelope, renderEnvelope } from "@portifact/domain/suggestions";
+import { DOCUMENT_RENDERER } from "@portifact/render";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { requestAccountDeletion } from "../src/account-data.ts";
 import { eraseAuthorFromThread } from "../src/annotations.ts";
+import { applyTombstones } from "../src/backups.ts";
 import { eraseAccountTraces } from "../src/history-retention.ts";
+import { runHoldRelease } from "../src/legal-holds.ts";
 import { transferArtifact } from "../src/transfer.ts";
 import { createWorkspace } from "../src/workspaces.ts";
 import { db, grantPlan, NOW, publishSite, session, user, value } from "./fixtures.ts";
@@ -370,5 +375,149 @@ describe("the stored enums match the contracts", () => {
     expect(schema.ACCEPTANCE_END_REASONS).toEqual(contracts.ATTEMPT_END_REASONS);
     expect(schema.CHANGE_ITEM_STATES).toEqual(contracts.CHANGE_ITEM_STATES);
     expect(schema.CHANGE_ITEMS_OPEN_MAX).toBe(contracts.CHANGE_LIST_LIMITS.openPerArtifact);
+  });
+});
+
+/** A real plan's first listed envelope and its proof, as an acceptance would store them. */
+async function realItem(html: string, before: string, after: string) {
+  const text = "Pay now and later";
+  const start = text.indexOf(before);
+  const built = await buildPlan({
+    binding: {
+      artifactId: "a",
+      versionId: "v1",
+      path: "index.html",
+      fileSha256: "0".repeat(64),
+      renderer: DOCUMENT_RENDERER.label,
+      subject: "th_1",
+      revision: 1,
+    },
+    people: { submitter: true, acceptor: true },
+    kind: "html",
+    source: html,
+    operations: [
+      {
+        kind: "text",
+        target: {
+          schema: ANCHOR_SCHEMA_VERSION,
+          path: "index.html",
+          anchor: {
+            kind: "text",
+            quote: { exact: before, prefix: "", suffix: "" },
+            position: { start, end: start + before.length },
+          },
+        },
+        after,
+      },
+    ],
+    pageUrl: "https://k7d2qm4xab.portifact.dev/index.html",
+    renderer: DOCUMENT_RENDERER,
+  });
+  const envelope = JSON.stringify(built.listed[0]);
+  const proof = built.proofs[built.applied.length] ?? null;
+  const proofText = proof === null ? null : JSON.stringify(proof);
+  return {
+    envelope,
+    proof: proofText,
+    bytes: bytesOf(envelope) + (proofText ? bytesOf(proofText) : 0),
+  };
+}
+
+describe("people of a real envelope (review of #252, finding 3)", () => {
+  const html = "<!doctype html><p>Pay now and later</p><script>1</script>";
+
+  async function shown(id: string, names: Record<string, string>) {
+    const [row] = await db().select().from(schema.changeItems).where(eq(schema.changeItems.id, id));
+    if (!row) throw new Error("no item");
+    const envelope = Envelope.parse(JSON.parse(row.envelope));
+    const name = (ref: string | null) => (ref === null ? null : (names[ref] ?? null));
+    return presentEnvelope(envelope, {
+      submittedBy: name(row.submittedBy),
+      acceptedBy: name(row.createdBy),
+    });
+  }
+
+  it("stores no name, shows current names, and shows a deleted account once erased", async () => {
+    const owner = await user();
+    const reviewer = await user();
+    const site = await publishSite(owner.id);
+    const real = await realItem(html, "now", "soon");
+    await item("ci_real", site.artifactId, owner.id, {
+      ...real,
+      createdBy: owner.id,
+      submittedBy: reviewer.id,
+    });
+    const before = await annotationBytes(owner.id);
+    const names = { [owner.id]: "Actual Owner", [reviewer.id]: "Actual Reviewer" };
+    expect(real.envelope).not.toContain("Actual");
+    const first = await shown("ci_real", names);
+    expect(first.provenance).toEqual({
+      submittedBy: "Actual Reviewer",
+      acceptedBy: "Actual Owner",
+    });
+    expect(renderEnvelope(first).join("\n")).toContain("suggested by Actual Reviewer");
+
+    await eraseAccountTraces(db(), reviewer.id);
+    const erased = await shown("ci_real", names);
+    expect(erased.provenance).toEqual({ submittedBy: DELETED_ACCOUNT, acceptedBy: "Actual Owner" });
+    expect(renderEnvelope(erased).join("\n")).toContain(`suggested by ${DELETED_ACCOUNT}`);
+    expect(await annotationBytes(owner.id)).toBe(before);
+  });
+
+  it("keeps a held artifact's people until the release, and erases them again after a restore", async () => {
+    const owner = await user();
+    const reviewer = await user();
+    const site = await publishSite(owner.id);
+    const real = await realItem(html, "now", "soon");
+    await item("ci_held", site.artifactId, owner.id, {
+      ...real,
+      createdBy: owner.id,
+      submittedBy: reviewer.id,
+    });
+    await hold(site.artifactId, owner.id);
+    await applyTombstones(db(), [{ kind: "account", id: reviewer.id, deletedAt: NOW }], NOW);
+    await eraseAccountTraces(db(), reviewer.id);
+    const submitter = async () =>
+      (
+        await db()
+          .select({ by: schema.changeItems.submittedBy })
+          .from(schema.changeItems)
+          .where(eq(schema.changeItems.id, "ci_held"))
+      )[0]?.by;
+    expect(await submitter()).toBe(reviewer.id);
+    await db()
+      .update(schema.legalHolds)
+      .set({ releasedAt: NOW + 1 })
+      .where(eq(schema.legalHolds.artifactId, site.artifactId));
+    expect(await runHoldRelease(db(), undefined, site.artifactId, NOW + 2)).toBe("done");
+    expect(await submitter()).toBeNull();
+
+    // A restore rewinds the erasure; the account's tombstone erases it again.
+    await db()
+      .update(schema.changeItems)
+      .set({ submittedBy: reviewer.id })
+      .where(eq(schema.changeItems.id, "ci_held"));
+    await applyTombstones(db(), [{ kind: "account", id: reviewer.id, deletedAt: NOW }], NOW + 3);
+    expect(await submitter()).toBeNull();
+  });
+});
+
+describe("what a planner produces is storable (review of #252, finding 8)", () => {
+  it("inserts the envelope and proof of a page with a huge attribute and of a deep page", async () => {
+    const owner = await user();
+    const site = await publishSite(owner.id);
+    const pages = [
+      `<!doctype html><p data-note="${"a".repeat(17_000)}">Pay now and later</p><script>1</script>`,
+      `<!doctype html>${"<div>".repeat(5_000)}Pay now and later${"</div>".repeat(5_000)}<script>1</script>`,
+    ];
+    for (const [index, page] of pages.entries()) {
+      const real = await realItem(page, "now", "soon");
+      await item(`ci_big_${index}`, site.artifactId, owner.id, real);
+    }
+    const stored = await db()
+      .select({ id: schema.changeItems.id })
+      .from(schema.changeItems)
+      .where(eq(schema.changeItems.artifactId, site.artifactId));
+    expect(stored).toHaveLength(2);
   });
 });

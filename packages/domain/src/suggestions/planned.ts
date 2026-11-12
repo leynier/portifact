@@ -17,10 +17,27 @@ export interface PlannedPatch {
 export interface PlannedListed {
   operation: number;
   reason: RefusalReason;
-  /** Present when the operation was located before it was refused. */
-  destinations?: Destination[];
+  /** Every link around or inside the selection, when it was placed on the page. */
+  destinations: Destination[];
+  /** False when the selection could not be placed, so its links are not known. */
+  destinationsKnown: boolean;
+  /** Present when the operation was located and mapped to the file (its location is proven). */
   proof?: Proof;
 }
+
+/** An operation listed before it could be placed on the page. */
+export const unplaced = (operation: number, reason: RefusalReason): PlannedListed => ({
+  operation,
+  reason,
+  destinations: [],
+  destinationsKnown: false,
+});
+
+/**
+ * What a planner writes as the new file's hash in a block map it renders, before sizes are
+ * checked; the plan replaces it with the real hash afterwards (`outputOf`).
+ */
+export const PENDING_SHA256 = "0".repeat(64);
 
 export interface PlannedFile {
   applied: PlannedPatch[];
@@ -33,17 +50,26 @@ export interface PlannedFile {
 }
 
 /** Keeps the patches that touch no other one; the others are listed as `overlap`. */
-export function withoutOverlaps<T extends { operation: number; start: number; end: number }>(
+export function withoutOverlaps<T extends PlannedPatch>(
   found: readonly T[],
   listed: PlannedListed[],
 ): T[] {
   const clash = (a: T, b: T) => a !== b && a.start <= b.end && b.start <= a.end;
   const kept = found.filter((a) => !found.some((b) => clash(a, b)));
   for (const item of found) {
-    if (!kept.includes(item)) listed.push({ operation: item.operation, reason: "overlap" });
+    if (!kept.includes(item)) listed.push(listedPatch(item, "overlap"));
   }
   return kept;
 }
+
+/** A located and mapped operation listed after all: its location and links stay known. */
+export const listedPatch = (item: PlannedPatch, reason: RefusalReason): PlannedListed => ({
+  operation: item.operation,
+  reason,
+  destinations: item.destinations,
+  destinationsKnown: true,
+  proof: item.proof,
+});
 
 export const byOperation = <T extends { operation: number }>(items: readonly T[]): T[] =>
   [...items].sort((a, b) => a.operation - b.operation);

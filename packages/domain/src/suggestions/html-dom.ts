@@ -4,7 +4,7 @@
 // document as its stored rendering. The parse5 tree is given to `packages/anchors` through a
 // small adapter with the DOM surface anchors need, so positions mean exactly what they mean in the
 // bridge, which anchors the page's `body`.
-import { type AnchorElement, type AnchorNode, IGNORE_ATTRIBUTE } from "@portifact/anchors";
+import { type AnchorElement, type AnchorNode, isSkipped } from "@portifact/anchors";
 import { type DefaultTreeAdapterMap, parse } from "parse5";
 import type { Work } from "./work.ts";
 
@@ -125,29 +125,25 @@ export function textNodesOf(node: P5Node): P5Text[] {
   return found;
 }
 
-/** Elements whose text a page never shows as text (the anchors skip them too). */
-const UNSHOWN = new Set(["script", "style", "noscript", "template", "textarea", "title"]);
-
 /**
- * The text nodes a page shows: under `body`, outside unshown elements and Portifact's own chrome
- * (`data-portifact-ignore`, as the anchors). Comments, attributes and scripts are never text
- * nodes here, so hidden syntax can never prove anything.
+ * The text nodes a page shows, by the anchors' own rules (`isSkipped`): under `body`, outside
+ * unshown elements (scripts, styles, templates, embedded content and the like), `hidden`
+ * subtrees and Portifact's chrome (`data-portifact-ignore`). A hidden body or root shows nothing.
+ * Comments, attributes and scripts are never text nodes here, so hidden syntax proves nothing.
  */
 export function shownTextNodes(body: P5Element): P5Text[] {
+  for (let node: P5Node | null = body; node; node = parentOf(node)) {
+    if (isElement(node) && isSkipped(adapt(node))) return [];
+  }
   const found: P5Text[] = [];
-  const stack: P5Node[] = [body];
+  const stack: P5Node[] = [...childrenOf(body)].reverse();
   while (stack.length > 0) {
     const node = stack.pop() as P5Node;
     if (isText(node)) {
       found.push(node);
       continue;
     }
-    if (
-      isElement(node) &&
-      (UNSHOWN.has(node.tagName) || attribute(node, IGNORE_ATTRIBUTE) !== null)
-    ) {
-      continue;
-    }
+    if (isElement(node) && isSkipped(adapt(node))) continue;
     const children = childrenOf(node);
     for (let index = children.length - 1; index >= 0; index--) {
       stack.push(children[index] as P5Node);

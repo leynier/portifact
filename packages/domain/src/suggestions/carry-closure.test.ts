@@ -30,6 +30,7 @@ const carry = (kind: FileKind, old: string, next: string, change: TextEdit, proo
     title: TITLE,
     pageUrl: urlOf(kind),
     renderer: RENDERER,
+    otherFilesUnchanged: false,
   })[0];
 
 const close = (proof: Proof, kind: FileKind, source: string) =>
@@ -142,6 +143,7 @@ describe("carrying suggestions by verified relocation", () => {
       title: TITLE,
       pageUrl: DOC_URL,
       renderer: RENDERER,
+      otherFilesUnchanged: false,
       work,
     });
     expect(results.every((result) => result.status === "carried")).toBe(true);
@@ -152,6 +154,7 @@ describe("carrying suggestions by verified relocation", () => {
         title: TITLE,
         pageUrl: DOC_URL,
         renderer: RENDERER,
+        otherFilesUnchanged: false,
       })[0],
     ).toEqual({
       status: "outdated",

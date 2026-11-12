@@ -66,7 +66,9 @@ describe("the plain text planner", () => {
     const body = find(parseHtml(html, newWork()).document, "body");
     const nodes = shownTextNodes(body as never).filter((node) => node.value.trim() !== "");
     expect(nodes).toHaveLength(1);
-    expect(identityOf(nodes[0] as never, "https://x.example/")).toEqual(TEXT_IDENTITY);
+    expect(identityOf(nodes[0] as never, { base: "https://x.example/", file: "rendered" })).toEqual(
+      TEXT_IDENTITY,
+    );
     expect(parseDocument(html).body.textContent).toContain("one\ntwo");
   });
 
@@ -148,7 +150,9 @@ describe("the plain text planner", () => {
       null,
     ]);
     expect(planned).toMatchObject({ source: "lion and dog and wolf" });
-    expect(planned.listed).toEqual([{ operation: 2, reason: "not_text" }]);
+    expect(planned.listed).toEqual([
+      { operation: 2, reason: "not_text", destinations: [], destinationsKnown: false },
+    ]);
     expect(planned.rendered?.map((file) => file.kind)).toEqual(["rendered"]);
     const clash = await planOne("text", source, [
       { start: 0, end: 3, before: "cat", after: "dog" },

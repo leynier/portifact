@@ -8,6 +8,7 @@
 // from loading anything. The preview origin also sends the policy as a header and the viewer
 // frames it with an empty `sandbox`.
 import { type DocumentRenderer, type FileKind, PLAN_LIMITS } from "@portifact/contracts";
+import { generate, parse, walk } from "css-tree";
 import { childrenOf, HTML_NS, isElement, isText, type P5Node, parseHtml } from "./html-dom.ts";
 import { escapeHtml } from "./html-planner.ts";
 import { newWork, type Work } from "./work.ts";
@@ -145,6 +146,31 @@ const ATTRIBUTES: ReadonlySet<string> = new Set([
   "checked",
 ]);
 
+/** Animation and transition properties, prefixed or not, longhand or shorthand. */
+const MOTION = /^(?:-[a-z]+-)?(?:animation|transition)(?:-|$)/i;
+
+/**
+ * CSS without any animation or transition declaration, read by a CSS parser (css-tree), so no
+ * author rule or inline `!important` can override the preview's freeze. Everything else is kept
+ * and the policy keeps it from loading anything.
+ */
+export function withoutMotion(css: string, context: "stylesheet" | "declarationList"): string {
+  const ast = parse(css, {
+    context,
+    parseValue: false,
+    parseRulePrelude: false,
+    parseAtrulePrelude: false,
+    parseCustomProperty: false,
+  });
+  walk(ast, {
+    visit: "Declaration",
+    enter(node, item, list) {
+      if (MOTION.test(node.property)) list.remove(item);
+    },
+  });
+  return generate(ast);
+}
+
 const FREEZE = "*,*::before,*::after{animation:none!important;transition:none!important}";
 const VOID = new Set(["br", "hr", "wbr", "col"]);
 
@@ -182,9 +208,12 @@ function write(root: P5Node): { body: string; styles: string[] } {
     if (node.namespaceURI !== HTML_NS || DROPPED.has(node.tagName)) continue;
     if (node.tagName === "style") {
       styles.push(
-        childrenOf(node)
-          .map((child) => (isText(child) ? child.value : ""))
-          .join(""),
+        withoutMotion(
+          childrenOf(node)
+            .map((child) => (isText(child) ? child.value : ""))
+            .join(""),
+          "stylesheet",
+        ),
       );
       continue;
     }
@@ -203,7 +232,12 @@ function write(root: P5Node): { body: string; styles: string[] } {
     if (kept) {
       const attrs = node.attrs
         .filter((attr) => !attr.namespace && ATTRIBUTES.has(attr.name))
-        .map((attr) => attributeText(attr.name, attr.value))
+        .map((attr) =>
+          attributeText(
+            attr.name,
+            attr.name === "style" ? withoutMotion(attr.value, "declarationList") : attr.value,
+          ),
+        )
         .join("");
       out.push(`<${node.tagName}${attrs}>`);
       if (!VOID.has(node.tagName)) stack.push({ close: `</${node.tagName}>` });
@@ -224,7 +258,7 @@ function pageOf(kind: FileKind, source: string, renderer: DocumentRenderer): str
 export function previewable(kind: FileKind, source: string): boolean {
   return kind === "html"
     ? new TextEncoder().encode(source).length <= PLAN_LIMITS.htmlBytes
-    : source.length <= PLAN_LIMITS.documentUnits;
+    : new TextEncoder().encode(source).length <= PLAN_LIMITS.documentBytes;
 }
 
 /** The preview document for a file of any kind, under the one preview policy. */

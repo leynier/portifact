@@ -3,13 +3,19 @@
 // Locating goes through `packages/anchors`, which defines what a position in the page text means,
 // with one anchor index per plan; the edit must fall inside one text node whose raw data equals the
 // selection character for character, so no line break, tab or run of spaces is hidden.
-import { AnchorDocument, type AnchorElement, type AnchorText } from "@portifact/anchors";
+import {
+  AnchorDocument,
+  type AnchorElement,
+  type AnchorText,
+  type DomPoint,
+} from "@portifact/anchors";
 import { ANCHOR_LIMITS, type RefusalReason, type TextAnchor } from "@portifact/contracts";
 import { changedRegion, codePoints, type TextEdit } from "./edit.ts";
 import {
   adapt,
   type P5Document,
   type P5Element,
+  type P5Node,
   type P5Text,
   skeleton,
   textNodesOf,
@@ -40,44 +46,71 @@ function anchorFor(text: readonly string[], edit: TextEdit): TextAnchor {
   };
 }
 
+/** Why an edit could not be located, and the text nodes its selection covers when it was placed. */
+export interface NotLocated {
+  ok: false;
+  reason: RefusalReason;
+  /** The covered text nodes in document order, when the selection was placed on the page. */
+  covered: P5Text[] | null;
+}
+
 /** One anchor index of a page's body, built once and used for every operation of a plan. */
 export class PageIndex {
   readonly points: string[];
   private readonly document: AnchorDocument;
+  private readonly body: P5Element;
+  private order: Map<P5Node, number> | null = null;
+  private texts: P5Text[] = [];
 
   constructor(body: P5Element, work: Work) {
     work.indexes++;
+    this.body = body;
     this.document = new AnchorDocument(adapt(body) as AnchorElement);
     this.points = codePoints(this.document.text.value);
   }
 
-  locate(edit: TextEdit): { ok: true; located: Located } | { ok: false; reason: RefusalReason } {
+  /** The text nodes between two range points, in document order (built once per page). */
+  private covered(start: DomPoint, end: DomPoint): P5Text[] | null {
+    if (!this.order) {
+      this.texts = textNodesOf(this.body);
+      this.order = new Map(this.texts.map((node, index) => [node as P5Node, index]));
+    }
+    const from = this.order.get(unwrap(start.node));
+    const to = this.order.get(unwrap(end.node));
+    if (from === undefined || to === undefined || to < from) return null;
+    return this.texts.slice(from, to + 1);
+  }
+
+  locate(edit: TextEdit): { ok: true; located: Located; covered: P5Text[] } | NotLocated {
     if (
       edit.start < 0 ||
       edit.end < edit.start ||
       this.points.slice(edit.start, edit.end).join("") !== edit.before
     ) {
-      return { ok: false, reason: "stale" };
+      return { ok: false, reason: "stale", covered: null };
     }
     const found = this.document.resolveText(anchorFor(this.points, edit));
-    if (found.confidence !== "exact") return { ok: false, reason: "stale" };
+    if (found.confidence !== "exact") return { ok: false, reason: "stale", covered: null };
     const { start, end } = found.range;
+    const covered = this.covered(start, end);
     if (start.node !== end.node || start.node.nodeType !== 3) {
-      return { ok: false, reason: "spans_nodes" };
+      return { ok: false, reason: "spans_nodes", covered };
     }
     const data = (start.node as AnchorText).data;
     if (data.slice(start.offset, end.offset) !== edit.before) {
-      return { ok: false, reason: "whitespace" };
+      return { ok: false, reason: "whitespace", covered };
     }
     const change = changedRegion(edit);
     const prefix = codePoints(edit.before)
       .slice(0, change.from - edit.start)
       .join("").length;
     const at = start.offset + prefix;
+    const node = unwrap(start.node) as P5Text;
     return {
       ok: true,
+      covered: [node],
       located: {
-        node: unwrap(start.node) as P5Text,
+        node,
         start: at,
         end: at + change.deleted.length,
         deleted: change.deleted,

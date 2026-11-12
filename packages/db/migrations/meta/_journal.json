@@ -554,6 +554,20 @@
       "when": 1794497712142,
       "tag": "0078_edit_suggestions_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "6",
+      "when": 1794507219367,
+      "tag": "0079_change_items_checks",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "6",
+      "when": 1794507232463,
+      "tag": "0080_change_items_triggers",
+      "breakpoints": true
     }
   ]
 }

@@ -1758,8 +1758,14 @@ export const changeItems = sqliteTable(
     /** Why it was listed (a refusal reason, a lowercase token). */
     reason: text("reason").notNull(),
     state: text("state", { enum: CHANGE_ITEM_STATES }).notNull().default("open"),
-    /** No foreign keys: cleared when the account is deleted. */
+    /**
+     * The person who accepted it (the envelope's acceptor) and the one who suggested it: account
+     * references kept beside the immutable envelope, which holds no names. Shown as their current
+     * display names; account erasure clears them, and the envelope then shows "a deleted account".
+     * No foreign keys (users are global).
+     */
     createdBy: text("created_by"),
+    submittedBy: text("submitted_by"),
     createdAt: createdAt(),
     closedAt: timestamp("closed_at"),
     closedBy: text("closed_by"),
@@ -1773,6 +1779,14 @@ export const changeItems = sqliteTable(
     index("change_items_closed_idx").on(t.closedAt).where(sql`${t.closedAt} is not null`),
     index("change_items_created_by_idx").on(t.createdBy).where(sql`${t.createdBy} is not null`),
     index("change_items_closed_by_idx").on(t.closedBy).where(sql`${t.closedBy} is not null`),
+    index("change_items_submitted_by_idx")
+      .on(t.submittedBy)
+      .where(sql`${t.submittedBy} is not null`),
+    check("change_items_origin", sql`${t.origin} in ('suggestion', 'draft')`),
+    check(
+      "change_items_state",
+      sql`${t.state} in ('open', 'applied', 'dismissed', 'closed_by_version')`,
+    ),
     check(
       "change_items_bytes",
       sql`${t.bytes} = length(cast(${t.envelope} as blob)) + coalesce(length(cast(${t.proof} as blob)), 0) and length(cast(${t.envelope} as blob)) between 2 and 16384 and coalesce(length(cast(${t.proof} as blob)), 0) <= 16384`,

@@ -9,7 +9,7 @@
 // applied and every operation is listed, so the split the person confirmed never changes. Diagram
 // sources always go to the list: their drawing is not something a text comparison can verify.
 import { type DocumentRenderer, PLAN_LIMITS, type RenderedBlock } from "@portifact/contracts";
-import { sha256Hex } from "./digest.ts";
+import { utf8Length } from "./digest.ts";
 import { occurrences, type TextEdit, validAfter } from "./edit.ts";
 import {
   attribute,
@@ -21,15 +21,18 @@ import {
   parentOf,
   parseHtml,
 } from "./html-dom.ts";
-import { identityOf, linksAround } from "./identity.ts";
+import { identityOf, linkContext, linksAroundAll } from "./identity.ts";
 import { type Located, onlyChangedText, PageIndex } from "./locate.ts";
 import {
   applyPatches,
   byOperation,
+  listedPatch,
   onlyApprovedBytes,
+  PENDING_SHA256,
   type PlannedFile,
   type PlannedListed,
   type PlannedPatch,
+  unplaced,
   withoutOverlaps,
 } from "./planned.ts";
 import { newWork, type Work } from "./work.ts";
@@ -99,64 +102,67 @@ interface Candidate extends PlannedPatch {
   inCode: boolean;
 }
 
-export async function planMarkdown(input: MarkdownPlanInput): Promise<PlannedFile> {
+export function planMarkdown(input: MarkdownPlanInput): PlannedFile {
   const { source, edits, pageUrl } = input;
   const work = input.work ?? newWork();
   const listed: PlannedListed[] = [];
-  if (source.length > PLAN_LIMITS.documentUnits) {
+  if (utf8Length(source) > PLAN_LIMITS.documentBytes) {
     return {
       applied: [],
-      listed: edits.map((edit, operation) => ({
-        operation,
-        reason: edit === null ? "not_text" : "too_large",
-      })),
+      listed: edits.map((edit, operation) =>
+        unplaced(operation, edit === null ? "not_text" : "too_large"),
+      ),
       work,
     };
   }
   const base = parseHtml(input.page.html, work);
   // The parser always adds a body.
   const body = find(base.document, "body") as P5Element;
+  const links = linkContext(base.document, pageUrl, "rendered");
   const index = new PageIndex(body, work);
   const candidates: Candidate[] = [];
   for (const [operation, edit] of edits.entries()) {
     if (edit === null) {
-      listed.push({ operation, reason: "not_text" });
+      listed.push(unplaced(operation, "not_text"));
       continue;
     }
     if (operation >= PLAN_LIMITS.operationsMax) {
-      listed.push({ operation, reason: "too_large" });
-      continue;
-    }
-    if (!validAfter(edit)) {
-      listed.push({ operation, reason: "invalid_after" });
+      listed.push(unplaced(operation, "too_large"));
       continue;
     }
     const result = index.locate(edit);
     if (!result.ok) {
-      listed.push({ operation, reason: result.reason });
+      const known = result.covered !== null;
+      const destinations = known ? linksAroundAll(result.covered ?? [], links) : [];
+      listed.push({ operation, reason: result.reason, destinations, destinationsKnown: known });
       continue;
     }
     const { located } = result;
     const node = located.node;
-    const destinations = linksAround(node, pageUrl);
+    const destinations = linksAroundAll(result.covered, links);
+    const unmapped = (reason: PlannedListed["reason"]) =>
+      listed.push({ operation, reason, destinations, destinationsKnown: true });
+    if (!validAfter(edit)) {
+      unmapped("invalid_after");
+      continue;
+    }
     if (closest(node, isDiagram)) {
-      listed.push({ operation, reason: "diagram", destinations });
+      unmapped("diagram");
       continue;
     }
     const blockElement = closest(
       node,
       (each) => isElement(each) && attribute(each, "data-pf-block") !== null,
     );
-    const blockId =
-      blockElement && isElement(blockElement) ? attribute(blockElement, "data-pf-block") : null;
+    const blockId = blockElement ? attribute(blockElement as P5Element, "data-pf-block") : null;
     const block = input.page.blocks.find((each) => each.id === blockId);
     if (!block) {
-      listed.push({ operation, reason: "spans_blocks", destinations });
+      unmapped("spans_blocks");
       continue;
     }
     const range = mapToSource(source, block, node.value, located);
     if (!range) {
-      listed.push({ operation, reason: "not_found", destinations });
+      unmapped("not_found");
       continue;
     }
     const context = PLAN_LIMITS.proofContextUnits;
@@ -176,7 +182,7 @@ export async function planMarkdown(input: MarkdownPlanInput): Promise<PlannedFil
         shownAfter: located.inserted,
         nodeLeft: node.value.slice(Math.max(0, located.start - context), located.start),
         nodeRight: node.value.slice(located.end, located.end + context),
-        identity: identityOf(node, pageUrl),
+        identity: identityOf(node, links),
       },
     });
   }
@@ -192,14 +198,15 @@ export async function planMarkdown(input: MarkdownPlanInput): Promise<PlannedFil
       return { ...candidate, replacement, proof: { ...candidate.proof, after: replacement } };
     });
     const next = applyPatches(source, written);
-    if (!onlyApprovedBytes(source, next, written)) break;
+    // The block map records the source's hash; it is filled in once sizes are checked.
     const files = input.renderer.stored("markdown", next, {
       title: input.title,
-      sourceSha256: await sha256Hex(next),
+      sourceSha256: PENDING_SHA256,
     });
     work.renders++;
     const rebuilt: ParsedHtml = parseHtml((files[0] as { text: string }).text, work);
     if (
+      onlyApprovedBytes(source, next, written) &&
       onlyChangedText(
         base.document,
         rebuilt.document,
@@ -216,13 +223,6 @@ export async function planMarkdown(input: MarkdownPlanInput): Promise<PlannedFil
       };
     }
   }
-  for (const candidate of kept) {
-    listed.push({
-      operation: candidate.operation,
-      reason: "would_change_page",
-      destinations: candidate.destinations,
-      proof: candidate.proof,
-    });
-  }
+  for (const candidate of kept) listed.push(listedPatch(candidate, "would_change_page"));
   return { applied: [], listed: byOperation(listed), work };
 }

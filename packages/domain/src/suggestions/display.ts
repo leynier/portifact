@@ -5,7 +5,7 @@
 // text `⟦U+202E⟧` can never look like the real character). The viewer draws a character token as
 // a chip and each field in its own direction isolate; the string form is what the confirmation's
 // lines, the change list and the agent's copy use. Hosts are shown in their ASCII form.
-import { type Destination, PLAN_LIMITS } from "@portifact/contracts";
+import type { Destination } from "@portifact/contracts";
 
 export type DisplayToken = { kind: "text"; value: string } | { kind: "char"; codePoint: number };
 
@@ -45,24 +45,42 @@ export function inspect(text: string): string[] {
   return Array.from(text, (char) => `U+${hex(char.codePointAt(0) as number)}`);
 }
 
+/** Where an attribute's value sits in a stored file. */
+export type DestinationAt = Destination["at"];
+
 /**
  * A link destination as the person sees it: the effective absolute URL, resolved against the
- * page's own URL on the artifact origin (the URL parser writes the host in ASCII, so a look-alike
- * Unicode host shows as `xn--…`), next to the spelling in the source, each bounded.
+ * page's base URL (the URL parser writes the host in ASCII, so a look-alike Unicode host shows as
+ * `xn--…`), next to the spelling in the source, both whole. `resolved` is false when there is no
+ * base to resolve against or the URL parser refuses the value.
  */
-export function destination(authored: string, pageUrl: string): Destination {
-  let effective: string;
-  try {
-    effective = new URL(authored, pageUrl).href;
-  } catch {
-    effective = "";
+export function destination(authored: string, base: string | null, at: DestinationAt): Destination {
+  let effective = "";
+  let resolved = base !== null;
+  if (base !== null) {
+    try {
+      effective = new URL(authored, base).href;
+    } catch {
+      resolved = false;
+    }
   }
-  const max = PLAN_LIMITS.destinationUnits;
+  return { authored, effective, resolved, authoredOmitted: 0, effectiveOmitted: 0, at };
+}
+
+/** A destination shortened to `max` units on each value, the omission marked. */
+export function shortenDestination(link: Destination, max: number): Destination {
+  const cut = (value: string, omitted: number) => ({
+    value: value.slice(0, max),
+    omitted: omitted + Math.max(0, value.length - max),
+  });
+  const authored = cut(link.authored, link.authoredOmitted);
+  const effective = cut(link.effective, link.effectiveOmitted);
   return {
-    authored: authored.slice(0, max),
-    effective: effective.slice(0, max),
-    authoredOmitted: Math.max(0, authored.length - max),
-    effectiveOmitted: Math.max(0, effective.length - max),
+    ...link,
+    authored: authored.value,
+    authoredOmitted: authored.omitted,
+    effective: effective.value,
+    effectiveOmitted: effective.omitted,
   };
 }
 

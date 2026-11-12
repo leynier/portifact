@@ -125,7 +125,8 @@ export async function bindingFor(
     artifactId: "k7d2qm4xab",
     versionId: "ver_1",
     path: kind === "html" ? "index.html" : kind === "text" ? "notes.txt" : "index.md",
-    fileSha256: await sha256(source),
+    route: null,
+    fileSha256: overrides.fileSha256 ?? (await sha256(source)),
     renderer: RENDERER.label,
     subject: "th_1",
     revision: 1,
@@ -149,7 +150,7 @@ export async function plan(
   const path = kind === "html" ? "index.html" : "index.md";
   return buildPlan({
     binding: await bindingFor(kind, source, options.binding),
-    provenance: PEOPLE,
+    people: { submitter: true, acceptor: true },
     kind,
     source,
     operations: operations.map((each) => ("kind" in each ? each : textOperation(each, path))),

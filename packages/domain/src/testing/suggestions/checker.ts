@@ -33,7 +33,38 @@ function sameOutside(old: string, next: string, range: Range): boolean {
   );
 }
 
-/** Text nodes of the body at their DOM paths, in document order. */
+/**
+ * The approved range itself, constrained apart from the planner's claim: the two files' own
+ * difference (common prefix and suffix removed) must be about as long as the range and its
+ * replacement (an insertion or deletion inside repeated characters may slide, never grow), lie
+ * within that distance of the range, and, in HTML, hold no markup on either side.
+ */
+function rangeHolds(kind: FileKind, old: string, next: string, range: Range): boolean {
+  let prefix = 0;
+  const shortest = Math.min(old.length, next.length);
+  while (prefix < shortest && old[prefix] === next[prefix]) prefix++;
+  let suffix = 0;
+  while (
+    suffix < shortest - prefix &&
+    old[old.length - 1 - suffix] === next[next.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+  const oldPart = old.slice(prefix, old.length - suffix);
+  const newPart = next.slice(prefix, next.length - suffix);
+  const width = range.end - range.start;
+  const reach = Math.max(oldPart.length, newPart.length);
+  return (
+    width <= oldPart.length + 16 &&
+    range.replacement.length <= newPart.length + 16 &&
+    range.start - reach <= prefix &&
+    old.length - suffix <= range.end + reach &&
+    // In HTML text, `<` and `>` are always written as references; elsewhere they are text.
+    (kind !== "html" || (!/[<>]/.test(oldPart) && !/[<>]/.test(newPart)))
+  );
+}
+
+/** Text nodes of the whole document, head included, at their DOM paths, in document order. */
 function witness(body: Node): Map<string, string> {
   const found = new Map<string, string>();
   const visit = (node: Node, path: string) => {
@@ -43,7 +74,7 @@ function witness(body: Node): Map<string, string> {
       else visit(child, here);
     });
   };
-  visit(body, "body");
+  visit(body, "html");
   return found;
 }
 
@@ -91,7 +122,7 @@ function locate(body: Element, edit: TextEdit): { path: string; offset: number }
       else visit(child, at);
     });
   };
-  visit(body, "body");
+  visit(body.parentNode as unknown as Node, "html");
   return path === null ? null : { path, offset: found.range.start.offset };
 }
 
@@ -108,13 +139,15 @@ export async function check(
   range: Range,
 ): Promise<string | null> {
   if (!sameOutside(oldSource, newSource, range)) return "bytes outside the approved range";
+  if (!rangeHolds(kind, oldSource, newSource, range)) return "the approved range is not the change";
   const oldPage = await pageOf(kind, oldSource);
   const newPage = await pageOf(kind, newSource);
   if (ids(oldPage).join("\n") !== ids(newPage).join("\n")) return "an ID or a reference changed";
   if (markup(oldPage) !== markup(newPage)) return "the markup changed";
-  const oldBody = parseDocument(oldPage).body;
-  const before = witness(oldBody);
-  const after = witness(parseDocument(newPage).body);
+  const oldDocument = parseDocument(oldPage);
+  const oldBody = oldDocument.body;
+  const before = witness(oldDocument.documentElement as unknown as Node);
+  const after = witness(parseDocument(newPage).documentElement as unknown as Node);
   if ([...before.keys()].join("\n") !== [...after.keys()].join("\n")) return "text nodes moved";
   const at = locate(oldBody, edit);
   if (!at) return "the checker could not place the edit";

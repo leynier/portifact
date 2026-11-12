@@ -7,6 +7,7 @@ import {
   ChangeItemView,
   ConfirmPlan,
   checkStyle,
+  DELETED_ACCOUNT,
   DRAFT_LIMITS,
   DraftEdit,
   EDIT_LIMITS,
@@ -18,6 +19,7 @@ import {
   Proof,
   REFUSAL_MESSAGES,
   REFUSAL_REASONS,
+  ShownEnvelope,
   STYLE_PROPERTIES,
   SUGGESTIONS_SWITCH,
   Token,
@@ -304,14 +306,27 @@ const envelope = {
     path: "index.md",
     fileSha256: "0".repeat(64),
     renderer: "portifact-render@3",
+    route: null,
     subject: "th_1",
     revision: 1,
   },
-  provenance: { submittedBy: "Reviewer", acceptedBy: "Owner" },
+  people: { submitter: true, acceptor: false },
   location: { unit: "utf16", start: 0, end: 1, line: 1, column: 1 },
   context: { before: "", after: " c", omittedBefore: 0, omittedAfter: 0 },
-  destinations: [],
+  destinations: [
+    {
+      authored: "/pay",
+      effective: "https://k7d2qm4xab.portifact.dev/pay",
+      resolved: true,
+      authoredOmitted: 0,
+      effectiveOmitted: 0,
+      at: { file: "source", start: 10, end: 20 },
+    },
+  ],
+  destinationsKnown: true,
 };
+
+const shown = { ...envelope, provenance: { submittedBy: "Reviewer", acceptedBy: DELETED_ACCOUNT } };
 
 const item = {
   id: "ci_1",
@@ -321,7 +336,7 @@ const item = {
   versionId: "ver_1",
   path: "index.md",
   route: null,
-  envelope,
+  envelope: shown,
   reason: "whitespace",
   state: "open",
   createdAt: 1,
@@ -331,6 +346,17 @@ const item = {
 };
 
 describe("shapes released clients parse", () => {
+  it("keep names out of the canonical envelope and in the shown one", () => {
+    expect(Envelope.parse({ ...shown })).toEqual(envelope);
+    expect(ShownEnvelope.parse(shown).provenance.acceptedBy).toBe("a deleted account");
+    expect(ShownEnvelope.safeParse(envelope).success).toBe(false);
+    expect(
+      Envelope.safeParse({ ...envelope, binding: { ...envelope.binding, route: undefined } })
+        .success,
+    ).toBe(false);
+    expect(Envelope.safeParse({ ...envelope, destinationsKnown: undefined }).success).toBe(false);
+  });
+
   it("parse a change item, and tolerate states, reasons, fields and envelope formats added later", () => {
     expect(ChangeItemView.parse(item)).toEqual(item);
     const later = {

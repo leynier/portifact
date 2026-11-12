@@ -83,11 +83,47 @@ describe("the checker catches wrong results", () => {
     ).toBeNull();
     expect(
       await check("text", text, "one two\nthree", change, { start: 4, end: 7, replacement: "two" }),
-    ).toMatch(/^text changed|^the selection/);
+    ).toMatch(/^text changed|^the selection|^the approved range/);
     const md = "One.\n\nTwo.";
     const across = await edit("markdown", md, "One.", "One");
     expect(
       await check("markdown", md, "One\n\nTwo.", across, { start: 3, end: 6, replacement: "\n\n" }),
     ).not.toBeNull();
+  });
+});
+
+describe("the checker reads the whole document and the range itself (review of #252, 14)", () => {
+  it("refuses a title changed under a widened range", async () => {
+    const old =
+      "<!doctype html><html><head><title>Old</title></head><body><p>cat</p></body></html>";
+    const next = old.replace("Old", "New").replace("cat", "dog");
+    const change = { ...(await edit("html", old, "cat", "dog")) };
+    expect(
+      await check("html", old, next, change, { start: 0, end: old.length, replacement: next }),
+    ).not.toBeNull();
+    // Even when the range is narrowed to the text, the head's text is compared.
+    const at = old.indexOf("cat");
+    const titleOnly = old.replace("Old", "New");
+    expect(
+      await check("html", old, titleOnly, change, { start: at, end: at, replacement: "" }),
+    ).not.toBeNull();
+  });
+
+  it("refuses a range wider than the change, and markup inside it", async () => {
+    const old =
+      "<!doctype html><html><head><title>t</title></head><body><p>cat sat</p></body></html>";
+    const change = await edit("html", old, "cat", "dog");
+    const at = old.indexOf("cat sat");
+    const next = old.replace("cat", "dog");
+    expect(
+      await check("html", old, next, change, { start: at, end: at + 3, replacement: "dog" }),
+    ).toBeNull();
+    expect(
+      await check("html", old, next, change, {
+        start: at - 40,
+        end: at + 3,
+        replacement: old.slice(at - 40, at) + "dog",
+      }),
+    ).toBe("the approved range is not the change");
   });
 });

@@ -188,7 +188,9 @@ describe("the Markdown planner", () => {
       await resolve("markdown", source, { start: 0, end: 5, before: "Hello", after: "a\n\n# b" }),
     ).toEqual({ status: "uncertain", reason: "invalid_after" });
     const planned = await planOne("markdown", source, [null]);
-    expect(planned.listed).toEqual([{ operation: 0, reason: "not_text" }]);
+    expect(planned.listed).toEqual([
+      { operation: 0, reason: "not_text", destinations: [], destinationsKnown: false },
+    ]);
   });
 
   it("refuses text the block map does not cover and text it cannot find once", async () => {
@@ -213,7 +215,7 @@ describe("the Markdown planner", () => {
       work,
     );
     expect(big.listed.map((item) => item.reason)).toEqual(["too_large", "not_text"]);
-    expect(work).toEqual({ parses: 0, renders: 0, indexes: 0, maps: 0 });
+    expect(work).toEqual({ parses: 0, renders: 0, indexes: 0, maps: 0, decodes: 0 });
     const source = "alpha";
     const one = await edit("markdown", source, "alpha", "beta");
     const many = await planOne(

@@ -35,8 +35,8 @@ export const DRAFT_LIMITS = {
 export const PLAN_LIMITS = {
   /** Operations one plan takes; the rest are listed as `too_large`. */
   operationsMax: 100,
-  /** Largest Markdown or text source a plan parses, in UTF-16 units (2 MB of ASCII). */
-  documentUnits: 2_000_000,
+  /** Largest Markdown or text file a plan reads, in UTF-8 bytes of the stored file (2 MB). */
+  documentBytes: 2_000_000,
   /** Largest HTML file a plan parses, in UTF-8 bytes, and its largest node count. */
   htmlBytes: 1_048_576,
   htmlNodes: 50_000,
@@ -47,8 +47,16 @@ export const PLAN_LIMITS = {
   contextUnits: 120,
   /** Node-local context persisted with a proof, in UTF-16 units. */
   proofContextUnits: 32,
-  /** Longest link destination shown before an omission marker, in UTF-16 units. */
-  destinationUnits: 512,
+  /** One persisted proof, serialized, in UTF-8 bytes (the change item's column allows this). */
+  proofBytes: 16 * 1024,
+  /** Attribute values longer than this are recorded in a proof's identity by their SHA-256. */
+  identityValueUnits: 64,
+  /**
+   * A link destination is kept whole; only when an envelope would be over its limit are its
+   * destinations shortened to this many units, with the omission marked and the attribute's
+   * place in the stored file kept so the whole value can be read there.
+   */
+  destinationUnits: 1_024,
   /** How long a built plan is cached by its digest. */
   cacheMinutes: 10,
 } as const;
@@ -377,18 +385,30 @@ export const PlanBinding = z.object({
   fileSha256: Sha256,
   /** The renderer the plan verified as reproducing the stored rendering. */
   renderer: z.string().min(1).max(64),
+  /** The SPA route of the page every operation targets, or null for none. */
+  route: z.string().max(2_048).nullable(),
   /** The suggestion (thread ID) or the draft (`draft:<user>`) and its revision. */
   subject: z.string().min(1).max(128),
   revision: z.number().int().nonnegative(),
 });
 export type PlanBinding = z.infer<typeof PlanBinding>;
 
-/** Who suggested and who accepts: display names, or "a deleted account". */
+/**
+ * Whether each person of an envelope is known: the canonical envelope holds no names (they are
+ * account references kept beside it, which account erasure clears), only whether there is one.
+ */
+export const EnvelopePeople = z.object({ submitter: z.boolean(), acceptor: z.boolean() });
+export type EnvelopePeople = z.infer<typeof EnvelopePeople>;
+
+/** What a shown or exported envelope names: display names, or `DELETED_ACCOUNT`. */
 export const Provenance = z.object({
   submittedBy: z.string().max(256),
   acceptedBy: z.string().max(256),
 });
 export type Provenance = z.infer<typeof Provenance>;
+
+/** The name shown for a person whose account is gone. */
+export const DELETED_ACCOUNT = "a deleted account";
 
 /** A rendered block and the UTF-16 range of the source it came from (the stored block map). */
 export interface RenderedBlock {
@@ -435,12 +455,25 @@ export const PlanOutput = z.object({
 });
 export type PlanOutput = z.infer<typeof PlanOutput>;
 
-/** A link around a change: its spelling in the source and where it really goes. */
+/**
+ * A link around or inside a change: its spelling and where it really goes (resolved against the
+ * page's URL and its `base`). `resolved` is false when the effective URL could not be determined.
+ * `at` is where the authored value sits in a stored file (`source` for an HTML page, `rendered`
+ * for a document's stored page), so a shortened value can be read whole there.
+ */
 export const Destination = z.object({
   authored: z.string(),
   effective: z.string(),
+  resolved: z.boolean(),
   authoredOmitted: z.number().int().nonnegative(),
   effectiveOmitted: z.number().int().nonnegative(),
+  at: z
+    .object({
+      file: z.enum(["source", "rendered"]),
+      start: z.number().int().nonnegative(),
+      end: z.number().int().nonnegative(),
+    })
+    .nullable(),
 });
 export type Destination = z.infer<typeof Destination>;
 
@@ -488,9 +521,12 @@ export const EnvelopeOperation = z.discriminatedUnion("kind", [
 export type EnvelopeOperation = z.infer<typeof EnvelopeOperation>;
 
 /**
- * The canonical envelope of one operation (decision 0027, "The envelope"): what the owner is
- * shown and, unchanged, what the agent receives. Never the reviewer's note, anchor context,
- * selectors, fingerprints or proof data.
+ * The canonical envelope of one operation (decision 0027, "The envelope"): stored immutably with
+ * a change item and covered by the plan's digest. Never the reviewer's note, anchor context,
+ * selectors, fingerprints, proof data or a person's name. `location` is resolved only when proven
+ * from the selected text through its source map; `context` is given only with it.
+ * `destinationsKnown` is false when the selection could not be placed on the page, so its links
+ * are not known.
  */
 export const Envelope = z.object({
   format: z.literal(1),
@@ -498,12 +534,17 @@ export const Envelope = z.object({
   reason: Token.nullable(),
   operation: EnvelopeOperation,
   binding: PlanBinding,
-  provenance: Provenance,
+  people: EnvelopePeople,
   location: EnvelopeLocation,
   context: EnvelopeContext.nullable(),
   destinations: z.array(Destination),
+  destinationsKnown: z.boolean(),
 });
 export type Envelope = z.infer<typeof Envelope>;
+
+/** An envelope as it is shown and exported: the canonical one with its people's current names. */
+export const ShownEnvelope = Envelope.extend({ provenance: Provenance });
+export type ShownEnvelope = z.infer<typeof ShownEnvelope>;
 
 /** The plan's contents: everything its digest covers. */
 export const PlanContents = z.object({
@@ -561,6 +602,7 @@ export const CARRY_OUTDATED_REASONS = [
   "not_on_page",
   "target_changed",
   "marker_in_source",
+  "not_eligible",
   "not_planned",
 ] as const;
 export type CarryOutdatedReason = (typeof CARRY_OUTDATED_REASONS)[number];
@@ -577,7 +619,7 @@ export const ChangeItemView = z.object({
   versionId: z.string(),
   path: z.string(),
   route: z.string().nullable(),
-  envelope: z.union([Envelope, LaterEnvelope]),
+  envelope: z.union([ShownEnvelope, LaterEnvelope]),
   reason: Token.nullable(),
   state: Token,
   createdAt: z.number().int(),

@@ -246,6 +246,7 @@ describe("second review", () => {
     if (!proof) throw new Error("not planned");
     const [result] = carryAll("markdown", old, next, [{ edit: change, proof }], {
       renderer: RENDERER,
+      otherFilesUnchanged: false,
       title: TITLE,
       pageUrl: DOC_URL,
     });

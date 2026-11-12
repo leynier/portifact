@@ -281,8 +281,14 @@ describe("the HTML planner on parse5", () => {
     );
     expect(big.listed.map((item) => item.reason)).toEqual(["too_large", "not_text"]);
     expect(work.parses).toBe(0);
-    const scripted = await planOne("html", page("<script>1</script>"), [alpha, null]);
+    const scriptedPage = page("<p>alpha</p><script>1</script>");
+    const scripted = await planOne("html", scriptedPage, [
+      await edit("html", scriptedPage, "alpha", "beta"),
+      null,
+    ]);
     expect(scripted.listed.map((item) => item.reason)).toEqual(["not_eligible", "not_text"]);
+    // Located on a page outside the subset: its place in the file is proven all the same.
+    expect(scripted.listed[0]?.proof).toMatchObject({ shownBefore: "alph", shownAfter: "bet" });
   });
 
   it("refuses a combined result whose page would change, applying none of it", async () => {

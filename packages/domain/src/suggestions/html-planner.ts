@@ -1,9 +1,11 @@
-// The HTML planner of decision 0027, on parse5. A page qualifies only when its file is in the
-// eligible subset (`html-subset.ts`). The file is parsed once per plan: one tree, one anchor
-// index. Each operation is located through the anchors, must sit in one text node with its exact
-// whitespace, and is mapped to the file through that node's source location: literal characters
-// one to one, CRLF to one line feed, and each complete character reference (`&amp;`, `&#38;`) to
-// what it decodes to; a change whose ends fall inside a reference is refused. All certain
+// The HTML planner of decision 0027, on parse5. The file is parsed once per plan: one tree, one
+// anchor index. Each operation is located through the anchors and its links collected across the
+// whole selection, whatever happens next. It must sit in one text node with its exact whitespace,
+// and is mapped to the file through that node's source location (one map per node and plan):
+// literal characters one to one, CRLF to one line feed, and each complete character reference
+// (`&amp;`, `&#38;`) to what it decodes to; a change whose ends fall inside a reference is refused.
+// Only a mapped operation has a proven place in the file. A page outside the eligible subset
+// (`html-subset.ts`) lists every operation, mapped ones with their place. All certain
 // operations are applied together from the end of the file, the result is parsed once, and it must
 // be in the subset with the same skeleton, the same text nodes but the changed ones, and the same
 // bytes outside the approved ranges.
@@ -12,15 +14,17 @@ import { parseFragment } from "parse5";
 import { type TextEdit, validAfter } from "./edit.ts";
 import { find, type P5Element, type P5Text, parseHtml } from "./html-dom.ts";
 import { subsetRefusal } from "./html-subset.ts";
-import { identityOf, linksAround } from "./identity.ts";
+import { identityOf, linkContext, linksAroundAll } from "./identity.ts";
 import { type Located, onlyChangedText, PageIndex } from "./locate.ts";
 import {
   applyPatches,
   byOperation,
+  listedPatch,
   onlyApprovedBytes,
   type PlannedFile,
   type PlannedListed,
   type PlannedPatch,
+  unplaced,
   withoutOverlaps,
 } from "./planned.ts";
 import { newWork, type Work } from "./work.ts";
@@ -48,10 +52,11 @@ interface SourceMap {
 
 const REFERENCE = /^&(?:#[0-9]{1,8}|#x[0-9a-f]{1,8}|[a-z][a-z0-9]{0,31});/i;
 
-/** Decodes one complete character reference, cached for the plan. */
-function decodeReference(reference: string, cache: Map<string, string>): string {
+/** Decodes one complete character reference, once per distinct reference and plan. */
+function decodeReference(reference: string, cache: Map<string, string>, work: Work): string {
   const cached = cache.get(reference);
   if (cached !== undefined) return cached;
+  work.decodes++;
   const paragraph = parseFragment(`<p>${reference}</p>`).childNodes[0] as P5Element;
   const value = (paragraph.childNodes[0] as P5Text | undefined)?.value ?? "";
   cache.set(reference, value);
@@ -59,7 +64,13 @@ function decodeReference(reference: string, cache: Map<string, string>): string 
 }
 
 /** Maps a text node's value to the file, or null when the source cannot be read one to one. */
-function mapNode(html: string, node: P5Text, cache: Map<string, string>): SourceMap | null {
+function mapNode(
+  html: string,
+  node: P5Text,
+  cache: Map<string, string>,
+  work: Work,
+): SourceMap | null {
+  work.maps++;
   const location = node.sourceCodeLocation;
   if (!location) return null;
   const map: SourceMap = { rawStart: [], rawEnd: [], boundary: [] };
@@ -73,7 +84,7 @@ function mapNode(html: string, node: P5Text, cache: Map<string, string>): Source
     const reference = char === "&" ? REFERENCE.exec(html.slice(at, Math.min(end, at + 42))) : null;
     if (reference) {
       raw = reference[0].length;
-      value = decodeReference(reference[0], cache);
+      value = decodeReference(reference[0], cache, work);
     } else if (char === "\r") {
       raw = html[at + 1] === "\n" ? 2 : 1;
       value = "\n";
@@ -90,10 +101,10 @@ function mapNode(html: string, node: P5Text, cache: Map<string, string>): Source
   return decoded === node.value ? map : null;
 }
 
-/** The page URL a stored HTML file is served at, for link destinations. */
 export interface HtmlPlanInput {
   html: string;
   edits: readonly (TextEdit | null)[];
+  /** The URL the page is served at, for link destinations. */
   pageUrl: string;
   work?: Work;
 }
@@ -104,46 +115,53 @@ export function planHtml(input: HtmlPlanInput): PlannedFile {
   const listed: PlannedListed[] = [];
   const all = (reason: PlannedListed["reason"]): PlannedFile => ({
     applied: [],
-    listed: edits.map((edit, operation) => ({
-      operation,
-      reason: edit === null ? "not_text" : reason,
-    })),
+    listed: edits.map((edit, operation) =>
+      unplaced(operation, edit === null ? "not_text" : reason),
+    ),
     work,
   });
   // Over the size limit, nothing is parsed at all.
   if (new TextEncoder().encode(html).length > PLAN_LIMITS.htmlBytes) return all("too_large");
   const parsed = parseHtml(html, work);
   const refused = subsetRefusal(html, parsed);
-  const body = find(parsed.document, "body");
-  if (refused || !body) return all(refused === "too_large" ? "too_large" : "not_eligible");
+  // The parser always adds a body.
+  const body = find(parsed.document, "body") as P5Element;
+  const links = linkContext(parsed.document, pageUrl, "source");
   const index = new PageIndex(body, work);
-  const cache = new Map<string, string>();
+  const decodes = new Map<string, string>();
+  const maps = new Map<P5Text, SourceMap | null>();
+  const mapOf = (node: P5Text) => {
+    if (!maps.has(node)) maps.set(node, mapNode(html, node, decodes, work));
+    return maps.get(node) ?? null;
+  };
   const found: (PlannedPatch & { located: Located })[] = [];
   for (const [operation, edit] of edits.entries()) {
     if (edit === null) {
-      listed.push({ operation, reason: "not_text" });
+      listed.push(unplaced(operation, "not_text"));
       continue;
     }
     if (operation >= PLAN_LIMITS.operationsMax) {
-      listed.push({ operation, reason: "too_large" });
-      continue;
-    }
-    if (!validAfter(edit)) {
-      listed.push({ operation, reason: "invalid_after" });
+      listed.push(unplaced(operation, "too_large"));
       continue;
     }
     const result = index.locate(edit);
     if (!result.ok) {
-      listed.push({ operation, reason: result.reason });
+      const known = result.covered !== null;
+      const destinations = known ? linksAroundAll(result.covered ?? [], links) : [];
+      listed.push({ operation, reason: result.reason, destinations, destinationsKnown: known });
       continue;
     }
     const { located } = result;
     const node = located.node;
-    const destinations = linksAround(node, pageUrl);
-    const map = mapNode(html, node, cache);
+    const destinations = linksAroundAll(result.covered, links);
+    if (!validAfter(edit)) {
+      listed.push({ operation, reason: "invalid_after", destinations, destinationsKnown: true });
+      continue;
+    }
+    const map = mapOf(node);
     const at = (unit: number) => unit === node.value.length || (map?.boundary[unit] ?? false);
     if (!map || !at(located.start) || !at(located.end)) {
-      listed.push({ operation, reason: "entity", destinations });
+      listed.push({ operation, reason: "entity", destinations, destinationsKnown: true });
       continue;
     }
     const nodeEnd = node.sourceCodeLocation?.endOffset ?? 0;
@@ -152,7 +170,7 @@ export function planHtml(input: HtmlPlanInput): PlannedFile {
     const end = located.end > located.start ? (map.rawEnd[located.end - 1] as number) : start;
     const replacement = escapeHtml(located.inserted);
     const context = PLAN_LIMITS.proofContextUnits;
-    found.push({
+    const patch = {
       operation,
       start,
       end,
@@ -160,7 +178,7 @@ export function planHtml(input: HtmlPlanInput): PlannedFile {
       destinations,
       located,
       proof: {
-        unit: "utf16",
+        unit: "utf16" as const,
         start,
         end,
         before: html.slice(start, end),
@@ -169,32 +187,28 @@ export function planHtml(input: HtmlPlanInput): PlannedFile {
         shownAfter: located.inserted,
         nodeLeft: node.value.slice(Math.max(0, located.start - context), located.start),
         nodeRight: node.value.slice(located.end, located.end + context),
-        identity: identityOf(node, pageUrl),
+        identity: identityOf(node, links),
       },
-    });
+    };
+    if (refused)
+      listed.push(listedPatch(patch, refused === "too_large" ? "too_large" : "not_eligible"));
+    else found.push(patch);
   }
   const kept = withoutOverlaps(found, listed);
   const strip = ({ located: _located, ...patch }: PlannedPatch & { located: Located }) => patch;
   if (kept.length === 0) return { applied: [], listed: byOperation(listed), work };
   const next = applyPatches(html, kept);
+  const rebuilt = parseHtml(next, work);
   const verified =
     onlyApprovedBytes(html, next, kept) &&
-    (() => {
-      const rebuilt = parseHtml(next, work);
-      return (
-        subsetRefusal(next, rebuilt) === null &&
-        onlyChangedText(
-          parsed.document,
-          rebuilt.document,
-          kept.map((item) => item.located),
-        )
-      );
-    })();
+    subsetRefusal(next, rebuilt) === null &&
+    onlyChangedText(
+      parsed.document,
+      rebuilt.document,
+      kept.map((item) => item.located),
+    );
   if (!verified) {
-    for (const item of kept) {
-      const { proof, destinations } = strip(item);
-      listed.push({ operation: item.operation, reason: "would_change_page", destinations, proof });
-    }
+    for (const item of kept) listed.push(listedPatch(strip(item), "would_change_page"));
     return { applied: [], listed: byOperation(listed), work };
   }
   return { applied: kept.map(strip), listed: byOperation(listed), source: next, work };

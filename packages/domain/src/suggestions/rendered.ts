@@ -4,7 +4,7 @@
 // scripts, Portifact's own chrome) is never one of them, so hidden syntax can never prove anything.
 import { type DocumentRenderer, type FileKind, PLAN_LIMITS } from "@portifact/contracts";
 import { find, type P5Element, parseHtml, shownTextNodes } from "./html-dom.ts";
-import { identityOf } from "./identity.ts";
+import { identityOf, linkContext } from "./identity.ts";
 import { PageIndex } from "./locate.ts";
 import type { Work } from "./work.ts";
 
@@ -45,10 +45,15 @@ export function renderedPage(kind: FileKind, source: string, options: PageOption
   const parsed = parseHtml(pageHtml(kind, source, options), work);
   // The parser always adds a body.
   const body = find(parsed.document, "body") as P5Element;
+  const links = linkContext(
+    parsed.document,
+    options.pageUrl,
+    kind === "html" ? "source" : "rendered",
+  );
   return {
     nodes: shownTextNodes(body).map((node) => ({
       data: node.value,
-      identity: identityOf(node, options.pageUrl),
+      identity: identityOf(node, links),
     })),
     anchored: kind !== "text",
     points: new PageIndex(body, work).points,

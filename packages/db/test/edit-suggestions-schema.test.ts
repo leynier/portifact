@@ -320,6 +320,29 @@ describe("change items", () => {
     await rejects(item("d9", { revision: 0 }), /change_items_revision/);
   });
 
+  it("refuses an unknown origin or state in SQL (review of #252)", async () => {
+    await rejects(item("bad1", { origin: "import" as never }), /change_items_origin/);
+    await rejects(item("bad2", { state: "superseded" as never }), /change_items_state/);
+    await item("ok1");
+    await rejects(
+      env.DB.prepare("update change_items set state = 'superseded' where id = 'ok1'").run(),
+      /change_items_state/,
+    );
+  });
+
+  it("keeps who suggested and who accepted beside the envelope, clearable", async () => {
+    await item("people", { createdBy: "u_owner", submittedBy: "u_reviewer" });
+    await db()
+      .update(schema.changeItems)
+      .set({ createdBy: null, submittedBy: null })
+      .where(eq(schema.changeItems.id, "people"));
+    const [row] = await db()
+      .select()
+      .from(schema.changeItems)
+      .where(eq(schema.changeItems.id, "people"));
+    expect(row).toMatchObject({ createdBy: null, submittedBy: null, envelope: '{"format":1}' });
+  });
+
   it("never changes an item's envelope, proof, artifact or origin", async () => {
     await item("m1");
     const set = (values: Partial<typeof schema.changeItems.$inferInsert>) =>
@@ -410,6 +433,24 @@ describe("drafts", () => {
     for (const id of ids) await draft(id);
     await rejects(draft("drafts0019"), /edit_drafts_limit/);
     await draft("drafts0019", "u_other");
+  });
+
+  it("saves a draft the person already has at the cap, and refuses only a new one (review of #252, 11)", async () => {
+    const ids = Array.from({ length: 20 }, (_, i) => `capped${String(i).padStart(4, "0")}`);
+    for (const id of ids.concat("capped0020")) {
+      await db().insert(schema.artifacts).values({ id, ownerId: OWNER, type: "text", name: id });
+    }
+    for (const id of ids) await draft(id);
+    await draft(ids[0] as string).onConflictDoUpdate({
+      target: [schema.editDrafts.artifactId, schema.editDrafts.userId],
+      set: { updatedAt: NOW + 1, revision: 2 },
+    });
+    const [saved] = await db()
+      .select({ revision: schema.editDrafts.revision })
+      .from(schema.editDrafts)
+      .where(eq(schema.editDrafts.artifactId, ids[0] as string));
+    expect(saved?.revision).toBe(2);
+    await rejects(draft("capped0020"), /edit_drafts_limit/);
   });
 
   it("checks the edit's bytes, at most 128 KiB, and goes with the artifact", async () => {

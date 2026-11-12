@@ -138,7 +138,7 @@ export function markAccountGone(db: Db, userId: string, condition: SQL, now: num
  * of a held artifact, which the hold's release job erases (`runHoldRelease`): who acted in
  * the lifecycle records (null) and in the comment actions, who wrote the "message deleted"
  * markers and the threads others replied to, and who resolved a thread (`ERASED_ACCOUNT`, or null), and its traces on edit suggestions
- * (decision 0027): who decided, accepted, closed or ran an acceptance (null), and its drafts.
+ * (decision 0027): who decided, suggested, accepted, closed or ran an acceptance (null), and its drafts.
  * Run once the account's comments are erased (`eraseAuthorFromThread`), so the markers left are
  * those others replied to. At most `limit` rows per statement; `more` while any statement was full.
  */
@@ -205,6 +205,15 @@ export async function eraseAccountTraces(
       .set({ createdBy: null })
       .where(
         sql`rowid in (select rowid from ${ci} where ${ci.createdBy} = ${userId} and not ${onHeld(sql`${ci.artifactId}`)} limit ${limit})`,
+      )
+      .returning({ id: ci.id }),
+    // The envelope names nobody: the item's references are its people, shown as "a deleted
+    // account" once cleared (review of #252, finding 3).
+    db
+      .update(ci)
+      .set({ submittedBy: null })
+      .where(
+        sql`rowid in (select rowid from ${ci} where ${ci.submittedBy} = ${userId} and not ${onHeld(sql`${ci.artifactId}`)} limit ${limit})`,
       )
       .returning({ id: ci.id }),
     db

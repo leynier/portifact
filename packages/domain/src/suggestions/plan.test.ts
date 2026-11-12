@@ -115,15 +115,18 @@ describe("the canonical envelope", () => {
           artifactId: "a",
           versionId: "v",
           path: "p",
+          route: null,
           fileSha256: "0".repeat(64),
           renderer: RENDERER.label,
           subject: "s",
           revision: 1,
         },
+        people: { submitter: true, acceptor: false },
         provenance: { submittedBy: "r", acceptedBy: "o" },
         location: { unresolved: true },
         context: null,
         destinations: [],
+        destinationsKnown: false,
       });
       for (const value of strings(operation)) expect(lines.join("\n")).toContain(value);
     }
@@ -145,8 +148,8 @@ describe("the canonical envelope", () => {
     const built = await plan("markdown", source, [
       await edit("markdown", source, "terms", "rules"),
     ]);
-    expect(built.lines).toContain(
-      "link to: https://xn--ggle-0nda.example/terms (written as https://xn--ggle-0nda.example/terms)",
+    expect(built.lines.join("\n")).toMatch(
+      /link to: https:\/\/xn--ggle-0nda\.example\/terms \(written as https:\/\/xn--ggle-0nda\.example\/terms, at rendered \d+ to \d+\)/,
     );
     const unicode = "Go [home](https://gооgle.example/) now.";
     const shown = (
@@ -177,14 +180,24 @@ describe("the canonical envelope", () => {
     expect(locationOf("\nb", 1, 2)).toMatchObject({ line: 2, column: 1 });
   });
 
-  it("leaves an operation it cannot place unresolved, and places one it finds once", async () => {
-    const html = "<!doctype html><p>a b a</p><script>1</script>";
+  it("places an operation only where it was mapped from the selected text", async () => {
+    const html = "<!doctype html><p>a <b>b</b> a</p><script>1</script>";
     const built = await plan("html", html, [
-      { start: 0, end: 1, before: "a", after: "x" },
-      { start: 2, end: 3, before: "b", after: "y" },
+      { start: 0, end: 3, before: "a b", after: "x" },
+      { start: 4, end: 5, before: "a", after: "y" },
     ]);
-    expect(built.listed[0]?.location).toEqual({ unresolved: true });
-    expect(built.listed[1]?.location).toMatchObject({ unit: "utf16" });
+    expect(built.listed[0]).toMatchObject({
+      reason: "spans_nodes",
+      location: { unresolved: true },
+      context: null,
+    });
+    expect(built.listed[1]).toMatchObject({
+      reason: "not_eligible",
+      location: { unit: "utf16", start: 29, end: 30 },
+    });
+    expect(built.lines.join("\n")).toContain(
+      "location: unresolved (the selected text could not be mapped to the file)",
+    );
   });
 
   it("refuses an envelope or a plan over its limit before hashing", async () => {
