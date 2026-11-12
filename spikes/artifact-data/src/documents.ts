@@ -1555,7 +1555,7 @@ export class ArtifactDocuments extends DurableObject<Env> {
   }
 
   /** Reconciliation's quarantine; nothing but the operator acts on the data until it is resolved. */
-  quarantine(envelope: Envelope, reason: "owner" | "hold"): boolean {
+  quarantine(envelope: Envelope, reason: "owner" | "hold" | "orphan" | "generation"): boolean {
     return this.ctx.storage.transactionSync(() => {
       const stored = this.#control();
       if (
