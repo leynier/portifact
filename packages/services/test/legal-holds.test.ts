@@ -5,7 +5,7 @@ import { env } from "cloudflare:test";
 import type { JobMessage } from "@portifact/contracts";
 import { accessSchema, createAccessDb, regionsFromEnv, schema } from "@portifact/db";
 import { HELD_MESSAGE } from "@portifact/domain";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { eraseAccessEvents, pruneAccessEvents } from "../src/access-log.ts";
 import {
@@ -16,6 +16,7 @@ import {
 import { createAnnotationThread } from "../src/annotations.ts";
 import { getArtifact } from "../src/artifacts.ts";
 import { applyTombstones } from "../src/backups.ts";
+import { eraseAccountTraces, historyHeld, pruneGoneHistory } from "../src/history-retention.ts";
 import {
   applyLegalHolds,
   exportLegalHolds,
@@ -26,6 +27,7 @@ import {
   placeLegalHold,
   releaseDueHolds,
   releaseLegalHold,
+  runHoldRelease,
 } from "../src/legal-holds.ts";
 import { deleteArtifact } from "../src/lifecycle.ts";
 import { archiveExpired, pruneVersions, purgeArchived } from "../src/maintenance.ts";
@@ -790,6 +792,15 @@ describe("a held artifact's evidence", () => {
       db().select({ body: m.body, state: m.state }).from(m).where(eq(m.authorId, commenter.id));
     expect((await words()).map((row) => row.body)).toEqual(["Evidence in this comment"]);
     expect(await verdicts()).toHaveLength(1);
+    // A restore that re-applies the deletion, with holds put back first, keeps them too.
+    await applyTombstones(
+      regions(),
+      [{ kind: "account", id: commenter.id, deletedAt: NOW }],
+      NOW + 2,
+    );
+    await advanceAccountDeletion(regions(), commenter.id, NOW + 2);
+    expect((await words()).map((row) => row.body)).toEqual(["Evidence in this comment"]);
+    expect(await verdicts()).toHaveLength(1);
     // Released: the job the release wrote erases what the deletion deferred, once.
     await releaseLegalHold(db(), { artifactId, now: NOW + 3 });
     const jobs = await db()
@@ -807,6 +818,139 @@ describe("a held artifact's evidence", () => {
       [],
     );
     expect(await verdicts()).toEqual([]);
+  });
+});
+
+describe("a held artifact's history", () => {
+  it("keeps its lifecycle, suspension and moderation records and a deleted actor's traces while held", async () => {
+    const owner = await user();
+    const actor = await user("Actor");
+    const held = await heldArtifact(owner.id);
+    // Records of the held artifact, from a year and more ago, and an actor who deleted their account.
+    const le = schema.lifecycleEvents;
+    await db()
+      .insert(le)
+      .values({
+        artifactId: held.artifactId,
+        actorId: actor.id,
+        channel: "web",
+        event: "renewed",
+        at: NOW - 400 * DAY,
+      });
+    await db()
+      .update(schema.suspensions)
+      .set({ targetGoneAt: NOW - 400 * DAY })
+      .where(eq(schema.suspensions.targetId, held.artifactId));
+    expect(
+      (
+        await db().all<{ held: number }>(
+          sql`select ${historyHeld(sql`${held.artifactId}`)} as held`,
+        )
+      )[0]?.held,
+    ).toBe(1);
+    expect(
+      (await db().all<{ held: number }>(sql`select ${historyHeld(sql`${owner.id}`)} as held`))[0]
+        ?.held,
+    ).toBe(1);
+    expect(
+      (
+        await db().all<{ held: number }>(sql`select ${historyHeld(sql`${"zzzzzzzzzz"}`)} as held`)
+      )[0]?.held,
+    ).toBe(0);
+    await pruneGoneHistory(db(), NOW);
+    expect(
+      await db()
+        .select()
+        .from(schema.suspensions)
+        .where(eq(schema.suspensions.targetId, held.artifactId)),
+    ).toHaveLength(1);
+    await eraseAccountTraces(db(), actor.id);
+    const [kept] = await db()
+      .select()
+      .from(le)
+      .where(and(eq(le.artifactId, held.artifactId), eq(le.event, "renewed")));
+    expect(kept?.actorId).toBe(actor.id);
+    // Released, the traces of an account deleted meanwhile go with the release job.
+    await db()
+      .global.insert(schema.tombstones)
+      .values({ kind: "account", id: actor.id, deletedAt: NOW });
+    await releaseLegalHold(db(), { artifactId: held.artifactId, now: NOW });
+    expect(await runHoldRelease(db(), undefined, held.artifactId, NOW)).toBe("done");
+    const [erased] = await db()
+      .select()
+      .from(le)
+      .where(and(eq(le.artifactId, held.artifactId), eq(le.event, "renewed")));
+    expect(erased?.actorId).toBeNull();
+  });
+
+  it("prunes the decisions, sends and released holds of something gone more than a year ago", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    value(
+      await suspendArtifact(db(), {
+        artifactId,
+        reason: "spam",
+        statement: { facts: "F", ground: "G", source: "review", withhold: false },
+        now: NOW - 500 * DAY,
+      }),
+    );
+    value(
+      await placeLegalHold(db(), {
+        artifactId,
+        ground: "Authority",
+        releaseAt: null,
+        now: NOW - 500 * DAY,
+      }),
+    );
+    const [decision] = await db()
+      .select()
+      .from(schema.moderationDecisions)
+      .where(eq(schema.moderationDecisions.targetId, artifactId));
+    await db()
+      .insert(schema.moderationNoticeSends)
+      .values({ decisionId: decision?.id ?? "", userId: owner.id, sentAt: NOW - 500 * DAY });
+    // Kept while held, even with the artifact gone.
+    await releaseLegalHold(db(), { artifactId, now: NOW - 450 * DAY });
+    await db()
+      .update(schema.legalHolds)
+      .set({ releasedAt: null })
+      .where(eq(schema.legalHolds.artifactId, artifactId));
+    await db()
+      .delete(schema.artifacts)
+      .where(eq(schema.artifacts.id, artifactId))
+      .catch(() => undefined);
+    await pruneGoneHistory(db(), NOW);
+    expect(
+      await db()
+        .select()
+        .from(schema.moderationDecisions)
+        .where(eq(schema.moderationDecisions.targetId, artifactId)),
+    ).toHaveLength(1);
+    // Released more than a year ago and the artifact gone: all of it goes.
+    await db()
+      .update(schema.legalHolds)
+      .set({ releasedAt: NOW - 450 * DAY })
+      .where(eq(schema.legalHolds.artifactId, artifactId));
+    await db().delete(schema.artifacts).where(eq(schema.artifacts.id, artifactId));
+    await pruneGoneHistory(db(), NOW);
+    expect(
+      await db()
+        .select()
+        .from(schema.moderationDecisions)
+        .where(eq(schema.moderationDecisions.targetId, artifactId)),
+    ).toEqual([]);
+    expect(
+      await db()
+        .select()
+        .from(schema.moderationNoticeSends)
+        .where(eq(schema.moderationNoticeSends.decisionId, decision?.id ?? "")),
+    ).toEqual([]);
+    expect(
+      await db()
+        .select()
+        .from(schema.legalHolds)
+        .where(eq(schema.legalHolds.artifactId, artifactId)),
+    ).toEqual([]);
   });
 });
 

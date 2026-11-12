@@ -1,4 +1,4 @@
-// The triggers that keep a held artifact (migration 0068, docs/operations.md, "Legal holds"). A
+// The triggers that keep a held artifact (migration 0074, docs/operations.md, "Legal holds"). A
 // migration that rebuilds `artifacts`, `versions` or `legal_holds` drops its triggers (AGENTS.md,
 // database rule): this test then fails.
 import { env } from "cloudflare:test";

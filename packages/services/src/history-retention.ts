@@ -21,12 +21,17 @@ export const HISTORY_CAPS = { artifacts: 90, rows: 500 } as const;
 const CURSOR = "gone_history";
 
 /**
- * Whether a record about `targetId` (an artifact or account ID) is under a hold that keeps it past
- * its retention. Nothing is held today: a legal hold, when one is built, answers here, and every
- * scan below already asks before it deletes.
+ * Whether a record about `targetId` (an artifact or account ID) is under a legal hold that keeps it
+ * past its retention (docs/operations.md, "Legal holds"): an open hold on the artifact, or on an
+ * artifact the account or workspace owns. Every scan below asks before it deletes.
  */
-export function historyHeld(_targetId: SQL): SQL {
-  return sql`0`;
+export function historyHeld(targetId: SQL): SQL {
+  return sql`exists (select 1 from "legal_holds" where ("legal_holds"."artifact_id" = ${targetId} or "legal_holds"."owner_id" = ${targetId}) and "legal_holds"."released_at" is null)`;
+}
+
+/** An open hold on the artifact a row names (a column given with its table). */
+function onHeld(artifactId: SQL): SQL {
+  return sql`exists (select 1 from "legal_holds" where "legal_holds"."artifact_id" = ${artifactId} and "legal_holds"."released_at" is null)`;
 }
 
 /**
@@ -56,6 +61,16 @@ export async function pruneGoneHistory(
   );
   const gone = page.filter((row) => !row.kept).map((row) => row.artifact_id);
   const ids = sql`select value from json_each(${JSON.stringify(gone)})`;
+  const d = schema.moderationDecisions;
+  const ns = schema.moderationNoticeSends;
+  const h = schema.legalHolds;
+  const a2 = sql`"artifacts"`;
+  // The operator's decisions go with what they are about: a year old, about an artifact or a brand
+  // no longer in this region or a suspension already pruned, and not held. Their sends follow.
+  const decisionGone = sql`case ${d.targetKind}
+    when 'artifact' then not exists (select 1 from ${a2} where "artifacts"."id" = ${d.targetId})
+    when 'brand' then not exists (select 1 from "owner_brands" where "owner_brands"."owner_id" = ${d.targetId})
+    else ${d.suspensionId} is null or not exists (select 1 from ${s} where ${s.id} = ${d.suspensionId}) end`;
   const [, suspensions] = await db.batch([
     db.delete(le).where(sql`${le.artifactId} in (${ids})`),
     db
@@ -64,6 +79,23 @@ export async function pruneGoneHistory(
         sql`rowid in (select rowid from ${s} where ${s.targetGoneAt} is not null and ${s.targetGoneAt} < ${cutoff} and not ${historyHeld(sql`${s.targetId}`)} limit ${caps.rows})`,
       )
       .returning({ id: s.id }),
+    db
+      .delete(d)
+      .where(
+        sql`rowid in (select rowid from ${d} where ${d.createdAt} < ${cutoff} and ${decisionGone} and not ${historyHeld(sql`${d.targetId}`)} limit ${caps.rows})`,
+      ),
+    db
+      .delete(ns)
+      .where(
+        sql`rowid in (select rowid from ${ns} where not exists (select 1 from ${d} where ${d.id} = ${ns.decisionId}) limit ${caps.rows})`,
+      ),
+    // A released hold's record stays a year after its release, then goes; it kept no address
+    // since the release.
+    db
+      .delete(h)
+      .where(
+        sql`rowid in (select rowid from ${h} where ${h.releasedAt} is not null and ${h.releasedAt} < ${cutoff} limit ${caps.rows})`,
+      ),
   ]);
   const last = page.at(-1);
   // A full page may have more after it; a short one ends the pass. Rows kept stay behind the
@@ -102,7 +134,8 @@ export function markAccountGone(db: Db, userId: string, condition: SQL, now: num
 }
 
 /**
- * Forgets a deleted account in the records that stay with other people's artifacts: who acted in
+ * Forgets a deleted account in the records that stay with other people's artifacts, except those
+ * of a held artifact, which the hold's release job erases (`runHoldRelease`): who acted in
  * the lifecycle records (null) and in the comment actions, who wrote the "message deleted"
  * markers and the threads others replied to, and who resolved a thread (`ERASED_ACCOUNT`, or null).
  * Run once the account's comments are erased (`eraseAuthorFromThread`), so the markers left are
@@ -121,34 +154,36 @@ export async function eraseAccountTraces(
     db
       .update(le)
       .set({ actorId: null })
-      .where(sql`rowid in (select rowid from ${le} where ${le.actorId} = ${userId} limit ${limit})`)
+      .where(
+        sql`rowid in (select rowid from ${le} where ${le.actorId} = ${userId} and not ${onHeld(sql`${le.artifactId}`)} limit ${limit})`,
+      )
       .returning({ id: le.id }),
     db
       .update(e)
       .set({ actorId: ERASED_ACCOUNT })
       .where(
-        sql`${e.id} in (select ${e.id} from ${e} where ${e.actorId} = ${userId} limit ${limit})`,
+        sql`${e.id} in (select ${e.id} from ${e} where ${e.actorId} = ${userId} and not ${onHeld(sql`${e.artifactId}`)} limit ${limit})`,
       )
       .returning({ id: e.id }),
     db
       .update(th)
       .set({ resolvedBy: null })
       .where(
-        sql`rowid in (select rowid from ${th} where ${th.resolvedBy} = ${userId} limit ${limit})`,
+        sql`rowid in (select rowid from ${th} where ${th.resolvedBy} = ${userId} and not ${onHeld(sql`${th.artifactId}`)} limit ${limit})`,
       )
       .returning({ id: th.id }),
     db
       .update(th)
       .set({ authorId: ERASED_ACCOUNT })
       .where(
-        sql`rowid in (select rowid from ${th} where ${th.authorId} = ${userId} limit ${limit})`,
+        sql`rowid in (select rowid from ${th} where ${th.authorId} = ${userId} and not ${onHeld(sql`${th.artifactId}`)} limit ${limit})`,
       )
       .returning({ id: th.id }),
     db
       .update(m)
       .set({ authorId: ERASED_ACCOUNT })
       .where(
-        sql`rowid in (select rowid from ${m} where ${m.authorId} = ${userId} and ${m.state} = 'deleted' limit ${limit})`,
+        sql`rowid in (select rowid from ${m} where ${m.authorId} = ${userId} and ${m.state} = 'deleted' and not exists (select 1 from ${th} join "legal_holds" on "legal_holds"."artifact_id" = ${th.artifactId} and "legal_holds"."released_at" is null where ${th.id} = ${m.threadId}) limit ${limit})`,
       )
       .returning({ id: m.id }),
   ])) as unknown[][];

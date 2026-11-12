@@ -20,6 +20,7 @@ import { TOOL_SCOPES } from "../src/mcp/tools.ts";
 import { pastHumanCheck } from "./api-client.ts";
 import { createHarness, type Harness } from "./harness.ts";
 import {
+  ALL_SCOPES,
   api,
   apiToken,
   callTool,
@@ -305,6 +306,69 @@ describe("API and MCP parity", () => {
     expect(fromTool(await b.tool("read_artifact", { artifactId: id })).body).toMatchObject({
       error: { code: "forbidden" },
     });
+  });
+
+  it("answer a held artifact's reads, comment history included, exactly as a suspended one's, to its owner and to a stranger", async () => {
+    const scope = `${ALL_SCOPES} annotations:read`;
+    const b = await both("parity-held-reads@example.test", scope);
+    const stranger = await both("parity-held-stranger@example.test", scope);
+    const publish = async (name: string) =>
+      (
+        fromTool(await b.tool("publish_document", { type: "text", name, content: name })).body as {
+          artifactId: string;
+        }
+      ).artifactId;
+    const held = await publish("Held");
+    const twin = await publish("Twin");
+    const db = regionsFromEnv(env).get("default").db;
+    for (const id of [held, twin]) {
+      await suspendArtifact(db, { artifactId: id, reason: "child_safety", now: NOW });
+    }
+    await placeLegalHold(db, { artifactId: held, ground: "Authority", releaseAt: null, now: NOW });
+    // What differs between two artifacts by construction: IDs, names, content hashes and sizes.
+    const normal = (text: string, id: string) =>
+      text
+        .replaceAll(id, "ID")
+        .replaceAll(/ver_[0-9a-f]{32}/g, "VER")
+        .replaceAll(/[0-9a-f]{64}/g, "SHA")
+        .replaceAll(/"name":"(Held|Twin)"/g, '"name":"N"');
+    const reads = async (who: typeof b, id: string) => {
+      const out: unknown[] = [];
+      // The reads `portifact export` makes for `records.json`, and the artifact's own view.
+      for (const path of [
+        "",
+        "/annotations/history",
+        "/versions",
+        "/annotations?version=current",
+        "/access",
+        "/share-links",
+        "/review/status",
+        "/stats",
+        "/annotations/export?format=json&version=current",
+      ]) {
+        const answer = await fromApi(await who.apiCall(`/api/v1/artifacts/${id}${path}`));
+        out.push(JSON.parse(normal(JSON.stringify(answer), id)));
+      }
+      out.push(
+        JSON.parse(
+          normal(
+            JSON.stringify(fromTool(await who.tool("get_comment_history", { artifactId: id }))),
+            id,
+          ),
+        ),
+      );
+      return out;
+    };
+    const ownerHeld = await reads(b, held);
+    expect(JSON.stringify(ownerHeld)).not.toMatch(/hold|legal|authorit/i);
+    // These reads tell its owner nothing more about a held artifact than about a suspended one.
+    expect(ownerHeld).toEqual(await reads(b, twin));
+    const strangerHeld = await reads(stranger, held);
+    expect(strangerHeld).toEqual(await reads(stranger, twin));
+    expect(strangerHeld).toEqual(await reads(stranger, "zzzzzzzzzz"));
+    expect(fromTool(await b.tool("get_comment_history", { artifactId: held })).body).toEqual(
+      (await fromApi(await b.apiCall(`/api/v1/artifacts/${held}/annotations/history`))).body,
+    );
   });
 
   it("refuses the same way: missing, another user's, stale base, archived and bad cursor", async () => {

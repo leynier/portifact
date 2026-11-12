@@ -19,6 +19,7 @@ import { checkHoldPlacement, fail, HELD_MESSAGE, ok, type Result } from "@portif
 import { and, asc, eq, inArray, isNotNull, isNull, lte, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAuthorFromThread } from "./annotations.ts";
+import { eraseAccountTraces } from "./history-retention.ts";
 import { suspendArtifact } from "./moderation.ts";
 
 const h = schema.legalHolds;
@@ -355,11 +356,24 @@ export async function runHoldRelease(
   const visitors = access
     ? await access.selectDistinct({ userId: e.userId }).from(e).where(eq(e.artifactId, artifactId))
     : [];
+  const le = schema.lifecycleEvents;
+  const ev = schema.annotationEvents;
+  const actors = [
+    ...(await db.selectDistinct({ id: le.actorId }).from(le).where(eq(le.artifactId, artifactId))),
+    ...(await db.selectDistinct({ id: ev.actorId }).from(ev).where(eq(ev.artifactId, artifactId))),
+    ...(await db
+      .selectDistinct({ id: th.resolvedBy })
+      .from(th)
+      .where(eq(th.artifactId, artifactId))),
+  ]
+    .map((row) => row.id)
+    .filter((id): id is string => typeof id === "string");
   const gone = await tombstonedAccounts(db.global, [
     ...new Set([
       ...authors.map((row) => row.authorId),
       ...reviewers.map((row) => row.authorId),
       ...visitors.map((row) => row.userId),
+      ...actors,
     ]),
   ]);
   if (gone.length === 0) return "done";
@@ -391,6 +405,11 @@ export async function runHoldRelease(
     if (access) {
       await access.delete(e).where(and(eq(e.artifactId, artifactId), inArray(e.userId, some)));
     }
+  }
+  // Their traces in the history the hold kept (who acted, the deleted markers), as their
+  // account's deletion would have done.
+  for (const userId of gone) {
+    if ((await eraseAccountTraces(db, userId)).more) return "pending";
   }
   return "done";
 }
