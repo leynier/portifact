@@ -5,7 +5,7 @@
 // text `⟦U+202E⟧` can never look like the real character). The viewer draws a character token as
 // a chip and each field in its own direction isolate; the string form is what the confirmation's
 // lines, the change list and the agent's copy use. Hosts are shown in their ASCII form.
-import type { Destination } from "@portifact/contracts";
+import { type Destination, UNPARSED_ORIGIN } from "@portifact/contracts";
 
 export type DisplayToken = { kind: "text"; value: string } | { kind: "char"; codePoint: number };
 
@@ -56,18 +56,22 @@ export type DestinationAt = Destination["at"];
  */
 export function destination(authored: string, base: string | null, at: DestinationAt): Destination {
   let effective = "";
-  let resolved = base !== null;
+  let origin = UNPARSED_ORIGIN;
   if (base !== null) {
     try {
-      effective = new URL(authored, base).href;
+      const url = new URL(authored, base);
+      effective = url.href;
+      // The scheme and host only: user information can never pass for the host.
+      origin = url.host ? `${url.protocol}//${url.host}` : url.protocol;
     } catch {
-      resolved = false;
+      effective = "";
     }
   }
-  return { authored, effective, resolved, authoredOmitted: 0, effectiveOmitted: 0, at };
+  const resolved = origin !== UNPARSED_ORIGIN;
+  return { origin, authored, effective, resolved, authoredOmitted: 0, effectiveOmitted: 0, at };
 }
 
-/** A destination shortened to `max` units on each value, the omission marked. */
+/** A destination shortened to `max` units on each value, the omission marked; never its origin. */
 export function shortenDestination(link: Destination, max: number): Destination {
   const cut = (value: string, omitted: number) => ({
     value: value.slice(0, max),

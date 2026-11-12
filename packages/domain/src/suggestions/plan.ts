@@ -42,6 +42,7 @@ import {
   type PlannedFile,
   type PlannedListed,
   type PlannedPatch,
+  settled,
   unplaced,
 } from "./planned.ts";
 import { buildPreview } from "./preview.ts";
@@ -188,6 +189,7 @@ function planFile(input: PlanInput, work: Work): PlannedFile {
       unplaced(operation, edit === null ? "not_text" : reason),
     ),
     work,
+    settle: settled,
   });
   if (utf8Length(input.source) > limitOf(input.kind)) return all("too_large");
   if (input.kind === "html") {
@@ -284,6 +286,8 @@ export async function buildPlan(input: PlanInput): Promise<BuiltPlan> {
   };
   // Every hash is 64 characters, so the pending output has the size the real one will have.
   if (contentsBytes(pending) > PLAN_LIMITS.planBytes) throw new PlanTooLargeError("plan");
+  // Only now is anything hashed: the proofs' identities, then the output and the digest.
+  planned.settle();
   const output =
     planned.source === undefined
       ? null
@@ -346,5 +350,6 @@ export function previewOfPlan(
   if (plan.newSource === undefined) {
     return { state: "unavailable", reasons: plan.listed.map((item) => item.reason ?? "unknown") };
   }
-  return { state: "ready", document: buildPreview(plan.kind, plan.newSource, renderer, plan.work) };
+  const built = buildPreview(plan.kind, plan.newSource, renderer, plan.work);
+  return built.state === "ready" ? built : { state: "unavailable", reasons: [built.reason] };
 }

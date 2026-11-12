@@ -18,7 +18,7 @@ import {
 import { closure } from "./closure.ts";
 import { sha256HexSync } from "./digest.ts";
 import { find, type P5Element, parseHtml, textNodesOf } from "./html-dom.ts";
-import { identityOf, linkContext, linksAroundAll, sameIdentity } from "./identity.ts";
+import { IdentityCache, linkContext, linksAroundAll, sameIdentity } from "./identity.ts";
 import { confirmPlan } from "./plan.ts";
 import { carryAll } from "./relocate.ts";
 import { anchoredMatches, renderedPage } from "./rendered.ts";
@@ -75,7 +75,7 @@ describe("link context and identity", () => {
       "https://k7d2qm4xab.portifact.dev/x",
     ]);
     const area = find(document, "area") as P5Element;
-    expect(linksAroundAll([area.childNodes[0] ?? area], context)).toEqual([]);
+    expect(linksAroundAll([area], context).map((link) => link.authored)).toEqual(["/m"]);
     const svgText = texts[2];
     expect(linksAroundAll(svgText ? [svgText] : [], context)[0]).toMatchObject({
       authored: "/x",
@@ -87,7 +87,9 @@ describe("link context and identity", () => {
     const of = (attrs: string) => {
       const document = parsed(`<!doctype html><body><p ${attrs}><a href="/go">x</a></p></body>`);
       const node = textNodesOf(find(document, "body") as P5Element)[0];
-      return identityOf(node as never, linkContext(document, PAGE_URL, "source"));
+      return new IdentityCache(linkContext(document, PAGE_URL, "source"), newWork()).of(
+        node as never,
+      );
     };
     const short = of(`title="${"a".repeat(64)}"`);
     const long = of(`title="${"a".repeat(65)}"`);

@@ -2,7 +2,7 @@
 // dropped elements and attributes, the text a page does not show), one case each, so removing or
 // misspelling an entry fails a test.
 import { describe, expect, it } from "vitest";
-import { RENDERER } from "../testing/suggestions/harness.ts";
+import { previewDocument, RENDERER } from "../testing/suggestions/harness.ts";
 import { find, type P5Element, parseHtml, shownTextNodes, skeleton } from "./html-dom.ts";
 import { safeUrl, subsetRefusal } from "./html-subset.ts";
 import { buildPreview, previewable } from "./preview.ts";
@@ -11,7 +11,7 @@ import { newWork } from "./work.ts";
 const doc = (body: string, head = "") =>
   `<!doctype html><html><head><title>t</title>${head}</head><body>${body}</body></html>`;
 const refusal = (html: string) => subsetRefusal(html, parseHtml(html, newWork()));
-const preview = (body: string) => buildPreview("html", doc(body), RENDERER);
+const preview = (body: string) => previewDocument("html", doc(body));
 
 /** Each element in a context where the parser keeps it, with text inside where it can hold any. */
 const IN_CONTEXT: Record<string, string> = {
@@ -368,16 +368,13 @@ describe("the preview's lists", () => {
   });
 
   it("writes Markdown and text in the document's main element, and only the head's styles", () => {
-    expect(buildPreview("markdown", "a", RENDERER)).toContain(
-      '<main class="pf-document pf-markdown">',
-    );
-    expect(buildPreview("text", "a", RENDERER)).toContain(
+    expect(previewDocument("markdown", "a")).toContain('<main class="pf-document pf-markdown">');
+    expect(previewDocument("text", "a")).toContain(
       '<main class="pf-document"><pre class="pf-text">',
     );
-    const head = buildPreview(
+    const head = previewDocument(
       "html",
       doc("<p>x</p>", '<meta name="a" content="secret"><style>q{}</style>'),
-      RENDERER,
     );
     expect(head).toContain("<style>q{}</style>");
     expect(head).not.toContain("secret");

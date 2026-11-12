@@ -169,10 +169,14 @@ BEGIN
   SELECT RAISE(ABORT, 'change_items_open_limit');
 END;
 --> statement-breakpoint
--- At most 20 drafts per person (decision 0027, "The owner's draft").
+-- At most 20 drafts per person (decision 0027, "The owner's draft"). Saving a draft the person
+-- already has is an upsert on its key, which SQLite tries as an insert first: it is not a new
+-- draft and never refused here.
 CREATE TRIGGER `edit_drafts_limit`
 BEFORE INSERT ON `edit_drafts`
-WHEN (SELECT count(*) FROM `edit_drafts` WHERE `user_id` = NEW.`user_id`) >= 20
+WHEN NOT EXISTS (
+  SELECT 1 FROM `edit_drafts` WHERE `artifact_id` = NEW.`artifact_id` AND `user_id` = NEW.`user_id`
+) AND (SELECT count(*) FROM `edit_drafts` WHERE `user_id` = NEW.`user_id`) >= 20
 BEGIN
   SELECT RAISE(ABORT, 'edit_drafts_limit');
 END;

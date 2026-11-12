@@ -1,6 +1,6 @@
 {
-  "id": "3f55534a-a766-40f9-84e4-682a857eca06",
-  "prevId": "32550d7a-6f87-44b2-9a1e-617baf21280a",
+  "id": "0c05735d-3536-4701-abdd-555fd8f33ae8",
+  "prevId": "762783c7-2cab-48eb-a3d3-1bab01744387",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -2310,6 +2310,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "submitted_by": {
+          "name": "submitted_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2377,6 +2384,12 @@
           "columns": ["closed_by"],
           "where": "\"change_items\".\"closed_by\" is not null",
           "isUnique": false
+        },
+        "change_items_submitted_by_idx": {
+          "name": "change_items_submitted_by_idx",
+          "columns": ["submitted_by"],
+          "where": "\"change_items\".\"submitted_by\" is not null",
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -2402,6 +2415,14 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
+        "change_items_origin": {
+          "name": "change_items_origin",
+          "value": "\"change_items\".\"origin\" in ('suggestion', 'draft')"
+        },
+        "change_items_state": {
+          "name": "change_items_state",
+          "value": "\"change_items\".\"state\" in ('open', 'applied', 'dismissed', 'closed_by_version')"
+        },
         "change_items_bytes": {
           "name": "change_items_bytes",
           "value": "\"change_items\".\"bytes\" = length(cast(\"change_items\".\"envelope\" as blob)) + coalesce(length(cast(\"change_items\".\"proof\" as blob)), 0) and length(cast(\"change_items\".\"envelope\" as blob)) between 2 and 16384 and coalesce(length(cast(\"change_items\".\"proof\" as blob)), 0) <= 16384"

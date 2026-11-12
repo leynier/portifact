@@ -11,19 +11,22 @@
 // bytes outside the approved ranges.
 import { PLAN_LIMITS } from "@portifact/contracts";
 import { parseFragment } from "parse5";
+import { utf8Length } from "./digest.ts";
 import { type TextEdit, validAfter } from "./edit.ts";
 import { find, type P5Element, type P5Text, parseHtml } from "./html-dom.ts";
 import { subsetRefusal } from "./html-subset.ts";
-import { identityOf, linkContext, linksAroundAll } from "./identity.ts";
+import { IdentityCache, linkContext, linksAroundAll } from "./identity.ts";
 import { type Located, onlyChangedText, PageIndex } from "./locate.ts";
 import {
   applyPatches,
   byOperation,
   listedPatch,
   onlyApprovedBytes,
+  PendingIdentities,
   type PlannedFile,
   type PlannedListed,
   type PlannedPatch,
+  settled,
   unplaced,
   withoutOverlaps,
 } from "./planned.ts";
@@ -119,11 +122,15 @@ export function planHtml(input: HtmlPlanInput): PlannedFile {
       unplaced(operation, edit === null ? "not_text" : reason),
     ),
     work,
+    settle: settled,
   });
   // Over the size limit, nothing is parsed at all.
   if (new TextEncoder().encode(html).length > PLAN_LIMITS.htmlBytes) return all("too_large");
   const parsed = parseHtml(html, work);
   const refused = subsetRefusal(html, parsed);
+  // Over the node budget, nothing is indexed or mapped either: only ordinary refusals within the
+  // budget go on to place their operations.
+  if (refused === "too_large") return all("too_large");
   // The parser always adds a body.
   const body = find(parsed.document, "body") as P5Element;
   const links = linkContext(parsed.document, pageUrl, "source");
@@ -135,6 +142,7 @@ export function planHtml(input: HtmlPlanInput): PlannedFile {
     return maps.get(node) ?? null;
   };
   const found: (PlannedPatch & { located: Located })[] = [];
+  const identities = new PendingIdentities();
   for (const [operation, edit] of edits.entries()) {
     if (edit === null) {
       listed.push(unplaced(operation, "not_text"));
@@ -187,17 +195,28 @@ export function planHtml(input: HtmlPlanInput): PlannedFile {
         shownAfter: located.inserted,
         nodeLeft: node.value.slice(Math.max(0, located.start - context), located.start),
         nodeRight: node.value.slice(located.end, located.end + context),
-        identity: identityOf(node, links),
+        identity: [] as string[],
       },
     };
-    if (refused)
-      listed.push(listedPatch(patch, refused === "too_large" ? "too_large" : "not_eligible"));
+    identities.track(patch.proof, node);
+    if (refused) listed.push(listedPatch(patch, "not_eligible"));
     else found.push(patch);
   }
   const kept = withoutOverlaps(found, listed);
   const strip = ({ located: _located, ...patch }: PlannedPatch & { located: Located }) => patch;
-  if (kept.length === 0) return { applied: [], listed: byOperation(listed), work };
+  const done = (applied: PlannedPatch[], source?: string): PlannedFile => {
+    const result = { applied, listed: byOperation(listed), work };
+    const items = () => [...result.applied, ...result.listed];
+    const settle = identities.settler(items, () => new IdentityCache(links, work));
+    return source === undefined ? { ...result, settle } : { ...result, source, settle };
+  };
+  if (kept.length === 0) return done([]);
   const next = applyPatches(html, kept);
+  // A result over the size limit is listed, never offered: confirmation would refuse it.
+  if (utf8Length(next) > PLAN_LIMITS.htmlBytes) {
+    for (const item of kept) listed.push(listedPatch(strip(item), "too_large"));
+    return done([]);
+  }
   const rebuilt = parseHtml(next, work);
   const verified =
     onlyApprovedBytes(html, next, kept) &&
@@ -209,7 +228,7 @@ export function planHtml(input: HtmlPlanInput): PlannedFile {
     );
   if (!verified) {
     for (const item of kept) listed.push(listedPatch(strip(item), "would_change_page"));
-    return { applied: [], listed: byOperation(listed), work };
+    return done([]);
   }
-  return { applied: kept.map(strip), listed: byOperation(listed), source: next, work };
+  return done(kept.map(strip), next);
 }

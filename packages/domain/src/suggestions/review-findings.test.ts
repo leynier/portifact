@@ -11,6 +11,7 @@ import {
   elementOperation,
   plan,
   planOne,
+  previewDocument,
   RENDERER,
   resolve,
   TITLE,
@@ -141,9 +142,9 @@ describe("second review", () => {
       '<!-- <head> --><html><head><title>x</title></head><body><img src="x.png"></body></html>',
       '<html><body><header>x</header><img src="x.png"></body></html>',
     ]) {
-      expect(buildPreview("html", html, RENDERER)).not.toMatch(/\ssrc=/);
+      expect(previewDocument("html", html)).not.toMatch(/\ssrc=/);
     }
-    const preview = buildPreview("markdown", "![a](secret.png)", RENDERER);
+    const preview = previewDocument("markdown", "![a](secret.png)");
     expect(preview).not.toMatch(/\ssrc=/);
     expect(preview).toContain("default-src 'none'; style-src 'unsafe-inline'; img-src data:");
   });

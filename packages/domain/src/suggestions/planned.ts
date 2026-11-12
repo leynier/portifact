@@ -3,6 +3,8 @@
 // the proof data a change item or a carried suggestion keeps. Offsets are UTF-16 units of the
 // stored file's string, never anchor code points or UTF-8 bytes.
 import type { Destination, Proof, RefusalReason } from "@portifact/contracts";
+import type { P5Node } from "./html-dom.ts";
+import type { IdentityCache } from "./identity.ts";
 import type { Work } from "./work.ts";
 
 export interface PlannedPatch {
@@ -47,7 +49,36 @@ export interface PlannedFile {
   /** For a document: the stored files the commit will write for `source` (rendering, block map). */
   rendered?: { kind: "rendered" | "block_map"; text: string }[];
   work: Work;
+  /**
+   * Fills every proof's identity, hashing long values (`Work.hashes`). Planning leaves it for
+   * last, so a plan over its size limits is refused before any hash.
+   */
+  settle(): void;
 }
+
+/** A planner's proofs and the text nodes they name, to fill their identities once. */
+export class PendingIdentities {
+  private readonly nodes = new Map<Proof, P5Node>();
+
+  track(proof: Proof, node: P5Node): Proof {
+    this.nodes.set(proof, node);
+    return proof;
+  }
+
+  /** The `settle` of a planned file: each tracked proof still in it gets its identity. */
+  settler(planned: () => readonly (PlannedPatch | PlannedListed)[], cache: () => IdentityCache) {
+    return () => {
+      const identities = cache();
+      for (const item of planned()) {
+        const node = item.proof ? this.nodes.get(item.proof) : undefined;
+        if (item.proof && node) item.proof.identity = identities.of(node);
+      }
+    };
+  }
+}
+
+/** For planned files whose proofs need no identity work. */
+export const settled = () => {};
 
 /** Keeps the patches that touch no other one; the others are listed as `overlap`. */
 export function withoutOverlaps<T extends PlannedPatch>(

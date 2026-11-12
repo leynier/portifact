@@ -12,6 +12,7 @@ import { planHtml } from "../../suggestions/html-planner.ts";
 import { planMarkdown } from "../../suggestions/markdown-planner.ts";
 import { type BuiltPlan, buildPlan, type StoredRendering } from "../../suggestions/plan.ts";
 import type { PlannedFile } from "../../suggestions/planned.ts";
+import { buildPreview } from "../../suggestions/preview.ts";
 import { planText } from "../../suggestions/text-planner.ts";
 import { newWork, type Work } from "../../suggestions/work.ts";
 
@@ -41,6 +42,18 @@ export async function edit(
 
 /** Runs one planner directly (documents with their stored page, already verified). */
 export async function planOne(
+  kind: FileKind,
+  source: string,
+  edits: readonly (TextEdit | null)[],
+  work: Work = newWork(),
+): Promise<PlannedFile> {
+  const planned = await planUnsettled(kind, source, edits, work);
+  planned.settle();
+  return planned;
+}
+
+/** A planner's result with its proofs' identities still pending (`settle` not called). */
+export async function planUnsettled(
   kind: FileKind,
   source: string,
   edits: readonly (TextEdit | null)[],
@@ -159,4 +172,11 @@ export async function plan(
     renderer: RENDERER,
     ...(options.work ? { work: options.work } : {}),
   });
+}
+
+/** A built preview's document, failing the test when the preview is unavailable. */
+export function previewDocument(kind: FileKind, source: string, work?: Work): string {
+  const built = buildPreview(kind, source, RENDERER, work);
+  if (built.state !== "ready") throw new Error(`no preview: ${built.reason}`);
+  return built.document;
 }

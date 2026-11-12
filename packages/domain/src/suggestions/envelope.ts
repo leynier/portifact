@@ -104,7 +104,8 @@ function linkLine(link: Destination): string {
     ? `${visible(link.effective)}${omitted(link.effectiveOmitted)}`
     : "⟦could not be resolved⟧";
   const at = link.at ? `, at ${link.at.file} ${link.at.start} to ${link.at.end}` : "";
-  return `link to: ${where} (written as ${visible(link.authored)}${omitted(link.authoredOmitted)}${at})`;
+  const cut = link.authoredOmitted > 0 || link.effectiveOmitted > 0 ? ", shortened" : "";
+  return `link to origin ${visible(link.origin)}: ${where} (written as ${visible(link.authored)}${omitted(link.authoredOmitted)}${at}${cut})`;
 }
 
 const personOf = (known: boolean) => (known ? "an account" : DELETED_ACCOUNT);

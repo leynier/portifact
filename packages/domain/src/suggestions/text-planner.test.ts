@@ -17,7 +17,7 @@ import {
 } from "../testing/suggestions/harness.ts";
 import { changedRegion } from "./edit.ts";
 import { find, parseHtml, shownTextNodes } from "./html-dom.ts";
-import { identityOf } from "./identity.ts";
+import { IdentityCache } from "./identity.ts";
 import { TEXT_IDENTITY } from "./text-planner.ts";
 import { newWork } from "./work.ts";
 
@@ -66,9 +66,11 @@ describe("the plain text planner", () => {
     const body = find(parseHtml(html, newWork()).document, "body");
     const nodes = shownTextNodes(body as never).filter((node) => node.value.trim() !== "");
     expect(nodes).toHaveLength(1);
-    expect(identityOf(nodes[0] as never, { base: "https://x.example/", file: "rendered" })).toEqual(
-      TEXT_IDENTITY,
-    );
+    expect(
+      new IdentityCache({ base: "https://x.example/", file: "rendered" }, newWork()).of(
+        nodes[0] as never,
+      ),
+    ).toEqual(TEXT_IDENTITY);
     expect(parseDocument(html).body.textContent).toContain("one\ntwo");
   });
 

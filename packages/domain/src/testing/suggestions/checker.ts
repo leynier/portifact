@@ -99,8 +99,120 @@ function changed(edit: TextEdit): { prefix: string; deleted: string; inserted: s
   };
 }
 
+/** A run of text in a source file, decoded, with each decoded unit's raw span. */
+interface Run {
+  value: string;
+  rawStart: number[];
+  rawEnd: number[];
+}
+
+const decodedReferences = new Map<string, string>();
+
+/** One character reference, decoded by happy-dom (the planners decode with parse5). */
+function decodeReference(reference: string): string {
+  let value = decodedReferences.get(reference);
+  if (value === undefined) {
+    value = parseDocument(`<!doctype html><body><p>${reference}</p>`).body.textContent ?? "";
+    decodedReferences.set(reference, value);
+  }
+  return value;
+}
+
+/** Decodes a raw run of text, unit by unit: references whole, CRLF and lone CR as LF. */
+function decodeRun(source: string, start: number, end: number, references: boolean): Run {
+  const run: Run = { value: "", rawStart: [], rawEnd: [] };
+  for (let at = start; at < end; ) {
+    let raw = 1;
+    let value = source[at] as string;
+    const reference = references
+      ? /^&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.exec(source.slice(at, at + 40))
+      : null;
+    if (reference) {
+      raw = reference[0].length;
+      value = decodeReference(reference[0]);
+    } else if (value === "\r") {
+      raw = source[at + 1] === "\n" ? 2 : 1;
+      value = "\n";
+    }
+    // One entry per UTF-16 unit, as node offsets count.
+    for (let unit = 0; unit < value.length; unit++) {
+      run.rawStart.push(at);
+      run.rawEnd.push(at + raw);
+    }
+    run.value += value;
+    at += raw;
+  }
+  return run;
+}
+
+/** The runs of text between an HTML file's tags and comments, in order. */
+function htmlRuns(source: string): Run[] {
+  const runs: Run[] = [];
+  let at = 0;
+  while (at < source.length) {
+    if (source.startsWith("<!--", at)) {
+      const end = source.indexOf("-->", at + 4);
+      at = end < 0 ? source.length : end + 3;
+    } else if (source[at] === "<") {
+      let quote: string | null = null;
+      for (at++; at < source.length; at++) {
+        const char = source[at];
+        if (quote) {
+          if (char === quote) quote = null;
+        } else if (char === '"' || char === "'") quote = char;
+        else if (char === ">") break;
+      }
+      at++;
+    } else {
+      const end = source.indexOf("<", at) < 0 ? source.length : source.indexOf("<", at);
+      runs.push(decodeRun(source, at, end, true));
+      at = end;
+    }
+  }
+  return runs;
+}
+
+/**
+ * The source interval the selected text may change, derived here from the selected rendered
+ * occurrence and the file's own decoding (never the planner's claim): the run whose decoded text
+ * is the selected node's, the k-th such run for the k-th such node. Null when it cannot be read.
+ */
+function allowedInterval(
+  kind: FileKind,
+  source: string,
+  data: string,
+  sameBefore: number,
+  from: number,
+  length: number,
+): { start: number; end: number } | null {
+  if (kind === "text") {
+    // happy-dom keeps the newline right after `<pre>` that browsers and parse5 drop.
+    const run = decodeRun(source, 0, source.length, false);
+    const shift = data === `\n${run.value}` ? 1 : 0;
+    if (data.slice(shift) !== run.value) return null;
+    return spanOf(run, from - shift, length);
+  }
+  const run = htmlRuns(source).filter((each) => each.value === data)[sameBefore];
+  return run ? spanOf(run, from, length) : null;
+}
+
+/** The raw span of `length` decoded units from `from` in a run (a point for an insertion). */
+function spanOf(run: Run, from: number, length: number): { start: number; end: number } {
+  const first = from;
+  const last = from + length;
+  if (length === 0) {
+    const point =
+      first < run.value.length ? (run.rawStart[first] as number) : (run.rawEnd.at(-1) ?? 0);
+    return { start: point, end: point };
+  }
+  return { start: run.rawStart[first] as number, end: run.rawEnd[last - 1] as number };
+}
+
 /** The path and offset of the reviewer's selection on the old page. */
-function locate(body: Element, edit: TextEdit): { path: string; offset: number } | null {
+function locate(
+  body: Element,
+  edit: TextEdit,
+): { path: string; offset: number; data: string; sameBefore: number } | null {
   const document = new AnchorDocument(body as unknown as AnchorElement);
   const points = Array.from(document.text.value);
   const found = document.resolveText({
@@ -123,7 +235,21 @@ function locate(body: Element, edit: TextEdit): { path: string; offset: number }
     });
   };
   visit(body.parentNode as unknown as Node, "html");
-  return path === null ? null : { path, offset: found.range.start.offset };
+  if (path === null) return null;
+  const data = (target as unknown as Text).data;
+  // How many text nodes with the same text come before it, across the whole document.
+  let sameBefore = 0;
+  let passed = false;
+  const count = (node: Node) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (passed) return;
+      if (child === target) passed = true;
+      else if (child.nodeType === 3 && (child as Text).data === data) sameBefore++;
+      else count(child);
+    }
+  };
+  count(body.parentNode as unknown as Node);
+  return { path, offset: found.range.start.offset, data, sameBefore };
 }
 
 /**
@@ -156,6 +282,30 @@ export async function check(
   const from = at.offset + change.prefix.length;
   if (old.slice(from, from + change.deleted.length) !== change.deleted) {
     return "the selection is not raw text at the reviewer's location";
+  }
+  if (kind !== "markdown") {
+    // The bytes may change only inside the interval the selected text occupies in the file, and
+    // what replaces them must decode to the inserted text.
+    const allowed = allowedInterval(
+      kind,
+      oldSource,
+      at.data,
+      at.sameBefore,
+      from,
+      change.deleted.length,
+    );
+    if (!allowed) return "the checker could not map the selection to the file";
+    const tail = oldSource.length - allowed.end;
+    if (
+      newSource.slice(0, allowed.start) !== oldSource.slice(0, allowed.start) ||
+      newSource.slice(newSource.length - tail) !== oldSource.slice(allowed.end) ||
+      newSource.length - tail < allowed.start
+    ) {
+      return "bytes changed outside the selected text";
+    }
+    const written = newSource.slice(allowed.start, newSource.length - tail);
+    const decoded = decodeRun(written, 0, written.length, kind === "html").value;
+    if (decoded !== change.inserted) return "the written text is not the inserted text";
   }
   for (const [path, data] of before) {
     const expected =

@@ -149,13 +149,13 @@ describe("the canonical envelope", () => {
       await edit("markdown", source, "terms", "rules"),
     ]);
     expect(built.lines.join("\n")).toMatch(
-      /link to: https:\/\/xn--ggle-0nda\.example\/terms \(written as https:\/\/xn--ggle-0nda\.example\/terms, at rendered \d+ to \d+\)/,
+      /link to origin https:\/\/xn--ggle-0nda\.example: https:\/\/xn--ggle-0nda\.example\/terms \(written as https:\/\/xn--ggle-0nda\.example\/terms, at rendered \d+ to \d+\)/,
     );
     const unicode = "Go [home](https://gооgle.example/) now.";
     const shown = (
       await plan("markdown", unicode, [await edit("markdown", unicode, "home", "start")])
     ).lines.join("\n");
-    expect(shown).toContain("link to: https://xn--ggle-");
+    expect(shown).toContain("link to origin https://xn--ggle-");
   });
 
   it("bounds context around the exact range with explicit omissions, and locates by line", async () => {

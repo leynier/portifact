@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RENDERER } from "../testing/suggestions/harness.ts";
+import { previewDocument, RENDERER } from "../testing/suggestions/harness.ts";
 import { buildPreview, PREVIEW_POLICY, previewable, previewHeaders } from "./preview.ts";
 import { newWork } from "./work.ts";
 
@@ -16,7 +16,7 @@ describe("previews are built documents that load nothing", () => {
       ["text", "<img src=x>"],
       ["html", HOSTILE],
     ] as const) {
-      const html = buildPreview(kind, source, RENDERER);
+      const html = previewDocument(kind, source);
       expect(html).toContain(`content="${PREVIEW_POLICY}"`);
       expect(html.indexOf(PREVIEW_POLICY)).toBeLessThan(html.indexOf("<body>"));
       expect(html).not.toMatch(/<[^>]*\s(src|href|srcset|action|formaction|poster|onclick)=/i);
@@ -25,7 +25,7 @@ describe("previews are built documents that load nothing", () => {
       );
       expect(html).toContain("animation:none!important");
     }
-    const hostile = buildPreview("html", HOSTILE, RENDERER);
+    const hostile = previewDocument("html", HOSTILE);
     expect(hostile).toContain("<span data-preview-image>Chart</span>");
     expect(hostile).toContain("<b>kept</b>");
     expect(hostile).toContain('<p style="color:red">ok</p>');
@@ -39,15 +39,14 @@ describe("previews are built documents that load nothing", () => {
       '<!-- <head> --><html><head><title>x</title></head><body><img src="x.png"></body></html>',
       '<html><body><header>x</header><img src="x.png"></body></html>',
     ]) {
-      expect(buildPreview("html", html, RENDERER)).not.toMatch(/\ssrc=/);
+      expect(previewDocument("html", html)).not.toMatch(/\ssrc=/);
     }
   });
 
   it("keeps the file's styles from closing their element, and escapes text and attributes", () => {
-    const html = buildPreview(
+    const html = previewDocument(
       "html",
       '<html><head><style>p::after{content:"</style><script>1</script>"}</style></head><body><p title="a&quot;b">x &lt; y</p></body></html>',
-      RENDERER,
     );
     expect(html).not.toContain("<script>");
     expect(html).toContain('<p title="a&quot;b">x &lt; y</p>');
@@ -55,13 +54,13 @@ describe("previews are built documents that load nothing", () => {
 
   it("writes a deep page without exhausting the stack", () => {
     const deep = `<html><body>${"<div>".repeat(20_000)}x${"</div>".repeat(20_000)}</body></html>`;
-    expect(buildPreview("html", deep, RENDERER)).toContain("x");
+    expect(previewDocument("html", deep)).toContain("x");
   });
 
   it("counts its work and tells which files are small enough", () => {
     const work = newWork();
-    buildPreview("markdown", "a", RENDERER, work);
-    buildPreview("html", "<p>a</p>", RENDERER, work);
+    previewDocument("markdown", "a", work);
+    previewDocument("html", "<p>a</p>", work);
     expect(work).toMatchObject({ renders: 1, parses: 2 });
     expect(previewable("html", "x".repeat(1_048_576))).toBe(true);
     expect(previewable("html", "é".repeat(600_000))).toBe(false);

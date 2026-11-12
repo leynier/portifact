@@ -49,6 +49,7 @@ CREATE TABLE `change_items` (
 	`reason` text NOT NULL,
 	`state` text DEFAULT 'open' NOT NULL,
 	`created_by` text,
+	`submitted_by` text,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`closed_at` integer,
 	`closed_by` text,
@@ -56,6 +57,8 @@ CREATE TABLE `change_items` (
 	`revision` integer DEFAULT 1 NOT NULL,
 	FOREIGN KEY (`artifact_id`) REFERENCES `artifacts`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`thread_id`) REFERENCES `annotation_threads`(`id`) ON UPDATE no action ON DELETE set null,
+	CONSTRAINT "change_items_origin" CHECK("change_items"."origin" in ('suggestion', 'draft')),
+	CONSTRAINT "change_items_state" CHECK("change_items"."state" in ('open', 'applied', 'dismissed', 'closed_by_version')),
 	CONSTRAINT "change_items_bytes" CHECK("change_items"."bytes" = length(cast("change_items"."envelope" as blob)) + coalesce(length(cast("change_items"."proof" as blob)), 0) and length(cast("change_items"."envelope" as blob)) between 2 and 16384 and coalesce(length(cast("change_items"."proof" as blob)), 0) <= 16384),
 	CONSTRAINT "change_items_reason" CHECK(length("change_items"."reason") between 1 and 64 and "change_items"."reason" not glob '*[^a-z0-9_]*'),
 	CONSTRAINT "change_items_draft_thread" CHECK("change_items"."origin" = 'suggestion' or "change_items"."thread_id" is null),
@@ -71,6 +74,7 @@ CREATE INDEX `change_items_thread_idx` ON `change_items` (`thread_id`) WHERE "ch
 CREATE INDEX `change_items_closed_idx` ON `change_items` (`closed_at`) WHERE "change_items"."closed_at" is not null;--> statement-breakpoint
 CREATE INDEX `change_items_created_by_idx` ON `change_items` (`created_by`) WHERE "change_items"."created_by" is not null;--> statement-breakpoint
 CREATE INDEX `change_items_closed_by_idx` ON `change_items` (`closed_by`) WHERE "change_items"."closed_by" is not null;--> statement-breakpoint
+CREATE INDEX `change_items_submitted_by_idx` ON `change_items` (`submitted_by`) WHERE "change_items"."submitted_by" is not null;--> statement-breakpoint
 CREATE TABLE `edit_drafts` (
 	`artifact_id` text NOT NULL,
 	`user_id` text NOT NULL,

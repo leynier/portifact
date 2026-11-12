@@ -17,6 +17,7 @@ import {
   type PlannedFile,
   type PlannedListed,
   type PlannedPatch,
+  settled,
   unplaced,
   withoutOverlaps,
 } from "./planned.ts";
@@ -173,6 +174,7 @@ export function planText(input: TextPlanInput): PlannedFile {
         unplaced(operation, edit === null ? "not_text" : "too_large"),
       ),
       work,
+      settle: settled,
     };
   }
   const map = sourceMap(source, work);
@@ -194,8 +196,13 @@ export function planText(input: TextPlanInput): PlannedFile {
       listed.push({ operation, reason: mapped.reason, destinations: [], destinationsKnown: true });
   }
   const kept = withoutOverlaps(found, listed);
-  if (kept.length === 0) return { applied: [], listed: byOperation(listed), work };
+  if (kept.length === 0) return { applied: [], listed: byOperation(listed), work, settle: settled };
   const next = applyPatches(source, kept);
+  // A result over the size limit is listed, never offered: confirmation would refuse it.
+  if (utf8Length(next) > PLAN_LIMITS.documentBytes) {
+    for (const item of kept) listed.push(listedPatch(item, "too_large"));
+    return { applied: [], listed: byOperation(listed), work, settle: settled };
+  }
   const expected = [...map.points];
   for (const item of [...kept].sort((a, b) => b.start - a.start)) {
     const change = changedRegion(item.edit);
@@ -204,7 +211,7 @@ export function planText(input: TextPlanInput): PlannedFile {
   const strip = ({ edit: _edit, ...patch }: PlannedPatch & { edit: TextEdit }) => patch;
   if (normalizeText(next) !== normalizeText(expected.join(""))) {
     for (const item of kept) listed.push(listedPatch(item, "would_change_page"));
-    return { applied: [], listed: byOperation(listed), work };
+    return { applied: [], listed: byOperation(listed), work, settle: settled };
   }
   const files = input.renderer.stored("text", next, {
     title: input.title,
@@ -217,5 +224,7 @@ export function planText(input: TextPlanInput): PlannedFile {
     source: next,
     rendered: files.map((file) => ({ kind: file.kind, text: file.text })),
     work,
+    // A text document's identity is a constant: there is nothing to hash.
+    settle: settled,
   };
 }

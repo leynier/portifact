@@ -10,6 +10,15 @@ export interface Work {
   maps: number;
   /** Distinct character references decoded while mapping HTML. */
   decodes: number;
+  /** Long attribute values hashed (synchronously) for identity evidence. */
+  hashes: number;
 }
 
-export const newWork = (): Work => ({ parses: 0, renders: 0, indexes: 0, maps: 0, decodes: 0 });
+export const newWork = (): Work => ({
+  parses: 0,
+  renders: 0,
+  indexes: 0,
+  maps: 0,
+  decodes: 0,
+  hashes: 0,
+});

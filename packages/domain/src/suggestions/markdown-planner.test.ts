@@ -215,7 +215,7 @@ describe("the Markdown planner", () => {
       work,
     );
     expect(big.listed.map((item) => item.reason)).toEqual(["too_large", "not_text"]);
-    expect(work).toEqual({ parses: 0, renders: 0, indexes: 0, maps: 0, decodes: 0 });
+    expect(work).toEqual({ parses: 0, renders: 0, indexes: 0, maps: 0, decodes: 0, hashes: 0 });
     const source = "alpha";
     const one = await edit("markdown", source, "alpha", "beta");
     const many = await planOne(

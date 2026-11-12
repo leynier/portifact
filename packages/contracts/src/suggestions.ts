@@ -455,13 +455,19 @@ export const PlanOutput = z.object({
 });
 export type PlanOutput = z.infer<typeof PlanOutput>;
 
+/** What a destination's `origin` says when its effective URL could not be parsed. */
+export const UNPARSED_ORIGIN = "could not be parsed";
+
 /**
  * A link around or inside a change: its spelling and where it really goes (resolved against the
- * page's URL and its `base`). `resolved` is false when the effective URL could not be determined.
- * `at` is where the authored value sits in a stored file (`source` for an HTML page, `rendered`
- * for a document's stored page), so a shortened value can be read whole there.
+ * page's URL and its HTML `base`). `origin` is the effective URL's scheme and host, always whole,
+ * shown before the value and never shortened, or `UNPARSED_ORIGIN`; `resolved` is false then.
+ * Only `authored` and `effective` may be shortened, with the omission counted, when an envelope
+ * would be over its limit; `at` is where the authored value sits in a stored file (`source` for
+ * an HTML page, `rendered` for a document's stored page), so it can be read whole there.
  */
 export const Destination = z.object({
+  origin: z.string(),
   authored: z.string(),
   effective: z.string(),
   resolved: z.boolean(),

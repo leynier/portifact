@@ -30,7 +30,7 @@ export {
   subsetRefusal,
 } from "./html-subset.ts";
 export {
-  identityOf,
+  IdentityCache,
   type LinkContext,
   linkContext,
   linksAroundAll,
@@ -52,7 +52,9 @@ export {
 export { onlyApprovedBytes, type PlannedFile } from "./planned.ts";
 export {
   buildPreview,
+  PREVIEW_CSS_LIMITS,
   PREVIEW_POLICY,
+  type PreviewResult,
   previewable,
   previewHeaders,
   withoutMotion,

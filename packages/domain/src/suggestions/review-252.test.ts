@@ -10,6 +10,7 @@ import {
   PAGE_URL,
   plan,
   planOne,
+  previewDocument,
   RENDERER,
   storedOf,
   TITLE,
@@ -82,7 +83,9 @@ describe("review of #252", () => {
     expect(scriptedPlan.listed[0]?.destinations).toMatchObject([
       { effective: "https://evil.example/pay" },
     ]);
-    expect(scriptedPlan.lines.join("\n")).toContain("link to: https://evil.example/pay");
+    expect(scriptedPlan.lines.join("\n")).toContain(
+      "link to origin https://evil.example: https://evil.example/pay",
+    );
     // A base element changes where a link goes.
     const based =
       '<!doctype html><html><head><title>t</title><base href="https://elsewhere.example/"></head><body><p><a href="/pay">Pay</a> here</p></body></html>';
@@ -300,10 +303,9 @@ describe("review of #252", () => {
   });
 
   it("13: author CSS cannot animate a preview", () => {
-    const html = buildPreview(
+    const html = previewDocument(
       "html",
       '<html><head><style>* { animation:spin 1s infinite!important; -webkit-transition: all 1s } @keyframes spin {to {opacity:0}}</style></head><body><p style="animation:spin 1s infinite!important; color: red">needle</p></body></html>',
-      RENDERER,
     );
     const author = html.slice(html.indexOf("</style>") + "</style>".length);
     expect(author).not.toMatch(/animation\s*:|transition\s*:/i);

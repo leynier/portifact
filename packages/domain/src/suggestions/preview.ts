@@ -8,7 +8,7 @@
 // from loading anything. The preview origin also sends the policy as a header and the viewer
 // frames it with an empty `sandbox`.
 import { type DocumentRenderer, type FileKind, PLAN_LIMITS } from "@portifact/contracts";
-import { generate, parse, walk } from "css-tree";
+import { generate, ident, parse, walk } from "css-tree";
 import { childrenOf, HTML_NS, isElement, isText, type P5Node, parseHtml } from "./html-dom.ts";
 import { escapeHtml } from "./html-planner.ts";
 import { newWork, type Work } from "./work.ts";
@@ -147,28 +147,70 @@ const ATTRIBUTES: ReadonlySet<string> = new Set([
 ]);
 
 /** Animation and transition properties, prefixed or not, longhand or shorthand. */
-const MOTION = /^(?:-[a-z]+-)?(?:animation|transition)(?:-|$)/i;
+const MOTION = /^(?:-[a-z]+-)?(?:animation|transition)(?:-|$)/;
+
+/**
+ * Bounds of the CSS a preview reads (second review of pull request #252, R8): nesting of blocks,
+ * parentheses and brackets, and the units of all of a page's CSS together. css-tree parses and
+ * walks recursively, so deeper input is refused before it is parsed.
+ */
+export const PREVIEW_CSS_LIMITS = { depth: 32, units: 512 * 1024 } as const;
+
+/** Thrown inside the builder when a page's CSS is over its bounds or cannot be parsed. */
+class CssTooComplex extends Error {}
+
+/** The deepest nesting of `{`, `(` and `[` in CSS, outside comments and strings. */
+export function cssDepth(css: string): number {
+  let depth = 0;
+  let deepest = 0;
+  for (let at = 0; at < css.length; at++) {
+    const char = css[at] as string;
+    if (char === "\\") {
+      at++;
+    } else if (char === "/" && css[at + 1] === "*") {
+      const end = css.indexOf("*/", at + 2);
+      at = end < 0 ? css.length : end + 1;
+    } else if (char === '"' || char === "'") {
+      for (at++; at < css.length && css[at] !== char && css[at] !== "\n"; at++) {
+        if (css[at] === "\\") at++;
+      }
+    } else if (char === "{" || char === "(" || char === "[") {
+      depth++;
+      deepest = Math.max(deepest, depth);
+    } else if ((char === "}" || char === ")" || char === "]") && depth > 0) {
+      depth--;
+    }
+  }
+  return deepest;
+}
 
 /**
  * CSS without any animation or transition declaration, read by a CSS parser (css-tree), so no
- * author rule or inline `!important` can override the preview's freeze. Everything else is kept
- * and the policy keeps it from loading anything.
+ * author rule or inline `!important` can override the preview's freeze. A property's escapes are
+ * decoded before it is matched, as browsers decode them. Everything else is kept and the policy
+ * keeps it from loading anything. Throws `CssTooComplex` over the nesting bound or when the parser
+ * fails; the builder then gives no preview rather than the original CSS.
  */
 export function withoutMotion(css: string, context: "stylesheet" | "declarationList"): string {
-  const ast = parse(css, {
-    context,
-    parseValue: false,
-    parseRulePrelude: false,
-    parseAtrulePrelude: false,
-    parseCustomProperty: false,
-  });
-  walk(ast, {
-    visit: "Declaration",
-    enter(node, item, list) {
-      if (MOTION.test(node.property)) list.remove(item);
-    },
-  });
-  return generate(ast);
+  if (cssDepth(css) > PREVIEW_CSS_LIMITS.depth) throw new CssTooComplex();
+  try {
+    const ast = parse(css, {
+      context,
+      parseValue: false,
+      parseRulePrelude: false,
+      parseAtrulePrelude: false,
+      parseCustomProperty: false,
+    });
+    walk(ast, {
+      visit: "Declaration",
+      enter(node, item, list) {
+        if (MOTION.test(ident.decode(node.property).toLowerCase())) list.remove(item);
+      },
+    });
+    return generate(ast);
+  } catch {
+    throw new CssTooComplex();
+  }
 }
 
 const FREEZE = "*,*::before,*::after{animation:none!important;transition:none!important}";
@@ -184,6 +226,13 @@ function write(root: P5Node): { body: string; styles: string[] } {
   const out: string[] = [];
   const styles: string[] = [];
   const stack: Step[] = [{ node: root }];
+  // All of a page's CSS together is bounded too, so many small rules cannot add up.
+  let cssUnits = 0;
+  const motionless = (css: string, context: "stylesheet" | "declarationList") => {
+    cssUnits += css.length;
+    if (cssUnits > PREVIEW_CSS_LIMITS.units) throw new CssTooComplex();
+    return withoutMotion(css, context);
+  };
   const push = (children: P5Node[]) => {
     for (let index = children.length - 1; index >= 0; index--) {
       stack.push({ node: children[index] as P5Node });
@@ -208,7 +257,7 @@ function write(root: P5Node): { body: string; styles: string[] } {
     if (node.namespaceURI !== HTML_NS || DROPPED.has(node.tagName)) continue;
     if (node.tagName === "style") {
       styles.push(
-        withoutMotion(
+        motionless(
           childrenOf(node)
             .map((child) => (isText(child) ? child.value : ""))
             .join(""),
@@ -235,7 +284,7 @@ function write(root: P5Node): { body: string; styles: string[] } {
         .map((attr) =>
           attributeText(
             attr.name,
-            attr.name === "style" ? withoutMotion(attr.value, "declarationList") : attr.value,
+            attr.name === "style" ? motionless(attr.value, "declarationList") : attr.value,
           ),
         )
         .join("");
@@ -261,24 +310,45 @@ export function previewable(kind: FileKind, source: string): boolean {
     : new TextEncoder().encode(source).length <= PLAN_LIMITS.documentBytes;
 }
 
-/** The preview document for a file of any kind, under the one preview policy. */
+/** A built preview, or why there is none for this page. */
+export type PreviewResult =
+  | { state: "ready"; document: string }
+  | { state: "unavailable"; reason: "css_too_complex" };
+
+/**
+ * The preview document for a file of any kind, under the one preview policy, or `unavailable` when
+ * the page's CSS is over its bounds or cannot be parsed: never a preview that keeps the CSS as it
+ * came, and never an error.
+ */
 export function buildPreview(
   kind: FileKind,
   source: string,
   renderer: DocumentRenderer,
   work: Work = newWork(),
-): string {
+): PreviewResult {
   if (kind !== "html") work.renders++;
-  const { body, styles } = write(parseHtml(pageOf(kind, source, renderer), work).document);
+  const document = parseHtml(pageOf(kind, source, renderer), work).document;
+  let written: { body: string; styles: string[] };
+  try {
+    written = write(document);
+  } catch (error) {
+    if (error instanceof CssTooComplex) return { state: "unavailable", reason: "css_too_complex" };
+    throw error;
+  }
   // The file's styles cannot close the style element: `<` is never needed in CSS, so it is escaped.
-  const inline = styles.map((style) => `<style>${style.replace(/</g, "\\3C ")}</style>`).join("");
-  return [
-    "<!doctype html>",
-    "<html>",
-    `<head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${PREVIEW_POLICY}"><style>${FREEZE}</style>${inline}</head>`,
-    `<body>${body}</body>`,
-    "</html>",
-  ].join("");
+  const inline = written.styles
+    .map((style) => `<style>${style.replace(/</g, "\\3C ")}</style>`)
+    .join("");
+  return {
+    state: "ready",
+    document: [
+      "<!doctype html>",
+      "<html>",
+      `<head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${PREVIEW_POLICY}"><style>${FREEZE}</style>${inline}</head>`,
+      `<body>${written.body}</body>`,
+      "</html>",
+    ].join(""),
+  };
 }
 
 /** The headers the preview origin sends with every preview document. */

@@ -20,6 +20,7 @@ import {
   skeleton,
   textNodesOf,
   unwrap,
+  walk,
 } from "./html-dom.ts";
 import type { Work } from "./work.ts";
 
@@ -46,12 +47,12 @@ function anchorFor(text: readonly string[], edit: TextEdit): TextAnchor {
   };
 }
 
-/** Why an edit could not be located, and the text nodes its selection covers when it was placed. */
+/** Why an edit could not be located, and the nodes its selection covers when it was placed. */
 export interface NotLocated {
   ok: false;
   reason: RefusalReason;
-  /** The covered text nodes in document order, when the selection was placed on the page. */
-  covered: P5Text[] | null;
+  /** Every node of the selected interval in document order, when it was placed on the page. */
+  covered: P5Node[] | null;
 }
 
 /** One anchor index of a page's body, built once and used for every operation of a plan. */
@@ -60,7 +61,7 @@ export class PageIndex {
   private readonly document: AnchorDocument;
   private readonly body: P5Element;
   private order: Map<P5Node, number> | null = null;
-  private texts: P5Text[] = [];
+  private nodes: P5Node[] = [];
 
   constructor(body: P5Element, work: Work) {
     work.indexes++;
@@ -69,19 +70,22 @@ export class PageIndex {
     this.points = codePoints(this.document.text.value);
   }
 
-  /** The text nodes between two range points, in document order (built once per page). */
-  private covered(start: DomPoint, end: DomPoint): P5Text[] | null {
+  /**
+   * Every node from one range point to the other, in document order, elements without text (a
+   * linked image) included (the order is built once per page).
+   */
+  private covered(start: DomPoint, end: DomPoint): P5Node[] | null {
     if (!this.order) {
-      this.texts = textNodesOf(this.body);
-      this.order = new Map(this.texts.map((node, index) => [node as P5Node, index]));
+      this.nodes = [...walk(this.body)];
+      this.order = new Map(this.nodes.map((node, index) => [node, index]));
     }
     const from = this.order.get(unwrap(start.node));
     const to = this.order.get(unwrap(end.node));
     if (from === undefined || to === undefined || to < from) return null;
-    return this.texts.slice(from, to + 1);
+    return this.nodes.slice(from, to + 1);
   }
 
-  locate(edit: TextEdit): { ok: true; located: Located; covered: P5Text[] } | NotLocated {
+  locate(edit: TextEdit): { ok: true; located: Located; covered: P5Node[] } | NotLocated {
     if (
       edit.start < 0 ||
       edit.end < edit.start ||
