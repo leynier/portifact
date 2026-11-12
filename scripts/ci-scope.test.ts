@@ -34,6 +34,8 @@ describe("CI scope", () => {
       "packages/db/migrations/0014_review_tab.sql",
       "e2e/tests/review.spec.ts",
       "e2e/playwright.config.ts",
+      "spikes/artifact-data-grant/tests/grant.spec.ts",
+      "spikes/artifact-data/src/grants.ts",
       "turbo.json",
       "bun.lock",
       ".github/workflows/ci.yml",
@@ -49,6 +51,7 @@ describe("CI scope", () => {
       "scripts/install.sh",
       "skills/portifact/SKILL.md",
       "spikes/review-cookies/src/server.ts",
+      "spikes/artifact-data/src/documents.ts",
       ".github/workflows/release.yml",
       "packages/readme.md",
     ]) {

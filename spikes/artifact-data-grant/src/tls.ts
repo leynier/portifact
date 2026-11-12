@@ -1,0 +1,50 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { APP_HOST, CONTENT_SITE, REDIRECT_HOST } from "./hosts.ts";
+
+export interface TlsMaterial {
+  key: string;
+  cert: string;
+}
+
+let cached: TlsMaterial | undefined;
+
+// A throwaway self-signed certificate. Browsers run with ignoreHTTPSErrors, so it only needs
+// to exist; nothing is written outside a temporary directory that is removed right away.
+export function selfSignedCertificate(): TlsMaterial {
+  if (cached) return cached;
+  const dir = mkdtempSync(join(tmpdir(), "pf-grant-spike-"));
+  const keyPath = join(dir, "key.pem");
+  const certPath = join(dir, "cert.pem");
+  try {
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:prime256v1",
+        "-nodes",
+        "-keyout",
+        keyPath,
+        "-out",
+        certPath,
+        "-days",
+        "2",
+        "-subj",
+        "/CN=portifact grant spike",
+        "-addext",
+        `subjectAltName=DNS:${APP_HOST},DNS:*.${CONTENT_SITE},DNS:${REDIRECT_HOST}`,
+      ],
+      { stdio: "ignore" },
+    );
+    cached = { key: readFileSync(keyPath, "utf8"), cert: readFileSync(certPath, "utf8") };
+    return cached;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}

@@ -351,9 +351,20 @@
       "devDependencies": {
         "@cloudflare/vitest-plugin": "^1.6.0",
         "@cloudflare/workers-types": "^5.0.0",
+        "@types/node": "catalog:",
         "@vitest/coverage-istanbul": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
+        "wrangler": "^4.0.0",
+      },
+    },
+    "spikes/artifact-data-grant": {
+      "name": "@portifact/spike-artifact-data-grant",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@playwright/test": "~1.64.1",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
       },
     },
     "spikes/content-search": {
@@ -913,6 +924,8 @@
     "@portifact/spike-artifact-analytics": ["@portifact/spike-artifact-analytics@workspace:spikes/artifact-analytics"],
 
     "@portifact/spike-artifact-data": ["@portifact/spike-artifact-data@workspace:spikes/artifact-data"],
+
+    "@portifact/spike-artifact-data-grant": ["@portifact/spike-artifact-data-grant@workspace:spikes/artifact-data-grant"],
 
     "@portifact/spike-content-search": ["@portifact/spike-content-search@workspace:spikes/content-search"],
 
