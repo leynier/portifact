@@ -2,7 +2,6 @@
 // of S1 and S2 (appendix B), as written, and the rules decided on them.
 
 import { ARTIFACT_DATA } from "@portifact/contracts/artifact-data";
-import { unpaidRows, unpaidWork } from "@portifact/domain/artifact-data";
 import {
   context,
   envelope,
@@ -95,103 +94,125 @@ describe("review 257 invariant reproductions", () => {
     });
   }
 
-  it("B1: unpaid work is written into its own class by the next counter write", async () => {
-    const object = await fixture();
-    await object.run((store) => {
-      let remaining = 2;
-      store.faults = {
-        statement: (sql) => sql.startsWith("INSERT INTO pf_days") && remaining-- > 0,
-      };
+  const lostRows = (object: RealObject) => object.run((store) => store.meters.lost);
+  const growthOf = async (object: RealObject) =>
+    [...(await object.view()).durable.days.values()].reduce((sum, day) => sum + day.growth, 0);
+  const faulty = (object: RealObject, statement: ((sql: string) => boolean) | null) =>
+    object.run((store) => {
+      store.faults = statement === null ? {} : { statement };
     });
-    const growthBefore = [...(await object.view()).durable.days.values()][0]?.growth ?? 0;
-    await expect(object.create(op(base), visitor("a"), "items", { n: 1 }, ctx)).rejects.toThrow(
+  const failDays = (times: number) => {
+    let remaining = times;
+    return (sql: string) => sql.startsWith("INSERT INTO pf_days") && remaining-- > 0;
+  };
+
+  it("B1: a failed read loses exactly the rows it measured, counted, and debits nothing", async () => {
+    const object = await fixture();
+    const doc = value<{ _id: string }>(await object.create(op(base), OWNER, "items", {}, ctx));
+    const before = await object.view();
+    const lostBefore = await lostRows(object);
+    await faulty(object, (sql) => sql.includes("FROM pf_documents WHERE collection"));
+    await expect(object.get(base, OWNER, "items", doc._id, ctx)).rejects.toThrow(
       /injected storage fault/,
     );
     await object.setFaults({});
-    const held = (await object.view()).pending;
-    // An attempted debit, not a committed one: nothing reached the day row, the work is held.
-    expect(held.unpaid).toEqual({
-      growth: unpaidRows(held),
-      cleanup: 0,
-      export: 0,
-      rights: 0,
-      protected: 0,
-    });
-    expect(unpaidRows(held)).toBeGreaterThan(0);
-    expect([...(await object.view()).durable.days.values()][0]?.growth ?? 0).toBe(growthBefore);
-    const answer = await object.get(base, OWNER, "items", "missing", ctx);
-    expect(answer).toMatchObject({ ok: false, code: "not_found" });
-    // A read alone writes nothing; the next charge does, and folds the unpaid rows into growth.
-    const done = await object.create(op(base), visitor("a"), "items", { n: 2 }, ctx);
-    value(done);
     const after = await object.view();
-    expect(unpaidRows(after.pending)).toBe(0);
-    const day = [...after.durable.days.values()][0];
-    expect(day?.growth).toBe(
-      growthBefore + unpaidRows(held) + done.cost.rowsRead + done.cost.rowsWritten + 4,
-    );
+    const measured = after.accesses - before.accesses;
+    expect(measured).toBeGreaterThan(0);
+    expect((await lostRows(object)) - lostBefore).toBe(measured);
+    // No counter holds them and no allowance paid for them.
+    expect(after.pending).toEqual(before.pending);
+    expect([...after.durable.days.values()]).toEqual([...before.durable.days.values()]);
+    expect(after.counterWrites).toBe(before.counterWrites);
     await assertAccounted(object);
   });
 
-  it("B1: past the flush bound ordinary work is refused until the usage is written; protected work is not", async () => {
+  it("B1: a mutation whose transaction fails is charged by the second one, and loses its rows only when that fails too", async () => {
     const object = await fixture();
-    const doc = value<{ _id: string }>(await object.create(op(base), OWNER, "items", {}, ctx));
-    let failing = true;
-    await object.run((store) => {
-      store.pending = unpaidWork(store.pending, "growth", ARTIFACT_DATA.readFlush.rows, NOW);
-      store.faults = { statement: (sql) => failing && sql.startsWith("INSERT INTO pf_days") };
-    });
-    const refused = { ok: false, code: "unavailable", cost: { rowsRead: 0, rowsWritten: 0 } };
-    const before = await object.view();
-    expect(await object.get(base, OWNER, "items", doc._id, ctx)).toMatchObject(refused);
-    expect(await object.create(op(base), OWNER, "items", {}, ctx)).toMatchObject(refused);
-    expect(await object.exportPage(base, OWNER, null, 10, ctx)).toMatchObject(refused);
-    expect(await object.connect(base, null, "reader", NOW + 60_000, ctx)).toMatchObject(refused);
-    // Refused before any work: the only rows measured are each entry point's own re-arm, held
-    // as deferred housekeeping, which is nobody's allowance.
-    const still = await object.view();
-    expect(still.accesses - before.accesses).toBe(still.pending.deferred - before.pending.deferred);
-    expect(still.pending.rows).toBe(before.pending.rows);
-    expect(unpaidRows(still.pending)).toBe(ARTIFACT_DATA.readFlush.rows);
-    expect(still.durable.documents.size).toBe(1);
-    // Protected work is not asked: it runs, and here fails on the same storage fault.
-    await expect(
-      object.fence({ ...base, epoch: 1 }, { kind: "epoch", transition: "t1" }, NOW),
-    ).rejects.toThrow(/injected storage fault/);
-    await expect(object.exportPage(base, OWNER, null, 10, ctx, true)).rejects.toThrow(
-      /injected storage fault/,
-    );
-    failing = false;
-    // Storage answers again: the next command writes the usage first and then runs.
-    value(await object.get(base, OWNER, "items", doc._id, ctx));
-    const after = await object.view();
-    expect(unpaidRows(after.pending)).toBe(0);
-    expect([...after.durable.days.values()][0]?.growth).toBeGreaterThanOrEqual(
-      ARTIFACT_DATA.readFlush.rows,
-    );
-    value(await object.fence({ ...base, epoch: 1 }, { kind: "epoch", transition: "t1" }, NOW));
-  });
-
-  it("B1: an eviction loses unpaid work with the pending usage, never more than the flush bound", async () => {
-    const object = await fixture();
-    await object.run((store) => {
-      let remaining = 2;
-      store.faults = {
-        statement: (sql) => sql.startsWith("INSERT INTO pf_days") && remaining-- > 0,
-      };
-    });
+    const growth = await growthOf(object);
+    // One fault: the first transaction's charge fails, the second charges the failed work.
+    await faulty(object, failDays(1));
     await expect(object.create(op(base), visitor("a"), "items", { n: 1 }, ctx)).rejects.toThrow(
       /injected storage fault/,
     );
     await object.setFaults({});
-    const held = unpaidRows((await object.view()).pending);
-    expect(held).toBeGreaterThan(0);
-    expect(held).toBeLessThan(ARTIFACT_DATA.readFlush.rows);
-    await object.evict();
-    const view = await object.view();
-    expect(unpaidRows(view.pending)).toBe(0);
-    // The oracle counts what the eviction lost as retired, so conservation still holds.
-    expect(view.accounted()).toBe(view.accesses + 4 * view.counterWrites);
+    const charged = await growthOf(object);
+    expect(charged).toBeGreaterThan(growth);
+    expect(await lostRows(object)).toBe(0);
+    expect((await object.view()).durable.documents.size).toBe(0);
+    // Two faults: the compensating charge fails as well. Nothing is debited, the rows are lost.
+    const before = await object.view();
+    await faulty(object, failDays(2));
+    await expect(object.create(op(base), visitor("a"), "items", { n: 2 }, ctx)).rejects.toThrow(
+      /injected storage fault/,
+    );
+    await object.setFaults({});
+    const after = await object.view();
+    expect(await growthOf(object)).toBe(charged);
+    expect(await lostRows(object)).toBe(after.accesses - before.accesses);
+    expect(after.pending).toEqual(before.pending);
+    expect(after.durable.documents.size).toBe(0);
+    await assertAccounted(object);
+  });
+
+  it("B1: every failure loses only its own rows, nothing accumulates, and the object keeps answering", async () => {
+    const object = await fixture();
+    const doc = value<{ _id: string }>(await object.create(op(base), OWNER, "items", {}, ctx));
+    const pending = (await object.view()).pending;
+    const losses: number[] = [];
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const before = await lostRows(object);
+      await faulty(object, failDays(1));
+      await expect(
+        object.fence({ ...base, epoch: 1 }, { kind: "epoch", transition: "t1" }, NOW),
+      ).rejects.toThrow(/injected storage fault/);
+      await object.setFaults({});
+      losses.push((await lostRows(object)) - before);
+      // Nothing is held in memory for a failed attempt, so nothing grows with the failures.
+      expect((await object.view()).pending).toEqual(pending);
+    }
+    // Each attempt loses what it measured itself (the first read the control record from the
+    // object's cache, the later ones from storage): a handful of rows, never a growing sum.
+    for (const loss of losses) {
+      expect(loss).toBeGreaterThan(0);
+      expect(loss).toBeLessThan(20);
+    }
+    expect(new Set(losses.slice(1)).size).toBe(1);
+    // No refusal follows a fault: ordinary and protected work both run as soon as storage does.
+    value(await object.get(base, OWNER, "items", doc._id, ctx));
+    value(await object.fence({ ...base, epoch: 1 }, { kind: "epoch", transition: "t1" }, NOW));
+    expect((await object.view()).durable.control?.epoch).toBe(1);
+    await assertAccounted(object);
+  });
+
+  it("B1: a fault while computing the next alarm does not fail the command that committed", async () => {
+    const object = await fixture();
+    const growth = await growthOf(object);
+    let armed = true;
+    await faulty(object, (sql) => {
+      if (armed && sql.startsWith("SELECT at AS age FROM pf_ended")) {
+        armed = false;
+        return true;
+      }
+      return false;
+    });
+    const sets = object.recorder.sets.length;
+    const answer = await object.create(op(base), OWNER, "items", { n: 1 }, ctx);
+    await object.setFaults({});
+    // The create committed and was charged to growth; only the scheduler's own rows are lost.
+    const doc = value<{ _id: string }>(answer);
+    expect((await object.view()).durable.documents.size).toBe(1);
+    const charged = await growthOf(object);
+    expect(charged - growth).toBe(answer.cost.rowsRead + answer.cost.rowsWritten + 4);
+    const lost = await lostRows(object);
+    expect(lost).toBeGreaterThan(0);
+    expect(lost).toBeLessThan(10);
+    expect(object.recorder.sets.length).toBe(sets);
+    // Nothing was set by the faulted pass, so the next entry point computes and sets it.
+    value(await object.get(base, OWNER, "items", doc._id, ctx));
+    expect(object.recorder.sets.length).toBeGreaterThan(sets);
+    expect(await growthOf(object)).toBe(charged);
+    await assertAccounted(object);
   });
 
   it("B2: adding an index preserves the measured file cap", async () => {
@@ -266,12 +287,114 @@ describe("review 257 invariant reproductions", () => {
     });
     expect((await object.view()).fileBytes()).toBe(before);
     expect((await object.view()).durable.fields).toMatchObject([{ state: "building" }]);
-    // Work that shrinks is never refused for size, at the cap or over it.
-    const ids = [...(await object.view()).durable.documents.values()]
-      .slice(0, 100)
-      .map((d) => d.id);
+    await assertAccounted(object);
+  });
+
+  it("B2: the check reads the file after the charge's own writes", async () => {
+    const object = await fixture();
+    value(
+      await object.bulkCreate(
+        op(base),
+        OWNER,
+        {
+          collection: "items",
+          documents: Array.from({ length: 100 }, () => ({ text: "x".repeat(12_000) })),
+        },
+        ctx,
+      ),
+    );
+    const documents = (await object.view()).durable.documents.size;
+    const before = (await object.view()).fileBytes();
+    const limits = { ...ROOMY, bytesPerArtifact: before - ARTIFACT_DATA.controlReserveBytes };
+    // The file as the store measures it, grown by a page once the charge's day row is written:
+    // a deterministic stand-in for the charge crossing a page boundary, which the real file
+    // does only at particular row counts.
+    await object.run((store) => {
+      const measure = store.fileBytes.bind(store);
+      let charged = false;
+      store.faults = {
+        statement: (sql) => {
+          if (sql.startsWith("INSERT INTO pf_days")) charged = true;
+          return false;
+        },
+      };
+      store.fileBytes = () => measure() + (charged ? 4096 : 0);
+    });
+    const answer = await object.create(op(base), OWNER, "items", {}, context({ limits }));
+    expect(answer).toMatchObject({ ok: false, code: "quota_exceeded" });
+    expect((await object.view()).durable.documents.size).toBe(documents);
+  });
+
+  it("B2: work that does not grow its documents is never refused for size", async () => {
+    const object = await fixture();
+    const doc = value<{ _id: string }>(
+      await object.create(op(base), OWNER, "items", { text: "x".repeat(1000) }, ctx),
+    );
+    const many = value<{ ids: string[] }>(
+      await object.bulkCreate(
+        op(base),
+        OWNER,
+        {
+          collection: "items",
+          documents: Array.from({ length: 100 }, () => ({ text: "x".repeat(12_000) })),
+        },
+        ctx,
+      ),
+    );
+    const atCap = async () => {
+      const file = (await object.view()).fileBytes();
+      return context({
+        limits: { ...ROOMY, bytesPerArtifact: file - ARTIFACT_DATA.controlReserveBytes },
+      });
+    };
+    // Shrinking one byte at a time with the cap at the file's size: operation and audit
+    // records still need a page now and then, and the replacement must finish every time.
+    for (let size = 999; size >= 940; size--) {
+      const answer = await object.replace(
+        op(base),
+        OWNER,
+        "items",
+        doc._id,
+        { text: "x".repeat(size) },
+        await atCap(),
+      );
+      expect(answer.ok, `shrinking to ${size}`).toBe(true);
+    }
+    // The same size again, a bulk replacement that shrinks, and removals, at the cap and far over it.
+    value(
+      await object.replace(
+        op(base),
+        OWNER,
+        "items",
+        doc._id,
+        { text: "y".repeat(940) },
+        await atCap(),
+      ),
+    );
+    value(
+      await object.bulkReplace(
+        op(base),
+        OWNER,
+        {
+          collection: "items",
+          documents: many.ids.map((id) => ({ id, body: { text: "x".repeat(11_000) } })),
+        },
+        await atCap(),
+      ),
+    );
     const over = context({ limits: { ...ROOMY, bytesPerArtifact: 1 } });
-    value(await object.bulkRemove(op(base), OWNER, "items", ids, over));
+    value(await object.remove(op(base), OWNER, "items", doc._id, over));
+    value(await object.bulkRemove(op(base), OWNER, "items", many.ids.slice(0, 50), over));
+    // A replacement that grows its document is growth, and is judged.
+    const grown = await object.replace(
+      op(base),
+      OWNER,
+      "items",
+      many.ids[60] as string,
+      { text: "x".repeat(200_000) },
+      await atCap(),
+    );
+    expect(grown).toMatchObject({ ok: false, code: "quota_exceeded" });
     await assertAccounted(object);
   });
 
@@ -326,5 +449,26 @@ describe("review 257 invariant reproductions", () => {
     const answer = await object.describe(base, OWNER, ctx);
     expect(answer.ok).toBe(true);
     expect(value<{ today: { day: number } }>(answer).today.day).toBe(Math.floor(NOW / 86_400_000));
+  });
+
+  it("S2: a document's own field named today is compared whole by the pair", async () => {
+    const object = pairObject();
+    value(await object.declare(op(base), OWNER, { name: "items", mode: "append" }, ctx));
+    const created = await object.create(op(base), OWNER, "items", { today: null }, ctx);
+    expect(value<{ today: unknown }>(created).today).toBeNull();
+    const other = await object.create(op(base), OWNER, "items", { today: { day: 1, n: 2 } }, ctx);
+    expect(value<{ today: unknown }>(other).today).toEqual({ day: 1, n: 2 });
+  });
+
+  it("the driver's cached view follows every command that completed, concurrent ones included", async () => {
+    const object = await fixture();
+    await object.view();
+    await Promise.all([
+      object.create(op(base), OWNER, "items", { n: 1 }, ctx),
+      object.create(op(base), OWNER, "items", { n: 2 }, ctx),
+    ]);
+    const stored = await object.run((store) => store.inspect("pf_documents").length);
+    expect(stored).toBe(2);
+    expect((await object.view()).durable.documents.size).toBe(2);
   });
 });

@@ -34,8 +34,13 @@ function same(real: unknown, reference: unknown, label: string): void {
   expect.fail(`${label} differs: ${detail}`);
 }
 
-/** What two answers must share: outcome, code, value or replay, and the generation. */
-function answerShape(answer: unknown): unknown {
+/**
+ * What two answers must share: outcome, code, value or replay, and the generation. `describe`
+ * answers today's usage, which is measured work and differs by design: its day is compared, its
+ * counts are not (each object's accounting is checked by its own tests). The command decides
+ * that, never the answer's shape: a document may hold a field named `today`.
+ */
+function answerShape(answer: unknown, command: string): unknown {
   if (answer === null || typeof answer !== "object" || !("ok" in answer)) return answer;
   const {
     cost: _cost,
@@ -44,19 +49,14 @@ function answerShape(answer: unknown): unknown {
   } = answer as unknown as {
     cost: unknown;
     storage: { generation: number; seq: number };
+    value?: unknown;
   };
-  return { ...described(rest), storage: { generation: storage.generation } };
-}
-
-/**
- * `describe` answers today's usage, which is measured work and differs by design: the day is
- * compared, the counts are not (each object's own accounting is checked by its own tests).
- */
-function described(rest: Record<string, unknown>): Record<string, unknown> {
-  const value = rest.value;
-  if (value === null || typeof value !== "object" || !("today" in value)) return rest;
-  const today = (value as { today: { day: number } }).today;
-  return { ...rest, value: { ...value, today: { day: today.day } } };
+  const shared = { ...rest, storage: { generation: storage.generation } };
+  if (command !== "describe" || rest.value === null || typeof rest.value !== "object") {
+    return shared;
+  }
+  const described = rest.value as { today: { day: number } };
+  return { ...shared, value: { ...described, today: { day: described.today.day } } };
 }
 
 /** What two states must share: everything but the measured usage itself. */
@@ -147,7 +147,11 @@ export function pairObject(name = "obj"): DataObject {
     // An alarm's count includes day rows, which exist or not by flush timing; the retained rows
     // themselves are compared in the state below.
     if (command !== "alarm") {
-      same(answerShape(theirs), answerShape(mine), `${command} answer, step ${steps}`);
+      same(
+        answerShape(theirs, command),
+        answerShape(mine, command),
+        `${command} answer, step ${steps}`,
+      );
     }
     const theirView = await real.view();
     const label = `${command} state, step ${steps}`;

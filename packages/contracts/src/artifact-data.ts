@@ -149,8 +149,6 @@ export const DATA_REFUSAL_CODES = [
   "invalid_input",
   "quota_exceeded",
   "rate_limited",
-  /** Retryable: the object could not record its usage and refuses ordinary work until it does. */
-  "unavailable",
 ] as const;
 export const DataRefusalCode = z.enum(DATA_REFUSAL_CODES);
 export type DataRefusalCode = z.infer<typeof DataRefusalCode>;

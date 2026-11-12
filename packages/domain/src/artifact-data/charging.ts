@@ -117,18 +117,11 @@ export function charged(
  * and deferred housekeeping as protected work.
  */
 export function flushed(day: DayCounters, pending: PendingReads): DayCounters {
-  const unpaid = pending.unpaid;
   return {
     ...day,
-    growth: day.growth + unpaid.growth,
     read: day.read + pending.rows,
-    cleanup: day.cleanup + unpaid.cleanup,
-    export: day.export + unpaid.export,
-    // A visitor's unpaid rights work reaches the day's aggregate only: their own row is debited
-    // by work that committed.
-    rights: day.rights + unpaid.rights,
     refused: day.refused + pending.refused,
-    protected: day.protected + pending.deferred + unpaid.protected,
+    protected: day.protected + pending.deferred,
   };
 }
 
@@ -138,31 +131,11 @@ export function rateRefusal(used: number, limit: number): Refusal | null {
   return refuse("rate_limited", "too many requests, try again in a minute");
 }
 
-/**
- * Measured work whose charge was never written, by class: the transaction that debited it, or
- * the compensating one that charges failed work, failed in storage. It is an attempted debit,
- * held in memory with the pending usage until a counter write commits it. Reads that failed go to
- * `rows` and housekeeping to `deferred`, as their successful outcomes do.
- */
-export type UnpaidWork = Record<Exclude<ChargeClass, "read">, number>;
-
-export function noUnpaidWork(): UnpaidWork {
-  return { growth: 0, cleanup: 0, export: 0, rights: 0, protected: 0 };
-}
-
-/** Every unpaid row together. */
-export function unpaidRows(pending: PendingReads): number {
-  const unpaid = pending.unpaid;
-  return unpaid.growth + unpaid.cleanup + unpaid.export + unpaid.rights + unpaid.protected;
-}
-
 /** Reads, replays and refusals counted in memory since the last write of their day's counters. */
 export interface PendingReads {
   day: number;
   rows: number;
   refused: number;
-  /** Measured work whose debit failed, written into its class with the next counter write. */
-  unpaid: UnpaidWork;
   /**
    * Housekeeping rows (alarm pruning) waiting for the next counter write: an alarm never writes a
    * day row for its own work, or an idle object would create the very rows it must later prune,
@@ -174,11 +147,11 @@ export interface PendingReads {
 }
 
 export function noPendingReads(now: number): PendingReads {
-  return { day: dayOf(now), rows: 0, refused: 0, unpaid: noUnpaidWork(), deferred: 0, since: now };
+  return { day: dayOf(now), rows: 0, refused: 0, deferred: 0, since: now };
 }
 
 export function hasPending(pending: PendingReads): boolean {
-  return pending.rows > 0 || pending.refused > 0 || unpaidRows(pending) > 0;
+  return pending.rows > 0 || pending.refused > 0;
 }
 
 /**
@@ -227,49 +200,11 @@ export function counted(
  */
 export function mustFlushReads(pending: PendingReads, now: number): boolean {
   if (!hasPending(pending)) return false;
-  return flushBoundPassed(pending) || now - pending.since >= ARTIFACT_DATA.readFlush.ms;
-}
-
-/**
- * Whether pending usage, unpaid work included, reached the flush bound: what an eviction can lose
- * is at most this, so the command that reaches it writes it synchronously.
- */
-export function flushBoundPassed(pending: PendingReads): boolean {
   return (
-    pending.rows + unpaidRows(pending) >= ARTIFACT_DATA.readFlush.rows ||
-    pending.refused >= ARTIFACT_DATA.readFlush.refusals
+    pending.rows >= ARTIFACT_DATA.readFlush.rows ||
+    pending.refused >= ARTIFACT_DATA.readFlush.refusals ||
+    now - pending.since >= ARTIFACT_DATA.readFlush.ms
   );
-}
-
-/**
- * Measured work whose debit failed in storage (`UnpaidWork`): held with the pending usage of the
- * day it is held for, never dropped, and written by the next counter write that commits.
- */
-export function unpaidWork(
-  pending: PendingReads,
-  charge: ChargeClass | "housekeeping",
-  rows: number,
-  now: number,
-): PendingReads {
-  if (rows === 0) return pending;
-  if (charge === "housekeeping") return { ...pending, deferred: pending.deferred + rows };
-  // Usage already pending keeps its day; with none, the work is held for today.
-  const held = hasPending(pending)
-    ? pending
-    : { ...noPendingReads(now), deferred: pending.deferred };
-  const since = hasPending(held) ? held.since : now;
-  if (charge === "read") return { ...held, rows: held.rows + rows, since };
-  return { ...held, unpaid: { ...held.unpaid, [charge]: held.unpaid[charge] + rows }, since };
-}
-
-/**
- * Ordinary work is refused while pending usage stays past the flush bound: the synchronous flush
- * that should have written it failed, and more work would leave more unaccounted than an eviction
- * may lose. Protected work (fences, erase steps, settlement) is never refused for it.
- */
-export function storageRefusal(pending: PendingReads): Refusal | null {
-  if (!flushBoundPassed(pending)) return null;
-  return refuse("unavailable", "this artifact's usage could not be recorded, try again shortly");
 }
 
 /** When pending usage is due for an alarm, or null with nothing pending. */

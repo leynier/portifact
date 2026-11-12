@@ -113,7 +113,6 @@ import {
   type Terminal,
   touched,
   uniqueValue,
-  unpaidRows,
   valueCountDeltas,
 } from "../artifact-data/index.ts";
 import type { DataObject, MakeObject, ObjectView, SeedRows } from "./artifact-data-driver.ts";
@@ -539,7 +538,7 @@ export class MemoryObject implements DataObject {
 
   /** The rows the day counters, the pending usage and retired rows account for. */
   accounted(): number {
-    let sum = this.retired + this.pending.rows + this.pending.deferred + unpaidRows(this.pending);
+    let sum = this.retired + this.pending.rows + this.pending.deferred;
     for (const day of this.durable.days.values()) {
       for (const field of ACCOUNTED) sum += day[field];
     }
@@ -2107,7 +2106,7 @@ export class MemoryObject implements DataObject {
 
   /** An eviction: memory goes (pending usage, attempts, connections); storage stays. */
   evict(): void {
-    this.retired += this.pending.rows + this.pending.deferred + unpaidRows(this.pending);
+    this.retired += this.pending.rows + this.pending.deferred;
     this.pending = noPendingReads(0);
     this.attempts.clear();
     for (const socket of this.sockets.values()) if (socket.closed === null) socket.closed = 1001;

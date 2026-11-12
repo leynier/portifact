@@ -7,7 +7,7 @@
 // the runtime does after an eviction; `hibernate` keeps the connections.
 
 import { env, runInDurableObject } from "cloudflare:test";
-import { type PendingReads, unpaidRows } from "@portifact/domain/artifact-data";
+import type { PendingReads } from "@portifact/domain/artifact-data";
 import type {
   DataObject,
   Doc,
@@ -45,9 +45,9 @@ interface Recorder {
 }
 
 /** The reference's ID scheme (`MemoryObject#newId`), so both objects name things alike. */
-/** What an eviction loses: the usage still held in memory, unpaid work included. */
+/** What an eviction loses: the usage still held in memory. */
 function lost(pending: PendingReads): number {
-  return pending.rows + pending.deferred + unpaidRows(pending);
+  return pending.rows + pending.deferred;
 }
 
 export function referenceIds(name: string, order?: Map<string, number>): () => string {
@@ -180,6 +180,8 @@ export class RealObject implements DataObject {
   #view: Promise<ObjectView> | null = null;
   /** Whether the state was read since the last command. */
   #viewed = false;
+  /** Commands sent so far: a snapshot is kept only from the last one sent. */
+  #calls = 0;
 
   constructor(readonly name = "obj") {
     objects += 1;
@@ -242,10 +244,15 @@ export class RealObject implements DataObject {
     const eager = this.#viewed;
     this.#viewed = false;
     this.#view = null;
+    this.#calls += 1;
+    const call = this.#calls;
     return this.#enter((store, instance, ctx) => {
       const value = work(store, instance, ctx);
-      // The instance's store, which an eviction or a wake has just replaced.
-      if (eager) this.#view = Promise.resolve(this.#build(instance.store));
+      // The instance's store, which an eviction or a wake has just replaced. Only the last call
+      // sent may leave its snapshot: with several in flight, an earlier one's is already stale.
+      if (eager && call === this.#calls) {
+        this.#view = Promise.resolve(this.#build(instance.store));
+      }
       return value;
     });
   }
