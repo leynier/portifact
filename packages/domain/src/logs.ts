@@ -151,6 +151,10 @@ export interface LogFields {
   threads?: number;
   recipients?: number;
   alerts?: number;
+  /** Links of a Slack event worth looking up (decision 0025): a count. */
+  candidates?: number;
+  /** Links of a Slack event sent with a preview: a count. */
+  unfurled?: number;
 }
 
 type EnumField = "reason" | "outcome" | "type" | "topic" | "moment";

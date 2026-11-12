@@ -251,6 +251,8 @@ export const fr = {
   "accessSettings.mode.authenticated":
     "Toute personne disposant du lien qui se connecte à Portifact, avec n’importe quel compte.",
   "accessSettings.mode.public": "Toute personne disposant du lien, sans se connecter.",
+  "accessSettings.mode.publicSlack":
+    "Si cet espace a connecté Slack, un lien vers lui publié là-bas affiche son nom et son type, et Slack garde cet aperçu même après qu'il cesse d'être public.",
   "accessSettings.mode.publicFrom":
     "Disponible à partir du {date}. Les nouveaux comptes attendent {minutes} minutes avant de rendre un artifact public.",
   "accessSettings.indexable.label": "Autoriser les moteurs de recherche à le référencer",
@@ -2685,6 +2687,10 @@ export const fr = {
   "integrations.slack.start": "Commencer",
   "integrations.slack.started":
     "{label} commencée. Créez l'app Slack à partir de son manifeste pour terminer.",
+  "integrations.slack.previews":
+    "Quand quelqu'un publie un lien vers l'un des artifacts publics de cet espace dans votre espace de travail Slack, l'app affiche dessous le nom et le type de l'artifact. Rien d'autre n'est envoyé : aucun contenu, et rien sur les artifacts qui ne sont pas publics.",
+  "integrations.slack.previewsStay":
+    "Slack garde l'aperçu dans son message : si un artifact cesse d'être public, les aperçus déjà affichés montrent encore son nom et son type, et les nouvelles publications de son lien n'en reçoivent aucun.",
   "integrations.slack.notices":
     "Les notifications dans un canal passent par les webhooks : ajoutez un incoming webhook à la même app Slack et collez son URL sur la page Webhooks.",
   "integrations.slack.noticesLink": "Ouvrir Webhooks",

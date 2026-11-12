@@ -228,6 +228,8 @@ export const zhCN = {
   "accessSettings.mode.restricted": "你和下方列出的邮箱地址。每个人都需要先用该地址登录才能打开。",
   "accessSettings.mode.authenticated": "任何拥有链接并登录了 Portifact 的人，使用任意账号均可。",
   "accessSettings.mode.public": "任何拥有链接的人，无需登录。",
+  "accessSettings.mode.publicSlack":
+    "如果此空间已连接 Slack，在那里发布的指向它的链接会显示其名称和类型，即使它不再公开，Slack 也会保留该预览。",
   "accessSettings.mode.publicFrom":
     "从 {date} 起可用。新账号需要等待 {minutes} 分钟才能将 artifact 设为公开。",
   "accessSettings.indexable.label": "允许搜索引擎收录",
@@ -2398,6 +2400,10 @@ export const zhCN = {
     "在 Slack 的应用设置中打开 Event Subscriptions，点击 Request URL 旁边的 Verify。",
   "integrations.slack.start": "开始",
   "integrations.slack.started": "已开始 {label}。请用其清单创建 Slack 应用以完成连接。",
+  "integrations.slack.previews":
+    "当有人在你的 Slack 工作区中发布指向此空间某个公开 artifact 的链接时，应用会在其下方显示该 artifact 的名称和类型。不会发送其他任何内容：没有正文，也没有任何关于非公开 artifact 的信息。",
+  "integrations.slack.previewsStay":
+    "Slack 会在消息中保留预览：如果 artifact 不再公开，之前的预览仍会显示其名称和类型，而新发布的该链接不会再有预览。",
   "integrations.slack.notices":
     "频道中的通知来自 webhook：在同一个 Slack 应用中添加 incoming webhook，并将其 URL 粘贴到 Webhook 页面。",
   "integrations.slack.noticesLink": "打开 Webhook",

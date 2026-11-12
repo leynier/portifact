@@ -431,7 +431,13 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
   );
   // Slack's events for a workspace's own Slack app (decision 0025): signed by the app's secret,
   // switched off (404) without SLACK_ENABLED.
-  app.route("/", slackEventRoutes({ now: () => Date.now() }));
+  app.route(
+    "/",
+    slackEventRoutes({
+      now: () => Date.now(),
+      fetch: (env) => (url, init) => depsFor(env).integrationFetch(url, init),
+    }),
+  );
   // SCIM 2.0 for workspaces' directories (decision 0017), bearer-only with SCIM tokens.
   app.route(
     "/",

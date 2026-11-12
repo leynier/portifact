@@ -1,9 +1,13 @@
 // What the Slack events endpoint costs (decision 0025, "Costs to pin in tests"), pinned with the
 // D1 call counter of the GitHub OIDC cost test, over the default region (whose database is the
 // global one) and an EU workspace (a separate regional database, with the strict region guard):
-// nothing before the read; one read for every request that reaches it, refused or verified; the
-// read and one guarded batch for the first request of a connection whose key the Worker lost and
-// for an uninstall, and only the read after; one call to Slack to complete and one to remove.
+// nothing before the read; one read for every request that reaches it, refused or verified, and
+// for a link_shared with no link worth looking up; the read and one guarded batch for the first
+// request of a connection whose key the Worker lost and for an uninstall, and only the read after;
+// a link_shared with links worth looking up adds the artifacts' read (and, with a separate
+// regional database, the plan's read before it), whatever the artifacts turn out to be, and calls
+// Slack once only for a public, active artifact of the owner; one call to Slack to complete and
+// one to remove.
 import { env } from "cloudflare:workers";
 import { aliasBinding, regionsFromEnv, schema } from "@portifact/db";
 import { createWorkspace } from "@portifact/services";
@@ -169,7 +173,7 @@ async function setup(region: "default" | "eu", email: string): Promise<Setup> {
 
 async function pinned(s: Setup) {
   const { h, fake, taken, path, secret } = s;
-  const slackCalls = fake.requests.length;
+  const slackCallsBefore = fake.requests.length;
   const verification = { type: "url_verification", challenge: "abc" };
   const good = await FakeSlack.signedEvent(secret, verification, { now: NOW });
   const headers = good.headers as Record<string, string>;
@@ -221,17 +225,80 @@ async function pinned(s: Setup) {
   expect(verified.status).toBe(200);
   expect(taken(), "a signed url_verification").toBe(1);
 
-  // A link is acknowledged and ignored in this delivery: one read.
-  const link = await h.request(
-    path,
-    await FakeSlack.signedEvent(
-      secret,
-      FakeSlack.event("T0ACME01", "link_shared", { links: [{ url: "https://x.portifact.dev/" }] }),
-      { now: NOW },
-    ),
-  );
-  expect(link.status).toBe(200);
-  expect(taken(), "a link_shared event").toBe(1);
+  // Links: the read only when no link is worth looking up; then the plan's read with a separate
+  // regional database, and one read of the artifacts, the same whatever they turn out to be.
+  const lookup = s.region === "default" ? 2 : 3;
+  const share = async (label: string, urls: string[], calls: number, unfurls: number) => {
+    const before = fake.requests.length;
+    const answer = await h.request(
+      path,
+      await FakeSlack.signedEvent(
+        secret,
+        FakeSlack.event("T0ACME01", "link_shared", FakeSlack.linkShared(urls)),
+        { now: NOW },
+      ),
+    );
+    expect(answer.status, label).toBe(200);
+    expect(await answer.text(), label).toBe("");
+    expect(taken(), label).toBe(calls);
+    expect(fake.requests.length - before, label).toBe(unfurls);
+  };
+  const on = regionsFromEnv(env).get(s.region).db;
+  const artifact = async (ownerId: string, accessMode: "public" | "restricted") => {
+    const id = Array.from(
+      crypto.getRandomValues(new Uint8Array(10)),
+      (b) => "abcdefghijklmnopqrstuvwxyz234567"[b % 32],
+    ).join("");
+    await on.insert(schema.artifacts).values({
+      id,
+      ownerId,
+      type: "markdown",
+      name: "Q3 plan",
+      state: "active",
+      annotations: "open",
+      accessMode,
+      expiresAt: NOW + 86_400_000,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+    return `https://${id}.portifact.dev/`;
+  };
+  const open = await artifact(s.ownerId, "public");
+  const closed = await artifact(s.ownerId, "restricted");
+  const elsewhere = await artifact(`u_${crypto.randomUUID()}`, "public");
+  const unknown = "https://abcdefgh23.portifact.dev/";
+  taken();
+  await share("no link worth looking up", ["https://x.portifact.dev/"], 1, 0);
+  await share("a share link", ["https://app.portifact.com/s#secret"], 1, 0);
+  await share("a private artifact", [closed], lookup, 0);
+  await share("another owner's public artifact", [elsewhere], lookup, 0);
+  await share("an unknown ID", [unknown], lookup, 0);
+  await share("all of them", [closed, elsewhere, unknown], lookup, 0);
+  const slackBefore = fake.requests.length;
+  await share("a public artifact of the owner", [open], lookup, 1);
+  expect(fake.requests.at(-1)?.url).toBe("https://slack.com/api/chat.unfurl");
+  expect(fake.unfurls).toHaveLength(1);
+  // A token Slack refuses: the guarded mark once, then the read only.
+  fake.next(Response.json({ ok: false, error: "invalid_auth" }));
+  await share("a refused token", [open], lookup + 1, 1);
+  await share("a connection needing attention", [open], 1, 0);
+  const failing = (
+    await on.select().from(schema.auditEvents).where(eq(schema.auditEvents.ownerId, s.ownerId))
+  ).filter((e) => e.kind === "integration.failing");
+  expect(failing.map((e) => e.detail)).toEqual([
+    { service: "slack", reason: "credential_rejected" },
+  ]);
+  // Back in working order for what follows, as an admin's new token would leave it.
+  await on
+    .update(schema.integrationConnections)
+    .set({ attention: null })
+    .where(eq(schema.integrationConnections.ownerId, s.ownerId));
+  await on.delete(schema.auditEvents).where(eq(schema.auditEvents.ownerId, s.ownerId));
+  taken();
+  // Previews made exactly the two calls above.
+  expect(fake.requests.length - slackBefore).toBe(2);
+  expect(slackBefore).toBe(slackCallsBefore);
+  const slackCalls = fake.requests.length;
 
   // app_uninstalled twice: the read and one guarded batch, then only the read.
   const uninstall = await FakeSlack.signedEvent(
@@ -246,7 +313,7 @@ async function pinned(s: Setup) {
   expect((await h.request(path, uninstall)).status).toBe(200);
   expect(taken(), "a second app_uninstalled").toBe(1);
 
-  // No request to the endpoint called Slack.
+  // No other request to the endpoint called Slack.
   expect(fake.requests.length).toBe(slackCalls);
 
   // Removing: one call to Slack (auth.revoke) after the answer.

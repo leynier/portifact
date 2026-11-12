@@ -1,7 +1,7 @@
 // Slack connection rules (decision 0025): the manifest, what an admin may paste, the events
 // endpoint's path, the inbound request's timestamp and signature headers, and the envelope read
 // after the signature verified.
-import { SLACK_MANIFEST_VERSION } from "@portifact/contracts";
+import { SLACK_LIMITS, SLACK_MANIFEST_VERSION } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { checkIntegrationCall } from "./integrations.ts";
 import {
@@ -10,16 +10,25 @@ import {
   openSlackCredential,
   parseSlackEnvelope,
   parseSlackEventsPath,
+  SLACK_PLAIN_TEXT_ESCAPES,
+  SLACK_PREVIEW_NAMES_OUTSIDE_DEFAULT_REGION,
   SLACK_ROTATING_TOKEN,
+  SLACK_UNNAMED_ARTIFACT,
+  slackArtifactLink,
   slackBaseString,
   slackCreateUrl,
   slackCredential,
   slackEventsPath,
   slackManifest,
   slackManifestOutdated,
+  slackPlainText,
+  slackPreviewBlocks,
+  slackPreviewLinks,
+  slackPreviewTitle,
   slackSignatureBytes,
   slackTeamMatches,
   slackTimestamp,
+  slackUnfurlBody,
 } from "./slack.ts";
 
 const ID = `ic_${"0a".repeat(16)}`;
@@ -218,6 +227,9 @@ describe("the envelope of a verified request", () => {
       teamId: "T1",
       authorizationsAgree: true,
       eventType: "app_uninstalled",
+      links: [],
+      unfurlId: null,
+      source: null,
     });
     if (read.kind !== "event") throw new Error("not an event");
     expect(slackTeamMatches(read, "T1")).toBe(true);
@@ -245,5 +257,272 @@ describe("the envelope of a verified request", () => {
     for (const text of ["not json", "[]", "null", JSON.stringify({ type: "app_rate_limited" })]) {
       expect(parseSlackEnvelope(text)).toEqual({ kind: "other" });
     }
+  });
+});
+
+describe("a link_shared event", () => {
+  const envelope = (event: Record<string, unknown>) =>
+    parseSlackEnvelope(
+      JSON.stringify({
+        type: "event_callback",
+        team_id: "T1",
+        event: { type: "link_shared", ...event },
+      }),
+    );
+
+  it("keeps the links' URLs, the unfurl ID and the source in their expected shapes", () => {
+    expect(
+      envelope({
+        unfurl_id: "C1.1700000000.000100.abc",
+        source: "composer",
+        links: [{ url: "https://a.example/" }, { url: 42 }, "x", { url: "y".repeat(2049) }],
+      }),
+    ).toMatchObject({
+      links: ["https://a.example/"],
+      unfurlId: "C1.1700000000.000100.abc",
+      source: "composer",
+    });
+    for (const [unfurlId, source] of [
+      ["", "composer"],
+      ["a b", "composer"],
+      ["x".repeat(256), "composer"],
+      [1, "composer"],
+      ["ok", "elsewhere"],
+      ["ok", null],
+    ]) {
+      const read = envelope({ unfurl_id: unfurlId, source, links: "no" });
+      expect(read, String(unfurlId)).toMatchObject({ links: [] });
+      if (read.kind !== "event") throw new Error("not an event");
+      expect(read.unfurlId === null || read.source === null).toBe(true);
+    }
+  });
+
+  it("looks at no more than the scan limit of links", () => {
+    const links = Array.from({ length: 80 }, (_, i) => ({ url: `https://x.example/${i}` }));
+    const read = envelope({ links });
+    if (read.kind !== "event") throw new Error("not an event");
+    expect(read.links).toHaveLength(SLACK_LIMITS.linksScanned);
+  });
+
+  it("reads no links of another event type", () => {
+    const read = parseSlackEnvelope(
+      JSON.stringify({
+        type: "event_callback",
+        team_id: "T1",
+        event: {
+          type: "message",
+          links: [{ url: "https://a.example/" }],
+          unfurl_id: "u",
+          source: "composer",
+        },
+      }),
+    );
+    expect(read).toMatchObject({ links: [], unfurlId: null, source: null });
+  });
+});
+
+describe("which links a preview considers", () => {
+  const domains = { contentDomain: "portifact.dev", appHost: "app.portifact.com" };
+  const ID = "abcdefgh23";
+
+  it.each([
+    [`https://${ID}.portifact.dev`, ID],
+    [`https://${ID}.portifact.dev/`, ID],
+    [`https://${ID}.portifact.dev/docs/a.html?x=1#y`, ID],
+    [`https://${ID}.portifact.dev:443/`, ID],
+    [`https://${ID}.portifact.dev?q`, ID],
+    [`https://${ID}.portifact.dev#frag`, ID],
+    [`https://app.portifact.com/view/${ID}`, ID],
+    [`https://app.portifact.com/view/${ID}/`, ID],
+    [`https://app.portifact.com/view/${ID}?path=/a.html`, ID],
+    [`https://app.portifact.com/view/${ID}/docs#x`, ID],
+    [`https://app.portifact.com:443/view/${ID}`, ID],
+  ])("accepts %s", (url, id) => {
+    expect(slackArtifactLink(url, domains)).toBe(id);
+  });
+
+  it.each([
+    // Not HTTPS, other ports, userinfo.
+    `http://${ID}.portifact.dev/`,
+    `HTTPS://${ID}.portifact.dev/`,
+    `https://${ID}.portifact.dev:8443/`,
+    `https://${ID}.portifact.dev:443@evil.example/`,
+    `https://user@${ID}.portifact.dev/`,
+    `https://user:pw@app.portifact.com/view/${ID}`,
+    // Look-alike hosts, a trailing dot, nested labels, case, punycode, encoding.
+    `https://${ID}.portifact.dev.evil.example/`,
+    `https://${ID}.portifact.dev./`,
+    `https://${ID}.portifact.devx/`,
+    `https://x.${ID}.portifact.dev/`,
+    `https://${ID}xportifact.dev/`,
+    `https://${ID.toUpperCase()}.portifact.dev/`,
+    `https://${ID}.PORTIFACT.dev/`,
+    `https://xn--${ID}.portifact.dev/`,
+    `https://${ID}%2eportifact.dev/`,
+    `https://%61bcdefgh23.portifact.dev/`,
+    `https://${ID}.portifact.dev\\@evil.example/`,
+    `https://app.portifact.com.evil.example/view/${ID}`,
+    `https://app.portifact.com./view/${ID}`,
+    `https://APP.portifact.com/view/${ID}`,
+    // Not an artifact ID.
+    "https://abcdefgh1.portifact.dev/",
+    "https://abcdefgh01.portifact.dev/",
+    "https://abcdefgh234.portifact.dev/",
+    "https://portifact.dev/",
+    "https://app.portifact.dev/",
+    // Other app paths: share links, the protected entry, the dashboard, encoded IDs.
+    `https://app.portifact.com/s#token`,
+    `https://app.portifact.com/read/${ID}`,
+    `https://app.portifact.com/`,
+    `https://app.portifact.com/?workspace=x`,
+    `https://app.portifact.com/view/`,
+    `https://app.portifact.com/view/${ID}x`,
+    `https://app.portifact.com/View/${ID}`,
+    `https://app.portifact.com/view/%61bcdefgh23`,
+    `https://app.portifact.com//view/${ID}`,
+    `https://app.portifact.com/x/view/${ID}`,
+    // Custom domains and other hosts.
+    "https://docs.example.com/",
+    `https://portifact.com/view/${ID}`,
+    // Whitespace, controls and non-ASCII anywhere.
+    ` https://${ID}.portifact.dev/`,
+    `https://${ID}.portifact.dev/ a`,
+    `https://${ID}.portifact.dev/\u0000`,
+    `https://${ID}.portifact.dev/é`,
+    `https://${ID}.portifact.dev/${"a".repeat(SLACK_LIMITS.urlMax)}`,
+    "",
+  ])("ignores %s", (url) => {
+    expect(slackArtifactLink(url, domains)).toBeNull();
+  });
+
+  it("takes its hosts from configuration, escaping them", () => {
+    const staging = {
+      contentDomain: "staging.portifact.dev",
+      appHost: "app.staging.portifact.com",
+    };
+    expect(slackArtifactLink(`https://${ID}.staging.portifact.dev/`, staging)).toBe(ID);
+    expect(slackArtifactLink(`https://${ID}.portifact.dev/`, staging)).toBeNull();
+    expect(slackArtifactLink(`https://${ID}.stagingxportifact.dev/`, staging)).toBeNull();
+    expect(slackArtifactLink(`https://app.stagingxportifact.com/view/${ID}`, staging)).toBeNull();
+    const local = { contentDomain: "localhost", appHost: "localhost:8787" };
+    expect(slackArtifactLink(`https://localhost:8787/view/${ID}`, local)).toBe(ID);
+  });
+
+  it("keeps the first five distinct artifacts, every URL of those, and each URL once", () => {
+    const ids = [
+      "aaaaaaaaaa",
+      "bbbbbbbbbb",
+      "cccccccccc",
+      "dddddddddd",
+      "eeeeeeeeee",
+      "ffffffffff",
+    ];
+    const urls = [
+      "https://app.portifact.com/s#secret",
+      ...ids.map((id) => `https://${id}.portifact.dev/`),
+      "https://app.portifact.com/view/aaaaaaaaaa",
+      "https://aaaaaaaaaa.portifact.dev/",
+    ];
+    expect(slackPreviewLinks(urls, domains)).toEqual([
+      ...ids.slice(0, 5).map((id) => ({ url: `https://${id}.portifact.dev/`, artifactId: id })),
+      { url: "https://app.portifact.com/view/aaaaaaaaaa", artifactId: "aaaaaaaaaa" },
+    ]);
+    expect(slackPreviewLinks(["https://x.example/"], domains)).toEqual([]);
+  });
+});
+
+describe("what a preview shows", () => {
+  it("cleans and bounds the name, Untitled when empty", () => {
+    expect(slackPreviewTitle("  Q3\nplan\u202e\u200b ", "default")).toBe("Q3 plan");
+    expect(slackPreviewTitle("\u200b\u2066 \n", "default")).toBe("Untitled");
+    const long = slackPreviewTitle("n".repeat(400), "default");
+    expect([...long]).toHaveLength(SLACK_LIMITS.nameMax);
+    expect(long.endsWith("\u2026")).toBe(true);
+  });
+
+  it("names an EU owner's artifact as decided, and only the type when names stay home", () => {
+    expect(SLACK_PREVIEW_NAMES_OUTSIDE_DEFAULT_REGION).toBe(true);
+    expect(slackPreviewTitle("Q3 plan", "eu")).toBe("Q3 plan");
+    expect(slackPreviewTitle("Q3 plan", "eu", false)).toBe(SLACK_UNNAMED_ARTIFACT);
+    expect(slackPreviewTitle("Q3 plan", "default", false)).toBe("Q3 plan");
+    const blocks = slackPreviewBlocks({ name: "Q3 plan", type: "site" }, "eu", {
+      namesOutsideDefault: false,
+    });
+    expect(JSON.stringify(blocks)).not.toContain("Q3");
+    expect(blocks[1]).toEqual({
+      type: "context",
+      elements: [{ type: "plain_text", text: "Website on Portifact", emoji: false }],
+    });
+  });
+
+  it("escapes &, < and > in plain_text as decided, or leaves them for release check 7", () => {
+    expect(SLACK_PLAIN_TEXT_ESCAPES).toBe(true);
+    expect(slackPlainText("<!channel> & <@U1>")).toBe("&lt;!channel&gt; &amp; &lt;@U1&gt;");
+    expect(slackPlainText("<!channel> & <@U1>", false)).toBe("<!channel> & <@U1>");
+  });
+
+  it.each([
+    "<!channel>",
+    "<!here|here>",
+    "<@U123>",
+    "*bold* _it_ ~s~ `c`",
+    "<https://example.com|x>",
+    ":smile:",
+    "a\u202eb\u2066c\u200bd\u200de\ufeff",
+    '"},{"type":"section"',
+  ])("keeps a hostile name inert: %s", (name) => {
+    for (const escapes of [true, false]) {
+      const blocks = slackPreviewBlocks({ name, type: "markdown" }, "default", { escapes });
+      expect(blocks).toHaveLength(2);
+      const section = blocks[0] as {
+        type: string;
+        text: { type: string; text: string; emoji: boolean };
+      };
+      expect(section.type).toBe("section");
+      expect(section.text.type).toBe("plain_text");
+      expect(section.text.emoji).toBe(false);
+      expect(section.text.text).not.toMatch(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/);
+      if (escapes) expect(section.text.text).not.toMatch(/[<>]/);
+      // Round trip: the name is one string value, never structure.
+      expect(JSON.parse(JSON.stringify(blocks))).toEqual(blocks);
+    }
+  });
+
+  it("labels each type in English", () => {
+    const label = (type: "site" | "markdown" | "text") =>
+      (slackPreviewBlocks({ name: "x", type }, "default")[1] as { elements: { text: string }[] })
+        .elements[0]?.text;
+    expect([label("site"), label("markdown"), label("text")]).toEqual([
+      "Website on Portifact",
+      "Markdown document on Portifact",
+      "Text document on Portifact",
+    ]);
+  });
+
+  it("builds the unfurl body keyed by the URLs exactly as sent, with nothing else", () => {
+    const url = "https://abcdefgh23.portifact.dev/a?b=1&c=2";
+    const body = slackUnfurlBody(
+      { unfurlId: "C1.1.abc", source: "conversations_history" },
+      [{ url, name: "Q3 plan", type: "markdown" }],
+      "default",
+    );
+    expect(body).toEqual({
+      unfurl_id: "C1.1.abc",
+      source: "conversations_history",
+      unfurls: {
+        [url]: {
+          blocks: [
+            { type: "section", text: { type: "plain_text", text: "Q3 plan", emoji: false } },
+            {
+              type: "context",
+              elements: [
+                { type: "plain_text", text: "Markdown document on Portifact", emoji: false },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    expect(Object.keys(JSON.parse(JSON.stringify(body)).unfurls)).toEqual([url]);
   });
 });

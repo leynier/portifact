@@ -24,6 +24,8 @@ export type SlackAnswer =
   /** Slack refused the token: it is revoked, expired or wrong. */
   | { kind: "rejected" }
   | { kind: "rate_limited" }
+  /** No answer within the timeout. */
+  | { kind: "timeout" }
   /** Any other `ok: false`, a timeout, a redirect, a non-JSON or oversized answer, a 5xx. */
   | { kind: "failed" };
 
@@ -35,7 +37,7 @@ function record(value: unknown): Record<string, unknown> | null {
 
 /** One call to a Web API method with a bot token. */
 export async function slackCall(
-  method: "auth.test" | "auth.revoke",
+  method: "auth.test" | "auth.revoke" | "chat.unfurl",
   token: string,
   body: Record<string, unknown>,
   options: SlackCallOptions,
@@ -57,7 +59,7 @@ export async function slackCall(
       signal,
     });
   } catch {
-    return { kind: "failed" };
+    return signal.aborted ? { kind: "timeout" } : { kind: "failed" };
   }
   if (response.status === 429) {
     await response.body?.cancel().catch(() => {});
@@ -71,7 +73,7 @@ export async function slackCall(
   try {
     text = await readBounded(response, SLACK_LIMITS.responseReadBytes, signal);
   } catch {
-    return { kind: "failed" };
+    return signal.aborted ? { kind: "timeout" } : { kind: "failed" };
   }
   if (text === null) return { kind: "failed" };
   let json: Record<string, unknown> | null;
@@ -106,7 +108,9 @@ export async function slackAuthTest(
   const answer = await slackCall("auth.test", token, {}, options);
   if (answer.kind === "rejected") return { ok: false, problem: "credential_rejected" };
   if (answer.kind === "rate_limited") return { ok: false, problem: "rate_limited" };
-  if (answer.kind === "failed") return { ok: false, problem: "service_unavailable" };
+  if (answer.kind === "failed" || answer.kind === "timeout") {
+    return { ok: false, problem: "service_unavailable" };
+  }
   const { bot_id: botId, team_id: teamId, team } = answer.json;
   if (typeof botId !== "string" || botId === "") return { ok: false, problem: "not_bot" };
   if (typeof teamId !== "string" || !SLACK_TEAM_ID.test(teamId)) {
@@ -119,4 +123,16 @@ export async function slackAuthTest(
 /** Revokes a bot token at Slack (`auth.revoke`): the bot user is deactivated, the app stays. */
 export async function slackRevoke(token: string, options: SlackCallOptions): Promise<SlackAnswer> {
   return slackCall("auth.revoke", token, {}, options);
+}
+
+/**
+ * Adds previews to a posted message or the composer (`chat.unfurl`, decision 0025, "Calls to
+ * Slack"): one call per event, never retried. `body` is built by `slackUnfurlBody`.
+ */
+export async function slackUnfurl(
+  token: string,
+  body: Record<string, unknown>,
+  options: SlackCallOptions,
+): Promise<SlackAnswer> {
+  return slackCall("chat.unfurl", token, body, options);
 }
