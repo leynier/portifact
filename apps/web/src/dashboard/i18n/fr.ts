@@ -484,9 +484,9 @@ export const fr = {
     "Téléchargez tout ce que contient votre compte au format JSON : votre profil, vos artifacts avec leur accès, leurs versions et leurs listes de fichiers, et vos commentaires. Chaque version indique un lien qui télécharge ses fichiers.",
   "account.data.download": "Télécharger les données de votre compte (JSON)",
   "account.data.spacePersonal":
-    "Pour récupérer ce que contient votre espace personnel (les versions conservées et les sources de chaque artefact, les journaux d'accès et le journal d'audit), utilisez la page de téléchargement de l'espace.",
+    "Pour récupérer ce que contient votre espace personnel (les versions conservées et les sources de chaque artefact, les journaux d'accès, les données de chaque artefact et de l'espace et le journal d'audit), utilisez la page de téléchargement de l'espace.",
   "account.data.spaceWorkspace":
-    "Pour récupérer ce que contient l'espace de travail {workspace} (les versions conservées et les sources de chaque artefact, les journaux d'accès et le journal d'audit), utilisez la page de téléchargement de l'espace.",
+    "Pour récupérer ce que contient l'espace de travail {workspace} (les versions conservées et les sources de chaque artefact, les journaux d'accès, les données de chaque artefact et de l'espace et le journal d'audit), utilisez la page de téléchargement de l'espace.",
   "account.data.spaceLink": "Télécharger les données de cet espace",
   "account.delete.title": "Supprimer le compte",
   "account.delete.hint":
@@ -1672,7 +1672,7 @@ export const fr = {
     "Téléchargez ce dont vous avez besoin avant : l'historique de chaque artefact contient ses versions, et le journal d'accès et le journal d'audit ont leurs exports. Ou demandez à nouveau l'offre pour tout garder.",
   "data.title": "Télécharger vos données",
   "data.description":
-    "Tout ce que cet espace contient et que vous pouvez emporter : les versions conservées de chaque artefact et leurs sources, les journaux d'accès, le journal d'audit et, pour votre espace personnel, les données de votre compte. Les fichiers viennent directement du stockage ; rien n'est regroupé sur le serveur.",
+    "Tout ce que cet espace contient et que vous pouvez emporter : les versions conservées de chaque artefact et leurs sources, les journaux d'accès et les données de chacun (réglages, règles d'accès, liens de partage, revues, statistiques et commentaires), les données de l'espace, le journal d'audit et, pour votre espace personnel, les données de votre compte. Les fichiers viennent directement du stockage ; rien n'est regroupé sur le serveur.",
   "data.adminsOnly": "Télécharger toutes les données de {workspace} revient à ses admins.",
   "data.grace.title": "Ce qui part et quand",
   "data.grace.hint":
@@ -1705,14 +1705,27 @@ export const fr = {
   "data.versions.size": "Taille",
   "data.accessLog.csv": "Journal d'accès en CSV",
   "data.accessLog.json": "Journal d'accès en JSON",
+  "data.accessLog.csvLabel": "Journal d'accès en CSV de {name}",
+  "data.accessLog.jsonLabel": "Journal d'accès en JSON de {name}",
   "data.accessLog.saved": "Le journal d'accès est prêt.",
+  "data.records.button": "Données (JSON)",
+  "data.records.label": "Données (JSON) de {name}",
+  "data.records.saved": "Les données sont prêtes.",
+  "data.records.later":
+    "Certaines parties manquent parce que le serveur a demandé d'attendre. Téléchargez à nouveau dans quelques minutes.",
+  "data.records.failed": "Les données n'ont pas pu être téléchargées.",
+  "data.space.title": "Données de l'espace",
+  "data.space.hint":
+    "Les réglages de l'espace, sans secrets : pour un espace de travail, ses membres et rôles, les groupes et leurs membres, les invitations, les domaines e-mail, les politiques, l'authentification unique et les jetons de service ; pour tout espace, l'image de marque, les webhooks, les intégrations et les flux d'audit.",
+  "data.space.download": "Télécharger les données de l'espace (JSON)",
+  "data.space.logo": "Télécharger le logo de la marque",
   "data.logs.title": "Journaux et compte",
   "data.logs.hint":
     "Le journal d'audit de l'espace a son propre export, et votre espace personnel inclut les données de votre compte.",
   "data.logs.audit": "Exportez le journal d'audit depuis la page Journal d'audit",
   "data.logs.account": "Téléchargez les données de votre compte (JSON)",
   "data.logs.cli":
-    "Pour tout emporter d'un coup, lancez portifact export <dossier> dans un terminal : il récupère chaque version conservée, reprend après une interruption et écrit un manifeste.",
+    "Pour tout emporter d'un coup, lancez portifact export <dossier> dans un terminal : il récupère chaque version conservée et les données de chaque artefact, reprend après une interruption et écrit un manifeste. Les membres, les invitations et les autres réglages que seul le tableau de bord lit sont dans les données de l'espace ci-dessus.",
   "shell.grace.title": "Ce que gardait l'offre {plan} est conservé jusqu'au {date}",
   "shell.grace.download": "Télécharger vos données",
   "shell.grace.request": "Redemander {plan}",

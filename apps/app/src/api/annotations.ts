@@ -9,6 +9,8 @@ import {
   AnnotationEditResult,
   AnnotationExport,
   AnnotationExportQuery,
+  AnnotationHistoryPage,
+  AnnotationHistoryQuery,
   AnnotationListQuery,
   AnnotationModeUpdate,
   AnnotationModeView,
@@ -27,6 +29,7 @@ import {
   editAnnotationMessage,
   exportAnnotations,
   getAnnotationThread,
+  listAnnotationHistory,
   listAnnotations,
   moderateAnnotationMessage,
   replyToAnnotationThread,
@@ -106,6 +109,24 @@ export function annotationRoutes(
         "Content-Disposition": `attachment; filename="${data.artifact.id}-annotations.md"`,
         "X-Content-Type-Options": "nosniff",
       });
+    }),
+  );
+
+  // The comment action history without text, for the owner side (MCP get_comment_history,
+  // `portifact annotations history`, and both data exports).
+  api.get(
+    `${BASE}/history`,
+    guarded("annotations:read", async (c, userId) => {
+      const query = AnnotationHistoryQuery.safeParse(c.req.query());
+      if (!query.success) return error(c, "invalid_input", "Invalid cursor or limit.");
+      const result = await listAnnotationHistory(await artifactDb(c.env, artifactId(c)), {
+        userId,
+        artifactId: artifactId(c),
+        ...query.data,
+        now: now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(AnnotationHistoryPage.parse(result.value));
     }),
   );
 

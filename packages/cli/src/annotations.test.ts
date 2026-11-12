@@ -842,3 +842,60 @@ describe("text formatting", () => {
     expect(plain("a\u0000b\nc\td\u2028e\u2066f\u0085")).toBe("ab\nc\tdef");
   });
 });
+
+describe("annotations history", () => {
+  const entry = (seq: number, kind: "thread_created" | "message_edited", name: string | null) => ({
+    seq,
+    threadId: "th_1",
+    messageId: kind === "message_edited" ? "msg_1" : null,
+    kind,
+    actor: name === null ? null : { id: `u_${seq}`, name, image: null },
+    at: "2026-11-01T09:30:00.000Z",
+  });
+
+  it("prints every page of who did what and when, without text, and as JSON", async () => {
+    const artifact = reviewed();
+    const entries = [
+      ...Array.from({ length: 600 }, (_, i) => entry(i + 1, "thread_created", "Ada")),
+      entry(601, "message_edited", "Bob\u001b[31m"),
+      entry(602, "message_edited", null),
+    ];
+    server.annotations.history.set(artifact.id, entries);
+    const text = await h.invoke("annotations", "history", artifact.id);
+    expect(text.code).toBe(0);
+    const lines = text.stdout.trim().split("\n");
+    expect(lines).toHaveLength(602);
+    expect(lines[0]).toBe("2026-11-01 09:30 UTC  thread created  thread th_1  by Ada");
+    expect(lines[600]).toBe(
+      "2026-11-01 09:30 UTC  message edited  thread th_1, message msg_1  by Bob[31m",
+    );
+    expect(lines[601]).toContain("by (deleted account)");
+    expect(text.stderr).toContain(UNTRUSTED_ANNOTATIONS_NOTICE);
+    expect(requests("GET", /\/history/)).toHaveLength(2);
+
+    const asJson = json(await h.invoke("annotations", "history", artifact.id, "--json"));
+    expect(asJson).toEqual({ artifactId: artifact.id, entries });
+  });
+
+  it("says when there is no history, and refuses a reader like the server does", async () => {
+    const artifact = reviewed();
+    const empty = await h.invoke("annotations", "history", artifact.id);
+    expect(empty.stdout).toBe(`${artifact.id} has no comment history yet.\n`);
+    server.annotations.role = "participant";
+    const refused = await h.invoke("annotations", "history", artifact.id, "--json");
+    expect(refused.code).toBe(5);
+    expect(json(refused).error.code).toBe("forbidden");
+    expect((await h.invoke("annotations", "history", "nope")).code).toBe(2);
+  });
+
+  it("refuses IDs outside their format instead of printing them", async () => {
+    const artifact = reviewed();
+    server.annotations.history.set(artifact.id, [
+      { ...entry(1, "thread_created", "Ada"), threadId: "th\u001b[2J" },
+    ]);
+    const result = await h.invoke("annotations", "history", artifact.id);
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).not.toContain("\u001b");
+    expect(result.stderr).not.toContain("\u001b[2J");
+  });
+});

@@ -1,9 +1,11 @@
 // "Download your data" (`/data`, decision 0022, second delivery): everything a space holds that
 // can be taken out, from routes that already exist. Each artifact with its retained versions and
 // their download buttons (the version download route, published files and sources), each artifact's
-// access log as CSV and JSON, the audit log's export and, for a personal space, the account's
-// export; and, while a plan's grace runs, what goes on which date. It lists and links; nothing is
-// archived on the server. Offered to the space's admins.
+// access log as CSV and JSON and its records (settings, access, share links, the approval review,
+// analytics, comments and their history), the space's records (members, groups, invitations,
+// domains, policies, tokens, branding and the like, without secrets), the audit log's export and,
+// for a personal space, the account's export; and, while a plan's grace runs, what goes on which
+// date. It lists and links; nothing is archived on the server. Offered to the space's admins.
 import type {
   ArtifactListItem,
   DownloadKind,
@@ -31,9 +33,10 @@ import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Clock, Download, Lock } from "lucide-react";
 import { useState } from "react";
 import { accessLogCsv, accessLogJson, loadWholeAccessLog } from "../access-log-export.ts";
-import { ACCOUNT_EXPORT_PATH } from "../api.ts";
+import { ACCOUNT_EXPORT_PATH, BRAND_PATH } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatBytes, useFormatDate, useT } from "../context.tsx";
 import { downloadVersion } from "../publish/download.ts";
+import { artifactRecordsFile, type RecordsDownload, spaceRecordsFile } from "../records-export.ts";
 import { refreshOptions } from "../refresh.ts";
 import { type Space, spaceCan, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
@@ -72,6 +75,7 @@ export function DownloadDataScreen() {
         <>
           <GraceSection space={space} />
           <ArtifactsSection space={space} />
+          <SpaceRecordsSection space={space} />
           <LogsSection space={space} />
         </>
       ) : (
@@ -235,12 +239,14 @@ function VersionDownloads({ artifact, space }: { artifact: ArtifactListItem; spa
       announce(t("data.accessLog.saved"));
     },
   });
+  const records = useRecordsDownload(() => artifactRecordsFile(api, artifact.id, Date.now()));
   const all = versions.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <div className="flex flex-col gap-3">
       {download.isError || accessLog.isError ? (
         <Callout tone="error" title={t("history.downloadFailed.title")} />
       ) : null}
+      <RecordsOutcome records={records} />
       <Panel title={t("data.versions.title", { name: artifact.name })} flush>
         <Table
           caption={t("data.versions.caption", { name: artifact.name })}
@@ -309,23 +315,95 @@ function VersionDownloads({ artifact, space }: { artifact: ArtifactListItem; spa
           </div>
         ) : null}
       </Panel>
-      {spaceCan(space, "access_log") ? (
-        <div className="flex flex-wrap gap-2">
-          {(["csv", "json"] as const).map((format) => (
-            <Button
-              key={format}
-              size="sm"
-              icon={<Download className="size-4" />}
-              busy={accessLog.isPending && accessLog.variables === format}
-              disabled={accessLog.isPending}
-              onClick={() => accessLog.mutate(format)}
-            >
-              {t(format === "csv" ? "data.accessLog.csv" : "data.accessLog.json")}
-            </Button>
-          ))}
-        </div>
-      ) : null}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          icon={<Download className="size-4" />}
+          aria-label={t("data.records.label", { name: artifact.name })}
+          busy={records.isPending}
+          disabled={records.isPending}
+          onClick={() => records.mutate()}
+        >
+          {t("data.records.button")}
+        </Button>
+        {spaceCan(space, "access_log")
+          ? (["csv", "json"] as const).map((format) => (
+              <Button
+                key={format}
+                size="sm"
+                icon={<Download className="size-4" />}
+                aria-label={t(
+                  format === "csv" ? "data.accessLog.csvLabel" : "data.accessLog.jsonLabel",
+                  { name: artifact.name },
+                )}
+                busy={accessLog.isPending && accessLog.variables === format}
+                disabled={accessLog.isPending}
+                onClick={() => accessLog.mutate(format)}
+              >
+                {t(format === "csv" ? "data.accessLog.csv" : "data.accessLog.json")}
+              </Button>
+            ))
+          : null}
+      </div>
     </div>
+  );
+}
+
+/** Downloads a records file, saving it and announcing it. */
+function useRecordsDownload(build: () => Promise<RecordsDownload>) {
+  const t = useT();
+  const announce = useAnnounce();
+  const { save } = useDashboard();
+  return useMutation({
+    mutationFn: build,
+    onSuccess: (download) => {
+      save(download.file);
+      announce(t(download.retryLater ? "data.records.later" : "data.records.saved"));
+    },
+  });
+}
+
+function RecordsOutcome({ records }: { records: ReturnType<typeof useRecordsDownload> }) {
+  const t = useT();
+  if (records.isError) return <Callout tone="error" title={t("data.records.failed")} />;
+  if (records.data?.retryLater) return <Callout title={t("data.records.later")} />;
+  return null;
+}
+
+/** The space's own records, and its brand's logo when there is one. */
+function SpaceRecordsSection({ space }: { space: Space }) {
+  const t = useT();
+  const { api } = useDashboard();
+  const records = useRecordsDownload(() => spaceRecordsFile(api, space, Date.now()));
+  const brand = useQuery({
+    queryKey: ["data-brand", space.slug ?? null],
+    queryFn: () => api.brandSettings(space.slug),
+    ...refreshOptions,
+  });
+  const logo = brand.data?.brand?.logo ?? null;
+  const query =
+    space.slug === undefined ? "" : `?${new URLSearchParams({ workspace: space.slug })}`;
+  return (
+    <Section id="space-records" title={t("data.space.title")} hint={t("data.space.hint")}>
+      <div className="flex flex-col gap-3">
+        <RecordsOutcome records={records} />
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            icon={<Download className="size-4" />}
+            busy={records.isPending}
+            disabled={records.isPending}
+            onClick={() => records.mutate()}
+          >
+            {t("data.space.download")}
+          </Button>
+          {logo ? (
+            <a href={`${BRAND_PATH}/logo${query}`} download className="text-sm font-semibold">
+              {t("data.space.logo")}
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </Section>
   );
 }
 

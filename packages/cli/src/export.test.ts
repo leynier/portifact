@@ -16,7 +16,7 @@ import {
 } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { ExportManifest } from "@portifact/contracts";
+import { ArtifactRecords, ExportManifest, SpaceRecords } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { oneLine, plain } from "./plain.ts";
 import { type FakeServer, startFakeServer } from "./testing/fake-server.ts";
@@ -152,12 +152,15 @@ describe("portifact export", () => {
         ".portifact-export",
         "audit.jsonl",
         "manifest.json",
+        "space.json",
         `artifacts/${doc.id}/access-log.jsonl`,
+        `artifacts/${doc.id}/records.json`,
         `artifacts/${doc.id}/v1/published/img/logo.txt`,
         `artifacts/${doc.id}/v1/published/index.md`,
         `artifacts/${doc.id}/v1/source/src/draft.md`,
         `artifacts/${doc.id}/v2/published/index.md`,
         `artifacts/${site.id}/access-log.jsonl`,
+        `artifacts/${site.id}/records.json`,
         `artifacts/${site.id}/v1/published/index.html`,
       ].sort(),
     );
@@ -170,6 +173,37 @@ describe("portifact export", () => {
       file: `artifacts/${doc.id}/access-log.jsonl`,
       lines: 1,
     });
+    // The records: the same bodies as the read routes, each part or why it is missing.
+    const records = ArtifactRecords.parse(
+      JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
+    );
+    expect(records).toMatchObject({
+      kind: "artifact",
+      artifact: { id: doc.id },
+      access: { mode: "restricted" },
+      shareLinks: { artifactId: doc.id, links: [] },
+      approvalReview: { artifactId: doc.id, role: "owner" },
+      comments: { artifact: { id: doc.id }, threads: [] },
+      commentHistory: [],
+    });
+    expect(manifest.artifacts.find((a) => a.id === doc.id)?.records).toEqual({
+      file: `artifacts/${doc.id}/records.json`,
+    });
+    const spaceRecords = SpaceRecords.parse(
+      JSON.parse(await readFile(join(out, "space.json"), "utf8")),
+    );
+    expect(spaceRecords).toMatchObject({
+      space: { ownerId: "u_fake_owner", slug: null },
+      workspace: null,
+      members: null,
+      branding: { skipped: "dashboard_only" },
+      webhooks: { webhooks: [] },
+    });
+    expect(manifest.spaceRecords).toEqual({ file: "space.json" });
+    expect(result.stdout).toContain(
+      "Branding, integrations and audit streams are in the Space records download",
+    );
+    expect(manifest.complete).toBe(true);
     // Storage never sees the API token.
     expect(server.api.gets.every((get) => get.headers.authorization === undefined)).toBe(true);
   });
@@ -421,6 +455,162 @@ describe("portifact export", () => {
     expect(second.code).toBe(0);
     expect(JSON.parse(second.stdout).complete).toBe(true);
     expect((await manifestOf(out)).audit).toMatchObject({ file: "audit.jsonl" });
+  });
+
+  it("writes each artifact's comments and every page of their history into its records", async () => {
+    h.signIn();
+    const { doc } = space();
+    const entries = Array.from({ length: 450 }, (_, i) => ({
+      seq: i + 1,
+      threadId: "th_1",
+      messageId: null,
+      kind: "thread_created" as const,
+      actor: { id: "u_ada", name: "Ada", image: null },
+      at: "2026-11-01T00:00:00.000Z",
+    }));
+    server.annotations.history.set(doc.id, entries);
+    const out = join(h.workspace, "export");
+    expect((await h.invoke("export", out)).code).toBe(0);
+    const records = ArtifactRecords.parse(
+      JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
+    );
+    expect(records.commentHistory).toEqual(entries);
+
+    // A reader's export: the history is the owner side's, the threads are the current version's.
+    server.annotations.role = "participant";
+    const again = await h.invoke("export", out);
+    expect(again.code).toBe(0);
+    const reader = ArtifactRecords.parse(
+      JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
+    );
+    expect(reader.commentHistory).toEqual({ skipped: "forbidden" });
+  });
+
+  it("exports a workspace's records that bearer routes read and names the dashboard for the rest", async () => {
+    h.signIn();
+    server.api.workspaces = [{ slug: "acme", name: "Acme", role: "admin" }];
+    server.api.audit.set("acme", []);
+    server.api.groups.set("acme", [
+      {
+        id: "wg_00000000000000000000000000000001",
+        name: "Design",
+        members: 2,
+        createdAt: "2026-11-01T00:00:00.000Z",
+        directory: false,
+      },
+    ]);
+    const out = join(h.workspace, "export");
+    const result = await h.invoke("export", out, "--workspace", "acme");
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain(
+      "Space records download of the dashboard's Download your data page",
+    );
+    const records = SpaceRecords.parse(JSON.parse(await readFile(join(out, "space.json"), "utf8")));
+    expect(records).toMatchObject({
+      space: { slug: "acme" },
+      workspace: { slug: "acme", name: "Acme", role: "admin" },
+      groups: { items: [{ name: "Design" }] },
+      groupMembers: { skipped: "dashboard_only" },
+      members: { skipped: "dashboard_only" },
+      invitations: { skipped: "dashboard_only" },
+      serviceTokens: { skipped: "dashboard_only" },
+      emailDomains: { skipped: "dashboard_only" },
+      policies: { skipped: "dashboard_only" },
+    });
+  });
+
+  it("resumes without reading again the records it wrote and verified in this export", async () => {
+    h.signIn();
+    const { doc, site } = space();
+    const out = join(h.workspace, "export");
+    const recordReads = () =>
+      server.requests.filter((r) =>
+        /^\/api\/v1\/artifacts\/[^/]+(\/(access|share-links|review\/status|stats|annotations\/export|annotations\/history))?(\?|$)/.test(
+          r.path,
+        ),
+      ).length;
+    // The audit log must wait: the run ends incomplete, so the export stays open.
+    server.faults.push({
+      method: "GET",
+      path: /^\/api\/v1\/audit\/export/,
+      reply: {
+        status: 429,
+        body: Buffer.from(JSON.stringify({ error: { code: "rate_limited", message: "Wait." } })),
+      },
+    });
+    expect((await h.invoke("export", out)).code).toBe(8);
+    expect((await manifestOf(out)).complete).toBe(false);
+    const first = recordReads();
+    expect(first).toBeGreaterThanOrEqual(14);
+
+    // A records file changed on disk is read again; the other one is kept.
+    const siteRecords = join(out, "artifacts", site.id, "records.json");
+    await writeFile(siteRecords, `${(await readFile(siteRecords, "utf8")).trim()} `);
+    const before = recordReads();
+    const second = await h.invoke("export", out);
+    expect(second.code).toBe(0);
+    expect(recordReads() - before).toBeGreaterThanOrEqual(7);
+    expect(recordReads() - before).toBeLessThan(first);
+    expect(
+      server.requests.filter((r) => r.path === `/api/v1/artifacts/${site.id}/access`),
+    ).toHaveLength(2);
+    expect(
+      server.requests.filter((r) => r.path === `/api/v1/artifacts/${doc.id}/access`),
+    ).toHaveLength(1);
+    expect((await manifestOf(out)).complete).toBe(true);
+    expect(existsSync(join(out, ".portifact-export-records.json"))).toBe(false);
+    ArtifactRecords.parse(JSON.parse(await readFile(siteRecords, "utf8")));
+
+    // A complete export is closed: the next run reads every record again.
+    const third = recordReads();
+    expect((await h.invoke("export", out)).code).toBe(0);
+    expect(
+      server.requests.filter((r) => r.path === `/api/v1/artifacts/${doc.id}/access`),
+    ).toHaveLength(2);
+    expect(recordReads() - third).toBeGreaterThanOrEqual(14);
+  });
+
+  it("notes a feature switched off as unavailable and still completes", async () => {
+    h.signIn();
+    space();
+    server.faults.push({
+      method: "GET",
+      path: /^\/api\/v1\/webhooks/,
+      reply: {
+        status: 503,
+        body: Buffer.from(
+          JSON.stringify({ error: { code: "capacity_unavailable", message: "Off." } }),
+        ),
+      },
+    });
+    const out = join(h.workspace, "export");
+    expect((await h.invoke("export", out)).code).toBe(0);
+    const records = SpaceRecords.parse(JSON.parse(await readFile(join(out, "space.json"), "utf8")));
+    expect(records.webhooks).toEqual({ skipped: "unavailable" });
+  });
+
+  it("exits 8 when a part of the records must wait, and a later run fills it", async () => {
+    h.signIn();
+    const { doc } = space();
+    server.faults.push({
+      method: "GET",
+      path: new RegExp(`^/api/v1/artifacts/${doc.id}/review/status`),
+      reply: {
+        status: 429,
+        body: Buffer.from(JSON.stringify({ error: { code: "rate_limited", message: "Wait." } })),
+      },
+    });
+    const out = join(h.workspace, "export");
+    const first = await h.invoke("export", out);
+    expect(first.code).toBe(8);
+    const path = join(out, "artifacts", doc.id, "records.json");
+    expect(ArtifactRecords.parse(JSON.parse(await readFile(path, "utf8"))).approvalReview).toEqual({
+      skipped: "rate_limited",
+    });
+    expect((await h.invoke("export", out)).code).toBe(0);
+    expect(
+      ArtifactRecords.parse(JSON.parse(await readFile(path, "utf8"))).approvalReview,
+    ).toMatchObject({ artifactId: doc.id });
   });
 
   it("refuses two paths one file system would store as one, before writing either", async () => {

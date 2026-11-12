@@ -9,10 +9,12 @@ import {
   AccountSettings,
   type AccountSettingsUpdate,
   AccountUsageView,
+  ANNOTATION_HISTORY_PAGE,
   AnnotationDeleteResult,
   AnnotationEditResult,
   AnnotationExport,
   type AnnotationExportQuery,
+  AnnotationHistoryPage,
   AnnotationModeView,
   AnnotationPage,
   type AnnotationsState,
@@ -403,7 +405,7 @@ export interface DashboardApi {
     query: AuditPageQuery,
   ): Promise<{ text: string; nextCursor: string | null }>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
-  stats(artifactId: string, from?: string): Promise<ArtifactStatsView>;
+  stats(artifactId: string, from?: string, to?: string): Promise<ArtifactStatsView>;
   /**
    * Starts a publish; retrying with the same key returns the same upload. A new artifact goes to
    * `workspace`, or the personal space without it; a new version stays where its artifact is.
@@ -464,6 +466,10 @@ export interface DashboardApi {
     cursor?: string,
     version?: AnnotationVersionFilter,
   ): Promise<AnnotationPage>;
+  /** The threads as `GET .../annotations/export?format=json` answers them, for the records. */
+  annotationExport(artifactId: string, version: "all" | "current"): Promise<AnnotationExport>;
+  /** A page of the comment action history (owner side only). */
+  annotationHistory(artifactId: string, cursor?: string): Promise<AnnotationHistoryPage>;
   /** The threads as the file `portifact annotations export` writes, JSON or Markdown. */
   exportAnnotations(
     artifactId: string,
@@ -1155,8 +1161,11 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         AccessLogView,
       );
     },
-    stats(artifactId, from) {
-      const query = from ? `?${new URLSearchParams({ from })}` : "";
+    stats(artifactId, from, to) {
+      const params = new URLSearchParams();
+      if (from) params.set("from", from);
+      if (to) params.set("to", to);
+      const query = params.size > 0 ? `?${params}` : "";
       return call(
         `/api/v1/artifacts/${encodeURIComponent(artifactId)}/stats${query}`,
         ArtifactStatsView,
@@ -1244,6 +1253,15 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       if (version !== "current") params.set("version", version);
       const query = params.size > 0 ? `?${params}` : "";
       return call(`${annotationsPath(artifactId)}${query}`, AnnotationPage);
+    },
+    annotationExport(artifactId, version) {
+      const params = new URLSearchParams({ format: "json", version });
+      return call(`${annotationsPath(artifactId)}/export?${params}`, AnnotationExport);
+    },
+    annotationHistory(artifactId, cursor) {
+      const params = new URLSearchParams({ limit: String(ANNOTATION_HISTORY_PAGE.max) });
+      if (cursor) params.set("cursor", cursor);
+      return call(`${annotationsPath(artifactId)}/history?${params}`, AnnotationHistoryPage);
     },
     async exportAnnotations(artifactId, { format, version, state }) {
       const params = new URLSearchParams({ format, version, ...(state ? { state } : {}) });

@@ -21,9 +21,11 @@
 // Bodies are untrusted plain text and are never logged.
 import {
   ANNOTATION_LIMITS,
+  type AnnotationAuthor,
   type AnnotationDeleteResult,
   type AnnotationEditResult,
   type AnnotationExport,
+  type AnnotationHistoryPage,
   type AnnotationPage,
   type AnnotationsState,
   type AnnotationTarget,
@@ -1452,6 +1454,64 @@ export async function exportAnnotations(
       currentVersionId: a.currentVersionId,
     },
     threads: await threadViews(db, viewContext(loaded), input.userId, rows),
+  });
+}
+
+/**
+ * A page of an artifact's comment action history, oldest first: who created, edited, deleted,
+ * hid, resolved or reopened which thread or message, and when, never the text. Deleted threads
+ * stay in it. Only the owner side reads it: the same people who moderate and whose comment scope
+ * is always `all`, so no event scope applies. Anyone else who may read the comments gets
+ * `forbidden`, and anyone who may not (a service token included), what a missing artifact gives.
+ */
+export async function listAnnotationHistory(
+  db: RegionalDb,
+  input: AnnotationActor & { cursor?: string | undefined; limit: number },
+): Promise<Result<AnnotationHistoryPage>> {
+  const authorized = await authorize(db, input, "read");
+  if (!authorized.ok) return authorized;
+  const loaded = authorized.value;
+  if (loaded.role !== "owner") {
+    return fail("forbidden", "Only the artifact's owner side can read the comment history.");
+  }
+  const after = input.cursor === undefined ? 0 : decodeAnnotationCursor(input.cursor);
+  if (after === undefined) return fail("invalid_input", "Invalid cursor.");
+  const e = schema.annotationEvents;
+  const rows = await db
+    .select({
+      id: e.id,
+      threadId: e.threadId,
+      messageId: e.messageId,
+      kind: e.kind,
+      actorId: e.actorId,
+      at: e.at,
+    })
+    .from(e)
+    .where(and(eq(e.artifactId, loaded.artifact.id), gt(e.id, after)))
+    .orderBy(asc(e.id))
+    .limit(input.limit + 1);
+  const page = rows.slice(0, input.limit);
+  const actors = new Map<string, AnnotationAuthor>();
+  for (const ids of chunks([...new Set(page.map((row) => row.actorId))])) {
+    // Actors are global accounts (decision 0005): their names come from the global database.
+    const users = await db.global
+      .select({ id: schema.users.id, name: schema.users.name, image: schema.users.image })
+      .from(schema.users)
+      .where(inArray(schema.users.id, ids));
+    for (const user of users) actors.set(user.id, user);
+  }
+  const last = page.at(-1);
+  return ok({
+    artifactId: loaded.artifact.id,
+    entries: page.map((row) => ({
+      seq: row.id,
+      threadId: row.threadId,
+      messageId: row.messageId,
+      kind: row.kind,
+      actor: actors.get(row.actorId) ?? null,
+      at: new Date(row.at).toISOString(),
+    })),
+    nextCursor: rows.length > input.limit && last ? encodeAnnotationCursor(last.id) : null,
   });
 }
 

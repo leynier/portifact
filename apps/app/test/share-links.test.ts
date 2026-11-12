@@ -595,6 +595,13 @@ describe("opening a link", () => {
       headers: { "sec-fetch-site": "same-origin" },
     });
     expect(annotations.status).toBe(401);
+    // Nor the comment action history, with or without the link's own session cookie.
+    for (const cookie of [undefined, "__Host-pf_link=anything"]) {
+      const history = await b.h.request(`/api/v1/artifacts/${id}/annotations/history`, {
+        headers: { "sec-fetch-site": "same-origin", ...(cookie ? { cookie } : {}) },
+      });
+      expect(history.status).toBe(401);
+    }
     const review = await b.h.request(`/api/v1/artifacts/${id}/review`, {
       method: "POST",
       headers: { origin: ORIGIN, "sec-fetch-site": "same-origin" },

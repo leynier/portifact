@@ -479,9 +479,9 @@ export const de = {
     "Lade alles, was dein Konto enthält, als JSON herunter: dein Profil, deine Artifacts mit ihrem Zugriff, ihren Versionen und Dateilisten sowie Kommentare. Jede Version enthält einen Link, über den sich ihre Dateien herunterladen lassen.",
   "account.data.download": "Die Daten deines Kontos herunterladen (JSON)",
   "account.data.spacePersonal":
-    "Um mitzunehmen, was dein persönlicher Bereich enthält (die aufbewahrten Versionen und Quellen jedes Artefakts, die Zugriffsprotokolle und das Audit-Protokoll), nutze die Download-Seite des Bereichs.",
+    "Um mitzunehmen, was dein persönlicher Bereich enthält (die aufbewahrten Versionen und Quellen jedes Artefakts, die Zugriffsprotokolle, die Datensätze jedes Artefakts und des Bereichs und das Audit-Protokoll), nutze die Download-Seite des Bereichs.",
   "account.data.spaceWorkspace":
-    "Um mitzunehmen, was der Arbeitsbereich {workspace} enthält (die aufbewahrten Versionen und Quellen jedes Artefakts, die Zugriffsprotokolle und das Audit-Protokoll), nutze die Download-Seite des Bereichs.",
+    "Um mitzunehmen, was der Arbeitsbereich {workspace} enthält (die aufbewahrten Versionen und Quellen jedes Artefakts, die Zugriffsprotokolle, die Datensätze jedes Artefakts und des Bereichs und das Audit-Protokoll), nutze die Download-Seite des Bereichs.",
   "account.data.spaceLink": "Daten dieses Bereichs herunterladen",
   "account.delete.title": "Konto löschen",
   "account.delete.hint":
@@ -1668,7 +1668,7 @@ export const de = {
     "Lade vorher herunter, was du brauchst: Der Verlauf jedes Artefakts enthält seine Versionen, und Zugriffs- und Auditprotokoll haben ihre Exporte. Oder fordere den Tarif erneut an, um alles zu behalten.",
   "data.title": "Daten herunterladen",
   "data.description":
-    "Alles, was dieser Bereich enthält und du mitnehmen kannst: die aufbewahrten Versionen jedes Artefakts und ihre Quellen, Zugriffsprotokolle, das Auditprotokoll und für deinen persönlichen Bereich die Daten deines Kontos. Dateien kommen direkt aus dem Speicher; auf dem Server wird nichts gebündelt.",
+    "Alles, was dieser Bereich enthält und du mitnehmen kannst: die aufbewahrten Versionen jedes Artefakts und ihre Quellen, Zugriffsprotokolle und Datensätze (Einstellungen, Zugriffsregeln, Freigabelinks, Prüfungen, Analysen und Kommentare), die Datensätze des Bereichs, das Audit-Protokoll und für deinen persönlichen Bereich die Daten deines Kontos. Dateien kommen direkt aus dem Speicher; auf dem Server wird nichts gebündelt.",
   "data.adminsOnly": "Alle Daten von {workspace} herunterzuladen, ist Sache seiner Admins.",
   "data.grace.title": "Was wann gelöscht wird",
   "data.grace.hint":
@@ -1701,14 +1701,27 @@ export const de = {
   "data.versions.size": "Größe",
   "data.accessLog.csv": "Zugriffsprotokoll als CSV",
   "data.accessLog.json": "Zugriffsprotokoll als JSON",
+  "data.accessLog.csvLabel": "Zugriffsprotokoll als CSV von {name}",
+  "data.accessLog.jsonLabel": "Zugriffsprotokoll als JSON von {name}",
   "data.accessLog.saved": "Das Zugriffsprotokoll ist bereit.",
+  "data.records.button": "Datensätze (JSON)",
+  "data.records.label": "Datensätze (JSON) von {name}",
+  "data.records.saved": "Die Datensätze sind bereit.",
+  "data.records.later":
+    "Einige Teile fehlen, weil der Server um Geduld gebeten hat. Lade sie in ein paar Minuten erneut herunter.",
+  "data.records.failed": "Die Datensätze konnten nicht heruntergeladen werden.",
+  "data.space.title": "Datensätze des Bereichs",
+  "data.space.hint":
+    "Die Einstellungen des Bereichs, ohne Geheimnisse: für einen Workspace seine Mitglieder und Rollen, Gruppen und ihre Mitglieder, Einladungen, E-Mail-Domains, Richtlinien, Single Sign-on und Dienst-Tokens; für jeden Bereich Branding, Webhooks, Integrationen und Audit-Streams.",
+  "data.space.download": "Datensätze des Bereichs herunterladen (JSON)",
+  "data.space.logo": "Logo der Marke herunterladen",
   "data.logs.title": "Protokolle und Konto",
   "data.logs.hint":
     "Das Auditprotokoll des Bereichs hat einen eigenen Export, und dein persönlicher Bereich enthält die Daten deines Kontos.",
   "data.logs.audit": "Exportiere das Auditprotokoll auf der Seite Auditprotokoll",
   "data.logs.account": "Lade die Daten deines Kontos herunter (JSON)",
   "data.logs.cli":
-    "Um alles auf einmal mitzunehmen, führe portifact export <Ordner> in einem Terminal aus: Es lädt jede aufbewahrte Version, setzt nach einer Unterbrechung fort und schreibt ein Manifest.",
+    "Um alles auf einmal mitzunehmen, führe portifact export <Ordner> in einem Terminal aus: Es lädt jede aufbewahrte Version und die Datensätze jedes Artefakts, setzt nach einer Unterbrechung fort und schreibt ein Manifest. Mitglieder, Einladungen und andere Einstellungen, die nur das Dashboard liest, stehen oben in den Datensätzen des Bereichs.",
   "shell.grace.title": "Was der Tarif {plan} aufbewahrte, bleibt bis {date} erhalten",
   "shell.grace.download": "Daten herunterladen",
   "shell.grace.request": "{plan} erneut anfordern",

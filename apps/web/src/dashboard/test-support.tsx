@@ -11,6 +11,7 @@ import {
   AccessUpdate,
   type AccountSettings,
   type AccountUsageView,
+  type AnnotationHistoryEntry,
   type AnnotationMessageView,
   type AnnotationRole,
   type AnnotationsState,
@@ -337,6 +338,8 @@ export interface FakeAnnotations {
    * starting with `solved`, or the post answers `human_verification_required`.
    */
   humanChecks?: number;
+  /** The comment action history, oldest first, as GET .../history pages it (owner only). */
+  history?: AnnotationHistoryEntry[];
 }
 
 export function fakeMessage(overrides: Partial<AnnotationMessageView> = {}): AnnotationMessageView {
@@ -2389,6 +2392,17 @@ function reviewRoute(
       removed: since > 0 ? store.deleted.filter((d) => d.seq > since).map((d) => d.id) : [],
       cursor: String(store.seq),
       hasMore: false,
+    });
+  }
+  if (rest === "/history" && method === "GET") {
+    if (store.role !== "owner") return apiError("forbidden", 403);
+    const all = store.history ?? [];
+    const from = Number(url.searchParams.get("cursor") ?? 0);
+    const limit = Number(url.searchParams.get("limit") ?? 200);
+    return Response.json({
+      artifactId: id,
+      entries: all.slice(from, from + limit),
+      nextCursor: from + limit < all.length ? String(from + limit) : null,
     });
   }
   if (rest === "/export" && method === "GET") {

@@ -2,6 +2,7 @@
 // removed sees the grace notice on two pages, opens the download page from it, reads what goes on
 // which date, and downloads a previous version that the free plan would no longer keep.
 
+import { readFile } from "node:fs/promises";
 import { axeViolations } from "../src/axe.ts";
 import {
   control,
@@ -95,5 +96,29 @@ test("an owner in grace sees the notice, opens the download page and downloads a
   const download = page.waitForEvent("download");
   await version1.click();
   expect((await download).suggestedFilename()).toBe("Roadmap-v1.zip");
+
+  // The artifact's records and the space's records come from the real read routes, as JSON.
+  const records = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Records (JSON) of Roadmap" }).click();
+  const recordsFile = await records;
+  expect(recordsFile.suggestedFilename()).toBe(`${first.artifactId}-records.json`);
+  const artifactRecords = JSON.parse(await readFile(await recordsFile.path(), "utf8"));
+  expect(artifactRecords).toMatchObject({
+    format: 1,
+    kind: "artifact",
+    artifact: { id: first.artifactId, name: "Roadmap" },
+    access: { mode: "restricted" },
+    commentHistory: [],
+  });
+  const space = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download the space's records (JSON)" }).click();
+  const spaceFile = await space;
+  expect(spaceFile.suggestedFilename()).toBe("personal-space-records.json");
+  const spaceRecords = JSON.parse(await readFile(await spaceFile.path(), "utf8"));
+  expect(spaceRecords).toMatchObject({
+    kind: "space",
+    space: { ownerId: owner.userId, slug: null },
+    workspace: null,
+  });
   expect(await axeViolations(page)).toEqual([]);
 });

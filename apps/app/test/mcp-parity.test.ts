@@ -1686,6 +1686,18 @@ describe("API and MCP parity for annotations", () => {
     expect(markdown.structuredContent).toEqual(
       await (await owner.apiCall(`${base}/export?state=open`)).json(),
     );
+
+    // The comment action history: the same pages, the same refusal for a reader.
+    const history = fromTool(await owner.tool("get_comment_history", { artifactId: id, limit: 1 }));
+    expect(history).toEqual(await fromApi(await owner.apiCall(`${base}/history?limit=1`)));
+    const next = (history.body as { nextCursor: string | null }).nextCursor;
+    expect(next).not.toBeNull();
+    expect(
+      fromTool(await owner.tool("get_comment_history", { artifactId: id, cursor: next })),
+    ).toEqual(await fromApi(await owner.apiCall(`${base}/history?cursor=${next}`)));
+    const refused = await fromApi(await reader.apiCall(`${base}/history`));
+    expect(refused.body).toMatchObject({ error: { code: "forbidden" } });
+    expect(fromTool(await reader.tool("get_comment_history", { artifactId: id }))).toEqual(refused);
   });
 
   it("hides another reader's threads the same way: list, get by ID, export and cursor", async () => {
@@ -1991,6 +2003,9 @@ describe("API and MCP parity for annotations", () => {
     );
     expect(fromTool(await stranger.tool("export_annotations", { artifactId: id }))).toEqual(
       await fromApi(await stranger.apiCall(`${base}/export`)),
+    );
+    expect(fromTool(await stranger.tool("get_comment_history", { artifactId: id }))).toEqual(
+      await fromApi(await stranger.apiCall(`${base}/history`)),
     );
     const [strangerApi, strangerMcp] = await create(stranger, {});
     expect(strangerMcp).toEqual(strangerApi);
