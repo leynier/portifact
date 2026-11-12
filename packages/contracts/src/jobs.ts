@@ -29,6 +29,8 @@ export const OutboxTopic = z.enum([
   "plan_grace_notice",
   "comment_retention_notice",
   "comment_tombstones",
+  "moderation_notice",
+  "report_outcome",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -200,3 +202,23 @@ export const TombstoneMarker = z.strictObject({
   deletedAt: z.number().int().nonnegative(),
 });
 export type TombstoneMarker = z.infer<typeof TombstoneMarker>;
+
+/**
+ * A legal hold, as `export-tombstones` writes it next to the markers (one JSON line each) and
+ * `apply-tombstones` puts back before anything else, so a restore never loses a hold, never
+ * brings back one that was released, and never lets a re-applied deletion take a held artifact.
+ */
+export const LegalHoldLine = z.strictObject({
+  legalHold: z.strictObject({
+    id: z.string().regex(/^hold_[0-9a-f]{32}$/),
+    artifactId: z.string().min(1).max(200),
+    ownerId: z.string().min(1).max(200),
+    ownerEmail: z.string().max(254).nullable(),
+    reason: z.string().min(1).max(40),
+    ground: z.string().min(1).max(500),
+    createdAt: z.number().int().nonnegative(),
+    releaseAt: z.number().int().nonnegative().nullable(),
+    releasedAt: z.number().int().nonnegative().nullable(),
+  }),
+});
+export type LegalHoldLine = z.infer<typeof LegalHoldLine>;

@@ -28,6 +28,7 @@ import { actorOn, authorizeOn } from "./actors.ts";
 import { moveApprovalReview } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
 import { searchIndexJob } from "./content-search.ts";
+import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
@@ -385,6 +386,9 @@ export async function getVersionDownload(
   }
   const artifact = await loadArtifact(db, input.artifactId);
   if (!artifact) return missingVersion();
+  // Nothing of a held artifact's content is served, to its owner either (docs/operations.md);
+  // it is always suspended, so nothing else pays for the check.
+  if (artifact.state === "suspended" && (await isHeld(db, artifact.id))) return heldRefusal();
   const resolved = await actorOn(db.global, input.userId, artifact);
   // As `checkReadAccess`: a person a request policy refuses reads a public document as anyone,
   // and nothing else of the workspace (decision 0020).

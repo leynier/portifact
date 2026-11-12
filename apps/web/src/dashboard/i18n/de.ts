@@ -233,6 +233,13 @@ export const de = {
     "Gesperrt wegen eines möglichen Verstoßes gegen die Richtlinie zur zulässigen Nutzung",
   "detail.suspended.body":
     "Portifact hat dieses Artifact nach einer Prüfung gesperrt. Es wird niemandem ausgeliefert und kann weder geändert noch neu veröffentlicht werden. Grund: {reason}. Wenn du das für einen Fehler hältst, schreib an abuse@portifact.com und nenne die Adresse des Artifacts.",
+  "detail.suspended.facts": "Die Tatsachen, auf die wir uns stützen",
+  "detail.suspended.ground":
+    "Die Grundlage (das Gesetz oder die Regel unserer Bedingungen) und warum sie gilt",
+  "detail.suspended.notice":
+    "Am {date} aufgrund einer erhaltenen Meldung entschieden. Ein Mensch hat diese Entscheidung getroffen.",
+  "detail.suspended.review":
+    "Am {date} nach unserer eigenen Prüfung entschieden. Ein Mensch hat diese Entscheidung getroffen.",
   "reason.phishing": "Phishing oder eine gefälschte Anmeldeseite",
   "reason.malware": "Malware, Exploits oder Kryptomining",
   "reason.sexual_content": "sexuell explizite Inhalte",

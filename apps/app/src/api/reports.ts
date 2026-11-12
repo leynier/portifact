@@ -3,11 +3,13 @@
 // so it accepts only the app's own pages (exact Origin and same-origin fetch metadata, which a
 // sibling artifact cannot fake, and a JSON body, which a cross-site form cannot send), limits
 // requests per IP, per artifact and globally in the D1 counters, and answers the same whether
-// or not the artifact exists.
+// or not the artifact exists. A report may be a full notice of illegal content: the exact
+// address (kept in full), the reporter's name and their statement of good faith.
 import {
   AbuseReportInput,
   AbuseReportReceipt,
   REPORT_LIMITS,
+  reportedAddress,
   reportedArtifactId,
 } from "@portifact/contracts";
 import { submitAbuseReport } from "@portifact/services";
@@ -62,6 +64,11 @@ export function reportRoutes(deps: { now(): number }) {
       reason: body.value.reason,
       details: body.value.details,
       email: body.value.email,
+      // The exact address, kept in full, and the parts of a full notice (docs/operations.md).
+      address: reportedAddress(body.value.artifact, c.env.CONTENT_DOMAIN),
+      name: body.value.name,
+      confirmed: body.value.confirmed,
+      locale: body.value.locale,
       now,
     });
     return c.json(AbuseReportReceipt.parse({ received: true }), 202);

@@ -30,6 +30,12 @@ import { type DirectoryNotifier, sendDirectoryNotice } from "./directory-notices
 import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
 import { deleteArtifactData } from "./maintenance.ts";
+import {
+  type ModerationNotifier,
+  type ReportOutcomeNotifier,
+  sendModerationNotice,
+  sendReportOutcome,
+} from "./moderation-notices.ts";
 import { abortSessionMultipart } from "./multipart.ts";
 import { type GraceNotifier, sendGraceNotice } from "./plan-grace-notices.ts";
 import { applyOwnerPlanRegion } from "./plans.ts";
@@ -178,6 +184,10 @@ export interface JobDeps {
   issues?: ThreadIssueDeps | undefined;
   /** Sends `plan_grace_notice` emails (decision 0022, third delivery). */
   graceNotifier?: GraceNotifier | undefined;
+  /** Sends `moderation_notice` emails: statements of reasons (docs/operations.md, "Reports"). */
+  moderationNotifier?: ModerationNotifier | undefined;
+  /** Sends `report_outcome` emails to reporters. */
+  reportOutcomeNotifier?: ReportOutcomeNotifier | undefined;
   /** Every region, for the deletions that reach all of them; only the job's own without it. */
   regions?: DeletionRegions | undefined;
 }
@@ -219,6 +229,8 @@ async function runRow(
     commentRetentionNotifier,
     issues,
     graceNotifier,
+    moderationNotifier,
+    reportOutcomeNotifier,
     regions = singleRegion(db, bucket),
   }: JobDeps,
 ): Promise<JobOutcome> {
@@ -317,6 +329,13 @@ async function runRow(
       if (!graceNotifier) throw new Error("plan_grace_notice needs the grace notifier");
       if (!access) throw new Error("plan_grace_notice needs the access log database");
       return sendGraceNotice(db, access, row, now, graceNotifier);
+    case "moderation_notice":
+      // Thrown, not reported done: the row stays and the job runs again where the sender is.
+      if (!moderationNotifier) throw new Error("moderation_notice needs the moderation notifier");
+      return sendModerationNotice(db, row, now, moderationNotifier);
+    case "report_outcome":
+      if (!reportOutcomeNotifier) throw new Error("report_outcome needs the report notifier");
+      return sendReportOutcome(db, row, now, reportOutcomeNotifier);
   }
 }
 

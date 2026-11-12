@@ -220,6 +220,11 @@ export const en = {
   "detail.suspended.title": "Suspended for a possible Acceptable Use Policy violation",
   "detail.suspended.body":
     "Portifact suspended this artifact after a review. It is not served to anyone and cannot be changed or published to. Reason: {reason}. If you think this is a mistake, write to abuse@portifact.com with the artifact's address.",
+  "detail.suspended.facts": "The facts we relied on",
+  "detail.suspended.ground": "The ground (the law or the rule of our terms) and why it applies",
+  "detail.suspended.notice":
+    "Decided on {date} after a notice we received. A person took this decision.",
+  "detail.suspended.review": "Decided on {date} after our own review. A person took this decision.",
   "reason.phishing": "phishing or a fake sign-in page",
   "reason.malware": "malware, exploits or cryptocurrency mining",
   "reason.sexual_content": "sexually explicit content",

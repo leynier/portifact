@@ -657,6 +657,33 @@ describe("artifact detail", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  it("shows the statement of reasons next to the category, as written", async () => {
+    const server = fakeServer([
+      artifact("k7d2qm4xab", {
+        state: "suspended",
+        suspension: {
+          reason: "phishing",
+          statement: {
+            facts: "The /login page asks for bank passwords.\n<b>Checked</b> twice.",
+            ground: "Acceptable Use Policy: phishing.",
+            source: "notice",
+            decidedAt: "2026-11-08T12:00:00.000Z",
+          },
+        },
+      }),
+    ]);
+    const { container } = renderDashboard("/artifacts/k7d2qm4xab", server);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Reason: phishing or a fake sign-in page.");
+    expect(alert.textContent).toContain("after a notice we received. A person took this decision.");
+    expect(alert.textContent).toContain("The facts we relied on");
+    expect(alert.textContent).toContain("The /login page asks for bank passwords.");
+    expect(alert.textContent).toContain("<b>Checked</b> twice.");
+    expect(alert.querySelector("b")).toBeNull();
+    expect(alert.textContent).toContain("Acceptable Use Policy: phishing.");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
   it("offers no actions for an artifact being deleted", async () => {
     server.artifacts.push(artifact("pppppppppp", { state: "purging", expiresAt: null }));
     renderDashboard("/artifacts/pppppppppp", server);

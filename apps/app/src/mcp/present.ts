@@ -8,6 +8,7 @@ import {
   FeedbackPage,
   LifecycleResult,
   type OwnerView,
+  type SuspensionStatement,
   UNTRUSTED_ANNOTATIONS_NOTICE,
 } from "@portifact/contracts";
 import type {
@@ -23,7 +24,7 @@ import type { Env } from "../env.ts";
 /** An artifact's summary, with where it lives (`ownerView` in the services). */
 export function artifactSummary(
   env: Env,
-  row: ArtifactRow & { review?: ApprovalSummary },
+  row: ArtifactRow & { review?: ApprovalSummary; statement?: SuspensionStatement | null },
   owner: OwnerView,
 ): ArtifactSummary {
   return ArtifactSummary.parse({
@@ -42,7 +43,13 @@ export function artifactSummary(
     pinned: row.pinned,
     key: row.externalKey,
     ...(row.state === "suspended" && row.suspensionReason
-      ? { suspension: { reason: row.suspensionReason } }
+      ? {
+          suspension: {
+            reason: row.suspensionReason,
+            // Only the single artifact's view reads the statement of reasons (`getArtifact`).
+            ...(row.statement !== undefined ? { statement: row.statement } : {}),
+          },
+        }
       : {}),
     ...(servedHost(env, row) ? { customHost: servedHost(env, row) } : {}),
     // Built once here for the API and MCP (decision 0013): status and counts, never names.

@@ -214,6 +214,10 @@ export const zhCN = {
   "detail.suspended.title": "因可能违反可接受使用政策而停用",
   "detail.suspended.body":
     "经过审查，Portifact 停用了此 artifact。它不会向任何人提供，也无法更改或发布新版本。原因：{reason}。如果你认为这是误判，请将 artifact 的地址发送至 abuse@portifact.com。",
+  "detail.suspended.facts": "我们依据的事实",
+  "detail.suspended.ground": "依据(法律或我们条款中的规则)以及适用的理由",
+  "detail.suspended.notice": "于 {date} 根据收到的通知作出决定。此决定由人作出。",
+  "detail.suspended.review": "于 {date} 根据我们自己的审查作出决定。此决定由人作出。",
   "reason.phishing": "网络钓鱼或伪造的登录页面",
   "reason.malware": "恶意软件、漏洞利用或加密货币挖矿",
   "reason.sexual_content": "露骨的色情内容",

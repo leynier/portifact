@@ -40,6 +40,7 @@ import {
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { auditEvent } from "./audit.ts";
+import { type DecisionStatement, decisionStatements, newDecisionId } from "./moderation-notices.ts";
 import { sha256Hex } from "./objects.ts";
 import { OUTBOX_INLINE_GRACE_MS } from "./outbox.ts";
 import { ownerEntitlements, ownerPlanRecord } from "./plans.ts";
@@ -488,47 +489,85 @@ export async function showBrand(db: RegionalDb, ownerId: string, now: number) {
 
 /**
  * Suspends an owner's brand (operator tool only): the viewer shows the default bar and the logo
- * stops being served at once. The brand is kept, and the owner cannot delete it meanwhile.
+ * stops being served at once. The brand is kept, and the owner cannot delete it meanwhile. The
+ * statement of reasons, when given, is written in the same batch on the revision read.
  */
 export async function suspendBrand(
   db: Db,
-  input: { ownerId: string; reason: AbuseReason; now: number },
+  input: {
+    ownerId: string;
+    reason: AbuseReason;
+    now: number;
+    reportId?: string | undefined;
+    statement?: DecisionStatement | undefined;
+  },
 ): Promise<Result<{ suspended: boolean }>> {
-  const b = schema.ownerBrands;
-  const rows = await db
-    .update(b)
-    .set({
-      suspendedAt: input.now,
-      suspensionReason: input.reason,
-      revision: sql`${b.revision} + 1`,
-      updatedAt: input.now,
-    })
-    .where(and(eq(b.ownerId, input.ownerId), sql`${b.suspendedAt} is null`))
-    .returning({ ownerId: b.ownerId });
-  if (rows.length > 0) return ok({ suspended: true });
-  const row = await loadBrand(db, input.ownerId);
-  return row ? ok({ suspended: false }) : fail("not_found", "This owner has no brand.");
+  return changeBrandSuspension(db, input, "suspend");
 }
 
 /** Lifts a brand suspension (operator tool only); the brand shows again if the plan has it. */
 export async function reinstateBrand(
   db: Db,
-  input: { ownerId: string; now: number },
+  input: { ownerId: string; now: number; statement?: DecisionStatement | undefined },
 ): Promise<Result<{ reinstated: boolean }>> {
+  const result = await changeBrandSuspension(db, input, "reinstate");
+  return result.ok ? ok({ reinstated: result.value.suspended }) : result;
+}
+
+async function changeBrandSuspension(
+  db: Db,
+  input: {
+    ownerId: string;
+    reason?: AbuseReason;
+    now: number;
+    reportId?: string | undefined;
+    statement?: DecisionStatement | undefined;
+  },
+  action: "suspend" | "reinstate",
+): Promise<Result<{ suspended: boolean }>> {
   const b = schema.ownerBrands;
-  const rows = await db
-    .update(b)
-    .set({
-      suspendedAt: null,
-      suspensionReason: null,
-      revision: sql`${b.revision} + 1`,
-      updatedAt: input.now,
-    })
-    .where(and(eq(b.ownerId, input.ownerId), sql`${b.suspendedAt} is not null`))
-    .returning({ ownerId: b.ownerId });
-  if (rows.length > 0) return ok({ reinstated: true });
   const row = await loadBrand(db, input.ownerId);
-  return row ? ok({ reinstated: false }) : fail("not_found", "This owner has no brand.");
+  if (!row) return fail("not_found", "This owner has no brand.");
+  const suspending = action === "suspend";
+  if ((row.suspendedAt === null) !== suspending) return ok({ suspended: false });
+  const unchanged = and(
+    eq(b.ownerId, input.ownerId),
+    eq(b.revision, row.revision),
+    suspending ? sql`${b.suspendedAt} is null` : sql`${b.suspendedAt} is not null`,
+  ) as SQL;
+  const decision = input.statement
+    ? decisionStatements(
+        db,
+        newDecisionId(),
+        {
+          targetKind: "brand",
+          targetId: input.ownerId,
+          ownerId: input.ownerId,
+          action,
+          reason: suspending ? (input.reason ?? null) : null,
+          suspensionId: null,
+          reportId: input.reportId ?? null,
+          now: input.now,
+        },
+        input.statement,
+        sql`exists (select 1 from ${b} where ${unchanged})`,
+      )
+    : [];
+  const results = (await db.batch([
+    ...decision,
+    db
+      .update(b)
+      .set({
+        suspendedAt: suspending ? input.now : null,
+        suspensionReason: suspending ? (input.reason ?? null) : null,
+        revision: sql`${b.revision} + 1`,
+        updatedAt: input.now,
+      })
+      .where(unchanged)
+      .returning({ ownerId: b.ownerId }),
+  ] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]])) as unknown[];
+  if ((results.at(-1) as unknown[]).length > 0) return ok({ suspended: true });
+  return fail("version_conflict", "The brand changed meanwhile. Try again.");
 }
 
 /**

@@ -829,7 +829,7 @@ export async function deleteWorkspace(
     workspaceDeletionJob(on, input.workspaceId, exists, input.now),
     on
       .insert(schema.workspaceDeletions)
-      .select(sql`select ${input.workspaceId}, ${input.now} where ${exists}`)
+      .select(sql`select ${input.workspaceId}, ${input.now}, null where ${exists}`)
       .onConflictDoNothing(),
     ...(both ? claimOwnerStatements(both, input.workspaceId, input.now) : []),
     // The identities linked through its single sign-on: no foreign key ties them to the provider,
@@ -980,15 +980,22 @@ export async function processWorkspaceDeletions(
   now: number,
   limit = 5,
 ): Promise<{ processed: number; finished: number }> {
+  const d = schema.workspaceDeletions;
+  // The least recently tried first: a deletion that waits (a legal hold) never stops the others.
   const pending = await regions.global
-    .select({ workspaceId: schema.workspaceDeletions.workspaceId })
-    .from(schema.workspaceDeletions)
-    .orderBy(asc(schema.workspaceDeletions.requestedAt))
+    .select({ workspaceId: d.workspaceId })
+    .from(d)
+    .orderBy(asc(sql`coalesce(${d.attemptedAt}, ${d.requestedAt})`), asc(d.workspaceId))
     .limit(limit);
   let finished = 0;
   for (const deletion of pending) {
-    if ((await advanceWorkspaceDeletion(regions, deletion.workspaceId, now)) === "finished") {
-      finished += 1;
+    const state = await advanceWorkspaceDeletion(regions, deletion.workspaceId, now);
+    if (state === "finished") finished += 1;
+    else if (state === "pending") {
+      await regions.global
+        .update(d)
+        .set({ attemptedAt: now })
+        .where(eq(d.workspaceId, deletion.workspaceId));
     }
   }
   return { processed: pending.length, finished };

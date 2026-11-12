@@ -52,7 +52,9 @@ import {
   domainNotifierFromEnv,
   expiryNotifierFromEnv,
   graceNotifierFromEnv,
+  moderationNotifierFromEnv,
   type NoticeEnv,
+  reportOutcomeNotifierFromEnv,
   retentionNotifierFromEnv,
   reviewNotifierFromEnv,
 } from "./notices.ts";
@@ -320,11 +322,13 @@ export async function runQueue(
     commentNotifier: commentNotifierFromEnv(env, region),
     reviewNotifier: reviewNotifierFromEnv(env, region),
     graceNotifier: graceNotifierFromEnv(env, region),
+    moderationNotifier: moderationNotifierFromEnv(env, region),
   });
   const domainNotifier = domainNotifierFromEnv(env);
   const directoryNotifier = directoryNotifierFromEnv(env);
   const retentionNotifier = retentionNotifierFromEnv(env);
   const commentRetentionNotifier = commentRetentionNotifierFromEnv(env);
+  const reportOutcomeNotifier = reportOutcomeNotifierFromEnv(env);
   const webhooks = await webhookDepsFromEnv(env, fetcher);
   const auditStreams = auditStreamDepsFromWebhooks(webhooks);
   const issues = await issueDepsFromEnv(env, fetcher);
@@ -350,6 +354,7 @@ export async function runQueue(
         directoryNotifier,
         retentionNotifier,
         commentRetentionNotifier,
+        reportOutcomeNotifier,
         regions,
       });
       if (outcome === "pending") {

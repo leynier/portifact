@@ -45,6 +45,7 @@ import {
 import { pruneOperations } from "./idempotency.ts";
 import { prunePendingConnections } from "./integrations.ts";
 import { pruneExpiredInvitations } from "./invitations.ts";
+import { releaseDueHolds } from "./legal-holds.ts";
 import {
   cursorFor,
   cursorRead,
@@ -931,6 +932,9 @@ export async function runRegionalMaintenance(
   // global scans (deletions, invitations, directory users, email counters and suppressions, group
   // tombstones and the global audit events) run once, with the default region.
   return {
+    // Holds whose release date came (docs/operations.md, "Legal holds"): first, so deletions
+    // that waited for them go on in this run.
+    releasedHolds: await releaseDueHolds(db, now),
     archived: (await archiveExpired(db, now)).processed,
     expiryNotices: (await scheduleExpiryNotices(db, now)).owners,
     commentNotices: (await scheduleCommentNotices(db, now)).recipients,
@@ -977,6 +981,9 @@ export async function runMaintenance(
   regions: DeletionRegions = singleRegion(db, bucket),
 ) {
   return {
+    // Holds whose release date came (docs/operations.md, "Legal holds"): first, so deletions
+    // that waited for them go on in this run.
+    releasedHolds: await releaseDueHolds(db, now),
     archived: (await archiveExpired(db, now)).processed,
     expiryNotices: (await scheduleExpiryNotices(db, now)).owners,
     commentNotices: (await scheduleCommentNotices(db, now)).recipients,

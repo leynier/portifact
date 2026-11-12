@@ -74,7 +74,8 @@ const DEVELOP = {
   // Plus history retention (docs/operations.md, "History retention"): the purged artifacts'
   // cursor, page and one batch, one batch of upload and usage history and one delete of stale
   // findings; and the cleanup of expired sign-in records, one batch.
-  runMaintenance: 71,
+  // And the legal holds whose release date came (`releaseDueHolds`), one batch.
+  runMaintenance: 72,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads

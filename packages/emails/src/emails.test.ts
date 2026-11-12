@@ -728,6 +728,15 @@ describe("previews", () => {
       "review-changes-requested",
       "review-requested-without-names",
       ...translated.map((code) => `review-requested-${code}`),
+      "moderation-artifact-suspended",
+      "moderation-artifact-suspended-without-names",
+      "moderation-account-suspended",
+      "moderation-brand-suspended",
+      "moderation-artifact-reinstated",
+      ...translated.map((code) => `moderation-artifact-suspended-${code}`),
+      "report-outcome-actioned",
+      "report-outcome-dismissed",
+      ...translated.map((code) => `report-outcome-${code}`),
     ]);
     for (const { email } of previews()) {
       expect(email.html.startsWith("<!doctype html>")).toBe(true);

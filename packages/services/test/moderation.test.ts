@@ -386,7 +386,7 @@ describe("suspending an account", () => {
     expect(again).toMatchObject({ ok: true, value: { changed: false, artifacts: 0 } });
 
     const reinstated = await reinstateAccount(db(), { userId: owner.id, now: NOW + 5 });
-    expect(reinstated).toEqual({ ok: true, value: { artifacts: 2, changed: true } });
+    expect(reinstated).toEqual({ ok: true, value: { artifacts: 2, changed: true, held: 0 } });
     expect(await accountSuspension(db(), owner.id)).toBeUndefined();
     expect(await artifactRow(active.artifactId)).toMatchObject({ state: "active" });
     expect(await artifactRow(archived.artifactId)).toMatchObject({ state: "archived" });
@@ -394,7 +394,7 @@ describe("suspending an account", () => {
     expect(await activeSlots(owner.id)).toBe(1);
     expect(await reinstateAccount(db(), { userId: owner.id, now: NOW + 6 })).toEqual({
       ok: true,
-      value: { artifacts: 0, changed: false },
+      value: { artifacts: 0, changed: false, held: 0 },
     });
   });
 

@@ -274,6 +274,14 @@ reason("the owner is erased with its events", [
   "deleteArtifactData",
   "eraseOwnerBrand",
 ]);
+reason(
+  "legal holds: operator-only, kept in legal_holds and never shown to the owner side, whose audit log must not reveal a hold",
+  ["placeLegalHold", "releaseLegalHold", "releaseDueHolds", "applyLegalHolds", "isHeld"],
+);
+reason(
+  "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",
+  ["sendModerationNotice", "sendReportOutcome", "suspensionStatement"],
+);
 reason("operator moderation and platform controls, kept by the operator tool's own records", [
   "suspendArtifact",
   "reinstateArtifact",

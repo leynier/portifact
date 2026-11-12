@@ -228,6 +228,13 @@ export const ptBR = {
   "detail.suspended.title": "Suspenso por uma possível violação da Política de Uso Aceitável",
   "detail.suspended.body":
     "O Portifact suspendeu este artifact após uma análise. Ele não é servido para ninguém e não pode ser alterado nem receber publicações. Motivo: {reason}. Se você acha que é um engano, escreva para abuse@portifact.com com o endereço do artifact.",
+  "detail.suspended.facts": "Os fatos em que nos baseamos",
+  "detail.suspended.ground":
+    "O fundamento (a lei ou a regra dos nossos termos) e por que ele se aplica",
+  "detail.suspended.notice":
+    "Decidido em {date} a partir de uma notificação que recebemos. Uma pessoa tomou esta decisão.",
+  "detail.suspended.review":
+    "Decidido em {date} depois da nossa própria análise. Uma pessoa tomou esta decisão.",
   "reason.phishing": "phishing ou uma página de login falsa",
   "reason.malware": "malware, exploits ou mineração de criptomoedas",
   "reason.sexual_content": "conteúdo sexualmente explícito",

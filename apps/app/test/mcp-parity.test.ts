@@ -8,6 +8,7 @@ import { RENDERER_VERSION } from "@portifact/render";
 import {
   clearBudgetOverride,
   createWorkspace,
+  placeLegalHold,
   runJob,
   setBudgetOverride,
   suspendArtifact,
@@ -247,15 +248,63 @@ describe("API and MCP parity", () => {
       artifactId: id,
       reason: "phishing",
       note: "operator only",
+      statement: {
+        facts: "It asks for bank passwords.",
+        ground: "Acceptable Use Policy: phishing.",
+        source: "review",
+        withhold: false,
+      },
       now: NOW,
     });
     const viaApi = await fromApi(await b.apiCall(`/api/v1/artifacts/${id}`));
-    expect(viaApi.body).toMatchObject({ state: "suspended", suspension: { reason: "phishing" } });
+    expect(viaApi.body).toMatchObject({
+      state: "suspended",
+      suspension: {
+        reason: "phishing",
+        statement: {
+          facts: "It asks for bank passwords.",
+          ground: "Acceptable Use Policy: phishing.",
+          source: "review",
+          decidedAt: new Date(NOW).toISOString(),
+        },
+      },
+    });
     expect(JSON.stringify(viaApi.body)).not.toContain("operator only");
     expect(fromTool(await b.tool("get_artifact", { artifactId: id }))).toEqual(viaApi);
+    // The list shows the category only; the statement is on the single artifact's view.
+    const listed = await fromApi(await b.apiCall("/api/v1/artifacts"));
+    const item = (listed.body as { items: { id: string; suspension?: unknown }[] }).items.find(
+      (entry) => entry.id === id,
+    );
+    expect(item?.suspension).toEqual({ reason: "phishing" });
     expect(fromTool(await b.tool("renew_artifact", { artifactId: id }))).toEqual(
       await fromApi(await b.apiCall(`/api/v1/artifacts/${id}/renew`, { method: "POST" })),
     );
+  });
+
+  it("refuse deleting and downloading a held artifact the same way, without saying why", async () => {
+    const b = await both("parity-held@example.test");
+    const id = (
+      fromTool(await b.tool("publish_document", { type: "text", name: "Held", content: "h" }))
+        .body as { artifactId: string }
+    ).artifactId;
+    const db = regionsFromEnv(env).get("default").db;
+    await suspendArtifact(db, { artifactId: id, reason: "child_safety", now: NOW });
+    await placeLegalHold(db, { artifactId: id, ground: "Authority", releaseAt: null, now: NOW });
+    const deleted = await fromApi(await b.apiCall(`/api/v1/artifacts/${id}`, { method: "DELETE" }));
+    expect(deleted.body).toMatchObject({ error: { code: "forbidden" } });
+    expect(JSON.stringify(deleted.body)).not.toMatch(/hold|legal|authorit/i);
+    expect(fromTool(await b.tool("delete_artifact", { artifactId: id, confirm: id }))).toEqual(
+      deleted,
+    );
+    const download = await fromApi(
+      await b.apiCall(`/api/v1/artifacts/${id}/versions/current/download`),
+    );
+    expect(download.body).toMatchObject({ error: { code: "forbidden" } });
+    expect(fromTool(await b.tool("get_download", { artifactId: id }))).toEqual(download);
+    expect(fromTool(await b.tool("read_artifact", { artifactId: id })).body).toMatchObject({
+      error: { code: "forbidden" },
+    });
   });
 
   it("refuses the same way: missing, another user's, stale base, archived and bad cursor", async () => {

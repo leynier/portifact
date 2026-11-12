@@ -10,6 +10,8 @@ import { expiryNoticeEmail } from "./expiry-notice.ts";
 import { graceNoticeEmail } from "./grace-notice.ts";
 import { invitationEmail } from "./invitation.ts";
 import type { EmailContent } from "./message.ts";
+import { moderationNoticeEmail } from "./moderation-notice.ts";
+import { reportOutcomeEmail } from "./report-outcome.ts";
 import { retentionNoticeEmail } from "./retention-notice.ts";
 import { reviewNoticeEmail } from "./review-notice.ts";
 import { signInCodeEmail } from "./sign-in-code.ts";
@@ -94,6 +96,20 @@ const graceWithoutNames = { ...grace, names: false };
 
 /** Every language besides English, each previewed in every user-facing email. */
 const TRANSLATED = LOCALE_CODES.filter((locale) => locale !== DEFAULT_LOCALE);
+
+const suspension = {
+  action: "suspend" as const,
+  target: "artifact" as const,
+  artifactId: "k7d2qm4xab",
+  artifactName: "Q3 launch plan",
+  reason: "phishing" as const,
+  source: "notice" as const,
+  facts:
+    "The page at /login asks visitors for their bank password and sends it to another site.\nWe checked it on 8 November 2026.",
+  ground: 'Acceptable Use Policy, "What you may not publish": phishing pages.',
+  decidedAt: CREATED_AT,
+  dashboardUrl: "https://app.portifact.com/artifacts/k7d2qm4xab",
+};
 
 const invitation = {
   email: "grace@example.com",
@@ -371,6 +387,57 @@ export function previews(): Preview[] {
     ...TRANSLATED.map((locale) => ({
       name: `review-requested-${locale.toLowerCase()}`,
       email: reviewNoticeEmail({ ...review, kind: "requested", locale }),
+    })),
+    { name: "moderation-artifact-suspended", email: moderationNoticeEmail(suspension) },
+    {
+      name: "moderation-artifact-suspended-without-names",
+      email: moderationNoticeEmail({ ...suspension, artifactName: null }),
+    },
+    {
+      name: "moderation-account-suspended",
+      email: moderationNoticeEmail({ ...suspension, target: "account", source: "review" }),
+    },
+    {
+      name: "moderation-brand-suspended",
+      email: moderationNoticeEmail({ ...suspension, target: "brand", reason: "impersonation" }),
+    },
+    {
+      name: "moderation-artifact-reinstated",
+      email: moderationNoticeEmail({
+        ...suspension,
+        action: "reinstate",
+        facts: "The owner removed the page and asked for a review.",
+        ground: null,
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `moderation-artifact-suspended-${locale.toLowerCase()}`,
+      email: moderationNoticeEmail({ ...suspension, locale }),
+    })),
+    {
+      name: "report-outcome-actioned",
+      email: reportOutcomeEmail({
+        outcome: "actioned",
+        reported: "https://k7d2qm4xab.portifact.dev/login",
+        reportedAt: CREATED_AT,
+      }),
+    },
+    {
+      name: "report-outcome-dismissed",
+      email: reportOutcomeEmail({
+        outcome: "dismissed",
+        reported: "k7d2qm4xab",
+        reportedAt: CREATED_AT,
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `report-outcome-${locale.toLowerCase()}`,
+      email: reportOutcomeEmail({
+        outcome: "actioned",
+        reported: "https://k7d2qm4xab.portifact.dev/login",
+        reportedAt: CREATED_AT,
+        locale,
+      }),
     })),
   ];
 }

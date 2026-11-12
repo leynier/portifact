@@ -26,6 +26,8 @@ import {
   domainNoticeEmail,
   expiryNoticeEmail,
   graceNoticeEmail,
+  moderationNoticeEmail,
+  reportOutcomeEmail,
   retentionNoticeEmail,
   reviewNoticeEmail,
 } from "@portifact/emails";
@@ -38,8 +40,10 @@ import {
   type ExpiryNotifier,
   type GraceNotifier,
   isRecipientSuppressed,
+  type ModerationNotifier,
   type NoticeArtifact,
   RecipientSuppressedError,
+  type ReportOutcomeNotifier,
   type RetentionNotifier,
   type ReviewNotifier,
   signUnsubscribeToken,
@@ -393,6 +397,71 @@ export function commentRetentionNotifierFromEnv(
         await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+/**
+ * The statement of reasons (docs/operations.md, "Reports"), linking the dashboard where the
+ * recipient sees it: the artifact's page, the Branding page or Settings, in the workspace's space.
+ * The artifact's name only in the default region (decision 0005); the operator's facts and ground
+ * are written for the region they go to. A service notice: no unsubscribe link.
+ */
+export function moderationNotifierFromEnv(
+  env: Pick<NoticeEnv, "EMAIL" | "APP_ORIGIN">,
+  region: Region,
+): ModerationNotifier {
+  return {
+    async send(notice) {
+      const space = notice.workspaceSlug
+        ? `?workspace=${encodeURIComponent(notice.workspaceSlug)}`
+        : "";
+      const page =
+        notice.target === "artifact"
+          ? `/artifacts/${encodeURIComponent(notice.artifactId ?? "")}`
+          : notice.target === "brand"
+            ? "/branding"
+            : "/settings";
+      const email = moderationNoticeEmail({
+        action: notice.action,
+        target: notice.target,
+        artifactId: notice.artifactId ?? undefined,
+        artifactName: noticeNames(region) ? notice.artifactName : null,
+        reason: notice.reason,
+        source: notice.source,
+        facts: notice.facts,
+        ground: notice.ground,
+        decidedAt: notice.decidedAt,
+        dashboardUrl: `${env.APP_ORIGIN}${page}${space}`,
+        locale: notice.locale ?? undefined,
+      });
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to: notice.to, ...email });
+      } catch (error) {
+        // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+/** The outcome of a report, to the address the reporter gave; never who manages the content. */
+export function reportOutcomeNotifierFromEnv(env: Pick<NoticeEnv, "EMAIL">): ReportOutcomeNotifier {
+  return {
+    async send(notice) {
+      const email = reportOutcomeEmail({
+        outcome: notice.outcome,
+        reported: notice.reported,
+        reportedAt: notice.reportedAt,
+        locale: notice.locale ?? undefined,
+      });
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to: notice.to, ...email });
+      } catch (error) {
         if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
         throw new Error("email delivery failed");
       }

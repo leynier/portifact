@@ -2,7 +2,7 @@
 // 5 and 13). Report text and the reporter's email are untrusted input from anyone on the web.
 
 import { z } from "zod";
-import { AccountSettings } from "./account.ts";
+import { AccountSettings, Locale } from "./account.ts";
 import { AuditEventView } from "./audit.ts";
 import { Brand } from "./branding.ts";
 import { AccessMode, ArtifactId, Email } from "./core.ts";
@@ -25,10 +25,14 @@ export const AbuseReason = z.enum([
 export type AbuseReason = z.infer<typeof AbuseReason>;
 
 export const REPORT_LIMITS = {
-  /** Code points of the free-text details. */
-  detailsMax: 2_000,
-  /** Bytes of the whole request body. */
-  bodyMaxBytes: 8_192,
+  /** Code points of the free-text explanation. */
+  detailsMax: 8_000,
+  /** Characters of the reported address or ID, kept in full. */
+  addressMax: 2_048,
+  /** Code points of the reporter's name. */
+  nameMax: 200,
+  /** Bytes of the whole request body: the explanation at four bytes a code point, and the rest. */
+  bodyMaxBytes: 49_152,
   perIp: { max: 10, windowSeconds: 3_600 },
   perArtifact: { max: 50, windowSeconds: 86_400 },
   global: { max: 1_000, windowSeconds: 86_400 },
@@ -37,21 +41,37 @@ export const REPORT_LIMITS = {
 /** Control characters other than tab and line breaks are refused in report text. */
 const hasControl = (value: string) => /\p{Cc}/u.test(value.replace(/[\t\n\r]/g, ""));
 
-/** What the public report form sends. The artifact may be given as its ID or its address. */
+/** Free text of a report: trimmed, bounded in code points, no control characters but line breaks. */
+function reportText(max: number, label: string) {
+  return z
+    .string()
+    .trim()
+    .max(max * 2)
+    .refine((value) => [...value].length <= max, {
+      message: `${label} can be at most ${max} characters.`,
+    })
+    .refine((value) => !hasControl(value), { message: `${label} holds control characters.` });
+}
+
+/**
+ * What the public report form sends. The artifact may be given as its ID or its exact address,
+ * which is kept in full. `name` and `confirmed` make a full notice of illegal content: the
+ * reporter's name (never asked for, and dropped, for child sexual abuse or exploitation) and the
+ * statement that the information is accurate and complete and sent in good faith. Both are
+ * optional for the API, so an older page still sends a report; the form requires the statement.
+ * `locale` is the form's language, for the email that tells the reporter the outcome.
+ */
 export const AbuseReportInput = z
   .object({
-    artifact: z.string().trim().min(1).max(300),
+    artifact: z.string().trim().min(1).max(REPORT_LIMITS.addressMax),
     reason: AbuseReason,
-    details: z
-      .string()
-      .trim()
-      .max(REPORT_LIMITS.detailsMax * 2)
-      .refine((value) => [...value].length <= REPORT_LIMITS.detailsMax, {
-        message: `Details can be at most ${REPORT_LIMITS.detailsMax} characters.`,
-      })
-      .refine((value) => !hasControl(value), { message: "Details hold control characters." })
-      .optional(),
+    details: reportText(REPORT_LIMITS.detailsMax, "Details").optional(),
     email: z.union([Email, z.literal("")]).optional(),
+    name: reportText(REPORT_LIMITS.nameMax, "Name")
+      .refine((value) => !/[\r\n]/.test(value), { message: "Name must be one line." })
+      .optional(),
+    confirmed: z.literal(true).optional(),
+    locale: Locale.optional(),
   })
   .strict();
 export type AbuseReportInput = z.infer<typeof AbuseReportInput>;
@@ -82,9 +102,61 @@ export function reportedArtifactId(value: string, contentDomain: string): string
   return ArtifactId.safeParse(label).success ? label : null;
 }
 
+/**
+ * The exact address a report names, kept in full (its path, query and fragment) when it is an
+ * address of an artifact on the content domain: `https://<id>.<domain>/...`, no credentials, at
+ * most `REPORT_LIMITS.addressMax` characters. Null for a bare ID or anything else.
+ */
+export function reportedAddress(value: string, contentDomain: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed.includes("://") && ArtifactId.safeParse(trimmed.toLowerCase()).success) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+  if (url.username || url.password) return null;
+  if (reportedArtifactId(url.hostname, contentDomain) === null) return null;
+  return url.href.length <= REPORT_LIMITS.addressMax ? url.href : null;
+}
+
+/** Bounds of the operator's text in a statement of reasons (code points). */
+export const STATEMENT_LIMITS = { factsMax: 2_000, groundMax: 500 } as const;
+
+/** Whether a restriction followed a notice (a report or an email) or the operator's own review. */
+export const DecisionSource = z.enum(["notice", "review"]);
+export type DecisionSource = z.infer<typeof DecisionSource>;
+
+/**
+ * The operator's part of a statement of reasons: the facts relied on and the ground (the law or
+ * the rule of the terms). Plain text, shown as written and always escaped.
+ */
+export const StatementText = z.strictObject({
+  facts: reportText(STATEMENT_LIMITS.factsMax, "Facts").pipe(z.string().min(1)),
+  ground: reportText(STATEMENT_LIMITS.groundMax, "Ground").pipe(z.string().min(1)),
+});
+export type StatementText = z.infer<typeof StatementText>;
+
+/** The statement of reasons the managers of a suspended artifact see next to the category. */
+export const SuspensionStatement = z.object({
+  facts: z.string(),
+  ground: z.string(),
+  source: DecisionSource,
+  decidedAt: z.iso.datetime(),
+});
+export type SuspensionStatement = z.infer<typeof SuspensionStatement>;
+
 /** Why the owner sees an artifact suspended. The operator's notes are never included. */
 export const SuspensionView = z.object({
   reason: AbuseReason,
+  /**
+   * The statement of reasons the operator recorded, or null when none was (a suspension from
+   * before statements were recorded, or one whose explanation the law requires to withhold).
+   * Only on the single artifact's view.
+   */
+  statement: SuspensionStatement.nullable().optional(),
 });
 export type SuspensionView = z.infer<typeof SuspensionView>;
 

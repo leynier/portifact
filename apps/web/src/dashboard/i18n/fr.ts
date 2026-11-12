@@ -235,6 +235,13 @@ export const fr = {
     "Suspendu pour une possible violation de la Politique d’utilisation acceptable",
   "detail.suspended.body":
     "Portifact a suspendu cet artifact après examen. Il n’est servi à personne et ne peut être ni modifié ni republié. Motif : {reason}. Si vous pensez qu’il s’agit d’une erreur, écrivez à abuse@portifact.com en indiquant l’adresse de l’artifact.",
+  "detail.suspended.facts": "Les faits sur lesquels nous nous sommes fondés",
+  "detail.suspended.ground":
+    "Le fondement (la loi ou la règle de nos conditions) et pourquoi il s’applique",
+  "detail.suspended.notice":
+    "Décidé le {date} à la suite d’une notification reçue. Une personne a pris cette décision.",
+  "detail.suspended.review":
+    "Décidé le {date} après notre propre examen. Une personne a pris cette décision.",
   "reason.phishing": "hameçonnage ou fausse page de connexion",
   "reason.malware": "logiciel malveillant, exploits ou minage de cryptomonnaie",
   "reason.sexual_content": "contenu sexuellement explicite",

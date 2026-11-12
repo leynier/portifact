@@ -1,6 +1,10 @@
 // Read use cases for an owner's artifacts: list with a cursor and look one up. Someone else's
 // artifact looks exactly like a missing one.
-import type { ApprovalSummary, ArtifactListFilters } from "@portifact/contracts";
+import type {
+  ApprovalSummary,
+  ArtifactListFilters,
+  SuspensionStatement,
+} from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
@@ -29,6 +33,7 @@ import {
 } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
 import { approvalReviewColumn, approvalSummaries } from "./approval-reviews.ts";
+import { suspensionStatement } from "./moderation-notices.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { retainedVersionSql } from "./retention.ts";
 
@@ -253,7 +258,7 @@ export async function listArtifacts(
 export async function getArtifact(
   db: RegionalDb,
   input: { userId: string; artifactId: string },
-): Promise<Result<ReviewedArtifact>> {
+): Promise<Result<ReviewedArtifact & { statement: SuspensionStatement | null }>> {
   const missing = () => fail<never>("not_found", "Artifact not found.");
   const t = schema.artifacts;
   const [found] = await db
@@ -271,5 +276,7 @@ export async function getArtifact(
   const actor = await authorizeOn(db, input.userId, row, "list", missing);
   if (!actor.ok) return actor;
   const [review] = await approvalSummaries(db, [approvalReview]);
-  return ok({ ...row, review: review as ApprovalSummary });
+  // The statement of reasons next to the category, for the managers of a suspended artifact.
+  const statement = row.state === "suspended" ? await suspensionStatement(db, row.id) : null;
+  return ok({ ...row, review: review as ApprovalSummary, statement });
 }

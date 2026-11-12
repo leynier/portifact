@@ -33,6 +33,7 @@ import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-d
 import { eraseAccountTraces, markAccountGone } from "./history-retention.ts";
 import { deleteOwnerConnections, exportIntegrations } from "./integrations.ts";
 import { listIncomingInvitations } from "./invitations.ts";
+import { notHeldSql } from "./legal-holds.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
@@ -564,7 +565,7 @@ async function deletionBatch(
       .onConflictDoNothing(),
     db
       .update(schema.abuseReports)
-      .set({ reporterEmail: null })
+      .set({ reporterEmail: null, reporterName: null })
       .where(sql`lower(${schema.abuseReports.reporterEmail}) = ${email}`),
     db.delete(schema.deviceCodes).where(eq(schema.deviceCodes.userId, input.userId)),
     // A workspace's service tokens stay with it (decision 0011); who created them goes.
@@ -653,14 +654,17 @@ function regionalDeletion(
 }
 
 /**
- * Moves every artifact of the account that is still around to `purging`, with a purge job for
- * each written first on the same old state.
+ * Moves every artifact of the owner that is still around to `purging`, with a purge job for
+ * each written first on the same old state, except those under a legal hold: they stay
+ * suspended, and the deletion stays pending until their holds are released.
  */
 export function claimArtifacts(db: Db, ownerId: string, now: number) {
   const a = schema.artifacts;
+  // An artifact under a legal hold is left out; the deletion waits for its release.
   const claimable = and(
     eq(a.ownerId, ownerId),
     inArray(a.state, ["draft", "active", "archived", "suspended"]),
+    notHeldSql(),
   ) as SQL;
   return [
     purgeJobs(db, claimable, now),
@@ -706,15 +710,20 @@ export async function processAccountDeletions(
   limit = 5,
   threadsPerAccount = 25,
 ): Promise<{ processed: number; finished: number }> {
+  const d = schema.accountDeletions;
+  // The least recently tried first: a deletion that waits (a legal hold) never stops the others.
   const pending = await regions.global
-    .select({ userId: schema.accountDeletions.userId })
-    .from(schema.accountDeletions)
-    .orderBy(asc(schema.accountDeletions.requestedAt))
+    .select({ userId: d.userId })
+    .from(d)
+    .orderBy(asc(sql`coalesce(${d.attemptedAt}, ${d.requestedAt})`), asc(d.userId))
     .limit(limit);
   let finished = 0;
   for (const deletion of pending) {
     const state = await advanceAccountDeletion(regions, deletion.userId, now, threadsPerAccount);
     if (state === "finished") finished += 1;
+    else if (state === "pending") {
+      await regions.global.update(d).set({ attemptedAt: now }).where(eq(d.userId, deletion.userId));
+    }
   }
   return { processed: pending.length, finished };
 }

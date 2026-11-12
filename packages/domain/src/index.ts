@@ -32,6 +32,7 @@ export * from "./ip-ranges.ts";
 export * from "./lifecycle.ts";
 export * from "./locale.ts";
 export * from "./logs.ts";
+export * from "./moderation.ts";
 export * from "./multipart.ts";
 export * from "./notices.ts";
 export * from "./paths.ts";

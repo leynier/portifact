@@ -256,6 +256,26 @@ describe("portifact info", () => {
     expect(asJson).toMatchObject({ state: "suspended", suspension: { reason: "phishing" } });
   });
 
+  it("shows the statement of reasons on one line each", async () => {
+    h.signIn();
+    const artifact = seed({
+      name: "Held",
+      suspensionReason: "phishing",
+      suspensionStatement: {
+        facts: "The /login page\nasks for passwords.",
+        ground: "Acceptable Use Policy: phishing.",
+        source: "review",
+        decidedAt: "2026-11-08T12:00:00.000Z",
+      },
+    });
+    const result = await h.invoke("info", artifact.id);
+    expect(result.stdout).toContain(
+      "Decided      2026-11-08T12:00:00.000Z by a person, after Portifact's own review\n",
+    );
+    expect(result.stdout).toContain("Facts        The /login page asks for passwords.\n");
+    expect(result.stdout).toContain("Ground       Acceptable Use Policy: phishing.\n");
+  });
+
   it("prints the artifact summary with --json", async () => {
     h.signIn();
     const artifact = seed();
