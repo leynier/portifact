@@ -959,4 +959,14 @@ describe("committed documents", () => {
       expect(attributes).toContain(`${path} text eol=lf`);
     }
   });
+
+  it("checks out the commit the workflow comes from, never the pull request's base commit", () => {
+    // pull_request_target runs the workflow file of the base branch's tip. The pull request's
+    // base.sha can be older, and then the new workflow runs an old check script that does not
+    // take its arguments (it happened to a pull request opened before the check changed).
+    const workflow = readFileSync(join(root, ".github/workflows/cla.yml"), "utf8");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression.
+    expect(workflow).toContain("ref: ${{ github.sha }}");
+    expect(workflow).not.toContain("pull_request.base.sha");
+  });
 });
