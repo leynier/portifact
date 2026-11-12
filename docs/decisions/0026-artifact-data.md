@@ -1,0 +1,506 @@
+# 0026 Artifact data: a document database per artifact
+
+- Status: proposed, fifth and last design version. Design only: nothing is built, and `spikes/artifact-data` shows the protocols are sound in workerd; it is not the product. Versions one (commit `3e601727`), two (`ee9ebb6e`), three (`c5b84930`) and four (`65b85f06`) each received an adversarial review that asked for a redesign. After the fourth, the maintainer simplified the design instead of patching it (decisions 45 to 50) and ended the design phase: there is no fifth design review. The proof moves into real code: delivery 3 builds the contracts as production code and gets its own adversarial code review against "Acceptance tests for delivery 3" before any adapter, route or interface is built. The product decisions are the maintainer's ([issue #194](https://github.com/leynier/portifact/issues/194) and their answers to the reviews). Only the plan limits remain open.
+- Date: 2026-11-12
+- Feature: issue #194, "give each artifact its own database". Not a premium plan feature: every plan gets it, with limits per plan.
+
+## Question
+
+An artifact is a static site today. The maintainer wants it to be able to be a small app: its JavaScript, running in a visitor's browser, stores and reads data that outlives the visit (forms, votes, lists, boards), and the owner and their agents read and manage the same data through the API, the MCP server and the CLI. How can Portifact give each artifact a database without letting a visitor reach another visitor's data, letting a page act as a person without their consent, letting one artifact reach another's, letting a hostile owner or visitor spend Portifact's budget without a bound, or breaking any rule the platform already keeps (regions, deletion, restore, holds, quotas, the three interfaces' parity)?
+
+## Decisions taken by the maintainer
+
+The numbering continues the earlier versions', so the reviews' references stay valid. Decisions marked superseded are kept for the history.
+
+From the issue: 1 (real SQLite in Durable Objects with the SQLite backend, in the jurisdiction of the owner's region), 2 (one door: the page and the owner side both use the document API; the owner SQL of the issue is superseded by 38), 3 (the page learns an opaque per-artifact ID and the display name, never the email; narrowed by 17), 4 (the owner decides who writes from the page; by default signed-in visitors who can open it; anonymous writers only when the owner opens them, with per-IP limits and the human check; share link visitors read only), 5 (live updates over WebSockets from the first release), 6 (Free with a small quota, more on paid plans, under the budget target of US$50 a month as an objective, protection from US$100), 7 (the data belongs to the artifact, not a version: publish and rollback do not touch it; it stays while archived, counts in storage and goes at purge and account or workspace deletion).
+
+From the first three reviews and the maintainer's answers to them: 9 (spending bounded by work, counted durably per artifact, attempts and refusals included, bounded query shapes, nothing keeps an object awake), 10 and 17 (no identity and no attributed write without the visitor's consent in a control Portifact draws), 11 and 24 (lifecycle fenced by operation IDs, a data generation and an epoch; fences persisted before acknowledgement, on empty objects too; one validator), 13 (service tokens gain nothing; account deletion erases the account's documents; transfers move the data; 60-second live bound; a workspace policy can forbid anonymous writing; no point-in-time recovery for owners; `_by` is session attribution), 14 (small disabled deliveries), 18 (account deletion erases the documents the account created; later edits by others to such a document go with it), 19 (transfers move the data), 20 (service tokens need a new scope), 21 (anonymous writing only where the owner decides alone or a workspace policy controls it), 22 (plan limits open), 23 (operation IDs scoped to the actor, generation and request hash; authorization before any replay; no bodies), 25 (restore reconciled from the object's control record; quarantine), 26 (author barrier before deletion; one identity under racing grants), 29 (live renewal bound to the principal), 31 (cleanup always works), 33 (storage accounting), 34 (durable audit states), 35 (the grant flow), 38 (no owner SQL: three design rounds could not make server-side owner SQL both safe to erase and bounded in cost; it can be reopened later with its own record), 40 (empty objects keep barriers), 41 (author erasure is terminal), 43 (an exact, stable, byte-bounded export, easy to load into a local SQLite database). Superseded: 8, 15, 16, 27, 30's SQL part and 32 (by 38); 39, 42 and 44 (by 45 to 47).
+
+From the fourth review and the maintainer's answer to it:
+
+45. **No owner ledger and no leases.** Every limit is per artifact, kept in the artifact's own object, checked and charged synchronously in the same transaction as the work. An owner's exposure is the number of data artifacts the plan allows times the per-artifact daily limits. The limits arrive with every command from the plan the Worker already holds; a plan change applies from the next command. Nothing is awaited between a command's admission and its work.
+46. **Charging by measured work after the fact.** After each operation the object adds the rows it read and wrote (the cursors' counters plus its own bookkeeping) to the day's counter for that class, in the same transaction, and refuses further work of that class once the counter is spent. One operation's overshoot is bounded by stated, tested per-operation caps. Reads are counted in memory and persisted in batches. Refusals cost as little as possible.
+47. **No proven worst month.** The record states the per-artifact limits, the arithmetic of what they imply, which numbers were measured locally and which must be measured in production, and that global budget protection is what stops spending when the estimates are wrong, with a new step for data.
+48. **Lifecycle repairs**: a hold refuses every payload erasure, quarantine resolution included, until a separately authorized release is acknowledged; erase steps carry a durable erase ID with its target; a repeated transition must match its original contents; a request's newer epoch never consumes the epoch a pending fence needs; an alarm is set only for maintenance that can run; the first durable write on an empty object binds its identity or is refused.
+49. **Terminal author erasure**: the barrier governs every path that could recreate author-associated state; completion ends with an atomic check and cleanup; the journal has one retention rule; the minimal evidence kept is listed.
+50. **The design phase ends.** Delivery 3 is the contracts as production code with property and fault-schedule tests and its own adversarial code review; every protocol property the four reviews found is in "Acceptance tests for delivery 3". Nothing is reachable by a user until the last delivery's switch.
+
+Alternatives rejected by the issue (Turso Cloud, Turso's engine in Workers, D1 per artifact, shared tables in the regional D1, SQLite in the browser with sync) stay rejected for the reasons it gives.
+
+## Decision in short
+
+- **One object per artifact**, `ArtifactDocuments`, holding the collections and speaking only the document API, to the page through the content Worker and to the owner side through the app Worker. No second object, no owner ledger.
+- **A control record** in the object: artifact, region, owner, owner epoch, generation, epoch, an independent hold, a quarantine, a prepared erase with its ID, the last ended erase, the last transition with its ID and contents, a storage sequence and a payload revision. One validator, `admit`, with four modes, decides every command.
+- **One transaction per command, nothing awaited before it**: admission, replay, issue-time horizon, authorization, the class's spent check, the work and the charge of what was measured, all synchronous.
+- **Per-artifact daily counters** for growth, reads, cleanup, export, the visitor's own rights and live messages, from the plan sent with the command.
+- **Operation records** keyed by actor, generation and operation ID, bound to a hash of the request, holding no body; IDs carry their issue time; audit obligations under the same key.
+- **Erasure** in two steps under an erase ID for the whole data, and per author behind a terminal barrier in bounded, replayable chunks; the author journal and the object inventory in R2.
+- **A grant on the app origin** before any identity.
+- Shipped off behind four switches; nine deliveries, the feasibility experiments first and the contracts' code review before any adapter; option B recommended as the smallest exposure.
+
+## Facts checked
+
+Cloudflare's documentation, read on 2026-11-12 ([Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/), [limits](https://developers.cloudflare.com/durable-objects/platform/limits/), [SQLite storage API](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/), [data location](https://developers.cloudflare.com/durable-objects/reference/data-location/), [WebSockets](https://developers.cloudflare.com/durable-objects/best-practices/websockets/), [lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/), [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/), [R2 pricing](https://developers.cloudflare.com/r2/pricing/)):
+
+- **Durable Objects on Workers Paid.** Requests: 1 million a month included, then US$0.15 per million; RPC calls and alarm invocations count as requests; incoming WebSocket messages count 1 in 20, outgoing are free. Duration: 400,000 GB-s included, then US$12.50 per million GB-s, active wall time at 128 MB (0.128 GB in Cloudflare's examples); waiting on I/O is wall time but not CPU time, so the CPU limit does not bound billed duration; an idle object eligible for hibernation is not billed. SQLite: 25 billion rows read and 50 million rows written included, then US$0.001 and US$1.00 per million; 5 GB-month stored included, then US$0.20 per GB-month; `setAlarm` and deletes bill as storage writes. Durable Object compute overage is billed in whole units (a million requests, a million GB-s).
+- **Workers.** 10 million requests included, then US$0.30 per million; 30 million CPU milliseconds included, then US$0.02 per million, both billed fractionally in Cloudflare's examples; WebSocket messages are not Worker requests.
+- **R2.** Class A operations (writes, lists) US$4.50 per million, class B (reads) US$0.36 per million.
+- **Limits.** 10 GB per object; statements up to 100 KB, 100 parameters; 30 seconds of CPU per request by default; alarms may run late.
+- **The SQL API** reports `rowsRead` and `rowsWritten` (the billed values) and hands integers to JavaScript as numbers, so an integer past 2^53 loses precision.
+- **Jurisdictions.** `namespace.jurisdiction("eu")` keeps objects in the EU.
+- **A Durable Object's execution** is single-threaded, but other events run while a method awaits I/O. A method that awaits nothing runs to its end before any other event; `crypto.subtle.digest` is asynchronous, so the object hashes requests with its own synchronous SHA-256.
+
+Measured in the spike (local workerd): R2's conditional put admits one of several concurrent writers; an object with its schema and one collection is 100 KiB, and a 200-byte document adds about 720 bytes; the rows of each operation are in "Measured rows per operation".
+
+The code at `develop`: the content Worker exports a SQLite Durable Object already (`TrafficLimiter`) and refuses methods other than `GET` and `HEAD` before routing; public artifacts are served before any session is read; the viewer frames artifacts with a partitioned review session and falls back to a top-level review tab (decision 0002); transfers are refused across regions; the Terms say Portifact "runs no builds, servers or databases for your content"; `PLAN_PRICES` lists Pro at US$2 a month and Team at US$5 a seat; traffic is 1 million requests a month on Free, 2 million on Pro and 3 million a seat on Team.
+
+## One object
+
+`ArtifactDocuments`, named by the artifact ID, in the jurisdiction of the artifact's region, holds every collection of the artifact and its control tables. No SQL from anyone reaches it: every statement it runs is written by Portifact, so no owner schema, constraint, trigger or reference exists that could block an erasure or make a statement's cost unbounded.
+
+| Worker                 | Exports             | Binds                | `limits.cpu_ms` |
+| ---------------------- | ------------------- | -------------------- | --------------- |
+| `portifact-data` (new) | `ArtifactDocuments` | itself               | 200 proposed    |
+| `portifact-content`    |                     | `ARTIFACT_DOCUMENTS` | default         |
+| `portifact-app`        |                     | `ARTIFACT_DOCUMENTS` | default         |
+| `portifact-jobs`       |                     | `ARTIFACT_DOCUMENTS` | default         |
+
+The new Worker has no routes, no D1, R2 or queue bindings and no secret; legacy `migrations` with tag `v1` (`new_sqlite_classes`), never `deleted_classes`, `renamed_classes` or `transferred_classes` (a `scripts/` test refuses them). Deploy order: `portifact-data`, then jobs, content and app. `dataNamespaces(env, region)` in `packages/services` is the only place a stub is made (`locationHint: "wnam"` for the default region, `jurisdiction("eu")` for the EU), from the directory's region only. The CPU limit stops runaway work; it does not bound billed wall time (see "Cost").
+
+## The control record and the validator
+
+The object keeps a control record (`spikes/artifact-data/src/envelope.ts`) in `pf_meta`: `artifactId`, `region`, `ownerId`, `ownerEpoch`, `generation`, `epoch` (the last applied lifecycle transition's), `hold` (the transition that set it, independent of everything else), `quarantine` (set only by reconciliation, cleared only by the operator), `erasing` (a prepared erase: its ID, target generation and epoch), `lastErase` (the last erase intent that ended and how), `last` (the last transition: its ID from D1's batch, kind, epoch, owners before and after, time), `storageSeq` (raised by every durable write) and `payloadRevision` (raised only when documents change). Every command carries an envelope `{ artifactId, region, ownerId, generation, epoch, opId? }` filled by the calling Worker from D1.
+
+**One validator, four modes.** `admit(stored, envelope, mode)`:
+
+| Check, in order            | `request` (page, owner side)                      | `operator`  | `erase` (prepare, commit, cancel) | `maintenance` (settle, acknowledge) |
+| -------------------------- | ------------------------------------------------- | ----------- | --------------------------------- | ----------------------------------- |
+| No control record          | Admitted; only an authorized first write binds it | Admitted    | Admitted; prepare binds it        | Admitted; the first write binds it  |
+| Another artifact or region | `forbidden`                                       | `forbidden` | `forbidden`                       | `forbidden`                         |
+| Quarantined                | `quarantined`                                     | Admitted    | `quarantined`                     | Admitted                            |
+| Another owner              | `stale`                                           | `stale`     | `stale`                           | Admitted                            |
+| Older epoch                | `stale`; a newer one is admitted, never adopted   | `stale`     | `stale`                           | Admitted                            |
+| Another generation         | `stale`                                           | `stale`     | Older: done; newer: `stale`       | Admitted (the key names it)         |
+| Held                       | `held`                                            | Admitted    | `held`                            | Admitted                            |
+| Erasing                    | `stale`                                           | Admitted    | Admitted                          | Admitted                            |
+
+A newer epoch is admitted but never written into the control record: only a fence moves the epoch, so a request that arrives first never consumes the epoch the fence it precedes needs. **The first durable write on an empty object binds its identity**: a declaration (after authorization), an erasure step, an author erasure, a fence or a settlement writes the control record from its envelope in the same transaction; every other command on an empty object writes nothing; a later command naming another artifact is refused.
+
+**Fences.** `fence(envelope, { state, toOwner?, transition })` applies a hold, a release or a transfer. It checks the artifact, region and generation; a repeat of the same transition ID must carry the same contents (kind, epoch, new owner) and is acknowledged without change, anything else under that ID is `conflict`; then it requires the current owner and an epoch newer than the last transition's. It is persisted before it is acknowledged, on an empty object too. A hold or a transfer ends a prepared erase (recorded as cancelled); a transfer records the new owner and its epoch; both close live connections; a quarantine survives every fence. A release re-arms maintenance. D1's side: the hold or transfer batch raises the epoch in `artifact_data` and writes a `data_fence` job carrying the transition ID and contents; the change is in force when the object acknowledged it.
+
+**Erasing the whole data, under an erase ID.** `prepareErase(envelope, eraseId)` records `erasing { id, generation, epoch }` (binding an empty object's identity) and closes live connections at that barrier; the same ID and target repeat, another ID while one is prepared is `conflict`, and an ID that already ended answers how it ended. `commitErase(envelope, eraseId)` commits only the prepared ID: one transaction deletes every payload table (documents, collections, fields, indexed values, author counts, sequences, operation records), writes the next generation and records the ID as committed; counters, barriers and audit obligations stay. `cancelErase(envelope, eraseId)` cancels only that ID. A retried step answers the intent's terminal result; a delayed step of an earlier intent changes nothing. Every erase step is refused while a hold stands.
+
+**Restore.** A D1 Time Travel restore rewinds D1, not the object. After `apply-tombstones` puts holds and revocations back, `data_reconcile` reads each object's control record (the R2 inventory lists them) and applies `reconcile(row, control)`:
+
+| Field                                                       | Authority after a restore                                                                                                                     |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Artifact and region                                         | The directory and the inventory; a mismatch goes to the operator                                                                              |
+| Owner and owner epoch                                       | The object's last verified transfer transition                                                                                                |
+| Generation and epoch                                        | The object; D1 is raised to them only when owner and hold agree                                                                               |
+| A prepared erase                                            | The object's `erasing`, with its ID and target; resumed under that ID, never skipped by raising numbers                                       |
+| A hold                                                      | The object's hold record against D1's re-applied holds; disagreement quarantines                                                              |
+| A quarantine                                                | The object; only the operator clears it                                                                                                       |
+| Grants, codes, sessions, memberships, tokens, policies      | D1 plus its non-rewound revocation evidence (window tombstones, including `data_grant` revocations), never the object                         |
+| Artifacts, grants and codes created after the restore point | Gone from D1. The inventory finds objects with no D1 row; each is quarantined for the operator. Visitors whose grants were lost consent again |
+| Pending account deletions and author erasures               | Re-derived from the tombstones and the journal's retired entries, never from a rewound outbox                                                 |
+
+The operator exports under a quarantine and resolves it with `resolveQuarantine(envelope, "adopt" | "erase")`. `adopt` needs an envelope naming the owner the object recorded, after the operator repaired and verified the directory, ownership and authorization rows; it clears the quarantine. `erase` moves to the next generation and is **refused while a hold stands**: the hold keeps its evidence until a separately authorized release was acknowledged, and only then can the operator erase.
+
+## One transaction per command (decision 45)
+
+Every command of the object is synchronous: nothing is awaited between its admission and its work, so a hold, a transfer or a duplicate delivery is ordered wholly before or wholly after it. A mutation is one transaction:
+
+1. admit the envelope (and bind an empty object's identity if this is an authorized first write);
+2. look the operation record up: the same request replays after the caller's current authorization was checked, another request under the key or an aborted one is `conflict`;
+3. refuse an operation ID older than the horizon or from the future;
+4. authorize, the author barrier included;
+5. refuse if the counter of the operation's class is already spent (writing nothing);
+6. count the rate attempt;
+7. do the work, record the operation and its audit obligation, raise the storage sequence;
+8. add the rows the cursors measured, plus the charge statement's own, to the day's counter for the class.
+
+A failure after step 6 rolls the transaction back and then, in a second synchronous transaction, counts the rate attempt and charges what the work measured before it failed, so failed work is never free. Reads are the same without steps 2, 3, 6 and 8: their rows are added to an in-memory count. The spike proves the methods return synchronously (`invariants.test.ts`: every command's answer is not a promise) and that a hold racing twenty writes, or five copies of one operation, leaves exactly the writes that landed before it and one applied copy. No await remains on any command's path; the only awaits are in the alarm (rescheduling) and in the live upgrade after its transaction, so there are no fault schedules to keep. The request hash is computed by a synchronous SHA-256 (`spikes/artifact-data/src/hash.ts`).
+
+## Operation records and replay
+
+Every mutation (document writes, declarations, index steps, bulk deletes, author erasure chunks) carries an operation ID of the form `<issue time in ms>.<random>`, which the Worker stamps from the client's idempotency key. The object records it in the mutation's transaction under `actor | generation | opId`, with a SHA-256 of the request, the state (`committed` or `aborted`), the kind, what it named and, for erasure chunks and bulk deletes, the small result (counts). Never a body. A replay never applies again, never charges and never notifies. Records are pruned 24 hours after they were written; an ID issued more than 23 hours before the command's time, or more than 5 minutes after it, is refused as `conflict`, so a pruned ID can never apply again (spike: D18). Author erasure deletes the author's records.
+
+## Audit with durable states
+
+An owner-side mutation and every author-erasure chunk write their audit obligation (`pf_audit`) in their own transaction under the operation's full key, the same as the mutation record, the D1 audit event's uniqueness and the acknowledgement. Obligations are control data: a whole erase keeps them. The jobs Worker calls `settle(envelope, actor, opId)` (maintenance admission): it answers a committed obligation and whether it was delivered, a committed operation without one, or records the operation as `aborted` so a late arrival cannot commit; for an erased author it writes nothing (the barrier already refuses their late writes). `acknowledge` marks the obligation delivered; delivered obligations are kept 7 days for late settlement, then pruned. Pending obligations are bounded by the owner-side mutations the artifact's growth counter admits per day times the days the relay is down; the daily sweep walks the R2 inventory for obligations pending longer than an hour.
+
+## Author erasure (decision 49)
+
+1. **The journal.** Before a grant's code is issued, the app claims `system/data-authors/<user ID>/<artifact ID>` in the artifact's region's bucket with a conditional put; of two racing first grants one writes, the other reads the winner's visitor ID. **Its one retention rule**: the account deletion job retires the entry first, before any erasure chunk runs; a retired entry refuses every claim; it is deleted 31 days after retirement, longer than any grant or code issued before the deletion can live (30 days and 60 seconds). After that the account no longer exists in D1 and its ID is never reused, so no issuance can name it.
+2. **The barrier** is written by the first chunk, on an empty object too (binding its identity), before anything is deleted; it closes the author's live connections and deletes their sequence. From then on the barrier governs every path that could recreate author-associated state: the author's creates, replaces and connections are refused before their rate row is written; nobody edits a document whose creator is barred (`conflict`, so no edit recreates the author's sequence); a sequence in a barred author's scope is never written; a settlement naming the author writes nothing.
+3. **Bounded, replayable chunks.** Each chunk deletes at most 500 of the author's documents through an author-first index (each through the sequence and live invalidation, indexed values and counts included), marks at most 500 of the author's edits on other people's documents `_editedBy: "erased"` (each through the sequence and invalidation), and deletes at most 500 of the author's operation and rate rows, then answers `more`. A repeated chunk replays its recorded counts. Chunks are counted against cleanup and never refused for it.
+4. **Completion** is the chunk that finds nothing left: in the same transaction it checks that no document is created or last edited by the author, deletes any remaining sequence and count of the author and marks the barrier complete.
+5. **Shared edits.** A document belongs to its creator. Erasing the creator deletes the document, including later edits others made to it; erasing an editor keeps the creator's document and its current content and replaces the attribution with `erased`.
+6. **The minimal evidence kept**, deliberately: the barrier row (the opaque per-artifact visitor ID and the time; for as long as the object exists, so a late write is refused forever; one per erased author, counted in storage outside the data cap); the erasure chunk's operation record (until the 24-hour horizon); its audit obligation (counts only, until delivered and 7 days); the D1 audit event (counts); the retired journal entry (31 days). None holds a body.
+7. A held artifact defers the chunks to the hold's release.
+
+## Limits and counting (decisions 45, 46)
+
+### The classes
+
+| Class         | Counter (per artifact, per UTC day) | Spent by                                                                                                | Refusal                        |
+| ------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| Growth        | rows written (and their reads)      | creates, growing replacements, declarations, index build steps, live connects                           | `quota_exceeded`               |
+| Reads         | rows read, counted in memory        | gets, queries, counts                                                                                   | `quota_exceeded`               |
+| Cleanup       | rows read and written               | owner deletes and bulk deletes, shrinking replacements, deleting others' documents in `shared`, erasure | `rate_limited`; erasure never  |
+| Export        | rows read and written               | owner export pages                                                                                      | `rate_limited`; operator never |
+| Rights        | rows read and written, reserved     | a visitor deleting a document they created, and exporting their own documents                           | `rate_limited`                 |
+| Live messages | messages, reserved 100 at a time    | every message sent, acknowledgements and errors included                                                | connection closed `4029`       |
+| Rates         | durable rows per author and minute  | writes, deletes, connects (attempts admitted; refusals at the limit write nothing)                      | `rate_limited`                 |
+
+The rights class is a small allowance of the visitor's own, so neither the owner nor other visitors can use up the shared pools and block a person deleting or exporting what they created; it needs neither write permission nor the current terms. A spent growth day never stops reading, deleting, shrinking or exporting. Erasure is counted but never refused.
+
+### How it is counted
+
+- **Measured, after the work, in its transaction**: the rows the cursors reported plus the charge statement's own two read and two written. A failure after the work began charges what it measured in the next synchronous transaction.
+- **Refused before the work** when the class's counter is already spent. Such a refusal writes nothing; refusals are counted in memory and persisted with the next counter write, and every refusal also counts in the caller's per-minute rate (in memory for reads).
+- **Reads write no row of their own**: their rows are added to an in-memory count that reaches storage with the next write of the object or at the latest every 10,000 rows or 30 seconds (and at every alarm). An eviction loses at most that much of the day's reads.
+- **The overshoot** of a spent counter is at most one operation, bounded by its caps:
+
+| Per-operation cap                         | Value                       | Measured in the spike                      |
+| ----------------------------------------- | --------------------------- | ------------------------------------------ |
+| Documents a page returns                  | 100                         | at most 116 rows read at 100,000 documents |
+| Documents a bulk delete names             | 100                         | under 2,000 rows                           |
+| Documents an index build step covers      | 500                         | under 3,000 rows a step                    |
+| Documents an author erasure chunk deletes | 500                         | 368 rows for a chunk of 20 documents       |
+| Rows and bytes of an export page          | 500 and 1 MiB               | 106 rows read for 100 documents            |
+| Rows a pruning pass deletes per class     | 500                         |                                            |
+| Document size                             | the plan's (16 KiB on Free) |                                            |
+
+- **Index builds are incremental.** Declaring an indexed field records it as `building`; each step (the declaration's own, then `buildIndexStep` calls the owner side's service makes until none is building) adds the values of the next 500 documents in primary key order to `pf_values`; writes keep values for every field meanwhile; queries on a field are refused until it is `ready`. No statement touches more than one step's documents.
+- **Counts come from maintained counters** (`pf_collections.documents`, `pf_author_counts`), so a count reads one row whatever the collection holds, a downgrade's retained documents included.
+- **Plan changes** apply from the next command: every command carries the limits; a renewal of a live connection carries the current daily message limit.
+
+### What the owner side can do without SQL
+
+Describe (collections with mode, unique key, indexed fields and their build state, document counts and bytes, the artifact's counters); read any collection with one equality on `_by` or a built indexed field, ordered by `_created` either way, in pages of up to 100 with a cursor, in the same bounded shapes as the page; count a collection or one author from maintained counters; create, replace and delete one document; delete up to 100 by ID in one operation (`bulkRemove`, one operation record and one audit obligation, every deleted document through the sequence and live invalidation); build declared indexes in steps; export everything exactly. Bulk create and replace of up to 100, counts by an indexed value and describe are designed and built in delivery 3. It deliberately does not do joins, aggregates beyond counts, range filters on arbitrary fields, full-text search or arbitrary sort orders: each needs SQL or a scan that grows with the data; an agent that needs them exports and analyzes locally ("Later").
+
+### Measured rows per operation (`cost.test.ts`, local workerd)
+
+| Operation                                      | Rows read | Rows written |
+| ---------------------------------------------- | --------- | ------------ |
+| First collection declared (creates the schema) | 42        | 44           |
+| Visitor create                                 | 11        | 13           |
+| Visitor replace                                | 13        | 9            |
+| Visitor delete                                 | 12        | 11           |
+| Visitor get / page of 20                       | 4 / 25    | 0 / 0        |
+| Owner create (with its audit obligation)       | 10        | 14           |
+| Owner count / count by author                  | 3 / 4     | 0 / 0        |
+| Owner bulk delete of 10                        | 55        | 47           |
+| Owner export page of 100                       | 106       | 2            |
+| Author erasure chunk of 20 documents           | 279       | 89           |
+| One live reservation (100 messages)            |           | 2            |
+
+Each mutation is charged these plus 2 and 2. A write costs 13 rows because it also writes its rate row, its operation record (with its index entries), its sequence, its author count, the control record and the day's counter.
+
+## Cost (decision 47)
+
+This section states what the limits imply; it does not claim a proven worst month. What stops spending when these estimates are wrong is global budget protection ([docs/operations.md](../operations.md), "Budget alerts and protection"), which gains a data step (below).
+
+### What the limits imply, per owner and month
+
+If every data artifact an owner may have spends every per-artifact limit every day of a 31-day month, with every live connection sending its 4 messages a minute and the owner's whole traffic quota spent, nothing included, the formulas are, for `N` data artifacts, daily per-artifact limits `W` (growth rows), `C` (cleanup), `G` (rights), `R` (reads), `X` (export), `L` (live messages), connections `K` per artifact, size `S` MB, monthly traffic quota `T`, and active wall time `t` seconds per request:
+
+- rows written: `31 × N × (W + C + G + 2 × L / 100) / 1,000,000` dollars (two rows per live reservation of 100 messages);
+- rows read: `31 × N × (R + X + C + G) / 1,000,000,000`;
+- Durable Object requests: `(T + M / 20 + A) × 0.15 / 1,000,000`, with incoming live messages `M = N × K × 4 × 1,440 × 31` and alarms `A = N × 1,440 × 31` at most (one a minute per artifact with connections);
+- Worker requests: `T × 0.30 / 1,000,000`; Worker CPU: `T × 2 ms × 0.02 / 1,000,000`;
+- duration: `(T + M + A) × t × 0.128 × 12.50 / 1,000,000`;
+- storage: `N × (S + 0.256) / 1,000 × 0.20`;
+- R2: one class A write per first grant, per retirement and per new object (US$4.50 per million), class B reads by the jobs.
+
+The plan options, presented per artifact (cleanup equal to growth, export 40 times growth, rights 500 rows a day, 10 live connections an artifact on Free and Pro and 25 on Team):
+
+| Option, plan | Data artifacts | MB each | Rows written a day each | Rows read a day each | Live messages a day each | Month at 5 ms | Month at 100 ms |
+| ------------ | -------------- | ------- | ----------------------- | -------------------- | ------------------------ | ------------- | --------------- |
+| A, Free      | 3              | 10      | 5,000                   | 1,000,000            | 5,000                    | US$1.71       | US$2.69         |
+| A, Pro       | 20             | 100     | 5,000                   | 2,000,000            | 10,000                   | US$10.09      | US$15.96        |
+| A, Team      | 100            | 100     | 10,000                  | 5,000,000            | 20,000                   | US$92.69      | US$161.67       |
+| **B, Free**  | 1              | 5       | 5,000                   | 500,000              | 2,000                    | **US$0.88**   | US$1.31         |
+| **B, Pro**   | 10             | 25      | 2,000                   | 500,000              | 5,000                    | **US$3.00**   | US$6.09         |
+| **B, Team**  | 50             | 50      | 2,000                   | 1,000,000            | 10,000                   | **US$14.77**  | US$49.49        |
+| C, Free      | 10             | 25      | 10,000                  | 2,000,000            | 10,000                   | US$8.06       | US$10.99        |
+| C, Pro       | 50             | 100     | 10,000                  | 5,000,000            | 20,000                   | US$44.52      | US$58.73        |
+| C, Team      | 200            | 200     | 20,000                  | 10,000,000           | 50,000                   | US$349.14     | US$486.66       |
+
+Team figures are at one seat; each seat adds 3 million requests of traffic, so the month grows by about US$1.49 a seat at 5 ms and US$1.95 at 100 ms. Team's US$5 a seat passes these figures from 4 seats on B at 5 ms (16 at 100 ms), 27 on A (53) and 100 on C (159). B Pro's US$3.00 is above its US$2 price if all ten data artifacts are saturated every day; US$0.90 of it is the traffic quota's Worker and Durable Object requests that any Pro owner can already spend. These are sums of separate limits all spent at once; whether such a month is achievable (live connections and renewals compete for the same traffic quota) is not shown, and they are not ceilings.
+
+**Measured locally**: rows per operation, bytes per document, rows at the caps. **To measure in production** (deliveries 2 and 8): active wall time per request above all (5 ms and 100 ms are sensitivities; it decides most of the duration line), hibernation of idle and held objects, alarm counts, rows actually billed including indexes and failures, live fan-out, control-storage growth, and the first invoices reconciled against the collector.
+
+### Typical use
+
+The issue's assumptions: 5% of artifacts with data active on a day; each active artifact 150 reads and 50 writes a day and two tabs with a live connection for an hour; 1.1 MB stored per artifact. Per active artifact a day, from the measured rows: 382 Durable Object requests (commands, renewals, connects, an hour of deadline alarms), 322 Worker requests, 920 rows written (writes 750, pruning 150, live and alarms 20), 4,400 rows read, 2 ms of Worker CPU a request.
+
+|                         | 1,000 artifacts, allocations available | 1,000, none available | 100,000, allocations available   | 100,000, none available |
+| ----------------------- | -------------------------------------- | --------------------- | -------------------------------- | ----------------------- |
+| Durable Object requests | 0.6 M: US$0                            | US$0.15               | 59.2 M: US$8.85                  | US$9.00                 |
+| Worker requests         | 0.5 M: US$0                            | US$0.15               | 49.9 M: US$11.97                 | US$14.97                |
+| Rows written            | 1.4 M: US$0                            | US$1.43               | 143 M: US$92.60                  | US$142.60               |
+| Rows read               | 6.8 M: US$0                            | US$0.01               | 682 M: US$0                      | US$0.68                 |
+| Stored data             | 1.1 GB: US$0                           | US$0.22               | 110 GB: US$21.00                 | US$22.00                |
+| Duration                | 379 to 7,579 GB-s: US$0                | US$12.50 (one block)  | US$0 (5 ms) to US$12.50 (100 ms) | US$12.50                |
+| Worker CPU              | 1 M ms: US$0                           | US$0.02               | 100 M ms: US$1.40                | US$2.00                 |
+| **Total**               | **US$0**                               | **US$14.47**          | **US$135.82 to 148.32**          | **US$203.75**           |
+
+At 100,000 artifacts typical use is three to four times the US$50 objective, two thirds of it rows written; no plan cap changes that, because typical use is below every option's limits.
+
+### Account-level rounding
+
+Billing is per account. Durable Object requests and duration are billed in whole million-unit blocks, so the data feature's share of a month's invoice can exceed its proportional cost by less than one block of each (at most US$0.15 and US$12.50) for the whole account, however many owners there are; Worker requests and CPU are billed fractionally. This bounds only the rounding, not the bill: total additional usage can cross many blocks, and its cost is the difference between the account's rounded totals with and without the data workload.
+
+### The data step of budget protection
+
+Budget protection gains a step `pause_data_writes` at US$105, between `block_uploads` and `pause_annotation_writes`: page and owner writes, live connects and index steps answer `capacity_unavailable`; reads, deletes, exports, the visitor's rights, erasure and restore keep working, as for every other step. The collector adds the data Worker's Durable Object requests, duration and rows to its metrics, and a global admission limit (100 million data rows written in the cycle) adds `pause_data_writes` whatever the spend. The step is designed here and built in delivery 8; [docs/operations.md](../operations.md) points to it.
+
+## The grant (decisions 10, 17, 35)
+
+A grant is one person's consent, for one artifact host and one browser, that the page may know them by an opaque per-artifact ID and their display name and save what they enter. Without a grant a page reads what the artifact's access allows and learns nothing about who is there: `GET /__portifact/data/me` answers `{ granted: false }` for everyone. Review, read and link sessions authorize reading only.
+
+**The control** is drawn by Portifact on `app.portifact.com`: the artifact's host and owner, what the page will learn (display name and an ID for this artifact, never the email), that the people who manage the artifact read everything saved there, that the data moves with the artifact if it changes owner, how account deletion treats shared edits, how long the grant lasts, a link to the rights request page; "Allow" and "Not now".
+
+**Two gates**: `beginGate` admits `GET /__portifact/data/grant/begin` only as a top-level navigation from the artifact's own page (`same-origin`, `document`) or the viewer's navigation of its frame (`cross-site`, `iframe`); `redeemGate` admits `GET /__portifact/data/grant?code=…` only as a `cross-site` navigation from the app (`document` or `iframe`). A sibling's `same-site` navigation passes neither. The API gate stays same-origin only.
+
+**Three flows**, one rule: the one-use code redeems only with the transaction cookie of the browser that began, on the host it was issued for. (1) In the viewer's frame, with a sealed, partitioned transaction cookie, the nonce's hash posted to the viewer (exact target origin), the code bound to the hash and host, and a partitioned `__Host-pf_grant`. (2) The top-level tab, the fallback where partitioned cookies are refused, as decision 0002 verified for review. (3) A direct visit (no bar, a custom host, or the tab above): `begin` opens top-level in a popup or the same tab, the app shows the control and redirects to `grant?code=…`, and the Worker sets `__Host-pf_grant` (`SameSite=Lax`).
+
+**Atomic codes**: consumed with one guarded D1 update. **Storage, expiry, renewal, revocation**: `data_grants` and `data_grant_codes` (regional); the grant cookie holds sealed claims (grant, artifact, visitor ID, 60-second claims, the grant's expiry, at most 30 days and never past the app session); renewal every 60 seconds checks the grant, the app session and the account's terms version; writes need the current terms (reads, the person's own deletes and export do not). Revocation from the dashboard, the viewer or sign-out applies within 60 seconds, live connections included, and writes a `data_grant` window tombstone. **The ID**: random, claimed in the journal, reused by later grants for the same person and artifact, never revived after retirement; it promises that Portifact never gives a page or an owner an account ID or email through this feature and that two artifacts get unrelated IDs; it does not stop an owner from correlating people through names, content, timing or a restricted artifact's access log. Cookie sealing keys are versioned and rotated.
+
+**Anonymous writers** (decision 21): the same control with the human check and a per-IP issue limit; offered in a personal space and in a workspace with `policies` whose policy allows it; elsewhere `dataWriters: "anyone"` answers `plan_required`.
+
+## Requests from the page
+
+All on the artifact's own origin (and its custom domain), reserved under `/__portifact/data/`, routed before the `GET`/`HEAD` check, after the API gate, the artifact lookup, the servable check, the reading session, the grant claims, the network policy, the traffic quota and budget protection; then the envelope and the object. Requests are charged to traffic through the per-isolate meter. Routes: `me`, queries and gets under `c/<collection>`, `POST`/`PUT`/`DELETE` under `c/…`, `mine` (the grant holder's own documents and their export), `live` and `live/renew`, `grant/begin` and `grant`, and the client script `data.js`. Rendered Markdown and text documents run no scripts and are out of scope.
+
+## The document model
+
+The owner side declares collections with a mode (`own` default, `append`, `read`, `shared`), an optional unique key and up to the plan's indexed fields. Server fields: `_id`, `_by` (the grant session that created it: attribution, not proof), `_editedBy` (the last editor other than the creator, or `erased`), `_created`, `_updated`, `_seq` (scoped to the author in `own`, to the collection elsewhere). The unique key is a scalar, required, recomputed on replacement. Queries come only in seek-bounded shapes with their index named; an equality on an indexed field seeks `pf_values` and joins documents by primary key (spike: at most 116 rows read for a page of 100 and 15 to 24 for an empty or sparse match at 100,000 documents). `deleteScope` lets the owner side delete anything, a visitor always delete what they created, and any writer delete in `shared` mode.
+
+## Export (decision 43)
+
+`exportPage` (owner side, export class; the operator under a hold or quarantine, counted, never refused) returns documents in primary key order (collection, ID) after a cursor that is the last row's key, each with its server fields and its body exactly as stored, stopped at 500 rows or 1 MiB of encoded rows (a single document over the byte cap still makes a page of one). `exportMine` (a grant holder, rights class, without write permission or the current terms) returns the documents the caller created through the author index, in the same form and bounds. Every page carries the payload revision, which changes only when documents change, so pages that start and end with the same revision are a consistent snapshot and a quiet export never moves it.
+
+The file the CLI and the dashboard write is JSON Lines: a header `{ format: "portifact-data", version: 1, artifact, generation, revision, collections: [{ name, mode, uniqueKey, indexed }] }`, one line per document `{ collection, id, by, editedBy, created, updated, body }` with `body` the stored JSON, and a footer with the revision at the end and `consistent`. It is stable (versioned, never reordered), typed (fixed server fields, bodies as stored) and complete (every document and every declaration), so it loads into SQLite with one table per collection or one table with `json_extract`. Writing and loading the file are delivery 3 and 5 tests.
+
+## Live updates (decisions 5, 29)
+
+A connection is accepted only on an object with data; it holds in its attachment the author, the principal that opened it, the generation, an absolute deadline, its per-minute counters, its reserved messages and the plan's daily message limit. Every message it receives and every message sent to it first re-admits it against the control record (a hold, quarantine, prepared erase or new generation closes it `4003`) and checks the deadline (`4001`). `renew(envelope, socketId, principal, deadline, limits)` requires the same principal, may shorten the deadline and updates the daily limit to the current plan's. Every message sent, acknowledgements and errors included, spends a message reserved against the artifact's day 100 at a time (two rows written per reservation: the day's counter and the control record's sequence); a refused reservation closes the connection `4029`, more than 256 KiB in a minute `4009`, more than 4 messages in or 1 KiB a message `4008`. Every document mutation, bulk deletes and author erasure chunks included, goes through the sequence and fan-out; a replay never notifies. Prepared erases, holds, transfers, quarantine and author erasure close connections at their barrier.
+
+## Storage accounting
+
+Every answer, refusals included, carries `{ generation, seq, bytes }`. `seq` rises with every durable write (mutations, counters, rate rows, live reservations, settlements, acknowledgements, pruning, fences, erase steps); a refusal that wrote nothing leaves it. The calling Worker keeps the newest report per object (`newerReport`: later generation, or same and later sequence) and writes it every 5 seconds into `artifact_data.documents_bytes`; the owner's usage is the sum over its artifacts. The object refuses growth when the documents' own bytes pass the plan's size, or when the database file passes it plus a 256 KiB reserve for control records. Control records are bounded by their retention: operation records 24 hours, delivered audit 7 days, rate rows a day, day counters 3 days, each pruned through an index that leads with its age, at most 500 a pass, resuming at the next alarm. Barriers (one per erased author) and pending audit obligations (bounded above) are kept as evidence, counted in storage and never deleted to meet the cap.
+
+## Housekeeping
+
+One alarm per object: it closes connections past their deadline, prunes every retained class in bounded passes, persists counted reads and sets the next alarm at the earliest moment any eligible maintenance can run (a connection's deadline, the oldest operation record, delivered audit obligation, rate row or day counter reaching its age, or a minute later when a pass was full). Under a hold or a quarantine nothing is pruned and only connection deadlines can set an alarm, so a held object with no connections sleeps; a release or a resolution re-arms it. An alarm that fails is retried by the platform; its work is idempotent.
+
+## Lifecycle
+
+Publish and rollback never touch the object. Archive and suspension raise the epoch; the page gets nothing; the owner side reads, exports and erases. A legal hold is a fence; only the operator exports (`data-export`, to the region's bucket); erasures and pruning wait. A transfer (same region) fences the object to the new owner, keeps visitor IDs and moves the data; the Privacy Policy and the grant control say so. Purge and account or workspace deletion run the two-step erase; account deletion runs author erasure for the account's journal entries. No point-in-time recovery for owners. Plan grace deletes nothing; the new limits refuse new work only.
+
+## Interfaces, scopes and parity
+
+New scopes `data:read` and `data:write`, a role action `data` (admins and editors, in `TOKEN_ACTIONS`); existing tokens gain nothing until an admin grants the scopes. The operations (describe, collections, documents, queries, counts, bulk writes and deletes, index steps, export, erase an author or all, data writers) have one service each with API, MCP and CLI parity, the terms classification, `confirm` on destructive tools and untrusted-data notes.
+
+## Moderation and law
+
+The owner is the controller of what visitors write, Portifact the processor; the Terms give Portifact the standing instruction to erase on account deletion the documents the account created (with later edits others made to them) and to let a grant holder delete and export their own. Not covered: the content of edits the account made to other people's shared documents (their attribution becomes `erased`), anything exported elsewhere; the rights request page (session only) lists the artifacts the journal names and notifies their admins. Reports name a collection, a document and its revision; `_by` is never alone evidence against a visitor. Legal texts need a new `TERMS_VERSION`: the Terms' "runs no … databases" sentence, a Privacy Policy category (visitor data, IDs, grants, the journal and its 31 days, location, transfer, the shared-edit rule, the minimal evidence kept after erasure), the Data Processing Addendum (the category, Annex III, the instruction) and the Acceptable Use Policy (no credentials or payment data, no file hosting or relays, no cross-site tracking, no command channels).
+
+## Switches
+
+| Switch                     | Off means                                                                                                                                                                                                                                          |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ARTIFACT_DATA_ENABLED`    | Page data paths answer `404`; owner routes answer `404` except export and erasure; jobs (fences, erasure, audit relay, reconciliation) always run. Nothing creates an object while it is off: export and erasure on a missing object answer empty. |
+| `DATA_PAGE_WRITES_ENABLED` | Page writes `503`; reads, the grant holder's deletes and exports work; no new writing grants.                                                                                                                                                      |
+| `DATA_LIVE_ENABLED`        | New connections refused; open ones closed by a job within a minute and by their deadline within 60 seconds.                                                                                                                                        |
+| `DATA_ANONYMOUS_ENABLED`   | No new anonymous grants; existing ones stop renewing within 60 seconds.                                                                                                                                                                            |
+
+## Threat model
+
+| Attacker                                     | Tries                                               | What stops it                                                                                                  |
+| -------------------------------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| A visitor                                    | Another visitor's `own` documents                   | The author bound in every statement; `own` queries cannot name an author.                                      |
+| A visitor                                    | Reuse another visitor's operation ID                | Records are keyed by actor.                                                                                    |
+| A visitor                                    | Spend the artifact                                  | Rates and the artifact's counters, measured in the work's transaction; refusals write nothing.                 |
+| A visitor                                    | Write after their account was deleted               | The terminal author barrier, on empty objects too; the retired journal entry.                                  |
+| A visitor or the owner                       | Stop a person deleting or exporting their own       | The reserved rights class.                                                                                     |
+| A page without a grant                       | Learn who is there or write as them                 | `me` is `granted: false` for everyone; no session authorizes writes.                                           |
+| A sibling artifact                           | Plant its identity (fixation) or call the API       | Codes bound to the beginning browser's nonce; same-origin API gate; separate start and redeem gates.           |
+| A page holding a socket ID                   | Extend someone's connection with another credential | Renewal requires the same principal.                                                                           |
+| The owner                                    | Spend without bound                                 | Per-artifact counters for every class, the plan's data artifact count, the traffic quota, budget protection.   |
+| The owner                                    | Block erasure                                       | No owner schema exists; erasure is never refused for counters.                                                 |
+| A former owner after a transfer or a restore | Act on the new owner's data                         | Owner in the envelope and control record, decided in the work's own transaction; quarantine after a restore.   |
+| A late erase, fence or duplicate             | Delete new data, move the object back, apply twice  | Erase IDs, generations, transition IDs and contents, one validator, operation records, the issue-time horizon. |
+| An operator mistake under a hold             | Erase held data through quarantine resolution       | Every erase step refuses while held.                                                                           |
+| A D1 restore                                 | Lose erasures, revive grants or ownership           | R2 journal and inventory, the control record, window tombstones, quarantine.                                   |
+| A service token                              | Read visitor data                                   | New scopes granted per token.                                                                                  |
+| An agent acting on untrusted text            | Erase or widen                                      | `confirm`, ask-first descriptions, untrusted-data notes.                                                       |
+
+## Deliveries (decisions 14, 50)
+
+The experiments that could invalidate the architecture come first; then the contracts as production code, reviewed adversarially before anything is built on them. Every owner and page route and every path that creates data stays off until delivery 8's switch; export and erasure work earlier only on objects that exist, and nothing creates one before then.
+
+| #   | Delivery                                                                                                                                                                                                                                                                                                                                                                                                                | Needs  | Acceptance                                                                                                                                                      |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | This record and the security section                                                                                                                                                                                                                                                                                                                                                                                    |        | Review.                                                                                                                                                         |
+| 2   | **Feasibility experiments** on staging, each a throwaway: the grant handoff (frame, top-level tab, popup) in Chromium, Firefox and WebKit with third-party cookies blocked; a restore drill (D1 Time Travel with live objects, reconciliation, quarantine, operator resolution); active wall time per command, alarm counts and hibernation of idle and held objects                                                    | 1      | Each experiment's result written here; a failure sends the design back before delivery 3.                                                                       |
+| 3   | **The contracts as production code** in packages: the envelope, control record and validator, fences, erase intents, quarantine and reconciliation, operation records with the horizon, `settle`, the storage report, the per-artifact counters and caps, index steps, the export format, the author barrier and journal rules, with property tests and fault-schedule tests; then **an adversarial code review** of it | 2      | Every item of "Acceptance tests for delivery 3" passes as a test against this code, and the code review signs them off before delivery 4 starts.                |
+| 4   | **The documents object and its jobs** without routes: collections, documents, queries, counts, bulk operations, live fan-out internals, the R2 journal and inventory, purge, account and workspace deletion jobs, holds and transfers, reconciliation                                                                                                                                                                   | 3      | The acceptance tests through the object; the restore drill repeated with the real object; nothing reachable by users.                                           |
+| 5   | **Owner document API**: services, API, MCP, CLI, scopes, the token scope control, audit relay, export file, the dashboard's read-only Data section                                                                                                                                                                                                                                                                      | 4      | Parity, audit coverage, terms classification, export file loaded into SQLite, accessibility.                                                                    |
+| 6   | **Grants and page reads and writes**: the gates, the three flows, the control, "Data you shared" with the person's own export and deletes, rights requests, the content Worker's routes, the client script                                                                                                                                                                                                              | 5      | Browser tests of every flow in three engines with third-party cookies blocked; fixation refused; revocation within 60 seconds, after a restore too.             |
+| 7   | **Live updates**                                                                                                                                                                                                                                                                                                                                                                                                        | 6      | Principal-bound renewal, message reservations, deadlines across hibernation, invalidation of every mutation; staging: zero active time when idle and when held. |
+| 8   | **Protection, legal texts and release**: budget protection's data step, the collector's metrics, hostile-owner and hostile-visitor load on staging, the plan limits fixed from staging's measurements, `TERMS_VERSION`, release checks, switches on                                                                                                                                                                     | 4 to 7 | Measured spend reconciled with the arithmetic above; the data step tested; the legal checklist; every staging check here done and recorded.                     |
+| 9   | Anonymous writers, `read` and `shared` from the page, the workspace policy                                                                                                                                                                                                                                                                                                                                              | 6      | Policy and limit tests; browser test of the anonymous flow.                                                                                                     |
+
+**Estimate**, for one engineer with review, for the simplified design: feasibility experiments 4 to 6 working days, contracts as production code 8 to 12 (including 2 to 3 for the code review and its fixes), the documents object and jobs 8 to 12, owner API 7 to 9, grants and page 12 to 16, live 5 to 7, protection, legal texts and release 8 to 12: **52 to 74 working days** (10.4 to 14.8 five-day weeks) for the first release, plus 5 to 7 for anonymous writing. It is a planning range conditional on delivery 2's results and delivery 3's review, not a commitment. Removing the ledger, leases and refunds shortened the contracts and the object; the review gate added time back. Most uncertain, in order: the grant flows in WebKit with partitioned cookies (a failure changes the flow, not the data design); the active wall time per request in production (it decides the duration line and the plan limits); the restore drill with real objects; the cost of rows written at scale (two thirds of the typical bill).
+
+## Acceptance tests for delivery 3
+
+Every protocol property the four reviews found, to be checked against the production code of delivery 3 by its code reviewer. References are review and finding: R1-11 is the first review's finding 11. Findings about owner SQL, copies, the owner ledger and leases are closed by removal and not listed.
+
+Identity, replay and authorization:
+
+1. A visitor never reads, lists, changes or deletes another visitor's `own` documents by ID, filter, cursor or live fan-out, and sequence numbers reveal nothing about other authors (R1-11, R1-15).
+2. An operation ID is scoped to the actor and the generation and bound to a hash of the request; another actor's reuse never returns the first result; a replay answers only after the caller's current authorization; no record holds a body (R2-1, R2-5).
+3. A replay never applies, charges or notifies twice; concurrent duplicates of one operation apply once (R2-1, R3-1, R4-9).
+4. An operation ID past the horizon or from the future is refused; a pruned ID never applies again, for committed and aborted records, across a reset and a restore (R3-14, R4-9).
+5. The unique key holds on create and on replace (R1-13).
+6. Every command, maintenance included, is refused for another artifact or region (R1-27, R3-6, R4-8).
+
+Lifecycle:
+
+7. A fence is persisted before it is acknowledged, on an empty object too; it checks the generation; a repeated transition ID must carry the same contents (R2-2, R3-6, R4-2).
+8. A request with a newer epoch never consumes the epoch a pending fence needs (R4-2).
+9. A hold refuses every payload erasure, quarantine resolution included, until a separately authorized release was acknowledged (R4-1).
+10. Erase steps carry an erase ID and its target; prepare, commit and cancel match it; a delayed step of another intent changes nothing; a retry answers the terminal result (R2-3, R3-5, R4-2).
+11. A commit deletes the payload and writes the next generation in one transaction, keeps the control state, and a retry of an earlier erase never deletes data created after it (R1-4, R2-3).
+12. After a D1 restore, the field authority table holds: a former owner is refused at any epoch, an owner or hold mismatch quarantines, a prepared erase resumes under its ID, and objects without a D1 row are found and quarantined (R1-5, R2-4, R3-5).
+13. The first durable write on an empty object binds its identity; an unauthorized caller writes nothing on an empty object (R3-6, R4-8).
+14. Nothing is pruned and no pruning alarm is set under a hold or a quarantine; a release re-arms maintenance (R3-6, R4-6).
+15. No command awaits anything between its admission and its work, or, if a later implementation adds an await, the work's transaction re-admits and re-authorizes and a fault schedule injects a hold, a transfer and a duplicate at that await (R3-1).
+
+Erasure:
+
+16. Author erasure is terminal: the barrier is written before anything is deleted, on empty objects too; afterwards no path recreates the author's documents, edits, sequences, rate rows, operation rows, counts or connections; completion checks and cleans atomically; only the listed minimal evidence remains (R2-6, R3-8, R4-7).
+17. The shared-edit rule: erasing a creator deletes the document with others' later edits; erasing an editor keeps the document and marks the attribution `erased` (R1-18, R3-8).
+18. Two racing first grants get one identity; a retired journal entry refuses every claim for its retention; a delayed first grant cannot revive the person (R2-6, R3-8, R4-7).
+19. Author erasure chunks are bounded by work, not by deleted rows, and a repeated chunk replays its counts (R2-17, R3-10).
+
+Counting and limits:
+
+20. Every operation's measured work, the counter's own row included, lands in its class's counter in the work's transaction, or for a failure after the work began, in the next one; the sum over random sequences is at least the measured work (R1-10, R2-7, R3-9, R4-3, R4-4).
+21. A spent class refuses before any work and writes nothing; refusals are counted in a bounded counter (R4-4).
+22. One operation's overshoot is at most its caps: page, bulk operation, index step, erasure chunk, export page, pruning pass (R1-11, R4-3).
+23. An index over existing documents is built in bounded steps, and queries on it are refused until it is built (R4-3).
+24. Reads write no row per request; an eviction loses at most the stated flush (R4-4).
+25. Cleanup, export and rights never meet the growth counter; a visitor deletes and exports their own documents when the shared counters are spent, without write permission or the current terms (R1-12, R1-22, R2-10, R4-12).
+26. Shrinking replacements are under the author's write rate (R3-16).
+27. Counts come from maintained counters, retained data after a downgrade included (R4-3).
+
+Live, storage, audit, export:
+
+28. Every message sent is reserved against the artifact's day; renewal requires the same principal, can shorten and carries the current plan's limit; deadlines survive hibernation; every mutation, bulk and author operations included, goes through the sequence and invalidation; connections close at a prepared erase and at every fence; message handling re-admits the control record (R1-8, R1-14, R2-8, R2-16, R3-15, R4-11).
+29. The storage sequence advances on every durable write and the payload revision only on document changes; reports are ordered by generation then sequence (R1-17, R2-13, R3-14, R4-10).
+30. Every retained control class is pruned through an index that leads with its age, in bounded resumable passes, and the next alarm covers every class (R3-14, R4-10).
+31. An audit obligation's key equals its mutation's; delivered and aborted are distinct; obligations survive a whole erase; an erased author's late settlement writes nothing (R1-21, R2-14, R3-11, R4-7).
+32. The export is exact, in primary key order, byte-bounded, with a revision that a quiet export does not move; the visitor's own export works through the author index; the JSON Lines file loads into SQLite (R1-20, R3-12, R4-12).
+33. Visitor and owner queries read at most the page plus a few rows in every allowed shape, dense, sparse or empty (R1-11).
+34. The grant's start and redeem gates and its one-use, browser-bound codes (R1-3, R1-9, R1-16, R2-15); the browser flows themselves are delivery 6.
+
+## Claims and evidence
+
+Kinds: **P** a pure-rule or property test, **C** a call-site test through the object in workerd, **B** only a browser can show, **D** only a deployment can show. Each row says exactly what the named tests prove.
+
+| Claim                                                                                      | What the tests prove                                                                                                                                                                         | Kind | Not shown                                                    |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------------ |
+| Commands are synchronous                                                                   | `invariants`: 17 commands return a non-promise inside the object; a hold racing 20 writes leaves exactly the accepted ones; 5 concurrent duplicates apply once                               | C    | D: production scheduling                                     |
+| `own` isolation                                                                            | `documents`, `queries`: by ID, filter and cursor for the tested shapes                                                                                                                       | C    | Grant issuance and D1 authorization                          |
+| Replay identity, no body, horizon                                                          | `review-findings-2` (1, 5), `fencing`, `review-findings-4` (D18): a reused ID by another actor, a body-free replay, a pruned old ID refused                                                  | C    | A replay across a real restore                               |
+| Fences: generation, transition contents, empty objects, no epoch consumption               | `fencing` (pure rule table), `review-findings-3` (6), `review-findings-4` (D29, D36)                                                                                                         | P, C |                                                              |
+| Erase intents and holds                                                                    | `review-findings-4` (D01, D03, D30), `fencing`, `review-findings` (4)                                                                                                                        | C    |                                                              |
+| Restore reconciliation and quarantine resolution                                           | `fencing`: the pure `reconcile` rules and local quarantine, adopt and erase                                                                                                                  | P, C | D: the restore drill; inventory discovery of missing D1 rows |
+| Empty-object identity                                                                      | `review-findings-4` (D02), `review-findings-3` (6), `edges`                                                                                                                                  | C    |                                                              |
+| Alarms only for eligible maintenance                                                       | `review-findings-4` (D04, D13)                                                                                                                                                               | C    | D: alarms running late; idle cost of held objects            |
+| Terminal author erasure                                                                    | `review-findings-4` (D05, D06, D23), `review-findings-3` (8, 10), the property tests (no trace of an erased author after random sequences)                                                   | C, P | D: R2 conditional writes under real concurrency              |
+| Journal retention rule                                                                     | `invariants` (kept 31 days, then deleted), `review-findings-3` (retired entry refuses)                                                                                                       | C    | Issuance and redemption checks against D1 at the boundary    |
+| Measured charging, failures included                                                       | `invariants` (a mutation's counter covers its measured rows; a unique conflict is charged), the property tests (every successful operation in 3 random sequences), `review-findings-4` (D09) | C, P | Rows Cloudflare actually bills                               |
+| Refusals write nothing; reads write no row                                                 | `invariants`, `review-findings-4` (D08), `cost`                                                                                                                                              | C    |                                                              |
+| Per-operation caps and the overshoot                                                       | `invariants` (bulk and page caps; plan B Free overshoot at most one write), `review-findings-4` (D40, D11), `queries`                                                                        | C    |                                                              |
+| Incremental index builds                                                                   | `invariants`: refused while building, built in `ceil(n / 500)` steps, a write during the build found                                                                                         | C    |                                                              |
+| Rights, cleanup and export apart                                                           | `invariants` (plan B Free), `review-findings-4` (D38, D41), `review-findings-2` (10), `edges-2`                                                                                              | C    |                                                              |
+| Live: reservations, invalidation, closing at barriers, renewal                             | `invariants` (chunks of 100, closed at the limit), `review-findings-4` (D28, D30, D31), `review-findings-2` (8, 16), `live`                                                                  | C    | D: hibernation across real idle periods                      |
+| Storage sequence and payload revision                                                      | `fencing` (durable writes move it, a refusal that wrote nothing does not), `review-findings-2` (13), `review-findings-4` (D28)                                                               | C    | D: the collector's figures                                   |
+| Pruning through age-leading indexes                                                        | `review-findings-4` (D12: the rate statement's plan uses its index), `fencing`, `review-findings-3` (alarm)                                                                                  | C    |                                                              |
+| Audit identity and states                                                                  | `review-findings-3` (11), `fencing`, `review-findings-2` (14), `review-findings-4` (D05)                                                                                                     | C    | D: the relay and the sweep                                   |
+| Export exact, stable, bounded; the visitor's own export                                    | `fencing` (export), `review-findings-3` (12), `review-findings-4` (D38)                                                                                                                      | C    | The JSON Lines file and its SQLite load (delivery 3)         |
+| Bounded query shapes                                                                       | `queries`: every allowed shape by SQLite's own plan and by rows read at 100,000 documents                                                                                                    | C    |                                                              |
+| Grant gates and codes                                                                      | `grants`, `edges-2`, `review-findings-2` (15): pure and in-memory rules                                                                                                                      | P    | B: every flow in three engines; D1's atomic consumption      |
+| The `FREE` fixture is option B's Free plan per artifact                                    | `harness.ts`, `invariants` (plan B Free end to end)                                                                                                                                          | C    | Plan-change behavior beyond "the next command's limits"      |
+| `/me`, scopes, D1 grant rows, switches, inventory sweep, bulk create and replace, describe | none (design)                                                                                                                                                                                |      | Delivery tests                                               |
+| Active time, hibernation, billing                                                          | none                                                                                                                                                                                         |      | D: delivery 2 and the first invoices                         |
+
+## Review findings
+
+The first three reviews' findings remain answered as the earlier versions' tables say; their reproductions still pass (`review-findings.test.ts`, `review-findings-2.test.ts`, `review-findings-3.test.ts`), except those about owner SQL (in commit `c5b84930`) and the owner ledger's lease awaits (removed with the ledger in this version).
+
+### Fourth review (15 findings)
+
+Reproduced in `review-findings-4.test.ts` (commit `3db6c7b1` adds the 21 cases that still apply against `65b85f06`, where all fail); all pass on this version.
+
+| #   | Finding                                                                                                    | Status                                    | Answer                                                                                                                                                                                                                |
+| --- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Quarantine resolution could erase held data                                                                | Answered                                  | Every erase step refuses while held, quarantine resolution included, until a separately authorized release (D01)                                                                                                      |
+| 2   | Erase intents had no identity; transitions replayed with other contents; requests consumed a fence's epoch | Answered                                  | Erase IDs with targets and terminal results; repeated transitions must match; requests never adopt an epoch (D03, D29, D36)                                                                                           |
+| 3   | Reservations were not upper bounds                                                                         | Closed by removal                         | No reservations: measured charging; index builds in 500-document steps; counts from maintained counters (D40, D11, D09)                                                                                               |
+| 4   | Read bookkeeping, refusals and protected work outside the owner ceiling                                    | Answered; owner ceiling closed by removal | Reads write no row; refusals write nothing; erasure counted in cleanup; exposure is artifacts times per-artifact limits (D08, D09)                                                                                    |
+| 5   | Leases survived plan changes; old-day refunds; lost lease acknowledgements                                 | Closed by removal                         | No ledger, no leases, no refunds; limits come with every command                                                                                                                                                      |
+| 6   | A hold created a one-second alarm loop                                                                     | Answered                                  | Alarms only for eligible maintenance; a release re-arms (D04)                                                                                                                                                         |
+| 7   | Author erasure not terminal                                                                                | Answered                                  | The barrier governs every path; atomic completion; one journal rule; minimal evidence listed (D05, D06, D23)                                                                                                          |
+| 8   | Empty-object maintenance created storage without identity                                                  | Answered                                  | The first durable write binds identity; unauthorized callers write nothing (D02)                                                                                                                                      |
+| 9   | Declaration duplicates charged twice; no horizon                                                           | Answered                                  | One transaction per command (replay before any charge); issue-time horizon implemented (D18)                                                                                                                          |
+| 10  | Control storage unbounded; changes invisible to the collector                                              | Answered                                  | Age-leading indexes and bounded passes for every class; the next alarm covers every class; sequence on every durable write; evidence bounded and counted (D12, D13, D28)                                              |
+| 11  | Bulk deletes skipped invalidation; prepare left sockets open                                               | Answered                                  | Every mutation through sequence and fan-out; sockets close at prepare; message handling re-admits; renewal carries the current limit (D30, D31)                                                                       |
+| 12  | No visitor export; owner activity blocked visitors' rights                                                 | Answered                                  | `exportMine`; a reserved rights class for the visitor's own deletes and export (D38, D41)                                                                                                                             |
+| 13  | Economic model claimed a worst month; arithmetic errors                                                    | Answered                                  | No worst month claimed; formulas and per-artifact options; two rows per live reservation, 0.128 GB, fractional Worker overage, R2 class A, rounding paragraph and Team seats corrected; budget protection's data step |
+| 14  | Claims table overstated the tests                                                                          | Answered                                  | Each row says exactly what its tests prove and what is not shown                                                                                                                                                      |
+| 15  | Two stale descriptions mentioned SQL                                                                       | Answered                                  | The spike's package description and Vitest comment updated                                                                                                                                                            |
+
+## Alternatives rejected
+
+### Owner SQL
+
+The issue gave the owner side SQL, read and write, from the first release, and three versions of this record designed it: first one database with a SQL allowlist, then a second object per artifact as a sandbox with copies, a shape-bounded write ceiling, a CPU-bounded read ceiling, debt in a per-owner ledger and a lossless SQL export. After three reviews the write ceiling was still not a bound, overdrafts and debt could be taken twice or moved to the next owner, accepted owner DDL could block erasure, copies had no consistent paging and two objects could not be reconciled after a restore. The maintainer removed owner SQL (decision 38); what an owner's agent wanted from it is analysis, which "Later" answers. The removed design and its spike code are in commit `c5b84930`. Owner SQL can be reopened later with its own record, which must answer those findings first.
+
+### An owner ledger with leases
+
+Versions three and four kept each owner's daily allowances in a per-owner object and leased chunks of them to artifacts, so one owner's spending was bounded across artifacts. The fourth review showed the leases surviving plan changes, refunds from an old day funding a new one, lost lease acknowledgements spending twice, read bookkeeping and refusals escaping the pools, and every lease await opening a window for a hold, a transfer or a duplicate. The maintainer removed the ledger (decision 45): limits are per artifact and an owner's exposure is the plan's data artifact count times them. The ledger's code is in commit `65b85f06`.
+
+### Others
+
+| Option                                                   | Why not                                                                                                                              |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Charging an upper bound before the work                  | The bound has to be proved for every statement, index and retained population; measured work in the same transaction needs no proof. |
+| Building an index in one statement                       | Its work grows with the documents; steps of 500 do not.                                                                              |
+| Identity from review or read sessions                    | They can be planted; no consent.                                                                                                     |
+| Inferring an aborted operation from a missing obligation | A call still in flight would commit after; `settle` aborts explicitly.                                                               |
+| Deleting the journal entry when erasure completes        | A delayed first grant would get a fresh identity; the entry is retired and kept 31 days.                                             |
+
+## Later
+
+What an owner's agent wanted from SQL is analysis: joins, sums, groups over the artifact's data. It can have that without server-side SQL by exporting the documents and querying them in a local SQLite database on the owner's machine, where the cost and the risk are the owner's. The export format in "Export" is designed for it: stable, typed and complete. A CLI command that does the load (for example `portifact data sqlite <artifact> --out data.db`) is a possible later change, not part of this design.
+
+## Open questions for the maintainer
+
+### The plan limits (open)
+
+The options are the per-artifact table in "Cost". **Recommendation: B for the first release**, the smallest exposure that keeps live updates in every plan: Free 1 data artifact of 5 MB with 5,000 rows written, 500,000 read and 2,000 live messages a day; Pro 10 of 25 MB with 2,000, 500,000 and 5,000; Team 50 of 50 MB with 2,000, 1,000,000 and 10,000. B Pro's arithmetic is US$3.00 a month at 5 ms if all ten artifacts are saturated every day, above its US$2 price, and Team passes from 4 seats. Delivery 8 measures active wall time and real use on staging and fixes the numbers; if the measured month is over the price, Pro's growth and cleanup come down first, and budget protection's data step stops spending meanwhile. Every option keeps, per artifact, documents of at most 16 KiB, 1,000 documents a collection, 10 collections and 3 indexed fields on Free (more on paid plans), 30 writes and 60 deletes per author a minute, 300 reads per caller a minute, and the rights class at 500 rows a day.
+
+### Engineering choices the record follows
+
+1. **Per-caller read rates in memory**: they shape traffic; the spend is counted.
+2. **The top-level tab** as the grant fallback, as review does today.
+3. **`cpu_ms: 200`** for `portifact-data`, to be confirmed by delivery 2's measurements; it stops runaway work and does not bound billed wall time.
+4. **Write cost levers** (fewer bookkeeping rows per write) are left for after measurement; they are the main lever on the 100,000-artifact cost.
