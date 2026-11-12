@@ -1,0 +1,18 @@
+{
+  "name": "@portifact/spike-artifact-data-grant",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Decision 0026, delivery 2, experiment 1: the artifact data grant handoff (viewer frame, top-level tab, direct visit and popup) in Chromium, Firefox and WebKit with third-party cookies blocked. Never deployed.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "browsers": "playwright install chromium firefox webkit",
+    "spike": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "~1.64.1",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

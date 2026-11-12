@@ -30,14 +30,18 @@ const CLI_FILES = [
 ];
 
 /**
- * Files that change what the end-to-end suite runs: the Workers and the dashboard it drives,
- * every workspace package they are built from (all but the CLI), the suite itself and the
- * shared tooling that builds them.
+ * Files that change what the end-to-end jobs run: the Workers and the dashboard it drives,
+ * every workspace package they are built from (all but the CLI), the suite itself, the grant
+ * handoff experiment of decision 0026 that the same jobs run, and the shared tooling that
+ * builds them.
  */
 const E2E_FILES = [
   /^apps\/(?:app|content|web)\//,
   /^packages\/(?!cli\/)[^/]+\//,
   /^e2e\//,
+  // Decision 0026's grant handoff experiment runs in the e2e jobs, one engine per job.
+  /^spikes\/artifact-data-grant\//,
+  /^spikes\/artifact-data\/src\/(?:gate|grants)\.ts$/,
   /^(?:package\.json|bun\.lock|bunfig\.toml|turbo\.json|tsconfig(?:\.base)?\.json)$/,
   /^\.github\/workflows\/ci\.yml$/,
 ];

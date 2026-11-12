@@ -25,6 +25,8 @@ export default defineConfig({
       miniflare: {
         serviceBindings: { APP: "portifact-app-spike" },
         r2Buckets: ["JOURNAL"],
+        // The main database of the restore drill (src/drill.ts): the rows D1 keeps about data.
+        d1Databases: ["MAIN"],
         workers: [
           {
             name: "portifact-app-spike",
