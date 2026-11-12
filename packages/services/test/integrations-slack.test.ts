@@ -19,7 +19,6 @@ import { actorOn } from "../src/actors.ts";
 import { createAnnotationThread } from "../src/annotations.ts";
 import { integrationKeys, openCredential } from "../src/integration-keys.ts";
 import {
-  applySlackEvent,
   createIntegrationConnection,
   type IntegrationDeps,
   listIntegrationChoices,
@@ -30,9 +29,9 @@ import {
   SLACK_UNAVAILABLE,
   testIntegrationConnection,
   updateIntegrationConnection,
-  verifySlackRequest,
 } from "../src/integrations.ts";
 import { runJob } from "../src/outbox.ts";
+import { applySlackEvent, verifySlackRequest } from "../src/slack-events.ts";
 import { FakeIssueTrackers } from "../src/testing/fake-issue-trackers.ts";
 import { FakeSlack } from "../src/testing/fake-slack.ts";
 import { requestThreadIssue } from "../src/thread-issues.ts";
@@ -681,7 +680,8 @@ describe("a verified event", () => {
       return found;
     };
     const apply = async (eventType: string | null, teamMatches = true) =>
-      applySlackEvent(db(), { connection: await read(), teamMatches, eventType, now: NOW });
+      (await applySlackEvent(db(), { connection: await read(), teamMatches, eventType, now: NOW }))
+        .outcome;
     expect(await apply("app_uninstalled", false)).toBe("team_mismatch");
     expect(await apply("link_shared")).toBe("ignored");
     expect(await apply(null)).toBe("ignored");

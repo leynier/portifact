@@ -51,7 +51,7 @@ import { ownerEntitlements } from "./plans.ts";
 import { slackAuthTest, slackRevoke } from "./slack-client.ts";
 
 const c = schema.integrationConnections;
-type ConnectionRow = typeof c.$inferSelect;
+export type ConnectionRow = typeof c.$inferSelect;
 
 export const INTEGRATION_FEATURE = "integrations" as const;
 
@@ -1238,111 +1238,4 @@ export async function prunePendingConnections(db: RegionalDb, now: number): Prom
     )
     .returning({ id: c.id });
   return deleted.length;
-}
-
-/** A Slack connection as the events endpoint reads it: one primary-key read. */
-export type SlackEventConnection = Pick<
-  ConnectionRow,
-  "id" | "ownerId" | "service" | "keyId" | "credentialBox" | "attention" | "revision" | "externalId"
->;
-
-/**
- * A key no signing secret is: a missing or pending connection costs the same HMAC as any. Made on
- * first use, never at module load: workerd refuses random values in global scope, and a Worker
- * that did it would not start.
- */
-let dummySigningKey: Uint8Array<ArrayBuffer> | undefined;
-function dummyKey(): Uint8Array<ArrayBuffer> {
-  dummySigningKey ??= crypto.getRandomValues(new Uint8Array(32));
-  return dummySigningKey;
-}
-
-const encoder = new TextEncoder();
-
-/**
- * Verifies an inbound request's signature with the connection's own signing secret (decision
- * 0025, "Order of checks", steps 2 and 3): one D1 read by primary key, then HMAC-SHA-256 over
- * `v0:<timestamp>:<raw body>`, compared in constant time by `crypto.subtle.verify`. A missing or
- * pending connection is checked against a dummy key and refused. A connection whose credential no
- * key opens is refused and, only when it has no attention yet, marked `key_unavailable`: the one
- * write an unverified request can cause, at most once per connection.
- */
-export async function verifySlackRequest(
-  db: RegionalDb,
-  input: {
-    connectionId: string;
-    timestamp: string;
-    signature: Uint8Array<ArrayBuffer>;
-    body: Uint8Array;
-    keys: readonly IntegrationKey[];
-    now: number;
-  },
-): Promise<SlackEventConnection | null> {
-  const [row] = await db
-    .select({
-      id: c.id,
-      ownerId: c.ownerId,
-      service: c.service,
-      keyId: c.keyId,
-      credentialBox: c.credentialBox,
-      attention: c.attention,
-      revision: c.revision,
-      externalId: c.externalId,
-    })
-    .from(c)
-    .where(and(eq(c.id, input.connectionId), eq(c.service, "slack")))
-    .limit(1);
-  const usable = row !== undefined && row.attention !== "pending";
-  const opened = usable
-    ? await openCredential(input.keys, row.keyId, row.id, row.credentialBox)
-    : null;
-  const secret = opened === null ? null : (openSlackCredential(opened)?.signingSecret ?? null);
-  const key = await crypto.subtle.importKey(
-    "raw",
-    secret === null ? dummyKey() : encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["verify"],
-  );
-  const valid = await crypto.subtle.verify(
-    "HMAC",
-    key,
-    input.signature,
-    slackBaseString(input.timestamp, input.body),
-  );
-  if (usable && secret === null) {
-    if (row.attention === null) {
-      await markAttention(db, row, "key_unavailable", { type: "system" }, input.now);
-    }
-    return null;
-  }
-  return usable && valid ? row : null;
-}
-
-/** What the endpoint did with a verified event, for its one log line. */
-export type SlackEventOutcome = "ignored" | "team_mismatch" | "uninstalled";
-
-/**
- * Acts on a verified `event_callback` after the answer (decision 0025, "After the answer"): the
- * envelope must come from the connection's Slack workspace; `app_uninstalled` and
- * `tokens_revoked` mark the connection `app_uninstalled` once, with one `integration.failing`.
- * `link_shared` is acknowledged and ignored until previews are delivered.
- */
-export async function applySlackEvent(
-  db: RegionalDb,
-  input: {
-    connection: SlackEventConnection;
-    teamMatches: boolean;
-    eventType: string | null;
-    now: number;
-  },
-): Promise<SlackEventOutcome> {
-  if (!input.teamMatches) return "team_mismatch";
-  if (input.eventType !== "app_uninstalled" && input.eventType !== "tokens_revoked") {
-    return "ignored";
-  }
-  // Already marked (by an earlier event, a refused token or a lost key): nothing to write.
-  if (input.connection.attention !== null) return "ignored";
-  await markAttention(db, input.connection, "app_uninstalled", { type: "system" }, input.now);
-  return "uninstalled";
 }

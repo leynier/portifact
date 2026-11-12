@@ -11,10 +11,13 @@
 // header and exists only while Slack is switched on (the app's ordinary 404 otherwise).
 //
 // D1 calls, pinned in test/slack-cost.test.ts: none before the read; one for every request that
-// reaches it (refused, `url_verification`, an ignored event); two for the first request of a
-// connection whose key the Worker lost (read and the guarded mark) and for `app_uninstalled` or
-// `tokens_revoked` (read and the guarded mark), whether or not the regional database is the
-// global one.
+// reaches it (refused, `url_verification`, an ignored event, a `link_shared` with no link worth
+// looking up); two for the first request of a connection whose key the Worker lost (read and the
+// guarded mark) and for `app_uninstalled` or `tokens_revoked` (read and the guarded mark), whether
+// or not the regional database is the global one. A `link_shared` with links worth looking up
+// adds the artifacts' read, and with a separate regional database the owner's plan read first
+// (with one database the plan comes joined in the connection's read); a token Slack refuses adds
+// the guarded mark. A preview writes nothing and calls Slack at most once, after the answer.
 import { SLACK_LIMITS } from "@portifact/contracts";
 import {
   logEvent,
@@ -26,14 +29,17 @@ import {
   slackTeamMatches,
   slackTimestamp,
 } from "@portifact/domain";
-import { applySlackEvent, verifySlackRequest } from "@portifact/services";
+import { applySlackEvent, type IntegrationFetch, verifySlackRequest } from "@portifact/services";
 import { Hono } from "hono";
 import { appIntegrationKeys, integrationSwitch } from "./api/integrations.ts";
+import { authUrls } from "./auth/config.ts";
 import type { Env } from "./env.ts";
 import { regionsOf } from "./regions.ts";
 
 export interface SlackEventDeps {
   now(): number;
+  /** The network `chat.unfurl` goes through; absent, previews are never sent. */
+  fetch?: ((env: Env) => IntegrationFetch) | undefined;
 }
 
 const NO_STORE = { "cache-control": "no-store" };
@@ -108,12 +114,13 @@ export function slackEventRoutes(deps: SlackEventDeps) {
     const body = await rawBytes(request, SLACK_LIMITS.bodyBytes);
     if (body === null) return refuse();
     const db = regions.get(target.region).db;
+    const keys = await appIntegrationKeys(c.env);
     const connection = await verifySlackRequest(db, {
       connectionId: target.connectionId,
       timestamp,
       signature,
       body,
-      keys: await appIntegrationKeys(c.env),
+      keys,
       now,
     });
     if (!connection) return refuse();
@@ -140,16 +147,34 @@ export function slackEventRoutes(deps: SlackEventDeps) {
       return acknowledged();
     }
     const event = envelope;
-    // Answered at once; the work goes on after the answer.
+    const fetch = deps.fetch?.(c.env);
+    // Answered at once; the work goes on after the answer, and nothing it does changes the answer.
     c.executionCtx.waitUntil(
       applySlackEvent(db, {
         connection,
         teamMatches: slackTeamMatches(event, connection.externalId),
         eventType: event.eventType,
         now,
+        shared: event,
+        preview: fetch && {
+          enabled: integrationSwitch(c.env).slack,
+          region: target.region,
+          domains: {
+            contentDomain: c.env.CONTENT_DOMAIN,
+            appHost: new URL(authUrls(c.env.APP_ORIGIN).origin).host,
+          },
+          keys,
+          fetch,
+        },
       }).then(
-        (outcome) => {
-          logEvent("log", "slack_event", { connectionId: connection.id, outcome });
+        (done) => {
+          const { outcome } = done;
+          logEvent("log", "slack_event", {
+            connectionId: connection.id,
+            outcome,
+            candidates: done.candidates,
+            unfurled: done.unfurled,
+          });
         },
         () => {
           logEvent("error", "slack_event", { connectionId: connection.id, outcome: "failed" });

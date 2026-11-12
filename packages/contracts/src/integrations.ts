@@ -112,6 +112,14 @@ export const SLACK_LIMITS = {
   pendingMs: 24 * 3_600_000,
   /** Bot token characters accepted at most. */
   tokenMax: 255,
+  /** Distinct artifacts one `link_shared` event previews at most (decision 0025). */
+  linksPerEvent: 5,
+  /** Links of one event looked at at most, previewable or not. */
+  linksScanned: 50,
+  /** Characters of a posted URL looked at at most; a longer one is ignored. */
+  urlMax: 2048,
+  /** Code points of an artifact's name in a preview at most, the ellipsis included. */
+  nameMax: 150,
 } as const;
 
 /**

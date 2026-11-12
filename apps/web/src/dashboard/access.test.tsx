@@ -66,6 +66,7 @@ describe("access settings", () => {
     expect(region.textContent).toContain("Each person signs in with that address before it opens.");
     expect(region.textContent).toContain("Anyone with the link who signs in to Portifact");
     expect(region.textContent).toContain("Anyone with the link, without signing in.");
+    expect(region.textContent).toContain("Slack keeps that preview after it stops being public");
     expect(region.textContent).toContain("republishing never opens an artifact to more people");
     expect(radio("Public: anyone with the link").disabled).toBe(false);
 

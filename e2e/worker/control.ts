@@ -25,7 +25,7 @@ import { runOperator } from "../../apps/jobs/src/operator.ts";
 import { auditStreamDepsFromWebhooks, webhookDepsFromEnv } from "../../apps/jobs/src/webhooks.ts";
 import { setContentClockOffset } from "./clock.ts";
 import { e2eDomains } from "./domains.ts";
-import { e2eTrackers } from "./integrations.ts";
+import { e2eSlack, e2eTrackers } from "./integrations.ts";
 import { setNextIdentity } from "./sso.ts";
 
 export const CONTROL_HOST = "control.e2e.test";
@@ -579,6 +579,11 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       await runJob(db, env.ARTIFACTS, { id, topic: "thread_issue" }, now, { issues });
     }
     return Response.json({ ran: results.length, issues: e2eTrackers.issues });
+  }
+
+  // Slack previews (decision 0025): the chat.unfurl bodies the fake Slack received so far.
+  if (path === "/slack-unfurls") {
+    return Response.json({ unfurls: e2eSlack.unfurls });
   }
 
   // Single sign-on: who signs in at the fake identity provider next (decision 0016).

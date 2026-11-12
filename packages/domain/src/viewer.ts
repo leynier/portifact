@@ -3,6 +3,22 @@
 // frames that page. The content Worker builds the `path` and the viewer reads it back from its
 // own address, where anyone can write it, so both sides apply these rules.
 
+import type { AccessMode } from "@portifact/contracts";
+import { effectiveState, type LifecycleRecord } from "./lifecycle.ts";
+
+/**
+ * Whether anyone, signed in or not, may see an artifact at `now`: it is public and effectively
+ * active (not archived, expired, suspended, purging or deleted). The one rule by which the viewer
+ * shows an artifact to an anonymous visitor (`getViewerArtifact`) and a Slack preview names one
+ * (decision 0025, "Which artifacts").
+ */
+export function openToAnyone(
+  artifact: { accessMode: AccessMode } & Omit<LifecycleRecord, "purgeAt">,
+  now: Date,
+): boolean {
+  return artifact.accessMode === "public" && effectiveState(artifact, now) === "active";
+}
+
 /** Longest `path` (path and query) a viewer link carries; longer ones open the artifact's root. */
 export const VIEWER_PATH_MAX = 2048;
 

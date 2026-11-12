@@ -80,6 +80,14 @@ export const ALLOWED_FIELDS: Record<string, { holds: string; value: RegExp }> = 
   threads: { holds: "a count", value: re(`threads|${PATH}\\.length|\\d+`) },
   recipients: { holds: "a count", value: re(`recipients|${PATH}\\.length|\\d+`) },
   alerts: { holds: "a count", value: re(`alerts|${PATH}\\.length|\\d+`) },
+  candidates: {
+    holds: "a count: a Slack event's links worth looking up (decision 0025)",
+    value: re(`${PATH}\\.candidates`),
+  },
+  unfurled: {
+    holds: "a count: a Slack event's links sent with a preview",
+    value: re(`${PATH}\\.unfurled`),
+  },
 };
 
 /** Where `logSummary` may be called, by file: each summary holds only counts and enum values. */

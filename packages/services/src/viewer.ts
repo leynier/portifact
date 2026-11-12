@@ -7,11 +7,11 @@ import { bothSides, type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
   customHostWithoutClick,
-  effectiveState,
   entitlements,
   fail,
   type OwnerPlanRecord,
   ok,
+  openToAnyone,
   type Result,
 } from "@portifact/domain";
 import { eq } from "drizzle-orm";
@@ -94,15 +94,16 @@ export async function getViewerArtifact(
   if (!artifact) return unavailable();
   let role: ViewerRole;
   if (input.userId === null) {
-    const state = effectiveState(
+    const visible = openToAnyone(
       {
+        accessMode: artifact.accessMode,
         state: artifact.state,
         expiresAt: artifact.expiresAt === null ? null : new Date(artifact.expiresAt),
         archivedAt: artifact.archivedAt === null ? null : new Date(artifact.archivedAt),
       },
       new Date(input.now),
     );
-    if (artifact.accessMode !== "public" || state !== "active") return unavailable();
+    if (!visible) return unavailable();
     role = "anonymous";
   } else {
     const access = await checkReadAccess(db, { ...input, userId: input.userId });
