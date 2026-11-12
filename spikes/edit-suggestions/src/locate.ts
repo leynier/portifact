@@ -3,10 +3,12 @@
 // `packages/anchors`, which defines what a position in the page text means, with one anchor index
 // built once per plan; the edit must fall inside one text node, with the node's raw text equal to
 // the selection character for character, so no line break, tab or run of spaces is hidden.
+
 import { AnchorDocument, type AnchorElement, type AnchorNode } from "@portifact/anchors";
 import type { TextAnchor } from "@portifact/contracts";
 import { changedRegion, type TextEdit, type UncertainReason } from "./edit.ts";
 import { codePoints, skeleton, textNodes } from "./page.ts";
+import { work } from "./work.ts";
 
 /** One change to one text node: the raw UTF-16 range of its data and the text that replaces it. */
 export interface NodeChange {
@@ -47,6 +49,7 @@ export class PageIndex {
   readonly points: string[];
 
   constructor(root: AnchorNode) {
+    work.indexes++;
     this.document = new AnchorDocument(root as AnchorElement);
     this.points = codePoints(this.document.text.value);
   }

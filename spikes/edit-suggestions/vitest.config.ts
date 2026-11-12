@@ -5,6 +5,7 @@ export default defineConfig({
     // The corpus test renders a few thousand documents; on a loaded CI runner that takes longer
     // than the default five seconds. The timeout only catches hangs.
     testTimeout: 120_000,
+    hookTimeout: 120_000,
     include: ["test/**/*.test.ts"],
     coverage: {
       provider: "istanbul",

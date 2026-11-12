@@ -5,6 +5,7 @@
 // characters under the selection are exactly the selection (no whitespace or Unicode form differs
 // there; what the rest of the file does is irrelevant), and the changed source normalizes to the
 // expected page text.
+
 import { normalizeText } from "@portifact/anchors";
 import { changedRegion, type Resolution, type TextEdit, uncertain, validAfter } from "./edit.ts";
 import { codePoints } from "./page.ts";
@@ -16,6 +17,7 @@ import {
   type PlannedPatch,
   withoutOverlaps,
 } from "./planned.ts";
+import { work } from "./work.ts";
 
 /** Largest text document a plan takes, in UTF-16 units (2 MB of ASCII). */
 export const TEXT_LIMIT = 2_000_000;
@@ -25,6 +27,7 @@ const SPACE_OR_CONTROL = /^[\s\p{Cc}]/u;
 
 /** Normalized code points with the UTF-16 range of the source cluster each came from. */
 function sourceMap(source: string): { points: string[]; rawStart: number[]; rawEnd: number[] } {
+  work.maps++;
   const points: string[] = [];
   const rawStart: number[] = [];
   const rawEnd: number[] = [];

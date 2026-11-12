@@ -4,5 +4,13 @@
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["src", "test", "browser", "vitest.config.ts", "playwright.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "bench",
+    "browser",
+    "vitest.config.ts",
+    "vitest.bench.config.ts",
+    "playwright.config.ts"
+  ]
 }

@@ -1,8 +1,6 @@
-import { DatabaseSync } from "node:sqlite";
 import { bridgeEnvelope } from "@portifact/bridge";
 import { ANCHOR_SCHEMA_VERSION, type AnnotationTarget } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
-import { runAcceptance, SCHEMA } from "../src/acceptance.ts";
 import { closure } from "../src/closure.ts";
 import { inspect, tokens, visible } from "../src/display.ts";
 import { REFUSAL_MESSAGES, type UncertainReason } from "../src/edit.ts";
@@ -372,82 +370,6 @@ describe("closing change-list items (rule 5 of the second round)", () => {
     expect(
       closure({ ...replaced, nodeLeft: "a ", nodeRight: " b" }, "markdown", "a fell b", "ver_2"),
     ).toEqual({ state: "open", why: "short_context" });
-  });
-});
-
-describe("the acceptance claim (rule 12 of the second round)", () => {
-  function database() {
-    const db = new DatabaseSync(":memory:");
-    db.exec(SCHEMA);
-    db.prepare("insert into artifacts values ('a1', 'v1')").run();
-    db.prepare("insert into suggestions values ('s1', 'a1', 'applying', 'att1')").run();
-    db.prepare("insert into drafts values ('a1', 'u1', 3)").run();
-    const fill = db.prepare(
-      "insert into change_items (artifact_id, state, envelope) values ('a1', 'open', '{}')",
-    );
-    for (let i = 0; i < 990; i++) fill.run();
-    return db;
-  }
-  const count = (db: DatabaseSync, sql: string) => (db.prepare(sql).get() as { n: number }).n;
-  const accept = {
-    attempt: "att1",
-    runToken: "r1",
-    artifactId: "a1",
-    baseVersion: "v1",
-    newVersion: "v2",
-    suggestionId: "s1",
-    items: Array.from({ length: 10 }, () => "{}"),
-  };
-
-  it("publishes, lists every item and completes together", () => {
-    const db = database();
-    expect(runAcceptance(db, accept)).toBe(true);
-    expect(count(db, "select count(*) n from change_items where state = 'open'")).toBe(1_000);
-    expect((db.prepare("select current_version v from artifacts").get() as { v: string }).v).toBe(
-      "v2",
-    );
-    expect((db.prepare("select state s from suggestions").get() as { s: string }).s).toBe(
-      "accepted",
-    );
-  });
-
-  it("does nothing at all when a competing insertion filled the list first", () => {
-    const db = database();
-    db.prepare(
-      "insert into change_items (artifact_id, state, envelope) values ('a1', 'open', '{}')",
-    ).run();
-    expect(runAcceptance(db, accept)).toBe(false);
-    expect(count(db, "select count(*) n from change_items")).toBe(991);
-    expect((db.prepare("select current_version v from artifacts").get() as { v: string }).v).toBe(
-      "v1",
-    );
-    expect((db.prepare("select state s from suggestions").get() as { s: string }).s).toBe(
-      "applying",
-    );
-  });
-
-  it("changes nothing on a duplicate delivery, and completes a no-version draft publish once", () => {
-    const db = database();
-    expect(runAcceptance(db, accept)).toBe(true);
-    expect(runAcceptance(db, { ...accept, runToken: "r2" })).toBe(false);
-    expect(count(db, "select count(*) n from change_items")).toBe(1_000);
-    const drafts = database();
-    const draft = {
-      attempt: "att2",
-      runToken: "r3",
-      artifactId: "a1",
-      baseVersion: "v1",
-      newVersion: null,
-      draft: { userId: "u1", revision: 3 },
-      items: ["{}"],
-    };
-    expect(runAcceptance(drafts, draft)).toBe(true);
-    expect(count(drafts, "select count(*) n from drafts")).toBe(0);
-    expect(
-      (drafts.prepare("select current_version v from artifacts").get() as { v: string }).v,
-    ).toBe("v1");
-    expect(runAcceptance(drafts, { ...draft, runToken: "r4" })).toBe(false);
-    expect(count(drafts, "select count(*) n from change_items")).toBe(991);
   });
 });
 

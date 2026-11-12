@@ -8,6 +8,7 @@
 // approved ranges unchanged. If not, nothing is applied and every operation goes to the change
 // list, so the split the person confirmed never changes. Diagram sources always go to the list:
 // their drawing is not something a text comparison can verify.
+
 import type { AnchorNode } from "@portifact/anchors";
 import { renderMarkdown, type SourceBlock } from "@portifact/render";
 import { type Destination, destination } from "./display.ts";
@@ -23,6 +24,7 @@ import {
   type PlannedPatch,
   withoutOverlaps,
 } from "./planned.ts";
+import { work } from "./work.ts";
 
 /** How much raw context to look for around the change, widest first. */
 const CONTEXTS = [24, 12, 6, 3, 1, 0];
@@ -44,6 +46,7 @@ export function renderPage(source: string): {
   blocks: SourceBlock[];
   text: string;
 } {
+  work.renders++;
   const rendered = renderMarkdown(source);
   const main = parseFragment(rendered.html);
   return { main, blocks: rendered.blocks, text: pageText(main) };

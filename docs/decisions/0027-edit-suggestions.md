@@ -213,14 +213,18 @@ Every refusal reason has a message the viewer shows (`REFUSAL_MESSAGES`, transla
 
 ### Budget
 
-Inside the planners: at most 2 MB of Markdown or text and 1 MB and 50,000 nodes of HTML (larger files list every operation as `too_large` without being parsed), 100 operations per plan (the rest listed), one parse or render of the stored file and one anchor index per plan, at most two renders or parses of the new file, envelopes of at most 16 KiB and plans of at most 512 KiB, checked before hashing. Measured by the spike in Node on one machine (wall clock, not Workers CPU):
+Inside the planners: at most 2 MB of Markdown or text and 1 MB and 50,000 nodes of HTML (larger files list every operation as `too_large` without being parsed), 100 operations per plan (the rest listed), one parse or render of the stored file and one anchor index per plan, at most two renders or parses of the new file, envelopes of at most 16 KiB and plans of at most 512 KiB, checked before hashing.
+
+In `bun run test` the spike proves the property that matters by counting work, not by timing it (`test/budget.test.ts`, on 200-paragraph inputs that finish in seconds under coverage on a slow runner): a Markdown plan of 1, 20 or 100 operations renders twice and builds one anchor index, an HTML plan parses twice and builds one index, a plain text plan builds one source map, a carry batch of 1, 20 or 100 suggestions renders twice, and files over the limits are refused with nothing parsed or rendered. Wall-clock times at the size limits come from a separate script that is not part of `bun run test` (`bun run --cwd spikes/edit-suggestions bench`, `bench/limits.bench.ts`, files run one at a time). The median of three runs on an Intel Core Ultra 9 285H (16 cores, 62 GB) with Node 24.18.0 on Linux, wall clock, not Workers CPU:
 
 | Plan                                       | 1 operation | 20 operations | 100 operations |
 | ------------------------------------------ | ----------- | ------------- | -------------- |
-| Markdown, 1.85 MB                          | 1.5 s       | 1.5 s         | 2.1 s          |
-| HTML, 1.0 MB                               | 2.2 s       | 2.2 s         | 2.7 s          |
-| Plain text, 1.84 MB                        |             |               | 1.3 s          |
-| Carry of 200 suggestions, Markdown 1.85 MB |             |               | 2.3 s          |
+| Markdown, 1.85 MB                          | 1.0 s       | 1.1 s         | 2.6 s          |
+| HTML, 1.0 MB                               | 1.8 s       | 2.6 s         | 3.7 s          |
+| Plain text, 1.84 MB                        |             |               | 1.4 s          |
+| Carry of 200 suggestions, Markdown 1.85 MB |             |               | 1.7 s          |
+
+Runs varied by up to about 50% on that machine (one HTML run took 2.9 s for one operation), which is why `bun run test` asserts counted work and only this script measures time. The counted work is the same for 1 and 100 operations; the time that does grow is the per-operation locating, mapping and node comparison.
 
 A cold preview of an unsaved edit costs a plan plus building the preview (about 20 ms over the plan, as the second review measured); a cached plan's preview costs only the build. The jobs Worker's 30-second default CPU limit is not approached; delivery 2 re-measures in workerd.
 
@@ -234,7 +238,7 @@ Acceptance reuses the publish transaction, not rollback's shape.
 
 ### The acceptance claim
 
-One claim owns capacity, publication and completion (spike `src/acceptance.ts`, run on SQLite in one transaction as a D1 batch runs). The batch's first statement inserts an `acceptance_claims` row (the attempt ID and a token unique to this run) only when the change list has room for every listed item (`open items + n <= 1000`), the suggestion is still `applying` with this attempt (or the draft still has the confirmed revision), and the artifact's current version is still the base. Every later statement of the batch, the publication's switch, each item, the suggestion's completion or the draft's deletion, is conditioned on a claim with this run's token. So:
+One claim owns capacity, publication and completion (spike `workers/acceptance.ts`, run as one D1 batch on local D1 in workerd). The batch's first statement inserts an `acceptance_claims` row (the attempt ID and a token unique to this run) only when the change list has room for every listed item (`open items + n <= 1000`), the suggestion is still `applying` with this attempt (or the draft still has the confirmed revision), and the artifact's current version is still the base. Every later statement of the batch, the publication's switch, each item, the suggestion's completion or the draft's deletion, is conditioned on a claim with this run's token. So:
 
 - a competing insertion that fills the list between planning and the batch makes the whole acceptance a no-op: no version, no item, the suggestion still `applying` (the spike's competing-insertion test), and the job ends the attempt with `quota_exceeded` ("The change list is full");
 - a duplicate queue delivery finds the attempt's claim held by another token and changes nothing;
@@ -264,7 +268,7 @@ Ordinary comments keep today's rule: threads of a replaced version become histor
 2. Otherwise, for documents and subset pages, the change between the old and new file is one contiguous region, the persisted range lies wholly outside it and holds the same bytes, and the new page, rendered once with a distinct private-use marker at every carried range (two renders for a whole batch), shows each marker exactly once in a text node with the same identity and the same node-local context; where the context was shorter than its 32-unit window, the target must still touch the node's edge, so a quotation of the sentence inside a longer node does not count. Then the suggestion is carried with its new coordinates and proof.
 3. Anything else is `outdated`: a changed target, a changed element or link around it (the second review's reference definition that moved a label's link elsewhere), a marker already in the source, script-drawn pages whose files changed, and suggestions that were never planned.
 
-The anchors' `exact` and `fuzzy` are not used. A carried suggestion keeps `origin_version_id` and `origin_target`, and the viewer shows "Suggested on version 7". At most 200 suggestions per run (the spike carried 200 on a 1.85 MB document in 2.3 seconds), continued in the next job.
+The anchors' `exact` and `fuzzy` are not used. A carried suggestion keeps `origin_version_id` and `origin_target`, and the viewer shows "Suggested on version 7". At most 200 suggestions per run (the spike carried 200 on a 1.85 MB document in 1.7 seconds, in two renders), continued in the next job.
 
 ## The change list
 
@@ -362,10 +366,10 @@ Each ships behind `SUGGESTIONS_ENABLED="true"` on the app and jobs Workers, neve
 
 ## What the spike proved
 
-From [`spikes/edit-suggestions`](../../spikes/edit-suggestions): 114 unit tests (`bun run spike:edit-suggestions`, also in `bun run test`) and a browser suite of 22 tests in Chromium and Firefox (`bun run --cwd spikes/edit-suggestions browser`, not part of `bun run test`). Every finding of both reviews that the reviewers reproduced against the spike was first committed as a failing test (`test/review-findings.test.ts` and `test/render-budget.test.ts`: 12 of 13 failing; `test/review-findings-2.test.ts`: 20 of 20 failing) and then fixed.
+From [`spikes/edit-suggestions`](../../spikes/edit-suggestions): 118 tests in `bun run test` (`bun run spike:edit-suggestions`: 112 in Node and 6 on local D1 in workerd), a browser suite of 22 tests in Chromium and Firefox (`bun run --cwd spikes/edit-suggestions browser`) and a benchmark script (`bun run --cwd spikes/edit-suggestions bench`: the timings at the size limits and the full corpora quoted here), neither of them part of `bun run test`. The tests in `bun run test` use smaller corpora (15 Markdown documents per corpus, 12 per kind for typo probes) and assert the same properties. The spike runs on Node 24, the repository's version, and uses no experimental Node feature. Every finding of both reviews that the reviewers reproduced against the spike was first committed as a failing test (`test/review-findings.test.ts` and `test/render-budget.test.ts`: 12 of 13 failing; `test/review-findings-2.test.ts`: 20 of 20 failing) and then fixed.
 
-- **Markdown, random edits** (60 seeded documents, 25 edits each, replacements, insertions and deletions): plain text 1,064 of 1,500 certain (70.9%: replacements 766 of 1,089, insertions 188 of 247, deletions 110 of 164), hostile text 1,095 of 1,500 (73.0%). Refusals: 348 and 330 not in one text node, 38 and 33 not found once, 29 and 26 would change the page, 21 and 16 whitespace. Unchanged by the second round (the corpus has no diagrams), and about 10 points below the first version's 80.7% and 82.0%, whose extra applications included 12 and 10 heading ID or link changes and 14 and 13 dropped line breaks or spaces.
-- **Ordinary typo fixes** (a swap of two letters in a random word of at least four letters, 40 documents, about 400 probes per kind): Markdown 375 of 399 (94.0%; 17 would change the page, mostly headings whose ID would change, and 7 not found once), plain text 400 of 400, HTML 399 of 399 on the same documents written as subset pages.
+- **Markdown, random edits** (60 seeded documents, 25 edits each, replacements, insertions and deletions; the benchmark script's full corpus): plain text 1,064 of 1,500 certain (70.9%: replacements 766 of 1,089, insertions 188 of 247, deletions 110 of 164), hostile text 1,095 of 1,500 (73.0%). Refusals: 348 and 330 not in one text node, 38 and 33 not found once, 29 and 26 would change the page, 21 and 16 whitespace. Unchanged by the second round (the corpus has no diagrams), and about 10 points below the first version's 80.7% and 82.0%, whose extra applications included 12 and 10 heading ID or link changes and 14 and 13 dropped line breaks or spaces.
+- **Ordinary typo fixes** (a swap of two letters in a random word of at least four letters, 40 documents, about 400 probes per kind; the benchmark script's full corpus): Markdown 375 of 399 (94.0%; 17 would change the page, mostly headings whose ID would change, and 7 not found once), plain text 400 of 400, HTML 399 of 399 on the same documents written as subset pages.
 - **Plain text, random edits**: 827 of 1,000 certain, the other 173 refused for whitespace the selection crossed; a single word's deletion and edits beside an en quad or NFD text elsewhere now apply.
 - **HTML on parse5**: the subset refuses every context of both reviews (scripts, handlers, `javascript:` with stripped controls, forms, iframes, objects, embeds, SVG, MathML, SVG animation, templates and declarative shadow roots, `xmp`, `plaintext`, `textarea`, `noscript`, `srcset`, `data:` URLs, custom elements, `base`, refresh, other link relations, other encodings, tokenizer recovery, oversized node counts) and accepts an ordinary static page; edits map through source locations, so a copy in an attribute, a comment or another paragraph no longer blocks one, character references map whole, and all 29 hostile texts are written as text.
 - **The checker** is written apart from the planners: unchanged bytes outside the approved range, text nodes at their DOM paths read by a second parser (parse5 for Markdown, whose planner reads happy-dom; happy-dom for HTML, whose planner reads parse5), IDs and references by a regular expression, markup with only text removed, and the raw text at the reviewer's location. Mutation tests show it refuses the wrong repeated occurrence, a hidden comment change and an offset mistake. The claim is exactly that: on these corpora no applied edit changed bytes outside its range, an ID, a reference, an element, an attribute or a character outside the edited text node.
@@ -374,7 +378,7 @@ From [`spikes/edit-suggestions`](../../spikes/edit-suggestions): 114 unit tests 
 - **Display**: a real control character and its literal spelling display differently; default-ignorable characters, tag characters and non-space whitespace are tokens; a look-alike Unicode host shows in ASCII.
 - **Carry and closure**: a target after a lengthened paragraph is carried; a changed target, a changed link destination, a target moved into a blockquote and a marker in the source are outdated; 200 suggestions carry together in two renders; closure proves a replacement, an insertion and a deletion and stays open when the result exists only in a comment, a reference title, twice, nowhere, in another element, or with too little context.
 - **The acceptance claim**: publication, every item and completion happen together; a competing insertion makes the acceptance a no-op; a duplicate run and a repeated no-version draft publish change nothing.
-- **Budgets**: the table in "Budget"; 100 operations cost about what one does.
+- **Budgets**: counted work is the same for 1, 20 and 100 operations and for carry batches of any size; the timings at the limits are in "Budget".
 - **Style**: 76 hostile values refused, 17 allowed accepted. **Edit mode**: over 2,000 randomized hostile runs the saved suggestion is what the person typed; no typed text reaches the frame; frame geometry is ignored while editing; a route change, a new page, a status and the session's end invalidate a pending confirmation.
 
 ## What the spike could not prove
@@ -382,7 +386,7 @@ From [`spikes/edit-suggestions`](../../spikes/edit-suggestions): 114 unit tests 
 - WebKit (not available on the machine that ran the browser suite), and malformed HTML beyond the tokenizer recovery the subset refuses.
 - The preview host, its codes and headers in the content Worker, and the viewer's UI: placement, focus, announcements and touch selection.
 - Workers CPU: the budgets are Node wall-clock times on one machine.
-- D1 and R2: `publishFromPlan`, pending objects, the recovery table; the acceptance claim ran on SQLite, the same engine, outside D1's batch API.
+- D1 and R2: `publishFromPlan`, pending objects, the recovery table; the acceptance claim ran as a D1 batch on local D1, not on a deployed database.
 - Representative real documents: the corpora are synthetic, so the rates are properties of them; production counts refusal reasons to measure the real rates.
 - Visual safety of styles, and anything about the live presentation of a page, which automatic application does not promise.
 

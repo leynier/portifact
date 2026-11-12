@@ -3,8 +3,10 @@
 // page that may run scripts, so `noscript` is raw text), never run. The parse5 tree is given to
 // `packages/anchors` through a small adapter with the DOM surface anchors need, so positions mean
 // exactly what they mean in the bridge.
+
 import type { AnchorElement, AnchorNode } from "@portifact/anchors";
 import { type DefaultTreeAdapterMap, parse } from "parse5";
+import { work } from "./work.ts";
 
 export type P5Node = DefaultTreeAdapterMap["node"];
 export type P5Element = DefaultTreeAdapterMap["element"];
@@ -20,6 +22,7 @@ export interface ParsedHtml {
 }
 
 export function parseHtml(html: string): ParsedHtml {
+  work.parses++;
   const errors: string[] = [];
   const document = parse(html, {
     sourceCodeLocationInfo: true,

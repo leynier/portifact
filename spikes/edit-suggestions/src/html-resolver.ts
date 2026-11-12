@@ -24,7 +24,7 @@ import {
   textNodesOf,
   unwrap,
 } from "./html-dom.ts";
-import { subsetRefusal } from "./html-subset.ts";
+import { HTML_LIMITS, subsetRefusal } from "./html-subset.ts";
 import { PageIndex } from "./locate.ts";
 import {
   byOperation,
@@ -137,6 +137,13 @@ export function planHtml(
   pageUrl = DEFAULT_PAGE_URL,
 ): PlannedFile {
   const listed: PlannedListed[] = [];
+  // Over the size limit, nothing is parsed at all.
+  if (new TextEncoder().encode(html).length > HTML_LIMITS.bytes) {
+    return {
+      applied: [],
+      listed: edits.map((_, operation) => ({ operation, reason: "too_large" })),
+    };
+  }
   const parsed = parseHtml(html);
   const refused = subsetRefusal(html, parsed);
   const body = find(parsed.document, "body");

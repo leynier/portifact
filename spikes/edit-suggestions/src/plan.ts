@@ -235,7 +235,7 @@ export function confirmPlan(plan: BuiltPlan, confirmedDigest: string, now: Bindi
 
 /**
  * Change-list capacity is all or nothing (rule 9): an acceptance adds every listed item or none.
- * The transaction that enforces it is `acceptance.ts`; this is the arithmetic.
+ * The D1 batch that enforces it is `workers/acceptance.ts`; this is the arithmetic.
  */
 export function admitItems(open: number, adding: number, cap: number): boolean {
   return open + adding <= cap;

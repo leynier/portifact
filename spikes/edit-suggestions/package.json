@@ -6,9 +6,10 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --coverage",
-    "browser": "playwright test"
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.workers.json",
+    "test": "vitest run --coverage && vitest run -c vitest.workers.config.ts --coverage",
+    "browser": "playwright test",
+    "bench": "vitest run -c vitest.bench.config.ts"
   },
   "dependencies": {
     "@portifact/anchors": "workspace:*",
@@ -24,6 +25,8 @@
     "happy-dom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
-    "@playwright/test": "~1.64.1"
+    "@playwright/test": "~1.64.1",
+    "@cloudflare/vitest-plugin": "^1.6.0",
+    "@cloudflare/workers-types": "^5.0.0"
   }
 }

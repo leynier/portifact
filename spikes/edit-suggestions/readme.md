@@ -10,7 +10,9 @@ It runs in Node with happy-dom, parse5 (the production parser for HTML) and the 
 - `src/plan.ts`, `src/envelope.ts`, `src/display.ts`: the plan (verified renderer baseline, output hashes, content digest), the canonical envelope rendered into the confirmation, and the typed display.
 - `src/preview.ts`: previews built from a parsed tree under one policy, and the preview origin's headers.
 - `src/relocate.ts`, `src/closure.ts`, `src/rendered.ts`: carrying suggestions and closing items on the rendered page, with target identity.
-- `src/acceptance.ts`: the acceptance claim as one SQLite transaction.
+- `workers/acceptance.ts`: the acceptance claim as one D1 batch, tested on local D1 in workerd.
+- `src/work.ts`: counted work (parses, renders, anchor indexes, source maps) that the budget tests assert.
+- `bench/`: the timings at the size limits (`limits.bench.ts`, which also prints the machine) and the full corpora (`corpus.bench.ts`).
 - `src/style.ts`, `src/operations.ts`, `src/edit-session.ts`: the style allowlist, the edit model and the viewer's edit session.
 - `test/corpus.ts`: the seeded corpus of Markdown documents and edits.
 - `browser/differential.spec.ts`: parse5 against Chromium and Firefox for the raw-text, template, foreign-content and recovery contexts, and built previews loading nothing.
@@ -18,15 +20,18 @@ It runs in Node with happy-dom, parse5 (the production parser for HTML) and the 
 Run from the repository root:
 
 ```bash
-bun run spike:edit-suggestions                      # unit tests, also part of `bun run test`
+bun run spike:edit-suggestions                      # the tests, also part of `bun run test`
 bun run --cwd spikes/edit-suggestions browser       # the browser suite, not part of `bun run test`
+bun run --cwd spikes/edit-suggestions bench         # timings at the size limits and the full corpora, not part of `bun run test`
 ```
+
+The tests run in two configurations: `vitest.config.ts` in Node (112 tests, with coverage), and `vitest.workers.config.ts` in workerd with local D1 through `@cloudflare/vitest-plugin` for the acceptance claim (`workers/`, 6 tests). They use small corpora and count work instead of timing it, so they finish in seconds under coverage on a slow runner; `bench/` measures time at the limits and runs the full corpora the record quotes. The spike needs Node 24, the repository's version, and uses no experimental Node feature.
 
 This code is never deployed or imported by apps and packages.
 
 ## Results
 
-Measured on 2026-11-12: 114 unit tests and 22 browser tests pass (the unit tests print these lines).
+Measured on 2026-11-12: 118 tests in `bun run test` and 22 browser tests pass. The corpora and timings below come from `bun run bench` (full corpora; timings are the median of three runs on an Intel Core Ultra 9 285H, 16 cores, 62 GB, Node 24.18.0, Linux).
 
 | Corpus                               | Probes                 | Certain       | Not certain, by reason                                                               |
 | ------------------------------------ | ---------------------- | ------------- | ------------------------------------------------------------------------------------ |
@@ -38,7 +43,7 @@ Measured on 2026-11-12: 114 unit tests and 22 browser tests pass (the unit tests
 | Typo fixes, HTML subset pages        | 399                    | 399           | none                                                                                 |
 | Style allowlist                      | 76 hostile, 17 allowed | 17 accepted   | 76 refused                                                                           |
 
-Planning budgets (Node wall clock on one machine): Markdown 1.85 MB with 1, 20 and 100 operations 1.5, 1.5 and 2.1 s; HTML 1.0 MB 2.2, 2.2 and 2.7 s; plain text 1.84 MB with 100 operations 1.3 s; carrying 200 suggestions of a 1.85 MB Markdown file 2.3 s.
+Planning at the size limits: Markdown 1.85 MB with 1, 20 and 100 operations 1.0, 1.1 and 2.6 s; HTML 1.0 MB 1.8, 2.6 and 3.7 s; plain text 1.84 MB with 100 operations 1.4 s; carrying 200 suggestions of a 1.85 MB Markdown file 1.7 s. Runs varied by up to about 50%. In `bun run test`, `test/budget.test.ts` asserts the counted work instead: two renders or parses and one index per plan for 1, 20 or 100 operations, two renders per carry batch, and nothing parsed for files over the limits.
 
 Every certain edit passed a checker written apart from the planners: unchanged bytes outside the approved range, text nodes at their DOM paths read by a second parser, IDs and references compared by a regular expression, markup with only text removed, and the raw text at the reviewer's location. Mutation tests show the checker refuses a wrong repeated occurrence, a hidden comment change and an offset mistake. The claim covers exactly these invariants on these corpora.
 
@@ -46,7 +51,7 @@ Every certain edit passed a checker written apart from the planners: unchanged b
 
 - WebKit, and malformed HTML beyond the tokenizer recovery the subset refuses.
 - The preview host and its one-use codes in the content Worker; the viewer's UI.
-- Workers CPU: the budgets are Node wall-clock times.
-- D1 and R2: the publish path, pending objects and recovery; the acceptance claim ran on SQLite outside D1's batch API.
+- Workers CPU: the timings are Node wall-clock times on one machine.
+- D1 and R2: the publish path, pending objects and recovery; the acceptance claim ran as a D1 batch on local D1, not on a deployed database.
 - Representative real documents: the corpora are synthetic.
 - Visual safety of styles, and the live presentation of a page.
