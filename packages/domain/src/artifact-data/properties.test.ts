@@ -3,4 +3,5 @@
 import { memoryObject } from "../testing/artifact-data-object.ts";
 import { propertiesSuite } from "../testing/artifact-data-suites/properties.ts";
 
-propertiesSuite(memoryObject);
+// Sliced so no single test outgrows the time limit on a loaded CI runner; the sequences are the same number.
+propertiesSuite(memoryObject, { slices: 10 });

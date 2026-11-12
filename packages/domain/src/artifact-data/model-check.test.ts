@@ -3,4 +3,5 @@
 import { memoryObject } from "../testing/artifact-data-object.ts";
 import { modelCheckSuite } from "../testing/artifact-data-suites/model-check.ts";
 
-modelCheckSuite(memoryObject);
+// Every order, in slices so no single test outgrows the time limit on a loaded CI runner.
+modelCheckSuite(memoryObject, { slices: 12 });
