@@ -1701,8 +1701,11 @@ export const de = {
   "data.versions.size": "Größe",
   "data.accessLog.csv": "Zugriffsprotokoll als CSV",
   "data.accessLog.json": "Zugriffsprotokoll als JSON",
+  "data.accessLog.csvLabel": "Zugriffsprotokoll als CSV von {name}",
+  "data.accessLog.jsonLabel": "Zugriffsprotokoll als JSON von {name}",
   "data.accessLog.saved": "Das Zugriffsprotokoll ist bereit.",
   "data.records.button": "Datensätze (JSON)",
+  "data.records.label": "Datensätze (JSON) von {name}",
   "data.records.saved": "Die Datensätze sind bereit.",
   "data.records.later":
     "Einige Teile fehlen, weil der Server um Geduld gebeten hat. Lade sie in ein paar Minuten erneut herunter.",

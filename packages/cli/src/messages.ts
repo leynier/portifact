@@ -576,6 +576,8 @@ export const messages = {
       "The audit log was not exported: the server asked to wait. Run the same command again later to add it.",
     dashboardOnly:
       "Members, invitations, group members, email domains, service tokens, branding and other settings only the dashboard may read are in the Space records download of the dashboard's Download your data page.",
+    dashboardOnlyPersonal:
+      "Branding, integrations and audit streams are in the Space records download of the dashboard's Download your data page.",
     workspaceGone: "The workspace is no longer listed for your account.",
     incomplete:
       "The export is not complete (exit 8): some parts must be fetched again later. Run the same command again; what is in the folder is kept.",

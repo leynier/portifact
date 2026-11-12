@@ -16,6 +16,7 @@
 // away while the export ran, is recorded as skipped; something the server asked to retry later
 // (a rate limit) makes the export exit 1 with everything else written, so running it again
 // completes it.
+import { createHash } from "node:crypto";
 import { readdir, rm } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import {
@@ -60,7 +61,7 @@ import {
   type RecordPart,
   recordsRetryLater,
 } from "@portifact/domain";
-import type { ZodType } from "zod";
+import { type ZodType, z } from "zod";
 import { callApi, downloadApi, RETRY_ATTEMPTS, withRetries } from "./api.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError, EXIT } from "./errors.ts";
@@ -75,6 +76,8 @@ import { chosenWorkspace, workspaceQuery } from "./workspaces.ts";
 
 /** The file that marks a folder as an export of one owner. */
 export const EXPORT_MARKER = ".portifact-export";
+/** The records an unfinished export already wrote and verified (see `readJournal`). */
+export const RECORDS_JOURNAL = ".portifact-export-records.json";
 const PAGE = 100;
 const RETRY_BASE_MS = 1_000;
 
@@ -195,9 +198,46 @@ async function claimFolder(folder: SafeFolder, ownerId: string, out: string): Pr
     throw new CliError("invalid_input", messages.exportSpace.notAnExport(out));
   }
   await folder.clearTemporary();
+  // A run that ended complete closes its export: the next run reads every record again. Without
+  // a manifest (stopped) or with one that is not complete (exit 8), the next run resumes it.
+  if (await finishedExport(folder)) await folder.remove([RECORDS_JOURNAL]);
   await folder.remove([EXPORT_MANIFEST_FILE]);
   if (marker === null) {
     await folder.writeText([EXPORT_MARKER], `${JSON.stringify({ ownerId })}\n`);
+  }
+}
+
+/** Whether the folder's manifest is a readable one of a complete run. */
+async function finishedExport(folder: SafeFolder): Promise<boolean> {
+  const text = await folder.readText([EXPORT_MANIFEST_FILE]);
+  if (text === null) return false;
+  try {
+    const manifest = ExportManifest.safeParse(JSON.parse(text));
+    // A manifest this version cannot read was written by another one: start afresh.
+    return manifest.success ? manifest.data.complete : true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * The records an unfinished export already wrote, with the size and SHA-256 of each file, so a
+ * resumed run keeps them instead of reading them again. A file counts only when its bytes at
+ * their place still match; anything unreadable here is ignored.
+ */
+const RecordsJournal = z.object({
+  records: z.record(z.string(), z.object({ size: z.number().int(), sha256: z.string() })),
+});
+type RecordsJournal = z.infer<typeof RecordsJournal>;
+
+async function readJournal(folder: SafeFolder): Promise<RecordsJournal> {
+  const text = await folder.readText([RECORDS_JOURNAL]);
+  if (text === null) return { records: {} };
+  try {
+    const parsed = RecordsJournal.safeParse(JSON.parse(text));
+    return parsed.success ? parsed.data : { records: {} };
+  } catch {
+    return { records: {} };
   }
 }
 
@@ -235,8 +275,10 @@ async function writeExport(
     audit: { skipped: "not_found" },
     spaceRecords: { skipped: "not_found" },
     totals: { artifacts: 0, versions: 0, files: 0, bytes: 0 },
+    complete: false,
   };
   let recordsLater = false;
+  const journal = await readJournal(folder);
   const total = planned.reduce((sum, item) => sum + item.versions.length, 0);
   let accessLogs: "allowed" | ExportSkipReason = "allowed";
   let done = 0;
@@ -280,7 +322,7 @@ async function writeExport(
     if (skipped === "not_found") {
       records = { skipped: "not_found" };
     } else {
-      const written = await exportArtifactRecords(session, folder, item.artifact.id);
+      const written = await exportArtifactRecords(session, folder, item.artifact.id, journal);
       recordsLater ||= written.retryLater;
       records = written.file;
     }
@@ -304,11 +346,6 @@ async function writeExport(
     files: all.length,
     bytes: all.reduce((sum, file) => sum + file.size, 0),
   };
-  await folder.writeText(
-    [EXPORT_MANIFEST_FILE],
-    `${JSON.stringify(ExportManifest.parse(manifest), null, 2)}\n`,
-  );
-
   const skippedArtifacts = manifest.artifacts.filter((a) => a.skipped !== undefined);
   const logs = [...manifest.artifacts.map((a) => a.accessLog), manifest.audit];
   const retryLater =
@@ -318,6 +355,13 @@ async function writeExport(
     ) ||
     skippedArtifacts.some((a) => a.skipped === "rate_limited") ||
     logs.some((log) => "skipped" in log && log.skipped === "rate_limited");
+  manifest.complete = !retryLater;
+  await folder.writeText(
+    [EXPORT_MANIFEST_FILE],
+    `${JSON.stringify(ExportManifest.parse(manifest), null, 2)}\n`,
+  );
+  // A complete export needs no journal: the next run reads every record again.
+  if (manifest.complete) await folder.remove([RECORDS_JOURNAL]);
   if (context.json) {
     writeJson(io, {
       out,
@@ -339,7 +383,9 @@ async function writeExport(
     if ("skipped" in manifest.audit && manifest.audit.skipped === "rate_limited") {
       io.stdout(`${messages.exportSpace.auditLater}\n`);
     }
-    if (context.workspace !== undefined) io.stdout(`${messages.exportSpace.dashboardOnly}\n`);
+    io.stdout(
+      `${context.workspace === undefined ? messages.exportSpace.dashboardOnlyPersonal : messages.exportSpace.dashboardOnly}\n`,
+    );
     if (retryLater) io.stdout(`${messages.exportSpace.incomplete}\n`);
   }
   return retryLater ? EXIT.incomplete : EXIT.ok;
@@ -671,7 +717,8 @@ async function exportAudit(
 
 /**
  * A read whose refusal is recorded in the records file instead of stopping the export: the
- * export's skip reasons, and `unavailable` for a feature switched off or capacity protection.
+ * export's skip reasons, and `unavailable` for a feature switched off on the deployment (capacity protection never
+ * refuses reads).
  */
 async function recordPart<T>(read: () => Promise<T>): Promise<RecordPart<T>> {
   try {
@@ -689,14 +736,22 @@ async function recordPart<T>(read: () => Promise<T>): Promise<RecordPart<T>> {
 const DASHBOARD_ONLY = async (): Promise<SkippedRecord> => ({ skipped: "dashboard_only" });
 
 /**
- * One artifact's `records.json`, read again on every run (settings and comments change), or why
- * it is not there. `retryLater` when a part of it asked to wait.
+ * One artifact's `records.json`, or why it is not there. `retryLater` when a part of it asked to
+ * wait. A resumed export keeps a file it already wrote in this export, complete, when its bytes
+ * at their place still match the journal; otherwise every part is read again (7 requests and one
+ * more per history page and per extra analytics range).
  */
 async function exportArtifactRecords(
   session: Session,
   folder: SafeFolder,
   artifactId: string,
+  journal: RecordsJournal,
 ): Promise<{ file: ExportedRecordFile; retryLater: boolean }> {
+  const file = `artifacts/${artifactId}/records.json`;
+  const kept = journal.records[artifactId];
+  if (kept && (await folder.holds(file.split("/"), kept.size, kept.sha256))) {
+    return { file: { file }, retryLater: false };
+  }
   const get = <T>(path: string, schema: ZodType<T>) =>
     withRetries(session, () =>
       callApi(session, { method: "GET", path: `/artifacts/${artifactId}${path}`, schema }),
@@ -736,12 +791,21 @@ async function exportArtifactRecords(
     },
     session.runtime.now(),
   );
-  const file = `artifacts/${artifactId}/records.json`;
-  await folder.writeText(
-    file.split("/"),
-    `${JSON.stringify(ArtifactRecords.parse(records), null, 2)}\n`,
-  );
-  return { file: { file }, retryLater: recordsRetryLater(records) };
+  const text = `${JSON.stringify(ArtifactRecords.parse(records), null, 2)}\n`;
+  await folder.writeText(file.split("/"), text);
+  const retryLater = recordsRetryLater(records);
+  if (retryLater) {
+    delete journal.records[artifactId];
+  } else {
+    const size = Buffer.byteLength(text);
+    const sha256 = createHash("sha256").update(text).digest("hex");
+    // Counted only once read back from its place, like every other file of the export.
+    if (await folder.holds(file.split("/"), size, sha256)) {
+      journal.records[artifactId] = { size, sha256 };
+      await folder.writeText([RECORDS_JOURNAL], `${JSON.stringify(journal)}\n`);
+    }
+  }
+  return { file: { file }, retryLater };
 }
 
 /** The space's `space.json`: what bearer routes read, the rest marked `dashboard_only`. */

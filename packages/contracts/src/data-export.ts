@@ -11,7 +11,7 @@ import { ArtifactId } from "./core.ts";
 import { WorkspaceDomainList } from "./email-domains.ts";
 import { GitHubTrustRuleList } from "./github-oidc.ts";
 import { WorkspaceGroupDetail, WorkspaceGroupList } from "./groups.ts";
-import { IntegrationConnectionList } from "./integrations.ts";
+import { IntegrationConnectionList, IntegrationConnectionView } from "./integrations.ts";
 import { WorkspacePolicyView } from "./policies.ts";
 import { AccessPolicyView, ArtifactSummary } from "./publishing.ts";
 import { ScimOverview } from "./scim.ts";
@@ -68,8 +68,8 @@ export type ExportedLog = z.infer<typeof ExportedLog>;
 
 /**
  * Why one part of a records file is not there: an export skip reason; `unavailable` when the
- * feature is switched off on this deployment or capacity protection refused the read
- * (`capacity_unavailable`); or `dashboard_only` for workspace data that only the dashboard's
+ * feature is switched off on this deployment (its read routes answer `capacity_unavailable`;
+ * capacity protection never refuses reads); or `dashboard_only` for workspace data that only the dashboard's
  * session may read (members and their addresses, invitations, email domains, service tokens,
  * single sign-on, SCIM, GitHub trust rules, integrations, audit streams, branding and the full
  * policies; AGENTS.md keeps them off bearer routes), which the "Download your data" page exports
@@ -89,6 +89,19 @@ export type SkippedRecord = z.infer<typeof SkippedRecord>;
 function part<T extends z.ZodType>(view: T) {
   return z.union([SkippedRecord, view]);
 }
+
+/**
+ * The space's issue and Slack connections as the records hold them: the dashboard's view without
+ * `credentialHint` (the credential's last characters), which only the dashboard shows. `identity`
+ * (the account the service reported) stays.
+ */
+export const ExportedIntegrationConnectionList = z.strictObject({
+  ...IntegrationConnectionList.shape,
+  connections: z.array(
+    z.strictObject(IntegrationConnectionView.omit({ credentialHint: true }).shape),
+  ),
+});
+export type ExportedIntegrationConnectionList = z.infer<typeof ExportedIntegrationConnectionList>;
 
 /** The version of the records files' shape; a change that a reader must notice raises it. */
 export const RECORDS_FORMAT = 1;
@@ -164,7 +177,8 @@ export const SpaceRecords = z.strictObject({
   /** The brand's values; the logo itself is its own download on the page. */
   branding: part(BrandSettings),
   webhooks: part(WebhookList),
-  integrations: part(IntegrationConnectionList),
+  /** Without each connection's credential hint. */
+  integrations: part(ExportedIntegrationConnectionList),
   auditStreams: part(AuditStreamList),
 });
 export type SpaceRecords = z.infer<typeof SpaceRecords>;
@@ -204,5 +218,10 @@ export const ExportManifest = z.strictObject({
     files: z.number().int().nonnegative(),
     bytes: z.number().int().nonnegative(),
   }),
+  /**
+   * False when a part must be fetched later (the run exited 8): the next run resumes this export
+   * and keeps the records it already wrote. True closes the export: the next run reads them again.
+   */
+  complete: z.boolean(),
 });
 export type ExportManifest = z.infer<typeof ExportManifest>;

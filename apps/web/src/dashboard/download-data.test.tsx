@@ -94,7 +94,7 @@ describe("the Download your data page", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Download sources of version 1" }));
       await waitFor(() => expect(saved).toHaveLength(1));
       expect(saved[0]?.fileName).toBe("src.zip");
-      expect(screen.getByRole("button", { name: "Access log as CSV" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Access log as CSV of Launch plan" })).toBeTruthy();
       expect(
         screen.getByRole("link", { name: "Download your account's data (JSON)" }),
       ).toBeTruthy();
@@ -159,7 +159,7 @@ describe("the records downloads", () => {
     };
     const { container, saved } = renderDashboard("/data", server);
     fireEvent.click(await screen.findByText(/^Launch plan: 2 retained versions$/));
-    fireEvent.click(await screen.findByRole("button", { name: "Records (JSON)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Records (JSON) of Launch plan" }));
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(saved[0]?.fileName).toBe(`${ID}-records.json`);
     const records = ArtifactRecords.parse(await savedJson(saved));
@@ -179,10 +179,36 @@ describe("the records downloads", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  it("names each artifact's download buttons after the artifact", async () => {
+    server = fakeServer([
+      artifact(ID, { name: "Launch plan" }),
+      artifact("m3c7qn5ycd", { name: "Budget" }),
+    ]);
+    for (const id of [ID, "m3c7qn5ycd"]) {
+      server.activity[id] = {
+        versions: 1,
+        currentBytes: 1,
+        openThreads: 0,
+        lastAnnotationAt: null,
+      };
+      await seedVersion(server, id, [{ path: "index.html", text: "<h1>x</h1>" }]);
+    }
+    const { container } = renderDashboard("/data", server);
+    fireEvent.click(await screen.findByText(/^Launch plan: 1 retained version$/));
+    fireEvent.click(await screen.findByText(/^Budget: 1 retained version$/));
+    for (const name of ["Launch plan", "Budget"]) {
+      expect(await screen.findByRole("button", { name: `Records (JSON) of ${name}` })).toBeTruthy();
+      expect(screen.getByRole("button", { name: `Access log as CSV of ${name}` })).toBeTruthy();
+      expect(screen.getByRole("button", { name: `Access log as JSON of ${name}` })).toBeTruthy();
+    }
+    expect(screen.queryAllByRole("button", { name: "Records (JSON)" })).toHaveLength(0);
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
   it("records what may not be read instead of failing the download", async () => {
     const { saved } = renderDashboard("/data", server);
     fireEvent.click(await screen.findByText(/^Launch plan: 2 retained versions$/));
-    fireEvent.click(await screen.findByRole("button", { name: "Records (JSON)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Records (JSON) of Launch plan" }));
     await waitFor(() => expect(saved).toHaveLength(1));
     const records = ArtifactRecords.parse(await savedJson(saved));
     // No annotations store in the fake: the comment routes answer like a missing artifact.

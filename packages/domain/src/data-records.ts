@@ -18,6 +18,7 @@ import {
   type ArtifactSummary,
   type AuditStreamList,
   type BrandSettings,
+  type ExportedIntegrationConnectionList,
   type GitHubTrustRuleList,
   type IntegrationConnectionList,
   type InvitationList,
@@ -177,6 +178,17 @@ async function groupMembersRecord(
   return details;
 }
 
+/** The connections without the credential hints the dashboard shows (never in a file). */
+function withoutCredentialHints(
+  list: RecordPart<IntegrationConnectionList>,
+): RecordPart<ExportedIntegrationConnectionList> {
+  if (isSkipped(list)) return list;
+  return {
+    ...list,
+    connections: list.connections.map(({ credentialHint: _, ...connection }) => connection),
+  };
+}
+
 /** The space's records; `slug` is null for a personal space. */
 export async function collectSpaceRecords(
   space: { ownerId: string; slug: string | null },
@@ -204,7 +216,7 @@ export async function collectSpaceRecords(
     scim: await only(() => reads.scim()),
     branding: await reads.branding(),
     webhooks: await reads.webhooks(),
-    integrations: await reads.integrations(),
+    integrations: withoutCredentialHints(await reads.integrations()),
     auditStreams: await reads.auditStreams(),
   };
 }

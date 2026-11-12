@@ -2366,6 +2366,88 @@ describe("the comment action history", () => {
     ).toBe("not_found");
   });
 
+  it("in a workspace: admins and editors read it, a member gets forbidden, a token what a missing artifact gives", async () => {
+    const hex = () => crypto.randomUUID().replaceAll("-", "");
+    const admin = await user();
+    const editor = await user();
+    const member = await user();
+    const workspaceId = `ws_${hex()}`;
+    await db()
+      .global.insert(schema.workspaces)
+      .values({
+        id: workspaceId,
+        slug: `h${hex().slice(0, 20)}`,
+        name: "Team",
+        createdBy: admin.id,
+        updatedAt: NOW,
+      });
+    for (const [who, role] of [
+      [admin, "admin"],
+      [editor, "editor"],
+      [member, "member"],
+    ] as const) {
+      await db()
+        .global.insert(schema.workspaceMembers)
+        .values({ workspaceId, userId: who.id, role, updatedAt: NOW });
+    }
+    await grantPlan(workspaceId, "team");
+    const id = artifactId();
+    await db()
+      .insert(schema.artifacts)
+      .values({
+        id,
+        ownerId: workspaceId,
+        type: "site",
+        name: "Plan",
+        state: "active",
+        accessMode: "workspace",
+        annotations: "open",
+        commentVisibility: "everyone",
+        expiresAt: NOW + 30 * DAY,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+    const version = await addVersion(id, workspaceId, 1);
+    await db()
+      .update(schema.artifacts)
+      .set({ currentVersionId: version })
+      .where(eq(schema.artifacts.id, id));
+    const created = await createAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: member.id,
+      artifactId: id,
+      versionId: version,
+      target: DOC,
+      body: "From a member",
+      now: NOW,
+    });
+    expect(created.ok).toBe(true);
+    const tokenId = `st_${hex()}`;
+    await db()
+      .global.insert(schema.serviceTokens)
+      .values({
+        id: tokenId,
+        workspaceId,
+        label: "CI",
+        role: "editor",
+        scopes: "artifacts:read artifacts:share",
+        tokenHash: hex() + hex(),
+        createdBy: admin.id,
+        createdAt: NOW,
+        expiresAt: NOW + DAY,
+      });
+    const read = (userId: string, artifact = id) =>
+      listAnnotationHistory(db(), { userId, artifactId: artifact, limit: 10, now: NOW });
+
+    for (const who of [admin, editor]) {
+      const page = await read(who.id);
+      expect(page.ok && page.value.entries.map((e) => e.actor?.id)).toEqual([member.id]);
+    }
+    expect(code(await read(member.id))).toBe("forbidden");
+    const missing = await read(admin.id, artifactId());
+    expect(await read(tokenId)).toEqual(missing);
+  });
+
   it("refuses a cursor it did not make", async () => {
     const w = await world();
     expect(code(await history(w, w.owner, "not-a-cursor"))).toBe("invalid_input");

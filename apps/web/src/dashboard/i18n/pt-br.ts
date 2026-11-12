@@ -1673,8 +1673,11 @@ export const ptBR = {
   "data.versions.size": "Tamanho",
   "data.accessLog.csv": "Registro de acesso em CSV",
   "data.accessLog.json": "Registro de acesso em JSON",
+  "data.accessLog.csvLabel": "Registro de acesso em CSV de {name}",
+  "data.accessLog.jsonLabel": "Registro de acesso em JSON de {name}",
   "data.accessLog.saved": "O registro de acesso está pronto.",
   "data.records.button": "Dados (JSON)",
+  "data.records.label": "Dados (JSON) de {name}",
   "data.records.saved": "Os dados estão prontos.",
   "data.records.later":
     "Faltam algumas partes porque o servidor pediu para esperar. Baixe de novo em alguns minutos.",

@@ -287,8 +287,8 @@ export type AnnotationHistoryQuery = z.infer<typeof AnnotationHistoryQuery>;
 export const AnnotationHistoryEntry = z.strictObject({
   /** Increases with every change of the artifact's comments. */
   seq: z.number().int().positive(),
-  threadId: z.string(),
-  messageId: z.string().nullable(),
+  threadId: AnnotationId,
+  messageId: AnnotationId.nullable(),
   kind: AnnotationHistoryKind,
   /** Who did it, by display name; null once the account is gone. */
   actor: AnnotationAuthor.nullable(),

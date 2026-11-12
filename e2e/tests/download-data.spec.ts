@@ -99,7 +99,7 @@ test("an owner in grace sees the notice, opens the download page and downloads a
 
   // The artifact's records and the space's records come from the real read routes, as JSON.
   const records = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Records (JSON)", exact: true }).click();
+  await page.getByRole("button", { name: "Records (JSON) of Roadmap" }).click();
   const recordsFile = await records;
   expect(recordsFile.suggestedFilename()).toBe(`${first.artifactId}-records.json`);
   const artifactRecords = JSON.parse(await readFile(await recordsFile.path(), "utf8"));

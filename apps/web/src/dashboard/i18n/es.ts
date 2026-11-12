@@ -1692,8 +1692,11 @@ export const es = {
   "data.versions.size": "Tamaño",
   "data.accessLog.csv": "Registro de accesos en CSV",
   "data.accessLog.json": "Registro de accesos en JSON",
+  "data.accessLog.csvLabel": "Registro de accesos en CSV de {name}",
+  "data.accessLog.jsonLabel": "Registro de accesos en JSON de {name}",
   "data.accessLog.saved": "El registro de accesos está listo.",
   "data.records.button": "Datos (JSON)",
+  "data.records.label": "Datos (JSON) de {name}",
   "data.records.saved": "Los datos están listos.",
   "data.records.later":
     "Faltan algunas partes porque el servidor pidió esperar. Vuelve a descargarlos en unos minutos.",

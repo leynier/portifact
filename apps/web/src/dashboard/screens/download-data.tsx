@@ -319,6 +319,7 @@ function VersionDownloads({ artifact, space }: { artifact: ArtifactListItem; spa
         <Button
           size="sm"
           icon={<Download className="size-4" />}
+          aria-label={t("data.records.label", { name: artifact.name })}
           busy={records.isPending}
           disabled={records.isPending}
           onClick={() => records.mutate()}
@@ -331,6 +332,10 @@ function VersionDownloads({ artifact, space }: { artifact: ArtifactListItem; spa
                 key={format}
                 size="sm"
                 icon={<Download className="size-4" />}
+                aria-label={t(
+                  format === "csv" ? "data.accessLog.csvLabel" : "data.accessLog.jsonLabel",
+                  { name: artifact.name },
+                )}
                 busy={accessLog.isPending && accessLog.variables === format}
                 disabled={accessLog.isPending}
                 onClick={() => accessLog.mutate(format)}

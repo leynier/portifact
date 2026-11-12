@@ -458,9 +458,9 @@ export async function history(
     io.stdout(
       `${text.historyLine(
         formatDate(entry.at),
-        entry.kind,
-        entry.threadId,
-        entry.messageId,
+        plain(entry.kind),
+        plain(entry.threadId),
+        entry.messageId === null ? null : plain(entry.messageId),
         entry.actor ? plain(entry.actor.name) : text.goneAuthor,
       )}\n`,
     );

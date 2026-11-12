@@ -887,4 +887,15 @@ describe("annotations history", () => {
     expect(json(refused).error.code).toBe("forbidden");
     expect((await h.invoke("annotations", "history", "nope")).code).toBe(2);
   });
+
+  it("refuses IDs outside their format instead of printing them", async () => {
+    const artifact = reviewed();
+    server.annotations.history.set(artifact.id, [
+      { ...entry(1, "thread_created", "Ada"), threadId: "th\u001b[2J" },
+    ]);
+    const result = await h.invoke("annotations", "history", artifact.id);
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).not.toContain("\u001b");
+    expect(result.stderr).not.toContain("\u001b[2J");
+  });
 });

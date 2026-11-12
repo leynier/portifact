@@ -200,7 +200,10 @@ describe("portifact export", () => {
       webhooks: { webhooks: [] },
     });
     expect(manifest.spaceRecords).toEqual({ file: "space.json" });
-    expect(result.stdout).not.toContain("dashboard");
+    expect(result.stdout).toContain(
+      "Branding, integrations and audit streams are in the Space records download",
+    );
+    expect(manifest.complete).toBe(true);
     // Storage never sees the API token.
     expect(server.api.gets.every((get) => get.headers.authorization === undefined)).toBe(true);
   });
@@ -514,6 +517,57 @@ describe("portifact export", () => {
       emailDomains: { skipped: "dashboard_only" },
       policies: { skipped: "dashboard_only" },
     });
+  });
+
+  it("resumes without reading again the records it wrote and verified in this export", async () => {
+    h.signIn();
+    const { doc, site } = space();
+    const out = join(h.workspace, "export");
+    const recordReads = () =>
+      server.requests.filter((r) =>
+        /^\/api\/v1\/artifacts\/[^/]+(\/(access|share-links|review\/status|stats|annotations\/export|annotations\/history))?(\?|$)/.test(
+          r.path,
+        ),
+      ).length;
+    // The audit log must wait: the run ends incomplete, so the export stays open.
+    server.faults.push({
+      method: "GET",
+      path: /^\/api\/v1\/audit\/export/,
+      reply: {
+        status: 429,
+        body: Buffer.from(JSON.stringify({ error: { code: "rate_limited", message: "Wait." } })),
+      },
+    });
+    expect((await h.invoke("export", out)).code).toBe(8);
+    expect((await manifestOf(out)).complete).toBe(false);
+    const first = recordReads();
+    expect(first).toBeGreaterThanOrEqual(14);
+
+    // A records file changed on disk is read again; the other one is kept.
+    const siteRecords = join(out, "artifacts", site.id, "records.json");
+    await writeFile(siteRecords, `${(await readFile(siteRecords, "utf8")).trim()} `);
+    const before = recordReads();
+    const second = await h.invoke("export", out);
+    expect(second.code).toBe(0);
+    expect(recordReads() - before).toBeGreaterThanOrEqual(7);
+    expect(recordReads() - before).toBeLessThan(first);
+    expect(
+      server.requests.filter((r) => r.path === `/api/v1/artifacts/${site.id}/access`),
+    ).toHaveLength(2);
+    expect(
+      server.requests.filter((r) => r.path === `/api/v1/artifacts/${doc.id}/access`),
+    ).toHaveLength(1);
+    expect((await manifestOf(out)).complete).toBe(true);
+    expect(existsSync(join(out, ".portifact-export-records.json"))).toBe(false);
+    ArtifactRecords.parse(JSON.parse(await readFile(siteRecords, "utf8")));
+
+    // A complete export is closed: the next run reads every record again.
+    const third = recordReads();
+    expect((await h.invoke("export", out)).code).toBe(0);
+    expect(
+      server.requests.filter((r) => r.path === `/api/v1/artifacts/${doc.id}/access`),
+    ).toHaveLength(2);
+    expect(recordReads() - third).toBeGreaterThanOrEqual(14);
   });
 
   it("notes a feature switched off as unavailable and still completes", async () => {

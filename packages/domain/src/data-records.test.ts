@@ -3,6 +3,7 @@ import type {
   AnnotationHistoryEntry,
   ArtifactStatsView,
   ArtifactSummary,
+  IntegrationConnectionList,
   WorkspaceGroupDetail,
   WorkspaceGroupList,
 } from "@portifact/contracts";
@@ -270,6 +271,32 @@ describe("collectSpaceRecords", () => {
     expect(calls).toContain("group:g2");
     expect(records.members).toEqual({ skipped: "dashboard_only" });
     expect(recordsRetryLater(records)).toBe(false);
+  });
+
+  it("leaves every connection's credential hint out, and keeps the rest", async () => {
+    const { reads: r } = spaceReads({
+      integrations: async () =>
+        ({
+          connections: [
+            { id: "c1", identity: "octo-bot", credentialHint: "Ab12", service: "github" },
+          ],
+          available: true,
+          serviceAvailable: true,
+          slackAvailable: false,
+          limit: 5,
+          targetLimit: 20,
+        }) as unknown as IntegrationConnectionList,
+    });
+    const records = await collectSpaceRecords({ ownerId: "u_1", slug: null }, r, NOW);
+    expect(records.integrations).toEqual({
+      connections: [{ id: "c1", identity: "octo-bot", service: "github" }],
+      available: true,
+      serviceAvailable: true,
+      slackAvailable: false,
+      limit: 5,
+      targetLimit: 20,
+    });
+    expect(JSON.stringify(records)).not.toContain("Ab12");
   });
 
   it("records one refusal for every group's members", async () => {

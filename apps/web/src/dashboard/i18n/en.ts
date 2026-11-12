@@ -1641,8 +1641,11 @@ export const en = {
   "data.versions.size": "Size",
   "data.accessLog.csv": "Access log as CSV",
   "data.accessLog.json": "Access log as JSON",
+  "data.accessLog.csvLabel": "Access log as CSV of {name}",
+  "data.accessLog.jsonLabel": "Access log as JSON of {name}",
   "data.accessLog.saved": "The access log is ready.",
   "data.records.button": "Records (JSON)",
+  "data.records.label": "Records (JSON) of {name}",
   "data.records.saved": "The records are ready.",
   "data.records.later":
     "Some parts are missing because the server asked to wait. Download again in a few minutes.",

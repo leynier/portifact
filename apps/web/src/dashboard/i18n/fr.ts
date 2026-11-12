@@ -1705,8 +1705,11 @@ export const fr = {
   "data.versions.size": "Taille",
   "data.accessLog.csv": "Journal d'accès en CSV",
   "data.accessLog.json": "Journal d'accès en JSON",
+  "data.accessLog.csvLabel": "Journal d'accès en CSV de {name}",
+  "data.accessLog.jsonLabel": "Journal d'accès en JSON de {name}",
   "data.accessLog.saved": "Le journal d'accès est prêt.",
   "data.records.button": "Données (JSON)",
+  "data.records.label": "Données (JSON) de {name}",
   "data.records.saved": "Les données sont prêtes.",
   "data.records.later":
     "Certaines parties manquent parce que le serveur a demandé d'attendre. Téléchargez à nouveau dans quelques minutes.",

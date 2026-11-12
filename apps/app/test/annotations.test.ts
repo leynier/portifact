@@ -181,6 +181,11 @@ describe("annotations API", () => {
     );
     expect(create.status).toBe(404);
     expect((await s.h.request(s.base)).status).toBe(401);
+    // The comment action history: anonymous 401, a stranger 404, a reader 403, the owner 200.
+    expect((await s.h.request(`${s.base}/history`)).status).toBe(401);
+    expect((await s.stranger.call(`${s.base}/history`)).status).toBe(404);
+    expect((await s.reader.call(`${s.base}/history`)).status).toBe(403);
+    expect((await s.owner.call(`${s.base}/history`)).status).toBe(200);
   });
 
   it("checks the annotation scopes of the token", async () => {

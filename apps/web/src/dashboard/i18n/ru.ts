@@ -1682,8 +1682,11 @@ export const ru = {
   "data.versions.size": "Размер",
   "data.accessLog.csv": "Журнал доступа в CSV",
   "data.accessLog.json": "Журнал доступа в JSON",
+  "data.accessLog.csvLabel": "Журнал доступа в CSV артефакта {name}",
+  "data.accessLog.jsonLabel": "Журнал доступа в JSON артефакта {name}",
   "data.accessLog.saved": "Журнал доступа готов.",
   "data.records.button": "Записи (JSON)",
+  "data.records.label": "Записи (JSON) артефакта {name}",
   "data.records.saved": "Записи готовы.",
   "data.records.later":
     "Некоторых частей нет, потому что сервер попросил подождать. Скачайте ещё раз через несколько минут.",

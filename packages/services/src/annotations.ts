@@ -1460,9 +1460,9 @@ export async function exportAnnotations(
 /**
  * A page of an artifact's comment action history, oldest first: who created, edited, deleted,
  * hid, resolved or reopened which thread or message, and when, never the text. Deleted threads
- * stay in it. Only the owner side reads it (the same people who see every thread and moderate),
- * within their comment scope; anyone else who may read the comments gets `forbidden`, and
- * anyone who may not, what a missing artifact gives.
+ * stay in it. Only the owner side reads it: the same people who moderate and whose comment scope
+ * is always `all`, so no event scope applies. Anyone else who may read the comments gets
+ * `forbidden`, and anyone who may not (a service token included), what a missing artifact gives.
  */
 export async function listAnnotationHistory(
   db: RegionalDb,
@@ -1487,7 +1487,7 @@ export async function listAnnotationHistory(
       at: e.at,
     })
     .from(e)
-    .where(and(eq(e.artifactId, loaded.artifact.id), gt(e.id, after), eventScopeFilter(loaded)))
+    .where(and(eq(e.artifactId, loaded.artifact.id), gt(e.id, after)))
     .orderBy(asc(e.id))
     .limit(input.limit + 1);
   const page = rows.slice(0, input.limit);

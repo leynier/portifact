@@ -327,6 +327,11 @@ describe("authenticating with a service token", () => {
         t.h.request("/api/v1/artifacts/abcdefghij/annotations", bearer(valid.secret)),
         403,
       ],
+      [
+        "the comment action history",
+        t.h.request("/api/v1/artifacts/abcdefghij/annotations/history", bearer(valid.secret)),
+        403,
+      ],
     ];
     for (const [name, pending, status, body] of cases) {
       const response = await pending;

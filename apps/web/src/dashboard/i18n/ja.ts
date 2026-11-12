@@ -1659,8 +1659,11 @@ export const ja = {
   "data.versions.size": "サイズ",
   "data.accessLog.csv": "アクセスログ（CSV）",
   "data.accessLog.json": "アクセスログ（JSON）",
+  "data.accessLog.csvLabel": "{name} のアクセスログを CSV で",
+  "data.accessLog.jsonLabel": "{name} のアクセスログを JSON で",
   "data.accessLog.saved": "アクセスログの準備ができました。",
   "data.records.button": "記録 (JSON)",
+  "data.records.label": "{name} の記録 (JSON)",
   "data.records.saved": "記録の準備ができました。",
   "data.records.later":
     "サーバーが待つよう求めたため、一部が欠けています。数分後にもう一度ダウンロードしてください。",

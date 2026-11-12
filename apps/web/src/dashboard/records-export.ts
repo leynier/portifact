@@ -25,7 +25,7 @@ const SKIPPED: Partial<Record<string, RecordSkipReason>> = {
   plan_required: "plan_required",
   not_found: "not_found",
   rate_limited: "rate_limited",
-  // A feature switched off on this deployment, or capacity protection.
+  // A feature switched off on this deployment; capacity protection never refuses reads.
   capacity_unavailable: "unavailable",
 };
 

@@ -4,6 +4,7 @@ import {
   ArtifactRecords,
   EXPORT_MANIFEST_FILE,
   EXPORT_MANIFEST_FORMAT,
+  ExportedIntegrationConnectionList,
   ExportedLog,
   ExportedRecordFile,
   ExportManifest,
@@ -37,6 +38,7 @@ const manifest = {
   audit: { skipped: "plan_required" },
   spaceRecords: { file: "space.json" },
   totals: { artifacts: 1, versions: 1, files: 1, bytes: 5 },
+  complete: true,
 };
 
 describe("the export manifest", () => {
@@ -177,6 +179,26 @@ describe("the records files", () => {
     expect(SpaceRecords.safeParse({ ...spaceRecords, format: 2 }).success).toBe(false);
   });
 
+  it("refuse a connection's credential hint", () => {
+    const list = {
+      available: true,
+      serviceAvailable: true,
+      slackAvailable: false,
+      limit: 5,
+      targetLimit: 20,
+    };
+    expect(ExportedIntegrationConnectionList.parse({ ...list, connections: [] })).toEqual({
+      ...list,
+      connections: [],
+    });
+    expect(
+      ExportedIntegrationConnectionList.safeParse({
+        ...list,
+        connections: [{ credentialHint: "Ab12" }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("name every skip reason, dashboard_only only inside a records file", () => {
     expect(RecordSkipReason.options).toEqual([
       "forbidden",
@@ -203,5 +225,21 @@ describe("the records files", () => {
         entries: [{ ...page.entries[0], kind: "message_sent" }],
       }).success,
     ).toBe(false);
+    for (const bad of ["th 1", "\u001b[31m", "a".repeat(65), ""]) {
+      expect(
+        AnnotationHistoryPage.safeParse({
+          ...page,
+          entries: [{ ...page.entries[0], threadId: bad }],
+        }).success,
+        bad,
+      ).toBe(false);
+      expect(
+        AnnotationHistoryPage.safeParse({
+          ...page,
+          entries: [{ ...page.entries[0], messageId: bad }],
+        }).success,
+        bad,
+      ).toBe(false);
+    }
   });
 });
