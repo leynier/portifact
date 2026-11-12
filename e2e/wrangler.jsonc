@@ -48,6 +48,8 @@
     // Issue integrations against the fake GitHub and Linear of worker/integrations.ts; the
     // deployed Workers leave them unset (decision 0018).
     "INTEGRATIONS_ENABLED": "true",
+    // Slack connections too (decision 0025); Slack is FakeSlack (worker/integrations.ts).
+    "SLACK_ENABLED": "true",
     "INTEGRATIONS_KEY": "e2e-only-integrations-sealing-key-0123456789abcdef",
     // The human check runs against a fake Turnstile: the test front end serves the script at its
     // real URL (src/turnstile-fake.ts) and the e2e Worker fakes siteverify (worker/index.ts), so

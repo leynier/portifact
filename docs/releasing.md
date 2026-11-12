@@ -369,6 +369,19 @@ Issue integrations ship switched off ([decision 0018](decisions/0018-issue-integ
 
 Then add `integrations` to `AVAILABLE_PLAN_FEATURES` in the same change that turns it on, and update the legal pages first ([legal.md](legal.md), "Pending changes to the legal texts").
 
+### Slack
+
+Slack connections ship switched off ([decision 0025](decisions/0025-slack-integration.md)). They need the integrations switch and key above, plus `SLACK_ENABLED="true"` on `portifact-app` only (never in `wrangler.jsonc`; the jobs Worker needs nothing new). Before setting it, run these checks against a Slack workspace the maintainer owns for testing, on staging, never production:
+
+1. **Manifest.** The page's "Create the app in Slack" link creates an app with exactly the scopes `links:read` and `links:write`, the events `link_shared`, `app_uninstalled` and `tokens_revoked`, and the two unfurl domains; record that `portifact.dev` matches `<id>.portifact.dev` links.
+2. **Order and verification.** The app installs before its Request URL is verified; pasting the token and secret and then clicking "Verify" in Slack succeeds. Record whether Slack signs `url_verification` (the endpoint refuses an unsigned one by design) and the challenge's shape (it is echoed only as 1 to 100 characters of `[A-Za-z0-9_-]`). If Slack does not sign it, or the challenge has another shape, stop and amend decision 0025 before switching on.
+3. **Wrong secret.** A connection completed with another app's signing secret fails "Verify", and its log line says `refused`.
+4. **Rotation.** An app with token rotation on gives an `xoxe.` token, which the form refuses with its own message.
+5. **Uninstall.** Uninstalling the app marks the connection "Needs attention" with one `integration.failing` (`app_uninstalled`); record the order in which `app_uninstalled` and `tokens_revoked` arrive.
+6. **Removal.** Removing the connection revokes the token: `auth.test` with it fails afterwards, and the log has `slack_token_revoke` with `ok`.
+
+Released CLIs: Slack connections never appear in the owner side's listing, so no CLI release has to come first.
+
 ## Platforms
 
 `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64` and `windows-arm64`. Unix archives are `.tar.gz` and Windows archives are `.zip`; each holds a single executable that does not need Node or Bun.

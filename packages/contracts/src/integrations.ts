@@ -10,6 +10,14 @@ export const INTEGRATION_SERVICES = ["github", "linear", "jira"] as const;
 export const IntegrationService = z.enum(INTEGRATION_SERVICES);
 export type IntegrationService = z.infer<typeof IntegrationService>;
 
+/**
+ * The services a connection can be made to: the issue trackers, plus Slack (decision 0025), whose
+ * connection previews links and creates no issue. A Slack connection is never an issue target.
+ */
+export const CONNECTION_SERVICES = [...INTEGRATION_SERVICES, "slack"] as const;
+export const ConnectionService = z.enum(CONNECTION_SERVICES);
+export type ConnectionService = z.infer<typeof ConnectionService>;
+
 /** Whether a service named in a response is one this build knows. */
 export function isIntegrationService(value: string): value is IntegrationService {
   return (INTEGRATION_SERVICES as readonly string[]).includes(value);
@@ -83,7 +91,35 @@ export const INTEGRATION_API = {
   github: "https://api.github.com",
   linear: "https://api.linear.app/graphql",
   jira: "https://api.atlassian.com",
+  /** Slack's Web API (decision 0025): `auth.test`, `auth.revoke` and, later, `chat.unfurl`. */
+  slack: "https://slack.com",
+} as const satisfies Record<ConnectionService, string>;
+
+/**
+ * Bounds of the Slack connection (decision 0025): the inbound events endpoint and the calls to
+ * Slack's Web API. Safety caps, not plan values.
+ */
+export const SLACK_LIMITS = {
+  /** Bytes of an inbound request's body read at most. */
+  bodyBytes: 64 * 1024,
+  /** How far `X-Slack-Request-Timestamp` may be from the Worker's clock (Slack's own advice). */
+  timestampSkewSeconds: 300,
+  /** One call to Slack's Web API. */
+  timeoutMs: 5_000,
+  /** Bytes of Slack's answer read at most. */
+  responseReadBytes: 16 * 1024,
+  /** A started connection that was never completed is deleted after this long. */
+  pendingMs: 24 * 3_600_000,
+  /** Bot token characters accepted at most. */
+  tokenMax: 255,
 } as const;
+
+/**
+ * The version of the manifest Portifact shows (`slackManifest`), stored on a connection when it is
+ * completed, so the page can tell which connections run an older one. Raise it when the manifest
+ * changes.
+ */
+export const SLACK_MANIFEST_VERSION = 1;
 
 /**
  * The web hosts an issue's URL must be on. Jira's is a suffix: an issue's link is
@@ -167,8 +203,8 @@ const account = z
   .max(INTEGRATION_LIMITS.accountMax)
   .regex(/^[^\s@]+@[^\s@]+$/, "Use the email address of the token's Atlassian account.");
 
-/** Body of POST /api/v1/integrations/connections (dashboard session only). */
-export const IntegrationCreate = z
+/** Connecting an issue tracker: the credential and targets, checked before anything is stored. */
+export const IssueConnectionCreate = z
   .strictObject({
     service: IntegrationService,
     label,
@@ -193,6 +229,22 @@ export const IntegrationCreate = z
       }
     }
   });
+export type IssueConnectionCreate = z.infer<typeof IssueConnectionCreate>;
+
+/**
+ * Starting a Slack connection (decision 0025): only a label. The server stores a pending row and
+ * answers the manifest; the bot token and signing secret come with the PATCH that completes it.
+ */
+export const SlackConnectionCreate = z.strictObject({
+  service: z.literal("slack"),
+  label,
+});
+
+/** Body of POST /api/v1/integrations/connections (dashboard session only). */
+export const IntegrationCreate = z.discriminatedUnion("service", [
+  IssueConnectionCreate,
+  SlackConnectionCreate,
+]);
 export type IntegrationCreate = z.infer<typeof IntegrationCreate>;
 
 /**
@@ -205,9 +257,16 @@ export const IntegrationUpdate = z
     credential: credential.optional(),
     targets: targets.optional(),
     account: account.optional(),
+    /** Slack only: the app's bot token (`xoxb-`), checked with `auth.test`. */
+    botToken: z.string().trim().min(1).max(SLACK_LIMITS.tokenMax).optional(),
+    /** Slack only: the app's signing secret, sent with the bot token. */
+    signingSecret: z.string().trim().min(1).max(128).optional(),
   })
   .refine((body) => Object.keys(body).length > 0, {
     message: "Send label, credential or targets.",
+  })
+  .refine((body) => (body.botToken === undefined) === (body.signingSecret === undefined), {
+    message: "Send the bot token and the signing secret together.",
   })
   .refine((body) => body.account === undefined || body.credential !== undefined, {
     message: "Send the account's email only with a new token.",
@@ -226,12 +285,23 @@ export type IntegrationTarget = z.infer<typeof IntegrationTarget>;
  * `credential_rejected`: the service refused the credential (revoked, expired); `key_unavailable`:
  * it was sealed with a key the Workers no longer hold. Either needs an admin to paste a new one.
  */
-export const IntegrationAttention = z.enum([
+export const INTEGRATION_FAILING_REASONS = [
   "credential_rejected",
   "key_unavailable",
   /** Jira: the cloud ID no longer serves the stored site name (the site changed its address). */
   "site_mismatch",
-]);
+  /** Slack: the app was uninstalled or its tokens revoked (`app_uninstalled`, `tokens_revoked`). */
+  "app_uninstalled",
+] as const;
+/** Why a connection stopped working: the reason of `integration.failing`. */
+export const IntegrationFailingReason = z.enum(INTEGRATION_FAILING_REASONS);
+export type IntegrationFailingReason = z.infer<typeof IntegrationFailingReason>;
+
+/**
+ * Why a connection cannot be used: a failing reason, or `pending`, a Slack connection started and
+ * not completed yet (it holds no credential).
+ */
+export const IntegrationAttention = z.enum([...INTEGRATION_FAILING_REASONS, "pending"]);
 export type IntegrationAttention = z.infer<typeof IntegrationAttention>;
 
 /** What the owner side sees to pick a connection: names and targets, never the credential. */
@@ -259,9 +329,28 @@ export const IntegrationChoiceList = z.object({
 export type IntegrationChoiceList = z.infer<typeof IntegrationChoiceList>;
 
 /** A connection as its admins see it: the credential only as its last four characters. */
+/**
+ * How a Slack connection is set up (decision 0025): the events endpoint, the manifest Portifact
+ * shows and Slack's prefilled "create from manifest" link. Nothing secret.
+ */
+export const SlackSetupView = z.object({
+  requestUrl: z.url(),
+  /** The manifest as JSON text, to copy into Slack. */
+  manifest: z.string(),
+  /** `https://api.slack.com/apps?new_app=1&manifest_json=…` */
+  createUrl: z.url(),
+  /** The manifest version the connection was completed with; null while pending. */
+  manifestVersion: z.number().int().nullable(),
+  /** Completed with an older manifest than the one shown now. */
+  outdated: z.boolean(),
+});
+export type SlackSetupView = z.infer<typeof SlackSetupView>;
+
 export const IntegrationConnectionView = IntegrationChoice.extend({
   /** Only the dashboard reads this, deployed with the server: the strict service. */
-  service: IntegrationService,
+  service: ConnectionService,
+  /** Slack only: how to set the app up; null for the other services. */
+  slack: SlackSetupView.nullable(),
   /** Jira: the site's name (`acme` for `acme.atlassian.net`); null for the other services. */
   site: z.string().nullable(),
   /** The account the credential acts as, as the service reported it at the last check. */
@@ -279,6 +368,8 @@ export const IntegrationConnectionList = z.object({
   connections: z.array(IntegrationConnectionView),
   available: z.boolean(),
   serviceAvailable: z.boolean(),
+  /** Slack connections can be started and completed (`SLACK_ENABLED`, decision 0025). */
+  slackAvailable: z.boolean(),
   limit: z.number().int(),
   targetLimit: z.number().int(),
 });

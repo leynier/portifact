@@ -599,6 +599,8 @@ export interface FakeServer {
     available: boolean;
     /** Whether the deployment offers integrations (`INTEGRATIONS_ENABLED`). */
     offered: boolean;
+    /** Whether the deployment offers Slack connections (`SLACK_ENABLED`, decision 0025). */
+    slackOffered: boolean;
     euResidency: boolean;
     issues: { artifactId: string; threadId: string; key: string; body: unknown }[];
   };
@@ -713,6 +715,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       connections: [],
       available: true,
       offered: false,
+      slackOffered: false,
       euResidency: false,
       issues: [],
     },
@@ -2166,18 +2169,52 @@ function integrationRoute(
       connections: store.connections,
       available: store.available,
       serviceAvailable: store.offered,
+      slackAvailable: store.offered && store.slackOffered,
       limit: 5,
       targetLimit: 10,
     });
   }
   if (path === "/api/v1/integrations/connections" && method === "POST") {
     const body = server.bodies.at(-1) as {
-      service: "github" | "linear" | "jira";
+      service: "github" | "linear" | "jira" | "slack";
       label: string;
-      credential: string;
-      targets: string[];
+      credential?: string;
+      targets?: string[];
       site?: string;
     };
+    if (body.service === "slack") {
+      // A pending Slack connection, as the Worker starts one: no credential, the setup to show.
+      const id = `ic_${String(store.connections.length + 1).repeat(32)}`;
+      const requestUrl = `https://app.portifact.com/integrations/slack/events/default/${id}`;
+      const pending: IntegrationConnectionView = {
+        id,
+        service: "slack",
+        label: body.label,
+        site: null,
+        targets: [],
+        usable: false,
+        identity: "",
+        credentialHint: "",
+        attention: "pending",
+        slack: {
+          requestUrl,
+          manifest: JSON.stringify({
+            settings: { event_subscriptions: { request_url: requestUrl } },
+          }),
+          createUrl: "https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
+          manifestVersion: null,
+          outdated: false,
+        },
+        createdAt: NOW,
+        updatedAt: NOW,
+        createdBy: "Ada",
+      };
+      store.connections = [...store.connections, pending];
+      return Response.json(pending, { status: 201 });
+    }
+    if (body.credential === undefined || body.targets === undefined) {
+      return apiError("invalid_input", 400);
+    }
     if (body.credential.length < 20) {
       return Response.json(
         {
@@ -2199,6 +2236,7 @@ function integrationRoute(
       identity: "octo-bot",
       credentialHint: `\u2026${body.credential.slice(-4)}`,
       attention: null,
+      slack: null,
       createdAt: NOW,
       updatedAt: NOW,
       createdBy: "Ada",
@@ -2227,7 +2265,34 @@ function integrationRoute(
     return Response.json({ connectionId: connection.id, removed: true });
   }
   if (method === "PATCH") {
-    const body = server.bodies.at(-1) as { label?: string };
+    const body = server.bodies.at(-1) as {
+      label?: string;
+      botToken?: string;
+      signingSecret?: string;
+    };
+    if (connection.service === "slack" && body.botToken !== undefined) {
+      if (!body.botToken.startsWith("xoxb-")) {
+        return Response.json(
+          {
+            error: {
+              code: "invalid_input",
+              message: "Paste the app's Bot User OAuth Token, which starts with xoxb-.",
+            },
+          },
+          { status: 400 },
+        );
+      }
+      const done: IntegrationConnectionView = {
+        ...connection,
+        usable: true,
+        identity: "Acme",
+        credentialHint: `\u2026${body.botToken.slice(-4)}`,
+        attention: null,
+        slack: connection.slack && { ...connection.slack, manifestVersion: 1 },
+      };
+      store.connections = store.connections.map((c) => (c.id === connection.id ? done : c));
+      return Response.json(done);
+    }
     const next = { ...connection, ...(body.label ? { label: body.label } : {}) };
     store.connections = store.connections.map((c) => (c.id === connection.id ? next : c));
     return Response.json(next);

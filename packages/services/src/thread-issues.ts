@@ -101,7 +101,10 @@ export async function requestThreadIssue(
     .from(c)
     .where(and(eq(c.id, input.request.connectionId), eq(c.ownerId, ownerId)))
     .limit(1);
-  if (!connection) return fail("not_found", "Connection not found.");
+  // A Slack connection creates no issue (decision 0025): it answers like a missing connection.
+  if (!connection || connection.service === "slack") {
+    return fail("not_found", "Connection not found.");
+  }
   if (connection.attention !== null) {
     return fail(
       "invalid_input",
@@ -241,7 +244,7 @@ export async function runThreadIssue(
     await failRequest(db, issue.id, "unavailable", now);
     return "done";
   }
-  if (!connection || connection.ownerId !== issue.ownerId) {
+  if (!connection || connection.ownerId !== issue.ownerId || connection.service === "slack") {
     await failRequest(db, issue.id, "connection_removed", now);
     return "done";
   }

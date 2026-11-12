@@ -1327,6 +1327,8 @@ export const webhookDeliveries = sqliteTable(
 
 /** Services an issue integration reaches, as in @portifact/contracts (decision 0018). */
 export const INTEGRATION_SERVICES = ["github", "linear", "jira"] as const;
+/** Services a connection reaches: the issue trackers and Slack (decision 0025). */
+export const CONNECTION_SERVICES = [...INTEGRATION_SERVICES, "slack"] as const;
 
 /**
  * An owner's connections to GitHub Issues, Linear or Jira Cloud (decision 0018,
@@ -1343,16 +1345,27 @@ export const integrationConnections = sqliteTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id").notNull(),
-    service: text("service", { enum: INTEGRATION_SERVICES }).notNull(),
+    service: text("service", { enum: CONNECTION_SERVICES }).notNull(),
     label: text("label").notNull(),
     keyId: text("key_id").notNull(),
     credentialBox: text("credential_box").notNull(),
     credentialHint: text("credential_hint").notNull(),
     identity: text("identity").notNull(),
     targets: text("targets").notNull(),
-    /** Set when the service refused the credential or no key opens it: issues stop until fixed. */
+    /**
+     * Set when the service refused the credential or no key opens it: issues stop until fixed.
+     * `pending` is a Slack connection started and not completed (decision 0025): it holds no
+     * credential (`key_id` and `credential_box` empty, which no key opens) and is deleted after
+     * 24 hours; `app_uninstalled` is Slack telling that the app was uninstalled.
+     */
     attention: text("attention", {
-      enum: ["credential_rejected", "key_unavailable", "site_mismatch"],
+      enum: [
+        "credential_rejected",
+        "key_unavailable",
+        "site_mismatch",
+        "app_uninstalled",
+        "pending",
+      ],
     }),
     attentionAt: timestamp("attention_at"),
     revision: integer("revision").notNull().default(1),
@@ -1367,6 +1380,12 @@ export const integrationConnections = sqliteTable(
      */
     site: text("site"),
     cloudId: text("cloud_id"),
+    /**
+     * Slack only (decision 0025): the Slack workspace's ID (`team_id` from `auth.test`), compared
+     * with every event, and the manifest version the connection was completed with.
+     */
+    externalId: text("external_id"),
+    manifestVersion: integer("manifest_version"),
   },
   (t) => [
     index("integration_connections_owner_idx").on(t.ownerId),

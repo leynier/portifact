@@ -41,6 +41,7 @@ export * from "./scim.ts";
 export * from "./scim-groups.ts";
 export * from "./service-tokens.ts";
 export * from "./share-links.ts";
+export * from "./slack.ts";
 export * from "./sources.ts";
 export * from "./sso.ts";
 export * from "./terms.ts";

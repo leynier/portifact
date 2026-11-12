@@ -6,20 +6,27 @@
 // service reported for it. Connections are the owner's data, so they live in its region.
 import {
   type AuditDetail,
+  type ConnectionService,
   INTEGRATION_LIMITS,
   type IntegrationAttention,
   type IntegrationCheckProblem,
   type IntegrationCreate,
+  type IntegrationFailingReason,
   type IntegrationService,
   type IntegrationTarget,
   type IntegrationUpdate,
+  type IssueConnectionCreate,
   isWorkspaceId,
+  SLACK_LIMITS,
+  SLACK_MANIFEST_VERSION,
 } from "@portifact/contracts";
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
   authorize,
   checkIntegrationTargets,
+  checkSlackBotToken,
+  checkSlackSigningSecret,
   credentialHint,
   fail,
   hasFeature,
@@ -27,16 +34,21 @@ import {
   jiraCloudId,
   jiraCredential,
   jiraSiteName,
+  logEvent,
   ok,
+  openSlackCredential,
   type Result,
   requireFeature,
+  slackBaseString,
+  slackCredential,
 } from "@portifact/domain";
-import { and, eq, inArray, ne, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, lte, ne, type SQL, sql } from "drizzle-orm";
 import { actorOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
 import { type CallOptions, type CheckedTarget, checkCredential } from "./integration-clients.ts";
 import { type IntegrationKey, openCredential, sealCredential } from "./integration-keys.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { slackAuthTest, slackRevoke } from "./slack-client.ts";
 
 const c = schema.integrationConnections;
 type ConnectionRow = typeof c.$inferSelect;
@@ -46,9 +58,16 @@ export const INTEGRATION_FEATURE = "integrations" as const;
 /** Whether the platform offers integrations (`INTEGRATIONS_ENABLED` and the key, decision 0018). */
 export interface IntegrationSwitch {
   enabled: boolean;
+  /**
+   * Slack connections are offered too (`SLACK_ENABLED` besides the integrations switch, decision
+   * 0025). Absent is off.
+   */
+  slack?: boolean | undefined;
 }
 
 export const INTEGRATIONS_UNAVAILABLE = "Integrations are not available yet.";
+export const SLACK_UNAVAILABLE = "Slack is not available yet.";
+const slackUnavailable = () => fail<never>("capacity_unavailable", SLACK_UNAVAILABLE);
 
 const unavailable = () => fail<never>("capacity_unavailable", INTEGRATIONS_UNAVAILABLE);
 const missing = () => fail<never>("not_found", "Connection not found.");
@@ -90,7 +109,7 @@ const shown = (targets: readonly CheckedTarget[]): IntegrationTarget[] =>
 
 export interface ConnectionChoice {
   id: string;
-  service: IntegrationService;
+  service: ConnectionService;
   label: string;
   targets: IntegrationTarget[];
   usable: boolean;
@@ -105,6 +124,8 @@ export interface ConnectionRecord extends ConnectionChoice {
   createdAt: number;
   updatedAt: number;
   createdBy: string | null;
+  /** Slack: the manifest version the connection was completed with; null otherwise. */
+  manifestVersion: number | null;
 }
 
 function choice(row: ConnectionRow): ConnectionChoice {
@@ -127,6 +148,7 @@ function record(row: ConnectionRow, names: ReadonlyMap<string, string>): Connect
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     createdBy: row.createdBy === null ? null : (names.get(row.createdBy) ?? null),
+    manifestVersion: row.manifestVersion,
   };
 }
 
@@ -312,8 +334,14 @@ export async function listIntegrationChoices(
   if (!allowed.ok) return allowed;
   const [owner, rows] = await Promise.all([
     ownerEntitlements(db.global, input.actor.ownerId, input.now),
+    // Only issue trackers: a Slack connection creates no issue, and clients up to v0.39.0 refuse
+    // a listing that names a service they do not know (decision 0025, "Who manages and who lists").
     input.service.enabled
-      ? db.select().from(c).where(eq(c.ownerId, input.actor.ownerId)).orderBy(c.createdAt, c.id)
+      ? db
+          .select()
+          .from(c)
+          .where(and(eq(c.ownerId, input.actor.ownerId), ne(c.service, "slack")))
+          .orderBy(c.createdAt, c.id)
       : Promise.resolve([] as ConnectionRow[]),
   ]);
   return ok({
@@ -375,6 +403,7 @@ export async function createIntegrationConnection(
   const allowed = authorize(input.actor, "integrations");
   if (!allowed.ok) return allowed;
   if (!input.deps.service.enabled) return unavailable();
+  if (input.connection.service === "slack" && !input.deps.service.slack) return slackUnavailable();
   const [key] = input.deps.keys;
   if (!key) return unavailable();
   const ownerId = input.actor.ownerId;
@@ -383,6 +412,9 @@ export async function createIntegrationConnection(
     INTEGRATION_FEATURE,
   );
   if (!gate.ok) return gate;
+  if (input.connection.service === "slack") {
+    return startSlackConnection(db, { ...input, label: input.connection.label });
+  }
   const { service, label, credential } = input.connection;
   const targets = checkIntegrationTargets(service, input.connection.targets);
   if (!targets.ok) return targets;
@@ -417,13 +449,13 @@ export async function createIntegrationConnection(
   const id = hexId("ic_");
   const box = await sealCredential(key, id, sealed);
   // Columns in schema order: id, owner, service, label, key, credential, hint, identity, targets,
-  // attention, attention at, revision, created, updated, created by, site, cloud ID. The count
-  // keeps concurrent creates under the cap.
+  // attention, attention at, revision, created, updated, created by, site, cloud ID, external ID,
+  // manifest version. The count keeps concurrent creates under the cap.
   const [inserted] = await w.batch([
     w
       .insert(c)
       .select(
-        sql`select ${id}, ${ownerId}, ${service}, ${label}, ${key.id}, ${box}, ${credentialHint(credential)}, ${checked.identity}, ${JSON.stringify(checked.targets)}, null, null, 1, ${input.now}, ${input.now}, ${input.actor.userId}, ${site?.name ?? null}, ${site?.cloudId ?? null} where (select count(*) from ${c} where ${c.ownerId} = ${ownerId}) < ${INTEGRATION_LIMITS.perOwner}${holds ? sql` and ${holds}` : sql``}`,
+        sql`select ${id}, ${ownerId}, ${service}, ${label}, ${key.id}, ${box}, ${credentialHint(credential)}, ${checked.identity}, ${JSON.stringify(checked.targets)}, null, null, 1, ${input.now}, ${input.now}, ${input.actor.userId}, ${site?.name ?? null}, ${site?.cloudId ?? null}, null, null where (select count(*) from ${c} where ${c.ownerId} = ${ownerId}) < ${INTEGRATION_LIMITS.perOwner}${holds ? sql` and ${holds}` : sql``}`,
       )
       .returning(),
     // After the insert, on the row it created: the service and how many targets, never the
@@ -448,7 +480,7 @@ export async function createIntegrationConnection(
 
 /** A Jira connection's site, cloud ID and account, checked; the contract already requires them. */
 function jiraEndpoint(
-  connection: Pick<IntegrationCreate, "site" | "cloudId" | "account">,
+  connection: Pick<IssueConnectionCreate, "site" | "cloudId" | "account">,
 ): Result<{ site: JiraSite; account: string }> {
   const name = jiraSiteName(connection.site ?? "");
   if (!name.ok) return name;
@@ -484,6 +516,7 @@ export async function updateIntegrationConnection(
   const row = await owned(db, input.actor, input.connectionId);
   if (!row) return missing();
   if (!input.deps.service.enabled) return unavailable();
+  if (row.service === "slack" && !input.deps.service.slack) return slackUnavailable();
   const [key] = input.deps.keys;
   if (!key) return unavailable();
   const gate = requireFeature(
@@ -491,6 +524,10 @@ export async function updateIntegrationConnection(
     INTEGRATION_FEATURE,
   );
   if (!gate.ok) return gate;
+  if (row.service === "slack") return completeSlackConnection(db, { ...input, row, key });
+  if (input.update.botToken !== undefined || input.update.signingSecret !== undefined) {
+    return fail("invalid_input", "Only Slack takes a bot token and a signing secret.");
+  }
   if (row.service === "jira" && input.update.credential !== undefined && !input.update.account) {
     return fail("invalid_input", "Send the email of the new token's Atlassian account with it.");
   }
@@ -631,6 +668,7 @@ export async function testIntegrationConnection(
   const row = await owned(db, input.actor, input.connectionId);
   if (!row) return missing();
   if (!input.deps.service.enabled) return unavailable();
+  if (row.service === "slack") return testSlackConnection(db, { ...input, row });
   const credential = await openCredential(input.deps.keys, row.keyId, row.id, row.credentialBox);
   if (credential === null) {
     await markAttention(
@@ -729,7 +767,7 @@ function sameCredential(row: Pick<ConnectionRow, "id" | "revision" | "credential
 export async function markAttention(
   db: RegionalDb,
   row: Pick<ConnectionRow, "id" | "ownerId" | "service" | "revision" | "credentialBox">,
-  reason: IntegrationAttention,
+  reason: IntegrationFailingReason,
   actor: { type: "user"; id: string } | { type: "system" },
   now: number,
 ) {
@@ -761,18 +799,97 @@ export async function markAttention(
  */
 export async function removeIntegrationConnection(
   db: RegionalDb,
-  input: { actor: Actor; connectionId: string; now: number },
+  input: {
+    actor: Actor;
+    connectionId: string;
+    now: number;
+    /**
+     * Revokes a removed Slack connection's bot token at Slack after the delete (decision 0025,
+     * "Removing it"), in the caller's `waitUntil`. Absent, nothing calls Slack.
+     */
+    slack?: SlackRevocation | undefined;
+  },
 ): Promise<Result<{ connectionId: string }>> {
   const allowed = authorize(input.actor, "integrations");
   if (!allowed.ok) return allowed;
-  const row = await owned(db, input.actor, input.connectionId);
-  if (!row) return missing();
+  // Each attempt deletes only the row as it was read (its revision): a credential pasted, or a
+  // pending Slack connection completed, in between is never deleted as what it was before. One
+  // retry takes the row as it is now; a second change in between answers a conflict.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const row = await owned(db, input.actor, input.connectionId);
+    if (!row) return missing();
+    const removed =
+      row.attention === "pending"
+        ? await removePending(db, input.actor, row)
+        : await removeHeld(db, input, row);
+    if (removed === "removed") return ok({ connectionId: row.id });
+    if (removed === "gone") {
+      const again = await stillManages(db, input.actor);
+      return again.ok ? missing() : again;
+    }
+  }
+  return fail("version_conflict", "The connection changed meanwhile. Reload and try again.");
+}
+
+type Removal = "removed" | "gone" | "changed";
+
+/**
+ * After a delete that matched nothing: the row is gone (or the caller no longer manages it), or it
+ * is still there with another revision, which the caller retries.
+ */
+async function missedRemoval(db: RegionalDb, row: ConnectionRow): Promise<Removal> {
+  const [still] = await db.select({ revision: c.revision }).from(c).where(eq(c.id, row.id));
+  return still && still.revision !== row.revision ? "changed" : "gone";
+}
+
+/**
+ * A Slack connection started and never completed holds nothing (decision 0025): it goes like the
+ * 24-hour scan takes it, with no audit event, no tombstone and nothing to revoke, and only while it
+ * is still pending at the revision read.
+ */
+async function removePending(db: RegionalDb, actor: Actor, row: ConnectionRow): Promise<Removal> {
+  const { w, holds } = writeScope(db, actor);
+  const [deleted] = await w.batch([
+    w
+      .delete(c)
+      .where(
+        and(
+          eq(c.id, row.id),
+          eq(c.ownerId, actor.ownerId),
+          eq(c.revision, row.revision),
+          eq(c.attention, "pending"),
+          holds,
+        ) as SQL,
+      )
+      .returning({ id: c.id }),
+  ]);
+  return deleted.length === 1 ? "removed" : missedRemoval(db, row);
+}
+
+/** A connection that holds a credential: tombstone first, then the delete with its event. */
+async function removeHeld(
+  db: RegionalDb,
+  input: { actor: Actor; now: number; slack?: SlackRevocation | undefined },
+  row: ConnectionRow,
+): Promise<Removal> {
+  // Opened before the delete and kept only in memory: after it, no copy is readable.
+  const token =
+    row.service === "slack" && input.slack?.enabled
+      ? openSlackCredential(
+          (await openCredential(input.slack.keys, row.keyId, row.id, row.credentialBox)) ?? "",
+        )?.botToken
+      : undefined;
   await db.global
     .insert(schema.tombstones)
     .values({ kind: "integration_connection", id: row.id, deletedAt: input.now })
     .onConflictDoNothing();
   const { w, holds } = writeScope(db, input.actor);
-  const mine = and(eq(c.id, row.id), eq(c.ownerId, input.actor.ownerId), holds) as SQL;
+  const mine = and(
+    eq(c.id, row.id),
+    eq(c.ownerId, input.actor.ownerId),
+    eq(c.revision, row.revision),
+    holds,
+  ) as SQL;
   const [, deleted] = await w.batch([
     connectionEvent(
       w,
@@ -785,23 +902,46 @@ export async function removeIntegrationConnection(
     ),
     w.delete(c).where(mine).returning({ id: c.id }),
   ]);
-  if (deleted.length === 1) return ok({ connectionId: row.id });
-  const again = await stillManages(db, input.actor);
-  return again.ok ? missing() : again;
+  if (deleted.length !== 1) return missedRemoval(db, row);
+  if (token !== undefined && input.slack) {
+    const { fetch, defer } = input.slack;
+    defer(
+      slackRevoke(token, { fetch }).then((answer) => {
+        const outcome = answer.kind;
+        if (outcome === "ok") logEvent("log", "slack_token_revoke", { outcome });
+        else logEvent("warn", "slack_token_revoke", { outcome });
+      }),
+    );
+  }
+  return "removed";
 }
+
+export interface SlackRevocation {
+  /** `SLACK_ENABLED` with the integrations switch: off, nothing calls Slack. */
+  enabled: boolean;
+  keys: readonly IntegrationKey[];
+  fetch: IntegrationFetchLike;
+  /** Runs after the answer (`waitUntil`). */
+  defer(task: Promise<unknown>): void;
+}
+
+type IntegrationFetchLike = CallOptions["fetch"];
 
 /** The owner's connections for the account export: never the credential. */
 export async function exportIntegrations(db: RegionalDb, ownerId: string) {
   const rows = await db.select().from(c).where(eq(c.ownerId, ownerId)).orderBy(c.createdAt);
-  return rows.map((row) => ({
-    id: row.id,
-    service: row.service,
-    label: row.label,
-    site: row.site,
-    identity: row.identity,
-    targets: storedTargets(row.targets).map((target) => target.name),
-    createdAt: new Date(row.createdAt).toISOString(),
-  }));
+  // A Slack connection started and never completed holds nothing.
+  return rows
+    .filter((row) => row.attention !== "pending")
+    .map((row) => ({
+      id: row.id,
+      service: row.service,
+      label: row.label,
+      site: row.site,
+      identity: row.identity,
+      targets: storedTargets(row.targets).map((target) => target.name),
+      createdAt: new Date(row.createdAt).toISOString(),
+    }));
 }
 
 /** Deletes an owner's connections, for the batches that delete an account or a workspace. */
@@ -825,6 +965,8 @@ export async function rewrapIntegrationKeys(
     .from(c)
     .where(
       and(
+        // A pending Slack connection has no key and nothing sealed.
+        ne(c.keyId, ""),
         ne(c.keyId, current.id),
         inArray(
           c.keyId,
@@ -847,6 +989,360 @@ export async function rewrapIntegrationKeys(
   const [left] = await db
     .select({ count: sql<number>`count(*)` })
     .from(c)
-    .where(ne(c.keyId, current.id));
+    .where(and(ne(c.keyId, ""), ne(c.keyId, current.id)));
   return { rewrapped, left: Number((left as { count: number }).count) };
+}
+
+// Slack (decision 0025): a connection to the customer's own Slack app, made in two steps because
+// the events endpoint's URL must be in the app's manifest before the app (and its token) exists.
+
+/**
+ * Starts a Slack connection: a pending row that holds no credential (`key_id` and
+ * `credential_box` empty, which no key opens), counted against the per-owner cap and the daily
+ * creates like any connection. Nothing is called and nothing recorded: a pending row holds
+ * nothing (`integration.connected` comes with the credential). The maintenance run deletes it
+ * after `SLACK_LIMITS.pendingMs` if it is never completed.
+ */
+async function startSlackConnection(
+  db: RegionalDb,
+  input: { actor: Actor; label: string; now: number },
+): Promise<Result<ConnectionRecord>> {
+  const ownerId = input.actor.ownerId;
+  const [existing] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(c)
+    .where(eq(c.ownerId, ownerId));
+  if (Number((existing as { count: number }).count) >= INTEGRATION_LIMITS.perOwner) return full();
+  const created = await ownerLimit(
+    db.global,
+    `integration:create:${ownerId}`,
+    DAY_MS,
+    INTEGRATION_LIMITS.createsPerOwnerPerDay,
+    `At most ${INTEGRATION_LIMITS.createsPerOwnerPerDay} connections can be created a day. Try again later.`,
+    input.now,
+  );
+  if (!created.ok) return created;
+  const { w, holds } = writeScope(db, input.actor);
+  const id = hexId("ic_");
+  // Columns in schema order, as in `createIntegrationConnection`.
+  const [inserted] = await w.batch([
+    w
+      .insert(c)
+      .select(
+        sql`select ${id}, ${ownerId}, 'slack', ${input.label}, '', '', '', '', '[]', 'pending', ${input.now}, 1, ${input.now}, ${input.now}, ${input.actor.userId}, null, null, null, null where (select count(*) from ${c} where ${c.ownerId} = ${ownerId}) < ${INTEGRATION_LIMITS.perOwner}${holds ? sql` and ${holds}` : sql``}`,
+      )
+      .returning(),
+  ]);
+  const [row] = inserted;
+  if (!row) {
+    const again = await stillManages(db, input.actor);
+    return again.ok ? full() : again;
+  }
+  return ok(await present(db, row));
+}
+
+const SLACK_CHECK_MESSAGES = {
+  credential_rejected:
+    "Slack refused the bot token: it is wrong, revoked, or its app was uninstalled.",
+  not_bot:
+    "That is not the app's bot token. Paste the Bot User OAuth Token from OAuth & Permissions in Slack.",
+  rate_limited: "Slack is limiting requests from this token. Try again later.",
+  service_unavailable: "Slack did not answer. Try again later.",
+} as const;
+
+/**
+ * Completes a Slack connection, or replaces its credential: the bot token (`xoxb-`, never a
+ * rotating `xoxe.` one) and the signing secret, sealed together after one `auth.test` call that
+ * must report a bot. Stores the Slack workspace's name and ID and the manifest version, clears
+ * `pending` or any attention, conditioned on the revision read and on the caller still managing
+ * the owner. Records `integration.connected` for a pending row, `integration.changed` otherwise.
+ */
+async function completeSlackConnection(
+  db: RegionalDb,
+  input: {
+    actor: Actor;
+    update: IntegrationUpdate;
+    deps: IntegrationDeps;
+    now: number;
+    row: ConnectionRow;
+    key: IntegrationKey;
+  },
+): Promise<Result<ConnectionRecord>> {
+  const { row, update } = input;
+  if (
+    update.credential !== undefined ||
+    update.targets !== undefined ||
+    update.account !== undefined
+  ) {
+    return fail("invalid_input", "Slack takes a bot token and a signing secret.");
+  }
+  const pending = row.attention === "pending";
+  const change: Partial<typeof c.$inferInsert> = {};
+  const detail: AuditDetail<"integration.changed"> = {};
+  if (update.label !== undefined && update.label !== row.label) {
+    change.label = update.label;
+    detail.label = true;
+  }
+  if (update.botToken === undefined || update.signingSecret === undefined) {
+    if (pending) {
+      return fail(
+        "invalid_input",
+        "Paste the bot token and the signing secret to finish connecting Slack.",
+      );
+    }
+    if (Object.keys(detail).length === 0) return ok(await present(db, row));
+  } else {
+    const token = checkSlackBotToken(update.botToken);
+    if (!token.ok) return token;
+    const secret = checkSlackSigningSecret(update.signingSecret);
+    if (!secret.ok) return secret;
+    const limited = await checkLimit(db.global, input.actor, input.now);
+    if (!limited.ok) return limited;
+    const identity = await slackAuthTest(token.value, input.deps);
+    if (!identity.ok) return fail("invalid_input", SLACK_CHECK_MESSAGES[identity.problem]);
+    Object.assign(change, {
+      keyId: input.key.id,
+      credentialBox: await sealCredential(
+        input.key,
+        row.id,
+        slackCredential(token.value, secret.value),
+      ),
+      credentialHint: credentialHint(token.value),
+      identity: identity.team,
+      externalId: identity.teamId,
+      manifestVersion: SLACK_MANIFEST_VERSION,
+      attention: null,
+      attentionAt: null,
+    });
+    detail.credential = true;
+  }
+  const still = await stillManages(db, input.actor);
+  if (!still.ok) return still;
+  const { w, holds } = writeScope(db, input.actor);
+  const where = and(
+    eq(c.id, row.id),
+    eq(c.ownerId, input.actor.ownerId),
+    eq(c.revision, row.revision),
+    holds,
+  ) as SQL;
+  const condition = sql`exists (select 1 from ${c} where ${where})`;
+  const [, updated] = await w.batch([
+    pending
+      ? connectionEvent(
+          w,
+          input.actor,
+          row.id,
+          "integration.connected",
+          { service: "slack", targets: 0 },
+          input.now,
+          condition,
+        )
+      : connectionEvent(
+          w,
+          input.actor,
+          row.id,
+          "integration.changed",
+          detail,
+          input.now,
+          condition,
+        ),
+    w
+      .update(c)
+      .set({ ...change, revision: row.revision + 1, updatedAt: input.now })
+      .where(where)
+      .returning(),
+  ]);
+  const [saved] = updated;
+  if (!saved) {
+    const again = await stillManages(db, input.actor);
+    if (!again.ok) return again;
+    return fail("version_conflict", "The connection changed meanwhile. Reload and try again.");
+  }
+  return ok(await present(db, saved));
+}
+
+/**
+ * Tests a Slack connection with `auth.test`: a refused token marks it `credential_rejected`, a
+ * working one for the same Slack workspace clears any attention. A pending row has nothing to
+ * test. Never gated on the plan, but it calls Slack, so only while Slack is switched on.
+ */
+async function testSlackConnection(
+  db: RegionalDb,
+  input: { actor: Actor; row: ConnectionRow; deps: IntegrationDeps; now: number },
+): Promise<Result<ConnectionTest>> {
+  const { row } = input;
+  if (!input.deps.service.slack) return slackUnavailable();
+  if (row.attention === "pending") {
+    return fail(
+      "invalid_input",
+      "Finish connecting Slack first: paste the bot token and the signing secret.",
+    );
+  }
+  const result = (
+    passed: boolean,
+    problem: IntegrationCheckProblem | null,
+    message: string,
+    identity: string | null = null,
+  ): Result<ConnectionTest> =>
+    ok({ ok: passed, identity, problem, target: null, message, refreshed: [] });
+  const opened = await openCredential(input.deps.keys, row.keyId, row.id, row.credentialBox);
+  const pair = opened === null ? null : openSlackCredential(opened);
+  const byAdmin = { type: "user" as const, id: input.actor.userId };
+  if (pair === null) {
+    await markAttention(db, row, "key_unavailable", byAdmin, input.now);
+    return result(
+      false,
+      "credential_rejected",
+      "The stored credential can no longer be opened. Paste the bot token and signing secret again.",
+    );
+  }
+  const limited = await checkLimit(db.global, input.actor, input.now);
+  if (!limited.ok) return limited;
+  const identity = await slackAuthTest(pair.botToken, input.deps);
+  if (!identity.ok) {
+    if (identity.problem === "credential_rejected") {
+      await markAttention(db, row, "credential_rejected", byAdmin, input.now);
+    }
+    const problem: IntegrationCheckProblem =
+      identity.problem === "not_bot" ? "missing_permission" : identity.problem;
+    return result(false, problem, SLACK_CHECK_MESSAGES[identity.problem]);
+  }
+  if (identity.teamId !== row.externalId) {
+    return result(
+      false,
+      "credential_rejected",
+      "The token now belongs to another Slack workspace. Paste the bot token of this connection's app again.",
+    );
+  }
+  await db
+    .update(c)
+    .set({ identity: identity.team, attention: null, attentionAt: null })
+    .where(sameCredential(row));
+  return result(true, null, `Connected to the Slack workspace ${identity.team}.`, identity.team);
+}
+
+/**
+ * Deletes Slack connections started and never completed, older than `SLACK_LIMITS.pendingMs`,
+ * in one region. They hold no credential, so no tombstone is written (a restored one is deleted
+ * again by this scan).
+ */
+export async function prunePendingConnections(db: RegionalDb, now: number): Promise<number> {
+  const deleted = await db
+    .delete(c)
+    .where(
+      and(
+        eq(c.service, "slack"),
+        eq(c.attention, "pending"),
+        lte(c.createdAt, now - SLACK_LIMITS.pendingMs),
+      ),
+    )
+    .returning({ id: c.id });
+  return deleted.length;
+}
+
+/** A Slack connection as the events endpoint reads it: one primary-key read. */
+export type SlackEventConnection = Pick<
+  ConnectionRow,
+  "id" | "ownerId" | "service" | "keyId" | "credentialBox" | "attention" | "revision" | "externalId"
+>;
+
+/**
+ * A key no signing secret is: a missing or pending connection costs the same HMAC as any. Made on
+ * first use, never at module load: workerd refuses random values in global scope, and a Worker
+ * that did it would not start.
+ */
+let dummySigningKey: Uint8Array<ArrayBuffer> | undefined;
+function dummyKey(): Uint8Array<ArrayBuffer> {
+  dummySigningKey ??= crypto.getRandomValues(new Uint8Array(32));
+  return dummySigningKey;
+}
+
+const encoder = new TextEncoder();
+
+/**
+ * Verifies an inbound request's signature with the connection's own signing secret (decision
+ * 0025, "Order of checks", steps 2 and 3): one D1 read by primary key, then HMAC-SHA-256 over
+ * `v0:<timestamp>:<raw body>`, compared in constant time by `crypto.subtle.verify`. A missing or
+ * pending connection is checked against a dummy key and refused. A connection whose credential no
+ * key opens is refused and, only when it has no attention yet, marked `key_unavailable`: the one
+ * write an unverified request can cause, at most once per connection.
+ */
+export async function verifySlackRequest(
+  db: RegionalDb,
+  input: {
+    connectionId: string;
+    timestamp: string;
+    signature: Uint8Array<ArrayBuffer>;
+    body: Uint8Array;
+    keys: readonly IntegrationKey[];
+    now: number;
+  },
+): Promise<SlackEventConnection | null> {
+  const [row] = await db
+    .select({
+      id: c.id,
+      ownerId: c.ownerId,
+      service: c.service,
+      keyId: c.keyId,
+      credentialBox: c.credentialBox,
+      attention: c.attention,
+      revision: c.revision,
+      externalId: c.externalId,
+    })
+    .from(c)
+    .where(and(eq(c.id, input.connectionId), eq(c.service, "slack")))
+    .limit(1);
+  const usable = row !== undefined && row.attention !== "pending";
+  const opened = usable
+    ? await openCredential(input.keys, row.keyId, row.id, row.credentialBox)
+    : null;
+  const secret = opened === null ? null : (openSlackCredential(opened)?.signingSecret ?? null);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    secret === null ? dummyKey() : encoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["verify"],
+  );
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    key,
+    input.signature,
+    slackBaseString(input.timestamp, input.body),
+  );
+  if (usable && secret === null) {
+    if (row.attention === null) {
+      await markAttention(db, row, "key_unavailable", { type: "system" }, input.now);
+    }
+    return null;
+  }
+  return usable && valid ? row : null;
+}
+
+/** What the endpoint did with a verified event, for its one log line. */
+export type SlackEventOutcome = "ignored" | "team_mismatch" | "uninstalled";
+
+/**
+ * Acts on a verified `event_callback` after the answer (decision 0025, "After the answer"): the
+ * envelope must come from the connection's Slack workspace; `app_uninstalled` and
+ * `tokens_revoked` mark the connection `app_uninstalled` once, with one `integration.failing`.
+ * `link_shared` is acknowledged and ignored until previews are delivered.
+ */
+export async function applySlackEvent(
+  db: RegionalDb,
+  input: {
+    connection: SlackEventConnection;
+    teamMatches: boolean;
+    eventType: string | null;
+    now: number;
+  },
+): Promise<SlackEventOutcome> {
+  if (!input.teamMatches) return "team_mismatch";
+  if (input.eventType !== "app_uninstalled" && input.eventType !== "tokens_revoked") {
+    return "ignored";
+  }
+  // Already marked (by an earlier event, a refused token or a lost key): nothing to write.
+  if (input.connection.attention !== null) return "ignored";
+  await markAttention(db, input.connection, "app_uninstalled", { type: "system" }, input.now);
+  return "uninstalled";
 }

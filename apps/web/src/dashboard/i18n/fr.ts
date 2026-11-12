@@ -2667,6 +2667,58 @@ export const fr = {
     "Son identifiant est effacé de Portifact. Les tickets déjà créés gardent leurs liens ; ceux encore en cours de création échouent. Révoquez aussi le jeton ou la clé chez le service.",
   "integrations.removed": "{label} supprimé.",
   "integrations.actionFailed": "Cela n'a pas fonctionné",
+  "integrations.service.slack": "Slack",
+  "integrations.state.pending": "Non terminée",
+  "integrations.attention.pending":
+    "Terminez la connexion : collez le bot token et le signing secret de l'app Slack.",
+  "integrations.attention.app_uninstalled":
+    "Slack indique que l'app a été désinstallée ou que ses tokens ont été révoqués. Réinstallez-la dans Slack et collez son nouveau bot token et son signing secret.",
+  "integrations.howto.slack.title": "Comment connecter Slack",
+  "integrations.howto.slack.1":
+    "Commencez ici par un libellé. Portifact affiche alors un manifeste pour votre propre app Slack ; rien n'est encore envoyé à Slack.",
+  "integrations.howto.slack.2":
+    "Ouvrez le lien pour créer l'app dans Slack à partir de ce manifeste, puis installez-la dans votre espace Slack. Il vous faut l'autorisation d'y créer et d'y installer des apps.",
+  "integrations.howto.slack.3":
+    "Copiez le Bot User OAuth Token (il commence par xoxb-) dans OAuth & Permissions et le Signing Secret dans Basic Information, puis collez-les ici.",
+  "integrations.howto.slack.4":
+    "Dans les réglages de l'app dans Slack, ouvrez Event Subscriptions et cliquez sur Verify à côté de la Request URL.",
+  "integrations.slack.start": "Commencer",
+  "integrations.slack.started":
+    "{label} commencée. Créez l'app Slack à partir de son manifeste pour terminer.",
+  "integrations.slack.notices":
+    "Les notifications dans un canal passent par les webhooks : ajoutez un incoming webhook à la même app Slack et collez son URL sur la page Webhooks.",
+  "integrations.slack.noticesLink": "Ouvrir Webhooks",
+  "integrations.slack.pending.title": "Terminer la connexion à Slack",
+  "integrations.slack.pending.body":
+    "Créez l'app à partir de ce manifeste et installez-la dans votre espace Slack, puis collez ci-dessous son bot token et son signing secret. Une connexion non terminée sous 24 heures est supprimée.",
+  "integrations.slack.create": "Créer l'app dans Slack",
+  "integrations.slack.manifest": "Manifeste de l'app",
+  "integrations.slack.requestUrl": "Request URL",
+  "integrations.slack.copyRequestUrl": "Copier la Request URL",
+  "integrations.slack.copyManifest": "Copier le manifeste",
+  "integrations.slack.copied": "Copié",
+  "integrations.slack.botToken": "Bot User OAuth Token",
+  "integrations.slack.botTokenHint":
+    "Dans OAuth & Permissions, dans les réglages de l'app dans Slack. Il commence par xoxb-.",
+  "integrations.slack.signingSecret": "Signing Secret",
+  "integrations.slack.signingSecretHint":
+    "Dans Basic Information, dans les réglages de l'app dans Slack, sous App Credentials.",
+  "integrations.slack.finish": "Terminer la connexion",
+  "integrations.slack.verify":
+    "Ouvrez ensuite Event Subscriptions dans les réglages de l'app dans Slack et cliquez sur Verify à côté de la Request URL. Si Slack ne peut pas la vérifier, le signing secret est erroné : collez-le à nouveau ici.",
+  "integrations.slack.rename":
+    "L'app s'appelle Portifact. Pour distinguer deux espaces connectés au même espace Slack, renommez l'app dans ses réglages dans Slack (Basic Information, Display Information).",
+  "integrations.slack.team": "Espace Slack {team}",
+  "integrations.slack.outdatedTitle": "Manifeste ancien",
+  "integrations.slack.outdated":
+    "Cette app a été créée à partir d'un manifeste plus ancien. Mettez à jour son manifeste dans Slack avec celui ci-dessous.",
+  "integrations.slack.setup": "Manifeste et Request URL",
+  "integrations.slack.eu":
+    "Les données de cet espace sont conservées dans l'UE. Une app Slack connectée reçoit ce que Portifact lui envoie, comme les noms des artifacts publics dont les liens sont publiés, et Slack peut les conserver hors de l'UE.",
+  "integrations.edit.slackHint":
+    "Laissez les deux vides pour garder le token et le secret actuels. Un nouveau bot token va avec son signing secret.",
+  "integrations.confirm.slackBody":
+    "Le bot token et le signing secret sont supprimés de Portifact, et Portifact révoque le bot token chez Slack. Supprimez aussi l'app dans Slack.",
   "issues.create": "Créer un ticket",
   "issues.dialog.title": "Créer un ticket depuis le fil {number}",
   "issues.dialog.close": "Fermer",
@@ -2715,15 +2767,17 @@ export const fr = {
   "issues.failure.invalid_response":
     "le service a répondu d'une façon que Portifact n'a pas pu utiliser.",
   "audit.kind.integrationConnected":
-    "A connecté {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} avec {targets, plural, one {# dépôt ou équipe} other {# dépôts ou équipes}}",
+    "A connecté {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} avec {targets, plural, one {# dépôt ou équipe} other {# dépôts ou équipes}}",
+  "audit.kind.integrationConnectedOnly":
+    "A connecté {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {A remplacé l'identifiant d'une connexion} other {A modifié le libellé ou les cibles d'une connexion}}",
   "audit.kind.integrationRemoved":
-    "A supprimé une connexion {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}",
+    "A supprimé une connexion {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}}",
   "audit.kind.integrationFailing":
-    "{reason, select, site_mismatch {Le site Jira d'une connexion a changé d'adresse} key_unavailable {L'identifiant d'une connexion ne peut plus être ouvert} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} a refusé l'identifiant d'une connexion}}",
+    "{reason, select, app_uninstalled {L'app Slack d'une connexion a été désinstallée} site_mismatch {Le site Jira d'une connexion a changé d'adresse} key_unavailable {L'identifiant d'une connexion ne peut plus être ouvert} other {{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} a refusé l'identifiant d'une connexion}}",
   "audit.kind.issueCreated":
-    "A créé un ticket {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} dans {target} depuis un fil {message, select, true {avec son premier message} other {sans texte de commentaire}}",
+    "A créé un ticket {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} dans {target} depuis un fil {message, select, true {avec son premier message} other {sans texte de commentaire}}",
   "policies.networks.legend": "Réseaux pour les personnes",
   "policies.networks.hint":
     "Les membres, administrateurs compris, n’agissent sur l’espace de travail et ne lisent ses artifacts réservés à l’espace de travail que depuis ces réseaux. Les artifacts publics, les liens de partage et les personnes extérieures avec qui vous avez partagé ne sont pas concernés.",

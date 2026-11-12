@@ -2036,6 +2036,7 @@ describe("issues from threads in the viewer (decision 0018)", () => {
     targets: [{ id: "acme/site", name: "acme/site" }],
     usable: true,
     identity: "octo-bot",
+    slack: null,
     credentialHint: "\u2026WXYZ",
     attention: null,
     createdAt: "2026-11-09T09:00:00.000Z",
