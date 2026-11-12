@@ -314,6 +314,15 @@ function AccessModePanel({ artifact, policy, disabled }: GroupProps) {
         </>
       );
     }
+    if (mode === "public") {
+      // Slack previews (decision 0025) show public artifacts' names and stay after narrowing.
+      return (
+        <>
+          <span className="block">{t("accessSettings.mode.public")}</span>
+          <span className="mt-1 block">{t("accessSettings.mode.publicSlack")}</span>
+        </>
+      );
+    }
     if ((mode === "workspace" || mode === "domain") && audience) {
       const who =
         mode === "workspace"

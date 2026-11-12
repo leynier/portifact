@@ -241,6 +241,8 @@ export const ja = {
   "accessSettings.mode.authenticated":
     "リンクを知っていて、Portifactにサインインした人（アカウントは問いません）。",
   "accessSettings.mode.public": "リンクを知っている人なら誰でも（サインイン不要）。",
+  "accessSettings.mode.publicSlack":
+    "このスペースが Slack に接続している場合、そこに投稿されたこのリンクには名前と種類が表示され、公開でなくなった後も Slack にそのプレビューが残ります。",
   "accessSettings.mode.publicFrom":
     "{date}から利用できます。新しいアカウントは、作成から{minutes}分経過するとartifactを一般公開できます。",
   "accessSettings.indexable.label": "検索エンジンへの掲載を許可",
@@ -2611,6 +2613,10 @@ export const ja = {
   "integrations.slack.start": "開始",
   "integrations.slack.started":
     "{label} を開始しました。完了するにはマニフェストから Slack アプリを作成してください。",
+  "integrations.slack.previews":
+    "Slack ワークスペースでこのスペースの公開 artifact へのリンクが投稿されると、アプリがその下に artifact の名前と種類を表示します。それ以外は送信されません。内容も、公開されていない artifact に関する情報も送られません。",
+  "integrations.slack.previewsStay":
+    "Slack はプレビューをメッセージに残します。artifact が公開でなくなっても、以前のプレビューには名前と種類が表示されたままになり、そのリンクの新しい投稿にはプレビューが付きません。",
   "integrations.slack.notices":
     "チャンネルへの通知は Webhook から届きます。同じ Slack アプリに incoming webhook を追加し、その URL を Webhook ページに貼り付けてください。",
   "integrations.slack.noticesLink": "Webhook を開く",

@@ -1,11 +1,12 @@
-// Slack connections through the app Worker (decision 0025, delivery 1): started and completed only
+// Slack connections through the app Worker (decision 0025): started and completed only
 // through the dashboard's session, shown with their manifest and Request URL, kept out of the
 // owner side's listing (API, MCP) and refused for issues like a missing connection; the events
 // endpoint verifies Slack's signature before it reads a byte, answers `url_verification`, marks
-// an uninstalled app once, refuses everything else with one empty `401`, and does not exist
-// without SLACK_ENABLED. Slack is FakeSlack; nothing reaches Slack.
+// an uninstalled app once, previews public artifacts of the owner after the answer, refuses
+// everything else with one empty `401`, and does not exist without SLACK_ENABLED. Slack is
+// FakeSlack; nothing reaches Slack.
 import { env } from "cloudflare:workers";
-import { regionsFromEnv, schema } from "@portifact/db";
+import { aliasBinding, regionsFromEnv, schema } from "@portifact/db";
 import { FakeSlack } from "@portifact/services/testing";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -623,5 +624,120 @@ describe("the Slack events endpoint", () => {
     ]) {
       expect(text).not.toContain(secret);
     }
+  });
+
+  it("previews a public artifact's link after the answer, logging only outcomes and counts", async () => {
+    const fake = new FakeSlack();
+    const h = createHarness({ integrationFetch: fake.fetch });
+    const { view, signingSecret, userId, botToken } = await connected(
+      h,
+      fake,
+      "slack-preview@example.test",
+    );
+    const id = Array.from(
+      crypto.getRandomValues(new Uint8Array(10)),
+      (b) => "abcdefghijklmnopqrstuvwxyz234567"[b % 32],
+    ).join("");
+    await db()
+      .insert(schema.artifacts)
+      .values({
+        id,
+        ownerId: userId,
+        type: "site",
+        name: "Launch <!channel>",
+        state: "active",
+        annotations: "open",
+        accessMode: "public",
+        expiresAt: NOW + 86_400_000,
+        createdAt: NOW,
+        updatedAt: NOW,
+      });
+    const urls = [`https://${id}.portifact.dev/a.html?q=1`, `https://app.portifact.com/view/${id}`];
+    const lines: string[] = [];
+    const spies = (["log", "warn", "error"] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(" "));
+      }),
+    );
+    let answer: Response;
+    try {
+      answer = await h.request(
+        eventsPath(view.id),
+        await FakeSlack.signedEvent(
+          signingSecret,
+          FakeSlack.event("T0ACME01", "link_shared", FakeSlack.linkShared(urls, "composer")),
+          { now: NOW },
+        ),
+      );
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+    }
+    expect(answer.status).toBe(200);
+    expect(await answer.text()).toBe("");
+    expect(fake.unfurls).toHaveLength(1);
+    const sent = fake.unfurls[0] as { source: string; unfurls: Record<string, unknown> };
+    expect(sent.source).toBe("composer");
+    expect(Object.keys(sent.unfurls)).toEqual(urls);
+    expect(JSON.stringify(sent)).toContain("Launch &lt;!channel&gt;");
+    expect(fake.requests.at(-1)?.headers.authorization).toBe(`Bearer ${botToken}`);
+    const text = lines.join("\n");
+    expect(text).toContain('"outcome":"unfurled","candidates":2,"unfurled":2');
+    for (const secret of [id, "portifact.dev", "C0CHANNEL1", "U0POSTER1", "T0ACME01", "Launch"]) {
+      expect(text).not.toContain(secret);
+    }
+  });
+
+  it("keeps the 200 when the work after the answer fails, and logs only that it failed", async () => {
+    const fake = new FakeSlack();
+    let failing = false;
+    const binding = env.DB;
+    // Fails the artifacts' read, the only statement that names that table on this path.
+    const db = new Proxy(binding, {
+      get(target, property) {
+        if (property === "prepare") {
+          return (query: string) => {
+            if (failing && /from "artifacts"/.test(query)) throw new Error("D1_ERROR: boom");
+            return target.prepare(query);
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const h = createHarness({
+      integrationFetch: fake.fetch,
+      env: { DB: aliasBinding(db, binding) },
+    });
+    const { view, signingSecret } = await connected(h, fake, "slack-after@example.test");
+    const lines: string[] = [];
+    const spies = (["log", "warn", "error"] as const).map((level) =>
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(" "));
+      }),
+    );
+    failing = true;
+    let answer: Response;
+    try {
+      answer = await h.request(
+        eventsPath(view.id),
+        await FakeSlack.signedEvent(
+          signingSecret,
+          FakeSlack.event(
+            "T0ACME01",
+            "link_shared",
+            FakeSlack.linkShared(["https://abcdefgh23.portifact.dev/"]),
+          ),
+          { now: NOW },
+        ),
+      );
+    } finally {
+      failing = false;
+      for (const spy of spies) spy.mockRestore();
+    }
+    expect(answer.status).toBe(200);
+    expect(lines.join("\n")).toContain('"event":"slack_event"');
+    expect(lines.join("\n")).toContain('"outcome":"failed"');
+    expect(lines.join("\n")).not.toContain("boom");
+    expect(fake.unfurls).toEqual([]);
   });
 });

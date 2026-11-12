@@ -40,6 +40,7 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   markAttention: ["integration.failing"],
   // Slack (decision 0025): an uninstall event marks the connection with integration.failing.
   applySlackEvent: ["integration.failing"],
+  previewSlackLinks: ["integration.failing"],
   verifySlackRequest: ["integration.failing"],
   runThreadIssue: ["issue.created", "integration.failing"],
   updateBrand: ["brand.changed"],
@@ -331,7 +332,7 @@ reason(
 );
 reason(
   "Slack: calls that change nothing an owner has, and the pending scan, which deletes rows that never held anything (decision 0025)",
-  ["slackCall", "slackAuthTest", "slackRevoke", "prunePendingConnections"],
+  ["slackCall", "slackAuthTest", "slackRevoke", "slackUnfurl", "prunePendingConnections"],
 );
 reason("an issue request is recorded once the job creates the issue (issue.created)", [
   "requestThreadIssue",

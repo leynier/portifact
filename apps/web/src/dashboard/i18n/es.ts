@@ -245,6 +245,8 @@ export const es = {
   "accessSettings.mode.authenticated":
     "Cualquier persona con el enlace que inicie sesión en Portifact, con cualquier cuenta.",
   "accessSettings.mode.public": "Cualquier persona con el enlace, sin iniciar sesión.",
+  "accessSettings.mode.publicSlack":
+    "Si este espacio tiene Slack conectado, un enlace a él publicado allí muestra su nombre y tipo, y Slack conserva esa vista previa aunque deje de ser público.",
   "accessSettings.mode.publicFrom":
     "Disponible a partir del {date}. Las cuentas nuevas esperan {minutes} minutos antes de hacer público un artifact.",
   "accessSettings.indexable.label": "Permitir que los buscadores lo muestren",
@@ -2661,6 +2663,10 @@ export const es = {
   "integrations.slack.start": "Empezar",
   "integrations.slack.started":
     "Se empezó {label}. Crea la app de Slack desde su manifiesto para terminar.",
+  "integrations.slack.previews":
+    "Cuando alguien publica un enlace a uno de los artifacts públicos de este espacio en tu espacio de trabajo de Slack, la app muestra debajo el nombre y el tipo del artifact. No se envía nada más: ni contenido ni nada sobre artifacts que no sean públicos.",
+  "integrations.slack.previewsStay":
+    "Slack conserva la vista previa en su mensaje: si un artifact deja de ser público, las vistas previas anteriores siguen mostrando su nombre y tipo, y las nuevas publicaciones de su enlace no reciben ninguna.",
   "integrations.slack.notices":
     "Los avisos en un canal llegan por webhooks: añade un incoming webhook a la misma app de Slack y pega su URL en la página de Webhooks.",
   "integrations.slack.noticesLink": "Abrir Webhooks",

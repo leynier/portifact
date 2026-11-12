@@ -1,7 +1,7 @@
 // Calls to Slack's Web API (decision 0025, "Calls to Slack"): every answer class, bounded and
 // never followed, against FakeSlack and scripted answers. Nothing here reaches Slack.
 import { describe, expect, it } from "vitest";
-import { slackAuthTest, slackCall, slackRevoke } from "../src/slack-client.ts";
+import { slackAuthTest, slackCall, slackRevoke, slackUnfurl } from "../src/slack-client.ts";
 import { FakeSlack } from "../src/testing/fake-slack.ts";
 
 describe("a call to Slack", () => {
@@ -13,7 +13,7 @@ describe("a call to Slack", () => {
     fake.next("network");
     expect(await call()).toEqual({ kind: "failed" });
     fake.next("hang");
-    expect(await call()).toEqual({ kind: "failed" });
+    expect(await call()).toEqual({ kind: "timeout" });
     fake.next(new Response("slow down", { status: 429 }));
     expect(await call()).toEqual({ kind: "rate_limited" });
     fake.next(new Response("oops", { status: 500 }));
@@ -79,5 +79,40 @@ describe("a call to Slack", () => {
       }),
     ]);
     expect((await slackRevoke(token, { fetch: fake.fetch })).kind).toBe("rejected");
+  });
+
+  it("times out an answer whose body never finishes, and auth.test reads it as unavailable", async () => {
+    const token = FakeSlack.botToken();
+    const fake = new FakeSlack().bot(token);
+    const stalled = () =>
+      new Response(new ReadableStream({ start() {} }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    fake.next(stalled());
+    expect(await slackCall("auth.test", token, {}, { fetch: fake.fetch, timeoutMs: 50 })).toEqual({
+      kind: "timeout",
+    });
+    fake.next("hang");
+    expect(await slackAuthTest(token, { fetch: fake.fetch, timeoutMs: 50 })).toEqual({
+      ok: false,
+      problem: "service_unavailable",
+    });
+  });
+
+  it("sends chat.unfurl's body as JSON with the bot token, to slack.com only", async () => {
+    const token = FakeSlack.botToken();
+    const fake = new FakeSlack().bot(token);
+    const body = { unfurl_id: "u", source: "composer", unfurls: { "https://x/": { blocks: [] } } };
+    expect((await slackUnfurl(token, body, { fetch: fake.fetch })).kind).toBe("ok");
+    expect(fake.unfurls).toEqual([body]);
+    expect(fake.requests.at(-1)).toMatchObject({
+      url: "https://slack.com/api/chat.unfurl",
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const user = FakeSlack.userToken();
+    fake.user(user);
+    expect((await slackUnfurl(user, body, { fetch: fake.fetch })).kind).toBe("failed");
   });
 });

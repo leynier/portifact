@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { VIEWER_HASH_MAX, VIEWER_PATH_MAX, viewerHash, viewerPath } from "./viewer.ts";
+import {
+  openToAnyone,
+  VIEWER_HASH_MAX,
+  VIEWER_PATH_MAX,
+  viewerHash,
+  viewerPath,
+} from "./viewer.ts";
 
 describe("viewer paths", () => {
   it("keeps a path and its query on the artifact origin", () => {
@@ -56,5 +62,30 @@ describe("viewer fragments", () => {
     expect(viewerHash("#a\nb")).toBe("");
     expect(viewerHash(`#${"a".repeat(VIEWER_HASH_MAX)}`)).toBe("");
     expect(viewerHash(`#${"a".repeat(VIEWER_HASH_MAX - 1)}`)).toHaveLength(VIEWER_HASH_MAX);
+  });
+});
+
+describe("what anyone may see", () => {
+  const now = new Date("2026-11-12T09:00:00Z");
+  const base = {
+    accessMode: "public" as const,
+    state: "active" as const,
+    expiresAt: null,
+    archivedAt: null,
+  };
+
+  it("is a public artifact that is effectively active", () => {
+    expect(openToAnyone(base, now)).toBe(true);
+    expect(openToAnyone({ ...base, expiresAt: new Date(now.getTime() + 1) }, now)).toBe(true);
+  });
+
+  it("is never another access mode, an expired artifact or any other state", () => {
+    for (const accessMode of ["authenticated", "restricted", "workspace", "domain"] as const) {
+      expect(openToAnyone({ ...base, accessMode }, now), accessMode).toBe(false);
+    }
+    expect(openToAnyone({ ...base, expiresAt: now }, now)).toBe(false);
+    for (const state of ["draft", "archived", "suspended", "purging", "deleted"] as const) {
+      expect(openToAnyone({ ...base, state }, now), state).toBe(false);
+    }
   });
 });

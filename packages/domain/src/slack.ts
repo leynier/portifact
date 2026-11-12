@@ -2,8 +2,17 @@
 // admin creates in their own Slack workspace, the shapes of what the admin pastes, the events
 // endpoint's path, and the checks of an inbound request before and after its signature. Pure: the
 // services verify the signature with Web Crypto, read and write the connection, and call Slack.
-import { REGIONS, type Region, SLACK_LIMITS, SLACK_MANIFEST_VERSION } from "@portifact/contracts";
+import {
+  type ArtifactType,
+  REGIONS,
+  type Region,
+  SLACK_LIMITS,
+  SLACK_MANIFEST_VERSION,
+} from "@portifact/contracts";
+import { plainLine } from "./integrations.ts";
+import { noticeNames } from "./notices.ts";
 import { fail, ok, type Result } from "./result.ts";
+import { slackEscape } from "./webhooks.ts";
 
 const refuse = (message: string) => fail<never>("invalid_input", message);
 
@@ -163,6 +172,11 @@ export type SlackEnvelope =
       /** Every `authorizations` entry is for the same team and not an organization-wide install. */
       authorizationsAgree: boolean;
       eventType: string | null;
+      /** `link_shared` only: the posted URLs, as Slack sent them (strings, at most `urlMax`). */
+      links: string[];
+      /** `link_shared` only: the unfurl's ID and source, when their shape is Slack's. */
+      unfurlId: string | null;
+      source: SlackUnfurlSource | null;
     }
   | { kind: "other" };
 
@@ -200,12 +214,40 @@ export function parseSlackEnvelope(text: string): SlackEnvelope {
           const one = record(entry);
           return one !== null && one.team_id === teamId && one.is_enterprise_install === false;
         })));
-  const eventType = record(body.event)?.type;
+  const event = record(body.event);
+  const eventType = typeof event?.type === "string" ? event.type : null;
+  const shared = eventType === "link_shared" && event ? sharedLinks(event) : null;
   return {
     kind: "event",
     teamId,
     authorizationsAgree,
-    eventType: typeof eventType === "string" ? eventType : null,
+    eventType,
+    links: shared?.links ?? [],
+    unfurlId: shared?.unfurlId ?? null,
+    source: shared?.source ?? null,
+  };
+}
+
+/** Where Slack shows an unfurl: a posted message, or the composer while someone types. */
+export type SlackUnfurlSource = "conversations_history" | "composer";
+const UNFURL_SOURCES: readonly string[] = ["conversations_history", "composer"];
+const UNFURL_ID = /^[A-Za-z0-9._-]{1,255}$/;
+
+/** A `link_shared` event's links, unfurl ID and source, each kept only in its expected shape. */
+function sharedLinks(event: Record<string, unknown>) {
+  const links: string[] = [];
+  if (Array.isArray(event.links)) {
+    for (const entry of event.links.slice(0, SLACK_LIMITS.linksScanned)) {
+      const url = record(entry)?.url;
+      if (typeof url === "string" && url.length <= SLACK_LIMITS.urlMax) links.push(url);
+    }
+  }
+  const unfurlId = typeof event.unfurl_id === "string" ? event.unfurl_id : "";
+  const source = typeof event.source === "string" ? event.source : "";
+  return {
+    links,
+    unfurlId: UNFURL_ID.test(unfurlId) ? unfurlId : null,
+    source: UNFURL_SOURCES.includes(source) ? (source as SlackUnfurlSource) : null,
   };
 }
 
@@ -234,3 +276,159 @@ export const SLACK_REJECTING_ERRORS: ReadonlySet<string> = new Set([
   "account_inactive",
   "missing_scope",
 ]);
+
+/** The deployment's hosts a preview recognizes: from configuration, never a constant. */
+export interface SlackLinkDomains {
+  /** The content domain (`portifact.dev`): artifacts live at `<id>.<content domain>`. */
+  contentDomain: string;
+  /** The app's host (`app.portifact.com`), as `URL.host` gives it. */
+  appHost: string;
+}
+
+const ARTIFACT_LABEL = "[a-z2-7]{10}";
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** After the host: nothing, or a path, a query or a fragment (never parsed). */
+const TAIL = "(?:[/?#][^\\s]*)?";
+
+/**
+ * The artifact a posted URL names, or null (decision 0025, "Which links"). Exactly two shapes,
+ * matched on the URL as Slack sent it, byte for byte, with no parsing that could normalize it:
+ * `https://<id>.<content domain>[:443][/…]` and `https://<app host>[:443]/view/<id>[/…]`. The
+ * scheme and host are lowercase, no userinfo, no other port, no encoded or non-ASCII character
+ * in the host and no trailing dot; the query and the fragment are never read. Share links
+ * (`/s#…`), `/read/<id>`, the dashboard, custom domains and every other host are null.
+ */
+export function slackArtifactLink(url: string, domains: SlackLinkDomains): string | null {
+  if (url.length > SLACK_LIMITS.urlMax || /[^\x21-\x7e]/.test(url)) return null;
+  const content = new RegExp(
+    `^https://(${ARTIFACT_LABEL})\\.${escapeRegExp(domains.contentDomain)}(?::443)?${TAIL}$`,
+  );
+  const viewer = new RegExp(
+    `^https://${escapeRegExp(domains.appHost)}(?::443)?/view/(${ARTIFACT_LABEL})(?:[/?#][^\\s]*)?$`,
+  );
+  return content.exec(url)?.[1] ?? viewer.exec(url)?.[1] ?? null;
+}
+
+/** A link to preview: the URL exactly as Slack sent it (the unfurl's key) and the artifact. */
+export interface SlackLink {
+  url: string;
+  artifactId: string;
+}
+
+/**
+ * The links of one event worth looking up: those `slackArtifactLink` accepts, for the first
+ * `SLACK_LIMITS.linksPerEvent` distinct artifacts. Every other URL is dropped unread.
+ */
+export function slackPreviewLinks(urls: readonly string[], domains: SlackLinkDomains): SlackLink[] {
+  const ids = new Set<string>();
+  const links: SlackLink[] = [];
+  const seen = new Set<string>();
+  for (const url of urls.slice(0, SLACK_LIMITS.linksScanned)) {
+    const artifactId = slackArtifactLink(url, domains);
+    if (artifactId === null || seen.has(url)) continue;
+    if (!ids.has(artifactId)) {
+      if (ids.size >= SLACK_LIMITS.linksPerEvent) continue;
+      ids.add(artifactId);
+    }
+    seen.add(url);
+    links.push({ url, artifactId });
+  }
+  return links;
+}
+
+/**
+ * Whether `&`, `<` and `>` are escaped in a preview's `plain_text`. Slack documents its escapes
+ * for `mrkdwn`; release check 7 shows whether `plain_text` shows them as entities, and this is
+ * turned off only after that check (decision 0025, "What it shows").
+ */
+export const SLACK_PLAIN_TEXT_ESCAPES = true;
+
+/** Text for a `plain_text` object: escaped as Slack's formatting rules ask, or as is. */
+export function slackPlainText(text: string, escapes: boolean = SLACK_PLAIN_TEXT_ESCAPES): string {
+  return escapes ? slackEscape(text) : text;
+}
+
+/**
+ * Whether a preview for an owner outside the default region names the artifact. The maintainer's
+ * question 2 of decision 0025, assumed yes: Slack is a destination the owner's admin chose. False
+ * makes an EU preview `An artifact on Portifact` with the type line, as `noticeDetail` would.
+ */
+export const SLACK_PREVIEW_NAMES_OUTSIDE_DEFAULT_REGION = true;
+
+export const SLACK_UNNAMED_ARTIFACT = "An artifact on Portifact";
+
+/**
+ * Half of a surrogate pair on its own: not a character, and JSON a service may refuse. Removed
+ * before the name is cleaned, so a preview is never dropped for it.
+ */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+/** The preview's first line: the cleaned, bounded name, `Untitled` when empty. */
+export function slackPreviewTitle(
+  name: string,
+  region: Region,
+  namesOutsideDefault: boolean = SLACK_PREVIEW_NAMES_OUTSIDE_DEFAULT_REGION,
+): string {
+  if (!namesOutsideDefault && !noticeNames(region)) return SLACK_UNNAMED_ARTIFACT;
+  return plainLine(name.replace(LONE_SURROGATE, ""), SLACK_LIMITS.nameMax) ?? "Untitled";
+}
+
+/** The preview's second line: one of three fixed English labels. */
+export const SLACK_TYPE_LABELS: Record<ArtifactType, string> = {
+  site: "Website on Portifact",
+  markdown: "Markdown document on Portifact",
+  text: "Text document on Portifact",
+};
+
+export interface SlackPreviewOptions {
+  escapes?: boolean;
+  namesOutsideDefault?: boolean;
+}
+
+/** The two blocks of one preview: the name, then the type. Nothing else about the artifact. */
+export function slackPreviewBlocks(
+  artifact: { name: string; type: ArtifactType },
+  region: Region,
+  options: SlackPreviewOptions = {},
+) {
+  const title = slackPreviewTitle(artifact.name, region, options.namesOutsideDefault);
+  return [
+    {
+      type: "section",
+      text: { type: "plain_text", text: slackPlainText(title, options.escapes), emoji: false },
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "plain_text",
+          text: slackPlainText(SLACK_TYPE_LABELS[artifact.type], options.escapes),
+          emoji: false,
+        },
+      ],
+    },
+  ];
+}
+
+/**
+ * The body of one `chat.unfurl` call: the event's `unfurl_id` and `source`, and one preview per
+ * URL, keyed by the URL exactly as Slack sent it. An object, serialized by the caller with
+ * `JSON.stringify`.
+ */
+export function slackUnfurlBody(
+  event: { unfurlId: string; source: SlackUnfurlSource },
+  previews: readonly { url: string; name: string; type: ArtifactType }[],
+  region: Region,
+  options: SlackPreviewOptions = {},
+) {
+  const unfurls: Record<string, { blocks: ReturnType<typeof slackPreviewBlocks> }> = {};
+  for (const preview of previews) {
+    Object.defineProperty(unfurls, preview.url, {
+      value: { blocks: slackPreviewBlocks(preview, region, options) },
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return { unfurl_id: event.unfurlId, source: event.source, unfurls };
+}

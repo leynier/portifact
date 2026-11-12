@@ -90,6 +90,8 @@ describe("Slack on the integrations page (decision 0025)", () => {
       // No credential or target fields for Slack at this step; the notices go through webhooks.
       expect(within(form).queryByLabelText("Fine-grained personal access token")).toBeNull();
       expect(within(form).getByRole("link", { name: "Open Webhooks" })).toBeTruthy();
+      // What previews send, before anything is connected.
+      expect(within(form).getByText(/shows the artifact's name and type under it/)).toBeTruthy();
       fireEvent.change(within(form).getByLabelText(/^Label/), { target: { value: "Acme Slack" } });
       fireEvent.click(within(form).getByRole("button", { name: "Start" }));
       const list = within(main).getByRole("region", { name: "Connections" });
@@ -120,6 +122,8 @@ describe("Slack on the integrations page (decision 0025)", () => {
       expect(server.bodies.at(-1)).toEqual({ botToken: BOT, signingSecret: SECRET });
       expect(within(list).getByText(/click Verify next to the Request URL/)).toBeTruthy();
       expect(within(list).getByText(/rename the app in its settings in Slack/)).toBeTruthy();
+      // And what stays in Slack after an artifact stops being public.
+      expect(within(list).getByText(/earlier previews still show its name and type/)).toBeTruthy();
       expect(document.body.innerHTML).not.toContain(BOT.slice(0, 20));
       expect(document.body.innerHTML).not.toContain(SECRET);
       expect(await axeViolations(document.body)).toEqual([]);

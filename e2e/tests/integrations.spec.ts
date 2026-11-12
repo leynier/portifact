@@ -6,7 +6,7 @@
 
 import { axeViolations } from "../src/axe.ts";
 import { control, createUser, expect, publish, signIn, sql, test } from "../src/fixtures.ts";
-import { APP_ORIGIN } from "../src/hosts.ts";
+import { APP_HOST, APP_ORIGIN, CONTENT_SITE } from "../src/hosts.ts";
 
 const TOKEN = "github_pat_e2e_fake_token_0123456789abcdef";
 // The fake Jira the e2e stack's gateway accepts (e2e/worker/integrations.ts). Not secrets.
@@ -210,7 +210,7 @@ const SLACK = {
   signingSecret: "e2e0".repeat(8),
 };
 
-test("start a Slack connection, finish it with the bot token, and answer Slack's verification", async ({
+test("start a Slack connection, finish it, answer Slack's verification and preview a public link", async ({
   page,
   context,
 }) => {
@@ -276,4 +276,72 @@ test("start a Slack connection, finish it with the bot token, and answer Slack's
   });
   expect(forged.status()).toBe(401);
   expect(await forged.text()).toBe("");
+
+  // A link to the owner's public artifact posted in Slack: one chat.unfurl with its name and
+  // type, after the answer; a private artifact's link in the same message gets nothing.
+  const open = await publish({
+    ownerId: owner.userId,
+    type: "markdown",
+    name: "E2E <!channel> plan",
+    files: { "index.md": "# Plan" },
+    accessMode: "public",
+  });
+  const closed = await publish({
+    ownerId: owner.userId,
+    name: "Private plan",
+    files: { "index.html": "<p>private</p>" },
+  });
+  const openUrl = `https://${open.artifactId}.${CONTENT_SITE}/`;
+  const closedUrl = `https://${APP_HOST}/view/${closed.artifactId}`;
+  const shared = JSON.stringify({
+    type: "event_callback",
+    team_id: "T0E2E0001",
+    api_app_id: "A0E2E",
+    event: {
+      type: "link_shared",
+      channel: "C0E2E",
+      user: "U0E2E",
+      message_ts: "1700000000.000100",
+      unfurl_id: "C0E2E.1700000000.000100.e2e",
+      source: "conversations_history",
+      links: [
+        { domain: CONTENT_SITE, url: openUrl },
+        { domain: APP_HOST, url: closedUrl },
+      ],
+    },
+    authorizations: [{ team_id: "T0E2E0001", is_bot: true, is_enterprise_install: false }],
+    is_enterprise_install: false,
+  });
+  const before = (await control<{ unfurls: unknown[] }>("/slack-unfurls", {})).unfurls.length;
+  const posted = await page.request.post(`${APP_ORIGIN}${path}`, {
+    headers: {
+      "content-type": "application/json",
+      "x-slack-request-timestamp": timestamp,
+      "x-slack-signature": `v0=${createHmac("sha256", SLACK.signingSecret).update(`v0:${timestamp}:${shared}`).digest("hex")}`,
+    },
+    data: shared,
+  });
+  expect(posted.status()).toBe(200);
+  expect(await posted.text()).toBe("");
+  let sent: { unfurl_id: string; unfurls: Record<string, unknown> } | undefined;
+  await expect
+    .poll(async () => {
+      const { unfurls } = await control<{ unfurls: (typeof sent)[] }>("/slack-unfurls", {});
+      sent = unfurls.slice(before).find((one) => one?.unfurl_id === "C0E2E.1700000000.000100.e2e");
+      return sent !== undefined;
+    })
+    .toBe(true);
+  expect(Object.keys(sent?.unfurls ?? {})).toEqual([openUrl]);
+  expect(sent?.unfurls[openUrl]).toEqual({
+    blocks: [
+      {
+        type: "section",
+        text: { type: "plain_text", text: "E2E &lt;!channel&gt; plan", emoji: false },
+      },
+      {
+        type: "context",
+        elements: [{ type: "plain_text", text: "Markdown document on Portifact", emoji: false }],
+      },
+    ],
+  });
 });

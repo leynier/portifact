@@ -1,5 +1,6 @@
 // A fake Slack for tests and the e2e stack (decision 0025): never the real Slack. Its `fetch`
-// answers the Web API methods Portifact calls (`auth.test`, `auth.revoke`) for the bot and user
+// answers the Web API methods Portifact calls (`auth.test`, `auth.revoke`, `chat.unfurl`, whose
+// bodies it keeps in `unfurls`) for the bot and user
 // tokens a test registers, and `signedEvent` builds an inbound request signed the way Slack
 // signs (`v0=` and the HMAC-SHA-256 of `v0:<timestamp>:<body>` with the app's signing secret).
 // Tokens and secrets are made at run time, so no literal that looks like a real credential is
@@ -38,6 +39,8 @@ function randomDigits(length: number): string {
 
 export class FakeSlack {
   readonly requests: FakeSlackRequest[] = [];
+  /** The bodies of `chat.unfurl` calls Slack accepted, parsed. */
+  readonly unfurls: unknown[] = [];
   /** Tokens revoked with `auth.revoke`. */
   readonly revoked = new Set<string>();
   private readonly tokens = new Map<string, FakeSlackToken>();
@@ -109,10 +112,15 @@ export class FakeSlack {
       return scripted;
     }
     if (scripted !== undefined) await scripted.before();
-    return this.answer(url, init.method ?? "GET", headers);
+    return this.answer(url, init.method ?? "GET", headers, body);
   };
 
-  private answer(url: string, method: string, headers: Record<string, string>): Response {
+  private answer(
+    url: string,
+    method: string,
+    headers: Record<string, string>,
+    body: string,
+  ): Response {
     const parsed = new URL(url);
     if (parsed.origin !== "https://slack.com" || method !== "POST") {
       return new Response("not found", { status: 404 });
@@ -136,6 +144,15 @@ export class FakeSlack {
     if (parsed.pathname === "/api/auth.revoke") {
       this.revoked.add(token);
       return Response.json({ ok: true, revoked: true });
+    }
+    if (parsed.pathname === "/api/chat.unfurl") {
+      if (!known.botId) return Response.json({ ok: false, error: "not_allowed_token_type" });
+      try {
+        this.unfurls.push(JSON.parse(body));
+      } catch {
+        return Response.json({ ok: false, error: "invalid_json" });
+      }
+      return Response.json({ ok: true });
     }
     return Response.json({ ok: false, error: "unknown_method" });
   }
@@ -173,6 +190,20 @@ export class FakeSlack {
         "x-slack-signature": await FakeSlack.signature(secret, timestamp, body),
       },
       body,
+    };
+  }
+
+  /** A `link_shared` event's fields, as Slack sends them for a posted message. */
+  static linkShared(urls: readonly string[], source = "conversations_history") {
+    return {
+      channel: "C0CHANNEL1",
+      user: "U0POSTER1",
+      message_ts: "1700000000.000100",
+      thread_ts: "1700000000.000100",
+      unfurl_id: "C0CHANNEL1.1700000000.000100.abc",
+      source,
+      event_ts: "1700000000.000200",
+      links: urls.map((url) => ({ domain: URL.parse(url)?.hostname ?? "", url })),
     };
   }
 

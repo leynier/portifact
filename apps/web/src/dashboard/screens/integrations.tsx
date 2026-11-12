@@ -295,6 +295,9 @@ function Connect({
           onChange={(event) => setLabel(event.currentTarget.value)}
         />
         {service === "slack" ? (
+          <p className="text-sm text-text-muted">{t("integrations.slack.previews")}</p>
+        ) : null}
+        {service === "slack" ? (
           <p className="text-sm text-text-muted">
             {t("integrations.slack.notices")}{" "}
             <Link to="/webhooks">{t("integrations.slack.noticesLink")}</Link>
@@ -802,6 +805,9 @@ function SlackSetup({
           {t("integrations.slack.eu")}
         </Callout>
       ) : null}
+      <p className="text-sm text-text-muted">
+        {t("integrations.slack.previews")} {t("integrations.slack.previewsStay")}
+      </p>
       {pending ? (
         <>
           <Callout tone="info" title={t("integrations.slack.pending.title")}>

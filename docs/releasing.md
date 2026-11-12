@@ -379,6 +379,16 @@ Slack connections ship switched off ([decision 0025](decisions/0025-slack-integr
 4. **Rotation.** An app with token rotation on gives an `xoxe.` token, which the form refuses with its own message.
 5. **Uninstall.** Uninstalling the app marks the connection "Needs attention" with one `integration.failing` (`app_uninstalled`); record the order in which `app_uninstalled` and `tokens_revoked` arrive.
 6. **Removal.** Removing the connection revokes the token: `auth.test` with it fails afterwards, and the log has `slack_token_revoke` with `ok`.
+7. **Preview.** `.dev` and `/view/` links to a public artifact show the name and type. Names with `<!channel>`, `<@U…>`, `*bold*`, `<https://example.com|x>`, `:smile:`, bidi and zero-width characters render literally and notify nobody. Record whether the escaped `&lt;` shows as `<` or as `&lt;` in `plain_text`; if it shows as an entity, set `SLACK_PLAIN_TEXT_ESCAPES` to `false` (`packages/domain/src/slack.ts`, its tests cover both) in its own change before switching on.
+8. **Nothing else.** Links to a private artifact, another owner's public artifact, an unknown ID, an archived and a suspended artifact get no Portifact preview, and Slack shows the same thing for all of them; record what that is (Slack's classic preview or none).
+9. **Share links.** A posted `/s#…` link causes no call to Slack (`candidates` 0 in the log); record whether the event's `url` carries the fragment; the logs carry nothing of it.
+10. **Composer.** The preview while typing works with `unfurl_id` and `source` (`composer`).
+11. **Retries.** A staging-only delay past three seconds makes Slack retry with `X-Slack-Retry-Num`, and the repeated `chat.unfurl` leaves one preview.
+12. **Shared channels and Grid.** A Slack Connect channel previews with the installing workspace's `team_id`; an org-wide install, if a Grid sandbox is available, is ignored (`team_mismatch`).
+13. **Hosts and secrets.** The app Worker's subrequests go only to `slack.com`; no token, secret, URL, artifact ID, name, channel or user ID appears in either Worker's logs.
+14. **Rate limit.** 60 links in a minute in one channel produce previews or `rate_limited` log lines, never a retry loop.
+
+Question 2 of decision 0025 (may an EU owner's preview name the artifact) is assumed yes; if the maintainer answers no, set `SLACK_PREVIEW_NAMES_OUTSIDE_DEFAULT_REGION` to `false` (its tests cover both) before switching on.
 
 Released CLIs: Slack connections never appear in the owner side's listing, so no CLI release has to come first.
 
