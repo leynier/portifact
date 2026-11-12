@@ -19,7 +19,12 @@ interface FakeSlackToken {
   botId?: string;
 }
 
-type Scripted = Response | "network" | "hang";
+type Scripted =
+  | Response
+  | "network"
+  | "hang"
+  /** Runs before the fake's own answer: a change that lands while Slack is being asked. */
+  | { before: () => Promise<unknown> };
 
 function randomHex(bytes: number): string {
   return [...crypto.getRandomValues(new Uint8Array(bytes))]
@@ -96,7 +101,14 @@ export class FakeSlack {
         signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
       });
     }
-    if (scripted instanceof Response) return scripted;
+    if (scripted instanceof Response) {
+      // A caller that would follow redirects gets the page behind them, as a real fetch would.
+      if (scripted.status >= 300 && scripted.status < 400 && init.redirect !== "manual") {
+        return Response.json({ ok: true, team: "Elsewhere", team_id: "T0ELSEWHERE", bot_id: "B0" });
+      }
+      return scripted;
+    }
+    if (scripted !== undefined) await scripted.before();
     return this.answer(url, init.method ?? "GET", headers);
   };
 

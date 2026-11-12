@@ -7,7 +7,7 @@
 import { env } from "cloudflare:workers";
 import { aliasBinding, regionsFromEnv, schema } from "@portifact/db";
 import { createWorkspace } from "@portifact/services";
-import { FakeSlack } from "@portifact/services/testing";
+import { FakeIssueTrackers, FakeSlack } from "@portifact/services/testing";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHarness, type Harness, ORIGIN } from "./harness.ts";
@@ -311,5 +311,88 @@ describe("the D1 cost of the Slack events endpoint", () => {
         { service: "slack", reason: "key_unavailable" },
       ]);
     }
+  });
+
+  it("refuses an issue connection's ID for one read, opening nothing and writing nothing", async () => {
+    const db = recording(env.DB);
+    const token = `github_pat_slack_cost_${"0123456789".repeat(2)}`;
+    const trackers = new FakeIssueTrackers().github(token, "octo-bot", ["acme/site"]);
+    const h = createHarness({ env: { DB: db.database }, integrationFetch: trackers.fetch });
+    const email = "slack-cost-github@example.test";
+    const cookie = await h.signIn(email);
+    const regions = regionsFromEnv(env);
+    const [user] = await regions.global
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, email));
+    if (!user) throw new Error("no user");
+    await regions.global
+      .insert(schema.ownerPlans)
+      .values({ ownerId: user.id, plan: "team", seats: 1, grantedBy: "test", updatedAt: NOW });
+    const created = await h.request("/api/v1/integrations/connections", {
+      ...json("POST", {
+        service: "github",
+        label: "Repo",
+        credential: token,
+        targets: ["acme/site"],
+      }),
+      headers: {
+        "content-type": "application/json",
+        cookie,
+        "sec-fetch-site": "same-origin",
+        origin: ORIGIN,
+      },
+    });
+    expect(created.status).toBe(201);
+    const { id } = await created.json<{ id: string }>();
+    const read = async () => {
+      const [found] = await regions
+        .get("default")
+        .db.select()
+        .from(schema.integrationConnections)
+        .where(eq(schema.integrationConnections.id, id));
+      const events = await regions
+        .get("default")
+        .db.select()
+        .from(schema.auditEvents)
+        .where(eq(schema.auditEvents.ownerId, user.id));
+      return { found, events };
+    };
+    const before = await read();
+    expect(before.found?.attention).toBeNull();
+    db.taken();
+    const path = `/integrations/slack/events/default/${id}`;
+    const payload = { type: "url_verification", challenge: "abc" };
+    for (const [label, init] of [
+      [
+        "unsigned",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-slack-request-timestamp": String(Math.floor(NOW / 1000)),
+            "x-slack-signature": `v0=${"0".repeat(64)}`,
+          },
+          body: JSON.stringify(payload),
+        },
+      ],
+      // Signed with a secret of the caller's choosing: an issue connection has none to match.
+      ["signed", await FakeSlack.signedEvent(FakeSlack.signingSecret(), payload, { now: NOW })],
+      [
+        "signed with the token as the secret",
+        await FakeSlack.signedEvent(token, payload, { now: NOW }),
+      ],
+    ] as const) {
+      const answer = await h.request(path, init as RequestInit);
+      expect(answer.status, label).toBe(401);
+      expect(await answer.text(), label).toBe("");
+      expect(db.taken(), label).toBe(1);
+    }
+    // Byte for byte as before: no attention, no event, nothing called.
+    expect(await read()).toEqual(before);
+    expect(trackers.requests.map((r) => r.url)).toEqual([
+      "https://api.github.com/user",
+      "https://api.github.com/repos/acme/site",
+    ]);
   });
 });

@@ -2682,6 +2682,8 @@ export const es = {
   "integrations.slack.finish": "Terminar la conexión",
   "integrations.slack.verify":
     "Ahora abre Event Subscriptions en la configuración de la app en Slack y pulsa Verify junto a la Request URL. Si Slack no puede verificarla, el signing secret es incorrecto: pégalo de nuevo aquí.",
+  "integrations.slack.rename":
+    "La app se llama Portifact. Para distinguir dos espacios conectados a un mismo espacio de Slack, cambia el nombre de la app en su configuración en Slack (Basic Information, Display Information).",
   "integrations.slack.team": "Espacio de Slack {team}",
   "integrations.slack.outdatedTitle": "Manifiesto antiguo",
   "integrations.slack.outdated":
@@ -2741,15 +2743,17 @@ export const es = {
   "issues.failure.invalid_response":
     "el servicio respondió de una forma que Portifact no pudo usar.",
   "audit.kind.integrationConnected":
-    "Conectó {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} con {targets, plural, one {# repositorio o equipo} other {# repositorios o equipos}}",
+    "Conectó {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} con {targets, plural, one {# repositorio o equipo} other {# repositorios o equipos}}",
+  "audit.kind.integrationConnectedOnly":
+    "Conectó {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {Reemplazó la credencial de una conexión} other {Cambió la etiqueta o los destinos de una conexión}}",
   "audit.kind.integrationRemoved":
-    "Quitó una conexión de {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}",
+    "Quitó una conexión de {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}}",
   "audit.kind.integrationFailing":
-    "{reason, select, site_mismatch {El sitio de Jira de una conexión cambió de dirección} key_unavailable {La credencial de una conexión ya no se puede abrir} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} rechazó la credencial de una conexión}}",
+    "{reason, select, app_uninstalled {Se desinstaló la app de Slack de una conexión} site_mismatch {El sitio de Jira de una conexión cambió de dirección} key_unavailable {La credencial de una conexión ya no se puede abrir} other {{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} rechazó la credencial de una conexión}}",
   "audit.kind.issueCreated":
-    "Creó un issue de {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} en {target} desde un hilo {message, select, true {con su primer mensaje} other {sin texto de comentarios}}",
+    "Creó un issue de {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} en {target} desde un hilo {message, select, true {con su primer mensaje} other {sin texto de comentarios}}",
   "policies.networks.legend": "Redes para personas",
   "policies.networks.hint":
     "Los miembros, incluidos los administradores, actúan en el espacio de trabajo y leen sus artifacts solo para el espacio de trabajo únicamente desde estas redes. Los artifacts públicos, los enlaces para compartir y las personas de fuera con quienes compartiste no se ven afectados.",

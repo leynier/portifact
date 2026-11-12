@@ -524,6 +524,59 @@ describe("the Slack events endpoint", () => {
     expect(broken.status).toBe(401);
   });
 
+  it("refuses a correctly signed body over the cap without a length, by the cap, and every method but POST", async () => {
+    const fake = new FakeSlack();
+    const h = createHarness({ integrationFetch: fake.fetch });
+    const { view, signingSecret } = await connected(h, fake, "slack-cap@example.test");
+    // Valid JSON of 64 KiB + 1, correctly signed: only the cap can refuse it.
+    const text = JSON.stringify({ type: "url_verification", challenge: "abc", pad: "" });
+    const padded = text.replace('"pad":""', `"pad":"${"x".repeat(64 * 1024 + 1 - text.length)}"`);
+    expect(new TextEncoder().encode(padded).length).toBe(64 * 1024 + 1);
+    const signed = await FakeSlack.signedEvent(signingSecret, JSON.parse(padded), { now: NOW });
+    expect(signed.body).toBe(padded);
+    const bytes = new TextEncoder().encode(padded);
+    const streamed = await h.request(eventsPath(view.id), {
+      method: "POST",
+      headers: signed.headers as Record<string, string>,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        },
+      }),
+      // @ts-expect-error workerd needs it for a stream body
+      duplex: "half",
+    });
+    expect(streamed.status).toBe(401);
+    // One byte less, signed, passes: the cap is what refused the other.
+    const fits = JSON.stringify({ type: "url_verification", challenge: "abc", pad: "" });
+    const under = fits.replace('"pad":""', `"pad":"${"x".repeat(64 * 1024 - fits.length)}"`);
+    const ok = await FakeSlack.signedEvent(signingSecret, JSON.parse(under), { now: NOW });
+    const accepted = await h.request(eventsPath(view.id), {
+      method: "POST",
+      headers: ok.headers as Record<string, string>,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(under));
+          controller.close();
+        },
+      }),
+      // @ts-expect-error workerd needs it for a stream body
+      duplex: "half",
+    });
+    expect(accepted.status).toBe(200);
+    for (const method of ["PUT", "PATCH", "DELETE"]) {
+      const verification = await FakeSlack.signedEvent(
+        signingSecret,
+        { type: "url_verification", challenge: "abc" },
+        { now: NOW },
+      );
+      const answer = await h.request(eventsPath(view.id), { ...verification, method });
+      expect(answer.status, method).toBe(401);
+      expect(await answer.text(), method).toBe("");
+    }
+  });
+
   it("never logs a token, a secret, a signature, a team, a challenge or a body", async () => {
     const fake = new FakeSlack();
     const h = createHarness({ integrationFetch: fake.fetch });

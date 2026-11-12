@@ -2419,6 +2419,8 @@ export const zhCN = {
   "integrations.slack.finish": "完成连接",
   "integrations.slack.verify":
     "接下来，在 Slack 的应用设置中打开 Event Subscriptions，点击 Request URL 旁边的 Verify。如果 Slack 无法验证，说明 signing secret 有误：请在这里重新粘贴。",
+  "integrations.slack.rename":
+    "应用名为 Portifact。要区分连接到同一个 Slack 工作区的两个空间，请在 Slack 的应用设置（Basic Information、Display Information）中重命名该应用。",
   "integrations.slack.team": "Slack 工作区 {team}",
   "integrations.slack.outdatedTitle": "旧版清单",
   "integrations.slack.outdated":
@@ -2475,15 +2477,17 @@ export const zhCN = {
   "issues.failure.service_unavailable": "服务没有响应。",
   "issues.failure.invalid_response": "服务的响应无法被 Portifact 使用。",
   "audit.kind.integrationConnected":
-    "连接了 {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}，包含 {targets, plural, one {# 个仓库或团队} other {# 个仓库或团队}}",
+    "连接了 {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}}，包含 {targets, plural, one {# 个仓库或团队} other {# 个仓库或团队}}",
+  "audit.kind.integrationConnectedOnly":
+    "连接了 {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {替换了连接的凭据} other {更改了连接的标签或目标}}",
   "audit.kind.integrationRemoved":
-    "删除了一个 {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} 连接",
+    "删除了一个 {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} 连接",
   "audit.kind.integrationFailing":
-    "{reason, select, site_mismatch {某个连接的 Jira 站点地址已更改} key_unavailable {连接的凭据无法再打开} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} 拒绝了连接的凭据}}",
+    "{reason, select, app_uninstalled {某个连接的 Slack 应用已被卸载} site_mismatch {某个连接的 Jira 站点地址已更改} key_unavailable {连接的凭据无法再打开} other {{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} 拒绝了连接的凭据}}",
   "audit.kind.issueCreated":
-    "从讨论串在 {target} 中创建了 {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} issue {message, select, true {（包含第一条消息）} other {（不含评论文字）}}",
+    "从讨论串在 {target} 中创建了 {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} issue {message, select, true {（包含第一条消息）} other {（不含评论文字）}}",
   "policies.networks.legend": "人员网络",
   "policies.networks.hint":
     "成员（包括管理员）只能从这些网络操作工作区并阅读仅限工作区的 artifact。公开 artifact、共享链接以及你共享给的工作区外人员不受影响。",

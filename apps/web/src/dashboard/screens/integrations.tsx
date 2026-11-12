@@ -808,6 +808,7 @@ function SlackSetup({
             {t("integrations.slack.pending.body")}
           </Callout>
           <HowTo service="slack" />
+          <p className="text-sm text-text-muted">{t("integrations.slack.rename")}</p>
           <div>
             <a
               href={setup.createUrl}
@@ -873,6 +874,7 @@ function SlackSetup({
       ) : (
         <>
           <p className="text-sm text-text-muted">{t("integrations.slack.verify")}</p>
+          <p className="text-sm text-text-muted">{t("integrations.slack.rename")}</p>
           {setup.outdated ? (
             <Callout tone="info" title={t("integrations.slack.outdatedTitle")}>
               {t("integrations.slack.outdated")}

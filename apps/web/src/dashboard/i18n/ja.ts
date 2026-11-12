@@ -2632,6 +2632,8 @@ export const ja = {
   "integrations.slack.finish": "接続を完了",
   "integrations.slack.verify":
     "次に、Slack のアプリ設定で Event Subscriptions を開き、Request URL の横の Verify をクリックしてください。Slack が確認できない場合は signing secret が間違っています。ここにもう一度貼り付けてください。",
+  "integrations.slack.rename":
+    "アプリ名は Portifact です。1 つの Slack ワークスペースに接続した 2 つのスペースを区別するには、Slack のアプリ設定 (Basic Information、Display Information) でアプリ名を変更してください。",
   "integrations.slack.team": "Slack ワークスペース {team}",
   "integrations.slack.outdatedTitle": "古いマニフェスト",
   "integrations.slack.outdated":
@@ -2690,15 +2692,17 @@ export const ja = {
   "issues.failure.service_unavailable": "サービスが応答しませんでした。",
   "issues.failure.invalid_response": "サービスの応答を Portifact が使用できませんでした。",
   "audit.kind.integrationConnected":
-    "{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} を {targets, plural, one {# 件のリポジトリまたはチーム} other {# 件のリポジトリまたはチーム}} で接続しました",
+    "{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} を {targets, plural, one {# 件のリポジトリまたはチーム} other {# 件のリポジトリまたはチーム}} で接続しました",
+  "audit.kind.integrationConnectedOnly":
+    "{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} を接続しました",
   "audit.kind.integrationChanged":
     "{credential, select, true {接続の認証情報を置き換えました} other {接続のラベルまたは対象を変更しました}}",
   "audit.kind.integrationRemoved":
-    "{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} の接続を削除しました",
+    "{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} の接続を削除しました",
   "audit.kind.integrationFailing":
-    "{reason, select, site_mismatch {接続先の Jira サイトのアドレスが変わりました} key_unavailable {接続の認証情報を開けなくなりました} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} が接続の認証情報を拒否しました}}",
+    "{reason, select, app_uninstalled {接続の Slack アプリがアンインストールされました} site_mismatch {接続先の Jira サイトのアドレスが変わりました} key_unavailable {接続の認証情報を開けなくなりました} other {{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} が接続の認証情報を拒否しました}}",
   "audit.kind.issueCreated":
-    "スレッドから {target} に {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} の issue を作成しました {message, select, true {(最初のメッセージを含む)} other {(コメントのテキストなし)}}",
+    "スレッドから {target} に {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} の issue を作成しました {message, select, true {(最初のメッセージを含む)} other {(コメントのテキストなし)}}",
   "policies.networks.legend": "人のためのネットワーク",
   "policies.networks.hint":
     "管理者を含むメンバーは、これらのネットワークからのみワークスペースを操作し、ワークスペース限定のartifactを閲覧できます。公開artifact、共有リンク、共有した外部の人には影響しません。",

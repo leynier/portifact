@@ -812,8 +812,66 @@ export async function removeIntegrationConnection(
 ): Promise<Result<{ connectionId: string }>> {
   const allowed = authorize(input.actor, "integrations");
   if (!allowed.ok) return allowed;
-  const row = await owned(db, input.actor, input.connectionId);
-  if (!row) return missing();
+  // Each attempt deletes only the row as it was read (its revision): a credential pasted, or a
+  // pending Slack connection completed, in between is never deleted as what it was before. One
+  // retry takes the row as it is now; a second change in between answers a conflict.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const row = await owned(db, input.actor, input.connectionId);
+    if (!row) return missing();
+    const removed =
+      row.attention === "pending"
+        ? await removePending(db, input.actor, row)
+        : await removeHeld(db, input, row);
+    if (removed === "removed") return ok({ connectionId: row.id });
+    if (removed === "gone") {
+      const again = await stillManages(db, input.actor);
+      return again.ok ? missing() : again;
+    }
+  }
+  return fail("version_conflict", "The connection changed meanwhile. Reload and try again.");
+}
+
+type Removal = "removed" | "gone" | "changed";
+
+/**
+ * After a delete that matched nothing: the row is gone (or the caller no longer manages it), or it
+ * is still there with another revision, which the caller retries.
+ */
+async function missedRemoval(db: RegionalDb, row: ConnectionRow): Promise<Removal> {
+  const [still] = await db.select({ revision: c.revision }).from(c).where(eq(c.id, row.id));
+  return still && still.revision !== row.revision ? "changed" : "gone";
+}
+
+/**
+ * A Slack connection started and never completed holds nothing (decision 0025): it goes like the
+ * 24-hour scan takes it, with no audit event, no tombstone and nothing to revoke, and only while it
+ * is still pending at the revision read.
+ */
+async function removePending(db: RegionalDb, actor: Actor, row: ConnectionRow): Promise<Removal> {
+  const { w, holds } = writeScope(db, actor);
+  const [deleted] = await w.batch([
+    w
+      .delete(c)
+      .where(
+        and(
+          eq(c.id, row.id),
+          eq(c.ownerId, actor.ownerId),
+          eq(c.revision, row.revision),
+          eq(c.attention, "pending"),
+          holds,
+        ) as SQL,
+      )
+      .returning({ id: c.id }),
+  ]);
+  return deleted.length === 1 ? "removed" : missedRemoval(db, row);
+}
+
+/** A connection that holds a credential: tombstone first, then the delete with its event. */
+async function removeHeld(
+  db: RegionalDb,
+  input: { actor: Actor; now: number; slack?: SlackRevocation | undefined },
+  row: ConnectionRow,
+): Promise<Removal> {
   // Opened before the delete and kept only in memory: after it, no copy is readable.
   const token =
     row.service === "slack" && input.slack?.enabled
@@ -826,7 +884,12 @@ export async function removeIntegrationConnection(
     .values({ kind: "integration_connection", id: row.id, deletedAt: input.now })
     .onConflictDoNothing();
   const { w, holds } = writeScope(db, input.actor);
-  const mine = and(eq(c.id, row.id), eq(c.ownerId, input.actor.ownerId), holds) as SQL;
+  const mine = and(
+    eq(c.id, row.id),
+    eq(c.ownerId, input.actor.ownerId),
+    eq(c.revision, row.revision),
+    holds,
+  ) as SQL;
   const [, deleted] = await w.batch([
     connectionEvent(
       w,
@@ -839,21 +902,18 @@ export async function removeIntegrationConnection(
     ),
     w.delete(c).where(mine).returning({ id: c.id }),
   ]);
-  if (deleted.length === 1) {
-    if (token !== undefined && input.slack) {
-      const { fetch, defer } = input.slack;
-      defer(
-        slackRevoke(token, { fetch }).then((answer) => {
-          const outcome = answer.kind;
-          if (outcome === "ok") logEvent("log", "slack_token_revoke", { outcome });
-          else logEvent("warn", "slack_token_revoke", { outcome });
-        }),
-      );
-    }
-    return ok({ connectionId: row.id });
+  if (deleted.length !== 1) return missedRemoval(db, row);
+  if (token !== undefined && input.slack) {
+    const { fetch, defer } = input.slack;
+    defer(
+      slackRevoke(token, { fetch }).then((answer) => {
+        const outcome = answer.kind;
+        if (outcome === "ok") logEvent("log", "slack_token_revoke", { outcome });
+        else logEvent("warn", "slack_token_revoke", { outcome });
+      }),
+    );
   }
-  const again = await stillManages(db, input.actor);
-  return again.ok ? missing() : again;
+  return "removed";
 }
 
 export interface SlackRevocation {

@@ -97,6 +97,8 @@ describe("Slack on the integrations page (decision 0025)", () => {
       expect(server.bodies.at(-1)).toEqual({ service: "slack", label: "Acme Slack" });
       expect(within(list).getByText("Not finished")).toBeTruthy();
       expect(within(list).getByText("Finish connecting Slack")).toBeTruthy();
+      // The app's name is fixed; two spaces in one Slack workspace are told apart in Slack.
+      expect(within(list).getByText(/rename the app in its settings in Slack/)).toBeTruthy();
       const create = within(list).getByRole("link", { name: /Create the app in Slack/ });
       expect(create.getAttribute("href")).toMatch(/^https:\/\/api\.slack\.com\/apps\?new_app=1/);
       expect(create.getAttribute("rel")).toBe("noopener noreferrer");
@@ -117,6 +119,7 @@ describe("Slack on the integrations page (decision 0025)", () => {
       expect(await within(list).findByText("Slack workspace Acme")).toBeTruthy();
       expect(server.bodies.at(-1)).toEqual({ botToken: BOT, signingSecret: SECRET });
       expect(within(list).getByText(/click Verify next to the Request URL/)).toBeTruthy();
+      expect(within(list).getByText(/rename the app in its settings in Slack/)).toBeTruthy();
       expect(document.body.innerHTML).not.toContain(BOT.slice(0, 20));
       expect(document.body.innerHTML).not.toContain(SECRET);
       expect(await axeViolations(document.body)).toEqual([]);

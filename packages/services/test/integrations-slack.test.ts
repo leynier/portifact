@@ -3,8 +3,9 @@
 // the pending scan, the inbound signature check and the uninstall events, every refusal and the
 // permission boundaries, against the real D1 schema in workerd and the fake Slack in
 // @portifact/services/testing. Nothing here reaches Slack.
-import { SLACK_LIMITS, SLACK_MANIFEST_VERSION } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import { env } from "cloudflare:test";
+import { type JobMessage, SLACK_LIMITS, SLACK_MANIFEST_VERSION } from "@portifact/contracts";
+import { regionsFromEnv, schema } from "@portifact/db";
 import {
   type Actor,
   openSlackCredential,
@@ -15,6 +16,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { exportAccount } from "../src/account-data.ts";
 import { actorOn } from "../src/actors.ts";
+import { createAnnotationThread } from "../src/annotations.ts";
 import { integrationKeys, openCredential } from "../src/integration-keys.ts";
 import {
   applySlackEvent,
@@ -30,9 +32,12 @@ import {
   updateIntegrationConnection,
   verifySlackRequest,
 } from "../src/integrations.ts";
+import { runJob } from "../src/outbox.ts";
+import { FakeIssueTrackers } from "../src/testing/fake-issue-trackers.ts";
 import { FakeSlack } from "../src/testing/fake-slack.ts";
 import { requestThreadIssue } from "../src/thread-issues.ts";
-import { DAY, db, grantPlan, NOW, value } from "./fixtures.ts";
+import { createWorkspace } from "../src/workspaces.ts";
+import { DAY, db, grantPlan, NOW, racing, value } from "./fixtures.ts";
 
 const KEY_TEXT = "test-only integrations sealing key, long enough to use";
 const OTHER_KEY = "another test-only integrations key, long enough too";
@@ -711,3 +716,334 @@ describe("a verified event", () => {
     expect((await row(connection.id))?.attention).toBeNull();
   });
 });
+
+describe("removing a pending Slack connection", () => {
+  it("records nothing about removing a pending row that never held anything", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    const actor = personalActor(owner.id);
+    const pending = value(await start(actor, new FakeSlack()));
+    value(await removeIntegrationConnection(db(), { actor, connectionId: pending.id, now: NOW }));
+    expect((await auditOf(owner.id)).map((e) => [e.kind, e.detail])).toEqual([]);
+    expect(await row(pending.id)).toBeUndefined();
+    const tombstones = await db()
+      .global.select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, pending.id));
+    expect(tombstones).toEqual([]);
+  });
+
+  it("removes a connection completed meanwhile as a real one: event, tombstone and revoke", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    const actor = personalActor(owner.id);
+    const botToken = FakeSlack.botToken();
+    const fake = new FakeSlack().bot(botToken, "Acme", "T0ACME01");
+    const pending = value(await start(actor, fake));
+    // The admin's other tab completes the connection between this removal's read and its delete.
+    const raced = racing(async () => {
+      value(
+        await complete(actor, pending.id, fake, {
+          botToken,
+          signingSecret: FakeSlack.signingSecret(),
+        }),
+      );
+    });
+    const deferred: Promise<unknown>[] = [];
+    value(
+      await removeIntegrationConnection(raced, {
+        actor,
+        connectionId: pending.id,
+        now: NOW,
+        slack: {
+          enabled: true,
+          keys: await integrationKeys({ current: KEY_TEXT }),
+          fetch: fake.fetch,
+          defer: (task) => deferred.push(task),
+        },
+      }),
+    );
+    await Promise.all(deferred);
+    expect(await row(pending.id)).toBeUndefined();
+    expect((await auditOf(owner.id)).map((e) => e.kind)).toEqual([
+      "integration.connected",
+      "integration.removed",
+    ]);
+    const [tombstone] = await db()
+      .global.select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, pending.id));
+    expect(tombstone?.kind).toBe("integration_connection");
+    expect(fake.revoked.has(botToken)).toBe(true);
+  });
+
+  it("never deletes a credential pasted meanwhile as the one it read", async () => {
+    const { owner, actor, connection } = await connected();
+    const next = FakeSlack.botToken();
+    const fake = new FakeSlack().bot(next, "Acme", "T0ACME01");
+    const raced = racing(async () => {
+      value(
+        await complete(actor, connection.id, fake, {
+          botToken: next,
+          signingSecret: FakeSlack.signingSecret(),
+        }),
+      );
+    });
+    const deferred: Promise<unknown>[] = [];
+    value(
+      await removeIntegrationConnection(raced, {
+        actor,
+        connectionId: connection.id,
+        now: NOW,
+        slack: {
+          enabled: true,
+          keys: await integrationKeys({ current: KEY_TEXT }),
+          fetch: fake.fetch,
+          defer: (task) => deferred.push(task),
+        },
+      }),
+    );
+    await Promise.all(deferred);
+    // The retry removed the connection as it was then, and revoked the token it held then.
+    expect(await row(connection.id)).toBeUndefined();
+    expect(fake.revoked.has(next)).toBe(true);
+    expect((await auditOf(owner.id)).filter((e) => e.kind === "integration.removed")).toHaveLength(
+      1,
+    );
+  });
+});
+
+describe("the guarded writes of completing a Slack connection", () => {
+  it("answers a conflict when the connection changed between auth.test and the write", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    const actor = personalActor(owner.id);
+    const botToken = FakeSlack.botToken();
+    const fake = new FakeSlack().bot(botToken, "Acme", "T0ACME01");
+    const pending = value(await start(actor, fake));
+    const raced = racing(() =>
+      db()
+        .update(schema.integrationConnections)
+        .set({ label: "Renamed elsewhere", revision: sql`revision + 1` })
+        .where(eq(schema.integrationConnections.id, pending.id)),
+    );
+    expect(
+      await updateIntegrationConnection(raced, {
+        actor,
+        connectionId: pending.id,
+        update: { botToken, signingSecret: FakeSlack.signingSecret() },
+        deps: await deps(fake),
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "version_conflict" });
+    expect(await row(pending.id)).toMatchObject({
+      attention: "pending",
+      keyId: "",
+      label: "Renamed elsewhere",
+    });
+    expect(await auditOf(owner.id)).toEqual([]);
+  });
+
+  it("stores nothing for an admin demoted while Slack was asked, with a separate regional database", async () => {
+    const admin = await person();
+    const other = await person();
+    const created = await createWorkspace(regionsFromEnv(env).global, {
+      slug: `slack-${crypto.randomUUID().slice(0, 8)}`,
+      name: "EU",
+      adminUserId: admin.id,
+      now: NOW,
+      region: "eu",
+    });
+    if (!created.ok) throw new Error(created.message);
+    const ws = created.value.id;
+    await regionsFromEnv(env)
+      .global.insert(schema.workspaceMembers)
+      .values({ workspaceId: ws, userId: other.id, role: "admin", updatedAt: NOW });
+    await grantPlan(ws, "team");
+    const euDb = regionsFromEnv(env).get("eu").db;
+    const actor = await actorIn(admin.id, ws);
+    const botToken = FakeSlack.botToken();
+    const fake = new FakeSlack().bot(botToken, "Acme", "T0ACME01");
+    const pending = value(
+      await createIntegrationConnection(euDb, {
+        actor,
+        connection: { service: "slack", label: "Acme" },
+        deps: await deps(fake),
+        now: NOW,
+      }),
+    );
+    // Demoted while auth.test runs: no write condition reaches the global table from the EU
+    // database, so only the re-check after the call stops the write.
+    fake.next({
+      before: () =>
+        regionsFromEnv(env)
+          .global.update(schema.workspaceMembers)
+          .set({ role: "editor" })
+          .where(
+            and(
+              eq(schema.workspaceMembers.workspaceId, ws),
+              eq(schema.workspaceMembers.userId, admin.id),
+            ),
+          ),
+    });
+    expect(
+      await updateIntegrationConnection(euDb, {
+        actor,
+        connectionId: pending.id,
+        update: { botToken, signingSecret: FakeSlack.signingSecret() },
+        deps: await deps(fake),
+        now: NOW,
+      }),
+    ).toMatchObject({ ok: false, code: "forbidden" });
+    const [stored] = await euDb
+      .select()
+      .from(schema.integrationConnections)
+      .where(eq(schema.integrationConnections.id, pending.id));
+    expect(stored).toMatchObject({ attention: "pending", keyId: "", credentialBox: "" });
+  });
+
+  it("fails Test without marking when the token now answers for another Slack workspace", async () => {
+    const { actor, botToken, connection } = await connected();
+    const moved = new FakeSlack().bot(botToken, "Elsewhere", "T0OTHER01");
+    const tested = value(
+      await testIntegrationConnection(db(), {
+        actor,
+        connectionId: connection.id,
+        deps: await deps(moved),
+        now: NOW,
+      }),
+    );
+    expect(tested).toMatchObject({ ok: false, problem: "credential_rejected" });
+    expect(tested.message).toMatch(/another Slack workspace/);
+    expect(await row(connection.id)).toMatchObject({ attention: null, identity: "Acme" });
+  });
+});
+
+describe("a Slack connection in the issue job", () => {
+  it("fails a request whose connection turns out to be a Slack connection, sending nothing", async () => {
+    const { owner, connection } = await connected();
+    const trackers = new FakeIssueTrackers().github(GITHUB_TOKEN, "octo-bot", ["acme/site"]);
+    const issueConnection = value(
+      await createIntegrationConnection(db(), {
+        actor: personalActor(owner.id),
+        connection: {
+          service: "github",
+          label: "Repo",
+          credential: GITHUB_TOKEN,
+          targets: ["acme/site"],
+        },
+        deps: {
+          keys: await integrationKeys({ current: KEY_TEXT }),
+          service: ON,
+          fetch: trackers.fetch,
+        },
+        now: NOW,
+      }),
+    );
+    const { artifactId, threadId } = await artifactWithThread(owner.id);
+    const issue = value(
+      await requestThreadIssue(db(), {
+        userId: owner.id,
+        artifactId,
+        threadId,
+        request: {
+          connectionId: issueConnection.id,
+          target: "acme/site",
+          title: "Fix it",
+          include: { link: true, artifactName: true, quote: false, message: false },
+        },
+        idempotencyKey: crypto.randomUUID(),
+        service: ON,
+        now: NOW,
+      }),
+    );
+    // The request names the Slack connection, as a forged or corrupted row would.
+    await db()
+      .update(schema.threadIssues)
+      .set({ connectionId: connection.id })
+      .where(eq(schema.threadIssues.id, issue.id));
+    const before = trackers.requests.length;
+    const [job] = await db()
+      .select()
+      .from(schema.outbox)
+      .where(and(eq(schema.outbox.topic, "thread_issue"), eq(schema.outbox.subject, issue.id)));
+    if (!job) throw new Error("no job");
+    const message: JobMessage = { id: job.id, topic: "thread_issue" };
+    await runJob(db(), env.ARTIFACTS, message, NOW, {
+      issues: {
+        keys: await integrationKeys({ current: KEY_TEXT }),
+        fetch: trackers.fetch,
+        appOrigin: "https://app.portifact.test",
+        enabled: true,
+      },
+    });
+    const [after] = await db()
+      .select()
+      .from(schema.threadIssues)
+      .where(eq(schema.threadIssues.id, issue.id));
+    expect(after).toMatchObject({ state: "failed", failure: "connection_removed" });
+    expect(trackers.requests.length).toBe(before);
+  });
+});
+
+const GITHUB_TOKEN = `github_pat_slack_suite_${"0123456789".repeat(2)}`;
+
+async function artifactWithThread(ownerId: string) {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+  const artifactId = Array.from(
+    crypto.getRandomValues(new Uint8Array(10)),
+    (b) => alphabet[b % 32],
+  ).join("");
+  const version = `${artifactId}_v1`;
+  await db()
+    .insert(schema.artifacts)
+    .values({
+      id: artifactId,
+      ownerId,
+      type: "site",
+      name: "Plan",
+      state: "active",
+      annotations: "open",
+      accessMode: "restricted",
+      expiresAt: NOW + 30 * DAY,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+  await db().insert(schema.versions).values({
+    id: version,
+    artifactId,
+    number: 1,
+    authorId: ownerId,
+    state: "committed",
+    entrypoint: "index.html",
+    publishedBytes: 10,
+    committedAt: NOW,
+  });
+  await db()
+    .insert(schema.versionFiles)
+    .values({
+      versionId: version,
+      kind: "published",
+      path: "index.html",
+      ownerId,
+      sha256: "a".repeat(64),
+      size: 10,
+      contentType: "text/html",
+    });
+  await db()
+    .update(schema.artifacts)
+    .set({ currentVersionId: version })
+    .where(eq(schema.artifacts.id, artifactId));
+  const thread = value(
+    await createAnnotationThread(db(), {
+      humanCheck: { token: "solved", verify: async () => "passed" },
+      userId: ownerId,
+      artifactId,
+      versionId: version,
+      target: { schema: 1, path: "index.html", anchor: { kind: "document" } },
+      body: "A thread",
+      now: NOW,
+    }),
+  );
+  return { artifactId, threadId: thread.id };
+}

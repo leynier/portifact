@@ -2675,6 +2675,8 @@ export const ru = {
   "integrations.slack.finish": "Завершить подключение",
   "integrations.slack.verify":
     "Теперь откройте Event Subscriptions в настройках приложения в Slack и нажмите Verify рядом с Request URL. Если Slack не может её проверить, signing secret неверен: вставьте его здесь снова.",
+  "integrations.slack.rename":
+    "Приложение называется Portifact. Чтобы различать два пространства, подключённых к одному пространству Slack, переименуйте приложение в его настройках в Slack (Basic Information, Display Information).",
   "integrations.slack.team": "Пространство Slack {team}",
   "integrations.slack.outdatedTitle": "Устаревший манифест",
   "integrations.slack.outdated":
@@ -2733,15 +2735,17 @@ export const ru = {
   "issues.failure.service_unavailable": "сервис не ответил.",
   "issues.failure.invalid_response": "сервис ответил так, что Portifact не смог это использовать.",
   "audit.kind.integrationConnected":
-    "Подключил {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} с {targets, plural, one {# репозиторием или командой} few {# репозиториями или командами} many {# репозиториями или командами} other {# репозитория или команды}}",
+    "Подключил {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} с {targets, plural, one {# репозиторием или командой} few {# репозиториями или командами} many {# репозиториями или командами} other {# репозитория или команды}}",
+  "audit.kind.integrationConnectedOnly":
+    "Подключил {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {Заменил учётные данные подключения} other {Изменил название или цели подключения}}",
   "audit.kind.integrationRemoved":
-    "Удалил подключение {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}",
+    "Удалил подключение {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}}",
   "audit.kind.integrationFailing":
-    "{reason, select, site_mismatch {Сайт Jira подключения сменил адрес} key_unavailable {Учётные данные подключения больше нельзя открыть} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} отклонил учётные данные подключения}}",
+    "{reason, select, app_uninstalled {Приложение Slack подключения было удалено} site_mismatch {Сайт Jira подключения сменил адрес} key_unavailable {Учётные данные подключения больше нельзя открыть} other {{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} отклонил учётные данные подключения}}",
   "audit.kind.issueCreated":
-    "Создал задачу {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} в {target} из ветки {message, select, true {с её первым сообщением} other {без текста комментариев}}",
+    "Создал задачу {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} в {target} из ветки {message, select, true {с её первым сообщением} other {без текста комментариев}}",
   "policies.networks.legend": "Сети для людей",
   "policies.networks.hint":
     "Участники, включая администраторов, работают в рабочем пространстве и читают его artifacts, открытые только для рабочего пространства, только из этих сетей. Публичные artifacts, ссылки для общего доступа и внешние люди, с которыми вы поделились, не затрагиваются.",

@@ -570,10 +570,13 @@ export function describeAuditEvent(
         enabled: d.enabled === undefined ? "events" : flag(d.enabled),
       });
     case "integration.connected":
-      return t("audit.kind.integrationConnected", {
-        service: String(d.service),
-        targets: Number(d.targets),
-      });
+      // A Slack connection has no targets (decision 0025): no count to state.
+      return Number(d.targets) === 0
+        ? t("audit.kind.integrationConnectedOnly", { service: String(d.service) })
+        : t("audit.kind.integrationConnected", {
+            service: String(d.service),
+            targets: Number(d.targets),
+          });
     case "integration.changed":
       return t("audit.kind.integrationChanged", { credential: flag(d.credential) });
     case "integration.removed":

@@ -30,6 +30,10 @@ describe("a call to Slack", () => {
     expect(await call()).toEqual({ kind: "rejected" });
     fake.next(new Response(null, { status: 200 }));
     expect(await call()).toEqual({ kind: "failed" });
+    // A redirect is a failure, never followed: the fake hands a following caller the page behind.
+    fake.next(new Response(null, { status: 302, headers: { location: "https://evil.test/" } }));
+    expect(await call()).toEqual({ kind: "failed" });
+    expect(fake.requests.at(-1)?.url).toBe("https://slack.com/api/auth.test");
   });
 
   it("reads auth.test only for a bot of a Slack workspace with a valid ID", async () => {

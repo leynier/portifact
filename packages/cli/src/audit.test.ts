@@ -518,6 +518,27 @@ describe("plain words for every kind", () => {
     ).toBe(expected[kind]);
   });
 
+  it("describes Slack connections truthfully: no count, an uninstall that is not a refusal", () => {
+    const summary = (kind: AuditKind, detail: Record<string, unknown>) =>
+      auditSummary(event(0, { kind, detail }));
+    expect(summary("integration.connected", { service: "slack", targets: 0 })).toBe(
+      "Connected Slack",
+    );
+    expect(summary("integration.failing", { service: "slack", reason: "app_uninstalled" })).toBe(
+      "The Slack app behind a connection was uninstalled",
+    );
+    expect(
+      summary("integration.failing", { service: "slack", reason: "credential_rejected" }),
+    ).toBe("Slack refused a connection's credential");
+    expect(summary("integration.failing", { service: "slack", reason: "key_unavailable" })).toBe(
+      "A Slack connection's credential can no longer be opened",
+    );
+    expect(summary("integration.removed", { service: "slack" })).toBe("Removed a Slack connection");
+    expect(summary("integration.changed", { credential: true, label: true })).toBe(
+      "Changed a connection: its label, its credential",
+    );
+  });
+
   it("names Jira, a moved Jira site and a service this version does not know", () => {
     const summary = (kind: AuditKind, detail: Record<string, unknown>) =>
       auditSummary(event(0, { kind, detail }));

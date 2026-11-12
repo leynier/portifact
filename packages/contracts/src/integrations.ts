@@ -110,8 +110,6 @@ export const SLACK_LIMITS = {
   responseReadBytes: 16 * 1024,
   /** A started connection that was never completed is deleted after this long. */
   pendingMs: 24 * 3_600_000,
-  /** Slack's limit for `display_information.name`. */
-  appNameMax: 35,
   /** Bot token characters accepted at most. */
   tokenMax: 255,
 } as const;
