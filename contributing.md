@@ -18,30 +18,46 @@ The maintainer does not sign a grant to themself. Approved automation accounts (
 
 ## How to sign
 
-Two steps, both from your own GitHub account.
+You sign with a comment you post on the pull request from your own GitHub account. The first time, you also add your signature record to `cla-signers.md`.
 
-1. The first time, add this line at the end of the list in [cla-signers.md](cla-signers.md), with your GitHub login, your numeric account ID (shown by `gh api user --jq .id`, or at `https://api.github.com/users/<your-login>`), your full legal name, today's date (`YYYY-MM-DD`) and the statement exactly as written:
-
-   ```text
-   - @your-login (12345678), Your Full Legal Name, 2026-11-12: I have read and agree to the Portifact Individual Contributor License Agreement, version 2.0, whose text in cla.md has the SHA-256 digest 93ea88ec08f6ce189eb0b39653c5d2eece4e31d00dde8110d7438a26ededeec0.
-   ```
-
-2. On every pull request, post a comment from your own account with this statement on a line of its own. Below it you may list earlier contributions you want it to cover, by pull request, commit or file.
+1. The first time, append your signature record at the end of [cla-signers.md](cla-signers.md), and change nothing else in the file: your GitHub login, your numeric account ID (shown by `gh api user --jq .id`, or at `https://api.github.com/users/<your-login>`), your full legal name, today's date (`YYYY-MM-DD`), and the agreement's version and digest exactly as written:
 
    ```text
-   I sign the Portifact Individual Contributor License Agreement, version 2.0, whose text in cla.md has the SHA-256 digest 93ea88ec08f6ce189eb0b39653c5d2eece4e31d00dde8110d7438a26ededeec0, and I submit my contributions in this pull request under it. I have identified in this pull request any material in it that I did not create, and I intend this comment to be my electronic signature.
+   - @your-login (12345678), Your Full Legal Name, 2026-11-12, version 2.0, SHA-256 bd9f987b3aed7bd8dd5dd9fd6bd280681d526b9ca884c1a2ac686058dac70106
    ```
 
-The comment is your signature: only your authenticated account can post it, and the line in `cla-signers.md` is an index. Post the comment, then push a commit or close and reopen the pull request so the check runs again. Identify in the pull request's description any material you did not create, with its source and license.
+2. On every pull request, post a new comment whose whole text is this statement, with nothing before or after it:
+
+   ```text
+   I have read and agree to the Portifact Individual Contributor License Agreement, version 2.0, identified by the SHA-256 digest bd9f987b3aed7bd8dd5dd9fd6bd280681d526b9ca884c1a2ac686058dac70106 of cla.md. I intend this comment to be my electronic signature. I grant its licenses for my contributions in this pull request and for any earlier contributions I identify in it, and I understand that they permit proprietary licensing without payment except where mandatory law requires otherwise. I have identified in this pull request any material in it that I did not create.
+   ```
+
+   If you opened the pull request, the statement alone is enough: you control its branch, so it covers the commits you author in it whenever you push them. If you did not open it (you are another commit author, or a co-author), add a second line naming the pull request's current head commit by its full SHA:
+
+   ```text
+   Head commit: <full SHA of the head commit>
+   ```
+
+   That statement counts only while that commit is the head. After a later push, post it again for the new head.
+
+The statement is the one quoted in [cla.md](cla.md) section 13, with its digest filled in. Only your authenticated account can post your comment, so the comment is your signature; the signature record in `cla-signers.md` is an index. A comment that was edited does not count, whoever edited it: post the statement again as a new comment. To cover earlier contributions, list them in a separate comment on the same pull request. After posting, push a commit or close and reopen the pull request so the check runs again. Identify in the pull request's description any material you did not create, with its source and license.
+
+If your pull request has a co-author, you may append the co-author's signature record for them; only the co-author's own comment confirms it.
+
+### Review suggestions and co-author trailers
+
+When you apply a review suggestion from the maintainer on GitHub, GitHub adds a `Co-authored-by` trailer with the maintainer's commit email. The check knows the commit emails of the exempt accounts and treats those trailers as the exempt account, which does not sign. Any other `Co-authored-by` trailer must name exactly one person, as `Name <ID+login@users.noreply.github.com>`, the GitHub noreply address with the account ID. A trailer that does not resolve to a GitHub account is refused, tools and AI assistants included, in outside pull requests and in the maintainer's own: remove it or replace it with the person's noreply address.
+
+### What the check verifies
 
 The `cla` check on the pull request passes when:
 
-- the check read one complete, unchanged head (at most 250 commits);
-- the pull request's author, every commit author and every co-author named in a `Co-authored-by` trailer have a line in `cla-signers.md` at the head and posted the comment above on this pull request;
-- every commit's author email belongs to a GitHub account, and every co-author trailer uses a GitHub noreply address with the account ID (`12345678+login@users.noreply.github.com`), so the check can tell who they are;
-- the pull request keeps every record of `cla-signers.md` on `develop`, adds lines only for accounts that posted the comment on it, and does not change `cla.md` while adding a signature.
+- the check read one complete, unchanged head (at most 250 commits and 3,000 changed files);
+- the pull request's author, every commit author and every co-author named in a `Co-authored-by` trailer have a signature record in `cla-signers.md` at the head and posted the statement as described above;
+- every commit's author email belongs to a GitHub account, and every co-author trailer resolves to one;
+- the pull request only appends records at the end of `cla-signers.md`, each confirmed by its own account's statement, and does not change `cla.md`, `scripts/cla.ts`, `scripts/cla-main.ts` or `.github/workflows/cla.yml`, which only the maintainer changes.
 
-The check matches identities to records; it does not prove who owns the material. The maintainer reviews provenance before merging and archives the evidence the check produces.
+The check matches identities to records; it does not prove who owns the material. The maintainer reviews provenance before merging and archives the evidence the check produces. The maintainer may ask a new contributor to confirm a contact email privately.
 
 ## Your records
 

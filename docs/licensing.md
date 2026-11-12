@@ -4,7 +4,7 @@ How Portifact is licensed, what the license asks of people who host it, the comm
 
 ## One repository under the AGPL
 
-All of Portifact's code is open source under the GNU Affero General Public License v3.0 only (`license`), in this one repository. There is no private premium code. What is sold is the hosted service at `portifact.com`, and a commercial license for those who want to host Portifact without the AGPL's obligations.
+All of Portifact's code is open source under the GNU Affero General Public License v3.0 only (`license`), in this one repository. There is no private premium code. What is sold is the hosted service at `portifact.com`, and a separate commercial license, for the rights the maintainer owns or is authorized to sublicense, for those who want to use Portifact on other terms than the AGPL's.
 
 Self-hosted copies are not feature-limited and there are no license keys. Paid plans for the hosted service are being built; their features go in this repository like everything else and are turned on per account by its plan, never by a license check. Whoever hosts Portifact assigns plans to accounts with the operator tool (`bun run --cwd apps/jobs operator`, see [operations.md](operations.md)), the same way the hosted service does, and nothing in the code checks who is hosting it.
 
@@ -25,7 +25,7 @@ The maintainer offers a separate commercial license for rights the maintainer ow
 
 The licensor is currently the maintainer, Leynier Gutiérrez González, as a natural person. A company is planned. It will become the licensor only after the relevant project rights, agreements and records have been transferred to it and it has assumed the applicable obligations. The commercial license's terms are not published yet and are drafted per request until they are.
 
-CLA records and dependency license checks support that assessment but do not prove a complete chain of title:
+Whether the commercial license can cover a part of Portifact depends on two kinds of records. They support that judgment, but they do not prove a complete chain of title:
 
 - **Contributions are licensed to the maintainer** under the contributor license agreement below.
 - **Dependency licensing is screened, with documented exceptions.** `bun run check` fails when a package that the Workers, the web pages or the CLI ship has a license outside `COMMERCIAL_COMPATIBLE` in `scripts/notices.ts`, which lists permissive licenses only. GPL, AGPL and other strong copyleft licenses never pass. Weak copyleft (LGPL, MPL, EPL) is accepted only as an exception for an exact package version in `COMMERCIAL_EXCEPTIONS`: each entry is the maintainer's reviewed decision, recorded with its reason, and an update of the package needs the review again; see "Third-party notices" in [releasing.md](releasing.md). A package with a choice of licenses is used under its permissive one (DOMPurify under Apache-2.0).
@@ -40,7 +40,9 @@ The [Portifact Individual Contributor License Agreement](../cla.md) is adapted f
 
 The CLA is a permission and provenance mechanism, not a guarantee of title: it does not guarantee exclusive ownership, freedom from third-party claims or contributor-funded indemnification. Any warranty or indemnity offered to a commercial customer must be stated separately and is the responsibility of the party offering it.
 
-Contributors sign by posting a statement on their pull request from their own GitHub account, add a line to `cla-signers.md` the first time, and confirm on every later pull request ([contributing.md](../contributing.md)). Anyone who owns or controls rights in a contribution, such as an employer, must give a written grant before it is merged, and the procedure is open only to adults with contractual capacity. The `cla` workflow checks the records on every pull request into `develop`; how it works is in "Contributor license agreement" in [releasing.md](releasing.md).
+Contributors sign by posting the statement as a comment on each pull request from their own GitHub account, and add their signature record to `cla-signers.md` the first time ([contributing.md](../contributing.md)). Anyone who owns or controls rights in a contribution, such as an employer, must give a written grant before it is merged, and the procedure is open only to adults with contractual capacity. The `cla` workflow checks the records on every pull request into `develop`; how it works is in "Contributor license agreement" in [releasing.md](releasing.md).
+
+The maintainer's private agreement archive (the evidence the check produces, contact confirmations, identity and authority records) must exist before the first outside contribution is merged. It does not exist yet; creating it is the maintainer's step, and until then no outside contribution is merged.
 
 ## Agreement versions
 

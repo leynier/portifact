@@ -24,14 +24,15 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Also covers the issue comments endpoint for a pull request's comments, as GitHub's
+      # permission table lists it under "Pull requests".
       pull-requests: read
-      issues: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
       - name: Read the pull request
@@ -46,13 +47,15 @@ jobs:
           set -euo pipefail
           dir="$RUNNER_TEMP/cla"
           mkdir -p "$dir"
-          before=$(gh api "repos/$REPO/pulls/$PR" --jq '"\(.head.sha) \(.commits)"')
+          before=$(gh api "repos/$REPO/pulls/$PR" --jq '"\(.head.sha) \(.commits) \(.changed_files)"')
           gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
-            --jq '.[] | {sha, id: .author.id, login: .author.login, committer: .committer.login, verified: .commit.verification.verified, message: .commit.message}' \
+            --jq '.[] | {sha, id: .author.id, login: .author.login, committerId: .committer.id, committer: .committer.login, verified: .commit.verification.verified, message: .commit.message}' \
             > "$dir/commits.jsonl"
           gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate \
             --jq '.[] | {id, userId: .user.id, login: .user.login, body, createdAt: .created_at, updatedAt: .updated_at, url: .html_url}' \
             > "$dir/comments.jsonl"
+          gh api "repos/$REPO/pulls/$PR/files?per_page=100" --paginate \
+            --jq '.[] | {filename, previous: .previous_filename}' > "$dir/files.jsonl"
           # A file missing at the head leaves no file, which the check refuses; any other failed
           # read stops the step.
           read_head() {
@@ -69,12 +72,13 @@ jobs:
             --arg login "$AUTHOR" --argjson id "$AUTHOR_ID" \
             '{authorId: $id, authorLogin: $login, eventHeadSha: $head,
               headShaBefore: ($before | split(" ")[0]), headShaAfter: $after,
-              reportedCommits: ($before | split(" ")[1] | tonumber)}' > "$dir/pull-request.json"
+              reportedCommits: ($before | split(" ")[1] | tonumber),
+              reportedFiles: ($before | split(" ")[2] | tonumber)}' > "$dir/pull-request.json"
       - name: Check the signatures
         run: bun scripts/cla-main.ts "$RUNNER_TEMP/cla"
       - name: Keep the evidence
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cla-evidence
           path: |
@@ -82,5 +86,6 @@ jobs:
             ${{ runner.temp }}/cla/pull-request.json
             ${{ runner.temp }}/cla/comments.jsonl
             ${{ runner.temp }}/cla/commits.jsonl
+            ${{ runner.temp }}/cla/files.jsonl
           retention-days: 90
           if-no-files-found: ignore

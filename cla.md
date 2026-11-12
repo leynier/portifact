@@ -18,7 +18,11 @@ Thank you for your interest in Portifact. This agreement sets the terms on which
 
 "Contribution" means existing original material that You intentionally offer for inclusion in the Work and identify in a submission record in which You adopt this agreement. It excludes pre-existing project material, third-party material identified under section 9, content merely published through the Portifact service, and material designated "Not a Contribution" when it is submitted. Oral discussions and other communications are not Contributions until their relevant content is recorded and expressly confirmed by You through the procedure in section 13. A later "Not a Contribution" notice does not by itself revoke a grant already validly made. Reporting a bug or suggesting an idea does not require this agreement.
 
-"Submission record" means a pull request comment You post through Your own authenticated GitHub account, with the statement section 13 describes, on the pull request that carries Your Contributions.
+"Statement" means the text quoted in section 13, by which You adopt this agreement.
+
+"Submission record" means a comment You post through Your own authenticated GitHub account on the pull request that carries Your Contributions: the comment carrying the statement, and any comment in which You identify earlier Contributions.
+
+"Signature record" means the line in `cla-signers.md` that names Your GitHub login and numeric account ID, Your full legal name, the date, and the version and digest of the agreement You signed.
 
 ## 2 What this agreement covers
 
@@ -74,9 +78,21 @@ In exchange for Your grants and promises, the Maintainer agrees to evaluate each
 
 ## 13 How You sign and submit
 
-You sign by personally posting, through Your own authenticated GitHub account, a comment on the pull request that carries Your Contributions. The comment carries the statement in `contributing.md` for this version, which names the version and the digest of its text. Each pull request needs its own comment, which identifies the Contributions in that pull request as covered. In the same comment You may list earlier Contributions to cover. The first time, You also add a line to `cla-signers.md` with Your GitHub login and numeric account ID, Your full legal name, the date and the signature line for this version.
+You sign by personally posting, through Your own authenticated GitHub account, a comment on the pull request that carries Your Contributions. The comment contains only the statement below, with `<digest>` replaced by the SHA-256 digest of this agreement's text, which `contributing.md` gives for this version:
 
-The Maintainer verifies the authenticated account that posted the comment and keeps its numeric GitHub account ID. A commit author field, an email associated with an account, a co-author trailer, or a signature line entered by another person is not evidence of Your assent. Each contributor assents separately. The public `cla-signers.md` file is an index of recorded agreements, not independent proof that the named person signed.
+```text
+I have read and agree to the Portifact Individual Contributor License Agreement, version 2.0, identified by the SHA-256 digest <digest> of cla.md. I intend this comment to be my electronic signature. I grant its licenses for my contributions in this pull request and for any earlier contributions I identify in it, and I understand that they permit proprietary licensing without payment except where mandatory law requires otherwise. I have identified in this pull request any material in it that I did not create.
+```
+
+Each pull request needs its own statement, which covers Your Contributions in that pull request. If You opened the pull request, You control its branch, so Your statement covers the commits You author in it whenever You push them. Anyone else whose material is in the pull request, such as another commit author or a co-author, adds a second line naming, by its full SHA, the head commit they approve:
+
+```text
+Head commit: <full SHA of the head commit>
+```
+
+That statement counts only while that commit is the pull request's head; after a later push, it must be posted again. A statement counts only in a comment that was never edited. You may identify earlier Contributions to cover in a separate comment on the same pull request. The first time You sign, a Signature record for You is added to `cla-signers.md`.
+
+The Maintainer verifies the authenticated account that posted the comment and keeps its numeric GitHub account ID. A commit author field, an email associated with an account, a co-author trailer, or a Signature record entered by another person is not evidence of Your assent. Each contributor assents separately. The public `cla-signers.md` file is an index of recorded agreements, not independent proof that the named person signed.
 
 You and the Maintainer agree to transact electronically, and You intend the authenticated comment to be Your signature of this agreement. You must be able to keep a copy of it. The Maintainer keeps the exact agreement text and digest, Your statement, Your GitHub account ID and login at signing, the platform's timestamp, the covered Contributions, the acceptance record and any ownership authorization. Renaming or deleting Your account, or changing the public index, does not by itself revoke a valid grant. Where applicable law requires a different form of execution, that form must be completed before the affected grant is relied on.
 
