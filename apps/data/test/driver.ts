@@ -7,6 +7,7 @@
 // the runtime does after an eviction; `hibernate` keeps the connections.
 
 import { env, runInDurableObject } from "cloudflare:test";
+import { type PendingReads, unpaidRows } from "@portifact/domain/artifact-data";
 import type {
   DataObject,
   Doc,
@@ -44,6 +45,11 @@ interface Recorder {
 }
 
 /** The reference's ID scheme (`MemoryObject#newId`), so both objects name things alike. */
+/** What an eviction loses: the usage still held in memory, unpaid work included. */
+function lost(pending: PendingReads): number {
+  return pending.rows + pending.deferred + unpaidRows(pending);
+}
+
 export function referenceIds(name: string, order?: Map<string, number>): () => string {
   let count = 0;
   return () => {
@@ -291,7 +297,7 @@ export class RealObject implements DataObject {
   /** An eviction: memory (pending usage, attempts, connections) goes; storage stays. */
   evict(): Promise<void> {
     return this.run((store, instance, ctx) => {
-      this.recorder.instrument.retired += store.pending.rows + store.pending.deferred;
+      this.recorder.instrument.retired += lost(store.pending);
       store.closeAll(1001);
       this.#rebuild(instance, ctx);
     });
@@ -300,7 +306,7 @@ export class RealObject implements DataObject {
   /** A wake after hibernation: memory goes, connections stay with their attachments. */
   hibernate(): Promise<void> {
     return this.run((store, instance, ctx) => {
-      this.recorder.instrument.retired += store.pending.rows + store.pending.deferred;
+      this.recorder.instrument.retired += lost(store.pending);
       this.#rebuild(instance, ctx);
     });
   }

@@ -61,8 +61,11 @@ import {
   exportHeader,
   exportLine,
   fenceEpochAdmitted,
+  flushBoundPassed,
+  flushed,
   flushPending,
   growthRefusal,
+  hasPending,
   INDEX_STEP_ROWS,
   inbound,
   indexEntries,
@@ -85,6 +88,7 @@ import {
   nextAlarm,
   nextBuild,
   noPendingReads,
+  noUnpaidWork,
   OPERATION_ROW_BOUNDS,
   outbound,
   pageOf,
@@ -125,9 +129,12 @@ import {
   settleDecision,
   sha256Hex,
   spentRefusal,
+  storageRefusal,
   subscribed,
   touched,
   uniqueValue,
+  unpaidRows,
+  unpaidWork,
   utf8Length,
   withinBound,
   writeScope,
@@ -865,7 +872,7 @@ describe("charging", () => {
 
   it("charges measured work plus the charge's own rows, folding pending reads in", () => {
     expect(measuredCharge({ rowsRead: 3, rowsWritten: 5 })).toBe(12);
-    const pending = { day: 1, rows: 7, refused: 2, since: 0, deferred: 0 };
+    const pending = { day: 1, rows: 7, refused: 2, unpaid: noUnpaidWork(), since: 0, deferred: 0 };
     expect(charged(emptyDay(1), "cleanup", { rowsRead: 1, rowsWritten: 1 }, pending)).toEqual({
       ...emptyDay(1),
       cleanup: 6,
@@ -887,10 +894,18 @@ describe("charging", () => {
       day: 1,
       rows: 0,
       refused: 0,
+      unpaid: noUnpaidWork(),
       since: 86_400_005,
       deferred: 0,
     });
-    const pending = { day: 1, rows: 5, refused: 0, since: 86_400_000, deferred: 0 };
+    const pending = {
+      day: 1,
+      rows: 5,
+      refused: 0,
+      unpaid: noUnpaidWork(),
+      since: 86_400_000,
+      deferred: 0,
+    };
     expect(rollPending(pending, 86_400_000 * 2 - 1)).toEqual({ previous: null, current: pending });
     expect(rollPending(pending, 86_400_000 * 2)).toEqual({
       previous: pending,
@@ -928,8 +943,66 @@ describe("charging", () => {
     );
   });
 
+  it("holds unpaid work with pending usage, writes it into its class and refuses past the flush bound", () => {
+    const today = noPendingReads(NOW);
+    // An attempted debit that failed is held, never dropped, and starts the flush clock.
+    const held = unpaidWork(today, "growth", 7, NOW + 5);
+    expect(held).toEqual({ ...today, unpaid: { ...noUnpaidWork(), growth: 7 }, since: NOW + 5 });
+    expect(hasPending(held)).toBe(true);
+    expect(unpaidRows(held)).toBe(7);
+    expect(pendingDeadline(held)).toBe(NOW + 5 + ARTIFACT_DATA.readFlush.ms);
+    expect(unpaidWork(held, "growth", 0, NOW)).toBe(held);
+    // Reads go to rows and housekeeping to deferred, as their successful outcomes do.
+    expect(unpaidWork(today, "read", 3, NOW).rows).toBe(3);
+    expect(unpaidWork(today, "housekeeping", 4, NOW)).toEqual({ ...today, deferred: 4 });
+    const every = (["growth", "cleanup", "export", "rights", "protected"] as const).reduce(
+      (pending, charge, index) => unpaidWork(pending, charge, index + 1, NOW),
+      today,
+    );
+    expect(every.unpaid).toEqual({ growth: 1, cleanup: 2, export: 3, rights: 4, protected: 5 });
+    expect(every.since).toBe(NOW);
+    // The next counter write puts each class's unpaid rows into that class.
+    expect(flushed(emptyDay(dayOf(NOW)), every)).toEqual({
+      ...emptyDay(dayOf(NOW)),
+      growth: 1,
+      cleanup: 2,
+      export: 3,
+      rights: 4,
+      protected: 5,
+    });
+    // Held for the day it is held for; an empty pending of an earlier day starts again today.
+    const yesterday = noPendingReads(NOW - 86_400_000);
+    expect(unpaidWork(yesterday, "cleanup", 2, NOW).day).toBe(dayOf(NOW));
+    const kept = unpaidWork(yesterday, "cleanup", 2, NOW - 86_400_000);
+    expect(unpaidWork(kept, "cleanup", 1, NOW)).toMatchObject({ day: dayOf(NOW) - 1 });
+    expect(rollPending(kept, NOW).previous?.unpaid.cleanup).toBe(2);
+    expect(rollPending(kept, NOW).current.unpaid).toEqual(noUnpaidWork());
+    // Unpaid work counts toward the flush bound with pending reads.
+    const near = { ...today, rows: ARTIFACT_DATA.readFlush.rows - 1 };
+    expect(flushBoundPassed(near)).toBe(false);
+    expect(storageRefusal(near)).toBeNull();
+    expect(mustFlushReads(near, NOW)).toBe(false);
+    const past = unpaidWork(near, "protected", 1, NOW);
+    expect(flushBoundPassed(past)).toBe(true);
+    expect(mustFlushReads(past, NOW)).toBe(true);
+    expect(storageRefusal(past)).toEqual(
+      refuse("unavailable", "this artifact's usage could not be recorded, try again shortly"),
+    );
+    expect(flushBoundPassed({ ...today, refused: ARTIFACT_DATA.readFlush.refusals })).toBe(true);
+    expect(flushBoundPassed({ ...today, refused: ARTIFACT_DATA.readFlush.refusals - 1 })).toBe(
+      false,
+    );
+  });
+
   it("counts uncharged outcomes into pending usage, starting its clock at the first", () => {
-    const pending = { day: dayOf(NOW), rows: 5, refused: 1, since: NOW, deferred: 0 };
+    const pending = {
+      day: dayOf(NOW),
+      rows: 5,
+      refused: 1,
+      unpaid: noUnpaidWork(),
+      since: NOW,
+      deferred: 0,
+    };
     expect(counted(pending, { rowsRead: 3, rowsWritten: 1 }, false, NOW + 9)).toEqual({
       ...pending,
       rows: 9,
@@ -942,6 +1015,7 @@ describe("charging", () => {
       day: dayOf(NOW),
       rows: 2,
       refused: 0,
+      unpaid: noUnpaidWork(),
       since: NOW + 9,
       deferred: 0,
     });
@@ -1972,7 +2046,14 @@ describe("pipelines", () => {
     const days = new Map([[today - 1, { ...emptyDay(today - 1), read: 1 }]]);
     const day = (d: number) => days.get(d) ?? emptyDay(d);
     const cost = { rowsRead: 1, rowsWritten: 2 };
-    const pending = { day: today, rows: 3, refused: 1, since: NOW, deferred: 0 };
+    const pending = {
+      day: today,
+      rows: 3,
+      refused: 1,
+      unpaid: noUnpaidWork(),
+      since: NOW,
+      deferred: 0,
+    };
     expect(
       meter({
         terminal: { kind: "charged", charge: "growth" },
@@ -2048,7 +2129,14 @@ describe("pipelines", () => {
       { ...emptyDay(today), read: 6, refused: 1, protected: COUNTER_WRITE_ROWS },
     ]);
     expect(due.pending).toEqual(noPendingReads(NOW + ARTIFACT_DATA.readFlush.ms));
-    const yesterday = { day: today - 1, rows: 4, refused: 0, since: NOW - 86_400_000, deferred: 0 };
+    const yesterday = {
+      day: today - 1,
+      rows: 4,
+      refused: 0,
+      unpaid: noUnpaidWork(),
+      since: NOW - 86_400_000,
+      deferred: 0,
+    };
     const rolled = meter({
       terminal: { kind: "uncharged", refused: false },
       cost,
@@ -2060,7 +2148,14 @@ describe("pipelines", () => {
     expect(rolled.days).toEqual([
       { ...emptyDay(today - 1), read: 5, protected: COUNTER_WRITE_ROWS },
     ]);
-    expect(rolled.pending).toEqual({ day: today, rows: 3, refused: 0, since: NOW, deferred: 0 });
+    expect(rolled.pending).toEqual({
+      day: today,
+      rows: 3,
+      refused: 0,
+      unpaid: noUnpaidWork(),
+      since: NOW,
+      deferred: 0,
+    });
     const unbound = meter({
       terminal: { kind: "uncharged", refused: false },
       cost,

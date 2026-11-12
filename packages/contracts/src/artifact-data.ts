@@ -149,6 +149,8 @@ export const DATA_REFUSAL_CODES = [
   "invalid_input",
   "quota_exceeded",
   "rate_limited",
+  /** Retryable: the object could not record its usage and refuses ordinary work until it does. */
+  "unavailable",
 ] as const;
 export const DataRefusalCode = z.enum(DATA_REFUSAL_CODES);
 export type DataRefusalCode = z.infer<typeof DataRefusalCode>;
@@ -173,7 +175,7 @@ export const MAX_COLLECTIONS = 32;
 /**
  * The largest document any plan may allow: one row holds the body, its indexed values and the
  * server fields, and must stay well under the platform's row limit (Durable Object SQLite
- * documents 2 MB a row). Decision 0026, delivery 4 (platform limits).
+ * documents 8 MB a row). Decision 0026, delivery 4 (platform limits).
  */
 export const MAX_DOCUMENT_BYTES = 1024 * 1024;
 /**

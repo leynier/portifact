@@ -45,7 +45,18 @@ function answerShape(answer: unknown): unknown {
     cost: unknown;
     storage: { generation: number; seq: number };
   };
-  return { ...rest, storage: { generation: storage.generation } };
+  return { ...described(rest), storage: { generation: storage.generation } };
+}
+
+/**
+ * `describe` answers today's usage, which is measured work and differs by design: the day is
+ * compared, the counts are not (each object's own accounting is checked by its own tests).
+ */
+function described(rest: Record<string, unknown>): Record<string, unknown> {
+  const value = rest.value;
+  if (value === null || typeof value !== "object" || !("today" in value)) return rest;
+  const today = (value as { today: { day: number } }).today;
+  return { ...rest, value: { ...value, today: { day: today.day } } };
 }
 
 /** What two states must share: everything but the measured usage itself. */

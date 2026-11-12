@@ -32,6 +32,7 @@ import {
   newerReport,
   nextBuild,
   noPendingReads,
+  noUnpaidWork,
   outbound,
   pageOf,
   payloadChanged,
@@ -736,7 +737,14 @@ describe("boundaries the code review's rules turn on", () => {
   it("writes an earlier day's reads into that day while it is kept, and into today after", () => {
     const now = NOW;
     const today = Math.floor(now / 86_400_000);
-    const at = (day: number) => ({ day, rows: 4, refused: 0, deferred: 3, since: 0 });
+    const at = (day: number) => ({
+      day,
+      rows: 4,
+      refused: 0,
+      unpaid: noUnpaidWork(),
+      deferred: 3,
+      since: 0,
+    });
     expect(rollPending(at(today - ARTIFACT_DATA.dayKeepDays), now)).toEqual({
       previous: { ...at(today - ARTIFACT_DATA.dayKeepDays), deferred: 0 },
       current: { ...noPendingReads(now), deferred: 3 },

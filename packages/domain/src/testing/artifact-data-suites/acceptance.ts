@@ -617,15 +617,23 @@ export function acceptanceSuite(make: MakeObject, options: { loadExport: LoadExp
         }
       }
       const { object, base } = await withCollection("append");
-      const answers: unknown[] = [
-        await object.create(op(base), alice, "items", { n: 1 }, ctx),
-        await object.query(base, alice, { collection: "items" }, ctx),
-        await object.fence({ ...base, epoch: 1 }, { kind: "epoch", transition: "t" }, NOW),
-        await object.prepareErase({ ...base, epoch: 1 }, opId(), NOW),
-        await object.settle(base, "owner:owner", opId(), NOW),
-        admit(null, base, { kind: "request", create: false }),
+      const commands: (() => unknown)[] = [
+        () => object.create(op(base), alice, "items", { n: 1 }, ctx),
+        () => object.query(base, alice, { collection: "items" }, ctx),
+        () => object.fence({ ...base, epoch: 1 }, { kind: "epoch", transition: "t" }, NOW),
+        () => object.prepareErase({ ...base, epoch: 1 }, opId(), NOW),
+        () => object.settle(base, "owner:owner", opId(), NOW),
       ];
-      for (const answer of answers) expect(answer).not.toBeInstanceOf(Promise);
+      for (const command of commands) {
+        const answer = command();
+        // Checked before any await. The real object's driver is an asynchronous transport, so
+        // its store's synchronous answers are asserted inside the object (apps/data, storage).
+        if (object.kind === "memory") {
+          expect(typeof (answer as { then?: unknown } | null)?.then).not.toBe("function");
+        }
+        await answer;
+      }
+      expect(admit(null, base, { kind: "request", create: false })).not.toBeInstanceOf(Promise);
     });
   });
 

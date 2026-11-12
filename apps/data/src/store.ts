@@ -63,6 +63,7 @@ import {
   type ExportPage,
   editorAfter,
   emptyDay,
+  flushBoundPassed,
   flushPending,
   growthRefusal,
   type IndexField,
@@ -117,10 +118,13 @@ import {
   sequenceAdvances,
   sequenceScope,
   settleDecision,
+  storageRefusal,
   subscribed,
   type Terminal,
   touched,
   uniqueValue,
+  unpaidRows,
+  unpaidWork,
   valueCountDeltas,
 } from "@portifact/domain/artifact-data";
 import { MIGRATIONS, PAYLOAD_TABLES, SCHEMA_PROBE, SCHEMA_V1, SCHEMA_VERSION } from "./schema.ts";
@@ -204,6 +208,18 @@ export interface StoreOptions {
 }
 
 type Context = { now: number; limits: ArtifactDataLimits };
+/** What the object keeps in memory about storage, restored when a transaction rolls back. */
+interface Memory {
+  pending: PendingReads;
+  metered: number;
+  counterWrites: number;
+  bookkeeping: number;
+  retired: number;
+  charges: number;
+  checked: number;
+}
+/** Where an entry point's measured work goes when its debit fails: a class, or housekeeping. */
+type Attempt = ChargeClass | "housekeeping";
 type Proceed = Extract<MutationPlan, { decision: "proceed" }>;
 type Row = Record<string, SqlStorageValue>;
 
@@ -340,6 +356,8 @@ export class DocumentsStore {
   #more = false;
   /** The running entry point's time, for the re-arm at its end. */
   #now = 0;
+  /** The class the running entry point's work is debited to, should its debit fail. */
+  #debitClass: Attempt = "read";
 
   constructor(options: StoreOptions) {
     this.#storage = options.storage;
@@ -448,9 +466,12 @@ export class DocumentsStore {
    * Runs an entry point: its re-arm at the end, and, for the outermost scope, the check that every
    * row a cursor measured reached a metering step.
    */
-  #running<T>(now: number, work: () => T): T {
+  #running<T>(now: number, work: () => T, attempt: Attempt = "read"): T {
     const outer = this.#active === 0;
-    if (outer) this.#now = now;
+    if (outer) {
+      this.#now = now;
+      this.#debitClass = attempt;
+    }
     const seen = this.meters.accesses;
     const metered = this.meters.metered;
     this.#active += 1;
@@ -461,15 +482,67 @@ export class DocumentsStore {
         this.#rearm(this.#more);
         this.#more = false;
       }
+    } catch (error) {
+      if (outer) {
+        this.#hold(seen, metered, this.#debitClass, now);
+        // What is now pending still needs its alarm; a failure here is held the same way.
+        const again = { seen: this.meters.accesses, metered: this.meters.metered };
+        try {
+          this.#rearm(false);
+        } catch {
+          this.#hold(again.seen, again.metered, "housekeeping", now);
+        }
+      }
+      throw error;
     } finally {
       this.#active -= 1;
+      if (outer) this.#more = false;
     }
+    this.#checkMetered(outer, seen, metered);
+    return value;
+  }
+
+  /**
+   * Measured work no metering step took (a statement failed, or the transaction that would have
+   * debited it rolled back) is an attempted debit, never a committed one: it is held as unpaid
+   * work of the entry point's class and written by the next counter write that commits.
+   */
+  #hold(seen: number, metered: number, attempt: Attempt, now: number): void {
+    const unpaid = this.meters.accesses - seen - (this.meters.metered - metered);
+    this.pending = unpaidWork(this.pending, attempt, unpaid, now);
+    this.meters.metered += unpaid;
+  }
+
+  /** The outermost scope's oracle: every row a cursor measured reached a metering step. */
+  #checkMetered(outer: boolean, seen: number, metered: number): void {
     if (outer && this.meters.accesses - seen !== this.meters.metered - metered) {
       throw new Error(
         `unmetered access: the cursors measured ${this.meters.accesses - seen} rows, metering took ${this.meters.metered - metered}`,
       );
     }
-    return value;
+  }
+
+  /**
+   * Pending usage at the flush bound means the synchronous flush that should have written it
+   * failed. Ordinary work first tries that write again and is refused while storage refuses it, so
+   * what an eviction can lose stays bounded; protected work never asks.
+   */
+  #storageGate<T>(now: number): Answer<T> | null {
+    if (!flushBoundPassed(this.pending)) return null;
+    try {
+      this.flushReads(now);
+    } catch {
+      // Still unrecorded: the refusal below says so.
+    }
+    const refusal = storageRefusal(this.pending);
+    if (refusal === null) return null;
+    return {
+      ok: false,
+      code: refusal.code,
+      message: refusal.message,
+      cost: { rowsRead: 0, rowsWritten: 0 },
+      storage: this.#storageReport(),
+    };
   }
 
   #keeping<T>(work: () => T): T {
@@ -487,13 +560,44 @@ export class DocumentsStore {
    * attempts, sockets) is not storage and is not rolled back.
    */
   #transaction<T>(work: () => T): T {
+    const memo = this.#memory();
     try {
       return this.#storage.transactionSync(work);
     } catch (error) {
       this.#control = undefined;
       this.#schema = undefined;
+      this.#restore(memo);
       throw error;
     }
+  }
+
+  /**
+   * What the object keeps in memory about storage: pending usage and the meters. It follows the
+   * transaction, so a rollback leaves it as storage is (the oracle's `accesses` stays: those rows
+   * were read and written, and the entry point holds them as unpaid work).
+   */
+  #memory(): Memory {
+    const m = this.meters;
+    return {
+      pending: this.pending,
+      metered: m.metered,
+      counterWrites: m.counterWrites,
+      bookkeeping: m.bookkeeping,
+      retired: m.retired,
+      charges: m.charges.length,
+      checked: m.checked.length,
+    };
+  }
+
+  #restore(memo: Memory): void {
+    const m = this.meters;
+    this.pending = memo.pending;
+    m.metered = memo.metered;
+    m.counterWrites = memo.counterWrites;
+    m.bookkeeping = memo.bookkeeping;
+    m.retired = memo.retired;
+    m.charges.length = memo.charges;
+    m.checked.length = memo.checked;
   }
 
   // The control record.
@@ -893,7 +997,11 @@ export class DocumentsStore {
       documents: number;
       declared: boolean;
       detail?: Record<string, number | boolean>;
-      /** Bytes the documents grew by: the growth check runs after the whole transaction. */
+      /**
+       * Bytes the documents grew by (zero for work that grows only indexes and metadata): set by
+       * every operation that can grow the file, whose growth check runs after the whole
+       * transaction. Unset by work that shrinks or erases, which is never refused for size.
+       */
       grew?: number;
     },
     after?: (value: T) => void,
@@ -901,6 +1009,9 @@ export class DocumentsStore {
     return this.#running(context.now, () => {
       let plan: MutationPlan | null = null;
       const now = context.now;
+      // The erasure job is never refused for unrecorded usage: author erasure always proceeds.
+      const unrecorded = actor.kind === "erasure" ? null : this.#storageGate<T>(now);
+      if (unrecorded !== null) return unrecorded;
       const answer = this.#answer(() => {
         const limits = this.#limitsRefusal(context.limits);
         if (limits !== null) {
@@ -927,6 +1038,7 @@ export class DocumentsStore {
             if (plan.decision === "replayed") {
               return { __replayed: plan.answer } as unknown as T;
             }
+            this.#debitClass = plan.charge;
             if (plan.binds) this.#setControl(plan.control);
             if (plan.rate !== null) this.#countRate(plan.rate);
             const done = work(plan);
@@ -943,20 +1055,17 @@ export class DocumentsStore {
                 payloadChanged({ documents: done.documents, declared: done.declared }),
               ),
             );
+            const dataBytes = done.grew === undefined ? 0 : this.#dataBytes();
+            this.#charge(kind, plan.charge, now, false, plan.rightsAuthor, kind);
             if (done.grew !== undefined) {
-              // The measured file after every write of the transaction but the charge's own.
+              // The measured file after every write of the transaction, the charge's included.
+              // Work that only shrinks or erases reports no growth and is never refused here.
               const refused = growthRefusal(
-                {
-                  dataBytes: this.#dataBytes(),
-                  fileBefore,
-                  fileAfter: this.fileBytes(),
-                  grew: done.grew,
-                },
+                { dataBytes, fileBefore, fileAfter: this.fileBytes(), grew: done.grew },
                 context.limits,
               );
               if (refused !== null) fail(refused);
             }
-            this.#charge(kind, plan.charge, now, false, plan.rightsAuthor, kind);
             return done.value;
           });
         } catch (error) {
@@ -1363,6 +1472,7 @@ export class DocumentsStore {
         value: { building },
         documents: 0,
         declared: decided.value.create || decided.value.addFields.length > 0,
+        grew: 0,
       };
     });
   }
@@ -1376,7 +1486,7 @@ export class DocumentsStore {
     return this.#mutation("index_step", envelope, caller, context, request, {}, (plan) => {
       const building = this.#indexStep();
       this.#record(plan, caller, requestHash(request), "index_step", "", context.now);
-      return { value: { building }, documents: 0, declared: false, detail: { building } };
+      return { value: { building }, documents: 0, declared: false, detail: { building }, grew: 0 };
     });
   }
 
@@ -1798,21 +1908,25 @@ export class DocumentsStore {
     work: () => T,
   ): Answer<T> {
     return this.#running(context.now, () => {
+      const unrecorded = this.#storageGate<T>(context.now);
+      if (unrecorded !== null) return unrecorded;
       const answer = this.#answer(() => {
         const limits = this.#limitsRefusal(context.limits);
         if (limits !== null) fail(limits);
-        const plan = planRead({
-          stored: this.#readControl(),
-          envelope,
-          caller,
-          limits: context.limits,
-          callerReads: this.#attempt(caller, context.now),
-          used: this.#used("read", context.now),
-          barred: caller.kind === "visitor" && this.#barred(caller.author),
+        return this.#transaction(() => {
+          const plan = planRead({
+            stored: this.#readControl(),
+            envelope,
+            caller,
+            limits: context.limits,
+            callerReads: this.#attempt(caller, context.now),
+            used: this.#used("read", context.now),
+            barred: caller.kind === "visitor" && this.#barred(caller.author),
+          });
+          if (plan.decision === "empty") return empty();
+          if (plan.decision === "refused") fail(plan.refusal);
+          return work();
         });
-        if (plan.decision === "empty") return empty();
-        if (plan.decision === "refused") fail(plan.refusal);
-        return work();
       });
       this.#meterUncharged(!answer.ok, context.now, kind);
       return { ...answer, storage: this.#storageReport() } as Answer<T>;
@@ -1989,6 +2103,9 @@ export class DocumentsStore {
   ): Answer<ExportPage> {
     return this.#running(context.now, () => {
       const now = context.now;
+      // The operator's export is lifecycle work: never refused for unrecorded usage.
+      const unrecorded = who === "operator" ? null : this.#storageGate<ExportPage>(now);
+      if (unrecorded !== null) return unrecorded;
       let charged = false;
       const answer = this.#answer(() =>
         this.#transaction(() => {
@@ -2007,6 +2124,7 @@ export class DocumentsStore {
           });
           if (plan.decision === "empty") return { rows: [], next: null, revision: 0, bytes: 0 };
           if (plan.decision === "refused") fail(plan.refusal);
+          this.#debitClass = plan.charge;
           const limit = Math.min(take, ARTIFACT_DATA.caps.exportRows) + 1;
           const start = after ?? { collection: "", id: "" };
           const rows =
@@ -2087,21 +2205,25 @@ export class DocumentsStore {
     kind: string,
     work: () => { value: T; wrote: boolean },
   ): Answer<T> {
-    return this.#running(now, () => {
-      let wrote = false;
-      const answer = this.#answer(() =>
-        this.#transaction(() => {
-          const done = work();
-          if (done.wrote) {
-            wrote = true;
-            this.#protected(kind, now);
-          }
-          return done.value;
-        }),
-      );
-      if (!wrote || !answer.ok) this.#meterUncharged(!answer.ok, now, null);
-      return { ...answer, storage: this.#storageReport() } as Answer<T>;
-    });
+    return this.#running(
+      now,
+      () => {
+        let wrote = false;
+        const answer = this.#answer(() =>
+          this.#transaction(() => {
+            const done = work();
+            if (done.wrote) {
+              wrote = true;
+              this.#protected(kind, now);
+            }
+            return done.value;
+          }),
+        );
+        if (!wrote || !answer.ok) this.#meterUncharged(!answer.ok, now, null);
+        return { ...answer, storage: this.#storageReport() } as Answer<T>;
+      },
+      "protected",
+    );
   }
 
   fence(
@@ -2300,64 +2422,69 @@ export class DocumentsStore {
    * prunes nothing. Its work is idempotent, so a late, repeated or retried alarm is harmless.
    */
   alarm(now: number): { pruned: number } {
-    return this.#running(now, () => {
-      for (const socket of this.sockets.values()) {
-        if (socket.closed === null && socket.attachment.deadline <= now) this.#close(socket, 4001);
-      }
-      let pruned = 0;
-      let more = false;
-      this.#cost = { rowsRead: 0, rowsWritten: 0 };
-      this.#transaction(() => {
-        if (pruneAllowed(this.#readControl())) {
-          const cut = pruneCutoffs(now);
-          const cap = ARTIFACT_DATA.caps.pruneRows;
-          const prune = (
-            table: string,
-            keys: string[],
-            age: string,
-            extra: string,
-            before: number,
-          ) =>
-            this.#deleteFound(
-              table,
-              keys,
-              this.#exec(
-                `SELECT ${[...new Set([...keys, ...(table === "pf_days" ? ACCOUNTED : [])])].join(", ")}
-                 FROM ${table} WHERE ${extra}${age} < ? ORDER BY ${age} LIMIT ?`,
-                before,
-                cap,
-              ),
-            );
-          const classes: Record<RetainedClass, () => number> = {
-            operations: () => prune("pf_ops", ["key"], "at", "", cut.operationsBefore).length,
-            ended: () => prune("pf_ended", ["id"], "at", "", cut.operationsBefore).length,
-            delivered: () =>
-              prune("pf_audit", ["key"], "at", "state = 'delivered' AND ", cut.deliveredBefore)
-                .length,
-            rates: () =>
-              prune("pf_rates", ["subject", "kind", "window"], "window", "", cut.rateWindowBefore)
-                .length,
-            days: () => {
-              const rows = prune("pf_days", ["day"], "day", "", cut.dayBefore);
-              for (const row of rows) {
-                for (const field of ACCOUNTED) this.meters.retired += num(row[field]);
-              }
-              return rows.length;
-            },
-            rights: () => prune("pf_rights", ["author", "day"], "day", "", cut.dayBefore).length,
-          };
-          const counts = RETAINED_CLASSES.map((name) => classes[name]());
-          pruned = counts.reduce((sum, n) => sum + n, 0);
-          more = passLeftMore(counts);
-          if (pruned > 0) this.#setControl(touched(this.#readControl() as DataControl, false));
+    return this.#running(
+      now,
+      () => {
+        for (const socket of this.sockets.values()) {
+          if (socket.closed === null && socket.attachment.deadline <= now)
+            this.#close(socket, 4001);
         }
-        // Every pass is metered, an empty one's probes included: deferred, never a day row.
-        this.#meter({ kind: "housekeeping" }, now, "prune");
-      });
-      this.flushReads(now);
-      this.#more = more;
-      return { pruned };
-    });
+        let pruned = 0;
+        let more = false;
+        this.#cost = { rowsRead: 0, rowsWritten: 0 };
+        this.#transaction(() => {
+          if (pruneAllowed(this.#readControl())) {
+            const cut = pruneCutoffs(now);
+            const cap = ARTIFACT_DATA.caps.pruneRows;
+            const prune = (
+              table: string,
+              keys: string[],
+              age: string,
+              extra: string,
+              before: number,
+            ) =>
+              this.#deleteFound(
+                table,
+                keys,
+                this.#exec(
+                  `SELECT ${[...new Set([...keys, ...(table === "pf_days" ? ACCOUNTED : [])])].join(", ")}
+                 FROM ${table} WHERE ${extra}${age} < ? ORDER BY ${age} LIMIT ?`,
+                  before,
+                  cap,
+                ),
+              );
+            const classes: Record<RetainedClass, () => number> = {
+              operations: () => prune("pf_ops", ["key"], "at", "", cut.operationsBefore).length,
+              ended: () => prune("pf_ended", ["id"], "at", "", cut.operationsBefore).length,
+              delivered: () =>
+                prune("pf_audit", ["key"], "at", "state = 'delivered' AND ", cut.deliveredBefore)
+                  .length,
+              rates: () =>
+                prune("pf_rates", ["subject", "kind", "window"], "window", "", cut.rateWindowBefore)
+                  .length,
+              days: () => {
+                const rows = prune("pf_days", ["day"], "day", "", cut.dayBefore);
+                for (const row of rows) {
+                  for (const field of ACCOUNTED) this.meters.retired += num(row[field]);
+                }
+                return rows.length;
+              },
+              rights: () => prune("pf_rights", ["author", "day"], "day", "", cut.dayBefore).length,
+            };
+            const counts = RETAINED_CLASSES.map((name) => classes[name]());
+            pruned = counts.reduce((sum, n) => sum + n, 0);
+            more = passLeftMore(counts);
+            if (pruned > 0) this.#setControl(touched(this.#readControl() as DataControl, false));
+          }
+          // Every pass is metered, an empty one's probes included: deferred, never a day row.
+          this.#meter({ kind: "housekeeping" }, now, "prune");
+        });
+        this.flushReads(now);
+        this.#more = more;
+        return { pruned };
+      },
+      "housekeeping",
+    );
   }
 
   // Live.
@@ -2400,6 +2527,8 @@ export class DocumentsStore {
   ): Answer<string> {
     return this.#running(context.now, () => {
       const now = context.now;
+      const unrecorded = this.#storageGate<string>(now);
+      if (unrecorded !== null) return unrecorded;
       let charged = false;
       const answer = this.#answer(() =>
         this.#transaction(() => {
@@ -2427,6 +2556,7 @@ export class DocumentsStore {
             connectsThisMinute: num(connects?.count),
           });
           if (refused !== null) fail(refused);
+          this.#debitClass = "growth";
           this.#countRate(rate);
           const control = stored as DataControl;
           this.#setControl(touched(control, false));
@@ -2618,7 +2748,8 @@ export class DocumentsStore {
 
   /** The rows the day counters, the pending usage and retired rows account for. */
   accounted(): number {
-    let sum = this.meters.retired + this.pending.rows + this.pending.deferred;
+    let sum =
+      this.meters.retired + this.pending.rows + this.pending.deferred + unpaidRows(this.pending);
     for (const row of this.inspect("pf_days")) {
       for (const field of ACCOUNTED) sum += num(row[field]);
     }

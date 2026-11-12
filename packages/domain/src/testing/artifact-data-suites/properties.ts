@@ -479,6 +479,13 @@ export function propertiesSuite(
             });
             checkOwnIsolation(command.who, doc.collection, got);
           }
+          if (command.desc) {
+            // The owner's description of the artifact: every other caller is refused.
+            const described = await object.describe(base, command.who, { now, limits });
+            const outcome = (described as { ok: boolean }).ok ? "ok" : "refused";
+            if (outcome === "ok") expect(command.who.kind).toBe("owner");
+            STATS.set(`describe:${outcome}`, (STATS.get(`describe:${outcome}`) ?? 0) + 1);
+          }
           break;
         }
         case "export": {
@@ -671,6 +678,8 @@ export function propertiesSuite(
         "create:held",
         "create:stale",
         "read:ok",
+        "describe:ok",
+        "describe:refused",
         "export:ok",
       ]) {
         expect(STATS.get(tag) ?? 0, tag).toBeGreaterThan(0);
