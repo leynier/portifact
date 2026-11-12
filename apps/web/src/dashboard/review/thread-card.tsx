@@ -9,6 +9,7 @@ import {
   type AnnotationThreadView,
   HUMAN_VERIFICATION_REQUIRED,
   type IntegrationChoiceList,
+  ThreadIssueFailure,
   type ThreadIssueView,
 } from "@portifact/contracts";
 import {
@@ -59,6 +60,12 @@ import { applyThread, dropThread, type ThreadsState, threadsQuery } from "./use-
 
 type T = ReturnType<typeof useT>;
 
+/** Why an issue was not created; a reason this build does not know gets a neutral sentence. */
+function failureReason(t: T, failure: string | null): string {
+  const known = ThreadIssueFailure.safeParse(failure ?? "rejected");
+  return known.success ? t(`issues.failure.${known.data}`) : t("issues.failure.other");
+}
+
 export function ActionError({ error }: { error: unknown }) {
   const t = useT();
   return (
@@ -104,7 +111,7 @@ export interface ThreadCardProps {
   onHover(id: string | null): void;
   register(id: string, element: HTMLElement | null): void;
   /**
-   * The owner's connections to GitHub or Linear (decision 0018), for the owner side only; absent
+   * The owner's connections to GitHub, Linear or Jira (decision 0018), for the owner side only; absent
    * while integrations are not offered, so the card offers nothing.
    */
   issueChoices?: IntegrationChoiceList | undefined;
@@ -470,7 +477,7 @@ export function IssueLinks({ issues }: { issues: readonly ThreadIssueView[] }) {
                 <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
                 {t("issues.failed", {
                   target: issue.target,
-                  reason: t(`issues.failure.${issue.failure ?? "rejected"}`),
+                  reason: failureReason(t, issue.failure),
                 })}
               </span>
             )}

@@ -299,7 +299,7 @@ export const messages = {
 
   // Issue integrations (decision 0018).
   integrationsEmpty:
-    "This space has no connections to GitHub or Linear. Its admins add them in the dashboard, on the Integrations page.",
+    "This space has no connections to GitHub, Linear or Jira. Its admins add them in the dashboard, on the Integrations page.",
   integrationsPlan:
     "The plan of this space does not include integrations: connections are kept, but issues cannot be created.",
   integrationsUnavailable: "This Portifact server does not offer integrations yet.",

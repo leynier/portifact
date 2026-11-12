@@ -48,3 +48,15 @@ keywords = ["pfst_"]
 description = "The email domain proof test's placeholder token is not a credential"
 regexTarget = "match"
 regexes = ['''0123456789abcdef0123456789abcdef''']
+
+# In a language catalog, a message that ends with a word such as "token" or "key" is followed by
+# the next message's key (`"integrations.howto.jira.2":`), and the generic-api-key rule reads that
+# key as the token's value. A catalog key is words joined by dots, written in the source for every
+# reader, never a credential. Only a value of that shape, found by that rule in a language catalog,
+# is dropped; every other rule still applies to the same files.
+[[allowlists]]
+description = "A catalog key after a message ending in \"token\" is not a secret"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^apps/web/src/(dashboard|auth)/i18n/[a-z-]+\.ts$''']
+regexes = ['''^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9_]+){2,}$''']

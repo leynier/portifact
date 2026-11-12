@@ -1,8 +1,9 @@
 // Issues created from comment threads (premium plan T7, decision 0018). The owner side of an
 // artifact (admins and editors; never a service token, which takes no part in comments) asks for
 // an issue from one thread it can see; the request's own batch writes the request and its
-// `thread_issue` outbox job, and only the jobs Worker calls GitHub or Linear. What is sent is
-// built by `issueBody` in the domain from the parts the person left on, reading the thread when
+// `thread_issue` outbox job, and only the jobs Worker calls GitHub, Linear or Jira. What is sent
+// is decided by `issueSections` in the domain from the parts the person left on (written as
+// Markdown by `issueBody`, or as a Jira document by `issueDocument`), reading the thread when
 // the job sends; the thread then shows a link to the issue to everyone who sees it.
 import { INTEGRATION_LIMITS, type IssueParts, type ThreadIssueFailure } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
@@ -14,7 +15,6 @@ import {
   fail,
   hasFeature,
   ISSUE_FAILURE_MESSAGES,
-  issueBody,
   issueTitle,
   MAX_ISSUE_ATTEMPTS,
   nextIssueAttemptAt,
@@ -31,11 +31,14 @@ import { auditEvent } from "./audit.ts";
 import {
   type CallOptions,
   createIssue,
+  failedOutcome,
   findIssue,
   type IssueCallOutcome,
+  verifyJiraSite,
 } from "./integration-clients.ts";
 import { type IntegrationKey, openCredential } from "./integration-keys.ts";
 import {
+  connectionSite,
   INTEGRATION_FEATURE,
   INTEGRATIONS_UNAVAILABLE,
   type IntegrationSwitch,
@@ -102,12 +105,14 @@ export async function requestThreadIssue(
   if (connection.attention !== null) {
     return fail(
       "invalid_input",
-      "This connection needs an admin's attention: its credential no longer works.",
+      connection.attention === "site_mismatch"
+        ? "This connection needs an admin's attention: its Jira site changed its address."
+        : "This connection needs an admin's attention: its credential no longer works.",
     );
   }
   const target = allowedTarget(storedTargets(connection.targets), input.request.target);
   if (!target) {
-    return fail("invalid_input", "The connection does not allow that repository or team.");
+    return fail("invalid_input", "The connection does not allow that repository, team or project.");
   }
   const title = issueTitle(input.request.title);
   if (!title.ok) return title;
@@ -241,11 +246,19 @@ export async function runThreadIssue(
     return "done";
   }
   if (connection.attention !== null) {
-    await failRequest(db, issue.id, "credential_rejected", now);
+    await failRequest(
+      db,
+      issue.id,
+      connection.attention === "site_mismatch" ? "site_changed" : "credential_rejected",
+      now,
+    );
     return "done";
   }
-  // The connection as it is now: a repository or team an admin removed is never written to.
-  if (!allowedTarget(storedTargets(connection.targets), issue.target)) {
+  // The connection as it is now: a repository, team or project an admin removed is never written
+  // to. A Jira project brings the issue type checked with it.
+  const allowed = allowedTarget(storedTargets(connection.targets), issue.target);
+  const target = storedTargets(connection.targets).find((one) => one.id === allowed?.id);
+  if (!target) {
     await failRequest(db, issue.id, "target_removed", now);
     return "done";
   }
@@ -319,8 +332,14 @@ export async function runThreadIssue(
     const found = await findIssue(
       issue.service,
       credential,
-      { target: issue.target, reference: issue.id, identity: connection.identity },
+      {
+        target: issue.target,
+        reference: issue.id,
+        identity: connection.identity,
+        requestedAt: issue.createdAt,
+      },
       deps,
+      connectionSite(connection),
     );
     if (found.kind !== "absent") outcome = found;
   }
@@ -332,6 +351,22 @@ export async function runThreadIssue(
       await failRequest(db, issue.id, "thread_gone", now, now);
       return "done";
     }
+    // Jira: the site was proven when the connection was checked; on the first attempt the job
+    // proves it again, so no issue links to a name the cloud ID no longer serves. Retries do not
+    // (one call fewer each); a site renamed within those hours is caught by the next request or
+    // an admin's Test (decision 0018, "Addendum: Jira").
+    const site = connectionSite(connection);
+    if (issue.service === "jira" && site !== null && claimed.attempts === 1) {
+      const proof = await verifyJiraSite(credential, site, deps);
+      if (proof.kind === "other") {
+        await markAttention(db, connection, "site_mismatch", { type: "system" }, now);
+        await failRequest(db, issue.id, "site_changed", now, now);
+        return "done";
+      }
+      if (proof.kind === "failed") {
+        return settle(db, job, issue, connection, failedOutcome(proof.result), 1, now);
+      }
+    }
     outcome = await createIssue(
       issue.service,
       credential,
@@ -339,14 +374,17 @@ export async function runThreadIssue(
         target: issue.target,
         // A pending request always has its title; it is cleared once the request ends.
         title: String(issue.title),
-        body: issueBody(source, {
+        source,
+        parts: {
           link: issue.includeLink,
           artifactName: issue.includeName,
           quote: issue.includeQuote,
           message: issue.includeMessage,
-        }),
+        },
+        issueType: target.issueType,
       },
       deps,
+      connectionSite(connection),
     );
   }
   return settle(db, job, issue, connection, outcome, claimed.attempts, now);

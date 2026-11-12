@@ -2172,10 +2172,11 @@ function integrationRoute(
   }
   if (path === "/api/v1/integrations/connections" && method === "POST") {
     const body = server.bodies.at(-1) as {
-      service: "github" | "linear";
+      service: "github" | "linear" | "jira";
       label: string;
       credential: string;
       targets: string[];
+      site?: string;
     };
     if (body.credential.length < 20) {
       return Response.json(
@@ -2192,6 +2193,7 @@ function integrationRoute(
       id: `ic_${String(store.connections.length + 1).repeat(32)}`,
       service: body.service,
       label: body.label,
+      site: body.site?.replace(/\.atlassian\.net$/, "") ?? null,
       targets: body.targets.map((id) => ({ id, name: id })),
       usable: true,
       identity: "octo-bot",

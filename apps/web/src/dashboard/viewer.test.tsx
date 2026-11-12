@@ -2032,6 +2032,7 @@ describe("issues from threads in the viewer (decision 0018)", () => {
     id: `ic_${"a".repeat(32)}`,
     service: "github" as const,
     label: "Product repo",
+    site: null,
     targets: [{ id: "acme/site", name: "acme/site" }],
     usable: true,
     identity: "octo-bot",

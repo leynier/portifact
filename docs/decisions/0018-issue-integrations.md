@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-10
-- Feature: premium plan T7 (`integrations` in `PLANS`, Team and above), first delivery: GitHub Issues and Linear. Slack and Jira are not part of it.
+- Feature: premium plan T7 (`integrations` in `PLANS`, Team and above), first delivery: GitHub Issues and Linear. Jira Cloud is the addendum "Jira" (2026-11-11). Slack is not part of it.
 
 ## Question
 
@@ -124,6 +124,81 @@ Nothing is reachable unless the Workers have `INTEGRATIONS_ENABLED="true"` and `
 
 ## Next
 
-- One way only in this delivery: Portifact creates the issue and links it. No syncing back, no webhooks from GitHub or Linear, no resolving a thread when its issue closes, no comment mirroring.
-- An OAuth app (or a GitHub App with an installation flow) for each service.
-- Slack and Jira.
+- One way only in this delivery: Portifact creates the issue and links it. No syncing back, no webhooks from GitHub, Linear or Jira, no resolving a thread when its issue closes, no comment mirroring.
+- An OAuth app (or a GitHub App with an installation flow, or an Atlassian OAuth 2.0 app) for each service.
+- Slack.
+
+## Addendum: Jira (2026-11-11)
+
+Jira Cloud joins GitHub and Linear as a third service (`jira` in `INTEGRATION_SERVICES`), with the same rules as above unless this section says otherwise: admins manage connections only through the dashboard session (role action `integrations`), the owner side creates issues (role action `issues`, never a token), only the jobs Worker calls Jira to create, the app Worker calls it only to check a credential being entered, every check in "Sending" and "Checked again" applies, removal writes the same tombstone, deletion and transfers behave the same, and it ships under the same switch. Jira Server and Data Center are out of scope, as GitHub Enterprise Server is.
+
+### No host from input: Atlassian's gateway
+
+A Jira Cloud site is `<name>.atlassian.net`, a host the customer chooses, and the rule "every call goes to a fixed origin" holds only if Portifact never calls it. It does not: Atlassian serves every site's REST API through its gateway, `https://api.atlassian.com/ex/jira/<cloudId>/rest/api/3/...`, and API tokens with scopes must be used there. Atlassian's page on API tokens says "You need to call the Atlassian API to use API tokens with scopes for Jira" with the base `https://api.atlassian.com/ex/jira/{cloudId}` and Basic authentication with the account's email and the token ([Manage API tokens for your Atlassian account](https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/)); the page on service accounts says their tokens "must always use the Platform API Gateway URLs beginning with api.atlassian.com" ([Manage API tokens for service accounts](https://support.atlassian.com/user-management/docs/manage-api-tokens-for-service-accounts/)). So:
+
+- `INTEGRATION_API.jira` is `https://api.atlassian.com`, a constant. The site is named only by its cloud ID, a UUID validated by `JiraCloudId` and placed in the path by `jiraApiUrl`. `checkIntegrationCall` adds, for Jira, that the path is exactly `/ex/jira/<uuid>/rest/api/3/<segments of letters, digits, _ / ->`, so a call can reach only one site's Jira REST API version 3, never another Atlassian product or endpoint on the gateway.
+- The admin finds the cloud ID by opening `https://<site>.atlassian.net/_edge/tenant_info` in their own browser (it answers `{"cloudId": "…"}`); Portifact never calls the site. Atlassian's documentation shows `{cloudId}` without saying how to find it; `_edge/tenant_info` is the widely used way (community reports, not an official page). Release check.
+- A token without scopes ("classic") is meant for the site URL and is not supported: the page tells the admin to create a token with scopes, and one without them fails the check with `credential_rejected`.
+
+### The credential: email and token, sealed together
+
+Basic authentication needs the token's account email. The email is part of the credential: `jiraCredential` puts `{ account, token }` in the one sealed value (`INTEGRATIONS_KEY`, bound to the connection), so it is never stored in the clear, never returned (the view has the token's last four characters as the hint, never the email), never in audit details, the export or logs. A new token is accepted only with its email (`IntegrationUpdate.account`, refused alone and refused for other services). The identity shown is the `displayName` Jira's `myself` reports, as GitHub's login and Linear's name are.
+
+Scopes: the page asks for exactly `read:jira-user` (`GET myself`), `read:jira-work` (`GET project/{key}`, `GET search/jql`) and `write:jira-work` (`POST issue`), as Jira's OpenAPI document lists them for those operations ([swagger-v3.v3.json](https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json), `x-atlassian-oauth2-scopes`; the granular equivalents are `read:user:jira`, `read:project:jira`, `read:issue-type:jira`, `read:issue-details:jira`, `write:issue:jira` and those the document lists with them). `GET serverInfo` needs no scope. Whether the token-creation page offers these classic scopes for a scoped token, or only granular ones, could not be verified without an Atlassian account; release check.
+
+### The check
+
+`checkCredential` for Jira makes `2 + n` calls (`n` ≤ 10 projects), all to the gateway:
+
+1. `GET serverInfo`: its `baseUrl` must be exactly `https://<site>.atlassian.net` for the site the admin typed (`jiraBaseUrlIsSite`). This proves the cloud ID belongs to the site, so the links Portifact builds point at the Jira the calls went to; otherwise `site_mismatch` ("The cloud ID does not belong to that Jira site"). An unknown cloud ID (404) is `site_mismatch` too.
+2. `GET myself`: the identity; 401 is `credential_rejected`, 403 `missing_permission`.
+3. `GET project/{key}` for each project key: its name (shown as the target's name) and its issue types, from which `jiraIssueType` picks the type Portifact creates (`Task` when there is one, otherwise the first standard type, never a subtask or an epic level). A project with none is `issues_disabled` ("it has no standard issue type"). The issue type ID is kept in the stored targets JSON for the job and never shown.
+
+The site name and cloud ID are stored in two nullable columns (`integration_connections.site` and `cloud_id`, migration 0065, `ALTER TABLE ADD COLUMN`, no rebuild); they cannot change: another site is another connection. The connection's view carries `site` (the name, not a secret) for its admins; the owner side's list never does.
+
+### The issue's link
+
+Jira's create answer is `{ id, key, self }`, and `self` is an API URL, not the issue's page. 0018 builds issue URLs in the domain, never from an answer, and Jira follows: `checkIssueKey` accepts the returned key only as `<PROJECT>-<number>` in the target project, and `jiraIssueUrl` builds `https://<site>.atlassian.net/browse/<KEY>` from the stored site and that key, which `checkIssueUrl` then checks (HTTPS, host exactly the stored site, path exactly `/browse/<KEY>`). The site name is a customer-chosen host, accepted here because it is only ever rendered as a link and never fetched by any Worker; it is one DNS label checked by `JiraSiteName`, and serverInfo proved it was the site behind the cloud ID when the connection was checked. That proof does not last on its own (Atlassian lets a site change its URL), so it is asked again (below, "When the site changes its address"). A Jira site with a custom domain still answers on its `atlassian.net` name, which is what `baseUrl` reports.
+
+### When the site changes its address
+
+A cloud ID can stop serving the stored name, for example when an admin of the Jira site changes its URL. Links built from the old name would then point at a site that is not that Jira (or nobody's, until someone takes the name), and every reader of the thread sees them. So:
+
+- **Test** asks `serverInfo` again (it is the check's first call). A `baseUrl` that names anything but the stored site marks the connection `site_mismatch` (`IntegrationAttention`), through the same guarded write as a refused credential (`markAttention`: only the credential that was checked, one `integration.failing` event with reason `site_mismatch`, in the dashboard's and the CLI's audit summaries). Requests are then refused ("its Jira site changed its address"), and pending ones end with the failure `site_changed`. Only connecting the site again with its current name fixes it: the site cannot be changed on a connection, because another name is another site. A later Test that finds the stored name again clears the mark.
+- **The job** asks `serverInfo` once more on the **first attempt** of each issue, right before `POST issue`: one more call per issue (the first attempt costs two calls, `GET serverInfo` and `POST issue`). A mismatch marks the connection like Test and ends the request with `site_changed`, creating nothing; a failure of that call is classified like any other (retried, or the connection marked on a 401). **Retries do not ask again** (a retry is already the search plus, when nothing was found, the create): a site renamed between the first attempt and a retry, within the 2.5 hours of retries, or renamed when the first attempt failed at this very call, can still get one issue linked to the old name. The next request, or an admin's Test, catches it.
+
+### What is sent: Atlassian Document Format
+
+Jira's `description` is Atlassian Document Format (ADF), not Markdown. `issueSections` (domain) decides once what an issue says from the parts the person left on; `issueBody` writes those sections as Markdown (GitHub, Linear) and `issueDocument` as ADF (Jira), so "`issueBody` is the only builder of what is sent" becomes "the two writers of `issueSections` are the only builders", one per format, and they cannot say different things. The document uses only `paragraph`, `text`, `codeBlock` (language `text`) and `rule`, with two marks: `code` on the artifact's name and `link` on Portifact's own thread URL. The quote and the first message are the single text node of a `codeBlock`, which by ADF's rules takes no marks ([codeBlock](https://developer.atlassian.com/cloud/jira/platform/apis/document/nodes/codeBlock/)), after the same cleaning and bounds as for the other services: nothing in them can become a link, mention, media, smart card, macro or formatting. A property test checks that no other node type or mark is ever written and that the only `href` is Portifact's. The dashboard previews the document (`issueDocumentText`) built by the same function. The title goes as `summary`, made inert by `issueTitle` like for every service.
+
+### Finding a lost issue: bounded JQL
+
+Before every retry the job searches `GET search/jql` (the current endpoint; `GET search` is being removed) with `maxResults` 30 and only the `description` and `created` fields, and the query built by `jiraFindJql`: `project = "<KEY>" AND creator = currentUser() AND created >= -1d ORDER BY created DESC`. The only value in it is the validated project key, quoted by `jqlString` (backslashes and quotes escaped, controls refused); nothing the person typed ever enters JQL. `creator` is the account that created the issue and cannot be changed (unlike the reporter), so someone who copies the reference into their own issue cannot get it linked, as with GitHub's author check; among the results the job takes the oldest whose description's text (`adfPlainText`, bounded) holds the reference line and whose `created` (from the answer, parsed by `jiraTimestamp`, compared in code because JQL dates read in the account's time zone) is not earlier than the request's own creation time, less `INTEGRATION_LIMITS.lookupSkewMs` (two minutes of clock skew between Portifact and Jira).
+
+What remains: `creator = currentUser()` stops other accounts, not someone with "Edit issues" who pastes a pending request's `Reference: ti_…` into another issue the connection's own account created **after** the request (within the day and the retry window); a retry would link that issue. GitHub's author check has the same gap. Searching by an issue property Portifact sets at creation would close it, but Jira indexes entity properties for JQL only when an app declares them (a Connect `jiraEntityProperties` module or the Forge `jira:entityProperty` module, [Jira entity properties](https://developer.atlassian.com/cloud/jira/platform/jira-entity-properties/)), which a pasted token cannot do. The reference is never shown outside the issue body and the thread's own view, so a person must see a pending request's ID and act within its retry window. Jira's search is eventually consistent ("recent updates might not be immediately visible"; most appear within seconds, per [Search and reconcile](https://developer.atlassian.com/cloud/jira/platform/search-and-reconcile/)); the first retry is a minute after the lost answer, but a slower index could miss it and create a second issue. `reconcileIssues` does not help, since it needs the lost issue's ID. Open risk, like GitHub's 30-issue window.
+
+### A project's issue type
+
+The check keeps, per project, the issue type to create (`jiraIssueType`). If a Jira admin later removes that type, every issue in the project fails with `rejected` (Jira answers 400). Recovery is a Test: it reads each project's issue types again (it already calls `GET project/{key}`), saves the current ones, and says in plain words which projects changed (`IntegrationTestResult.refreshed`, "Portifact now creates issues in ENG with the project's current issue type"). A save that runs the check (a new credential or new targets) also stores what it read. A save that changes only the label runs no check and refreshes nothing.
+
+### Answers and failures
+
+The classification of 0018 applies unchanged: 401 `credential_rejected` (and the connection marked), 403/404/410 `target_unreachable`, 408/429/5xx, timeouts and network errors retried, 3xx, oversized or unreadable answers `invalid_response`, other 4xx (such as a project whose create screen requires another field) `rejected`. A 429 or 403 with `Retry-After` is a rate limit, retried.
+
+### Audit, EU and data
+
+`issue.created` carries `service: "jira"` and the project key as its target (`JiraProjectKey` in the detail's union): a short identifier the admins who read the log already see on the connection, and where the data went is the fact the log is for. Never the site, the email or the URL. `integration.*` events are unchanged (service and counts). For an EU owner the dialog says what is sent goes to Jira, outside the EU: Portifact cannot know where a customer's Atlassian site keeps data, and the call crosses Atlassian's global gateway. Atlassian is the customer's chosen destination, not Portifact's processor, as GitHub and Linear are ([legal.md](../legal.md), "Pending changes").
+
+### Costs (pinned in tests)
+
+- Connecting or testing: `2 + n` calls to the gateway (`n` projects), the same D1 calls as the other services.
+- Asking for an issue: the same 5 D1 round trips and one batch of 2 as GitHub and Linear (`integrations-jira.test.ts`).
+- The job: two calls on the first attempt (`GET serverInfo`, then `POST issue`; was one before the site re-check); two (`GET search/jql`, then `POST issue`) on a retry that finds nothing, one when it finds the lost issue.
+
+### Released clients
+
+Every released CLI (v0.30.0 to v0.39.0) validates responses with the contracts it shipped with, whose `IntegrationChoice.service` and `ThreadIssueView.service` were the closed list `github`, `linear`. Those versions fail with `server_error` on any Jira data: `portifact annotations` (list, show, export) on an artifact with a thread that has a Jira issue, for every reader of it, and `portifact integrations` for a space with a Jira connection; MCP clients are unaffected (the server builds their answers). From this change on, the response side is tolerant: `service` is any lowercase name (`IntegrationServiceName`) and `ThreadIssueView.failure` any lowercase reason; the CLI prints an unknown service and reason as they come, the dashboard shows "Another service" and a neutral reason. Inputs keep the strict enums. Jira (and `site_changed`) must therefore be switched on only after a CLI release that includes this change is out, and the release notes say which versions fail meanwhile ([releasing.md](../releasing.md), "Integrations"). The next service needs no such wait.
+
+### Release checks
+
+In [releasing.md](../releasing.md), "Integrations": the token page's scopes, `_edge/tenant_info`, serverInfo's `baseUrl` for a site with a custom domain, the ADF rendering of hostile text, the error shapes, search lag after a lost answer, and no redirects.

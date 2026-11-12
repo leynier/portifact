@@ -2516,10 +2516,10 @@ export const ru = {
   "shell.integrationsLink": "Интеграции",
   "integrations.title": "Интеграции",
   "integrations.description":
-    "Превращайте ветку комментариев в задачу в GitHub или Linear. Подключение действует с учётными данными, которые вставил администратор, поэтому задачи создаются от имени этой учётной записи.",
+    "Превращайте ветку комментариев в задачу в GitHub, Linear или Jira. Подключение действует с учётными данными, которые вставил администратор, поэтому задачи создаются от имени этой учётной записи.",
   "integrations.adminOnly.title": "Интеграциями управляют только администраторы",
   "integrations.adminOnly.body":
-    "Попросите администратора {workspace} подключить GitHub или Linear.",
+    "Попросите администратора {workspace} подключить GitHub, Linear или Jira.",
   "integrations.planTitle": "Не входит в этот тариф",
   "integrations.planRequired":
     "Интеграции входят в тариф {plan}. Уже созданные подключения сохраняются, но создавать через них задачи нельзя.",
@@ -2528,9 +2528,11 @@ export const ru = {
   "integrations.list.error": "Не удалось загрузить подключения.",
   "integrations.empty.title": "Подключений пока нет",
   "integrations.empty.body":
-    "Подключите GitHub или Linear, чтобы администраторы и редакторы могли создавать задачи из веток комментариев.",
+    "Подключите GitHub, Linear или Jira, чтобы администраторы и редакторы могли создавать задачи из веток комментариев.",
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
+  "integrations.service.jira": "Jira",
+  "integrations.service.other": "Другой сервис",
   "integrations.add.title": "Подключить сервис",
   "integrations.add.hint":
     "Учётные данные проверяются у сервиса, хранятся в зашифрованном виде и больше не показываются: Portifact показывает только последние четыре символа.",
@@ -2539,13 +2541,25 @@ export const ru = {
   "integrations.add.labelHint": "Название, понятное вашей команде, например Репозиторий продукта.",
   "integrations.add.credential.github": "Детализированный персональный токен доступа",
   "integrations.add.credential.linear": "API-ключ Linear",
+  "integrations.add.credential.jira": "API-токен Atlassian с областями доступа",
   "integrations.add.targets.github": "Репозитории",
   "integrations.add.targets.linear": "ID команд",
+  "integrations.add.targets.jira": "Ключи проектов",
   "integrations.add.targetsHint.github": "Один владелец/репозиторий в строке, не больше {limit}.",
   "integrations.add.targetsHint.linear":
     "Один ID команды в строке, не больше {limit}. Linear показывает его в настройках команды.",
+  "integrations.add.targetsHint.jira":
+    "Один ключ проекта в строке, например ENG, не больше {limit}.",
+  "integrations.add.account": "Email учётной записи Atlassian",
+  "integrations.add.accountHint":
+    "Email учётной записи, создавшей токен. Он хранится зашифрованным вместе с токеном и больше не показывается.",
+  "integrations.add.site": "Сайт Jira",
+  "integrations.add.siteHint": "Например, acme.atlassian.net.",
+  "integrations.add.cloudId": "Cloud ID",
+  "integrations.add.cloudIdHint":
+    "Откройте в браузере ваш-сайт.atlassian.net/_edge/tenant_info и скопируйте значение cloudId.",
   "integrations.add.failed":
-    "Сервис не принял учётные данные или один из репозиториев или команд. Проверьте их по шагам выше и попробуйте снова.",
+    "Сервис не принял учётные данные или один из репозиториев, команд или проектов. Сверьте их с шагами выше и попробуйте снова.",
   "integrations.add.submit": "Подключить",
   "integrations.add.limit":
     "В пространстве может быть не больше {limit} подключений. Удалите одно, чтобы добавить другое.",
@@ -2567,19 +2581,34 @@ export const ru = {
     "Если Linear позволяет ограничить ключ, разрешите только создание задач и только в перечисленных здесь командах.",
   "integrations.howto.linear.3":
     "Вставьте ключ сюда. Задачи создаются от имени вашей учётной записи Linear.",
+  "integrations.howto.jira.title": "Создайте токен Jira с минимальными правами",
+  "integrations.howto.jira.1":
+    "Войдите в Atlassian под учётной записью, от имени которой должны создаваться задачи (лучше отдельной), откройте настройки учётной записи, затем «Безопасность», и выберите создание API-токена с областями доступа.",
+  "integrations.howto.jira.2": "Задайте имя и срок действия и выберите Jira в качестве приложения.",
+  "integrations.howto.jira.3":
+    "Выберите только области read:jira-user, read:jira-work и write:jira-work.",
+  "integrations.howto.jira.4":
+    "Создайте токен и вставьте его сюда вместе с email учётной записи, сайтом и его cloud ID. Токен без областей доступа не работает.",
+  "integrations.howto.jira.5":
+    "Задачи создаются от имени этой учётной записи в проектах, которые вы здесь перечислите.",
   "integrations.connected": "{label} подключено.",
   "integrations.identity": "Действует как {identity}",
   "integrations.credential": "Учётные данные заканчиваются на {hint}",
+  "integrations.site": "Сайт {site}",
   "integrations.attention.credential_rejected":
     "Сервис отклонил эти учётные данные. Вставьте новые и проверьте их.",
   "integrations.attention.key_unavailable":
     "Сохранённые учётные данные больше нельзя открыть. Вставьте их заново.",
+  "integrations.attention.site_mismatch":
+    "Этот cloud ID больше не относится к этому сайту Jira: сайт сменил адрес. Удалите это подключение и подключите сайт заново с его текущим именем.",
   "integrations.state.ready": "Готово",
   "integrations.state.attention": "Требует внимания",
   "integrations.test": "Проверить",
   "integrations.testLabel": "Проверить {label}",
   "integrations.testPassed":
-    "{label} работает. Оно действует как {identity}, и все репозитории или команды доступны.",
+    "{label} работает. Действует как {identity}, и все репозитории, команды или проекты доступны.",
+  "integrations.testRefreshed":
+    "Теперь Portifact создаёт задачи в {targets} с текущим типом задач проекта.",
   "integrations.problem.credential_rejected":
     "Сервис отклонил учётные данные: они неверны, истекли или отозваны.",
   "integrations.problem.missing_permission":
@@ -2590,10 +2619,14 @@ export const ru = {
   "integrations.problem.service_unavailable": "Сервис не ответил. Попробуйте позже.",
   "integrations.problem.rate_limited":
     "Сервис ограничивает запросы с этими учётными данными. Попробуйте позже.",
+  "integrations.problem.site_mismatch":
+    "Этот cloud ID не принадлежит этому сайту Jira. Скопируйте оба значения с сайта заново.",
   "integrations.edit": "Изменить",
   "integrations.editLabel": "Изменить {label}",
   "integrations.edit.title": "Изменить {label}",
   "integrations.edit.credentialHint": "Оставьте пустым, чтобы сохранить текущие учётные данные.",
+  "integrations.edit.accountHint":
+    "Нужно вместе с новым токеном: email его учётной записи Atlassian.",
   "integrations.edit.save": "Сохранить",
   "integrations.saved": "{label} сохранено.",
   "integrations.remove": "Удалить",
@@ -2607,7 +2640,7 @@ export const ru = {
   "issues.dialog.title": "Создать задачу из ветки {number}",
   "issues.dialog.close": "Закрыть",
   "issues.dialog.connection": "Подключение",
-  "issues.dialog.target": "Репозиторий или команда",
+  "issues.dialog.target": "Репозиторий, команда или проект",
   "issues.dialog.issueTitle": "Заголовок задачи",
   "issues.dialog.parts": "Что отправить",
   "issues.dialog.part.link": "Ссылку на эту ветку",
@@ -2623,17 +2656,19 @@ export const ru = {
   "issues.dialog.never":
     "Никогда не отправляются: адреса электронной почты читателей, содержимое artifact, другие сообщения ветки и заметки рецензентов.",
   "issues.dialog.visible":
-    "Все, кто видит эту ветку, включая читателей вне вашей команды, видят ссылку на созданную задачу и название её репозитория или команды, даже если репозиторий приватный.",
+    "Все, кто видит эту ветку, включая читателей вне вашей команды, видят ссылку на созданную задачу и название её репозитория, команды или проекта, даже закрытого.",
   "issues.failure.target_removed":
-    "администратор убрал этот репозиторий или команду из подключения.",
+    "администратор убрал этот репозиторий, команду или проект из подключения.",
   "issues.failure.artifact_moved": "artifact перенесён в другое пространство.",
   "issues.failure.requester_left": "вы больше не можете создавать задачи для этого пространства.",
   "issues.failure.thread_gone": "ветка удалена.",
+  "issues.failure.site_changed": "адрес сайта Jira изменился.",
+  "issues.failure.other": "её не удалось создать.",
   "issues.dialog.eu":
     "Это пространство хранит данные в ЕС. То, что вы отправите, уходит в {service}, за пределы ЕС.",
   "issues.dialog.submit": "Создать задачу",
   "issues.dialog.noConnections":
-    "Нет подключения, которое можно использовать. Попросите администратора подключить GitHub или Linear или исправить подключение, требующее внимания.",
+    "Ни одно подключение нельзя использовать. Попросите администратора подключить GitHub, Linear или Jira или исправить подключение, которому нужно внимание.",
   "issues.requested": "Задача запрошена. Ссылка появится в ветке через несколько минут.",
   "issues.list": "Задачи",
   "issues.link": "Задача {key} в {target}",
@@ -2648,15 +2683,15 @@ export const ru = {
   "issues.failure.service_unavailable": "сервис не ответил.",
   "issues.failure.invalid_response": "сервис ответил так, что Portifact не смог это использовать.",
   "audit.kind.integrationConnected":
-    "Подключил {service, select, github {GitHub} other {Linear}} с {targets, plural, one {# репозиторием или командой} few {# репозиториями или командами} many {# репозиториями или командами} other {# репозитория или команды}}",
+    "Подключил {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} с {targets, plural, one {# репозиторием или командой} few {# репозиториями или командами} many {# репозиториями или командами} other {# репозитория или команды}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {Заменил учётные данные подключения} other {Изменил название или цели подключения}}",
   "audit.kind.integrationRemoved":
-    "Удалил подключение {service, select, github {GitHub} other {Linear}}",
+    "Удалил подключение {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {Учётные данные подключения больше нельзя открыть} other {{service, select, github {GitHub} other {Linear}} отклонил учётные данные подключения}}",
+    "{reason, select, site_mismatch {Сайт Jira подключения сменил адрес} key_unavailable {Учётные данные подключения больше нельзя открыть} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} отклонил учётные данные подключения}}",
   "audit.kind.issueCreated":
-    "Создал задачу {service, select, github {GitHub} other {Linear}} в {target} из ветки {message, select, true {с её первым сообщением} other {без текста комментариев}}",
+    "Создал задачу {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} в {target} из ветки {message, select, true {с её первым сообщением} other {без текста комментариев}}",
   "policies.networks.legend": "Сети для людей",
   "policies.networks.hint":
     "Участники, включая администраторов, работают в рабочем пространстве и читают его artifacts, открытые только для рабочего пространства, только из этих сетей. Публичные artifacts, ссылки для общего доступа и внешние люди, с которыми вы поделились, не затрагиваются.",
@@ -2724,7 +2759,7 @@ export const ru = {
   "region.leaves.webhooks":
     "Данные этого пространства хранятся в ЕС. Webhook-уведомления отправляются на указанные вами адреса, которые могут находиться где угодно: их содержимое покидает ЕС.",
   "region.leaves.integrations":
-    "Данные этого пространства хранятся в ЕС. Создаваемые задачи отправляются в GitHub или Linear, которые могут хранить их где угодно: то, что вы отправляете, покидает ЕС.",
+    "Данные этого пространства хранятся в ЕС. Задачи, которые вы создаёте, уходят в GitHub, Linear или Jira, которые могут хранить их где угодно: то, что вы отправляете, покидает ЕС.",
   "audit.stream.euTitle": "Ваша конечная точка может быть вне ЕС",
   "audit.stream.eu":
     "Данные этого пространства хранятся в ЕС. Выбранная конечная точка может находиться где угодно: полученные ею события покидают ЕС.",

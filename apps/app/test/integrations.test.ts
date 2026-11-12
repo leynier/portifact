@@ -563,3 +563,134 @@ describe("service tokens", () => {
     });
   });
 });
+
+describe("Jira through the dashboard session, the API and MCP", () => {
+  const ACCOUNT = "jira-bot@acme.example";
+  const JIRA_TOKEN = "ATATT3x-app-suite-test-only-jira-token-0123";
+  const CLOUD = "11223344-5566-4778-899a-abbccddeeff0";
+  const JIRA = {
+    service: "jira",
+    label: "Jira",
+    credential: JIRA_TOKEN,
+    targets: ["ENG"],
+    account: ACCOUNT,
+    site: "acme.atlassian.net",
+    cloudId: CLOUD,
+  };
+  const jiraFakes = () =>
+    new FakeIssueTrackers().jiraSite({ site: "acme", cloudId: CLOUD }).jira(ACCOUNT, JIRA_TOKEN, {
+      displayName: "Jira Bot",
+      cloudId: CLOUD,
+      projects: [{ key: "ENG", name: "Engineering" }],
+    });
+
+  it("connects with the site, never returns the email, and refuses Jira fields where they do not belong", async () => {
+    const fake = jiraFakes();
+    const h = createHarness({ integrationFetch: fake.fetch });
+    const email = "integrations-jira@example.test";
+    const session = await sessionOf(h, email);
+    const userId = await userIdOf(h, await apiToken(h, email));
+    await onTeam(userId);
+    for (const wrong of [
+      { ...JIRA, account: undefined },
+      { ...JIRA, site: undefined },
+      { ...JIRA, cloudId: "acme" },
+      { ...JIRA, account: "not an email" },
+      { ...CONNECT, account: ACCOUNT },
+      { ...CONNECT, site: "acme" },
+    ]) {
+      const refused = await session("/api/v1/integrations/connections", json("POST", wrong));
+      expect(refused.status).toBe(400);
+    }
+    expect(fake.requests).toHaveLength(0);
+    const created = await session("/api/v1/integrations/connections", json("POST", JIRA));
+    expect(created.status).toBe(201);
+    const text = await created.text();
+    expect(text).not.toContain(ACCOUNT);
+    expect(JSON.parse(text)).toMatchObject({
+      service: "jira",
+      site: "acme",
+      identity: "Jira Bot",
+      targets: [{ id: "ENG", name: "Engineering" }],
+    });
+    const listed = await (await session("/api/v1/integrations/connections")).text();
+    expect(listed).not.toContain(ACCOUNT);
+    expect(listed).not.toContain("issueType");
+    // A new token without its account's email is refused before anything is called.
+    const id = (JSON.parse(text) as { id: string }).id;
+    const before = fake.requests.length;
+    const patched = await session(
+      `/api/v1/integrations/connections/${id}`,
+      json("PATCH", { credential: `${JIRA_TOKEN}9` }),
+    );
+    expect(patched.status).toBe(400);
+    expect(
+      (await session(`/api/v1/integrations/connections/${id}`, json("PATCH", { account: ACCOUNT })))
+        .status,
+    ).toBe(400);
+    expect(fake.requests.length).toBe(before);
+  });
+
+  it("lists and asks for a Jira issue with the same bodies and errors through the API and MCP", async () => {
+    const fake = jiraFakes();
+    const h = createHarness({ integrationFetch: fake.fetch });
+    const email = "integrations-jira-parity@example.test";
+    const token = await apiToken(h, email, SCOPES);
+    const mcp = await connect(h, await mcpToken(h, email, SCOPES));
+    const userId = await userIdOf(h, token);
+    await onTeam(userId);
+    const session = await sessionOf(h, email);
+    const connection = await (
+      await session("/api/v1/integrations/connections", json("POST", JIRA))
+    ).json<{ id: string }>();
+    const listed = await callTool(mcp, "list_integrations", {});
+    const viaApi = await (await api(h, token, "/api/v1/integrations")).json<unknown>();
+    expect(listed.structuredContent).toEqual(viaApi);
+    expect(viaApi).toMatchObject({
+      connections: [
+        {
+          id: connection.id,
+          service: "jira",
+          targets: [{ id: "ENG", name: "Engineering" }],
+        },
+      ],
+    });
+    // The owner side never sees the site, the identity, the email or the stored issue type.
+    expect(JSON.stringify(viaApi)).not.toMatch(/acme|Jira Bot|issueType|10001/);
+    expect(JSON.stringify(listed)).not.toMatch(/issueType|10001/);
+
+    const { id, threadId } = await artifactWithThread(userId);
+    const body = { connectionId: connection.id, target: "ENG", title: "Fix it" };
+    const path = `/api/v1/artifacts/${id}/annotations/threads/${threadId}/issue`;
+    const key = crypto.randomUUID();
+    const asked = await api(h, token, path, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": key },
+      body: JSON.stringify(body),
+    });
+    expect(asked.status).toBe(202);
+    const issue = await asked.json<unknown>();
+    expect(issue).toMatchObject({ state: "pending", service: "jira", target: "Engineering" });
+    const tool = await callTool(mcp, "create_issue_from_thread", {
+      artifactId: id,
+      threadId,
+      ...body,
+      idempotencyKey: key,
+    });
+    expect(tool.structuredContent).toEqual(issue);
+    const wrong = { ...body, target: "OPS" };
+    const viaRoute = await api(h, token, path, {
+      method: "POST",
+      headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
+      body: JSON.stringify(wrong),
+    });
+    const viaTool = await callTool(mcp, "create_issue_from_thread", {
+      artifactId: id,
+      threadId,
+      ...wrong,
+    });
+    expect(viaTool.structuredContent).toEqual(await viaRoute.json());
+    // Only the jobs Worker calls Jira to create.
+    expect(fake.issues).toHaveLength(0);
+  });
+});

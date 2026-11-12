@@ -217,14 +217,15 @@ export const AccountExport = z.object({
       }),
     ),
     /**
-     * The account's issue connections (decision 0018): the service, label, identity and targets,
-     * never the credential.
+     * The account's issue connections (decision 0018): the service, label, Jira site, identity
+     * and targets, never the credential (nor a Jira token's account email, sealed with it).
      */
     integrations: z.array(
       z.object({
         id: z.string(),
-        service: z.enum(["github", "linear"]),
+        service: z.enum(["github", "linear", "jira"]),
         label: z.string(),
+        site: z.string().nullable(),
         identity: z.string(),
         targets: z.array(z.string()),
         createdAt: z.iso.datetime(),

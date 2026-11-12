@@ -2,7 +2,7 @@
 // CLI sends (only the parts the flags turn on, one Idempotency-Key for every retry), what it
 // prints (labels shown safely, never a credential), and that the thread shows its issue links.
 import { join } from "node:path";
-import type { AnnotationThreadView } from "@portifact/contracts";
+import { AnnotationThreadView } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { formatThread } from "./annotations.ts";
 import type { FakeArtifact } from "./testing/fake-api.ts";
@@ -77,6 +77,27 @@ describe("portifact integrations", () => {
     expect(result.stdout).toContain("leaves the EU");
     const json = await h.invoke("integrations", "--json");
     expect(JSON.parse(json.stdout)).toMatchObject({ connections: [{ id: CONNECTION }] });
+  });
+
+  it("lists a service this version does not know as it comes, instead of failing", async () => {
+    server.api.integrations.set("personal", {
+      connections: [
+        {
+          id: CONNECTION,
+          service: "youtrack",
+          label: "Tracker",
+          targets: [{ id: "PRJ", name: "Project" }],
+          usable: true,
+        },
+      ],
+      available: true,
+      serviceAvailable: true,
+      euResidency: false,
+    });
+    const result = await h.invoke("integrations");
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("youtrack");
+    expect(result.stdout).toContain("Project (PRJ)");
   });
 
   it("says where connections are added when there are none, and when the server offers none", async () => {
@@ -228,6 +249,40 @@ describe("portifact issue", () => {
         },
       ],
     };
+    // A newer server's service and failure reason parse and print as they come.
+    const newer = AnnotationThreadView.parse({
+      ...thread,
+      issues: [
+        ...(thread.issues ?? []),
+        {
+          id: `ti_${"4".repeat(32)}`,
+          service: "youtrack",
+          target: "Project",
+          state: "failed",
+          key: null,
+          url: null,
+          failure: "tracker_moved",
+          own: true,
+          createdAt: "2026-11-07T10:00:00.000Z",
+        },
+        {
+          id: `ti_${"5".repeat(32)}`,
+          service: "jira",
+          target: "Engineering",
+          state: "created",
+          key: "ENG-7",
+          url: "https://acme.atlassian.net/browse/ENG-7",
+          failure: null,
+          own: false,
+          createdAt: "2026-11-07T10:00:00.000Z",
+        },
+      ],
+    });
+    const newerText = formatThread(newer);
+    expect(newerText).toContain("Issue in Project failed: tracker_moved");
+    expect(newerText).toContain(
+      "Issue ENG-7 in Engineering: https://acme.atlassian.net/browse/ENG-7",
+    );
     const text = formatThread(thread);
     expect(text).toContain("Issue #12 in acme/site: https://github.com/acme/site/issues/12");
     expect(text).toContain("Issue in Engineering: being created");

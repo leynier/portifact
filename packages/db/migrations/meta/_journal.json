@@ -456,6 +456,13 @@
       "when": 1794427978885,
       "tag": "0064_github_oidc_federation",
       "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "6",
+      "when": 1794443737488,
+      "tag": "0065_jira_integrations",
+      "breakpoints": true
     }
   ]
 }

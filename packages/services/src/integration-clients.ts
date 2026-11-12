@@ -1,5 +1,6 @@
-// Calls to GitHub and Linear (decision 0018). Every call goes to the service's fixed API origin
-// (`INTEGRATION_API`), checked again right before it is sent, with `redirect: "manual"` (any 3xx
+// Calls to GitHub, Linear and Jira Cloud (decision 0018). Every call goes to the service's fixed
+// API origin (`INTEGRATION_API`; for Jira Atlassian's gateway, with the site named by its cloud ID
+// in the path), checked again right before it is sent, with `redirect: "manual"` (any 3xx
 // is a failure), a timeout and a bounded read of the answer. Nothing of an answer is kept but what
 // the caller extracts: the identity, team names, an issue's key and URL. Credentials and bodies
 // are never logged.
@@ -9,14 +10,26 @@ import {
   type IntegrationCheckProblem,
   type IntegrationService,
   type IntegrationTarget,
+  type IssueSource,
 } from "@portifact/contracts";
 import {
+  adfPlainText,
   checkIntegrationCall,
   checkIssueKey,
   checkIssueUrl,
   classifyIntegrationCall,
   type IntegrationCallResult,
   type IntegrationVerdict,
+  issueBody,
+  issueDocument,
+  type JiraSite,
+  jiraApiUrl,
+  jiraBaseUrlIsSite,
+  jiraFindJql,
+  jiraIssueType,
+  jiraIssueUrl,
+  jiraTimestamp,
+  openJiraCredential,
   plainLine,
 } from "@portifact/domain";
 
@@ -64,11 +77,29 @@ async function readBounded(response: Response, limit: number, signal: AbortSigna
   return new TextDecoder().decode(bytes);
 }
 
+/** Basic authentication with an Atlassian account's email and API token, UTF-8 encoded. */
+function basicAuth(account: string, token: string): string {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(`${account}:${token}`)) {
+    binary += String.fromCharCode(byte);
+  }
+  return `Basic ${btoa(binary)}`;
+}
+
 function headersFor(service: IntegrationService, credential: string): Record<string, string> {
   const common = {
     "user-agent": "Portifact-Integrations/1 (+https://portifact.com)",
     "content-type": "application/json",
   };
+  if (service === "jira") {
+    // A sealed value that does not read as a Jira credential sends none: Jira answers 401.
+    const jira = openJiraCredential(credential);
+    return {
+      ...common,
+      accept: "application/json",
+      ...(jira ? { authorization: basicAuth(jira.account, jira.token) } : {}),
+    };
+  }
   return service === "github"
     ? {
         ...common,
@@ -207,10 +238,32 @@ function linearData(answer: Answer): Record<string, unknown> | null {
   return record(record(okJson(answer))?.data);
 }
 
+/** One call to a Jira site's REST API on Atlassian's gateway. */
+async function jira(
+  credential: string,
+  site: JiraSite,
+  path: string,
+  init: { method: "GET" | "POST"; body?: string; query?: URLSearchParams },
+  options: CallOptions,
+) {
+  return call(
+    "jira",
+    credential,
+    jiraApiUrl(site.cloudId, path, init.query),
+    { method: init.method, ...(init.body === undefined ? {} : { body: init.body }) },
+    options,
+  );
+}
+
 // Checking a credential
 
+/** A target as checked: Jira projects also keep the issue type Portifact creates in them. */
+export interface CheckedTarget extends IntegrationTarget {
+  issueType?: string;
+}
+
 export type CredentialCheck =
-  | { ok: true; identity: string; targets: IntegrationTarget[] }
+  | { ok: true; identity: string; targets: CheckedTarget[] }
   | { ok: false; problem: IntegrationCheckProblem; target: string | null };
 
 function problemOf(result: IntegrationCallResult): IntegrationCheckProblem {
@@ -248,7 +301,13 @@ export async function checkCredential(
   credential: string,
   targets: readonly string[],
   options: CallOptions,
+  /** Jira: the site and cloud ID the admin gave. */
+  site?: JiraSite | null,
 ): Promise<CredentialCheck> {
+  if (service === "jira") {
+    if (!site) return { ok: false, problem: "site_mismatch", target: null };
+    return checkJira(credential, site, targets, options);
+  }
   if (service === "github") {
     const user = await call(
       service,
@@ -335,6 +394,81 @@ export async function checkCredential(
   return { ok: true, identity, targets: reached };
 }
 
+/**
+ * Jira: `serverInfo` first (no scope needed), whose `baseUrl` must be exactly the site the admin
+ * named, so issue links point at the Jira the calls go to; then `myself` (the identity, scope
+ * `read:jira-user`) and each project (`read:jira-work`), keeping the issue type to create.
+ */
+async function checkJira(
+  credential: string,
+  site: JiraSite,
+  targets: readonly string[],
+  options: CallOptions,
+): Promise<CredentialCheck> {
+  const proof = await verifyJiraSite(credential, site, options);
+  if (proof.kind === "failed") {
+    const problem = problemOf(proof.result);
+    // An unknown cloud ID answers 404 at the gateway.
+    return {
+      ok: false,
+      problem: problem === "target_unreachable" ? "site_mismatch" : problem,
+      target: null,
+    };
+  }
+  if (proof.kind === "other") return { ok: false, problem: "site_mismatch", target: null };
+  const me = await jira(credential, site, "myself", { method: "GET" }, options);
+  const meResult = resultOf(me, "jira");
+  if (classifyIntegrationCall(meResult).outcome !== "ok") {
+    const problem = problemOf(meResult);
+    return {
+      ok: false,
+      problem: problem === "target_unreachable" ? "missing_permission" : problem,
+      target: null,
+    };
+  }
+  const identity = identityOf(record(okJson(me))?.displayName);
+  if (identity === null) return { ok: false, problem: "service_unavailable", target: null };
+  const reached: CheckedTarget[] = [];
+  for (const target of targets) {
+    const project = await jira(credential, site, `project/${target}`, { method: "GET" }, options);
+    const projectResult = resultOf(project, "jira");
+    if (classifyIntegrationCall(projectResult).outcome !== "ok") {
+      const problem = problemOf(projectResult);
+      return {
+        ok: false,
+        problem: KEPT_PROBLEMS.has(problem) ? problem : "target_unreachable",
+        target,
+      };
+    }
+    const body = record(okJson(project));
+    const issueType = jiraIssueType(body?.issueTypes);
+    if (issueType === null) return { ok: false, problem: "issues_disabled", target };
+    const name = identityOf(body?.name) ?? target;
+    reached.push({ id: target, name: name.slice(0, INTEGRATION_LIMITS.targetNameMax), issueType });
+  }
+  return { ok: true, identity, targets: reached };
+}
+
+/**
+ * Asks Jira's `serverInfo` (no scope needed) which site the cloud ID serves now: `same` when its
+ * `baseUrl` is exactly the stored site, `other` when it names anything else (the site changed
+ * its address, or the cloud ID is another site's), or how the call failed.
+ */
+export async function verifyJiraSite(
+  credential: string,
+  site: JiraSite,
+  options: CallOptions,
+): Promise<
+  { kind: "same" } | { kind: "other" } | { kind: "failed"; result: IntegrationCallResult }
+> {
+  const info = await jira(credential, site, "serverInfo", { method: "GET" }, options);
+  const result = resultOf(info, "jira");
+  if (classifyIntegrationCall(result).outcome !== "ok") return { kind: "failed", result };
+  return jiraBaseUrlIsSite(record(okJson(info))?.baseUrl, site.name)
+    ? { kind: "same" }
+    : { kind: "other" };
+}
+
 // Creating an issue
 
 export type IssueCallOutcome =
@@ -345,6 +479,9 @@ export type IssueCallOutcome =
 function failedOf(result: IntegrationCallResult): { kind: "failed"; verdict: IntegrationVerdict } {
   return { kind: "failed", verdict: classifyIntegrationCall(result) };
 }
+
+/** A failed call as the job settles it (retried, marked or ended by the classification). */
+export const failedOutcome = failedOf;
 
 const invalid = () => failedOf({ kind: "invalid_response" });
 
@@ -369,19 +506,72 @@ function linearIssue(issue: unknown): Exclude<IssueCallOutcome, { kind: "absent"
   return url.ok ? { kind: "created", key: key.value, url: url.value } : invalid();
 }
 
+/** A Jira issue's key (in the target project) and the link Portifact builds for it. */
+function jiraIssue(
+  json: unknown,
+  site: JiraSite,
+  project: string,
+): Exclude<IssueCallOutcome, { kind: "absent" }> {
+  const key = checkIssueKey("jira", record(json)?.key, project);
+  if (!key.ok) return invalid();
+  // Built, never taken from the answer: Jira's `self` is an API URL, not the issue's page.
+  const url = checkIssueUrl("jira", jiraIssueUrl(site.name, key.value), {
+    target: project,
+    key: key.value,
+    site: site.name,
+  });
+  return url.ok ? { kind: "created", key: key.value, url: url.value } : invalid();
+}
+
+/** What a created issue says, in the format of its service: Markdown, or a Jira document. */
+export interface IssueContent {
+  target: string;
+  title: string;
+  source: IssueSource;
+  parts: { link: boolean; artifactName: boolean; quote: boolean; message: boolean };
+  /** Jira: the issue type checked with the project. */
+  issueType?: string | undefined;
+}
+
 /** Creates the issue. */
 export async function createIssue(
   service: IntegrationService,
   credential: string,
-  input: { target: string; title: string; body: string },
+  input: IssueContent,
   options: CallOptions,
+  /** Jira: the connection's site. */
+  site?: JiraSite | null,
 ): Promise<Exclude<IssueCallOutcome, { kind: "absent" }>> {
+  if (service === "jira") {
+    if (!site || input.issueType === undefined) return invalid();
+    const answer = await jira(
+      credential,
+      site,
+      "issue",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          fields: {
+            project: { key: input.target },
+            issuetype: { id: input.issueType },
+            summary: input.title,
+            description: issueDocument(input.source, input.parts),
+          },
+        }),
+      },
+      options,
+    );
+    const result = resultOf(answer, service);
+    if (classifyIntegrationCall(result).outcome !== "ok") return failedOf(result);
+    return jiraIssue(okJson(answer), site, input.target);
+  }
+  const body = issueBody(input.source, input.parts);
   if (service === "github") {
     const answer = await call(
       service,
       credential,
       `${INTEGRATION_API.github}/repos/${repoPath(input.target)}/issues`,
-      { method: "POST", body: JSON.stringify({ title: input.title, body: input.body }) },
+      { method: "POST", body: JSON.stringify({ title: input.title, body }) },
       options,
     );
     const result = resultOf(answer, service);
@@ -391,7 +581,7 @@ export async function createIssue(
   const answer = await linear(
     credential,
     "mutation PortifactIssue($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { identifier url } } }",
-    { input: { teamId: input.target, title: input.title, description: input.body } },
+    { input: { teamId: input.target, title: input.title, description: body } },
     options,
   );
   const result = resultOf(answer, service);
@@ -411,11 +601,52 @@ export async function createIssue(
 export async function findIssue(
   service: IntegrationService,
   credential: string,
-  /** `identity`: the account the connection's credential acts as, as the service reported it. */
-  input: { target: string; reference: string; identity: string },
+  /**
+   * `identity`: the account the connection's credential acts as, as the service reported it.
+   * `requestedAt`: when the request was made; Jira adopts only an issue created since (less
+   * `lookupSkewMs`), so a reference pasted into an older issue is never linked.
+   */
+  input: { target: string; reference: string; identity: string; requestedAt?: number },
   options: CallOptions,
+  /** Jira: the connection's site. */
+  site?: JiraSite | null,
 ): Promise<IssueCallOutcome> {
   const marker = `Reference: ${input.reference}`;
+  if (service === "jira") {
+    const jql = jiraFindJql(input.target);
+    if (!site || !jql.ok) return invalid();
+    const answer = await jira(
+      credential,
+      site,
+      "search/jql",
+      {
+        method: "GET",
+        query: new URLSearchParams({
+          jql: jql.value,
+          maxResults: String(INTEGRATION_LIMITS.recentIssuesChecked),
+          fields: "description,created",
+        }),
+      },
+      // Recent issues carry their descriptions: allow more than a single issue's answer.
+      { ...options, readBytes: options.readBytes ?? 4 * INTEGRATION_LIMITS.responseReadBytes },
+    );
+    const result = resultOf(answer, service);
+    if (classifyIntegrationCall(result).outcome !== "ok") return failedOf(result);
+    const issues = record(okJson(answer))?.issues;
+    if (!Array.isArray(issues)) return invalid();
+    // The search names only the connection's own account as creator; newest first, so the oldest
+    // match is the last one.
+    const since = (input.requestedAt ?? 0) - INTEGRATION_LIMITS.lookupSkewMs;
+    const matches = issues.filter((item) => {
+      const fields = record(record(item)?.fields);
+      const created = jiraTimestamp(fields?.created);
+      return (
+        created !== null && created >= since && adfPlainText(fields?.description).includes(marker)
+      );
+    });
+    const oldest = matches.at(-1);
+    return oldest ? jiraIssue(oldest, site, input.target) : { kind: "absent" };
+  }
   if (service === "github") {
     const answer = await call(
       service,

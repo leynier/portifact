@@ -1,5 +1,5 @@
 // portifact integrations and portifact issue (premium plan T7, decision 0018): list a space's
-// connections to GitHub Issues or Linear (names and targets, never a credential) and create an
+// connections to GitHub Issues, Linear or Jira (names and targets, never a credential) and create an
 // issue from one comment thread, through GET /api/v1/integrations and POST
 // /api/v1/artifacts/:id/annotations/threads/:threadId/issue. Connections are managed only in the
 // dashboard. The CLI adds no rule of its own: the server checks the role, the thread's

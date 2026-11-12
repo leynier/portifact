@@ -94,7 +94,7 @@ export interface Env extends DomainEnv {
   /**
    * Exactly `"true"` offers issue integrations (decision 0018, "Switched off"): unset in the
    * deployed configuration until the checks in docs/releasing.md ("Integrations") pass. Without
-   * it, the connection routes and creating an issue answer 503 and nothing calls GitHub or Linear.
+   * it, the connection routes and creating an issue answer 503 and nothing calls GitHub, Linear or Jira.
    */
   INTEGRATIONS_ENABLED?: string | undefined;
   /**
