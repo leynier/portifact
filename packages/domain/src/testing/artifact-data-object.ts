@@ -1,6 +1,6 @@
 // An in-memory documents object for the artifact data protocols' tests (decision 0026, delivery
 // 3): the thin shell delivery 4 builds over SQLite, here over maps. Every command reads state,
-// calls the domain's decisions and writes their result in one transaction (a snapshot restored on
+// calls the domain's decisions and writes their result in one transaction (an undo log replayed on
 // a throw), and every terminal outcome is metered by the domain's `meter`; nothing here decides a
 // rule of its own. Each primitive access counts one row, both in the command's cost and in an
 // independent oracle (`accesses`) that no charge reads, so a path that escapes metering shows up as
@@ -254,7 +254,7 @@ const key2 = (...parts: (string | number)[]) => parts.join("\u0000");
 const ACCOUNTED = ["growth", "read", "cleanup", "export", "rights", "protected"] as const;
 
 export class MemoryObject {
-  durable: Durable = emptyDurable();
+  durable: Durable;
   pending: PendingReads = noPendingReads(0);
   /** Each caller's attempts in the current minute, in memory (one minute is kept). */
   attempts = new Map<string, number>();
@@ -269,8 +269,12 @@ export class MemoryObject {
   retired = 0;
   #cost: Cost = { rowsRead: 0, rowsWritten: 0 };
   #ids = 0;
+  /** The open transaction's undo log, or null outside one. */
+  #undo: (() => void)[] | null = null;
 
-  constructor(readonly name = "obj") {}
+  constructor(readonly name = "obj") {
+    this.durable = this.#watchAll(emptyDurable());
+  }
 
   // Primitive accesses, each counted as a row.
 
@@ -290,15 +294,65 @@ export class MemoryObject {
     return `${this.name}${this.#ids}`.padStart(16, "x").slice(-16);
   }
 
-  /** A transaction: a snapshot of storage restored when the function throws. */
+  /**
+   * A transaction: what it changed is undone when the function throws. Storage maps record every
+   * `set` and `delete` in an undo log (`#watch`), an entry mutated in place is first replaced by a
+   * copy (`#own`), so the logged value stays intact, and the top-level fields are restored from a
+   * shallow copy. The cost is the rows a command touches, not the size of the state.
+   */
   #transaction<T>(work: () => T): T {
-    const snapshot = structuredClone(this.durable);
+    const outer = this.#undo === null;
+    const undo = this.#undo ?? [];
+    this.#undo = undo;
+    const mark = undo.length;
+    const top = { ...this.durable };
     try {
-      return work();
+      const value = work();
+      if (outer) this.#undo = null;
+      return value;
     } catch (error) {
-      this.durable = snapshot;
+      for (let index = undo.length - 1; index >= mark; index--) (undo[index] as () => void)();
+      undo.length = mark;
+      Object.assign(this.durable, top);
+      if (outer) this.#undo = null;
       throw error;
     }
+  }
+
+  /** Records every change of a storage map in the open transaction's undo log. */
+  #watch<K, V>(map: Map<K, V>): Map<K, V> {
+    const note = (key: K) => {
+      if (this.#undo === null) return;
+      const had = Map.prototype.has.call(map, key);
+      const prior = Map.prototype.get.call(map, key) as V;
+      this.#undo.push(() => {
+        if (had) Map.prototype.set.call(map, key, prior);
+        else Map.prototype.delete.call(map, key);
+      });
+    };
+    const define = (name: string, value: unknown) =>
+      Object.defineProperty(map, name, { value, enumerable: false, configurable: true });
+    define("set", (key: K, value: V) => {
+      note(key);
+      return Map.prototype.set.call(map, key, value);
+    });
+    define("delete", (key: K) => {
+      note(key);
+      return Map.prototype.delete.call(map, key);
+    });
+    return map;
+  }
+
+  #watchAll(durable: Durable): Durable {
+    for (const value of Object.values(durable)) if (value instanceof Map) this.#watch(value);
+    return durable;
+  }
+
+  /** An entry about to be mutated in place: replaced by its copy first, so the undo log holds the original. */
+  #own<K, V>(map: Map<K, V>, key: K): V {
+    const copy = structuredClone(map.get(key) as V);
+    map.set(key, copy);
+    return copy;
   }
 
   #storage(): StorageReport {
@@ -687,7 +741,7 @@ export class MemoryObject {
       ),
     );
     this.#countAuthor(doc.collection, doc.author, -1);
-    const collection = d.collections.get(doc.collection) as Collection;
+    const collection = this.#own(d.collections, doc.collection) as Collection;
     collection.documents -= 1;
     collection.bytes -= doc.size;
     this.#wrote();
@@ -704,9 +758,10 @@ export class MemoryObject {
         )
         .sort((a, b) => (a.id < b.id ? -1 : 1))
         .slice(0, ARTIFACT_DATA.caps.indexStepDocuments);
-      for (const doc of covered) {
-        this.#read(doc);
-        if (doc.values[field.field] !== undefined) continue;
+      for (const found of covered) {
+        this.#read(found);
+        if (found.values[field.field] !== undefined) continue;
+        const doc = this.#own(this.durable.documents, key2(found.collection, found.id)) as Doc;
         const body = JSON.parse(doc.body) as Record<string, unknown>;
         const entries = indexEntries(body, [field.field]);
         this.#countValues(doc.collection, valueCountDeltas([], entries));
@@ -782,7 +837,7 @@ export class MemoryObject {
     this.durable.documents.set(key2(collection, doc.id), doc);
     this.#index(doc);
     this.#countAuthor(collection, author, 1);
-    const stored = this.durable.collections.get(collection) as Collection;
+    const stored = this.#own(this.durable.collections, collection) as Collection;
     stored.documents += 1;
     stored.bytes += size;
     this.#wrote();
@@ -815,7 +870,7 @@ export class MemoryObject {
     doc.seq = this.#advance(sequenceScope(facts.mode, doc.collection, doc.author));
     this.#wrote();
     this.#index(doc);
-    const stored = this.durable.collections.get(doc.collection) as Collection;
+    const stored = this.#own(this.durable.collections, doc.collection) as Collection;
     stored.bytes += size - old;
     this.#wrote();
     return size - old;
@@ -850,12 +905,10 @@ export class MemoryObject {
       }
       for (const field of decided.value.addFields) {
         this.#wrote();
-        this.durable.fields.push({
-          collection: declaration.name,
-          field,
-          state: "building",
-          cursor: null,
-        });
+        this.durable.fields = [
+          ...this.durable.fields,
+          { collection: declaration.name, field, state: "building", cursor: null },
+        ];
       }
       const building = this.#indexStep();
       this.#record(plan, caller, requestHash(request), "collection", declaration.name, context.now);
@@ -946,7 +999,7 @@ export class MemoryObject {
       { collection, documentId: id, newSize },
       (plan) => {
         const facts = this.#facts(collection) as CollectionFacts;
-        const doc = this.durable.documents.get(key2(collection, id)) as Doc;
+        const doc = this.#own(this.durable.documents, key2(collection, id)) as Doc;
         const parsed = documentBody(body, context.limits.documentBytes);
         if (!parsed.ok) fail(parsed);
         const unique = this.#unique(collection, facts, body, doc.author, id);
@@ -1094,7 +1147,9 @@ export class MemoryObject {
       { collection: input.collection, documentIds: ids, newSize },
       (plan) => {
         const facts = this.#facts(input.collection) as CollectionFacts;
-        const docs = ids.map((id) => this.durable.documents.get(key2(input.collection, id)) as Doc);
+        const docs = ids.map(
+          (id) => this.#own(this.durable.documents, key2(input.collection, id)) as Doc,
+        );
         const bodies = bulkBodies(
           input.documents.map((item) => item.body),
           facts.uniqueKey,
@@ -1211,8 +1266,9 @@ export class MemoryObject {
         const edited = [...d.documents.values()]
           .filter((doc) => doc.editor === author)
           .slice(0, take);
-        for (const doc of edited) {
-          this.#read(doc);
+        for (const found of edited) {
+          this.#read(found);
+          const doc = this.#own(d.documents, key2(found.collection, found.id)) as Doc;
           const mode = (d.collections.get(doc.collection) as Collection).mode;
           doc.editor = ERASED_EDITOR;
           doc.seq = this.#advance(sequenceScope(mode, doc.collection, doc.author));
@@ -1603,7 +1659,7 @@ export class MemoryObject {
     for (const doc of d.documents.values()) rows += 1 + Object.keys(doc.values).length;
     for (let index = 0; index < rows; index++) this.#read(null);
     this.#wrote(rows);
-    const fresh = emptyDurable();
+    const fresh = this.#watchAll(emptyDurable());
     for (const table of PAYLOAD) {
       (d as unknown as Record<string, unknown>)[table] = fresh[table];
     }
@@ -1705,8 +1761,9 @@ export class MemoryObject {
         return { value: false, wrote: false };
       }
       const key = operationKey(actor, envelope.generation, opId);
-      const row = this.#read(this.durable.audit.get(key));
-      if (row === undefined || row.state !== "pending") return { value: false, wrote: false };
+      const found = this.#read(this.durable.audit.get(key));
+      if (found === undefined || found.state !== "pending") return { value: false, wrote: false };
+      const row = this.#own(this.durable.audit, key) as AuditRow;
       row.state = "delivered";
       row.at = now;
       this.#wrote();
