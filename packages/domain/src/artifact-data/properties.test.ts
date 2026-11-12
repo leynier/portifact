@@ -3,5 +3,7 @@
 import { memoryObject } from "../testing/artifact-data-object.ts";
 import { propertiesSuite } from "../testing/artifact-data-suites/properties.ts";
 
-// Sliced so no single test outgrows the time limit on a loaded CI runner; the sequences are the same number.
-propertiesSuite(memoryObject, { slices: 10 });
+// Sliced so no single test outgrows the time limit on a loaded CI runner (the same number of
+// sequences), and seeded: with a random seed the check that every command path is reached can
+// fail on a draw that never reaches one (seen once, `bulk:ok`, in another change's full run).
+propertiesSuite(memoryObject, { slices: 10, seed: 2026 });
