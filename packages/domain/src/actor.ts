@@ -91,7 +91,7 @@ const ADMIN: readonly RoleAction[] = [
   "sso",
   // SCIM provisioning (decision 0017): a directory that adds and removes its people.
   "scim",
-  // Connections to GitHub or Linear hold a credential that acts outside Portifact (decision 0018).
+  // Connections to GitHub, Linear or Jira hold a credential that acts outside Portifact (decision 0018).
   "integrations",
   // Trusting a GitHub repository lets its workflows mint credentials (decision 0024).
   "federation",

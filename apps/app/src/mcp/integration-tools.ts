@@ -28,7 +28,7 @@ export function registerIntegrationTools(register: RegisterTool, context: ToolCo
     "list_integrations",
     {
       title: "List issue integrations",
-      description: `List the connections to GitHub Issues or Linear of the user's personal space, or of a workspace with workspace (its slug from list_workspaces; admins and editors): each one's ID, service, label, the repositories or teams it allows and whether it can be used now; whether the plan includes integrations, whether Portifact offers them yet, and whether the space keeps its data in the EU. Never a credential. Labels and names are user data. ${MANAGED_ELSEWHERE}`,
+      description: `List the connections to GitHub Issues, Linear or Jira of the user's personal space, or of a workspace with workspace (its slug from list_workspaces; admins and editors): each one's ID, service, label, the repositories, teams or projects it allows and whether it can be used now; whether the plan includes integrations, whether Portifact offers them yet, and whether the space keeps its data in the EU. Never a credential. Labels and names are user data. ${MANAGED_ELSEWHERE}`,
       inputSchema: ListIntegrationsInput,
       outputSchema: IntegrationChoiceList,
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -63,7 +63,7 @@ export function registerIntegrationTools(register: RegisterTool, context: ToolCo
     "create_issue_from_thread",
     {
       title: "Create an issue from a comment thread",
-      description: `Create an issue in GitHub or Linear from one comment thread of an artifact the user manages, through a connection from list_integrations. The issue's body holds only the parts include turns on: a link to the thread and the artifact's name by default; the anchor's quoted text (quote) and the thread's first message (message) are other people's words and leave Portifact only when turned on. Before sending comment text or a quote, always ask the user and show them exactly what will be sent; never decide it yourself. If list_integrations says euResidency, tell the user the text leaves the EU. The issue is created within a few minutes; get_annotation_thread then shows its link, or why it failed. Send the same idempotencyKey when retrying. ${MANAGED_ELSEWHERE}`,
+      description: `Create an issue in GitHub, Linear or Jira from one comment thread of an artifact the user manages, through a connection from list_integrations. The issue's body holds only the parts include turns on: a link to the thread and the artifact's name by default; the anchor's quoted text (quote) and the thread's first message (message) are other people's words and leave Portifact only when turned on. Before sending comment text or a quote, always ask the user and show them exactly what will be sent; never decide it yourself. If list_integrations says euResidency, tell the user the text leaves the EU. The issue is created within a few minutes; get_annotation_thread then shows its link, or why it failed. Send the same idempotencyKey when retrying. ${MANAGED_ELSEWHERE}`,
       inputSchema: CreateIssueFromThreadInput,
       outputSchema: ThreadIssueView,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },

@@ -2280,18 +2280,21 @@ export const zhCN = {
   "shell.integrationsLink": "集成",
   "integrations.title": "集成",
   "integrations.description":
-    "把评论讨论串变成 GitHub 或 Linear 中的 issue。连接使用管理员粘贴的凭据运行，因此 issue 会显示为由该账号创建。",
+    "把评论讨论串变成 GitHub、Linear 或 Jira 中的 issue。连接使用管理员粘贴的凭据运行，因此 issue 会显示为由该账号创建。",
   "integrations.adminOnly.title": "只有管理员可以管理集成",
-  "integrations.adminOnly.body": "请让 {workspace} 的管理员连接 GitHub 或 Linear。",
+  "integrations.adminOnly.body": "请 {workspace} 的管理员连接 GitHub、Linear 或 Jira。",
   "integrations.planTitle": "不在此套餐中",
   "integrations.planRequired": "集成属于 {plan} 套餐。已有的连接会保留，但不能通过它们创建 issue。",
   "integrations.list.title": "连接",
   "integrations.list.loading": "正在加载连接",
   "integrations.list.error": "无法加载连接。",
   "integrations.empty.title": "还没有连接",
-  "integrations.empty.body": "连接 GitHub 或 Linear 后，管理员和编辑者可以从评论讨论串创建 issue。",
+  "integrations.empty.body":
+    "连接 GitHub、Linear 或 Jira 后，管理员和编辑者可以从评论讨论串创建 issue。",
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
+  "integrations.service.jira": "Jira",
+  "integrations.service.other": "其他服务",
   "integrations.add.title": "连接服务",
   "integrations.add.hint":
     "凭据会由服务校验、加密保存，且不会再次显示：Portifact 只显示最后四个字符。",
@@ -2300,12 +2303,23 @@ export const zhCN = {
   "integrations.add.labelHint": "团队能认出的名称，例如产品仓库。",
   "integrations.add.credential.github": "细粒度个人访问令牌",
   "integrations.add.credential.linear": "Linear API 密钥",
+  "integrations.add.credential.jira": "带作用域的 Atlassian API 令牌",
   "integrations.add.targets.github": "仓库",
   "integrations.add.targets.linear": "团队 ID",
+  "integrations.add.targets.jira": "项目键",
   "integrations.add.targetsHint.github": "每行一个 owner/repository，最多 {limit} 个。",
   "integrations.add.targetsHint.linear":
     "每行一个团队 ID，最多 {limit} 个。Linear 在团队设置中显示它。",
-  "integrations.add.failed": "服务未接受凭据或其中某个仓库或团队。请按照上面的步骤检查后重试。",
+  "integrations.add.targetsHint.jira": "每行一个项目键，例如 ENG，最多 {limit} 个。",
+  "integrations.add.account": "Atlassian 账号邮箱",
+  "integrations.add.accountHint": "创建该令牌的账号的邮箱。它与令牌一起加密保存，之后不再显示。",
+  "integrations.add.site": "Jira 站点",
+  "integrations.add.siteHint": "例如 acme.atlassian.net。",
+  "integrations.add.cloudId": "Cloud ID",
+  "integrations.add.cloudIdHint":
+    "在浏览器中打开 your-site.atlassian.net/_edge/tenant_info，复制 cloudId 的值。",
+  "integrations.add.failed":
+    "服务没有接受该凭据，或没有接受某个仓库、团队或项目。请按照上面的步骤检查后再试。",
   "integrations.add.submit": "连接",
   "integrations.add.limit": "一个空间最多可以有 {limit} 个连接。删除一个后才能再添加。",
   "integrations.howto.github.title": "创建最小权限的 GitHub 令牌",
@@ -2323,26 +2337,42 @@ export const zhCN = {
   "integrations.howto.linear.2":
     "如果 Linear 允许限制密钥，只允许创建 issue，并且只在这里列出的团队中。",
   "integrations.howto.linear.3": "把密钥粘贴到这里。issue 会显示为由你的 Linear 账号创建。",
+  "integrations.howto.jira.title": "创建最小权限的 Jira 令牌",
+  "integrations.howto.jira.1":
+    "用要作为 issue 创建者的账号（最好是专用账号）登录 Atlassian，打开账号设置，再打开“安全”，选择“创建带作用域的 API 令牌”。",
+  "integrations.howto.jira.2": "为它命名并设置过期时间，应用选择 Jira。",
+  "integrations.howto.jira.3": "只选择作用域 read:jira-user、read:jira-work 和 write:jira-work。",
+  "integrations.howto.jira.4":
+    "创建令牌，并把它与账号邮箱、站点及其 Cloud ID 一起粘贴到这里。没有作用域的令牌无法使用。",
+  "integrations.howto.jira.5": "issue 会显示为由该账号创建，位于你在这里列出的项目中。",
   "integrations.connected": "已连接 {label}。",
   "integrations.identity": "以 {identity} 身份运行",
   "integrations.credential": "凭据结尾为 {hint}",
+  "integrations.site": "站点 {site}",
   "integrations.attention.credential_rejected": "服务拒绝了这个凭据。请粘贴新的凭据，然后测试。",
   "integrations.attention.key_unavailable": "已保存的凭据无法再打开。请重新粘贴。",
+  "integrations.attention.site_mismatch":
+    "该 Cloud ID 已不再对应这个 Jira 站点：站点地址已更改。请移除此连接，并用站点当前的名称重新连接。",
   "integrations.state.ready": "可用",
   "integrations.state.attention": "需要处理",
   "integrations.test": "测试",
   "integrations.testLabel": "测试 {label}",
-  "integrations.testPassed": "{label} 可用。它以 {identity} 身份运行，所有仓库或团队都可访问。",
+  "integrations.testPassed":
+    "{label} 可以使用。它以 {identity} 身份运行，每个仓库、团队或项目都可以访问。",
+  "integrations.testRefreshed":
+    "Portifact 现在会在 {targets} 中使用项目当前的 issue 类型创建 issue。",
   "integrations.problem.credential_rejected": "服务拒绝了凭据：它有误、已过期或已撤销。",
   "integrations.problem.missing_permission": "服务接受了凭据，但它无法读取自己的账号。",
   "integrations.problem.target_unreachable": "凭据无法访问 {target}。请检查它在那里的访问权限。",
   "integrations.problem.issues_disabled": "{target} 已关闭 issue。",
   "integrations.problem.service_unavailable": "服务没有响应。请稍后重试。",
   "integrations.problem.rate_limited": "服务正在限制来自此凭据的请求。请稍后重试。",
+  "integrations.problem.site_mismatch": "该 Cloud ID 不属于这个 Jira 站点。请从站点重新复制两者。",
   "integrations.edit": "更改",
   "integrations.editLabel": "更改 {label}",
   "integrations.edit.title": "更改 {label}",
   "integrations.edit.credentialHint": "留空则保留当前凭据。",
+  "integrations.edit.accountHint": "更换令牌时必填：该令牌所属 Atlassian 账号的邮箱。",
   "integrations.edit.save": "保存",
   "integrations.saved": "已保存 {label}。",
   "integrations.remove": "删除",
@@ -2356,7 +2386,7 @@ export const zhCN = {
   "issues.dialog.title": "从讨论串 {number} 创建 issue",
   "issues.dialog.close": "关闭",
   "issues.dialog.connection": "连接",
-  "issues.dialog.target": "仓库或团队",
+  "issues.dialog.target": "仓库、团队或项目",
   "issues.dialog.issueTitle": "issue 标题",
   "issues.dialog.parts": "要发送的内容",
   "issues.dialog.part.link": "指向此讨论串的链接",
@@ -2372,15 +2402,17 @@ export const zhCN = {
   "issues.dialog.never":
     "绝不发送：读者的邮箱地址、artifact 的内容、讨论串中的其他消息或审阅备注。",
   "issues.dialog.visible":
-    "所有能看到此讨论串的人（包括团队外的读者）都会看到已创建 issue 的链接及其仓库或团队名称，即使仓库是私有的。",
-  "issues.failure.target_removed": "管理员已从连接中移除该仓库或团队。",
+    "所有能看到此讨论串的人（包括团队外的读者）都能看到所创建 issue 的链接及其仓库、团队或项目的名称，即使它是私有的。",
+  "issues.failure.target_removed": "管理员已从连接中移除该仓库、团队或项目。",
   "issues.failure.artifact_moved": "artifact 已移到其他空间。",
   "issues.failure.requester_left": "你已不能再为此空间创建 issue。",
   "issues.failure.thread_gone": "讨论串已被删除。",
+  "issues.failure.site_changed": "Jira 站点的地址已更改。",
+  "issues.failure.other": "无法创建。",
   "issues.dialog.eu": "此空间的数据保存在欧盟。你发送的内容会发往欧盟以外的 {service}。",
   "issues.dialog.submit": "创建 issue",
   "issues.dialog.noConnections":
-    "没有可用的连接。请让管理员连接 GitHub 或 Linear，或修复需要处理的连接。",
+    "没有可用的连接。请管理员连接 GitHub、Linear 或 Jira，或修复需要处理的连接。",
   "issues.requested": "已请求创建 issue。几分钟内链接会出现在讨论串上。",
   "issues.list": "issue",
   "issues.link": "{target} 中的 issue {key}",
@@ -2395,15 +2427,15 @@ export const zhCN = {
   "issues.failure.service_unavailable": "服务没有响应。",
   "issues.failure.invalid_response": "服务的响应无法被 Portifact 使用。",
   "audit.kind.integrationConnected":
-    "连接了 {service, select, github {GitHub} other {Linear}}，包含 {targets, plural, one {# 个仓库或团队} other {# 个仓库或团队}}",
+    "连接了 {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}，包含 {targets, plural, one {# 个仓库或团队} other {# 个仓库或团队}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {替换了连接的凭据} other {更改了连接的标签或目标}}",
   "audit.kind.integrationRemoved":
-    "删除了一个 {service, select, github {GitHub} other {Linear}} 连接",
+    "删除了一个 {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} 连接",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {连接的凭据无法再打开} other {{service, select, github {GitHub} other {Linear}} 拒绝了连接的凭据}}",
+    "{reason, select, site_mismatch {某个连接的 Jira 站点地址已更改} key_unavailable {连接的凭据无法再打开} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} 拒绝了连接的凭据}}",
   "audit.kind.issueCreated":
-    "从讨论串在 {target} 中创建了 {service, select, github {GitHub} other {Linear}} issue {message, select, true {（包含第一条消息）} other {（不含评论文字）}}",
+    "从讨论串在 {target} 中创建了 {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} issue {message, select, true {（包含第一条消息）} other {（不含评论文字）}}",
   "policies.networks.legend": "人员网络",
   "policies.networks.hint":
     "成员（包括管理员）只能从这些网络操作工作区并阅读仅限工作区的 artifact。公开 artifact、共享链接以及你共享给的工作区外人员不受影响。",
@@ -2464,7 +2496,7 @@ export const zhCN = {
   "region.leaves.webhooks":
     "此空间的数据保存在欧盟。Webhook 会发送到你填写的地址，这些地址可能位于任何地方：发送的内容会离开欧盟。",
   "region.leaves.integrations":
-    "此空间的数据保存在欧盟。你创建的 issue 会发送到 GitHub 或 Linear，它们可能将其保存在任何地方：你发送的内容会离开欧盟。",
+    "此空间的数据保存在欧盟。你创建的 issue 会发送到 GitHub、Linear 或 Jira，它们可能把数据保存在任何地方：你发送的内容会离开欧盟。",
   "audit.stream.euTitle": "你的端点可能位于欧盟以外",
   "audit.stream.eu":
     "此空间的数据保存在欧盟。你选择的端点可以位于任何地方：它收到的事件会离开欧盟。",

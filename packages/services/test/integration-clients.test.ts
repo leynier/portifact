@@ -148,7 +148,19 @@ describe("checking a Linear key", () => {
 });
 
 describe("creating an issue", () => {
-  const input = { target: "acme/site", title: "T", body: "B" };
+  const input = {
+    target: "acme/site",
+    title: "T",
+    source: {
+      service: "github" as const,
+      link: "https://app.portifact.com/view/x",
+      artifactName: "A",
+      quote: null,
+      message: null,
+      reference: "ti_x",
+    },
+    parts: { link: true, artifactName: true, quote: false, message: false },
+  };
 
   it.each([
     [new Response(null, { status: 201 })],

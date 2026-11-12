@@ -93,7 +93,7 @@ export const ROLE_ACTIONS = [
   "sso",
   /** The workspace's SCIM provisioning (decision 0017): its tokens and settings. */
   "scim",
-  /** The owner's connections to GitHub or Linear (decision 0018): they hold a credential. */
+  /** The owner's connections to GitHub, Linear or Jira (decision 0018): they hold a credential. */
   "integrations",
   /** GitHub repositories trusted to publish through OIDC (decision 0024): they mint credentials. */
   "federation",

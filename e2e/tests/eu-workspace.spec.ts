@@ -226,7 +226,7 @@ test("an EU workspace keeps its artifacts, comments, logs and bytes in the EU, f
   // both themes and without an axe violation.
   for (const [path, heading, body] of [
     ["/webhooks", "Webhooks", "Webhook deliveries go to the addresses you enter"],
-    ["/integrations", "Integrations", "Issues you create go to GitHub or Linear"],
+    ["/integrations", "Integrations", "Issues you create go to GitHub, Linear or Jira"],
   ] as const) {
     await open(page, `${path}?workspace=${slug}`, heading);
     await expect(page.getByText("Where you send it may be outside the EU")).toBeVisible();

@@ -1326,10 +1326,10 @@ export const webhookDeliveries = sqliteTable(
 );
 
 /** Services an issue integration reaches, as in @portifact/contracts (decision 0018). */
-export const INTEGRATION_SERVICES = ["github", "linear"] as const;
+export const INTEGRATION_SERVICES = ["github", "linear", "jira"] as const;
 
 /**
- * An owner's connections to GitHub Issues or Linear (decision 0018,
+ * An owner's connections to GitHub Issues, Linear or Jira Cloud (decision 0018,
  * packages/services/src/integrations.ts). The credential an admin pasted is sealed with a key
  * derived from `INTEGRATIONS_KEY` (`key_id` names it) and shown only as `credential_hint`, its
  * last four characters; `identity` is what the service reported the credential acts as.
@@ -1351,13 +1351,22 @@ export const integrationConnections = sqliteTable(
     identity: text("identity").notNull(),
     targets: text("targets").notNull(),
     /** Set when the service refused the credential or no key opens it: issues stop until fixed. */
-    attention: text("attention", { enum: ["credential_rejected", "key_unavailable"] }),
+    attention: text("attention", {
+      enum: ["credential_rejected", "key_unavailable", "site_mismatch"],
+    }),
     attentionAt: timestamp("attention_at"),
     revision: integer("revision").notNull().default(1),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at").notNull(),
     /** Who connected it (no foreign key: cleared when the account is deleted). */
     createdBy: text("created_by"),
+    /**
+     * Jira only (decision 0018, "Jira"): the site's name (`acme` for `acme.atlassian.net`), which
+     * builds issue links and is never called, and its cloud ID, which names the site on the fixed
+     * Atlassian gateway. Both checked against the gateway's `serverInfo`; null for other services.
+     */
+    site: text("site"),
+    cloudId: text("cloud_id"),
   },
   (t) => [
     index("integration_connections_owner_idx").on(t.ownerId),

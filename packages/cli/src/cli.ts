@@ -195,14 +195,14 @@ there; members only read and comment on what is shared with them.
 `;
 
 const INTEGRATIONS_HELP = `
-Connections hold a GitHub token or a Linear API key, so only the space's admins add, test and
-remove them, in the dashboard (Integrations). This lists their labels and the repositories or
-teams each allows; never a credential.
+Connections hold a GitHub token, a Linear API key or a Jira API token, so only the space's
+admins add, test and remove them, in the dashboard (Integrations). This lists their labels and
+the repositories, teams or Jira projects each allows; never a credential.
 `;
 
 const ISSUE_HELP = `
 Only the link to the thread and the artifact's name are sent unless you add --quote or
---message: those are other people's words, and they leave Portifact for GitHub or Linear.
+--message: those are other people's words, and they leave Portifact for GitHub, Linear or Jira.
 The issue is created within a few minutes by Portifact's jobs; \`portifact annotations show
 <artifact> <thread>\` then shows its link, or why it failed.
 
@@ -1242,7 +1242,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
   program
     .command("integrations")
     .description(
-      "List a space's connections to GitHub Issues or Linear, to create issues from threads",
+      "List a space's connections to GitHub Issues, Linear or Jira, to create issues from threads",
     )
     .option("--workspace <slug>", "a workspace's connections (admins and editors), or personal")
     .option("--json", "Print the result as JSON")
@@ -1258,11 +1258,14 @@ An artifact shared with its workspace or an email domain becomes restricted when
 
   program
     .command("issue")
-    .description("Create a GitHub or Linear issue from one comment thread")
+    .description("Create a GitHub, Linear or Jira issue from one comment thread")
     .argument("<artifact>", "the artifact's ID")
     .argument("<thread>", "the thread's ID")
     .requiredOption("--connection <id>", "a connection from `portifact integrations`")
-    .requiredOption("--target <target>", "owner/repo on GitHub, or a Linear team ID")
+    .requiredOption(
+      "--target <target>",
+      "owner/repo on GitHub, a Linear team ID or a Jira project key",
+    )
     .requiredOption("--title <title>", "the issue's title")
     .option("--quote", "also send the quoted text the thread is anchored to (others' words)")
     .option("--message", "also send the thread's first message (others' words)")
