@@ -145,7 +145,15 @@ function decodeRun(source: string, start: number, end: number, references: boole
   return run;
 }
 
-/** The runs of text between an HTML file's tags and comments, in order. */
+/** Elements whose content is text up to their own end tag: markup inside it is not markup. */
+const RAW_TEXT = new Set(["style", "script"]);
+const ESCAPABLE_RAW_TEXT = new Set(["title", "textarea"]);
+
+/**
+ * The runs of text between an HTML file's tags and comments, in order. The content of `style`,
+ * `script`, `title` and `textarea` is one run each, whatever it looks like, as it is one text
+ * node in the page.
+ */
 function htmlRuns(source: string): Run[] {
   const runs: Run[] = [];
   let at = 0;
@@ -154,6 +162,7 @@ function htmlRuns(source: string): Run[] {
       const end = source.indexOf("-->", at + 4);
       at = end < 0 ? source.length : end + 3;
     } else if (source[at] === "<") {
+      const name = /^<([a-z][a-z0-9]*)/i.exec(source.slice(at, at + 40))?.[1]?.toLowerCase();
       let quote: string | null = null;
       for (at++; at < source.length; at++) {
         const char = source[at];
@@ -163,6 +172,12 @@ function htmlRuns(source: string): Run[] {
         else if (char === ">") break;
       }
       at++;
+      if (name !== undefined && (RAW_TEXT.has(name) || ESCAPABLE_RAW_TEXT.has(name))) {
+        const close = source.toLowerCase().indexOf(`</${name}`, at);
+        const end = close < 0 ? source.length : close;
+        if (end > at) runs.push(decodeRun(source, at, end, ESCAPABLE_RAW_TEXT.has(name)));
+        at = end;
+      }
     } else {
       const end = source.indexOf("<", at) < 0 ? source.length : source.indexOf("<", at);
       runs.push(decodeRun(source, at, end, true));
@@ -194,6 +209,72 @@ function allowedInterval(
   }
   const run = htmlRuns(source).filter((each) => each.value === data)[sameBefore];
   return run ? spanOf(run, from, length) : null;
+}
+
+/**
+ * Markdown, where this checker has no source map of its own: the bytes that really differ
+ * between the two files (found here, never the planner's range), widened to whole character
+ * references and backslash escapes, must be spellings of the deleted and the inserted text and
+ * of nothing else. A rewrite next to the selection, such as another spelling of a reference
+ * the selection does not include, decodes to text outside the change and fails.
+ */
+function markdownChange(
+  oldSource: string,
+  newSource: string,
+  deleted: string,
+  inserted: string,
+): string | null {
+  let head = 0;
+  while (head < oldSource.length && head < newSource.length && oldSource[head] === newSource[head])
+    head++;
+  let tail = 0;
+  while (
+    tail < oldSource.length - head &&
+    tail < newSource.length - head &&
+    oldSource[oldSource.length - 1 - tail] === newSource[newSource.length - 1 - tail]
+  ) {
+    tail++;
+  }
+  // A common prefix or suffix may end inside a reference or an escape both files spell alike at
+  // first: take the whole spelling on each side.
+  const opened = /(?:&[#a-z0-9]{0,40}|\\)$/i.exec(oldSource.slice(0, head));
+  if (opened) head -= opened[0].length;
+  const rest = oldSource.slice(oldSource.length - tail);
+  const closing = /^[#a-z0-9]{0,40};/i.exec(rest);
+  const before = oldSource.slice(
+    Math.max(0, oldSource.length - tail - 40),
+    oldSource.length - tail,
+  );
+  if (closing && /&[#a-z0-9]{0,40}$/i.test(before)) tail -= closing[0].length;
+  // A backslash escape first, then a character reference, as Markdown reads its text.
+  const spelled = (source: string) => {
+    const end = source.length - tail;
+    let text = "";
+    for (let at = head; at < end; ) {
+      const escaped = source[at] === "\\" ? source[at + 1] : undefined;
+      if (escaped !== undefined && at + 1 < end && /[!-/:-@[-`{-~]/.test(escaped)) {
+        text += escaped;
+        at += 2;
+        continue;
+      }
+      const reference = /^&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.exec(source.slice(at, end));
+      if (reference) {
+        text += decodeReference(reference[0]);
+        at += reference[0].length;
+        continue;
+      }
+      text += source[at] === "\r" ? "\n" : source[at];
+      at += source[at] === "\r" && source[at + 1] === "\n" ? 2 : 1;
+    }
+    return text;
+  };
+  // Where the text around a change repeats it, the differing bytes are the change rotated
+  // ("a b a" losing " a" differs at "b a"): any stretch of the change repeated is its spelling.
+  const within = (whole: string, part: string) =>
+    part.length <= whole.length && (whole + whole).includes(part);
+  if (!within(deleted, spelled(oldSource))) return "the file changed text outside the selection";
+  if (!within(inserted, spelled(newSource))) return "the file gained text outside the insertion";
+  return null;
 }
 
 /** The raw span of `length` decoded units from `from` in a run (a point for an insertion). */
@@ -315,6 +396,8 @@ export async function check(
     if (after.get(path) !== expected) return `text changed at ${path}`;
   }
   if (kind === "markdown") {
+    const outside = markdownChange(oldSource, newSource, change.deleted, change.inserted);
+    if (outside) return outside;
     // The change stays inside one block of the old block map.
     const { blocks } = await storedOf("markdown", oldSource);
     const inside = blocks.some((block) => block.start <= range.start && range.end <= block.end);

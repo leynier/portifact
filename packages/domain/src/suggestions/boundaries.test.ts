@@ -49,7 +49,7 @@ describe("the synchronous SHA-256 of identity evidence", () => {
 });
 
 describe("link context and identity", () => {
-  it("resolves against the first base with an href, and says when it cannot", () => {
+  it("resolves against the first base with an href, and against the page when a browser ignores it", () => {
     const context = (head: string) =>
       linkContext(
         parsed(`<!doctype html><html><head>${head}</head><body></body></html>`),
@@ -60,7 +60,8 @@ describe("link context and identity", () => {
     expect(context('<base target="_top"><base href="/sub/">').base).toBe(
       "https://k7d2qm4xab.portifact.dev/sub/",
     );
-    expect(context('<base href="http://[">')).toEqual({ base: null, file: "source" });
+    expect(context('<base href="http://[">')).toEqual({ base: PAGE_URL, file: "source" });
+    expect(context('<base href="data:text/plain,x">').base).toBe(PAGE_URL);
   });
 
   it("reads HTML and SVG links and area destinations, each element once", () => {

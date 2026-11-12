@@ -51,21 +51,19 @@ export type DestinationAt = Destination["at"];
 /**
  * A link destination as the person sees it: the effective absolute URL, resolved against the
  * page's base URL (the URL parser writes the host in ASCII, so a look-alike Unicode host shows as
- * `xn--…`), next to the spelling in the source, both whole. `resolved` is false when there is no
- * base to resolve against or the URL parser refuses the value.
+ * `xn--…`), next to the spelling in the source, both whole. `resolved` is false when the URL
+ * parser refuses the value.
  */
-export function destination(authored: string, base: string | null, at: DestinationAt): Destination {
+export function destination(authored: string, base: string, at: DestinationAt): Destination {
   let effective = "";
   let origin = UNPARSED_ORIGIN;
-  if (base !== null) {
-    try {
-      const url = new URL(authored, base);
-      effective = url.href;
-      // The scheme and host only: user information can never pass for the host.
-      origin = url.host ? `${url.protocol}//${url.host}` : url.protocol;
-    } catch {
-      effective = "";
-    }
+  try {
+    const url = new URL(authored, base);
+    effective = url.href;
+    // The scheme and host only: user information can never pass for the host.
+    origin = url.host ? `${url.protocol}//${url.host}` : url.protocol;
+  } catch {
+    effective = "";
   }
   const resolved = origin !== UNPARSED_ORIGIN;
   return { origin, authored, effective, resolved, authoredOmitted: 0, effectiveOmitted: 0, at };

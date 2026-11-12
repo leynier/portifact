@@ -184,23 +184,25 @@ const OTHER_NODES = new Set(["#document", "#documentType", "#comment"]);
 /** Whether a parsed file is in the eligible subset; `null` when it is. */
 export function subsetRefusal(html: string, parsed: ParsedHtml): SubsetRefusal | null {
   if (new TextEncoder().encode(html).length > PLAN_LIMITS.htmlBytes) return "too_large";
-  if (parsed.errors.some((code) => !ALLOWED_PARSE_ERRORS.has(code))) return "parse_error";
+  // The node budget is judged over the whole page whatever else refuses it: a parse error or an
+  // element outside the subset never hides a page that is too large to index and map.
+  let refused: SubsetRefusal | null = parsed.errors.some((code) => !ALLOWED_PARSE_ERRORS.has(code))
+    ? "parse_error"
+    : null;
   let nodes = 0;
   const stack: { node: P5Node; inHead: boolean }[] = [{ node: parsed.document, inHead: false }];
   while (stack.length > 0) {
     const { node, inHead } = stack.pop() as { node: P5Node; inHead: boolean };
     nodes++;
     if (nodes > PLAN_LIMITS.htmlNodes) return "too_large";
-    if (isElement(node)) {
-      const refused = checkElement(node, inHead);
-      if (refused) return refused;
-    } else if (!isText(node) && !OTHER_NODES.has(node.nodeName)) {
-      return "element";
+    if (refused === null) {
+      if (isElement(node)) refused = checkElement(node, inHead);
+      else if (!isText(node) && !OTHER_NODES.has(node.nodeName)) refused = "element";
     }
     const childInHead = inHead || (isElement(node) && node.tagName === "head");
     for (const child of childrenOf(node)) stack.push({ node: child, inHead: childInHead });
   }
-  return null;
+  return refused;
 }
 
 /**

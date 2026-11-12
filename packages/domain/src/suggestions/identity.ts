@@ -26,12 +26,19 @@ const XLINK = "http://www.w3.org/1999/xlink";
 
 /** How a page's links resolve, and in which stored file their attributes sit. */
 export interface LinkContext {
-  /** The page's base URL (its HTML `base` element's, else its own), null when it cannot be read. */
-  base: string | null;
+  /** The page's base URL: its first HTML `base` element's when a browser honours it, else its own. */
+  base: string;
   file: "source" | "rendered";
 }
 
-/** A page's link context: the first HTML `base` with an `href` decides the base URL. */
+/** Schemes HTML refuses for a document's base URL: a base with one is ignored. */
+const IGNORED_BASE_SCHEMES = new Set(["javascript:", "data:"]);
+
+/**
+ * A page's link context, by HTML's rule for a document's base URL: the first HTML `base` with an
+ * `href` decides, a later one never does, and when that URL cannot be parsed against the page's
+ * or its scheme is `javascript` or `data`, the base is the page's own URL, as in a browser.
+ */
 export function linkContext(
   document: P5Document,
   pageUrl: string,
@@ -42,9 +49,10 @@ export function linkContext(
     const href = node.attrs.find((attr) => attr.name === "href" && !attr.namespace);
     if (!href) continue;
     try {
-      return { base: new URL(href.value, pageUrl).href, file };
+      const url = new URL(href.value, pageUrl);
+      return { base: IGNORED_BASE_SCHEMES.has(url.protocol) ? pageUrl : url.href, file };
     } catch {
-      return { base: null, file };
+      return { base: pageUrl, file };
     }
   }
   return { base: pageUrl, file };

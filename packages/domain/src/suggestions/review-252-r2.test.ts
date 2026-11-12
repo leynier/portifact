@@ -187,7 +187,7 @@ describe("second review of #252", () => {
     expect(link?.origin).toBe("https://evil.example");
     expect(link?.effectiveOmitted).toBeGreaterThan(0);
     expect(built.lines.join("\n")).toContain("https://evil.example");
-    const broken = `<!doctype html><html><head><base href="http://["></head><body><p><a href="/x">go</a> now</p></body></html>`;
+    const broken = `<!doctype html><html><head></head><body><p><a href="http://[">go</a> now</p></body></html>`;
     const unresolved = await plan("html", broken, [editAt(bodyText(broken), "go", "run")]);
     expect([...unresolved.applied, ...unresolved.listed][0]?.destinations[0]?.origin).toBe(
       "could not be parsed",

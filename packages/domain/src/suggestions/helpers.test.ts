@@ -21,7 +21,6 @@ describe("suggestion helpers", () => {
     const long = destination(`/${"a".repeat(600)}`, "https://x.example/", null);
     expect(long.authored).toHaveLength(601);
     expect(long).toMatchObject({ authoredOmitted: 0, effectiveOmitted: 0, resolved: true });
-    expect(destination("/x", null, null)).toMatchObject({ effective: "", resolved: false });
     const short = shortenDestination(long, 100);
     expect(short).toMatchObject({
       authoredOmitted: 501,

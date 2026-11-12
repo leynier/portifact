@@ -42,6 +42,8 @@ const E2E_FILES = [
   // Decision 0026's grant handoff experiment runs in the e2e jobs, one engine per job.
   /^spikes\/artifact-data-grant\//,
   /^spikes\/artifact-data\/src\/(?:gate|grants)\.ts$/,
+  // Decision 0027's browser checks of the built preview run in two of the e2e jobs.
+  /^spikes\/edit-suggestions\//,
   /^(?:package\.json|bun\.lock|bunfig\.toml|turbo\.json|tsconfig(?:\.base)?\.json)$/,
   /^\.github\/workflows\/ci\.yml$/,
 ];
