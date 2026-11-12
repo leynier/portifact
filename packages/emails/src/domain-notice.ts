@@ -6,7 +6,7 @@
 // written in the recipient's language, English when they chose none.
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import { formatExpiry, gap } from "./expiry-notice.ts";
-import { type Block, type Inline, renderEmail } from "./layout.ts";
+import { type Block, type Inline, renderEmail, textSignature } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
 import { pluralCategory } from "./plural.ts";
 
@@ -224,7 +224,7 @@ export function domainNoticeEmail(input: DomainNoticeInput): EmailContent {
     `${t.plan}${gap(t.plan)}${input.usageUrl}`,
     "",
     t.reason,
-    "Portifact, https://portifact.com",
+    ...textSignature(locale),
   ].join("\n");
   return { subject, text, html };
 }

@@ -25,6 +25,7 @@ export const SITE_PAGE_PATHS = [
   "/terms",
   "/privacy",
   "/acceptable-use",
+  "/dpa",
   "/mcp-compatibility",
 ] as const;
 

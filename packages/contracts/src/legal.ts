@@ -1,4 +1,4 @@
-// The legal texts on portifact.com (/terms, /privacy, /acceptable-use) and the acceptance every
+// The legal texts on portifact.com (/terms, /privacy, /acceptable-use, /dpa) and the acceptance every
 // account records at sign-up. See docs/legal.md.
 import { z } from "zod";
 import { TERMS_VERSION } from "./terms-version.ts";

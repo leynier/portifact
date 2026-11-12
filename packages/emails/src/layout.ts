@@ -16,6 +16,31 @@ export function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ESCAPES[char] ?? char);
 }
 
+/** The Privacy Policy, linked from every email's footer (docs/legal.md). */
+export const PRIVACY_URL = "https://portifact.com/privacy";
+
+/** "Privacy" in each language of `LOCALES`; English for any other tag. */
+const PRIVACY_LABELS: Readonly<Record<string, string>> = {
+  en: "Privacy",
+  es: "Privacidad",
+  "pt-BR": "Privacidade",
+  fr: "Confidentialité",
+  de: "Datenschutz",
+  ru: "Конфиденциальность",
+  ja: "プライバシー",
+  "zh-CN": "隐私",
+};
+
+/** The footer's word for the Privacy Policy in a language. */
+export function privacyLabel(lang: string | undefined): string {
+  return PRIVACY_LABELS[lang ?? "en"] ?? "Privacy";
+}
+
+/** The last lines of every text alternative: the site and the Privacy Policy. */
+export function textSignature(lang: string | undefined): string[] {
+  return ["Portifact, https://portifact.com", `${privacyLabel(lang)}: ${PRIVACY_URL}`];
+}
+
 /** A run of text: plain, strong or a link. */
 export type Inline = string | { strong: string } | { href: string; text: string };
 
@@ -159,7 +184,7 @@ export function renderEmail(layout: EmailLayout): string {
     "</td></tr>",
     `<tr><td style="padding: 20px 4px 0">`,
     `<p class="pf-muted" style="margin: 0 0 8px; font-family: ${sans}; font-size: 12px; line-height: 18px; ${muted}">${escapeHtml(layout.footer)}</p>`,
-    `<p class="pf-muted" style="margin: 0; font-family: ${sans}; font-size: 12px; line-height: 18px; ${muted}">Portifact, <a href="https://portifact.com" class="pf-muted" style="${muted}; text-decoration: underline">portifact.com</a></p>`,
+    `<p class="pf-muted" style="margin: 0; font-family: ${sans}; font-size: 12px; line-height: 18px; ${muted}">Portifact, <a href="https://portifact.com" class="pf-muted" style="${muted}; text-decoration: underline">portifact.com</a> · <a href="${PRIVACY_URL}" class="pf-muted" style="${muted}; text-decoration: underline">${escapeHtml(privacyLabel(layout.lang))}</a></p>`,
     "</td></tr>",
     "</table>",
     "</td></tr>",

@@ -35,6 +35,7 @@ export const SITE_PAGES: readonly SitePage[] = [
   { file: "terms.html", path: "/terms", kind: "legal" },
   { file: "privacy.html", path: "/privacy", kind: "legal" },
   { file: "acceptable-use.html", path: "/acceptable-use", kind: "legal" },
+  { file: "dpa.html", path: "/dpa", kind: "legal" },
 ];
 
 /** The URL prefix of a language: none for English, `/es` for Spanish. */

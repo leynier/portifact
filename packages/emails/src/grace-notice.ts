@@ -12,7 +12,7 @@
 import type { GraceForecastKind, GraceNoticeMoment } from "@portifact/contracts";
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import { formatExpiry, gap } from "./expiry-notice.ts";
-import { type Block, renderEmail } from "./layout.ts";
+import { type Block, renderEmail, textSignature } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
 
 export interface GraceNoticeKind {
@@ -405,7 +405,7 @@ export function graceNoticeEmail(input: GraceNoticeInput): EmailContent {
     `${t.request}${gap(t.request)}${input.requestUrl}`,
     "",
     t.reason,
-    "Portifact, https://portifact.com",
+    ...textSignature(locale),
   ].join("\n");
   return { subject, text, html };
 }

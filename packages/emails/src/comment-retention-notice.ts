@@ -6,7 +6,7 @@
 // or a word of a comment, so it is the same in every region (decision 0005, `noticeDetail`).
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import { formatExpiry, gap } from "./expiry-notice.ts";
-import { type Block, renderEmail } from "./layout.ts";
+import { type Block, renderEmail, textSignature } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
 
 export interface CommentRetentionNoticeInput {
@@ -258,7 +258,7 @@ export function commentRetentionNoticeEmail(input: CommentRetentionNoticeInput):
     `${t.review}${gap(t.review)}${input.policiesUrl}`,
     "",
     t.reason,
-    "Portifact, https://portifact.com",
+    ...textSignature(locale),
   ].join("\n");
   return { subject, text, html };
 }

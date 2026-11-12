@@ -69,7 +69,9 @@ export const RETENTION_LIMIT_MAX = {
 /**
  * The limits a plan sets. Sizes are decimal bytes. `bytesPerMonth` is the traffic served, an
  * abuse cap. `accessLogRetentionDays` is how long the access log and the analytics view counters
- * are kept, `auditRetentionDays` how long audit events are. Version and domain values are carried for later features; nothing applies them yet.
+ * are kept, `auditRetentionDays` how long audit events are. Version retention is enforced by version
+ * reads and `pruneVersions`, using the count and age limits and any active grace; `customDomains`
+ * caps the custom domains an owner may attach.
  */
 export const PlanLimits = z
   .object({

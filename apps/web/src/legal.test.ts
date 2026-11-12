@@ -8,6 +8,7 @@ const LEGAL = [
   { slug: "terms", title: "Terms of Service" },
   { slug: "privacy", title: "Privacy Policy" },
   { slug: "acceptable-use", title: "Acceptable Use Policy" },
+  { slug: "dpa", title: "Data Processing Addendum" },
 ];
 
 const EFFECTIVE = new Date(`${TERMS_VERSION}T00:00:00Z`).toLocaleDateString("en-US", {
@@ -54,8 +55,8 @@ describe("legal pages", () => {
         }
       });
 
-      it("links the three legal pages from its footer and marks itself as current", () => {
-        expect(legalLinks(html)).toEqual(["/terms", "/privacy", "/acceptable-use"]);
+      it("links the four legal pages from its footer and marks itself as current", () => {
+        expect(legalLinks(html)).toEqual(["/terms", "/privacy", "/acceptable-use", "/dpa"]);
         expect(html).toMatch(new RegExp(`href="/${slug}"[^>]*aria-current="page"`));
       });
 
@@ -92,7 +93,7 @@ describe("legal pages", () => {
       "Changes to these terms",
       "Ending your use",
       "abuse@portifact.com",
-      "license to host",
+      "rights needed to host",
       "30 days",
       "six months",
     ]) {
@@ -123,6 +124,58 @@ describe("legal pages", () => {
     ]) {
       expect(aup, text).toContain(text);
     }
+    const dpa = read("dpa");
+    for (const text of [
+      "Implementing Decision (EU) 2021/914",
+      "Module Two",
+      "Module Three",
+      "International Data Transfer Addendum",
+      "Swiss Federal Data Protection and Information Commissioner",
+      "without undue delay",
+      "Module Three (processor to processor) where you are a processor acting with your controller's authorization",
+      "at least 14 days' notice",
+      "specific written authorization",
+      "private written annex",
+      "Cloudflare, Inc.",
+      'id="annex-i"',
+      'id="annex-ii"',
+      'id="subprocessors"',
+    ]) {
+      expect(dpa, text).toContain(text);
+    }
+  });
+
+  it("links the Data Processing Addendum from the Terms and the Privacy Policy", () => {
+    expect(read("terms")).toContain('<a href="/dpa">Data Processing Addendum</a>');
+    expect(read("privacy")).toContain('href="/dpa#subprocessors"');
+  });
+
+  it("lists every cookie Portifact sets in the Privacy Policy", () => {
+    const privacy = read("privacy");
+    for (const cookie of [
+      "__Host-pf.session_token",
+      "__Host-pf.state",
+      "__Host-pf_terms",
+      "__Host-pf_human",
+      "__Secure-pf_theme",
+      "__Secure-pf_lang",
+      "__Host-pf_read",
+      "__Host-pf_read_tx_",
+      "__Host-pf_link",
+      "__Host-pf_review",
+      "__Host-pf_review_tab",
+      "__Host-pf_nobar",
+    ]) {
+      expect(privacy, cookie).toContain(cookie);
+    }
+  });
+
+  it("opens the Terms and the Privacy Policy with what changed", () => {
+    for (const slug of ["terms", "privacy"]) {
+      expect(read(slug), slug).toContain(
+        '<section id="what-changed" aria-labelledby="what-changed-heading"',
+      );
+    }
   });
 });
 
@@ -133,18 +186,20 @@ describe("legal links", () => {
       "/terms",
       "/privacy",
       "/acceptable-use",
+      "/dpa",
       "https://app.portifact.com/report",
       "mailto:abuse@portifact.com",
     ]);
   });
 
   it("are in the footer of every auth page, on the site's origin", () => {
-    for (const page of ["login", "device", "consent", "report"]) {
+    for (const page of ["login", "device", "consent", "report", "unsubscribe"]) {
       expect(legalLinks(read(page)), page).toEqual([
         "https://portifact.com/",
         "https://portifact.com/terms",
         "https://portifact.com/privacy",
         "https://portifact.com/acceptable-use",
+        "https://portifact.com/dpa",
       ]);
     }
   });

@@ -4,7 +4,7 @@
 // of the sign-in page that asked for it; the texts are typed by the locale list, so a new
 // language fails the typecheck until it is here.
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
-import { renderEmail } from "./layout.ts";
+import { renderEmail, textSignature } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
 import { pluralForm } from "./plural.ts";
 
@@ -28,7 +28,6 @@ interface SignInText {
   ignore: string;
   reason: string;
   preheader(expiry: string): string;
-  signature: string;
 }
 
 const TEXT: { readonly [code in LocaleCode]: SignInText } = {
@@ -45,7 +44,6 @@ const TEXT: { readonly [code in LocaleCode]: SignInText } = {
     reason:
       "You received this email because someone asked to sign in to Portifact with this address.",
     preheader: (expiry) => `Enter it on the sign-in page. ${expiry}`,
-    signature: "Portifact, https://portifact.com",
   },
   es: {
     subject: "Tu código para iniciar sesión en Portifact",
@@ -60,7 +58,6 @@ const TEXT: { readonly [code in LocaleCode]: SignInText } = {
     reason:
       "Recibiste este correo porque alguien pidió iniciar sesión en Portifact con esta dirección.",
     preheader: (expiry) => `Ingrésalo en la página de inicio de sesión. ${expiry}`,
-    signature: "Portifact, https://portifact.com",
   },
   "pt-BR": {
     subject: "Seu código de login do Portifact",
@@ -75,7 +72,6 @@ const TEXT: { readonly [code in LocaleCode]: SignInText } = {
     reason:
       "Você recebeu este e-mail porque alguém pediu para entrar no Portifact com este endereço.",
     preheader: (expiry) => `Digite-o na página de login. ${expiry}`,
-    signature: "Portifact, https://portifact.com",
   },
   fr: {
     subject: "Votre code de connexion Portifact",
@@ -90,7 +86,6 @@ const TEXT: { readonly [code in LocaleCode]: SignInText } = {
     reason:
       "Vous avez reçu cet e-mail, car quelqu’un a demandé à se connecter à Portifact avec cette adresse.",
     preheader: (expiry) => `Saisissez-le sur la page de connexion. ${expiry}`,
-    signature: "Portifact, https://portifact.com",
   },
   de: {
     subject: "Dein Anmeldecode für Portifact",
@@ -108,7 +103,6 @@ const TEXT: { readonly [code in LocaleCode]: SignInText } = {
     reason:
       "Du hast diese E-Mail erhalten, weil jemand mit dieser Adresse eine Anmeldung bei Portifact angefordert hat.",
     preheader: (expiry) => `Gib ihn auf der Anmeldeseite ein. ${expiry}`,
-    signature: "Portifact, https://portifact.com",
   },
   ru: {
     subject: "Ваш код для входа в Portifact",
@@ -123,7 +117,6 @@ const TEXT: { readonly [code in LocaleCode]: SignInText } = {
       "Если вы не пытались войти, просто проигнорируйте это письмо. Без кода войти никто не сможет.",
     reason: "Вы получили это письмо, потому что кто-то запросил вход в Portifact с этим адресом.",
     preheader: (expiry) => `Введите его на странице входа. ${expiry}`,
-    signature: "Portifact, https://portifact.com",
   },
   ja: {
     subject: "Portifactのサインインコード",
@@ -137,7 +130,6 @@ const TEXT: { readonly [code in LocaleCode]: SignInText } = {
     reason:
       "このアドレスでPortifactへのサインインがリクエストされたため、このメールをお送りしています。",
     preheader: (expiry) => `サインインページで入力してください。${expiry}`,
-    signature: "Portifact, https://portifact.com",
   },
   "zh-CN": {
     subject: "你的 Portifact 登录验证码",
@@ -149,7 +141,6 @@ const TEXT: { readonly [code in LocaleCode]: SignInText } = {
     ignore: "如果你没有尝试登录，可以忽略这封邮件。没有验证码，任何人都无法登录。",
     reason: "你收到这封邮件，是因为有人请求使用此地址登录 Portifact。",
     preheader: (expiry) => `请在登录页面输入。${expiry}`,
-    signature: "Portifact, https://portifact.com",
   },
 };
 
@@ -188,7 +179,7 @@ export function signInCodeEmail(input: SignInCodeInput): EmailContent {
     text.ignore,
     "",
     text.reason,
-    text.signature,
+    ...textSignature(locale),
   ].join("\n");
 
   return { subject: text.subject, text: plain, html };

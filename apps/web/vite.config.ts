@@ -63,6 +63,7 @@ const pages = [
   "terms",
   "privacy",
   "acceptable-use",
+  "dpa",
   "mcp-compatibility",
   "dashboard",
   "login",
