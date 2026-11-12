@@ -41,6 +41,7 @@
     "spike:artifact-analytics": "bun run --cwd spikes/artifact-analytics test",
     "spike:custom-domains": "bun run --cwd spikes/custom-domains test",
     "spike:content-search": "bun run --cwd spikes/content-search test",
+    "spike:edit-suggestions": "bun run --cwd spikes/edit-suggestions test",
     "test:e2e": "turbo run build --filter=@portifact/web --filter=@portifact/bridge --filter=@portifact/render && bun run --cwd e2e e2e",
     "landing:shots": "turbo run build --filter=@portifact/web --filter=@portifact/bridge --filter=@portifact/render && bun run --cwd e2e shots",
     "test:load": "turbo run build --filter=@portifact/web --filter=@portifact/bridge --filter=@portifact/render && node scripts/load-test.ts",
