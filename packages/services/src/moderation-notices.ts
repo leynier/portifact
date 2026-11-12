@@ -37,7 +37,6 @@ import {
   recordEmailsSent,
   suppressEmail,
 } from "./email.ts";
-import { sha256Hex } from "./objects.ts";
 import type { JobOutcome } from "./outbox.ts";
 
 /** What the operator says about a decision: the facts, the ground, the source, and silence. */
@@ -257,7 +256,7 @@ export interface ModerationNotifier {
   send(notice: ModerationNotice): Promise<void>;
 }
 
-type Skip = "suppressed" | "capacity" | "no_email" | "recipient_cap";
+type Skip = "suppressed" | "capacity" | "no_email" | "recipient_cap" | "no_key";
 
 // Only the reason: never the address, the decision's text or the artifact.
 function skippedNotice(reason: Skip): void {
@@ -572,7 +571,13 @@ export async function sendReportOutcome(
   // The address is not verified: one address gets at most a few outcomes a day.
   const limit = REPORT_LIMITS.outcomeEmailsPerRecipient;
   const windowMs = limit.windowSeconds * 1000;
-  const key = `report-outcome:${await sha256Hex(new TextEncoder().encode(to.toLowerCase()))}`;
+  // Keyed by the report's keyed hash of the address (the sign-in limits' `keyedHash`), never
+  // a plain hash anyone with the database could test; a report from before it had none.
+  if (!report.reporterEmailKey) {
+    await giveBack();
+    return undeliverable("no_key");
+  }
+  const key = `report-outcome:${report.reporterEmailKey}`;
   const hit = await hitRateLimit(global.$client, key, windowMs, now);
   if (hit.count > limit.max) {
     await giveBack();

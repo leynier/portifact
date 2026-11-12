@@ -12,6 +12,7 @@ import { actorOn } from "../src/actors.ts";
 import { getArtifact } from "../src/artifacts.ts";
 import { getBrandSettings, reinstateBrand, suspendBrand } from "../src/branding.ts";
 import { recordEmailsSent, suppressEmail } from "../src/email.ts";
+import { keyedHash } from "../src/keyed-hash.ts";
 import {
   listAbuseReports,
   reinstateAccount,
@@ -531,6 +532,7 @@ describe("the jobs", () => {
       reason: "spam",
       details: undefined,
       email: "someone@example.test",
+      emailKey: `k-${crypto.randomUUID()}`,
       now: NOW,
     });
     const [report] = (await listAbuseReports(db().global, { status: "open", limit: 500 })).filter(
@@ -583,6 +585,7 @@ describe("reports and their outcome", () => {
         reason,
         details: "Explained",
         email: "reporter@example.test",
+        emailKey: `k-${crypto.randomUUID()}`,
         address: `https://${artifactId}.portifact.dev/Login?x=1`,
         name: "Ada Lovelace",
         confirmed: true,
@@ -611,6 +614,7 @@ describe("reports and their outcome", () => {
         reason: "spam",
         details: undefined,
         email,
+        emailKey: `k-${crypto.randomUUID()}`,
         address: `https://${artifactId}.portifact.dev/page`,
         locale: "de",
         now: NOW,
@@ -697,6 +701,7 @@ describe("reports and their outcome", () => {
     const owner = await user();
     const { artifactId } = await publishSite(owner.id);
     const email = `target-${crypto.randomUUID()}@example.test`;
+    const emailKey = await keyedHash("test-secret-long-enough", email);
     const ids: string[] = [];
     for (let i = 0; i <= REPORT_LIMITS.outcomeEmailsPerRecipient.max; i += 1) {
       await submitAbuseReport(db(), {
@@ -704,6 +709,7 @@ describe("reports and their outcome", () => {
         reason: "spam",
         details: `report ${i}`,
         email,
+        emailKey,
         address: `https://${artifactId}.portifact.dev/a?n=${i}`,
         now: NOW + i,
       });
@@ -735,6 +741,19 @@ describe("reports and their outcome", () => {
       REPORT_LIMITS.outcomeEmailsPerRecipient.max,
     );
     expect(states.filter((state) => state === "undeliverable")).toHaveLength(1);
+    // Counted under the keyed hash the sign-in limits use, never a plain hash of the address.
+    const plain = [
+      ...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(email))),
+    ]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const keys = (
+      await env.DB.prepare("select key from rate_limits where key like 'report-outcome:%'").all<{
+        key: string;
+      }>()
+    ).results.map((row) => row.key);
+    expect(keys).toContain(`report-outcome:${emailKey}`);
+    expect(keys.some((key) => key.includes(plain))).toBe(false);
   });
 
   it("emails the outcome once when two runs overlap, and gives the claim back when a send fails", async () => {
@@ -746,6 +765,7 @@ describe("reports and their outcome", () => {
       reason: "spam",
       details: undefined,
       email,
+      emailKey: `k-${crypto.randomUUID()}`,
       now: NOW,
     });
     const [report] = (await listAbuseReports(db().global, { status: "open", limit: 500 })).filter(
@@ -759,6 +779,11 @@ describe("reports and their outcome", () => {
       }),
     );
     await expect(runJobsAbout(report?.id ?? "", notifiers(true).deps)).rejects.toThrow();
+    // The failed send gave its place in the address's daily count back.
+    const counted = await env.DB.prepare("select count from rate_limits where key = ?")
+      .bind(`report-outcome:${report?.reporterEmailKey}`)
+      .first<{ count: number }>();
+    expect(counted?.count ?? 0).toBe(0);
     const [row] = await jobsAbout(report?.id ?? "");
     const sends: string[] = [];
     let release: () => void = () => {};
@@ -793,6 +818,7 @@ describe("reports and their outcome", () => {
         reason: "spam",
         details: undefined,
         email,
+        emailKey: `k-${crypto.randomUUID()}`,
         now: NOW,
       });
     }

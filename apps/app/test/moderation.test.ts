@@ -70,7 +70,7 @@ describe("public abuse reports", () => {
     expect(response.status).toBe(202);
     const rows = (
       await env.DB.prepare(
-        "select address, reporter_name, confirmed, locale, details from abuse_reports where artifact_id = ?",
+        "select address, reporter_name, confirmed, locale, details, length(reporter_email_key) as key_length from abuse_reports where artifact_id = ?",
       )
         .bind(id)
         .all()
@@ -82,6 +82,7 @@ describe("public abuse reports", () => {
         confirmed: 1,
         locale: "pt-BR",
         details: "Threatens a named person.\nSee the second paragraph.",
+        key_length: 64,
       },
     ]);
   });

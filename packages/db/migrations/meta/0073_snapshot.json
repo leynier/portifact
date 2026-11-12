@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c738cbb3-be40-4934-a0e1-be410af1ff8d",
+  "id": "75eba328-f692-42d5-87dc-952041473253",
   "prevId": "cc0c6aac-475f-4e14-baa9-dfade00b67cb",
   "tables": {
     "abuse_reports": {
@@ -23,6 +23,13 @@
         },
         "reporter_email": {
           "name": "reporter_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reporter_email_key": {
+          "name": "reporter_email_key",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

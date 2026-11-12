@@ -24,6 +24,8 @@ export interface AbuseReportSubmission {
   reason: AbuseReason;
   details: string | undefined;
   email: string | undefined;
+  /** The keyed hash of `email` (`keyedHash`), computed where the secret is. */
+  emailKey?: string | undefined;
   /** The exact address reported, in full, when the reporter gave one. */
   address?: string | null | undefined;
   name?: string | undefined;
@@ -58,6 +60,7 @@ export async function submitAbuseReport(
     id,
     artifactId: input.artifactId,
     reporterEmail: input.email || null,
+    reporterEmailKey: input.email ? (input.emailKey ?? null) : null,
     reporterName: reporterNameKept(input.reason, input.name),
     address: input.address ?? null,
     confirmed: input.confirmed === true,

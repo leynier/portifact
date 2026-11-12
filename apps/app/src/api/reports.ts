@@ -13,7 +13,12 @@ import {
   reportedArtifactId,
   reportedHost,
 } from "@portifact/contracts";
-import { customDomainsServing, customHostHint, submitAbuseReport } from "@portifact/services";
+import {
+  customDomainsServing,
+  customHostHint,
+  keyedHash,
+  submitAbuseReport,
+} from "@portifact/services";
 import { Hono } from "hono";
 import { authUrls } from "../auth/config.ts";
 import { checkLimits } from "../auth/limits.ts";
@@ -73,6 +78,10 @@ export function reportRoutes(deps: { now(): number }) {
       reason: body.value.reason,
       details: body.value.details,
       email: body.value.email,
+      // The keyed hash the sign-in limits use, for the outcome emails' daily counter.
+      emailKey: body.value.email
+        ? await keyedHash(c.env.BETTER_AUTH_SECRET, body.value.email.toLowerCase())
+        : undefined,
       // The exact address, kept in full, and the parts of a full notice (docs/operations.md).
       address: reportedAddress(body.value.artifact, c.env.CONTENT_DOMAIN, customHost),
       name: body.value.name,

@@ -7,15 +7,26 @@ import { accessSchema, createAccessDb, regionsFromEnv, schema } from "@portifact
 import { HELD_MESSAGE } from "@portifact/domain";
 import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { eraseAccessEvents, pruneAccessEvents } from "../src/access-log.ts";
+import { eraseAccessEvents, getAccessLog, pruneAccessEvents } from "../src/access-log.ts";
 import {
   advanceAccountDeletion,
+  exportAccount,
   processAccountDeletions,
   requestAccountDeletion,
 } from "../src/account-data.ts";
-import { createAnnotationThread } from "../src/annotations.ts";
+import { actorOn } from "../src/actors.ts";
+import { getArtifactStats } from "../src/analytics.ts";
+import {
+  createAnnotationThread,
+  exportAnnotations,
+  getAnnotationThread,
+  listAnnotationHistory,
+  listAnnotations,
+} from "../src/annotations.ts";
+import { eraseApprovalAuthor, getApprovalReview } from "../src/approval-reviews.ts";
 import { getArtifact } from "../src/artifacts.ts";
 import { applyTombstones } from "../src/backups.ts";
+import { listOpenFeedback } from "../src/feedback.ts";
 import { eraseAccountTraces, historyHeld, pruneGoneHistory } from "../src/history-retention.ts";
 import {
   applyLegalHolds,
@@ -478,6 +489,85 @@ async function heldInWorkspace() {
   };
 }
 
+/** Every read of a held artifact's comments, history, review, access log and analytics. */
+function managedReads(database: ReturnType<typeof db>, userId: string, artifactId: string) {
+  const access = createAccessDb(env.ACCESS_DB);
+  const base = { userId, artifactId, now: NOW };
+  return {
+    list: () => listAnnotations(database, { ...base, limit: 10, version: "all" }),
+    export: () => exportAnnotations(database, { ...base, version: "all" }),
+    thread: () => getAnnotationThread(database, { ...base, threadId: "th_none" }),
+    history: () => listAnnotationHistory(database, { ...base, limit: 10 }),
+    review: () => getApprovalReview(database, base),
+    accessLog: () => getAccessLog(database, access, { ...base, limit: 10 }),
+    stats: () => getArtifactStats(database, access, base),
+  };
+}
+
+describe("a held artifact's records are read by nobody but the operator", () => {
+  it("refuses its comments, history, review, access log and analytics to the people who manage it", async () => {
+    const owner = await user();
+    await grantPlan(owner.id, "team");
+    const { artifactId } = await heldArtifact(owner.id);
+    for (const [name, read] of Object.entries(managedReads(db(), owner.id, artifactId))) {
+      expect(await read(), name).toEqual({ ok: false, code: "forbidden", message: HELD_MESSAGE });
+    }
+    // The space's open feedback leaves it out.
+    const actor = value(await actorOn(db().global, owner.id, owner.id));
+    if (!actor) throw new Error("no actor");
+    const feedback = value(await listOpenFeedback(db(), { actor, limit: 50, now: NOW }));
+    expect(feedback.items.some((item) => item.artifact.id === artifactId)).toBe(false);
+  });
+
+  it("leaves a held artifact's comments out of its owner's account export", async () => {
+    const owner = await user();
+    const { artifactId, versionId } = await publishSite(owner.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ annotations: "open" })
+      .where(eq(schema.artifacts.id, artifactId));
+    value(
+      await createAnnotationThread(db(), {
+        humanCheck: { token: "solved", verify: async () => "passed" },
+        userId: owner.id,
+        artifactId,
+        versionId,
+        target: { schema: 1, path: "index.html", anchor: { kind: "document" } },
+        body: "Held words",
+        now: NOW,
+      }),
+    );
+    value(await suspendArtifact(db(), { artifactId, reason: "spam", now: NOW }));
+    const before = await exportAccount(db(), { userId: owner.id, now: NOW });
+    expect(JSON.stringify(before)).toContain("Held words");
+    value(
+      await placeLegalHold(db(), { artifactId, ground: "Authority", releaseAt: null, now: NOW }),
+    );
+    const after = await exportAccount(db(), { userId: owner.id, now: NOW });
+    expect(JSON.stringify(after)).not.toContain("Held words");
+  });
+
+  it("answers everyone else exactly as for a suspended twin, with the same reads", async () => {
+    const w = await heldInWorkspace();
+    const stranger = await user("Stranger");
+    for (const userId of [stranger.id, w.reader.id, w.member.id, w.keyToken, ""]) {
+      const run = async (artifactId: string) => {
+        const results: Record<string, unknown> = {};
+        let calls = 0;
+        for (const [name, read] of Object.entries(managedReads(db(), userId, artifactId))) {
+          const { database, count } = recording();
+          results[name] = await managedReads(database, userId, artifactId)[name as "list"]();
+          calls += count();
+          void read;
+        }
+        return { results, calls };
+      };
+      const held = await run(w.held.artifactId);
+      expect(held, userId || "anonymous").toEqual(await run(w.suspended.artifactId));
+    }
+  });
+});
+
 describe("a hold is invisible to everyone who does not manage the artifact", () => {
   it("answers a stranger, a reader, a member, an out-of-reach token and an anonymous caller as for a missing artifact, with the same reads", async () => {
     const w = await heldInWorkspace();
@@ -656,8 +746,15 @@ describe("who a hold keeps", () => {
       (l) => l.legalHold.artifactId === first.artifactId,
     );
     expect(JSON.stringify(lines)).not.toContain("@example.test");
+    const holdId = (await holdIdentities(db(), first.artifactId))[0]?.holdId ?? "";
     await releaseLegalHold(db(), { artifactId: first.artifactId, now: NOW + 1 });
-    expect(await holdIdentities(db(), first.artifactId)).toEqual([]);
+    // Read directly, not through the open holds: the rows themselves are gone.
+    expect(
+      await db()
+        .select()
+        .from(schema.legalHoldIdentities)
+        .where(eq(schema.legalHoldIdentities.holdId, holdId)),
+    ).toEqual([]);
   });
 
   it("captures them again when a restore puts a hold back", async () => {
@@ -732,6 +829,35 @@ describe("a held artifact's evidence", () => {
     await releaseLegalHold(db(), { artifactId: held.artifactId, now: NOW });
     await pruneAccessEvents(access(), NOW, 10, await heldArtifactIds(db()));
     expect(await eventsOf(held.artifactId)).toEqual([]);
+  });
+
+  it("keeps a held artifact's openings when an account's erasure runs as its job", async () => {
+    const owner = await user();
+    const held = await heldArtifact(owner.id);
+    const free = await publishSite(owner.id);
+    const visitor = `u_visitor_${crypto.randomUUID()}`;
+    for (const id of [held.artifactId, free.artifactId]) await logged(id, visitor, NOW + DAY);
+    const [row] = await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "erase_access_events",
+        payload: { kind: "user" },
+        availableAt: NOW,
+        createdAt: NOW,
+        subject: visitor,
+      })
+      .returning();
+    await runJob(
+      db(),
+      env.ARTIFACTS,
+      { id: row?.id ?? 0, topic: "erase_access_events" } as JobMessage,
+      NOW,
+      {
+        access: access(),
+      },
+    );
+    expect(await eventsOf(held.artifactId)).toHaveLength(1);
+    expect(await eventsOf(free.artifactId)).toEqual([]);
   });
 
   it("keeps a deleted commenter's words and verdicts until the release, then erases them", async () => {
@@ -821,6 +947,162 @@ describe("a held artifact's evidence", () => {
   });
 });
 
+describe("what a release erases", () => {
+  it("keeps the words and verdict of a commenter whose account still exists", async () => {
+    const w = await heldWithThread();
+    const reviewer = await user("Reviewer");
+    const rq = schema.reviewRequests;
+    const requestId = `rr_${crypto.randomUUID().replaceAll("-", "")}`;
+    await db().insert(rq).values({
+      id: requestId,
+      artifactId: w.artifactId,
+      versionId: w.versionId,
+      requestedBy: reviewer.id,
+      updatedAt: NOW,
+    });
+    await db().insert(schema.reviewVerdicts).values({
+      requestId,
+      email: reviewer.email,
+      versionId: w.versionId,
+      authorId: reviewer.id,
+      verdict: "approve",
+      updatedAt: NOW,
+    });
+    await releaseLegalHold(db(), { artifactId: w.artifactId, now: NOW + 1 });
+    expect(await runHoldRelease(db(), undefined, w.artifactId, NOW + 2)).toBe("done");
+    const m = schema.annotationMessages;
+    expect(
+      (await db().select().from(m).where(eq(m.threadId, w.threadId))).map((row) => row.body),
+    ).toEqual(["Owner's question"]);
+    expect(
+      await db()
+        .select()
+        .from(schema.reviewVerdicts)
+        .where(eq(schema.reviewVerdicts.requestId, requestId)),
+    ).toHaveLength(1);
+    expect((await db().select().from(rq).where(eq(rq.id, requestId)))[0]?.requestedBy).toBe(
+      reviewer.id,
+    );
+  });
+
+  it("does nothing while the artifact is held again", async () => {
+    const w = await heldWithThread();
+    const m = schema.annotationMessages;
+    const [first] = await db().select().from(m).where(eq(m.threadId, w.threadId));
+    await db()
+      .insert(m)
+      .values({
+        ...(first as typeof m.$inferInsert),
+        id: `msg_${crypto.randomUUID().replaceAll("-", "")}`,
+        authorId: w.gone.id,
+        body: "Gone's words",
+        createdAt: NOW + 1,
+      });
+    await releaseLegalHold(db(), { artifactId: w.artifactId, now: NOW + 2 });
+    value(
+      await placeLegalHold(db(), {
+        artifactId: w.artifactId,
+        ground: "Again",
+        releaseAt: null,
+        now: NOW + 3,
+      }),
+    );
+    expect(await runHoldRelease(db(), undefined, w.artifactId, NOW + 4)).toBe("done");
+    expect(
+      (await db().select().from(m).where(eq(m.threadId, w.threadId))).map((row) => row.body),
+    ).toContain("Gone's words");
+  });
+
+  it("is written by the release at the release date", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    value(await suspendArtifact(db(), { artifactId, reason: "spam", now: NOW }));
+    value(
+      await placeLegalHold(db(), {
+        artifactId,
+        ground: "Authority",
+        releaseAt: NOW + DAY,
+        now: NOW,
+      }),
+    );
+    await releaseDueHolds(db(), NOW + DAY);
+    const jobs = await db()
+      .select()
+      .from(schema.outbox)
+      .where(eq(schema.outbox.subject, artifactId));
+    expect(jobs.map((job) => job.topic)).toEqual(["legal_hold_release"]);
+  });
+
+  async function heldWithThread() {
+    const owner = await user();
+    const gone = await user("Gone");
+    const { artifactId, versionId } = await publishSite(owner.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ annotations: "open" })
+      .where(eq(schema.artifacts.id, artifactId));
+    const thread = value(
+      await createAnnotationThread(db(), {
+        humanCheck: { token: "solved", verify: async () => "passed" },
+        userId: owner.id,
+        artifactId,
+        versionId,
+        target: { schema: 1, path: "index.html", anchor: { kind: "document" } },
+        body: "Owner's question",
+        now: NOW,
+      }),
+    ) as unknown as { id: string };
+    value(await suspendArtifact(db(), { artifactId, reason: "spam", now: NOW }));
+    value(
+      await placeLegalHold(db(), { artifactId, ground: "Authority", releaseAt: null, now: NOW }),
+    );
+    await db()
+      .global.insert(schema.tombstones)
+      .values({ kind: "account", id: gone.id, deletedAt: NOW });
+    return { owner, gone, artifactId, versionId, threadId: thread.id };
+  }
+
+  it("erases a deleted account's lone message-deleted marker nobody replied to", async () => {
+    const w = await heldWithThread();
+    const m = schema.annotationMessages;
+    const [first] = await db().select().from(m).where(eq(m.threadId, w.threadId));
+    const markerId = `msg_${crypto.randomUUID().replaceAll("-", "")}`;
+    await db()
+      .insert(m)
+      .values({
+        ...(first as typeof m.$inferInsert),
+        id: markerId,
+        authorId: w.gone.id,
+        state: "deleted",
+        body: null,
+        bodyBytes: 0,
+        createdAt: NOW + 1,
+      });
+    await releaseLegalHold(db(), { artifactId: w.artifactId, now: NOW + 2 });
+    expect(await runHoldRelease(db(), undefined, w.artifactId, NOW + 3)).toBe("done");
+    // Gone, as an account deletion's erasure leaves it, not merely renamed to `deleted`.
+    expect(await db().select().from(m).where(eq(m.id, markerId))).toEqual([]);
+  });
+
+  it("leaves a held review request's requester until the release, then forgets a deleted one", async () => {
+    const w = await heldWithThread();
+    const rq = schema.reviewRequests;
+    const id = `rr_${crypto.randomUUID().replaceAll("-", "")}`;
+    await db().insert(rq).values({
+      id,
+      artifactId: w.artifactId,
+      versionId: w.versionId,
+      requestedBy: w.gone.id,
+      updatedAt: NOW,
+    });
+    await db().batch(eraseApprovalAuthor(db(), w.gone.id) as never);
+    expect((await db().select().from(rq).where(eq(rq.id, id)))[0]?.requestedBy).toBe(w.gone.id);
+    await releaseLegalHold(db(), { artifactId: w.artifactId, now: NOW + 1 });
+    await runHoldRelease(db(), undefined, w.artifactId, NOW + 2);
+    expect((await db().select().from(rq).where(eq(rq.id, id)))[0]?.requestedBy).toBeNull();
+  });
+});
+
 describe("a held artifact's history", () => {
   it("keeps its lifecycle, suspension and moderation records and a deleted actor's traces while held", async () => {
     const owner = await user();
@@ -881,6 +1163,17 @@ describe("a held artifact's history", () => {
       .from(le)
       .where(and(eq(le.artifactId, held.artifactId), eq(le.event, "renewed")));
     expect(erased?.actorId).toBeNull();
+  });
+
+  it("keeps an open hold that is a year old, and its records", async () => {
+    const owner = await user();
+    const held = await heldArtifact(owner.id);
+    await db()
+      .update(schema.legalHolds)
+      .set({ createdAt: NOW - 800 * DAY })
+      .where(eq(schema.legalHolds.id, held.hold.id));
+    await pruneGoneHistory(db(), NOW);
+    expect(await isHeld(db(), held.artifactId)).toBe(true);
   });
 
   it("prunes the decisions, sends and released holds of something gone more than a year ago", async () => {
@@ -1147,6 +1440,41 @@ describe("a restore", () => {
         now: NOW,
       }),
     ).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+
+  it("releases again through the release's own batch: no identity left, one release job", async () => {
+    const owner = await user();
+    const held = await heldArtifact(owner.id);
+    await releaseLegalHold(db(), { artifactId: held.artifactId, now: NOW + 1 });
+    const lines = (await exportLegalHolds(regions())).filter(
+      (line) => line.legalHold.artifactId === held.artifactId,
+    );
+    // The restore rewinds the hold to open, with its identities and without the release job.
+    await db().delete(schema.outbox).where(eq(schema.outbox.subject, held.artifactId));
+    await db()
+      .update(schema.legalHolds)
+      .set({ releasedAt: null, ownerEmail: owner.email })
+      .where(eq(schema.legalHolds.id, held.hold.id));
+    await db().insert(schema.legalHoldIdentities).values({
+      holdId: held.hold.id,
+      role: "owner",
+      actorId: owner.id,
+      email: owner.email,
+      recordedAt: NOW,
+    });
+    await applyLegalHolds(regions(), lines, NOW + 2);
+    expect(await isHeld(db(), held.artifactId)).toBe(false);
+    expect(
+      await db()
+        .select()
+        .from(schema.legalHoldIdentities)
+        .where(eq(schema.legalHoldIdentities.holdId, held.hold.id)),
+    ).toEqual([]);
+    const jobs = await db()
+      .select()
+      .from(schema.outbox)
+      .where(eq(schema.outbox.subject, held.artifactId));
+    expect(jobs.filter((job) => job.topic === "legal_hold_release")).toHaveLength(1);
   });
 
   it("reports a held artifact the restore cannot bring back", async () => {

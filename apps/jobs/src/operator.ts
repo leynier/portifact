@@ -88,6 +88,7 @@ import {
   listLegalHolds,
   listStorageFindings,
   type OwnerPlanState,
+  openHold,
   operatorRevokeScimToken,
   operatorRevokeServiceToken,
   ownerRegion,
@@ -1294,9 +1295,7 @@ export async function runOperator(
       if (!artifactId) return usage("hold needs an artifact ID.");
       const where = await artifactDb(artifactId);
       const people = await holdIdentities(where, artifactId);
-      const [open] = (await listLegalHolds(where, { all: false, limit: 500 })).filter(
-        (row) => row.artifactId === artifactId,
-      );
+      const open = await openHold(where, artifactId);
       if (!open) return { exitCode: 1, output: `${artifactId} has no open hold.` };
       // For the authority's request only: addresses are printed, nothing else is.
       return {

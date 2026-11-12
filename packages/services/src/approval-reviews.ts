@@ -63,6 +63,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn } from "./actors.ts";
 import { commentStanding, participation } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
+import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerEntitlements, requireOwnerFeature } from "./plans.ts";
 import { reviewCompletedStatements, reviewRequestedStatements } from "./review-activity.ts";
 
@@ -839,6 +840,10 @@ export async function getApprovalReview(
     ownerSide = standing.ownerSide;
     owner = standing.entitlements;
   }
+  // A held artifact's review is read by nobody but the operator (legal-holds.ts).
+  if (role === "owner" && artifact.state === "suspended" && (await isHeld(db, artifact.id))) {
+    return heldRefusal();
+  }
   const available = hasFeature(owner, APPROVAL_FEATURE);
   const request = await openRequest(db, artifact.id);
   const reviewers = request ? await reviewersOf(db, request.id) : [];
@@ -1005,7 +1010,15 @@ export function eraseApprovalAuthor(db: Db, userId: string): BatchItem<"sqlite">
           sql`not exists (select 1 from "review_requests" as held_request join "legal_holds" as hold on hold.artifact_id = held_request.artifact_id where held_request.id = ${rv.requestId} and hold.released_at is null)`,
         ),
       ),
-    db.update(rq).set({ requestedBy: null }).where(eq(rq.requestedBy, userId)),
+    db
+      .update(rq)
+      .set({ requestedBy: null })
+      .where(
+        and(
+          eq(rq.requestedBy, userId),
+          sql`not exists (select 1 from "legal_holds" as hold where hold.artifact_id = ${rq.artifactId} and hold.released_at is null)`,
+        ),
+      ),
   ];
 }
 

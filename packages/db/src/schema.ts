@@ -893,6 +893,11 @@ export const abuseReports = sqliteTable(
     id: text("id").primaryKey(),
     artifactId: text("artifact_id").notNull(),
     reporterEmail: text("reporter_email"),
+    /**
+     * The keyed hash of the reporter's email (the sign-in limits' `keyedHash`), which keys the
+     * outcome emails' daily counter; erased with the email.
+     */
+    reporterEmailKey: text("reporter_email_key"),
     reporterName: text("reporter_name"),
     address: text("address"),
     confirmed: integer("confirmed", { mode: "boolean" }).notNull().default(false),

@@ -359,16 +359,33 @@ describe("API and MCP parity", () => {
       );
       return out;
     };
-    const ownerHeld = await reads(b, held);
-    expect(JSON.stringify(ownerHeld)).not.toMatch(/hold|legal|authorit/i);
-    // These reads tell its owner nothing more about a held artifact than about a suspended one.
-    expect(ownerHeld).toEqual(await reads(b, twin));
+    // Its owner reads its view and versions, but none of its comments, history, review or
+    // analytics: the same generic refusal as downloads, through the API and MCP.
+    for (const path of [
+      "/annotations/history",
+      "/annotations?version=current",
+      "/review/status",
+      "/stats",
+      "/annotations/export?format=json&version=current",
+      "/access-log",
+    ]) {
+      const answer = await fromApi(await b.apiCall(`/api/v1/artifacts/${held}${path}`));
+      expect(answer.body, path).toMatchObject({ error: { code: "forbidden" } });
+      expect(JSON.stringify(answer.body)).not.toMatch(/hold|legal|authorit/i);
+    }
+    expect(fromTool(await b.tool("get_comment_history", { artifactId: held })).body).toMatchObject({
+      error: { code: "forbidden" },
+    });
+    expect(fromTool(await b.tool("list_annotations", { artifactId: held })).body).toMatchObject({
+      error: { code: "forbidden" },
+    });
     const strangerHeld = await reads(stranger, held);
     expect(strangerHeld).toEqual(await reads(stranger, twin));
     expect(strangerHeld).toEqual(await reads(stranger, "zzzzzzzzzz"));
     expect(fromTool(await b.tool("get_comment_history", { artifactId: held })).body).toEqual(
       (await fromApi(await b.apiCall(`/api/v1/artifacts/${held}/annotations/history`))).body,
     );
+    void twin;
   });
 
   it("refuses the same way: missing, another user's, stale base, archived and bad cursor", async () => {

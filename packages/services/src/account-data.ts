@@ -138,7 +138,13 @@ export async function exportAccount(
       ...(await db
         .select()
         .from(schema.annotationThreads)
-        .where(inArray(schema.annotationThreads.artifactId, ids))
+        // A held artifact's comments are read by nobody but the operator (legal-holds.ts).
+        .where(
+          and(
+            inArray(schema.annotationThreads.artifactId, ids),
+            notHeldSql(sql`${schema.annotationThreads.artifactId}`),
+          ),
+        )
         .orderBy(asc(schema.annotationThreads.createdAt))),
     );
   }
@@ -565,7 +571,7 @@ async function deletionBatch(
       .onConflictDoNothing(),
     db
       .update(schema.abuseReports)
-      .set({ reporterEmail: null, reporterName: null })
+      .set({ reporterEmail: null, reporterEmailKey: null, reporterName: null })
       .where(sql`lower(${schema.abuseReports.reporterEmail}) = ${email}`),
     db.delete(schema.deviceCodes).where(eq(schema.deviceCodes.userId, input.userId)),
     // A workspace's service tokens stay with it (decision 0011); who created them goes.

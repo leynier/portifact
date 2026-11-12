@@ -210,7 +210,8 @@ export async function placeLegalHold(
   return ok({ hold: row, changed: true });
 }
 
-async function openHold(db: Db, artifactId: string): Promise<LegalHoldRow | undefined> {
+/** An artifact's open hold, read directly (the operator's `hold`). */
+export async function openHold(db: Db, artifactId: string): Promise<LegalHoldRow | undefined> {
   const [row] = await db
     .select()
     .from(h)
@@ -237,17 +238,8 @@ export async function releaseLegalHold(
 ): Promise<{ released: boolean }> {
   // The job that applies what the hold deferred is written in the release's batch, on the hold
   // still being open, before the release.
-  const open = sql`${h.artifactId} = ${input.artifactId} and ${h.releasedAt} is null`;
-  const [, rows] = (await db.batch([
-    releaseJobs(db, open, input.now),
-    db
-      .update(h)
-      .set({ releasedAt: input.now, ownerEmail: null })
-      .where(and(eq(h.artifactId, input.artifactId), isNull(h.releasedAt)))
-      .returning({ id: h.id }),
-    forgetReleasedIdentities(db),
-  ])) as unknown as [unknown, { id: string }[]];
-  return { released: rows.length > 0 };
+  const rows = await release(db, sql`${h.artifactId} = ${input.artifactId}`, input.now);
+  return { released: rows > 0 };
 }
 
 /** Moves an open hold's planned release date, which must be in the future. */
@@ -283,14 +275,19 @@ export async function listLegalHolds(
 
 /** The maintenance scan's part: releases the holds whose release date has come. */
 export async function releaseDueHolds(db: Db, now: number): Promise<number> {
-  const due = sql`${h.releasedAt} is null and ${h.releaseAt} is not null and ${h.releaseAt} <= ${now}`;
+  return release(db, sql`${h.releaseAt} is not null and ${h.releaseAt} <= ${now}`, now);
+}
+
+/**
+ * Releases the open holds `which` selects, in one batch: their `legal_hold_release` jobs on the
+ * holds still being open, the release (stamped `releasedAt`), and the addresses they kept. Every
+ * release goes through it: by hand, at the release date and when a restore releases again.
+ */
+async function release(db: Db, which: SQL, releasedAt: number, now = releasedAt): Promise<number> {
+  const open = sql`${which} and ${h.releasedAt} is null`;
   const [, rows] = (await db.batch([
-    releaseJobs(db, due, now),
-    db
-      .update(h)
-      .set({ releasedAt: now, ownerEmail: null })
-      .where(and(isNull(h.releasedAt), isNotNull(h.releaseAt), lte(h.releaseAt, now)))
-      .returning({ id: h.id }),
+    releaseJobs(db, open, now),
+    db.update(h).set({ releasedAt, ownerEmail: null }).where(open).returning({ id: h.id }),
     forgetReleasedIdentities(db),
   ])) as unknown as [unknown, { id: string }[]];
   return rows.length;
@@ -365,6 +362,10 @@ export async function runHoldRelease(
       .selectDistinct({ id: th.resolvedBy })
       .from(th)
       .where(eq(th.artifactId, artifactId))),
+    ...(await db
+      .selectDistinct({ id: rq.requestedBy })
+      .from(rq)
+      .where(eq(rq.artifactId, artifactId))),
   ]
     .map((row) => row.id)
     .filter((id): id is string => typeof id === "string");
@@ -379,13 +380,20 @@ export async function runHoldRelease(
   if (gone.length === 0) return "done";
   let erased = 0;
   for (const authorId of gone) {
-    const threads = await db
-      .selectDistinct({ threadId: m.threadId })
-      .from(m)
-      .innerJoin(th, eq(th.id, m.threadId))
-      .where(
-        and(eq(th.artifactId, artifactId), eq(m.authorId, authorId), sql`${m.state} <> 'deleted'`),
-      );
+    // The same selection as an account deletion's (`threadsToErase`): a message that is not
+    // deleted, or a "message deleted" marker nobody replied to after it.
+    const threads = await db.all<{ threadId: string }>(sql`
+      select distinct mine.thread_id as threadId from ${m} as mine
+      join ${th} on ${th.id} = mine.thread_id
+      where ${th.artifactId} = ${artifactId} and mine.author_id = ${authorId} and (
+        mine.state <> 'deleted' or not exists (
+          select 1 from ${m} as reply
+          where reply.thread_id = mine.thread_id and reply.author_id <> ${authorId}
+            and reply.state <> 'deleted'
+            and (reply.created_at > mine.created_at
+              or (reply.created_at = mine.created_at and reply.rowid > mine.rowid))
+        )
+      )`);
     for (const { threadId } of threads) {
       if (erased >= RELEASE_THREADS) return "pending";
       await eraseAuthorFromThread(db, { authorId, threadId, now });
@@ -394,6 +402,10 @@ export async function runHoldRelease(
   }
   for (let i = 0; i < gone.length; i += 90) {
     const some = gone.slice(i, i + 90);
+    await db
+      .update(rq)
+      .set({ requestedBy: null })
+      .where(and(eq(rq.artifactId, artifactId), inArray(rq.requestedBy, some)));
     await db
       .delete(rv)
       .where(
@@ -483,10 +495,8 @@ export async function applyLegalHolds(
       const [current] = await db.select().from(h).where(eq(h.id, line.id)).limit(1);
       if (line.releasedAt !== null) {
         if (current && current.releasedAt === null) {
-          await db
-            .update(h)
-            .set({ releasedAt: line.releasedAt, ownerEmail: null })
-            .where(and(eq(h.id, line.id), isNull(h.releasedAt)));
+          // As any release: the job, the stamp from the file and the addresses forgotten.
+          await release(db, sql`${h.id} = ${line.id}`, line.releasedAt, now);
           result.restored += 1;
         }
         continue;

@@ -39,6 +39,7 @@ CREATE TABLE `moderation_notice_sends` (
 	PRIMARY KEY(`decision_id`, `user_id`)
 );
 --> statement-breakpoint
+ALTER TABLE `abuse_reports` ADD `reporter_email_key` text;--> statement-breakpoint
 ALTER TABLE `abuse_reports` ADD `reporter_name` text;--> statement-breakpoint
 ALTER TABLE `abuse_reports` ADD `address` text;--> statement-breakpoint
 ALTER TABLE `abuse_reports` ADD `confirmed` integer DEFAULT false NOT NULL;--> statement-breakpoint

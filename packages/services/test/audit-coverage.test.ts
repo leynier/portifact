@@ -274,6 +274,7 @@ reason("the owner is erased with its events", [
   "deleteArtifactData",
   "eraseOwnerBrand",
 ]);
+reason("a keyed hash for rate limit keys: it computes and changes nothing", ["keyedHash"]);
 reason(
   "legal holds: operator-only, kept in legal_holds and never shown to the owner side, whose audit log must not reveal a hold",
   [
@@ -283,6 +284,7 @@ reason(
     "applyLegalHolds",
     "isHeld",
     "updateHoldRelease",
+    "openHold",
     "heldArtifactIds",
     "holdIdentities",
     "runHoldRelease",

@@ -291,6 +291,7 @@ describe("statement and outcome edges", () => {
       reason: "spam",
       details: undefined,
       email,
+      emailKey: `k-${crypto.randomUUID()}`,
       now: NOW,
     });
     const [report] = (await listAbuseReports(db().global, { status: "open", limit: 500 })).filter(

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a4b9e451-9ca6-485d-a17d-7936cf04ad91",
-  "prevId": "9ebe0e7a-e504-4d0b-ab13-a1378e7f24a9",
+  "id": "1bc45285-35f9-46f7-b2d7-300ee490aacb",
+  "prevId": "c231ff1f-1a22-4a8d-8959-d91f67fd0e6a",
   "tables": {
     "abuse_reports": {
       "name": "abuse_reports",
@@ -23,6 +23,13 @@
         },
         "reporter_email": {
           "name": "reporter_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reporter_email_key": {
+          "name": "reporter_email_key",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

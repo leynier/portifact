@@ -623,7 +623,7 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
       build: (db) =>
         db
           .update(schema.abuseReports)
-          .set({ reporterEmail: null, reporterName: null })
+          .set({ reporterEmail: null, reporterEmailKey: null, reporterName: null })
           .where(
             sql`lower(${schema.abuseReports.reporterEmail}) in (select lower(${u.email}) from ${u} where ${u.id} in (${tombstonedAccounts}))`,
           ),

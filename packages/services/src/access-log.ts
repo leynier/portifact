@@ -30,6 +30,7 @@ import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, or, type SQL, sql } f
 import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn, ownerSide } from "./actors.ts";
 import { eraseArtifactViews, keptOpenings, pruneArtifactViews } from "./analytics.ts";
+import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { shareLinkLabels } from "./share-links.ts";
 
@@ -303,6 +304,10 @@ export async function getAccessLog(
   if (!artifact || artifact.state === "purging" || artifact.state === "deleted") return missing();
   const allowed = await authorizeOn(db, input.userId, artifact, "access_log", missing);
   if (!allowed.ok) return allowed;
+  // A held artifact's access log is read by nobody but the operator (legal-holds.ts).
+  if (artifact.state === "suspended" && (await isHeld(db, input.artifactId))) {
+    return heldRefusal();
+  }
   const retentionDays = (await ownerEntitlements(db.global, artifact.ownerId, input.now)).limits
     .accessLogRetentionDays;
   const after = input.cursor === undefined ? undefined : decodeCursor(input.cursor);

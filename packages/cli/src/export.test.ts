@@ -304,7 +304,13 @@ describe("portifact export", () => {
     expect((await h.invoke("export", out)).code).toBe(0);
     const manifest = await manifestOf(out);
     expect(manifest.audit).toEqual({ skipped: "not_found" });
-    expect(manifest.artifacts.every((a) => "skipped" in a.accessLog)).toBe(true);
+    // One artifact refused (a held one is refused to the people who manage it) skips only
+    // that artifact's log: the others are exported.
+    const logs = manifest.artifacts.map((a) => a.accessLog);
+    expect(manifest.artifacts.find((a) => a.id === doc.id)?.accessLog).toEqual({
+      skipped: "forbidden",
+    });
+    expect(logs.some((log) => "file" in log)).toBe(true);
     expect(manifest.totals.files).toBe(5);
   });
 

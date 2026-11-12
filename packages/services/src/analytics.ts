@@ -29,6 +29,7 @@ import {
 import { and, eq, gte, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { authorizeOn, ownerSide } from "./actors.ts";
+import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerEntitlements } from "./plans.ts";
 
 /** Statements per D1 batch when writing views, well under the 1,000 queries of an invocation. */
@@ -177,6 +178,10 @@ export async function getArtifactStats(
   // The access log's action: the same admins and editors read both.
   const allowed = await authorizeOn(db, input.userId, artifact, "access_log", missing);
   if (!allowed.ok) return allowed;
+  // A held artifact's analytics are read by nobody but the operator (legal-holds.ts).
+  if (artifact.state === "suspended" && (await isHeld(db, input.artifactId))) {
+    return heldRefusal();
+  }
   // A read of held data: a grace keeps it open for what the previous plan granted (decision 0022).
   const gate = requireHeldFeature(
     await ownerEntitlements(db.global, artifact.ownerId, input.now),

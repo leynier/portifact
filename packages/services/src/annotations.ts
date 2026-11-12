@@ -81,6 +81,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { actorAndPlanOn, actorOn, ownerSide } from "./actors.ts";
 import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
+import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerPlanRecord } from "./plans.ts";
 import { type ThreadViewContext, threadViews } from "./thread-views.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
@@ -368,6 +369,16 @@ async function authorize(
     action,
   );
   if (!decision.ok) return decision;
+  // Nobody but the operator reads a held artifact's comments (docs/operations.md, "Legal
+  // holds"): asked only of the owner side, after authorization, and only of a suspended artifact,
+  // so everyone else gets what a suspended artifact gives, with the same reads.
+  if (
+    loaded.role === "owner" &&
+    loaded.artifact.state === "suspended" &&
+    (await isHeld(db, loaded.artifact.id))
+  ) {
+    return heldRefusal();
+  }
   return ok(loaded as Authorized);
 }
 

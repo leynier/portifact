@@ -1,6 +1,6 @@
 {
-  "id": "9ebe0e7a-e504-4d0b-ab13-a1378e7f24a9",
-  "prevId": "c738cbb3-be40-4934-a0e1-be410af1ff8d",
+  "id": "c231ff1f-1a22-4a8d-8959-d91f67fd0e6a",
+  "prevId": "75eba328-f692-42d5-87dc-952041473253",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -23,6 +23,13 @@
         },
         "reporter_email": {
           "name": "reporter_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reporter_email_key": {
+          "name": "reporter_email_key",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

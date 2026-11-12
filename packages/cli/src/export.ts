@@ -308,11 +308,9 @@ async function writeExport(
       accessLog = { skipped: "not_found" };
     } else if (accessLogs === "allowed") {
       accessLog = await exportAccessLog(session, folder, item.artifact.id);
-      // A role that may not read one artifact's access log reads none of the space's.
-      if (
-        "skipped" in accessLog &&
-        (accessLog.skipped === "forbidden" || accessLog.skipped === "plan_required")
-      ) {
+      // A plan without access logs has none for any artifact; a refusal can be one artifact's
+      // own (a held one is refused to the people who manage it), so the next is still asked.
+      if ("skipped" in accessLog && accessLog.skipped === "plan_required") {
         accessLogs = accessLog.skipped;
       }
     } else {
