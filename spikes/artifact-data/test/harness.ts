@@ -18,19 +18,11 @@ export const FREE: DataLimits = {
   connectionsPerArtifact: 10,
   connectionsPerAuthor: 4,
   connectsPerAuthorPerMinute: 6,
-  liveBytesPerDay: 20_000_000,
-  cleanupRowsPerDay: 10_000,
+  liveMessagesPerDay: 2_000,
+  rightsRowsPerDay: 500,
+  cleanupRowsPerDay: 5_000,
   exportRowsPerDay: 200_000,
 };
-
-/** Plan B's Free owner allowances a day (decision 0026, "Plans"), for `context(…, FREE_OWNER)`. */
-export const FREE_OWNER = {
-  ownerRead: 500_000,
-  ownerWritten: 5_000,
-  cleanup: 10_000,
-  exported: 200_000,
-  liveBytes: 20_000_000,
-} as const;
 
 /** Generous limits for tests that are about something else than limits. */
 export const ROOMY: DataLimits = {
@@ -43,7 +35,8 @@ export const ROOMY: DataLimits = {
   readsPerCallerPerMinute: 100_000,
   rowsReadPerDay: 1_000_000_000,
   rowsWrittenPerDay: 100_000_000,
-  liveBytesPerDay: 1_000_000_000,
+  liveMessagesPerDay: 10_000_000,
+  rightsRowsPerDay: 100_000_000,
   cleanupRowsPerDay: 100_000_000,
   exportRowsPerDay: 100_000_000,
 };
@@ -79,32 +72,9 @@ export function op(envelope: Envelope): Envelope {
 
 export function context(
   caller: Caller,
-  options: {
-    limits?: DataLimits;
-    now?: number;
-    owner?: string;
-    ownerRead?: number;
-    ownerWritten?: number;
-    cleanup?: number;
-    exported?: number;
-    liveBytes?: number;
-  } = {},
+  options: { limits?: DataLimits; now?: number } = {},
 ): CallContext {
-  return {
-    caller,
-    limits: options.limits ?? ROOMY,
-    now: options.now ?? NOW,
-    owner: {
-      id: options.owner ?? `owner_${crypto.randomUUID()}`,
-      allowances: {
-        documents_read: options.ownerRead ?? 1_000_000_000,
-        documents_written: options.ownerWritten ?? 100_000_000,
-        cleanup: options.cleanup ?? 100_000_000,
-        export: options.exported ?? 1_000_000_000,
-        live_bytes: options.liveBytes ?? 1_000_000_000,
-      },
-    },
-  };
+  return { caller, limits: options.limits ?? ROOMY, now: options.now ?? NOW };
 }
 
 export const OWNER: Caller = { kind: "owner" };

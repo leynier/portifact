@@ -46,14 +46,16 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     const kept = ok(await docs.create(op(envelope), owner, "items", { n: 1 }));
-    expect(ok(await docs.prepareErase(envelope))).toEqual({ prepared: true });
+    expect(ok(await docs.prepareErase(envelope, "erase_1"))).toEqual({ prepared: true });
     const held = { ...envelope, epoch: 1 };
     expect(ok(await docs.fence(held, { state: "held", transition: "t_hold" }))).toMatchObject({
       epoch: 1,
       held: true,
     });
-    expect(await docs.commitErase(envelope)).toMatchObject({ ok: false, error: "stale" });
-    expect(await docs.commitErase(held)).toMatchObject({ ok: false, error: "held" });
+    // The hold ended that erase intent: its commit answers that it did not erase, now and later.
+    expect(ok(await docs.commitErase(envelope, "erase_1"))).toEqual({ erased: false });
+    expect(ok(await docs.commitErase(held, "erase_1"))).toEqual({ erased: false });
+    expect(await docs.prepareErase(held, "erase_2")).toMatchObject({ ok: false, error: "held" });
     expect(await docs.get(held, owner, "items", kept._id)).toMatchObject({
       ok: false,
       error: "held",
@@ -67,10 +69,11 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     ok(await docs.create(op(envelope), owner, "items", { n: 1 }));
-    ok(await docs.prepareErase(envelope));
-    expect(ok(await docs.commitErase(envelope))).toEqual({ erased: true });
-    expect(ok(await docs.prepareErase(envelope))).toEqual({ prepared: false });
-    expect(ok(await docs.commitErase(envelope))).toEqual({ erased: false });
+    ok(await docs.prepareErase(envelope, "erase_1"));
+    expect(ok(await docs.commitErase(envelope, "erase_1"))).toEqual({ erased: true });
+    expect(ok(await docs.prepareErase(envelope, "erase_1"))).toEqual({ prepared: false });
+    // A retried commit answers the intent's terminal result.
+    expect(ok(await docs.commitErase(envelope, "erase_1"))).toEqual({ erased: true });
     const next = { ...envelope, generation: 1 };
     expect((await docs.controlRecord())?.generation).toBe(1);
     expect(await docs.query(next, owner, { collection: "items" })).toMatchObject({
@@ -87,12 +90,12 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
   it("refuses commands while an erase is prepared, and lets a cancel reopen", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
-    ok(await docs.prepareErase(envelope));
+    ok(await docs.prepareErase(envelope, "erase_1"));
     expect(await docs.create(op(envelope), owner, "items", { n: 1 })).toMatchObject({
       ok: false,
       error: "stale",
     });
-    expect(await docs.cancelErase(envelope)).toBe(true);
+    expect(await docs.cancelErase(envelope, "erase_1")).toBe(true);
     ok(await docs.create(op(envelope), owner, "items", { n: 1 }));
   });
 
@@ -100,7 +103,7 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
     const base = { artifactId: "a", region: "eu", ownerId: "o", generation: 2, epoch: 5 };
     const stored: Control = newControl(base, NOW);
     const request = { kind: "request", create: false } as const;
-    expect(admit(null, base, request)).toEqual({ ok: true, adopt: true, empty: true });
+    expect(admit(null, base, request)).toEqual({ ok: true, empty: true });
     expect(admit(stored, { ...base, region: "default" }, request)).toMatchObject({
       error: "forbidden",
     });
@@ -119,7 +122,6 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
     expect(admit(stored, { ...base, epoch: 4 }, request)).toMatchObject({ error: "stale" });
     expect(admit(stored, { ...base, epoch: 6 }, request)).toEqual({
       ok: true,
-      adopt: true,
       empty: false,
     });
     const held = { ...stored, hold: { transition: "t", epoch: 5 } };
@@ -127,15 +129,14 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
     expect(admit(held, base, { kind: "erase" })).toMatchObject({ error: "held" });
     expect(admit(held, base, { kind: "operator" })).toEqual({
       ok: true,
-      adopt: false,
       empty: false,
     });
     const quarantined = { ...stored, quarantine: { reason: "owner" as const, at: NOW } };
     expect(admit(quarantined, base, request)).toMatchObject({ error: "quarantined" });
     expect(admit(quarantined, base, { kind: "operator" })).toMatchObject({ ok: true });
-    expect(admit({ ...stored, erasing: { generation: 2, epoch: 5 } }, base, request)).toMatchObject(
-      { error: "stale" },
-    );
+    expect(
+      admit({ ...stored, erasing: { id: "e", generation: 2, epoch: 5 } }, base, request),
+    ).toMatchObject({ error: "stale" });
     expect(
       applyFence(
         stored,
@@ -204,7 +205,7 @@ describe("restore reconciliation", () => {
     expect(
       reconcile(
         { ownerId: "new", generation: 0, epoch: 2, held: false },
-        { ...object, erasing: { generation: 1, epoch: 5 } },
+        { ...object, erasing: { id: "e", generation: 1, epoch: 5 } },
       ),
     ).toEqual({ action: "resume_erase", generation: 1, epoch: 5 });
     expect(
@@ -307,8 +308,8 @@ describe("replay records, obligations and author erasure", () => {
       await docs.create({ ...envelope, opId: "op_never" }, owner, "items", { n: 1 }),
     ).toMatchObject({ ok: false, error: "conflict" });
     // Obligations survive a whole erase.
-    ok(await docs.prepareErase(envelope));
-    ok(await docs.commitErase(envelope));
+    ok(await docs.prepareErase(envelope, "erase_1"));
+    ok(await docs.commitErase(envelope, "erase_1"));
     expect(
       await docs.auditFor(operationKey("owner:owner", 0, declared.opId as string)),
     ).not.toBeNull();
@@ -346,15 +347,24 @@ describe("replay records, obligations and author erasure", () => {
 });
 
 describe("storage reports", () => {
-  it("raise their sequence on every change and on refused work, and come with failures", async () => {
+  it("raise their sequence on every durable write, a failed one included, and not on a refusal that wrote nothing", async () => {
     const { envelope, docs } = artifact();
-    ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
-    const first = await docs.create(op(envelope), owner, "items", { n: 1 });
-    const refused = await docs.create(op(envelope), context(visitor("v_a")), "items", { n: 1 });
-    const second = await docs.create(op(envelope), owner, "items", { n: 2 });
+    ok(
+      await docs.declareCollection(op(envelope), owner, {
+        name: "items",
+        mode: "read",
+        uniqueKey: "k",
+      }),
+    );
+    const first = await docs.create(op(envelope), owner, "items", { k: 1 });
+    const refused = await docs.create(op(envelope), context(visitor("v_a")), "items", { k: 2 });
     expect(refused.ok).toBe(false);
-    expect(refused.storage.seq).toBeGreaterThan(first.storage.seq);
-    expect(second.storage.seq).toBeGreaterThan(refused.storage.seq);
+    expect(refused.storage.seq).toBe(first.storage.seq);
+    const failed = await docs.create(op(envelope), owner, "items", { k: 1 });
+    expect(failed).toMatchObject({ ok: false, error: "conflict" });
+    expect(failed.storage.seq).toBeGreaterThan(refused.storage.seq);
+    const second = await docs.create(op(envelope), owner, "items", { k: 2 });
+    expect(second.storage.seq).toBeGreaterThan(failed.storage.seq);
   });
 });
 

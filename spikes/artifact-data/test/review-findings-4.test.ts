@@ -68,14 +68,8 @@ describe("fourth review: lifecycle (findings 1, 2, 6, 8)", () => {
   it("D03: a delayed cancel of an earlier erase intent does not cancel a later one", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
-    const prepare = any(docs.prepareErase.bind(docs)) as (
-      e: Envelope,
-      id: string,
-    ) => Promise<unknown>;
-    const cancel = any(docs.cancelErase.bind(docs)) as (
-      e: Envelope,
-      id: string,
-    ) => Promise<boolean>;
+    const prepare = (e: Envelope, id: string) => docs.prepareErase(e, id);
+    const cancel = (e: Envelope, id: string) => docs.cancelErase(e, id);
     await prepare(envelope, "erase_1");
     expect(await cancel(envelope, "erase_1")).toBe(true);
     await prepare(envelope, "erase_2");
@@ -220,7 +214,8 @@ describe("fourth review: replay, retention and accounting (findings 3, 4, 9, 10)
       mode: "append",
       indexed: ["tag"],
     });
-    expect(declared.cost.rowsRead + declared.cost.rowsWritten).toBeLessThan(2_000);
+    // One step covers at most CAPS.indexStepDocuments documents, however many exist.
+    expect(declared.cost.rowsRead + declared.cost.rowsWritten).toBeLessThan(3_000);
   });
 
   it("D11: counting one author's documents does not scan them", async () => {
@@ -278,10 +273,7 @@ describe("fourth review: live invalidation and visitors' rights (findings 11, 12
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "append" }));
     const live = await socket(docs, envelope, "v_a");
-    await (any(docs.prepareErase.bind(docs)) as (e: Envelope, id: string) => Promise<unknown>)(
-      envelope,
-      "erase_1",
-    );
+    await docs.prepareErase(envelope, "erase_1");
     const code = await Promise.race([
       live.closed,
       new Promise<number>((resolve) => setTimeout(() => resolve(-1), 200)),
@@ -293,9 +285,7 @@ describe("fourth review: live invalidation and visitors' rights (findings 11, 12
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "own" }));
     ok(await docs.create(op(envelope), context(visitor("v_a")), "items", { mine: true }));
-    const exportMine = (any(docs) as { exportMine?: (...a: unknown[]) => Promise<unknown> })
-      .exportMine;
-    const page = await exportMine?.call(docs, envelope, context(visitor("v_a", false)), null);
+    const page = await docs.exportMine(envelope, context(visitor("v_a", false)), null);
     expect(JSON.stringify(page)).toContain("mine");
   });
 

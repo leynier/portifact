@@ -50,21 +50,25 @@ describe("documents: replays, scopes and housekeeping", () => {
       error: "forbidden",
     });
     // A newer epoch on an ordinary request is adopted.
+    // A newer epoch is admitted but never adopted (fourth review, finding 2): a fence at that
+    // epoch can still apply, and the older envelope stays valid until it does.
     ok(await docs.create(op({ ...envelope, epoch: 3 }), owner, "items", { tag: "y" }));
-    expect(await docs.create(op(envelope), owner, "items", { tag: "z" })).toMatchObject({
-      ok: false,
-      error: "stale",
-    });
+    ok(await docs.create(op(envelope), owner, "items", { tag: "z" }));
     // An erase drops the declared field indexes with the payload.
     const later = { ...envelope, epoch: 3 };
-    ok(await docs.prepareErase(later));
-    expect(ok(await docs.commitErase(later))).toEqual({ erased: true });
+    ok(await docs.prepareErase(later, "erase_1"));
+    expect(ok(await docs.commitErase(later, "erase_1"))).toEqual({ erased: true });
   });
 
   it("refuses cleanup past its own daily allowance", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     const tight = context(OWNER, { limits: { ...ROOMY, cleanupRowsPerDay: 1 } });
+    // The first attempt runs and its failure is charged; the spent allowance refuses the next.
+    expect(await docs.remove(op(envelope), tight, "items", "x")).toMatchObject({
+      ok: false,
+      error: "not_found",
+    });
     expect(await docs.remove(op(envelope), tight, "items", "x")).toMatchObject({
       ok: false,
       error: "rate_limited",
@@ -79,7 +83,7 @@ describe("documents: replays, scopes and housekeeping", () => {
     expect(await docs.settle(envelope, "owner:owner", "op_empty")).toEqual({ state: "aborted" });
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     expect(await docs.quarantine({ ...envelope, artifactId: "other" }, "owner")).toBe(false);
-    expect(await docs.cancelErase(envelope)).toBe(false);
+    expect(await docs.cancelErase(envelope, "erase_1")).toBe(false);
   });
 
   it("caps connections per author and closes a connection whose renewal shortened its deadline", async () => {

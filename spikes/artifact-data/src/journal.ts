@@ -2,9 +2,15 @@
 // the artifact's region's bucket, claimed before the first grant's code is issued. A D1 restore
 // does not rewind it. Two first grants racing for the same person and artifact create one
 // identity: the write is conditional on the object not existing, and the loser reads the
-// winner's ID. Erasure never deletes the entry: it retires it, and a retired entry refuses every
-// later claim, so a grant authorized before the deletion and resumed after it cannot revive the
-// person under a fresh ID (finding 8). Account IDs are never reused, so the tombstone is kept.
+// winner's ID.
+//
+// The one retention rule: the account deletion job retires the entry first, before any erasure
+// chunk runs; a retired entry refuses every claim; it is deleted RETIRED_KEEP_MS after
+// retirement, which is longer than any grant or code issued before the deletion can live (30
+// days and 60 seconds). After that the account no longer exists in D1 and its ID is never
+// reused, so no issuance can name it again.
+
+export const RETIRED_KEEP_MS = 31 * 86_400_000;
 
 export interface JournalEntry {
   visitorId: string;
@@ -43,7 +49,7 @@ export async function claimVisitorId(
   return stored.visitorId;
 }
 
-/** Retires the entry after the author's erasure finished; the visitor ID is kept for evidence. */
+/** Retires the entry, first thing in the account deletion job, before any erasure chunk. */
 export async function retireVisitorId(
   bucket: R2Bucket,
   userId: string,
@@ -57,4 +63,20 @@ export async function retireVisitorId(
       ? { visitorId: "", firstGrantAt: now }
       : ((await existing.json()) as JournalEntry);
   await bucket.put(key, JSON.stringify({ ...stored, retiredAt: now }));
+}
+
+/** Deletes a retired entry once its retention has passed; anything else is kept. */
+export async function pruneRetired(
+  bucket: R2Bucket,
+  userId: string,
+  artifactId: string,
+  now: number,
+): Promise<boolean> {
+  const key = journalKey(userId, artifactId);
+  const existing = await bucket.get(key);
+  if (existing === null) return false;
+  const stored = (await existing.json()) as JournalEntry;
+  if (stored.retiredAt === undefined || now - stored.retiredAt < RETIRED_KEEP_MS) return false;
+  await bucket.delete(key);
+  return true;
 }

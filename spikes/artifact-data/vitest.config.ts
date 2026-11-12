@@ -41,7 +41,7 @@ export default defineConfig({
   ],
   test: {
     name: PROJECT,
-    // The spike measures: an expensive owner statement runs for a second or more on purpose.
+    // Seeding thousands of documents for the bound tests takes a few seconds in workerd.
     testTimeout: 60_000,
     hookTimeout: 60_000,
     include: ["test/**/*.test.ts"],

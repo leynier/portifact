@@ -40,8 +40,10 @@ export interface Control {
   hold: { transition: string; epoch: number } | null;
   /** Set only by reconciliation after a restore; cleared only by the operator. */
   quarantine: { reason: "owner" | "hold"; at: number } | null;
-  /** A whole-data erase prepared and not yet committed or cancelled, with its target. */
-  erasing: { generation: number; epoch: number } | null;
+  /** A whole-data erase prepared and not yet committed or cancelled: its ID and target. */
+  erasing: { id: string; generation: number; epoch: number } | null;
+  /** The last erase intent that ended, so a retried step answers what happened to it. */
+  lastErase: { id: string; outcome: "committed" | "cancelled" } | null;
   last: Transition;
   /** Raised by every transaction that may change storage, maintenance and refusals included. */
   storageSeq: number;
@@ -60,7 +62,7 @@ export type Mode =
   | { kind: "maintenance" };
 
 export type Verdict =
-  | { ok: true; adopt: boolean; empty: boolean }
+  | { ok: true; empty: boolean }
   | { ok: true; done: true }
   | { ok: false; error: "forbidden" | "stale" | "held" | "quarantined"; message: string };
 
@@ -73,15 +75,16 @@ const FORBIDDEN = {
 /**
  * The one rule. A different artifact or region is refused for every mode. Maintenance needs
  * only that. A quarantine refuses all but the operator. A different owner is stale (ownership
- * changes only by a fence). An older epoch is stale and a newer one is adopted. A different
+ * changes only by a fence). An older epoch is stale; a newer one is admitted but never adopted,
+ * so a request can never consume the epoch a pending fence needs (fourth review, finding 2). A different
  * generation is stale, except that an erase step for an older one is done. A hold refuses all
  * but the operator. A pending erase refuses requests.
  */
 export function admit(stored: Control | null, envelope: Envelope, mode: Mode): Verdict {
-  if (stored === null) return { ok: true, adopt: true, empty: true };
+  if (stored === null) return { ok: true, empty: true };
   if (stored.artifactId !== envelope.artifactId || stored.region !== envelope.region)
     return FORBIDDEN;
-  if (mode.kind === "maintenance") return { ok: true, adopt: false, empty: false };
+  if (mode.kind === "maintenance") return { ok: true, empty: false };
   if (stored.quarantine !== null && mode.kind !== "operator") {
     return { ok: false, error: "quarantined", message: "This artifact's data is unavailable." };
   }
@@ -102,7 +105,7 @@ export function admit(stored: Control | null, envelope: Envelope, mode: Mode): V
   if (stored.erasing !== null && mode.kind === "request") {
     return { ok: false, error: "stale", message: "the data is being erased" };
   }
-  return { ok: true, adopt: envelope.epoch > stored.epoch, empty: false };
+  return { ok: true, empty: false };
 }
 
 export function newControl(envelope: Envelope, now: number): Control {
@@ -116,6 +119,7 @@ export function newControl(envelope: Envelope, now: number): Control {
     hold: null,
     quarantine: null,
     erasing: null,
+    lastErase: null,
     last: {
       id: "created",
       kind: "created",
@@ -138,7 +142,13 @@ export interface FenceChange {
 
 export type FenceResult =
   | { ok: true; control: Control; repeated: boolean }
-  | { ok: false; error: "forbidden" | "stale"; message: string };
+  | { ok: false; error: "forbidden" | "stale" | "conflict"; message: string };
+
+function kindOf(base: Control, change: FenceChange): Transition["kind"] {
+  const nextOwner = change.toOwner ?? base.ownerId;
+  if (nextOwner !== base.ownerId) return "transfer";
+  return change.state === "held" ? "hold" : "release";
+}
 
 /**
  * Applies a fence. It must name the object's artifact, region, generation and current owner,
@@ -158,6 +168,20 @@ export function applyFence(
     return { ok: false, error: "stale", message: "the fence names another generation" };
   }
   if (stored !== null && base.last.id === change.transition) {
+    // A repeat must be the same transition, not another one under its ID.
+    const last = base.last;
+    const same =
+      last.epoch === envelope.epoch &&
+      (last.kind === "transfer"
+        ? change.toOwner === last.toOwner
+        : (change.toOwner ?? last.toOwner) === last.toOwner &&
+          last.kind === (change.state === "held" ? "hold" : "release"));
+    if (!same)
+      return {
+        ok: false,
+        error: "conflict",
+        message: "this transition ID was used for another change",
+      };
     return { ok: true, control: stored, repeated: true };
   }
   if (base.ownerId !== envelope.ownerId) {
@@ -167,8 +191,8 @@ export function applyFence(
     return { ok: false, error: "stale", message: "a fence needs a newer epoch" };
   }
   const nextOwner = change.toOwner ?? base.ownerId;
-  const transfer = nextOwner !== base.ownerId;
-  const kind = transfer ? "transfer" : change.state === "held" ? "hold" : "release";
+  const kind = kindOf(base, change);
+  const transfer = kind === "transfer";
   return {
     ok: true,
     repeated: false,
@@ -182,6 +206,10 @@ export function applyFence(
       // A hold or a transfer cancels a prepared erase: the erase job must start again under
       // the new state, so it never commits against data it no longer may touch.
       erasing: change.state === "held" || transfer ? null : base.erasing,
+      lastErase:
+        (change.state === "held" || transfer) && base.erasing !== null
+          ? { id: base.erasing.id, outcome: "cancelled" }
+          : base.lastErase,
       last: {
         id: change.transition,
         kind,

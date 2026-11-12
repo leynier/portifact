@@ -1,7 +1,9 @@
 // The third review's reproductions that apply to the documents core (pull request #249 at
 // 236a42f7, rebased as c5b84930). Each states the behavior the design must have; against that
-// commit they fail, which is the reproduction. Fault schedules hold the ledger's lease with a
-// latch, so a hold, a transfer or a duplicate lands exactly during that await.
+// commit they fail, which is the reproduction. Finding 1's schedules held the owner ledger's
+// lease await; the ledger and every await on a command's path are gone (decision 45), so they
+// are closed by removal, and `invariants.test.ts` shows commands are synchronous and that a
+// concurrent hold or duplicate is ordered wholly before or after each write.
 import { env, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import * as journal from "../src/journal.ts";
@@ -9,100 +11,11 @@ import { artifact, context, NOW, OWNER, ok, op, ROOMY, visitor } from "./harness
 
 const any = (value: unknown) => value as never;
 
-/** A fresh owner whose small allowances make every call ask the ledger for a lease. */
-function coldOwner() {
-  const id = `owner_${crypto.randomUUID()}`;
-  return { id, options: { owner: id, ownerWritten: 400, ownerRead: 2_000 } };
-}
-
-async function latched(ownerId: string, run: () => Promise<unknown>, during: () => Promise<void>) {
-  const ledger = env.LEDGER.get(env.LEDGER.idFromName(ownerId));
-  await ledger.arm();
-  const pending = run();
-  for (let tries = 0; !(await ledger.waiting()); tries++) {
-    if (tries > 500) throw new Error("the call never reached the ledger");
-    await new Promise((resolve) => setTimeout(resolve, 2));
-  }
-  await during();
-  await ledger.release();
-  return pending;
-}
-
-describe("third review: fault schedules at the lease await (finding 1)", () => {
-  it("refuses a create when a hold lands during its lease", async () => {
-    const { envelope, docs } = artifact();
-    const cold = coldOwner();
-    ok(
-      await docs.declareCollection(op(envelope), context(OWNER, cold.options), {
-        name: "items",
-        mode: "append",
-      }),
-    );
-    const outcome = (await latched(
-      cold.id,
-      () => docs.create(op(envelope), context(visitor("v_a"), cold.options), "items", { n: 1 }),
-      async () => {
-        ok(
-          await docs.fence({ ...envelope, epoch: 1 }, any({ state: "held", transition: "t_hold" })),
-        );
-      },
-    )) as { ok: boolean };
-    expect(outcome.ok).toBe(false);
-  });
-
-  it("refuses a read by the former owner when a transfer lands during its lease", async () => {
-    const { envelope, docs } = artifact("owner_from");
-    const cold = coldOwner();
-    ok(
-      await docs.declareCollection(op(envelope), context(OWNER, cold.options), {
-        name: "items",
-        mode: "read",
-      }),
-    );
-    ok(await docs.create(op(envelope), context(OWNER, cold.options), "items", { secret: "kept" }));
-    const outcome = (await latched(
-      cold.id,
-      () => docs.query(envelope, context(OWNER, cold.options), { collection: "items" }),
-      async () => {
-        ok(
-          await docs.fence(
-            { ...envelope, epoch: 1 },
-            any({ state: "open", toOwner: "owner_to", transition: "t_move" }),
-          ),
-        );
-      },
-    )) as { ok: boolean };
-    expect(JSON.stringify(outcome)).not.toContain("kept");
-  });
-
-  it("applies a duplicate delivered during the first call's lease once", async () => {
-    const { envelope, docs } = artifact();
-    const cold = coldOwner();
-    ok(
-      await docs.declareCollection(op(envelope), context(OWNER, cold.options), {
-        name: "items",
-        mode: "append",
-      }),
-    );
-    const once = op(envelope);
-    await latched(
-      cold.id,
-      () => docs.create(once, context(visitor("v_a"), cold.options), "items", { n: 1 }),
-      async () => {
-        // The same operation, delivered again while the first waits, through another ledger.
-        await docs.create(once, context(visitor("v_a")), "items", { n: 1 });
-      },
-    );
-    const page = ok(await docs.query(envelope, context(OWNER), { collection: "items" }));
-    expect(page.documents).toHaveLength(1);
-  });
-});
-
 describe("third review: empty objects, generations and maintenance (finding 6)", () => {
   it("leaves a generation barrier when an empty object is erased", async () => {
     const { envelope, docs } = artifact();
-    await docs.prepareErase(envelope);
-    await docs.commitErase(envelope);
+    await docs.prepareErase(envelope, "erase_1");
+    await docs.commitErase(envelope, "erase_1");
     expect(
       (await docs.declareCollection(op(envelope), context(OWNER), { name: "items", mode: "own" }))
         .ok,
@@ -112,8 +25,8 @@ describe("third review: empty objects, generations and maintenance (finding 6)",
   it("refuses a fence for an older generation", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), context(OWNER), { name: "items", mode: "own" }));
-    ok(await docs.prepareErase(envelope));
-    ok(await docs.commitErase(envelope));
+    ok(await docs.prepareErase(envelope, "erase_1"));
+    ok(await docs.commitErase(envelope, "erase_1"));
     expect(
       (await docs.fence({ ...envelope, epoch: 1 }, any({ state: "held", transition: "t_old" }))).ok,
     ).toBe(false);
@@ -250,8 +163,7 @@ describe("third review: accounting (findings 9, 15, 16)", () => {
     );
     await docs.seedForMeasure(envelope, "items", 2_000, NOW);
     const tight = context(OWNER, {
-      limits: { ...ROOMY, rowsWrittenPerDay: 100 },
-      ownerWritten: 100,
+      limits: { ...ROOMY, rowsWrittenPerDay: 1 },
     });
     expect(
       (
@@ -264,12 +176,11 @@ describe("third review: accounting (findings 9, 15, 16)", () => {
     ).toBe(false);
   });
 
-  it("charges the owner's live bytes for acknowledgements too", async () => {
+  it("charges live messages for acknowledgements too", async () => {
     const { envelope, docs } = artifact();
     ok(
       await docs.declareCollection(op(envelope), context(OWNER), { name: "items", mode: "append" }),
     );
-    const ownerId = `owner_${crypto.randomUUID()}`;
     const response = await docs.fetch("https://data.internal/live", {
       headers: {
         Upgrade: "websocket",
@@ -278,12 +189,8 @@ describe("third review: accounting (findings 9, 15, 16)", () => {
           author: "v_a",
           principal: "grant:v_a",
           deadline: Date.now() + 60_000,
-          limits: ROOMY,
+          limits: { ...ROOMY, liveMessagesPerDay: 0 },
           now: Date.now(),
-          owner: {
-            id: ownerId,
-            allowances: { documents_read: 1e9, documents_written: 1e9, live_bytes: 0 },
-          },
         }),
       },
     });
@@ -330,7 +237,7 @@ describe("third review: audit, export and pruning (findings 11, 12, 14)", () => 
     ok(
       await docs.declareCollection(op(envelope), context(OWNER), { name: "items", mode: "append" }),
     );
-    const shared = { ...envelope, opId: "op_same" };
+    const shared = { ...envelope, opId: `${NOW}.same` };
     ok(await docs.create(shared, context({ kind: "owner", actor: "alice" }), "items", { n: 1 }));
     ok(
       await docs.declareCollection(shared, context({ kind: "owner", actor: "bob" }), {
@@ -338,7 +245,7 @@ describe("third review: audit, export and pruning (findings 11, 12, 14)", () => 
         mode: "own",
       }),
     );
-    const settled = await docs.settle(envelope, "owner:bob", "op_same");
+    const settled = await docs.settle(envelope, "owner:bob", `${NOW}.same`);
     expect(settled).toMatchObject({ kind: "data.collection_set" });
   });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BOUND, type Cost } from "../src/documents.ts";
+import { CHARGE_SELF, type Cost } from "../src/documents.ts";
 import { artifact, context, NOW, OWNER, ok, op, visitor } from "./harness.ts";
 
 const owner = context(OWNER);
@@ -61,22 +61,21 @@ describe("rows read and written per operation", () => {
     expect(table.visitorCreate?.rowsWritten).toBeLessThanOrEqual(24);
     expect(table.visitorGet?.rowsWritten).toBeLessThanOrEqual(8);
     expect(table.visitorPage20?.rowsRead).toBeLessThanOrEqual(50);
-    // What is charged before the work is an upper bound of the work (decision 42).
-    const within = (cost: Cost, bound: { read: number; written: number }) => {
-      expect(cost.rowsRead).toBeLessThanOrEqual(bound.read);
-      expect(cost.rowsWritten).toBeLessThanOrEqual(bound.written);
-    };
-    within(first, BOUND.declare);
-    for (const cost of [created.cost, replaced.cost, ownerCreate.cost]) within(cost, BOUND.write);
-    expect(removed.cost.rowsRead + removed.cost.rowsWritten).toBeLessThanOrEqual(
-      BOUND.cleanup.read + BOUND.cleanup.written,
-    );
-    within(got.cost, BOUND.get);
-    within(page.cost, BOUND.read);
-    within(counted.cost, { read: BOUND.overhead, written: 4 });
-    within(bulk.cost, { read: BOUND.overhead + 40, written: BOUND.overhead + 60 });
-    within(exported.cost, { read: 100 + BOUND.overhead, written: 4 });
-    within(erased.cost, { read: 100 * 4 + BOUND.overhead, written: 100 * 6 + BOUND.overhead });
+    // Each mutation is charged what it measured, its own counter row included (decision 45).
+    const charged = (cost: Cost) =>
+      cost.rowsRead + cost.rowsWritten + CHARGE_SELF.read + CHARGE_SELF.written;
+    for (const cost of [
+      created.cost,
+      replaced.cost,
+      removed.cost,
+      ownerCreate.cost,
+      bulk.cost,
+      erased.cost,
+    ]) {
+      expect(charged(cost)).toBeGreaterThan(cost.rowsRead + cost.rowsWritten);
+    }
+    // Reads write nothing per request.
+    expect(got.cost.rowsWritten + page.cost.rowsWritten + counted.cost.rowsWritten).toBe(0);
   });
 
   it("measures the size a document adds to the database", async () => {

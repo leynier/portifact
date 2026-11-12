@@ -36,14 +36,15 @@ describe("review findings", () => {
   it("4: retrying an earlier erase never deletes data created after it", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
-    ok(await docs.prepareErase(envelope));
-    expect(ok(await docs.commitErase(envelope))).toEqual({ erased: true });
+    ok(await docs.prepareErase(envelope, "erase_1"));
+    expect(ok(await docs.commitErase(envelope, "erase_1"))).toEqual({ erased: true });
     const next = { ...envelope, generation: 1 };
     ok(await docs.declareCollection(op(next), owner, { name: "items", mode: "read" }));
     const kept = ok(await docs.create(op(next), owner, "items", { n: 1 }));
     // The first erase's retry carries generation 0.
-    expect(ok(await docs.prepareErase(envelope))).toEqual({ prepared: false });
-    expect(ok(await docs.commitErase(envelope))).toEqual({ erased: false });
+    expect(ok(await docs.prepareErase(envelope, "erase_1"))).toEqual({ prepared: false });
+    // The retry answers the intent's terminal result and deletes nothing more.
+    expect(ok(await docs.commitErase(envelope, "erase_1"))).toEqual({ erased: true });
     expect((await docs.get(next, owner, "items", kept._id)).ok).toBe(true);
   });
 
@@ -155,6 +156,9 @@ describe("review findings", () => {
       error: "forbidden",
     });
     expect(await docs.renew(wrong, "socket", "grant:x", NOW)).toBe(false);
-    expect(await docs.prepareErase(wrong)).toMatchObject({ ok: false, error: "forbidden" });
+    expect(await docs.prepareErase(wrong, "erase_1")).toMatchObject({
+      ok: false,
+      error: "forbidden",
+    });
   });
 });

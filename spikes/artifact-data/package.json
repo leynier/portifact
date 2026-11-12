@@ -2,7 +2,7 @@
   "name": "@portifact/spike-artifact-data",
   "version": "0.0.0",
   "private": true,
-  "description": "Spike for decision 0026: one SQLite-backed Durable Object per artifact, reached from two Workers, with the document API, owner SQL, bounds and live updates, in workerd only. Never deployed.",
+  "description": "Spike for decision 0026: one SQLite-backed Durable Object per artifact, reached from two Workers, with the document API only, per-artifact counters, lifecycle fences and live updates, in workerd only. Never deployed.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {

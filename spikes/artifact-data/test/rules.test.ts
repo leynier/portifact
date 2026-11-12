@@ -34,3 +34,16 @@ describe("the document rules", () => {
     expect(() => uniqueValue({ k: [1] }, "k")).toThrow();
   });
 });
+
+describe("the synchronous SHA-256", () => {
+  it("matches crypto.subtle for empty, short, multi-block and non-ASCII input", async () => {
+    const { sha256Hex } = await import("../src/hash.ts");
+    for (const text of ["", "abc", "x".repeat(55), "y".repeat(56), "z".repeat(1_000), "é€😀"]) {
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+      const expected = [...new Uint8Array(digest)]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      expect(sha256Hex(text)).toBe(expected);
+    }
+  });
+});

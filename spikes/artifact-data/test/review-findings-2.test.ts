@@ -17,7 +17,7 @@ describe("second review findings, reproduced", () => {
   it("1: an operation ID is the actor's own: another writer's reuse never returns the first body", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "own" }));
-    const shared = { ...envelope, opId: "op_reused" };
+    const shared = { ...envelope, opId: `${NOW}.reused` };
     ok(await docs.create(shared, context(visitor("v_alice")), "items", { secret: "alice" }));
     const bob = await docs.create(shared, context(visitor("v_bob")), "items", { secret: "bob" });
     expect(JSON.stringify(bob)).not.toContain("alice");
@@ -45,29 +45,29 @@ describe("second review findings, reproduced", () => {
   it("2: commit and cancel use the whole envelope", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
-    ok(await docs.prepareErase(envelope));
-    expect(await docs.cancelErase({ ...envelope, artifactId: "other" })).toBe(false);
-    expect(await docs.commitErase({ ...envelope, region: "eu" })).toMatchObject({
+    ok(await docs.prepareErase(envelope, "erase_1"));
+    expect(await docs.cancelErase({ ...envelope, artifactId: "other" }, "erase_1")).toBe(false);
+    expect(await docs.commitErase({ ...envelope, region: "eu" }, "erase_1")).toMatchObject({
       ok: false,
       error: "forbidden",
     });
-    expect(await docs.cancelErase({ ...envelope, epoch: -1 })).toBe(false);
+    expect(await docs.cancelErase({ ...envelope, epoch: -1 }, "erase_1")).toBe(false);
   });
 
   it("3: prepare adopts the epoch it accepts, so commit can finish", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     const later = { ...envelope, epoch: 1 };
-    ok(await docs.prepareErase(later));
-    expect(ok(await docs.commitErase(later))).toEqual({ erased: true });
+    ok(await docs.prepareErase(later, "erase_1"));
+    expect(ok(await docs.commitErase(later, "erase_1"))).toEqual({ erased: true });
   });
 
   it("3: erasing keeps the control records (budgets, obligations)", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     ok(await docs.create(op(envelope), owner, "items", { n: 1 }));
-    ok(await docs.prepareErase(envelope));
-    ok(await docs.commitErase(envelope));
+    ok(await docs.prepareErase(envelope, "erase_1"));
+    ok(await docs.commitErase(envelope, "erase_1"));
     expect((await docs.budget(NOW)).rows_written ?? 0).toBeGreaterThan(0);
   });
 
@@ -149,9 +149,18 @@ describe("second review findings, reproduced", () => {
 
   it("13: refused work that grows storage moves the storage report", async () => {
     const { envelope, docs } = artifact();
-    ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
+    // Refused work that did work (here a unique conflict after the insert ran) moves the report;
+    // a refusal before any work writes nothing and leaves it (decision 45).
+    ok(
+      await docs.declareCollection(op(envelope), owner, {
+        name: "items",
+        mode: "read",
+        uniqueKey: "k",
+      }),
+    );
+    ok(await docs.create(op(envelope), owner, "items", { k: 1 }));
     const before = (await docs.size()).seq;
-    const refused = await docs.create(op(envelope), context(visitor("v_a")), "items", { n: 1 });
+    const refused = await docs.create(op(envelope), owner, "items", { k: 1 });
     expect(refused.ok).toBe(false);
     expect(refused.storage.seq).toBeGreaterThan(before);
   });
@@ -163,8 +172,8 @@ describe("second review findings, reproduced", () => {
     ok(await docs.eraseAuthorChunk(erase, "v_a", 10));
     const key = operationKey(ERASURE_ACTOR, 0, erase.opId as string);
     expect(await docs.auditFor(key)).not.toBeNull();
-    ok(await docs.prepareErase(envelope));
-    ok(await docs.commitErase(envelope));
+    ok(await docs.prepareErase(envelope, "erase_1"));
+    ok(await docs.commitErase(envelope, "erase_1"));
     expect(await docs.auditFor(key)).not.toBeNull();
   });
 
@@ -191,7 +200,7 @@ describe("second review findings, reproduced", () => {
   it("16: live bytes are reserved in UTF-8 against the day before sending", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "append" }));
-    const limits = { ...ROOMY, liveBytesPerDay: 1 };
+    const limits = { ...ROOMY, liveMessagesPerDay: 1 };
     const response = await docs.fetch("https://data.internal/live", {
       headers: {
         Upgrade: "websocket",

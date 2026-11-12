@@ -54,7 +54,7 @@ describe("budgets of work, charged before the work and kept when it is refused",
     // The next day opens again.
     ok(
       await docs.create(
-        op(envelope),
+        { ...envelope, opId: `${NOW + 86_400_000}.next` },
         context(visitor("v_x"), { limits, now: NOW + 86_400_000 }),
         "items",
         { n: 1 },
@@ -62,37 +62,38 @@ describe("budgets of work, charged before the work and kept when it is refused",
     );
   });
 
-  it("shares one owner budget across the owner's artifacts through the ledger", async () => {
-    const first = artifact();
-    const second = artifact();
-    const ownerId = "owner_ledger_test";
-    const options = { owner: ownerId, ownerWritten: 400 };
+  it("keeps each artifact's day its own: one artifact spending its rows never stops another", async () => {
+    const first = artifact("owner_shared");
+    const second = artifact("owner_shared");
+    const limits = { ...ROOMY, rowsWrittenPerDay: 400 };
     for (const target of [first, second]) {
       ok(
-        await target.docs.declareCollection(op(target.envelope), context(OWNER, options), {
+        await target.docs.declareCollection(op(target.envelope), context(OWNER, { limits }), {
           name: "items",
           mode: "append",
         }),
       );
     }
-    let accepted = 0;
-    for (let index = 0; index < 40; index++) {
-      const target = index % 2 === 0 ? first : second;
-      const outcome = await target.docs.create(
-        op(target.envelope),
-        context(visitor(`v_${index}`), options),
-        "items",
-        { index },
-      );
-      if (outcome.ok) accepted += 1;
+    let refused = false;
+    for (let index = 0; index < 100 && !refused; index++) {
+      refused = !(
+        await first.docs.create(
+          op(first.envelope),
+          context(visitor(`v_${index}`), { limits }),
+          "items",
+          { index },
+        )
+      ).ok;
     }
-    const ledger = env.LEDGER.get(env.LEDGER.idFromName(ownerId));
-    // The ledger never granted more than the owner's day: what is left is at least zero.
-    const leased =
-      400 - (await ledger.balance("documents_written", Math.floor(NOW / 86_400_000), 400));
-    expect(leased).toBeLessThanOrEqual(400);
-    expect(accepted).toBeLessThan(40);
-    expect(accepted).toBeGreaterThan(0);
+    expect(refused).toBe(true);
+    ok(
+      await second.docs.create(
+        op(second.envelope),
+        context(visitor("v_other"), { limits }),
+        "items",
+        { n: 1 },
+      ),
+    );
   });
 
   it("keeps deletes working when writing and the daily budget are spent", async () => {

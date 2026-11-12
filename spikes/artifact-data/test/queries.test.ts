@@ -81,7 +81,7 @@ describe("bounded query shapes at 100,000 documents", () => {
       ),
     ];
     for (const plan of plans) {
-      expect(plan.join(" ")).toMatch(/^SEARCH pf_documents USING (COVERING )?INDEX/);
+      expect(plan.join(" ")).toMatch(/^SEARCH (d|v) USING (COVERING )?INDEX/);
       expect(plan.join(" ")).not.toMatch(/SCAN|TEMP B-TREE/);
     }
   });

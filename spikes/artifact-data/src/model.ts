@@ -37,12 +37,17 @@ export interface DataLimits {
   connectionsPerArtifact: number;
   connectionsPerAuthor: number;
   connectsPerAuthorPerMinute: number;
-  /** Bytes the live channel may send per UTC day (charged to traffic). */
-  liveBytesPerDay: number;
+  /** Messages the live channel may send per UTC day, reserved in chunks of LIVE.reserveChunk. */
+  liveMessagesPerDay: number;
   /** Rows deletes, shrinking replacements and erasures may touch per day: never the growth budget. */
   cleanupRowsPerDay: number;
   /** Rows exports may read per day: never the growth budget. */
   exportRowsPerDay: number;
+  /**
+   * Rows a visitor's deletion and export of their own documents may use per day, reserved for
+   * them alone, so the owner's or other visitors' use of the shared pools never blocks them.
+   */
+  rightsRowsPerDay: number;
 }
 
 export type DataErrorCode =
@@ -197,65 +202,67 @@ function decodeCursor(cursor: string): [number, string] {
   throw new DataError("invalid_input", "invalid cursor");
 }
 
-/** The index an indexed body field uses; created by the object when the field is declared. */
-export function fieldIndex(field: string): string {
-  return `pf_field_${fieldName(field)}`;
-}
-
 /**
  * The one SELECT a query runs, with its index named (`indexed by`), so SQLite seeks to the
  * matching range and walks it in order: rows read are at most the page plus one, whether the
  * match is dense, sparse or empty. In `own` mode the author is bound from the caller and is the
- * index prefix.
+ * index prefix. An indexed field is queried through `pf_values`, which writes maintain and which
+ * an index build fills in bounded steps; `ready` lists the fields whose build finished.
  */
 export function buildQuery(
   spec: QuerySpec,
   scope: "all" | "own",
   author: string | null,
-  indexed: readonly string[],
+  ready: readonly string[],
 ): { sql: string; params: (string | number)[]; limit: number } {
   const params: (string | number)[] = [collectionName(spec.collection)];
-  const conditions = ["collection = ?"];
-  let index = "pf_documents_created";
+  let from = "pf_documents d indexed by pf_documents_created";
+  let key = "d";
+  const conditions = ["d.collection = ?"];
   if (scope === "own") {
     if (spec.equals !== undefined) {
       throw new DataError("invalid_input", "own collections are filtered only by _created");
     }
-    index = "pf_documents_author";
-    conditions.push("author = ?");
+    from = "pf_documents d indexed by pf_documents_author";
+    conditions.push("d.author = ?");
     params.push(author as string);
   } else if (spec.equals !== undefined) {
     const { field, value } = spec.equals;
     if (field === "_by") {
       if (typeof value !== "string") throw new DataError("invalid_input", "_by is a string");
-      index = "pf_documents_author";
-      conditions.push("author = ?");
+      from = "pf_documents d indexed by pf_documents_author";
+      conditions.push("d.author = ?");
       params.push(value);
-    } else if (indexed.includes(field)) {
-      index = fieldIndex(field);
-      conditions.push(`json_extract(body, '$.${fieldName(field)}') = ?`);
-      params.push(typeof value === "boolean" ? (value ? 1 : 0) : value);
+    } else if (ready.includes(field)) {
+      from =
+        "pf_values v indexed by pf_values_seek join pf_documents d on d.collection = v.collection and d.id = v.id";
+      key = "v";
+      conditions[0] = "v.collection = ?";
+      conditions.push("v.field = ?", "v.value = ?");
+      params.push(fieldName(field), typeof value === "boolean" ? (value ? 1 : 0) : value);
     } else {
-      throw new DataError("invalid_input", "filter only on _by or a declared indexed field");
+      throw new DataError("invalid_input", "filter only on _by or a declared, built indexed field");
     }
   }
   if (spec.created !== undefined) {
     if (!(spec.created.op in RANGE) || !Number.isSafeInteger(spec.created.value)) {
       throw new DataError("invalid_input", "a _created range takes an operator and a time");
     }
-    conditions.push(`created ${RANGE[spec.created.op]} ?`);
+    conditions.push(`${key}.created ${RANGE[spec.created.op]} ?`);
     params.push(spec.created.value);
   }
   const descending = spec.order === "-created";
   if (spec.after !== undefined) {
     const [created, id] = decodeCursor(spec.after);
-    conditions.push(descending ? "(created, id) < (?, ?)" : "(created, id) > (?, ?)");
+    conditions.push(
+      descending ? `(${key}.created, ${key}.id) < (?, ?)` : `(${key}.created, ${key}.id) > (?, ?)`,
+    );
     params.push(created, id);
   }
   const limit = Math.min(Math.max(Math.trunc(spec.limit ?? 20), 1), MAX_PAGE);
   params.push(limit + 1);
   const direction = descending ? "desc" : "asc";
-  const sql = `select id, author, created, updated, seq, editor, body from pf_documents indexed by ${index} where ${conditions.join(" and ")} order by created ${direction}, id ${direction} limit ?`;
+  const sql = `select d.id, d.author, d.created, d.updated, d.seq, d.editor, d.body from ${from} where ${conditions.join(" and ")} order by ${key}.created ${direction}, ${key}.id ${direction} limit ?`;
   return { sql, params, limit };
 }
 

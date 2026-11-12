@@ -5,10 +5,7 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
   "durable_objects": {
-    "bindings": [
-      { "name": "DOCUMENTS", "class_name": "ArtifactDocuments" },
-      { "name": "LEDGER", "class_name": "OwnerLedger" }
-    ]
+    "bindings": [{ "name": "DOCUMENTS", "class_name": "ArtifactDocuments" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArtifactDocuments", "OwnerLedger"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArtifactDocuments"] }]
 }

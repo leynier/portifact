@@ -43,8 +43,8 @@ describe("refusals on an object without data", () => {
       error: "stale",
     });
     const held = { ...envelope, epoch: 1 };
-    expect(await docs.prepareErase(held)).toMatchObject({ ok: false, error: "held" });
-    expect(await docs.cancelErase(held)).toBe(false);
+    expect(await docs.prepareErase(held, "erase_1")).toMatchObject({ ok: false, error: "held" });
+    expect(await docs.cancelErase(held, "erase_1")).toBe(false);
     expect(await docs.auditFor("op")).toBeNull();
     expect(await docs.acknowledge(held, "owner:owner", "op")).toBe(false);
     expect(await docs.exportPage(held, owner, null, 10)).toMatchObject({
@@ -60,7 +60,9 @@ describe("refusals on an object without data", () => {
       bytes: 0,
     });
     // Preparing an erase on an empty object writes its control record: the erase is a barrier.
-    expect(ok(await empty.docs.prepareErase(empty.envelope))).toEqual({ prepared: true });
+    expect(ok(await empty.docs.prepareErase(empty.envelope, "erase_1"))).toEqual({
+      prepared: true,
+    });
     expect((await docs.fetch("https://data.internal/other")).status).toBe(404);
   });
 });
@@ -157,9 +159,9 @@ describe("owner-side and mode refusals", () => {
     ).toMatchObject({ ok: false, error: "rate_limited" });
   });
 
-  it("refuses when the owner's day is spent", async () => {
+  it("refuses when the artifact's day is spent", async () => {
     const { envelope, docs } = artifact();
-    const options = { owner: `owner_spent_${NOW}`, ownerWritten: 70 };
+    const options = { limits: { ...ROOMY, rowsWrittenPerDay: 30 } };
     ok(
       await docs.declareCollection(op(envelope), context(OWNER, options), {
         name: "items",

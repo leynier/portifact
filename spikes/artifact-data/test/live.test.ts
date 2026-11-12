@@ -163,7 +163,7 @@ describe("live updates over hibernatable WebSockets", () => {
       index += 1;
     }
     expect(await slow.closed).toBe(4009);
-    expect((await docs.budget(Date.now())).live_bytes).toBeGreaterThan(200_000);
+    expect((await docs.budget(Date.now())).live_messages).toBeGreaterThan(0);
   });
 
   it("closes every connection on a hold", async () => {
