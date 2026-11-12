@@ -24,6 +24,7 @@ export default defineConfig({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
         serviceBindings: { APP: "portifact-app-spike" },
+        r2Buckets: ["JOURNAL"],
         workers: [
           {
             name: "portifact-app-spike",

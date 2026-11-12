@@ -15,7 +15,7 @@ export type Mode = (typeof MODES)[number];
 export type Caller =
   | { kind: "visitor"; author: string; canWrite: boolean }
   | { kind: "reader" }
-  | { kind: "owner" };
+  | { kind: "owner"; actor?: string };
 
 export const OWNER_AUTHOR = "owner";
 
@@ -39,9 +39,25 @@ export interface DataLimits {
   connectsPerAuthorPerMinute: number;
   /** Bytes the live channel may send per UTC day (charged to traffic). */
   liveBytesPerDay: number;
+  /** Rows deletes, shrinking replacements and erasures may touch per day: never the growth budget. */
+  cleanupRowsPerDay: number;
+  /** Rows exports may read per day: never the growth budget. */
+  exportRowsPerDay: number;
+  /** The sandbox's own size cap (the documents have `bytesPerArtifact`). */
+  sandboxBytes: number;
+  /** Rows the sandbox may read and write per day for this artifact. */
+  sqlRowsReadPerDay: number;
+  sqlRowsWrittenPerDay: number;
+  /**
+   * What one statement can do at most before the platform stops it (measured on staging): the
+   * debt charged for a statement that never reported back.
+   */
+  sqlWorstRowsRead: number;
+  sqlWorstRowsWritten: number;
 }
 
 export type DataErrorCode =
+  | "quarantined"
   | "not_found"
   | "forbidden"
   | "invalid_input"
@@ -90,6 +106,18 @@ export function readScope(mode: Mode, caller: Caller): "all" | "own" | "none" {
   if (caller.kind === "owner") return "all";
   if (mode !== "own") return "all";
   return caller.kind === "visitor" ? "own" : "none";
+}
+
+/**
+ * Who may delete a document: the owner side always; its creator always, with or without write
+ * permission or the current terms (cleanup of one's own data is never gated); in `shared` mode
+ * any writer.
+ */
+export function deleteScope(mode: Mode, caller: Caller): "all" | "own" | "none" {
+  if (caller.kind === "owner") return "all";
+  if (caller.kind !== "visitor") return "none";
+  if (mode === "shared" && caller.canWrite) return "all";
+  return "own";
 }
 
 export function writeScope(mode: Mode, caller: Caller): "all" | "own" | "none" {
@@ -242,16 +270,19 @@ export function buildQuery(
   return { sql, params, limit };
 }
 
-/** A size report's place in the object's history, so a late report never replaces a newer one. */
+/**
+ * A storage report's place in the object's history (finding 13): the generation, then a sequence
+ * the object raises on every transaction that may change storage, refused work included.
+ */
 export interface SizeReport {
   generation: number;
-  revision: number;
+  seq: number;
   bytes: number;
 }
 
-/** Whether `incoming` should replace `current` in D1: later generation, or same and later revision. */
+/** Whether `incoming` should replace `current` in D1: a later generation, or the same and a later sequence. */
 export function newerReport(current: SizeReport | null, incoming: SizeReport): boolean {
   if (current === null) return true;
   if (incoming.generation !== current.generation) return incoming.generation > current.generation;
-  return incoming.revision > current.revision;
+  return incoming.seq > current.seq;
 }

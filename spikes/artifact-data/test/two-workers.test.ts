@@ -30,6 +30,6 @@ describe("one documents object per artifact, reachable from two Workers", () => 
     });
     // No table was created: the size is at most SQLite's empty first page.
     expect((await docs.size()).bytes).toBeLessThanOrEqual(4096);
-    expect((await docs.size()).revision).toBe(0);
+    expect((await docs.size()).seq).toBe(0);
   });
 });

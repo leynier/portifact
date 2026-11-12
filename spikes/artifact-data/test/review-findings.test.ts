@@ -194,7 +194,7 @@ describe("review findings", () => {
       ok: false,
       error: "forbidden",
     });
-    expect(await docs.renew(wrong, "socket", NOW)).toBe(false);
+    expect(await docs.renew(wrong, "socket", "grant:x", NOW)).toBe(false);
     expect(await docs.prepareErase(wrong)).toMatchObject({ ok: false, error: "forbidden" });
   });
 });

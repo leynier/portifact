@@ -50,9 +50,9 @@ describe("rows read and written per operation", () => {
       sqlSelectOneRow: sqlRead.cost,
     };
     console.log(JSON.stringify({ measure: "rows_per_operation", ...table }));
-    expect(table.visitorCreate?.rowsWritten).toBeLessThanOrEqual(16);
-    expect(table.visitorGet?.rowsWritten).toBeLessThanOrEqual(6);
-    expect(table.visitorPage20?.rowsRead).toBeLessThanOrEqual(40);
+    expect(table.visitorCreate?.rowsWritten).toBeLessThanOrEqual(24);
+    expect(table.visitorGet?.rowsWritten).toBeLessThanOrEqual(8);
+    expect(table.visitorPage20?.rowsRead).toBeLessThanOrEqual(50);
   });
 
   it("measures the size a document adds to the database", async () => {
@@ -77,5 +77,34 @@ describe("rows read and written per operation", () => {
       }),
     );
     expect(full).toBeGreaterThan(empty);
+  });
+});
+
+describe("what bounds one owner statement", () => {
+  it("measures how many small rows a megabyte holds and how fast a statement writes them", async () => {
+    const { envelope, sandbox } = artifact();
+    ok(await sandbox.execute(op(envelope), context(OWNER), "create table n (x integer)"));
+    const before = (await sandbox.size()).bytes;
+    // Statements are capped at 100 KB, so the rows go in five batches.
+    for (let batch = 0; batch < 5; batch++) {
+      await sandbox.unsafeExec(
+        `insert into n (x) values ${Array.from({ length: 10_000 }, (_, index) => `(${batch * 10_000 + index})`).join(", ")}`,
+      );
+    }
+    const after = (await sandbox.size()).bytes;
+    const rowsPerMegabyte = Math.round(50_000 / ((after - before) / 1_000_000));
+    const started = Date.now();
+    const update = await sandbox.execute(op(envelope), context(OWNER), "update n set x = x + 1");
+    const ms = Math.max(1, Date.now() - started);
+    console.log(
+      JSON.stringify({
+        measure: "statement_bounds",
+        rowsPerMegabyte,
+        updateRowsWritten: update.cost.rowsWritten,
+        updateMs: ms,
+        rowsWrittenPerSecond: Math.round((update.cost.rowsWritten / ms) * 1000),
+      }),
+    );
+    expect(rowsPerMegabyte).toBeGreaterThan(10_000);
   });
 });

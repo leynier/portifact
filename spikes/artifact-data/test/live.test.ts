@@ -28,6 +28,7 @@ async function connect(
       "X-Portifact-Envelope": JSON.stringify(envelope),
       "X-Portifact-Caller": JSON.stringify({
         author,
+        principal: `grant:${author ?? "reader"}`,
         deadline: options.deadline ?? now + 60_000,
         limits: options.limits ?? ROOMY,
         now,
@@ -107,14 +108,25 @@ describe("live updates over hibernatable WebSockets", () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "append" }));
     const connection = live(await connect(docs, envelope, "v_a", { deadline: Date.now() + 100 }));
-    expect(await docs.renew(envelope, connection.id, Date.now() + 60_000)).toBe(true);
+    // Another principal (a page holding the socket ID with someone else's grant) is refused.
+    expect(await docs.renew(envelope, connection.id, "grant:v_b", Date.now() + 60_000)).toBe(false);
+    expect(await docs.renew(envelope, connection.id, "grant:v_a", Date.now() + 60_000)).toBe(true);
     await new Promise((resolve) => setTimeout(resolve, 150));
     connection.socket.send(JSON.stringify({ subscribe: "items" }));
     expect(await connection.next()).toEqual({ subscribed: "items" });
     expect(
-      await docs.renew({ ...envelope, artifactId: "other" }, connection.id, Date.now() + 60_000),
+      await docs.renew(
+        { ...envelope, artifactId: "other" },
+        connection.id,
+        "grant:v_a",
+        Date.now() + 60_000,
+      ),
     ).toBe(false);
-    expect(await docs.renew(envelope, "unknown", Date.now() + 60_000)).toBe(false);
+    expect(await docs.renew(envelope, "unknown", "grant:v_a", Date.now() + 60_000)).toBe(false);
+    // Renewal can shorten: a deadline already past closes the connection.
+    const closed = connection.closed;
+    expect(await docs.renew(envelope, connection.id, "grant:v_a", Date.now() - 1)).toBe(false);
+    expect(await closed).toBe(4001);
   });
 
   it("bounds messages in, connects per minute and connections", async () => {
@@ -157,7 +169,7 @@ describe("live updates over hibernatable WebSockets", () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "append" }));
     const connection = live(await connect(docs, envelope, "v_a"));
-    ok(await docs.fence({ ...envelope, epoch: 1 }, "held"));
+    ok(await docs.fence({ ...envelope, epoch: 1 }, { state: "held" }));
     expect(await connection.closed).toBe(4003);
   });
 });

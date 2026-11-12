@@ -7,7 +7,7 @@ import {
   uniqueValue,
   writeScope,
 } from "../src/model.ts";
-import { encodeRows, encodeValue, RESULT_ROWS, VALUE_BYTES } from "../src/wire.ts";
+import { encodeRows, encodeValue, exportValue, RESULT_ROWS, VALUE_BYTES } from "../src/wire.ts";
 
 describe("the document rules", () => {
   it("decide reads and writes from the mode and the caller only", () => {
@@ -37,14 +37,46 @@ describe("the document rules", () => {
 });
 
 describe("the wire encoding", () => {
-  it("gives every SQL type one form and measures UTF-8 and binary bytes", () => {
+  it("gives every SQL type one form and flags what was cut or inexact", () => {
     expect(encodeValue(null).wire).toBeNull();
-    expect(encodeValue(BigInt("9007199254740993")).wire).toEqual({ $int: "9007199254740993" });
+    expect(encodeValue(BigInt("9007199254740993")).wire).toEqual({ $inexact: "9007199254740993" });
+    expect(encodeValue(9007199254740992)).toEqual({
+      wire: { $inexact: "9007199254740992" },
+      cut: false,
+      inexact: true,
+    });
     expect(encodeValue(Number.POSITIVE_INFINITY).wire).toBeNull();
-    expect(encodeValue("é").bytes).toBe(4);
-    expect(encodeValue("x".repeat(VALUE_BYTES)).wire).toEqual({ $omitted: VALUE_BYTES + 2 });
+    expect(encodeValue("x".repeat(VALUE_BYTES + 1))).toEqual({
+      wire: { $omitted: VALUE_BYTES + 1 },
+      cut: true,
+      inexact: false,
+    });
     expect(encodeValue(new Uint8Array([1, 2])).wire).toEqual({ $blob: "AQI=" });
     expect(() => encodeValue({})).toThrow();
+  });
+
+  it("counts the whole response, column names included, in UTF-8", () => {
+    const columns = Array.from({ length: 100 }, (_, index) => `${"€".repeat(4_000)}${index}`);
+    const result = encodeRows(columns, [[1]]);
+    expect(result.truncated).toBe(true);
+    expect(result.columns).toEqual([]);
+    const small = encodeRows(["é"], [["€"]]);
+    expect(small.bytes).toBe(
+      new TextEncoder().encode(
+        JSON.stringify({ columns: ["é"], rows: [], truncated: false, inexact: false }),
+      ).length +
+        new TextEncoder().encode(JSON.stringify(["€"])).length +
+        1,
+    );
+  });
+
+  it("exports values exactly", () => {
+    expect(exportValue("integer", "9223372036854775807")).toEqual({
+      t: "integer",
+      v: "9223372036854775807",
+    });
+    expect(exportValue("null", null)).toEqual({ t: "null" });
+    expect(() => exportValue("weird", "x")).toThrow();
   });
 
   it("stops at the row cap", () => {

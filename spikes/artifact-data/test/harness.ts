@@ -3,9 +3,9 @@ import type { CallContext, Outcome } from "../src/documents.ts";
 import type { Envelope } from "../src/envelope.ts";
 import type { Caller, DataLimits } from "../src/model.ts";
 
-/** The Free plan's numbers proposed in decision 0026, "Plans". */
+/** Plan B's Free numbers (decision 0026, "Plans"); tests about other things use ROOMY. */
 export const FREE: DataLimits = {
-  bytesPerArtifact: 10_000_000,
+  bytesPerArtifact: 5_000_000,
   documentBytes: 16 * 1024,
   documentsPerCollection: 1_000,
   collections: 10,
@@ -13,34 +13,54 @@ export const FREE: DataLimits = {
   writesPerAuthorPerMinute: 30,
   deletesPerAuthorPerMinute: 60,
   readsPerCallerPerMinute: 300,
-  rowsReadPerDay: 2_000_000,
-  rowsWrittenPerDay: 20_000,
+  rowsReadPerDay: 500_000,
+  rowsWrittenPerDay: 5_000,
   connectionsPerArtifact: 25,
   connectionsPerAuthor: 4,
   connectsPerAuthorPerMinute: 6,
-  liveBytesPerDay: 50_000_000,
+  liveBytesPerDay: 20_000_000,
+  cleanupRowsPerDay: 20_000,
+  exportRowsPerDay: 200_000,
+  sandboxBytes: 1_000_000,
+  sqlRowsReadPerDay: 5_000_000,
+  sqlRowsWrittenPerDay: 2_000,
+  sqlWorstRowsRead: 50_000_000,
+  sqlWorstRowsWritten: 100_000,
 };
 
 /** Generous limits for tests that are about something else than limits. */
 export const ROOMY: DataLimits = {
   ...FREE,
+  bytesPerArtifact: 100_000_000,
   documentsPerCollection: 200_000,
   writesPerAuthorPerMinute: 100_000,
   deletesPerAuthorPerMinute: 100_000,
   readsPerCallerPerMinute: 100_000,
   rowsReadPerDay: 1_000_000_000,
   rowsWrittenPerDay: 100_000_000,
+  liveBytesPerDay: 1_000_000_000,
+  cleanupRowsPerDay: 100_000_000,
+  exportRowsPerDay: 100_000_000,
+  sandboxBytes: 100_000_000,
+  sqlRowsReadPerDay: 1_000_000_000,
+  sqlRowsWrittenPerDay: 100_000_000,
 };
 
 export const NOW = Date.UTC(2026, 10, 12, 12, 0, 0);
 
 let counter = 0;
 
-/** A fresh artifact: its envelope and both of its objects. */
-export function artifact(owner = `owner_${++counter}`) {
+/** A fresh artifact: its envelope (owned by `owner`) and both of its objects. */
+export function artifact(owner = "owner_default") {
   counter += 1;
   const artifactId = `a${counter.toString().padStart(9, "0")}`;
-  const envelope: Envelope = { artifactId, region: "default", generation: 0, epoch: 0 };
+  const envelope: Envelope = {
+    artifactId,
+    region: "default",
+    ownerId: owner,
+    generation: 0,
+    epoch: 0,
+  };
   return {
     envelope,
     owner,
@@ -64,6 +84,9 @@ export function context(
     owner?: string;
     ownerRead?: number;
     ownerWritten?: number;
+    sqlRead?: number;
+    sqlWritten?: number;
+    liveBytes?: number;
   } = {},
 ): CallContext {
   return {
@@ -72,8 +95,13 @@ export function context(
     now: options.now ?? NOW,
     owner: {
       id: options.owner ?? `owner_${crypto.randomUUID()}`,
-      rowsReadPerDay: options.ownerRead ?? 1_000_000_000,
-      rowsWrittenPerDay: options.ownerWritten ?? 100_000_000,
+      allowances: {
+        documents_read: options.ownerRead ?? 1_000_000_000,
+        documents_written: options.ownerWritten ?? 100_000_000,
+        sql_read: options.sqlRead ?? 1_000_000_000,
+        sql_written: options.sqlWritten ?? 100_000_000,
+        live_bytes: options.liveBytes ?? 1_000_000_000,
+      },
     },
   };
 }
@@ -85,11 +113,13 @@ export function visitor(author: string, canWrite = true): Caller {
   return { kind: "visitor", author, canWrite };
 }
 
-/** The value of a successful outcome, failing the test otherwise. */
+/** The value of a successful outcome (undefined for a replay), failing the test otherwise. */
 export function ok<O extends Outcome<unknown> | { ok: boolean }>(
   outcome: O,
-): Extract<O, { ok: true }> extends { value: infer V } ? V : never {
+): Extract<O, { ok: true; value: unknown }> extends { value: infer V } ? V : never {
   const result = outcome as { ok: boolean; error?: string; message?: string; value?: unknown };
   if (!result.ok) throw new Error(`expected success, got ${result.error}: ${result.message}`);
-  return result.value as Extract<O, { ok: true }> extends { value: infer V } ? V : never;
+  return result.value as Extract<O, { ok: true; value: unknown }> extends { value: infer V }
+    ? V
+    : never;
 }

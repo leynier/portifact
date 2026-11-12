@@ -189,7 +189,7 @@ describe("owner SQL in the sandbox", () => {
     );
     // Charged before (an estimate) and after (the actual rows): a statement can overshoot the day
     // by its own size once, and the next one is refused.
-    const limits = { ...ROOMY, rowsWrittenPerDay: 15_000 };
+    const limits = { ...ROOMY, sqlRowsWrittenPerDay: 15_000 };
     const capped = context(OWNER, { limits });
     ok(await sandbox.execute(op(envelope), capped, "update n set x = x + 1"));
     ok(await sandbox.execute(op(envelope), capped, "update n set x = x + 1"));
@@ -202,7 +202,7 @@ describe("owner SQL in the sandbox", () => {
 
   it("refuses growth past the artifact's size and lets deletes through", async () => {
     const { envelope, sandbox, run } = await withTables();
-    const full = context(OWNER, { limits: { ...ROOMY, bytesPerArtifact: 1_000 } });
+    const full = context(OWNER, { limits: { ...ROOMY, sandboxBytes: 1_000 } });
     expect(
       await sandbox.execute(op(envelope), full, "insert into t (b) values (?)", [
         "x".repeat(20_000),
@@ -228,8 +228,14 @@ describe("owner SQL in the sandbox", () => {
       await sandbox.importCopy(
         op(envelope),
         owner,
-        "copy_items",
-        "items",
+        {
+          copyId: "c_test",
+          page: 0,
+          table: "copy_items",
+          collection: "items",
+          sourceGeneration: 0,
+          sourceRevision: 0,
+        },
         page.rows.map(({ document }) => ({
           id: document._id,
           by: document._by,
@@ -254,24 +260,54 @@ describe("owner SQL in the sandbox", () => {
         "v_alice",
       ]),
     );
-    expect(await sandbox.importCopy(op(envelope), owner, "items", "items", [])).toMatchObject({
+    expect(
+      await sandbox.importCopy(
+        op(envelope),
+        owner,
+        {
+          copyId: "c_bad",
+          page: 0,
+          table: "items",
+          collection: "items",
+          sourceGeneration: 0,
+          sourceRevision: 0,
+        },
+        [],
+      ),
+    ).toMatchObject({
       ok: false,
     });
   });
 
   it("checks the envelope, fences and erases by generation", async () => {
     const { envelope, sandbox, run } = await withTables();
-    expect(await sandbox.fence({ ...envelope, epoch: 1 }, "held")).toBe(true);
+    expect(await sandbox.fence({ ...envelope, epoch: 1 }, { state: "held" })).toBe(true);
     expect(await sandbox.query({ ...envelope, epoch: 1 }, owner, "select 1")).toMatchObject({
       ok: false,
       error: "held",
     });
-    expect(await sandbox.fence(envelope, "open")).toBe(false);
-    expect(await sandbox.fence({ ...envelope, epoch: 2 }, "open")).toBe(true);
-    expect(await sandbox.erase({ ...envelope, epoch: 2 })).toBe(true);
+    expect(await sandbox.fence(envelope, { state: "open" })).toBe(false);
+    expect(await sandbox.fence({ ...envelope, epoch: 2 }, { state: "open" })).toBe(true);
+    expect(await sandbox.prepareErase({ ...envelope, epoch: 2 })).toEqual({
+      ok: true,
+      prepared: true,
+    });
+    expect(await sandbox.commitErase({ ...envelope, epoch: 2 })).toEqual({
+      ok: true,
+      erased: true,
+    });
     const next = { ...envelope, generation: 1, epoch: 2 };
     ok(await sandbox.execute(op(next), owner, "create table kept (x)"));
-    expect(await sandbox.erase({ ...envelope, epoch: 2 })).toBe(false);
+    // The first erase's retry targets generation 0: nothing to do, the new table stays.
+    expect(await sandbox.prepareErase({ ...envelope, epoch: 2 })).toEqual({
+      ok: true,
+      prepared: false,
+    });
+    expect(await sandbox.commitErase({ ...envelope, epoch: 2 })).toEqual({
+      ok: true,
+      erased: false,
+    });
+    expect(await sandbox.cancelErase({ ...envelope, epoch: 2 })).toBe(false);
     expect(
       ok(await sandbox.query(next, owner, "select count(*) from sqlite_schema where name = 'kept'"))
         .rows,

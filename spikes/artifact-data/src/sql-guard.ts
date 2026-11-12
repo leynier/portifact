@@ -358,6 +358,33 @@ export const NEVER_OPCODES = new Set([
 
 export interface ExplainRow {
   opcode: string;
+  p1?: number;
+  p2?: number;
+}
+
+/**
+ * Owner indexes a sandbox may hold: each multiplies the rows a write touches. With the size cap,
+ * it bounds one statement's rows written to about (rows the cap holds) × (1 + MAX_INDEXES).
+ */
+export const MAX_INDEXES = 4;
+
+/**
+ * An `INSERT … SELECT` may read one table (finding 7): a join or a compound select could produce
+ * more rows than any table holds, so its writes would be bounded only by the CPU limit. With one
+ * source table, the rows a statement writes are bounded by the rows the sandbox's size cap lets
+ * a table hold; `UPDATE` and `DELETE` touch only rows of their own table.
+ */
+export function checkInsertSources(
+  program: readonly ExplainRow[],
+  tableRoots: ReadonlySet<number>,
+  isInsert: boolean,
+): GuardResult {
+  if (!isInsert) return { ok: true, shape: "write" };
+  const reads = program.filter(
+    (row) => row.opcode === "OpenRead" && tableRoots.has(row.p2 ?? -1),
+  ).length;
+  if (reads > 1) return { ok: false, reason: "INSERT … SELECT reads from one table at most" };
+  return { ok: true, shape: "write" };
 }
 
 /** Fail closed over SQLite's own program: only allowlisted opcodes, writes only in write calls. */

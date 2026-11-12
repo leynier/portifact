@@ -23,12 +23,30 @@ export function dataGate(request: Request, write: boolean): GateResult {
 }
 
 /**
- * The grant handoff (`GET /__portifact/data/grant?code=…`): a `GET` navigation that arrives
- * `cross-site` from the app, as a top-level document (the popup flow) or as the viewer's frame
- * (the in-viewer flow). A sibling artifact's navigation is `same-site` and refused; the code
- * itself is bound to a transaction cookie only this browser holds (`grants.ts`).
+ * Starting a grant (`GET /__portifact/data/grant/begin`), finding 15: a `GET` navigation that the
+ * artifact's own page opens (`same-origin`, top-level, the direct-visit and top-level-tab flows)
+ * or that the viewer sends into its frame (`cross-site`, `iframe`). It only sets a transaction
+ * cookie and answers a Portifact page, so it needs no code; a sibling's `same-site` navigation
+ * is refused.
  */
-export function handoffGate(request: Request, flow: "popup" | "frame"): GateResult {
+export function beginGate(request: Request): GateResult {
+  if (request.method !== "GET") return "refused";
+  const headers = request.headers;
+  if (headers.get("Sec-Fetch-Mode") !== "navigate") return "refused";
+  const site = headers.get("Sec-Fetch-Site");
+  const destination = headers.get("Sec-Fetch-Dest");
+  if (site === "same-origin" && destination === "document") return "allowed";
+  if (site === "cross-site" && destination === "iframe") return "allowed";
+  return "refused";
+}
+
+/**
+ * Redeeming a grant (`GET /__portifact/data/grant?code=…`): a `GET` navigation that arrives
+ * `cross-site` from the app, as a top-level document (the popup and top-level-tab flows) or as
+ * the viewer's frame. A sibling's `same-site` navigation is refused; the code is bound to the
+ * transaction cookie only the beginning browser holds (`grants.ts`).
+ */
+export function redeemGate(request: Request, flow: "popup" | "frame"): GateResult {
   if (request.method !== "GET") return "refused";
   const headers = request.headers;
   if (headers.get("Sec-Fetch-Mode") !== "navigate") return "refused";
@@ -37,3 +55,6 @@ export function handoffGate(request: Request, flow: "popup" | "frame"): GateResu
   if (flow === "popup" ? destination !== "document" : destination !== "iframe") return "refused";
   return "allowed";
 }
+
+/** The former name of `redeemGate`, kept for the first version's tests. */
+export const handoffGate = redeemGate;

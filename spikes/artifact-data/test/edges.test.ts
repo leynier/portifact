@@ -3,6 +3,14 @@ import { handoffGate } from "../src/gate.ts";
 import { artifact, context, NOW, OWNER, ok, op, READER, ROOMY, visitor } from "./harness.ts";
 
 const owner = context(OWNER);
+const copyJob = (copyId: string) => ({
+  copyId,
+  page: 0,
+  table: "copy_items",
+  collection: "items",
+  sourceGeneration: 0,
+  sourceRevision: 0,
+});
 const alice = context(visitor("v_alice"));
 
 describe("refusals on an object without data", () => {
@@ -28,14 +36,35 @@ describe("refusals on an object without data", () => {
       erased: 0,
       more: false,
     });
-    expect(ok(await docs.fence(envelope, "held"))).toEqual({ epoch: 0, state: "held" });
-    expect(ok(await docs.prepareErase(envelope))).toEqual({ prepared: false });
-    expect(await docs.cancelErase(envelope)).toBe(false);
-    expect(await docs.budget(NOW)).toEqual({});
-    expect(await docs.budget(NOW)).not.toHaveProperty("rows_read");
+    // A fence on an empty object is persisted: a stale command after it is refused.
+    expect(ok(await docs.fence({ ...envelope, epoch: 1 }, { state: "held" }))).toEqual({
+      epoch: 1,
+      state: "held",
+      ownerId: envelope.ownerId,
+    });
+    expect(
+      await docs.declareCollection(op(envelope), owner, { name: "items", mode: "own" }),
+    ).toMatchObject({
+      ok: false,
+      error: "stale",
+    });
+    const held = { ...envelope, epoch: 1 };
+    expect(await docs.prepareErase(held)).toMatchObject({ ok: false, error: "held" });
+    expect(await docs.cancelErase(held)).toBe(false);
     expect(await docs.auditFor("op")).toBeNull();
     await docs.ackAudit("op");
-    expect(ok(await docs.exportPage(envelope, owner, null, 10))).toEqual({ rows: [], next: null });
+    expect(await docs.exportPage(held, owner, null, 10)).toMatchObject({
+      ok: false,
+      error: "held",
+    });
+    const empty = artifact();
+    expect(await empty.docs.budget(NOW)).toEqual({});
+    expect(ok(await empty.docs.prepareErase(empty.envelope))).toEqual({ prepared: false });
+    expect(ok(await empty.docs.exportPage(empty.envelope, owner, null, 10))).toEqual({
+      rows: [],
+      next: null,
+      revision: 0,
+    });
     expect((await docs.fetch("https://data.internal/other")).status).toBe(404);
   });
 });
@@ -98,9 +127,10 @@ describe("owner-side and mode refusals", () => {
       ok: false,
       error: "forbidden",
     });
+    // A visitor deletes only what they created: someone else's document is not found.
     expect(await docs.remove(op(envelope), alice, "items", posted._id)).toMatchObject({
       ok: false,
-      error: "forbidden",
+      error: "not_found",
     });
     expect(await docs.get(envelope, context(READER), "mine", "x")).toMatchObject({
       ok: false,
@@ -133,7 +163,7 @@ describe("owner-side and mode refusals", () => {
 
   it("refuses when the owner's day is spent", async () => {
     const { envelope, docs } = artifact();
-    const options = { owner: `owner_spent_${NOW}`, ownerWritten: 10 };
+    const options = { owner: `owner_spent_${NOW}`, ownerWritten: 20 };
     ok(
       await docs.declareCollection(op(envelope), context(OWNER, options), {
         name: "items",
@@ -160,8 +190,7 @@ describe("the sandbox's edges", () => {
       await sandbox.importCopy(
         op(envelope),
         owner,
-        "copy_items",
-        "items",
+        copyJob("c_edge_1"),
         [
           { id: "a", by: "v", editedBy: null, created: 1, updated: 1, body: "x".repeat(50_000) },
         ].map((row) => row),
@@ -170,22 +199,25 @@ describe("the sandbox's edges", () => {
     expect(
       await sandbox.importCopy(
         op(envelope),
-        context(OWNER, { limits: { ...ROOMY, bytesPerArtifact: 1 } }),
-        "copy_more",
-        "items",
+        context(OWNER, { limits: { ...ROOMY, sandboxBytes: 1 } }),
+        { ...copyJob("c_edge_2"), table: "copy_more" },
         [{ id: "b", by: "v", editedBy: null, created: 1, updated: 1, body: "y".repeat(50_000) }],
       ),
     ).toMatchObject({ ok: false, error: "quota_exceeded" });
     ok(
-      await sandbox.importCopy(op(envelope), owner, "copy_items", "items", [
+      await sandbox.importCopy(op(envelope), owner, copyJob("c_edge_3"), [
         { id: "c", by: "v", editedBy: null, created: 1, updated: 1, body: "{}" },
       ]),
     );
-    expect(await sandbox.copies()).toMatchObject([{ table: "copy_items", documents: 2 }]);
+    // Two jobs into one table: each record counts the table's rows now.
+    const copies = await sandbox.copies();
+    expect(copies.map((copy) => copy.documents)).toEqual([2, 2]);
     expect(await sandbox.readOnlyProbe("select 1")).toEqual({ refused: false, message: "" });
     expect(await sandbox.readOnlyProbe("select * from missing")).toMatchObject({ refused: true });
-    expect(await sandbox.fence({ ...envelope, artifactId: "other" }, "open")).toBe(false);
-    expect(await artifact().sandbox.fence(envelope, "open")).toBe(true);
+    expect(
+      await sandbox.fence({ ...envelope, artifactId: "other", epoch: 1 }, { state: "open" }),
+    ).toBe(false);
+    expect(await artifact().sandbox.fence({ ...envelope, epoch: 1 }, { state: "open" })).toBe(true);
     expect(await sandbox.query({ ...envelope, epoch: 3 }, owner, "select 1")).toMatchObject({
       ok: true,
     });

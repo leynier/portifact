@@ -7,6 +7,14 @@ import { beginTransaction, issueCode, redeem } from "../src/grants.ts";
 import { artifact, context, NOW, OWNER, ok, op, ROOMY, visitor } from "./harness.ts";
 
 const owner = context(OWNER);
+const job = (copyId: string, page: number) => ({
+  copyId,
+  page,
+  table: "copy_items",
+  collection: "items",
+  sourceGeneration: 0,
+  sourceRevision: 0,
+});
 const any = (value: unknown) => value as never;
 
 describe("second review findings, reproduced", () => {
@@ -41,8 +49,8 @@ describe("second review findings, reproduced", () => {
 
   it("2: a fence on an empty object is persisted before it is acknowledged", async () => {
     const { envelope, docs, sandbox } = artifact();
-    ok(await docs.fence({ ...envelope, epoch: 1 }, "held"));
-    await sandbox.fence({ ...envelope, epoch: 1 }, "held");
+    ok(await docs.fence({ ...envelope, epoch: 1 }, { state: "held" }));
+    await sandbox.fence({ ...envelope, epoch: 1 }, { state: "held" });
     expect(
       (await docs.declareCollection(op(envelope), owner, { name: "items", mode: "own" })).ok,
     ).toBe(false);
@@ -52,9 +60,24 @@ describe("second review findings, reproduced", () => {
   it("2: the sandbox's erase honours holds and refuses another artifact", async () => {
     const { envelope, sandbox } = artifact();
     ok(await sandbox.execute(op(envelope), owner, "create table kept (x)"));
-    await sandbox.fence({ ...envelope, epoch: 1 }, "held");
-    expect(await sandbox.erase(envelope)).toBe(false);
-    expect(await sandbox.erase({ ...envelope, artifactId: "other" })).toBe(false);
+    await sandbox.fence({ ...envelope, epoch: 1 }, { state: "held" });
+    expect(await sandbox.prepareErase(envelope)).toMatchObject({ ok: false });
+    expect(await sandbox.prepareErase({ ...envelope, epoch: 1 })).toMatchObject({
+      ok: false,
+      error: "held",
+    });
+    expect(
+      await sandbox.prepareErase({ ...envelope, artifactId: "other", epoch: 1 }),
+    ).toMatchObject({
+      ok: false,
+      error: "forbidden",
+    });
+    expect(
+      await sandbox.query({ ...envelope, epoch: 1 }, context(OWNER), "select 1"),
+    ).toMatchObject({
+      ok: false,
+      error: "held",
+    });
   });
 
   it("2: commit and cancel use the whole envelope", async () => {
@@ -62,7 +85,11 @@ describe("second review findings, reproduced", () => {
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     ok(await docs.prepareErase(envelope));
     expect(await docs.cancelErase({ ...envelope, artifactId: "other" })).toBe(false);
-    expect(ok(await docs.commitErase({ ...envelope, region: "eu" }))).toEqual({ erased: false });
+    expect(await docs.commitErase({ ...envelope, region: "eu" })).toMatchObject({
+      ok: false,
+      error: "forbidden",
+    });
+    expect(await docs.cancelErase({ ...envelope, epoch: -1 })).toBe(false);
   });
 
   it("3: prepare adopts the epoch it accepts, so commit can finish", async () => {
@@ -87,10 +114,7 @@ describe("second review findings, reproduced", () => {
     const withOwner = { ...envelope, ownerId: "owner_a" };
     ok(await docs.declareCollection(op(any(withOwner)), owner, { name: "items", mode: "read" }));
     ok(
-      await docs.fence(
-        any({ ...withOwner, epoch: 5, ownerId: "owner_b" }),
-        any({ state: "open", ownerId: "owner_b" }),
-      ),
+      await docs.fence(any({ ...withOwner, epoch: 5 }), any({ state: "open", toOwner: "owner_b" })),
     );
     expect(
       (await docs.query(any({ ...withOwner, epoch: 5 }), owner, { collection: "items" })).ok,
@@ -113,7 +137,7 @@ describe("second review findings, reproduced", () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "append" }));
     ok(await docs.create(op(envelope), context(visitor("v_a")), "items", { n: 1 }));
-    expect(await any(docs).pruneReplays(Date.now() + 25 * 3_600_000)).toBeGreaterThan(0);
+    expect(await docs.pruneReplays(Date.now() + 25 * 3_600_000)).toBeGreaterThan(0);
   });
 
   it("6: after an author's erasure began, a late write from that author is refused", async () => {
@@ -131,7 +155,7 @@ describe("second review findings, reproduced", () => {
     await sandbox.unsafeExec(
       `insert into n (x) values ${Array.from({ length: 4096 }, (_, index) => `(${index})`).join(", ")}`,
     );
-    const capped = context(OWNER, { limits: { ...ROOMY, bytesPerArtifact: 200_000 } });
+    const capped = context(OWNER, { limits: { ...ROOMY, sandboxBytes: 200_000 } });
     const failed = await sandbox.execute(op(envelope), capped, "update n set x = randomblob(4096)");
     expect(failed.ok).toBe(false);
     expect((await sandbox.budget(NOW)).rowsWritten).toBeGreaterThanOrEqual(4_096);
@@ -155,7 +179,7 @@ describe("second review findings, reproduced", () => {
     });
     response.webSocket?.accept();
     const socketId = response.headers.get("X-Portifact-Socket") ?? "";
-    expect(await any(docs).renew(envelope, socketId, "grant:bob", Date.now() + 60_000)).toBe(false);
+    expect(await docs.renew(envelope, socketId, "grant:bob", Date.now() + 60_000)).toBe(false);
   });
 
   it("9: a value SQLite cannot hand over exactly is flagged, and column names count", async () => {
@@ -187,13 +211,12 @@ describe("second review findings, reproduced", () => {
       body: "{}",
     });
     const many = Array.from({ length: 501 }, (_, index) => row(`r${index}`));
-    expect((await sandbox.importCopy(op(envelope), owner, "copy_items", "items", many)).ok).toBe(
-      false,
-    );
+    expect((await sandbox.importCopy(op(envelope), owner, job("c_big", 0), many)).ok).toBe(false);
     const page = op(envelope);
-    await sandbox.importCopy(page, owner, "copy_items", "items", [row("a")]);
-    await sandbox.importCopy(page, owner, "copy_items", "items", [row("a")]);
-    expect((await sandbox.copies())[0]?.documents).toBe(1);
+    await sandbox.importCopy(page, owner, job("c_one", 0), [row("a")]);
+    const again = await sandbox.importCopy(page, owner, job("c_one", 0), [row("a")]);
+    expect(again).toMatchObject({ ok: true, replayed: { kind: "copy_page" } });
+    expect(await sandbox.copies()).toMatchObject([{ copyId: "c_one", pages: 1, documents: 1 }]);
   });
 
   it("12: owner SQL cannot spend the visitors' share", async () => {
@@ -221,19 +244,20 @@ describe("second review findings, reproduced", () => {
   it("13: refused work that grows storage moves the storage report", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
+    const before = (await docs.size()).seq;
     const refused = await docs.create(op(envelope), context(visitor("v_a")), "items", { n: 1 });
     expect(refused.ok).toBe(false);
-    expect(JSON.stringify(refused)).toContain("storage");
+    expect(refused.storage.seq).toBeGreaterThan(before);
   });
 
   it("14: copies and author erasure leave audit obligations, and erasure keeps them", async () => {
     const { envelope, docs, sandbox } = artifact();
     const copy = op(envelope);
-    ok(await sandbox.importCopy(copy, owner, "copy_items", "items", []));
+    ok(await sandbox.importCopy(copy, owner, job("c_audit", 0), []));
     expect(await sandbox.auditFor(copy.opId as string)).not.toBeNull();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     const erase = op(envelope);
-    ok(await any(docs).eraseAuthorChunk(erase, "v_a", 10));
+    ok(await docs.eraseAuthorChunk(erase, "v_a", 10));
     expect(await docs.auditFor(erase.opId as string)).not.toBeNull();
   });
 

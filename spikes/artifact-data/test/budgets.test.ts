@@ -87,7 +87,9 @@ describe("budgets of work, charged before the work and kept when it is refused",
       if (outcome.ok) accepted += 1;
     }
     const ledger = env.LEDGER.get(env.LEDGER.idFromName(ownerId));
-    const leased = await ledger.used(Math.floor(NOW / 86_400_000), "written");
+    // The ledger never granted more than the owner's day: what is left is at least zero.
+    const leased =
+      400 - (await ledger.balance("documents_written", Math.floor(NOW / 86_400_000), 400));
     expect(leased).toBeLessThanOrEqual(400);
     expect(accepted).toBeLessThan(40);
     expect(accepted).toBeGreaterThan(0);

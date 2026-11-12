@@ -133,8 +133,13 @@ describe("append, read and shared modes", () => {
     const { envelope, docs } = await withCollection("append");
     const once = op(envelope);
     const first = ok(await docs.create(once, alice, "items", { n: 1 }));
-    const again = ok(await docs.create(once, alice, "items", { n: 1 }));
-    expect(again._id).toBe(first._id);
+    const again = await docs.create(once, alice, "items", { n: 1 });
+    // The replay names what was done and returns no body.
+    expect(again).toMatchObject({
+      ok: true,
+      replayed: { kind: "document", target: `items/${first._id}` },
+    });
+    expect(JSON.stringify(again)).not.toContain('"n"');
     expect(ok(await docs.query(envelope, owner, { collection: "items" })).documents).toHaveLength(
       1,
     );

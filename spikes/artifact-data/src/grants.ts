@@ -85,10 +85,14 @@ export async function redeem(
   host: string,
   now: number,
 ): Promise<RedeemResult> {
+  // Every hash first; then one synchronous check and set, so two concurrent redemptions cannot
+  // both see the code unused (finding 15). The product does the same with one guarded D1 update.
+  const codeHash = await sha256(code);
+  const nonceHash = txNonce === null ? null : await sha256(txNonce);
   if (pending === undefined || pending.used || pending.expiresAt <= now) return { ok: false };
-  if (pending.codeHash !== (await sha256(code))) return { ok: false };
-  if (pending.host !== host || txNonce === null) return { ok: false };
-  if (pending.nonceHash !== (await sha256(txNonce))) return { ok: false };
+  if (pending.codeHash !== codeHash || pending.host !== host || pending.nonceHash !== nonceHash) {
+    return { ok: false };
+  }
   pending.used = true;
   return { ok: true, grantId: pending.grantId };
 }
