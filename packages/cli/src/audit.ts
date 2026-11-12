@@ -82,11 +82,12 @@ export function auditActor(actor: AuditEventView["actor"]): string {
 const ROLE = { admin: "admin", editor: "editor", member: "member" } as const;
 
 /** What happened, in plain words. */
-/** The services of issue integrations, by name. */
+/** The services of connections (issue trackers and Slack), by name. */
 const SERVICE: Readonly<Record<string, string>> = {
   github: "GitHub",
   linear: "Linear",
   jira: "Jira",
+  slack: "Slack",
 };
 const service = (value: unknown) => SERVICE[String(value)] ?? String(value);
 
@@ -150,7 +151,10 @@ export function auditSummary(event: AuditEventView): string {
     case "webhook.removed":
       return "Removed a webhook";
     case "integration.connected":
-      return `Connected ${service(d.service)} with ${d.targets} ${d.targets === 1 ? "target" : "targets"}`;
+      // A Slack connection has no targets (decision 0025): no count to state.
+      return d.targets === 0
+        ? `Connected ${service(d.service)}`
+        : `Connected ${service(d.service)} with ${d.targets} ${d.targets === 1 ? "target" : "targets"}`;
     case "integration.changed": {
       const parts = [
         d.label ? "its label" : null,
@@ -162,11 +166,13 @@ export function auditSummary(event: AuditEventView): string {
     case "integration.removed":
       return `Removed a ${service(d.service)} connection`;
     case "integration.failing":
-      return d.reason === "key_unavailable"
-        ? `A ${service(d.service)} connection's credential can no longer be opened`
-        : d.reason === "site_mismatch"
-          ? `The ${service(d.service)} site behind a connection changed its address`
-          : `${service(d.service)} refused a connection's credential`;
+      return d.reason === "app_uninstalled"
+        ? `The ${service(d.service)} app behind a connection was uninstalled`
+        : d.reason === "key_unavailable"
+          ? `A ${service(d.service)} connection's credential can no longer be opened`
+          : d.reason === "site_mismatch"
+            ? `The ${service(d.service)} site behind a connection changed its address`
+            : `${service(d.service)} refused a connection's credential`;
     case "issue.created": {
       const sent = [
         d.link ? "the link" : null,

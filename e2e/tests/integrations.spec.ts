@@ -202,3 +202,78 @@ test("connect Jira, create an issue from a thread with the message, and see its 
     .getByRole("link", { name: `Issue ${created?.key} in Engineering` });
   await expect(link).toHaveAttribute("href", created?.url ?? "");
 });
+
+// Slack (decision 0025): the fake Slack app of e2e/worker/integrations.ts, assembled so no
+// committed literal looks like a real token. Not secrets.
+const SLACK = {
+  botToken: ["xoxb", "e2e", "fake", "slack", "bot", "0123456789"].join("-"),
+  signingSecret: "e2e0".repeat(8),
+};
+
+test("start a Slack connection, finish it with the bot token, and answer Slack's verification", async ({
+  page,
+  context,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const owner = await createUser("Owner");
+  await sql(
+    "INSERT INTO owner_plans (owner_id, plan, seats, granted_by, updated_at) VALUES (?, 'team', 1, 'e2e', ?)",
+    [owner.userId, Date.now()],
+  );
+  await signIn(context, owner);
+  await page.goto(`${APP_ORIGIN}/integrations`);
+  const form = page.getByRole("region", { name: "Connect a service" });
+  await form.getByLabel("Slack").check();
+  await form.getByLabel(/^Label/).fill("Acme Slack");
+  await form.getByRole("button", { name: "Start" }).press("Enter");
+  const list = page.getByRole("region", { name: "Connections" });
+  await expect(list.getByRole("heading", { name: "Acme Slack" })).toBeVisible();
+  await expect(list.getByText("Not finished", { exact: true })).toBeVisible();
+  await expect(list.getByRole("link", { name: /Create the app in Slack/ })).toHaveAttribute(
+    "href",
+    /^https:\/\/api\.slack\.com\/apps\?new_app=1&manifest_json=/,
+  );
+  const requestUrl = await list
+    .getByText(/\/integrations\/slack\/events\/default\/ic_[0-9a-f]{32}/)
+    .first()
+    .textContent();
+  const path = /\/integrations\/slack\/events\/default\/ic_[0-9a-f]{32}/.exec(
+    String(requestUrl),
+  )?.[0];
+  expect(path).toBeTruthy();
+  expect(await axeViolations(page)).toEqual([]);
+
+  const finish = list.getByRole("form", { name: "Finish connecting Slack" });
+  await finish.getByLabel(/^Bot User OAuth Token/).fill(SLACK.botToken);
+  await finish.getByLabel(/^Signing Secret/).fill(SLACK.signingSecret);
+  await finish.getByRole("button", { name: "Finish connecting" }).press("Enter");
+  await expect(list.getByText("Slack workspace E2E Slack")).toBeVisible();
+  await expect(list.getByText(/click Verify next to the Request URL/)).toBeVisible();
+  expect(await page.content()).not.toContain(SLACK.botToken);
+
+  // Slack's "Verify": a signed url_verification answers the challenge; an unsigned one is refused.
+  const body = JSON.stringify({ type: "url_verification", challenge: "e2eChallenge_1" });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const { createHmac } = await import("node:crypto");
+  const signature = `v0=${createHmac("sha256", SLACK.signingSecret).update(`v0:${timestamp}:${body}`).digest("hex")}`;
+  const verified = await page.request.post(`${APP_ORIGIN}${path}`, {
+    headers: {
+      "content-type": "application/json",
+      "x-slack-request-timestamp": timestamp,
+      "x-slack-signature": signature,
+    },
+    data: body,
+  });
+  expect(verified.status()).toBe(200);
+  expect(await verified.json()).toEqual({ challenge: "e2eChallenge_1" });
+  const forged = await page.request.post(`${APP_ORIGIN}${path}`, {
+    headers: {
+      "content-type": "application/json",
+      "x-slack-request-timestamp": timestamp,
+      "x-slack-signature": `v0=${"0".repeat(64)}`,
+    },
+    data: body,
+  });
+  expect(forged.status()).toBe(401);
+  expect(await forged.text()).toBe("");
+});

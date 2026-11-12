@@ -47,7 +47,7 @@ type Answer =
   | Exclude<IntegrationCallResult, { kind: "status" } | { kind: "graphql" }>;
 
 /** Reads at most `limit` bytes of a body; null when it is larger. */
-async function readBounded(response: Response, limit: number, signal: AbortSignal) {
+export async function readBounded(response: Response, limit: number, signal: AbortSignal) {
   const reader = response.body?.getReader();
   if (!reader) return "";
   const chunks: Uint8Array[] = [];

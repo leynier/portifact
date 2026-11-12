@@ -1,25 +1,30 @@
-// The Integrations page (`/integrations`, premium plan T7, decision 0018): the space's
-// connections to GitHub Issues, Linear or Jira Cloud, for its admins. Connecting takes a credential the admin
+// The Integrations page (`/integrations`, premium plan T7, decisions 0018 and 0025): the space's
+// connections to GitHub Issues, Linear, Jira Cloud or the space's own Slack app, for its admins.
+// Slack is connected in two steps: a label starts it and shows the app's manifest, then the bot
+// token and signing secret complete it. Connecting takes a credential the admin
 // pastes (with exact steps for the least-privilege token at each service), which the server
 // checks and seals; afterwards only its last four characters and the account it acts as are
 // shown. Each connection can be tested, changed and removed with a confirmation. Without the
 // feature in the plan it says which plan includes integrations; while Portifact does not offer
 // them, the page shows nothing to do and the sidebar has no link to it.
 import {
+  type ConnectionService,
+  DEFAULT_REGION,
   INTEGRATION_LIMITS,
   INTEGRATION_SERVICES,
   type IntegrationConnectionView,
-  type IntegrationService,
   type IntegrationTestResult,
   isIntegrationService,
   lowestPlanWith,
   PLAN_LABELS,
+  type SlackSetupView,
 } from "@portifact/contracts";
 import {
   Badge,
   Button,
   Callout,
   ConfirmDialog,
+  CopyField,
   Disclosure,
   EmptyState,
   PageHeader,
@@ -29,10 +34,12 @@ import {
   TextInput,
 } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import {
   Blocks,
   CircleAlert,
   CircleCheck,
+  ExternalLink,
   Info,
   Pencil,
   PlugZap,
@@ -43,7 +50,7 @@ import { type FormEvent, useState } from "react";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { refreshOptions } from "../refresh.ts";
-import { spaceCan, useReadySpace } from "../space.tsx";
+import { spaceCan, spaceRegion, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
@@ -62,7 +69,7 @@ type T = ReturnType<typeof useT>;
  * a neutral label instead of a missing message.
  */
 export function serviceLabel(t: T, service: string): string {
-  return isIntegrationService(service)
+  return isIntegrationService(service) || service === "slack"
     ? t(`integrations.service.${service}`)
     : t("integrations.service.other");
 }
@@ -146,6 +153,7 @@ export function IntegrationsScreen() {
                           slug={space.slug}
                           connection={connection}
                           available={data.available}
+                          eu={space.kind === "workspace" && spaceRegion(space) !== DEFAULT_REGION}
                         />
                       ))}
                     </ul>
@@ -159,6 +167,7 @@ export function IntegrationsScreen() {
             disabled={!list.data || !available || full}
             full={full}
             limit={list.data?.limit ?? INTEGRATION_LIMITS.perOwner}
+            slack={list.data?.slackAvailable ?? false}
           />
         </div>
       )}
@@ -174,14 +183,16 @@ function connectError(t: T, error: unknown): string {
 }
 
 /** Exact steps for the least-privilege credential at each service. */
-function HowTo({ service }: { service: IntegrationService }) {
+function HowTo({ service }: { service: ConnectionService }) {
   const t = useT();
   const steps =
-    service === "github"
-      ? ([1, 2, 3, 4, 5] as const).map((n) => t(`integrations.howto.github.${n}`))
-      : service === "jira"
-        ? ([1, 2, 3, 4, 5] as const).map((n) => t(`integrations.howto.jira.${n}`))
-        : ([1, 2, 3] as const).map((n) => t(`integrations.howto.linear.${n}`));
+    service === "slack"
+      ? ([1, 2, 3, 4] as const).map((n) => t(`integrations.howto.slack.${n}`))
+      : service === "github"
+        ? ([1, 2, 3, 4, 5] as const).map((n) => t(`integrations.howto.github.${n}`))
+        : service === "jira"
+          ? ([1, 2, 3, 4, 5] as const).map((n) => t(`integrations.howto.jira.${n}`))
+          : ([1, 2, 3] as const).map((n) => t(`integrations.howto.linear.${n}`));
   return (
     <Disclosure appearance="inline" summary={t(`integrations.howto.${service}.title`)}>
       <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm text-text-muted">
@@ -198,17 +209,20 @@ function Connect({
   disabled,
   full,
   limit,
+  slack,
 }: {
   slug: string | undefined;
   disabled: boolean;
   full: boolean;
   limit: number;
+  /** Slack connections are offered (`slackAvailable`). */
+  slack: boolean;
 }) {
   const t = useT();
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
-  const [service, setService] = useState<IntegrationService>("github");
+  const [service, setService] = useState<ConnectionService>("github");
   const [label, setLabel] = useState("");
   const [credential, setCredential] = useState("");
   const [targets, setTargets] = useState("");
@@ -220,13 +234,17 @@ function Connect({
   const create = useMutation({
     mutationFn: () =>
       api.createIntegration(
-        {
-          service,
-          label: label.trim(),
-          credential: credential.trim(),
-          targets: targetLines(targets),
-          ...(jira ? { account: account.trim(), site: site.trim(), cloudId: cloudId.trim() } : {}),
-        },
+        service === "slack"
+          ? { service, label: label.trim() }
+          : {
+              service,
+              label: label.trim(),
+              credential: credential.trim(),
+              targets: targetLines(targets),
+              ...(jira
+                ? { account: account.trim(), site: site.trim(), cloudId: cloudId.trim() }
+                : {}),
+            },
         slug,
       ),
     onSuccess: async (created) => {
@@ -237,7 +255,11 @@ function Connect({
       setSite("");
       setCloudId("");
       await queryClient.invalidateQueries({ queryKey: ["integrations"] });
-      announce(t("integrations.connected", { label: created.label }));
+      announce(
+        t(created.service === "slack" ? "integrations.slack.started" : "integrations.connected", {
+          label: created.label,
+        }),
+      );
     },
     // The credential never stays in the form after a failed attempt either.
     onError: () => setCredential(""),
@@ -252,16 +274,15 @@ function Connect({
         {full ? (
           <p className="text-sm text-text-muted">{t("integrations.add.limit", { limit })}</p>
         ) : null}
-        <RadioGroup<IntegrationService>
+        <RadioGroup<ConnectionService>
           legend={t("integrations.add.service")}
           name="integration-service"
           value={service}
           disabled={disabled}
           onChange={setService}
-          options={INTEGRATION_SERVICES.map((value) => ({
-            value,
-            label: t(`integrations.service.${value}`),
-          }))}
+          options={[...INTEGRATION_SERVICES, ...(slack ? (["slack"] as const) : [])].map(
+            (value) => ({ value, label: t(`integrations.service.${value}`) }),
+          )}
         />
         <HowTo service={service} />
         <TextInput
@@ -273,6 +294,12 @@ function Connect({
           disabled={disabled}
           onChange={(event) => setLabel(event.currentTarget.value)}
         />
+        {service === "slack" ? (
+          <p className="text-sm text-text-muted">
+            {t("integrations.slack.notices")}{" "}
+            <Link to="/webhooks">{t("integrations.slack.noticesLink")}</Link>
+          </p>
+        ) : null}
         {jira ? (
           <>
             <TextInput
@@ -306,28 +333,32 @@ function Connect({
             />
           </>
         ) : null}
-        <TextInput
-          label={t(`integrations.add.credential.${service}`)}
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          required
-          value={credential}
-          disabled={disabled}
-          onChange={(event) => setCredential(event.currentTarget.value)}
-        />
-        <TextArea
-          label={t(`integrations.add.targets.${service}`)}
-          description={t(`integrations.add.targetsHint.${service}`, {
-            limit: INTEGRATION_LIMITS.targetsPerConnection,
-          })}
-          compact
-          code
-          rows={3}
-          value={targets}
-          disabled={disabled}
-          onChange={(event) => setTargets(event.currentTarget.value)}
-        />
+        {service === "slack" ? null : (
+          <>
+            <TextInput
+              label={t(`integrations.add.credential.${service}`)}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              required
+              value={credential}
+              disabled={disabled}
+              onChange={(event) => setCredential(event.currentTarget.value)}
+            />
+            <TextArea
+              label={t(`integrations.add.targets.${service}`)}
+              description={t(`integrations.add.targetsHint.${service}`, {
+                limit: INTEGRATION_LIMITS.targetsPerConnection,
+              })}
+              compact
+              code
+              rows={3}
+              value={targets}
+              disabled={disabled}
+              onChange={(event) => setTargets(event.currentTarget.value)}
+            />
+          </>
+        )}
         {create.isError ? (
           <Callout
             tone="error"
@@ -345,7 +376,7 @@ function Connect({
             busy={create.isPending}
             disabled={disabled}
           >
-            {t("integrations.add.submit")}
+            {t(service === "slack" ? "integrations.slack.start" : "integrations.add.submit")}
           </Button>
         </div>
       </form>
@@ -369,10 +400,13 @@ function ConnectionCard({
   slug,
   connection,
   available,
+  eu,
 }: {
   slug: string | undefined;
   connection: IntegrationConnectionView;
   available: boolean;
+  /** The space keeps its data in the EU: say what a Slack app sends outside it. */
+  eu: boolean;
 }) {
   const t = useT();
   const announce = useAnnounce();
@@ -400,6 +434,7 @@ function ConnectionCard({
   });
   const failed = test.error ?? remove.error;
   const busy = test.isPending || remove.isPending;
+  const pending = connection.attention === "pending";
 
   return (
     <li className="flex min-w-0 flex-col gap-3 rounded-md border border-border bg-surface p-4">
@@ -407,7 +442,11 @@ function ConnectionCard({
         <div className="min-w-0 flex-1 basis-48">
           <h3 className="text-base font-semibold break-words">{label}</h3>
           <div className="mt-1.5 flex flex-wrap gap-2">
-            {connection.attention ? (
+            {pending ? (
+              <Badge emphasis="strong" icon={<Info className="size-3.5" />}>
+                {t("integrations.state.pending")}
+              </Badge>
+            ) : connection.attention ? (
               <Badge emphasis="strong" icon={<TriangleAlert className="size-3.5" />}>
                 {t("integrations.state.attention")}
               </Badge>
@@ -425,7 +464,7 @@ function ConnectionCard({
             icon={<PlugZap className="size-4" />}
             aria-label={t("integrations.testLabel", { label })}
             busy={test.isPending}
-            disabled={busy}
+            disabled={busy || pending}
             onClick={() => test.mutate()}
           >
             {t("integrations.test")}
@@ -434,7 +473,7 @@ function ConnectionCard({
             size="sm"
             icon={<Pencil className="size-4" />}
             aria-label={t("integrations.editLabel", { label })}
-            disabled={busy || !available}
+            disabled={busy || !available || pending}
             onClick={() => setEditing(true)}
           >
             {t("integrations.edit")}
@@ -451,15 +490,32 @@ function ConnectionCard({
           </Button>
         </div>
       </div>
-      <ul className="flex flex-col gap-1 text-sm text-text-muted">
-        {connection.site ? (
-          <li>{t("integrations.site", { site: `${connection.site}.atlassian.net` })}</li>
-        ) : null}
-        <li>{t("integrations.identity", { identity: connection.identity })}</li>
-        <li>{t("integrations.credential", { hint: connection.credentialHint })}</li>
-        <li>{connection.targets.map((target) => target.name).join(", ")}</li>
-      </ul>
-      {connection.attention ? (
+      {pending ? null : (
+        <ul className="flex flex-col gap-1 text-sm text-text-muted">
+          {connection.site ? (
+            <li>{t("integrations.site", { site: `${connection.site}.atlassian.net` })}</li>
+          ) : null}
+          <li>
+            {connection.service === "slack"
+              ? t("integrations.slack.team", { team: connection.identity })
+              : t("integrations.identity", { identity: connection.identity })}
+          </li>
+          <li>{t("integrations.credential", { hint: connection.credentialHint })}</li>
+          {connection.service === "slack" ? null : (
+            <li>{connection.targets.map((target) => target.name).join(", ")}</li>
+          )}
+        </ul>
+      )}
+      {connection.slack ? (
+        <SlackSetup
+          slug={slug}
+          connection={connection}
+          setup={connection.slack}
+          available={available}
+          eu={eu}
+        />
+      ) : null}
+      {connection.attention && !pending ? (
         <Callout
           tone="error"
           title={t("integrations.state.attention")}
@@ -499,7 +555,11 @@ function ConnectionCard({
         onConfirm={() => remove.mutate()}
         onCancel={() => setConfirming(false)}
       >
-        {t("integrations.confirm.body")}
+        {t(
+          connection.service === "slack"
+            ? "integrations.confirm.slackBody"
+            : "integrations.confirm.body",
+        )}
       </ConfirmDialog>
     </li>
   );
@@ -524,7 +584,9 @@ function EditConnection({
   const [label, setLabel] = useState(connection.label);
   const [credential, setCredential] = useState("");
   const [account, setAccount] = useState("");
+  const [signingSecret, setSigningSecret] = useState("");
   const jira = connection.service === "jira";
+  const service = connection.service;
   const [targets, setTargets] = useState(connection.targets.map((target) => target.id).join("\n"));
   const save = useMutation({
     mutationFn: () => {
@@ -532,10 +594,23 @@ function EditConnection({
       const sameTargets =
         lines.length === connection.targets.length &&
         lines.every((line, i) => line.toLowerCase() === connection.targets[i]?.id.toLowerCase());
+      const renamed = label.trim() !== connection.label ? { label: label.trim() } : {};
+      if (service === "slack") {
+        return api.updateIntegration(
+          connection.id,
+          {
+            ...renamed,
+            ...(credential.trim() !== "" || signingSecret.trim() !== ""
+              ? { botToken: credential.trim(), signingSecret: signingSecret.trim() }
+              : {}),
+          },
+          slug,
+        );
+      }
       return api.updateIntegration(
         connection.id,
         {
-          ...(label.trim() !== connection.label ? { label: label.trim() } : {}),
+          ...renamed,
           ...(credential.trim() !== "" ? { credential: credential.trim() } : {}),
           ...(jira && credential.trim() !== "" ? { account: account.trim() } : {}),
           ...(sameTargets ? {} : { targets: lines }),
@@ -546,11 +621,15 @@ function EditConnection({
     onSuccess: async (saved) => {
       setCredential("");
       setAccount("");
+      setSigningSecret("");
       await queryClient.invalidateQueries({ queryKey: ["integrations"] });
       announce(t("integrations.saved", { label: saved.label }));
       onClose();
     },
-    onError: () => setCredential(""),
+    onError: () => {
+      setCredential("");
+      setSigningSecret("");
+    },
   });
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -577,15 +656,37 @@ function EditConnection({
           value={label}
           onChange={(event) => setLabel(event.currentTarget.value)}
         />
-        <TextInput
-          label={t(`integrations.add.credential.${connection.service}`)}
-          description={t("integrations.edit.credentialHint")}
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          value={credential}
-          onChange={(event) => setCredential(event.currentTarget.value)}
-        />
+        {service === "slack" ? (
+          <>
+            <TextInput
+              label={t("integrations.slack.botToken")}
+              description={t("integrations.edit.slackHint")}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={credential}
+              onChange={(event) => setCredential(event.currentTarget.value)}
+            />
+            <TextInput
+              label={t("integrations.slack.signingSecret")}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              value={signingSecret}
+              onChange={(event) => setSigningSecret(event.currentTarget.value)}
+            />
+          </>
+        ) : (
+          <TextInput
+            label={t(`integrations.add.credential.${service}`)}
+            description={t("integrations.edit.credentialHint")}
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={credential}
+            onChange={(event) => setCredential(event.currentTarget.value)}
+          />
+        )}
         {jira ? (
           <TextInput
             label={t("integrations.add.account")}
@@ -597,17 +698,19 @@ function EditConnection({
             onChange={(event) => setAccount(event.currentTarget.value)}
           />
         ) : null}
-        <TextArea
-          label={t(`integrations.add.targets.${connection.service}`)}
-          description={t(`integrations.add.targetsHint.${connection.service}`, {
-            limit: INTEGRATION_LIMITS.targetsPerConnection,
-          })}
-          compact
-          code
-          rows={3}
-          value={targets}
-          onChange={(event) => setTargets(event.currentTarget.value)}
-        />
+        {service === "slack" ? null : (
+          <TextArea
+            label={t(`integrations.add.targets.${service}`)}
+            description={t(`integrations.add.targetsHint.${service}`, {
+              limit: INTEGRATION_LIMITS.targetsPerConnection,
+            })}
+            compact
+            code
+            rows={3}
+            value={targets}
+            onChange={(event) => setTargets(event.currentTarget.value)}
+          />
+        )}
         {save.isError ? (
           <Callout
             tone="error"
@@ -619,5 +722,169 @@ function EditConnection({
         ) : null}
       </form>
     </Sheet>
+  );
+}
+
+/**
+ * A Slack connection's setup (decision 0025): while pending, the steps, Slack's prefilled
+ * "create from manifest" link, the manifest and the Request URL to copy, and the form for the bot
+ * token and signing secret; once completed, the "Verify" instruction, and a note when the app runs
+ * an older manifest. The EU note says what the app sends outside the EU.
+ */
+function SlackSetup({
+  slug,
+  connection,
+  setup,
+  available,
+  eu,
+}: {
+  slug: string | undefined;
+  connection: IntegrationConnectionView;
+  setup: SlackSetupView;
+  available: boolean;
+  eu: boolean;
+}) {
+  const t = useT();
+  const announce = useAnnounce();
+  const queryClient = useQueryClient();
+  const { api } = useDashboard();
+  const [botToken, setBotToken] = useState("");
+  const [signingSecret, setSigningSecret] = useState("");
+  const pending = connection.attention === "pending";
+  const complete = useMutation({
+    mutationFn: () =>
+      api.updateIntegration(
+        connection.id,
+        { botToken: botToken.trim(), signingSecret: signingSecret.trim() },
+        slug,
+      ),
+    onSuccess: async (saved) => {
+      setBotToken("");
+      setSigningSecret("");
+      await queryClient.invalidateQueries({ queryKey: ["integrations"] });
+      announce(t("integrations.connected", { label: saved.label }));
+    },
+    // Neither secret stays in the form after a failed attempt.
+    onError: () => {
+      setBotToken("");
+      setSigningSecret("");
+    },
+  });
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    complete.mutate();
+  };
+  const copied = () => announce(t("integrations.slack.copied"));
+  const copyFields = (
+    <>
+      <CopyField
+        label={t("integrations.slack.requestUrl")}
+        value={setup.requestUrl}
+        copyLabel={t("integrations.slack.copyRequestUrl")}
+        copiedLabel={t("integrations.slack.copied")}
+        onCopied={copied}
+      />
+      <Disclosure appearance="inline" summary={t("integrations.slack.manifest")}>
+        <CopyField
+          label={t("integrations.slack.manifest")}
+          value={setup.manifest}
+          copyLabel={t("integrations.slack.copyManifest")}
+          copiedLabel={t("integrations.slack.copied")}
+          onCopied={copied}
+        />
+      </Disclosure>
+    </>
+  );
+  return (
+    <div className="flex flex-col gap-4">
+      {eu ? (
+        <Callout tone="info" title={t("region.leaves.title")} icon={<Info className="size-5" />}>
+          {t("integrations.slack.eu")}
+        </Callout>
+      ) : null}
+      {pending ? (
+        <>
+          <Callout tone="info" title={t("integrations.slack.pending.title")}>
+            {t("integrations.slack.pending.body")}
+          </Callout>
+          <HowTo service="slack" />
+          <p className="text-sm text-text-muted">{t("integrations.slack.rename")}</p>
+          <div>
+            <a
+              href={setup.createUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium underline"
+            >
+              {t("integrations.slack.create")}
+              <ExternalLink className="size-4" aria-hidden="true" />
+            </a>
+          </div>
+          {copyFields}
+          <form
+            className="flex flex-col gap-4"
+            aria-label={t("integrations.slack.pending.title")}
+            onSubmit={submit}
+            noValidate
+          >
+            <TextInput
+              label={t("integrations.slack.botToken")}
+              description={t("integrations.slack.botTokenHint")}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              required
+              value={botToken}
+              disabled={!available}
+              onChange={(event) => setBotToken(event.currentTarget.value)}
+            />
+            <TextInput
+              label={t("integrations.slack.signingSecret")}
+              description={t("integrations.slack.signingSecretHint")}
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              required
+              value={signingSecret}
+              disabled={!available}
+              onChange={(event) => setSigningSecret(event.currentTarget.value)}
+            />
+            {complete.isError ? (
+              <Callout
+                tone="error"
+                title={t("integrations.actionFailed")}
+                icon={<CircleAlert className="size-5" />}
+              >
+                {errorMessage(t, complete.error)}
+              </Callout>
+            ) : null}
+            <div>
+              <Button
+                type="submit"
+                intent="primary"
+                icon={<PlugZap className="size-4" />}
+                busy={complete.isPending}
+                disabled={!available}
+              >
+                {t("integrations.slack.finish")}
+              </Button>
+            </div>
+          </form>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-text-muted">{t("integrations.slack.verify")}</p>
+          <p className="text-sm text-text-muted">{t("integrations.slack.rename")}</p>
+          {setup.outdated ? (
+            <Callout tone="info" title={t("integrations.slack.outdatedTitle")}>
+              {t("integrations.slack.outdated")}
+            </Callout>
+          ) : null}
+          <Disclosure appearance="inline" summary={t("integrations.slack.setup")}>
+            <div className="flex flex-col gap-4">{copyFields}</div>
+          </Disclosure>
+        </>
+      )}
+    </div>
   );
 }

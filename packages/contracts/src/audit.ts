@@ -17,9 +17,10 @@ import {
 } from "./github-oidc.ts";
 import { WORKSPACE_GROUPS, WorkspaceGroupId } from "./groups.ts";
 import {
+  ConnectionService,
   GitHubRepo,
   INTEGRATION_LIMITS,
-  IntegrationAttention,
+  IntegrationFailingReason,
   IntegrationService,
   JiraProjectKey,
   LinearTeamId,
@@ -220,19 +221,20 @@ export const AUDIT_DETAILS = {
   "webhook.removed": empty,
   /** An issue integration (decision 0018): the service and how many targets, never the credential. */
   "integration.connected": z.strictObject({
-    service: IntegrationService,
-    targets: z.number().int().min(1).max(INTEGRATION_LIMITS.targetsPerConnection),
+    service: ConnectionService,
+    /** 0 for Slack, which has no targets (decision 0025). */
+    targets: z.number().int().min(0).max(INTEGRATION_LIMITS.targetsPerConnection),
   }),
   "integration.changed": z.strictObject({
     label: z.literal(true).optional(),
     credential: z.literal(true).optional(),
     targets: z.number().int().min(1).max(INTEGRATION_LIMITS.targetsPerConnection).optional(),
   }),
-  "integration.removed": z.strictObject({ service: IntegrationService }),
+  "integration.removed": z.strictObject({ service: ConnectionService }),
   /** The service refused the credential, or no key opens it: issues stop until an admin acts. */
   "integration.failing": z.strictObject({
-    service: IntegrationService,
-    reason: IntegrationAttention,
+    service: ConnectionService,
+    reason: IntegrationFailingReason,
   }),
   /**
    * An issue created from a thread: the service, the repository, Linear team ID or Jira project

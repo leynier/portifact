@@ -2593,6 +2593,58 @@ export const ja = {
     "認証情報は Portifact から削除されます。作成済みの issue のリンクは残り、作成中の issue は失敗します。サービス側でもトークンやキーを取り消してください。",
   "integrations.removed": "{label} を削除しました。",
   "integrations.actionFailed": "うまくいきませんでした",
+  "integrations.service.slack": "Slack",
+  "integrations.state.pending": "未完了",
+  "integrations.attention.pending":
+    "接続を完了してください: Slack アプリの bot token と signing secret を貼り付けます。",
+  "integrations.attention.app_uninstalled":
+    "Slack によると、アプリがアンインストールされたか、トークンが取り消されました。Slack で再インストールし、新しい bot token と signing secret を貼り付けてください。",
+  "integrations.howto.slack.title": "Slack の接続方法",
+  "integrations.howto.slack.1":
+    "ここでラベルを入力して始めます。Portifact が自分専用の Slack アプリのマニフェストを表示します。この時点では Slack に何も送信されません。",
+  "integrations.howto.slack.2":
+    "リンクを開いてそのマニフェストから Slack でアプリを作成し、Slack ワークスペースにインストールします。アプリを作成・インストールする権限が必要です。",
+  "integrations.howto.slack.3":
+    "OAuth & Permissions の Bot User OAuth Token (xoxb- で始まります) と Basic Information の Signing Secret をコピーして、ここに貼り付けます。",
+  "integrations.howto.slack.4":
+    "Slack のアプリ設定で Event Subscriptions を開き、Request URL の横の Verify をクリックします。",
+  "integrations.slack.start": "開始",
+  "integrations.slack.started":
+    "{label} を開始しました。完了するにはマニフェストから Slack アプリを作成してください。",
+  "integrations.slack.notices":
+    "チャンネルへの通知は Webhook から届きます。同じ Slack アプリに incoming webhook を追加し、その URL を Webhook ページに貼り付けてください。",
+  "integrations.slack.noticesLink": "Webhook を開く",
+  "integrations.slack.pending.title": "Slack の接続を完了",
+  "integrations.slack.pending.body":
+    "このマニフェストからアプリを作成して Slack ワークスペースにインストールし、下に bot token と signing secret を貼り付けてください。24 時間以内に完了しない接続は削除されます。",
+  "integrations.slack.create": "Slack でアプリを作成",
+  "integrations.slack.manifest": "アプリのマニフェスト",
+  "integrations.slack.requestUrl": "Request URL",
+  "integrations.slack.copyRequestUrl": "Request URL をコピー",
+  "integrations.slack.copyManifest": "マニフェストをコピー",
+  "integrations.slack.copied": "コピーしました",
+  "integrations.slack.botToken": "Bot User OAuth Token",
+  "integrations.slack.botTokenHint":
+    "Slack のアプリ設定の OAuth & Permissions にあります。xoxb- で始まります。",
+  "integrations.slack.signingSecret": "Signing Secret",
+  "integrations.slack.signingSecretHint":
+    "Slack のアプリ設定の Basic Information、App Credentials にあります。",
+  "integrations.slack.finish": "接続を完了",
+  "integrations.slack.verify":
+    "次に、Slack のアプリ設定で Event Subscriptions を開き、Request URL の横の Verify をクリックしてください。Slack が確認できない場合は signing secret が間違っています。ここにもう一度貼り付けてください。",
+  "integrations.slack.rename":
+    "アプリ名は Portifact です。1 つの Slack ワークスペースに接続した 2 つのスペースを区別するには、Slack のアプリ設定 (Basic Information、Display Information) でアプリ名を変更してください。",
+  "integrations.slack.team": "Slack ワークスペース {team}",
+  "integrations.slack.outdatedTitle": "古いマニフェスト",
+  "integrations.slack.outdated":
+    "このアプリは古いマニフェストから作成されました。Slack でアプリのマニフェストを下のものに更新してください。",
+  "integrations.slack.setup": "マニフェストと Request URL",
+  "integrations.slack.eu":
+    "このスペースのデータは EU に保管されています。接続した Slack アプリは、リンクが投稿された公開 artifact の名前など Portifact が送る情報を受け取り、Slack はそれを EU の外に保管する場合があります。",
+  "integrations.edit.slackHint":
+    "現在のトークンとシークレットを使い続けるには両方とも空のままにします。新しい bot token は signing secret と一緒に送ります。",
+  "integrations.confirm.slackBody":
+    "bot token と signing secret は Portifact から削除され、Portifact は Slack で bot token を取り消します。Slack でもアプリを削除してください。",
   "issues.create": "issue を作成",
   "issues.dialog.title": "スレッド {number} から issue を作成",
   "issues.dialog.close": "閉じる",
@@ -2640,15 +2692,17 @@ export const ja = {
   "issues.failure.service_unavailable": "サービスが応答しませんでした。",
   "issues.failure.invalid_response": "サービスの応答を Portifact が使用できませんでした。",
   "audit.kind.integrationConnected":
-    "{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} を {targets, plural, one {# 件のリポジトリまたはチーム} other {# 件のリポジトリまたはチーム}} で接続しました",
+    "{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} を {targets, plural, one {# 件のリポジトリまたはチーム} other {# 件のリポジトリまたはチーム}} で接続しました",
+  "audit.kind.integrationConnectedOnly":
+    "{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} を接続しました",
   "audit.kind.integrationChanged":
     "{credential, select, true {接続の認証情報を置き換えました} other {接続のラベルまたは対象を変更しました}}",
   "audit.kind.integrationRemoved":
-    "{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} の接続を削除しました",
+    "{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} の接続を削除しました",
   "audit.kind.integrationFailing":
-    "{reason, select, site_mismatch {接続先の Jira サイトのアドレスが変わりました} key_unavailable {接続の認証情報を開けなくなりました} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} が接続の認証情報を拒否しました}}",
+    "{reason, select, app_uninstalled {接続の Slack アプリがアンインストールされました} site_mismatch {接続先の Jira サイトのアドレスが変わりました} key_unavailable {接続の認証情報を開けなくなりました} other {{service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} が接続の認証情報を拒否しました}}",
   "audit.kind.issueCreated":
-    "スレッドから {target} に {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} の issue を作成しました {message, select, true {(最初のメッセージを含む)} other {(コメントのテキストなし)}}",
+    "スレッドから {target} に {service, select, github {GitHub} linear {Linear} jira {Jira} slack {Slack} other {{service}}} の issue を作成しました {message, select, true {(最初のメッセージを含む)} other {(コメントのテキストなし)}}",
   "policies.networks.legend": "人のためのネットワーク",
   "policies.networks.hint":
     "管理者を含むメンバーは、これらのネットワークからのみワークスペースを操作し、ワークスペース限定のartifactを閲覧できます。公開artifact、共有リンク、共有した外部の人には影響しません。",

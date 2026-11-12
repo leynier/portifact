@@ -23,9 +23,17 @@ import {
   IntegrationCreate,
   IntegrationTestResult,
   IntegrationUpdate,
+  type Region,
+  type SlackSetupView,
   ThreadIssueCreate,
   ThreadIssueView,
 } from "@portifact/contracts";
+import {
+  slackCreateUrl,
+  slackEventsPath,
+  slackManifest,
+  slackManifestOutdated,
+} from "@portifact/domain";
 import {
   type ChoiceListing,
   type ConnectionRecord,
@@ -50,8 +58,33 @@ import { type ApiContext, error, type Guarded, iso, readJson, workspaceParam } f
 
 /** Whether integrations are offered at all: the explicit switch and a key (decision 0018). */
 export function integrationSwitch(env: Env) {
+  const enabled = env.INTEGRATIONS_ENABLED === "true" && typeof env.INTEGRATIONS_KEY === "string";
+  // Slack is switched on on its own, besides the integrations switch (decision 0025).
+  return { enabled, slack: enabled && env.SLACK_ENABLED === "true" };
+}
+
+/**
+ * How a Slack connection is set up: its events endpoint on this deployment's app origin and the
+ * manifest whose unfurl domains are this deployment's content domain and app host.
+ */
+export function slackSetup(
+  env: Pick<Env, "APP_ORIGIN" | "CONTENT_DOMAIN">,
+  region: Region,
+  row: Pick<ConnectionRecord, "id" | "service" | "manifestVersion">,
+): SlackSetupView | null {
+  if (row.service !== "slack") return null;
+  const origin = authUrls(env.APP_ORIGIN).origin;
+  const requestUrl = `${origin}${slackEventsPath(region, row.id)}`;
+  const manifest = slackManifest({
+    requestUrl,
+    unfurlDomains: [env.CONTENT_DOMAIN, new URL(origin).host],
+  });
   return {
-    enabled: env.INTEGRATIONS_ENABLED === "true" && typeof env.INTEGRATIONS_KEY === "string",
+    requestUrl,
+    manifest: JSON.stringify(manifest, null, 2),
+    createUrl: slackCreateUrl(manifest),
+    manifestVersion: row.manifestVersion,
+    outdated: slackManifestOutdated(row.manifestVersion),
   };
 }
 
@@ -67,9 +100,14 @@ export function choiceListView(listing: ChoiceListing): IntegrationChoiceList {
   return IntegrationChoiceList.parse(listing);
 }
 
-export function connectionView(row: ConnectionRecord): IntegrationConnectionView {
+export function connectionView(
+  row: ConnectionRecord,
+  slack: SlackSetupView | null = null,
+): IntegrationConnectionView {
+  const { manifestVersion: _, ...shown } = row;
   return IntegrationConnectionView.parse({
-    ...row,
+    ...shown,
+    slack,
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),
   });
@@ -198,9 +236,12 @@ export function integrationRoutes(deps: IntegrationRouteDeps) {
       if (!result.ok) return fail(c, result.code, result.message);
       return c.json(
         IntegrationConnectionList.parse({
-          connections: result.value.connections.map(connectionView),
+          connections: result.value.connections.map((row) =>
+            connectionView(row, slackSetup(c.env, scope.actor.region, row)),
+          ),
           available: result.value.available,
           serviceAvailable: result.value.serviceAvailable,
+          slackAvailable: integrationSwitch(c.env).slack,
           limit: INTEGRATION_LIMITS.perOwner,
           targetLimit: INTEGRATION_LIMITS.targetsPerConnection,
         }),
@@ -224,7 +265,10 @@ export function integrationRoutes(deps: IntegrationRouteDeps) {
         now: deps.now(),
       });
       if (!result.ok) return fail(c, result.code, result.message);
-      return c.json(connectionView(result.value), 201);
+      return c.json(
+        connectionView(result.value, slackSetup(c.env, scope.actor.region, result.value)),
+        201,
+      );
     }),
   );
 
@@ -245,7 +289,9 @@ export function integrationRoutes(deps: IntegrationRouteDeps) {
         now: deps.now(),
       });
       if (!result.ok) return fail(c, result.code, result.message);
-      return c.json(connectionView(result.value));
+      return c.json(
+        connectionView(result.value, slackSetup(c.env, scope.actor.region, result.value)),
+      );
     }),
   );
 
@@ -278,6 +324,13 @@ export function integrationRoutes(deps: IntegrationRouteDeps) {
         actor: scope.actor,
         connectionId: id,
         now: deps.now(),
+        // A removed Slack connection's token is revoked at Slack after the answer (decision 0025).
+        slack: {
+          enabled: integrationSwitch(c.env).slack,
+          keys: await appIntegrationKeys(c.env),
+          fetch: deps.fetch(c.env),
+          defer: (task) => c.executionCtx.waitUntil(task),
+        },
       });
       if (!result.ok) return fail(c, result.code, result.message);
       return c.json({ connectionId: id, removed: true });

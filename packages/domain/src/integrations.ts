@@ -8,6 +8,7 @@
 // characters are removed, so no mention, link, image, HTML, heading or macro in it is ever
 // rendered by the service.
 import {
+  type ConnectionService,
   GitHubRepo,
   INTEGRATION_API,
   INTEGRATION_LIMITS,
@@ -81,12 +82,15 @@ export function allowedTarget(
 const JIRA_API_PATH =
   /^\/ex\/jira\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/rest\/api\/3\/[A-Za-z0-9_/-]+$/;
 
+/** The Slack Web API methods Portifact calls (decision 0025). */
+const SLACK_API_PATH = /^\/api\/(?:auth\.test|auth\.revoke|chat\.unfurl)$/;
+
 /**
  * Checks a URL Portifact is about to call: a public HTTPS URL (the same rules as webhooks) whose
  * origin is exactly the service's fixed API origin. Run before every call, even though the URLs
  * are built from constants, so a mistake in building one can never reach another host.
  */
-export function checkIntegrationCall(service: IntegrationService, raw: string): Result<URL> {
+export function checkIntegrationCall(service: ConnectionService, raw: string): Result<URL> {
   const checked = checkPublicHttpsUrl(raw, 2_048);
   if (!checked.ok) return checked;
   const api = new URL(INTEGRATION_API[service]);
@@ -97,6 +101,13 @@ export function checkIntegrationCall(service: IntegrationService, raw: string): 
   // Jira's REST API version 3 under it.
   if (service === "jira" && !JIRA_API_PATH.test(checked.value.url.pathname)) {
     return refuse("Calls for jira go only to a site's Jira REST API on the Atlassian gateway.");
+  }
+  // Slack: only the Web API methods Portifact uses (decision 0025), never another path.
+  if (
+    service === "slack" &&
+    (!SLACK_API_PATH.test(checked.value.url.pathname) || checked.value.url.search !== "")
+  ) {
+    return refuse("Calls for slack go only to auth.test, auth.revoke and chat.unfurl.");
   }
   return ok(checked.value.url);
 }

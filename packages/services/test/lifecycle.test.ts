@@ -466,6 +466,7 @@ describe("purging archives", () => {
       scheduledSearchIndexing: 0,
       webhooks: { prunedDeliveries: 0, requeued: 0 },
       threadIssues: 0,
+      pendingConnections: 0,
       workspacePolicies: { checked: 0, corrected: 0, failed: 0 },
       commentRetention: {
         checked: 0,
