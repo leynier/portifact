@@ -87,6 +87,21 @@ The form keeps only the artifact ID, a category and a short text, so a full noti
 7. **Copyright counter-notices** follow the Terms: forward a valid counter-notice to the sender of the notice and reinstate 10 to 14 business days after receiving it, unless the sender says a court action was filed. Count substantiated notices per account for the repeat infringer rule.
 8. **The operator's mailbox.** Delete a message once it is handled (the Privacy Policy says messages are kept only as long as needed to handle them), except what step 2 preserves. Never ask people to send personal data by email: point them to the report form or the dashboard. Keep two-step verification on for the mailbox's account.
 
+## Promises kept by hand
+
+The legal pages promise these, and no code does them: the operator does each by hand, records when it was done, and keeps the email. `docs/legal.md` ("Promises the operator keeps by hand") points here.
+
+- **Paid plans.** The pre-contract information, the written confirmation, private seller's details, refunds and billing corrections: "Granting a paid plan" below.
+- **Reports and notices.** Acknowledgements, the 48-hour aim, urgent reporting and preservation, statements of reasons, decisions sent to reporters, reviews and counter-notices: "Reports" above.
+- **Switching and leaving.** "A customer asks to switch or leave" below, including returning by hand what no export tool covers.
+- **Changes to the legal texts.** For a materially adverse change, email every account's address and update the pages at least 30 days before it takes effect (the urgent security and legal exceptions in the Terms apply, explained as soon as allowed). Use an available contact method for an address on the suppression list.
+- **Price changes.** Email every paying customer and update the pricing page at least 30 days before a new price can apply to a new period.
+- **Shutdown.** Email every account at least 30 days before, unless something beyond our control makes that impossible, and refund unused paid periods in every case.
+- **New sub-processors.** Watch Cloudflare's sub-processor announcements (its objection window is ten days from its notice). Update the DPA's Annex III and email every customer's contact (the data protection contact they named, else the workspace's admins, else the account holder of a personal space used for work) at least 14 days before the new provider receives customer data, or get the customer's specific written authorization for an earlier start. Resolve objections before the provider starts.
+- **Breaches.** Tell each affected customer's contact without undue delay, with what is known and updates as you learn more. Where Portifact is the controller, notify the supervisory authority and the people affected when the law requires.
+- **Privacy requests and complaints.** Answer requests to `privacy@portifact.com` within one calendar month (explain any lawful extension within that month), pass requests about a workspace's data to its admins, send the transfer safeguards and the private annex on request, and acknowledge complaints within 30 days and send the outcome without undue delay.
+- **Workspace deletion.** Delete a workspace at its admins' request (`workspace-delete`) and confirm the deletion in writing once the jobs have finished.
+
 ## Share links
 
 A share link (`app.portifact.com/s#<token>`, [decision 0008](decisions/0008-share-links.md)) lets anyone who holds it read one artifact without an account. Abuse handling does not change:
@@ -303,7 +318,7 @@ Admins set up one OpenID Connect provider per Enterprise workspace on the Member
 - The row is `workspace_sso` (global): issuer, client ID, the sealed client secret and the verified domains it serves. Identities linked through it are Better Auth `accounts` rows with `provider_id = 'sso:<id>'`.
 - People who sign in through it join the workspace as members (or with a pending invitation's role) while it has a free seat; nobody is removed when they leave the identity provider. To cut someone off, remove them from the members list and, if needed, end their sessions.
 - Removing a member writes a `workspace_removals` row, so their next single sign-on does not bring them back (`sso_removed`); inviting them again lifts it. A person whose existing account the provider cannot vouch for (`sso_link_required`) signs in once with an email code and uses "Link single sign-on" on the login page.
-- A customer who lost their identity provider can still sign in with an email code: single sign-on is an extra method, not a replacement, until "required" exists.
+- A customer who lost their identity provider can still sign in to Portifact with an email code, but that sign-in does not satisfy a workspace's active single sign-on requirement (decision 0021); the operator may need to clear the requirement (`clear-request-policies`).
 - Removing the provider writes a `workspace_sso` tombstone, so a restore cannot bring it back (`apply-tombstones` deletes it and its linked identities again). A provider whose secret was sealed with a retired `SSO_KEY` stops signing in until an admin enters the secret again.
 
 ### Workspace SCIM provisioning
