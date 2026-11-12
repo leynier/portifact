@@ -74,7 +74,7 @@ let ops = 0;
 /** The envelope with a fresh durable operation ID, as the Worker sends a mutation. */
 export function op(envelope: Envelope): Envelope {
   ops += 1;
-  return { ...envelope, opId: `op_${ops}` };
+  return { ...envelope, opId: `${NOW}.${ops}` };
 }
 
 export function context(
