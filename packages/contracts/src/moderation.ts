@@ -197,6 +197,18 @@ export const AccountExport = z.object({
     createdAt: Iso,
     termsVersion: z.string().nullable(),
     termsAcceptedAt: IsoOrNull,
+    /**
+     * Every version of the terms the account accepted, oldest first: when, and how (`sign_up`,
+     * `sign_in`, `review` for "Agree and continue", `backfill` for the acceptance held when the
+     * history started).
+     */
+    termsAcceptances: z.array(
+      z.object({
+        version: z.string(),
+        acceptedAt: Iso,
+        action: z.enum(["sign_up", "sign_in", "review", "backfill"]),
+      }),
+    ),
     signInMethods: z.array(z.object({ provider: z.string(), connectedAt: Iso })),
     /** The defaults for new artifacts, the built-in ones when the owner never changed them. */
     settings: AccountSettings,

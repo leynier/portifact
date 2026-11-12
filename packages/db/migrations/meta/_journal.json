@@ -470,6 +470,20 @@
       "when": 1794448217422,
       "tag": "0066_slack_integrations",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "6",
+      "when": 1794472688915,
+      "tag": "0067_terms_acceptances",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "6",
+      "when": 1794472689380,
+      "tag": "0068_terms_acceptances_history",
+      "breakpoints": true
     }
   ]
 }

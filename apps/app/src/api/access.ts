@@ -3,6 +3,7 @@
 // workspace's service token (decision 0011). Every path ends in the same principal, an ID the
 // services resolve a role for, and the same scope check, so a route behaves the same for each.
 import { CREDENTIALS_SCOPE, OAuthScope, SERVICE_TOKEN_SECRET_PREFIX } from "@portifact/contracts";
+import { termsRefusalMessage, usableWithoutCurrentTerms } from "@portifact/domain";
 import type { ServiceTokenAuth } from "@portifact/services";
 import { COOKIE_PREFIX } from "../auth/auth.ts";
 import { bearerToken } from "../auth/introspection.ts";
@@ -44,6 +45,8 @@ export async function authorizeApiRequest(
   caller: ApiCaller,
   request: Request,
   scope: OAuthScope,
+  /** What the route does, when it is one that stays open without the current terms. */
+  operation: string | null = null,
 ): Promise<ApiDecision> {
   const bearer = bearerToken(request.headers.get("authorization"));
   if (caller.serviceToken && bearer?.startsWith(SERVICE_TOKEN_SECRET_PREFIX)) {
@@ -64,7 +67,13 @@ export async function authorizeApiRequest(
   const decision = await authorizeResourceRequest(caller.introspect, request, caller.resource, [
     scope,
   ]);
-  return decision.ok ? { ok: true, userId: decision.principal.userId } : decision;
+  if (!decision.ok) return decision;
+  // A person's token acts for them only under the current terms; reading, removing and narrowing
+  // stay open so they can take their data out and leave (docs/legal.md, "API and MCP clients").
+  if (!decision.termsAccepted && !usableWithoutCurrentTerms({ scope, operation })) {
+    return { ok: false, response: termsRefused(caller.resource) };
+  }
+  return { ok: true, userId: decision.principal.userId };
 }
 
 /** Who manages account-level credentials and channels: the dashboard or the first-party CLI. */
@@ -80,6 +89,8 @@ export type AccountDecision =
 export async function authorizeAccountRequest(
   caller: ApiCaller,
   request: Request,
+  /** What the route does, when it is one that stays open without the current terms. */
+  operation: string | null = null,
 ): Promise<AccountDecision> {
   if (!request.headers.has("authorization") && hasSessionCookie(request.headers.get("cookie"))) {
     if (!fromAppOrigin(request, new URL(caller.resource.identifier).origin)) {
@@ -91,9 +102,27 @@ export async function authorizeAccountRequest(
   const decision = await authorizeResourceRequest(caller.introspect, request, caller.resource, [
     CREDENTIALS_SCOPE,
   ]);
-  return decision.ok
-    ? { ok: true, userId: decision.principal.userId, via: decision.principal.clientId }
-    : decision;
+  if (!decision.ok) return decision;
+  // Removing or turning off a channel out of the account stays open; opening one never does.
+  if (
+    !decision.termsAccepted &&
+    !usableWithoutCurrentTerms({ scope: CREDENTIALS_SCOPE, operation })
+  ) {
+    return { ok: false, response: termsRefused(caller.resource) };
+  }
+  return { ok: true, userId: decision.principal.userId, via: decision.principal.clientId };
+}
+
+/**
+ * The refusal for a person's token while the account has not accepted the current terms. The
+ * message says where to accept them; nothing a client sends can.
+ */
+export function termsRefused(resource: ProtectedResource): Response {
+  return apiError(
+    403,
+    "terms_not_accepted",
+    termsRefusalMessage(new URL(resource.identifier).origin),
+  );
 }
 
 /**
@@ -135,7 +164,7 @@ function serviceTokenDecision(
 
 function apiError(
   status: 401 | 403,
-  code: "unauthenticated" | "forbidden" | "plan_required",
+  code: "unauthenticated" | "forbidden" | "plan_required" | "terms_not_accepted",
   message: string,
   headers: Record<string, string> = {},
 ): Response {

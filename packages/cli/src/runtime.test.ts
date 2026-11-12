@@ -133,6 +133,7 @@ describe("exitCodeFor", () => {
     expect(exitCodeFor("cancelled")).toBe(1);
     expect(exitCodeFor("not_found")).toBe(5);
     expect(exitCodeFor("forbidden")).toBe(5);
+    expect(exitCodeFor("terms_not_accepted")).toBe(9);
     expect(exitCodeFor("version_conflict")).toBe(6);
     expect(exitCodeFor("upload_incomplete")).toBe(6);
     expect(exitCodeFor("artifact_archived")).toBe(6);

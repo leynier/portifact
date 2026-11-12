@@ -51,9 +51,24 @@ async function termsOf(email: string) {
     .first<{ terms_version: string | null; terms_accepted_at: number | null }>();
 }
 
+/** The account's history of accepted versions, oldest version first. */
+async function historyOf(email: string) {
+  const { results } = await env.DB.prepare(
+    "select t.version, t.accepted_at, t.action from terms_acceptances t join users u on u.id = t.user_id where u.email = ? order by t.version",
+  )
+    .bind(email)
+    .all<{ version: string; accepted_at: number; action: string }>();
+  return results;
+}
+
 async function forgetTerms(email: string) {
   await env.DB.prepare(
     "update users set terms_version = null, terms_accepted_at = null where email = ?",
+  )
+    .bind(email)
+    .run();
+  await env.DB.prepare(
+    "delete from terms_acceptances where user_id = (select id from users where email = ?)",
   )
     .bind(email)
     .run();
@@ -135,6 +150,10 @@ describe("POST /api/auth/accept-terms", () => {
     const recorded = await termsOf(email);
     expect(recorded?.terms_version).toBe(TERMS_VERSION);
     expect(recorded?.terms_accepted_at).toBeGreaterThanOrEqual(before);
+    // "Agree and continue" is in the history, with the time the account row holds.
+    expect(await historyOf(email)).toEqual([
+      { version: TERMS_VERSION, accepted_at: recorded?.terms_accepted_at, action: "review" },
+    ]);
   });
 
   it("keeps the time of an earlier acceptance of the same version", async () => {
@@ -142,8 +161,27 @@ describe("POST /api/auth/accept-terms", () => {
     const email = "accept-twice@example.test";
     const cookie = await h.signIn(email);
     const first = await termsOf(email);
-    await h.request("/api/auth/accept-terms", json(TERMS_ACCEPTANCE, { cookie }));
+    const history = await historyOf(email);
+    const again = await h.request("/api/auth/accept-terms", json(TERMS_ACCEPTANCE, { cookie }));
+    expect(again.status).toBe(200);
     expect(await termsOf(email)).toEqual(first);
+    expect(await historyOf(email)).toEqual(history);
+  });
+
+  it("records one history row when the same account accepts twice at once", async () => {
+    const h = createHarness();
+    const email = "accept-concurrently@example.test";
+    const cookie = await h.signIn(email);
+    await forgetTerms(email);
+    const responses = await Promise.all([
+      h.request("/api/auth/accept-terms", json(TERMS_ACCEPTANCE, { cookie })),
+      h.request("/api/auth/accept-terms", json(TERMS_ACCEPTANCE, { cookie })),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    const recorded = await termsOf(email);
+    expect(await historyOf(email)).toEqual([
+      { version: TERMS_VERSION, accepted_at: recorded?.terms_accepted_at, action: "review" },
+    ]);
   });
 });
 
@@ -191,6 +229,9 @@ describe("sign-up with an email code", () => {
       terms_version: TERMS_VERSION,
       terms_accepted_at: acceptedAt,
     });
+    expect(await historyOf(email)).toEqual([
+      { version: TERMS_VERSION, accepted_at: acceptedAt, action: "sign_up" },
+    ]);
     // The session the login page reads says which version the account accepted.
     const session = await h.request("/api/auth/get-session", {
       headers: { cookie: cookieHeader(response) },
@@ -221,14 +262,28 @@ describe("existing accounts", () => {
       .bind(email)
       .run();
 
+    await env.DB.prepare(
+      "update terms_acceptances set version = '2000-01-01' where user_id = (select id from users where email = ?)",
+    )
+      .bind(email)
+      .run();
+    const earlier = await historyOf(email);
+
     const refused = await signInWithCode(h, email);
     expect(refused.status).toBe(403);
     expect(await refused.json()).toMatchObject({ code: TERMS_NOT_ACCEPTED });
     expect((await termsOf(email))?.terms_version).toBe("2000-01-01");
+    expect(await historyOf(email)).toEqual(earlier);
 
     const accepted = await signInWithCode(h, email, await h.acceptTerms());
     expect(accepted.status).toBe(200);
-    expect((await termsOf(email))?.terms_version).toBe(TERMS_VERSION);
+    const now = await termsOf(email);
+    expect(now?.terms_version).toBe(TERMS_VERSION);
+    // The earlier acceptance stays; the new one is added, marked as given at sign-in.
+    expect(await historyOf(email)).toEqual([
+      ...earlier,
+      { version: TERMS_VERSION, accepted_at: now?.terms_accepted_at, action: "sign_in" },
+    ]);
   });
 
   it("sign in without asking again once they accepted the current version", async () => {

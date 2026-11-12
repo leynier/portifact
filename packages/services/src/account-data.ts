@@ -73,17 +73,21 @@ export async function exportAccount(
   db: RegionalDb,
   input: { userId: string; now: number },
 ): Promise<Result<AccountExport>> {
-  const [user] = await db.global
-    .select()
-    .from(schema.users)
-    .where(eq(schema.users.id, input.userId))
-    .limit(1);
+  // The account, its sign-in methods and its history of accepted terms, in one round trip.
+  const [[user], methods, acceptances] = await db.global.batch([
+    db.global.select().from(schema.users).where(eq(schema.users.id, input.userId)).limit(1),
+    db.global
+      .select({ provider: schema.accounts.providerId, createdAt: schema.accounts.createdAt })
+      .from(schema.accounts)
+      .where(eq(schema.accounts.userId, input.userId))
+      .orderBy(asc(schema.accounts.createdAt)),
+    db.global
+      .select()
+      .from(schema.termsAcceptances)
+      .where(eq(schema.termsAcceptances.userId, input.userId))
+      .orderBy(asc(schema.termsAcceptances.acceptedAt), asc(schema.termsAcceptances.version)),
+  ]);
   if (!user) return fail("unauthenticated", "Sign in to export your data.");
-  const methods = await db.global
-    .select({ provider: schema.accounts.providerId, createdAt: schema.accounts.createdAt })
-    .from(schema.accounts)
-    .where(eq(schema.accounts.userId, input.userId))
-    .orderBy(asc(schema.accounts.createdAt));
 
   const artifacts = await db
     .select()
@@ -230,6 +234,11 @@ export async function exportAccount(
       createdAt: user.createdAt.toISOString(),
       termsVersion: user.termsVersion,
       termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
+      termsAcceptances: acceptances.map((row) => ({
+        version: row.version,
+        acceptedAt: iso(row.acceptedAt),
+        action: row.action,
+      })),
       signInMethods: methods.map((method) => ({
         provider: method.provider,
         connectedAt: method.createdAt.toISOString(),

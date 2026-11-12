@@ -2401,6 +2401,8 @@ export const es = {
   "policies.note.linksLifetime":
     "La política del espacio de trabajo limita los enlaces a {days, plural, one {# día} other {# días}}.",
   "error.policy_refused": "Una política del espacio de trabajo no lo permite.",
+  "error.terms_not_accepted":
+    "Acepta los términos vigentes para continuar. Recarga la página para revisarlos.",
   "audit.group.policies": "Políticas",
   "audit.kind.policyChanged": "Cambió las políticas del espacio de trabajo: {changes}",
   "audit.kind.policyEnforced": "Aplicó las políticas del espacio de trabajo: {changes}",

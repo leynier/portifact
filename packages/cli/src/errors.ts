@@ -36,6 +36,11 @@ export const EXIT = {
   limit: 7,
   /** `export` finished without a part the server asked to fetch later: run it again. */
   incomplete: 8,
+  /**
+   * The account has not accepted the current terms (`terms_not_accepted`): the message says to
+   * accept them in the dashboard. Reading and downloading keep working until then.
+   */
+  termsNotAccepted: 9,
 } as const;
 
 /**
@@ -81,6 +86,8 @@ export function exitCodeFor(code: CliErrorCode): number {
     // for a network policy says to connect from an approved network.
     case "policy_refused":
       return EXIT.limit;
+    case "terms_not_accepted":
+      return EXIT.termsNotAccepted;
     default:
       return EXIT.failure;
   }

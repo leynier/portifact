@@ -381,7 +381,8 @@ export const messages = {
     expired: "The login code expired before it was approved. Run `portifact login` to try again.",
     network: (origin: string) => `Could not reach ${origin}. Check your connection and try again.`,
     rateLimited: "Too many requests. Wait a minute and try again.",
-    server: (origin: string) => `${origin} sent a response the CLI did not expect. Try again.`,
+    server: (origin: string) =>
+      `${origin} sent a response the CLI did not expect. Try again. If it keeps happening, update the Portifact CLI, or open the Portifact dashboard in case something waits for you there, such as new terms to accept.`,
     revokeFailed: (origin: string) =>
       `Could not revoke your tokens on ${origin}, so they were kept on this device. Run \`portifact logout\` again.`,
     invalidOrigin:

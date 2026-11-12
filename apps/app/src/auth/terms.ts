@@ -7,11 +7,15 @@
 // hooks below require it to create an account, or to sign in an account whose recorded version
 // is not current, and store it on the account. The cookie survives the Google and GitHub
 // redirects (SameSite=Lax top-level navigation), so all three methods share one rule.
+//
+// Every acceptance is also kept in `terms_acceptances` by the write that records it, and a
+// person's OAuth token is refused anything but reads while its account is on an older version
+// (`termsVersionClaim`, docs/legal.md "API and MCP clients").
 import { TERMS_NOT_ACCEPTED, TERMS_VERSION, TermsAcceptanceInput } from "@portifact/contracts";
 import { createDb, schema } from "@portifact/db";
 import { needsTermsAcceptance } from "@portifact/domain";
 import { APIError } from "better-auth/api";
-import { and, eq, isNull, ne, or } from "drizzle-orm";
+import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
 
 export const TERMS_COOKIE = "__Host-pf_terms";
 /** Long enough to read a code from an email or finish a provider sign-in. */
@@ -100,18 +104,56 @@ function acceptanceCookie(value: string, maxAge: number): string {
   return `${TERMS_COOKIE}=${value}; Max-Age=${maxAge}; Path=/; Secure; HttpOnly; SameSite=Lax`;
 }
 
-/** Records the current version for a signed-in account, keeping an earlier acceptance of it. */
-async function recordAcceptance(d1: D1Database, userId: string, acceptedAt: Date) {
+/** How an acceptance was given, as the history records it (`TERMS_ACCEPTANCE_ACTIONS`). */
+export type AcceptanceAction = "sign_in" | "review";
+
+/**
+ * Records the current version for an existing account, keeping an earlier acceptance of it, and
+ * adds it to the account's history in the same batch, so the fast path on `users` and the
+ * history never disagree. The history row takes the time the account row holds after the update,
+ * and one already there for this version stays: the first acceptance of a version counts.
+ * Creating an account records its first acceptance through the `terms_acceptances_sign_up`
+ * trigger instead (migration 0068), because Better Auth writes that row.
+ */
+export async function recordTermsAcceptance(
+  d1: D1Database,
+  userId: string,
+  acceptedAt: Date,
+  action: AcceptanceAction,
+): Promise<void> {
   const { users } = schema.authSchema;
-  await createDb(d1)
-    .update(users)
-    .set({ termsVersion: TERMS_VERSION, termsAcceptedAt: acceptedAt })
-    .where(
-      and(
-        eq(users.id, userId),
-        or(isNull(users.termsVersion), ne(users.termsVersion, TERMS_VERSION)),
+  const db = createDb(d1);
+  await db.batch([
+    db
+      .update(users)
+      .set({ termsVersion: TERMS_VERSION, termsAcceptedAt: acceptedAt })
+      .where(
+        and(
+          eq(users.id, userId),
+          or(isNull(users.termsVersion), ne(users.termsVersion, TERMS_VERSION)),
+        ),
       ),
-    );
+    db
+      .insert(schema.termsAcceptances)
+      .select(
+        sql`select ${users.id}, ${users.termsVersion}, ${users.termsAcceptedAt}, ${action} from ${users} where ${users.id} = ${userId} and ${users.termsVersion} = ${TERMS_VERSION} and ${users.termsAcceptedAt} is not null`,
+      )
+      .onConflictDoNothing(),
+  ]);
+}
+
+/**
+ * The claim with the terms version a token's account accepted, added by the provider when it
+ * validates the token (`customAccessTokenClaims`). Absent when the account never accepted, which
+ * the gates read as not accepted.
+ */
+export const TERMS_VERSION_CLAIM = "portifact_terms_version";
+
+export function termsVersionClaim(
+  user: Record<string, unknown> | null | undefined,
+): Record<string, string> {
+  const version = user?.termsVersion;
+  return typeof version === "string" ? { [TERMS_VERSION_CLAIM]: version } : {};
 }
 
 export interface AcceptTermsDeps {
@@ -138,7 +180,7 @@ export async function acceptTerms(request: Request, deps: AcceptTermsDeps): Prom
   }
   const userId = await deps.sessionUserId(request);
   if (userId) {
-    await recordAcceptance(deps.db, userId, new Date(deps.now));
+    await recordTermsAcceptance(deps.db, userId, new Date(deps.now), "review");
     return Response.json({ version: TERMS_VERSION, recorded: true });
   }
   const sealed = await sealAcceptance(deps.secret, TERMS_VERSION, deps.now);
@@ -202,7 +244,7 @@ export function termsHooks(d1: D1Database, secret: string) {
           // An existing account that has not accepted the current terms accepts them now.
           const acceptance = await acceptanceFrom(ctx);
           if (!acceptance) throw refused();
-          await recordAcceptance(d1, session.userId, acceptance.acceptedAt);
+          await recordTermsAcceptance(d1, session.userId, acceptance.acceptedAt, "sign_in");
         },
         // The acceptance is used once: a later sign-in on this browser asks again.
         after: async (_session: unknown, ctx: HookContext | null) => {

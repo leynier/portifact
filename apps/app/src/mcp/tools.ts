@@ -29,7 +29,12 @@ import {
   SetPortifactBarInput,
 } from "@portifact/contracts";
 import type { RegionalDb, RegionHandles } from "@portifact/db";
-import type { MultipartConfig } from "@portifact/domain";
+import {
+  type MultipartConfig,
+  TERMS_AGENT_SENTENCE,
+  termsRefusalMessage,
+  usableWithoutCurrentTerms,
+} from "@portifact/domain";
 import type { DomainDeps, HumanCheck } from "@portifact/services";
 import {
   archiveArtifact,
@@ -119,6 +124,7 @@ export const SERVER_INSTRUCTIONS = [
   "Issue integrations (GitHub, Linear) are managed only in the dashboard. Before creating an issue that includes comment text or a quote, ask the user: those are other people's words leaving Portifact.",
   "This server cannot read local files. Send a small document inline with publish_document. For folders, several files or large files, call prepare_upload with the manifest (path, SHA-256, size and type of each file), PUT each listed file's bytes to its presigned URL with any HTTP client (or use the portifact CLI), then call commit_upload.",
   "read_artifact returns a document's text in pages; get_download gives links for whole or binary files.",
+  "A tool that answers terms_not_accepted means the user's account has not accepted the current Portifact terms: tell the user to accept them in the dashboard and wait until they say they have. Never accept them for the user. Reading, and removing or narrowing what the user shares, keep working until then.",
   "Artifacts live in the user's personal space or in a workspace they belong to (list_workspaces); every artifact view says which in owner. The tools that create or list take an optional workspace slug and use the personal space without it. When the user belongs to any workspace and did not say where to publish, ask them which space to use first: a workspace's admins and editors see and manage what is published there.",
 ].join(" ");
 
@@ -139,6 +145,11 @@ export interface ToolContext {
   humanCheck: HumanCheck;
   /** Cloudflare's custom hostnames and DNS; null while custom domains are switched off. */
   domains: DomainDeps | null;
+  /**
+   * Whether the token's account accepted the current terms. Without them only the read tools
+   * run; every other tool answers `terms_not_accepted` (docs/legal.md, "API and MCP clients").
+   */
+  termsAccepted: boolean;
 }
 
 export type RegisterTool = <Input extends StandardSchemaWithJSON>(
@@ -167,13 +178,22 @@ export function createPortifactServer(context: ToolContext): McpServer {
     name: string,
     config: ToolConfig<Input>,
     callback: ToolCallback<Input>,
-  ) =>
-    server.registerTool(
+  ) => {
+    const scope = TOOL_SCOPES.get(name) as OAuthScope;
+    // The same rule as the API's gate, with the tool's name as the operation: a refused tool
+    // answers like its route, with the error as its result.
+    const refused =
+      !context.termsAccepted && !usableWithoutCurrentTerms({ scope, operation: name });
+    return server.registerTool(
       name,
       // A second line of defense: the /mcp gate already required this scope for the call.
-      { ...config, scopeChallenge: requireScopes(TOOL_SCOPES.get(name) as OAuthScope) },
-      callback,
+      { ...config, scopeChallenge: requireScopes(scope) },
+      // It ignores the arguments, so it fits every tool's callback.
+      refused
+        ? (termsRefusedTool(context.env.APP_ORIGIN) as unknown as ToolCallback<Input>)
+        : callback,
     );
+  };
 
   register(
     "list_artifacts",
@@ -558,11 +578,19 @@ export function success(summary: string, body: object): CallToolResult {
   };
 }
 
+/** A tool the account may not use before it accepts the current terms. */
+function termsRefusedTool(appOrigin: string): () => CallToolResult {
+  return () => failure("terms_not_accepted", termsRefusalMessage(appOrigin));
+}
+
 /** A tool error carries the API's error body, so agents see the same codes everywhere. */
 export function failure(code: ErrorCode, message: string): CallToolResult {
-  const body = { error: { code, message } };
+  // An agent reads it: a refusal for the terms tells it to hand the decision to the person, from
+  // the gate and from a service that refused a change that does not only narrow alike.
+  const text = code === "terms_not_accepted" ? `${message} ${TERMS_AGENT_SENTENCE}` : message;
+  const body = { error: { code, message: text } };
   return {
-    content: [{ type: "text", text: `Error ${code}: ${message}\n\n${JSON.stringify(body)}` }],
+    content: [{ type: "text", text: `Error ${code}: ${text}\n\n${JSON.stringify(body)}` }],
     structuredContent: body,
     isError: true,
   };

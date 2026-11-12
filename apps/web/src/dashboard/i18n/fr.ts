@@ -2423,6 +2423,8 @@ export const fr = {
   "policies.note.linksLifetime":
     "La règle de l’espace de travail limite les liens de partage à {days, plural, one {# jour} other {# jours}}.",
   "error.policy_refused": "Une règle de l’espace de travail ne le permet pas.",
+  "error.terms_not_accepted":
+    "Acceptez les conditions en vigueur pour continuer. Rechargez la page pour les consulter.",
   "audit.group.policies": "Règles",
   "audit.kind.policyChanged": "A modifié les règles de l’espace de travail : {changes}",
   "audit.kind.policyEnforced": "A appliqué les règles de l’espace de travail : {changes}",

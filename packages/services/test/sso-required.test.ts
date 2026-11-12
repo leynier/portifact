@@ -74,6 +74,7 @@ const session = (userId: string, method: SignInMethod | null): Credential => ({
 });
 const cli = (userId: string, method: SignInMethod | null): Credential => ({
   kind: "oauth",
+  termsAccepted: true,
   userId,
   clientId: CLI_CLIENT_ID,
   client: "cli",
@@ -82,6 +83,7 @@ const cli = (userId: string, method: SignInMethod | null): Credential => ({
 });
 const app = (userId: string, method: SignInMethod | null): Credential => ({
   kind: "oauth",
+  termsAccepted: true,
   userId,
   clientId: "dcr_client",
   client: "oauth_apps",

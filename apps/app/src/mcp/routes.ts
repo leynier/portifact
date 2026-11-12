@@ -65,6 +65,7 @@ export function mcpRoutes(deps: McpDeps) {
           multipart: deps.multipart?.(c.env),
           domains: deps.domains(c.env),
           humanCheck: humanCheck(c.env, deps.siteverify(c.env), c.req.raw, undefined),
+          termsAccepted: decision.termsAccepted,
         }),
       { legacy: "stateless", maxRequestBodySize: MAX_REQUEST_BYTES },
     );

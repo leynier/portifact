@@ -1,3 +1,4 @@
+import { TERMS_VERSION } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
   authorizeResourceRequest,
@@ -43,7 +44,23 @@ describe("resource guard", () => {
     expect(decision).toEqual({
       ok: true,
       principal: { userId: "user-1", clientId: "client-1", scopes: ["artifacts:read"] },
+      termsAccepted: false,
     });
+  });
+
+  it("says whether the token's account accepted the current terms", async () => {
+    const accepted = await decide({
+      ...user,
+      aud: MCP_RESOURCE,
+      portifact_terms_version: TERMS_VERSION,
+    });
+    expect(accepted.decision).toMatchObject({ ok: true, termsAccepted: true });
+    const older = await decide({
+      ...user,
+      aud: MCP_RESOURCE,
+      portifact_terms_version: "2000-01-01",
+    });
+    expect(older.decision).toMatchObject({ ok: true, termsAccepted: false });
   });
 
   it("accepts an audience given as a single string", async () => {

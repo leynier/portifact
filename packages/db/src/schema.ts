@@ -1647,6 +1647,42 @@ export const accountSettings = sqliteTable(
   ],
 );
 
+/**
+ * How an account accepted a version of the terms (docs/legal.md, "Acceptance at sign-in"):
+ * `sign_up` when choosing a sign-in method created the account, `sign_in` when an existing
+ * account chose one below the notice, `review` with "Agree and continue" on the login page's
+ * review screen, and `backfill` for the acceptance an account held when the history started,
+ * whose action was not recorded.
+ */
+export const TERMS_ACCEPTANCE_ACTIONS = ["sign_up", "sign_in", "review", "backfill"] as const;
+
+/**
+ * Every version of the terms each account accepted, with when and how: the evidence of
+ * acceptance, kept for the life of the account (it cascades from `users`). `users.terms_version`
+ * and `terms_accepted_at` stay the fast path the sign-in hooks read. A row is written by the
+ * statement that records the acceptance: the `terms_acceptances_sign_up` trigger on the insert
+ * of the account (migration 0068), or the batch of `recordTermsAcceptance` in
+ * `apps/app/src/auth/terms.ts`. One row per version: the first acceptance of it counts.
+ */
+export const termsAcceptances = sqliteTable(
+  "terms_acceptances",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    version: text("version").notNull(),
+    acceptedAt: timestamp("accepted_at").notNull(),
+    action: text("action", { enum: TERMS_ACCEPTANCE_ACTIONS }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.version] }),
+    check(
+      "terms_acceptances_action",
+      sql`${t.action} in ('sign_up', 'sign_in', 'review', 'backfill')`,
+    ),
+  ],
+);
+
 /** Plan names; their limits and features live in PLANS (@portifact/contracts). */
 export const OWNER_PLAN_NAMES = ["free", "pro", "team", "enterprise"] as const;
 

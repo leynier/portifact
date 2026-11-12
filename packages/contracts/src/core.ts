@@ -85,6 +85,11 @@ export const ErrorCode = z.enum([
   "plan_required",
   /** A workspace policy (decision 0015) does not allow the operation; the message names it. */
   "policy_refused",
+  /**
+   * The account must accept the current terms in the dashboard first (docs/legal.md, "API and
+   * MCP clients"). Also the code the sign-in hooks refuse with (`TERMS_NOT_ACCEPTED`).
+   */
+  "terms_not_accepted",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 

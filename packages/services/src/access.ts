@@ -16,6 +16,7 @@ import {
 import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   type Actor,
+  accessChangeOnlyNarrows,
   authorize,
   checkAccessChange,
   checkArtifactGroups,
@@ -36,6 +37,7 @@ import { actorAndPlanOn, authorizeOn } from "./actors.ts";
 import { approvalAccessStatements } from "./approval-reviews.ts";
 import { auditEvent } from "./audit.ts";
 import { ownerPlanRecord } from "./plans.ts";
+import { actsWithoutCurrentTerms, narrowingOnly } from "./terms.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { accessAudience } from "./workspace-domains.ts";
 import { artifactGroupRows, groupSummaries } from "./workspace-groups.ts";
@@ -340,6 +342,10 @@ export async function updateAccess(
     return fail("forbidden", "This artifact is suspended; its access cannot change.");
   }
   const { change } = input;
+  // Without the current terms a person may only narrow (docs/legal.md, "API and MCP clients").
+  if (actsWithoutCurrentTerms(db.global) && !accessChangeOnlyNarrows(artifact.accessMode, change)) {
+    return narrowingOnly();
+  }
   const visibility = checkCommentVisibilityChange(actor.token, change);
   if (!visibility.ok) return visibility;
   // Widening the audience is checked against the age of the account making the change (the

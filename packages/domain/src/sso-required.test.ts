@@ -53,6 +53,7 @@ const session = (method: SignInMethod | null, userId = "u1"): Credential => ({
 });
 const token = (method: SignInMethod | null, cli: boolean): Credential => ({
   kind: "oauth",
+  termsAccepted: true,
   userId: "u1",
   clientId: cli ? CLI_CLIENT_ID : "dcr_1",
   client: cli ? "cli" : "oauth_apps",

@@ -69,9 +69,10 @@ export default defineConfig(async () => {
   const dbSource = dirname(createRequire(import.meta.url).resolve("@portifact/db"));
   const migrations = [
     // The spike was recorded against the migrations before F3; 0029 creates the real
-    // `workspaces` tables, which the spike's own migration defines in its own shape.
+    // `workspaces` tables, which the spike's own migration defines in its own shape. The terms
+    // history (0067, 0068) is kept: the spike runs the real terms hooks, which write it.
     ...(await readD1Migrations(join(dbSource, "..", "migrations"))).filter(
-      (migration) => migration.name < "0029",
+      (migration) => migration.name < "0029" || migration.name.includes("_terms_acceptances"),
     ),
     ...(await readD1Migrations(new URL("./migrations", import.meta.url).pathname)),
   ];

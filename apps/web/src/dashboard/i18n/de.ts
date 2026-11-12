@@ -2412,6 +2412,8 @@ export const de = {
   "policies.note.linksLifetime":
     "Die Richtlinie des Workspace begrenzt Freigabelinks auf {days, plural, one {# Tag} other {# Tage}}.",
   "error.policy_refused": "Eine Richtlinie des Workspace erlaubt das nicht.",
+  "error.terms_not_accepted":
+    "Akzeptiere die aktuellen Bedingungen, um fortzufahren. Lade die Seite neu, um sie zu prüfen.",
   "audit.group.policies": "Richtlinien",
   "audit.kind.policyChanged": "Richtlinien des Workspace geändert: {changes}",
   "audit.kind.policyEnforced": "Richtlinien des Workspace angewendet: {changes}",
