@@ -55,6 +55,7 @@ const MATRIX: Record<RoleAction, Record<WorkspaceRole, boolean>> = {
   sso: { admin: true, editor: false, member: false },
   scim: { admin: true, editor: false, member: false },
   integrations: { admin: true, editor: false, member: false },
+  federation: { admin: true, editor: false, member: false },
 };
 
 /** What a service token may do on top of its role (decision 0011): written out on purpose. */

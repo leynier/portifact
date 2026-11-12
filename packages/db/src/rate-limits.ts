@@ -35,6 +35,31 @@ export async function hitRateLimit(
 }
 
 /**
+ * `hitRateLimit` for several keys in one D1 call (one batch), in the order given.
+ */
+export async function hitRateLimits(
+  d1: D1Database,
+  keys: readonly string[],
+  windowMs: number,
+  now: number,
+): Promise<RateLimitHit[]> {
+  const statement = d1.prepare(
+    `insert into rate_limits (key, window_start, count) values (?1, ?2, 1)
+     on conflict (key) do update set
+       count = case when window_start <= ?2 - ?3 then 1 else count + 1 end,
+       window_start = case when window_start <= ?2 - ?3 then ?2 else window_start end
+     returning window_start, count`,
+  );
+  const results = await d1.batch<{ window_start: number; count: number }>(
+    keys.map((key) => statement.bind(key, now, windowMs)),
+  );
+  return results.map((result) => {
+    const row = result.results[0] as { window_start: number; count: number };
+    return { count: row.count, resetAt: row.window_start + windowMs };
+  });
+}
+
+/**
  * Gives back one request counted by `hitRateLimit` in the window that ends at `resetAt`, for an
  * attempt whose outcome should not count (a right password, or a refusal before the check). A
  * window that started again since is left alone, and the count never goes below zero.

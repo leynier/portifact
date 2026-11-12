@@ -132,6 +132,8 @@ export const messages = {
   keyRetry: (key: string) =>
     `Another publish with the key ${key} finished first. Publishing again on top of it.`,
   nothingWithKey: (key: string) => `No artifact has the key ${key}, so nothing was deleted.`,
+  githubOidcWhoami: (origin: string, workspace: string, role: string) =>
+    `Using this GitHub Actions run's credential on ${origin}: workspace ${workspace}, role ${role}.`,
   serviceTokenWhoami: (origin: string, workspace: string, role: string) =>
     `Using the service token in PORTIFACT_TOKEN on ${origin}: workspace ${workspace}, role ${role}.`,
   confirmDelete: (id: string, name: string) =>
@@ -347,6 +349,20 @@ export const messages = {
       "PORTIFACT_TOKEN does not hold a Portifact service token (one starts with pfst_). Copy it again from the workspace's Service tokens page.",
     serviceTokenRefused: (origin: string) =>
       `${origin} refused the service token in PORTIFACT_TOKEN. Ask a workspace admin for a new one.`,
+    githubOidcWorkspace: "PORTIFACT_GITHUB_OIDC must name a workspace by its slug, such as acme.",
+    githubOidcNoRequest:
+      "PORTIFACT_GITHUB_OIDC is set, but this job cannot ask GitHub for an ID token. Run it in GitHub Actions with 'permissions: id-token: write'.",
+    githubOidcUnreachable:
+      "GitHub did not give this job an ID token. Check that the job has 'permissions: id-token: write'.",
+    githubOidcLimited: (origin: string) =>
+      `${origin} is limiting GitHub token exchanges right now. Try again in a few minutes.`,
+    githubOidcRefused: (
+      origin: string,
+      workspace: string,
+      repositoryId: string | undefined,
+      ownerId: string | undefined,
+    ) =>
+      `${origin} did not accept this run for the workspace ${workspace}. A workspace admin trusts the repository under Service tokens, GitHub Actions${repositoryId && ownerId ? `, with repository ID ${repositoryId} and owner ID ${ownerId}` : ""}, and the rule must allow this run's event, ref and environment.`,
     serviceTokenSet:
       "PORTIFACT_TOKEN is set, so this CLI uses that service token and never a stored login. Unset it to sign in or out.",
     serviceTokenWorkspace:

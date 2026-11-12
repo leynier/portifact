@@ -37,6 +37,11 @@ export interface AuthDeps {
    */
   ssoFetch: FetchLike;
   /**
+   * Fetches GitHub's OIDC key set for the Actions federation (decision 0024). Tests and the e2e
+   * stack inject a fake issuer; never real GitHub.
+   */
+  githubOidcFetch: FetchLike;
+  /**
    * Calls GitHub's and Linear's fixed API hosts to check an issue connection's credential
    * (decision 0018). Tests and the e2e stack inject fakes; never the real services.
    */
@@ -70,6 +75,7 @@ export function workerDeps(env: Env): AuthDeps {
     domains: domainDepsFromEnv(env, (input, init) => fetch(input, init)),
     emailDomains: { txt: dohTxt((input, init) => fetch(input, init)) },
     ssoFetch: (input, init) => fetch(input, init),
+    githubOidcFetch: (input, init) => fetch(input, init),
     integrationFetch: (url, init) => fetch(url, init),
   };
 }

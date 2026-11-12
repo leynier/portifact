@@ -57,6 +57,9 @@ import {
   type ErrorCode,
   ErrorDetail,
   FileDiff,
+  type GitHubTrustRuleCreate,
+  GitHubTrustRuleList,
+  GitHubTrustRuleView,
   GraceForecastView,
   IncomingInvitationList,
   IntegrationChoiceList,
@@ -226,6 +229,10 @@ export interface DashboardApi {
   /** Creates a service token; the answer holds its secret once. */
   createServiceToken(slug: string, body: ServiceTokenCreate): Promise<ServiceTokenCreated>;
   revokeServiceToken(slug: string, tokenId: string): Promise<void>;
+  /** GitHub repositories the workspace trusts through OIDC (decision 0024), admins only. */
+  githubTrust(slug: string): Promise<GitHubTrustRuleList>;
+  createGitHubTrust(slug: string, body: GitHubTrustRuleCreate): Promise<GitHubTrustRuleView>;
+  removeGitHubTrust(slug: string, ruleId: string): Promise<void>;
   /** A workspace's directory sync (SCIM), for its admins (session only, decision 0017). */
   scim(slug: string): Promise<ScimOverview>;
   saveScim(slug: string, body: ScimSettingsUpdate): Promise<ScimOverview>;
@@ -907,6 +914,19 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     async removeGroupMember(slug, groupId, userId) {
       await call(
         `${workspacePath(slug)}/groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(userId)}`,
+        z.null(),
+        "DELETE",
+      );
+    },
+    githubTrust(slug) {
+      return call(`${workspacePath(slug)}/github-trust`, GitHubTrustRuleList);
+    },
+    createGitHubTrust(slug, body) {
+      return call(`${workspacePath(slug)}/github-trust`, GitHubTrustRuleView, "POST", body);
+    },
+    async removeGitHubTrust(slug, ruleId) {
+      await call(
+        `${workspacePath(slug)}/github-trust/${encodeURIComponent(ruleId)}`,
         z.null(),
         "DELETE",
       );

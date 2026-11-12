@@ -68,7 +68,9 @@ const DEVELOP = {
   // Plus comment retention's one global call while no workspace of the region sets it (decision
   // 0023): its cursor, its workspaces and the guard record sweep's cursor in one batch (the
   // sweep's R2 list finds nothing here, so it adds no D1 call).
-  runMaintenance: 62,
+  // Plus the prunes of expired GitHub run credentials and of used GitHub ID tokens (decision
+  // 0024): one delete of at most 500 each.
+  runMaintenance: 64,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads

@@ -202,6 +202,14 @@ export function auditSummary(event: AuditEventView): string {
       return `Created a service token (${(d.scopes as string[]).join(", ")}; ${d.days} day${d.days === 1 ? "" : "s"})`;
     case "service_token.revoked":
       return "Revoked a service token";
+    case "github_trust.created":
+      return `Trusted the GitHub repository ${d.repository} (${(d.events as string[]).join(", ")})`;
+    case "github_trust.changed":
+      return `Changed the trust of the GitHub repository ${d.repository} (${(d.events as string[]).join(", ")})`;
+    case "github_trust.removed":
+      return `Stopped trusting the GitHub repository ${d.repository}`;
+    case "github_trust.exchanged":
+      return `GitHub run ${d.runId} of ${d.repository} got a credential (${d.event})`;
     case "email_domain.verified":
       return `Verified the email domain ${d.domain}`;
     case "email_domain.removed":

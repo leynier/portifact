@@ -104,17 +104,35 @@ describe("action.yml", () => {
         "name",
         "path",
         "token",
+        "workspace",
       ].sort(),
     );
     expect(action.inputs.path?.required).toBe(true);
-    expect(action.inputs.token?.required).toBe(true);
-    expect(action.inputs.token?.default).toBeUndefined();
+    // A token or, for GitHub Actions OIDC (decision 0024), a workspace.
+    expect(action.inputs.token?.required).toBe(false);
+    expect(action.inputs.token?.default).toBe("");
+    expect(action.inputs.workspace?.required).toBe(false);
+    expect(action.inputs.workspace?.default).toBe("");
     expect(action.inputs.comment?.default).toBe("true");
     expect(action.inputs["delete-on-close"]?.default).toBe("true");
     expect(action.inputs["fail-without-token"]?.default).toBe("false");
     expect(Object.keys(action.outputs).sort()).toEqual(["artifact-id", "url", "version"]);
     for (const output of Object.values(action.outputs)) {
       expect(output.value).toMatch(/^\$\{\{ steps\.publish\.outputs\.[\w-]+ \}\}$/);
+    }
+  });
+
+  it("names the OIDC workspace to the CLI only in the steps that call it", () => {
+    for (const step of readAction().runs.steps) {
+      const env = Object.entries(step.env ?? {});
+      const withWorkspace = env.filter(([, value]) => value.includes("inputs.workspace"));
+      if (step.id === "publish" || step.name === "Delete the preview") {
+        expect(withWorkspace).toEqual([["PORTIFACT_GITHUB_OIDC", "${{ inputs.workspace }}"]]);
+      } else if (step.id === "plan") {
+        expect(withWorkspace).toEqual([["PF_WORKSPACE", "${{ inputs.workspace }}"]]);
+      } else {
+        expect(withWorkspace).toEqual([]);
+      }
     }
   });
 
@@ -135,6 +153,25 @@ describe("action.yml", () => {
         expect(withToken).toEqual([]);
       }
     }
+  });
+
+  it("documents the OIDC workflow with id-token: write and the workspace input, never a token", () => {
+    const doc = readFileSync(join(ROOT, "docs", "github-actions.md"), "utf8");
+    const workflows = [...doc.matchAll(/```yaml\n([\s\S]*?)```/g)].map(
+      (match) =>
+        parse(match[1] ?? "") as {
+          permissions?: Record<string, string>;
+          jobs: Record<string, { steps: (Step & { with?: Record<string, string> })[] }>;
+        },
+    );
+    const oidc = workflows.filter((workflow) => workflow.permissions?.["id-token"] === "write");
+    expect(oidc).toHaveLength(1);
+    const steps = Object.values(oidc[0]?.jobs ?? {}).flatMap((job) => job.steps);
+    const action = steps.find((step) => step.uses?.startsWith("leynier/portifact/action@")) as
+      | (Step & { with?: Record<string, string> })
+      | undefined;
+    expect(action?.with?.workspace).toBeTruthy();
+    expect(action?.with?.token).toBeUndefined();
   });
 
   it("documents workflows that follow the same rules and never use pull_request_target", () => {
@@ -172,6 +209,12 @@ describe("deciding what an event does", () => {
     expect(decide("pull_request", "edited", "").stderr).toBe("");
   });
 
+  it("tells an OIDC run without an ID token what to grant", () => {
+    const skipped = call("pf_decide", ["pull_request", "opened", "", "true", "false", "oidc"]);
+    expect(skipped.stdout).toBe("skip");
+    expect(skipped.stderr).toMatch(/^::warning::No GitHub ID token.*id-token: write/);
+  });
+
   it("refuses pull_request_target and other events", () => {
     const target = decide("pull_request_target", "opened");
     expect(target.status).toBe(1);
@@ -193,6 +236,24 @@ describe("the key and the name", () => {
     }
     expect(call("pf_key", ["", ""]).status).toBe(1);
     expect(call("pf_key", ["", "1; echo"]).status).toBe(1);
+  });
+
+  it("keeps an OIDC run's key in its repository's namespace", () => {
+    expect(call("pf_oidc_prefix", ["123"]).stdout).toBe("gh-123/");
+    expect(call("pf_oidc_prefix", [""]).status).toBe(1);
+    expect(call("pf_oidc_prefix", ["12; id"]).status).toBe(1);
+    expect(call("pf_key", ["", "42", "gh-123/"]).stdout).toBe("gh-123/pr-42");
+    expect(call("pf_key", ["gh-123/docs", "42", "gh-123/"]).stdout).toBe("gh-123/docs");
+    expect(call("pf_key", ["pr-42", "42", "gh-123/"]).status).toBe(1);
+    expect(call("pf_key", ["gh-1234/pr-42", "42", "gh-123/"]).status).toBe(1);
+  });
+
+  it("takes a workspace slug and nothing else", () => {
+    expect(call("pf_workspace", ["acme"]).stdout).toBe("acme");
+    expect(call("pf_workspace", [""]).stdout).toBe("");
+    for (const bad of ["Acme", "a b", "a;id", "-a"]) {
+      expect(call("pf_workspace", [bad]).status, bad).toBe(1);
+    }
   });
 
   it("names the artifact after the pull request, without control characters, within 200 bytes", () => {
@@ -307,6 +368,7 @@ esac
     `#!/usr/bin/env bash
 printf '%s\\n' "$@" >"${dir}/cli-args"
 [ "$PORTIFACT_TOKEN" = "${SECRET}" ] && echo token-seen >"${dir}/cli-token"
+[ -n "\${PORTIFACT_GITHUB_OIDC:-}" ] && printf '%s' "$PORTIFACT_GITHUB_OIDC" >"${dir}/cli-oidc"
 cat "${dir}/$1.json"
 exit "\${CLI_EXIT:-0}"
 `,
@@ -333,6 +395,8 @@ exit "\${CLI_EXIT:-0}"
         : [],
     cliArgs: () => readFileSync(join(dir, "cli-args"), "utf8").trim().split("\n"),
     sawToken: () => existsSync(join(dir, "cli-token")),
+    oidcWorkspace: () =>
+      existsSync(join(dir, "cli-oidc")) ? readFileSync(join(dir, "cli-oidc"), "utf8") : null,
     output: () => readFileSync(join(dir, "output"), "utf8"),
     summary: () => readFileSync(join(dir, "summary"), "utf8"),
   };
@@ -396,6 +460,23 @@ describe("publish runs", () => {
     expect(fake.ghCalls()[1]).toMatch(
       /^api --method PATCH repos\/o\/r\/issues\/comments\/99 -f body=/,
     );
+  });
+
+  it("lets the CLI exchange the run's ID token when the workspace input is set and no token", () => {
+    const fake = fakes(dir, [], { publish: PUBLISHED });
+    const env: Record<string, string> = {
+      ...fake.env,
+      PORTIFACT_TOKEN: "",
+      PORTIFACT_GITHUB_OIDC: "acme",
+      PF_KEY: "gh-123/pr-7",
+      PF_PATH: "dist",
+      PF_SHA: SHA,
+    };
+    const run = main("publish", env);
+    expect(run.status, run.stderr).toBe(0);
+    expect(fake.cliArgs()).toContain("--key=gh-123/pr-7");
+    expect(fake.sawToken()).toBe(false);
+    expect(fake.oidcWorkspace()).toBe("acme");
   });
 
   it("leaves the comment out when comment is false", () => {
@@ -496,6 +577,40 @@ describe("plan runs", () => {
     const run = plan({ PF_ACTION: "opened", PF_TOKEN_SET: "" });
     expect(run.status).toBe(0);
     expect(readFileSync(join(dir, "output"), "utf8")).toBe("mode=skip\n");
+  });
+
+  it("plans an OIDC run in the repository's namespace when the job can ask for an ID token", () => {
+    const run = plan({
+      PF_ACTION: "opened",
+      PF_TOKEN_SET: "",
+      PF_WORKSPACE: "acme",
+      ACTIONS_ID_TOKEN_REQUEST_URL: "https://runner.example/id?api-version=2.0",
+      GITHUB_REPOSITORY_ID: "123",
+      PF_CLI_VERSION: "0.9.1",
+    });
+    expect(run.status, run.stderr).toBe(0);
+    expect(readFileSync(join(dir, "output"), "utf8")).toBe(
+      "mode=publish\nkey=gh-123/pr-12\ncli-version=0.9.1\n",
+    );
+  });
+
+  it("skips an OIDC run that cannot ask for an ID token, as a fork's pull request", () => {
+    const run = plan({ PF_ACTION: "opened", PF_TOKEN_SET: "", PF_WORKSPACE: "acme" });
+    expect(run.status).toBe(0);
+    expect(run.stderr).toContain("No GitHub ID token");
+    expect(readFileSync(join(dir, "output"), "utf8")).toBe("mode=skip\n");
+  });
+
+  it("keeps the token in charge when both are set", () => {
+    const run = plan({
+      PF_ACTION: "opened",
+      PF_WORKSPACE: "acme",
+      ACTIONS_ID_TOKEN_REQUEST_URL: "https://runner.example/id",
+      GITHUB_REPOSITORY_ID: "123",
+      PF_CLI_VERSION: "0.9.1",
+    });
+    expect(run.status, run.stderr).toBe(0);
+    expect(readFileSync(join(dir, "output"), "utf8")).toContain("key=pr-12\n");
   });
 
   it("refuses an unknown subcommand", () => {

@@ -10,6 +10,7 @@ import {
 import { callApi } from "./api.ts";
 import { openCredentialStore } from "./credentials.ts";
 import { CliError } from "./errors.ts";
+import { githubOidcWorkspace } from "./github-oidc.ts";
 import { messages } from "./messages.ts";
 import {
   type DeviceAuthorization,
@@ -24,7 +25,7 @@ import {
   type Authorized,
   credentialsFrom,
   type Session,
-  serviceTokenOf,
+  usesWorkspaceCredential,
   withAccessToken,
 } from "./session.ts";
 import { forgetDefaultWorkspace } from "./workspaces.ts";
@@ -52,7 +53,8 @@ export interface LoginOptions extends OutputOptions {
 }
 
 export async function login(io: Io, runtime: Runtime, options: LoginOptions): Promise<void> {
-  if (serviceTokenOf(runtime)) throw new CliError("invalid_input", messages.errors.serviceTokenSet);
+  if (usesWorkspaceCredential(runtime))
+    throw new CliError("invalid_input", messages.errors.serviceTokenSet);
   const server = resolveServer(runtime.env);
   announceOverride(io, server);
   const store = await openCredentialStore(runtime);
@@ -121,7 +123,7 @@ async function waitForApproval(runtime: Runtime, server: Server, device: DeviceA
 
 export async function whoami(io: Io, runtime: Runtime, options: OutputOptions): Promise<void> {
   const session = await openSession(io, runtime);
-  if (serviceTokenOf(runtime)) {
+  if (usesWorkspaceCredential(runtime)) {
     // A service token is no account: it names its workspace and role.
     const { items } = await callApi(session, {
       method: "GET",
@@ -143,7 +145,7 @@ export async function whoami(io: Io, runtime: Runtime, options: OutputOptions): 
       });
     } else {
       io.stdout(
-        `${messages.serviceTokenWhoami(session.server.origin, workspace.slug, workspace.role)}
+        `${(githubOidcWorkspace(runtime) ? messages.githubOidcWhoami : messages.serviceTokenWhoami)(session.server.origin, workspace.slug, workspace.role)}
 `,
       );
     }
@@ -166,7 +168,8 @@ export async function whoami(io: Io, runtime: Runtime, options: OutputOptions): 
 }
 
 export async function logout(io: Io, runtime: Runtime, options: OutputOptions): Promise<void> {
-  if (serviceTokenOf(runtime)) throw new CliError("invalid_input", messages.errors.serviceTokenSet);
+  if (usesWorkspaceCredential(runtime))
+    throw new CliError("invalid_input", messages.errors.serviceTokenSet);
   const { server, store } = await openSession(io, runtime);
   const credentials = await store.load(server.origin);
 

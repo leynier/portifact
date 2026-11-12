@@ -68,6 +68,10 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   syncSsoRequirementStates: ["policy.sso_suspended", "policy.sso_resumed"],
   createServiceToken: ["service_token.created"],
   revokeServiceToken: ["service_token.revoked"],
+  createGitHubTrustRule: ["github_trust.created"],
+  updateGitHubTrustRule: ["github_trust.changed"],
+  removeGitHubTrustRule: ["github_trust.removed"],
+  exchangeGitHubToken: ["github_trust.exchanged"],
   operatorRevokeServiceToken: ["service_token.revoked"],
   // The workspaces the account was in each record that the member is gone.
   requestAccountDeletion: ["member.left"],
@@ -180,6 +184,10 @@ reason(
 reason(
   "audit streams: a test record, the log's pruning, re-arming lost jobs and re-sealing with the current key change nothing an owner has (decision 0019)",
   ["sendAuditStreamTest", "maintainAuditStreams", "rewrapAuditStreamKeys"],
+);
+reason(
+  "expired GitHub run credentials, an hour after they stopped working: their exchange was recorded (decision 0024)",
+  ["pruneFederatedCredentials", "pruneUsedGitHubTokens"],
 );
 reason("reads at most a few bytes of a response and cancels the rest", ["drain"]);
 reason("approval reviews: who can still open the artifact counts again; nobody's choice changed", [

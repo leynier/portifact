@@ -64,6 +64,9 @@ export default defineConfig(async () => {
             SSO_KEY: "test-only single sign-on sealing key for the app suite",
             // SCIM is offered in tests; the deployed configuration leaves it unset (decision 0017).
             SCIM_ENABLED: "true",
+            // GitHub OIDC federation is offered in tests; the deployed configuration leaves it unset
+            // (decision 0024). GitHub is a fake issuer (FakeGitHubIssuer).
+            GITHUB_OIDC_ENABLED: "true",
             // Issue integrations are offered in tests; the deployed configuration leaves them
             // unset (decision 0018). GitHub and Linear are fakes (FakeIssueTrackers).
             INTEGRATIONS_ENABLED: "true",

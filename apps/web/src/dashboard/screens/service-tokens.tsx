@@ -3,6 +3,7 @@
 // expiry and an optional restriction) shows its secret once with a copy button; the list shows
 // each token's role, scopes, restriction, expiry and last use; revoking asks for a confirmation.
 // The API decides every write again; without the feature in the plan, creating is not offered.
+// Below them, the GitHub Actions section trusts repositories instead of tokens (decision 0024).
 import {
   lowestPlanWith,
   PLAN_LABELS,
@@ -37,6 +38,7 @@ import { type Space, spaceCan, useReadySpace } from "../space.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
+import { GitHubTrust } from "./github-trust.tsx";
 import { SpaceBadge } from "./space-parts.tsx";
 
 export const serviceTokensQuery = (slug: string) => ["workspace", slug, "service-tokens"] as const;
@@ -137,6 +139,7 @@ function WorkspaceTokens({ space }: { space: Workspace }) {
           onCreated={setCreated}
         />
       </div>
+      <GitHubTrust space={space} available={available} />
     </div>
   );
 }

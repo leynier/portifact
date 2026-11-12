@@ -187,6 +187,7 @@ export const TombstoneMarker = z.strictObject({
     "integration_connection",
     "audit_stream",
     "comment_thread",
+    "github_trust_rule",
   ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),

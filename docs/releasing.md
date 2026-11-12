@@ -318,6 +318,21 @@ Then add `sso` to `AVAILABLE_PLAN_FEATURES` in the same change that turns it on.
 
 Rolling back past "SSO required": migration 0061 adds nullable or defaulted columns, two triggers and an index that the earlier release ignores; it reads every policy that does not set `ssoRequired` (`storedPolicy` stores it only while set). Before rolling back, run `clear-request-policies <slug> --confirm <slug>` on every workspace whose stored policy sets it (`select id from workspaces where json_extract(policy, '$.ssoRequired') = 1`). After a later upgrade of Better Auth, check that the session hook still writes `sign_in_method` in the creating statement and that the provider still revokes the rotated refresh token right before inserting its successor with the same `created_at` (the triggers' predecessor match); `apps/app/test/sso-required.test.ts` and `packages/db/test/sign-in-method-triggers.test.ts` fail if either changes.
 
+### GitHub OIDC
+
+GitHub Actions OIDC federation ships switched off ([decision 0024](decisions/0024-github-oidc-federation.md)). Before setting `GITHUB_OIDC_ENABLED="true"` on `portifact-app` (never in `wrangler.jsonc`; the e2e stack and the test suites set it), update the Privacy page ([legal.md](legal.md), "Pending changes") and run these checks on a staging deployment against real GitHub, with a scratch public repository, a scratch private one and a staging workspace on the Team plan trusting them; record the dates and results in [github-actions.md](github-actions.md):
+
+1. **Discovery.** Fetch `https://token.actions.githubusercontent.com/.well-known/openid-configuration`: the issuer, `jwks_uri` and `RS256` are still what `GITHUB_OIDC_ISSUER`, `GITHUB_OIDC_JWKS_URL` and `GITHUB_OIDC_ALGORITHMS` say, and `repository_id`, `repository_owner_id`, `event_name`, `ref`, `environment`, `run_id`, `run_attempt` and `jti` are still in `claims_supported`.
+2. **A push run.** A workflow with `id-token: write` on `push` and the CLI with `PORTIFACT_GITHUB_OIDC` publishes under `gh-<repository ID>/`; the workspace's audit log shows `github_trust.exchanged` with the run.
+3. **A pull request from the same repository.** The preview action with `workspace:` publishes `gh-<repository ID>/pr-<n>`, updates it on a push and deletes it on close.
+4. **A pull request from a fork** of the public repository: the run gets no ID token and the action skips with its warning; nothing is exchanged. With `pull_request_target` trusted only after the confirmation, check the dashboard's warning.
+5. **A renamed repository.** Rename it: runs keep publishing (same `repository_id`). Transfer it to another owner: runs are refused until the rule's owner ID is updated. Delete it and create one with the same name: runs are refused.
+6. **A removed rule.** Remove the rule during a run that holds a credential: its next request is refused (401).
+7. **A replayed token.** Print an ID token in a scratch run (never in a real one), exchange it once, exchange it again: the second is refused. Then change the rule (narrow its scopes) and exchange the same token again: refused. Remove the rule, trust the repository again and exchange it once more: refused. A new run after the change exchanges normally.
+8. **A wrong audience.** Ask GitHub for the default audience, another workspace's, and staging's against production: each is refused with the same body.
+9. **GitHub's key set.** Watch the Worker's outbound requests during a burst of exchanges from many runs: at most one request to `token.actions.githubusercontent.com` per isolate a minute.
+10. **No secrets in logs.** Tail the Worker during the checks: only `github_oidc_issued`, `github_oidc_refused` with a reason and `github_oidc_jwks_unavailable` appear, never a token, claim or key set.
+
 ### SCIM
 
 SCIM provisioning ships switched off ([decision 0017](decisions/0017-workspace-scim.md)). No secret is needed. Before setting `SCIM_ENABLED="true"` on `portifact-app` (never in `wrangler.jsonc`), run these checks on a staging deployment against a test tenant of each directory, with a staging Enterprise workspace that verified a domain you control, and record each result in decision 0017 with the date:

@@ -263,6 +263,8 @@ export interface ApplyTombstonesResult {
   auditStreams: number;
   /** Service tokens revoked before the restore, or of deleted workspaces, deleted again. */
   serviceTokens: number;
+  /** GitHub trust rules removed before the restore, removed again (decision 0024). */
+  githubTrustRules: number;
   /** Workspace email domains removed or lapsed before the restore that it brought back. */
   domains: number;
   /** Workspace groups deleted before the restore that it brought back (decision 0014). */
@@ -374,6 +376,7 @@ const a = schema.artifacts;
 const u = schema.users;
 const l = schema.shareLinks;
 const st = schema.serviceTokens;
+const gtr = schema.githubTrustRules;
 const ws = schema.workspaces;
 const wd = schema.workspaceDeletions;
 
@@ -548,6 +551,28 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
             sql`${st.id} in (select ${t.id} from ${t} where ${t.kind} = 'service_token') or ${st.workspaceId} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`,
           )
           .returning({ id: st.id }),
+    },
+    // A removed GitHub trust rule must never issue credentials again (decision 0024); its
+    // credentials go by the cascade. Before the workspace rows, like the tokens above.
+    {
+      name: "githubTrustRules",
+      side: "global",
+      build: (db) =>
+        db
+          .delete(gtr)
+          .where(
+            sql`${gtr.id} in (select ${t.id} from ${t} where ${t.kind} = 'github_trust_rule') or ${gtr.workspaceId} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`,
+          )
+          .returning({ id: gtr.id }),
+    },
+    {
+      name: "githubTrustAuthors",
+      side: "global",
+      build: (db) =>
+        db
+          .update(gtr)
+          .set({ createdBy: null })
+          .where(sql`${gtr.createdBy} in (${tombstonedAccounts})`),
     },
     // Cascades to memberships, invitations and service tokens.
     {
@@ -897,6 +922,7 @@ export async function applyTombstones(
     webhooks: count("webhooks"),
     auditStreams: count("auditStreams"),
     serviceTokens: count("serviceTokens"),
+    githubTrustRules: count("githubTrustRules"),
     domains: count("domains"),
     groups: count("groups"),
     groupMembers: count("groupMembers"),

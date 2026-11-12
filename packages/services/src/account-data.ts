@@ -562,6 +562,11 @@ async function deletionBatch(
       .update(schema.serviceTokens)
       .set({ createdBy: null })
       .where(eq(schema.serviceTokens.createdBy, input.userId)),
+    // And GitHub trust rules (decision 0024): the rule stays, who created it goes.
+    db
+      .update(schema.githubTrustRules)
+      .set({ createdBy: null })
+      .where(eq(schema.githubTrustRules.createdBy, input.userId)),
     ...regional,
     // Each workspace the account is in records that the member is gone, before the cascade.
     accountLeftEvents(db, input.userId, input.now),
@@ -806,6 +811,10 @@ export async function advanceAccountDeletion(
       .update(schema.serviceTokens)
       .set({ createdBy: null })
       .where(eq(schema.serviceTokens.createdBy, userId)),
+    on
+      .update(schema.githubTrustRules)
+      .set({ createdBy: null })
+      .where(eq(schema.githubTrustRules.createdBy, userId)),
     // No foreign key: an owner may later be a workspace, so the plan row goes here.
     on.delete(schema.ownerPlans).where(and(eq(schema.ownerPlans.ownerId, userId), nothingLeft)),
     on.delete(schema.operations).where(and(eq(schema.operations.actorId, userId), nothingLeft)),

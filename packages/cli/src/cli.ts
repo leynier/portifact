@@ -78,6 +78,11 @@ In CI, set PORTIFACT_TOKEN to a workspace's service token (created by its admins
 dashboard): the CLI uses it instead of a login, acts on that workspace and never stores or
 prints it. login and logout refuse to run while it is set.
 
+In GitHub Actions, instead of a stored token, set PORTIFACT_GITHUB_OIDC to the workspace's
+slug and grant the job 'permissions: id-token: write': once the workspace trusts the
+repository, the CLI exchanges the run's ID token for a credential that lives 15 minutes and
+publishes only keys starting with gh-<repository ID>/. PORTIFACT_TOKEN, when set, wins.
+
 Portifact is free software under AGPL-3.0: https://github.com/leynier/portifact
 \`portifact licenses\` prints the notices of the open source software in this binary.
 `;
