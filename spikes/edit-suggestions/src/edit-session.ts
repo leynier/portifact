@@ -5,7 +5,9 @@
 // the viewer's own viewport events. The new text and style values are typed in the viewer's
 // editor and never posted to the frame (rule 1); the only messages the viewer sends it are the
 // mode and the pick, which carry no text. A move's destination is chosen in a separate, explicit
-// pick state. The suggestion is saved only by the viewer's confirmation of the exact lines it drew.
+// pick state. The suggestion is saved only by the viewer's confirmation of the exact lines it drew,
+// shown with the same typed display as the owner's (invisible characters as tokens), and a new
+// page, a route change or the end of the session invalidates the edit and its confirmation.
 
 import {
   type Expectation,
@@ -15,6 +17,7 @@ import {
   type ViewerBody,
 } from "@portifact/bridge";
 import type { AnnotationTarget } from "@portifact/contracts";
+import { visible } from "./display.ts";
 import { Edit } from "./operations.ts";
 
 export type EditKind = "text" | "style" | "move";
@@ -86,6 +89,12 @@ export class EditSession {
     const state = this.state;
     if (!message) {
       this.dropped++;
+      return;
+    }
+    // Lifecycle (rule 9 of the second round): a new page, a route change or the review session's
+    // end invalidates the edit and its confirmation, whatever state it was in.
+    if (message.type === "location" || message.type === "ready" || message.type === "status") {
+      if (state.mode !== "idle") this.invalidate();
       return;
     }
     if (state.mode === "choosing") {
@@ -169,10 +178,10 @@ export class EditSession {
     let lines: string[];
     if (state.kind === "text") {
       operations = [{ kind: "text", target: state.target, after: state.draft }];
-      lines = [`- ${state.before}`, `+ ${state.draft}`];
+      lines = [`- ${visible(state.before)}`, `+ ${visible(state.draft)}`];
     } else if (state.kind === "style") {
       operations = [{ kind: "style", target: state.target, changes: state.changes }];
-      lines = state.changes.map((change) => `${change.property}: ${change.after}`);
+      lines = state.changes.map((change) => `${change.property}: ${visible(change.after)}`);
     } else {
       if (!state.destination) return null;
       operations = [
@@ -196,6 +205,20 @@ export class EditSession {
     this.save({ operations: shown.operations });
     this.state = { mode: "idle" };
     return true;
+  }
+
+  /** Edits and confirmations invalidated by navigation or the session's end, for the tests. */
+  invalidated = 0;
+
+  /** The dashboard session or the review session ended. */
+  sessionEnded(): void {
+    if (this.state.mode !== "idle") this.invalidate();
+  }
+
+  private invalidate(): void {
+    this.state = { mode: "idle" };
+    this.placement = null;
+    this.invalidated++;
   }
 
   cancel(): void {

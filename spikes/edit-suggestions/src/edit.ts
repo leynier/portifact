@@ -29,12 +29,47 @@ export type UncertainReason =
   | "whitespace"
   /** The selection is not inside one text node of the page. */
   | "spans_nodes"
-  /** An HTML page with scripts, event handlers or `javascript:` URLs (decision 0027, rule 4). */
-  | "not_inert"
+  /** An HTML page outside the eligible subset (decision 0027, rule 4). */
+  | "not_eligible"
+  /** A character reference in the file that cannot be mapped to the edited text. */
+  | "entity"
+  /** Inside a diagram's source, whose drawing a text check cannot verify. */
+  | "diagram"
+  /** The stored rendering cannot be reproduced by the installed renderer. */
+  | "renderer_changed"
+  /** The file or the plan is over its size or work limit. */
+  | "too_large"
   /** Another operation of the same plan touches the same text. */
   | "overlap"
   /** The plan's render budget ran out. */
   | "budget";
+
+/** What the viewer says for each refusal (English here; translated in every catalog). */
+export const REFUSAL_MESSAGES: Readonly<Record<UncertainReason, string>> = {
+  stale: "The page changed since this text was selected. Select it again.",
+  invalid_after: "The new text must be one line of plain text that differs from the old.",
+  spans_blocks: "The change crosses two blocks, so it goes to the change list.",
+  not_found:
+    "This text cannot be matched to one place in the source, so it goes to the change list.",
+  would_change_page:
+    "Applying this would change something else on the page (a heading link, a reference or markup), so it goes to the change list.",
+  script_text: "A script on this page writes this text, so it goes to the change list.",
+  not_nfc: "This text is stored in another Unicode form, so it goes to the change list.",
+  whitespace:
+    "The selection crosses line breaks or spacing the page keeps, so it goes to the change list.",
+  spans_nodes: "The selection crosses formatting or a link, so it goes to the change list.",
+  not_eligible:
+    "This page uses features Portifact does not edit automatically (scripts, forms, embedded content and others), so it goes to the change list.",
+  entity:
+    "This text is written with a character reference Portifact cannot map, so it goes to the change list.",
+  diagram: "Changes to a diagram's source go to the change list.",
+  renderer_changed:
+    "This document was rendered by an earlier version of Portifact, so changes go to the change list.",
+  too_large:
+    "This file or change is too large to apply automatically, so it goes to the change list.",
+  overlap: "Two changes touch the same text. Combine them into one.",
+  budget: "This change needs more work than one plan allows, so it goes to the change list.",
+};
 
 export type Resolution =
   | {

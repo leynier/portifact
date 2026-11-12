@@ -1,9 +1,12 @@
 import { AnchorDocument, type AnchorElement } from "@portifact/anchors";
 import { renderMarkdown } from "@portifact/render";
+import { parseFragment as parseFragment5 } from "parse5";
 import { describe, expect, it } from "vitest";
 import { changedRegion, type Resolution } from "../src/edit.ts";
+import { childrenOf, type P5Node } from "../src/html-dom.ts";
 import { renderPage, resolveMarkdownEdit } from "../src/markdown-resolver.ts";
 import { codePoints, parseFragment } from "../src/page.ts";
+import { onlyApprovedBytes } from "../src/planned.ts";
 import {
   type CorpusEdit,
   type EditShape,
@@ -42,11 +45,39 @@ function rawText(root: Node): { text: string; starts: Map<Node, number> } {
  * `packages/anchors`, which defines positions), whitespace included. It also checks that the
  * change stays inside one block of the old block map.
  */
-function oracle(source: string, next: string, edit: CorpusEdit): void {
+/** Text nodes at their DOM paths, read by a second parser (parse5, not the resolver's happy-dom). */
+function paths(html: string): Map<string, string> {
+  const found = new Map<string, string>();
+  const visit = (node: P5Node, path: string) => {
+    childrenOf(node).forEach((child, index) => {
+      const here = `${path}/${child.nodeName}[${index}]`;
+      if (child.nodeName === "#text") found.set(here, (child as { value: string }).value);
+      else visit(child, here);
+    });
+  };
+  visit(parseFragment5(html), "");
+  return found;
+}
+
+function oracle(
+  source: string,
+  next: string,
+  edit: CorpusEdit,
+  range: { start: number; end: number; replacement: string },
+): void {
   const oldHtml = renderMarkdown(source).html;
   const newHtml = renderMarkdown(next).html;
   expect(ids(newHtml)).toEqual(ids(oldHtml));
   expect(markup(newHtml)).toBe(markup(oldHtml));
+  // Source bytes outside the approved range are the same.
+  expect(onlyApprovedBytes(source, next, [range])).toBe(true);
+  // Exactly one text node changed, at the same DOM path, as the second parser reads it.
+  const before = paths(oldHtml);
+  const after = paths(newHtml);
+  expect([...after.keys()]).toEqual([...before.keys()]);
+  expect([...before].filter(([path, data]) => after.get(path) !== data).length).toBeLessThanOrEqual(
+    1,
+  );
 
   const oldMain = parseFragment(oldHtml);
   const document = new AnchorDocument(oldMain as unknown as AnchorElement);
@@ -128,7 +159,7 @@ function runCorpus(
       if (result.status === "certain") {
         tally.certain++;
         tally.byShape[edit.shape].certain++;
-        oracle(source, result.source, edit);
+        oracle(source, result.source, edit, { ...result.range, replacement: result.replacement });
       } else {
         tally.reasons[result.reason] = (tally.reasons[result.reason] ?? 0) + 1;
       }

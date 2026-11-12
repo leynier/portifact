@@ -67,11 +67,6 @@ export function codePoints(text: string): string[] {
   return Array.from(text);
 }
 
-export function spliceCodePoints(text: string, start: number, end: number, insert: string): string {
-  const points = codePoints(text);
-  return [...points.slice(0, start), insert, ...points.slice(end)].join("");
-}
-
 /** Occurrences of `needle` in `haystack`, overlapping ones included, up to `limit + 1`. */
 export function occurrences(haystack: string, needle: string, limit = 2): number[] {
   const found: number[] = [];

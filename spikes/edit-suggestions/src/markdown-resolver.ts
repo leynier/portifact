@@ -1,21 +1,28 @@
 // The Markdown planner of decision 0027. It works from the stored document alone (the `published`
-// entry at the version's entrypoint, rendered with the renderer version the plan is bound to):
-// every text operation is located in the rendered page in base coordinates, mapped to one range
-// of its block's source, and all certain operations are applied together as one patch. The patch
-// is verified once: the rebuilt page must equal the old one with exactly those text node changes,
-// every element and attribute (heading IDs included) and every other character the same. If it
-// is not, nothing is applied and every operation goes to the change list, so the confirmed split
-// between applied and listed never changes after the person saw it.
+// entry at the version's entrypoint; the plan checks separately that the installed renderer
+// reproduces the stored rendering). The page is rendered once and indexed once per plan; every
+// operation is located in base coordinates, mapped to one range of its block's source by exact raw
+// context, and all certain operations are applied together as one patch. The patch is verified
+// once: the rebuilt page must equal the old one with exactly those text node changes, every
+// element, attribute (heading IDs included) and comment the same, and the source bytes outside the
+// approved ranges unchanged. If not, nothing is applied and every operation goes to the change
+// list, so the split the person confirmed never changes. Diagram sources always go to the list:
+// their drawing is not something a text comparison can verify.
+import type { AnchorNode } from "@portifact/anchors";
 import { renderMarkdown, type SourceBlock } from "@portifact/render";
+import { type Destination, destination } from "./display.ts";
+import { type Resolution, type TextEdit, uncertain, validAfter } from "./edit.ts";
+import { type NodeChange, onlyChanged, PageIndex } from "./locate.ts";
+import { occurrences, pageText, parseFragment, textNodes } from "./page.ts";
 import {
-  type Resolution,
-  type TextEdit,
-  type UncertainReason,
-  uncertain,
-  validAfter,
-} from "./edit.ts";
-import { locateChange, type NodeChange, onlyChanged, overlaps } from "./locate.ts";
-import { occurrences, pageText, parseFragment } from "./page.ts";
+  byOperation,
+  onlyApprovedBytes,
+  PLAN_OPERATIONS_MAX,
+  type PlannedFile,
+  type PlannedListed,
+  type PlannedPatch,
+  withoutOverlaps,
+} from "./planned.ts";
 
 /** How much raw context to look for around the change, widest first. */
 const CONTEXTS = [24, 12, 6, 3, 1, 0];
@@ -25,38 +32,12 @@ const MINIMAL = /[\\`*_[\]<>&|~!#^]/g;
 /** Every ASCII punctuation character, which CommonMark lets a backslash escape. */
 const FULL = /[!-/:-@[-`{-~]/g;
 
-/**
- * Renders a plan may spend: the base page and at most two patched pages (the readable escaping,
- * then the full one). The planner never renders per operation or per candidate.
- */
+/** The base page and at most two patched pages, whatever the number of operations. */
 export const RENDER_BUDGET = 3;
+/** Largest Markdown source a plan takes, in UTF-16 units (2 MB of ASCII). */
+export const MARKDOWN_LIMIT = 2_000_000;
 
-export interface SourcePatch {
-  /** Index of the operation in the plan. */
-  operation: number;
-  start: number;
-  end: number;
-  /** The inserted text as the reviewer wrote it. */
-  inserted: string;
-  /** Inside a code span or block, where backslashes are literal, so it is written raw. */
-  inCode: boolean;
-}
-
-export interface AppliedPatch {
-  patch: SourcePatch;
-  replacement: string;
-  change: NodeChange;
-  destinations: string[];
-}
-
-export interface Planned {
-  /** Patches that are applied; empty when nothing applies. */
-  applied: AppliedPatch[];
-  listed: { operation: number; reason: UncertainReason }[];
-  /** The new source, when anything applied. */
-  source?: string;
-  renders: number;
-}
+export const DEFAULT_DOCUMENT_URL = "https://k7d2qm4xab.portifact.dev/";
 
 export function renderPage(source: string): {
   main: HTMLElement;
@@ -76,21 +57,44 @@ function blockOf(node: Node, blocks: SourceBlock[]): SourceBlock | undefined {
   return blocks.find((block) => block.id === id);
 }
 
-function within(node: Node, tag: string): boolean {
+function within(node: Node, test: (element: Element) => boolean): boolean {
   for (let element = node.parentElement; element; element = element.parentElement) {
-    if (element.tagName.toLowerCase() === tag) return true;
+    if (test(element)) return true;
   }
   return false;
 }
 
-/** The `href` of every link around a node: the destination the person must see (rule 3). */
-export function destinationsOf(node: Node): string[] {
-  const found: string[] = [];
+const isDiagram = (element: Element) =>
+  element.classList.contains("pf-mermaid") || element.classList.contains("language-mermaid");
+
+/** Every link around a node, with its effective destination (rule 7 of the second round). */
+export function destinationsOf(node: Node, pageUrl = DEFAULT_DOCUMENT_URL): Destination[] {
+  const found: Destination[] = [];
   for (let element = node.parentElement; element; element = element.parentElement) {
     const href = element.tagName.toLowerCase() === "a" ? element.getAttribute("href") : null;
-    if (href !== null) found.push(href);
+    if (href !== null) found.push(destination(href, pageUrl));
   }
   return found;
+}
+
+/**
+ * The target's identity: the elements from the text node up to the document, with their
+ * attributes except the positional block number, and each link's effective destination.
+ */
+export function markdownIdentity(node: Node, pageUrl = DEFAULT_DOCUMENT_URL): string[] {
+  const chain: string[] = [];
+  for (let element = node.parentElement; element; element = element.parentElement) {
+    const tag = element.tagName.toLowerCase();
+    if (tag === "main") break;
+    const attrs = Array.from(element.attributes)
+      .filter((attr) => attr.name !== "data-pf-block")
+      .map((attr) => `${attr.name}=${JSON.stringify(attr.value)}`)
+      .sort();
+    const href = tag === "a" ? element.getAttribute("href") : null;
+    if (href !== null) attrs.push(`effective=${destination(href, pageUrl).effective}`);
+    chain.push(`${tag}[${attrs.join(",")}]`);
+  }
+  return chain;
 }
 
 /**
@@ -101,7 +105,7 @@ function mapToSource(
   source: string,
   block: SourceBlock,
   data: string,
-  change: NodeChange,
+  change: { start: number; end: number; deleted: string },
 ): { start: number; end: number } | null {
   const slice = source.slice(block.start, block.end);
   for (const width of CONTEXTS) {
@@ -117,82 +121,133 @@ function mapToSource(
   return null;
 }
 
-const sorted = (items: Planned["listed"]) => [...items].sort((a, b) => a.operation - b.operation);
+export interface MarkdownPlanned extends PlannedFile {
+  renders: number;
+}
 
-export function planMarkdown(source: string, edits: readonly TextEdit[]): Planned {
-  const listed: Planned["listed"] = [];
+interface Candidate extends PlannedPatch {
+  change: NodeChange;
+  inserted: string;
+  inCode: boolean;
+}
+
+export function planMarkdown(
+  source: string,
+  edits: readonly TextEdit[],
+  pageUrl = DEFAULT_DOCUMENT_URL,
+): MarkdownPlanned {
+  const listed: PlannedListed[] = [];
+  if (source.length > MARKDOWN_LIMIT) {
+    return {
+      applied: [],
+      listed: edits.map((_, operation) => ({ operation, reason: "too_large" })),
+      renders: 0,
+    };
+  }
   const base = renderPage(source);
   let renders = 1;
-  const candidates: Omit<AppliedPatch, "replacement">[] = [];
+  const index = new PageIndex(base.main as unknown as AnchorNode);
+  const nodes = textNodes(base.main);
+  const candidates: Candidate[] = [];
   for (const [operation, edit] of edits.entries()) {
+    if (operation >= PLAN_OPERATIONS_MAX) {
+      listed.push({ operation, reason: "too_large" });
+      continue;
+    }
     if (!validAfter(edit)) {
       listed.push({ operation, reason: "invalid_after" });
       continue;
     }
-    const located = locateChange(base.main, edit);
-    if (!located.ok) {
-      listed.push({ operation, reason: located.reason });
+    const result = index.locate(edit);
+    if (!result.ok) {
+      listed.push({ operation, reason: result.reason });
       continue;
     }
-    const block = blockOf(located.text, base.blocks);
+    const { located } = result;
+    const text = located.text as unknown as Text;
+    const destinations = destinationsOf(text, pageUrl);
+    if (within(text, isDiagram)) {
+      listed.push({ operation, reason: "diagram", destinations });
+      continue;
+    }
+    const block = blockOf(text, base.blocks);
     if (!block) {
-      listed.push({ operation, reason: "spans_blocks" });
+      listed.push({ operation, reason: "spans_blocks", destinations });
       continue;
     }
-    const range = mapToSource(source, block, located.text.data, located.change);
+    const range = mapToSource(source, block, text.data, located);
     if (!range) {
-      listed.push({ operation, reason: "not_found" });
+      listed.push({ operation, reason: "not_found", destinations });
       continue;
     }
     candidates.push({
-      patch: {
-        operation,
-        ...range,
-        inserted: located.change.inserted,
-        inCode: within(located.text, "code"),
+      operation,
+      ...range,
+      replacement: located.inserted,
+      destinations,
+      inserted: located.inserted,
+      inCode: within(text, (element) => element.tagName.toLowerCase() === "code"),
+      change: {
+        node: nodes.indexOf(text),
+        start: located.start,
+        end: located.end,
+        deleted: located.deleted,
+        inserted: located.inserted,
       },
-      change: located.change,
-      destinations: destinationsOf(located.text),
+      proof: {
+        unit: "utf16",
+        ...range,
+        before: located.deleted,
+        after: located.inserted,
+        shownBefore: located.deleted,
+        shownAfter: located.inserted,
+        nodeLeft: text.data.slice(Math.max(0, located.start - 32), located.start),
+        nodeRight: text.data.slice(located.end, located.end + 32),
+        identity: markdownIdentity(text, pageUrl),
+      },
     });
   }
 
-  // Operations are in base coordinates; two that touch the same text have no defined order, so
-  // neither applies.
-  const clashing = new Set<number>();
-  for (const a of candidates) {
-    for (const b of candidates) {
-      const sameSource = a.patch.start <= b.patch.end && b.patch.start <= a.patch.end;
-      if (a !== b && (overlaps(a.change, b.change) || sameSource)) clashing.add(a.patch.operation);
-    }
-  }
-  const kept = candidates.filter((candidate) => !clashing.has(candidate.patch.operation));
-  for (const operation of clashing) listed.push({ operation, reason: "overlap" });
-  if (kept.length === 0) return { applied: [], listed: sorted(listed), renders };
+  const kept = withoutOverlaps(candidates, listed);
+  if (kept.length === 0) return { applied: [], listed: byOperation(listed), renders };
 
   for (const pattern of [MINIMAL, FULL]) {
     if (renders >= RENDER_BUDGET) break;
-    const written = kept.map((candidate) => ({
-      ...candidate,
-      replacement: candidate.patch.inCode
-        ? candidate.patch.inserted
-        : candidate.patch.inserted.replace(pattern, "\\$&"),
-    }));
+    const written = kept.map((candidate) => {
+      const replacement = candidate.inCode
+        ? candidate.inserted
+        : candidate.inserted.replace(pattern, "\\$&");
+      return { ...candidate, replacement, proof: { ...candidate.proof, after: replacement } };
+    });
     let next = source;
     // Base coordinates: apply from the end so earlier ranges keep their offsets.
-    for (const item of [...written].sort((a, b) => b.patch.start - a.patch.start)) {
-      next = next.slice(0, item.patch.start) + item.replacement + next.slice(item.patch.end);
+    for (const item of [...written].sort((a, b) => b.start - a.start)) {
+      next = next.slice(0, item.start) + item.replacement + next.slice(item.end);
     }
     const rebuilt = renderPage(next);
     renders++;
-    const changes = written.map((item) => item.change);
-    if (onlyChanged(base.main, rebuilt.main, changes)) {
-      return { applied: written, listed: sorted(listed), source: next, renders };
+    const sameBytes = onlyApprovedBytes(source, next, written);
+    if (
+      sameBytes &&
+      onlyChanged(
+        base.main,
+        rebuilt.main,
+        written.map((item) => item.change),
+      )
+    ) {
+      const applied = written.map(({ change: _c, inserted: _i, inCode: _k, ...patch }) => patch);
+      return { applied, listed: byOperation(listed), source: next, renders };
     }
   }
   for (const candidate of kept) {
-    listed.push({ operation: candidate.patch.operation, reason: "would_change_page" });
+    listed.push({
+      operation: candidate.operation,
+      reason: "would_change_page",
+      destinations: candidate.destinations,
+      proof: candidate.proof,
+    });
   }
-  return { applied: [], listed: sorted(listed), renders };
+  return { applied: [], listed: byOperation(listed), renders };
 }
 
 /** One operation as a plan of its own, in the shape the single-edit tests use. */
@@ -205,7 +260,7 @@ export function resolveMarkdownEdit(source: string, edit: TextEdit): Resolution 
   return {
     status: "certain",
     source: planned.source,
-    range: { start: applied.patch.start, end: applied.patch.end },
+    range: { start: applied.start, end: applied.end },
     replacement: applied.replacement,
   };
 }

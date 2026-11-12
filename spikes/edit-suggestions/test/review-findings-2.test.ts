@@ -1,14 +1,15 @@
 // The counterexamples of the second design review of pull request #247 (at 6a5748c3) that it
 // reproduced against the spike, one test each, written against the spike as it stood so they fail
 // first. Numbers are the second review's findings.
-import { ANCHOR_SCHEMA_VERSION } from "@portifact/contracts";
+
 import { bridgeEnvelope } from "@portifact/bridge";
+import { ANCHOR_SCHEMA_VERSION } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { closure } from "../src/closure.ts";
 import { EditSession } from "../src/edit-session.ts";
 import { resolveHtmlEdit } from "../src/html-resolver.ts";
 import { onlyChanged } from "../src/locate.ts";
-import { renderPage, resolveMarkdownEdit } from "../src/markdown-resolver.ts";
+import { planMarkdown, renderPage, resolveMarkdownEdit } from "../src/markdown-resolver.ts";
 import { codePoints, pageText, parseDocument } from "../src/page.ts";
 import { buildPlan, confirmPlan, inertPreview, visible } from "../src/plan.ts";
 import { carry } from "../src/relocate.ts";
@@ -98,10 +99,28 @@ describe("finding 4: the agent receives only what the owner saw", () => {
 
 describe("finding 5: closure needs the rendered result", () => {
   it("keeps an item open when the after exists only in a comment or a reference title", () => {
-    const facts = { left: "The budget ", right: " in March.", deleted: "grew", inserted: "fell" };
-    expect(closure(facts, "Old text.\n<!-- The budget fell in March. -->").state).toBe("open");
+    // The proof the planner persisted when the change was accepted (API changed with the fix).
+    const source = "The budget grew in March.";
+    const proof = planMarkdown(source, [mdEdit(source, "grew", "fell")]).applied[0]?.proof;
+    if (!proof) throw new Error("not planned");
     expect(
-      closure(facts, 'Old text.\n\n[x]: https://example.com "The budget fell in March."').state,
+      closure(proof, "markdown", "Old text.\n<!-- The budget fell in March. -->", "v2").state,
+    ).toBe("open");
+    expect(
+      closure(
+        proof,
+        "markdown",
+        'Old text.\n\n[x]: https://example.com "The budget fell in March."',
+        "v2",
+      ).state,
+    ).toBe("open");
+    expect(
+      closure(
+        proof,
+        "html",
+        "<!doctype html><p>Old text.</p><!-- The budget fell in March. -->",
+        "v2",
+      ).state,
     ).toBe("open");
   });
 });
@@ -250,11 +269,11 @@ describe("finding 13: relocation keeps the target's link", () => {
   it("outdates a link label suggestion when only its destination changed", () => {
     const old = "Read [Second][r] now.\n\n[r]: https://a.example";
     const next = "Read [Second][r] now.\n\n[r]: https://b.example";
-    const start = old.indexOf("Second");
-    const result = carry("markdown", old, next, mdEdit(old, "Second", "Next"), {
-      start,
-      end: start + 6,
-    });
+    const edit = mdEdit(old, "Second", "Next");
+    const planned = planMarkdown(old, [edit]);
+    const proof = planned.applied[0]?.proof ?? planned.listed[0]?.proof;
+    if (!proof) throw new Error("not planned");
+    const result = carry("markdown", old, next, edit, proof);
     expect(result.status).toBe("outdated");
   });
 });

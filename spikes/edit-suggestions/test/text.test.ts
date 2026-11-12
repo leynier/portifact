@@ -1,6 +1,7 @@
 import { normalizeText } from "@portifact/anchors";
 import { describe, expect, it } from "vitest";
 import { changedRegion } from "../src/edit.ts";
+import { codePoints } from "../src/page.ts";
 import { planText, resolveTextEdit } from "../src/text-resolver.ts";
 import { HOSTILE_AFTERS, markdownDocument, PLAIN_AFTERS, random, randomEdit } from "./corpus.ts";
 
@@ -26,6 +27,14 @@ describe("plain text resolver", () => {
         // The oracle works on the raw source, not on normalized text: the replaced characters
         // are exactly the changed part of the selection, and nothing else of the file moved.
         const change = changedRegion(edit);
+        // Independently of the resolver's range: where the two sources first differ lies within
+        // the change in the page (the first difference can slide inside equal characters).
+        let first = 0;
+        while (source[first] === result.source[first] && first < source.length) first++;
+        const prefix = codePoints(normalizeText(`${source.slice(0, first)}x`)).length - 1;
+        const slide = codePoints(change.deleted).length + codePoints(change.inserted).length;
+        expect(prefix).toBeGreaterThanOrEqual(change.from - 1);
+        expect(prefix).toBeLessThanOrEqual(change.from + slide + 1);
         expect(source.slice(result.range.start, result.range.end)).toBe(change.deleted);
         expect(result.source).toBe(
           source.slice(0, result.range.start) + change.inserted + source.slice(result.range.end),
@@ -65,9 +74,10 @@ describe("plain text resolver", () => {
     });
   });
 
-  it("refuses an edit whose new text would merge with the space around it", () => {
+  it("applies a space next to a space: a text document shows both", () => {
     expect(resolveTextEdit("a b c", { start: 2, end: 3, before: "b", after: "b " })).toMatchObject({
-      status: "uncertain",
+      status: "certain",
+      source: "a b  c",
     });
   });
 

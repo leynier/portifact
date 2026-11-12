@@ -2,25 +2,28 @@
   "name": "@portifact/spike-edit-suggestions",
   "version": "0.0.0",
   "private": true,
-  "description": "Spike for decision 0027: suggestions by editing the artifact. Resolvers from a rendered edit to one source range, the style allowlist and the viewer's edit confirmation against a hostile page. Never deployed.",
+  "description": "Spike for decision 0027: suggestions by editing the artifact. Patch plans from stored files, the HTML subset on parse5, inert previews, closure and relocation, and the viewer's edit session against a hostile page. Never deployed.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run --coverage"
+    "test": "vitest run --coverage",
+    "browser": "playwright test"
   },
   "dependencies": {
     "@portifact/anchors": "workspace:*",
     "@portifact/bridge": "workspace:*",
     "@portifact/contracts": "workspace:*",
     "@portifact/render": "workspace:*",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "parse5": "8.1.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
     "happy-dom": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "@playwright/test": "~1.64.1"
   }
 }

@@ -33,7 +33,7 @@ describe("finding 3: a page whose script rewrites text never earns automatic app
     const start = at(text, "$10");
     // The forged hash is gone from the design: the server never asks the frame what it showed.
     const result = resolveHtmlEdit(html, { start, end: start + 3, before: "$10", after: "$20" });
-    expect(result).toEqual({ status: "uncertain", reason: "not_inert" });
+    expect(result).toEqual({ status: "uncertain", reason: "not_eligible" });
   });
 });
 

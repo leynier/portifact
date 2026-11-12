@@ -1,51 +1,51 @@
-// Closing a change-list item by itself (decision 0027, rule 11). An item closes only with a proof
-// in a new version's stored file, never from the reviewer's text alone. The proof uses the raw
-// context the server took from the old file around the change (never reviewer input), and is
-// defined for each kind of text change:
+// Closing a change-list item by itself (decision 0027, rule 11, and rule 5 of the second round).
+// The proof is made on the new version's rendered page, not on its bytes: the accepted result must
+// be visible text in one text node, with the node-local context the item persisted on each side,
+// in an element with the same identity (the same elements, attributes and link destinations), and
+// exactly once; and the old state must be gone from every text node. Text inside comments,
+// attributes, reference definitions or anything else the page does not show is never a text node,
+// so it proves nothing. Any doubt keeps the item open for a person or an agent to close.
 //
-// - replacement: `left + after + right` occurs exactly once and `left + before + right` nowhere;
-// - insertion (nothing deleted): the same, with the inserted text;
-// - deletion (nothing inserted): `left + right` occurs exactly once and `left + before + right`
-//   nowhere.
-//
-// The after may be spelled as written or escaped as the planner would write it. Short contexts,
-// several occurrences or a missing one keep the item open: an agent or a person closes it.
+// - replacement: `left + after + right` once, `left + before + right` nowhere;
+// - insertion: `left + after + right` once, `left + right` nowhere;
+// - deletion: `left + right` once, `left + before + right` nowhere.
+import type { Proof } from "./planned.ts";
+import { anchoredMatches, type FileKind, renderedPage, sameIdentity } from "./rendered.ts";
 
-export interface ClosureFacts {
-  /** Raw text of the old file just before and after the changed part. */
-  left: string;
-  right: string;
-  deleted: string;
-  inserted: string;
-  /** Other spellings of `inserted` that count (Markdown escapes). */
-  spellings?: readonly string[];
-}
+/** What an item persists to prove it later (named units; text as the page shows it). */
+export type ClosureProof = Pick<
+  Proof,
+  "nodeLeft" | "nodeRight" | "identity" | "shownBefore" | "shownAfter"
+>;
 
 export type Closure =
-  | { state: "closed"; kind: "replacement" | "insertion" | "deletion" }
-  | { state: "open"; why: "short_context" | "ambiguous" | "not_shown" };
+  | { state: "closed"; kind: "replacement" | "insertion" | "deletion"; versionId: string }
+  | { state: "open"; why: "short_context" | "ambiguous" | "not_shown" | "target_changed" };
 
-/** Context needed on each side, in UTF-16 units, so a common word cannot close an item. */
+/** Context needed on the two sides together, in UTF-16 units. */
 export const MIN_CONTEXT = 8;
 
-function count(haystack: string, needle: string): number {
-  let n = 0;
-  for (let at = haystack.indexOf(needle); at >= 0; at = haystack.indexOf(needle, at + 1)) n++;
-  return n;
-}
-
-export function closure(facts: ClosureFacts, newSource: string): Closure {
-  if (facts.left.length < MIN_CONTEXT || facts.right.length < MIN_CONTEXT) {
+export function closure(
+  proof: ClosureProof,
+  kind: FileKind,
+  newSource: string,
+  versionId: string,
+): Closure {
+  if (proof.nodeLeft.length + proof.nodeRight.length < MIN_CONTEXT) {
     return { state: "open", why: "short_context" };
   }
-  const kind =
-    facts.inserted === "" ? "deletion" : facts.deleted === "" ? "insertion" : "replacement";
-  const old = facts.left + facts.deleted + facts.right;
-  if (facts.deleted !== "" && count(newSource, old) > 0) return { state: "open", why: "not_shown" };
-  const shown = [facts.inserted, ...(facts.spellings ?? [])].reduce(
-    (total, spelling) => total + count(newSource, facts.left + spelling + facts.right),
-    0,
-  );
-  if (shown === 1) return { state: "closed", kind };
-  return { state: "open", why: shown === 0 ? "not_shown" : "ambiguous" };
+  const shape =
+    proof.shownAfter === "" ? "deletion" : proof.shownBefore === "" ? "insertion" : "replacement";
+  const page = renderedPage(kind, newSource);
+  if (anchoredMatches(page, proof.nodeLeft, proof.shownBefore, proof.nodeRight).length > 0) {
+    return { state: "open", why: "not_shown" };
+  }
+  const found = anchoredMatches(page, proof.nodeLeft, proof.shownAfter, proof.nodeRight);
+  if (found.length === 0) return { state: "open", why: "not_shown" };
+  if (found.length > 1) return { state: "open", why: "ambiguous" };
+  const node = page.nodes[(found[0] as { node: number }).node];
+  if (!node || !sameIdentity(node.identity, proof.identity)) {
+    return { state: "open", why: "target_changed" };
+  }
+  return { state: "closed", kind: shape, versionId };
 }
