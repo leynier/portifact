@@ -17,6 +17,7 @@
 // Human check (docs/security.md, "Human check"): new accounts need a solved Turnstile challenge.
 // It runs invisibly from page load (human-gate.ts) and appears below the methods only when
 // Cloudflare needs an interaction; existing accounts sign in without it.
+import { accountExportFileName } from "@portifact/contracts/account-export";
 import { EMAIL_SUPPRESSED } from "@portifact/contracts/email-delivery";
 import { HUMAN_VERIFICATION_REQUIRED } from "@portifact/contracts/human-check";
 import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts/terms-version";
@@ -34,8 +35,13 @@ export interface PageEnv {
   origin: string;
   /** The human check of new accounts; null or absent when the page has no site key. */
   humanCheck?: HumanCheckWidget | null;
-  /** Same-origin calls outside /api/auth (the read entry's confirmation); `fetch` by default. */
+  /**
+   * Same-origin calls outside /api/auth (the read entry's confirmation, leaving without
+   * accepting); `fetch` by default.
+   */
   fetch?: FetchLike;
+  /** The page's language, so the deletion code email is written in it. */
+  locale?: string;
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -569,7 +575,137 @@ function setupTermsUpdate(doc: Document, env: PageEnv, update: TermsUpdate): voi
     }
   });
 
+  setupLeave(doc, env, { email: update.email, summary, section });
   section.hidden = false;
+}
+
+interface Leave {
+  email: string;
+  summary: HTMLElement;
+  /** The review screen, hidden once the account is deleted. */
+  section: HTMLElement;
+}
+
+/**
+ * Leaving without accepting (docs/legal.md, "Leaving without accepting"): the review screen also
+ * offers the account's data and its deletion. Downloading is a link to the account export. Deleting
+ * asks for a code emailed to the account's address and deletes the account with it; neither call
+ * accepts the terms or signs anyone in, so neither button names the notice.
+ */
+function setupLeave(doc: Document, env: PageEnv, leave: Leave): void {
+  const { summary } = leave;
+  const status = byId(doc, "status");
+  const send = env.fetch ?? ((input, init) => fetch(input, init));
+  const toggle = byId<HTMLButtonElement>(doc, "leave-delete");
+  const step = byId(doc, "leave-delete-step");
+  const sendButton = byId<HTMLButtonElement>(doc, "leave-send-code");
+  const codeForm = byId<HTMLFormElement>(doc, "leave-code-form");
+  const codeInput = byId<HTMLInputElement>(doc, "leave-code");
+  const codeError = byId(doc, "leave-code-error");
+  const resend = byId<HTMLButtonElement>(doc, "leave-resend");
+  // Saved under the server's name, never shown in the tab (accountExportFileName).
+  byId(doc, "leave-download").setAttribute("download", accountExportFileName(Date.now()));
+
+  const post = async (path: string, body: unknown): Promise<{ status: number; body: unknown }> => {
+    const headers: Record<string, string> = {
+      accept: "application/json",
+      "content-type": "application/json",
+    };
+    if (env.locale) headers["accept-language"] = env.locale;
+    try {
+      const response = await send(path, {
+        method: "POST",
+        credentials: "same-origin",
+        headers,
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      let parsed: unknown = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+      return { status: response.status, body: parsed };
+    } catch {
+      return { status: 0, body: null };
+    }
+  };
+
+  const refusal = (body: unknown) => {
+    const error = (body as { error?: unknown } | null)?.error;
+    const details = (error as { details?: unknown } | undefined)?.details;
+    return { code: field(error, "code"), reason: field(details, "reason") };
+  };
+
+  /** The page's sentence for a refusal of either call, or undefined for the code field's own. */
+  const refusedMessage = (statusCode: number, body: unknown): string => {
+    const { code, reason } = refusal(body);
+    if (statusCode === 0) return messages.network;
+    if (statusCode === 429) return messages.rateLimited;
+    if (code === "sole_workspace_admin") return messages.leaveSoleAdmin;
+    if (reason === "email_suppressed") return messages.leaveEmailSuppressed;
+    if (code === "capacity_unavailable") return messages.leaveEmailCapacity;
+    return messages.unexpected;
+  };
+
+  toggle.addEventListener("click", () => {
+    const opening = step.hidden;
+    step.hidden = !opening;
+    toggle.setAttribute("aria-expanded", String(opening));
+    if (opening) byId(doc, "leave-delete-heading").focus();
+  });
+
+  const sendCode = async (button: HTMLButtonElement): Promise<boolean> => {
+    hideSummary(summary);
+    const response = await whileBusy(button, () => post("/api/v1/account/deletion-code", {}));
+    if (response.status === 200) return true;
+    showSummary(summary, refusedMessage(response.status, response.body));
+    return false;
+  };
+
+  sendButton.addEventListener("click", async () => {
+    if (!(await sendCode(sendButton))) return;
+    byId(doc, "leave-code-sent").textContent = messages.leaveCodeSent(leave.email);
+    sendButton.hidden = true;
+    codeForm.hidden = false;
+    codeInput.value = "";
+    setFieldError(codeInput, codeError, undefined);
+    announce(status, messages.codeSentStatus);
+    codeInput.focus();
+  });
+
+  resend.addEventListener("click", async () => {
+    if (await sendCode(resend)) announce(status, messages.codeResent);
+  });
+
+  codeForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    hideSummary(summary);
+    const code = codeInput.value.replace(/\s/g, "");
+    if (!CODE_PATTERN.test(code)) {
+      setFieldError(codeInput, codeError, messages.codeRequired);
+      codeInput.focus();
+      return;
+    }
+    const response = await whileBusy(byId<HTMLButtonElement>(doc, "leave-confirm"), () =>
+      post("/api/v1/account/delete-with-code", { code }),
+    );
+    if (response.status === 200) {
+      leave.section.hidden = true;
+      const done = byId(doc, "leave-done");
+      done.hidden = false;
+      announce(status, messages.leaveDeleted);
+      byId(doc, "leave-done-heading").focus();
+      return;
+    }
+    if (response.status === 400) {
+      setFieldError(codeInput, codeError, messages.codeInvalid);
+      codeInput.focus();
+      return;
+    }
+    showSummary(summary, refusedMessage(response.status, response.body));
+  });
 }
 
 /** Shows which providers already sign in to this account. */

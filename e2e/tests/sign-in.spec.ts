@@ -144,6 +144,55 @@ test("sends a session on older terms to review them, and records the acceptance"
   expect((await accountOf(user.email))?.terms_version).toBe(TERMS_VERSION);
 });
 
+test("lets a session on older terms download its data and delete the account without accepting", async ({
+  page,
+  context,
+}) => {
+  const user = await createUser("Leaving");
+  await sql("UPDATE users SET terms_version = ? WHERE id = ?", ["2000-01-01", user.userId]);
+  await signIn(context, user);
+  await page.goto(`${APP_ORIGIN}/settings`);
+  await expect(page).toHaveURL(/\/login\?next=%2Fsettings$/);
+  await expect(page.getByRole("heading", { name: "Review the terms to continue" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Leave without accepting" })).toBeVisible();
+
+  const download = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download my data" }).click();
+  const file = await download;
+  expect(file.suggestedFilename()).toMatch(/^portifact-export-\d{4}-\d{2}-\d{2}\.json$/);
+
+  // From the keyboard: open the deletion step, ask for the code, type it and confirm.
+  await page.getByRole("button", { name: "Delete my account", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Delete your account for good" })).toBeFocused();
+  await expect(page.locator("#leave-delete-stays")).toContainText("stay with the workspace");
+  await page.getByRole("button", { name: "Email me a deletion code" }).click();
+  await expect(page.getByLabel("6-digit deletion code")).toBeFocused();
+  const message = await lastEmail(user.email);
+  expect(message.subject).toBe("Your code to delete your Portifact account");
+  const code = /^\d{6}$/m.exec(message.text)?.[0] ?? "";
+  expect(code).toMatch(/^\d{6}$/);
+
+  await page.keyboard.type(code === "000000" ? "111111" : "000000");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#leave-code-error")).toContainText("not valid");
+
+  await page.getByLabel("6-digit deletion code").fill(code);
+  await page.getByRole("button", { name: "Delete my account for good" }).click();
+  await expect(page.getByRole("heading", { name: "Your account was deleted" })).toBeFocused();
+  const [gone] = await sql<{ n: number }>("SELECT count(*) AS n FROM users WHERE id = ?", [
+    user.userId,
+  ]);
+  expect(gone?.n).toBe(0);
+  const [acceptances] = await sql<{ n: number }>(
+    "SELECT count(*) AS n FROM terms_acceptances WHERE user_id = ? AND version = ?",
+    [user.userId, TERMS_VERSION],
+  );
+  expect(acceptances?.n).toBe(0);
+  await page.goto(`${APP_ORIGIN}/`);
+  await expect(page).toHaveURL(/\/login\?next=%2F$/);
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
   test(`the sign-in page has no axe violations in the ${colorScheme} theme`, async ({ page }) => {
     // Reduced motion, so the card's entrance animation never fades the text axe measures.

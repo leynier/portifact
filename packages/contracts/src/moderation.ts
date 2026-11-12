@@ -182,6 +182,34 @@ export const AccountDeletionResult = z.object({ deleted: z.literal(true) });
 export type AccountDeletionResult = z.infer<typeof AccountDeletionResult>;
 
 /**
+ * The account deletion code (docs/security.md, "Identity"): how a person whose account has not
+ * accepted the current terms proves they hold it now, to delete it without accepting them. Its
+ * own code, emailed to the account's address, bound to the account and the session that asked
+ * for it; it never signs anyone in, and a sign-in code never deletes. Lifetime and attempts are
+ * the sign-in code's (`OTP_LIMITS`).
+ */
+export const ACCOUNT_DELETION_CODE = {
+  codeTtlSeconds: 300,
+  allowedAttempts: 3,
+} as const;
+
+/** Asking for a deletion code: nothing to send, the account comes from the session. */
+export const AccountDeletionCodeRequest = z.object({}).strict();
+export type AccountDeletionCodeRequest = z.infer<typeof AccountDeletionCodeRequest>;
+
+export const AccountDeletionCodeSent = z.object({
+  sent: z.literal(true),
+  expiresInMinutes: z.number().int().positive(),
+});
+export type AccountDeletionCodeSent = z.infer<typeof AccountDeletionCodeSent>;
+
+/** Deleting the account with the emailed code. */
+export const AccountDeletionWithCodeInput = z
+  .object({ code: z.string().regex(/^\d{6}$/) })
+  .strict();
+export type AccountDeletionWithCodeInput = z.infer<typeof AccountDeletionWithCodeInput>;
+
+/**
  * How long after signing in a session may delete the account. Older sessions must sign in
  * again, so a borrowed or stolen session cannot delete an account on its own.
  */

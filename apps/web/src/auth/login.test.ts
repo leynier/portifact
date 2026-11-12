@@ -638,6 +638,195 @@ describe("a signed-in account without the current terms", () => {
   });
 });
 
+describe("leaving without accepting the current terms", () => {
+  let fetched: { path: string; init: RequestInit | undefined }[];
+  let answers: Map<string, { status: number; body: unknown }>;
+
+  async function openLeaving(locale?: string) {
+    location = fakeLocation("");
+    await setupLogin(document, {
+      ...pageEnv(api, location),
+      ...(locale ? { locale } : {}),
+      fetch: async (input, init) => {
+        fetched.push({ path: input, init });
+        const answer = answers.get(input) ?? { status: 404, body: null };
+        return new Response(JSON.stringify(answer.body), { status: answer.status });
+      },
+    });
+  }
+
+  async function startDeleting() {
+    element("leave-delete").click();
+    element("leave-send-code").click();
+    await settle();
+  }
+
+  async function enterDeletionCode(code: string) {
+    element<HTMLInputElement>("leave-code").value = code;
+    submit(element<HTMLFormElement>("leave-code-form"));
+    await settle();
+  }
+
+  beforeEach(() => {
+    fetched = [];
+    answers = new Map([
+      ["/api/v1/account/deletion-code", { status: 200, body: { sent: true, expiresInMinutes: 5 } }],
+      ["/api/v1/account/delete-with-code", { status: 200, body: { deleted: true } }],
+    ]);
+    api.on("GET", "/get-session", session("ada@example.test", "2000-01-01"));
+  });
+
+  it("offers the data and the deletion below Agree and continue, without naming the notice", async () => {
+    await openLeaving();
+    const order = [
+      "terms-update-notice",
+      "terms-update-continue",
+      "terms-update-sign-out",
+      "leave-download",
+      "leave-delete",
+    ].map((id) => element(id));
+    for (let i = 1; i < order.length; i++) {
+      const previous = order[i - 1] as HTMLElement;
+      expect(
+        previous.compareDocumentPosition(order[i] as HTMLElement) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+    expect(element("leave-download").getAttribute("href")).toBe("/api/v1/account/export");
+    // The file is saved, never shown in the tab, under the server's name: WebKit takes the
+    // attribute's value, Chromium and Firefox the response's Content-Disposition.
+    expect(element("leave-download").getAttribute("download")).toMatch(
+      /^portifact-export-\d{4}-\d{2}-\d{2}\.json$/,
+    );
+    for (const id of ["leave-download", "leave-delete", "leave-send-code", "leave-confirm"]) {
+      expect(element(id).getAttribute("aria-describedby") ?? "", id).not.toContain(
+        "terms-update-notice",
+      );
+    }
+    expect(element("leave-delete-step").hidden).toBe(true);
+    expect(fetched).toEqual([]);
+  });
+
+  it("explains what is deleted and what stays before sending a code", async () => {
+    await openLeaving();
+    element("leave-delete").click();
+    expect(element("leave-delete").getAttribute("aria-expanded")).toBe("true");
+    expect(element("leave-delete-step").hidden).toBe(false);
+    expect(document.activeElement?.id).toBe("leave-delete-heading");
+    expect(element("leave-delete-what").textContent).toContain("cannot be undone");
+    expect(element("leave-delete-stays").textContent).toContain("stay with the workspace");
+    // A sole admin cannot change members without the current terms: the screen says what works.
+    expect(element("leave-delete-stays").textContent).toContain("accept the terms");
+    expect(element("leave-delete-stays").textContent).toContain("privacy@portifact.com");
+    expect(messages.leaveSoleAdmin).toContain("privacy@portifact.com");
+    expect(messages.leaveSoleAdmin).toContain("accept the terms");
+    expect(fetched).toEqual([]);
+    element("leave-delete").click();
+    expect(element("leave-delete").getAttribute("aria-expanded")).toBe("false");
+    expect(element("leave-delete-step").hidden).toBe(true);
+  });
+
+  it("emails a code, then deletes the account with it, never accepting the terms", async () => {
+    await openLeaving("es");
+    await startDeleting();
+    expect(fetched[0]?.path).toBe("/api/v1/account/deletion-code");
+    expect(fetched[0]?.init?.method).toBe("POST");
+    expect(fetched[0]?.init?.credentials).toBe("same-origin");
+    expect(
+      (fetched[0]?.init?.headers as Record<string, string> | undefined)?.["accept-language"],
+    ).toBe("es");
+    expect(element("leave-code-form").hidden).toBe(false);
+    expect(element("leave-code-sent").textContent).toBe(messages.leaveCodeSent("ada@example.test"));
+    expect(document.activeElement?.id).toBe("leave-code");
+
+    await enterDeletionCode("12 34 56");
+    expect(fetched[1]).toMatchObject({ path: "/api/v1/account/delete-with-code" });
+    expect(JSON.parse(String(fetched[1]?.init?.body))).toEqual({ code: "123456" });
+    expect(element("terms-update").hidden).toBe(true);
+    expect(element("leave-done").hidden).toBe(false);
+    expect(element("status").textContent).toBe(messages.leaveDeleted);
+    expect(document.activeElement?.id).toBe("leave-done-heading");
+    expect(api.calls.some((call) => call.path === "/accept-terms")).toBe(false);
+    expect(location.assigned).toEqual([]);
+  });
+
+  it("asks for six digits before sending them", async () => {
+    await openLeaving();
+    await startDeleting();
+    await enterDeletionCode("12");
+    expect(element("leave-code-error").textContent).toBe(messages.codeRequired);
+    expect(element<HTMLInputElement>("leave-code").getAttribute("aria-invalid")).toBe("true");
+    expect(fetched).toHaveLength(1);
+  });
+
+  it("says a wrong or expired code is not valid, and keeps the account", async () => {
+    answers.set("/api/v1/account/delete-with-code", {
+      status: 400,
+      body: { error: { code: "invalid_input", message: "x" } },
+    });
+    await openLeaving();
+    await startDeleting();
+    await enterDeletionCode("000000");
+    expect(element("leave-code-error").textContent).toBe(messages.codeInvalid);
+    expect(element("terms-update").hidden).toBe(false);
+    expect(element("leave-done").hidden).toBe(true);
+  });
+
+  it("can send a new code", async () => {
+    await openLeaving();
+    await startDeleting();
+    element("leave-resend").click();
+    await settle();
+    expect(fetched.map((f) => f.path)).toEqual([
+      "/api/v1/account/deletion-code",
+      "/api/v1/account/deletion-code",
+    ]);
+    expect(element("status").textContent).toBe(messages.codeResent);
+  });
+
+  it.each([
+    [409, { error: { code: "sole_workspace_admin", message: "x" } }, "leaveSoleAdmin"],
+    [
+      403,
+      { error: { code: "forbidden", message: "x", details: { reason: "email_suppressed" } } },
+      "leaveEmailSuppressed",
+    ],
+    [503, { error: { code: "capacity_unavailable", message: "x" } }, "leaveEmailCapacity"],
+    [429, { error: { code: "rate_limited", message: "x" } }, "rateLimited"],
+    [500, null, "unexpected"],
+  ] as const)("explains a refused code (%s)", async (status, body, message) => {
+    answers.set("/api/v1/account/deletion-code", { status, body });
+    await openLeaving();
+    await startDeleting();
+    expect(element("error-summary").textContent).toBe(messages[message]);
+    expect(element("leave-code-form").hidden).toBe(true);
+  });
+
+  it("explains a refused deletion and a lost connection", async () => {
+    answers.set("/api/v1/account/delete-with-code", {
+      status: 409,
+      body: { error: { code: "sole_workspace_admin", message: "x" } },
+    });
+    await openLeaving();
+    await startDeleting();
+    await enterDeletionCode("123456");
+    expect(element("error-summary").textContent).toBe(messages.leaveSoleAdmin);
+    expect(element("terms-update").hidden).toBe(false);
+  });
+
+  it("reports a network failure", async () => {
+    location = fakeLocation("");
+    await setupLogin(document, {
+      ...pageEnv(api, location),
+      fetch: async () => {
+        throw new Error("offline");
+      },
+    });
+    await startDeleting();
+    expect(element("error-summary").textContent).toBe(messages.network);
+  });
+});
+
 describe("human check of new accounts", () => {
   interface Rendered {
     container: HTMLElement;

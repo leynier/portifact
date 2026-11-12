@@ -6,7 +6,10 @@ import { OTP_LIMITS } from "@portifact/contracts";
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import type { GlobalDb } from "@portifact/db";
 import { negotiateLocale, parseAcceptLanguage } from "@portifact/domain/locale";
-import { signInCodeEmail as renderSignInCode } from "@portifact/emails";
+import {
+  accountDeletionCodeEmail as renderDeletionCode,
+  signInCodeEmail as renderSignInCode,
+} from "@portifact/emails";
 import {
   isRecipientSuppressed,
   RecipientSuppressedError,
@@ -63,6 +66,39 @@ export async function deliverSignInCode(
 ): Promise<void> {
   try {
     await sender.send(signInCodeEmail(input.email, input.code, input.locale));
+  } catch (error) {
+    if (error instanceof RecipientSuppressedError) {
+      await suppressEmail(db, { email: input.email, reason: "provider", now: input.now() });
+    }
+    throw error;
+  }
+  await recordEmailsSent(db, input.now());
+}
+
+/**
+ * Sends an account deletion code and counts it, with the sign-in code's handling of a provider
+ * refusal (docs/legal.md, "Leaving without accepting"). The error holds no secret: the caller
+ * answers with its own message and never logs it.
+ */
+export async function deliverAccountDeletionCode(
+  db: GlobalDb,
+  sender: EmailSender,
+  input: {
+    email: string;
+    code: string;
+    expiresInMinutes: number;
+    now: () => number;
+    locale?: LocaleCode | undefined;
+  },
+): Promise<void> {
+  const content = renderDeletionCode({
+    email: input.email,
+    code: input.code,
+    expiresInMinutes: input.expiresInMinutes,
+    locale: input.locale,
+  });
+  try {
+    await sender.send({ to: input.email, ...content });
   } catch (error) {
     if (error instanceof RecipientSuppressedError) {
       await suppressEmail(db, { email: input.email, reason: "provider", now: input.now() });

@@ -1,5 +1,10 @@
 // Portifact's emails: one branded layout (layout.ts) and a template per message, each with an
 // HTML version and a plain-text alternative.
+export {
+  ACCOUNT_DELETION_CODE_TEXT,
+  type AccountDeletionCodeInput,
+  accountDeletionCodeEmail,
+} from "./account-deletion-code.ts";
 export { BUDGET_COMMAND, type BudgetAlertInput, budgetAlertEmail } from "./budget-alert.ts";
 export {
   type CommentNoticeArtifact,

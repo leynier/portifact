@@ -73,6 +73,38 @@
             <p id="terms-update-notice" class="mt-4 rounded-md border border-border-strong bg-surface p-4 text-sm leading-relaxed" data-i18n="login.termsUpdateNotice">By selecting Agree and continue, you confirm that you are 18 or older, you agree to the <a href="https://portifact.com/terms" target="_blank" rel="noopener">Terms of Service</a> and the <a href="https://portifact.com/acceptable-use" target="_blank" rel="noopener">Acceptable Use Policy</a>, and you have read the <a href="https://portifact.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>. The links open in a new tab.</p>
             <button id="terms-update-continue" type="button" aria-describedby="terms-update-notice" class="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="login.agreeAndContinue">Agree and continue</button>
             <button id="terms-update-sign-out" type="button" class="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="login.signOut">Sign out</button>
+
+            <section id="leave" class="mt-8 border-t border-border pt-6" aria-labelledby="leave-heading">
+              <h3 id="leave-heading" class="text-base font-semibold" data-i18n="login.leaveHeading">Leave without accepting</h3>
+              <p class="mt-2 text-sm" data-i18n="login.leaveBody">If you do not agree with the new terms, you can download your data and delete your account without accepting them.</p>
+              <a id="leave-download" href="/api/v1/account/export" download class="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 motion-reduce:transition-none" data-i18n="login.leaveDownload">Download my data</a>
+              <button id="leave-delete" type="button" aria-expanded="false" aria-controls="leave-delete-step" class="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md border border-border-strong bg-canvas px-5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="login.leaveDelete">Delete my account</button>
+
+              <div id="leave-delete-step" class="mt-6" hidden>
+                <h3 id="leave-delete-heading" tabindex="-1" class="text-base font-semibold focus:outline-none" data-i18n="login.leaveDeleteHeading">Delete your account for good</h3>
+                <p id="leave-delete-what" class="mt-2 text-sm" data-i18n="login.leaveDeleteWhat">Deleting your account removes your artifacts, sessions, apps and sign-in methods, and your comments on other people's artifacts. A comment someone replied to becomes a "message deleted" marker. Artifact addresses are never given to anyone else. This cannot be undone, so download your data first.</p>
+                <p id="leave-delete-stays" class="mt-2 text-sm" data-i18n="login.leaveDeleteStays">Artifacts that belong to a workspace stay with the workspace. If you are the only admin of a workspace, you cannot delete your account here, because its members cannot be changed without accepting the terms: accept the terms, make another member its admin and delete your account from Settings, or write to privacy@portifact.com and we will handle it.</p>
+                <p class="mt-2 text-sm" data-i18n="login.leaveDeleteProof">To prove it is you, we email a code to your account's address. Entering it deletes the account; it does not sign you in or accept the terms.</p>
+                <button id="leave-send-code" type="button" class="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="login.leaveSendCode">Email me a deletion code</button>
+
+                <form id="leave-code-form" class="mt-6" novalidate hidden>
+                  <p id="leave-code-sent" class="text-sm text-text-muted break-words"></p>
+                  <label for="leave-code" class="mt-4 block text-sm font-medium" data-i18n="login.leaveCodeLabel">6-digit deletion code</label>
+                  <input id="leave-code" name="leave-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required spellcheck="false" aria-describedby="leave-code-hint" class="mt-2 h-14 w-full rounded-md border border-border-strong bg-canvas px-4 text-center font-mono text-2xl tracking-widest aria-invalid:border-2 aria-invalid:border-text" />
+                  <p id="leave-code-hint" class="mt-2 text-sm text-text-muted" data-i18n="login.leaveCodeHint">The code expires in 5 minutes and works once. Entering it deletes your account for good.</p>
+                  <p id="leave-code-error" class="mt-2 border-l-2 border-text pl-2 text-sm font-semibold" hidden></p>
+                  <button id="leave-confirm" type="submit" aria-describedby="leave-delete-what leave-delete-stays" class="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-surface-inverse px-5 text-sm font-medium text-text-inverse transition-opacity hover:opacity-85 disabled:opacity-60 motion-reduce:transition-none" data-i18n="login.leaveConfirm">Delete my account for good</button>
+                  <div class="mt-4 text-sm">
+                    <button id="leave-resend" type="button" class="underline underline-offset-4 disabled:no-underline disabled:opacity-60" data-i18n="login.resend">Send a new code</button>
+                  </div>
+                </form>
+              </div>
+            </section>
+          </section>
+
+          <section id="leave-done" class="mt-6" aria-labelledby="leave-done-heading" hidden>
+            <h2 id="leave-done-heading" tabindex="-1" class="text-lg font-semibold focus:outline-none" data-i18n="login.leaveDoneHeading">Your account was deleted</h2>
+            <p class="mt-2 text-sm" data-i18n="login.leaveDoneBody">Your artifacts stopped working and everything listed is being deleted. You are signed out.</p>
           </section>
 
           <div id="sign-in" class="mt-6" hidden>

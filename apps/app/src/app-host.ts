@@ -298,7 +298,13 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     (env: Env): AccountSessionLookup =>
     async (request) => {
       const found = await sessionOf(authFor(env), env, request.headers);
-      return found ? { userId: found.user.id, sessionId: found.session.id } : undefined;
+      return found
+        ? {
+            userId: found.user.id,
+            sessionId: found.session.id,
+            termsAccepted: !needsTermsAcceptance(found.user.termsVersion),
+          }
+        : undefined;
     };
 
   // Each region's bucket signs against its own endpoint (decision 0005).
@@ -397,6 +403,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       signOutOthers: (env) => async (request) => {
         await authFor(env).api.revokeOtherSessions({ headers: request.headers });
       },
+      email: (env) => depsFor(env).email,
       now: () => Date.now(),
     }),
   );

@@ -30,6 +30,14 @@ const messages = {
   ssoFor: (email: string) => `${email} 通过你所在组织的身份提供方登录。`,
   ssoShown: "你所在的组织使用单点登录。继续使用它，或改为获取邮箱验证码。",
   termsUpdateFor: (email: string) => `已以 ${email} 的身份登录`,
+  leaveCodeSent: (email: string) => `我们已向 ${email} 发送 6 位删除验证码。`,
+  leaveDeleted: "你的账号已删除。",
+  leaveSoleAdmin:
+    "你是某个工作区唯一的管理员，不接受条款就无法更改其成员。你可以接受条款，将另一位成员设为管理员，然后在设置中删除账号；也可以发送邮件至 privacy@portifact.com，由我们处理。",
+  leaveEmailSuppressed:
+    "由于之前发往你账号地址的邮件被退回或被举报为垃圾邮件，我们无法向该地址发送邮件。如需删除账号，请发送邮件至 privacy@portifact.com。",
+  leaveEmailCapacity:
+    "Portifact 已达到每月邮件发送上限，目前无法通过邮件发送验证码。请稍后再试，或发送邮件至 privacy@portifact.com 删除你的账号。",
   providerErrors: {
     human_verification_required:
       "新账号需要快速验证你是真人，但验证未完成。请重试；如果登录选项下方出现验证，请完成它。如果没有出现任何内容，请重新加载页面或允许 challenges.cloudflare.com。",
@@ -167,6 +175,23 @@ export const zhCN: AuthCatalog = {
     "login.termsUpdateBody": `你的账号尚未同意当前版本的条款。<a href="https://portifact.com/terms#what-changed" target="_blank" rel="noopener">查看变更内容</a>（在新标签页中打开）。`,
     "login.termsUpdateNotice": `选择“同意并继续”，${termsConditions}`,
     "login.agreeAndContinue": "同意并继续",
+    "login.leaveHeading": "不接受条款并离开",
+    "login.leaveBody": "如果你不同意新条款，可以在不接受的情况下下载你的数据并删除账号。",
+    "login.leaveDownload": "下载我的数据",
+    "login.leaveDelete": "删除我的账号",
+    "login.leaveDeleteHeading": "永久删除你的账号",
+    "login.leaveDeleteWhat":
+      "删除账号会移除你的 artifact、会话、应用和登录方式，以及你在他人 artifact 上的评论。有人回复过的评论会变成“消息已删除”标记。artifact 的地址永远不会分配给其他人。此操作无法撤销，请先下载你的数据。",
+    "login.leaveDeleteStays":
+      "属于工作区的 artifact 会保留在工作区中。如果你是某个工作区唯一的管理员，由于不接受条款就无法更改其成员，你不能在这里删除账号：你可以接受条款，将另一位成员设为管理员，然后在设置中删除账号；也可以发送邮件至 privacy@portifact.com，由我们处理。",
+    "login.leaveDeleteProof":
+      "为确认是你本人，我们会向你账号的地址发送验证码。输入后即删除账号；这不会让你登录，也不会接受条款。",
+    "login.leaveSendCode": "给我发送删除验证码",
+    "login.leaveCodeLabel": "6 位删除验证码",
+    "login.leaveCodeHint": "验证码 5 分钟内有效，且只能使用一次。输入后，你的账号将被永久删除。",
+    "login.leaveConfirm": "永久删除我的账号",
+    "login.leaveDoneHeading": "你的账号已删除",
+    "login.leaveDoneBody": "你的 artifact 已停止工作，上述内容正在删除。你已退出登录。",
     "login.termsNotice": `继续使用 Google、GitHub 或邮箱验证码登录，${termsConditions}`,
     "login.termsNoticeSso": `继续使用 Google、GitHub、邮箱验证码或单点登录，${termsConditions}`,
     "login.ssoHeading": "你所在的组织使用单点登录",

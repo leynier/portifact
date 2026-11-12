@@ -423,7 +423,8 @@ describe("your data", () => {
     const data = await region("Your data");
     const link = within(data).getByRole("link", { name: "Download your account's data (JSON)" });
     expect(link.getAttribute("href")).toBe("/api/v1/account/export");
-    expect(link.hasAttribute("download")).toBe(true);
+    // Saved, never shown in the tab, under the server's name (see accountExportFileName).
+    expect(link.getAttribute("download")).toMatch(/^portifact-export-\d{4}-\d{2}-\d{2}\.json$/);
   });
 
   it.each(["light", "dark"] as const)(
