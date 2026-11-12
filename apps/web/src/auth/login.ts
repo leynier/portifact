@@ -17,6 +17,7 @@
 // Human check (docs/security.md, "Human check"): new accounts need a solved Turnstile challenge.
 // It runs invisibly from page load (human-gate.ts) and appears below the methods only when
 // Cloudflare needs an interaction; existing accounts sign in without it.
+import { accountExportFileName } from "@portifact/contracts/account-export";
 import { EMAIL_SUPPRESSED } from "@portifact/contracts/email-delivery";
 import { HUMAN_VERIFICATION_REQUIRED } from "@portifact/contracts/human-check";
 import { TERMS_NOT_ACCEPTED, TERMS_VERSION } from "@portifact/contracts/terms-version";
@@ -602,6 +603,8 @@ function setupLeave(doc: Document, env: PageEnv, leave: Leave): void {
   const codeInput = byId<HTMLInputElement>(doc, "leave-code");
   const codeError = byId(doc, "leave-code-error");
   const resend = byId<HTMLButtonElement>(doc, "leave-resend");
+  // Saved under the server's name, never shown in the tab (accountExportFileName).
+  byId(doc, "leave-download").setAttribute("download", accountExportFileName(Date.now()));
 
   const post = async (path: string, body: unknown): Promise<{ status: number; body: unknown }> => {
     const headers: Record<string, string> = {

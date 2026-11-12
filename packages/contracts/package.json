@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./terms-version": "./src/terms-version.ts",
+    "./account-export": "./src/account-export.ts",
     "./human-check": "./src/human-check.ts",
     "./email-delivery": "./src/email-delivery.ts",
     "./locales": "./src/locales.ts",

@@ -131,8 +131,9 @@ test("the account's export downloads under the server's name in every browser", 
   await signIn(context, owner);
   const named = /^portifact-export-\d{4}-\d{2}-\d{2}\.json$/;
 
-  // Settings: the name comes from the response's Content-Disposition, which WebKit ignores when
-  // the link carries a `download` attribute.
+  // Settings: saved, never shown in the tab, under portifact-export-<UTC date>.json. Chromium and
+  // Firefox take the response's Content-Disposition, WebKit the link's `download` value; both use
+  // accountExportFileName, so the pattern holds whichever wins and around midnight.
   await page.goto(`${APP_ORIGIN}/settings`);
   const fromSettings = page.waitForEvent("download");
   await page.getByRole("link", { name: "Download your account's data (JSON)" }).click();

@@ -2,6 +2,7 @@
 // Every boundary validates with these schemas; see AGENTS.md "Architecture rules".
 export * from "./access-log.ts";
 export * from "./account.ts";
+export * from "./account-export.ts";
 export * from "./analytics.ts";
 export * from "./anchors.ts";
 export * from "./annotation-tools.ts";

@@ -423,9 +423,8 @@ describe("your data", () => {
     const data = await region("Your data");
     const link = within(data).getByRole("link", { name: "Download your account's data (JSON)" });
     expect(link.getAttribute("href")).toBe("/api/v1/account/export");
-    // The server names the file (Content-Disposition); a `download` attribute makes WebKit name it
-    // after the URL instead.
-    expect(link.hasAttribute("download")).toBe(false);
+    // Saved, never shown in the tab, under the server's name (see accountExportFileName).
+    expect(link.getAttribute("download")).toMatch(/^portifact-export-\d{4}-\d{2}-\d{2}\.json$/);
   });
 
   it.each(["light", "dark"] as const)(

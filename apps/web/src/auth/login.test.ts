@@ -693,9 +693,11 @@ describe("leaving without accepting the current terms", () => {
       ).toBeTruthy();
     }
     expect(element("leave-download").getAttribute("href")).toBe("/api/v1/account/export");
-    // The server names the file (Content-Disposition); a `download` attribute makes WebKit name it
-    // after the URL instead.
-    expect(element("leave-download").hasAttribute("download")).toBe(false);
+    // The file is saved, never shown in the tab, under the server's name: WebKit takes the
+    // attribute's value, Chromium and Firefox the response's Content-Disposition.
+    expect(element("leave-download").getAttribute("download")).toMatch(
+      /^portifact-export-\d{4}-\d{2}-\d{2}\.json$/,
+    );
     for (const id of ["leave-download", "leave-delete", "leave-send-code", "leave-confirm"]) {
       expect(element(id).getAttribute("aria-describedby") ?? "", id).not.toContain(
         "terms-update-notice",

@@ -20,6 +20,7 @@ import {
   AccountSuspensionView,
   type AppResource,
   ArtifactId,
+  accountExportFileName,
   BRAND_LIMITS,
   BrandSettings,
   BrandUpdate,
@@ -388,8 +389,7 @@ export function accountRoutes(deps: AccountDeps) {
       const now = deps.now();
       const result = await exportAccount(defaultDb(c.env), { userId: session.userId, now });
       if (!result.ok) return error(c, result.code, result.message);
-      const day = new Date(now).toISOString().slice(0, 10);
-      c.header("Content-Disposition", `attachment; filename="portifact-export-${day}.json"`);
+      c.header("Content-Disposition", `attachment; filename="${accountExportFileName(now)}"`);
       return c.json(AccountExport.parse(result.value));
     }),
   );
