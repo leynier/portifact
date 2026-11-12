@@ -91,7 +91,7 @@ Opening an artifact's link shows it in Portifact's viewer, with a Portifact bar 
 | Signed releases with checksums and provenance                   | Available |
 | Agent skill (`npx skills add leynier/portifact`)                | Available |
 | Sign-in (Google, GitHub, email code) and OAuth                  | Available |
-| Terms, privacy and acceptable use pages (draft)                 | Available |
+| Terms, privacy and acceptable use pages                         | Available |
 | CLI sign-in (`portifact login`, `logout`, `whoami`)             | Available |
 | Publishing API (`/api/v1`), with multipart uploads              | Available |
 | Publish HTML, Markdown and text from the CLI                    | Available |
@@ -120,4 +120,4 @@ Opening an artifact's link shows it in Portifact's viewer, with a Portifact bar 
 
 ## License
 
-Portifact is open source under the [GNU Affero General Public License v3.0](license), and self-hosted copies have every feature. A commercial license for hosting it without the AGPL's obligations is available on request at hello@portifact.com; see [docs/licensing.md](docs/licensing.md). Contributions need the [contributor license agreement](cla.md), as [contributing.md](contributing.md) explains.
+Portifact is open source under the [GNU Affero General Public License v3.0](license), and self-hosted copies have every feature. A separate commercial license, for the rights the maintainer owns or is authorized to sublicense, is available on request at hello@portifact.com for those who want other terms than the AGPL's; see [docs/licensing.md](docs/licensing.md). Contributions need the [contributor license agreement](cla.md), as [contributing.md](contributing.md) explains.

@@ -195,7 +195,7 @@ If any answer is yes, update the right document: rules and pointers go in this f
 
 ## Git and changes
 
-- External contributors sign the contributor license agreement (`cla.md`) by adding their line to `cla-signers.md` in their first pull request ([contributing.md](contributing.md)); the `cla` check refuses the pull request otherwise. Never add or change a signature for someone else.
+- External contributors sign the contributor license agreement (`cla.md`) with a comment whose whole text is the statement on each pull request, from their own account, and a signature record appended to `cla-signers.md` the first time ([contributing.md](contributing.md)); the `cla` check refuses the pull request otherwise. Never add or change a signature for someone else, and never change `cla.md` without publishing a new version (`AGREEMENT_VERSIONS` in `scripts/cla.ts`, "Contributor license agreement" in [docs/releasing.md](docs/releasing.md)).
 - `develop` is the default branch. Branch from it and open pull requests against it; they are squash-merged, so the PR title becomes the commit.
 - `main` is the release branch. Never push to it or open pull requests into it from anything other than `develop`. Merging `develop` into `main` releases automatically; see [docs/releasing.md](docs/releasing.md).
 - Never edit versions, create tags or publish releases by hand. The version comes from Conventional Commit types.
