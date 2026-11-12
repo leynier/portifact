@@ -15,23 +15,28 @@ export const FREE: DataLimits = {
   readsPerCallerPerMinute: 300,
   rowsReadPerDay: 500_000,
   rowsWrittenPerDay: 5_000,
-  connectionsPerArtifact: 25,
+  connectionsPerArtifact: 10,
   connectionsPerAuthor: 4,
   connectsPerAuthorPerMinute: 6,
   liveBytesPerDay: 20_000_000,
-  cleanupRowsPerDay: 20_000,
+  cleanupRowsPerDay: 10_000,
   exportRowsPerDay: 200_000,
-  sandboxBytes: 1_000_000,
-  sqlRowsReadPerDay: 5_000_000,
-  sqlRowsWrittenPerDay: 2_000,
-  sqlWorstRowsRead: 50_000_000,
-  sqlWorstRowsWritten: 100_000,
 };
+
+/** Plan B's Free owner allowances a day (decision 0026, "Plans"), for `context(…, FREE_OWNER)`. */
+export const FREE_OWNER = {
+  ownerRead: 500_000,
+  ownerWritten: 5_000,
+  cleanup: 10_000,
+  exported: 200_000,
+  liveBytes: 20_000_000,
+} as const;
 
 /** Generous limits for tests that are about something else than limits. */
 export const ROOMY: DataLimits = {
   ...FREE,
   bytesPerArtifact: 100_000_000,
+  connectionsPerArtifact: 25,
   documentsPerCollection: 200_000,
   writesPerAuthorPerMinute: 100_000,
   deletesPerAuthorPerMinute: 100_000,
@@ -41,16 +46,13 @@ export const ROOMY: DataLimits = {
   liveBytesPerDay: 1_000_000_000,
   cleanupRowsPerDay: 100_000_000,
   exportRowsPerDay: 100_000_000,
-  sandboxBytes: 100_000_000,
-  sqlRowsReadPerDay: 1_000_000_000,
-  sqlRowsWrittenPerDay: 100_000_000,
 };
 
 export const NOW = Date.UTC(2026, 10, 12, 12, 0, 0);
 
 let counter = 0;
 
-/** A fresh artifact: its envelope (owned by `owner`) and both of its objects. */
+/** A fresh artifact: its envelope (owned by `owner`) and its object. */
 export function artifact(owner = "owner_default") {
   counter += 1;
   const artifactId = `a${counter.toString().padStart(9, "0")}`;
@@ -65,7 +67,6 @@ export function artifact(owner = "owner_default") {
     envelope,
     owner,
     docs: env.DOCUMENTS.get(env.DOCUMENTS.idFromName(artifactId)),
-    sandbox: env.SANDBOX.get(env.SANDBOX.idFromName(artifactId)),
   };
 }
 
@@ -84,8 +85,8 @@ export function context(
     owner?: string;
     ownerRead?: number;
     ownerWritten?: number;
-    sqlRead?: number;
-    sqlWritten?: number;
+    cleanup?: number;
+    exported?: number;
     liveBytes?: number;
   } = {},
 ): CallContext {
@@ -98,8 +99,8 @@ export function context(
       allowances: {
         documents_read: options.ownerRead ?? 1_000_000_000,
         documents_written: options.ownerWritten ?? 100_000_000,
-        sql_read: options.sqlRead ?? 1_000_000_000,
-        sql_written: options.sqlWritten ?? 100_000_000,
+        cleanup: options.cleanup ?? 100_000_000,
+        export: options.exported ?? 1_000_000_000,
         live_bytes: options.liveBytes ?? 1_000_000_000,
       },
     },

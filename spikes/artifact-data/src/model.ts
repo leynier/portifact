@@ -43,17 +43,6 @@ export interface DataLimits {
   cleanupRowsPerDay: number;
   /** Rows exports may read per day: never the growth budget. */
   exportRowsPerDay: number;
-  /** The sandbox's own size cap (the documents have `bytesPerArtifact`). */
-  sandboxBytes: number;
-  /** Rows the sandbox may read and write per day for this artifact. */
-  sqlRowsReadPerDay: number;
-  sqlRowsWrittenPerDay: number;
-  /**
-   * What one statement can do at most before the platform stops it (measured on staging): the
-   * debt charged for a statement that never reported back.
-   */
-  sqlWorstRowsRead: number;
-  sqlWorstRowsWritten: number;
 }
 
 export type DataErrorCode =

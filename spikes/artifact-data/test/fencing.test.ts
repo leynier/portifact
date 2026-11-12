@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { operationKey } from "../src/documents.ts";
 import { admit, applyFence, type Control, newControl, reconcile } from "../src/envelope.ts";
 import { claimVisitorId } from "../src/journal.ts";
 import { artifact, context, NOW, OWNER, ok, op, visitor } from "./harness.ts";
@@ -11,9 +12,10 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
     const { envelope, docs } = artifact("owner_a");
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     const transfer = { ...envelope, epoch: 1 };
-    expect(ok(await docs.fence(transfer, { state: "open", toOwner: "owner_b" }))).toEqual({
+    const move = { state: "open", toOwner: "owner_b", transition: "t_move" } as const;
+    expect(ok(await docs.fence(transfer, move))).toEqual({
       epoch: 1,
-      state: "open",
+      held: false,
       ownerId: "owner_b",
     });
     expect(await docs.create(op(envelope), owner, "items", { n: 1 })).toMatchObject({
@@ -26,12 +28,18 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
     });
     const after = { ...envelope, ownerId: "owner_b", epoch: 1 };
     ok(await docs.create(op(after), owner, "items", { n: 1 }));
-    // A late, older fence never moves the object back; repeating the same fence is acknowledged.
-    expect(await docs.fence(envelope, { state: "open" })).toMatchObject({
+    // A late, older fence never moves the object back; the same transition again is acknowledged.
+    expect(await docs.fence(envelope, { state: "open", transition: "t_old" })).toMatchObject({
       ok: false,
       error: "stale",
     });
-    ok(await docs.fence(transfer, { state: "open", toOwner: "owner_b" }));
+    ok(await docs.fence(transfer, move));
+    expect((await docs.controlRecord())?.last).toMatchObject({
+      id: "t_move",
+      kind: "transfer",
+      fromOwner: "owner_a",
+      toOwner: "owner_b",
+    });
   });
 
   it("makes a hold an acknowledged barrier that cancels a prepared erase", async () => {
@@ -40,9 +48,9 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
     const kept = ok(await docs.create(op(envelope), owner, "items", { n: 1 }));
     expect(ok(await docs.prepareErase(envelope))).toEqual({ prepared: true });
     const held = { ...envelope, epoch: 1 };
-    expect(ok(await docs.fence(held, { state: "held" }))).toMatchObject({
+    expect(ok(await docs.fence(held, { state: "held", transition: "t_hold" }))).toMatchObject({
       epoch: 1,
-      state: "held",
+      held: true,
     });
     expect(await docs.commitErase(envelope)).toMatchObject({ ok: false, error: "stale" });
     expect(await docs.commitErase(held)).toMatchObject({ ok: false, error: "held" });
@@ -51,34 +59,29 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
       error: "held",
     });
     const released = { ...envelope, epoch: 2 };
-    ok(await docs.fence(released, { state: "open" }));
+    ok(await docs.fence(released, { state: "open", transition: "t_release" }));
     expect(ok(await docs.get(released, owner, "items", kept._id)).n).toBe(1);
   });
 
-  it("erases both objects of a generation atomically each, and finishes when only one had", async () => {
-    const { envelope, docs, sandbox } = artifact();
+  it("erases a generation in one transaction, and a retried job finds it done", async () => {
+    const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
-    ok(await sandbox.execute(op(envelope), owner, "create table t (x)"));
-    // The job prepares both; the documents commit, then the job dies before the sandbox does.
+    ok(await docs.create(op(envelope), owner, "items", { n: 1 }));
     ok(await docs.prepareErase(envelope));
-    expect(await sandbox.prepareErase(envelope)).toEqual({ ok: true, prepared: true });
     expect(ok(await docs.commitErase(envelope))).toEqual({ erased: true });
-    // The retried job: the documents say done, the sandbox finishes.
     expect(ok(await docs.prepareErase(envelope))).toEqual({ prepared: false });
-    expect(await sandbox.prepareErase(envelope)).toEqual({ ok: true, prepared: true });
-    expect(await sandbox.commitErase(envelope)).toEqual({ ok: true, erased: true });
+    expect(ok(await docs.commitErase(envelope))).toEqual({ erased: false });
     const next = { ...envelope, generation: 1 };
     expect((await docs.controlRecord())?.generation).toBe(1);
-    expect((await sandbox.controlRecord())?.generation).toBe(1);
-    expect(
-      ok(
-        await sandbox.query(
-          next,
-          owner,
-          "select count(*) from sqlite_schema where type = 'table' and name not like '\\_cf\\_%' escape '\\'",
-        ),
-      ).rows,
-    ).toEqual([[0]]);
+    expect(await docs.query(next, owner, { collection: "items" })).toMatchObject({
+      ok: false,
+      error: "not_found",
+    });
+    // A request of the erased generation is refused, not answered from the new one.
+    expect(await docs.create(op(envelope), owner, "items", { n: 1 })).toMatchObject({
+      ok: false,
+      error: "stale",
+    });
   });
 
   it("refuses commands while an erase is prepared, and lets a cancel reopen", async () => {
@@ -94,76 +97,92 @@ describe("fencing: one validator, the owner, the generation and the epoch", () =
   });
 
   it("decides every command with one pure rule", () => {
-    const stored: Control = {
-      ...newControl(
-        { artifactId: "a", region: "eu", ownerId: "o", generation: 2, epoch: 5 },
-        "open",
-        NOW,
-      ),
-      storageSeq: 0,
-    };
     const base = { artifactId: "a", region: "eu", ownerId: "o", generation: 2, epoch: 5 };
-    expect(admit(null, base, { kind: "request", create: false })).toEqual({
-      ok: true,
-      adopt: true,
-      empty: true,
+    const stored: Control = newControl(base, NOW);
+    const request = { kind: "request", create: false } as const;
+    expect(admit(null, base, request)).toEqual({ ok: true, adopt: true, empty: true });
+    expect(admit(stored, { ...base, region: "default" }, request)).toMatchObject({
+      error: "forbidden",
     });
-    expect(admit(null, base, { kind: "erase" })).toEqual({ ok: true, done: true });
-    expect(
-      admit(stored, { ...base, region: "default" }, { kind: "request", create: false }),
-    ).toMatchObject({ error: "forbidden" });
-    expect(
-      admit(stored, { ...base, ownerId: "x" }, { kind: "request", create: false }),
-    ).toMatchObject({ error: "stale" });
-    expect(
-      admit(stored, { ...base, generation: 1 }, { kind: "request", create: false }),
-    ).toMatchObject({ error: "stale" });
+    expect(admit(stored, { ...base, region: "default" }, { kind: "maintenance" })).toMatchObject({
+      error: "forbidden",
+    });
+    expect(admit(stored, { ...base, ownerId: "x" }, { kind: "maintenance" })).toMatchObject({
+      ok: true,
+    });
+    expect(admit(stored, { ...base, ownerId: "x" }, request)).toMatchObject({ error: "stale" });
+    expect(admit(stored, { ...base, generation: 1 }, request)).toMatchObject({ error: "stale" });
     expect(admit(stored, { ...base, generation: 1 }, { kind: "erase" })).toEqual({
       ok: true,
       done: true,
     });
-    expect(admit(stored, { ...base, epoch: 4 }, { kind: "request", create: false })).toMatchObject({
-      error: "stale",
-    });
-    expect(admit(stored, { ...base, epoch: 6 }, { kind: "request", create: false })).toEqual({
+    expect(admit(stored, { ...base, epoch: 4 }, request)).toMatchObject({ error: "stale" });
+    expect(admit(stored, { ...base, epoch: 6 }, request)).toEqual({
       ok: true,
       adopt: true,
       empty: false,
     });
-    expect(
-      admit({ ...stored, state: "held" }, base, { kind: "request", create: false }),
-    ).toMatchObject({ error: "held" });
-    expect(admit({ ...stored, state: "held" }, base, { kind: "operator" })).toEqual({
+    const held = { ...stored, hold: { transition: "t", epoch: 5 } };
+    expect(admit(held, base, request)).toMatchObject({ error: "held" });
+    expect(admit(held, base, { kind: "erase" })).toMatchObject({ error: "held" });
+    expect(admit(held, base, { kind: "operator" })).toEqual({
       ok: true,
       adopt: false,
       empty: false,
     });
+    const quarantined = { ...stored, quarantine: { reason: "owner" as const, at: NOW } };
+    expect(admit(quarantined, base, request)).toMatchObject({ error: "quarantined" });
+    expect(admit(quarantined, base, { kind: "operator" })).toMatchObject({ ok: true });
+    expect(admit({ ...stored, erasing: { generation: 2, epoch: 5 } }, base, request)).toMatchObject(
+      { error: "stale" },
+    );
     expect(
-      admit({ ...stored, state: "quarantined" }, base, { kind: "request", create: false }),
-    ).toMatchObject({ error: "quarantined" });
-    expect(
-      admit({ ...stored, state: "erasing" }, base, { kind: "request", create: false }),
-    ).toMatchObject({ error: "stale" });
-    expect(
-      applyFence(stored, { ...base, epoch: 6 }, { state: "open", toOwner: "p" }, NOW),
+      applyFence(
+        stored,
+        { ...base, epoch: 6 },
+        { state: "open", toOwner: "p", transition: "t1" },
+        NOW,
+      ),
     ).toMatchObject({
       ok: true,
       control: { ownerId: "p", ownerEpoch: 6, last: { kind: "transfer", fromOwner: "o" } },
     });
     expect(
-      applyFence(stored, { ...base, artifactId: "b", epoch: 6 }, { state: "open" }, NOW),
+      applyFence(
+        stored,
+        { ...base, artifactId: "b", epoch: 6 },
+        { state: "open", transition: "t2" },
+        NOW,
+      ),
     ).toMatchObject({ ok: false, error: "forbidden" });
     expect(
-      applyFence(stored, { ...base, ownerId: "x", epoch: 6 }, { state: "open" }, NOW),
+      applyFence(
+        stored,
+        { ...base, ownerId: "x", epoch: 6 },
+        { state: "open", transition: "t3" },
+        NOW,
+      ),
     ).toMatchObject({ ok: false, error: "stale" });
+    expect(
+      applyFence(
+        stored,
+        { ...base, generation: 3, epoch: 6 },
+        { state: "open", transition: "t4" },
+        NOW,
+      ),
+    ).toMatchObject({ ok: false, error: "stale" });
+    // On an empty object a fence creates the control record at its own epoch.
+    expect(applyFence(null, base, { state: "held", transition: "t5" }, NOW)).toMatchObject({
+      ok: true,
+      control: { epoch: 5, hold: { transition: "t5" } },
+    });
   });
 });
 
-describe("restore reconciliation (finding 4)", () => {
-  it("raises D1 for the same owner, and quarantines what the numbers cannot explain", () => {
+describe("restore reconciliation", () => {
+  it("raises D1 for the same owner, resumes an erase, and quarantines what the numbers cannot explain", () => {
     const object: Control = newControl(
       { artifactId: "a", region: "eu", ownerId: "new", generation: 1, epoch: 5 },
-      "open",
       NOW,
     );
     expect(reconcile({ ownerId: "old", generation: 1, epoch: 0, held: false }, object)).toEqual({
@@ -182,20 +201,34 @@ describe("restore reconciliation (finding 4)", () => {
       action: "quarantine",
       reason: "hold",
     });
+    expect(
+      reconcile(
+        { ownerId: "new", generation: 0, epoch: 2, held: false },
+        { ...object, erasing: { generation: 1, epoch: 5 } },
+      ),
+    ).toEqual({ action: "resume_erase", generation: 1, epoch: 5 });
+    expect(
+      reconcile(
+        { ownerId: "new", generation: 1, epoch: 5, held: false },
+        { ...object, quarantine: { reason: "owner", at: NOW } },
+      ),
+    ).toEqual({ action: "operator", reason: "quarantined" });
     expect(reconcile({ ownerId: "new", generation: 1, epoch: 5, held: false }, null)).toEqual({
       action: "none",
     });
   });
 
-  it("never lets a restored former owner read the new owner's data, and a quarantine stops everyone", async () => {
-    const { envelope, docs, sandbox } = artifact("owner_old");
+  it("never lets a restored former owner read the new owner's data; the operator resolves a quarantine", async () => {
+    const { envelope, docs } = artifact("owner_old");
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
-    ok(await docs.fence({ ...envelope, epoch: 5 }, { state: "open", toOwner: "owner_new" }));
     ok(
-      await docs.create(op({ ...envelope, ownerId: "owner_new", epoch: 5 }), owner, "items", {
-        secret: "new",
-      }),
+      await docs.fence(
+        { ...envelope, epoch: 5 },
+        { state: "open", toOwner: "owner_new", transition: "t_move" },
+      ),
     );
+    const current = { ...envelope, ownerId: "owner_new", epoch: 5 };
+    ok(await docs.create(op(current), owner, "items", { secret: "new" }));
     // D1 restored to the old owner at epoch 0: even raised to the object's epoch, it is refused.
     expect(
       await docs.query({ ...envelope, epoch: 6 }, owner, { collection: "items" }),
@@ -204,33 +237,39 @@ describe("restore reconciliation (finding 4)", () => {
     expect(
       reconcile({ ownerId: "owner_old", generation: 0, epoch: 0, held: false }, object),
     ).toMatchObject({ action: "quarantine" });
-    expect(await docs.quarantine(envelope)).toBe(true);
-    expect(
-      await docs.query({ ...envelope, ownerId: "owner_new", epoch: 5 }, owner, {
-        collection: "items",
-      }),
-    ).toMatchObject({
+    expect(await docs.quarantine(envelope, "owner")).toBe(true);
+    expect(await docs.query(current, owner, { collection: "items" })).toMatchObject({
       ok: false,
       error: "quarantined",
     });
-    ok(await sandbox.execute(op(envelope), owner, "create table t (x)"));
-    expect(await sandbox.quarantine(envelope)).toBe(true);
-    expect(await sandbox.query(envelope, owner, "select 1")).toMatchObject({
-      ok: false,
-      error: "quarantined",
-    });
+    // The operator can still export, and resolves by adopting the owner the object names.
+    expect(ok(await docs.exportPage(current, owner, null, 10, true)).rows).toHaveLength(1);
+    expect(await docs.resolveQuarantine(envelope, "adopt")).toMatchObject({ ok: false });
+    expect(await docs.resolveQuarantine(current, "adopt")).toEqual({ ok: true });
+    expect(ok(await docs.query(current, owner, { collection: "items" })).documents).toHaveLength(1);
+  });
+
+  it("resolves a quarantine by erasing, into the next generation", async () => {
+    const { envelope, docs } = artifact();
+    ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
+    ok(await docs.create(op(envelope), owner, "items", { n: 1 }));
+    expect(await docs.quarantine(envelope, "hold")).toBe(true);
+    expect(await docs.resolveQuarantine(envelope, "erase")).toEqual({ ok: true });
+    expect(await docs.resolveQuarantine(envelope, "erase")).toMatchObject({ ok: false });
+    const control = await docs.controlRecord();
+    expect(control).toMatchObject({ generation: 1, quarantine: null });
   });
 });
 
 describe("replay records, obligations and author erasure", () => {
-  it("keeps replay records a day and prunes them after (finding 5)", async () => {
+  it("keeps replay records a day and prunes them, and the rest of the control tables, after", async () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "append" }));
     const once = op(envelope);
     ok(await docs.create(once, context(visitor("v_a")), "items", { n: 1 }));
-    expect(await docs.pruneReplays(Date.now())).toBe(0);
-    await docs.backdateReplays(Date.now() - 2 * 86_400_000);
-    expect(await docs.pruneReplays(Date.now())).toBe(2);
+    expect(await docs.pruneReplays(NOW)).toBe(0);
+    // Two operation records, the author's rate row and the day's counters.
+    expect(await docs.pruneReplays(NOW + 3 * 86_400_000)).toBe(4);
   });
 
   it("refuses a reused operation ID for another request, and replays only after authorization", async () => {
@@ -249,13 +288,18 @@ describe("replay records, obligations and author erasure", () => {
     });
   });
 
-  it("settles an operation: committed obligations are returned, the rest are marked aborted for good (finding 14)", async () => {
-    const { envelope, docs, sandbox } = artifact();
+  it("settles an operation: committed obligations are returned, the rest are marked aborted for good", async () => {
+    const { envelope, docs } = artifact();
     const declared = op(envelope);
     ok(await docs.declareCollection(declared, owner, { name: "items", mode: "read" }));
     expect(await docs.settle(envelope, "owner:owner", declared.opId as string)).toMatchObject({
       state: "committed",
       kind: "data.collection_set",
+      delivered: false,
+    });
+    expect(await docs.acknowledge(envelope, "owner:owner", declared.opId as string)).toBe(true);
+    expect(await docs.settle(envelope, "owner:owner", declared.opId as string)).toMatchObject({
+      delivered: true,
     });
     expect(await docs.settle(envelope, "owner:owner", "op_never")).toEqual({ state: "aborted" });
     // The original call arriving after the relay gave up does not commit.
@@ -265,13 +309,12 @@ describe("replay records, obligations and author erasure", () => {
     // Obligations survive a whole erase.
     ok(await docs.prepareErase(envelope));
     ok(await docs.commitErase(envelope));
-    expect(await docs.auditFor(declared.opId as string)).not.toBeNull();
-    const sql = op(envelope);
-    ok(await sandbox.execute(sql, owner, "create table t (x)"));
-    expect(await sandbox.settle(envelope, "owner:owner", sql.opId as string)).toMatchObject({
-      state: "committed",
+    expect(
+      await docs.auditFor(operationKey("owner:owner", 0, declared.opId as string)),
+    ).not.toBeNull();
+    expect(await docs.settle({ ...envelope, artifactId: "other" }, "owner:owner", "op_x")).toEqual({
+      state: "refused",
     });
-    expect(await sandbox.settle(envelope, "owner:owner", "op_lost")).toEqual({ state: "aborted" });
   });
 
   it("erases one author in bounded chunks and keeps everyone else", async () => {
@@ -291,7 +334,7 @@ describe("replay records, obligations and author erasure", () => {
     expect(left.documents.map((document) => document._by)).toEqual(["v_b"]);
   });
 
-  it("gives two racing first grants one identity (finding 6)", async () => {
+  it("gives two racing first grants one identity", async () => {
     const claims = await Promise.all(
       Array.from({ length: 5 }, (_, index) =>
         claimVisitorId(env.JOURNAL, "user_1", "a_race", `v_candidate_${index}`, NOW),
@@ -302,9 +345,9 @@ describe("replay records, obligations and author erasure", () => {
   });
 });
 
-describe("storage reports (finding 13)", () => {
+describe("storage reports", () => {
   it("raise their sequence on every change and on refused work, and come with failures", async () => {
-    const { envelope, docs, sandbox } = artifact();
+    const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "read" }));
     const first = await docs.create(op(envelope), owner, "items", { n: 1 });
     const refused = await docs.create(op(envelope), context(visitor("v_a")), "items", { n: 1 });
@@ -312,37 +355,28 @@ describe("storage reports (finding 13)", () => {
     expect(refused.ok).toBe(false);
     expect(refused.storage.seq).toBeGreaterThan(first.storage.seq);
     expect(second.storage.seq).toBeGreaterThan(refused.storage.seq);
-    const sql = await sandbox.execute(op(envelope), owner, "create table t (x)");
-    expect(sql.storage.seq).toBeGreaterThan(0);
   });
 });
 
-describe("lossless export (finding 9)", () => {
-  it("exports every SQLite type exactly, large integers and large blobs included", async () => {
-    const { envelope, sandbox } = artifact();
-    ok(await sandbox.execute(op(envelope), owner, "create table t (a, b, c, d)"));
-    await sandbox.unsafeExec(
-      "insert into t values (9223372036854775807, randomblob(70000), 0.1, null)",
+describe("document export", () => {
+  it("exports bodies exactly as stored, with their server fields, in a stable order", async () => {
+    const { envelope, docs } = artifact();
+    ok(await docs.declareCollection(op(envelope), owner, { name: "b", mode: "append" }));
+    ok(await docs.declareCollection(op(envelope), owner, { name: "a", mode: "append" }));
+    const body = { big: 9007199254740991, text: "é€😀", nested: { list: [1, "x", null, true] } };
+    const created = ok(await docs.create(op(envelope), context(visitor("v_a")), "b", body));
+    ok(await docs.create(op(envelope), context(visitor("v_b")), "a", { n: 0.1 }));
+    const page = ok(await docs.exportPage(envelope, owner, null, 10));
+    expect(page.rows.map((row) => row.collection)).toEqual(["a", "b"]);
+    const row = page.rows[1];
+    expect(row).toMatchObject({ id: created._id, by: "v_a", editedBy: null, created: NOW });
+    expect(JSON.parse(row?.body ?? "null")).toEqual(body);
+    expect(JSON.parse(page.rows[0]?.body ?? "null")).toEqual({ n: 0.1 });
+    const again = ok(await docs.exportPage(envelope, owner, null, 10));
+    expect(again).toEqual(page);
+    ok(await docs.create(op(envelope), context(visitor("v_a")), "a", { n: 2 }));
+    expect(ok(await docs.exportPage(envelope, owner, null, 10)).revision).toBeGreaterThan(
+      page.revision,
     );
-    const page = await sandbox.exportTable(envelope, owner, "t", 0, 10);
-    if (!page.ok || !("value" in page)) throw new Error("export failed");
-    const row = page.value.rows[0];
-    if (row === undefined) throw new Error("no row");
-    expect(page.value.columns).toEqual(["a", "b", "c", "d"]);
-    expect(row?.values[0]).toEqual({ t: "integer", v: "9223372036854775807" });
-    expect(row?.values[1]).toMatchObject({ t: "blob" });
-    expect((row.values[1] as { v: string }).v).toHaveLength(140_000);
-    // The shortest text that reads back as the same double.
-    expect(row?.values[2]).toMatchObject({ t: "real" });
-    expect(Number((row.values[2] as { v: string }).v)).toBe(0.1);
-    expect(row?.values[3]).toEqual({ t: "null" });
-    expect(await sandbox.exportTable(envelope, owner, "missing", 0, 10)).toMatchObject({
-      ok: false,
-      error: "not_found",
-    });
-    expect(await sandbox.exportTable(envelope, owner, "bad name", 0, 10)).toMatchObject({
-      ok: false,
-      error: "invalid_input",
-    });
   });
 });

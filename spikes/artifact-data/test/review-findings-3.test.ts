@@ -127,8 +127,8 @@ describe("third review: empty objects, generations and maintenance (finding 6)",
     ok(await docs.create(op(envelope), context(visitor("v_a")), "items", { n: 1 }));
     ok(await docs.fence({ ...envelope, epoch: 1 }, any({ state: "held", transition: "t_hold" })));
     await docs.backdateReplays(Date.now() - 3 * 86_400_000);
-    expect(await any(docs).pruneReplays(Date.now())).toBe(0);
-    const settled = await any(docs).settle(
+    expect(await docs.pruneReplays(Date.now())).toBe(0);
+    const settled = await docs.settle(
       { ...envelope, artifactId: "other", epoch: 1 },
       "owner:owner",
       "op_x",

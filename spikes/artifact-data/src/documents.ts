@@ -1,9 +1,16 @@
-// One artifact's documents (decision 0026): a SQLite-backed Durable Object named by the artifact
-// ID that speaks only the document API. No SQL from anyone reaches it; owner SQL runs in the
-// sandbox (`sandbox.ts`). Every command passes `admit` against the control record; mutations
-// are idempotent per actor, generation and request; every command is charged before it runs
-// against durable budgets, in pools that keep growth, cleanup and export apart; erasure keeps the
-// control records; author erasure sets a barrier first.
+// One artifact's data (decision 0026): a SQLite-backed Durable Object named by the artifact ID
+// that speaks only the document API, to the page and to the owner side. Every command follows
+// the same shape:
+//
+// 1. awaits that may yield (hashing the request, leasing owner allowance from the ledger);
+// 2. one synchronous transaction that admits the envelope against the control record, looks up
+//    the operation record (a replay answers here, before any charge) and charges an upper bound
+//    of the work, committed even when it refuses;
+// 3. one synchronous transaction that admits the envelope again, checks the operation record and
+//    authorization again, and reads or writes.
+//
+// Nothing runs between 2 and 3, and nothing before 2 decides anything: a hold, a transfer or a
+// duplicate that lands during an await is seen by 2 and 3 (finding 1).
 import { DurableObject } from "cloudflare:workers";
 import {
   type Mode as AdmitMode,
@@ -27,6 +34,7 @@ import {
   encodeCursor,
   fieldIndex,
   fieldName,
+  MAX_PAGE,
   type Mode,
   OWNER_AUTHOR,
   mode as parseMode,
@@ -41,7 +49,6 @@ export interface Cost {
   rowsWritten: number;
 }
 
-/** The owner's daily allowances, per ledger pool. */
 export type OwnerAllowances = Record<Pool, number>;
 
 /** What the calling Worker states besides the envelope: who calls, the plan's limits, the owner. */
@@ -52,7 +59,7 @@ export interface CallContext {
   now: number;
 }
 
-/** The object's storage, reported with every answer, refusals included (finding 13). */
+/** The object's storage, reported with every answer, refusals included. */
 export interface StorageReport {
   generation: number;
   seq: number;
@@ -88,6 +95,17 @@ export interface Page {
   next: string | null;
 }
 
+/** One exported document: its server fields and its body exactly as stored. */
+export interface ExportRow {
+  collection: string;
+  id: string;
+  by: string;
+  editedBy: string | null;
+  created: number;
+  updated: number;
+  body: string;
+}
+
 export interface ChangeMessage {
   collection: string;
   kind: "created" | "updated" | "deleted";
@@ -96,40 +114,61 @@ export interface ChangeMessage {
   document?: StoredDocument;
 }
 
-/** A live connection's state, kept across hibernation (at most 16 KiB). */
 interface Attachment {
   socketId: string;
   author: string | null;
-  /** The grant, link or read session that opened it; renewal must present the same. */
   principal: string;
   subscriptions: string[];
   deadline: number;
   window: number;
   messagesIn: number;
   bytesOut: number;
+  /** Bytes already reserved against the artifact's day and the owner's lease, not yet sent. */
+  reserved: number;
   liveBytesPerDay: number;
 }
 
 export const LIVE = {
   messageBytes: 1024,
-  messagesPerMinute: 20,
+  /** A page only subscribes; a few messages a minute is all it needs, and each is a billed request. */
+  messagesPerMinute: 4,
   bytesOutPerMinute: 256 * 1024,
   subscriptions: 20,
+  /** Bytes reserved at a time for a connection: one counter write per chunk, not per message. */
+  reserveChunk: 16 * 1024,
 } as const;
 
-/** Rows a command is charged before it runs; actual work above it is charged after. */
-const ESTIMATE = { read: { read: 110, written: 0 }, write: { read: 20, written: 14 } } as const;
-/** Owner allowance is leased in chunks: 5% of a day, at most these. */
+/**
+ * Upper bounds of each command's rows, charged before it runs (measured actual work is below
+ * them; a test asserts it). The overhead covers the control record, the collection row, the
+ * field list, the operation record and the charge's own counter rows.
+ */
+export const BOUND = {
+  overhead: 30,
+  read: { read: MAX_PAGE + 1 + 30, written: 4 },
+  get: { read: 30, written: 4 },
+  write: { read: 40, written: 40 },
+  /** A declaration: the schema on the first one, before any index it builds. */
+  declare: { read: 60, written: 60 },
+  cleanup: { read: 40, written: 40 },
+} as const;
 export const LEASE_CHUNK = {
   share: 0.05,
   read: 100_000,
   written: 1_000,
   bytes: 1_000_000,
 } as const;
-/** Replay records are kept a day (finding 5). */
+/** How long a mutation's record answers a retry; after it, the ID is a new operation. */
 export const REPLAY_MS = 86_400_000;
-/** Bounded work per author-erasure call (finding 17). */
+/** Delivered audit obligations are kept for late settlement this long. */
+export const DELIVERED_MS = 7 * 86_400_000;
 export const ERASE_CHUNK_MAX = 500;
+export const BULK_MAX = 100;
+export const EXPORT_PAGE = { rows: 500, bytes: 1024 * 1024 } as const;
+/** Rows one alarm prunes from each control table; more wait for the next alarm. */
+export const PRUNE_BATCH = 500;
+/** The system actor that runs erasure jobs. */
+export const ERASURE_ACTOR = "system:erasure";
 
 const SCHEMA = [
   "create table if not exists pf_meta (key text primary key, value) without rowid",
@@ -143,6 +182,7 @@ const SCHEMA = [
   "create index if not exists pf_documents_author on pf_documents (collection, author, created, id)",
   "create index if not exists pf_documents_created on pf_documents (collection, created, id)",
   "create index if not exists pf_documents_by_author on pf_documents (author, collection, id)",
+  "create index if not exists pf_documents_by_editor on pf_documents (editor) where editor is not null",
   `create unique index if not exists pf_documents_unique
      on pf_documents (collection, author, unique_value) where unique_value is not null`,
   "create table if not exists pf_seq (scope text primary key, value integer not null) without rowid",
@@ -151,19 +191,19 @@ const SCHEMA = [
   `create table if not exists pf_day (day integer primary key, read_used integer not null default 0,
      written_used integer not null default 0, cleanup_used integer not null default 0,
      export_used integer not null default 0, live_bytes integer not null default 0)`,
-  `create table if not exists pf_lease (pool text primary key, owner text not null,
+  `create table if not exists pf_lease (pool text primary key, lease_id text not null, owner text not null,
      owner_epoch integer not null, day integer not null, granted integer not null, used integer not null) without rowid`,
-  `create table if not exists pf_ops (op_key text primary key, op_id text not null, actor text not null,
-     request_hash text not null, state text not null, kind text not null, target text not null,
-     at integer not null) without rowid`,
+  `create table if not exists pf_ops (op_key text primary key, actor text not null, request_hash text not null,
+     state text not null, kind text not null, target text not null, result text, at integer not null) without rowid`,
   "create index if not exists pf_ops_actor on pf_ops (actor)",
   "create index if not exists pf_ops_at on pf_ops (at)",
-  `create table if not exists pf_audit (op_id text primary key, kind text not null,
-     detail text not null, at integer not null) without rowid`,
+  `create table if not exists pf_audit (op_key text primary key, kind text not null, detail text not null,
+     owner text not null, state text not null, at integer not null) without rowid`,
+  "create index if not exists pf_audit_state on pf_audit (state, at)",
   "create table if not exists pf_barriers (author text primary key, at integer not null) without rowid",
 ];
 
-/** Tables that hold the data of one generation; everything else is control and survives an erase. */
+/** Tables of one generation's data; the rest is control and survives an erase. */
 const PAYLOAD_TABLES = ["pf_documents", "pf_collections", "pf_fields", "pf_seq", "pf_ops"];
 
 type Row = Record<string, SqlStorageValue>;
@@ -201,17 +241,24 @@ async function hash(value: unknown): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/** Bytes of a string in UTF-8. */
 export function utf8(text: string): number {
   return new TextEncoder().encode(text).length;
 }
 
-/** Who acts, as replay records and audit name them. */
+/** Who acts, as operation records and audit name them. */
 export function actorOf(caller: Caller): string {
   if (caller.kind === "visitor") return caller.author;
   if (caller.kind === "owner") return `owner:${caller.actor ?? "owner"}`;
   return "reader";
 }
+
+/** The full identity of an operation: the same for its record, its audit obligation and D1's event. */
+export function operationKey(actor: string, generation: number, opId: string): string {
+  return `${actor}|${generation}|${opId}`;
+}
+
+type Estimate = { read: number; written: number };
+type ChargeKind = "grow" | "read" | "cleanup" | "export";
 
 export class ArtifactDocuments extends DurableObject<Env> {
   #cost: Cost = { rowsRead: 0, rowsWritten: 0 };
@@ -252,10 +299,15 @@ export class ArtifactDocuments extends DurableObject<Env> {
     );
   }
 
-  /** Raises the storage sequence: every transaction that may change storage calls it. */
-  #touch(): void {
+  /** Raises the storage sequence (and the payload revision when documents changed). */
+  #touch(payload = false): void {
     const control = this.#control();
-    if (control !== null) this.#saveControl({ ...control, storageSeq: control.storageSeq + 1 });
+    if (control === null) return;
+    this.#saveControl({
+      ...control,
+      storageSeq: control.storageSeq + 1,
+      payloadRevision: control.payloadRevision + (payload ? 1 : 0),
+    });
   }
 
   #storage(): StorageReport {
@@ -267,7 +319,10 @@ export class ArtifactDocuments extends DurableObject<Env> {
     };
   }
 
-  /** The one validator, for every command. Returns the control record after any adoption. */
+  /**
+   * The one validator. An empty object gets a control record only where the mode creates one
+   * (a first write); everything else on an empty object sees nothing to do.
+   */
   #admit(envelope: Envelope, mode: AdmitMode, now: number): Control | null {
     const stored = this.#control();
     const verdict = admit(stored, envelope, mode);
@@ -276,7 +331,7 @@ export class ArtifactDocuments extends DurableObject<Env> {
     if (stored === null) {
       if (mode.kind !== "request" || !mode.create) return null;
       this.#ensureSchema();
-      const control = newControl(envelope, "open", now);
+      const control = newControl(envelope, now);
       this.#saveControl(control);
       return control;
     }
@@ -300,12 +355,13 @@ export class ArtifactDocuments extends DurableObject<Env> {
   }
 
   /**
-   * Leases owner allowance for a pool. A lease belongs to the owner and the epoch at which that
-   * owner took over (finding 12): after a transfer the old lease is never used.
+   * Leases owner allowance. The lease is installed only if the control record still names the
+   * owner and ownership epoch it was asked for: a transfer during the ledger's await makes the
+   * grant obsolete, and it is given back to the ledger once, under its lease ID (finding 1).
    */
   async #lease(context: CallContext, pool: Pool, need: number): Promise<void> {
-    const control = this.#control();
-    if (control === null) return;
+    const before = this.#control();
+    if (before === null) return;
     const today = day(context.now);
     const [lease] = this.#all<{
       owner: string;
@@ -316,8 +372,8 @@ export class ArtifactDocuments extends DurableObject<Env> {
     }>("select owner, owner_epoch, day, granted, used from pf_lease where pool = ?", pool);
     const current =
       lease !== undefined &&
-      lease.owner === control.ownerId &&
-      lease.owner_epoch === control.ownerEpoch &&
+      lease.owner === before.ownerId &&
+      lease.owner_epoch === before.ownerEpoch &&
       lease.day === today
         ? lease
         : undefined;
@@ -326,30 +382,43 @@ export class ArtifactDocuments extends DurableObject<Env> {
     const chunk =
       pool === "live_bytes"
         ? LEASE_CHUNK.bytes
-        : pool.endsWith("_read")
+        : pool === "documents_read" || pool === "export"
           ? LEASE_CHUNK.read
           : LEASE_CHUNK.written;
-    const deficit = Math.max(0, (current?.used ?? 0) - (current?.granted ?? 0));
-    const want = deficit + Math.max(need, Math.min(Math.ceil(limit * LEASE_CHUNK.share), chunk));
+    const want = Math.max(need, Math.min(Math.ceil(limit * LEASE_CHUNK.share), chunk));
     const ledger = this.env.LEDGER.get(this.env.LEDGER.idFromName(context.owner.id));
+    const leaseId = newId();
     const granted = await ledger.lease(pool, today, want, limit);
-    // Added to the row as it is now, not as it was before the await: concurrent top-ups add up.
-    this.ctx.storage.transactionSync(() => {
+    const installed = this.ctx.storage.transactionSync(() => {
+      const now = this.#control();
+      if (now === null || now.ownerId !== before.ownerId || now.ownerEpoch !== before.ownerEpoch)
+        return false;
       this.#all(
-        `insert into pf_lease (pool, owner, owner_epoch, day, granted, used) values (?, ?, ?, ?, ?, 0)
+        `insert into pf_lease (pool, lease_id, owner, owner_epoch, day, granted, used) values (?, ?, ?, ?, ?, ?, 0)
          on conflict (pool) do update set
            granted = case when owner = excluded.owner and owner_epoch = excluded.owner_epoch and day = excluded.day
              then granted + excluded.granted else excluded.granted end,
            used = case when owner = excluded.owner and owner_epoch = excluded.owner_epoch and day = excluded.day
              then used else 0 end,
-           owner = excluded.owner, owner_epoch = excluded.owner_epoch, day = excluded.day`,
+           lease_id = excluded.lease_id, owner = excluded.owner, owner_epoch = excluded.owner_epoch, day = excluded.day`,
         pool,
-        control.ownerId,
-        control.ownerEpoch,
+        leaseId,
+        now.ownerId,
+        now.ownerEpoch,
         today,
         granted,
       );
+      return true;
     });
+    if (!installed) {
+      await ledger.giveBack(pool, today, granted, limit, leaseId);
+      throw new DataError("stale", "the artifact changed owner");
+    }
+  }
+
+  async #leases(context: CallContext, estimate: Estimate): Promise<void> {
+    if (estimate.written > 0) await this.#lease(context, "documents_written", estimate.written);
+    if (estimate.read > 0) await this.#lease(context, "documents_read", estimate.read);
   }
 
   #spendLease(pool: Pool, amount: number): boolean {
@@ -363,20 +432,20 @@ export class ArtifactDocuments extends DurableObject<Env> {
   }
 
   /**
-   * Charges a command before it runs, in its own committed transaction (a refusal keeps its
-   * charge). Growth and reads spend the artifact's day and the owner's documents pools; cleanup
-   * and export have their own daily allowances and never meet the growth budget (finding 10).
+   * Charges an upper bound of the work, committed whether or not it refuses. Growth and reads
+   * spend the artifact's day and the owner's leases; cleanup and export spend their own daily
+   * allowances, never the growth budget; every kind can carry a rate.
    */
   #charge(
     context: CallContext,
-    kind: "grow" | "read" | "cleanup" | "export",
+    kind: ChargeKind,
     rate: { subject: string; kind: string; limit: number } | null,
-    estimate: { read: number; written: number },
+    estimate: Estimate,
+    protect = false,
   ): void {
     if (!this.#hasSchema()) return;
     const refusal = this.ctx.storage.transactionSync(() => {
-      // Reads update fixed-size counters (one row a day), reported with the next write.
-      if (kind !== "read") this.#touch();
+      this.#touch();
       const today = day(context.now);
       if (rate !== null && this.#rate(rate.subject, rate.kind, minute(context.now), rate.limit)) {
         return {
@@ -394,8 +463,17 @@ export class ArtifactDocuments extends DurableObject<Env> {
         );
         const limit =
           kind === "cleanup" ? context.limits.cleanupRowsPerDay : context.limits.exportRowsPerDay;
+        if (protect) return null;
         if ((row as { used: number }).used > limit) {
           return { code: "rate_limited" as const, message: `the day's ${kind} allowance is spent` };
+        }
+        // Cleanup and export are the owner's own pools too, so every artifact's cleanup and export
+        // stays inside the owner's ceiling (finding 9), never inside the growth pools.
+        if (this.#spendLease(kind, estimate.read + estimate.written)) {
+          return {
+            code: "rate_limited" as const,
+            message: `the owner's ${kind} allowance for today is spent`,
+          };
         }
         return null;
       }
@@ -409,9 +487,12 @@ export class ArtifactDocuments extends DurableObject<Env> {
         estimate.written,
       );
       const spent = row as { read_used: number; written_used: number };
+      // A read's few control writes are counted but never refuse it: a spent growth day must not
+      // stop anyone reading.
+      const growth = kind === "grow";
       if (
         spent.read_used > context.limits.rowsReadPerDay ||
-        spent.written_used > context.limits.rowsWrittenPerDay
+        (growth && spent.written_used > context.limits.rowsWrittenPerDay)
       ) {
         return {
           code: "quota_exceeded" as const,
@@ -419,7 +500,7 @@ export class ArtifactDocuments extends DurableObject<Env> {
         };
       }
       const overRead = this.#spendLease("documents_read", estimate.read);
-      const overWritten = this.#spendLease("documents_written", estimate.written);
+      const overWritten = growth && this.#spendLease("documents_written", estimate.written);
       if (overRead || overWritten) {
         return {
           code: "quota_exceeded" as const,
@@ -429,20 +510,6 @@ export class ArtifactDocuments extends DurableObject<Env> {
       return null;
     });
     if (refusal !== null) throw new DataError(refusal.code, refusal.message);
-  }
-
-  #trueUp(context: CallContext, estimate: { read: number; written: number }): void {
-    const read = Math.max(0, this.#cost.rowsRead - estimate.read);
-    const written = Math.max(0, this.#cost.rowsWritten - estimate.written);
-    if (read === 0 && written === 0) return;
-    this.#all(
-      "update pf_day set read_used = read_used + ?, written_used = written_used + ? where day = ?",
-      read,
-      written,
-      day(context.now),
-    );
-    this.#spendLease("documents_read", read);
-    this.#spendLease("documents_written", written);
   }
 
   async #run<T>(work: () => T | Promise<T>, after?: (value: T) => void): Promise<Outcome<T>> {
@@ -482,75 +549,77 @@ export class ArtifactDocuments extends DurableObject<Env> {
     }
   }
 
-  /** The replay key: the operation ID scoped to the actor and the generation (finding 1). */
-  #opKey(envelope: Envelope, caller: Caller): string | null {
-    if (envelope.opId === undefined) return null;
-    return `${actorOf(caller)}|${envelope.generation}|${envelope.opId}`;
+  #opKey(envelope: Envelope, actor: string): string | null {
+    return envelope.opId === undefined
+      ? null
+      : operationKey(actor, envelope.generation, envelope.opId);
   }
 
   /**
-   * A recorded operation for this actor and generation: the same request replays as "done"
-   * (after the caller's current authorization was checked by `authorize`), another request
-   * under the same ID is a conflict. Nothing recorded holds a body (finding 5).
+   * A recorded operation: the same request replays as "done" after the caller's current
+   * authorization was checked; another request under the same key is a conflict; an aborted
+   * one stays aborted. Records hold no bodies.
    */
   #replay(
     key: string | null,
     requestHash: string,
     authorize: () => void,
-  ): { __replay: Replay } | null {
+  ): { __replay: Replay; result: string | null } | null {
     if (key === null) return null;
     const [prior] = this.#all<{
       request_hash: string;
       kind: string;
       target: string;
       state: string;
-    }>("select request_hash, kind, target, state from pf_ops where op_key = ?", key);
+      result: string | null;
+    }>("select request_hash, kind, target, state, result from pf_ops where op_key = ?", key);
     if (prior === undefined) return null;
     if (prior.state === "aborted") throw new DataError("conflict", "this operation was abandoned");
-    if (prior.request_hash !== requestHash) {
+    if (prior.request_hash !== requestHash)
       throw new DataError("conflict", "this operation ID was used for another request");
-    }
     authorize();
-    return { __replay: { kind: prior.kind, target: prior.target } };
+    return { __replay: { kind: prior.kind, target: prior.target }, result: prior.result };
   }
 
   #record(
     key: string | null,
-    envelope: Envelope,
-    caller: Caller,
+    actor: string,
     requestHash: string,
     kind: string,
     target: string,
     now: number,
+    result: string | null = null,
   ): void {
     if (key === null) return;
     this.#all(
-      "insert into pf_ops (op_key, op_id, actor, request_hash, state, kind, target, at) values (?, ?, ?, ?, 'committed', ?, ?, ?)",
+      `insert into pf_ops (op_key, actor, request_hash, state, kind, target, result, at) values (?, ?, ?, 'committed', ?, ?, ?, ?)`,
       key,
-      envelope.opId,
-      actorOf(caller),
+      actor,
       requestHash,
       kind,
       target,
+      result,
       now,
     );
+    this.#scheduleAlarm(now + REPLAY_MS);
   }
 
-  #audit(envelope: Envelope, context: CallContext, kind: string, detail: object): void {
-    if (context.caller.kind !== "owner" || envelope.opId === undefined) return;
+  /** An owner-side mutation's audit obligation, under the operation's full identity (finding 11). */
+  #audit(key: string | null, ownerId: string, kind: string, detail: object, now: number): void {
+    if (key === null) return;
     this.#all(
-      "insert into pf_audit (op_id, kind, detail, at) values (?, ?, ?, ?) on conflict do nothing",
-      envelope.opId,
+      "insert into pf_audit (op_key, kind, detail, owner, state, at) values (?, ?, ?, ?, 'pending', ?) on conflict do nothing",
+      key,
       kind,
       JSON.stringify(detail),
-      context.now,
+      ownerId,
+      now,
     );
   }
 
   #nextSeq(scope: string): number {
     const [row] = this.#all<{ value: number }>(
-      `insert into pf_seq (scope, value) values (?, 1)
-       on conflict (scope) do update set value = value + 1 returning value`,
+      `insert into pf_seq (scope, value) values (?, 1) on conflict (scope) do update set value = value + 1 returning value`,
       scope,
     );
     return (row as { value: number }).value;
@@ -577,9 +646,21 @@ export class ArtifactDocuments extends DurableObject<Env> {
     };
   }
 
-  #checkGrowth(before: number, limits: DataLimits): void {
+  /**
+   * Growth is refused when the documents' own bytes pass the plan's size, or when the database
+   * file passes it plus the room kept for control records. A change that does not grow either
+   * (a smaller replacement, a deletion) always goes through.
+   */
+  #checkGrowth(before: number, limits: DataLimits, grew: number): void {
     const after = this.ctx.storage.sql.databaseSize;
-    if (after > limits.bytesPerArtifact && after > before) {
+    const [row] = this.#all<{ n: number }>(
+      "select coalesce(sum(bytes), 0) as n from pf_collections",
+    );
+    const data = (row as { n: number }).n;
+    if (
+      (grew > 0 && data > limits.bytesPerArtifact) ||
+      (after > before && after > limits.bytesPerArtifact + CONTROL_RESERVE)
+    ) {
       throw new DataError("quota_exceeded", "this artifact's data is full");
     }
   }
@@ -588,28 +669,47 @@ export class ArtifactDocuments extends DurableObject<Env> {
     return this.#all("select 1 from pf_barriers where author = ?", author).length > 0;
   }
 
+  /** The documents an index over a new field would cover: what building it can write at most. */
+  #documentCount(): number {
+    if (!this.#hasSchema()) return 0;
+    const [row] = this.#all<{ n: number }>(
+      "select coalesce(sum(documents), 0) as n from pf_collections",
+    );
+    return (row as { n: number }).n;
+  }
+
   async declareCollection(
     envelope: Envelope,
     context: CallContext,
     input: { name: string; mode: string; uniqueKey?: string; indexed?: string[] },
   ): Promise<Outcome<{ name: string; mode: Mode }>> {
-    const key = this.#opKey(envelope, context.caller);
+    const actor = actorOf(context.caller);
+    const key = this.#opKey(envelope, actor);
     const requestHash = await hash(["declare", input]);
     return this.#run(async () => {
       if (context.caller.kind !== "owner") throw new DataError("forbidden", "owner side only");
+      // An index over a new field writes one entry per existing document: its bound is reserved
+      // before it is built (finding 9).
+      const fields = (input.indexed ?? []).length;
+      const estimate = {
+        read: BOUND.declare.read + fields * this.#documentCount(),
+        written: BOUND.declare.written + fields * this.#documentCount(),
+      };
       const replay = this.ctx.storage.transactionSync(() => {
         this.#admit(envelope, { kind: "request", create: true }, context.now);
         return this.#replay(key, requestHash, () => {});
       });
       if (replay !== null) return replay as never;
-      await this.#lease(context, "documents_written", ESTIMATE.write.written);
-      await this.#lease(context, "documents_read", ESTIMATE.write.read);
-      this.#charge(context, "grow", null, ESTIMATE.write);
+      await this.#leases(context, estimate);
+      this.ctx.storage.transactionSync(() =>
+        this.#admit(envelope, { kind: "request", create: true }, context.now),
+      );
+      this.#charge(context, "grow", null, estimate);
       return this.ctx.storage.transactionSync(() => {
         this.#admit(envelope, { kind: "request", create: true }, context.now);
         const again = this.#replay(key, requestHash, () => {});
         if (again !== null) return again as never;
-        this.#touch();
+        this.#touch(true);
         const name = collectionName(input.name);
         const chosen = parseMode(input.mode);
         const [count] = this.#all<{ n: number }>("select count(*) as n from pf_collections");
@@ -622,8 +722,7 @@ export class ArtifactDocuments extends DurableObject<Env> {
         }
         const uniqueKey = input.uniqueKey === undefined ? null : fieldName(input.uniqueKey);
         this.#all(
-          `insert into pf_collections (name, mode, unique_key) values (?, ?, ?)
-           on conflict (name) do update set mode = excluded.mode`,
+          `insert into pf_collections (name, mode, unique_key) values (?, ?, ?) on conflict (name) do update set mode = excluded.mode`,
           name,
           chosen,
           uniqueKey,
@@ -631,8 +730,8 @@ export class ArtifactDocuments extends DurableObject<Env> {
         for (const field of input.indexed ?? []) {
           fieldName(field);
           if (this.#all("select 1 from pf_fields where name = ?", field).length === 0) {
-            const [fields] = this.#all<{ n: number }>("select count(*) as n from pf_fields");
-            if ((fields as { n: number }).n >= context.limits.indexedFields) {
+            const [present] = this.#all<{ n: number }>("select count(*) as n from pf_fields");
+            if ((present as { n: number }).n >= context.limits.indexedFields) {
               throw new DataError("quota_exceeded", "too many indexed fields");
             }
             this.#all("insert into pf_fields (name) values (?)", field);
@@ -641,65 +740,58 @@ export class ArtifactDocuments extends DurableObject<Env> {
             );
           }
         }
-        this.#record(key, envelope, context.caller, requestHash, "collection", name, context.now);
-        this.#audit(envelope, context, "data.collection_set", { mode: chosen });
-        this.#trueUp(context, ESTIMATE.write);
+        this.#record(key, actor, requestHash, "collection", name, context.now);
+        this.#audit(key, envelope.ownerId, "data.collection_set", { mode: chosen }, context.now);
         return { name, mode: chosen };
       });
     });
   }
 
-  /**
-   * Creates a document. The replay check runs before any charge, so a retry after a lost
-   * acknowledgement needs no second allowance (finding 1); an author whose erasure began is
-   * refused (finding 6); a refusal still moves the storage report (finding 13).
-   */
   async create(
     envelope: Envelope,
     context: CallContext,
     collection: string,
     body: unknown,
   ): Promise<Outcome<StoredDocument>> {
-    const key = this.#opKey(envelope, context.caller);
-    const requestHash = await hash(["create", collection, body]);
     const caller = context.caller;
+    const actor = actorOf(caller);
+    const key = this.#opKey(envelope, actor);
+    const requestHash = await hash(["create", collection, body]);
     const author = caller.kind === "visitor" ? caller.author : OWNER_AUTHOR;
     const authorize = () => {
       if (writeScope(this.#collection(collection).mode, caller) === "none") {
         throw new DataError("forbidden", "you cannot write to this collection");
       }
+      if (caller.kind === "visitor" && this.#barred(author))
+        throw new DataError("forbidden", "this author's data was erased");
     };
     return this.#run(
       async () => {
         if (!this.#hasSchema()) throw new DataError("not_found", "no such collection");
+        await this.#leases(context, BOUND.write);
+        if (this.ctx.getWebSockets().length > 0)
+          await this.#lease(context, "live_bytes", LIVE.reserveChunk);
         const replay = this.ctx.storage.transactionSync(() => {
           this.#admit(envelope, { kind: "request", create: false }, context.now);
           return this.#replay(key, requestHash, authorize);
         });
         if (replay !== null) return replay as never;
-        await this.#lease(context, "documents_written", ESTIMATE.write.written);
-        await this.#lease(context, "documents_read", ESTIMATE.write.read);
-        if (this.ctx.getWebSockets().length > 0)
-          await this.#lease(context, "live_bytes", 64 * 1024);
         this.#charge(
           context,
           "grow",
           caller.kind === "visitor"
             ? { subject: author, kind: "writes", limit: context.limits.writesPerAuthorPerMinute }
             : null,
-          ESTIMATE.write,
+          BOUND.write,
         );
         return this.ctx.storage.transactionSync(() => {
           this.#admit(envelope, { kind: "request", create: false }, context.now);
           const again = this.#replay(key, requestHash, authorize);
           if (again !== null) return again as never;
-          if (caller.kind === "visitor" && this.#barred(author)) {
-            throw new DataError("forbidden", "this author's data is being erased");
-          }
-          this.#touch();
+          authorize();
+          this.#touch(true);
           const before = this.ctx.storage.sql.databaseSize;
           const target = this.#collection(collection);
-          authorize();
           if (target.documents >= context.limits.documentsPerCollection) {
             throw new DataError(
               "quota_exceeded",
@@ -733,18 +825,16 @@ export class ArtifactDocuments extends DurableObject<Env> {
             size,
             collection,
           );
-          this.#checkGrowth(before, context.limits);
-          this.#record(
-            key,
-            envelope,
-            caller,
-            requestHash,
-            "document",
-            `${collection}/${id}`,
-            context.now,
-          );
-          this.#audit(envelope, context, "data.document_created", { bytes: size });
-          this.#trueUp(context, ESTIMATE.write);
+          this.#checkGrowth(before, context.limits, size);
+          this.#record(key, actor, requestHash, "document", `${collection}/${id}`, context.now);
+          if (caller.kind === "owner")
+            this.#audit(
+              key,
+              envelope.ownerId,
+              "data.document_created",
+              { bytes: size },
+              context.now,
+            );
           return this.#document({
             id,
             author,
@@ -768,8 +858,8 @@ export class ArtifactDocuments extends DurableObject<Env> {
   }
 
   /**
-   * Replaces a body. A replacement that does not grow the document is cleanup (its own allowance,
-   * finding 10); one that grows is charged as growth. The unique key is recomputed.
+   * Replaces a body. One that does not grow the document is charged to cleanup, but still under
+   * the author's write rate (finding 16); one that grows is charged as growth.
    */
   async replace(
     envelope: Envelope,
@@ -778,18 +868,26 @@ export class ArtifactDocuments extends DurableObject<Env> {
     id: string,
     body: unknown,
   ): Promise<Outcome<StoredDocument>> {
-    const key = this.#opKey(envelope, context.caller);
-    const requestHash = await hash(["replace", collection, id, body]);
     const caller = context.caller;
+    const actor = actorOf(caller);
+    const key = this.#opKey(envelope, actor);
+    const requestHash = await hash(["replace", collection, id, body]);
     const authorize = () => {
       if (writeScope(this.#collection(collection).mode, caller) === "none") {
         throw new DataError("forbidden", "you cannot write to this collection");
       }
+      if (caller.kind === "visitor" && this.#barred(caller.author))
+        throw new DataError("forbidden", "this author's data was erased");
     };
     return this.#run(
       async () => {
         if (!this.#hasSchema()) throw new DataError("not_found", "no such document");
-        const shrinks = this.ctx.storage.transactionSync(() => {
+        // Whether it shrinks is decided after the awaits, so both pools are leased first.
+        await this.#leases(context, BOUND.write);
+        await this.#lease(context, "cleanup", BOUND.write.read + BOUND.write.written);
+        if (this.ctx.getWebSockets().length > 0)
+          await this.#lease(context, "live_bytes", LIVE.reserveChunk);
+        const decided = this.ctx.storage.transactionSync(() => {
           this.#admit(envelope, { kind: "request", create: false }, context.now);
           const replay = this.#replay(key, requestHash, authorize);
           if (replay !== null) return replay;
@@ -798,42 +896,27 @@ export class ArtifactDocuments extends DurableObject<Env> {
             collection,
             id,
           );
-          return old !== undefined && utf8(JSON.stringify(body)) <= old.size;
+          return { shrinks: old !== undefined && utf8(JSON.stringify(body)) <= old.size };
         });
-        if (typeof shrinks === "object") return shrinks as never;
-        if (shrinks) {
-          this.#charge(context, "cleanup", null, ESTIMATE.write);
-        } else {
-          await this.#lease(context, "documents_written", ESTIMATE.write.written);
-          await this.#lease(context, "documents_read", ESTIMATE.write.read);
-          this.#charge(
-            context,
-            "grow",
-            caller.kind === "visitor"
-              ? {
-                  subject: caller.author,
-                  kind: "writes",
-                  limit: context.limits.writesPerAuthorPerMinute,
-                }
-              : null,
-            ESTIMATE.write,
-          );
-        }
-        if (this.ctx.getWebSockets().length > 0)
-          await this.#lease(context, "live_bytes", 64 * 1024);
+        if ("__replay" in decided) return decided as never;
+        const rate =
+          caller.kind === "visitor"
+            ? {
+                subject: caller.author,
+                kind: "writes",
+                limit: context.limits.writesPerAuthorPerMinute,
+              }
+            : null;
+        this.#charge(context, decided.shrinks ? "cleanup" : "grow", rate, BOUND.write);
         return this.ctx.storage.transactionSync(() => {
           this.#admit(envelope, { kind: "request", create: false }, context.now);
           const again = this.#replay(key, requestHash, authorize);
           if (again !== null) return again as never;
-          if (caller.kind === "visitor" && this.#barred(caller.author)) {
-            throw new DataError("forbidden", "this author's data is being erased");
-          }
-          this.#touch();
+          authorize();
+          this.#touch(true);
           const before = this.ctx.storage.sql.databaseSize;
           const target = this.#collection(collection);
           const scope = writeScope(target.mode, caller);
-          if (scope === "none")
-            throw new DataError("forbidden", "you cannot write to this collection");
           const { text, size } = documentBody(body, context.limits.documentBytes);
           const unique =
             target.uniqueKey === null
@@ -871,17 +954,16 @@ export class ArtifactDocuments extends DurableObject<Env> {
             size - old.size,
             collection,
           );
-          this.#checkGrowth(before, context.limits);
-          this.#record(
-            key,
-            envelope,
-            caller,
-            requestHash,
-            "document",
-            `${collection}/${id}`,
-            context.now,
-          );
-          this.#audit(envelope, context, "data.document_replaced", { bytes: size });
+          this.#checkGrowth(before, context.limits, size - old.size);
+          this.#record(key, actor, requestHash, "document", `${collection}/${id}`, context.now);
+          if (caller.kind === "owner")
+            this.#audit(
+              key,
+              envelope.ownerId,
+              "data.document_replaced",
+              { bytes: size },
+              context.now,
+            );
           return this.#document({
             id,
             author: old.author,
@@ -905,8 +987,8 @@ export class ArtifactDocuments extends DurableObject<Env> {
   }
 
   /**
-   * Deletes a document: cleanup, never refused by the growth budget or the terms; a visitor may
-   * always delete what they created (finding 10).
+   * Deletes a document: cleanup, under the author's delete rate, never refused by the growth
+   * budget or the terms; a visitor may always delete what they created.
    */
   async remove(
     envelope: Envelope,
@@ -914,9 +996,10 @@ export class ArtifactDocuments extends DurableObject<Env> {
     collection: string,
     id: string,
   ): Promise<Outcome<{ id: string; author: string; seq: number }>> {
-    const key = this.#opKey(envelope, context.caller);
-    const requestHash = await hash(["remove", collection, id]);
     const caller = context.caller;
+    const actor = actorOf(caller);
+    const key = this.#opKey(envelope, actor);
+    const requestHash = await hash(["remove", collection, id]);
     const authorize = () => {
       if (deleteScope(this.#collection(collection).mode, caller) === "none") {
         throw new DataError("forbidden", "you cannot delete in this collection");
@@ -925,6 +1008,9 @@ export class ArtifactDocuments extends DurableObject<Env> {
     return this.#run(
       async () => {
         if (!this.#hasSchema()) throw new DataError("not_found", "no such document");
+        await this.#lease(context, "cleanup", BOUND.cleanup.read + BOUND.cleanup.written);
+        if (this.ctx.getWebSockets().length > 0)
+          await this.#lease(context, "live_bytes", LIVE.reserveChunk);
         const replay = this.ctx.storage.transactionSync(() => {
           this.#admit(envelope, { kind: "request", create: false }, context.now);
           return this.#replay(key, requestHash, authorize);
@@ -940,17 +1026,16 @@ export class ArtifactDocuments extends DurableObject<Env> {
                 limit: context.limits.deletesPerAuthorPerMinute,
               }
             : null,
-          ESTIMATE.write,
+          BOUND.cleanup,
         );
         return this.ctx.storage.transactionSync(() => {
           this.#admit(envelope, { kind: "request", create: false }, context.now);
           const again = this.#replay(key, requestHash, authorize);
           if (again !== null) return again as never;
-          this.#touch();
+          authorize();
+          this.#touch(true);
           const target = this.#collection(collection);
           const scope = deleteScope(target.mode, caller);
-          if (scope === "none")
-            throw new DataError("forbidden", "you cannot delete in this collection");
           const own = scope === "own" ? " and author = ?" : "";
           const mine = scope === "own" && caller.kind === "visitor" ? [caller.author] : [];
           const [gone] = this.#all<{ size: number; author: string }>(
@@ -968,22 +1053,90 @@ export class ArtifactDocuments extends DurableObject<Env> {
           const seq = this.#nextSeq(
             target.mode === "own" ? `author:${gone.author}` : `collection:${collection}`,
           );
-          this.#record(
-            key,
-            envelope,
-            caller,
-            requestHash,
-            "deleted",
-            `${collection}/${id}`,
-            context.now,
-          );
-          this.#audit(envelope, context, "data.document_deleted", {});
+          this.#record(key, actor, requestHash, "deleted", `${collection}/${id}`, context.now);
+          if (caller.kind === "owner")
+            this.#audit(key, envelope.ownerId, "data.document_deleted", {}, context.now);
           return { id, author: gone.author, seq };
         });
       },
       (gone) =>
         this.#notify(collection, gone.author, { collection, kind: "deleted", id, seq: gone.seq }),
     );
+  }
+
+  /**
+   * The owner side deletes up to BULK_MAX documents of one collection in one operation (cleanup
+   * allowance, one operation record, one audit obligation).
+   */
+  async bulkRemove(
+    envelope: Envelope,
+    context: CallContext,
+    collection: string,
+    ids: string[],
+  ): Promise<Outcome<{ removed: number }>> {
+    const actor = actorOf(context.caller);
+    const key = this.#opKey(envelope, actor);
+    const requestHash = await hash(["bulk_remove", collection, ids]);
+    return this.#run(async () => {
+      if (context.caller.kind !== "owner") throw new DataError("forbidden", "owner side only");
+      if (ids.length === 0 || ids.length > BULK_MAX)
+        throw new DataError("invalid_input", `between 1 and ${BULK_MAX} documents`);
+      if (!this.#hasSchema()) throw new DataError("not_found", "no such collection");
+      const estimate = {
+        read: BOUND.overhead + ids.length * 4,
+        written: BOUND.overhead + ids.length * 6,
+      };
+      await this.#lease(context, "cleanup", estimate.read + estimate.written);
+      const replay = this.ctx.storage.transactionSync(() => {
+        this.#admit(envelope, { kind: "request", create: false }, context.now);
+        return this.#replay(key, requestHash, () => {});
+      });
+      if (replay !== null) return replay as never;
+      this.#charge(context, "cleanup", null, estimate);
+      return this.ctx.storage.transactionSync(() => {
+        this.#admit(envelope, { kind: "request", create: false }, context.now);
+        const again = this.#replay(key, requestHash, () => {});
+        if (again !== null) return again as never;
+        this.#collection(collection);
+        this.#touch(true);
+        let removed = 0;
+        let bytes = 0;
+        for (const id of ids) {
+          const [gone] = this.#all<{ size: number }>(
+            "delete from pf_documents where collection = ? and id = ? returning size",
+            collection,
+            id,
+          );
+          if (gone !== undefined) {
+            removed += 1;
+            bytes += gone.size;
+          }
+        }
+        this.#all(
+          "update pf_collections set documents = documents - ?, bytes = bytes - ? where name = ?",
+          removed,
+          bytes,
+          collection,
+        );
+        this.#record(
+          key,
+          actor,
+          requestHash,
+          "bulk_deleted",
+          collection,
+          context.now,
+          JSON.stringify({ removed }),
+        );
+        this.#audit(
+          key,
+          envelope.ownerId,
+          "data.documents_deleted",
+          { documents: removed },
+          context.now,
+        );
+        return { removed };
+      });
+    });
   }
 
   /** Per-caller read rates live in memory: they shape traffic; the spend is durable. */
@@ -999,12 +1152,27 @@ export class ArtifactDocuments extends DurableObject<Env> {
     return used > context.limits.readsPerCallerPerMinute;
   }
 
-  async #readCharge(context: CallContext): Promise<void> {
-    await this.#lease(context, "documents_read", ESTIMATE.read.read);
-    await this.#lease(context, "documents_written", ESTIMATE.read.written);
-    if (this.#readLimited(context))
-      throw new DataError("rate_limited", "too many reads, try again in a minute");
-    this.#charge(context, "read", null, ESTIMATE.read);
+  /** Reads: leases, then the charge and the read in two transactions with nothing between. */
+  async #read<T>(
+    envelope: Envelope,
+    context: CallContext,
+    estimate: Estimate,
+    work: () => T,
+    operator = false,
+  ): Promise<Outcome<T>> {
+    return this.#run(async () => {
+      if (!operator) await this.#lease(context, "documents_read", estimate.read);
+      const mode: AdmitMode = operator ? { kind: "operator" } : { kind: "request", create: false };
+      if (!this.#hasSchema()) return work();
+      if (!operator && this.#readLimited(context))
+        throw new DataError("rate_limited", "too many reads, try again in a minute");
+      this.ctx.storage.transactionSync(() => this.#admit(envelope, mode, context.now));
+      this.#charge(context, operator ? "export" : "read", null, estimate, operator);
+      return this.ctx.storage.transactionSync(() => {
+        this.#admit(envelope, mode, context.now);
+        return work();
+      });
+    });
   }
 
   async get(
@@ -1013,10 +1181,8 @@ export class ArtifactDocuments extends DurableObject<Env> {
     collection: string,
     id: string,
   ): Promise<Outcome<StoredDocument>> {
-    return this.#run(async () => {
+    return this.#read(envelope, context, BOUND.get, () => {
       if (!this.#hasSchema()) throw new DataError("not_found", "no such document");
-      this.#admit(envelope, { kind: "request", create: false }, context.now);
-      await this.#readCharge(context);
       const target = this.#collection(collection);
       const scope = readScope(target.mode, context.caller);
       if (scope === "none") throw new DataError("not_found", "no such document");
@@ -1035,10 +1201,8 @@ export class ArtifactDocuments extends DurableObject<Env> {
   }
 
   async query(envelope: Envelope, context: CallContext, spec: QuerySpec): Promise<Outcome<Page>> {
-    return this.#run(async () => {
+    return this.#read(envelope, context, BOUND.read, () => {
       if (!this.#hasSchema()) return { documents: [], next: null };
-      this.#admit(envelope, { kind: "request", create: false }, context.now);
-      await this.#readCharge(context);
       const target = this.#collection(spec.collection);
       const scope = readScope(target.mode, context.caller);
       if (scope === "none") return { documents: [], next: null };
@@ -1051,13 +1215,42 @@ export class ArtifactDocuments extends DurableObject<Env> {
       const rows = this.#all<DocumentRow>(sql, ...params);
       const documents = rows.slice(0, limit).map((row) => this.#document(row));
       const last = documents.at(-1);
-      const next =
-        rows.length > limit && last !== undefined ? encodeCursor(last._created, last._id) : null;
-      return { documents, next };
+      return {
+        documents,
+        next:
+          rows.length > limit && last !== undefined ? encodeCursor(last._created, last._id) : null,
+      };
     });
   }
 
-  /** Spike only: the plan SQLite chooses for a query, to prove every allowed shape seeks. */
+  /**
+   * The owner side's counts: a collection's documents from its counter (one row), or one
+   * author's documents through the author index, charged at the collection's cap.
+   */
+  async count(
+    envelope: Envelope,
+    context: CallContext,
+    collection: string,
+    by?: string,
+  ): Promise<Outcome<{ documents: number }>> {
+    const estimate = {
+      read: BOUND.overhead + (by === undefined ? 0 : context.limits.documentsPerCollection),
+      written: 4,
+    };
+    return this.#read(envelope, context, estimate, () => {
+      if (context.caller.kind !== "owner") throw new DataError("forbidden", "owner side only");
+      if (!this.#hasSchema()) return { documents: 0 };
+      const target = this.#collection(collection);
+      if (by === undefined) return { documents: target.documents };
+      const [row] = this.#all<{ n: number }>(
+        "select count(*) as n from pf_documents indexed by pf_documents_author where collection = ? and author = ?",
+        collection,
+        by,
+      );
+      return { documents: (row as { n: number }).n };
+    });
+  }
+
   explainQuery(spec: QuerySpec, scope: "all" | "own", indexed: string[]): string[] {
     const { sql, params } = buildQuery(spec, scope, "v_x", indexed);
     return this.ctx.storage.sql
@@ -1067,29 +1260,57 @@ export class ArtifactDocuments extends DurableObject<Env> {
   }
 
   /**
-   * Erases one author, in bounded steps (findings 6, 17). The first call sets the author's
-   * barrier in the same transaction that deletes the first chunk, so from its answer on every
-   * write by that author is refused. Each call deletes at most `chunk` documents and the same
-   * number of the author's replay and rate rows, through author-first indexes, so a call's work
-   * is bounded whether or not the author has anything. The job keeps the journal entry until a
-   * call answers `more: false`.
+   * Erases one author, in bounded, idempotent chunks (findings 8, 10, 17). The first chunk sets
+   * the author's barrier (on an empty object too), closes the author's live connections and
+   * deletes their sequence; every chunk deletes at most `chunk` of the author's documents, rewrites
+   * at most `chunk` of their edits on others' documents to `erased`, and deletes at most `chunk`
+   * of their operation and rate rows, through author-first indexes. A chunk with an operation
+   * ID is recorded with its result, so a retry replays it instead of erasing more.
    */
   async eraseAuthorChunk(
     envelope: Envelope,
     author: string,
     chunk: number,
+    context?: CallContext,
   ): Promise<Outcome<{ erased: number; more: boolean }>> {
     const take = Math.min(Math.max(chunk, 1), ERASE_CHUNK_MAX);
+    const key = this.#opKey(envelope, ERASURE_ACTOR);
+    const requestHash = await hash(["erase_author", author, take]);
     return this.#run(() => {
-      if (!this.#hasSchema()) return { erased: 0, more: false };
-      return this.ctx.storage.transactionSync(() => {
-        this.#admit(envelope, { kind: "request", create: false }, Date.now());
-        this.#touch();
-        this.#all(
-          "insert into pf_barriers (author, at) values (?, ?) on conflict do nothing",
-          author,
-          Date.now(),
+      const now = context?.now ?? Date.now();
+      const replay = this.ctx.storage.transactionSync(() => {
+        this.#admit(envelope, { kind: "request", create: true }, now);
+        return this.#replay(key, requestHash, () => {});
+      });
+      if (replay !== null) {
+        if (replay.result !== null)
+          return JSON.parse(replay.result) as { erased: number; more: boolean };
+        return replay as never;
+      }
+      if (context !== undefined)
+        this.#charge(
+          context,
+          "cleanup",
+          null,
+          { read: take * 4 + BOUND.overhead, written: take * 6 + BOUND.overhead },
+          true,
         );
+      return this.ctx.storage.transactionSync(() => {
+        this.#admit(envelope, { kind: "request", create: true }, now);
+        const again = this.#replay(key, requestHash, () => {});
+        if (again !== null && again.result !== null)
+          return JSON.parse(again.result) as { erased: number; more: boolean };
+        const first =
+          this.#all(
+            "insert into pf_barriers (author, at) values (?, ?) on conflict do nothing returning 1",
+            author,
+            now,
+          ).length > 0;
+        if (first) {
+          for (const socket of this.ctx.getWebSockets(`author:${author}`))
+            socket.close(4410, "erased");
+          this.#all("delete from pf_seq where scope = ?", `author:${author}`);
+        }
         const gone = this.#all<{ collection: string; size: number }>(
           `delete from pf_documents where (author, collection, id) in
              (select author, collection, id from pf_documents indexed by pf_documents_by_author where author = ? limit ?)
@@ -1113,6 +1334,12 @@ export class ArtifactDocuments extends DurableObject<Env> {
             name,
           );
         }
+        const edits = this.#all(
+          `update pf_documents set editor = 'erased' where (collection, id) in
+             (select collection, id from pf_documents indexed by pf_documents_by_editor where editor = ? limit ?) returning 1`,
+          author,
+          take,
+        );
         const ops = this.#all(
           "delete from pf_ops where op_key in (select op_key from pf_ops indexed by pf_ops_actor where actor = ? limit ?) returning 1",
           author,
@@ -1123,50 +1350,52 @@ export class ArtifactDocuments extends DurableObject<Env> {
           author,
           take,
         );
-        if (envelope.opId !== undefined) {
-          this.#all(
-            "insert into pf_audit (op_id, kind, detail, at) values (?, 'data.author_erased', ?, ?) on conflict (op_id) do update set detail = excluded.detail",
-            envelope.opId,
-            JSON.stringify({ documents: gone.length }),
-            Date.now(),
-          );
-        }
         const more =
           gone.length === take ||
+          edits.length === take ||
           ops.length === take ||
           rates.length === take ||
           this.#all(
             "select 1 from pf_documents indexed by pf_documents_by_author where author = ? limit 1",
             author,
           ).length > 0;
-        return { erased: gone.length, more };
+        this.#touch(gone.length > 0 || edits.length > 0);
+        const result = { erased: gone.length, more };
+        this.#record(
+          key,
+          ERASURE_ACTOR,
+          requestHash,
+          "author_erased",
+          author,
+          now,
+          JSON.stringify(result),
+        );
+        this.#audit(
+          key,
+          envelope.ownerId,
+          "data.author_erased",
+          { documents: gone.length, edits: edits.length },
+          now,
+        );
+        return result;
       });
     });
   }
 
-  /** Prunes replay records older than a day, at most 500 per call (finding 5). */
-  pruneReplays(now: number): number {
-    if (!this.#hasSchema()) return 0;
-    return this.#all(
-      "delete from pf_ops where op_key in (select op_key from pf_ops indexed by pf_ops_at where at < ? limit 500) returning 1",
-      now - REPLAY_MS,
-    ).length;
-  }
-
   /**
-   * The barrier (finding 2): persisted before it is acknowledged, on an empty object too. A hold
-   * closes the live channel; a transfer also drops leases of the old owner.
+   * The barrier (finding 6): validated against the generation and the owner, idempotent by the
+   * transition's ID, persisted before it is acknowledged, on an empty object too.
    */
   fence(
     envelope: Envelope,
     change: FenceChange,
-  ): Outcome<{ epoch: number; state: string; ownerId: string }> {
+  ): Outcome<{ epoch: number; held: boolean; ownerId: string }> {
     this.#cost = { rowsRead: 0, rowsWritten: 0 };
     return this.ctx.storage.transactionSync(() => {
       this.#ensureSchema();
       const stored = this.#control();
       const applied = applyFence(stored, envelope, change, Date.now());
-      if (!applied.ok) {
+      if (!applied.ok)
         return {
           ok: false as const,
           error: applied.error,
@@ -1174,21 +1403,21 @@ export class ArtifactDocuments extends DurableObject<Env> {
           cost: this.#cost,
           storage: this.#storage(),
         };
-      }
-      this.#saveControl(applied.control);
-      if (stored !== null && applied.control.ownerId !== stored.ownerId)
-        this.#all("delete from pf_lease");
-      if (
-        applied.control.state === "held" ||
-        (stored !== null && applied.control.ownerId !== stored.ownerId)
-      ) {
-        this.closeConnections(4003);
+      if (!applied.repeated) {
+        this.#saveControl(applied.control);
+        if (stored !== null && applied.control.ownerId !== stored.ownerId)
+          this.#all("delete from pf_lease");
+        if (
+          applied.control.hold !== null ||
+          (stored !== null && applied.control.ownerId !== stored.ownerId)
+        )
+          this.closeConnections(4003);
       }
       return {
         ok: true as const,
         value: {
           epoch: applied.control.epoch,
-          state: applied.control.state,
+          held: applied.control.hold !== null,
           ownerId: applied.control.ownerId,
         },
         cost: this.#cost,
@@ -1197,8 +1426,8 @@ export class ArtifactDocuments extends DurableObject<Env> {
     });
   }
 
-  /** The operator's quarantine after an unreconcilable restore (finding 4). */
-  quarantine(envelope: Envelope): boolean {
+  /** Reconciliation's quarantine; nothing but the operator acts on the data until it is resolved. */
+  quarantine(envelope: Envelope, reason: "owner" | "hold"): boolean {
     return this.ctx.storage.transactionSync(() => {
       const stored = this.#control();
       if (
@@ -1207,18 +1436,53 @@ export class ArtifactDocuments extends DurableObject<Env> {
         stored.region !== envelope.region
       )
         return false;
-      this.#saveControl({ ...stored, state: "quarantined", storageSeq: stored.storageSeq + 1 });
+      this.#saveControl({
+        ...stored,
+        quarantine: { reason, at: Date.now() },
+        storageSeq: stored.storageSeq + 1,
+      });
       this.closeConnections(4003);
       return true;
     });
   }
 
-  /** The control record, for reconciliation after a restore. */
+  /**
+   * The operator's exit from a quarantine: `adopt` when D1 now names the owner the object
+   * recorded (the envelope must name it), or `erase`, which moves to the next generation and
+   * clears the quarantine in one transaction. A hold is left as it is.
+   */
+  resolveQuarantine(
+    envelope: Envelope,
+    decision: "adopt" | "erase",
+  ): { ok: boolean; message?: string } {
+    return this.ctx.storage.transactionSync(() => {
+      const stored = this.#control();
+      if (stored === null || stored.quarantine === null)
+        return { ok: false, message: "nothing to resolve" };
+      const verdict = admit(stored, envelope, { kind: "operator" });
+      if (!verdict.ok) return { ok: false, message: verdict.message };
+      if (decision === "erase") {
+        this.#erasePayload();
+        this.#saveControl({
+          ...stored,
+          generation: stored.generation + 1,
+          erasing: null,
+          quarantine: null,
+          storageSeq: stored.storageSeq + 1,
+          payloadRevision: stored.payloadRevision + 1,
+        });
+      } else {
+        this.#saveControl({ ...stored, quarantine: null, storageSeq: stored.storageSeq + 1 });
+      }
+      return { ok: true };
+    });
+  }
+
   controlRecord(): Control | null {
     return this.#control();
   }
 
-  /** Erase, step one: the shared validator; adopts the epoch it accepts (finding 3). */
+  /** Erase, step one: the shared validator; adopts the epoch it accepts; creates the control record on an empty object. */
   prepareErase(envelope: Envelope): Outcome<{ prepared: boolean }> {
     this.#cost = { rowsRead: 0, rowsWritten: 0 };
     try {
@@ -1226,19 +1490,20 @@ export class ArtifactDocuments extends DurableObject<Env> {
         const stored = this.#control();
         const verdict = admit(stored, envelope, { kind: "erase" });
         if (!verdict.ok) throw new DataError(verdict.error, verdict.message);
-        if ("done" in verdict || stored === null) {
+        if ("done" in verdict)
           return {
             ok: true as const,
             value: { prepared: false },
             cost: this.#cost,
             storage: this.#storage(),
           };
-        }
+        this.#ensureSchema();
+        const base = stored ?? newControl(envelope, Date.now());
         this.#saveControl({
-          ...stored,
-          epoch: envelope.epoch,
-          state: "erasing",
-          storageSeq: stored.storageSeq + 1,
+          ...base,
+          epoch: Math.max(base.epoch, envelope.epoch),
+          erasing: { generation: envelope.generation, epoch: envelope.epoch },
+          storageSeq: base.storageSeq + 1,
         });
         return {
           ok: true as const,
@@ -1259,10 +1524,17 @@ export class ArtifactDocuments extends DurableObject<Env> {
     }
   }
 
+  #erasePayload(): void {
+    for (const { name } of this.#all<{ name: string }>("select name from pf_fields"))
+      this.#all(`drop index if exists ${fieldIndex(name)}`);
+    for (const table of PAYLOAD_TABLES) this.#all(`delete from ${table}`);
+    this.closeConnections(4404);
+  }
+
   /**
-   * Erase, step two: in one transaction, deletes every payload table and writes the next
-   * generation into the control record, which survives with the budgets, leases, barriers and
-   * audit obligations (finding 3). A retry finds the next generation and does nothing.
+   * Erase, step two: one transaction deletes the payload and writes the next generation into the
+   * control record, which keeps budgets, leases, barriers and audit obligations. A retry finds the
+   * next generation and does nothing; on an empty object the record is the generation barrier.
    */
   commitErase(envelope: Envelope): Outcome<{ erased: boolean }> {
     this.#cost = { rowsRead: 0, rowsWritten: 0 };
@@ -1274,8 +1546,8 @@ export class ArtifactDocuments extends DurableObject<Env> {
         if (
           "done" in verdict ||
           stored === null ||
-          stored.state !== "erasing" ||
-          stored.epoch !== envelope.epoch
+          stored.erasing === null ||
+          stored.erasing.generation !== envelope.generation
         ) {
           return {
             ok: true as const,
@@ -1284,16 +1556,13 @@ export class ArtifactDocuments extends DurableObject<Env> {
             storage: this.#storage(),
           };
         }
-        for (const { name } of this.#all<{ name: string }>("select name from pf_fields")) {
-          this.#all(`drop index if exists ${fieldIndex(name)}`);
-        }
-        for (const table of PAYLOAD_TABLES) this.#all(`delete from ${table}`);
-        this.closeConnections(4404);
+        this.#erasePayload();
         this.#saveControl({
           ...stored,
           generation: stored.generation + 1,
-          state: "open",
+          erasing: null,
           storageSeq: stored.storageSeq + 1,
+          payloadRevision: stored.payloadRevision + 1,
         });
         return {
           ok: true as const,
@@ -1314,59 +1583,103 @@ export class ArtifactDocuments extends DurableObject<Env> {
     }
   }
 
-  /** Cancels a prepared erase (the job found a hold), through the same validator. */
   cancelErase(envelope: Envelope): boolean {
     return this.ctx.storage.transactionSync(() => {
       const stored = this.#control();
       const verdict = admit(stored, envelope, { kind: "erase" });
-      if (!verdict.ok || "done" in verdict || stored === null || stored.state !== "erasing")
+      if (!verdict.ok || "done" in verdict || stored === null || stored.erasing === null)
         return false;
-      this.#saveControl({ ...stored, state: "open", storageSeq: stored.storageSeq + 1 });
+      this.#saveControl({ ...stored, erasing: null, storageSeq: stored.storageSeq + 1 });
       return true;
     });
   }
 
   /**
-   * The audit relay's question (finding 14): a committed obligation, or the operation marked
-   * aborted now if it never committed, so a late arrival of it cannot commit afterwards.
+   * The audit relay's question (finding 11): the operation's full identity is the actor, the
+   * generation the operation ran in and its ID. Answers a committed obligation (delivered or
+   * not), a committed operation without one, or records the operation as aborted so a late
+   * arrival cannot commit. Maintenance admission: artifact and region must match.
    */
   settle(
     envelope: Envelope,
     actor: string,
     opId: string,
-  ): { state: "committed"; kind: string; detail: string } | { state: "aborted" } {
+  ):
+    | { state: "committed"; kind: string; detail: string; delivered: boolean }
+    | { state: "aborted" }
+    | { state: "refused" } {
     return this.ctx.storage.transactionSync(() => {
+      try {
+        this.#admit(envelope, { kind: "maintenance" }, Date.now());
+      } catch {
+        return { state: "refused" as const };
+      }
       this.#ensureSchema();
-      const [obligation] = this.#all<{ kind: string; detail: string }>(
-        "select kind, detail from pf_audit where op_id = ?",
-        opId,
-      );
-      if (obligation !== undefined) return { state: "committed" as const, ...obligation };
-      const key = `${actor}|${envelope.generation}|${opId}`;
-      this.#all(
-        "insert into pf_ops (op_key, op_id, actor, request_hash, state, kind, target, at) values (?, ?, ?, '', 'aborted', 'aborted', '', ?) on conflict do nothing",
+      const key = operationKey(actor, envelope.generation, opId);
+      const [obligation] = this.#all<{ kind: string; detail: string; state: string }>(
+        "select kind, detail, state from pf_audit where op_key = ?",
         key,
-        opId,
-        actor,
-        Date.now(),
       );
+      if (obligation !== undefined) {
+        return {
+          state: "committed" as const,
+          kind: obligation.kind,
+          detail: obligation.detail,
+          delivered: obligation.state === "delivered",
+        };
+      }
+      const [record] = this.#all<{ state: string; kind: string }>(
+        "select state, kind from pf_ops where op_key = ?",
+        key,
+      );
+      if (record?.state === "committed")
+        return { state: "committed" as const, kind: record.kind, detail: "{}", delivered: true };
+      if (record === undefined) {
+        this.#touch();
+        this.#all(
+          "insert into pf_ops (op_key, actor, request_hash, state, kind, target, at) values (?, ?, '', 'aborted', 'aborted', '', ?)",
+          key,
+          actor,
+          Date.now(),
+        );
+        this.#scheduleAlarm(Date.now() + REPLAY_MS);
+      }
       return { state: "aborted" as const };
     });
   }
 
-  auditFor(opId: string): { kind: string; detail: string } | null {
+  /** Marks an obligation delivered; kept for late settlement, pruned after DELIVERED_MS. */
+  acknowledge(envelope: Envelope, actor: string, opId: string): boolean {
+    return this.ctx.storage.transactionSync(() => {
+      try {
+        this.#admit(envelope, { kind: "maintenance" }, Date.now());
+      } catch {
+        return false;
+      }
+      if (!this.#hasSchema()) return false;
+      const key = operationKey(actor, envelope.generation, opId);
+      const updated = this.#all(
+        "update pf_audit set state = 'delivered', at = ? where op_key = ? and state = 'pending' returning 1",
+        Date.now(),
+        key,
+      );
+      if (updated.length > 0) {
+        this.#touch();
+        this.#scheduleAlarm(Date.now() + DELIVERED_MS);
+      }
+      return updated.length > 0;
+    });
+  }
+
+  auditFor(key: string): { kind: string; detail: string; state: string } | null {
     if (!this.#hasSchema()) return null;
     const [row] = this.ctx.storage.sql
-      .exec<{ kind: string; detail: string }>(
-        "select kind, detail from pf_audit where op_id = ?",
-        opId,
+      .exec<{ kind: string; detail: string; state: string }>(
+        "select kind, detail, state from pf_audit where op_key = ?",
+        key,
       )
       .toArray();
     return row ?? null;
-  }
-
-  ackAudit(opId: string): void {
-    if (this.#hasSchema()) this.ctx.storage.sql.exec("delete from pf_audit where op_id = ?", opId);
   }
 
   budget(now: number): Record<string, number> {
@@ -1396,44 +1709,83 @@ export class ArtifactDocuments extends DurableObject<Env> {
     return this.#storage();
   }
 
-  /** A page of documents for exports and copies, in primary key order; charged to the export allowance. */
+  /**
+   * One export page (finding 12): documents in primary key order after `after`, each with its
+   * server fields and its body exactly as stored, stopped at EXPORT_PAGE rows or bytes (a single
+   * document larger than the byte cap still makes a page of one), with the payload revision,
+   * which only changes to the documents move. The owner side, or the operator under a hold.
+   */
   async exportPage(
     envelope: Envelope,
     context: CallContext,
     after: { collection: string; id: string } | null,
     limit: number,
+    operator = false,
   ): Promise<
     Outcome<{
-      rows: { collection: string; document: StoredDocument }[];
+      rows: ExportRow[];
       next: { collection: string; id: string } | null;
       revision: number;
+      bytes: number;
     }>
   > {
-    return this.#run(() => {
-      if (context.caller.kind !== "owner") throw new DataError("forbidden", "owner side only");
-      if (!this.#hasSchema()) return { rows: [], next: null, revision: 0 };
-      const take = Math.min(Math.max(limit, 1), 500);
-      this.#admit(envelope, { kind: "request", create: false }, context.now);
-      this.#charge(context, "export", null, { read: take + 10, written: 0 });
-      const rows = this.#all<DocumentRow & { collection: string }>(
-        `select collection, id, author, editor, created, updated, seq, body from pf_documents
-         where (collection, id) > (?, ?) order by collection, id limit ?`,
-        after?.collection ?? "",
-        after?.id ?? "",
-        take + 1,
+    const take = Math.min(Math.max(limit, 1), EXPORT_PAGE.rows);
+    return this.#run(async () => {
+      if (!operator && context.caller.kind !== "owner")
+        throw new DataError("forbidden", "owner side only");
+      if (!this.#hasSchema()) return { rows: [], next: null, revision: 0, bytes: 0 };
+      if (!operator) await this.#lease(context, "export", take + BOUND.overhead + 4);
+      this.ctx.storage.transactionSync(() =>
+        this.#admit(
+          envelope,
+          operator ? { kind: "operator" } : { kind: "request", create: false },
+          context.now,
+        ),
       );
-      const page = rows
-        .slice(0, take)
-        .map((row) => ({ collection: row.collection, document: this.#document(row) }));
-      const last = page.at(-1);
-      return {
-        rows: page,
-        next:
-          rows.length > take && last
-            ? { collection: last.collection, id: last.document._id }
-            : null,
-        revision: this.#control()?.storageSeq ?? 0,
-      };
+      this.#charge(context, "export", null, { read: take + BOUND.overhead, written: 4 }, operator);
+      return this.ctx.storage.transactionSync(() => {
+        this.#admit(
+          envelope,
+          operator ? { kind: "operator" } : { kind: "request", create: false },
+          context.now,
+        );
+        const cursor = this.ctx.storage.sql.exec<DocumentRow & { collection: string }>(
+          `select collection, id, author, editor, created, updated, seq, body from pf_documents
+           where (collection, id) > (?, ?) order by collection, id limit ?`,
+          after?.collection ?? "",
+          after?.id ?? "",
+          take + 1,
+        );
+        const rows: ExportRow[] = [];
+        let bytes = 0;
+        let cut = false;
+        for (const row of cursor) {
+          const exported: ExportRow = {
+            collection: row.collection,
+            id: row.id,
+            by: row.author,
+            editedBy: row.editor,
+            created: row.created,
+            updated: row.updated,
+            body: row.body,
+          };
+          const size = utf8(JSON.stringify(exported)) + 1;
+          if (rows.length >= take || (rows.length > 0 && bytes + size > EXPORT_PAGE.bytes)) {
+            cut = true;
+            break;
+          }
+          rows.push(exported);
+          bytes += size;
+        }
+        this.#cost.rowsRead += cursor.rowsRead;
+        const last = rows.at(-1);
+        return {
+          rows,
+          next: cut && last !== undefined ? { collection: last.collection, id: last.id } : null,
+          revision: this.#control()?.payloadRevision ?? 0,
+          bytes,
+        };
+      });
     });
   }
 
@@ -1449,8 +1801,7 @@ export class ArtifactDocuments extends DurableObject<Env> {
       this.#admit(envelope, { kind: "request", create: true }, now);
       for (let index = 0; index < count; index++) {
         this.#all(
-          `insert into pf_documents (collection, id, author, created, updated, seq, body, size)
-           values (?, ?, ?, ?, ?, ?, ?, 40)`,
+          `insert into pf_documents (collection, id, author, created, updated, seq, body, size) values (?, ?, ?, ?, ?, ?, ?, 40)`,
           collection,
           newId(),
           `v_${index % authors}`,
@@ -1469,9 +1820,68 @@ export class ArtifactDocuments extends DurableObject<Env> {
     return count;
   }
 
-  /** Spike only: backdates replay records, to test pruning. */
+  /** Spike only: backdates replay records and rate rows, to test pruning. */
   backdateReplays(at: number): void {
-    if (this.#hasSchema()) this.ctx.storage.sql.exec("update pf_ops set at = ?", at);
+    if (!this.#hasSchema()) return;
+    this.ctx.storage.sql.exec("update pf_ops set at = ?", at);
+  }
+
+  // Housekeeping (finding 14): one alarm closes expired connections and prunes every control
+  // table in bounded, age-ordered batches; under a hold or quarantine nothing is pruned.
+
+  #scheduleAlarm(at: number): void {
+    void this.ctx.storage.getAlarm().then((current) => {
+      if (current === null || current > at) return this.ctx.storage.setAlarm(at);
+      return undefined;
+    });
+  }
+
+  /** Prunes one batch of each control table; returns how many rows went. */
+  pruneReplays(now: number): number {
+    if (!this.#hasSchema()) return 0;
+    const control = this.#control();
+    if (control === null || control.hold !== null || control.quarantine !== null) return 0;
+    return this.ctx.storage.transactionSync(() => {
+      const ops = this.#all(
+        "delete from pf_ops where op_key in (select op_key from pf_ops indexed by pf_ops_at where at < ? limit ?) returning 1",
+        now - REPLAY_MS,
+        PRUNE_BATCH,
+      ).length;
+      const audit = this.#all(
+        "delete from pf_audit where op_key in (select op_key from pf_audit indexed by pf_audit_state where state = 'delivered' and at < ? limit ?) returning 1",
+        now - DELIVERED_MS,
+        PRUNE_BATCH,
+      ).length;
+      const rates = this.#all(
+        "delete from pf_rate where (subject, kind, window) in (select subject, kind, window from pf_rate where window < ? limit ?) returning 1",
+        minute(now) - 1440,
+        PRUNE_BATCH,
+      ).length;
+      const days = this.#all("delete from pf_day where day < ? returning 1", day(now) - 2).length;
+      const total = ops + audit + rates + days;
+      if (total > 0) this.#touch();
+      return total;
+    });
+  }
+
+  override async alarm(): Promise<void> {
+    const now = Date.now();
+    let next: number | null = null;
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = socket.deserializeAttachment() as Attachment;
+      if (attachment.deadline <= now) socket.close(4001, "renew");
+      else next = next === null ? attachment.deadline : Math.min(next, attachment.deadline);
+    }
+    const pruned = this.pruneReplays(now);
+    if (this.#hasSchema()) {
+      const [oldest] = this.ctx.storage.sql
+        .exec<{ at: number | null }>("select min(at) as at from pf_ops")
+        .toArray();
+      const wake =
+        pruned >= PRUNE_BATCH ? now + 60_000 : oldest?.at != null ? oldest.at + REPLAY_MS : null;
+      if (wake !== null) next = next === null ? wake : Math.min(next, wake);
+    }
+    if (next !== null) await this.ctx.storage.setAlarm(Math.max(next, now + 1_000));
   }
 
   // The live channel.
@@ -1491,9 +1901,8 @@ export class ArtifactDocuments extends DurableObject<Env> {
       });
       return Response.json(page);
     }
-    if (url.pathname !== "/live" || request.headers.get("Upgrade") !== "websocket") {
+    if (url.pathname !== "/live" || request.headers.get("Upgrade") !== "websocket")
       return new Response(null, { status: 404 });
-    }
     const envelope = JSON.parse(request.headers.get("X-Portifact-Envelope") ?? "null") as Envelope;
     const caller = JSON.parse(request.headers.get("X-Portifact-Caller") ?? "null") as {
       author: string | null;
@@ -1501,12 +1910,32 @@ export class ArtifactDocuments extends DurableObject<Env> {
       deadline: number;
       limits: DataLimits;
       now: number;
+      owner?: { id: string; allowances: OwnerAllowances };
+    };
+    const owner = caller.owner ?? {
+      id: envelope.ownerId,
+      allowances: {
+        documents_read: 0,
+        documents_written: 0,
+        cleanup: 0,
+        export: 0,
+        live_bytes: caller.limits.liveBytesPerDay,
+      },
     };
     try {
+      // The owner's live bytes are leased before the connection exists: acknowledgements are
+      // charged like any other message (finding 15).
+      await this.#lease(
+        { caller: { kind: "reader" }, limits: caller.limits, owner, now: caller.now },
+        "live_bytes",
+        LIVE.reserveChunk,
+      );
       this.ctx.storage.transactionSync(() => {
         this.#admit(envelope, { kind: "request", create: false }, caller.now);
         if (caller.deadline <= caller.now) throw new DataError("forbidden", "expired");
         const who = caller.author ?? "readers";
+        if (caller.author !== null && this.#hasSchema() && this.#barred(caller.author))
+          throw new DataError("forbidden", "erased");
         if (
           this.#hasSchema() &&
           this.#rate(who, "connects", minute(caller.now), caller.limits.connectsPerAuthorPerMinute)
@@ -1537,9 +1966,10 @@ export class ArtifactDocuments extends DurableObject<Env> {
       window: minute(caller.now),
       messagesIn: 0,
       bytesOut: 0,
+      reserved: 0,
       liveBytesPerDay: caller.limits.liveBytesPerDay,
     } satisfies Attachment);
-    await this.#scheduleExpiry(caller.deadline);
+    this.#scheduleAlarm(caller.deadline);
     return new Response(null, {
       status: 101,
       webSocket: client,
@@ -1547,27 +1977,6 @@ export class ArtifactDocuments extends DurableObject<Env> {
     });
   }
 
-  async #scheduleExpiry(deadline: number): Promise<void> {
-    const current = await this.ctx.storage.getAlarm();
-    if (current === null || current > deadline) await this.ctx.storage.setAlarm(deadline);
-  }
-
-  override async alarm(): Promise<void> {
-    const now = Date.now();
-    let next: number | null = null;
-    for (const socket of this.ctx.getWebSockets()) {
-      const attachment = socket.deserializeAttachment() as Attachment;
-      if (attachment.deadline <= now) socket.close(4001, "renew");
-      else next = next === null ? attachment.deadline : Math.min(next, attachment.deadline);
-    }
-    if (next !== null) await this.ctx.storage.setAlarm(next);
-  }
-
-  /**
-   * Sets one connection's deadline after the Worker renewed the same grant or session that
-   * opened it (finding 8): another principal is refused; the deadline may move earlier as well
-   * as later; a deadline already past closes the connection.
-   */
   async renew(
     envelope: Envelope,
     socketId: string,
@@ -1589,7 +1998,7 @@ export class ArtifactDocuments extends DurableObject<Env> {
         return false;
       }
       socket.serializeAttachment({ ...attachment, deadline } satisfies Attachment);
-      await this.#scheduleExpiry(deadline);
+      this.#scheduleAlarm(deadline);
       return true;
     }
     return false;
@@ -1608,41 +2017,42 @@ export class ArtifactDocuments extends DurableObject<Env> {
   }
 
   /**
-   * Sends one message after reserving its UTF-8 bytes against the connection's minute, the
-   * artifact's day and the owner's leased bytes (finding 16). A refused reservation sends
-   * nothing: past the minute the connection is closed (4009); past the day or the owner's bytes
-   * it is closed with 4029.
+   * Every message, acknowledgements and errors included, spends bytes the connection reserved
+   * against the artifact's day and the owner's lease. Reservations are taken in chunks
+   * (LIVE.reserveChunk), so the counters are written once per chunk, not once per message. A
+   * refused reservation closes the connection with 4029; past the minute's bytes, 4009.
    */
-  #send(
-    socket: WebSocket,
-    attachment: Attachment,
-    text: string,
-    now: number,
-    fanOut = false,
-  ): Attachment | null {
+  #send(socket: WebSocket, attachment: Attachment, text: string, now: number): Attachment | null {
     const bytes = utf8(text);
     if (attachment.bytesOut + bytes > LIVE.bytesOutPerMinute) {
       socket.close(4009, "slow down");
       return null;
     }
-    const allowed = this.ctx.storage.transactionSync(() => {
-      if (!this.#hasSchema()) return false;
-      const [row] = this.#all<{ live_bytes: number }>(
-        `insert into pf_day (day, live_bytes) values (?, ?)
-         on conflict (day) do update set live_bytes = live_bytes + excluded.live_bytes returning live_bytes`,
-        day(now),
-        bytes,
-      );
-      if ((row as { live_bytes: number }).live_bytes > attachment.liveBytesPerDay) return false;
-      // Fan-out also spends the owner's leased bytes (the write that caused it leased them);
-      // protocol answers count against the artifact's day only.
-      return !fanOut || !this.#spendLease("live_bytes", bytes);
-    });
-    if (!allowed) {
-      socket.close(4029, "live data limit reached for today");
-      return null;
+    let reserved = attachment.reserved;
+    if (reserved < bytes) {
+      const want = Math.max(bytes, LIVE.reserveChunk);
+      const allowed = this.ctx.storage.transactionSync(() => {
+        if (!this.#hasSchema()) return false;
+        const [row] = this.#all<{ live_bytes: number }>(
+          `insert into pf_day (day, live_bytes) values (?, ?)
+           on conflict (day) do update set live_bytes = live_bytes + excluded.live_bytes returning live_bytes`,
+          day(now),
+          want,
+        );
+        if ((row as { live_bytes: number }).live_bytes > attachment.liveBytesPerDay) return false;
+        return !this.#spendLease("live_bytes", want);
+      });
+      if (!allowed) {
+        socket.close(4029, "live data limit reached for today");
+        return null;
+      }
+      reserved += want;
     }
-    const next = { ...attachment, bytesOut: attachment.bytesOut + bytes };
+    const next = {
+      ...attachment,
+      bytesOut: attachment.bytesOut + bytes,
+      reserved: reserved - bytes,
+    };
     socket.serializeAttachment(next satisfies Attachment);
     socket.send(text);
     return next;
@@ -1686,10 +2096,7 @@ export class ArtifactDocuments extends DurableObject<Env> {
     this.#send(socket, { ...attachment, subscriptions }, JSON.stringify({ subscribed: name }), now);
   }
 
-  /**
-   * Fans a committed change out to connections allowed to see it. Only fresh mutations reach
-   * here: a replay returns before, so a retried operation never notifies twice.
-   */
+  /** Fans a committed change out; a replay returns before this, so it never notifies twice. */
   #notify(collection: string, author: string, message: ChangeMessage): void {
     const now = Date.now();
     const { mode } = this.#collection(collection);
@@ -1699,10 +2106,13 @@ export class ArtifactDocuments extends DurableObject<Env> {
     for (const socket of candidates) {
       const attachment = this.#live(socket, now);
       if (attachment === null || !attachment.subscriptions.includes(collection)) continue;
-      this.#send(socket, attachment, text, now, true);
+      this.#send(socket, attachment, text, now);
     }
   }
 }
+
+/** Room above the data cap for control records (counters, leases, operation records, barriers). */
+export const CONTROL_RESERVE = 256 * 1024;
 
 function OWNER_PEEK(now: number): CallContext {
   return {
@@ -1713,8 +2123,8 @@ function OWNER_PEEK(now: number): CallContext {
       allowances: {
         documents_read: 1e9,
         documents_written: 1e8,
-        sql_read: 1e9,
-        sql_written: 1e8,
+        cleanup: 1e8,
+        export: 1e9,
         live_bytes: 1e9,
       },
     },
@@ -1735,11 +2145,6 @@ function OWNER_PEEK(now: number): CallContext {
       liveBytesPerDay: 50_000_000,
       cleanupRowsPerDay: 100_000,
       exportRowsPerDay: 1_000_000,
-      sandboxBytes: 1_000_000,
-      sqlRowsReadPerDay: 1_000_000,
-      sqlRowsWrittenPerDay: 10_000,
-      sqlWorstRowsRead: 50_000_000,
-      sqlWorstRowsWritten: 1_000_000,
     },
   };
 }

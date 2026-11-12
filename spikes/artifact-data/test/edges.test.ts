@@ -3,14 +3,6 @@ import { handoffGate } from "../src/gate.ts";
 import { artifact, context, NOW, OWNER, ok, op, READER, ROOMY, visitor } from "./harness.ts";
 
 const owner = context(OWNER);
-const copyJob = (copyId: string) => ({
-  copyId,
-  page: 0,
-  table: "copy_items",
-  collection: "items",
-  sourceGeneration: 0,
-  sourceRevision: 0,
-});
 const alice = context(visitor("v_alice"));
 
 describe("refusals on an object without data", () => {
@@ -37,9 +29,11 @@ describe("refusals on an object without data", () => {
       more: false,
     });
     // A fence on an empty object is persisted: a stale command after it is refused.
-    expect(ok(await docs.fence({ ...envelope, epoch: 1 }, { state: "held" }))).toEqual({
+    expect(
+      ok(await docs.fence({ ...envelope, epoch: 1 }, { state: "held", transition: "t_hold" })),
+    ).toEqual({
       epoch: 1,
-      state: "held",
+      held: true,
       ownerId: envelope.ownerId,
     });
     expect(
@@ -52,19 +46,21 @@ describe("refusals on an object without data", () => {
     expect(await docs.prepareErase(held)).toMatchObject({ ok: false, error: "held" });
     expect(await docs.cancelErase(held)).toBe(false);
     expect(await docs.auditFor("op")).toBeNull();
-    await docs.ackAudit("op");
+    expect(await docs.acknowledge(held, "owner:owner", "op")).toBe(false);
     expect(await docs.exportPage(held, owner, null, 10)).toMatchObject({
       ok: false,
       error: "held",
     });
     const empty = artifact();
     expect(await empty.docs.budget(NOW)).toEqual({});
-    expect(ok(await empty.docs.prepareErase(empty.envelope))).toEqual({ prepared: false });
     expect(ok(await empty.docs.exportPage(empty.envelope, owner, null, 10))).toEqual({
       rows: [],
       next: null,
       revision: 0,
+      bytes: 0,
     });
+    // Preparing an erase on an empty object writes its control record: the erase is a barrier.
+    expect(ok(await empty.docs.prepareErase(empty.envelope))).toEqual({ prepared: true });
     expect((await docs.fetch("https://data.internal/other")).status).toBe(404);
   });
 });
@@ -139,7 +135,7 @@ describe("owner-side and mode refusals", () => {
     const first = ok(await docs.exportPage(envelope, owner, null, 1));
     expect(first.rows).toHaveLength(1);
     const second = ok(await docs.exportPage(envelope, owner, first.next, 1));
-    expect(second.rows[0]?.document._id).not.toBe(first.rows[0]?.document._id);
+    expect(second.rows[0]?.id).not.toBe(first.rows[0]?.id);
   });
 
   it("limits deletes per author and reads per caller", async () => {
@@ -163,7 +159,7 @@ describe("owner-side and mode refusals", () => {
 
   it("refuses when the owner's day is spent", async () => {
     const { envelope, docs } = artifact();
-    const options = { owner: `owner_spent_${NOW}`, ownerWritten: 20 };
+    const options = { owner: `owner_spent_${NOW}`, ownerWritten: 70 };
     ok(
       await docs.declareCollection(op(envelope), context(OWNER, options), {
         name: "items",
@@ -173,54 +169,6 @@ describe("owner-side and mode refusals", () => {
     expect(
       await docs.create(op(envelope), context(visitor("v_a"), options), "items", { n: 1 }),
     ).toMatchObject({ ok: false, error: "quota_exceeded" });
-  });
-});
-
-describe("the sandbox's edges", () => {
-  it("limits statements per minute and refuses bad copies", async () => {
-    const { envelope, sandbox } = artifact();
-    const now = NOW + 7 * 60_000;
-    const results = [];
-    for (let index = 0; index < 32; index++)
-      results.push(await sandbox.query(envelope, context(OWNER, { now }), "select 1"));
-    expect(
-      results.filter((outcome) => !outcome.ok && outcome.error === "rate_limited"),
-    ).toHaveLength(2);
-    expect(
-      await sandbox.importCopy(
-        op(envelope),
-        owner,
-        copyJob("c_edge_1"),
-        [
-          { id: "a", by: "v", editedBy: null, created: 1, updated: 1, body: "x".repeat(50_000) },
-        ].map((row) => row),
-      ),
-    ).toMatchObject({ ok: true });
-    expect(
-      await sandbox.importCopy(
-        op(envelope),
-        context(OWNER, { limits: { ...ROOMY, sandboxBytes: 1 } }),
-        { ...copyJob("c_edge_2"), table: "copy_more" },
-        [{ id: "b", by: "v", editedBy: null, created: 1, updated: 1, body: "y".repeat(50_000) }],
-      ),
-    ).toMatchObject({ ok: false, error: "quota_exceeded" });
-    ok(
-      await sandbox.importCopy(op(envelope), owner, copyJob("c_edge_3"), [
-        { id: "c", by: "v", editedBy: null, created: 1, updated: 1, body: "{}" },
-      ]),
-    );
-    // Two jobs into one table: each record counts the table's rows now.
-    const copies = await sandbox.copies();
-    expect(copies.map((copy) => copy.documents)).toEqual([2, 2]);
-    expect(await sandbox.readOnlyProbe("select 1")).toEqual({ refused: false, message: "" });
-    expect(await sandbox.readOnlyProbe("select * from missing")).toMatchObject({ refused: true });
-    expect(
-      await sandbox.fence({ ...envelope, artifactId: "other", epoch: 1 }, { state: "open" }),
-    ).toBe(false);
-    expect(await artifact().sandbox.fence({ ...envelope, epoch: 1 }, { state: "open" })).toBe(true);
-    expect(await sandbox.query({ ...envelope, epoch: 3 }, owner, "select 1")).toMatchObject({
-      ok: true,
-    });
   });
 });
 

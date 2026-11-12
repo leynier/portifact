@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Cost } from "../src/documents.ts";
+import { BOUND, type Cost } from "../src/documents.ts";
 import { artifact, context, NOW, OWNER, ok, op, visitor } from "./harness.ts";
 
 const owner = context(OWNER);
@@ -11,7 +11,7 @@ const owner = context(OWNER);
  */
 describe("rows read and written per operation", () => {
   it("measures each document operation in a collection of 1,000 documents", async () => {
-    const { envelope, docs, sandbox } = artifact();
+    const { envelope, docs } = artifact();
     const first = (
       await docs.declareCollection(op(envelope), owner, { name: "items", mode: "own" })
     ).cost;
@@ -35,9 +35,14 @@ describe("rows read and written per operation", () => {
     const page = await docs.query(envelope, caller, { collection: "items", limit: 20 });
     const removed = await docs.remove(op(envelope), caller, "items", document._id);
     const ownerCreate = await docs.create(op(envelope), owner, "items", { n: 1 });
-    ok(await sandbox.execute(op(envelope), owner, "create table t (x integer)"));
-    const sqlInsert = await sandbox.execute(op(envelope), owner, "insert into t values (1)");
-    const sqlRead = await sandbox.query(envelope, owner, "select x from t");
+    const counted = await docs.count(envelope, owner, "items");
+    const countedByAuthor = await docs.count(envelope, owner, "items", "v_3");
+    const ids = ok(
+      await docs.query(envelope, owner, { collection: "items", limit: 10 }),
+    ).documents.map((d) => d._id);
+    const bulk = await docs.bulkRemove(op(envelope), owner, "items", ids);
+    const exported = await docs.exportPage(envelope, owner, null, 100);
+    const erased = await docs.eraseAuthorChunk(op(envelope), "v_7", 100);
     const table: Record<string, Cost> = {
       firstDeclare: first,
       visitorCreate: created.cost,
@@ -46,13 +51,32 @@ describe("rows read and written per operation", () => {
       visitorPage20: page.cost,
       visitorDelete: removed.cost,
       ownerCreateWithAudit: ownerCreate.cost,
-      sqlInsertOneRow: sqlInsert.cost,
-      sqlSelectOneRow: sqlRead.cost,
+      ownerCount: counted.cost,
+      ownerCountByAuthor: countedByAuthor.cost,
+      ownerBulkRemove10: bulk.cost,
+      ownerExport100: exported.cost,
+      authorEraseChunk: erased.cost,
     };
     console.log(JSON.stringify({ measure: "rows_per_operation", ...table }));
     expect(table.visitorCreate?.rowsWritten).toBeLessThanOrEqual(24);
     expect(table.visitorGet?.rowsWritten).toBeLessThanOrEqual(8);
     expect(table.visitorPage20?.rowsRead).toBeLessThanOrEqual(50);
+    // What is charged before the work is an upper bound of the work (decision 42).
+    const within = (cost: Cost, bound: { read: number; written: number }) => {
+      expect(cost.rowsRead).toBeLessThanOrEqual(bound.read);
+      expect(cost.rowsWritten).toBeLessThanOrEqual(bound.written);
+    };
+    within(first, BOUND.declare);
+    for (const cost of [created.cost, replaced.cost, ownerCreate.cost]) within(cost, BOUND.write);
+    expect(removed.cost.rowsRead + removed.cost.rowsWritten).toBeLessThanOrEqual(
+      BOUND.cleanup.read + BOUND.cleanup.written,
+    );
+    within(got.cost, BOUND.get);
+    within(page.cost, BOUND.read);
+    within(counted.cost, { read: BOUND.overhead, written: 4 });
+    within(bulk.cost, { read: BOUND.overhead + 40, written: BOUND.overhead + 60 });
+    within(exported.cost, { read: 100 + BOUND.overhead, written: 4 });
+    within(erased.cost, { read: 100 * 4 + BOUND.overhead, written: 100 * 6 + BOUND.overhead });
   });
 
   it("measures the size a document adds to the database", async () => {
@@ -77,34 +101,5 @@ describe("rows read and written per operation", () => {
       }),
     );
     expect(full).toBeGreaterThan(empty);
-  });
-});
-
-describe("what bounds one owner statement", () => {
-  it("measures how many small rows a megabyte holds and how fast a statement writes them", async () => {
-    const { envelope, sandbox } = artifact();
-    ok(await sandbox.execute(op(envelope), context(OWNER), "create table n (x integer)"));
-    const before = (await sandbox.size()).bytes;
-    // Statements are capped at 100 KB, so the rows go in five batches.
-    for (let batch = 0; batch < 5; batch++) {
-      await sandbox.unsafeExec(
-        `insert into n (x) values ${Array.from({ length: 10_000 }, (_, index) => `(${batch * 10_000 + index})`).join(", ")}`,
-      );
-    }
-    const after = (await sandbox.size()).bytes;
-    const rowsPerMegabyte = Math.round(50_000 / ((after - before) / 1_000_000));
-    const started = Date.now();
-    const update = await sandbox.execute(op(envelope), context(OWNER), "update n set x = x + 1");
-    const ms = Math.max(1, Date.now() - started);
-    console.log(
-      JSON.stringify({
-        measure: "statement_bounds",
-        rowsPerMegabyte,
-        updateRowsWritten: update.cost.rowsWritten,
-        updateMs: ms,
-        rowsWrittenPerSecond: Math.round((update.cost.rowsWritten / ms) * 1000),
-      }),
-    );
-    expect(rowsPerMegabyte).toBeGreaterThan(10_000);
   });
 });

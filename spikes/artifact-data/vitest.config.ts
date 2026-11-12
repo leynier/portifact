@@ -43,6 +43,7 @@ export default defineConfig({
     name: PROJECT,
     // The spike measures: an expensive owner statement runs for a second or more on purpose.
     testTimeout: 60_000,
+    hookTimeout: 60_000,
     include: ["test/**/*.test.ts"],
     coverage: {
       provider: "istanbul",

@@ -7,11 +7,8 @@
   "durable_objects": {
     "bindings": [
       { "name": "DOCUMENTS", "class_name": "ArtifactDocuments" },
-      { "name": "SANDBOX", "class_name": "ArtifactSandbox" },
       { "name": "LEDGER", "class_name": "OwnerLedger" }
     ]
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["ArtifactDocuments", "ArtifactSandbox", "OwnerLedger"] }
-  ]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArtifactDocuments", "OwnerLedger"] }]
 }

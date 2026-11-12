@@ -1,17 +1,16 @@
 // The owner's data budget (decision 0026, "Budgets"): one object per owner, in the owner's
-// region. Each pool is a balance that refills by its daily allowance up to one day's worth and
-// can go negative: work measured after the fact (a statement that did more than its lease, or one
-// the platform stopped) is settled as debt, and no lease is granted while the balance is below
-// zero, so later days pay the debt off before more work runs. Owner SQL and the documents have
-// separate pools, so SQL can never spend what visitors' writes need. The ledger lives outside
-// both artifacts' objects, so erasing or recreating them never clears a debt.
+// region. Each pool is a balance that refills by its daily allowance, up to one day's worth, and
+// that leases hand out in chunks. Document work is charged at an upper bound before it runs, so
+// a lease is never overdrawn and the balance never goes below zero. The accounting day only moves
+// forward: a delayed request carrying an older day refills nothing (finding 3). A lease the
+// artifact could not install (its owner changed during the call) is released back once.
 import { DurableObject } from "cloudflare:workers";
 
 export const POOLS = [
   "documents_read",
   "documents_written",
-  "sql_read",
-  "sql_written",
+  "cleanup",
+  "export",
   "live_bytes",
 ] as const;
 export type Pool = (typeof POOLS)[number];
@@ -44,29 +43,33 @@ export class OwnerLedger extends DurableObject<Env> {
       `create table if not exists pools (pool text primary key, balance integer not null,
          day integer not null) without rowid`,
     );
+    this.ctx.storage.sql.exec(
+      "create table if not exists released (lease text primary key, at integer not null) without rowid",
+    );
     this.#ready = true;
   }
 
-  /** The balance after refilling for the days since it was last touched, at most one day's worth. */
-  #refill(pool: Pool, day: number, limit: number): number {
+  /** The balance on the ledger's own accounting day, which never moves backward. */
+  #current(pool: Pool, day: number, limit: number): { balance: number; day: number } {
     const [row] = this.ctx.storage.sql
       .exec<{ balance: number; day: number }>("select balance, day from pools where pool = ?", pool)
       .toArray();
-    if (row === undefined) return limit;
-    const days = Math.max(0, day - row.day);
-    return Math.min(limit, row.balance + days * limit);
+    if (row === undefined) return { balance: limit, day };
+    const today = Math.max(row.day, day);
+    const days = today - row.day;
+    return { balance: Math.min(limit, row.balance + days * limit), day: today };
   }
 
-  #store(pool: Pool, day: number, balance: number): void {
+  #store(pool: Pool, state: { balance: number; day: number }): void {
     this.ctx.storage.sql.exec(
       "insert into pools (pool, balance, day) values (?, ?, ?) on conflict (pool) do update set balance = excluded.balance, day = excluded.day",
       pool,
-      balance,
-      day,
+      state.balance,
+      state.day,
     );
   }
 
-  /** Grants up to `want` while the balance is positive; nothing while it is spent or in debt. */
+  /** Grants up to `want` while the balance lasts; nothing when it is spent. */
   async lease(pool: Pool, day: number, want: number, limit: number): Promise<number> {
     if (this.#latch !== null) {
       this.#latch.waiting = true;
@@ -74,25 +77,36 @@ export class OwnerLedger extends DurableObject<Env> {
     }
     this.#schema();
     return this.ctx.storage.transactionSync(() => {
-      const balance = this.#refill(pool, day, limit);
-      const granted = Math.max(0, Math.min(want, balance));
-      this.#store(pool, day, balance - granted);
+      const state = this.#current(pool, day, limit);
+      const granted = Math.max(0, Math.min(want, state.balance));
+      this.#store(pool, { ...state, balance: state.balance - granted });
       return granted;
     });
   }
 
-  /** Charges work measured after the fact; the balance may go negative (debt). */
-  settle(pool: Pool, day: number, amount: number, limit: number): number {
+  /** Gives back a lease the artifact could not use, once per lease ID. */
+  giveBack(pool: Pool, day: number, amount: number, limit: number, leaseId: string): boolean {
     this.#schema();
     return this.ctx.storage.transactionSync(() => {
-      const balance = this.#refill(pool, day, limit) - Math.max(0, amount);
-      this.#store(pool, day, balance);
-      return balance;
+      const inserted = this.ctx.storage.sql
+        .exec(
+          "insert into released (lease, at) values (?, ?) on conflict do nothing returning 1",
+          leaseId,
+          day,
+        )
+        .toArray();
+      if (inserted.length === 0) return false;
+      const state = this.#current(pool, day, limit);
+      this.#store(pool, {
+        ...state,
+        balance: Math.min(limit, state.balance + Math.max(0, amount)),
+      });
+      return true;
     });
   }
 
   balance(pool: Pool, day: number, limit: number): number {
     this.#schema();
-    return this.#refill(pool, day, limit);
+    return this.#current(pool, day, limit).balance;
   }
 }

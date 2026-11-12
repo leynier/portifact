@@ -100,8 +100,9 @@ describe("live updates over hibernatable WebSockets", () => {
     // JavaScript timer keeping the object awake meanwhile.
     const short = live(await connect(docs, envelope, "v_a", { deadline: Date.now() + 50 }));
     expect(await short.closed).toBe(4001);
-    // Nothing is left to close: the alarm reschedules only for open connections.
-    expect(await runDurableObjectAlarm(docs)).toBe(false);
+    // Nothing is left to close; the one alarm left is the declaration's operation record, which
+    // the alarm prunes after a day.
+    expect(await runDurableObjectAlarm(docs)).toBe(true);
   });
 
   it("extends a connection only through renewal, with the envelope checked", async () => {
@@ -169,7 +170,7 @@ describe("live updates over hibernatable WebSockets", () => {
     const { envelope, docs } = artifact();
     ok(await docs.declareCollection(op(envelope), owner, { name: "items", mode: "append" }));
     const connection = live(await connect(docs, envelope, "v_a"));
-    ok(await docs.fence({ ...envelope, epoch: 1 }, { state: "held" }));
+    ok(await docs.fence({ ...envelope, epoch: 1 }, { state: "held", transition: "t_hold" }));
     expect(await connection.closed).toBe(4003);
   });
 });

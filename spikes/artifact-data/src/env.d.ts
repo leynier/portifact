@@ -1,7 +1,6 @@
 declare namespace Cloudflare {
   interface Env {
     DOCUMENTS: DurableObjectNamespace<import("./documents.ts").ArtifactDocuments>;
-    SANDBOX: DurableObjectNamespace<import("./sandbox.ts").ArtifactSandbox>;
     LEDGER: DurableObjectNamespace<import("./ledger.ts").OwnerLedger>;
     /** The region's bucket, for the author journal. */
     JOURNAL: R2Bucket;
