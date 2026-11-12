@@ -119,7 +119,7 @@ Exactly as decision 0018: managing is the dashboard session only, never a bearer
 
 ### Removing it
 
-Decision 0018's path, unchanged: the global `integration_connection` tombstone first, then the regional delete with `integration.removed`. After the delete, the app Worker calls `auth.revoke` with the token once (in `waitUntil`, failure only logged), so a copy of the sealed value in a backup is dead at Slack too. Revoking a bot token deactivates the bot user but does not uninstall the app (Slack, "auth.revoke"; uninstalling needs `apps.uninstall` with the client secret, which Portifact does not have), so the page tells the admin to delete the app in Slack as well. Account and workspace deletion delete the rows in both of their batches as today, without calling Slack (a deletion never waits on a third party); the token then survives only inside sealed backups, which need `INTEGRATIONS_KEY` to open.
+Decision 0018's path, unchanged: the global `integration_connection` tombstone first, then the regional delete with `integration.removed`. After the delete, the app Worker calls `auth.revoke` once with the token it opened before the delete and kept only in memory (in `waitUntil`, failure only logged), so a copy of the sealed value in a backup is dead at Slack too. Revoking a bot token deactivates the bot user but does not uninstall the app (Slack, "auth.revoke"; uninstalling needs `apps.uninstall` with the client secret, which Portifact does not have), so the page tells the admin to delete the app in Slack as well. Account and workspace deletion delete the rows in both of their batches as today, without calling Slack (a deletion never waits on a third party); the token then survives only inside sealed backups, which need `INTEGRATIONS_KEY` to open.
 
 After a D1 restore, `applyIntegrationTombstones` deletes the Slack connections a restore brought back like any other; a restored pending row is deleted by the 24-hour scan.
 
@@ -137,7 +137,7 @@ Every refusal after the path matched answers the same: `401`, empty body. Nothin
 
 1. Path shape, method, `Content-Type` (`application/json`), `Content-Length` and the body read capped at 64 KiB (`SLACK_LIMITS.bodyBytes`), and `X-Slack-Request-Timestamp` within 300 seconds of the Worker's clock (Slack's own recommendation). Failing any costs no D1 call.
 2. One D1 read by primary key: the connection (`service = 'slack'`) with, in the one-database case, the owner's plan joined (`bothSides`, as the viewer lookup does). A missing or `pending` row computes the HMAC against a fixed dummy key, so the work done does not depend on whether the row exists, and refuses.
-3. Opens the sealed pair and computes `v0=` and the hexadecimal HMAC-SHA-256 of `v0:<timestamp>:<raw body>` with the signing secret, compared in constant time with `X-Slack-Signature` (Slack, "Verifying requests from Slack"). A mismatch refuses. A key the Worker no longer holds refuses and marks `key_unavailable` (the existing rule).
+3. Opens the sealed pair and computes `v0=` and the hexadecimal HMAC-SHA-256 of `v0:<timestamp>:<raw body>` with the signing secret, compared in constant time with `X-Slack-Signature` (Slack, "Verifying requests from Slack"). A mismatch refuses. A key the Worker no longer holds refuses and marks `key_unavailable` (the existing rule), only when the row it read has no `attention` yet: this is the one write a request that is not verified can cause, it is true whoever sent the request, it happens at most once per connection, and every later request sees `attention` set and writes nothing.
 4. Only now is the body parsed (a strict schema for the fields used, everything else ignored).
 5. `url_verification`: answers `200` with `{"challenge": …}` as `application/json` and `nosniff`, the challenge accepted only as 1 to 100 characters of `[A-Za-z0-9_-]` (release check 2 records the real shape), so the endpoint never reflects arbitrary text.
 6. `event_callback`: answers `200` with an empty body at once, and continues after the answer through `waitUntil`. Anything else verified (an unknown envelope type, an event type not subscribed): `200`, nothing done.
@@ -167,6 +167,7 @@ The endpoint is unauthenticated by nature. Its costs per request are fixed and s
 | ------------------------------------------------------------------------ | ----------------------- | ------------------------------------- | --------- | ----------- |
 | Wrong path, method, size, type or timestamp                              | 0                       | 0                                     | 0         | 0           |
 | Unknown or pending connection, or bad signature                          | 1                       | 1                                     | 0         | 0           |
+| A key the Worker no longer holds, first request for that connection      | 2 (read, batch)         | 2                                     | 1 batch   | 0           |
 | `url_verification` (signed)                                              | 1                       | 1                                     | 0         | 0           |
 | `link_shared` with no candidate link, or a connection that is not usable | 1                       | 2                                     | 0         | 0           |
 | `link_shared` with candidate links                                       | 2                       | 3                                     | 0         | at most 1   |
@@ -274,6 +275,7 @@ Out of scope: an attacker with the Workers' secrets or deploy credentials; the c
 
 - refused before the read (bad timestamp, size, path, type): 0 D1 calls, 0 subrequests;
 - unknown connection, pending connection, bad signature: exactly 1 D1 call, 0 writes, 0 subrequests, and the same status and body for all three;
+- a request for a connection whose key the Worker does not hold: the first 1 read and 1 guarded batch with one `integration.failing`, every later one exactly 1 read and 0 writes, and the same status and body as any other refusal;
 - signed `url_verification`: 1 D1 call, 0 writes, 0 subrequests;
 - signed `link_shared` with one public artifact of the owner: 2 D1 calls, 0 writes, 1 subrequest; with one database and a second region separately (`two-regions` setup): 3 calls;
 - signed `link_shared` naming only a private artifact, another owner's artifact, an unknown ID and a share link: 2 D1 calls (1 when no link parses), 0 writes, 0 subrequests, and no difference in the request to Slack (none) between them;
