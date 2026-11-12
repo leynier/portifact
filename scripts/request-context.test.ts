@@ -97,6 +97,10 @@ const CLASSIFIED: Record<string, { file: string; pattern: RegExp } | { noDatabas
   "apps/content/wrangler.jsonc#TrafficLimiter": {
     noDatabase: "apps/content/src/traffic-limiter.ts",
   },
+  // The data Worker (decision 0026) answers 404 and its documents object reads only its own
+  // SQLite storage: neither touches a product database.
+  "apps/data/wrangler.jsonc#fetch": { noDatabase: "apps/data/src/index.ts" },
+  "apps/data/wrangler.jsonc#ArtifactDocuments": { noDatabase: "apps/data/src/store.ts" },
   "apps/jobs/wrangler.jsonc#scheduled": {
     file: "apps/jobs/src/index.ts",
     pattern:

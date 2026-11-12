@@ -1,0 +1,25 @@
+{
+  "name": "@portifact/data",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Data Worker: the documents Durable Object of decision 0026, one per artifact, with no routes.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@portifact/contracts": "workspace:*",
+    "@portifact/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.6.0",
+    "@cloudflare/workers-types": "^5.0.0",
+    "@vitest/coverage-istanbul": "catalog:",
+    "fast-check": "^4.0.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "^4.0.0"
+  }
+}

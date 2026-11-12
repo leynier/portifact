@@ -111,6 +111,12 @@ export const DataControl = z.looseObject({
   last: Transition,
   storageSeq: Count,
   payloadRevision: Count,
+  /**
+   * Raised by every transition that closes live connections (an applied fence, a quarantine and
+   * its resolution, a prepared or committed erase). A connection carries the value it opened
+   * under, so one recovered after hibernation whose close was lost is still refused.
+   */
+  liveEpoch: Count,
 });
 export type DataControl = z.infer<typeof DataControl>;
 
@@ -164,10 +170,25 @@ export const MAX_INDEXED_FIELDS = 8;
 /** The most collections an artifact can hold under any plan: it bounds describe. */
 export const MAX_COLLECTIONS = 32;
 
-/** The plan's per-artifact limits, sent with every command (decision 45). */
+/**
+ * The largest document any plan may allow: one row holds the body, its indexed values and the
+ * server fields, and must stay well under the platform's row limit (Durable Object SQLite
+ * documents 2 MB a row). Decision 0026, delivery 4 (platform limits).
+ */
+export const MAX_DOCUMENT_BYTES = 1024 * 1024;
+/**
+ * The largest artifact data any plan may allow: the growth check refuses once the file passes this
+ * plus the control reserve, so the file stays under the platform's 10 GB per object.
+ */
+export const MAX_ARTIFACT_BYTES = 9_000_000_000;
+
+/**
+ * The plan's per-artifact limits, sent with every command (decision 45). Limits the platform cannot
+ * hold are refused whatever plan sends them (`MAX_DOCUMENT_BYTES`, `MAX_ARTIFACT_BYTES`).
+ */
 export const ArtifactDataLimits = z.strictObject({
-  bytesPerArtifact: Positive,
-  documentBytes: Positive,
+  bytesPerArtifact: Positive.max(MAX_ARTIFACT_BYTES),
+  documentBytes: Positive.max(MAX_DOCUMENT_BYTES),
   documentsPerCollection: Positive,
   collections: Positive.max(MAX_COLLECTIONS),
   indexedFields: Count.max(MAX_INDEXED_FIELDS),
