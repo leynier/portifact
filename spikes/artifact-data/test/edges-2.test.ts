@@ -1,3 +1,4 @@
+import { runInDurableObject } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { applyFence, newControl } from "../src/envelope.ts";
 import { beginGate } from "../src/gate.ts";
@@ -112,15 +113,18 @@ describe("documents: replays, scopes and housekeeping", () => {
       socket.addEventListener("close", (event) => resolve(event.code)),
     );
     socket.send("not json");
-    expect(
-      await docs.renew(
-        envelope,
-        first.headers.get("X-Portifact-Socket") ?? "",
-        "grant:v_a",
-        Date.now() + 20,
-      ),
-    ).toBe(true);
-    // The shortened deadline closes it (the alarm, or the next message, whichever comes first).
+    const socketId = first.headers.get("X-Portifact-Socket") ?? "";
+    // The shortening is proven by the stored value, with a deadline far enough away that no
+    // runner's speed matters; the close by a renewal whose deadline has already passed.
+    const shorter = Date.now() + 30_000;
+    expect(await docs.renew(envelope, socketId, "grant:v_a", shorter)).toBe(true);
+    const deadlines = await runInDurableObject(docs, (_instance, state) =>
+      state
+        .getWebSockets()
+        .map((ws) => (ws.deserializeAttachment() as { deadline: number }).deadline),
+    );
+    expect(deadlines).toEqual([shorter]);
+    expect(await docs.renew(envelope, socketId, "grant:v_a", Date.now() - 1)).toBe(false);
     expect(await closed).toBe(4001);
   });
 });
