@@ -247,6 +247,26 @@ describe("exporting the account", () => {
     });
   });
 
+  it("lists every version of the terms the account accepted, and only its own", async () => {
+    const owner = await user();
+    const other = await user();
+    const global = regionsFromEnv(env).global;
+    await global.insert(schema.termsAcceptances).values([
+      { userId: owner.id, version: "2026-11-13", acceptedAt: NOW - DAY, action: "review" },
+      { userId: owner.id, version: "2026-11-08", acceptedAt: NOW - 9 * DAY, action: "sign_up" },
+      { userId: other.id, version: "2026-11-08", acceptedAt: NOW - 2 * DAY, action: "sign_in" },
+    ]);
+    const exported = await exportAccount(db(), { userId: owner.id, now: NOW });
+    expect(exported.ok && AccountExport.parse(exported.value).account.termsAcceptances).toEqual([
+      {
+        version: "2026-11-08",
+        acceptedAt: new Date(NOW - 9 * DAY).toISOString(),
+        action: "sign_up",
+      },
+      { version: "2026-11-13", acceptedAt: new Date(NOW - DAY).toISOString(), action: "review" },
+    ]);
+  });
+
   it("refuses an account that does not exist", async () => {
     expect(await exportAccount(db(), { userId: "u_missing", now: NOW })).toMatchObject({
       ok: false,

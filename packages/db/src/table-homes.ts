@@ -24,6 +24,7 @@ export const TABLE_HOMES = {
   rate_limits: "global",
   // Accounts, workspaces and what hangs off them.
   account_settings: "global",
+  terms_acceptances: "global",
   account_deletions: "global",
   workspaces: "global",
   workspace_members: "global",

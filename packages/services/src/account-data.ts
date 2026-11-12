@@ -230,6 +230,17 @@ export async function exportAccount(
       createdAt: user.createdAt.toISOString(),
       termsVersion: user.termsVersion,
       termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? null,
+      termsAcceptances: (
+        await db.global
+          .select()
+          .from(schema.termsAcceptances)
+          .where(eq(schema.termsAcceptances.userId, input.userId))
+          .orderBy(asc(schema.termsAcceptances.acceptedAt), asc(schema.termsAcceptances.version))
+      ).map((row) => ({
+        version: row.version,
+        acceptedAt: iso(row.acceptedAt),
+        action: row.action,
+      })),
       signInMethods: methods.map((method) => ({
         provider: method.provider,
         connectedAt: method.createdAt.toISOString(),

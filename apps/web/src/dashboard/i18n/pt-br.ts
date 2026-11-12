@@ -2377,6 +2377,8 @@ export const ptBR = {
   "policies.note.linksLifetime":
     "A política do espaço de trabalho limita os links a {days, plural, one {# dia} other {# dias}}.",
   "error.policy_refused": "Uma política do espaço de trabalho não permite isso.",
+  "error.terms_not_accepted":
+    "Aceite os termos atuais para continuar. Recarregue a página para revisá-los.",
   "audit.group.policies": "Políticas",
   "audit.kind.policyChanged": "Mudou as políticas do espaço de trabalho: {changes}",
   "audit.kind.policyEnforced": "Aplicou as políticas do espaço de trabalho: {changes}",

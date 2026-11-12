@@ -2391,6 +2391,8 @@ export const ru = {
   "policies.note.linksLifetime":
     "Правило рабочего пространства ограничивает ссылки сроком {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}.",
   "error.policy_refused": "Правило рабочего пространства этого не разрешает.",
+  "error.terms_not_accepted":
+    "Примите действующие условия, чтобы продолжить. Перезагрузите страницу, чтобы ознакомиться с ними.",
   "audit.group.policies": "Правила",
   "audit.kind.policyChanged": "Изменены правила рабочего пространства: {changes}",
   "audit.kind.policyEnforced": "Применены правила рабочего пространства: {changes}",

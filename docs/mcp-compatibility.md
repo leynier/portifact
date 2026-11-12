@@ -47,6 +47,8 @@ Verified by the maintainer with a custom connector, "Sign in now" and "Use Claud
 
 ## Not covered yet
 
+- A refusal for terms not accepted ([legal.md](legal.md), "API and MCP clients"): when the account has not accepted the current terms, every tool outside the read scopes returns a tool error result with `terms_not_accepted` and a message asking the agent to send the user to the dashboard; the read tools and `tools/list` keep working. Tested in process with the official SDK client (`apps/app/test/terms-tokens.test.ts`); not yet checked with a real client.
+
 - Single sign-on for workspaces ([decision 0016](decisions/0016-workspace-sso.md), switched off): a sign-in that an MCP client's authorization request started and that the person finishes through their workspace's identity provider lands on the dashboard instead of continuing to consent; connecting the client again finds the session. OAuth clients are otherwise unaffected (single sign-on adds no scope, token or client path).
 
 - Dynamic client registration with a real client (`codex mcp login --oauth-client-registration dcr`), to avoid leaving a registered client in production.

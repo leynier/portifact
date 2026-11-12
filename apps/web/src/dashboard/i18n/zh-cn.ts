@@ -2170,6 +2170,7 @@ export const zhCN = {
   "policies.note.linksLifetime":
     "工作区策略将分享链接限制为 {days, plural, one {# 天} other {# 天}}。",
   "error.policy_refused": "工作区策略不允许此操作。",
+  "error.terms_not_accepted": "请接受当前条款以继续。重新加载页面以查看条款。",
   "audit.group.policies": "策略",
   "audit.kind.policyChanged": "更改了工作区策略：{changes}",
   "audit.kind.policyEnforced": "应用了工作区策略：{changes}",

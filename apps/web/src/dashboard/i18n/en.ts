@@ -2331,6 +2331,8 @@ export const en = {
   "policies.note.linksLifetime":
     "The workspace's policy limits share links to {days, plural, one {# day} other {# days}}.",
   "error.policy_refused": "A workspace policy does not allow this.",
+  "error.terms_not_accepted":
+    "Accept the current terms to continue. Reload the page to review them.",
   "audit.group.policies": "Policies",
   "audit.kind.policyChanged": "Changed the workspace's policies: {changes}",
   "audit.kind.policyEnforced": "Applied the workspace's policies: {changes}",

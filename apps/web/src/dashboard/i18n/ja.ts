@@ -2350,6 +2350,8 @@ export const ja = {
   "policies.note.linksLifetime":
     "ワークスペースのポリシーにより共有リンクは {days, plural, one {# 日} other {# 日}} までです。",
   "error.policy_refused": "ワークスペースのポリシーで許可されていません。",
+  "error.terms_not_accepted":
+    "続行するには現在の規約に同意してください。ページを再読み込みして確認してください。",
   "audit.group.policies": "ポリシー",
   "audit.kind.policyChanged": "ワークスペースのポリシーを変更しました: {changes}",
   "audit.kind.policyEnforced": "ワークスペースのポリシーを適用しました: {changes}",
