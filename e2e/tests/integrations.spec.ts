@@ -4,6 +4,7 @@
 // artifact's name, no comment text), the jobs Worker creates it at the fake GitHub, and the thread
 // shows its link. Nothing leaves the machine.
 
+import type { Locator, Page } from "@playwright/test";
 import { axeViolations } from "../src/axe.ts";
 import { control, createUser, expect, publish, signIn, sql, test } from "../src/fixtures.ts";
 import { APP_HOST, APP_ORIGIN, CONTENT_SITE } from "../src/hosts.ts";
@@ -21,6 +22,28 @@ const SITE = {
     '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Launch plan</title></head><body><main><h1>Launch plan</h1></main></body></html>',
 };
 const WORDS = "Words of a reader that stay in Portifact";
+
+/**
+ * Opens thread 1's "Create issue" dialog from its menu. The viewer is still settling when its
+ * heading shows: late content can shift the card between a press and its release, which focuses
+ * the control without activating it (the menu's button, and the menu's item after it), and
+ * "Create issue" joins the menu only once the space's connections have loaded. So the whole
+ * gesture repeats until the dialog is there.
+ */
+async function openCreateIssue(page: Page): Promise<Locator> {
+  const thread = page.getByRole("article", { name: "Thread 1" });
+  const more = thread.getByRole("button", { name: "More actions for thread 1" });
+  const createIssue = page.getByRole("menuitem", { name: "Create issue" });
+  const dialog = page.getByRole("dialog", { name: "Create an issue from thread 1" });
+  await expect(async () => {
+    if (!(await dialog.isVisible())) {
+      if ((await more.getAttribute("aria-expanded")) !== "true") await more.click();
+      await createIssue.click({ timeout: 2_000 });
+    }
+    await expect(dialog).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
+  return dialog;
+}
 
 interface Issue {
   service: string;
@@ -82,18 +105,7 @@ test("connect GitHub, create an issue from a thread, and see its link", async ({
   // Create the issue from the viewer.
   await page.goto(`${APP_ORIGIN}/view/${artifactId}`);
   await page.getByRole("heading", { level: 1, name }).waitFor();
-  const thread = page.getByRole("article", { name: "Thread 1" });
-  // The viewer is still settling when its heading shows: late content can shift the card between
-  // the press and the release, which focuses the button without opening its menu, and "Create
-  // issue" joins the menu only once the space's connections have loaded. Open it until it is there.
-  const more = thread.getByRole("button", { name: "More actions for thread 1" });
-  const createIssue = page.getByRole("menuitem", { name: "Create issue" });
-  await expect(async () => {
-    if ((await more.getAttribute("aria-expanded")) !== "true") await more.click();
-    await expect(createIssue).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
-  await createIssue.click();
-  const dialog = page.getByRole("dialog", { name: "Create an issue from thread 1" });
+  const dialog = await openCreateIssue(page);
   await expect(dialog.getByLabel("A link to this thread")).toBeChecked();
   await expect(dialog.getByLabel("The thread's first message")).not.toBeChecked();
   await expect(dialog.getByLabel(/^Exactly what is sent/)).not.toHaveValue(new RegExp(WORDS));
@@ -166,15 +178,7 @@ test("connect Jira, create an issue from a thread with the message, and see its 
   });
   await page.goto(`${APP_ORIGIN}/view/${artifactId}`);
   await page.getByRole("heading", { level: 1, name }).waitFor();
-  const thread = page.getByRole("article", { name: "Thread 1" });
-  const more = thread.getByRole("button", { name: "More actions for thread 1" });
-  const createIssue = page.getByRole("menuitem", { name: "Create issue" });
-  await expect(async () => {
-    if ((await more.getAttribute("aria-expanded")) !== "true") await more.click();
-    await expect(createIssue).toBeVisible({ timeout: 2_000 });
-  }).toPass({ timeout: 30_000 });
-  await createIssue.click();
-  const dialog = page.getByRole("dialog", { name: "Create an issue from thread 1" });
+  const dialog = await openCreateIssue(page);
   await dialog.getByLabel("The thread's first message").check();
   await expect(dialog.getByLabel(/^Exactly what is sent/)).toHaveValue(
     /First message:\n\n```\n\[~accountid:1\] see \[here\|https:\/\/evil\.test\]\n```/,
