@@ -283,10 +283,22 @@ export interface ApplyTombstonesResult {
   scimUsers: number;
   /** Pending memberships a directory withdrew before the restore, withdrawn again. */
   invitations: number;
-  /** Memberships a directory ended before the restore, ended again. */
+  /**
+   * Memberships a directory or an admin ended, or their member left, before the restore, ended
+   * again (never a workspace's last admin).
+   */
   members: number;
-  /** Threads comment retention deleted before the restore, deleted again (decision 0023). */
+  /**
+   * Threads deleted before the restore (by comment retention, decision 0023, by their author or
+   * by the people who manage the artifact), deleted again.
+   */
   commentThreads: number;
+  /** Messages deleted before the restore that it brought back, deleted again. */
+  commentMessages: number;
+  /** Email preferences turned off before the restore that it turned back on, off again. */
+  noticeOptOuts: number;
+  /** Per-artifact comment notice mutes set before the restore that it lost, set again. */
+  noticeMutes: number;
 }
 
 /** The databases a restore re-applies tombstones to: the global one and the regions given. */
@@ -304,6 +316,8 @@ const REGIONAL_KINDS = [
   "webhook",
   "audit_stream",
   "comment_thread",
+  "comment_message",
+  "comment_notice_mute",
 ] as const;
 type RegionalKind = (typeof REGIONAL_KINDS)[number];
 
@@ -369,6 +383,9 @@ interface Refs {
   webhooks: SQL;
   auditStreams: SQL;
   commentThreads: SQL;
+  commentMessages: SQL;
+  /** As rows with one column, `ref` (`<artifact>:<user>`), not only a list for `in`. */
+  mutes: SQL;
 }
 
 const t = schema.tombstones;
@@ -391,11 +408,50 @@ const SUBQUERIES: Refs = {
   webhooks: sql`select ${t.id} from ${t} where ${t.kind} = 'webhook'`,
   auditStreams: sql`select ${t.id} from ${t} where ${t.kind} = 'audit_stream'`,
   commentThreads: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_thread'`,
+  commentMessages: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_message'`,
+  mutes: sql`select ${t.id} as ref from ${t} where ${t.kind} = 'comment_notice_mute'`,
 };
 
 /** A JSON list as the body of an `in (...)` subquery. */
 function listed(values: readonly string[]): SQL {
   return sql`select value from json_each(${JSON.stringify(values)})`;
+}
+
+/** A JSON list as rows of one column, `ref`. */
+function listedRefs(values: readonly string[]): SQL {
+  return sql`select value as ref from json_each(${JSON.stringify(values)})`;
+}
+
+const wm = schema.workspaceMembers;
+
+/**
+ * A membership a `workspace_member` (an admin's or a directory's removal) or
+ * `workspace_member_left` (leaving) tombstone ended, when the membership is not newer than it.
+ */
+function endedMembership(kinds: SQL, member: { workspace: SQL; user: SQL; created: SQL }): SQL {
+  return sql`exists (select 1 from ${t} where ${t.kind} in ${kinds} and ${t.id} = ${member.workspace} || ':' || ${member.user} and ${member.created} <= ${t.deletedAt})`;
+}
+
+const MEMBER_KINDS = sql`('workspace_member', 'workspace_member_left')`;
+
+/**
+ * The memberships the restore ends again: never one that would leave its workspace without an
+ * admin (the `workspace_members_keep_admin_on_delete` trigger would refuse the whole batch). An
+ * admin goes only while another admin stays whose membership no tombstone ends, or while the
+ * workspace is being deleted; a kept admin is listed by the operator tool for a person to settle.
+ */
+function membershipsToEnd(): SQL {
+  const ended = endedMembership(MEMBER_KINDS, {
+    workspace: sql`${wm.workspaceId}`,
+    user: sql`${wm.userId}`,
+    created: sql`${wm.createdAt}`,
+  });
+  const otherEnded = endedMembership(MEMBER_KINDS, {
+    workspace: sql`other.workspace_id`,
+    user: sql`other.user_id`,
+    created: sql`other.created_at`,
+  });
+  return sql`${ended} and (${wm.role} <> 'admin' or exists (select 1 from ${wm} as other where other.workspace_id = ${wm.workspaceId} and other.role = 'admin' and other.user_id <> ${wm.userId} and not ${otherEnded}) or exists (select 1 from ${wd} where ${wd.workspaceId} = ${wm.workspaceId}))`;
 }
 
 /**
@@ -508,9 +564,9 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
           .where(sql`${l.revokedAt} is null and ${l.id} in (${refs.links})`)
           .returning({ id: l.id }),
     },
-    // Threads comment retention deleted (decision 0023): never brought back by a restore. Their
-    // messages, comment notices and issue requests go with them by foreign key, and the
-    // `annotation_usage` triggers keep the quota right.
+    // Threads comment retention (decision 0023), their author or the artifact's managers deleted:
+    // never brought back by a restore. Their messages, comment notices and issue requests go with
+    // them by foreign key, and the `annotation_usage` triggers keep the quota right.
     {
       name: "commentThreads",
       side: "regional",
@@ -519,6 +575,39 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
           .delete(schema.annotationThreads)
           .where(sql`${schema.annotationThreads.id} in (${refs.commentThreads})`)
           .returning({ id: schema.annotationThreads.id }),
+    },
+    // Messages deleted while their thread stayed: the "message deleted" marker again, never the
+    // text. The `annotation_usage` triggers give the bytes back.
+    {
+      name: "commentMessages",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.annotationMessages)
+          .set({
+            state: "deleted",
+            body: null,
+            bodyBytes: 0,
+            revision: sql`${schema.annotationMessages.revision} + 1`,
+          })
+          .where(
+            sql`${schema.annotationMessages.state} <> 'deleted' and ${schema.annotationMessages.id} in (${refs.commentMessages})`,
+          )
+          .returning({ id: schema.annotationMessages.id }),
+    },
+    // Per-artifact mutes the restore lost come back, on artifacts that are still there, for
+    // accounts that are not deleted.
+    {
+      name: "noticeMutes",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .insert(schema.commentNoticeMutes)
+          .select(
+            sql`select artifact, person, ${now} from (select substr(ref, 1, instr(ref, ':') - 1) as artifact, substr(ref, instr(ref, ':') + 1) as person from (${refs.mutes}) where instr(ref, ':') > 0) as muted where exists (select 1 from ${a} where ${a.id} = muted.artifact) and muted.person not in (${refs.accounts})`,
+          )
+          .onConflictDoNothing()
+          .returning({ artifactId: schema.commentNoticeMutes.artifactId }),
     },
     {
       name: "reporters",
@@ -747,7 +836,8 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
           )
           .returning({ id: schema.workspaceInvitations.id }),
     },
-    // The single sign-on block goes back with them, or the provider would let them in again.
+    // The single sign-on block goes back with an admin's or a directory's removal, or the
+    // provider would let them in again; leaving by oneself never had one.
     {
       name: "removals",
       side: "global",
@@ -755,22 +845,60 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
         db
           .insert(schema.workspaceRemovals)
           .select(
-            sql`select ${schema.workspaceMembers.workspaceId}, ${schema.workspaceMembers.userId}, ${t.deletedAt} from ${schema.workspaceMembers} inner join ${t} on ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} where ${schema.workspaceMembers.createdAt} <= ${t.deletedAt}`,
+            sql`select ${wm.workspaceId}, ${wm.userId}, (select max(${t.deletedAt}) from ${t} where ${t.kind} = 'workspace_member' and ${t.id} = ${wm.workspaceId} || ':' || ${wm.userId}) from ${wm} where ${membershipsToEnd()} and ${endedMembership(
+              sql`('workspace_member')`,
+              {
+                workspace: sql`${wm.workspaceId}`,
+                user: sql`${wm.userId}`,
+                created: sql`${wm.createdAt}`,
+              },
+            )}`,
           )
           .onConflictDoNothing(),
     },
     {
       name: "members",
       side: "global",
-      build: (db) =>
-        db
-          .delete(schema.workspaceMembers)
-          .where(
-            sql`exists (select 1 from ${t} where ${t.kind} = 'workspace_member' and ${t.id} = ${schema.workspaceMembers.workspaceId} || ':' || ${schema.workspaceMembers.userId} and ${schema.workspaceMembers.createdAt} <= ${t.deletedAt})`,
-          )
-          .returning({ userId: schema.workspaceMembers.userId }),
+      build: (db) => db.delete(wm).where(membershipsToEnd()).returning({ userId: wm.userId }),
     },
+    // Email preferences turned off since the restore point stay off: `<user>:<preference>`.
+    ...(["comment_notices", "expiry_notices"] as const).map(
+      (preference): Entry => ({
+        name: `noticeOptOuts:${preference}`,
+        side: "global",
+        build: (db) => optOutStatement(db, preference),
+      }),
+    ),
   ];
+}
+
+/**
+ * Turns one email preference off again for every account whose `notice_opt_out` tombstone says
+ * it was turned off (the restore brought back an earlier "on", or no settings row at all).
+ */
+function optOutStatement(db: Db, preference: "comment_notices" | "expiry_notices") {
+  const s = schema.accountSettings;
+  const comment = preference === "comment_notices";
+  const suffix = `:${preference}`;
+  const user = sql`substr(${t.id}, 1, length(${t.id}) - ${suffix.length})`;
+  // Columns in schema order: user, default access mode, annotations, comment visibility, bar,
+  // expiry notices, comment notices, comment notices changed at, locale, updated at.
+  return db
+    .insert(s)
+    .select(
+      sql`select ${user}, 'restricted', 'off', 'owner', 1, ${comment ? 1 : 0}, ${comment ? 0 : 1}, ${comment ? sql`${t.deletedAt}` : sql`null`}, null, ${t.deletedAt} from ${t} where ${t.kind} = 'notice_opt_out' and substr(${t.id}, -${suffix.length}) = ${suffix} and exists (select 1 from ${u} where ${u.id} = ${user})`,
+    )
+    .onConflictDoUpdate({
+      target: s.userId,
+      set: comment
+        ? {
+            commentNotices: false,
+            commentNoticesChangedAt: sql`case when ${s.commentNotices} = 0 then ${s.commentNoticesChangedAt} else excluded.comment_notices_changed_at end`,
+          }
+        : { expiryNotices: false },
+      setWhere: comment ? sql`${s.commentNotices} = 1` : sql`${s.expiryNotices} = 1`,
+    })
+    .returning({ userId: s.userId });
 }
 
 async function runEntries(db: Db, entries: Entry[], refs: Refs): Promise<Map<string, unknown[]>> {
@@ -833,6 +961,10 @@ async function applyRegionalTombstones(
       webhooks: part(lists.webhook),
       auditStreams: part(lists.audit_stream),
       commentThreads: part(lists.comment_thread),
+      commentMessages: part(lists.comment_message),
+      mutes: listedRefs(
+        lists.comment_notice_mute.slice(round * JSON_CHUNK, (round + 1) * JSON_CHUNK),
+      ),
     };
     for (const [name, rows] of await runEntries(db, regional, refs)) {
       counts.set(name, (counts.get(name) ?? 0) + rows.length);
@@ -932,6 +1064,9 @@ export async function applyTombstones(
     invitations: count("invitations"),
     members: count("members"),
     commentThreads: count("commentThreads"),
+    commentMessages: count("commentMessages"),
+    noticeOptOuts: count("noticeOptOuts:comment_notices") + count("noticeOptOuts:expiry_notices"),
+    noticeMutes: count("noticeMutes"),
     directoryRoles: roles.workspaces,
   };
 }

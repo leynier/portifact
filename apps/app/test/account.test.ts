@@ -1,4 +1,6 @@
 import { env } from "cloudflare:workers";
+import { regionsFromEnv } from "@portifact/db";
+import { pruneAuthRecords } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { publishSite, tokenClient } from "./api-client.ts";
 import {
@@ -154,6 +156,54 @@ describe("browser sessions", () => {
     );
     // As with signing out (decision 0001), the agent recovers by refreshing; only
     // disconnecting the app ends its access.
+    expect(refreshed.status).toBe(200);
+    const renewed = await refreshed.json<TokenResponse>();
+    expect((await callMcp(h, renewed.access_token)).status).toBe(200);
+  });
+});
+
+describe("the cleanup of expired browser sessions", () => {
+  it("deletes an expired session only once Better Auth's sign-out would change nothing more, with the same result", async () => {
+    const h = createHarness();
+    const email = "sessions-cleanup@example.test";
+    const cookie = await h.signIn(email);
+    // An agent approved in this browser holds tokens bound to its session.
+    const agent = await connectMcp(h, cookie);
+    const user = await env.DB.prepare("SELECT id FROM users WHERE email = ?")
+      .bind(email)
+      .first<{ id: string }>();
+    const now = Date.now();
+    const past = now - 2 * 86_400_000;
+    await env.DB.prepare("UPDATE sessions SET expires_at = ? WHERE user_id = ?")
+      .bind(past, user?.id)
+      .run();
+    const left = async () =>
+      (
+        await env.DB.prepare("SELECT count(*) AS n FROM sessions WHERE user_id = ?")
+          .bind(user?.id)
+          .first<{ n: number }>()
+      )?.n;
+
+    // Its access token is still live: signing out would revoke it, so the cleanup leaves it.
+    expect((await pruneAuthRecords(regionsFromEnv(env).global, now)).sessions).toBe(0);
+    expect(await left()).toBe(1);
+
+    await env.DB.prepare("UPDATE oauth_access_tokens SET expires_at = ? WHERE client_id = ?")
+      .bind(past, agent.clientId)
+      .run();
+    expect((await pruneAuthRecords(regionsFromEnv(env).global, now)).sessions).toBe(1);
+    expect(await left()).toBe(0);
+    // As after Better Auth's sign-out (above): the access token no longer works, and the agent
+    // recovers by refreshing.
+    expect((await callMcp(h, agent.token)).status).toBe(401);
+    const refreshed = await h.request(
+      "/api/auth/oauth2/token",
+      form({
+        grant_type: "refresh_token",
+        refresh_token: agent.refresh,
+        client_id: agent.clientId,
+      }),
+    );
     expect(refreshed.status).toBe(200);
     const renewed = await refreshed.json<TokenResponse>();
     expect((await callMcp(h, renewed.access_token)).status).toBe(200);

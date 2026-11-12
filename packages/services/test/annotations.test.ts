@@ -1,7 +1,14 @@
 import { env } from "cloudflare:test";
 import { ANNOTATION_LIMITS, type AnnotationTarget } from "@portifact/contracts";
-import { globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
-import { and, eq } from "drizzle-orm";
+import {
+  aliasBinding,
+  globalDb,
+  type RegionalDb,
+  regionalDb,
+  regionsFromEnv,
+  schema,
+} from "@portifact/db";
+import { and, eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
 import {
@@ -21,7 +28,10 @@ import {
   setAnnotationMode,
   setAnnotationThreadState,
 } from "../src/annotations.ts";
+import { applyTombstones, exportTombstones } from "../src/backups.ts";
+import { writeCommentTombstones } from "../src/comment-retention.ts";
 import { setOwnerPlan } from "../src/plans.ts";
+import { idempotentThreadWrite } from "../src/thread-idempotency.ts";
 import { grantPlan } from "./fixtures.ts";
 
 const db = () => regionsFromEnv(env).get("default").db;
@@ -64,9 +74,14 @@ async function user(verified = true): Promise<{ id: string; email: string }> {
   return { id, email };
 }
 
-async function addVersion(id: string, ownerId: string, number: number): Promise<string> {
+async function addVersion(
+  id: string,
+  ownerId: string,
+  number: number,
+  on: RegionalDb = db(),
+): Promise<string> {
   const versionId = `${id}_v${number}`;
-  await db().insert(schema.versions).values({
+  await on.insert(schema.versions).values({
     id: versionId,
     artifactId: id,
     number,
@@ -76,17 +91,15 @@ async function addVersion(id: string, ownerId: string, number: number): Promise<
     publishedBytes: 10,
     committedAt: NOW,
   });
-  await db()
-    .insert(schema.versionFiles)
-    .values({
-      versionId,
-      kind: "published",
-      path: "index.html",
-      ownerId,
-      sha256: "a".repeat(64),
-      size: 10,
-      contentType: "text/html",
-    });
+  await on.insert(schema.versionFiles).values({
+    versionId,
+    kind: "published",
+    path: "index.html",
+    ownerId,
+    sha256: "a".repeat(64),
+    size: 10,
+    contentType: "text/html",
+  });
   return versionId;
 }
 
@@ -107,32 +120,33 @@ async function world(
     annotations?: "off" | "open" | "locked";
     state?: "active" | "suspended";
     comments?: "owner" | "everyone";
+    /** The region's database the artifact lives in; the default region's by default. */
+    on?: RegionalDb;
   } = {},
 ): Promise<World> {
+  const on = options.on ?? db();
   const owner = await user();
   const reader = await user();
   const stranger = await user();
   const id = artifactId();
-  await db()
-    .insert(schema.artifacts)
-    .values({
-      id,
-      ownerId: owner.id,
-      type: "site",
-      name: "Plan",
-      state: options.state ?? "active",
-      annotations: options.annotations ?? "open",
-      commentVisibility: options.comments ?? "owner",
-      expiresAt: NOW + 30 * DAY,
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-  const version = await addVersion(id, owner.id, 1);
-  await db()
+  await on.insert(schema.artifacts).values({
+    id,
+    ownerId: owner.id,
+    type: "site",
+    name: "Plan",
+    state: options.state ?? "active",
+    annotations: options.annotations ?? "open",
+    commentVisibility: options.comments ?? "owner",
+    expiresAt: NOW + 30 * DAY,
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+  const version = await addVersion(id, owner.id, 1, on);
+  await on
     .update(schema.artifacts)
     .set({ currentVersionId: version })
     .where(eq(schema.artifacts.id, id));
-  await db().insert(schema.artifactReaders).values({ artifactId: id, email: reader.email });
+  await on.insert(schema.artifactReaders).values({ artifactId: id, email: reader.email });
   return { id, owner: owner.id, reader: reader.id, stranger: stranger.id, version };
 }
 
@@ -1330,19 +1344,25 @@ describe("limits", () => {
  */
 function racing(before: () => Promise<unknown>, after: () => Promise<unknown> = async () => {}) {
   const real = db();
+  const d1 = env.DB;
   let raced = false;
-  return new Proxy(real, {
-    get(target, property, receiver) {
-      if (property !== "batch" || raced) return Reflect.get(target, property, receiver);
-      return async (statements: Parameters<typeof real.batch>[0]) => {
-        raced = true;
-        await before();
-        const result = await target.batch(statements);
-        await after();
-        return result;
-      };
+  // On the binding, so a batch built on the handle `bothSides` gives (one database) races too.
+  const proxied = new Proxy(d1, {
+    get(target, property) {
+      if (property === "batch" && !raced) {
+        return async (statements: D1PreparedStatement[]) => {
+          raced = true;
+          await before();
+          const result = await target.batch(statements);
+          await after();
+          return result;
+        };
+      }
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
     },
-  }) as ReturnType<typeof db>;
+  });
+  return regionalDb(aliasBinding(proxied, d1), real.global);
 }
 
 describe("annotations on a granted plan", () => {
@@ -2451,5 +2471,366 @@ describe("the comment action history", () => {
   it("refuses a cursor it did not make", async () => {
     const w = await world();
     expect(code(await history(w, w.owner, "not-a-cursor"))).toBe("invalid_input");
+describe("deletions through a backup restore", () => {
+  const eu = () => regionsFromEnv(env).get("eu").db;
+  const tombstone = async (kind: "comment_thread" | "comment_message", id: string) =>
+    (
+      await db()
+        .global.select()
+        .from(schema.tombstones)
+        .where(and(eq(schema.tombstones.kind, kind), eq(schema.tombstones.id, id)))
+    ).length === 1;
+  const threadRow = async (id: string, on: RegionalDb = db()) =>
+    (
+      await on.select().from(schema.annotationThreads).where(eq(schema.annotationThreads.id, id))
+    )[0];
+  const messageRows = (threadId: string, on: RegionalDb = db()) =>
+    on
+      .select()
+      .from(schema.annotationMessages)
+      .where(eq(schema.annotationMessages.threadId, threadId));
+  /** What a D1 Time Travel restore does: the rows come back and the tombstones are rewound. */
+  async function restore(
+    rows: {
+      thread?: typeof schema.annotationThreads.$inferSelect;
+      messages: (typeof schema.annotationMessages.$inferSelect)[];
+    },
+    ids: string[],
+  ) {
+    if (rows.thread) await db().insert(schema.annotationThreads).values(rows.thread);
+    for (const message of rows.messages) {
+      await db()
+        .insert(schema.annotationMessages)
+        .values(message)
+        .onConflictDoUpdate({
+          target: schema.annotationMessages.id,
+          set: { state: message.state, body: message.body, bodyBytes: message.bodyBytes },
+        });
+    }
+    await db().global.delete(schema.tombstones).where(inArray(schema.tombstones.id, ids));
+  }
+
+  it("keeps a message its author deleted deleted, and its text gone, after a restore", async () => {
+    const w = await world({ comments: "everyone" });
+    const thread = await started(w, w.reader, "Secret plan");
+    await replyToAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: w.owner,
+      artifactId: w.id,
+      threadId: thread.id,
+      body: "Answer",
+      now: NOW,
+    });
+    const before = await messageRows(thread.id);
+    const mine = must(before.find((row) => row.authorId === w.reader));
+    const deleted = await deleteOwnAnnotationMessage(db(), {
+      userId: w.reader,
+      artifactId: w.id,
+      messageId: mine.id,
+      now: NOW,
+    });
+    expect(deleted.ok).toBe(true);
+    const usageAfterDeletion = await usageOf(w.owner);
+    // The marker is written in the batch that deletes the text.
+    expect(await tombstone("comment_message", mine.id)).toBe(true);
+    const markers = await exportTombstones(regionsFromEnv(env));
+    expect(markers).toContainEqual({ kind: "comment_message", id: mine.id, deletedAt: NOW });
+
+    await restore({ messages: before }, [mine.id]);
+    expect((await messageRows(thread.id)).find((row) => row.id === mine.id)?.body).toBe(
+      "Secret plan",
+    );
+    const applied = await applyTombstones(regionsFromEnv(env), markers, NOW + DAY);
+    expect(applied.commentMessages).toBe(1);
+    const after = must((await messageRows(thread.id)).find((row) => row.id === mine.id));
+    expect(after).toMatchObject({ state: "deleted", body: null, bodyBytes: 0 });
+    // The quota follows the triggers: back to what it was after the deletion.
+    expect(await usageOf(w.owner)).toEqual(usageAfterDeletion);
+    const again = await applyTombstones(regionsFromEnv(env), markers, NOW + DAY);
+    expect(again.commentMessages).toBe(0);
+  });
+
+  it("keeps a thread deleted by the artifact's managers or by its author's last message deleted", async () => {
+    const w = await world({ comments: "everyone" });
+    const moderated = await started(w, w.reader, "Moderated");
+    const own = await started(w, w.reader, "Mine");
+    const rows = {
+      moderated: {
+        thread: must(await threadRow(moderated.id)),
+        messages: await messageRows(moderated.id),
+      },
+      own: { thread: must(await threadRow(own.id)), messages: await messageRows(own.id) },
+    };
+    expect(
+      (
+        await deleteAnnotationThread(db(), {
+          userId: w.owner,
+          artifactId: w.id,
+          threadId: moderated.id,
+          now: NOW,
+        })
+      ).ok,
+    ).toBe(true);
+    const ownMessage = must(rows.own.messages[0]);
+    expect(
+      (
+        await deleteOwnAnnotationMessage(db(), {
+          userId: w.reader,
+          artifactId: w.id,
+          messageId: ownMessage.id,
+          now: NOW,
+        })
+      ).ok,
+    ).toBe(true);
+    expect(await tombstone("comment_thread", moderated.id)).toBe(true);
+    expect(await tombstone("comment_thread", own.id)).toBe(true);
+    const markers = await exportTombstones(regionsFromEnv(env));
+
+    await restore(rows.moderated, [moderated.id]);
+    await restore(rows.own, [own.id]);
+    expect(await threadRow(moderated.id)).toBeDefined();
+    const applied = await applyTombstones(regionsFromEnv(env), markers, NOW + DAY);
+    expect(applied.commentThreads).toBe(2);
+    expect(await threadRow(moderated.id)).toBeUndefined();
+    expect(await threadRow(own.id)).toBeUndefined();
+    expect(await messageRows(own.id)).toEqual([]);
+  });
+
+  it("writes no marker when the deletion loses its claim", async () => {
+    const w = await world();
+    const thread = await started(w, w.reader);
+    const lost = await deleteAnnotationThread(
+      racing(() =>
+        setAnnotationMode(db(), { userId: w.owner, artifactId: w.id, mode: "off", now: NOW }),
+      ),
+      { userId: w.owner, artifactId: w.id, threadId: thread.id, now: NOW },
+    );
+    expect(lost.ok).toBe(false);
+    expect(await threadRow(thread.id)).toBeDefined();
+    expect(await tombstone("comment_thread", thread.id)).toBe(false);
+  });
+
+  it("writes the markers through a job in the region's batch when the region has its own database", async () => {
+    const w = await world({ comments: "everyone", on: eu() });
+    const created = await createAnnotationThread(eu(), {
+      humanCheck: HUMAN,
+      userId: w.reader,
+      artifactId: w.id,
+      versionId: w.version,
+      target: DOC,
+      body: "First",
+      now: NOW,
+    });
+    if (!created.ok) throw new Error(created.code);
+    const reply = await replyToAnnotationThread(eu(), {
+      humanCheck: HUMAN,
+      userId: w.owner,
+      artifactId: w.id,
+      threadId: created.value.id,
+      body: "Second",
+      now: NOW,
+    });
+    if (!reply.ok) throw new Error(reply.code);
+    const first = must(created.value.messages[0]);
+    const threadBefore = await threadRow(created.value.id, eu());
+    const messagesBefore = await messageRows(created.value.id, eu());
+    expect(
+      (
+        await deleteOwnAnnotationMessage(eu(), {
+          userId: w.reader,
+          artifactId: w.id,
+          messageId: first.id,
+          now: NOW,
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      (
+        await deleteAnnotationThread(eu(), {
+          userId: w.owner,
+          artifactId: w.id,
+          threadId: created.value.id,
+          now: NOW,
+        })
+      ).ok,
+    ).toBe(true);
+    // Nothing global was written by the regional batches: two jobs wait in the region's outbox.
+    expect(await tombstone("comment_message", first.id)).toBe(false);
+    const jobs = await eu()
+      .select()
+      .from(schema.outbox)
+      .where(and(eq(schema.outbox.topic, "comment_tombstones"), eq(schema.outbox.subject, w.id)));
+    expect(jobs).toHaveLength(2);
+    for (const job of jobs) expect(await writeCommentTombstones(eu(), job)).toBe("done");
+    expect(await tombstone("comment_message", first.id)).toBe(true);
+    expect(await tombstone("comment_thread", created.value.id)).toBe(true);
+
+    // A restore of the EU database alone brings the thread back; the global markers delete it.
+    await eu()
+      .insert(schema.annotationThreads)
+      .values({ ...must(threadBefore), messageCount: 2 });
+    await eu().insert(schema.annotationMessages).values(messagesBefore);
+    const markers = await exportTombstones(regionsFromEnv(env));
+    const applied = await applyTombstones(
+      { global: db().global, all: () => [{ db: eu() }] },
+      markers,
+      NOW + DAY,
+    );
+    expect(applied.commentThreads).toBe(1);
+    expect(await threadRow(created.value.id, eu())).toBeUndefined();
+  });
+});
+
+function must<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("expected a value");
+  return value;
+}
+
+describe("idempotent thread writes", () => {
+  const request = (actorId: string, key: string, operation = "annotations.thread.create") => ({
+    actorId,
+    key,
+    operation,
+    requestHash: "h",
+    now: NOW,
+  });
+  const storedResults = async (actorId: string, key: string) =>
+    (
+      await db()
+        .select({ result: schema.operations.result })
+        .from(schema.operations)
+        .where(
+          and(eq(schema.operations.actorId, actorId), eq(schema.operations.idempotencyKey, key)),
+        )
+    ).map((row) => row.result);
+
+  it("keeps only the thread's ID, and a retry after the deletion never returns the deleted text", async () => {
+    const w = await world();
+    const key = `k_${crypto.randomUUID()}`;
+    const reader = { userId: w.reader, artifactId: w.id, now: NOW };
+    const first = await idempotentThreadWrite(db(), request(w.reader, key), reader, () =>
+      start(w, w.reader, "Delete me later"),
+    );
+    if (first.kind !== "fresh" || !first.result.ok) throw new Error("the write failed");
+    const thread = first.result.value;
+    expect(thread.messages[0]?.body).toBe("Delete me later");
+    expect(await storedResults(w.reader, key)).toEqual([{ threadId: thread.id }]);
+    expect(JSON.stringify(await storedResults(w.reader, key))).not.toContain("Delete me later");
+
+    // A retry before any change answers the thread as it is now.
+    const again = await idempotentThreadWrite(db(), request(w.reader, key), reader, async () => {
+      throw new Error("a retry must not write");
+    });
+    expect(again).toMatchObject({
+      kind: "replayed",
+      result: { ok: true, value: { id: thread.id } },
+    });
+
+    const messageId = thread.messages[0]?.id ?? "";
+    expect((await deleteOwnAnnotationMessage(db(), { ...reader, messageId })).ok).toBe(true);
+    const afterDeletion = await idempotentThreadWrite(
+      db(),
+      request(w.reader, key),
+      reader,
+      async () => {
+        throw new Error("a retry must not write");
+      },
+    );
+    expect(afterDeletion).toMatchObject({
+      kind: "replayed",
+      result: { ok: false, code: "not_found" },
+    });
+    expect(JSON.stringify(afterDeletion)).not.toContain("Delete me later");
+  });
+
+  it("answers a reply's retry with the deleted message as a marker, and refuses a reader who lost access", async () => {
+    const w = await world({ comments: "everyone" });
+    const thread = await started(w, w.owner, "Owner's note");
+    const key = `k_${crypto.randomUUID()}`;
+    const reader = { userId: w.reader, artifactId: w.id, now: NOW };
+    const op = request(w.reader, key, "annotations.message.create");
+    const replied = await idempotentThreadWrite(db(), op, reader, () =>
+      replyToAnnotationThread(db(), {
+        humanCheck: HUMAN,
+        ...reader,
+        threadId: thread.id,
+        body: "Private reply",
+      }),
+    );
+    if (replied.kind !== "fresh" || !replied.result.ok) throw new Error("the reply failed");
+    const mine = replied.result.value.messages.find((message) => message.body === "Private reply");
+    expect(
+      (await deleteOwnAnnotationMessage(db(), { ...reader, messageId: mine?.id ?? "" })).ok,
+    ).toBe(true);
+    const retried = await idempotentThreadWrite(db(), op, reader, async () => {
+      throw new Error("a retry must not write");
+    });
+    if (retried.kind !== "replayed" || !retried.result.ok) throw new Error("the retry failed");
+    expect(retried.result.value.messages.map((message) => message.state)).toEqual([
+      "visible",
+      "deleted",
+    ]);
+    expect(JSON.stringify(retried)).not.toContain("Private reply");
+
+    // Removed from the readers: the retry answers like a missing artifact, not the old thread.
+    await db().delete(schema.artifactReaders).where(eq(schema.artifactReaders.artifactId, w.id));
+    const outside = await idempotentThreadWrite(db(), op, reader, async () => {
+      throw new Error("a retry must not write");
+    });
+    expect(outside).toMatchObject({ kind: "replayed", result: { ok: false } });
+  });
+
+  it("keeps a refusal as its code and message, and refuses a key reused for another request", async () => {
+    const w = await world({ annotations: "off" });
+    const key = `k_${crypto.randomUUID()}`;
+    const reader = { userId: w.reader, artifactId: w.id, now: NOW };
+    const refused = await idempotentThreadWrite(db(), request(w.reader, key), reader, () =>
+      start(w, w.reader),
+    );
+    expect(refused).toMatchObject({ kind: "fresh", result: { ok: false } });
+    const replayed = await idempotentThreadWrite(db(), request(w.reader, key), reader, async () => {
+      throw new Error("a retry must not write");
+    });
+    expect(replayed).toEqual({
+      kind: "replayed",
+      result: refused.kind === "fresh" ? refused.result : null,
+    });
+    const other = await idempotentThreadWrite(
+      db(),
+      { ...request(w.reader, key), requestHash: "other" },
+      reader,
+      () => start(w, w.reader),
+    );
+    expect(other).toEqual({ kind: "mismatch" });
+  });
+
+  it("rebuilds a record written before only the ID was kept, without its stored text", async () => {
+    const w = await world();
+    const thread = await started(w, w.reader, "Old record text");
+    const key = `k_${crypto.randomUUID()}`;
+    await db()
+      .insert(schema.operations)
+      .values({
+        actorId: w.reader,
+        idempotencyKey: key,
+        operation: "annotations.thread.create",
+        requestHash: "h",
+        status: 201,
+        result: { ...thread, messages: [{ ...thread.messages[0], body: "Stale stored text" }] },
+        createdAt: NOW,
+      });
+    const replayed = await idempotentThreadWrite(
+      db(),
+      request(w.reader, key),
+      { userId: w.reader, artifactId: w.id, now: NOW },
+      async () => {
+        throw new Error("a retry must not write");
+      },
+    );
+    expect(JSON.stringify(replayed)).not.toContain("Stale stored text");
+    expect(replayed).toMatchObject({
+      kind: "replayed",
+      result: { ok: true, value: { id: thread.id } },
+    });
   });
 });

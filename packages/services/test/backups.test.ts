@@ -261,6 +261,9 @@ describe("tombstones after a restore", () => {
       invitations: 0,
       members: 0,
       commentThreads: 0,
+      commentMessages: 0,
+      noticeOptOuts: 0,
+      noticeMutes: 0,
       directoryRoles: 0,
     });
     expect((await artifactRow(purged.artifactId))?.state).toBe("purging");
@@ -326,6 +329,9 @@ describe("tombstones after a restore", () => {
       invitations: 0,
       members: 0,
       commentThreads: 0,
+      commentMessages: 0,
+      noticeOptOuts: 0,
+      noticeMutes: 0,
       directoryRoles: 0,
     });
     expect((await artifactRow(kept.artifactId))?.state).toBe("active");

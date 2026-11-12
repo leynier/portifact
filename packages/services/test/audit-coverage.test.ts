@@ -340,6 +340,17 @@ reason("an issue request is recorded once the job creates the issue (issue.creat
 reason("restores re-apply removals already recorded (operator only)", [
   "applyIntegrationTombstones",
 ]);
+reason(
+  'retention of history about what is already gone (docs/operations.md, "History retention")',
+  ["pruneGoneHistory", "pruneUploadHistory", "pruneStaleFindings", "eraseAccountTraces"],
+);
+reason("expired sign-in records and unused app registrations: identity, not an owner's data", [
+  "pruneAuthRecords",
+]);
+reason(
+  "restore markers and idempotency records: the change they belong to is recorded (or is a person's own preference)",
+  ["idempotentThreadWrite"],
+);
 reason("scheduled jobs and their consequences of changes already recorded", [
   "requeueThreadIssues",
   "rewrapIntegrationKeys",

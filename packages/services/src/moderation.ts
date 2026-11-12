@@ -163,7 +163,7 @@ export async function suspendArtifact(
       db
         .insert(s)
         .select(
-          sql`select ${id}, 'artifact', ${artifact.id}, ${input.reason}, ${artifact.state}, ${input.reportId ?? null}, ${input.parentId ?? null}, ${input.note ?? null}, ${input.now}, null where ${readState}`,
+          sql`select ${id}, 'artifact', ${artifact.id}, ${input.reason}, ${artifact.state}, ${input.reportId ?? null}, ${input.parentId ?? null}, ${input.note ?? null}, ${input.now}, null, null where ${readState}`,
         )
         .returning({ id: s.id }),
       db.insert(schema.lifecycleEvents).select(
@@ -342,7 +342,7 @@ export async function suspendAccount(
       db
         .insert(s)
         .select(
-          sql`select 'sus_' || lower(hex(randomblob(16))), 'artifact', ${a.id}, ${input.reason}, ${a.state}, ${input.reportId ?? null}, ${id}, null, ${input.now}, null from ${a} where ${a.ownerId} = ${input.userId} and ${a.state} in ('active', 'archived') and ${claimed}`,
+          sql`select 'sus_' || lower(hex(randomblob(16))), 'artifact', ${a.id}, ${input.reason}, ${a.state}, ${input.reportId ?? null}, ${id}, null, ${input.now}, null, null from ${a} where ${a.ownerId} = ${input.userId} and ${a.state} in ('active', 'archived') and ${claimed}`,
         ),
       db
         .insert(schema.lifecycleEvents)

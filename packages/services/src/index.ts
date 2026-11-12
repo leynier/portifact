@@ -11,6 +11,7 @@ export * from "./approval-reviews.ts";
 export * from "./artifacts.ts";
 export * from "./audit.ts";
 export * from "./audit-streams.ts";
+export * from "./auth-records.ts";
 export * from "./backups.ts";
 export * from "./branding.ts";
 export * from "./budget.ts";
@@ -29,6 +30,7 @@ export * from "./expiry-notices.ts";
 export * from "./feedback.ts";
 export * from "./github-trust.ts";
 export * from "./grace-forecast.ts";
+export * from "./history-retention.ts";
 export * from "./idempotency.ts";
 export {
   type CallOptions,
@@ -72,6 +74,7 @@ export * from "./slack-events.ts";
 export * from "./sso.ts";
 export * from "./sso-keys.ts";
 export * from "./sso-required.ts";
+export * from "./thread-idempotency.ts";
 export * from "./thread-issue-views.ts";
 export * from "./thread-issues.ts";
 export * from "./traffic.ts";

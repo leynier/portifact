@@ -645,19 +645,39 @@ export async function pruneArtifactGroups(
 }
 
 /**
- * How long tombstones of deleted groups and removed group memberships are kept: the D1 Time
- * Travel window. A restore cannot go further back, so a membership removed before then is
- * already gone at every point a restore can reach, and its tombstone guards nothing.
+ * How long the restore markers below are kept: the D1 Time Travel window. A restore cannot go
+ * further back, so a membership removed, a comment deleted or a preference turned off before then
+ * is already so at every point a restore can reach, and its tombstone guards nothing.
  */
 export const GROUP_TOMBSTONE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * The tombstones pruned after `GROUP_TOMBSTONE_RETENTION_MS` (docs/operations.md, "Restoring a
+ * backup"): deleted groups and group memberships (decision 0014), deleted comment threads and
+ * messages, ended memberships and withdrawn invitations, email preferences turned off and
+ * per-artifact mutes. Every other kind (artifacts, accounts, workspaces, credentials, links,
+ * webhooks and the rest) is kept for good, because an ID that must never come back or be reused
+ * is still guarded after the window.
+ */
+export const WINDOW_TOMBSTONE_KINDS = [
+  "workspace_group",
+  "workspace_group_member",
+  "comment_thread",
+  "comment_message",
+  "workspace_member",
+  "workspace_member_left",
+  "workspace_invitation",
+  "notice_opt_out",
+  "comment_notice_mute",
+] as const;
 
 const PRUNE_TOMBSTONES = { batch: 500, rounds: 4 } as const;
 
 /**
- * The maintenance scan of group tombstones (decision 0014, "Restores"): deletes `workspace_group`
- * and `workspace_group_member` tombstones older than `GROUP_TOMBSTONE_RETENTION_MS`, oldest
- * first, `batch` rows per statement and at most `rounds` statements per run, each round after
- * the last key the previous one deleted. No other kind of tombstone is ever pruned.
+ * The maintenance scan of restore markers (decision 0014, "Restores"): deletes tombstones of the
+ * `WINDOW_TOMBSTONE_KINDS` older than `GROUP_TOMBSTONE_RETENTION_MS`, oldest first, `batch` rows
+ * per statement and at most `rounds` statements per run, each round after the last key the
+ * previous one deleted. No other kind of tombstone is ever pruned.
  */
 export async function pruneGroupTombstones(
   global: GlobalDb,
@@ -673,7 +693,10 @@ export async function pruneGroupTombstones(
       ? sql`and (${t.deletedAt}, ${t.kind}, ${t.id}) > (${cursor.deletedAt}, ${cursor.kind}, ${cursor.id})`
       : sql``;
     const rows: { kind: string; id: string; deleted_at: number }[] = await global.all(
-      sql`delete from ${t} where (${t.kind}, ${t.id}) in (select ${t.kind}, ${t.id} from ${t} where ${t.kind} in ('workspace_group', 'workspace_group_member', 'comment_thread') and ${t.deletedAt} < ${before} ${after} order by ${t.deletedAt}, ${t.kind}, ${t.id} limit ${limits.batch}) returning ${t.kind}, ${t.id}, ${t.deletedAt}`,
+      sql`delete from ${t} where (${t.kind}, ${t.id}) in (select ${t.kind}, ${t.id} from ${t} where ${t.kind} in (${sql.join(
+        WINDOW_TOMBSTONE_KINDS.map((kind) => sql`${kind}`),
+        sql`, `,
+      )}) and ${t.deletedAt} < ${before} ${after} order by ${t.deletedAt}, ${t.kind}, ${t.id} limit ${limits.batch}) returning ${t.kind}, ${t.id}, ${t.deletedAt}`,
     );
     queries++;
     deleted += rows.length;

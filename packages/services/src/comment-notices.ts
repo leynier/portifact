@@ -21,7 +21,7 @@ import {
   type UnsubscribeResult,
 } from "@portifact/contracts";
 import type { LocaleCode } from "@portifact/contracts/locales";
-import { type GlobalDb, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   type ArtifactActivity,
   COMMENT_NOTICE,
@@ -37,7 +37,8 @@ import {
   unsubscribeUsable,
 } from "@portifact/domain";
 import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
-import { loadSettings } from "./account-settings.ts";
+import type { BatchItem } from "drizzle-orm/batch";
+import { loadSettings, noticeOptOutMarker } from "./account-settings.ts";
 import { annotationReader, type NoticeView, noticeView } from "./annotations.ts";
 import {
   emailsSentInCycle,
@@ -306,18 +307,41 @@ export async function setCommentNoticeMute(
   const reader = await annotationReader(db, input);
   if (!reader.ok) return reader;
   const m = schema.commentNoticeMutes;
-  if (input.muted) {
-    await db.batch([
-      db
-        .insert(m)
-        .values({ artifactId: input.artifactId, userId: input.userId, createdAt: input.now })
-        .onConflictDoNothing(),
-      db
-        .delete(cn)
-        .where(and(eq(cn.recipientId, input.userId), eq(cn.artifactId, input.artifactId))),
+  // The mute's `comment_notice_mute` tombstone (`<artifact>:<user>`) keeps it through a backup
+  // restore (docs/operations.md, "Restoring a backup"): written with a mute, deleted with an
+  // unmute. With one database in the same batch; with a separate regional database the global
+  // write goes first, so a failure in between leaves at worst a marker for a mute the person
+  // asked for, or a mute with no marker, never a marker that re-mutes after an unmute.
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const t = schema.tombstones;
+  const markerId = `${input.artifactId}:${input.userId}`;
+  const marker = (on: Db) =>
+    input.muted
+      ? on
+          .insert(t)
+          .values({ kind: "comment_notice_mute", id: markerId, deletedAt: input.now })
+          .onConflictDoNothing()
+      : on.delete(t).where(and(eq(t.kind, "comment_notice_mute"), eq(t.id, markerId)));
+  const statements: BatchItem<"sqlite">[] = input.muted
+    ? [
+        x
+          .insert(m)
+          .values({ artifactId: input.artifactId, userId: input.userId, createdAt: input.now })
+          .onConflictDoNothing(),
+        x
+          .delete(cn)
+          .where(and(eq(cn.recipientId, input.userId), eq(cn.artifactId, input.artifactId))),
+      ]
+    : [x.delete(m).where(and(eq(m.artifactId, input.artifactId), eq(m.userId, input.userId)))];
+  if (shared) {
+    await shared.batch([marker(shared), ...statements] as [
+      BatchItem<"sqlite">,
+      ...BatchItem<"sqlite">[],
     ]);
   } else {
-    await db.delete(m).where(and(eq(m.artifactId, input.artifactId), eq(m.userId, input.userId)));
+    await db.global.batch([marker(db.global)]);
+    await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
   }
   return ok({
     available: hasFeature(reader.value.entitlements, COMMENT_NOTICE_FEATURE),
@@ -443,22 +467,26 @@ export async function unsubscribeCommentNotices(
   if (!user) return ok({ unsubscribed: true });
   // A deletion landing between the two statements makes the foreign key refuse the insert; the
   // request then fails, and the next click answers like any account that no longer exists.
-  await db
-    .insert(s)
-    .values({
-      userId: opened.userId,
-      commentNotices: false,
-      commentNoticesChangedAt: input.now,
-      updatedAt: input.now,
-    })
-    .onConflictDoUpdate({
-      target: s.userId,
-      set: {
+  await db.batch([
+    db
+      .insert(s)
+      .values({
+        userId: opened.userId,
         commentNotices: false,
-        // Already off: keep the time, so other links issued since keep working.
-        commentNoticesChangedAt: sql`case when ${s.commentNotices} = 0 then ${s.commentNoticesChangedAt} else ${input.now} end`,
+        commentNoticesChangedAt: input.now,
         updatedAt: input.now,
-      },
-    });
+      })
+      .onConflictDoUpdate({
+        target: s.userId,
+        set: {
+          commentNotices: false,
+          // Already off: keep the time, so other links issued since keep working.
+          commentNoticesChangedAt: sql`case when ${s.commentNotices} = 0 then ${s.commentNoticesChangedAt} else ${input.now} end`,
+          updatedAt: input.now,
+        },
+      }),
+    // A restore must not turn them back on (docs/operations.md, "Restoring a backup").
+    noticeOptOutMarker(db, opened.userId, "comment_notices", false, input.now),
+  ]);
   return ok({ unsubscribed: true });
 }
