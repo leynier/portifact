@@ -274,7 +274,8 @@ export const COMMERCIAL_COMPATIBLE = new Set([
 /**
  * Shipped packages whose license is AGPL compatible but not in COMMERCIAL_COMPATIBLE, accepted
  * for the commercial license for an exact version with the reason. An update of the package
- * needs the review again. Every entry is pending a lawyer's review (docs/licensing.md).
+ * needs the review again. Each entry is the maintainer's reviewed decision, recorded with its reason
+ * (docs/licensing.md, "Commercial license").
  */
 export const COMMERCIAL_EXCEPTIONS: Record<string, string> = {
   // Mermaid's ELK layout engine, bundled unmodified in the diagram script that the content

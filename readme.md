@@ -91,7 +91,7 @@ Opening an artifact's link shows it in Portifact's viewer, with a Portifact bar 
 | Signed releases with checksums and provenance                   | Available |
 | Agent skill (`npx skills add leynier/portifact`)                | Available |
 | Sign-in (Google, GitHub, email code) and OAuth                  | Available |
-| Terms, privacy and acceptable use pages (draft)                 | Available |
+| Terms, privacy and acceptable use pages                         | Available |
 | CLI sign-in (`portifact login`, `logout`, `whoami`)             | Available |
 | Publishing API (`/api/v1`), with multipart uploads              | Available |
 | Publish HTML, Markdown and text from the CLI                    | Available |

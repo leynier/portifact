@@ -1,10 +1,11 @@
 name: cla
 
-# A pull request into develop passes only when its authors have signed the contributor license
-# agreement (cla.md, contributing.md). It runs on pull_request_target so the workflow and the
-# check (scripts/cla.ts) always come from the base branch: a pull request cannot edit the check
-# it is judged by. Nothing from the pull request is checked out or run; its signers file and its
-# commit list are read as data through the API, with a read-only token and no secrets.
+# A pull request into develop passes only when every contributor signed the contributor license
+# agreement and confirmed it with their own comment on the pull request (cla.md, contributing.md,
+# docs/releasing.md "Contributor license agreement"). It runs on pull_request_target so the
+# workflow and the check (scripts/cla.ts) always come from the base branch: a pull request cannot
+# edit the check it is judged by. Nothing from the pull request is checked out or run; its data is
+# read through the API, with a read-only token and no secrets.
 on:
   pull_request_target:
     branches: [develop]
@@ -24,6 +25,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      issues: read
     steps:
       - uses: actions/checkout@v7
         with:
@@ -32,21 +34,53 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
-      - name: Read the pull request's commits and signers file
+      - name: Read the pull request
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
-            --jq '.[] | {sha: .sha, login: .author.login}' > "$RUNNER_TEMP/commits.jsonl"
-          # A missing file (or a failed read) leaves no file, which the check refuses.
-          if ! gh api -H "Accept: application/vnd.github.raw" \
-            "repos/$REPO/contents/cla-signers.md?ref=$HEAD_SHA" > "$RUNNER_TEMP/head-signers.md"; then
-            rm -f "$RUNNER_TEMP/head-signers.md"
-          fi
-      - name: Check the signatures
-        env:
+          AUTHOR_ID: ${{ github.event.pull_request.user.id }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
-        run: bun scripts/cla-main.ts "$AUTHOR" "$RUNNER_TEMP/commits.jsonl" cla-signers.md "$RUNNER_TEMP/head-signers.md"
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/cla"
+          mkdir -p "$dir"
+          before=$(gh api "repos/$REPO/pulls/$PR" --jq '"\(.head.sha) \(.commits)"')
+          gh api "repos/$REPO/pulls/$PR/commits?per_page=100" --paginate \
+            --jq '.[] | {sha, id: .author.id, login: .author.login, committer: .committer.login, verified: .commit.verification.verified, message: .commit.message}' \
+            > "$dir/commits.jsonl"
+          gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate \
+            --jq '.[] | {id, userId: .user.id, login: .user.login, body, createdAt: .created_at, updatedAt: .updated_at, url: .html_url}' \
+            > "$dir/comments.jsonl"
+          # A file missing at the head leaves no file, which the check refuses; any other failed
+          # read stops the step.
+          read_head() {
+            if ! gh api -H "Accept: application/vnd.github.raw" \
+              "repos/$REPO/contents/$1?ref=$HEAD_SHA" > "$dir/$2" 2> "$dir/error"; then
+              grep -q "HTTP 404" "$dir/error" || { cat "$dir/error"; exit 1; }
+              rm -f "$dir/$2"
+            fi
+          }
+          read_head cla-signers.md head-signers.md
+          read_head cla.md head-cla.md
+          after=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha')
+          jq -n --arg before "$before" --arg after "$after" --arg head "$HEAD_SHA" \
+            --arg login "$AUTHOR" --argjson id "$AUTHOR_ID" \
+            '{authorId: $id, authorLogin: $login, eventHeadSha: $head,
+              headShaBefore: ($before | split(" ")[0]), headShaAfter: $after,
+              reportedCommits: ($before | split(" ")[1] | tonumber)}' > "$dir/pull-request.json"
+      - name: Check the signatures
+        run: bun scripts/cla-main.ts "$RUNNER_TEMP/cla"
+      - name: Keep the evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cla-evidence
+          path: |
+            ${{ runner.temp }}/cla/evidence.json
+            ${{ runner.temp }}/cla/pull-request.json
+            ${{ runner.temp }}/cla/comments.jsonl
+            ${{ runner.temp }}/cla/commits.jsonl
+          retention-days: 90
+          if-no-files-found: ignore
