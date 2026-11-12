@@ -476,6 +476,24 @@ describe("portifact export", () => {
     );
     expect(records.commentHistory).toEqual(entries);
 
+    // An action by a deleted account: the route answers `actor: null`, and the export keeps it.
+    const gone = [
+      {
+        seq: 1,
+        threadId: "th_1",
+        messageId: null,
+        kind: "thread_created" as const,
+        actor: null,
+        at: "2026-11-01T00:00:00.000Z",
+      },
+    ];
+    server.annotations.history.set(doc.id, gone);
+    expect((await h.invoke("export", out)).code).toBe(0);
+    const withGone = ArtifactRecords.parse(
+      JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
+    );
+    expect(withGone.commentHistory).toEqual(gone);
+
     // A reader's export: the history is the owner side's, the threads are the current version's.
     server.annotations.role = "participant";
     const again = await h.invoke("export", out);

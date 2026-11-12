@@ -8,7 +8,7 @@ import type {
   AnnotationThreadView,
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
-import { type AnnotationRole, messageBodyVisible } from "@portifact/domain";
+import { type AnnotationRole, ERASED_ACCOUNT, messageBodyVisible } from "@portifact/domain";
 import { asc, inArray, sql } from "drizzle-orm";
 import {
   type ThreadIssueRecord,
@@ -66,9 +66,10 @@ export async function threadViews(
       issues.set(row.threadId, list);
     }
   }
+  // The erased account (`ERASED_ACCOUNT`) names nobody: it is never looked up.
   const authorIds = [
     ...new Set([...threads.map((t) => t.authorId), ...messages.map((x) => x.authorId)]),
-  ];
+  ].filter((id) => id !== ERASED_ACCOUNT);
   const authors = new Map<string, AnnotationAuthor>();
   for (const ids of chunks(authorIds)) {
     // Authors are global accounts (decision 0005): their names come from the global database.

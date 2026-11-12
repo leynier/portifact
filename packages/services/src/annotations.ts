@@ -60,6 +60,7 @@ import {
   checkThreadWritable,
   commentScope,
   type Entitlements,
+  ERASED_ACCOUNT,
   effectiveState,
   emailDomainOf,
   entitlements,
@@ -1548,7 +1549,12 @@ export async function listAnnotationHistory(
     .limit(input.limit + 1);
   const page = rows.slice(0, input.limit);
   const actors = new Map<string, AnnotationAuthor>();
-  for (const ids of chunks([...new Set(page.map((row) => row.actorId))])) {
+  // A deleted account's actions name nobody, whether its ID is still there or already erased
+  // (`ERASED_ACCOUNT`, never looked up): the history and the exports built on it show `null`.
+  const actorIds = [...new Set(page.map((row) => row.actorId))].filter(
+    (id) => id !== ERASED_ACCOUNT,
+  );
+  for (const ids of chunks(actorIds)) {
     // Actors are global accounts (decision 0005): their names come from the global database.
     const users = await db.global
       .select({ id: schema.users.id, name: schema.users.name, image: schema.users.image })

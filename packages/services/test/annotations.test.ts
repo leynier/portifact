@@ -8,6 +8,7 @@ import {
   regionsFromEnv,
   schema,
 } from "@portifact/db";
+import { ERASED_ACCOUNT } from "@portifact/domain";
 import { and, eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
@@ -30,6 +31,7 @@ import {
 } from "../src/annotations.ts";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
 import { writeCommentTombstones } from "../src/comment-retention.ts";
+import { eraseAccountTraces } from "../src/history-retention.ts";
 import { setOwnerPlan } from "../src/plans.ts";
 import { idempotentThreadWrite } from "../src/thread-idempotency.ts";
 import { grantPlan } from "./fixtures.ts";
@@ -2369,6 +2371,41 @@ describe("the comment action history", () => {
     expect(page.ok && page.value.entries.every((e) => e.actor === null)).toBe(true);
   });
 
+  it("names nobody, the same way, once the deletion erased the account's ID from the actions", async () => {
+    const w = await world();
+    await started(w, w.reader);
+    await db().global.delete(schema.users).where(eq(schema.users.id, w.reader));
+    expect(await eraseAccountTraces(db(), w.reader)).toEqual({ more: false });
+    const page = await history(w, w.owner);
+    if (!page.ok) throw new Error(page.code);
+    expect(page.value.entries.map((e) => e.actor)).toEqual([null]);
+    // The stored placeholder is never shown as an ID or a name.
+    expect(JSON.stringify(page.value)).not.toContain(ERASED_ACCOUNT);
+  });
+
+  it("never names an account called like the placeholder", async () => {
+    const w = await world();
+    await started(w, w.reader);
+    await db()
+      .update(schema.annotationEvents)
+      .set({ actorId: ERASED_ACCOUNT })
+      .where(eq(schema.annotationEvents.artifactId, w.id));
+    await db()
+      .global.insert(schema.users)
+      .values({
+        id: ERASED_ACCOUNT,
+        name: "Impostor",
+        email: `impostor-${crypto.randomUUID()}@example.test`,
+        emailVerified: true,
+        createdAt: new Date(NOW),
+        updatedAt: new Date(NOW),
+      })
+      .onConflictDoNothing();
+    const page = await history(w, w.owner);
+    expect(page.ok && page.value.entries.every((e) => e.actor === null)).toBe(true);
+    await db().global.delete(schema.users).where(eq(schema.users.id, ERASED_ACCOUNT));
+  });
+
   it("is the owner side's: readers get forbidden, strangers a missing artifact", async () => {
     const w = await world({ comments: "everyone" });
     await started(w, w.reader);
@@ -2471,6 +2508,9 @@ describe("the comment action history", () => {
   it("refuses a cursor it did not make", async () => {
     const w = await world();
     expect(code(await history(w, w.owner, "not-a-cursor"))).toBe("invalid_input");
+  });
+});
+
 describe("deletions through a backup restore", () => {
   const eu = () => regionsFromEnv(env).get("eu").db;
   const tombstone = async (kind: "comment_thread" | "comment_message", id: string) =>

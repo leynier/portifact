@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 import { ANNOTATION_LIMITS, UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
-import { hashRequest } from "@portifact/services";
+import { regionsFromEnv } from "@portifact/db";
+import { ERASED_ACCOUNT } from "@portifact/domain";
+import { eraseAccountTraces, hashRequest } from "@portifact/services";
 import { describe, expect, it, vi } from "vitest";
 import { pastHumanCheck, publishSite, type TokenClient, tokenClient } from "./api-client.ts";
 import {
@@ -225,6 +227,26 @@ describe("annotations API", () => {
     expect((await s.stranger.call(`${s.base}/history`)).status).toBe(404);
     expect((await s.reader.call(`${s.base}/history`)).status).toBe(403);
     expect((await s.owner.call(`${s.base}/history`)).status).toBe(200);
+  });
+
+  it("serves a deleted account's comment actions with no actor, before and after its ID is erased", async () => {
+    const s = await setup();
+    await startThread(s, s.reader);
+    const read = async () =>
+      (
+        await (
+          await s.owner.call(`${s.base}/history`)
+        ).json<{
+          entries: { kind: string; actor: { id: string } | null }[];
+        }>()
+      ).entries.filter((entry) => entry.kind === "thread_created");
+    await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(s.reader.userId).run();
+    expect((await read()).map((entry) => entry.actor)).toEqual([null]);
+    // The account deletion then replaces its ID in the actions (`eraseAccountTraces`).
+    await eraseAccountTraces(regionsFromEnv(env).get("default").db, s.reader.userId);
+    const after = await read();
+    expect(after.map((entry) => entry.actor)).toEqual([null]);
+    expect(JSON.stringify(after)).not.toContain(ERASED_ACCOUNT);
   });
 
   it("checks the annotation scopes of the token", async () => {
