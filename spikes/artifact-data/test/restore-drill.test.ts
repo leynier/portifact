@@ -185,24 +185,22 @@ describe("the restore drill (local, snapshot restore)", () => {
     }
   });
 
-  it("raises D1's epoch again on every rerun (not a fixpoint), and changes no access", async () => {
-    // reconcile() answers `raise` with max(epochs) + 1 whenever the numbers differ, and after a
-    // raise they always differ, so each pass raises D1's epoch once more. Harmless for access
-    // (a newer epoch is admitted, never adopted) but the record says "raised to them": delivery 3
-    // should raise only when D1 is behind.
-    const raised = Object.entries(actions)
-      .filter(([, action]) => action === "raise")
-      .map(([artifact]) => artifact)
-      .sort();
+  it("raises D1 only when it is behind: a rerun changes nothing, and no access changes", async () => {
+    // Delivery 2 found reconcile() raised D1's epoch again on every pass (not a fixpoint).
+    // Delivery 3's production rule raises D1 only when it is behind the object, past its epoch,
+    // so a second pass after the first finds nothing to raise.
     const again = await drill.reconcileAll();
-    const raisedAgain = Object.entries(again)
-      .filter(([, action]) => action === "raise")
-      .map(([artifact]) => artifact)
-      .sort();
-    expect(raisedAgain).toEqual(raised);
+    expect(Object.values(again)).not.toContain("raise");
     expect(Object.values(again)).not.toContain("resume_erase");
     const r = at("release after the restore point");
     expect(await drill.ownerWrite(r.artifact, r.owner)).toBe("ok");
+  });
+
+  it("answers none for an inventoried object that never bound an identity", async () => {
+    await env.JOURNAL.put("system/data-objects/pfxlempty", "default");
+    const again = await drill.reconcileAll();
+    expect(again.pfxlempty).toBe("none");
+    await env.JOURNAL.delete("system/data-objects/pfxlempty");
   });
 
   it("keeps the write a revoked grant made in the restore window", () => {

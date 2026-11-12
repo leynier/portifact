@@ -3,57 +3,23 @@
 // the artifact's own page) and the handoff gate (the one-use grant code arriving by navigation
 // from the app, in a popup or in the viewer's frame).
 
+import * as production from "@portifact/domain/artifact-data";
+
 export type GateResult = "allowed" | "refused";
 
-/**
- * API requests: `Sec-Fetch-Site: same-origin` always; the exact `Origin` on writes and WebSocket
- * handshakes; JSON on writes. No fetch metadata fails closed.
- */
+/** The production API gate (`apiGate`) over a request. */
 export function dataGate(request: Request, write: boolean): GateResult {
-  const url = new URL(request.url);
-  if (request.headers.get("Sec-Fetch-Site") !== "same-origin") return "refused";
-  const upgrade = request.headers.get("Upgrade")?.toLowerCase() === "websocket";
-  if (write || upgrade) {
-    if (request.headers.get("Origin") !== url.origin) return "refused";
-  }
-  if (write && !request.headers.get("Content-Type")?.startsWith("application/json")) {
-    return "refused";
-  }
-  return "allowed";
+  return production.apiGate(request.headers, new URL(request.url).origin, write);
 }
 
-/**
- * Starting a grant (`GET /__portifact/data/grant/begin`), finding 15: a `GET` navigation that the
- * artifact's own page opens (`same-origin`, top-level, the direct-visit and top-level-tab flows)
- * or that the viewer sends into its frame (`cross-site`, `iframe`). It only sets a transaction
- * cookie and answers a Portifact page, so it needs no code; a sibling's `same-site` navigation
- * is refused.
- */
+/** The production start gate (`beginGate`) over a request. */
 export function beginGate(request: Request): GateResult {
-  if (request.method !== "GET") return "refused";
-  const headers = request.headers;
-  if (headers.get("Sec-Fetch-Mode") !== "navigate") return "refused";
-  const site = headers.get("Sec-Fetch-Site");
-  const destination = headers.get("Sec-Fetch-Dest");
-  if (site === "same-origin" && destination === "document") return "allowed";
-  if (site === "cross-site" && destination === "iframe") return "allowed";
-  return "refused";
+  return production.beginGate(request.method, request.headers);
 }
 
-/**
- * Redeeming a grant (`GET /__portifact/data/grant?code=…`): a `GET` navigation that arrives
- * `cross-site` from the app, as a top-level document (the popup and top-level-tab flows) or as
- * the viewer's frame. A sibling's `same-site` navigation is refused; the code is bound to the
- * transaction cookie only the beginning browser holds (`grants.ts`).
- */
+/** The production redeem gate (`redeemGate`) over a request. */
 export function redeemGate(request: Request, flow: "popup" | "frame"): GateResult {
-  if (request.method !== "GET") return "refused";
-  const headers = request.headers;
-  if (headers.get("Sec-Fetch-Mode") !== "navigate") return "refused";
-  if (headers.get("Sec-Fetch-Site") !== "cross-site") return "refused";
-  const destination = headers.get("Sec-Fetch-Dest");
-  if (flow === "popup" ? destination !== "document" : destination !== "iframe") return "refused";
-  return "allowed";
+  return production.redeemGate(request.method, request.headers, flow === "popup" ? "top" : "frame");
 }
 
 /** The former name of `redeemGate`, kept for the first version's tests. */

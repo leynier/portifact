@@ -10,6 +10,10 @@
     "test": "vitest run --coverage",
     "drill": "node drill/runbook.ts"
   },
+  "dependencies": {
+    "@portifact/contracts": "workspace:*",
+    "@portifact/domain": "workspace:*"
+  },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.6.0",
     "@cloudflare/workers-types": "^5.0.0",
