@@ -29,7 +29,7 @@ import { type Answer, authorTraces, type Doc, orphanValueCounts } from "../artif
 
 export function propertiesSuite(
   make: MakeObject,
-  options: { runs?: number; longRuns?: number; seed?: number; timeout?: number } = {},
+  options: { runs?: number; longRuns?: number; seed?: number; slices?: number } = {},
 ): void {
   const AUTHORS = ["a", "b", "c"] as const;
   const COLLECTIONS = ["mine", "board", "wiki"] as const;
@@ -620,6 +620,39 @@ export function propertiesSuite(
     }
   }
 
+  /**
+   * One property over `runs` sequences: by default one test with fast-check's runner (and its
+   * shrinking); with `slices`, the same number of sequences drawn from the seed and run in that many
+   * tests, so no single test outgrows the time limit. The path check below covers them together.
+   */
+  function property<T extends Command[]>(
+    name: string,
+    arbitrary: fc.Arbitrary<T>,
+    runs: number,
+    seed: number | undefined,
+  ): void {
+    const slices = Math.min(options.slices ?? 1, runs);
+    if (slices === 1) {
+      it(name, async () => {
+        await fc.assert(
+          fc.asyncProperty(arbitrary, async (commands) => {
+            await run(commands);
+          }),
+          { numRuns: runs, ...(seed === undefined ? {} : { seed }) },
+        );
+      });
+      return;
+    }
+    const drawn = fc.sample(arbitrary, { numRuns: runs, ...(seed === undefined ? {} : { seed }) });
+    const size = Math.ceil(drawn.length / slices);
+    for (let first = 0; first < drawn.length; first += size) {
+      const slice = drawn.slice(first, first + size);
+      it(`${name} (sequences ${first + 1} to ${first + slice.length} of ${drawn.length})`, async () => {
+        for (const commands of slice) await run(commands);
+      });
+    }
+  }
+
   /** How often each command answered each way, so a generator that stops reaching a path fails. */
   const STATS = new Map<string, number>();
   describe("properties over random sequences", () => {
@@ -643,39 +676,29 @@ export function propertiesSuite(
         expect(STATS.get(tag) ?? 0, tag).toBeGreaterThan(0);
       }
     });
-    it("keep every stated invariant of fences, holds, erases, replay, isolation, counters and erasure", async () => {
-      await fc.assert(
-        fc.asyncProperty(fc.array(command, { minLength: 20, maxLength: 80 }), async (commands) => {
-          await run(commands);
+    const sequences = fc.array(command, { minLength: 20, maxLength: 80 });
+    const longSequences = fc.array(
+      fc.oneof(
+        command,
+        fc.record({
+          t: fc.constant("clock" as const),
+          ms: fc.constant(ARTIFACT_DATA.replayMs + 1),
         }),
-        {
-          numRuns: options.runs ?? 200,
-          ...(options.seed === undefined ? {} : { seed: options.seed }),
-        },
-      );
-    });
-
-    it("keep them with the operation horizon crossed: an ID never applies twice across pruning", async () => {
-      const longRuns = fc.array(
-        fc.oneof(
-          command,
-          fc.record({
-            t: fc.constant("clock" as const),
-            ms: fc.constant(ARTIFACT_DATA.replayMs + 1),
-          }),
-          fc.record({ t: fc.constant("alarm" as const) }),
-        ),
-        { minLength: 20, maxLength: 80 },
-      );
-      await fc.assert(
-        fc.asyncProperty(longRuns, async (commands) => {
-          await run(commands);
-        }),
-        {
-          numRuns: options.longRuns ?? 60,
-          ...(options.seed === undefined ? {} : { seed: options.seed + 1 }),
-        },
-      );
-    });
+        fc.record({ t: fc.constant("alarm" as const) }),
+      ),
+      { minLength: 20, maxLength: 80 },
+    );
+    property(
+      "keep every stated invariant of fences, holds, erases, replay, isolation, counters and erasure",
+      sequences,
+      options.runs ?? 200,
+      options.seed,
+    );
+    property(
+      "keep them with the operation horizon crossed: an ID never applies twice across pruning",
+      longSequences,
+      options.longRuns ?? 60,
+      options.seed === undefined ? undefined : options.seed + 1,
+    );
   });
 }

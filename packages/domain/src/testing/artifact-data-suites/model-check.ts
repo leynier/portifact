@@ -15,7 +15,10 @@ import {
   visitorId,
 } from "../artifact-data-fixtures.ts";
 
-export function modelCheckSuite(make: MakeObject, options: { every?: number } = {}): void {
+export function modelCheckSuite(
+  make: MakeObject,
+  options: { every?: number; slices?: number } = {},
+): void {
   /**
    * Every order, or every `every`th of them (a deterministic stride, so each run checks the same
    * orders): an object reached through a request per command checks a sample of the orders the
@@ -23,6 +26,41 @@ export function modelCheckSuite(make: MakeObject, options: { every?: number } = 
    */
   const sample = <T>(orders: T[][]): T[][] =>
     orders.filter((_order, index) => index % (options.every ?? 1) === 0);
+
+  /**
+   * One test per slice of the sampled orders (`slices`, one by default), each checking its orders
+   * in turn, so no single test outgrows the time limit; every slice's test, and with several a last
+   * one, checks that the orders checked are every sampled order.
+   */
+  function eachOrder<T>(
+    name: string,
+    orders: T[][],
+    check: (order: T[]) => Promise<void>,
+    total = orders.length,
+  ): void {
+    const parts = Math.min(options.slices ?? 1, orders.length);
+    const size = Math.ceil(orders.length / parts);
+    let checked = 0;
+    for (let start = 0; start < orders.length; start += size) {
+      const slice = orders.slice(start, start + size);
+      const label =
+        parts === 1
+          ? name
+          : `${name} (orders ${start + 1} to ${start + slice.length} of ${orders.length})`;
+      it(label, async () => {
+        for (const order of slice) {
+          await check(order);
+          checked += 1;
+        }
+        if (parts === 1) expect(checked).toBe(total);
+      });
+    }
+    if (parts > 1) {
+      it(`${name}: every sampled order was checked`, () => {
+        expect(checked).toBe(total);
+      });
+    }
+  }
 
   function permutations<T>(items: readonly T[]): T[][] {
     if (items.length <= 1) return [items.slice()];
@@ -117,7 +155,7 @@ export function modelCheckSuite(make: MakeObject, options: { every?: number } = 
   }
 
   describe("model check: erase intents, holds and writes in every delivery order", () => {
-    it("matches the reference model for every order of two erase jobs, a hold, its release and two writes", async () => {
+    {
       const [a, b] = [opId(), opId()];
       const events: LifecycleEvent[] = [
         { kind: "prepare", id: a, generation: 0, epoch: 0 },
@@ -129,216 +167,245 @@ export function modelCheckSuite(make: MakeObject, options: { every?: number } = 
         { kind: "commit", id: b, generation: 0, epoch: 1 },
         { kind: "write", generation: 0, epoch: 0 },
       ];
-      let orders = 0;
-      for (const order of sample(permutations(events))) {
-        orders += 1;
-        const object = await make();
-        const base = envelope();
-        await object.declare(
-          { ...base, opId: opId() },
-          OWNER,
-          { name: "items", mode: "append" },
-          ctx,
-        );
-        const reference = new ReferenceLifecycle();
-        let commits = 0;
-        for (const event of order) {
-          const env: DataEnvelope = envelope({
-            epoch: event.epoch,
-            generation:
-              "generation" in event
-                ? event.generation
-                : ((await object.view()).durable.control?.generation ?? 0),
-          });
-          let actual: string;
-          let expected: string;
-          switch (event.kind) {
-            case "prepare":
-              actual = outcome(await object.prepareErase(env, event.id, NOW));
-              expected = reference.prepare(event.id, event.generation, event.epoch);
-              break;
-            case "commit": {
-              const held = (await object.view()).durable.control?.hold !== null;
-              actual = outcome(await object.commitErase(env, event.id, NOW));
-              expected = reference.commit(event.id, event.generation, event.epoch);
-              if (actual === "committed" && expected === "committed") {
-                commits += 1;
-                expect(held).toBe(false);
+      eachOrder(
+        "matches the reference model for every order of two erase jobs, a hold, its release and two writes",
+        sample(permutations(events)),
+        async (order) => {
+          const object = await make();
+          const base = envelope();
+          await object.declare(
+            { ...base, opId: opId() },
+            OWNER,
+            { name: "items", mode: "append" },
+            ctx,
+          );
+          const reference = new ReferenceLifecycle();
+          let commits = 0;
+          for (const event of order) {
+            const env: DataEnvelope = envelope({
+              epoch: event.epoch,
+              generation:
+                "generation" in event
+                  ? event.generation
+                  : ((await object.view()).durable.control?.generation ?? 0),
+            });
+            let actual: string;
+            let expected: string;
+            switch (event.kind) {
+              case "prepare":
+                actual = outcome(await object.prepareErase(env, event.id, NOW));
+                expected = reference.prepare(event.id, event.generation, event.epoch);
+                break;
+              case "commit": {
+                const held = (await object.view()).durable.control?.hold !== null;
+                actual = outcome(await object.commitErase(env, event.id, NOW));
+                expected = reference.commit(event.id, event.generation, event.epoch);
+                if (actual === "committed" && expected === "committed") {
+                  commits += 1;
+                  expect(held).toBe(false);
+                }
+                break;
               }
-              break;
+              case "hold":
+              case "release":
+                actual = outcome(
+                  await object.fence(env, { kind: event.kind, transition: event.id }, NOW),
+                );
+                expected = reference.fence(event.kind, event.epoch, event.id);
+                break;
+              case "write":
+                actual = outcome(
+                  await object.create(
+                    { ...env, opId: opId() },
+                    visitor("w"),
+                    "items",
+                    { n: 1 },
+                    ctx,
+                  ),
+                );
+                expected = reference.write(event.generation, event.epoch);
+                if (expected === "stale" && reference.generation > 0) expected = "stale";
+                break;
             }
-            case "hold":
-            case "release":
-              actual = outcome(
-                await object.fence(env, { kind: event.kind, transition: event.id }, NOW),
-              );
-              expected = reference.fence(event.kind, event.epoch, event.id);
-              break;
-            case "write":
-              actual = outcome(
-                await object.create({ ...env, opId: opId() }, visitor("w"), "items", { n: 1 }, ctx),
-              );
-              expected = reference.write(event.generation, event.epoch);
-              if (expected === "stale" && reference.generation > 0) expected = "stale";
-              break;
+            expect(actual, `${order.map((e) => e.kind).join(",")} at ${event.kind}`).toBe(expected);
           }
-          expect(actual, `${order.map((e) => e.kind).join(",")} at ${event.kind}`).toBe(expected);
-        }
-        // Both intents target generation 0: at most one of them ever deletes anything.
-        expect(commits).toBeLessThanOrEqual(1);
-        expect((await object.view()).durable.control?.generation).toBe(reference.generation);
-        expect((await object.view()).durable.control?.hold !== null).toBe(reference.held);
-        expect((await object.view()).durable.control?.erasing?.id ?? null).toBe(reference.erasing);
-        expect((await object.view()).durable.documents.size).toBe(reference.documents);
-      }
-      expect(orders).toBe(Math.ceil(5040 / (options.every ?? 1)));
-    });
+          // Both intents target generation 0: at most one of them ever deletes anything.
+          expect(commits).toBeLessThanOrEqual(1);
+          expect((await object.view()).durable.control?.generation).toBe(reference.generation);
+          expect((await object.view()).durable.control?.hold !== null).toBe(reference.held);
+          expect((await object.view()).durable.control?.erasing?.id ?? null).toBe(
+            reference.erasing,
+          );
+          expect((await object.view()).durable.documents.size).toBe(reference.documents);
+        },
+        Math.ceil(5040 / (options.every ?? 1)),
+      );
+    }
 
-    it("applies one operation once for every order of two deliveries, a settlement, a transfer and a retry after it", async () => {
+    {
       const events = ["create", "duplicate", "settle", "transfer", "late"] as const;
-      for (const order of sample(permutations(events))) {
-        const object = await make();
-        const base = envelope();
-        await object.declare(
-          { ...base, opId: opId() },
-          OWNER,
-          { name: "items", mode: "append" },
-          ctx,
-        );
-        const id = opId();
-        const sent = { ...base, opId: id };
-        // Reference: the first of a delivery and the settlement decides; a transfer refuses every
-        // later delivery of the former owner's envelope; nothing applies twice.
-        let decided: "applied" | "aborted" | null = null;
-        let moved = false;
-        for (const event of order) {
-          if (event === "transfer") {
-            expect(
-              (
-                await object.fence(
-                  { ...base, epoch: 1 },
-                  { kind: "transfer", toOwner: "owner_b", transition: "t" },
-                  NOW,
-                )
-              ).ok,
-            ).toBe(true);
-            moved = true;
-            continue;
+      eachOrder(
+        "applies one operation once for every order of two deliveries, a settlement, a transfer and a retry after it",
+        sample(permutations(events)),
+        async (order) => {
+          const object = await make();
+          const base = envelope();
+          await object.declare(
+            { ...base, opId: opId() },
+            OWNER,
+            { name: "items", mode: "append" },
+            ctx,
+          );
+          const id = opId();
+          const sent = { ...base, opId: id };
+          // Reference: the first of a delivery and the settlement decides; a transfer refuses every
+          // later delivery of the former owner's envelope; nothing applies twice.
+          let decided: "applied" | "aborted" | null = null;
+          let moved = false;
+          for (const event of order) {
+            if (event === "transfer") {
+              expect(
+                (
+                  await object.fence(
+                    { ...base, epoch: 1 },
+                    { kind: "transfer", toOwner: "owner_b", transition: "t" },
+                    NOW,
+                  )
+                ).ok,
+              ).toBe(true);
+              moved = true;
+              continue;
+            }
+            if (event === "settle") {
+              const settled = await object.settle(base, visitorId("x"), id, NOW);
+              if (decided === null) decided = "aborted";
+              expect(settled.state).toBe(decided === "applied" ? "committed" : "aborted");
+              continue;
+            }
+            const answer = await object.create(sent, visitor("x"), "items", { n: 1 }, ctx);
+            if (moved) {
+              expect(answer).toMatchObject({ ok: false, code: "stale" });
+            } else if (decided === null) {
+              expect(answer).toMatchObject({ ok: true, value: {} });
+              decided = "applied";
+            } else if (decided === "applied") {
+              expect(answer).toMatchObject({ ok: true, replayed: {} });
+            } else {
+              expect(answer).toMatchObject({ ok: false, code: "conflict" });
+            }
           }
-          if (event === "settle") {
-            const settled = await object.settle(base, visitorId("x"), id, NOW);
-            if (decided === null) decided = "aborted";
-            expect(settled.state).toBe(decided === "applied" ? "committed" : "aborted");
-            continue;
-          }
-          const answer = await object.create(sent, visitor("x"), "items", { n: 1 }, ctx);
-          if (moved) {
-            expect(answer).toMatchObject({ ok: false, code: "stale" });
-          } else if (decided === null) {
-            expect(answer).toMatchObject({ ok: true, value: {} });
-            decided = "applied";
-          } else if (decided === "applied") {
-            expect(answer).toMatchObject({ ok: true, replayed: {} });
-          } else {
-            expect(answer).toMatchObject({ ok: false, code: "conflict" });
-          }
-        }
-        expect((await object.view()).durable.documents.size).toBe(decided === "applied" ? 1 : 0);
-      }
-    });
+          expect((await object.view()).durable.documents.size).toBe(decided === "applied" ? 1 : 0);
+        },
+      );
+    }
 
-    it("keeps author erasure terminal for every order of writes, chunks and another author's write", async () => {
+    {
       const events = ["write1", "write2", "chunk1", "chunk2", "chunk3", "other"] as const;
-      for (const order of sample(permutations(events))) {
-        const object = await make();
-        const base = envelope();
-        await object.declare({ ...base, opId: opId() }, OWNER, { name: "items", mode: "own" }, ctx);
-        // Reference: the first chunk bars the author; each chunk deletes one of their documents;
-        // writes after the barrier are refused; the other author is untouched.
-        let barred = false;
-        let theirs = 0;
-        let complete = false;
-        for (const event of order) {
-          if (event === "other") {
-            expect(
-              (
-                await object.create(
-                  { ...base, opId: opId() },
-                  visitor("other"),
-                  "items",
-                  { n: 1 },
-                  ctx,
-                )
-              ).ok,
-            ).toBe(true);
-          } else if (event.startsWith("write")) {
-            const answer = await object.create(
-              { ...base, opId: opId() },
-              visitor("gone"),
-              "items",
-              { n: 1 },
-              ctx,
-            );
-            expect(answer.ok).toBe(!barred);
-            if (!barred) theirs += 1;
-          } else {
-            barred = true;
-            const answer = await object.eraseAuthorChunk(
-              { ...base, opId: opId() },
-              visitorId("gone"),
-              1,
-              ctx,
-            );
-            const result = (answer as { value: { documents: number; more: boolean } }).value;
-            expect(result.documents).toBe(theirs > 0 ? 1 : 0);
-            theirs = Math.max(0, theirs - 1);
-            if (!result.more) complete = true;
+      eachOrder(
+        "keeps author erasure terminal for every order of writes, chunks and another author's write",
+        sample(permutations(events)),
+        async (order) => {
+          const object = await make();
+          const base = envelope();
+          await object.declare(
+            { ...base, opId: opId() },
+            OWNER,
+            { name: "items", mode: "own" },
+            ctx,
+          );
+          // Reference: the first chunk bars the author; each chunk deletes one of their documents;
+          // writes after the barrier are refused; the other author is untouched.
+          let barred = false;
+          let theirs = 0;
+          let complete = false;
+          for (const event of order) {
+            if (event === "other") {
+              expect(
+                (
+                  await object.create(
+                    { ...base, opId: opId() },
+                    visitor("other"),
+                    "items",
+                    { n: 1 },
+                    ctx,
+                  )
+                ).ok,
+              ).toBe(true);
+            } else if (event.startsWith("write")) {
+              const answer = await object.create(
+                { ...base, opId: opId() },
+                visitor("gone"),
+                "items",
+                { n: 1 },
+                ctx,
+              );
+              expect(answer.ok).toBe(!barred);
+              if (!barred) theirs += 1;
+            } else {
+              barred = true;
+              const answer = await object.eraseAuthorChunk(
+                { ...base, opId: opId() },
+                visitorId("gone"),
+                1,
+                ctx,
+              );
+              const result = (answer as { value: { documents: number; more: boolean } }).value;
+              expect(result.documents).toBe(theirs > 0 ? 1 : 0);
+              theirs = Math.max(0, theirs - 1);
+              if (!result.more) complete = true;
+            }
           }
-        }
-        const left = [...(await object.view()).durable.documents.values()];
-        expect(left.filter((doc) => doc.author === visitorId("gone"))).toHaveLength(theirs);
-        expect(left.filter((doc) => doc.author === visitorId("other"))).toHaveLength(1);
-        expect(
-          (await object.view()).durable.barriers.get(visitorId("gone"))?.complete ?? false,
-        ).toBe(complete);
-        if (complete) expect(theirs).toBe(0);
-      }
-    });
+          const left = [...(await object.view()).durable.documents.values()];
+          expect(left.filter((doc) => doc.author === visitorId("gone"))).toHaveLength(theirs);
+          expect(left.filter((doc) => doc.author === visitorId("other"))).toHaveLength(1);
+          expect(
+            (await object.view()).durable.barriers.get(visitorId("gone"))?.complete ?? false,
+          ).toBe(complete);
+          if (complete) expect(theirs).toBe(0);
+        },
+      );
+    }
 
-    it("never lets a first request consume the epoch of a fence D1 ordered before it, in any order", async () => {
+    {
       // D1 raised the epoch to 1 and wrote a hold job; a declaration and a write read epoch 1.
       const events = ["declare", "hold", "write"] as const;
-      for (const order of sample(permutations(events))) {
-        const object = await make();
-        const at = envelope({ epoch: 1 });
-        let held = false;
-        let declared = false;
-        for (const event of order) {
-          if (event === "hold") {
-            expect((await object.fence(at, { kind: "hold", transition: "h" }, NOW)).ok).toBe(true);
-            held = true;
-          } else if (event === "declare") {
-            const answer = await object.declare(
-              { ...at, opId: opId() },
-              OWNER,
-              { name: "items", mode: "append" },
-              ctx,
-            );
-            expect(answer.ok).toBe(!held);
-            declared = declared || answer.ok;
-          } else {
-            const answer = await object.create(
-              { ...at, opId: opId() },
-              visitor("w"),
-              "items",
-              { n: 1 },
-              ctx,
-            );
-            expect(answer.ok).toBe(declared && !held);
+      eachOrder(
+        "never lets a first request consume the epoch of a fence D1 ordered before it, in any order",
+        sample(permutations(events)),
+        async (order) => {
+          const object = await make();
+          const at = envelope({ epoch: 1 });
+          let held = false;
+          let declared = false;
+          for (const event of order) {
+            if (event === "hold") {
+              expect((await object.fence(at, { kind: "hold", transition: "h" }, NOW)).ok).toBe(
+                true,
+              );
+              held = true;
+            } else if (event === "declare") {
+              const answer = await object.declare(
+                { ...at, opId: opId() },
+                OWNER,
+                { name: "items", mode: "append" },
+                ctx,
+              );
+              expect(answer.ok).toBe(!held);
+              declared = declared || answer.ok;
+            } else {
+              const answer = await object.create(
+                { ...at, opId: opId() },
+                visitor("w"),
+                "items",
+                { n: 1 },
+                ctx,
+              );
+              expect(answer.ok).toBe(declared && !held);
+            }
           }
-        }
-        expect((await object.view()).durable.control?.hold).not.toBeNull();
-      }
-    });
+          expect((await object.view()).durable.control?.hold).not.toBeNull();
+        },
+      );
+    }
   });
 }

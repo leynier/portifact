@@ -167,6 +167,13 @@ export class RealObject implements DataObject {
   readonly recorder: Recorder;
   readonly #ids: () => string;
   #ready = false;
+  /**
+   * The last view, until anything else runs in the object: a suite reads the state several times
+   * between two commands, and each read would otherwise snapshot every table again.
+   */
+  #view: Promise<ObjectView> | null = null;
+  /** Whether the state was read since the last command. */
+  #viewed = false;
 
   constructor(readonly name = "obj") {
     objects += 1;
@@ -221,7 +228,24 @@ export class RealObject implements DataObject {
   }
 
   /** Runs `work` inside the object, with the test store in place. */
-  async run<T>(
+  run<T>(
+    work: (store: DocumentsStore, instance: ArtifactDocuments, ctx: DurableObjectState) => T,
+  ): Promise<T> {
+    // A suite that read the state since the last command will read it again after this one: the
+    // snapshot is taken in this command's own call, right after it, saving a request.
+    const eager = this.#viewed;
+    this.#viewed = false;
+    this.#view = null;
+    return this.#enter((store, instance, ctx) => {
+      const value = work(store, instance, ctx);
+      // The instance's store, which an eviction or a wake has just replaced.
+      if (eager) this.#view = Promise.resolve(this.#build(instance.store));
+      return value;
+    });
+  }
+
+  /** Runs `work` inside the object, with the test store in place. */
+  async #enter<T>(
     work: (store: DocumentsStore, instance: ArtifactDocuments, ctx: DurableObjectState) => T,
   ): Promise<T> {
     return runInDurableObject(this.stub, (instance, ctx) => {
@@ -282,32 +306,37 @@ export class RealObject implements DataObject {
   }
 
   view(): Promise<ObjectView> {
-    return this.run((store) => {
-      const durable = durableOf(store, this.recorder);
-      const sockets = new Map<string, SocketView>();
-      for (const [id, socket] of store.sockets) {
-        sockets.set(id, {
-          attachment: socket.attachment,
-          received: [...(this.recorder.received.get(id) ?? [])],
-          closed: socket.closed,
-        });
-      }
-      const meters = this.recorder.instrument;
-      const accounted = store.accounted();
-      const bytes = store.fileBytes();
-      return {
-        durable,
-        pending: { ...store.pending },
-        sockets,
-        charges: [...meters.charges],
-        checked: [...meters.checked],
-        accesses: meters.accesses,
-        counterWrites: meters.counterWrites,
-        retired: meters.retired,
-        accounted: () => accounted,
-        fileBytes: () => bytes,
-      };
-    });
+    this.#viewed = true;
+    this.#view ??= this.#enter((store) => this.#build(store));
+    return this.#view;
+  }
+
+  /** The state and meters right now, in the reference's shapes. */
+  #build(store: DocumentsStore): ObjectView {
+    const durable = durableOf(store, this.recorder);
+    const sockets = new Map<string, SocketView>();
+    for (const [id, socket] of store.sockets) {
+      sockets.set(id, {
+        attachment: socket.attachment,
+        received: [...(this.recorder.received.get(id) ?? [])],
+        closed: socket.closed,
+      });
+    }
+    const meters = this.recorder.instrument;
+    const accounted = store.accounted();
+    const bytes = store.fileBytes();
+    return {
+      durable,
+      pending: { ...store.pending },
+      sockets,
+      charges: [...meters.charges],
+      checked: [...meters.checked],
+      accesses: meters.accesses,
+      counterWrites: meters.counterWrites,
+      retired: meters.retired,
+      accounted: () => accounted,
+      fileBytes: () => bytes,
+    };
   }
 
   setFaults(faults: DriverFaults): Promise<void> {
