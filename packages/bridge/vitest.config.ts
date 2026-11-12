@@ -5,6 +5,8 @@ export default defineConfig({
   test: {
     // CI runs every package's tests at once on one runner; the timeout only catches hangs.
     testTimeout: 30_000,
+    // Hooks start the Worker and its databases; the 10 second default fails on a slow runner.
+    hookTimeout: 30_000,
     environment: "happy-dom",
     include: ["src/**/*.test.ts"],
     coverage: {

@@ -18,6 +18,9 @@ export default defineConfig({
     }),
   ],
   test: {
+    // A slow runner takes several times longer than a laptop; the 5 and 10 second defaults fail there.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     include: ["test/**/*.test.ts"],
     setupFiles: ["./test/apply-migrations.ts"],
     coverage: {
