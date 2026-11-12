@@ -693,6 +693,8 @@ describe("previews", () => {
     expect(names).toEqual([
       "sign-in-code",
       ...translated.map((code) => `sign-in-code-${code}`),
+      "account-deletion-code",
+      ...translated.map((code) => `account-deletion-code-${code}`),
       "budget-alert",
       "budget-alert-no-protection",
       "expiry-notice",

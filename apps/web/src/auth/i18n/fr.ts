@@ -34,6 +34,15 @@ const messages = {
   ssoShown:
     "Votre organisation utilise l’authentification unique. Continuez avec elle, ou recevez plutôt un code par e-mail.",
   termsUpdateFor: (email: string) => `Connecté en tant que ${email}`,
+  leaveCodeSent: (email: string) =>
+    `Nous avons envoyé un code de suppression à 6 chiffres à ${email}.`,
+  leaveDeleted: "Votre compte a été supprimé.",
+  leaveSoleAdmin:
+    "Vous êtes le seul admin d’un espace de travail, votre compte ne peut donc pas encore être supprimé. Nommez un autre membre admin, ou demandez à Portifact à hello@portifact.com de supprimer l’espace de travail, puis réessayez.",
+  leaveEmailSuppressed:
+    "Nous ne pouvons pas envoyer d’e-mail à l’adresse de votre compte, car des messages précédents ont été rejetés ou signalés comme spam. Écrivez à privacy@portifact.com pour supprimer votre compte.",
+  leaveEmailCapacity:
+    "Les codes ne peuvent pas être envoyés par e-mail pour le moment, car Portifact a atteint sa limite mensuelle d’e-mails. Réessayez plus tard, ou écrivez à privacy@portifact.com pour supprimer votre compte.",
   providerErrors: {
     human_verification_required:
       "Les nouveaux comptes nécessitent une vérification rapide que vous êtes humain, et elle n’a pas abouti. Réessayez ; si une vérification apparaît sous les options de connexion, terminez-la. Si rien n’apparaît, rechargez la page ou autorisez challenges.cloudflare.com.",
@@ -192,6 +201,26 @@ export const fr: AuthCatalog = {
     "login.termsUpdateBody": `Votre compte n’a pas encore accepté la version actuelle des conditions. <a href="https://portifact.com/terms#what-changed" target="_blank" rel="noopener">Voir ce qui a changé</a> (s’ouvre dans un nouvel onglet).`,
     "login.termsUpdateNotice": `En sélectionnant Accepter et continuer, ${termsConditions}`,
     "login.agreeAndContinue": "Accepter et continuer",
+    "login.leaveHeading": "Partir sans accepter",
+    "login.leaveBody":
+      "Si vous n’êtes pas d’accord avec les nouvelles conditions, vous pouvez télécharger vos données et supprimer votre compte sans les accepter.",
+    "login.leaveDownload": "Télécharger mes données",
+    "login.leaveDelete": "Supprimer mon compte",
+    "login.leaveDeleteHeading": "Supprimer votre compte définitivement",
+    "login.leaveDeleteWhat":
+      'Supprimer votre compte supprime vos artifacts, sessions, apps et méthodes de connexion, ainsi que vos commentaires sur les artifacts d’autres personnes. Un commentaire auquel quelqu’un a répondu devient une marque "message supprimé". Les adresses des artifacts ne sont jamais données à quelqu’un d’autre. C’est irréversible : téléchargez d’abord vos données.',
+    "login.leaveDeleteStays":
+      "Les artifacts qui appartiennent à un espace de travail restent dans l’espace de travail. Si vous êtes le seul admin d’un espace de travail, nommez d’abord un autre membre admin.",
+    "login.leaveDeleteProof":
+      "Pour prouver que c’est vous, nous envoyons un code à l’adresse de votre compte. Le saisir supprime le compte ; cela ne vous connecte pas et n’accepte pas les conditions.",
+    "login.leaveSendCode": "M’envoyer un code de suppression",
+    "login.leaveCodeLabel": "Code de suppression à 6 chiffres",
+    "login.leaveCodeHint":
+      "Le code expire dans 5 minutes et ne fonctionne qu’une fois. Le saisir supprime votre compte définitivement.",
+    "login.leaveConfirm": "Supprimer mon compte définitivement",
+    "login.leaveDoneHeading": "Votre compte a été supprimé",
+    "login.leaveDoneBody":
+      "Vos artifacts ne fonctionnent plus et tout ce qui est indiqué est en cours de suppression. Vous êtes déconnecté.",
     "login.termsNotice": `En continuant avec Google, GitHub ou un code par e-mail, ${termsConditions}`,
     "login.termsNoticeSso": `En continuant avec Google, GitHub, un code par e-mail ou l’authentification unique, ${termsConditions}`,
     "login.ssoHeading": "Votre organisation utilise l’authentification unique",

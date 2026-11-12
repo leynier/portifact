@@ -33,6 +33,14 @@ const messages = {
   ssoShown:
     "あなたの組織はシングルサインオンを使っています。そのまま続行するか、メールのコードを受け取ってください。",
   termsUpdateFor: (email: string) => `${email}としてサインイン中`,
+  leaveCodeSent: (email: string) => `6桁の削除コードを${email}に送信しました。`,
+  leaveDeleted: "アカウントを削除しました。",
+  leaveSoleAdmin:
+    "あなたはワークスペースの唯一の管理者のため、まだアカウントを削除できません。別のメンバーを管理者にするか、hello@portifact.com でPortifactにワークスペースの削除を依頼してから、もう一度お試しください。",
+  leaveEmailSuppressed:
+    "以前のメッセージが届かなかったかスパムとして報告されたため、アカウントのアドレスにメールを送信できません。アカウントを削除するには privacy@portifact.com までご連絡ください。",
+  leaveEmailCapacity:
+    "Portifactが月間のメール送信上限に達したため、現在コードをメールで送信できません。後でもう一度お試しいただくか、アカウントを削除するには privacy@portifact.com までご連絡ください。",
   providerErrors: {
     human_verification_required:
       "新しいアカウントには人間であることの簡単な確認が必要ですが、完了しませんでした。もう一度お試しください。サインイン方法の下に確認が表示された場合は、それを完了してください。何も表示されない場合は、ページを再読み込みするか、challenges.cloudflare.comを許可してください。",
@@ -187,6 +195,26 @@ export const ja: AuthCatalog = {
     "login.termsUpdateBody": `あなたのアカウントは、現在のバージョンの規約にまだ同意していません。<a href="https://portifact.com/terms#what-changed" target="_blank" rel="noopener">変更点を見る</a>（新しいタブで開きます）。`,
     "login.termsUpdateNotice": `「同意して続行」を選択することで、${termsConditions}`,
     "login.agreeAndContinue": "同意して続行",
+    "login.leaveHeading": "同意せずに退会する",
+    "login.leaveBody":
+      "新しい規約に同意しない場合は、同意せずにデータをダウンロードしてアカウントを削除できます。",
+    "login.leaveDownload": "データをダウンロード",
+    "login.leaveDelete": "アカウントを削除",
+    "login.leaveDeleteHeading": "アカウントを完全に削除する",
+    "login.leaveDeleteWhat":
+      "アカウントを削除すると、artifact、セッション、アプリ、サインイン方法、ほかの人のartifactへのコメントが削除されます。誰かが返信したコメントは「メッセージは削除されました」という表示になります。artifactのアドレスがほかの人に割り当てられることはありません。元に戻せないため、先にデータをダウンロードしてください。",
+    "login.leaveDeleteStays":
+      "ワークスペースに属するartifactはワークスペースに残ります。ワークスペースの唯一の管理者である場合は、先に別のメンバーを管理者にしてください。",
+    "login.leaveDeleteProof":
+      "ご本人であることを確認するため、アカウントのアドレスにコードを送信します。入力するとアカウントが削除されます。サインインや規約への同意にはなりません。",
+    "login.leaveSendCode": "削除コードをメールで受け取る",
+    "login.leaveCodeLabel": "6桁の削除コード",
+    "login.leaveCodeHint":
+      "コードの有効期限は5分で、1回だけ使用できます。入力するとアカウントが完全に削除されます。",
+    "login.leaveConfirm": "アカウントを完全に削除",
+    "login.leaveDoneHeading": "アカウントを削除しました",
+    "login.leaveDoneBody":
+      "artifactは利用できなくなり、記載した内容は削除中です。サインアウトしました。",
     "login.termsNotice": `Google、GitHub、またはメールのコードで続行することで、${termsConditions}`,
     "login.termsNoticeSso": `Google、GitHub、メールのコード、またはシングルサインオンで続行することで、${termsConditions}`,
     "login.ssoHeading": "あなたの組織はシングルサインオンを使っています",

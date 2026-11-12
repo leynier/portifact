@@ -21,6 +21,8 @@ export interface AuthCleanup {
   deviceCodes: number;
   clientAssertions: number;
   clients: number;
+  /** Account deletion codes past their expiry (docs/legal.md, "Leaving without accepting"). */
+  deletionCodes: number;
 }
 
 /**
@@ -65,6 +67,7 @@ export async function pruneAuthRecords(
   const ca = schema.oauthClientAssertions;
   const c = schema.oauthClients;
   const co = schema.oauthConsents;
+  const adc = schema.accountDeletionCodes;
   const seeded = sql.join(
     SEEDED_CLIENTS.map((id) => sql`${id}`),
     sql`, `,
@@ -119,6 +122,12 @@ export async function pruneAuthRecords(
           limit ${limit})`,
       )
       .returning({ id: c.id }),
+    global
+      .delete(adc)
+      .where(
+        sql`${adc.userId} in (select ${adc.userId} from ${adc} where ${adc.expiresAt} < ${expired} limit ${limit})`,
+      )
+      .returning({ id: adc.userId }),
   ])) as unknown[][];
   const count = (i: number) => results[i]?.length ?? 0;
   return {
@@ -129,5 +138,6 @@ export async function pruneAuthRecords(
     deviceCodes: count(4),
     clientAssertions: count(5),
     clients: count(6),
+    deletionCodes: count(7),
   };
 }

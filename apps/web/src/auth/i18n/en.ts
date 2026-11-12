@@ -30,6 +30,14 @@ export const en = {
   ssoShown:
     "Your organization uses single sign-on. Continue with it, or get an email code instead.",
   termsUpdateFor: (email: string) => `Signed in as ${email}`,
+  leaveCodeSent: (email: string) => `We sent a 6-digit deletion code to ${email}.`,
+  leaveDeleted: "Your account was deleted.",
+  leaveSoleAdmin:
+    "You are the only admin of a workspace, so your account cannot be deleted yet. Make another member its admin, or ask Portifact at hello@portifact.com to delete the workspace, then try again.",
+  leaveEmailSuppressed:
+    "We cannot send email to your account's address because earlier messages to it bounced or were reported as spam. Write to privacy@portifact.com to delete your account.",
+  leaveEmailCapacity:
+    "Codes cannot be emailed right now because Portifact reached its monthly email limit. Try again later, or write to privacy@portifact.com to delete your account.",
   /** Why a sign-in came back with `?error=<code>`, by code; unknown codes get the fallback. */
   providerErrors: {
     human_verification_required:

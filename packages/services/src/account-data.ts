@@ -4,12 +4,20 @@
 // and claims every artifact for purging in one transaction, so nothing is served or usable
 // after it returns; the maintenance job then purges the artifacts, erases the account's
 // comments on other people's artifacts in small batches and leaves an `account` tombstone.
-import { type AccountExport, FRESH_SESSION_MS, isWorkspaceId } from "@portifact/contracts";
+import {
+  ACCOUNT_DELETION_CODE,
+  type AccountExport,
+  FRESH_SESSION_MS,
+  isWorkspaceId,
+} from "@portifact/contracts";
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
   commentScope,
+  deletionCodeExpiresAt,
+  deletionCodeFrom,
   fail,
+  mayLeaveWithCode,
   ok,
   previousVersionExpiry,
   type Result,
@@ -30,9 +38,11 @@ import { deleteOwnerAuditStreams, exportAuditStreams } from "./audit-streams.ts"
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
 import { listCommentNoticeMutes } from "./comment-notices.ts";
 import { domainDbsOf, exportOwnerDomains, releaseOwnerDomains } from "./custom-domains.ts";
+import { checkSignInEmail } from "./email.ts";
 import { eraseAccountTraces, markAccountGone } from "./history-retention.ts";
 import { deleteOwnerConnections, exportIntegrations } from "./integrations.ts";
 import { listIncomingInvitations } from "./invitations.ts";
+import { keyedHash } from "./keyed-hash.ts";
 import { notHeldSql } from "./legal-holds.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
@@ -496,7 +506,32 @@ export async function requestAccountDeletion(
   // A workspace never loses its last admin with an account (premium plan F3). A trigger on
   // `users` (0029_workspaces.sql) refuses the delete as well, so a race fails the whole batch.
   if (await soleAdminOf(global, input.userId)) return soleAdmin();
-  const email = found.email.toLowerCase();
+  return deleteAccountNow(regions, {
+    userId: input.userId,
+    email: found.email,
+    now: input.now,
+  });
+}
+
+/** What the deletion itself needs once the request proved the person holds the account. */
+interface ProvenDeletion {
+  userId: string;
+  /** The account's address, for the reports it is erased from. */
+  email: string;
+  now: number;
+}
+
+/**
+ * The deletion itself, after a caller proved the person holds the account: a recent session
+ * (`requestAccountDeletion`) or the emailed deletion code (`deleteAccountWithCode`). The sole
+ * admin of a workspace is refused here too, through the trigger's error.
+ */
+async function deleteAccountNow(
+  regions: DeletionRegions,
+  input: ProvenDeletion,
+): Promise<Result<{ deleted: true }>> {
+  const global = regions.global;
+  const email = input.email.toLowerCase();
   const userExists = sql`exists (select 1 from ${schema.users} where ${schema.users.id} = ${input.userId})`;
   // The region whose database is the global one (the default region, where a personal space's
   // artifacts are) is deleted in the same batch as the account, so nothing is served after it
@@ -521,6 +556,163 @@ export async function requestAccountDeletion(
     await retried(() => db.batch(regionalDeletion(db, input.userId, input.now, true)));
   }
   return ok({ deleted: true });
+}
+
+/**
+ * The account and session a deletion code is for: the session must be this account's, and the
+ * account must not have accepted the current terms (`mayLeaveWithCode`). Anything else answers
+ * like no session, or `forbidden` for an account that should use Settings.
+ */
+async function codeAccount(
+  global: GlobalDb,
+  userId: string,
+  sessionId: string,
+): Promise<Result<{ email: string }>> {
+  const u = schema.users;
+  const [found] = await global
+    .select({ email: u.email, emailVerified: u.emailVerified, termsVersion: u.termsVersion })
+    .from(u)
+    .innerJoin(
+      schema.sessions,
+      and(eq(schema.sessions.userId, u.id), eq(schema.sessions.id, sessionId)),
+    )
+    .where(eq(u.id, userId))
+    .limit(1);
+  if (!found) return fail("unauthenticated", "Sign in to delete your account.");
+  if (!mayLeaveWithCode(found.termsVersion)) {
+    return fail(
+      "forbidden",
+      "Your account accepted the current terms. Delete it from Settings in the dashboard.",
+    );
+  }
+  if (!found.emailVerified) {
+    return fail(
+      "forbidden",
+      "Your account's email address is not verified. Write to privacy@portifact.com to delete it.",
+    );
+  }
+  return ok({ email: found.email });
+}
+
+/** The stored form of a deletion code: keyed, and bound to its purpose and account. */
+function deletionCodeDigest(secret: string, userId: string, code: string): Promise<string> {
+  return keyedHash(secret, `account-deletion-code:${userId}:${code}`);
+}
+
+export interface DeletionCodeRequest {
+  userId: string;
+  /** Better Auth `sessions.id` of the request; the code works only from this session. */
+  sessionId: string;
+  /** The key the code is hashed with (`BETTER_AUTH_SECRET`). */
+  secret: string;
+  now: number;
+  /** A random unsigned 32-bit integer; crypto.getRandomValues by default. */
+  draw?: () => number;
+}
+
+/**
+ * Issues an account deletion code for a session of an account that has not accepted the current
+ * terms (docs/legal.md, "Leaving without accepting"). It replaces any earlier code of the account
+ * and returns the code for the caller to email to the returned address. Refused, before anything
+ * is stored, for the sole admin of a workspace (the deletion would be refused) and, like a
+ * sign-in code, for a suppressed address or once the cycle's sign-in emails are spent. Records no
+ * acceptance and creates no session.
+ */
+export async function issueAccountDeletionCode(
+  global: GlobalDb,
+  input: DeletionCodeRequest,
+): Promise<Result<{ email: string; code: string; expiresInMinutes: number }>> {
+  const account = await codeAccount(global, input.userId, input.sessionId);
+  if (!account.ok) return account;
+  if (await soleAdminOf(global, input.userId)) return soleAdmin();
+  const check = await checkSignInEmail(global, account.value.email, input.now);
+  if (!check.ok) {
+    return check.code === "capacity_unavailable"
+      ? fail(check.code, check.message)
+      : { ok: false, code: "forbidden", message: check.message, detail: "email_suppressed" };
+  }
+  const draw = input.draw ?? (() => crypto.getRandomValues(new Uint32Array(1))[0] as number);
+  const code = deletionCodeFrom(draw);
+  const values = {
+    sessionId: input.sessionId,
+    codeHash: await deletionCodeDigest(input.secret, input.userId, code),
+    attempts: 0,
+    expiresAt: deletionCodeExpiresAt(input.now),
+    createdAt: input.now,
+  };
+  await global
+    .insert(schema.accountDeletionCodes)
+    .values({ userId: input.userId, ...values })
+    .onConflictDoUpdate({ target: schema.accountDeletionCodes.userId, set: values });
+  return ok({
+    email: account.value.email,
+    code,
+    expiresInMinutes: Math.round(ACCOUNT_DELETION_CODE.codeTtlSeconds / 60),
+  });
+}
+
+export interface DeletionWithCode {
+  userId: string;
+  sessionId: string;
+  secret: string;
+  /** The six digits the person typed. */
+  code: string;
+  now: number;
+}
+
+const WRONG_CODE = "That code is not valid or has expired. Check it or ask for a new code.";
+
+/**
+ * Deletes the account with its deletion code: the code must be this account's, asked for from
+ * this session, unexpired, with attempts left. The statement that matches it also spends it, so
+ * it works once; a wrong code counts an attempt, and the third ends the code. Then the existing
+ * deletion runs (`deleteAccountNow`), with the same refusal for the sole admin of a workspace,
+ * checked before the code is spent. Records no acceptance, and no sign-in code can stand in for
+ * the deletion code: the codes live in different tables under different keys.
+ */
+export async function deleteAccountWithCode(
+  regions: DeletionRegions,
+  input: DeletionWithCode,
+): Promise<Result<{ deleted: true }>> {
+  const global = regions.global;
+  const account = await codeAccount(global, input.userId, input.sessionId);
+  if (!account.ok) return account;
+  if (await soleAdminOf(global, input.userId)) return soleAdmin();
+  const c = schema.accountDeletionCodes;
+  const digest = await deletionCodeDigest(input.secret, input.userId, input.code);
+  const mine = and(eq(c.userId, input.userId), eq(c.sessionId, input.sessionId));
+  const [claimed] = await global.batch([
+    global
+      .delete(c)
+      .where(
+        and(
+          mine,
+          eq(c.codeHash, digest),
+          sql`${c.expiresAt} > ${input.now}`,
+          sql`${c.attempts} < ${ACCOUNT_DELETION_CODE.allowedAttempts}`,
+        ),
+      )
+      .returning({ userId: c.userId }),
+    // Only a code still stored after the claim was wrong: count the attempt.
+    global
+      .update(c)
+      .set({ attempts: sql`${c.attempts} + 1` })
+      .where(eq(c.userId, input.userId)),
+    global
+      .delete(c)
+      .where(
+        and(
+          eq(c.userId, input.userId),
+          sql`(${c.attempts} >= ${ACCOUNT_DELETION_CODE.allowedAttempts} or ${c.expiresAt} <= ${input.now})`,
+        ),
+      ),
+  ]);
+  if (claimed.length === 0) return fail("invalid_input", WRONG_CODE);
+  return deleteAccountNow(regions, {
+    userId: input.userId,
+    email: account.value.email,
+    now: input.now,
+  });
 }
 
 const soleAdmin = () =>
@@ -556,7 +748,7 @@ export async function soleAdminOf(global: GlobalDb, userId: string): Promise<str
 /** The global half of a deletion request: one batch, the point of no return (decision 0005). */
 async function deletionBatch(
   db: Db,
-  input: DeletionRequest,
+  input: { userId: string; now: number },
   email: string,
   userExists: SQL,
   /** The shared region's statements (`regionalDeletion`), in the same batch; none otherwise. */

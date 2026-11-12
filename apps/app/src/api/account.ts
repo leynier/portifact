@@ -2,9 +2,17 @@
 // browser sessions, connected apps, defaults for new artifacts, data export and deletion. They answer only the dashboard's session cookie from the
 // app's own pages. Bearer tokens are refused: account management has no OAuth scope. The CLI
 // lists and revokes the same connected apps through ./tokens.ts, with its own narrow scope.
+//
+// A session of an account that has not accepted the current terms reaches only what lets a
+// person leave without accepting them (docs/legal.md, "Leaving without accepting"): reads, the
+// export, removals and the deletion, including the deletion with an emailed code. Every change
+// that acts anew (settings, mutes, branding) answers `terms_not_accepted`.
 import {
+  AccountDeletionCodeRequest,
+  AccountDeletionCodeSent,
   AccountDeletionInput,
   AccountDeletionResult,
+  AccountDeletionWithCodeInput,
   AccountExport,
   AccountSettings,
   AccountSettingsUpdate,
@@ -22,20 +30,24 @@ import {
   DisconnectResult,
   ERROR_STATUS,
   type ErrorCode,
+  type ErrorDetail,
   SignOutOthersResult,
   WorkspaceParam,
 } from "@portifact/contracts";
 import {
   accountSuspensionView,
   type ConnectedAppRow,
+  deleteAccountWithCode,
   deleteBrand,
   disconnectApp,
   exportAccount,
   getAccountSettings,
   getBrandSettings,
   getCommentNoticeMute,
+  issueAccountDeletionCode,
   listBrowserSessions,
   listConnectedApps,
+  RecipientSuppressedError,
   readBrandLogo,
   removeBrandLogo,
   requestAccountDeletion,
@@ -47,6 +59,8 @@ import {
 import type { Context } from "hono";
 import { Hono } from "hono";
 import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
+import { deliverAccountDeletionCode, type EmailSender, emailLocale } from "../auth/email.ts";
+import { checkLimits, deletionCodeAttemptChecks, deletionCodeSendChecks } from "../auth/limits.ts";
 import type { Env } from "../env.ts";
 import { artifactDb, bucketOf, defaultDb, ownerScope, regionsOf } from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
@@ -56,6 +70,8 @@ import { readJson } from "./http.ts";
 export interface AccountSession {
   userId: string;
   sessionId: string;
+  /** Whether the account accepted the current terms (`needsTermsAcceptance`). */
+  termsAccepted: boolean;
 }
 
 export type AccountSessionLookup = (request: Request) => Promise<AccountSession | undefined>;
@@ -67,6 +83,8 @@ export interface AccountDeps {
    * run: they revoke the tokens that apps received through those browser sessions.
    */
   signOutOthers(env: Env): (request: Request) => Promise<void>;
+  /** Sends the account deletion code. */
+  email(env: Env): EmailSender;
   now(): number;
 }
 
@@ -80,9 +98,16 @@ export function accountRoutes(deps: AccountDeps) {
     c.res.headers.set("Cache-Control", "no-store");
   });
 
-  /** Runs `handler` for the dashboard session of the request, or refuses it. */
+  /**
+   * Runs `handler` for the dashboard session of the request, or refuses it. `actsAnew` routes
+   * also need the current terms; the rest only read, export, remove or delete, which a person
+   * may always do (docs/legal.md, "Leaving without accepting").
+   */
   const sessionOnly =
-    (handler: (c: AccountContext, session: AccountSession) => Promise<Response>) =>
+    (
+      handler: (c: AccountContext, session: AccountSession) => Promise<Response>,
+      options: { actsAnew?: true } = {},
+    ) =>
     async (c: AccountContext) => {
       const request = c.req.raw;
       if (request.headers.has("authorization")) {
@@ -96,6 +121,13 @@ export function accountRoutes(deps: AccountDeps) {
       }
       const session = await deps.session(c.env)(request);
       if (!session) return error(c, "unauthenticated", "Sign in to see your account.");
+      if (options.actsAnew && !session.termsAccepted) {
+        return error(
+          c,
+          "terms_not_accepted",
+          "Accept the current terms in the dashboard to change your account.",
+        );
+      }
       return handler(c, session);
     };
 
@@ -186,17 +218,20 @@ export function accountRoutes(deps: AccountDeps) {
 
   routes.patch(
     "/api/v1/account/settings",
-    sessionOnly(async (c, session) => {
-      const body = await readJson(c, AccountSettingsUpdate, 1024);
-      if (!body.ok) return body.response;
-      const result = await updateAccountSettings(regionsOf(c.env).global, {
-        userId: session.userId,
-        update: body.value,
-        now: deps.now(),
-      });
-      if (!result.ok) return error(c, result.code, result.message);
-      return c.json(AccountSettings.parse(result.value));
-    }),
+    sessionOnly(
+      async (c, session) => {
+        const body = await readJson(c, AccountSettingsUpdate, 1024);
+        if (!body.ok) return body.response;
+        const result = await updateAccountSettings(regionsOf(c.env).global, {
+          userId: session.userId,
+          update: body.value,
+          now: deps.now(),
+        });
+        if (!result.ok) return error(c, result.code, result.message);
+        return c.json(AccountSettings.parse(result.value));
+      },
+      { actsAnew: true },
+    ),
   );
 
   // The caller's comment notices for one artifact: whether the owner's plan has them and the
@@ -219,20 +254,23 @@ export function accountRoutes(deps: AccountDeps) {
 
   routes.put(
     muteRoute,
-    sessionOnly(async (c, session) => {
-      const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
-      if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
-      const body = await readJson(c, CommentNoticeMuteUpdate, 256);
-      if (!body.ok) return body.response;
-      const result = await setCommentNoticeMute(await artifactDb(c.env, artifactId.data), {
-        userId: session.userId,
-        artifactId: artifactId.data,
-        muted: body.value.muted,
-        now: deps.now(),
-      });
-      if (!result.ok) return error(c, result.code, result.message);
-      return c.json(CommentNoticeMute.parse(result.value));
-    }),
+    sessionOnly(
+      async (c, session) => {
+        const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+        if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
+        const body = await readJson(c, CommentNoticeMuteUpdate, 256);
+        if (!body.ok) return body.response;
+        const result = await setCommentNoticeMute(await artifactDb(c.env, artifactId.data), {
+          userId: session.userId,
+          artifactId: artifactId.data,
+          muted: body.value.muted,
+          now: deps.now(),
+        });
+        if (!result.ok) return error(c, result.code, result.message);
+        return c.json(CommentNoticeMute.parse(result.value));
+      },
+      { actsAnew: true },
+    ),
   );
 
   // The brand of the account's space on the viewer's bar (premium plan P9). Session only, like
@@ -265,22 +303,25 @@ export function accountRoutes(deps: AccountDeps) {
 
   routes.put(
     brandRoute,
-    sessionOnly(async (c, session) => {
-      const body = await readJson(c, BrandUpdate, 4096);
-      if (!body.ok) return body.response;
-      const scope = await brandScope(c, session);
-      if (!scope.ok) return error(c, scope.code, scope.message);
-      const { actor, db } = scope.value;
-      return brandAnswer(
-        c,
-        await updateBrand(db, {
-          actor,
-          update: body.value,
-          blockedHosts: [new URL(c.env.APP_ORIGIN).hostname, c.env.CONTENT_DOMAIN],
-          now: deps.now(),
-        }),
-      );
-    }),
+    sessionOnly(
+      async (c, session) => {
+        const body = await readJson(c, BrandUpdate, 4096);
+        if (!body.ok) return body.response;
+        const scope = await brandScope(c, session);
+        if (!scope.ok) return error(c, scope.code, scope.message);
+        const { actor, db } = scope.value;
+        return brandAnswer(
+          c,
+          await updateBrand(db, {
+            actor,
+            update: body.value,
+            blockedHosts: [new URL(c.env.APP_ORIGIN).hostname, c.env.CONTENT_DOMAIN],
+            now: deps.now(),
+          }),
+        );
+      },
+      { actsAnew: true },
+    ),
   );
 
   routes.delete(
@@ -297,21 +338,24 @@ export function accountRoutes(deps: AccountDeps) {
   // the services judge it by its bytes.
   routes.put(
     `${brandRoute}/logo`,
-    sessionOnly(async (c, session) => {
-      const bytes = await readBounded(c.req.raw, BRAND_LIMITS.logoMaxBytes);
-      if (bytes === null) {
-        return error(
-          c,
-          "invalid_input",
-          `logo: Use an image of at most ${BRAND_LIMITS.logoMaxBytes / 1000} KB.`,
-        );
-      }
-      const scope = await brandScope(c, session);
-      if (!scope.ok) return error(c, scope.code, scope.message);
-      const { actor, db } = scope.value;
-      const bucket = bucketOf(regionsOf(c.env).get(actor.region));
-      return brandAnswer(c, await setBrandLogo(db, bucket, { actor, bytes, now: deps.now() }));
-    }),
+    sessionOnly(
+      async (c, session) => {
+        const bytes = await readBounded(c.req.raw, BRAND_LIMITS.logoMaxBytes);
+        if (bytes === null) {
+          return error(
+            c,
+            "invalid_input",
+            `logo: Use an image of at most ${BRAND_LIMITS.logoMaxBytes / 1000} KB.`,
+          );
+        }
+        const scope = await brandScope(c, session);
+        if (!scope.ok) return error(c, scope.code, scope.message);
+        const { actor, db } = scope.value;
+        const bucket = bucketOf(regionsOf(c.env).get(actor.region));
+        return brandAnswer(c, await setBrandLogo(db, bucket, { actor, bytes, now: deps.now() }));
+      },
+      { actsAnew: true },
+    ),
   );
 
   routes.delete(
@@ -383,6 +427,81 @@ export function accountRoutes(deps: AccountDeps) {
     }),
   );
 
+  // Leaving without accepting new terms (docs/legal.md, "Leaving without accepting"): the
+  // account deletion code, emailed to the account's address for a session of an account without
+  // the current terms. It never signs anyone in and records no acceptance; the code is never
+  // logged or returned.
+  routes.post(
+    "/api/v1/account/deletion-code",
+    sessionOnly(async (c, session) => {
+      const body = await readJson(c, AccountDeletionCodeRequest, 256);
+      if (!body.ok) return body.response;
+      const now = deps.now();
+      const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+      const limited = await checkLimits(c.env.DB, deletionCodeSendChecks(session.userId, ip), now);
+      if (!limited.ok) return tooMany(c, limited.retryAfterSeconds);
+      const global = regionsOf(c.env).global;
+      const issued = await issueAccountDeletionCode(global, {
+        userId: session.userId,
+        sessionId: session.sessionId,
+        secret: c.env.BETTER_AUTH_SECRET,
+        now,
+      });
+      if (!issued.ok) return error(c, issued.code, issued.message, issued.detail);
+      try {
+        await deliverAccountDeletionCode(global, deps.email(c.env), {
+          email: issued.value.email,
+          code: issued.value.code,
+          expiresInMinutes: issued.value.expiresInMinutes,
+          now: deps.now,
+          locale: emailLocale(c.req.raw.headers),
+        });
+      } catch (failure) {
+        if (failure instanceof RecipientSuppressedError) {
+          return error(
+            c,
+            "forbidden",
+            "We cannot send email to your account's address because earlier messages to it bounced or were reported as spam. Write to privacy@portifact.com to delete your account.",
+            "email_suppressed",
+          );
+        }
+        return error(c, "capacity_unavailable", "The email could not be sent. Try again later.");
+      }
+      return c.json(
+        AccountDeletionCodeSent.parse({
+          sent: true,
+          expiresInMinutes: issued.value.expiresInMinutes,
+        }),
+      );
+    }),
+  );
+
+  routes.post(
+    "/api/v1/account/delete-with-code",
+    sessionOnly(async (c, session) => {
+      const body = await readJson(c, AccountDeletionWithCodeInput, 256);
+      if (!body.ok) return body.response;
+      const now = deps.now();
+      const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+      const limited = await checkLimits(c.env.DB, deletionCodeAttemptChecks(ip), now);
+      if (!limited.ok) return tooMany(c, limited.retryAfterSeconds);
+      const result = await deleteAccountWithCode(regionsOf(c.env), {
+        userId: session.userId,
+        sessionId: session.sessionId,
+        secret: c.env.BETTER_AUTH_SECRET,
+        code: body.value.code,
+        now,
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      // The session row is gone with the user; the browser forgets the cookie too.
+      c.header(
+        "Set-Cookie",
+        `${SESSION_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`,
+      );
+      return c.json(AccountDeletionResult.parse({ deleted: true }));
+    }),
+  );
+
   return routes;
 }
 
@@ -440,6 +559,17 @@ async function readBounded(request: Request, max: number): Promise<Uint8Array | 
   return bytes;
 }
 
-function error(c: AccountContext, code: ErrorCode, message: string): Response {
-  return c.json({ error: { code, message } }, ERROR_STATUS[code] as 400);
+function error(
+  c: AccountContext,
+  code: ErrorCode,
+  message: string,
+  detail?: ErrorDetail | undefined,
+): Response {
+  const body = detail ? { code, message, details: { reason: detail } } : { code, message };
+  return c.json({ error: body }, ERROR_STATUS[code] as 400);
+}
+
+function tooMany(c: AccountContext, retryAfterSeconds: number): Response {
+  c.header("Retry-After", String(retryAfterSeconds));
+  return error(c, "rate_limited", "Too many requests. Wait a moment and try again.");
 }

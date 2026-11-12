@@ -63,6 +63,8 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/artifacts/:artifactId/review/tab": "no_person_token",
   "PATCH /api/v1/account/settings": "no_person_token",
   "POST /api/v1/account/delete": "no_person_token",
+  "POST /api/v1/account/deletion-code": "no_person_token",
+  "POST /api/v1/account/delete-with-code": "no_person_token",
   "POST /api/v1/account/sessions/sign-out-others": "no_person_token",
   "DELETE /api/v1/account/apps/:clientId": "no_person_token",
   "PUT /api/v1/account/branding": "no_person_token",
