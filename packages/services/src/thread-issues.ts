@@ -31,8 +31,10 @@ import { auditEvent } from "./audit.ts";
 import {
   type CallOptions,
   createIssue,
+  failedOutcome,
   findIssue,
   type IssueCallOutcome,
+  verifyJiraSite,
 } from "./integration-clients.ts";
 import { type IntegrationKey, openCredential } from "./integration-keys.ts";
 import {
@@ -103,7 +105,9 @@ export async function requestThreadIssue(
   if (connection.attention !== null) {
     return fail(
       "invalid_input",
-      "This connection needs an admin's attention: its credential no longer works.",
+      connection.attention === "site_mismatch"
+        ? "This connection needs an admin's attention: its Jira site changed its address."
+        : "This connection needs an admin's attention: its credential no longer works.",
     );
   }
   const target = allowedTarget(storedTargets(connection.targets), input.request.target);
@@ -242,7 +246,12 @@ export async function runThreadIssue(
     return "done";
   }
   if (connection.attention !== null) {
-    await failRequest(db, issue.id, "credential_rejected", now);
+    await failRequest(
+      db,
+      issue.id,
+      connection.attention === "site_mismatch" ? "site_changed" : "credential_rejected",
+      now,
+    );
     return "done";
   }
   // The connection as it is now: a repository, team or project an admin removed is never written
@@ -323,7 +332,12 @@ export async function runThreadIssue(
     const found = await findIssue(
       issue.service,
       credential,
-      { target: issue.target, reference: issue.id, identity: connection.identity },
+      {
+        target: issue.target,
+        reference: issue.id,
+        identity: connection.identity,
+        requestedAt: issue.createdAt,
+      },
       deps,
       connectionSite(connection),
     );
@@ -336,6 +350,22 @@ export async function runThreadIssue(
     if (!source) {
       await failRequest(db, issue.id, "thread_gone", now, now);
       return "done";
+    }
+    // Jira: the site was proven when the connection was checked; on the first attempt the job
+    // proves it again, so no issue links to a name the cloud ID no longer serves. Retries do not
+    // (one call fewer each); a site renamed within those hours is caught by the next request or
+    // an admin's Test (decision 0018, "Addendum: Jira").
+    const site = connectionSite(connection);
+    if (issue.service === "jira" && site !== null && claimed.attempts === 1) {
+      const proof = await verifyJiraSite(credential, site, deps);
+      if (proof.kind === "other") {
+        await markAttention(db, connection, "site_mismatch", { type: "system" }, now);
+        await failRequest(db, issue.id, "site_changed", now, now);
+        return "done";
+      }
+      if (proof.kind === "failed") {
+        return settle(db, job, issue, connection, failedOutcome(proof.result), 1, now);
+      }
     }
     outcome = await createIssue(
       issue.service,

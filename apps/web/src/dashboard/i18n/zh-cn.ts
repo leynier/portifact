@@ -2294,6 +2294,7 @@ export const zhCN = {
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
   "integrations.service.jira": "Jira",
+  "integrations.service.other": "其他服务",
   "integrations.add.title": "连接服务",
   "integrations.add.hint":
     "凭据会由服务校验、加密保存，且不会再次显示：Portifact 只显示最后四个字符。",
@@ -2350,12 +2351,16 @@ export const zhCN = {
   "integrations.site": "站点 {site}",
   "integrations.attention.credential_rejected": "服务拒绝了这个凭据。请粘贴新的凭据，然后测试。",
   "integrations.attention.key_unavailable": "已保存的凭据无法再打开。请重新粘贴。",
+  "integrations.attention.site_mismatch":
+    "该 Cloud ID 已不再对应这个 Jira 站点：站点地址已更改。请移除此连接，并用站点当前的名称重新连接。",
   "integrations.state.ready": "可用",
   "integrations.state.attention": "需要处理",
   "integrations.test": "测试",
   "integrations.testLabel": "测试 {label}",
   "integrations.testPassed":
     "{label} 可以使用。它以 {identity} 身份运行，每个仓库、团队或项目都可以访问。",
+  "integrations.testRefreshed":
+    "Portifact 现在会在 {targets} 中使用项目当前的 issue 类型创建 issue。",
   "integrations.problem.credential_rejected": "服务拒绝了凭据：它有误、已过期或已撤销。",
   "integrations.problem.missing_permission": "服务接受了凭据，但它无法读取自己的账号。",
   "integrations.problem.target_unreachable": "凭据无法访问 {target}。请检查它在那里的访问权限。",
@@ -2402,6 +2407,8 @@ export const zhCN = {
   "issues.failure.artifact_moved": "artifact 已移到其他空间。",
   "issues.failure.requester_left": "你已不能再为此空间创建 issue。",
   "issues.failure.thread_gone": "讨论串已被删除。",
+  "issues.failure.site_changed": "Jira 站点的地址已更改。",
+  "issues.failure.other": "无法创建。",
   "issues.dialog.eu": "此空间的数据保存在欧盟。你发送的内容会发往欧盟以外的 {service}。",
   "issues.dialog.submit": "创建 issue",
   "issues.dialog.noConnections":
@@ -2420,15 +2427,15 @@ export const zhCN = {
   "issues.failure.service_unavailable": "服务没有响应。",
   "issues.failure.invalid_response": "服务的响应无法被 Portifact 使用。",
   "audit.kind.integrationConnected":
-    "连接了 {service, select, github {GitHub} other {Linear}}，包含 {targets, plural, one {# 个仓库或团队} other {# 个仓库或团队}}",
+    "连接了 {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}，包含 {targets, plural, one {# 个仓库或团队} other {# 个仓库或团队}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {替换了连接的凭据} other {更改了连接的标签或目标}}",
   "audit.kind.integrationRemoved":
-    "删除了一个 {service, select, github {GitHub} other {Linear}} 连接",
+    "删除了一个 {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} 连接",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {连接的凭据无法再打开} other {{service, select, github {GitHub} other {Linear}} 拒绝了连接的凭据}}",
+    "{reason, select, site_mismatch {某个连接的 Jira 站点地址已更改} key_unavailable {连接的凭据无法再打开} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} 拒绝了连接的凭据}}",
   "audit.kind.issueCreated":
-    "从讨论串在 {target} 中创建了 {service, select, github {GitHub} other {Linear}} issue {message, select, true {（包含第一条消息）} other {（不含评论文字）}}",
+    "从讨论串在 {target} 中创建了 {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} issue {message, select, true {（包含第一条消息）} other {（不含评论文字）}}",
   "policies.networks.legend": "人员网络",
   "policies.networks.hint":
     "成员（包括管理员）只能从这些网络操作工作区并阅读仅限工作区的 artifact。公开 artifact、共享链接以及你共享给的工作区外人员不受影响。",

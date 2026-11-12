@@ -164,7 +164,9 @@ export function auditSummary(event: AuditEventView): string {
     case "integration.failing":
       return d.reason === "key_unavailable"
         ? `A ${service(d.service)} connection's credential can no longer be opened`
-        : `${service(d.service)} refused a connection's credential`;
+        : d.reason === "site_mismatch"
+          ? `The ${service(d.service)} site behind a connection changed its address`
+          : `${service(d.service)} refused a connection's credential`;
     case "issue.created": {
       const sent = [
         d.link ? "the link" : null,

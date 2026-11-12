@@ -2550,6 +2550,7 @@ export const de = {
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
   "integrations.service.jira": "Jira",
+  "integrations.service.other": "Anderer Dienst",
   "integrations.add.title": "Dienst verbinden",
   "integrations.add.hint":
     "Die Zugangsdaten werden beim Dienst geprüft, verschlüsselt gespeichert und nie wieder angezeigt: Portifact zeigt nur die letzten vier Zeichen.",
@@ -2617,12 +2618,16 @@ export const de = {
     "Der Dienst hat diese Zugangsdaten abgelehnt. Fügen Sie neue ein und testen Sie sie.",
   "integrations.attention.key_unavailable":
     "Die gespeicherten Zugangsdaten lassen sich nicht mehr öffnen. Fügen Sie sie erneut ein.",
+  "integrations.attention.site_mismatch":
+    "Die Cloud-ID gehört nicht mehr zu dieser Jira-Website: Die Website hat ihre Adresse geändert. Entfernen Sie diese Verbindung und verbinden Sie die Website erneut mit ihrem aktuellen Namen.",
   "integrations.state.ready": "Bereit",
   "integrations.state.attention": "Prüfen nötig",
   "integrations.test": "Testen",
   "integrations.testLabel": "{label} testen",
   "integrations.testPassed":
     "{label} funktioniert. Es handelt als {identity}, und jedes Repository, Team oder Projekt ist erreichbar.",
+  "integrations.testRefreshed":
+    "Portifact erstellt Issues in {targets} jetzt mit dem aktuellen Issue-Typ des Projekts.",
   "integrations.problem.credential_rejected":
     "Der Dienst hat die Zugangsdaten abgelehnt: Sie sind falsch, abgelaufen oder widerrufen.",
   "integrations.problem.missing_permission":
@@ -2677,6 +2682,8 @@ export const de = {
   "issues.failure.artifact_moved": "das Artifact wurde in einen anderen Bereich verschoben.",
   "issues.failure.requester_left": "Sie können für diesen Bereich keine Issues mehr erstellen.",
   "issues.failure.thread_gone": "der Thread wurde gelöscht.",
+  "issues.failure.site_changed": "die Adresse der Jira-Website hat sich geändert.",
+  "issues.failure.other": "es konnte nicht erstellt werden.",
   "issues.dialog.eu":
     "Dieser Bereich speichert seine Daten in der EU. Was Sie senden, geht an {service}, außerhalb der EU.",
   "issues.dialog.submit": "Issue erstellen",
@@ -2697,15 +2704,15 @@ export const de = {
   "issues.failure.invalid_response":
     "der Dienst hat so geantwortet, dass Portifact es nicht verwenden konnte.",
   "audit.kind.integrationConnected":
-    "Hat {service, select, github {GitHub} other {Linear}} mit {targets, plural, one {# Repository oder Team} other {# Repositorys oder Teams}} verbunden",
+    "Hat {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} mit {targets, plural, one {# Repository oder Team} other {# Repositorys oder Teams}} verbunden",
   "audit.kind.integrationChanged":
     "{credential, select, true {Hat die Zugangsdaten einer Verbindung ersetzt} other {Hat Bezeichnung oder Ziele einer Verbindung geändert}}",
   "audit.kind.integrationRemoved":
-    "Hat eine {service, select, github {GitHub} other {Linear}}-Verbindung entfernt",
+    "Hat eine {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}-Verbindung entfernt",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {Die Zugangsdaten einer Verbindung lassen sich nicht mehr öffnen} other {{service, select, github {GitHub} other {Linear}} hat die Zugangsdaten einer Verbindung abgelehnt}}",
+    "{reason, select, site_mismatch {Die Jira-Website einer Verbindung hat ihre Adresse geändert} key_unavailable {Die Zugangsdaten einer Verbindung lassen sich nicht mehr öffnen} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} hat die Zugangsdaten einer Verbindung abgelehnt}}",
   "audit.kind.issueCreated":
-    "Hat ein {service, select, github {GitHub} other {Linear}}-Issue in {target} aus einem Thread erstellt {message, select, true {mit der ersten Nachricht} other {ohne Kommentartext}}",
+    "Hat ein {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}-Issue in {target} aus einem Thread erstellt {message, select, true {mit der ersten Nachricht} other {ohne Kommentartext}}",
   "policies.networks.legend": "Netzwerke für Personen",
   "policies.networks.hint":
     "Mitglieder, Admins eingeschlossen, handeln im Workspace und lesen seine nur für den Workspace freigegebenen Artifacts nur aus diesen Netzwerken. Öffentliche Artifacts, Freigabelinks und Personen außerhalb, mit denen du geteilt hast, sind nicht betroffen.",

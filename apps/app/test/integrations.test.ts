@@ -655,8 +655,9 @@ describe("Jira through the dashboard session, the API and MCP", () => {
         },
       ],
     });
-    // The owner side never sees the site, the identity or the email.
-    expect(JSON.stringify(viaApi)).not.toMatch(/acme|Jira Bot/);
+    // The owner side never sees the site, the identity, the email or the stored issue type.
+    expect(JSON.stringify(viaApi)).not.toMatch(/acme|Jira Bot|issueType|10001/);
+    expect(JSON.stringify(listed)).not.toMatch(/issueType|10001/);
 
     const { id, threadId } = await artifactWithThread(userId);
     const body = { connectionId: connection.id, target: "ENG", title: "Fix it" };

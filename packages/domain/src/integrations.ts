@@ -219,6 +219,21 @@ export function jiraFindJql(project: string): Result<string> {
 }
 
 /**
+ * A Jira timestamp (`2026-11-08T12:00:00.000+0000`, an offset without a colon) as epoch
+ * milliseconds, or null when it is anything else.
+ */
+export function jiraTimestamp(raw: unknown): number | null {
+  if (typeof raw !== "string") return null;
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)(Z|[+-]\d{2}:?\d{2})$/.exec(
+    raw,
+  );
+  if (!match) return null;
+  const zone = match[2] === "Z" ? "Z" : (match[2] ?? "").replace(/^([+-]\d{2}):?(\d{2})$/, "$1:$2");
+  const at = Date.parse(`${match[1]}${zone}`);
+  return Number.isNaN(at) ? null : at;
+}
+
+/**
  * The issue type Portifact creates in a Jira project, from the types `GET project/{key}` lists:
  * `Task` when the project has it, otherwise its first standard type (not a subtask, hierarchy
  * level 0). Null when it has none: Portifact cannot create an issue there.
@@ -753,6 +768,8 @@ export const ISSUE_FAILURE_MESSAGES: Readonly<Record<ThreadIssueFailure, string>
   artifact_moved: "The artifact moved to another space before the issue was created.",
   requester_left: "The person who asked can no longer create issues for this space.",
   thread_gone: "The thread was deleted before the issue was created.",
+  site_changed:
+    "The Jira site's address changed. An admin needs to connect the site again with its current name.",
 };
 
 /** The most attempts one issue gets: the first and one after each retry delay. */

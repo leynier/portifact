@@ -2563,6 +2563,7 @@ export const fr = {
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
   "integrations.service.jira": "Jira",
+  "integrations.service.other": "Autre service",
   "integrations.add.title": "Connecter un service",
   "integrations.add.hint":
     "L'identifiant est vérifié auprès du service, stocké chiffré et jamais réaffiché : Portifact n'en montre que les quatre derniers caractères.",
@@ -2629,12 +2630,16 @@ export const fr = {
     "Le service a refusé cet identifiant. Collez-en un nouveau, puis testez-le.",
   "integrations.attention.key_unavailable":
     "L'identifiant enregistré ne peut plus être ouvert. Collez-le de nouveau.",
+  "integrations.attention.site_mismatch":
+    "L'ID cloud ne correspond plus à ce site Jira : le site a changé d'adresse. Supprimez cette connexion et reconnectez le site avec son nom actuel.",
   "integrations.state.ready": "Prête",
   "integrations.state.attention": "À vérifier",
   "integrations.test": "Tester",
   "integrations.testLabel": "Tester {label}",
   "integrations.testPassed":
     "{label} fonctionne. Il agit en tant que {identity}, et chaque dépôt, équipe ou projet est accessible.",
+  "integrations.testRefreshed":
+    "Portifact crée désormais les tickets dans {targets} avec le type de ticket actuel du projet.",
   "integrations.problem.credential_rejected":
     "Le service a refusé l'identifiant : il est faux, expiré ou révoqué.",
   "integrations.problem.missing_permission":
@@ -2688,6 +2693,8 @@ export const fr = {
   "issues.failure.artifact_moved": "l'artifact a été déplacé vers un autre espace.",
   "issues.failure.requester_left": "vous ne pouvez plus créer de tickets pour cet espace.",
   "issues.failure.thread_gone": "le fil a été supprimé.",
+  "issues.failure.site_changed": "l'adresse du site Jira a changé.",
+  "issues.failure.other": "il n'a pas pu être créé.",
   "issues.dialog.eu":
     "Cet espace garde ses données dans l'UE. Ce que vous envoyez va chez {service}, hors de l'UE.",
   "issues.dialog.submit": "Créer le ticket",
@@ -2708,15 +2715,15 @@ export const fr = {
   "issues.failure.invalid_response":
     "le service a répondu d'une façon que Portifact n'a pas pu utiliser.",
   "audit.kind.integrationConnected":
-    "A connecté {service, select, github {GitHub} other {Linear}} avec {targets, plural, one {# dépôt ou équipe} other {# dépôts ou équipes}}",
+    "A connecté {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} avec {targets, plural, one {# dépôt ou équipe} other {# dépôts ou équipes}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {A remplacé l'identifiant d'une connexion} other {A modifié le libellé ou les cibles d'une connexion}}",
   "audit.kind.integrationRemoved":
-    "A supprimé une connexion {service, select, github {GitHub} other {Linear}}",
+    "A supprimé une connexion {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {L'identifiant d'une connexion ne peut plus être ouvert} other {{service, select, github {GitHub} other {Linear}} a refusé l'identifiant d'une connexion}}",
+    "{reason, select, site_mismatch {Le site Jira d'une connexion a changé d'adresse} key_unavailable {L'identifiant d'une connexion ne peut plus être ouvert} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} a refusé l'identifiant d'une connexion}}",
   "audit.kind.issueCreated":
-    "A créé un ticket {service, select, github {GitHub} other {Linear}} dans {target} depuis un fil {message, select, true {avec son premier message} other {sans texte de commentaire}}",
+    "A créé un ticket {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} dans {target} depuis un fil {message, select, true {avec son premier message} other {sans texte de commentaire}}",
   "policies.networks.legend": "Réseaux pour les personnes",
   "policies.networks.hint":
     "Les membres, administrateurs compris, n’agissent sur l’espace de travail et ne lisent ses artifacts réservés à l’espace de travail que depuis ces réseaux. Les artifacts publics, les liens de partage et les personnes extérieures avec qui vous avez partagé ne sont pas concernés.",

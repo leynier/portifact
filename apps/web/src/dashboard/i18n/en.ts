@@ -2469,6 +2469,7 @@ export const en = {
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
   "integrations.service.jira": "Jira",
+  "integrations.service.other": "Another service",
   "integrations.add.title": "Connect a service",
   "integrations.add.hint":
     "The credential is checked with the service, stored encrypted and never shown again: Portifact shows only its last four characters.",
@@ -2534,12 +2535,16 @@ export const en = {
     "The service refused this credential. Paste a new one, then test it.",
   "integrations.attention.key_unavailable":
     "The stored credential can no longer be opened. Paste it again.",
+  "integrations.attention.site_mismatch":
+    "The cloud ID no longer serves this Jira site: the site changed its address. Remove this connection and connect the site again with its current name.",
   "integrations.state.ready": "Ready",
   "integrations.state.attention": "Needs attention",
   "integrations.test": "Test",
   "integrations.testLabel": "Test {label}",
   "integrations.testPassed":
     "{label} works. It acts as {identity}, and every repository, team or project is reachable.",
+  "integrations.testRefreshed":
+    "Portifact now creates issues in {targets} with the project's current issue type.",
   "integrations.problem.credential_rejected":
     "The service refused the credential: it is wrong, expired or revoked.",
   "integrations.problem.missing_permission":
@@ -2592,6 +2597,8 @@ export const en = {
   "issues.failure.artifact_moved": "the artifact moved to another space.",
   "issues.failure.requester_left": "you can no longer create issues for this space.",
   "issues.failure.thread_gone": "the thread was deleted.",
+  "issues.failure.site_changed": "the Jira site's address changed.",
+  "issues.failure.other": "it could not be created.",
   "issues.dialog.eu":
     "This space keeps its data in the EU. What you send goes to {service}, outside the EU.",
   "issues.dialog.submit": "Create issue",
@@ -2611,15 +2618,15 @@ export const en = {
   "issues.failure.service_unavailable": "the service did not answer.",
   "issues.failure.invalid_response": "the service answered in a way Portifact could not use.",
   "audit.kind.integrationConnected":
-    "Connected {service, select, github {GitHub} other {Linear}} with {targets, plural, one {# repository or team} other {# repositories or teams}}",
+    "Connected {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} with {targets, plural, one {# repository or team} other {# repositories or teams}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {Replaced a connection's credential} other {Changed a connection's label or targets}}",
   "audit.kind.integrationRemoved":
-    "Removed a {service, select, github {GitHub} other {Linear}} connection",
+    "Removed a {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} connection",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {A connection's credential can no longer be opened} other {{service, select, github {GitHub} other {Linear}} refused a connection's credential}}",
+    "{reason, select, site_mismatch {The Jira site behind a connection changed its address} key_unavailable {A connection's credential can no longer be opened} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} refused a connection's credential}}",
   "audit.kind.issueCreated":
-    "Created a {service, select, github {GitHub} other {Linear}} issue in {target} from a thread {message, select, true {with its first message} other {without comment text}}",
+    "Created a {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} issue in {target} from a thread {message, select, true {with its first message} other {without comment text}}",
   "policies.networks.legend": "Networks for people",
   "policies.networks.hint":
     "Members, admins included, act on the workspace and read its workspace-only artifacts only from these networks. Public artifacts, share links and people outside the workspace you shared with are not affected.",

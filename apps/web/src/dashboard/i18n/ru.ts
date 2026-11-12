@@ -2532,6 +2532,7 @@ export const ru = {
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
   "integrations.service.jira": "Jira",
+  "integrations.service.other": "Другой сервис",
   "integrations.add.title": "Подключить сервис",
   "integrations.add.hint":
     "Учётные данные проверяются у сервиса, хранятся в зашифрованном виде и больше не показываются: Portifact показывает только последние четыре символа.",
@@ -2598,12 +2599,16 @@ export const ru = {
     "Сервис отклонил эти учётные данные. Вставьте новые и проверьте их.",
   "integrations.attention.key_unavailable":
     "Сохранённые учётные данные больше нельзя открыть. Вставьте их заново.",
+  "integrations.attention.site_mismatch":
+    "Этот cloud ID больше не относится к этому сайту Jira: сайт сменил адрес. Удалите это подключение и подключите сайт заново с его текущим именем.",
   "integrations.state.ready": "Готово",
   "integrations.state.attention": "Требует внимания",
   "integrations.test": "Проверить",
   "integrations.testLabel": "Проверить {label}",
   "integrations.testPassed":
     "{label} работает. Действует как {identity}, и все репозитории, команды или проекты доступны.",
+  "integrations.testRefreshed":
+    "Теперь Portifact создаёт задачи в {targets} с текущим типом задач проекта.",
   "integrations.problem.credential_rejected":
     "Сервис отклонил учётные данные: они неверны, истекли или отозваны.",
   "integrations.problem.missing_permission":
@@ -2657,6 +2662,8 @@ export const ru = {
   "issues.failure.artifact_moved": "artifact перенесён в другое пространство.",
   "issues.failure.requester_left": "вы больше не можете создавать задачи для этого пространства.",
   "issues.failure.thread_gone": "ветка удалена.",
+  "issues.failure.site_changed": "адрес сайта Jira изменился.",
+  "issues.failure.other": "её не удалось создать.",
   "issues.dialog.eu":
     "Это пространство хранит данные в ЕС. То, что вы отправите, уходит в {service}, за пределы ЕС.",
   "issues.dialog.submit": "Создать задачу",
@@ -2676,15 +2683,15 @@ export const ru = {
   "issues.failure.service_unavailable": "сервис не ответил.",
   "issues.failure.invalid_response": "сервис ответил так, что Portifact не смог это использовать.",
   "audit.kind.integrationConnected":
-    "Подключил {service, select, github {GitHub} other {Linear}} с {targets, plural, one {# репозиторием или командой} few {# репозиториями или командами} many {# репозиториями или командами} other {# репозитория или команды}}",
+    "Подключил {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} с {targets, plural, one {# репозиторием или командой} few {# репозиториями или командами} many {# репозиториями или командами} other {# репозитория или команды}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {Заменил учётные данные подключения} other {Изменил название или цели подключения}}",
   "audit.kind.integrationRemoved":
-    "Удалил подключение {service, select, github {GitHub} other {Linear}}",
+    "Удалил подключение {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {Учётные данные подключения больше нельзя открыть} other {{service, select, github {GitHub} other {Linear}} отклонил учётные данные подключения}}",
+    "{reason, select, site_mismatch {Сайт Jira подключения сменил адрес} key_unavailable {Учётные данные подключения больше нельзя открыть} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} отклонил учётные данные подключения}}",
   "audit.kind.issueCreated":
-    "Создал задачу {service, select, github {GitHub} other {Linear}} в {target} из ветки {message, select, true {с её первым сообщением} other {без текста комментариев}}",
+    "Создал задачу {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} в {target} из ветки {message, select, true {с её первым сообщением} other {без текста комментариев}}",
   "policies.networks.legend": "Сети для людей",
   "policies.networks.hint":
     "Участники, включая администраторов, работают в рабочем пространстве и читают его artifacts, открытые только для рабочего пространства, только из этих сетей. Публичные artifacts, ссылки для общего доступа и внешние люди, с которыми вы поделились, не затрагиваются.",

@@ -2488,6 +2488,7 @@ export const ja = {
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
   "integrations.service.jira": "Jira",
+  "integrations.service.other": "その他のサービス",
   "integrations.add.title": "サービスを接続",
   "integrations.add.hint":
     "認証情報はサービスで確認され、暗号化して保存され、再び表示されることはありません。Portifact が表示するのは最後の 4 文字だけです。",
@@ -2554,12 +2555,16 @@ export const ja = {
     "サービスがこの認証情報を拒否しました。新しいものを貼り付けてテストしてください。",
   "integrations.attention.key_unavailable":
     "保存された認証情報を開けなくなりました。もう一度貼り付けてください。",
+  "integrations.attention.site_mismatch":
+    "このクラウド ID はもうこの Jira サイトのものではありません。サイトのアドレスが変わりました。この接続を削除し、現在の名前でサイトを接続し直してください。",
   "integrations.state.ready": "使用可能",
   "integrations.state.attention": "要対応",
   "integrations.test": "テスト",
   "integrations.testLabel": "{label} をテスト",
   "integrations.testPassed":
     "{label} は動作しています。{identity} として動作し、すべてのリポジトリ・チーム・プロジェクトにアクセスできます。",
+  "integrations.testRefreshed":
+    "Portifact は今後、{targets} ではプロジェクトの現在の issue タイプで issue を作成します。",
   "integrations.problem.credential_rejected":
     "サービスが認証情報を拒否しました。誤っているか、期限切れか、取り消されています。",
   "integrations.problem.missing_permission":
@@ -2614,6 +2619,8 @@ export const ja = {
   "issues.failure.artifact_moved": "artifact が別のスペースに移動しました。",
   "issues.failure.requester_left": "このスペースの issue を作成できなくなりました。",
   "issues.failure.thread_gone": "スレッドが削除されました。",
+  "issues.failure.site_changed": "Jira サイトのアドレスが変わりました。",
+  "issues.failure.other": "作成できませんでした。",
   "issues.dialog.eu":
     "このスペースはデータを EU 内に保存しています。送信する内容は EU 外の {service} に送られます。",
   "issues.dialog.submit": "issue を作成",
@@ -2633,15 +2640,15 @@ export const ja = {
   "issues.failure.service_unavailable": "サービスが応答しませんでした。",
   "issues.failure.invalid_response": "サービスの応答を Portifact が使用できませんでした。",
   "audit.kind.integrationConnected":
-    "{service, select, github {GitHub} other {Linear}} を {targets, plural, one {# 件のリポジトリまたはチーム} other {# 件のリポジトリまたはチーム}} で接続しました",
+    "{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} を {targets, plural, one {# 件のリポジトリまたはチーム} other {# 件のリポジトリまたはチーム}} で接続しました",
   "audit.kind.integrationChanged":
     "{credential, select, true {接続の認証情報を置き換えました} other {接続のラベルまたは対象を変更しました}}",
   "audit.kind.integrationRemoved":
-    "{service, select, github {GitHub} other {Linear}} の接続を削除しました",
+    "{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} の接続を削除しました",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {接続の認証情報を開けなくなりました} other {{service, select, github {GitHub} other {Linear}} が接続の認証情報を拒否しました}}",
+    "{reason, select, site_mismatch {接続先の Jira サイトのアドレスが変わりました} key_unavailable {接続の認証情報を開けなくなりました} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} が接続の認証情報を拒否しました}}",
   "audit.kind.issueCreated":
-    "スレッドから {target} に {service, select, github {GitHub} other {Linear}} の issue を作成しました {message, select, true {(最初のメッセージを含む)} other {(コメントのテキストなし)}}",
+    "スレッドから {target} に {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} の issue を作成しました {message, select, true {(最初のメッセージを含む)} other {(コメントのテキストなし)}}",
   "policies.networks.legend": "人のためのネットワーク",
   "policies.networks.hint":
     "管理者を含むメンバーは、これらのネットワークからのみワークスペースを操作し、ワークスペース限定のartifactを閲覧できます。公開artifact、共有リンク、共有した外部の人には影響しません。",

@@ -11,6 +11,7 @@ import {
   type IntegrationConnectionView,
   type IntegrationService,
   type IntegrationTestResult,
+  isIntegrationService,
   lowestPlanWith,
   PLAN_LABELS,
 } from "@portifact/contracts";
@@ -55,6 +56,16 @@ const connectionsQuery = (slug: string | undefined) =>
   ["integrations", "connections", slug ?? ""] as const;
 
 type T = ReturnType<typeof useT>;
+
+/**
+ * A service's name as people read it; a service this build does not know (a newer server's) gets
+ * a neutral label instead of a missing message.
+ */
+export function serviceLabel(t: T, service: string): string {
+  return isIntegrationService(service)
+    ? t(`integrations.service.${service}`)
+    : t("integrations.service.other");
+}
 
 /** The targets typed one per line, trimmed, empty lines dropped. */
 export function targetLines(text: string): string[] {
@@ -343,7 +354,12 @@ function Connect({
 }
 
 function testMessage(t: T, label: string, result: IntegrationTestResult): string {
-  if (result.ok) return t("integrations.testPassed", { label, identity: result.identity ?? "" });
+  if (result.ok) {
+    const passed = t("integrations.testPassed", { label, identity: result.identity ?? "" });
+    return result.refreshed.length === 0
+      ? passed
+      : `${passed} ${t("integrations.testRefreshed", { targets: result.refreshed.join(", ") })}`;
+  }
   return t(`integrations.problem.${result.problem ?? "service_unavailable"}`, {
     target: result.target ?? "",
   });

@@ -2538,6 +2538,7 @@ export const es = {
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
   "integrations.service.jira": "Jira",
+  "integrations.service.other": "Otro servicio",
   "integrations.add.title": "Conectar un servicio",
   "integrations.add.hint":
     "La credencial se comprueba con el servicio, se guarda cifrada y no se vuelve a mostrar: Portifact solo muestra sus últimos cuatro caracteres.",
@@ -2605,12 +2606,16 @@ export const es = {
     "El servicio rechazó esta credencial. Pega una nueva y pruébala.",
   "integrations.attention.key_unavailable":
     "La credencial guardada ya no se puede abrir. Pégala de nuevo.",
+  "integrations.attention.site_mismatch":
+    "El ID de nube ya no corresponde a este sitio de Jira: el sitio cambió de dirección. Quita esta conexión y vuelve a conectar el sitio con su nombre actual.",
   "integrations.state.ready": "Lista",
   "integrations.state.attention": "Requiere atención",
   "integrations.test": "Probar",
   "integrations.testLabel": "Probar {label}",
   "integrations.testPassed":
     "{label} funciona. Actúa como {identity} y todos los repositorios, equipos o proyectos son accesibles.",
+  "integrations.testRefreshed":
+    "Portifact ahora crea issues en {targets} con el tipo de issue actual del proyecto.",
   "integrations.problem.credential_rejected":
     "El servicio rechazó la credencial: es incorrecta, venció o fue revocada.",
   "integrations.problem.missing_permission":
@@ -2664,6 +2669,8 @@ export const es = {
   "issues.failure.artifact_moved": "el artifact se movió a otro espacio.",
   "issues.failure.requester_left": "ya no puedes crear issues para este espacio.",
   "issues.failure.thread_gone": "se eliminó el hilo.",
+  "issues.failure.site_changed": "el sitio de Jira cambió de dirección.",
+  "issues.failure.other": "no se pudo crear.",
   "issues.dialog.eu":
     "Este espacio guarda sus datos en la UE. Lo que envíes va a {service}, fuera de la UE.",
   "issues.dialog.submit": "Crear issue",
@@ -2684,15 +2691,15 @@ export const es = {
   "issues.failure.invalid_response":
     "el servicio respondió de una forma que Portifact no pudo usar.",
   "audit.kind.integrationConnected":
-    "Conectó {service, select, github {GitHub} other {Linear}} con {targets, plural, one {# repositorio o equipo} other {# repositorios o equipos}}",
+    "Conectó {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} con {targets, plural, one {# repositorio o equipo} other {# repositorios o equipos}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {Reemplazó la credencial de una conexión} other {Cambió la etiqueta o los destinos de una conexión}}",
   "audit.kind.integrationRemoved":
-    "Quitó una conexión de {service, select, github {GitHub} other {Linear}}",
+    "Quitó una conexión de {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {La credencial de una conexión ya no se puede abrir} other {{service, select, github {GitHub} other {Linear}} rechazó la credencial de una conexión}}",
+    "{reason, select, site_mismatch {El sitio de Jira de una conexión cambió de dirección} key_unavailable {La credencial de una conexión ya no se puede abrir} other {{service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} rechazó la credencial de una conexión}}",
   "audit.kind.issueCreated":
-    "Creó un issue de {service, select, github {GitHub} other {Linear}} en {target} desde un hilo {message, select, true {con su primer mensaje} other {sin texto de comentarios}}",
+    "Creó un issue de {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} en {target} desde un hilo {message, select, true {con su primer mensaje} other {sin texto de comentarios}}",
   "policies.networks.legend": "Redes para personas",
   "policies.networks.hint":
     "Los miembros, incluidos los administradores, actúan en el espacio de trabajo y leen sus artifacts solo para el espacio de trabajo únicamente desde estas redes. Los artifacts públicos, los enlaces para compartir y las personas de fuera con quienes compartiste no se ven afectados.",

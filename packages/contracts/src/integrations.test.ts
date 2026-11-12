@@ -6,8 +6,11 @@ import {
   GitHubRepo,
   INTEGRATION_LIMITS,
   IntegrationConnectionView,
+  IntegrationChoiceList,
   IntegrationCreate,
+  IntegrationService,
   IntegrationUpdate,
+  isIntegrationService,
   IssueParts,
   LinearTeamId,
   ThreadIssueCreate,
@@ -96,6 +99,42 @@ describe("integration contracts", () => {
         createdAt: new Date(0).toISOString(),
       }).success,
     ).toBe(true);
+  });
+
+  it("reads a service or a failure a newer server added in responses, never in inputs", () => {
+    const issue = {
+      id: `ti_${"a".repeat(32)}`,
+      service: "youtrack",
+      target: "Project",
+      state: "failed",
+      key: null,
+      url: null,
+      failure: "tracker_moved",
+      own: true,
+      createdAt: new Date(0).toISOString(),
+    };
+    expect(ThreadIssueView.safeParse(issue).success).toBe(true);
+    expect(ThreadIssueView.safeParse({ ...issue, service: "You Track" }).success).toBe(false);
+    expect(ThreadIssueView.safeParse({ ...issue, failure: "x".repeat(41) }).success).toBe(false);
+    expect(
+      IntegrationChoiceList.safeParse({
+        connections: [
+          {
+            id: `ic_${"a".repeat(32)}`,
+            service: "youtrack",
+            label: "Tracker",
+            targets: [],
+            usable: true,
+          },
+        ],
+        available: true,
+        serviceAvailable: true,
+        euResidency: false,
+      }).success,
+    ).toBe(true);
+    expect(IntegrationService.safeParse("youtrack").success).toBe(false);
+    expect(isIntegrationService("jira")).toBe(true);
+    expect(isIntegrationService("youtrack")).toBe(false);
   });
 
   it("knows the job topic and the tombstone kind", () => {

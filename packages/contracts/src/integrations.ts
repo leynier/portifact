@@ -10,6 +10,19 @@ export const INTEGRATION_SERVICES = ["github", "linear", "jira"] as const;
 export const IntegrationService = z.enum(INTEGRATION_SERVICES);
 export type IntegrationService = z.infer<typeof IntegrationService>;
 
+/** Whether a service named in a response is one this build knows. */
+export function isIntegrationService(value: string): value is IntegrationService {
+  return (INTEGRATION_SERVICES as readonly string[]).includes(value);
+}
+
+/**
+ * A service as a response the CLI and MCP read names it: one of `INTEGRATION_SERVICES`, or one a
+ * newer server added. Released clients validate responses, so a closed enum here would make every
+ * client older than a new service fail on a thread or a listing that mentions it (decision 0018,
+ * "Addendum: Jira"). Inputs keep the strict `IntegrationService`.
+ */
+export const IntegrationServiceName = z.string().regex(/^[a-z][a-z0-9_-]{0,31}$/);
+
 /** Safety caps and timings of integrations; not plan values (decision 0018). */
 export const INTEGRATION_LIMITS = {
   /** Connections one owner can have. */
@@ -32,6 +45,11 @@ export const INTEGRATION_LIMITS = {
   quoteMax: 500,
   /** Characters of the thread's first message sent at most. */
   messageMax: 3_000,
+  /**
+   * How much earlier than its request a found Jira issue may say it was created and still be
+   * adopted after a lost answer: clock skew between Portifact and Jira (decision 0018, "Jira").
+   */
+  lookupSkewMs: 120_000,
   /** Connections created per owner and day. */
   createsPerOwnerPerDay: 20,
   /** Checks against the service (create, change of credential, test) per owner and hour. */
@@ -208,13 +226,19 @@ export type IntegrationTarget = z.infer<typeof IntegrationTarget>;
  * `credential_rejected`: the service refused the credential (revoked, expired); `key_unavailable`:
  * it was sealed with a key the Workers no longer hold. Either needs an admin to paste a new one.
  */
-export const IntegrationAttention = z.enum(["credential_rejected", "key_unavailable"]);
+export const IntegrationAttention = z.enum([
+  "credential_rejected",
+  "key_unavailable",
+  /** Jira: the cloud ID no longer serves the stored site name (the site changed its address). */
+  "site_mismatch",
+]);
 export type IntegrationAttention = z.infer<typeof IntegrationAttention>;
 
 /** What the owner side sees to pick a connection: names and targets, never the credential. */
 export const IntegrationChoice = z.object({
   id: IntegrationConnectionId,
-  service: IntegrationService,
+  /** Tolerant: a client older than a service lists it as it comes (`IntegrationServiceName`). */
+  service: IntegrationServiceName,
   label: z.string(),
   targets: z.array(IntegrationTarget),
   /** False while it needs an admin's attention: issues cannot be created through it. */
@@ -236,6 +260,8 @@ export type IntegrationChoiceList = z.infer<typeof IntegrationChoiceList>;
 
 /** A connection as its admins see it: the credential only as its last four characters. */
 export const IntegrationConnectionView = IntegrationChoice.extend({
+  /** Only the dashboard reads this, deployed with the server: the strict service. */
+  service: IntegrationService,
   /** Jira: the site's name (`acme` for `acme.atlassian.net`); null for the other services. */
   site: z.string().nullable(),
   /** The account the credential acts as, as the service reported it at the last check. */
@@ -279,6 +305,11 @@ export const IntegrationTestResult = z.object({
   /** The target the problem is about, when one is. */
   target: z.string().nullable(),
   message: z.string(),
+  /**
+   * Jira: the projects whose issue type Portifact had to change because the project no longer
+   * has the stored one; the test saved the current one. Empty otherwise.
+   */
+  refreshed: z.array(z.string()).default([]),
 });
 export type IntegrationTestResult = z.infer<typeof IntegrationTestResult>;
 
@@ -364,6 +395,8 @@ export const ThreadIssueFailure = z.enum([
   "requester_left",
   /** The thread was deleted, or is no longer one the person who asked reads. */
   "thread_gone",
+  /** Jira: the connection's cloud ID no longer serves its site; an admin connects it again. */
+  "site_changed",
 ]);
 export type ThreadIssueFailure = z.infer<typeof ThreadIssueFailure>;
 
@@ -373,7 +406,8 @@ export type ThreadIssueFailure = z.infer<typeof ThreadIssueFailure>;
  */
 export const ThreadIssueView = z.object({
   id: ThreadIssueId,
-  service: IntegrationService,
+  /** Tolerant, like `IntegrationChoice.service`: a client shows a newer service as it comes. */
+  service: IntegrationServiceName,
   /** `owner/repo`, or the Linear team's or Jira project's name. */
   target: z.string(),
   state: ThreadIssueState,
@@ -381,7 +415,14 @@ export const ThreadIssueView = z.object({
   key: z.string().nullable(),
   /** On the service's own web host; null until created. */
   url: z.url().nullable(),
-  failure: ThreadIssueFailure.nullable(),
+  /**
+   * Tolerant too: a value of `ThreadIssueFailure`, or one a newer server added, which clients show
+   * with a neutral sentence.
+   */
+  failure: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{0,39}$/)
+    .nullable(),
   own: z.boolean(),
   createdAt: z.iso.datetime(),
 });

@@ -28,6 +28,7 @@ import {
   jiraFindJql,
   jiraIssueType,
   jiraIssueUrl,
+  jiraTimestamp,
   openJiraCredential,
   plainLine,
 } from "@portifact/domain";
@@ -404,10 +405,9 @@ async function checkJira(
   targets: readonly string[],
   options: CallOptions,
 ): Promise<CredentialCheck> {
-  const info = await jira(credential, site, "serverInfo", { method: "GET" }, options);
-  const infoResult = resultOf(info, "jira");
-  if (classifyIntegrationCall(infoResult).outcome !== "ok") {
-    const problem = problemOf(infoResult);
+  const proof = await verifyJiraSite(credential, site, options);
+  if (proof.kind === "failed") {
+    const problem = problemOf(proof.result);
     // An unknown cloud ID answers 404 at the gateway.
     return {
       ok: false,
@@ -415,9 +415,7 @@ async function checkJira(
       target: null,
     };
   }
-  if (!jiraBaseUrlIsSite(record(okJson(info))?.baseUrl, site.name)) {
-    return { ok: false, problem: "site_mismatch", target: null };
-  }
+  if (proof.kind === "other") return { ok: false, problem: "site_mismatch", target: null };
   const me = await jira(credential, site, "myself", { method: "GET" }, options);
   const meResult = resultOf(me, "jira");
   if (classifyIntegrationCall(meResult).outcome !== "ok") {
@@ -451,6 +449,26 @@ async function checkJira(
   return { ok: true, identity, targets: reached };
 }
 
+/**
+ * Asks Jira's `serverInfo` (no scope needed) which site the cloud ID serves now: `same` when its
+ * `baseUrl` is exactly the stored site, `other` when it names anything else (the site changed
+ * its address, or the cloud ID is another site's), or how the call failed.
+ */
+export async function verifyJiraSite(
+  credential: string,
+  site: JiraSite,
+  options: CallOptions,
+): Promise<
+  { kind: "same" } | { kind: "other" } | { kind: "failed"; result: IntegrationCallResult }
+> {
+  const info = await jira(credential, site, "serverInfo", { method: "GET" }, options);
+  const result = resultOf(info, "jira");
+  if (classifyIntegrationCall(result).outcome !== "ok") return { kind: "failed", result };
+  return jiraBaseUrlIsSite(record(okJson(info))?.baseUrl, site.name)
+    ? { kind: "same" }
+    : { kind: "other" };
+}
+
 // Creating an issue
 
 export type IssueCallOutcome =
@@ -461,6 +479,9 @@ export type IssueCallOutcome =
 function failedOf(result: IntegrationCallResult): { kind: "failed"; verdict: IntegrationVerdict } {
   return { kind: "failed", verdict: classifyIntegrationCall(result) };
 }
+
+/** A failed call as the job settles it (retried, marked or ended by the classification). */
+export const failedOutcome = failedOf;
 
 const invalid = () => failedOf({ kind: "invalid_response" });
 
@@ -580,8 +601,12 @@ export async function createIssue(
 export async function findIssue(
   service: IntegrationService,
   credential: string,
-  /** `identity`: the account the connection's credential acts as, as the service reported it. */
-  input: { target: string; reference: string; identity: string },
+  /**
+   * `identity`: the account the connection's credential acts as, as the service reported it.
+   * `requestedAt`: when the request was made; Jira adopts only an issue created since (less
+   * `lookupSkewMs`), so a reference pasted into an older issue is never linked.
+   */
+  input: { target: string; reference: string; identity: string; requestedAt?: number },
   options: CallOptions,
   /** Jira: the connection's site. */
   site?: JiraSite | null,
@@ -599,7 +624,7 @@ export async function findIssue(
         query: new URLSearchParams({
           jql: jql.value,
           maxResults: String(INTEGRATION_LIMITS.recentIssuesChecked),
-          fields: "description",
+          fields: "description,created",
         }),
       },
       // Recent issues carry their descriptions: allow more than a single issue's answer.
@@ -611,9 +636,14 @@ export async function findIssue(
     if (!Array.isArray(issues)) return invalid();
     // The search names only the connection's own account as creator; newest first, so the oldest
     // match is the last one.
-    const matches = issues.filter((item) =>
-      adfPlainText(record(record(item)?.fields)?.description).includes(marker),
-    );
+    const since = (input.requestedAt ?? 0) - INTEGRATION_LIMITS.lookupSkewMs;
+    const matches = issues.filter((item) => {
+      const fields = record(record(item)?.fields);
+      const created = jiraTimestamp(fields?.created);
+      return (
+        created !== null && created >= since && adfPlainText(fields?.description).includes(marker)
+      );
+    });
     const oldest = matches.at(-1);
     return oldest ? jiraIssue(oldest, site, input.target) : { kind: "absent" };
   }

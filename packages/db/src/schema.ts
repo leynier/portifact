@@ -1351,7 +1351,9 @@ export const integrationConnections = sqliteTable(
     identity: text("identity").notNull(),
     targets: text("targets").notNull(),
     /** Set when the service refused the credential or no key opens it: issues stop until fixed. */
-    attention: text("attention", { enum: ["credential_rejected", "key_unavailable"] }),
+    attention: text("attention", {
+      enum: ["credential_rejected", "key_unavailable", "site_mismatch"],
+    }),
     attentionAt: timestamp("attention_at"),
     revision: integer("revision").notNull().default(1),
     createdAt: createdAt(),

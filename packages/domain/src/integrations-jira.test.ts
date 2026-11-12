@@ -22,6 +22,7 @@ import {
   jiraIssueType,
   jiraIssueUrl,
   jiraSiteName,
+  jiraTimestamp,
   jqlString,
   openJiraCredential,
 } from "./integrations.ts";
@@ -199,6 +200,24 @@ describe("JQL", () => {
       }),
     );
   });
+});
+
+describe("Jira timestamps", () => {
+  it.each([
+    ["2026-11-08T12:00:00.000+0000", Date.UTC(2026, 10, 8, 12)],
+    ["2026-11-08T14:00:00.000+0200", Date.UTC(2026, 10, 8, 12)],
+    ["2026-11-08T07:30:00-04:30", Date.UTC(2026, 10, 8, 12)],
+    ["2026-11-08T12:00:00Z", Date.UTC(2026, 10, 8, 12)],
+  ])("reads %s", (raw, at) => {
+    expect(jiraTimestamp(raw)).toBe(at);
+  });
+
+  it.each([["2026-11-08"], ["yesterday"], ["2026-13-08T12:00:00+0000"], [1], [null]])(
+    "refuses %s",
+    (raw) => {
+      expect(jiraTimestamp(raw)).toBeNull();
+    },
+  );
 });
 
 describe("the sealed Jira credential", () => {

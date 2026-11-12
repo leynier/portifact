@@ -2514,6 +2514,7 @@ export const ptBR = {
   "integrations.service.github": "GitHub",
   "integrations.service.linear": "Linear",
   "integrations.service.jira": "Jira",
+  "integrations.service.other": "Outro serviço",
   "integrations.add.title": "Conectar um serviço",
   "integrations.add.hint":
     "A credencial é verificada com o serviço, guardada criptografada e nunca mais mostrada: o Portifact mostra só os quatro últimos caracteres.",
@@ -2580,12 +2581,16 @@ export const ptBR = {
     "O serviço recusou esta credencial. Cole uma nova e teste.",
   "integrations.attention.key_unavailable":
     "A credencial guardada não pode mais ser aberta. Cole de novo.",
+  "integrations.attention.site_mismatch":
+    "O ID de nuvem não corresponde mais a este site do Jira: o site mudou de endereço. Remova esta conexão e conecte o site de novo com o nome atual.",
   "integrations.state.ready": "Pronta",
   "integrations.state.attention": "Precisa de atenção",
   "integrations.test": "Testar",
   "integrations.testLabel": "Testar {label}",
   "integrations.testPassed":
     "{label} funciona. Age como {identity}, e todos os repositórios, equipes ou projetos estão acessíveis.",
+  "integrations.testRefreshed":
+    "O Portifact agora cria issues em {targets} com o tipo de issue atual do projeto.",
   "integrations.problem.credential_rejected":
     "O serviço recusou a credencial: ela está errada, expirou ou foi revogada.",
   "integrations.problem.missing_permission":
@@ -2639,6 +2644,8 @@ export const ptBR = {
   "issues.failure.artifact_moved": "o artifact foi movido para outro espaço.",
   "issues.failure.requester_left": "você não pode mais criar issues para este espaço.",
   "issues.failure.thread_gone": "a conversa foi excluída.",
+  "issues.failure.site_changed": "o endereço do site do Jira mudou.",
+  "issues.failure.other": "não foi possível criá-la.",
   "issues.dialog.eu":
     "Este espaço guarda seus dados na UE. O que você enviar vai para o {service}, fora da UE.",
   "issues.dialog.submit": "Criar issue",
@@ -2659,15 +2666,15 @@ export const ptBR = {
   "issues.failure.invalid_response":
     "o serviço respondeu de um jeito que o Portifact não pôde usar.",
   "audit.kind.integrationConnected":
-    "Conectou o {service, select, github {GitHub} other {Linear}} com {targets, plural, one {# repositório ou equipe} other {# repositórios ou equipes}}",
+    "Conectou o {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} com {targets, plural, one {# repositório ou equipe} other {# repositórios ou equipes}}",
   "audit.kind.integrationChanged":
     "{credential, select, true {Substituiu a credencial de uma conexão} other {Alterou o rótulo ou os destinos de uma conexão}}",
   "audit.kind.integrationRemoved":
-    "Removeu uma conexão do {service, select, github {GitHub} other {Linear}}",
+    "Removeu uma conexão do {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}}",
   "audit.kind.integrationFailing":
-    "{reason, select, key_unavailable {A credencial de uma conexão não pode mais ser aberta} other {O {service, select, github {GitHub} other {Linear}} recusou a credencial de uma conexão}}",
+    "{reason, select, site_mismatch {O site do Jira de uma conexão mudou de endereço} key_unavailable {A credencial de uma conexão não pode mais ser aberta} other {O {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} recusou a credencial de uma conexão}}",
   "audit.kind.issueCreated":
-    "Criou uma issue no {service, select, github {GitHub} other {Linear}} em {target} a partir de uma conversa {message, select, true {com a primeira mensagem} other {sem texto de comentários}}",
+    "Criou uma issue no {service, select, github {GitHub} linear {Linear} jira {Jira} other {{service}}} em {target} a partir de uma conversa {message, select, true {com a primeira mensagem} other {sem texto de comentários}}",
   "policies.networks.legend": "Redes para pessoas",
   "policies.networks.hint":
     "Os membros, incluindo os administradores, agem no workspace e leem os artifacts só do workspace apenas a partir destas redes. Artifacts públicos, links de compartilhamento e pessoas de fora com quem você compartilhou não são afetados.",

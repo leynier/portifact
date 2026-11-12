@@ -21,6 +21,13 @@ export interface FakeIssue {
   author: string;
   /** A pull request, which GitHub lists among issues. */
   pullRequest?: boolean;
+  /** Jira: when it was created, as Jira writes it (`…T12:00:00.000+0000`). */
+  created?: string;
+}
+
+/** A time as Jira writes it: milliseconds and an offset without a colon. */
+function jiraTime(at: number): string {
+  return new Date(at).toISOString().replace("Z", "+0000");
 }
 
 export interface FakeRequest {
@@ -32,6 +39,8 @@ export interface FakeRequest {
 
 type Scripted =
   | Response
+  /** The fake's own answer, to script a later call. */
+  | "pass"
   | "network"
   | "hang"
   | "lose"
@@ -83,6 +92,8 @@ export class FakeIssueTrackers {
   private readonly sites = new Map<string, string>();
   private readonly script: Scripted[] = [];
   private counter = 0;
+  /** The clock Jira's `created` reads; the real one unless a test sets it. */
+  now: () => number = () => Date.now();
 
   /** A GitHub token acting as `login` with these repositories (`owner/name`). */
   github(
@@ -138,8 +149,11 @@ export class FakeIssueTrackers {
     return this;
   }
 
-  /** Plants a Jira issue as someone else created it, for example one copying a reference line. */
-  plantJira(project: string, input: { text: string; author: string }) {
+  /**
+   * Plants a Jira issue as `author` created it at `created` (the fake's clock by default), for
+   * example one copying a reference line, or a large one.
+   */
+  plantJira(project: string, input: { text: string; author: string; created?: number }) {
     this.counter += 1;
     const key = `${project}-${this.counter}`;
     this.issues.push({
@@ -154,6 +168,7 @@ export class FakeIssueTrackers {
       key,
       url: `https://planted.atlassian.net/browse/${key}`,
       author: input.author,
+      created: jiraTime(input.created ?? this.now()),
     });
     return this;
   }
@@ -287,6 +302,7 @@ export class FakeIssueTrackers {
         key,
         url: `https://${site}.atlassian.net/browse/${key}`,
         author: credential.displayName,
+        created: jiraTime(this.now()),
       });
       return json(
         {
@@ -310,7 +326,10 @@ export class FakeIssueTrackers {
         )
         .reverse()
         .slice(0, Number(url.searchParams.get("maxResults") ?? 50))
-        .map((issue) => ({ key: issue.key, fields: { description: JSON.parse(issue.body) } }));
+        .map((issue) => ({
+          key: issue.key,
+          fields: { description: JSON.parse(issue.body), created: issue.created },
+        }));
       return json({ issues, isLast: true });
     }
     return json({ errorMessages: ["Not Found"] }, 404);

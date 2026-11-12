@@ -16,6 +16,7 @@ import { integrationKeys, openCredential } from "../src/integration-keys.ts";
 import {
   createIntegrationConnection,
   type IntegrationDeps,
+  listIntegrationChoices,
   storedTargets,
   testIntegrationConnection,
   updateIntegrationConnection,
@@ -293,7 +294,7 @@ describe("connecting Jira", () => {
     await grantPlan(owner.id, "team");
     const actor = personalActor(owner.id);
     const cases: [Record<string, unknown>, string][] = [
-      [{ site: "other.atlassian.net" }, "The cloud ID does not belong to that Jira site."],
+      [{ site: "other.atlassian.net" }, "The cloud ID does not belong to that Jira site"],
       [{ cloudId: "00000000-0000-4000-8000-000000000000" }, "The cloud ID does not belong"],
       [{ cloudId: OTHER_CLOUD, site: "other" }, "Jira refused the email and API token"],
       [{ credential: `${TOKEN}x` }, "Jira refused the email and API token"],
@@ -416,6 +417,101 @@ describe("connecting Jira", () => {
     ).toMatchObject({ ok: false, message: "Only Jira takes an account email." });
   });
 
+  it("stops linking issues to the stored site once serverInfo names another one", async () => {
+    const w = await world();
+    w.fake.jiraSite({ site: "acme-renamed", cloudId: CLOUD });
+    const tested = value(
+      await testIntegrationConnection(db(), {
+        actor: personalActor(w.owner.id),
+        connectionId: w.connection.id,
+        deps: await deps(w.fake),
+        now: NOW,
+      }),
+    );
+    expect(tested).toMatchObject({ ok: false, problem: "site_mismatch" });
+    expect((await connectionRow(w.connection.id))?.attention).not.toBeNull();
+    expect(await connectionRow(w.connection.id)).toMatchObject({ attention: "site_mismatch" });
+    // A second failing test writes no second event; a passing one clears the mark.
+    await testIntegrationConnection(db(), {
+      actor: personalActor(w.owner.id),
+      connectionId: w.connection.id,
+      deps: await deps(w.fake),
+      now: NOW,
+    });
+    const failing = (
+      await db().select().from(schema.auditEvents).where(eq(schema.auditEvents.ownerId, w.owner.id))
+    ).filter((e) => e.kind === "integration.failing");
+    expect(failing.map((e) => e.detail)).toEqual([{ service: "jira", reason: "site_mismatch" }]);
+    w.fake.jiraSite({ site: "acme", cloudId: CLOUD });
+    expect(
+      value(
+        await testIntegrationConnection(db(), {
+          actor: personalActor(w.owner.id),
+          connectionId: w.connection.id,
+          deps: await deps(w.fake),
+          now: NOW,
+        }),
+      ),
+    ).toMatchObject({ ok: true });
+    expect(await connectionRow(w.connection.id)).toMatchObject({ attention: null });
+  });
+
+  it("saves a project's current issue type when the stored one is gone, and says so", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    const project = {
+      key: "ENG",
+      name: "Engineering",
+      issueTypes: [{ id: "10001", name: "Task", hierarchyLevel: 0 }],
+    };
+    const fake = trackers().jira(ACCOUNT, TOKEN, {
+      displayName: "Jira Bot",
+      cloudId: CLOUD,
+      projects: [project],
+    });
+    const connection = value(await connect(personalActor(owner.id), fake));
+    // A Jira admin replaces the project's Task type.
+    project.issueTypes = [{ id: "30003", name: "Story", hierarchyLevel: 0 }];
+    const tested = value(
+      await testIntegrationConnection(db(), {
+        actor: personalActor(owner.id),
+        connectionId: connection.id,
+        deps: await deps(fake),
+        now: NOW,
+      }),
+    );
+    expect(tested).toMatchObject({ ok: true, refreshed: ["ENG"] });
+    expect(tested.message).toContain("The issue type of ENG was gone");
+    expect(storedTargets(String((await connectionRow(connection.id))?.targets))).toEqual([
+      { id: "ENG", name: "Engineering", issueType: "30003" },
+    ]);
+    // Nothing changed since: nothing to report.
+    expect(
+      value(
+        await testIntegrationConnection(db(), {
+          actor: personalActor(owner.id),
+          connectionId: connection.id,
+          deps: await deps(fake),
+          now: NOW,
+        }),
+      ).refreshed,
+    ).toEqual([]);
+  });
+
+  it("never shows the stored issue type to the owner side", async () => {
+    const w = await world();
+    const listed = value(
+      await listIntegrationChoices(db(), {
+        actor: personalActor(w.owner.id),
+        service: ON,
+        now: NOW,
+      }),
+    );
+    expect(listed.connections[0]?.targets).toEqual([{ id: "ENG", name: "Engineering" }]);
+    expect(JSON.stringify(listed)).not.toContain("issueType");
+    expect(JSON.stringify(w.connection)).not.toContain("issueType");
+  });
+
   it("tests a connection, and marks it when Jira refuses the token", async () => {
     const w = await world();
     const actor = personalActor(w.owner.id);
@@ -451,10 +547,13 @@ describe("creating a Jira issue", () => {
     expect(issue.target).toBe("Engineering");
     const before = w.fake.requests.length;
     expect(await run(issue.id, NOW, w.fake)).toBe("done");
-    // The first attempt makes one call: the create.
+    // The first attempt makes two calls: the site proved again, then the create.
     expect(
       w.fake.requests.slice(before).map((r) => `${r.method} ${new URL(r.url).pathname}`),
-    ).toEqual([`POST /ex/jira/${CLOUD}/rest/api/3/issue`]);
+    ).toEqual([
+      `GET /ex/jira/${CLOUD}/rest/api/3/serverInfo`,
+      `POST /ex/jira/${CLOUD}/rest/api/3/issue`,
+    ]);
     const sent = JSON.parse(w.fake.requests.at(-1)?.body ?? "{}") as {
       fields: {
         project: unknown;
@@ -519,7 +618,7 @@ describe("creating a Jira issue", () => {
   it("finds an issue whose answer was lost with a bounded JQL search, and creates nothing twice", async () => {
     const w = await world();
     const issue = value(await ask(w));
-    w.fake.next("lose");
+    w.fake.next("pass", "lose");
     expect(await run(issue.id, NOW, w.fake)).toBe("kept");
     expect(w.fake.issues).toHaveLength(1);
     const before = w.fake.requests.length;
@@ -533,7 +632,7 @@ describe("creating a Jira issue", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({
       jql: 'project = "ENG" AND creator = currentUser() AND created >= -1d ORDER BY created DESC',
       maxResults: String(INTEGRATION_LIMITS.recentIssuesChecked),
-      fields: "description",
+      fields: "description,created",
     });
     expect(await issueRow(issue.id)).toMatchObject({ state: "created", issueKey: "ENG-1" });
   });
@@ -558,7 +657,7 @@ describe("creating a Jira issue", () => {
   it("does not create anything when the lookup fails", async () => {
     const w = await world();
     const issue = value(await ask(w));
-    w.fake.next("lose");
+    w.fake.next("pass", "lose");
     await run(issue.id, NOW, w.fake);
     w.fake.next(Response.json({ issues: "nope" }));
     expect(await run(issue.id, NOW + INTEGRATION_LIMITS.retryDelaysMs[0], w.fake)).toBe("done");
@@ -581,7 +680,7 @@ describe("creating a Jira issue", () => {
   ])("ends a request whose answer is %#", async (answer, failure) => {
     const w = await world();
     const issue = value(await ask(w));
-    w.fake.next(answer);
+    w.fake.next("pass", answer);
     expect(await run(issue.id, NOW, w.fake)).toBe("done");
     expect(await issueRow(issue.id)).toMatchObject({ state: "failed", failure });
   });
@@ -594,6 +693,177 @@ describe("creating a Jira issue", () => {
     expect(await issueRow(issue.id)).toMatchObject({ failure: "credential_rejected" });
     expect(await connectionRow(w.connection.id)).toMatchObject({
       attention: "credential_rejected",
+    });
+  });
+
+  it("does not create an issue whose link points at a site the cloud ID no longer serves", async () => {
+    const w = await world();
+    w.fake.jiraSite({ site: "acme-renamed", cloudId: CLOUD });
+    const issue = value(await ask(w));
+    await run(issue.id, NOW, w.fake);
+    expect((await issueRow(issue.id))?.issueUrl ?? "").not.toContain("https://acme.atlassian.net/");
+    expect(await issueRow(issue.id)).toMatchObject({ state: "failed", failure: "site_changed" });
+    expect(w.fake.issues).toHaveLength(0);
+    expect(await connectionRow(w.connection.id)).toMatchObject({ attention: "site_mismatch" });
+    const events = await db()
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.ownerId, w.owner.id));
+    expect(events.filter((e) => e.kind === "integration.failing").map((e) => e.detail)).toEqual([
+      { service: "jira", reason: "site_mismatch" },
+    ]);
+    // The next request is refused at once, and calls nothing.
+    const before = w.fake.requests.length;
+    expect(await ask(w)).toMatchObject({
+      ok: false,
+      message: "This connection needs an admin's attention: its Jira site changed its address.",
+    });
+    expect(w.fake.requests.length).toBe(before);
+  });
+
+  it("ends a pending request with site_changed once a test marked the site", async () => {
+    const w = await world();
+    const issue = value(await ask(w));
+    w.fake.jiraSite({ site: "acme-renamed", cloudId: CLOUD });
+    await testIntegrationConnection(db(), {
+      actor: personalActor(w.owner.id),
+      connectionId: w.connection.id,
+      deps: await deps(w.fake),
+      now: NOW,
+    });
+    const before = w.fake.requests.length;
+    expect(await run(issue.id, NOW, w.fake)).toBe("done");
+    expect(await issueRow(issue.id)).toMatchObject({ state: "failed", failure: "site_changed" });
+    expect(w.fake.requests.length).toBe(before);
+  });
+
+  it("retries when the first attempt cannot reach serverInfo, and then creates without it", async () => {
+    const w = await world();
+    const issue = value(await ask(w));
+    w.fake.next(new Response("busy", { status: 503 }));
+    expect(await run(issue.id, NOW, w.fake)).toBe("kept");
+    expect(w.fake.issues).toHaveLength(0);
+    const before = w.fake.requests.length;
+    expect(await run(issue.id, NOW + INTEGRATION_LIMITS.retryDelaysMs[0], w.fake)).toBe("done");
+    // A retry: the search, then the create; serverInfo is asked only on the first attempt.
+    expect(
+      w.fake.requests.slice(before).map((r) => new URL(r.url).pathname.split("/").pop()),
+    ).toEqual(["jql", "issue"]);
+  });
+
+  it("uses each project's own issue type", async () => {
+    const owner = await person();
+    await grantPlan(owner.id, "team");
+    const fake = trackers().jira("two@acme.example", "ATATT-two-projects-test-only-000000", {
+      displayName: "Two Bot",
+      cloudId: CLOUD,
+      projects: [
+        { key: "ENG", name: "Engineering" },
+        {
+          key: "OPS",
+          name: "Operations",
+          issueTypes: [{ id: "20002", name: "Bug", hierarchyLevel: 0 }],
+        },
+      ],
+    });
+    const connection = value(
+      await connect(personalActor(owner.id), fake, {
+        account: "two@acme.example",
+        credential: "ATATT-two-projects-test-only-000000",
+        targets: ["ENG", "OPS"],
+      }),
+    );
+    const a = await artifact(owner.id);
+    const threadId = value(
+      await createAnnotationThread(db(), {
+        humanCheck: HUMAN,
+        userId: owner.id,
+        artifactId: a.id,
+        versionId: a.version,
+        target: { schema: 1, path: "index.html", anchor: { kind: "document" } },
+        body: "x",
+        now: NOW,
+      }),
+    ).id;
+    const w = { owner, fake, connection, a, threadId };
+    for (const [target, type] of [
+      ["OPS", "20002"],
+      ["ENG", "10001"],
+    ] as const) {
+      const issue = value(
+        await requestThreadIssue(db(), {
+          userId: owner.id,
+          artifactId: a.id,
+          threadId,
+          request: {
+            connectionId: connection.id,
+            target,
+            title: "x",
+            include: { link: true, artifactName: true, quote: false, message: false },
+          },
+          idempotencyKey: crypto.randomUUID(),
+          service: ON,
+          now: NOW,
+        }),
+      );
+      await run(issue.id, NOW, w.fake);
+      const sent = JSON.parse(w.fake.requests.at(-1)?.body ?? "{}") as {
+        fields: { issuetype: unknown; project: unknown };
+      };
+      expect(sent.fields).toMatchObject({ project: { key: target }, issuetype: { id: type } });
+    }
+  });
+
+  it("adopts the oldest issue created since the request, never one created before it", async () => {
+    const w = await world();
+    const issue = value(await ask(w));
+    w.fake.next(new Response("busy", { status: 503 }));
+    await run(issue.id, NOW, w.fake);
+    const reference = `Sent from Portifact. Reference: ${issue.id}`;
+    // Same account, the reference pasted in: one from before the request, two after it.
+    w.fake.plantJira("ENG", { text: reference, author: "Jira Bot", created: NOW - 3_600_000 });
+    w.fake.plantJira("ENG", { text: reference, author: "Jira Bot", created: NOW + 60_000 });
+    w.fake.plantJira("ENG", { text: reference, author: "Jira Bot", created: NOW + 120_000 });
+    const before = w.fake.requests.length;
+    expect(await run(issue.id, NOW + INTEGRATION_LIMITS.retryDelaysMs[0], w.fake)).toBe("done");
+    expect(w.fake.requests.length - before).toBe(1);
+    const keys = w.fake.issues.map((one) => one.key);
+    // The search lists newest first; the oldest one since the request is the second planted.
+    expect(await issueRow(issue.id)).toMatchObject({ state: "created", issueKey: keys[1] });
+  });
+
+  it("does not adopt an issue created before the request, and creates its own", async () => {
+    const w = await world();
+    const issue = value(await ask(w));
+    w.fake.next(new Response("busy", { status: 503 }));
+    await run(issue.id, NOW, w.fake);
+    w.fake.plantJira("ENG", {
+      text: `Reference: ${issue.id}`,
+      author: "Jira Bot",
+      created: NOW - INTEGRATION_LIMITS.lookupSkewMs - 1,
+    });
+    await run(issue.id, NOW + INTEGRATION_LIMITS.retryDelaysMs[0], w.fake);
+    expect(await issueRow(issue.id)).toMatchObject({ state: "created" });
+    expect((await issueRow(issue.id))?.issueKey).not.toBe(w.fake.issues[0]?.key);
+    expect(w.fake.issues).toHaveLength(2);
+  });
+
+  it("reads a search answer larger than one issue's bound", async () => {
+    const w = await world();
+    const issue = value(await ask(w));
+    w.fake.next(new Response("busy", { status: 503 }));
+    await run(issue.id, NOW, w.fake);
+    // A recent issue with a long description: the search answer is over 256 KiB.
+    w.fake.plantJira("ENG", { text: "x".repeat(300 * 1024), author: "Jira Bot", created: NOW + 1 });
+    w.fake.plantJira("ENG", {
+      text: `Reference: ${issue.id}`,
+      author: "Jira Bot",
+      created: NOW + 2,
+    });
+    expect(await run(issue.id, NOW + INTEGRATION_LIMITS.retryDelaysMs[0], w.fake)).toBe("done");
+    expect(await issueRow(issue.id)).toMatchObject({
+      state: "created",
+      issueKey: w.fake.issues[1]?.key,
     });
   });
 

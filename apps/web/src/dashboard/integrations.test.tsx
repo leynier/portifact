@@ -7,7 +7,7 @@ import type { IntegrationConnectionView } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CreateIssueDialog } from "./review/create-issue.tsx";
+import { CreateIssueDialog, usableConnections } from "./review/create-issue.tsx";
 import { IssueLinks } from "./review/thread-card.tsx";
 import { targetLines } from "./screens/integrations.tsx";
 import {
@@ -202,6 +202,30 @@ describe("integrations page", () => {
     expect(await axeViolations(document.body)).toEqual([]);
   });
 
+  it("leaves out a connection of a service this version does not know", () => {
+    const list = {
+      connections: [
+        connection(),
+        { ...connection({ id: `ic_${"c".repeat(32)}` }), service: "youtrack" },
+      ],
+      available: true,
+      serviceAvailable: true,
+      euResidency: false,
+    };
+    expect(usableConnections(list).map((one) => one.service)).toEqual(["github"]);
+  });
+
+  it("shows a Jira connection whose site moved as needing attention, with what to do", async () => {
+    server.integrations.connections = [
+      connection({ service: "jira", site: "acme", label: "Jira", attention: "site_mismatch" }),
+    ];
+    renderDashboard("/integrations", server);
+    const main = await page();
+    expect(
+      await within(main).findByText(/the site changed its address\. Remove this connection/),
+    ).toBeTruthy();
+  });
+
   it("splits the targets one per line", () => {
     expect(targetLines(" a/b \r\n\n c/d \n")).toEqual(["a/b", "c/d"]);
   });
@@ -390,10 +414,41 @@ describe("issue links on a thread", () => {
             own: true,
             createdAt: "2026-11-09T09:00:00.000Z",
           },
+          {
+            id: `ti_${"4".repeat(32)}`,
+            service: "jira",
+            target: "Engineering",
+            state: "failed",
+            key: null,
+            url: null,
+            failure: "site_changed",
+            own: true,
+            createdAt: "2026-11-09T09:00:00.000Z",
+          },
+          {
+            // A newer server's service and reason: a neutral sentence, never a missing message.
+            id: `ti_${"5".repeat(32)}`,
+            service: "youtrack",
+            target: "Project",
+            state: "failed",
+            key: null,
+            url: null,
+            failure: "tracker_moved",
+            own: true,
+            createdAt: "2026-11-09T09:00:00.000Z",
+          },
         ]}
       />,
       server,
     );
+    expect(
+      await screen.findByText(
+        "Issue in Engineering was not created: the Jira site's address changed.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Issue in Project was not created: it could not be created."),
+    ).toBeTruthy();
     const link = await screen.findByRole("link", { name: "Issue #12 in acme/site" });
     expect(link.getAttribute("href")).toBe("https://github.com/acme/site/issues/12");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");

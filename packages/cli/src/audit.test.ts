@@ -518,6 +518,27 @@ describe("plain words for every kind", () => {
     ).toBe(expected[kind]);
   });
 
+  it("names Jira, a moved Jira site and a service this version does not know", () => {
+    const summary = (kind: AuditKind, detail: Record<string, unknown>) =>
+      auditSummary(event(0, { kind, detail }));
+    expect(summary("integration.failing", { service: "jira", reason: "site_mismatch" })).toBe(
+      "The Jira site behind a connection changed its address",
+    );
+    expect(summary("integration.removed", { service: "youtrack" })).toBe(
+      "Removed a youtrack connection",
+    );
+    expect(
+      summary("issue.created", {
+        service: "jira",
+        target: "ENG",
+        link: true,
+        artifactName: false,
+        quote: false,
+        message: false,
+      }),
+    ).toBe("Created a Jira issue in ENG from a thread (sent: the link)");
+  });
+
   it("says what a maximum life of artifacts changed (decision 0023)", () => {
     expect(
       auditSummary(

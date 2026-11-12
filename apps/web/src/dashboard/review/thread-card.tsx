@@ -9,6 +9,7 @@ import {
   type AnnotationThreadView,
   HUMAN_VERIFICATION_REQUIRED,
   type IntegrationChoiceList,
+  ThreadIssueFailure,
   type ThreadIssueView,
 } from "@portifact/contracts";
 import {
@@ -58,6 +59,12 @@ import { MessageContent, TargetSummary } from "./thread-parts.tsx";
 import { applyThread, dropThread, type ThreadsState, threadsQuery } from "./use-threads.ts";
 
 type T = ReturnType<typeof useT>;
+
+/** Why an issue was not created; a reason this build does not know gets a neutral sentence. */
+function failureReason(t: T, failure: string | null): string {
+  const known = ThreadIssueFailure.safeParse(failure ?? "rejected");
+  return known.success ? t(`issues.failure.${known.data}`) : t("issues.failure.other");
+}
 
 export function ActionError({ error }: { error: unknown }) {
   const t = useT();
@@ -470,7 +477,7 @@ export function IssueLinks({ issues }: { issues: readonly ThreadIssueView[] }) {
                 <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
                 {t("issues.failed", {
                   target: issue.target,
-                  reason: t(`issues.failure.${issue.failure ?? "rejected"}`),
+                  reason: failureReason(t, issue.failure),
                 })}
               </span>
             )}

@@ -10,7 +10,9 @@ import {
   INTEGRATION_LIMITS,
   type IntegrationChoice,
   type IntegrationChoiceList,
+  type IntegrationService,
   type IssueParts,
+  isIntegrationService,
 } from "@portifact/contracts";
 import {
   anchorQuote,
@@ -27,7 +29,7 @@ import { CircleAlert, Globe, SquarePlus } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { errorMessage } from "../screens/artifact-list.tsx";
-import { integrationChoicesQuery } from "../screens/integrations.tsx";
+import { integrationChoicesQuery, serviceLabel } from "../screens/integrations.tsx";
 import { threadsQuery } from "./use-threads.ts";
 
 const DEFAULT_PARTS: IssueParts = { link: true, artifactName: true, quote: false, message: false };
@@ -56,11 +58,19 @@ export function useIssueChoices(artifactId: string, enabled: boolean) {
   return choices.data?.serviceAvailable ? choices.data : undefined;
 }
 
-/** The connections an issue can go through now. */
-export function usableConnections(list: IntegrationChoiceList | undefined): IntegrationChoice[] {
+/**
+ * The connections an issue can go through now: usable, with a target, and of a service this build
+ * can preview (a newer server's service is left out rather than previewed wrongly).
+ */
+export function usableConnections(
+  list: IntegrationChoiceList | undefined,
+): (IntegrationChoice & { service: IntegrationService })[] {
   if (!list?.serviceAvailable || !list.available) return [];
   return list.connections.filter(
-    (connection) => connection.usable && connection.targets.length > 0,
+    (connection): connection is IntegrationChoice & { service: IntegrationService } =>
+      connection.usable &&
+      connection.targets.length > 0 &&
+      isIntegrationService(connection.service),
   );
 }
 
@@ -104,7 +114,7 @@ export function CreateIssueDialog({
   const quote = anchorQuote(thread.target);
   const first = thread.messages[0];
   const message = first && first.state === "visible" ? first.body : null;
-  const service = connection?.service ?? "github";
+  const service: IntegrationService = connection?.service ?? "github";
   const source = {
     service,
     link: threadLink(window.location.origin, artifactId, thread.path, thread.id),
@@ -170,7 +180,7 @@ export function CreateIssueDialog({
           {choices.euResidency ? (
             <Callout
               tone="info"
-              title={t("issues.dialog.eu", { service: t(`integrations.service.${service}`) })}
+              title={t("issues.dialog.eu", { service: serviceLabel(t, service) })}
               icon={<Globe className="size-5" />}
             />
           ) : null}
@@ -179,7 +189,7 @@ export function CreateIssueDialog({
             value={connection.id}
             options={usable.map((one) => ({
               value: one.id,
-              label: `${one.label} (${t(`integrations.service.${one.service}`)})`,
+              label: `${one.label} (${serviceLabel(t, one.service)})`,
             }))}
             onChange={(id) => {
               setConnectionId(id);

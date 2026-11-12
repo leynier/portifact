@@ -247,7 +247,7 @@ export function checkProblemMessage(
               " project.",
             );
     case "site_mismatch":
-      return "The cloud ID does not belong to that Jira site. Copy both again from the site.";
+      return "The cloud ID does not belong to that Jira site (or the site changed its address). Copy both again from the site; for a connection, remove it and connect the site again.";
     case "issues_disabled":
       return service === "jira"
         ? `Portifact cannot create issues in ${target ?? "the project"}: it has no standard issue type.`
@@ -550,6 +550,9 @@ export async function updateIntegrationConnection(
     if (targetsChanged) {
       change.targets = JSON.stringify(checked.targets);
       detail.targets = checked.targets.length;
+    } else if (row.service === "jira") {
+      // The same projects, checked again: keep the issue types and names just read.
+      change.targets = JSON.stringify(checked.targets);
     }
     if (newCredential !== undefined) {
       Object.assign(change, {
@@ -607,12 +610,16 @@ export interface ConnectionTest {
   problem: IntegrationCheckProblem | null;
   target: string | null;
   message: string;
+  /** Jira projects whose stored issue type was gone and is now the project's current one. */
+  refreshed: string[];
 }
 
 /**
  * Asks the service again who the credential acts as and whether every target is reachable, and
- * reports in plain words what failed. A credential the service refuses marks the connection as
- * needing attention; one that works again clears it. Never gated: a lapsed plan can still see
+ * reports in plain words what failed. A credential the service refuses, or a Jira cloud ID that
+ * no longer serves the stored site, marks the connection as needing attention; one that works
+ * again clears it. For Jira it also saves each project's current issue type, so a type a Jira
+ * admin removed stops failing every issue. Never gated: a lapsed plan can still see
  * whether its credential works.
  */
 export async function testIntegrationConnection(
@@ -639,6 +646,7 @@ export async function testIntegrationConnection(
       problem: "credential_rejected",
       target: null,
       message: "The stored credential can no longer be opened. Paste the credential again.",
+      refreshed: [],
     });
   }
   const limited = await checkLimit(db.global, input.actor, input.now);
@@ -651,11 +659,13 @@ export async function testIntegrationConnection(
     connectionSite(row),
   );
   if (!checked.ok) {
-    if (checked.problem === "credential_rejected") {
+    if (checked.problem === "credential_rejected" || checked.problem === "site_mismatch") {
+      // Issues stop: a refused credential sends nothing, and a site that changed its address
+      // would get links to the old name, shown to everyone who sees the thread.
       await markAttention(
         db,
         row,
-        "credential_rejected",
+        checked.problem,
         { type: "user", id: input.actor.userId },
         input.now,
       );
@@ -666,20 +676,39 @@ export async function testIntegrationConnection(
       problem: checked.problem,
       target: checked.target,
       message: checkProblemMessage(row.service, checked.problem, checked.target),
+      refreshed: [],
     });
   }
+  const stored = new Map(storedTargets(row.targets).map((target) => [target.id, target]));
+  const refreshed = checked.targets
+    .filter((target) => {
+      const before = stored.get(target.id)?.issueType;
+      return before !== undefined && target.issueType !== undefined && before !== target.issueType;
+    })
+    .map((target) => target.id);
   // It works: the identity as reported now, and no attention needed any more; only on the row
-  // as it was read, so a credential pasted meanwhile keeps its own identity and state.
+  // as it was read, so a credential pasted meanwhile keeps its own identity and state. Jira
+  // targets keep the issue types just read.
   await db
     .update(c)
-    .set({ identity: checked.identity, attention: null, attentionAt: null })
+    .set({
+      identity: checked.identity,
+      attention: null,
+      attentionAt: null,
+      ...(row.service === "jira" ? { targets: JSON.stringify(checked.targets) } : {}),
+    })
     .where(sameCredential(row));
+  const message = `Connected as ${checked.identity}. Every repository, team or project is reachable.`;
   return ok({
     ok: true,
     identity: checked.identity,
     problem: null,
     target: null,
-    message: `Connected as ${checked.identity}. Every repository, team or project is reachable.`,
+    message:
+      refreshed.length === 0
+        ? message
+        : `${message} The issue type of ${refreshed.join(", ")} was gone; Portifact now uses the project's current one.`,
+    refreshed,
   });
 }
 
@@ -693,8 +722,8 @@ function sameCredential(row: Pick<ConnectionRow, "id" | "revision" | "credential
 }
 
 /**
- * Marks a connection as needing an admin (the service refused its credential, or no key opens
- * it), with one `integration.failing` event when it was not marked already. Issues stop going
+ * Marks a connection as needing an admin (the service refused its credential, no key opens it,
+ * or a Jira cloud ID no longer serves the stored site), with one `integration.failing` event when it was not marked already. Issues stop going
  * through it until an admin pastes a new credential or a test passes.
  */
 export async function markAttention(
