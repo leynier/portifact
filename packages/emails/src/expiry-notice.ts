@@ -8,7 +8,7 @@
 // (account settings), English when they chose none; the texts are typed by the locale list, so a
 // new language fails the typecheck until it is here.
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
-import { type Block, type Inline, renderEmail } from "./layout.ts";
+import { type Block, type Inline, renderEmail, textSignature } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
 import { pluralCategory, pluralForm } from "./plural.ts";
 
@@ -401,7 +401,7 @@ export function expiryNoticeEmail(input: ExpiryNoticeInput): EmailContent {
     `${t.optOut}${gap(t.optOut)}${input.settingsUrl}`,
     "",
     t.reason,
-    "Portifact, https://portifact.com",
+    ...textSignature(locale),
   ].join("\n");
 
   return { subject, text, html };

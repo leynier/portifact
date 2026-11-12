@@ -168,6 +168,7 @@ export const fr: AuthCatalog = {
     "auth.terms": "Conditions",
     "auth.privacy": "Confidentialité",
     "auth.acceptableUse": "Utilisation acceptable",
+    "auth.dpa": "Sous-traitance des données",
     "auth.accessTo": "Accès à",
     "auth.ableTo": "Elle pourra",
     "auth.deny": "Refuser",
@@ -184,8 +185,7 @@ export const fr: AuthCatalog = {
     "login.methodNotUsed": "Pas encore utilisée",
     "login.signOut": "Se déconnecter",
     "login.termsUpdateHeading": "Consultez les conditions pour continuer",
-    "login.termsUpdateBody":
-      "Votre compte n’a pas encore accepté la version actuelle des conditions.",
+    "login.termsUpdateBody": `Votre compte n’a pas encore accepté la version actuelle des conditions. <a href="https://portifact.com/terms#what-changed" target="_blank" rel="noopener">Voir ce qui a changé</a> (s’ouvre dans un nouvel onglet).`,
     "login.termsUpdateNotice": `En sélectionnant Accepter et continuer, ${termsConditions}`,
     "login.agreeAndContinue": "Accepter et continuer",
     "login.termsNotice": `En continuant avec Google, GitHub ou un code par e-mail, ${termsConditions}`,

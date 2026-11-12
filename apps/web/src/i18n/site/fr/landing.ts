@@ -331,6 +331,7 @@ export const landing: PageMessages = {
   "landing.footer.terms": "Conditions d’utilisation",
   "landing.footer.privacy": "Politique de confidentialité",
   "landing.footer.acceptableUse": "Politique d’utilisation acceptable",
+  "landing.footer.dpa": "Accord de traitement des données",
   "landing.footer.report": "Signaler un artifact",
   "landing.nav.plans": "Offres",
   "landing.plans.eyebrow": "Offres",

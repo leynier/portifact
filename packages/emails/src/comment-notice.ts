@@ -8,7 +8,7 @@
 // unsubscribe link besides the settings.
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import { gap } from "./expiry-notice.ts";
-import { type Block, type Inline, renderEmail } from "./layout.ts";
+import { type Block, type Inline, renderEmail, textSignature } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
 import { type PluralForms, pluralForm } from "./plural.ts";
 
@@ -411,7 +411,7 @@ export function commentNoticeEmail(input: CommentNoticeInput): EmailContent {
     `${t.unsubscribe}${gap(t.unsubscribe)}${input.unsubscribeUrl}`,
     "",
     t.reason,
-    "Portifact, https://portifact.com",
+    ...textSignature(locale),
   ].join("\n");
 
   return { subject, text, html };

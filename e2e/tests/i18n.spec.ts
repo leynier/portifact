@@ -192,7 +192,7 @@ test.describe("at 320 px with wider text than any font gives", () => {
     for (const code of LANGUAGE_CODES) {
       const prefix = code === "en" ? "" : `/${code.toLowerCase()}`;
       const pages = [
-        ...["/", "/mcp-compatibility", "/terms", "/privacy", "/acceptable-use"].map(
+        ...["/", "/mcp-compatibility", "/terms", "/privacy", "/acceptable-use", "/dpa"].map(
           // Each asks for its language: the login page's `?lang=` before it is kept in the
           // shared cookie, which would send the next static page to that language.
           (path) => `${SITE_ORIGIN}${prefix}${path}?lang=${code}`,

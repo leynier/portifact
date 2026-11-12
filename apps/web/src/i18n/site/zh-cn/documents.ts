@@ -11,6 +11,7 @@ export const documents: PageMessages = {
   "legal.footer.terms": "条款",
   "legal.footer.privacy": "隐私",
   "legal.footer.acceptableUse": "可接受使用",
+  "legal.footer.dpa": "数据处理",
   "legal.terms.title": "服务条款：Portifact",
   "legal.terms.description":
     "使用 Portifact 的条款。Portifact 是一项发布静态 artifact 并提供访问控制和审阅功能的服务。",
@@ -20,6 +21,9 @@ export const documents: PageMessages = {
   "legal.acceptableUse.title": "可接受使用政策：Portifact",
   "legal.acceptableUse.description":
     "哪些内容不能在 Portifact 上发布、哪些行为不被允许、如何举报滥用，以及违反规则会有什么后果。",
+  "legal.dpa.title": "数据处理附录：Portifact",
+  "legal.dpa.description":
+    "Portifact 代表客户处理个人数据的条件，包括标准合同条款和次级处理者名单。",
 
   // MCP compatibility page.
   "mcp.meta.title": "MCP 兼容性：Portifact",
@@ -64,4 +68,5 @@ export const documents: PageMessages = {
   "mcp.footer.terms": "条款",
   "mcp.footer.privacy": "隐私",
   "mcp.footer.acceptableUse": "可接受使用",
+  "mcp.footer.dpa": "数据处理",
 };

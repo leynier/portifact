@@ -11,6 +11,7 @@ export const documents: PageMessages = {
   "legal.footer.terms": "Nutzungsbedingungen",
   "legal.footer.privacy": "Datenschutz",
   "legal.footer.acceptableUse": "Zulässige Nutzung",
+  "legal.footer.dpa": "Auftragsverarbeitung",
   "legal.terms.title": "Nutzungsbedingungen: Portifact",
   "legal.terms.description":
     "Die Bedingungen für die Nutzung von Portifact, dem Dienst, der statische Artifacts mit Zugriffskontrolle und Review veröffentlicht.",
@@ -20,6 +21,9 @@ export const documents: PageMessages = {
   "legal.acceptableUse.title": "Richtlinie zur zulässigen Nutzung: Portifact",
   "legal.acceptableUse.description":
     "Was du auf Portifact nicht veröffentlichen oder tun darfst, wie du Missbrauch meldest und was bei Regelverstößen passiert.",
+  "legal.dpa.title": "Auftragsverarbeitungsvertrag: Portifact",
+  "legal.dpa.description":
+    "Die Bedingungen, unter denen Portifact personenbezogene Daten im Auftrag seiner Kunden verarbeitet, mit den Standardvertragsklauseln und der Liste der Unterauftragsverarbeiter.",
 
   // MCP compatibility page.
   "mcp.meta.title": "MCP-Kompatibilität: Portifact",
@@ -66,4 +70,5 @@ export const documents: PageMessages = {
   "mcp.footer.terms": "Nutzungsbedingungen",
   "mcp.footer.privacy": "Datenschutz",
   "mcp.footer.acceptableUse": "Zulässige Nutzung",
+  "mcp.footer.dpa": "Auftragsverarbeitung",
 };

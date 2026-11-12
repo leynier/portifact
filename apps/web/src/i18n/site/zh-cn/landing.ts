@@ -298,6 +298,7 @@ export const landing: PageMessages = {
   "landing.footer.terms": "服务条款",
   "landing.footer.privacy": "隐私政策",
   "landing.footer.acceptableUse": "可接受使用政策",
+  "landing.footer.dpa": "数据处理附录",
   "landing.footer.report": "举报 artifact",
   "landing.nav.plans": "方案",
   "landing.plans.eyebrow": "方案",

@@ -66,6 +66,6 @@ describe("MCP compatibility page", () => {
   it("links the legal pages from its footer", () => {
     const nav = /<nav aria-label="Legal"[^>]*>([\s\S]*?)<\/nav>/.exec(html)?.[1] ?? "";
     const links = [...nav.matchAll(/href="([^"]+)"/g)].map((match) => match[1]);
-    expect(links).toEqual(["/terms", "/privacy", "/acceptable-use"]);
+    expect(links).toEqual(["/terms", "/privacy", "/acceptable-use", "/dpa"]);
   });
 });

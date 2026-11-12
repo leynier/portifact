@@ -7,7 +7,7 @@
 import type { WorkspaceRole } from "@portifact/contracts";
 import { DEFAULT_LOCALE, type LocaleCode } from "@portifact/contracts/locales";
 import { formatExpiry } from "./expiry-notice.ts";
-import { renderEmail } from "./layout.ts";
+import { renderEmail, textSignature } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
 
 export interface InvitationInput {
@@ -225,7 +225,7 @@ export function invitationEmail(input: InvitationInput): EmailContent {
     t.ignore,
     "",
     t.reason,
-    "Portifact, https://portifact.com",
+    ...textSignature(locale),
   ].join("\n");
 
   return { subject: t.subject, text, html };

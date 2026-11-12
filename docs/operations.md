@@ -76,6 +76,16 @@ Report text is untrusted: the tool prints each report on one plain line and neve
 
 Reports arrive through `POST /api/v1/reports` from the report form at `app.portifact.com/report` (linked from the landing footer and from `/__portifact/report` on every artifact origin). They are limited per IP, per artifact and globally (`REPORT_LIMITS`), and only reports about artifacts that exist are stored; the answer is the same either way. Aim to respond within 48 hours, as the legal pages promise. Mail to `abuse@portifact.com` is the other channel.
 
+The form keeps only the artifact ID, a category and a short text, so a full notice about illegal content (exact address, reasons, the sender's name and email, a statement of accuracy and good faith) comes by email to `abuse@portifact.com`, which the Terms and the Acceptable Use Policy show as the main route. Handle every report or notice in these steps:
+
+1. **Acknowledge.** Reply to an email notice when it arrives, saying it was received. The form has no reply address unless the reporter gave one.
+2. **Escalate first if it is urgent.** A suspected crime that threatens someone's life or safety, or child sexual abuse material, is reported at once to the competent authority (for child sexual abuse material on a US-run service, the NCMEC CyberTipline). Suspend the artifact (`suspend-artifact`), do not download or forward the material, and preserve what the law requires (the artifact ID, its owner, times and the report) apart from the service, deleting it when the duty ends. Record what was reported, when and to whom.
+3. **Decide.** A person decides: read the content, the notice and the rules, and choose no action, a restriction (suspend the artifact, the brand or the account, or limit public sharing) or removal. Rate limits, quotas and capacity protection are automatic and are not decisions about content.
+4. **Tell the person affected,** by email to the account's address when there is one: the facts relied on, the ground (the law or the rule of the Terms or the Acceptable Use Policy), what was restricted and for how long, and how to ask for a review (reply, or write to `abuse@portifact.com`). Hold information back only where the law allows it, for example while an authority investigates. The dashboard shows only the category, so the email is the statement of reasons.
+5. **Tell the sender** of a notice what was decided and how to ask for a review.
+6. **Review** a decision when the affected person or the sender asks, by someone looking at it again, and reply with the outcome.
+7. **Copyright counter-notices** follow the Terms: forward a valid counter-notice to the sender of the notice and reinstate 10 to 14 business days after receiving it, unless the sender says a court action was filed. Count substantiated notices per account for the repeat infringer rule.
+
 ## Share links
 
 A share link (`app.portifact.com/s#<token>`, [decision 0008](decisions/0008-share-links.md)) lets anyone who holds it read one artifact without an account. Abuse handling does not change:
@@ -358,6 +368,22 @@ Every owner has a plan (`free`, `pro`, `team` or `enterprise`, `PLANS` in `packa
 - A lower plan never deletes anything for 60 days (see "Plan grace"). Above its limits, new artifacts, restores, updates that add storage and new comments are refused with `quota_exceeded`, naming the plan's limit where the owner reads the message (comments say only that the owner has no room, because the commenter is someone else). Reading, listing, exporting, downloading, deleting, archiving, reducing access, renewing and rolling back keep working; a rollback is not held to the per-artifact size, since the version already fit the plan it was published under.
 
 Safety caps that are not plan tiers stay constants: files per version, publishes and new files per 24 hours, open uploads, readers per artifact, the boundaries' file, offset and anchor cap (`LIMITS.fileBytesCap`, 5 GB, above every plan's per-artifact size) and the artifacts one expiry notice lists (`EXPIRY_NOTICE_ARTIFACTS_MAX`, 1,000). Version retention is carried in `PLANS` but not applied yet; access log retention (`accessLogRetentionDays`) applies to the access log and the analytics view counters (see "Access logs"). Budget protection does not look at plans.
+
+### Granting a paid plan
+
+Paid plans are sold by email (`hello@portifact.com`) and paid outside Portifact. Before the customer pays, send a written confirmation by email, and grant the plan with `set-plan` only once paid. The confirmation must state:
+
+- [ ] Who the customer is: the person or organization, its contact address and, for a workspace, its slug.
+- [ ] The plan and, for Team or Enterprise, the fixed number of seats (a seat is a member of any role or a pending invitation).
+- [ ] The currency and the total payable, including any tax Portifact must collect.
+- [ ] The start and end dates (`--until`), and that nothing renews or adds seats without the customer's written agreement.
+- [ ] How to pay (the method and, if a payment provider is used, its name).
+- [ ] The refund terms of the Terms: in full within 14 days of the first purchase, pro rata by day when Portifact ends the plan without the customer's breach, withdraws a paid feature or shuts down, billing errors refunded in full, paid within 14 days by the method used where possible, asked for by replying to the confirmation or at `legal@portifact.com`.
+- [ ] For a consumer, the withdrawal information their law requires (the right of withdrawal, its period and how to use it, with the model form where the law gives one), and, if the plan starts before the withdrawal period ends, the customer's express request to start it then.
+- [ ] For a customer that needs the standard contractual clauses (the DPA's "International transfers"), the completed party details with the operator's postal address and country, sent privately, before the clauses are relied on.
+- [ ] For Enterprise, the signed agreement that sets limits, liability and any `--overrides` (for example `auditRetentionDays`).
+
+Keep the confirmation and the payment record as long as tax and accounting law requires (the Privacy Policy says so). Correct a billing error and refund an overpayment in full as soon as it is found.
 
 ### Plan grace
 
