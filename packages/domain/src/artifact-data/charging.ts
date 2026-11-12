@@ -253,10 +253,10 @@ export function unpaidWork(
 ): PendingReads {
   if (rows === 0) return pending;
   if (charge === "housekeeping") return { ...pending, deferred: pending.deferred + rows };
-  const held =
-    pending.day === dayOf(now) || hasPending(pending)
-      ? pending
-      : { ...noPendingReads(now), deferred: pending.deferred };
+  // Usage already pending keeps its day; with none, the work is held for today.
+  const held = hasPending(pending)
+    ? pending
+    : { ...noPendingReads(now), deferred: pending.deferred };
   const since = hasPending(held) ? held.since : now;
   if (charge === "read") return { ...held, rows: held.rows + rows, since };
   return { ...held, unpaid: { ...held.unpaid, [charge]: held.unpaid[charge] + rows }, since };

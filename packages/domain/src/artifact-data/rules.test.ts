@@ -960,6 +960,7 @@ describe("charging", () => {
       today,
     );
     expect(every.unpaid).toEqual({ growth: 1, cleanup: 2, export: 3, rights: 4, protected: 5 });
+    expect(unpaidRows(every)).toBe(15);
     expect(every.since).toBe(NOW);
     // The next counter write puts each class's unpaid rows into that class.
     expect(flushed(emptyDay(dayOf(NOW)), every)).toEqual({
