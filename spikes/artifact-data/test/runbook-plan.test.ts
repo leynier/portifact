@@ -1,17 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
   alreadyGone,
+  ceilMinute,
   DELETION_ENTRY,
   datasetQuery,
   datasets,
   deletionConfig,
+  floorMinute,
   guardName,
+  nextPhaseStart,
+  phaseEnd,
   phaseReport,
   resourceNames,
   round,
   runSuffix,
   table,
   totals,
+  windowFor,
   workerConfig,
   workersDevUrl,
 } from "../src/runbook-plan.ts";
@@ -72,13 +77,47 @@ describe("the runbook's analytics arithmetic", () => {
     const names = resourceNames("run1");
     expect(datasets(names, null).map((set) => set.key)).toEqual(["worker", "invocations"]);
     const all = datasets(names, "ns123");
-    expect(all.map((set) => set.key)).toEqual(["worker", "invocations", "periodic", "storage"]);
+    expect(all.map((set) => set.key)).toEqual(["worker", "invocations", "periodic"]);
     const periodic = all.find((set) => set.key === "periodic");
     if (periodic === undefined) throw new Error("no periodic dataset");
     const query = datasetQuery(periodic, ["activeTime"]);
     expect(query).toContain('namespaceId: "ns123"');
     expect(query).toContain("sum { activeTime }");
-    expect(datasetQuery(all[3] ?? periodic)).toContain("max { storedBytes }");
+    // Fields the run of 2026-11-12 refused are not asked for again.
+    const worker = all.find((set) => set.key === "worker");
+    expect(worker?.fields).not.toContain("cpuTime");
+    expect(all.map((set) => set.name)).not.toContain("durableObjectsStorageGroups");
+  });
+
+  it("starts a per-minute dataset's window on its minute, so a phase keeps its first group", () => {
+    // The run of 2026-11-12: a phase from 18:17:01.048 lost its 18:17 group to a filter that
+    // started one second into the minute.
+    const phase = { start: "2026-11-12T18:17:01.048Z", end: "2026-11-12T18:18:00.000Z" };
+    expect(windowFor({ buckets: "minute" }, phase)).toEqual({
+      start: "2026-11-12T18:17:00.000Z",
+      end: "2026-11-12T18:18:00.000Z",
+    });
+    expect(windowFor({ buckets: "instant" }, phase)).toEqual(phase);
+    expect(
+      windowFor({ buckets: "minute" }, { start: phase.start, end: "2026-11-12T18:18:30.000Z" }).end,
+    ).toBe("2026-11-12T18:19:00.000Z");
+  });
+
+  it("leaves a whole minute without work before every phase, so no group holds two phases", () => {
+    const ended = Date.parse("2026-11-12T18:15:42.300Z");
+    const start = nextPhaseStart(ended);
+    expect(new Date(start).toISOString()).toBe("2026-11-12T18:17:00.000Z");
+    // The minute between (18:16) has no work: the previous work ended before it began.
+    expect(start - 60_000).toBeGreaterThan(ended);
+    expect(new Date(phaseEnd(Date.parse("2026-11-12T18:17:48.000Z"))).toISOString()).toBe(
+      "2026-11-12T18:18:00.000Z",
+    );
+    // A phase whose work ends exactly on a boundary still ends after it, and the next one waits.
+    const boundary = Date.parse("2026-11-12T18:18:00.000Z");
+    expect(phaseEnd(boundary)).toBe(boundary + 60_000);
+    expect(nextPhaseStart(boundary)).toBe(boundary + 120_000);
+    expect(floorMinute(boundary + 59_999)).toBe(boundary);
+    expect(ceilMinute(boundary + 1)).toBe(boundary + 60_000);
   });
 
   it("sums groups, keeps maxima for storage and converts to the record's units", () => {

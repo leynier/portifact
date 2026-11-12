@@ -33,6 +33,14 @@ Delivery 2's feasibility experiments (the record's "Feasibility results"):
 - `drill/runbook.ts`, `drill/worker.ts` and `src/runbook-plan.ts`: the deployed halves, for the maintainer's agent only. `CLOUDFLARE_API_TOKEN=… node spikes/artifact-data/drill/runbook.ts run --account-id <id>` creates a scratch Worker with this object, a D1 database and an R2 bucket named `pf-exp-data-<run>…` (it refuses any other name and prints no secret), runs the drill with a real Time Travel restore and the billing workload, reads the GraphQL analytics, prints observed against expected and deletes everything; `report --state <file>` resumes the analytics and `cleanup --state <file>` deletes again (idempotent). CI never runs it.
 - Experiment 1, the grant handoff in browsers, is `spikes/artifact-data-grant`.
 
+Results (2026-11-12; the record's "Feasibility results" has the tables):
+
+- Restore drill: 13 of 13 scenarios and 11 of 11 follow-ups as the recovery table says, locally and on the scratch deployment with a real Time Travel restore (run `9bed1a8b`).
+- Billing: rows per command equal the record's table locally. On the scratch deployment rows written match it and rows read are higher: 1 more per command (the storage report), 1 more per mutation (live invalidation), 1 per subscribed socket, 24 per cold start (the `sqlite_schema` check after a new instance or a hibernation) and 1 more written on an author's first write of a minute (the rate row). `billing.test.ts` reproduces every deployed minute's rows exactly from that rule.
+- Active time on the deployment: reads 11 to 16 ms, writes 42 to 50 ms, a pruning alarm on a cold object 108 ms, 1 to 4 ms of CPU each; idle and held objects and an idle connection hibernate (one wake in 10 idle minutes, none held, 0.108 s active for a 610 s connection).
+- Alarms: an object wakes about twice per mutation a day later to prune (241 wakes in an hour for 120 writes, locally), which the record's first cost formula left out.
+- The runbook's report now floors the per-minute dataset's window to its minute, leaves a whole minute without work before every phase, and no longer asks for fields Cloudflare does not document (`workersInvocationsAdaptive.sum.cpuTime`, a namespace filter on `durableObjectsStorageGroups`).
+
 Run from the repository root:
 
 ```bash

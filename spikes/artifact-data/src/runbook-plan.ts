@@ -94,8 +94,23 @@ export interface Dataset {
   filter: string;
   aggregate: "sum" | "max";
   fields: string[];
+  /**
+   * How the dataset's time filter matches: `instant` compares each event's time, `minute`
+   * compares the start of its one-minute group (`datetimeMinute`), so a window must start on a
+   * minute boundary or it drops the group its own first commands are in.
+   */
+  buckets: "instant" | "minute";
 }
 
+/**
+ * The datasets the report reads. `cpuTime` is not a `sum` field of `workersInvocationsAdaptive`
+ * (Cloudflare's Workers metrics tutorial queries it only as `quantiles { cpuTimeP50 cpuTimeP99 }`,
+ * and the run of 2026-11-12 answered `unknown field "cpuTime"`), so it is not asked for. Stored
+ * bytes are not read here: Cloudflare documents `durableObjectsStorageGroups` only with a date
+ * filter and `max { storedBytes }`, no namespace filter (the run answered `unknown arg
+ * namespaceId`), so its total would mix every project on the account; the object's own storage
+ * report (`databaseSize`) and `cost.test.ts` measure bytes instead.
+ */
 export function datasets(names: Names, namespaceId: string | null): Dataset[] {
   const worker = JSON.stringify(names.worker);
   const list: Dataset[] = [
@@ -104,7 +119,8 @@ export function datasets(names: Names, namespaceId: string | null): Dataset[] {
       name: "workersInvocationsAdaptive",
       filter: `{ scriptName: ${worker}, datetime_geq: $start, datetime_lt: $end }`,
       aggregate: "sum",
-      fields: ["requests", "errors", "subrequests", "duration", "wallTime", "cpuTime"],
+      fields: ["requests", "errors", "subrequests", "duration", "wallTime"],
+      buckets: "instant",
     },
     {
       key: "invocations",
@@ -112,40 +128,75 @@ export function datasets(names: Names, namespaceId: string | null): Dataset[] {
       filter: `{ scriptName: ${worker}, datetime_geq: $start, datetime_lt: $end }`,
       aggregate: "sum",
       fields: ["requests", "errors", "wallTime", "responseBodySize"],
+      buckets: "instant",
     },
   ];
   if (namespaceId !== null) {
-    const namespace = JSON.stringify(namespaceId);
-    list.push(
-      {
-        key: "periodic",
-        name: "durableObjectsPeriodicGroups",
-        filter: `{ namespaceId: ${namespace}, datetimeMinute_geq: $start, datetimeMinute_lt: $end }`,
-        aggregate: "sum",
-        fields: [
-          "activeTime",
-          "cpuTime",
-          "duration",
-          "inboundWebsocketMsgCount",
-          "outboundWebsocketMsgCount",
-          "rowsRead",
-          "rowsWritten",
-          "storageReadUnits",
-          "storageWriteUnits",
-          "storageDeletes",
-          "subrequests",
-        ],
-      },
-      {
-        key: "storage",
-        name: "durableObjectsStorageGroups",
-        filter: `{ namespaceId: ${namespace}, datetime_geq: $start, datetime_lt: $end }`,
-        aggregate: "max",
-        fields: ["storedBytes"],
-      },
-    );
+    list.push({
+      key: "periodic",
+      name: "durableObjectsPeriodicGroups",
+      filter: `{ namespaceId: ${JSON.stringify(namespaceId)}, datetimeMinute_geq: $start, datetimeMinute_lt: $end }`,
+      aggregate: "sum",
+      fields: [
+        "activeTime",
+        "cpuTime",
+        "duration",
+        "inboundWebsocketMsgCount",
+        "outboundWebsocketMsgCount",
+        "rowsRead",
+        "rowsWritten",
+        "storageReadUnits",
+        "storageWriteUnits",
+        "storageDeletes",
+        "subrequests",
+      ],
+      buckets: "minute",
+    });
   }
   return list;
+}
+
+const MINUTE = 60_000;
+
+export function floorMinute(at: number): number {
+  return Math.floor(at / MINUTE) * MINUTE;
+}
+
+export function ceilMinute(at: number): number {
+  return Math.ceil(at / MINUTE) * MINUTE;
+}
+
+/**
+ * The query window for one dataset: a per-minute dataset's start is floored to its minute, so
+ * the group holding the phase's first commands is included; the end is the phase's own end,
+ * already on a minute boundary.
+ */
+export function windowFor(
+  dataset: Pick<Dataset, "buckets">,
+  window: { start: string; end: string },
+): { start: string; end: string } {
+  if (dataset.buckets === "instant") return { start: window.start, end: window.end };
+  return {
+    start: new Date(floorMinute(Date.parse(window.start))).toISOString(),
+    end: new Date(ceilMinute(Date.parse(window.end))).toISOString(),
+  };
+}
+
+/**
+ * When the next measured phase may start, given when the last work ended: the start of the
+ * minute after the next one, so a whole minute with no work separates them. Durable Object
+ * periodic groups were seen to carry a busy minute's work into an earlier group (the run of
+ * 2026-11-12 reported no 18:16 group: the create phase landed in 18:15 with the deployment),
+ * and the idle minute also lets the object hibernate between phases, so every phase starts cold
+ * the same way.
+ */
+export function nextPhaseStart(lastWorkEnded: number): number {
+  return floorMinute(lastWorkEnded) + 2 * MINUTE;
+}
+
+/** The end of a phase's window: the minute boundary after its last work. */
+export function phaseEnd(lastWorkEnded: number): number {
+  return floorMinute(lastWorkEnded) + MINUTE;
 }
 
 export function datasetQuery(dataset: Dataset, fields: string[] = dataset.fields): string {

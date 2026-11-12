@@ -29,7 +29,9 @@ import {
   deletionConfig,
   guardName,
   type Names,
+  nextPhaseStart,
   type PhaseReport,
+  phaseEnd,
   phaseReport,
   RECORD_ROWS,
   resourceNames,
@@ -37,6 +39,7 @@ import {
   runSuffix,
   table,
   totals,
+  windowFor,
   workerConfig,
   workersDevUrl,
 } from "../src/runbook-plan.ts";
@@ -312,11 +315,12 @@ async function phase(
   commands: number,
   work: () => Promise<void>,
 ): Promise<void> {
-  // Phases start on a fresh minute and leave the next one empty, so per-minute groups separate.
-  await sleep(60_000 - (Date.now() % 60_000) + 1_000);
+  // A whole minute without work before every phase, and the phase's window starts on its
+  // minute (nextPhaseStart, phaseEnd), so no per-minute group holds two phases.
+  await sleep(Math.max(0, nextPhaseStart(Date.now()) - Date.now()));
   const start = new Date();
   await work();
-  const end = new Date(Math.ceil((Date.now() + 1) / 60_000) * 60_000);
+  const end = new Date(phaseEnd(Date.now()));
   state.windows.push({ phase: name, start: start.toISOString(), end: end.toISOString(), commands });
   save(state);
   log(`phase ${name}: ${commands} command(s), ${start.toISOString()} to ${end.toISOString()}`);
@@ -412,9 +416,10 @@ function rowsOf(answer: { data?: unknown }): { sum?: Record<string, number> }[] 
 async function measure(
   state: State,
   dataset: Dataset,
-  window: Window,
+  phase: Window,
   missing: Set<string>,
 ): Promise<Record<string, number>> {
+  const window = { ...phase, ...windowFor(dataset, phase) };
   const all = await graphql(state, datasetQuery(dataset), window);
   if (!all.errors?.length) return totals(rowsOf(all), dataset.aggregate);
   const out: Record<string, number> = {};
