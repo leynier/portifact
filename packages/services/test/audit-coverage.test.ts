@@ -38,6 +38,9 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   removeIntegrationConnection: ["integration.removed"],
   testIntegrationConnection: ["integration.failing"],
   markAttention: ["integration.failing"],
+  // Slack (decision 0025): an uninstall event marks the connection with integration.failing.
+  applySlackEvent: ["integration.failing"],
+  verifySlackRequest: ["integration.failing"],
   runThreadIssue: ["issue.created", "integration.failing"],
   updateBrand: ["brand.changed"],
   setBrandLogo: ["brand.changed"],
@@ -325,6 +328,10 @@ reason(
 reason(
   "tombstones of threads whose deletion its batch already recorded as policy.enforced (decision 0023)",
   ["writeCommentTombstones"],
+);
+reason(
+  "Slack: calls that change nothing an owner has, and the pending scan, which deletes rows that never held anything (decision 0025)",
+  ["slackCall", "slackAuthTest", "slackRevoke", "prunePendingConnections"],
 );
 reason("an issue request is recorded once the job creates the issue (issue.created)", [
   "requestThreadIssue",

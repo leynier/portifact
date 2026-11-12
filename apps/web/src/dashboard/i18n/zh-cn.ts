@@ -2382,6 +2382,54 @@ export const zhCN = {
     "它的凭据会从 Portifact 删除。已创建的 issue 保留链接；仍在创建中的 issue 会失败。也请在服务那边撤销令牌或密钥。",
   "integrations.removed": "已删除 {label}。",
   "integrations.actionFailed": "操作未成功",
+  "integrations.service.slack": "Slack",
+  "integrations.state.pending": "未完成",
+  "integrations.attention.pending": "请完成连接：粘贴 Slack 应用的 bot token 和 signing secret。",
+  "integrations.attention.app_uninstalled":
+    "Slack 表示该应用已被卸载或其令牌已被撤销。请在 Slack 中重新安装，并粘贴新的 bot token 和 signing secret。",
+  "integrations.howto.slack.title": "如何连接 Slack",
+  "integrations.howto.slack.1":
+    "先在这里填写标签。随后 Portifact 会显示一份供你自己的 Slack 应用使用的清单；此时还不会向 Slack 发送任何内容。",
+  "integrations.howto.slack.2":
+    "打开链接，用该清单在 Slack 中创建应用，然后将其安装到你的 Slack 工作区。你需要在那里创建和安装应用的权限。",
+  "integrations.howto.slack.3":
+    "从 OAuth & Permissions 复制 Bot User OAuth Token（以 xoxb- 开头），从 Basic Information 复制 Signing Secret，然后粘贴到这里。",
+  "integrations.howto.slack.4":
+    "在 Slack 的应用设置中打开 Event Subscriptions，点击 Request URL 旁边的 Verify。",
+  "integrations.slack.start": "开始",
+  "integrations.slack.started": "已开始 {label}。请用其清单创建 Slack 应用以完成连接。",
+  "integrations.slack.notices":
+    "频道中的通知来自 webhook：在同一个 Slack 应用中添加 incoming webhook，并将其 URL 粘贴到 Webhook 页面。",
+  "integrations.slack.noticesLink": "打开 Webhook",
+  "integrations.slack.pending.title": "完成 Slack 连接",
+  "integrations.slack.pending.body":
+    "用此清单创建应用并安装到你的 Slack 工作区，然后在下方粘贴其 bot token 和 signing secret。24 小时内未完成的连接会被删除。",
+  "integrations.slack.create": "在 Slack 中创建应用",
+  "integrations.slack.manifest": "应用清单",
+  "integrations.slack.requestUrl": "Request URL",
+  "integrations.slack.copyRequestUrl": "复制 Request URL",
+  "integrations.slack.copyManifest": "复制清单",
+  "integrations.slack.copied": "已复制",
+  "integrations.slack.botToken": "Bot User OAuth Token",
+  "integrations.slack.botTokenHint":
+    "位于 Slack 应用设置的 OAuth & Permissions 中，以 xoxb- 开头。",
+  "integrations.slack.signingSecret": "Signing Secret",
+  "integrations.slack.signingSecretHint":
+    "位于 Slack 应用设置的 Basic Information 中的 App Credentials 下。",
+  "integrations.slack.finish": "完成连接",
+  "integrations.slack.verify":
+    "接下来，在 Slack 的应用设置中打开 Event Subscriptions，点击 Request URL 旁边的 Verify。如果 Slack 无法验证，说明 signing secret 有误：请在这里重新粘贴。",
+  "integrations.slack.team": "Slack 工作区 {team}",
+  "integrations.slack.outdatedTitle": "旧版清单",
+  "integrations.slack.outdated":
+    "此应用是用旧版清单创建的。请在 Slack 中用下方的清单更新应用的清单。",
+  "integrations.slack.setup": "清单和 Request URL",
+  "integrations.slack.eu":
+    "此空间的数据保存在欧盟。你连接的 Slack 应用会收到 Portifact 发送的内容，例如被贴出链接的公开 artifact 的名称，Slack 可能会将其保存在欧盟以外。",
+  "integrations.edit.slackHint":
+    "两者都留空即可保留当前的令牌和密钥。新的 bot token 需与 signing secret 一起提交。",
+  "integrations.confirm.slackBody":
+    "bot token 和 signing secret 会从 Portifact 删除，Portifact 也会在 Slack 撤销该 bot token。请同时在 Slack 中删除该应用。",
   "issues.create": "创建 issue",
   "issues.dialog.title": "从讨论串 {number} 创建 issue",
   "issues.dialog.close": "关闭",

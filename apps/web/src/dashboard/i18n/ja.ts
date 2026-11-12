@@ -2593,6 +2593,56 @@ export const ja = {
     "認証情報は Portifact から削除されます。作成済みの issue のリンクは残り、作成中の issue は失敗します。サービス側でもトークンやキーを取り消してください。",
   "integrations.removed": "{label} を削除しました。",
   "integrations.actionFailed": "うまくいきませんでした",
+  "integrations.service.slack": "Slack",
+  "integrations.state.pending": "未完了",
+  "integrations.attention.pending":
+    "接続を完了してください: Slack アプリの bot token と signing secret を貼り付けます。",
+  "integrations.attention.app_uninstalled":
+    "Slack によると、アプリがアンインストールされたか、トークンが取り消されました。Slack で再インストールし、新しい bot token と signing secret を貼り付けてください。",
+  "integrations.howto.slack.title": "Slack の接続方法",
+  "integrations.howto.slack.1":
+    "ここでラベルを入力して始めます。Portifact が自分専用の Slack アプリのマニフェストを表示します。この時点では Slack に何も送信されません。",
+  "integrations.howto.slack.2":
+    "リンクを開いてそのマニフェストから Slack でアプリを作成し、Slack ワークスペースにインストールします。アプリを作成・インストールする権限が必要です。",
+  "integrations.howto.slack.3":
+    "OAuth & Permissions の Bot User OAuth Token (xoxb- で始まります) と Basic Information の Signing Secret をコピーして、ここに貼り付けます。",
+  "integrations.howto.slack.4":
+    "Slack のアプリ設定で Event Subscriptions を開き、Request URL の横の Verify をクリックします。",
+  "integrations.slack.start": "開始",
+  "integrations.slack.started":
+    "{label} を開始しました。完了するにはマニフェストから Slack アプリを作成してください。",
+  "integrations.slack.notices":
+    "チャンネルへの通知は Webhook から届きます。同じ Slack アプリに incoming webhook を追加し、その URL を Webhook ページに貼り付けてください。",
+  "integrations.slack.noticesLink": "Webhook を開く",
+  "integrations.slack.pending.title": "Slack の接続を完了",
+  "integrations.slack.pending.body":
+    "このマニフェストからアプリを作成して Slack ワークスペースにインストールし、下に bot token と signing secret を貼り付けてください。24 時間以内に完了しない接続は削除されます。",
+  "integrations.slack.create": "Slack でアプリを作成",
+  "integrations.slack.manifest": "アプリのマニフェスト",
+  "integrations.slack.requestUrl": "Request URL",
+  "integrations.slack.copyRequestUrl": "Request URL をコピー",
+  "integrations.slack.copyManifest": "マニフェストをコピー",
+  "integrations.slack.copied": "コピーしました",
+  "integrations.slack.botToken": "Bot User OAuth Token",
+  "integrations.slack.botTokenHint":
+    "Slack のアプリ設定の OAuth & Permissions にあります。xoxb- で始まります。",
+  "integrations.slack.signingSecret": "Signing Secret",
+  "integrations.slack.signingSecretHint":
+    "Slack のアプリ設定の Basic Information、App Credentials にあります。",
+  "integrations.slack.finish": "接続を完了",
+  "integrations.slack.verify":
+    "次に、Slack のアプリ設定で Event Subscriptions を開き、Request URL の横の Verify をクリックしてください。Slack が確認できない場合は signing secret が間違っています。ここにもう一度貼り付けてください。",
+  "integrations.slack.team": "Slack ワークスペース {team}",
+  "integrations.slack.outdatedTitle": "古いマニフェスト",
+  "integrations.slack.outdated":
+    "このアプリは古いマニフェストから作成されました。Slack でアプリのマニフェストを下のものに更新してください。",
+  "integrations.slack.setup": "マニフェストと Request URL",
+  "integrations.slack.eu":
+    "このスペースのデータは EU に保管されています。接続した Slack アプリは、リンクが投稿された公開 artifact の名前など Portifact が送る情報を受け取り、Slack はそれを EU の外に保管する場合があります。",
+  "integrations.edit.slackHint":
+    "現在のトークンとシークレットを使い続けるには両方とも空のままにします。新しい bot token は signing secret と一緒に送ります。",
+  "integrations.confirm.slackBody":
+    "bot token と signing secret は Portifact から削除され、Portifact は Slack で bot token を取り消します。Slack でもアプリを削除してください。",
   "issues.create": "issue を作成",
   "issues.dialog.title": "スレッド {number} から issue を作成",
   "issues.dialog.close": "閉じる",

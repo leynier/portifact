@@ -47,6 +47,7 @@ import { mcpRoutes } from "./mcp/routes.ts";
 import { readRoutes } from "./read.ts";
 import { artifactDb } from "./regions.ts";
 import { scimRoutes } from "./scim.ts";
+import { slackEventRoutes } from "./slack.ts";
 
 /**
  * Pages built by apps/web and served from static assets on this host only: the auth pages, the
@@ -428,6 +429,9 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       now: () => Date.now(),
     }),
   );
+  // Slack's events for a workspace's own Slack app (decision 0025): signed by the app's secret,
+  // switched off (404) without SLACK_ENABLED.
+  app.route("/", slackEventRoutes({ now: () => Date.now() }));
   // SCIM 2.0 for workspaces' directories (decision 0017), bearer-only with SCIM tokens.
   app.route(
     "/",

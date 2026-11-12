@@ -36,6 +36,7 @@ import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
 import { pruneFederatedCredentials, pruneUsedGitHubTokens } from "./github-trust.ts";
 import { pruneOperations } from "./idempotency.ts";
+import { prunePendingConnections } from "./integrations.ts";
 import { pruneExpiredInvitations } from "./invitations.ts";
 import {
   cursorFor,
@@ -938,6 +939,8 @@ export async function runRegionalMaintenance(
     scheduledSearchIndexing: (await scheduleSearchIndexing(db, now, undefined, region)).scheduled,
     webhooks: await maintainWebhooks(db, now),
     threadIssues: await requeueThreadIssues(db, now),
+    // Slack connections started and never completed (decision 0025): one delete.
+    pendingConnections: await prunePendingConnections(db, now),
     workspacePolicies: await enforceWorkspacePolicies(db, now),
     // Comment retention (decision 0023): deletes for good, bounded, held to the rule in force.
     commentRetention: await enforceCommentRetention(db, bucket, now, region),
@@ -1006,6 +1009,9 @@ export async function runMaintenance(
     webhooks: await maintainWebhooks(db, now),
     // Issues requested from threads whose job went missing get one again (decision 0018).
     threadIssues: await requeueThreadIssues(db, now),
+    // Slack connections started and never completed, after 24 hours (decision 0025): one delete
+    // of at most a few rows per owner, with no tombstone (they hold no credential).
+    pendingConnections: await prunePendingConnections(db, now),
     // Workspace policies (decision 0015): brings back in line what a request that read a policy
     // before it tightened let through after the policy's job ran.
     workspacePolicies: await enforceWorkspacePolicies(db, now),

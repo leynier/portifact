@@ -103,6 +103,13 @@ export interface Env extends DomainEnv {
    */
   INTEGRATIONS_KEY?: string | undefined;
   INTEGRATIONS_KEY_PREVIOUS?: string | undefined;
+  /**
+   * Exactly `"true"`, besides `INTEGRATIONS_ENABLED` and `INTEGRATIONS_KEY`, offers Slack
+   * connections (decision 0025): the events endpoint exists only then (404 otherwise), and
+   * starting or completing a Slack connection answers 503 without it. Never in a `wrangler.jsonc`
+   * before the checks in docs/releasing.md ("Slack") pass.
+   */
+  SLACK_ENABLED?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

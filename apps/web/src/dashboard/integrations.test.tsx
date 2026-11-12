@@ -43,6 +43,7 @@ function connection(overrides: Partial<IntegrationConnectionView> = {}): Integra
     identity: "octo-bot",
     credentialHint: "…WXYZ",
     attention: null,
+    slack: null,
     createdAt: "2026-11-09T09:00:00.000Z",
     updatedAt: "2026-11-09T09:00:00.000Z",
     createdBy: "Ada",
@@ -55,6 +56,122 @@ const page = async () => {
   await waitFor(() => expect(screen.queryByText("Loading connections")).toBeNull());
   return screen.getByRole("main");
 };
+
+describe("Slack on the integrations page (decision 0025)", () => {
+  // Built at run time: no committed literal looks like a real token.
+  const BOT = `xoxb-${"1".repeat(12)}-${"2".repeat(13)}-${"c".repeat(24)}`;
+  const SECRET = "d".repeat(32);
+
+  it("is offered only while Slack is switched on", async () => {
+    renderDashboard("/integrations", server);
+    const main = await page();
+    const form = within(main).getByRole("region", { name: "Connect a service" });
+    expect(within(form).queryByLabelText("Slack")).toBeNull();
+    cleanup();
+    server.integrations.slackOffered = true;
+    renderDashboard("/integrations", server);
+    const again = await page();
+    expect(
+      within(within(again).getByRole("region", { name: "Connect a service" })).getByLabelText(
+        "Slack",
+      ),
+    ).toBeTruthy();
+  });
+
+  it.each(["light", "dark"])(
+    "starts with a label, shows the manifest and Request URL, and finishes with the bot token and signing secret (%s theme)",
+    async (theme) => {
+      document.documentElement.dataset.theme = theme;
+      server.integrations.slackOffered = true;
+      renderDashboard("/integrations", server);
+      const main = await page();
+      const form = within(main).getByRole("region", { name: "Connect a service" });
+      fireEvent.click(within(form).getByLabelText("Slack"));
+      // No credential or target fields for Slack at this step; the notices go through webhooks.
+      expect(within(form).queryByLabelText("Fine-grained personal access token")).toBeNull();
+      expect(within(form).getByRole("link", { name: "Open Webhooks" })).toBeTruthy();
+      fireEvent.change(within(form).getByLabelText(/^Label/), { target: { value: "Acme Slack" } });
+      fireEvent.click(within(form).getByRole("button", { name: "Start" }));
+      const list = within(main).getByRole("region", { name: "Connections" });
+      expect(await within(list).findByRole("heading", { name: "Acme Slack" })).toBeTruthy();
+      expect(server.bodies.at(-1)).toEqual({ service: "slack", label: "Acme Slack" });
+      expect(within(list).getByText("Not finished")).toBeTruthy();
+      expect(within(list).getByText("Finish connecting Slack")).toBeTruthy();
+      const create = within(list).getByRole("link", { name: /Create the app in Slack/ });
+      expect(create.getAttribute("href")).toMatch(/^https:\/\/api\.slack\.com\/apps\?new_app=1/);
+      expect(create.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(within(list).getByRole("button", { name: "Copy Request URL" })).toBeTruthy();
+      expect(within(list).getByRole("button", { name: "Test Acme Slack" })).toHaveProperty(
+        "disabled",
+        true,
+      );
+      expect(await axeViolations(document.body)).toEqual([]);
+      const finish = within(list).getByRole("form", { name: "Finish connecting Slack" });
+      fireEvent.change(within(finish).getByLabelText(/^Bot User OAuth Token/), {
+        target: { value: BOT },
+      });
+      fireEvent.change(within(finish).getByLabelText(/^Signing Secret/), {
+        target: { value: SECRET },
+      });
+      fireEvent.click(within(finish).getByRole("button", { name: "Finish connecting" }));
+      expect(await within(list).findByText("Slack workspace Acme")).toBeTruthy();
+      expect(server.bodies.at(-1)).toEqual({ botToken: BOT, signingSecret: SECRET });
+      expect(within(list).getByText(/click Verify next to the Request URL/)).toBeTruthy();
+      expect(document.body.innerHTML).not.toContain(BOT.slice(0, 20));
+      expect(document.body.innerHTML).not.toContain(SECRET);
+      expect(await axeViolations(document.body)).toEqual([]);
+    },
+  );
+
+  it("says what Slack refused and clears both secrets", async () => {
+    server.integrations.slackOffered = true;
+    renderDashboard("/integrations", server);
+    const main = await page();
+    const form = within(main).getByRole("region", { name: "Connect a service" });
+    fireEvent.click(within(form).getByLabelText("Slack"));
+    fireEvent.change(within(form).getByLabelText(/^Label/), { target: { value: "Acme Slack" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Start" }));
+    const list = within(main).getByRole("region", { name: "Connections" });
+    await within(list).findByRole("heading", { name: "Acme Slack" });
+    const finish = within(list).getByRole("form", { name: "Finish connecting Slack" });
+    const token = within(finish).getByLabelText(/^Bot User OAuth Token/) as HTMLInputElement;
+    const secret = within(finish).getByLabelText(/^Signing Secret/) as HTMLInputElement;
+    fireEvent.change(token, { target: { value: "xoxp-not-a-bot-token-at-all" } });
+    fireEvent.change(secret, { target: { value: SECRET } });
+    fireEvent.click(within(finish).getByRole("button", { name: "Finish connecting" }));
+    expect(await within(finish).findByText(/starts with xoxb-/)).toBeTruthy();
+    expect(token.value).toBe("");
+    expect(secret.value).toBe("");
+  });
+
+  it("shows the EU note to an EU workspace's admins, and a different removal warning", async () => {
+    server.integrations.slackOffered = true;
+    server.integrations.connections = [
+      connection({
+        service: "slack",
+        label: "Acme Slack",
+        targets: [],
+        identity: "Acme",
+        slack: {
+          requestUrl: `https://app.portifact.com/integrations/slack/events/default/ic_${"a".repeat(32)}`,
+          manifest: "{}",
+          createUrl: "https://api.slack.com/apps?new_app=1&manifest_json=%7B%7D",
+          manifestVersion: 0,
+          outdated: true,
+        },
+      }),
+    ];
+    renderDashboard("/integrations", server);
+    const main = await page();
+    expect(within(main).getByText("Older manifest")).toBeTruthy();
+    fireEvent.click(within(main).getByRole("button", { name: "Remove Acme Slack" }));
+    expect(
+      await screen.findByText(
+        /Portifact revokes the bot token at Slack\. Delete the app in Slack too\./,
+      ),
+    ).toBeTruthy();
+  });
+});
 
 describe("integrations page", () => {
   it.each(["light", "dark"])(

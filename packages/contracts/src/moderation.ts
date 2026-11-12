@@ -217,13 +217,13 @@ export const AccountExport = z.object({
       }),
     ),
     /**
-     * The account's issue connections (decision 0018): the service, label, Jira site, identity
-     * and targets, never the credential (nor a Jira token's account email, sealed with it).
+     * The account's connections (decisions 0018 and 0025): the service, label, Jira site, identity
+     * (a Slack workspace's name for Slack) and targets, never the credential (nor a Jira token's account email, sealed with it).
      */
     integrations: z.array(
       z.object({
         id: z.string(),
-        service: z.enum(["github", "linear", "jira"]),
+        service: z.enum(["github", "linear", "jira", "slack"]),
         label: z.string(),
         site: z.string().nullable(),
         identity: z.string(),

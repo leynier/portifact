@@ -606,6 +606,21 @@ const GATED: GatedOperation[] = [
       return { api: { status: response.status, body: await response.json<unknown>() } };
     },
   },
+  // A Slack connection (decision 0025) starts and completes only through the session, gated on
+  // the owner's plan after authorization; starting holds nothing yet, so it is the gate's probe.
+  {
+    feature: "integrations",
+    name: "start a Slack connection",
+    scope: "owner",
+    run: async (who) => {
+      const response = await who.sessionCall("/api/v1/integrations/connections", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ service: "slack", label: "Gate" }),
+      });
+      return { api: { status: response.status, body: await response.json<unknown>() } };
+    },
+  },
   // Setting or tightening workspace policies (decision 0015) is session-only, with no bearer
   // route, MCP tool or CLI command: the gate is `requireFeature` on the workspace's plan, and its
   // body is checked through the session in workspace-policies.test.ts.
@@ -876,6 +891,7 @@ const IN_GRACE: Record<string, "held" | "refused"> = {
   "scim: map a directory group to a role": "refused",
   "integrations: create an issue from a thread": "refused",
   "integrations: connect an issue integration": "refused",
+  "integrations: start a Slack connection": "refused",
   "policies: test-only probe": "refused",
 };
 

@@ -218,6 +218,16 @@ Owners whose plan includes `integrations` (Team and above) create GitHub, Linear
 - To stop one owner's issues, mark its connections: `wrangler d1 execute portifact-control --remote --command "update integration_connections set attention = 'credential_rejected', attention_at = unixepoch() * 1000 where owner_id = '<owner>'"` (the owner's region's database for an EU workspace). To stop all of them, unset `INTEGRATIONS_ENABLED` on both Workers: pending jobs then fail with `unavailable` and send nothing.
 - A leaked credential is the customer's to revoke at GitHub, Linear or Atlassian; removing the connection deletes it from Portifact and writes a tombstone, so a restore cannot bring it back.
 
+## Slack connections
+
+A workspace's admins connect their own Slack app ([decision 0025](decisions/0025-slack-integration.md); "Slack connections" in [security.md](security.md)). Connections are rows of `integration_connections` with `service = 'slack'`, so the issue integrations' tombstones, deletions, export and key rotation cover them.
+
+- A started connection is `pending` until an admin pastes the bot token and signing secret; the maintenance run deletes pending rows older than 24 hours in every region (`pendingConnections` in its result). They hold no credential and write no tombstone.
+- `app_uninstalled` means Slack told Portifact the app was uninstalled or its tokens revoked; `credential_rejected`, that `auth.test` refused the token on Test; `key_unavailable`, that the sealing key is gone. Each needs an admin to paste a new token and secret. One `integration.failing` is recorded for each.
+- To stop one owner's Slack connections at once, mark them like any connection: `update integration_connections set attention = 'credential_rejected' where owner_id = '<owner>' and service = 'slack'`. To stop every Slack connection, unset `SLACK_ENABLED` on `portifact-app`: the endpoint answers 404 and Slack disables the subscription after its failures, which the admins re-enable with "Verify" later.
+- A leaked bot token or signing secret is the customer's to rotate in Slack (reinstall the app, or "Regenerate" the secret) and paste again. Removing a connection revokes its bot token at Slack (`auth.revoke`, logged as `slack_token_revoke`); the app itself stays in the customer's Slack workspace until they delete it.
+- The endpoint's log line is `slack_event` with `connectionId` and `outcome` (`refused`, `verified`, `ignored`, `team_mismatch`, `uninstalled`, `failed`). A burst of `refused` for one connection is someone without its signing secret, or a secret pasted wrong (the admin's "Verify" in Slack fails too).
+
 ## Brands
 
 Owners whose plan includes `branding` show a name, logo, color and link on the viewer's bar ("Owner branding" in [security.md](security.md)). A brand that impersonates someone, imitates Portifact or links to phishing is handled like an abusive artifact, but its suspension is separate:

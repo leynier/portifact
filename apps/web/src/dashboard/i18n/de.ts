@@ -2656,6 +2656,56 @@ export const de = {
     "Die Zugangsdaten werden aus Portifact gelöscht. Bereits erstellte Issues behalten ihre Links; Issues, die noch erstellt werden, schlagen fehl. Widerrufen Sie das Token oder den Schlüssel auch beim Dienst.",
   "integrations.removed": "{label} entfernt.",
   "integrations.actionFailed": "Das hat nicht geklappt",
+  "integrations.service.slack": "Slack",
+  "integrations.state.pending": "Nicht abgeschlossen",
+  "integrations.attention.pending":
+    "Schließe die Verbindung ab: Füge das Bot-Token und das Signing Secret der Slack-App ein.",
+  "integrations.attention.app_uninstalled":
+    "Slack meldet, dass die App deinstalliert oder ihre Tokens widerrufen wurden. Installiere sie in Slack erneut und füge ihr neues Bot-Token und Signing Secret ein.",
+  "integrations.howto.slack.title": "So wird Slack verbunden",
+  "integrations.howto.slack.1":
+    "Beginne hier mit einer Bezeichnung. Portifact zeigt dann ein Manifest für eine eigene Slack-App; noch wird nichts an Slack gesendet.",
+  "integrations.howto.slack.2":
+    "Öffne den Link, um die App in Slack aus diesem Manifest zu erstellen, und installiere sie dann in deinem Slack-Workspace. Dafür brauchst du dort die Berechtigung, Apps zu erstellen und zu installieren.",
+  "integrations.howto.slack.3":
+    "Kopiere das Bot User OAuth Token (es beginnt mit xoxb-) unter OAuth & Permissions und das Signing Secret unter Basic Information und füge beide hier ein.",
+  "integrations.howto.slack.4":
+    "Öffne in den Einstellungen der App in Slack Event Subscriptions und klicke neben der Request URL auf Verify.",
+  "integrations.slack.start": "Starten",
+  "integrations.slack.started":
+    "{label} gestartet. Erstelle die Slack-App aus ihrem Manifest, um abzuschließen.",
+  "integrations.slack.notices":
+    "Hinweise in einem Kanal kommen über Webhooks: Füge derselben Slack-App einen Incoming Webhook hinzu und trage seine URL auf der Seite Webhooks ein.",
+  "integrations.slack.noticesLink": "Webhooks öffnen",
+  "integrations.slack.pending.title": "Slack-Verbindung abschließen",
+  "integrations.slack.pending.body":
+    "Erstelle die App aus diesem Manifest und installiere sie in deinem Slack-Workspace, dann füge unten ihr Bot-Token und Signing Secret ein. Eine Verbindung, die nicht innerhalb von 24 Stunden abgeschlossen wird, wird gelöscht.",
+  "integrations.slack.create": "App in Slack erstellen",
+  "integrations.slack.manifest": "App-Manifest",
+  "integrations.slack.requestUrl": "Request URL",
+  "integrations.slack.copyRequestUrl": "Request URL kopieren",
+  "integrations.slack.copyManifest": "Manifest kopieren",
+  "integrations.slack.copied": "Kopiert",
+  "integrations.slack.botToken": "Bot User OAuth Token",
+  "integrations.slack.botTokenHint":
+    "Unter OAuth & Permissions in den Einstellungen der App in Slack. Es beginnt mit xoxb-.",
+  "integrations.slack.signingSecret": "Signing Secret",
+  "integrations.slack.signingSecretHint":
+    "Unter Basic Information in den Einstellungen der App in Slack, bei App Credentials.",
+  "integrations.slack.finish": "Verbindung abschließen",
+  "integrations.slack.verify":
+    "Öffne als Nächstes Event Subscriptions in den Einstellungen der App in Slack und klicke neben der Request URL auf Verify. Kann Slack sie nicht bestätigen, ist das Signing Secret falsch: Füge es hier erneut ein.",
+  "integrations.slack.team": "Slack-Workspace {team}",
+  "integrations.slack.outdatedTitle": "Älteres Manifest",
+  "integrations.slack.outdated":
+    "Diese App wurde aus einem älteren Manifest erstellt. Aktualisiere das Manifest der App in Slack mit dem unten stehenden.",
+  "integrations.slack.setup": "Manifest und Request URL",
+  "integrations.slack.eu":
+    "Die Daten dieses Bereichs werden in der EU gespeichert. Eine verbundene Slack-App erhält, was Portifact ihr sendet, etwa die Namen öffentlicher Artifacts, deren Links gepostet werden, und Slack kann es außerhalb der EU speichern.",
+  "integrations.edit.slackHint":
+    "Lass beide leer, um das aktuelle Token und Secret zu behalten. Ein neues Bot-Token kommt mit dem Signing Secret.",
+  "integrations.confirm.slackBody":
+    "Bot-Token und Signing Secret werden aus Portifact gelöscht, und Portifact widerruft das Bot-Token bei Slack. Lösche die App auch in Slack.",
   "issues.create": "Issue erstellen",
   "issues.dialog.title": "Issue aus Thread {number} erstellen",
   "issues.dialog.close": "Schließen",

@@ -70,7 +70,8 @@ const DEVELOP = {
   // sweep's R2 list finds nothing here, so it adds no D1 call).
   // Plus the prunes of expired GitHub run credentials and of used GitHub ID tokens (decision
   // 0024): one delete of at most 500 each.
-  runMaintenance: 64,
+  // Plus the prune of Slack connections started and never completed (decision 0025): one delete.
+  runMaintenance: 65,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads

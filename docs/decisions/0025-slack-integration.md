@@ -1,6 +1,6 @@
 # 0025 Slack integration: link previews from a workspace's own Slack app
 
-- Status: proposed
+- Status: accepted for delivery 1 (`feat(integrations): connect slack apps to workspaces`), built on the recommendations while the maintainer's questions stay open; delivery 2 (previews) proposed. What delivery 1 changed in this record is in "Delivery 1 as built".
 - Date: 2026-11-11
 - Feature: premium plan T7 (`integrations` in `PLANS`, Team and above), second delivery: Slack ("instalación por workspace, avisos a un canal, vista previa de enlaces"; "Tokens de terceros cifrados con un secreto del Worker. La vista previa solo muestra datos de artifacts públicos"). Builds on [decision 0018](0018-issue-integrations.md) (connections, sealed credentials, fixed origins, the switch) and [decision 0009](0009-webhooks.md) (the `slack` webhook format).
 
@@ -115,7 +115,7 @@ The signing secret cannot be checked against Slack's API; a wrong one shows as a
 
 ### Who manages and who lists
 
-Exactly as decision 0018: managing is the dashboard session only, never a bearer token (not even the CLI's `credentials:manage`), no MCP tool and no CLI command, because the pasted values act at Slack. Listing (`GET /api/v1/integrations`, `artifacts:read`, MCP `list_integrations`, `portifact integrations`) shows the label and the service, never the token, the hint, the secret, the Slack workspace's name or ID. Reading, testing and removing are never gated on the plan.
+Exactly as decision 0018: managing is the dashboard session only, never a bearer token (not even the CLI's `credentials:manage`), no MCP tool and no CLI command, because the pasted values act at Slack. The owner side's listing (`GET /api/v1/integrations`, `artifacts:read`, MCP `list_integrations`, `portifact integrations`) leaves Slack connections out (amended by delivery 1): that listing is where the owner side picks a connection to create an issue, a Slack connection creates none, and every CLI up to v0.39.0 validates the listing with a closed enum of services (`github`, `linear`), so one Slack row in a space would make `portifact integrations` fail for that space. Only the admins' page lists them, with what it shows of any connection (label, service, Slack workspace name, the token's last four characters), never the token, the secret or the Slack workspace's ID. Reading, testing and removing are never gated on the plan.
 
 ### Removing it
 
@@ -171,7 +171,9 @@ The endpoint is unauthenticated by nature. Its costs per request are fixed and s
 | `url_verification` (signed)                                              | 1                       | 1                                     | 0         | 0           |
 | `link_shared` with no candidate link, or a connection that is not usable | 1                       | 2                                     | 0         | 0           |
 | `link_shared` with candidate links                                       | 2                       | 3                                     | 0         | at most 1   |
-| `app_uninstalled` or `tokens_revoked`                                    | 2 (read, batch)         | 3                                     | 1 batch   | 0           |
+| `link_shared` in delivery 1 (acknowledged and ignored)                   | 1                       | 1                                     | 0         | 0           |
+| `app_uninstalled` or `tokens_revoked`, first                             | 2 (read, batch)         | 2 (read, batch)                       | 1 batch   | 0           |
+| `app_uninstalled` or `tokens_revoked`, connection already marked         | 1                       | 1                                     | 0         | 0           |
 
 No per-IP limit is added: a refused request costs at most one primary-key read and one HMAC, which is below what the app's existing anonymous routes cost, and a counter would itself be a D1 write per request. Cloudflare's network protection in front of the Worker is the volume control, as for every route. Signed traffic is bounded by Slack: at most 30,000 events per Slack workspace, app and hour (Slack, "The Events API"), and in practice by how many links people post.
 
@@ -279,7 +281,7 @@ Out of scope: an attacker with the Workers' secrets or deploy credentials; the c
 - signed `url_verification`: 1 D1 call, 0 writes, 0 subrequests;
 - signed `link_shared` with one public artifact of the owner: 2 D1 calls, 0 writes, 1 subrequest; with one database and a second region separately (`two-regions` setup): 3 calls;
 - signed `link_shared` naming only a private artifact, another owner's artifact, an unknown ID and a share link: 2 D1 calls (1 when no link parses), 0 writes, 0 subrequests, and no difference in the request to Slack (none) between them;
-- signed `app_uninstalled` twice: the first 1 read and 1 batch, the second 1 read and 1 batch that changes no row; one `integration.failing` in total;
+- signed `app_uninstalled` twice: the first 1 read and 1 batch, the second 1 read only (amended by delivery 1: the row read is already marked); one `integration.failing` in total;
 - completing a connection: exactly 1 subrequest (`auth.test`); removing: 1 subrequest (`auth.revoke`).
 
 ## Delivery
@@ -305,6 +307,20 @@ Release checks for `docs/releasing.md` ("Slack"), against a Slack workspace the 
 12. **Shared channels and Grid**: a Slack Connect channel previews with the installing workspace's `team_id`; an org-wide install, if a Grid sandbox is available, is ignored.
 13. **Hosts and secrets**: the app Worker's subrequests go only to `slack.com`; no token, secret, URL, channel or user ID appears in either Worker's logs.
 14. **Rate limit**: 60 links in a minute in one channel produce previews or `rate_limited` log lines, never a retry loop.
+
+## Delivery 1 as built
+
+What the first pull request settled differently from the text above, and why:
+
+1. **The owner side's listing leaves Slack out** ("Who manages and who lists", amended above). Evidence: `git show v0.39.0:packages/contracts/src/integrations.ts` has `IntegrationChoice.service: IntegrationService`, `z.enum(["github", "linear"])`, and the CLI parses `GET /api/v1/integrations` with `IntegrationChoiceList`, so a Slack row would fail `portifact integrations` on every released CLI. `develop`'s contracts are tolerant (`IntegrationServiceName`), but the row would still be noise there: it has no targets and creates no issue. The issue paths refuse a Slack connection explicitly (`service` check), answering like a missing connection, through the API, MCP and the CLI alike.
+2. **`INTEGRATION_SERVICES` keeps meaning issue trackers.** A new `CONNECTION_SERVICES` (`ConnectionService`) adds `slack` for connections, the admins' view, the export and the `integration.*` audit kinds; `thread_issues.service`, `issue.created` and every issue builder keep the narrower type, so the compiler refuses a Slack connection on an issue path. `INTEGRATION_API` gains `slack: "https://slack.com"`, and `checkIntegrationCall` allows only `/api/auth.test`, `/api/auth.revoke` and `/api/chat.unfurl`, without a query.
+3. **No plan read on the endpoint in delivery 1.** Nothing delivery 1 does after a verified request needs the plan: `url_verification` answers Slack, and an uninstall is a fact about the app whatever the plan, so it is marked without reading it (a lapsed plan that comes back finds the connection correctly flagged). The plan join (`bothSides`) arrives with previews. So an uninstall costs the read and one batch with a separate regional database too (2, not 3), and a repeat costs only the read: the row it read already has `attention`, so nothing is written (the table above is amended).
+4. **`attention` and the audit reason are two enums.** `IntegrationAttention` (the view and the column) has `pending`; `integration.failing`'s reason is `IntegrationFailingReason`, which does not, because a pending row never fails. `integration.connected` takes `targets: 0` for Slack.
+5. **Small refusals made explicit.** A refresh token (`xoxe-`) is refused like a rotating access token (`xoxe.`). A pending connection takes only the bot token and secret together: a label alone, a `credential`, `targets` or `account` is refused, so nothing is recorded about a row that holds nothing. Test refuses a pending row, and a token that now answers for another Slack workspace fails Test without marking the connection. A `url_verification` whose challenge is outside the safe shape answers `200` with an empty body (verified, so never `401`). `Content-Length` may be absent; the body read is capped either way.
+6. **Removal revokes only while Slack is switched on.** With `SLACK_ENABLED` unset nothing calls Slack, removal included; the row and its sealed value are still deleted at once.
+7. **Log outcomes.** `slack_event` adds `uninstalled` and `failed` (an exception after the answer) to the outcomes listed; removal logs `slack_token_revoke` with Slack's answer class. The counts of candidate and unfurled links come with previews.
+
+Verified in Slack's documentation for delivery 1 (docs.slack.dev, read on 2026-11-12): request signing ("Verifying requests from Slack": `X-Slack-Signature` and `X-Slack-Request-Timestamp`, `v0:<timestamp>:<body>`, HMAC-SHA-256 with the signing secret as a UTF-8 key, hex digest prefixed `v0=`, five minutes, an HMAC compare function); `url_verification` (fields `type`, `challenge`, `token`; answer `200` with the challenge as plain text, form or JSON `{"challenge": …}`; "verify the request's authenticity" before answering, though that page does not say Slack signs it, which stays release check 2); `auth.test` (no scopes; `ok`, `team`, `team_id`, `bot_id`, errors including `invalid_auth`, `token_revoked`, `token_expired`, `account_inactive`, `ratelimited`; `POST` with the token in the `Authorization` header and a JSON body accepted; the page does not name the `Bearer` scheme); `auth.revoke` (deactivates the bot user, does not uninstall; `ok`, `revoked`); `app_uninstalled` (no scope; `team_id`, `api_app_id`, `authorizations` entries with `team_id` and `is_enterprise_install`); the app manifest (`display_information.name` at most 35 characters, at most 5 unfurl domains, `request_url` must be verified by hand in the app's settings, `org_deploy_enabled`, `socket_mode_enabled`, `token_rotation_enabled`); and the prefilled `https://api.slack.com/apps?new_app=1&manifest_json=<url-encoded JSON>` link ("Configuring apps with app manifests", "Sharing manifests").
 
 ## Rejected
 

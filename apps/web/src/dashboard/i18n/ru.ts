@@ -2636,6 +2636,56 @@ export const ru = {
     "Учётные данные удаляются из Portifact. Уже созданные задачи сохраняют ссылки; задачи, которые ещё создаются, завершатся ошибкой. Отзовите токен или ключ и в самом сервисе.",
   "integrations.removed": "{label} удалено.",
   "integrations.actionFailed": "Не получилось",
+  "integrations.service.slack": "Slack",
+  "integrations.state.pending": "Не завершено",
+  "integrations.attention.pending":
+    "Завершите подключение: вставьте bot token и signing secret приложения Slack.",
+  "integrations.attention.app_uninstalled":
+    "Slack сообщает, что приложение удалено или его токены отозваны. Установите его в Slack снова и вставьте новый bot token и signing secret.",
+  "integrations.howto.slack.title": "Как подключить Slack",
+  "integrations.howto.slack.1":
+    "Начните здесь с названия. Затем Portifact покажет манифест для вашего собственного приложения Slack; в Slack пока ничего не отправляется.",
+  "integrations.howto.slack.2":
+    "Откройте ссылку, чтобы создать приложение в Slack по этому манифесту, и установите его в своё пространство Slack. Для этого нужно право создавать и устанавливать там приложения.",
+  "integrations.howto.slack.3":
+    "Скопируйте Bot User OAuth Token (начинается с xoxb-) в разделе OAuth & Permissions и Signing Secret в разделе Basic Information и вставьте их сюда.",
+  "integrations.howto.slack.4":
+    "В настройках приложения в Slack откройте Event Subscriptions и нажмите Verify рядом с Request URL.",
+  "integrations.slack.start": "Начать",
+  "integrations.slack.started":
+    "Подключение {label} начато. Создайте приложение Slack по его манифесту, чтобы завершить.",
+  "integrations.slack.notices":
+    "Уведомления в канал приходят через вебхуки: добавьте incoming webhook в то же приложение Slack и вставьте его URL на странице «Вебхуки».",
+  "integrations.slack.noticesLink": "Открыть вебхуки",
+  "integrations.slack.pending.title": "Завершите подключение Slack",
+  "integrations.slack.pending.body":
+    "Создайте приложение по этому манифесту и установите его в своё пространство Slack, затем вставьте ниже его bot token и signing secret. Подключение, не завершённое за 24 часа, удаляется.",
+  "integrations.slack.create": "Создать приложение в Slack",
+  "integrations.slack.manifest": "Манифест приложения",
+  "integrations.slack.requestUrl": "Request URL",
+  "integrations.slack.copyRequestUrl": "Скопировать Request URL",
+  "integrations.slack.copyManifest": "Скопировать манифест",
+  "integrations.slack.copied": "Скопировано",
+  "integrations.slack.botToken": "Bot User OAuth Token",
+  "integrations.slack.botTokenHint":
+    "В разделе OAuth & Permissions настроек приложения в Slack. Начинается с xoxb-.",
+  "integrations.slack.signingSecret": "Signing Secret",
+  "integrations.slack.signingSecretHint":
+    "В разделе Basic Information настроек приложения в Slack, в блоке App Credentials.",
+  "integrations.slack.finish": "Завершить подключение",
+  "integrations.slack.verify":
+    "Теперь откройте Event Subscriptions в настройках приложения в Slack и нажмите Verify рядом с Request URL. Если Slack не может её проверить, signing secret неверен: вставьте его здесь снова.",
+  "integrations.slack.team": "Пространство Slack {team}",
+  "integrations.slack.outdatedTitle": "Устаревший манифест",
+  "integrations.slack.outdated":
+    "Это приложение создано по более старому манифесту. Обновите манифест приложения в Slack тем, что ниже.",
+  "integrations.slack.setup": "Манифест и Request URL",
+  "integrations.slack.eu":
+    "Данные этого пространства хранятся в ЕС. Подключённое приложение Slack получает то, что ему отправляет Portifact, например названия публичных артефактов, ссылки на которые публикуют, и Slack может хранить это за пределами ЕС.",
+  "integrations.edit.slackHint":
+    "Оставьте оба поля пустыми, чтобы сохранить текущие токен и секрет. Новый bot token передаётся вместе с signing secret.",
+  "integrations.confirm.slackBody":
+    "Bot token и signing secret удаляются из Portifact, и Portifact отзывает bot token в Slack. Удалите приложение и в Slack.",
   "issues.create": "Создать задачу",
   "issues.dialog.title": "Создать задачу из ветки {number}",
   "issues.dialog.close": "Закрыть",
