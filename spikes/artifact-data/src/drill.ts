@@ -466,9 +466,7 @@ export class Drill {
         control,
       );
       actions[artifactId] =
-        decision.action === "quarantine" || decision.action === "operator"
-          ? `${decision.action}:${decision.reason}`
-          : decision.action;
+        decision.action === "quarantine" ? `quarantine:${decision.reason}` : decision.action;
       if (decision.action === "quarantine") {
         await stub.quarantine(controlEnvelope(control), decision.reason);
       } else if (decision.action === "raise") {

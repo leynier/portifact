@@ -5,6 +5,9 @@
 // owner, the epoch, the generation, a pending erase, a hold, a quarantine), so `reconcile` can
 // repair D1 from it, or quarantine the data when the two cannot be made to agree.
 
+import type { DataControl, DataFence } from "@portifact/contracts/artifact-data";
+import * as production from "@portifact/domain/artifact-data";
+
 export interface Envelope {
   artifactId: string;
   region: string;
@@ -21,7 +24,7 @@ export interface Envelope {
 export interface Transition {
   /** The transition's own ID, from the D1 batch that ordered it: repeats are recognized by it. */
   id: string;
-  kind: "created" | "transfer" | "hold" | "release";
+  kind: "created" | "transfer" | "hold" | "release" | "epoch";
   epoch: number;
   fromOwner: string | null;
   toOwner: string;
@@ -39,7 +42,7 @@ export interface Control {
   /** A hold, kept independently of everything else (the transition that set it). */
   hold: { transition: string; epoch: number } | null;
   /** Set only by reconciliation after a restore; cleared only by the operator. */
-  quarantine: { reason: "owner" | "hold"; at: number } | null;
+  quarantine: { reason: "owner" | "hold" | "orphan" | "generation"; at: number } | null;
   /** A whole-data erase prepared and not yet committed or cancelled: its ID and target. */
   erasing: { id: string; generation: number; epoch: number } | null;
   /** The last erase intent that ended, so a retried step answers what happened to it. */
@@ -66,71 +69,18 @@ export type Verdict =
   | { ok: true; done: true }
   | { ok: false; error: "forbidden" | "stale" | "held" | "quarantined"; message: string };
 
-const FORBIDDEN = {
-  ok: false,
-  error: "forbidden",
-  message: "artifact reference mismatch",
-} as const;
-
 /**
- * The one rule. A different artifact or region is refused for every mode. Maintenance needs
- * only that. A quarantine refuses all but the operator. A different owner is stale (ownership
- * changes only by a fence). An older epoch is stale; a newer one is admitted but never adopted,
- * so a request can never consume the epoch a pending fence needs (fourth review, finding 2). A different
- * generation is stale, except that an erase step for an older one is done. A hold refuses all
- * but the operator. A pending erase refuses requests.
+ * The one rule, now the production validator (`@portifact/domain/artifact-data`, delivery 3);
+ * this adapter keeps the spike's answer shape (`error` for the code).
  */
 export function admit(stored: Control | null, envelope: Envelope, mode: Mode): Verdict {
-  if (stored === null) return { ok: true, empty: true };
-  if (stored.artifactId !== envelope.artifactId || stored.region !== envelope.region)
-    return FORBIDDEN;
-  if (mode.kind === "maintenance") return { ok: true, empty: false };
-  if (stored.quarantine !== null && mode.kind !== "operator") {
-    return { ok: false, error: "quarantined", message: "This artifact's data is unavailable." };
-  }
-  if (stored.ownerId !== envelope.ownerId) {
-    return { ok: false, error: "stale", message: "the artifact changed owner" };
-  }
-  if (envelope.epoch < stored.epoch) {
-    return { ok: false, error: "stale", message: "the artifact changed since this request began" };
-  }
-  if (envelope.generation !== stored.generation) {
-    if (mode.kind === "erase" && envelope.generation < stored.generation)
-      return { ok: true, done: true };
-    return { ok: false, error: "stale", message: "the data was erased since this request began" };
-  }
-  if (stored.hold !== null && mode.kind !== "operator") {
-    return { ok: false, error: "held", message: "This artifact cannot be changed right now." };
-  }
-  if (stored.erasing !== null && mode.kind === "request") {
-    return { ok: false, error: "stale", message: "the data is being erased" };
-  }
-  return { ok: true, empty: false };
+  const verdict = production.admit(stored as DataControl | null, envelope, mode);
+  if (verdict.ok) return verdict;
+  return { ok: false, error: verdict.code as "forbidden", message: verdict.message };
 }
 
 export function newControl(envelope: Envelope, now: number): Control {
-  return {
-    artifactId: envelope.artifactId,
-    region: envelope.region,
-    ownerId: envelope.ownerId,
-    ownerEpoch: envelope.epoch,
-    generation: envelope.generation,
-    epoch: envelope.epoch,
-    hold: null,
-    quarantine: null,
-    erasing: null,
-    lastErase: null,
-    last: {
-      id: "created",
-      kind: "created",
-      epoch: envelope.epoch,
-      fromOwner: null,
-      toOwner: envelope.ownerId,
-      at: now,
-    },
-    storageSeq: 0,
-    payloadRevision: 0,
-  };
+  return production.newControl(envelope, now) as Control;
 }
 
 /** What a fence asks: a hold or release, or a new owner; `transition` is its ID from D1. */
@@ -142,19 +92,15 @@ export interface FenceChange {
 
 export type FenceResult =
   | { ok: true; control: Control; repeated: boolean }
-  | { ok: false; error: "forbidden" | "stale" | "conflict"; message: string };
-
-function kindOf(base: Control, change: FenceChange): Transition["kind"] {
-  const nextOwner = change.toOwner ?? base.ownerId;
-  if (nextOwner !== base.ownerId) return "transfer";
-  return change.state === "held" ? "hold" : "release";
-}
+  | {
+      ok: false;
+      error: "forbidden" | "stale" | "conflict" | "held" | "invalid_input";
+      message: string;
+    };
 
 /**
- * Applies a fence. It must name the object's artifact, region, generation and current owner,
- * and carry a newer epoch; the same transition delivered again is acknowledged without change;
- * anything else at the same or an older epoch is stale. On an empty object it creates the
- * control record, so the fence holds before any data exists. A quarantine survives every fence.
+ * Applies a fence through the production rule (`applyFence`): the spike's `{ state, toOwner }`
+ * becomes a transfer when it names another owner, else a hold or a release.
  */
 export function applyFence(
   stored: Control | null,
@@ -162,106 +108,23 @@ export function applyFence(
   change: FenceChange,
   now: number,
 ): FenceResult {
-  const base = stored ?? newControl({ ...envelope, epoch: -1 }, now);
-  if (base.artifactId !== envelope.artifactId || base.region !== envelope.region) return FORBIDDEN;
-  if (envelope.generation !== base.generation) {
-    return { ok: false, error: "stale", message: "the fence names another generation" };
+  // The envelope names the owner the fence moves from, so a repeated transfer stays a transfer.
+  const fence: DataFence =
+    change.toOwner !== undefined && change.toOwner !== envelope.ownerId
+      ? { kind: "transfer", toOwner: change.toOwner, transition: change.transition }
+      : { kind: change.state === "held" ? "hold" : "release", transition: change.transition };
+  const applied = production.applyFence(stored as DataControl | null, envelope, fence, now);
+  if (!applied.ok) {
+    return { ok: false, error: applied.code as "stale", message: applied.message };
   }
-  if (stored !== null && base.last.id === change.transition) {
-    // A repeat must be the same transition, not another one under its ID.
-    const last = base.last;
-    const same =
-      last.epoch === envelope.epoch &&
-      (last.kind === "transfer"
-        ? change.toOwner === last.toOwner
-        : (change.toOwner ?? last.toOwner) === last.toOwner &&
-          last.kind === (change.state === "held" ? "hold" : "release"));
-    if (!same)
-      return {
-        ok: false,
-        error: "conflict",
-        message: "this transition ID was used for another change",
-      };
-    return { ok: true, control: stored, repeated: true };
-  }
-  if (base.ownerId !== envelope.ownerId) {
-    return { ok: false, error: "stale", message: "the fence names another owner" };
-  }
-  if (envelope.epoch <= base.epoch) {
-    return { ok: false, error: "stale", message: "a fence needs a newer epoch" };
-  }
-  const nextOwner = change.toOwner ?? base.ownerId;
-  const kind = kindOf(base, change);
-  const transfer = kind === "transfer";
-  return {
-    ok: true,
-    repeated: false,
-    control: {
-      ...base,
-      ownerId: nextOwner,
-      ownerEpoch: transfer ? envelope.epoch : base.ownerEpoch,
-      epoch: envelope.epoch,
-      hold:
-        change.state === "held" ? { transition: change.transition, epoch: envelope.epoch } : null,
-      // A hold or a transfer cancels a prepared erase: the erase job must start again under
-      // the new state, so it never commits against data it no longer may touch.
-      erasing: change.state === "held" || transfer ? null : base.erasing,
-      lastErase:
-        (change.state === "held" || transfer) && base.erasing !== null
-          ? { id: base.erasing.id, outcome: "cancelled" }
-          : base.lastErase,
-      last: {
-        id: change.transition,
-        kind,
-        epoch: envelope.epoch,
-        fromOwner: base.ownerId,
-        toOwner: nextOwner,
-        at: now,
-      },
-      storageSeq: base.storageSeq + 1,
-    },
-  };
+  return { ok: true, control: applied.value.control as Control, repeated: applied.value.repeated };
 }
 
 /** What D1 says about the artifact's data after a restore (holds re-applied first). */
-export interface RestoredRow {
-  ownerId: string;
-  generation: number;
-  epoch: number;
-  held: boolean;
-}
+export type RestoredRow = production.RestoredRow;
+export type Reconciliation = production.Reconciliation;
 
-export type Reconciliation =
-  | { action: "none" }
-  | { action: "raise"; generation: number; epoch: number }
-  | { action: "resume_erase"; generation: number; epoch: number }
-  | { action: "quarantine"; reason: "owner" | "hold" }
-  | { action: "operator"; reason: "quarantined" };
-
-/**
- * After a D1 restore, compares D1 with the object's control record. Field authority: the
- * artifact and region must match the directory (checked by the caller); the owner comes from the
- * object's last verified transfer; a hold from the object's hold record against D1's re-applied
- * holds; a pending erase from the object, resumed with its own target, never skipped by raising
- * numbers. The same owner and hold raise D1 to the object's generation and epoch. Anything else
- * quarantines; a quarantine waits for the operator.
- */
-export function reconcile(row: RestoredRow, object: Control | null): Reconciliation {
-  if (object === null) return { action: "none" };
-  if (object.quarantine !== null) return { action: "operator", reason: "quarantined" };
-  if (object.ownerId !== row.ownerId) return { action: "quarantine", reason: "owner" };
-  if ((object.hold !== null) !== row.held) return { action: "quarantine", reason: "hold" };
-  if (object.erasing !== null) {
-    return {
-      action: "resume_erase",
-      generation: object.erasing.generation,
-      epoch: Math.max(object.epoch, row.epoch),
-    };
-  }
-  if (object.generation === row.generation && object.epoch === row.epoch) return { action: "none" };
-  return {
-    action: "raise",
-    generation: object.generation,
-    epoch: Math.max(object.epoch, row.epoch) + 1,
-  };
+/** The production reconciliation (`reconcile`), with its field authority table. */
+export function reconcile(row: RestoredRow | null, object: Control | null): Reconciliation {
+  return production.reconcile(row, object as DataControl | null);
 }

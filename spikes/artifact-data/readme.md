@@ -4,11 +4,10 @@ Spike for [decision 0026](../../docs/decisions/0026-artifact-data.md), fifth and
 
 It runs in workerd through `@cloudflare/vitest-plugin`. The test runner is the data Worker of the decision (`wrangler.jsonc` exports the class with a `new_sqlite_classes` migration), an auxiliary Worker (`portifact-app-spike`, inline in `vitest.config.ts`) binds the documents class by `scriptName`, and a local R2 bucket (`JOURNAL`) stands for the region's bucket. No Cloudflare resource is created or used.
 
-- `src/envelope.ts`: the envelope, the control record, `admit` (the one validator, with its four modes), `applyFence` and `reconcile`.
+- `src/envelope.ts`: the envelope and the control record, with `admit`, `applyFence` and `reconcile` now delegating to the production rules of delivery 3 (`@portifact/domain/artifact-data`) through adapters that keep the spike's answer shapes; `src/hash.ts`, the scopes and `newerReport` in `src/model.ts` and the gates in `src/gate.ts` are the production functions too, so the workerd tests here exercise them.
 - `src/documents.ts`: `ArtifactDocuments`: the document API for the page and the owner side, the one-transaction mutation shape, per-artifact counters, operation records with the issue-time horizon, author barriers and replayable chunks, fences, erase intents, quarantine and its resolution, `settle` and `acknowledge`, alarm-driven pruning, owner and visitor export, live connections.
-- `src/hash.ts`: a synchronous SHA-256, so binding an operation to its request needs no await.
 - `src/journal.ts`: the author journal's conditional claim, retirement and its one retention rule in R2.
-- `src/model.ts`, `src/grants.ts`, `src/gate.ts`: the pure rules.
+- `src/model.ts`, `src/grants.ts`: the spike's remaining pure rules (query SQL, bodies, grant codes); the production versions are in `packages/domain/src/artifact-data`.
 - `test/invariants.test.ts`: synchronous commands, concurrent holds and duplicates, measured charging, caps, incremental index builds, the owner API, plan B Free end to end, live message chunks, the journal rule, and property tests over random command sequences.
 - `test/review-findings.test.ts` to `test/review-findings-4.test.ts`: the four reviews' reproductions (commits `e1b403e0`, `b3e12de7`, `3b0a286d` and `3db6c7b1` add them against the version reviewed; each set failed there and passes now). The owner SQL spike is in commit `c5b84930` and the owner ledger in commit `65b85f06`.
 
