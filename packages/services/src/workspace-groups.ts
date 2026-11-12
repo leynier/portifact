@@ -674,13 +674,29 @@ export const WINDOW_TOMBSTONE_KINDS = [
   "oauth_grant",
 ] as const;
 
-const PRUNE_TOMBSTONES = { batch: 500, rounds: 4 } as const;
+/** Rows each kind gives a statement at most, and statements per run at most. */
+const PRUNE_TOMBSTONES = { batch: 100, rounds: 4 } as const;
+
+/**
+ * One statement of the prune: for each kind, its oldest markers past the window, at most `batch`
+ * of them, each kind read through `tombstones_kind_deleted_idx` (equality on the kind, a range on
+ * the time, already in order), so a run reads only what it deletes, never every standing marker.
+ */
+export function windowTombstonePrune(before: number, batch: number): SQL {
+  // One `in` per kind (D1 caps the terms of a compound select).
+  const perKind = WINDOW_TOMBSTONE_KINDS.map(
+    (kind) =>
+      sql`rowid in (select rowid from ${t} where ${t.kind} = ${kind} and ${t.deletedAt} < ${before} order by ${t.deletedAt} limit ${batch})`,
+  );
+  return sql`delete from ${t} where ${sql.join(perKind, sql` or `)} returning ${t.kind}`;
+}
 
 /**
  * The maintenance scan of restore markers (decision 0014, "Restores"): deletes tombstones of the
- * `WINDOW_TOMBSTONE_KINDS` older than `GROUP_TOMBSTONE_RETENTION_MS`, oldest first, `batch` rows
- * per statement and at most `rounds` statements per run, each round after the last key the
- * previous one deleted. No other kind of tombstone is ever pruned.
+ * `WINDOW_TOMBSTONE_KINDS` older than `GROUP_TOMBSTONE_RETENTION_MS`, oldest first, at most
+ * `batch` rows per kind per statement and at most `rounds` statements per run, a new round only
+ * while a kind still filled its share. No other kind of tombstone is ever pruned. Refreshing an
+ * app's token writes one marker (the rotated-out token), so this keeps up with them by kind.
  */
 export async function pruneGroupTombstones(
   global: GlobalDb,
@@ -688,26 +704,15 @@ export async function pruneGroupTombstones(
   limits: { batch: number; rounds: number } = PRUNE_TOMBSTONES,
 ): Promise<{ deleted: number; queries: number }> {
   const before = now - GROUP_TOMBSTONE_RETENTION_MS;
-  let cursor: { deletedAt: number; kind: string; id: string } | null = null;
   let deleted = 0;
   let queries = 0;
   for (let round = 0; round < limits.rounds; round++) {
-    const after: SQL = cursor
-      ? sql`and (${t.deletedAt}, ${t.kind}, ${t.id}) > (${cursor.deletedAt}, ${cursor.kind}, ${cursor.id})`
-      : sql``;
-    const rows: { kind: string; id: string; deleted_at: number }[] = await global.all(
-      sql`delete from ${t} where (${t.kind}, ${t.id}) in (select ${t.kind}, ${t.id} from ${t} where ${t.kind} in (${sql.join(
-        WINDOW_TOMBSTONE_KINDS.map((kind) => sql`${kind}`),
-        sql`, `,
-      )}) and ${t.deletedAt} < ${before} ${after} order by ${t.deletedAt}, ${t.kind}, ${t.id} limit ${limits.batch}) returning ${t.kind}, ${t.id}, ${t.deletedAt}`,
-    );
+    const rows: { kind: string }[] = await global.all(windowTombstonePrune(before, limits.batch));
     queries++;
     deleted += rows.length;
-    const key = (row: { kind: string; id: string; deleted_at: number }) =>
-      `${String(row.deleted_at).padStart(16, "0")}\u0000${row.kind}\u0000${row.id}`;
-    const last = rows.toSorted((x, y) => (key(x) < key(y) ? -1 : 1)).at(-1);
-    if (!last || rows.length < limits.batch) break;
-    cursor = { deletedAt: last.deleted_at, kind: last.kind, id: last.id };
+    const perKind = new Map<string, number>();
+    for (const row of rows) perKind.set(row.kind, (perKind.get(row.kind) ?? 0) + 1);
+    if (![...perKind.values()].some((n) => n >= limits.batch)) break;
   }
   return { deleted, queries };
 }

@@ -4,7 +4,7 @@
 // Time Travel restore, and the markers are pruned once the backup window has passed.
 import { env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { disconnectApp } from "../src/account.ts";
 import { updateAccountSettings } from "../src/account-settings.ts";
@@ -20,6 +20,7 @@ import {
   GROUP_TOMBSTONE_RETENTION_MS,
   pruneGroupTombstones,
   WINDOW_TOMBSTONE_KINDS,
+  windowTombstonePrune,
 } from "../src/workspace-groups.ts";
 import { createWorkspace, leaveWorkspace, removeMember } from "../src/workspaces.ts";
 import { publishIn, team as team_ } from "./comment-retention-fixtures.ts";
@@ -419,6 +420,36 @@ describe("pruning restore markers", () => {
     );
   });
 
+  it("reads each kind through its index, oldest first, with no sort and no full scan", async () => {
+    const plan = await global().all<{ detail: string }>(
+      sql`explain query plan ${windowTombstonePrune(NOW, 100)}`,
+    );
+    const details = plan.map((row) => row.detail).join(" | ");
+    expect(details).toMatch(
+      /SEARCH tombstones USING (COVERING )?INDEX tombstones_kind_deleted_idx \(kind=\? AND deleted_at<\?\)/,
+    );
+    expect(details).not.toMatch(/SCAN tombstones|TEMP B-TREE/);
+  });
+
+  it("deletes at most its share per kind per statement and stops once no kind filled it", async () => {
+    const old = NOW - GROUP_TOMBSTONE_RETENTION_MS - DAY;
+    const tag = crypto.randomUUID();
+    const rows = Array.from({ length: 7 }, (_, i) => ({
+      kind: "oauth_token" as const,
+      id: `${tag}:${i}`,
+      deletedAt: old + i,
+    }));
+    await global().insert(t).values(rows);
+    const first = await pruneGroupTombstones(global(), NOW, { batch: 3, rounds: 2 });
+    expect(first.queries).toBe(2);
+    const left = await global()
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.kind, "oauth_token"), like(t.id, `${tag}:%`)));
+    // The two oldest rounds took the six oldest; the newest is left for the next run.
+    expect(left.map((row) => row.id)).toEqual([`${tag}:6`]);
+  });
+
   it("prunes every window kind after the backup window and keeps the permanent kinds", async () => {
     const old = NOW - GROUP_TOMBSTONE_RETENTION_MS - DAY;
     const tag = crypto.randomUUID();
@@ -558,6 +589,9 @@ describe("sign-outs, revoked tokens and disconnected apps through a restore", ()
       .from(schema.oauthConsents)
       .where(eq(schema.oauthConsents.id, g.consent.id));
     expect(consents).toEqual([]);
+    // Applying again changes nothing: a revoked token is not revoked twice.
+    const again = await applyTombstones(regions(), markers, Date.now());
+    expect([again.sessions, again.oauthTokens, again.oauthGrants]).toEqual([0, 0, 0]);
   });
 
   it("keeps a signed-out session ended and a revoked token revoked", async () => {

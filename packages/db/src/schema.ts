@@ -869,7 +869,11 @@ export const tombstones = sqliteTable(
     id: text("id").notNull(),
     deletedAt: timestamp("deleted_at").notNull(),
   },
-  (t) => [primaryKey({ columns: [t.kind, t.id] })],
+  (t) => [
+    primaryKey({ columns: [t.kind, t.id] }),
+    // The prune of restore markers reads each kind oldest first (`pruneGroupTombstones`).
+    index("tombstones_kind_deleted_idx").on(t.kind, t.deletedAt),
+  ],
 );
 
 /**
