@@ -1,15 +1,13 @@
 import { normalizeText } from "@portifact/anchors";
 import { describe, expect, it } from "vitest";
 import { changedRegion } from "../src/edit.ts";
-import { spliceCodePoints } from "../src/page.ts";
-import { resolveTextEdit } from "../src/text-resolver.ts";
+import { planText, resolveTextEdit } from "../src/text-resolver.ts";
 import { HOSTILE_AFTERS, markdownDocument, PLAIN_AFTERS, random, randomEdit } from "./corpus.ts";
 
 describe("plain text resolver", () => {
-  it("maps every edit of a text document with certainty, hostile text included", () => {
+  it("maps edits with their exact whitespace, hostile text included, and never another range", () => {
     const rand = random(3);
-    let edits = 0;
-    let certain = 0;
+    const tally = { edits: 0, certain: 0, whitespace: 0, other: 0 };
     for (let doc = 0; doc < 40; doc++) {
       // Markdown sources make good plain text: odd spacing, line breaks, syntax and entities.
       const source = markdownDocument(500 + doc, 10).replaceAll("\n\n", "\n   \n\t");
@@ -17,45 +15,39 @@ describe("plain text resolver", () => {
       for (let n = 0; n < 25; n++) {
         const edit = randomEdit(rand, text, [...PLAIN_AFTERS, ...HOSTILE_AFTERS]);
         if (!edit) continue;
-        edits++;
+        tally.edits++;
         const result = resolveTextEdit(source, edit);
-        if (result.status !== "certain") continue;
-        certain++;
+        if (result.status !== "certain") {
+          if (result.reason === "whitespace") tally.whitespace++;
+          else tally.other++;
+          continue;
+        }
+        tally.certain++;
+        // The oracle works on the raw source, not on normalized text: the replaced characters
+        // are exactly the changed part of the selection, and nothing else of the file moved.
         const change = changedRegion(edit);
-        // The oracle: the page of a text document is its source, escaped in a `<pre>`, so the
-        // page text is the normalized source; the inserted text is literal whatever it holds.
-        expect(normalizeText(result.source)).toBe(
-          spliceCodePoints(text, change.from, change.to, change.inserted),
+        expect(source.slice(result.range.start, result.range.end)).toBe(change.deleted);
+        expect(result.source).toBe(
+          source.slice(0, result.range.start) + change.inserted + source.slice(result.range.end),
         );
-        expect(
-          result.source.slice(result.range.start, result.range.start + change.inserted.length),
-        ).toBe(change.inserted);
       }
     }
-    console.log("text", JSON.stringify({ edits, certain }));
-    expect(edits).toBeGreaterThan(900);
-    expect(certain).toBe(edits);
+    console.log("text", JSON.stringify(tally));
+    expect(tally.edits).toBeGreaterThan(900);
+    expect(tally.other).toBe(0);
+    expect(tally.certain).toBeGreaterThan(tally.edits / 2);
   });
 
-  it("replaces line breaks the reviewer joined, and inserts at both ends", () => {
+  it("refuses joining lines, and inserts at both ends", () => {
     expect(
       resolveTextEdit("one\ntwo", { start: 0, end: 7, before: "one two", after: "one-two" }),
-    ).toMatchObject({
-      status: "certain",
-      source: "one-two",
-    });
+    ).toEqual({ status: "uncertain", reason: "whitespace" });
     expect(
       resolveTextEdit("end\n", { start: 0, end: 3, before: "end", after: "ending" }),
-    ).toMatchObject({
-      status: "certain",
-      source: "ending\n",
-    });
+    ).toMatchObject({ status: "certain", source: "ending\n" });
     expect(
       resolveTextEdit("start", { start: 0, end: 5, before: "start", after: "a start" }),
-    ).toMatchObject({
-      status: "certain",
-      source: "a start",
-    });
+    ).toMatchObject({ status: "certain", source: "a start" });
   });
 
   it("refuses stale edits, invalid text and sources that are not NFC", () => {
@@ -74,9 +66,28 @@ describe("plain text resolver", () => {
   });
 
   it("refuses an edit whose new text would merge with the space around it", () => {
-    // Deleting the word but keeping a trailing space in after makes two spaces collapse.
     expect(resolveTextEdit("a b c", { start: 2, end: 3, before: "b", after: "b " })).toMatchObject({
       status: "uncertain",
     });
+  });
+
+  it("plans several operations in base coordinates, with overlaps refused", () => {
+    const source = "cat and dog and fox";
+    const planned = planText(source, [
+      { start: 0, end: 3, before: "cat", after: "lion" },
+      { start: 16, end: 19, before: "fox", after: "wolf" },
+    ]);
+    expect(planned).toMatchObject({ listed: [], source: "lion and dog and wolf" });
+    // The draft example of finding 14: "cat" became "dog" and then "fox". Base coordinates and a
+    // coalesced draft give one operation; two on the same text are refused, not ordered.
+    const clash = planText(source, [
+      { start: 0, end: 3, before: "cat", after: "dog" },
+      { start: 0, end: 3, before: "cat", after: "fox" },
+    ]);
+    expect(clash.applied).toEqual([]);
+    expect(clash.listed.map((item) => item.reason)).toEqual(["overlap", "overlap"]);
+    expect(planText(source, [{ start: 0, end: 3, before: "cow", after: "x" }]).listed).toEqual([
+      { operation: 0, reason: "stale" },
+    ]);
   });
 });

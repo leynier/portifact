@@ -1,14 +1,23 @@
-// The viewer's side of edit mode (decision 0027), as a state machine with no DOM. The frame may
-// only say where the reader's selection or picked element is, exactly as for comments today; the
-// new text and style values are typed in the viewer's own editor, drawn over the frame, and the
-// suggestion is saved only by the viewer's confirmation of the exact operations it shows. No
-// bridge message carries an "after", and none can move the session forward past choosing.
+// The viewer's side of edit mode (decision 0027), as a state machine with no DOM. The live frame
+// is only a selection hint (rule 3): it may say where the reader's selection or picked element is
+// while the viewer is choosing, exactly as for comments today. From then on the frame is ignored,
+// its geometry included (rule 2): the editor stays where the viewer placed it and moves only with
+// the viewer's own viewport events. The new text and style values are typed in the viewer's
+// editor and never posted to the frame (rule 1); the only messages the viewer sends it are the
+// mode and the pick, which carry no text. A move's destination is chosen in a separate, explicit
+// pick state. The suggestion is saved only by the viewer's confirmation of the exact lines it drew.
 
-import { type Expectation, type IncomingEvent, readBridgeMessage } from "@portifact/bridge";
+import {
+  type Expectation,
+  type FrameRect,
+  type IncomingEvent,
+  readBridgeMessage,
+  type ViewerBody,
+} from "@portifact/bridge";
 import type { AnnotationTarget } from "@portifact/contracts";
 import { Edit } from "./operations.ts";
 
-export type EditKind = "text" | "style";
+export type EditKind = "text" | "style" | "move";
 
 export interface Confirmation {
   readonly operations: Edit["operations"];
@@ -16,22 +25,40 @@ export interface Confirmation {
   readonly lines: readonly string[];
 }
 
-type State =
-  | { mode: "idle" }
-  | { mode: "choosing"; kind: EditKind }
-  | { mode: "editing"; kind: "text"; target: AnnotationTarget; before: string; draft: string }
+type Editing =
+  | { kind: "text"; target: AnnotationTarget; before: string; draft: string }
   | {
-      mode: "editing";
       kind: "style";
       target: AnnotationTarget;
       changes: { property: string; before: null; after: string }[];
     }
+  | {
+      kind: "move";
+      target: AnnotationTarget;
+      destination: { target: AnnotationTarget; place: "before" | "after" } | null;
+    };
+
+type State =
+  | { mode: "idle" }
+  | { mode: "choosing"; kind: EditKind }
+  | ({ mode: "editing" } & Editing)
+  | {
+      mode: "picking-destination";
+      editing: Extract<Editing, { kind: "move" }>;
+      place: "before" | "after";
+    }
   | { mode: "confirming"; confirmation: Confirmation };
+
+const PICK_HINT = "Choose an element";
 
 export class EditSession {
   private state: State = { mode: "idle" };
   /** Bridge messages the session dropped, for the tests. */
   dropped = 0;
+  /** Where the viewer draws the editor, in the frame's box; set once, when the editor opens. */
+  placement: FrameRect | null = null;
+  /** Every message the viewer sent to the frame. None may carry text the person typed. */
+  readonly framePosts: ViewerBody[] = [];
 
   constructor(
     private readonly expected: Expectation,
@@ -42,41 +69,79 @@ export class EditSession {
     return this.state.mode;
   }
 
-  /** The reader chose "Suggest an edit" (text) or "Suggest a style" (an element) in the viewer. */
-  start(kind: EditKind): void {
-    this.state = { mode: "choosing", kind };
+  private post(body: ViewerBody): void {
+    this.framePosts.push(body);
   }
 
-  /** A message from the frame. Only a selection or a pick while choosing does anything. */
+  /** The reader chose "Suggest an edit" (text), "Suggest a style" or "Move" in the viewer. */
+  start(kind: EditKind): void {
+    this.state = { mode: "choosing", kind };
+    this.placement = null;
+    if (kind !== "text") this.post({ type: "pick", active: true, hint: PICK_HINT });
+  }
+
+  /** A message from the frame. Only a selection or a pick in the matching state does anything. */
   receive(event: IncomingEvent): void {
     const message = readBridgeMessage(event, this.expected);
     const state = this.state;
-    if (!message || state.mode !== "choosing") {
+    if (!message) {
       this.dropped++;
       return;
     }
-    if (
-      state.kind === "text" &&
-      message.type === "selection" &&
-      message.target?.anchor.kind === "text"
-    ) {
-      const before = message.target.anchor.quote.exact;
-      // The editor opens with the selected text; the target is frozen from here on.
-      this.state = { mode: "editing", kind: "text", target: message.target, before, draft: before };
-      return;
+    if (state.mode === "choosing") {
+      if (
+        state.kind === "text" &&
+        message.type === "selection" &&
+        message.target?.anchor.kind === "text"
+      ) {
+        const before = message.target.anchor.quote.exact;
+        this.state = {
+          mode: "editing",
+          kind: "text",
+          target: message.target,
+          before,
+          draft: before,
+        };
+        this.placement = message.rect ?? null;
+        return;
+      }
+      if (
+        state.kind !== "text" &&
+        message.type === "element" &&
+        message.target.anchor.kind === "element"
+      ) {
+        this.state =
+          state.kind === "style"
+            ? { mode: "editing", kind: "style", target: message.target, changes: [] }
+            : { mode: "editing", kind: "move", target: message.target, destination: null };
+        this.placement = message.rect ?? null;
+        this.post({ type: "pick", active: false, hint: PICK_HINT });
+        return;
+      }
     }
     if (
-      state.kind === "style" &&
+      state.mode === "picking-destination" &&
       message.type === "element" &&
       message.target.anchor.kind === "element"
     ) {
-      this.state = { mode: "editing", kind: "style", target: message.target, changes: [] };
+      this.state = {
+        mode: "editing",
+        ...state.editing,
+        destination: { target: message.target, place: state.place },
+      };
+      this.post({ type: "pick", active: false, hint: PICK_HINT });
       return;
     }
+    // Editing, confirming and everything else: the frame has no say, rectangles included.
     this.dropped++;
   }
 
-  /** The reader typed in the viewer's editor. */
+  /** The viewer's own viewport changed (scroll or resize of the viewer page, never the frame's). */
+  viewportChanged(placement: FrameRect): void {
+    if (this.state.mode !== "idle") this.placement = placement;
+  }
+
+  /** The reader typed in the viewer's editor. Nothing is sent to the frame. */
   type(text: string): void {
     if (this.state.mode === "editing" && this.state.kind === "text") this.state.draft = text;
   }
@@ -88,20 +153,35 @@ export class EditSession {
     this.state.changes = [...changes, { property, before: null, after }];
   }
 
+  /** The reader chose "Pick the destination" for a move: one explicit pick, then back to editing. */
+  pickDestination(place: "before" | "after"): void {
+    if (this.state.mode !== "editing" || this.state.kind !== "move") return;
+    const { mode: _mode, ...editing } = this.state;
+    this.state = { mode: "picking-destination", editing, place };
+    this.post({ type: "pick", active: true, hint: PICK_HINT });
+  }
+
   /** The reader asked to review the suggestion: the viewer shows exactly these lines. */
   review(): Confirmation | null {
     const state = this.state;
     if (state.mode !== "editing") return null;
-    const operations =
-      state.kind === "text"
-        ? [{ kind: "text" as const, target: state.target, after: state.draft }]
-        : [{ kind: "style" as const, target: state.target, changes: state.changes }];
+    let operations: unknown[];
+    let lines: string[];
+    if (state.kind === "text") {
+      operations = [{ kind: "text", target: state.target, after: state.draft }];
+      lines = [`- ${state.before}`, `+ ${state.draft}`];
+    } else if (state.kind === "style") {
+      operations = [{ kind: "style", target: state.target, changes: state.changes }];
+      lines = state.changes.map((change) => `${change.property}: ${change.after}`);
+    } else {
+      if (!state.destination) return null;
+      operations = [
+        { kind: "structure", action: "move", target: state.target, destination: state.destination },
+      ];
+      lines = [`move ${state.destination.place} the chosen element`];
+    }
     const parsed = Edit.safeParse({ operations });
     if (!parsed.success) return null;
-    const lines =
-      state.kind === "text"
-        ? [`- ${state.before}`, `+ ${state.draft}`]
-        : state.changes.map((change) => `${change.property}: ${change.after}`);
     const confirmation: Confirmation = Object.freeze({
       operations: parsed.data.operations,
       lines: Object.freeze(lines),

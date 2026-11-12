@@ -1,143 +1,211 @@
-// The Markdown resolver of decision 0027: from a text edit in the rendered page to one range of
-// the source, or "uncertain". It never trusts its own mapping. A candidate is certain only when
-// rendering the changed source gives exactly the page the reviewer saw with the edit applied:
-// the same normalized text with `after` in place of `before`, and the same markup skeleton (no
-// element, attribute or link added, removed or changed). Anything else goes to the change list.
+// The Markdown planner of decision 0027. It works from the stored document alone (the `published`
+// entry at the version's entrypoint, rendered with the renderer version the plan is bound to):
+// every text operation is located in the rendered page in base coordinates, mapped to one range
+// of its block's source, and all certain operations are applied together as one patch. The patch
+// is verified once: the rebuilt page must equal the old one with exactly those text node changes,
+// every element and attribute (heading IDs included) and every other character the same. If it
+// is not, nothing is applied and every operation goes to the change list, so the confirmed split
+// between applied and listed never changes after the person saw it.
 import { renderMarkdown, type SourceBlock } from "@portifact/render";
 import {
-  changedRegion,
   type Resolution,
   type TextEdit,
+  type UncertainReason,
   uncertain,
-  unitOffset,
   validAfter,
 } from "./edit.ts";
-import {
-  codePoints,
-  flexibleMatches,
-  occurrences,
-  pageText,
-  parseFragment,
-  skeleton,
-  spliceCodePoints,
-} from "./page.ts";
+import { locateChange, type NodeChange, onlyChanged, overlaps } from "./locate.ts";
+import { occurrences, pageText, parseFragment } from "./page.ts";
 
-/** How much rendered context to look for around the change, widest first. */
+/** How much raw context to look for around the change, widest first. */
 const CONTEXTS = [24, 12, 6, 3, 1, 0];
 
-/** Characters that start Markdown syntax inside a line. Always escaped in the inserted text. */
+/** Characters that start Markdown syntax inside a line. */
 const MINIMAL = /[\\`*_[\]<>&|~!#^]/g;
 /** Every ASCII punctuation character, which CommonMark lets a backslash escape. */
 const FULL = /[!-/:-@[-`{-~]/g;
 
-/** The ways to write the inserted text, tried in order until one verifies. */
-export const ESCAPES: readonly ((text: string) => string)[] = [
-  (text) => text.replace(MINIMAL, "\\$&"),
-  (text) => text.replace(FULL, "\\$&"),
-  // Inside code spans and fences backslashes are literal, so the raw text is the only spelling
-  // that can verify there; anywhere else it fails verification whenever it would add markup.
-  (text) => text,
-];
+/**
+ * Renders a plan may spend: the base page and at most two patched pages (the readable escaping,
+ * then the full one). The planner never renders per operation or per candidate.
+ */
+export const RENDER_BUDGET = 3;
 
-interface Leaf {
-  block: SourceBlock;
-  /** UTF-16 offsets of the block's text in the page text. */
+export interface SourcePatch {
+  /** Index of the operation in the plan. */
+  operation: number;
   start: number;
   end: number;
-  text: string;
+  /** The inserted text as the reviewer wrote it. */
+  inserted: string;
+  /** Inside a code span or block, where backslashes are literal, so it is written raw. */
+  inCode: boolean;
 }
 
-/** Blocks with no block inside them, with where their text sits in the page text. */
-function leaves(main: HTMLElement, blocks: SourceBlock[], text: string): Leaf[] {
-  const byId = new Map(blocks.map((block) => [block.id, block]));
-  const found: Leaf[] = [];
-  let cursor = 0;
-  for (const element of Array.from(main.querySelectorAll("[data-pf-block]"))) {
-    if (element.querySelector("[data-pf-block]")) continue;
-    const block = byId.get(element.getAttribute("data-pf-block") ?? "");
-    const blockText = pageText(element);
-    if (!block || blockText.length === 0) continue;
-    const at = text.indexOf(blockText, cursor);
-    if (at < 0) continue;
-    found.push({ block, start: at, end: at + blockText.length, text: blockText });
-    cursor = at + blockText.length;
+export interface AppliedPatch {
+  patch: SourcePatch;
+  replacement: string;
+  change: NodeChange;
+  destinations: string[];
+}
+
+export interface Planned {
+  /** Patches that are applied; empty when nothing applies. */
+  applied: AppliedPatch[];
+  listed: { operation: number; reason: UncertainReason }[];
+  /** The new source, when anything applied. */
+  source?: string;
+  renders: number;
+}
+
+export function renderPage(source: string): {
+  main: HTMLElement;
+  blocks: SourceBlock[];
+  text: string;
+} {
+  const rendered = renderMarkdown(source);
+  const main = parseFragment(rendered.html);
+  return { main, blocks: rendered.blocks, text: pageText(main) };
+}
+
+/** The `data-pf-block` element closest around a node, and its entry in the block map. */
+function blockOf(node: Node, blocks: SourceBlock[]): SourceBlock | undefined {
+  let element = node.parentElement;
+  while (element && !element.hasAttribute("data-pf-block")) element = element.parentElement;
+  const id = element?.getAttribute("data-pf-block");
+  return blocks.find((block) => block.id === id);
+}
+
+function within(node: Node, tag: string): boolean {
+  for (let element = node.parentElement; element; element = element.parentElement) {
+    if (element.tagName.toLowerCase() === tag) return true;
+  }
+  return false;
+}
+
+/** The `href` of every link around a node: the destination the person must see (rule 3). */
+export function destinationsOf(node: Node): string[] {
+  const found: string[] = [];
+  for (let element = node.parentElement; element; element = element.parentElement) {
+    const href = element.tagName.toLowerCase() === "a" ? element.getAttribute("href") : null;
+    if (href !== null) found.push(href);
   }
   return found;
 }
 
-export interface RenderedPage {
-  text: string;
-  skeleton: string;
-}
-
-export function renderPage(
+/**
+ * The source range of a located change: the node's raw text around it, widest first, must occur
+ * once in the node and once in the block's source, matched exactly (no whitespace is flexible).
+ */
+function mapToSource(
   source: string,
-): RenderedPage & { main: HTMLElement; blocks: SourceBlock[] } {
-  const rendered = renderMarkdown(source);
-  const main = parseFragment(rendered.html);
-  return { text: pageText(main), skeleton: skeleton(main), main, blocks: rendered.blocks };
+  block: SourceBlock,
+  data: string,
+  change: NodeChange,
+): { start: number; end: number } | null {
+  const slice = source.slice(block.start, block.end);
+  for (const width of CONTEXTS) {
+    const left = data.slice(Math.max(0, change.start - width), change.start);
+    const right = data.slice(change.end, change.end + width);
+    const needle = left + change.deleted + right;
+    if (needle.length === 0 || occurrences(data, needle).length !== 1) continue;
+    const found = occurrences(slice, needle);
+    if (found.length !== 1) continue;
+    const start = block.start + (found[0] as number) + left.length;
+    return { start, end: start + change.deleted.length };
+  }
+  return null;
 }
 
-export function resolveMarkdownEdit(source: string, edit: TextEdit): Resolution {
-  if (!validAfter(edit)) return uncertain("invalid_after");
-  const page = renderPage(source);
-  const points = codePoints(page.text);
-  if (points.slice(edit.start, edit.end).join("") !== edit.before) return uncertain("stale");
-  const change = changedRegion(edit);
-  const expected = spliceCodePoints(page.text, change.from, change.to, change.inserted);
+const sorted = (items: Planned["listed"]) => [...items].sort((a, b) => a.operation - b.operation);
 
-  const from = unitOffset(page.text, change.from);
-  const to = unitOffset(page.text, change.to);
-  const leaf = leaves(page.main, page.blocks, page.text).find(
-    (candidate) => candidate.start <= from && to <= candidate.end,
-  );
-  if (!leaf) return uncertain("spans_blocks");
+export function planMarkdown(source: string, edits: readonly TextEdit[]): Planned {
+  const listed: Planned["listed"] = [];
+  const base = renderPage(source);
+  let renders = 1;
+  const candidates: Omit<AppliedPatch, "replacement">[] = [];
+  for (const [operation, edit] of edits.entries()) {
+    if (!validAfter(edit)) {
+      listed.push({ operation, reason: "invalid_after" });
+      continue;
+    }
+    const located = locateChange(base.main, edit);
+    if (!located.ok) {
+      listed.push({ operation, reason: located.reason });
+      continue;
+    }
+    const block = blockOf(located.text, base.blocks);
+    if (!block) {
+      listed.push({ operation, reason: "spans_blocks" });
+      continue;
+    }
+    const range = mapToSource(source, block, located.text.data, located.change);
+    if (!range) {
+      listed.push({ operation, reason: "not_found" });
+      continue;
+    }
+    candidates.push({
+      patch: {
+        operation,
+        ...range,
+        inserted: located.change.inserted,
+        inCode: within(located.text, "code"),
+      },
+      change: located.change,
+      destinations: destinationsOf(located.text),
+    });
+  }
 
-  const slice = source.slice(leaf.block.start, leaf.block.end);
-  const a = from - leaf.start;
-  const b = to - leaf.start;
-  let found = false;
-  for (const width of CONTEXTS) {
-    const left = leaf.text.slice(Math.max(0, a - width), a);
-    const right = leaf.text.slice(b, b + width);
-    const needle = left + change.deleted + right;
-    if (needle.length === 0) continue;
-    if (occurrences(leaf.text, needle).length !== 1) continue;
-    const matches = flexibleMatches(slice, needle);
-    if (matches.length !== 1) continue;
-    found = true;
-    const match = matches[0] as { start: number; end: number };
-    // The context on each side is kept; only the deleted text between them is replaced. Spaces
-    // in the context may stand for line breaks, so locate the context's ends in the source.
-    const leftEnd = endOfPrefix(slice, match.start, left);
-    const rightStart = startOfSuffix(slice, match.end, right);
-    if (leftEnd === undefined || rightStart === undefined || rightStart < leftEnd) continue;
-    for (const spell of ESCAPES) {
-      const replacement = spell(change.inserted);
-      const start = leaf.block.start + leftEnd;
-      const end = leaf.block.start + rightStart;
-      const next = source.slice(0, start) + replacement + source.slice(end);
-      const rendered = renderPage(next);
-      if (rendered.text === expected && rendered.skeleton === page.skeleton) {
-        return { status: "certain", source: next, range: { start, end }, replacement };
-      }
+  // Operations are in base coordinates; two that touch the same text have no defined order, so
+  // neither applies.
+  const clashing = new Set<number>();
+  for (const a of candidates) {
+    for (const b of candidates) {
+      const sameSource = a.patch.start <= b.patch.end && b.patch.start <= a.patch.end;
+      if (a !== b && (overlaps(a.change, b.change) || sameSource)) clashing.add(a.patch.operation);
     }
   }
-  return uncertain(found ? "would_change_page" : "not_found");
+  const kept = candidates.filter((candidate) => !clashing.has(candidate.patch.operation));
+  for (const operation of clashing) listed.push({ operation, reason: "overlap" });
+  if (kept.length === 0) return { applied: [], listed: sorted(listed), renders };
+
+  for (const pattern of [MINIMAL, FULL]) {
+    if (renders >= RENDER_BUDGET) break;
+    const written = kept.map((candidate) => ({
+      ...candidate,
+      replacement: candidate.patch.inCode
+        ? candidate.patch.inserted
+        : candidate.patch.inserted.replace(pattern, "\\$&"),
+    }));
+    let next = source;
+    // Base coordinates: apply from the end so earlier ranges keep their offsets.
+    for (const item of [...written].sort((a, b) => b.patch.start - a.patch.start)) {
+      next = next.slice(0, item.patch.start) + item.replacement + next.slice(item.patch.end);
+    }
+    const rebuilt = renderPage(next);
+    renders++;
+    const changes = written.map((item) => item.change);
+    if (onlyChanged(base.main, rebuilt.main, changes)) {
+      return { applied: written, listed: sorted(listed), source: next, renders };
+    }
+  }
+  for (const candidate of kept) {
+    listed.push({ operation: candidate.patch.operation, reason: "would_change_page" });
+  }
+  return { applied: [], listed: sorted(listed), renders };
 }
 
-/** Where the normalized `prefix` ends when it starts at `at` in `source` (spaces match runs). */
-function endOfPrefix(source: string, at: number, prefix: string): number | undefined {
-  if (prefix.length === 0) return at;
-  const match = flexibleMatches(source.slice(at), prefix, 0)[0];
-  return match && match.start === 0 ? at + match.end : undefined;
-}
-
-/** Where the normalized `suffix` starts when it ends at `end` in `source`. */
-function startOfSuffix(source: string, end: number, suffix: string): number | undefined {
-  if (suffix.length === 0) return end;
-  const head = source.slice(0, end);
-  const matches = flexibleMatches(head, suffix, 1_000);
-  const last = matches.at(-1);
-  return last && last.end === end ? last.start : undefined;
+/** One operation as a plan of its own, in the shape the single-edit tests use. */
+export function resolveMarkdownEdit(source: string, edit: TextEdit): Resolution {
+  const planned = planMarkdown(source, [edit]);
+  const applied = planned.applied[0];
+  if (!applied || planned.source === undefined) {
+    return uncertain(planned.listed[0]?.reason ?? "would_change_page");
+  }
+  return {
+    status: "certain",
+    source: planned.source,
+    range: { start: applied.patch.start, end: applied.patch.end },
+    replacement: applied.replacement,
+  };
 }

@@ -26,36 +26,40 @@ export function pageText(root: Element): string {
   return new AnchorDocument(root as unknown as AnchorElement).text.value;
 }
 
-const HEADING = /^h[1-6]$/;
-
 /**
- * Everything about the markup but the text: every element with its sorted attributes, and the
- * full content of elements whose text is not page text (`script`, `style`, `textarea`, `title`),
- * so an edit that lands in a script or an attribute changes the skeleton. Heading IDs are left
- * out because the renderer derives them from the heading's text. The `pf-tok-*` spans of
- * highlighted code only wrap text and depend on it, so they are left out too.
+ * Everything about the markup but the text: every element with all of its sorted attributes
+ * (heading IDs and highlight spans included: a change to either is a change outside the edited
+ * text, decision 0027, rule 6) and the full content of `script`, `style`, `textarea` and `title`.
  */
 export function skeleton(root: Element): string {
   const parts: string[] = [];
   const walk = (element: Element) => {
     const tag = element.tagName.toLowerCase();
-    const highlight =
-      tag === "span" && /^pf-tok-[a-z-]+$/.test(element.getAttribute("class") ?? "");
-    if (!highlight) {
-      const attributes = Array.from(element.attributes)
-        .filter((attribute) => !(HEADING.test(tag) && attribute.name === "id"))
-        .map((attribute) => `${attribute.name}=${JSON.stringify(attribute.value)}`)
-        .sort();
-      parts.push(`<${tag}${attributes.length > 0 ? ` ${attributes.join(" ")}` : ""}>`);
-    }
+    const attributes = Array.from(element.attributes)
+      .map((attribute) => `${attribute.name}=${JSON.stringify(attribute.value)}`)
+      .sort();
+    parts.push(`<${tag}${attributes.length > 0 ? ` ${attributes.join(" ")}` : ""}>`);
     if (tag === "script" || tag === "style" || tag === "textarea" || tag === "title") {
       parts.push(JSON.stringify(element.textContent ?? ""));
     }
     for (const child of Array.from(element.children)) walk(child);
-    if (!highlight) parts.push(`</${tag}>`);
+    parts.push(`</${tag}>`);
   };
   walk(root);
   return parts.join("");
+}
+
+/** Every text node under `root` in document order, with its exact data. */
+export function textNodes(root: Node): Text[] {
+  const found: Text[] = [];
+  const walk = (node: Node) => {
+    for (const child of Array.from(node.childNodes)) {
+      if (child.nodeType === 3) found.push(child as Text);
+      else if (child.nodeType === 1) walk(child);
+    }
+  };
+  walk(root);
+  return found;
 }
 
 /** Code point slicing and splicing, since anchor positions count code points. */
@@ -76,30 +80,6 @@ export function occurrences(haystack: string, needle: string, limit = 2): number
   while (at >= 0 && found.length <= limit) {
     found.push(at);
     at = haystack.indexOf(needle, at + 1);
-  }
-  return found;
-}
-
-/**
- * Occurrences of a normalized needle in raw source, where each space of the needle stands for
- * any run of whitespace (a soft line break in a Markdown paragraph, indentation in HTML). Returns
- * each match's start and end in the source.
- */
-export function flexibleMatches(
-  source: string,
-  needle: string,
-  limit = 2,
-): { start: number; end: number }[] {
-  if (needle.length === 0) return [];
-  const pattern = needle
-    .split(" ")
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("\\s+");
-  const found: { start: number; end: number }[] = [];
-  const regex = new RegExp(pattern, "g");
-  for (const match of source.matchAll(regex)) {
-    found.push({ start: match.index, end: match.index + match[0].length });
-    if (found.length > limit) break;
   }
   return found;
 }

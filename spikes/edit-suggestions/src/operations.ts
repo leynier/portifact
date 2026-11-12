@@ -88,15 +88,34 @@ export const StructureOperation = z.discriminatedUnion("action", [
 export const EditOperation = z.union([TextOperation, StyleOperation, StructureOperation]);
 export type EditOperation = z.infer<typeof EditOperation>;
 
+/** Every target an operation names: its own, and a move's destination. */
+function targetsOf(op: EditOperation): AnnotationTarget[] {
+  return "destination" in op ? [op.target, op.destination.target] : [op.target];
+}
+
+/** One page: the same file and the same SPA route (no route counts as one value). */
+const pageKey = (target: AnnotationTarget) => JSON.stringify([target.path, target.route ?? null]);
+
+/** Text operations whose selections touch, in base coordinates (adjacent ones included). */
+function overlapping(operations: readonly EditOperation[]): boolean {
+  const spans = operations.flatMap((op) =>
+    op.kind === "text" && op.target.anchor.kind === "text" ? [op.target.anchor.position] : [],
+  );
+  return spans.some((a, i) =>
+    spans.some((b, j) => i !== j && a.start <= b.end && b.start <= a.end),
+  );
+}
+
 export const Edit = z
   .strictObject({ operations: z.array(EditOperation).min(1).max(EDIT_LIMITS.operationsMax) })
   .refine(
     (edit) => new TextEncoder().encode(JSON.stringify(edit)).length <= EDIT_LIMITS.editMaxBytes,
-    {
-      message: "Edit is too large",
-    },
+    { message: "Edit is too large" },
   )
-  .refine((edit) => new Set(edit.operations.map((op) => op.target.path)).size === 1, {
-    message: "Every operation of an edit is on the same page",
+  .refine((edit) => new Set(edit.operations.flatMap(targetsOf).map(pageKey)).size === 1, {
+    message: "Every operation and destination of an edit is on the same page and route",
+  })
+  .refine((edit) => !overlapping(edit.operations), {
+    message: "Two text operations of an edit touch the same text: change it once",
   });
 export type Edit = z.infer<typeof Edit>;

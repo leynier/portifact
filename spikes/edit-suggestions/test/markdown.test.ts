@@ -1,31 +1,81 @@
-import { contentHash } from "@portifact/anchors";
-import { renderMarkdown, renderMarkdownDocument } from "@portifact/render";
+import { AnchorDocument, type AnchorElement } from "@portifact/anchors";
+import { renderMarkdown } from "@portifact/render";
 import { describe, expect, it } from "vitest";
 import { changedRegion, type Resolution } from "../src/edit.ts";
 import { renderPage, resolveMarkdownEdit } from "../src/markdown-resolver.ts";
-import { pageText, parseDocument, spliceCodePoints } from "../src/page.ts";
-import { HOSTILE_AFTERS, markdownDocument, PLAIN_AFTERS, random, randomEdit } from "./corpus.ts";
+import { codePoints, parseFragment } from "../src/page.ts";
+import {
+  type CorpusEdit,
+  type EditShape,
+  HOSTILE_AFTERS,
+  markdownDocument,
+  PLAIN_AFTERS,
+  random,
+  randomEdit,
+} from "./corpus.ts";
 
-/**
- * The oracle, written apart from the resolver: render the new source as a whole published
- * document (another entry point of the renderer), parse it with a fresh parser and compare the
- * hash of its text with the expected page's, and compare the HTML with every text run removed
- * (a string comparison, not the resolver's skeleton walk). Heading IDs follow the heading's text
- * and highlight spans follow the code, so both are dropped on each side.
- */
-function markup(html: string): string {
-  return html
-    .replace(/(<h[1-6][^>]*?) id="[^"]*"/g, "$1")
-    .replace(/<\/?span[^>]*>/g, "")
-    .replace(/>[^<]*</g, "><");
+/** Every value of every `id` and `href` attribute, in order: IDs and references (rule 6). */
+const ids = (html: string) =>
+  [...html.matchAll(/ (id|href)="([^"]*)"/g)].map((m) => `${m[1]}=${m[2]}`);
+/** The HTML with every text run removed; nothing else is dropped, spans and IDs included. */
+const markup = (html: string) => html.replace(/>[^<]*</g, "><");
+
+/** The raw text of every text node, in order, by a walk written here, not the resolver's. */
+function rawText(root: Node): { text: string; starts: Map<Node, number> } {
+  let text = "";
+  const starts = new Map<Node, number>();
+  const visit = (node: Node) => {
+    if (node.nodeType === 3) {
+      starts.set(node, text.length);
+      text += (node as Text).data;
+    }
+    for (const child of Array.from(node.childNodes)) visit(child);
+  };
+  visit(root);
+  return { text, starts };
 }
 
-async function oracle(source: string, next: string, expectedText: string): Promise<void> {
-  const document = parseDocument(renderMarkdownDocument(next, { title: "t" }).html);
-  const main = document.querySelector("main") as Element;
-  expect(await contentHash(pageText(main))).toBe(await contentHash(expectedText));
-  expect(markup(renderMarkdown(next).html)).toBe(markup(renderMarkdown(source).html));
-  // The change stays inside one block of the old block map.
+/**
+ * The oracle, written apart from the resolver's comparison: IDs and references by a regular
+ * expression over the HTML, the markup with text removed, and the raw text of the new page
+ * compared with the old raw text changed exactly at the reviewer's location (found through
+ * `packages/anchors`, which defines positions), whitespace included. It also checks that the
+ * change stays inside one block of the old block map.
+ */
+function oracle(source: string, next: string, edit: CorpusEdit): void {
+  const oldHtml = renderMarkdown(source).html;
+  const newHtml = renderMarkdown(next).html;
+  expect(ids(newHtml)).toEqual(ids(oldHtml));
+  expect(markup(newHtml)).toBe(markup(oldHtml));
+
+  const oldMain = parseFragment(oldHtml);
+  const document = new AnchorDocument(oldMain as unknown as AnchorElement);
+  const points = codePoints(document.text.value);
+  const located = document.resolveText({
+    kind: "text",
+    quote: {
+      exact: edit.before,
+      prefix: points.slice(Math.max(0, edit.start - 32), edit.start).join(""),
+      suffix: points.slice(edit.end, edit.end + 32).join(""),
+    },
+    position: { start: edit.start, end: edit.end },
+  });
+  if (located.confidence !== "exact") throw new Error("the oracle could not place the edit");
+  const old = rawText(oldMain);
+  const at =
+    (old.starts.get(located.range.start.node as unknown as Node) as number) +
+    located.range.start.offset;
+  expect(old.text.slice(at, at + edit.before.length)).toBe(edit.before);
+  const change = changedRegion(edit);
+  const prefix = codePoints(edit.before)
+    .slice(0, change.from - edit.start)
+    .join("").length;
+  const expected =
+    old.text.slice(0, at + prefix) +
+    change.inserted +
+    old.text.slice(at + prefix + change.deleted.length);
+  expect(rawText(parseFragment(newHtml)).text).toBe(expected);
+
   const blocks = renderMarkdown(source).blocks;
   let first = 0;
   while (first < source.length && source[first] === next[first]) first++;
@@ -45,16 +95,26 @@ async function oracle(source: string, next: string, expectedText: string): Promi
 interface Tally {
   edits: number;
   certain: number;
+  byShape: Record<EditShape, { edits: number; certain: number }>;
   reasons: Record<string, number>;
 }
 
-async function runCorpus(
+function runCorpus(
   documents: number,
   editsPer: number,
   afters: readonly string[],
   seed: number,
-): Promise<Tally> {
-  const tally: Tally = { edits: 0, certain: 0, reasons: {} };
+): Tally {
+  const tally: Tally = {
+    edits: 0,
+    certain: 0,
+    byShape: {
+      replacement: { edits: 0, certain: 0 },
+      insertion: { edits: 0, certain: 0 },
+      deletion: { edits: 0, certain: 0 },
+    },
+    reasons: {},
+  };
   const rand = random(seed);
   for (let doc = 0; doc < documents; doc++) {
     const source = markdownDocument(seed * 1_000 + doc, 12);
@@ -63,15 +123,12 @@ async function runCorpus(
       const edit = randomEdit(rand, page.text, afters);
       if (!edit) continue;
       tally.edits++;
+      tally.byShape[edit.shape].edits++;
       const result: Resolution = resolveMarkdownEdit(source, edit);
       if (result.status === "certain") {
         tally.certain++;
-        const change = changedRegion(edit);
-        await oracle(
-          source,
-          result.source,
-          spliceCodePoints(page.text, change.from, change.to, change.inserted),
-        );
+        tally.byShape[edit.shape].certain++;
+        oracle(source, result.source, edit);
       } else {
         tally.reasons[result.reason] = (tally.reasons[result.reason] ?? 0) + 1;
       }
@@ -81,20 +138,32 @@ async function runCorpus(
 }
 
 describe("Markdown resolver", () => {
-  it("maps plain edits with certainty and never applies a wrong one", async () => {
-    const tally = await runCorpus(60, 25, PLAIN_AFTERS, 7);
+  it("maps plain edits and every applied one passes the independent oracle", () => {
+    const tally = runCorpus(60, 25, PLAIN_AFTERS, 7);
     console.log("markdown plain", JSON.stringify(tally));
     expect(tally.edits).toBeGreaterThan(1_200);
-    // Measured: about four in five edits are certain; the rest cross blocks or formatting.
-    expect(tally.certain / tally.edits).toBeGreaterThan(0.7);
+    expect(tally.certain / tally.edits).toBeGreaterThan(0.4);
+    for (const shape of ["replacement", "insertion", "deletion"] as const) {
+      expect(tally.byShape[shape].certain, shape).toBeGreaterThan(0);
+    }
   });
 
-  it("never lets hostile after-text add markup", async () => {
-    const tally = await runCorpus(60, 25, HOSTILE_AFTERS, 11);
+  it("writes hostile after-text as text: no element, attribute, ID or reference appears", () => {
+    const tally = runCorpus(60, 25, HOSTILE_AFTERS, 11);
     console.log("markdown hostile", JSON.stringify(tally));
     expect(tally.edits).toBeGreaterThan(1_200);
-    // Most hostile text is written escaped and still applies; what would become markup does not.
     expect(tally.certain).toBeGreaterThan(0);
+  });
+
+  it("refuses every heading edit that changes an ID", () => {
+    expect(
+      resolveMarkdownEdit("# Title\n\nBody.", {
+        start: 0,
+        end: 5,
+        before: "Title",
+        after: "Other",
+      }),
+    ).toEqual({ status: "uncertain", reason: "would_change_page" });
   });
 
   it("writes Markdown syntax as escaped text", () => {
@@ -173,7 +242,7 @@ describe("Markdown resolver", () => {
         before: "here. Second",
         after: "joined",
       }),
-    ).toEqual({ status: "uncertain", reason: "spans_blocks" });
+    ).toEqual({ status: "uncertain", reason: "spans_nodes" });
   });
 
   it("handles entities, repeated text and tables", () => {

@@ -24,7 +24,17 @@ export type UncertainReason =
   /** The page's text differs from the file's static text: a script wrote or changed it. */
   | "script_text"
   /** The source is not in Unicode NFC, so normalized offsets do not map one to one. */
-  | "not_nfc";
+  | "not_nfc"
+  /** The selection crosses whitespace the page keeps (a line break, a tab, several spaces). */
+  | "whitespace"
+  /** The selection is not inside one text node of the page. */
+  | "spans_nodes"
+  /** An HTML page with scripts, event handlers or `javascript:` URLs (decision 0027, rule 4). */
+  | "not_inert"
+  /** Another operation of the same plan touches the same text. */
+  | "overlap"
+  /** The plan's render budget ran out. */
+  | "budget";
 
 export type Resolution =
   | {
@@ -81,16 +91,4 @@ export function changedRegion(edit: TextEdit): {
     deleted: before.slice(prefix, before.length - suffix).join(""),
     inserted: after.slice(prefix, after.length - suffix).join(""),
   };
-}
-
-/** UTF-16 offset in `text` of a code point offset. */
-export function unitOffset(text: string, codePoint: number): number {
-  let units = 0;
-  let count = 0;
-  for (const point of text) {
-    if (count === codePoint) return units;
-    units += point.length;
-    count++;
-  }
-  return units;
 }

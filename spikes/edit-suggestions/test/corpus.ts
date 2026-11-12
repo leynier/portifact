@@ -134,11 +134,33 @@ export const PLAIN_AFTERS = [
   'it\'s "quoted"',
 ];
 
+export type EditShape = "replacement" | "insertion" | "deletion";
+
 export interface CorpusEdit {
   start: number;
   end: number;
   before: string;
   after: string;
+  shape: EditShape;
+}
+
+/** Whether the changed part deletes, inserts or replaces, after the common prefix and suffix. */
+export function shapeOf(before: string, after: string): EditShape {
+  const a = codePoints(before);
+  const b = codePoints(after);
+  let prefix = 0;
+  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++;
+  let suffix = 0;
+  while (
+    suffix < a.length - prefix &&
+    suffix < b.length - prefix &&
+    a[a.length - 1 - suffix] === b[b.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+  if (a.length - prefix - suffix === 0) return "insertion";
+  if (b.length - prefix - suffix === 0) return "deletion";
+  return "replacement";
 }
 
 /** A random selection of whole words in the page text, and a replacement. */
@@ -162,13 +184,24 @@ export function randomEdit(
   if (endIndex === spaces.length - 1 && first + span >= spaces.length - 1) end = points.length;
   if (end <= start) return null;
   const before = points.slice(start, end).join("");
-  // Some edits replace one word inside the selection, the shape most reviews take.
-  let after = pick(rand, afters);
-  if (rand() < 0.3) {
-    const words = before.split(" ");
-    words[Math.floor(rand() * words.length)] = after;
+  const words = before.split(" ");
+  const shape = rand();
+  let after: string;
+  if (shape < 0.15 && words.length > 1) {
+    // A deletion: one word of the selection goes, with one of its spaces.
+    words.splice(Math.floor(rand() * words.length), 1);
     after = words.join(" ");
+  } else if (shape < 0.25) {
+    // An insertion: a word is added after one of the selection's words.
+    words.splice(1 + Math.floor(rand() * words.length), 0, pick(rand, afters));
+    after = words.join(" ");
+  } else if (shape < 0.5) {
+    // A replacement of one word inside the selection, the shape most reviews take.
+    words[Math.floor(rand() * words.length)] = pick(rand, afters);
+    after = words.join(" ");
+  } else {
+    after = pick(rand, afters);
   }
   if (after === before || /\s{2}/.test(after)) return null;
-  return { start, end, before, after };
+  return { start, end, before, after, shape: shapeOf(before, after) };
 }

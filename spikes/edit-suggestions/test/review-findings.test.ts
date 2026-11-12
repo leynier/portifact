@@ -1,6 +1,5 @@
 // The counterexamples of the design review of pull request #247, one test each, written against
 // the spike as it stood so they fail first. Numbers are the review's findings.
-import { contentHash } from "@portifact/anchors";
 import { ANCHOR_SCHEMA_VERSION, type AnnotationTarget } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import { resolveHtmlEdit } from "../src/html-resolver.ts";
@@ -32,12 +31,9 @@ describe("finding 3: a page whose script rewrites text never earns automatic app
       '<!doctype html><p>Pay $10</p><script>document.querySelector("p").textContent="Tip $10"</script>';
     const text = pageText(parseDocument(html).body);
     const start = at(text, "$10");
-    const result = await resolveHtmlEdit(
-      html,
-      { start, end: start + 3, before: "$10", after: "$20" },
-      await contentHash(text),
-    );
-    expect(result.status).toBe("uncertain");
+    // The forged hash is gone from the design: the server never asks the frame what it showed.
+    const result = resolveHtmlEdit(html, { start, end: start + 3, before: "$10", after: "$20" });
+    expect(result).toEqual({ status: "uncertain", reason: "not_inert" });
   });
 });
 
@@ -80,12 +76,12 @@ describe("finding 6: whitespace is compared exactly", () => {
       '<p style="white-space: pre-wrap">alpha\n    beta</p>',
     ]) {
       const html = `<!doctype html>${body}`;
-      const text = pageText(parseDocument(html).body);
-      const result = await resolveHtmlEdit(
-        html,
-        { start: 0, end: 10, before: "alpha beta", after: "ALPHA BETA" },
-        await contentHash(text),
-      );
+      const result = resolveHtmlEdit(html, {
+        start: 0,
+        end: 10,
+        before: "alpha beta",
+        after: "ALPHA BETA",
+      });
       expect(result.status, body).toBe("uncertain");
     }
   });
