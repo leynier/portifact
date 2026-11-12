@@ -248,3 +248,63 @@ export const AnnotationExport = z.object({
   threads: z.array(AnnotationThreadView),
 });
 export type AnnotationExport = z.infer<typeof AnnotationExport>;
+
+/**
+ * The kinds of the comment action history, in the order `annotation_events` lists them: who
+ * created, edited, deleted, hid, resolved or reopened what, and when. Never the text.
+ */
+export const ANNOTATION_HISTORY_KINDS = [
+  "thread_created",
+  "message_created",
+  "message_edited",
+  "message_deleted",
+  "message_hidden",
+  "message_unhidden",
+  "message_removed",
+  "thread_resolved",
+  "thread_reopened",
+  "thread_deleted",
+] as const;
+export const AnnotationHistoryKind = z.enum(ANNOTATION_HISTORY_KINDS);
+export type AnnotationHistoryKind = z.infer<typeof AnnotationHistoryKind>;
+
+/** Page sizes of the comment action history. */
+export const ANNOTATION_HISTORY_PAGE = { default: 200, max: 500 } as const;
+
+export const AnnotationHistoryQuery = z.object({
+  /** `nextCursor` from the previous page; without it the history starts from its first entry. */
+  cursor: z.string().max(32).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(ANNOTATION_HISTORY_PAGE.max)
+    .default(ANNOTATION_HISTORY_PAGE.default),
+});
+export type AnnotationHistoryQuery = z.infer<typeof AnnotationHistoryQuery>;
+
+/** One entry of the comment action history: no text, no quote, no address. */
+export const AnnotationHistoryEntry = z.strictObject({
+  /** Increases with every change of the artifact's comments. */
+  seq: z.number().int().positive(),
+  threadId: z.string(),
+  messageId: z.string().nullable(),
+  kind: AnnotationHistoryKind,
+  /** Who did it, by display name; null once the account is gone. */
+  actor: AnnotationAuthor.nullable(),
+  at: z.iso.datetime(),
+});
+export type AnnotationHistoryEntry = z.infer<typeof AnnotationHistoryEntry>;
+
+/**
+ * A page of an artifact's comment action history, oldest first (`GET
+ * /api/v1/artifacts/:id/annotations/history`, get_comment_history, `portifact annotations
+ * history`). Only the owner side reads it; it covers deleted threads too, so it is the record of
+ * what happened to comments.
+ */
+export const AnnotationHistoryPage = z.strictObject({
+  artifactId: ArtifactId,
+  entries: z.array(AnnotationHistoryEntry),
+  nextCursor: z.string().nullable(),
+});
+export type AnnotationHistoryPage = z.infer<typeof AnnotationHistoryPage>;

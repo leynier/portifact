@@ -1,9 +1,12 @@
 // portifact export: everything a space holds, into a folder (decision 0022, second delivery).
 // Every artifact and every retained version through the version download route (published files
-// and, when there are any, the private sources), each artifact's access log and the space's audit
-// log when the caller may read them, and `manifest.json`, written last, describing what is there.
-// It only uses the routes `list`, `versions`, `pull`, `logs` and `audit export` use: the server
-// never builds an archive.
+// and, when there are any, the private sources), each artifact's access log, its records
+// (`records.json`: settings, access rules, share link settings, the approval review, analytics,
+// comment threads and their action history), the space's records (`space.json`) and the space's
+// audit log when the caller may read them, and `manifest.json`, written last, describing what is
+// there. It only uses read routes other commands use: the server never builds an archive. What
+// only the dashboard's session may read (members, invitations, email domains, service tokens,
+// branding and the like) is marked `dashboard_only` in `space.json`.
 //
 // The folder is handled by `SafeFolder`: nothing is written through a link, every file goes
 // through a temporary file of its own and counts only once read back from its place with the
@@ -17,8 +20,16 @@ import { readdir, rm } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import {
   AccessLogView,
+  AccessPolicyView,
+  ANNOTATION_HISTORY_PAGE,
+  AnnotationExport,
+  AnnotationHistoryPage,
+  ApprovalReviewView,
   ArtifactList,
   type ArtifactListItem,
+  ArtifactRecords,
+  ArtifactStatsView,
+  ArtifactSummary,
   AUDIT_EXPORT_CURSOR_HEADER,
   type DownloadKind,
   type DownloadLink,
@@ -26,14 +37,30 @@ import {
   EXPORT_MANIFEST_FORMAT,
   type ExportedFile,
   type ExportedLog,
+  type ExportedRecordFile,
   type ExportedVersion,
   ExportManifest,
   type ExportSkipReason,
   GraceForecastView,
+  ShareLinkList,
+  type SkippedRecord,
+  SpaceRecords,
   VersionList,
   type VersionSummary,
+  WebhookList,
+  WorkspaceGroupList,
+  WorkspaceList,
 } from "@portifact/contracts";
-import { exportPathSegments, exportVersionFolder, isGitSegment } from "@portifact/domain";
+import {
+  collectArtifactRecords,
+  collectSpaceRecords,
+  exportPathSegments,
+  exportVersionFolder,
+  isGitSegment,
+  type RecordPart,
+  recordsRetryLater,
+} from "@portifact/domain";
+import type { ZodType } from "zod";
 import { callApi, downloadApi, RETRY_ATTEMPTS, withRetries } from "./api.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
 import { CliError, EXIT } from "./errors.ts";
@@ -206,8 +233,10 @@ async function writeExport(
     exportedAt: new Date(session.runtime.now()).toISOString(),
     artifacts: [],
     audit: { skipped: "not_found" },
+    spaceRecords: { skipped: "not_found" },
     totals: { artifacts: 0, versions: 0, files: 0, bytes: 0 },
   };
+  let recordsLater = false;
   const total = planned.reduce((sum, item) => sum + item.versions.length, 0);
   let accessLogs: "allowed" | ExportSkipReason = "allowed";
   let done = 0;
@@ -247,14 +276,26 @@ async function writeExport(
     } else {
       accessLog = { skipped: accessLogs };
     }
+    let records: ExportedRecordFile;
+    if (skipped === "not_found") {
+      records = { skipped: "not_found" };
+    } else {
+      const written = await exportArtifactRecords(session, folder, item.artifact.id);
+      recordsLater ||= written.retryLater;
+      records = written.file;
+    }
     manifest.artifacts.push({
       id: item.artifact.id,
       name: item.artifact.name,
       versions: exported,
       accessLog,
+      records,
       ...(skipped ? { skipped } : {}),
     });
   }
+  const space = await exportSpaceRecords(session, folder, context.workspace, context.ownerId);
+  recordsLater ||= space.retryLater;
+  manifest.spaceRecords = space.file;
   manifest.audit = await exportAudit(session, folder, context.workspace);
   const all = manifest.artifacts.flatMap((a) => a.versions.flatMap((v) => v.files));
   manifest.totals = {
@@ -271,6 +312,10 @@ async function writeExport(
   const skippedArtifacts = manifest.artifacts.filter((a) => a.skipped !== undefined);
   const logs = [...manifest.artifacts.map((a) => a.accessLog), manifest.audit];
   const retryLater =
+    recordsLater ||
+    [...manifest.artifacts.map((a) => a.records), manifest.spaceRecords].some(
+      (file) => "skipped" in file && file.skipped === "rate_limited",
+    ) ||
     skippedArtifacts.some((a) => a.skipped === "rate_limited") ||
     logs.some((log) => "skipped" in log && log.skipped === "rate_limited");
   if (context.json) {
@@ -294,6 +339,7 @@ async function writeExport(
     if ("skipped" in manifest.audit && manifest.audit.skipped === "rate_limited") {
       io.stdout(`${messages.exportSpace.auditLater}\n`);
     }
+    if (context.workspace !== undefined) io.stdout(`${messages.exportSpace.dashboardOnly}\n`);
     if (retryLater) io.stdout(`${messages.exportSpace.incomplete}\n`);
   }
   return retryLater ? EXIT.incomplete : EXIT.ok;
@@ -621,4 +667,121 @@ async function exportAudit(
   await temporary.handle.close();
   await folder.place(temporary.path, [file]);
   return { file, lines };
+}
+
+/**
+ * A read whose refusal is recorded in the records file instead of stopping the export: the
+ * export's skip reasons, and `unavailable` for a feature switched off or capacity protection.
+ */
+async function recordPart<T>(read: () => Promise<T>): Promise<RecordPart<T>> {
+  try {
+    return await read();
+  } catch (error) {
+    const skipped = skipReason(error);
+    if (skipped) return { skipped };
+    if (error instanceof CliError && error.code === "capacity_unavailable") {
+      return { skipped: "unavailable" };
+    }
+    throw error;
+  }
+}
+
+const DASHBOARD_ONLY = async (): Promise<SkippedRecord> => ({ skipped: "dashboard_only" });
+
+/**
+ * One artifact's `records.json`, read again on every run (settings and comments change), or why
+ * it is not there. `retryLater` when a part of it asked to wait.
+ */
+async function exportArtifactRecords(
+  session: Session,
+  folder: SafeFolder,
+  artifactId: string,
+): Promise<{ file: ExportedRecordFile; retryLater: boolean }> {
+  const get = <T>(path: string, schema: ZodType<T>) =>
+    withRetries(session, () =>
+      callApi(session, { method: "GET", path: `/artifacts/${artifactId}${path}`, schema }),
+    );
+  let artifact: ArtifactSummary;
+  try {
+    artifact = await get("", ArtifactSummary);
+  } catch (error) {
+    const skipped = skipReason(error);
+    if (!skipped) throw error;
+    return { file: { skipped }, retryLater: skipped === "rate_limited" };
+  }
+  const records = await collectArtifactRecords(
+    artifact,
+    {
+      access: () => recordPart(() => get("/access", AccessPolicyView)),
+      shareLinks: () => recordPart(() => get("/share-links", ShareLinkList)),
+      approvalReview: () => recordPart(() => get("/review/status", ApprovalReviewView)),
+      stats: (range) =>
+        recordPart(() =>
+          get(`/stats${range ? `?${new URLSearchParams(range)}` : ""}`, ArtifactStatsView),
+        ),
+      comments: (version) =>
+        recordPart(() =>
+          get(
+            `/annotations/export?${new URLSearchParams({ format: "json", version })}`,
+            AnnotationExport,
+          ),
+        ),
+      commentHistory: (cursor) =>
+        recordPart(() =>
+          get(
+            `/annotations/history?${new URLSearchParams({ limit: String(ANNOTATION_HISTORY_PAGE.max), ...(cursor === undefined ? {} : { cursor }) })}`,
+            AnnotationHistoryPage,
+          ),
+        ),
+    },
+    session.runtime.now(),
+  );
+  const file = `artifacts/${artifactId}/records.json`;
+  await folder.writeText(
+    file.split("/"),
+    `${JSON.stringify(ArtifactRecords.parse(records), null, 2)}\n`,
+  );
+  return { file: { file }, retryLater: recordsRetryLater(records) };
+}
+
+/** The space's `space.json`: what bearer routes read, the rest marked `dashboard_only`. */
+async function exportSpaceRecords(
+  session: Session,
+  folder: SafeFolder,
+  workspace: string | undefined,
+  ownerId: string,
+): Promise<{ file: ExportedRecordFile; retryLater: boolean }> {
+  const get = <T>(path: string, schema: ZodType<T>) =>
+    withRetries(session, () => callApi(session, { method: "GET", path, schema }));
+  const records = await collectSpaceRecords(
+    { ownerId, slug: workspace ?? null },
+    {
+      workspace: () =>
+        recordPart(async () => {
+          const list = await get("/workspaces", WorkspaceList);
+          const found = list.items.find((item) => item.slug === workspace);
+          if (!found) throw new CliError("not_found", messages.exportSpace.workspaceGone);
+          return found;
+        }),
+      members: DASHBOARD_ONLY,
+      invitations: DASHBOARD_ONLY,
+      groups: () =>
+        recordPart(() => get(`/workspaces/${workspace ?? ""}/groups`, WorkspaceGroupList)),
+      group: DASHBOARD_ONLY,
+      emailDomains: DASHBOARD_ONLY,
+      policies: DASHBOARD_ONLY,
+      serviceTokens: DASHBOARD_ONLY,
+      githubTrust: DASHBOARD_ONLY,
+      sso: DASHBOARD_ONLY,
+      scim: DASHBOARD_ONLY,
+      branding: DASHBOARD_ONLY,
+      webhooks: () => recordPart(() => get(`/webhooks${workspaceQuery(workspace)}`, WebhookList)),
+      integrations: DASHBOARD_ONLY,
+      auditStreams: DASHBOARD_ONLY,
+    },
+    session.runtime.now(),
+  );
+  const file = "space.json";
+  await folder.writeText([file], `${JSON.stringify(SpaceRecords.parse(records), null, 2)}\n`);
+  return { file: { file }, retryLater: recordsRetryLater(records) };
 }

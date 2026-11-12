@@ -5,6 +5,7 @@ import {
   AnnotationDeleteResult,
   AnnotationEditResult,
   AnnotationExport,
+  AnnotationHistoryPage,
   AnnotationModeView,
   AnnotationPage,
   AnnotationThreadView,
@@ -15,6 +16,7 @@ import {
   type ErrorCode,
   ExportAnnotationsInput,
   FeedbackPage,
+  GetCommentHistoryInput,
   ListAnnotationsInput,
   ListOpenFeedbackInput,
   MessageRef,
@@ -35,6 +37,7 @@ import {
   exportAnnotations,
   getAnnotationThread,
   hashRequest,
+  listAnnotationHistory,
   listAnnotations,
   listOpenFeedback,
   moderateAnnotationMessage,
@@ -56,6 +59,7 @@ export const ANNOTATION_TOOL_SCOPES: [string, OAuthScope][] = [
   ["list_open_feedback", "annotations:read"],
   ["get_thread", "annotations:read"],
   ["export_annotations", "annotations:read"],
+  ["get_comment_history", "annotations:read"],
   ["create_annotation", "annotations:write"],
   ["reply_annotation", "annotations:write"],
   ["edit_annotation", "annotations:write"],
@@ -229,6 +233,30 @@ export function registerAnnotationTools(
       }
       return success(
         `${body.threads.length} thread(s) exported from ${body.artifact.id}. ${UNTRUSTED}`,
+        body,
+      );
+    },
+  );
+
+  register(
+    "get_comment_history",
+    {
+      title: "Get the comment history",
+      description: `Page through an artifact's comment action history, oldest first (owner side only): who created, edited, deleted, hid, resolved or reopened which thread or message, and when, deleted threads included. It has no comment text; use export_annotations for that. Pass nextCursor to get the next page. ${UNTRUSTED}`,
+      inputSchema: GetCommentHistoryInput,
+      outputSchema: AnnotationHistoryPage,
+      annotations: READ_ONLY,
+    },
+    async (args: GetCommentHistoryInput) => {
+      const result = await listAnnotationHistory(await artifactDb(context.env, args.artifactId), {
+        ...actor(args.artifactId),
+        cursor: args.cursor,
+        limit: args.limit,
+      });
+      if (!result.ok) return failure(result.code, result.message);
+      const body = AnnotationHistoryPage.parse(result.value);
+      return success(
+        `${body.entries.length} history entr${body.entries.length === 1 ? "y" : "ies"} of ${body.artifactId}${body.nextCursor ? "; more with nextCursor" : ""}. ${UNTRUSTED}`,
         body,
       );
     },

@@ -14,6 +14,7 @@ import {
   exportAnnotations,
   getAnnotationThread,
   type HumanCheck,
+  listAnnotationHistory,
   listAnnotations,
   moderateAnnotationMessage,
   replyToAnnotationThread,
@@ -2291,5 +2292,82 @@ describe("comment visibility", () => {
       .from(schema.annotationMessages)
       .where(eq(schema.annotationMessages.id, messageId));
     expect(message?.body).toBe("Edited");
+  });
+});
+
+describe("the comment action history", () => {
+  const history = (w: World, userId: string, cursor?: string, limit = 10) =>
+    listAnnotationHistory(db(), { userId, artifactId: w.id, cursor, limit, now: NOW });
+
+  it("lists every action without text, deleted threads included, a page at a time", async () => {
+    const w = await world();
+    const thread = await started(w, w.reader, "Secret words");
+    await setAnnotationThreadState(db(), {
+      userId: w.owner,
+      artifactId: w.id,
+      threadId: thread.id,
+      state: "resolved",
+      now: NOW + MINUTE,
+    });
+    await deleteAnnotationThread(db(), {
+      userId: w.owner,
+      artifactId: w.id,
+      threadId: thread.id,
+      now: NOW + 2 * MINUTE,
+    });
+
+    const first = await history(w, w.owner, undefined, 2);
+    if (!first.ok) throw new Error(first.code);
+    expect(first.value.artifactId).toBe(w.id);
+    expect(first.value.entries.map((e) => e.kind)).toEqual(["thread_created", "thread_resolved"]);
+    expect(first.value.entries[0]).toMatchObject({
+      threadId: thread.id,
+      actor: { id: w.reader, name: expect.stringContaining("Name ") },
+      at: new Date(NOW).toISOString(),
+    });
+    expect(first.value.entries[1]).toMatchObject({
+      actor: { id: w.owner },
+      at: new Date(NOW + MINUTE).toISOString(),
+    });
+    expect(JSON.stringify(first.value)).not.toContain("Secret words");
+    expect(first.value.nextCursor).not.toBeNull();
+
+    const rest = await history(w, w.owner, first.value.nextCursor ?? undefined, 10);
+    if (!rest.ok) throw new Error(rest.code);
+    expect(rest.value.entries.map((e) => e.kind)).toEqual(["thread_deleted"]);
+    expect(rest.value.entries[0]?.actor?.id).toBe(w.owner);
+    expect(rest.value.nextCursor).toBeNull();
+    const seqs = [...first.value.entries, ...rest.value.entries].map((e) => e.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+  });
+
+  it("names a deleted account as nobody", async () => {
+    const w = await world();
+    await started(w, w.reader);
+    await db().global.delete(schema.users).where(eq(schema.users.id, w.reader));
+    const page = await history(w, w.owner);
+    expect(page.ok && page.value.entries.every((e) => e.actor === null)).toBe(true);
+  });
+
+  it("is the owner side's: readers get forbidden, strangers a missing artifact", async () => {
+    const w = await world({ comments: "everyone" });
+    await started(w, w.reader);
+    expect(code(await history(w, w.reader))).toBe("forbidden");
+    expect(code(await history(w, w.stranger))).toBe("not_found");
+    expect(
+      code(
+        await listAnnotationHistory(db(), {
+          userId: w.owner,
+          artifactId: artifactId(),
+          limit: 10,
+          now: NOW,
+        }),
+      ),
+    ).toBe("not_found");
+  });
+
+  it("refuses a cursor it did not make", async () => {
+    const w = await world();
+    expect(code(await history(w, w.owner, "not-a-cursor"))).toBe("invalid_input");
   });
 });

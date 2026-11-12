@@ -15,6 +15,7 @@ export * from "./comment-notices.ts";
 export * from "./content-search.ts";
 export * from "./custom-domains.ts";
 export * from "./data-export.ts";
+export * from "./data-records.ts";
 export * from "./documents.ts";
 export * from "./email.ts";
 export * from "./email-domains.ts";

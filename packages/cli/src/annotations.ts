@@ -8,12 +8,15 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
   ANCHOR_LIMITS,
+  ANNOTATION_HISTORY_PAGE,
   ANNOTATION_LIMITS,
   AnchorPath,
   AnnotationBody,
   AnnotationDeleteResult,
   AnnotationEditResult,
   AnnotationExport,
+  type AnnotationHistoryEntry,
+  AnnotationHistoryPage,
   AnnotationId,
   AnnotationModeView,
   AnnotationPage,
@@ -427,6 +430,64 @@ export async function exportAnnotations(
     return;
   }
   io.stdout(`${text.exported(artifactId, options.format, out)}\n`);
+}
+
+/**
+ * The artifact's whole comment action history (owner side only), oldest first, every page: who
+ * created, edited, deleted, hid, resolved or reopened what, and when, without any text.
+ */
+export async function history(
+  io: Io,
+  runtime: Runtime,
+  id: string,
+  options: OutputOptions,
+): Promise<void> {
+  const artifactId = parseArtifactId(id);
+  const session = await openSession(io, runtime);
+  const entries = await wholeHistory(session, artifactId);
+  notice(io);
+  if (options.json) {
+    writeJson(io, { artifactId, entries });
+    return;
+  }
+  if (entries.length === 0) {
+    io.stdout(`${text.historyEmpty(artifactId)}\n`);
+    return;
+  }
+  for (const entry of entries) {
+    io.stdout(
+      `${text.historyLine(
+        formatDate(entry.at),
+        entry.kind,
+        entry.threadId,
+        entry.messageId,
+        entry.actor ? plain(entry.actor.name) : text.goneAuthor,
+      )}\n`,
+    );
+  }
+}
+
+/** Every page of an artifact's comment action history. */
+export async function wholeHistory(
+  session: Session,
+  artifactId: string,
+): Promise<AnnotationHistoryEntry[]> {
+  const entries: AnnotationHistoryEntry[] = [];
+  let cursor: string | null = null;
+  do {
+    const query = new URLSearchParams({ limit: String(ANNOTATION_HISTORY_PAGE.max) });
+    if (cursor !== null) query.set("cursor", cursor);
+    const page: AnnotationHistoryPage = await withRetries(session, () =>
+      callApi(session, {
+        method: "GET",
+        path: `${base(artifactId)}/history?${query}`,
+        schema: AnnotationHistoryPage,
+      }),
+    );
+    entries.push(...page.entries);
+    cursor = page.entries.length === 0 ? null : page.nextCursor;
+  } while (cursor !== null);
+  return entries;
 }
 
 // Helpers

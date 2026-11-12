@@ -5,6 +5,7 @@
 // tests; here a test scripts the role with `role`.
 import { randomUUID } from "node:crypto";
 import {
+  type AnnotationHistoryEntry,
   type AnnotationsState,
   type AnnotationThreadView,
   CreateThreadRequest,
@@ -30,6 +31,8 @@ export interface FakeAnnotationState {
   outOfScope: Set<string>;
   /** Every request body the API received, by route, to check what the CLI sent. */
   bodies: unknown[];
+  /** The comment action history by artifact, oldest first, as GET .../history pages it. */
+  history: Map<string, AnnotationHistoryEntry[]>;
 }
 
 const PATH = /^\/artifacts\/([^/]+)\/annotations(?:\/(.+))?$/;
@@ -62,6 +65,7 @@ export function createFakeAnnotations(
     commentScope: "all",
     outOfScope: new Set(),
     bodies: [],
+    history: new Map(),
   };
 
   const iso = () => new Date(clock()).toISOString();
@@ -255,6 +259,17 @@ export function createFakeAnnotations(
     }
     if (method === "GET" && rest === "") return list(artifact, url);
     if (method === "GET" && rest === "export") return exportAll(artifact, url);
+    if (method === "GET" && rest === "history") {
+      if (state.role !== "owner") {
+        return error("forbidden", "Only the artifact's owner side can read the comment history.");
+      }
+      const all = state.history.get(artifact.id) ?? [];
+      const from = Number(url.searchParams.get("cursor") ?? "0");
+      const limit = Number(url.searchParams.get("limit") ?? "200");
+      const entries = all.slice(from, from + limit);
+      const next = from + limit < all.length ? String(from + limit) : null;
+      return { status: 200, body: { artifactId: artifact.id, entries, nextCursor: next } };
+    }
 
     if (method === "POST" && rest === "threads") {
       return replay(key, `thread ${artifact.id} ${raw}`, () => {
