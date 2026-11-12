@@ -127,6 +127,17 @@ export async function info(
       ...(artifact.suspension
         ? [["Suspended", `${artifact.suspension.reason}; write to abuse@portifact.com to appeal`]]
         : []),
+      // The statement of reasons the operator recorded (docs/operations.md, "Reports").
+      ...(artifact.suspension?.statement
+        ? [
+            [
+              "Decided",
+              `${artifact.suspension.statement.decidedAt} by a person, after ${artifact.suspension.statement.source === "notice" ? "a notice" : "Portifact's own review"}`,
+            ],
+            ["Facts", oneLine(artifact.suspension.statement.facts)],
+            ["Ground", oneLine(artifact.suspension.statement.ground)],
+          ]
+        : []),
       ["Access", artifact.accessMode],
       ["Annotations", artifact.annotations],
       ["URL", artifact.url],
@@ -447,4 +458,9 @@ export function table(rows: readonly (readonly string[])[]): string {
     )
     .map((line) => `${line}\n`)
     .join("");
+}
+
+/** The operator's text on one table line: its line breaks become spaces. */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }

@@ -32,6 +32,7 @@ import {
   versionRetention,
 } from "@portifact/domain";
 import { type SQL, sql } from "drizzle-orm";
+import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { objectKey } from "./objects.ts";
 import {
   type ArtifactRow,
@@ -112,6 +113,8 @@ async function comparable(db: RegionalDb, input: CompareInput): Promise<Result<C
   );
   if (!managed.ok) return managed;
   const { artifact, owner } = managed.value;
+  // Nothing of a held artifact's content is served, to its owner either (docs/operations.md).
+  if (artifact.state === "suspended" && (await isHeld(db, artifact.id))) return heldRefusal();
   // Comparing retained versions is a read of held data: a grace keeps it open (decision 0022).
   const gate = requireHeldFeature(owner, "versionDiff");
   if (!gate.ok) return gate;

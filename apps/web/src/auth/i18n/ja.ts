@@ -105,12 +105,14 @@ const messages = {
   unknownScope: (name: string) => `権限「${name}」の使用`,
   languageLabel: "言語",
   report: {
-    artifactRequired: "artifactのアドレスまたはIDを入力してください。",
+    artifactRequired: "正確なアドレスまたは artifact の ID を入力してください。",
     artifactInvalid:
       "https://abcdefghij.portifact.dev/のようなアドレス、または10文字のIDを入力してください。",
     reasonRequired: "artifactの問題点を選んでください。",
     detailsInvalid: "制御文字を削除するか、詳細を短くしてください。",
     emailInvalid: "有効なメールアドレスを入力するか、空欄のままにしてください。",
+    nameInvalid: "お名前は 1 行、200 文字以内で入力するか、空欄のままにしてください。",
+    confirmRequired: "情報が正確かつ完全であり、誠実に送信することを確認してください。",
     rateLimited:
       "ここからの報告が多すぎます。しばらくしてからもう一度お試しいただくか、abuse@portifact.comまでご連絡ください。",
     network: "Portifactに接続できませんでした。接続を確認して、もう一度お試しください。",
@@ -240,7 +242,6 @@ export const ja: AuthCatalog = {
     "report.heading": "artifactを報告",
     "report.intro":
       '<a href="https://portifact.com/acceptable-use">利用ポリシー</a>に違反するコンテンツをお知らせください。アカウントは不要です。48時間以内の対応を目指しています。',
-    "report.artifactLabel": "artifactのアドレスまたはID",
     "report.reasonLabel": "問題点",
     "report.reason.none": "理由を選択",
     "report.reason.phishing": "フィッシングまたは偽のサインインページ",
@@ -253,13 +254,21 @@ export const ja: AuthCatalog = {
     "report.reason.private_information": "他人の個人情報",
     "report.reason.spam": "スパム",
     "report.reason.other": "その他のルール違反",
-    "report.detailsLabel": '詳細<span class="font-normal text-text-muted">（任意）</span>',
-    "report.detailsHint":
-      "何をどこで見たか。違法な素材は貼り付けないでください。アドレスだけで十分です。2,000文字まで。",
     "report.emailLabel":
       'あなたのメールアドレス<span class="font-normal text-text-muted">（任意）</span>',
+    "report.artifactLabel": "コンテンツの正確なアドレス",
+    "report.artifactHint":
+      "artifact 内のページを含む完全なリンク(例: https://abcdefghij.portifact.dev/page.html)。artifact の 10 文字の ID でもかまいません。",
+    "report.detailsLabel":
+      '違法である、またはルールに違反する理由<span class="font-normal text-text-muted">（任意）</span>',
+    "report.detailsHint":
+      "見た内容、場所、そして違法または利用ポリシーに違反すると考える理由を説明してください。違法な素材は貼り付けないでください。アドレスだけで十分です。最大 8,000 文字。",
+    "report.nameLabel": 'お名前<span class="font-normal text-text-muted">（任意）</span>',
+    "report.nameHint": "違法コンテンツの完全な通知にはお名前が含まれます。通報と一緒に保存します。",
     "report.emailHint":
-      '返信を希望する場合のみ入力してください。<a href="https://portifact.com/privacy">プライバシーポリシー</a>をご確認ください。',
+      '決定内容のお知らせと返信に使います。<a href="https://portifact.com/privacy">プライバシーポリシー</a>をご覧ください。',
+    "report.confirmLabel":
+      "私の知る限り、この通報の情報は正確かつ完全であり、誠実に送信することを確認します",
     "report.send": "報告を送信",
     "report.doneHeading": "ご報告ありがとうございます。受け付けました",
     "report.doneBody":

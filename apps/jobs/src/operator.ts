@@ -14,7 +14,9 @@ import {
   AbuseReason,
   BACKGROUND,
   DEFAULT_REGION,
+  DecisionSource,
   isWorkspaceId,
+  LegalHoldLine,
   OpaqueToken,
   OwnerPlanExport,
   PLAN_NAMES,
@@ -22,6 +24,7 @@ import {
   REGIONS,
   ScimTokenId,
   ServiceTokenId,
+  StatementText,
   TombstoneMarker,
   WorkspacePolicyExport,
 } from "@portifact/contracts";
@@ -41,6 +44,7 @@ import {
   BUDGET_LEVELS,
   type BudgetLevel,
   budgetCycle,
+  decisionSource,
   emailHint,
   PROTECTION_STEPS,
   shareLinkStatus,
@@ -48,6 +52,7 @@ import {
 import {
   accountSuspension,
   applyIntegrationTombstones,
+  applyLegalHolds,
   applyOwnerPlans,
   applyTombstones,
   applyWorkspacePolicies,
@@ -62,6 +67,7 @@ import {
   deleteWorkspace,
   detachDomain,
   domainDbsOf,
+  exportLegalHolds,
   exportOwnerPlans,
   exportTombstones,
   exportWorkspacePolicies,
@@ -71,25 +77,32 @@ import {
   getOwnerPlan,
   getWorkspaceDetail,
   hashSecret,
+  holdIdentities,
   liftEmailSuppression,
   listAbuseReports,
   listAllWorkspaces,
   listBlockedHostnames,
   listBudgetAlerts,
+  listDecisions,
   listEmailSuppressions,
+  listLegalHolds,
   listStorageFindings,
   type OwnerPlanState,
+  openHold,
   operatorRevokeScimToken,
   operatorRevokeServiceToken,
   ownerRegion,
+  placeLegalHold,
   rebuildArtifactDirectory,
   reconcileCustomDomains,
   reinstateAccount,
   reinstateArtifact,
   reinstateBrand,
   releaseGuardForPlan,
+  releaseLegalHold,
   removeOwnerPlan,
   resolveAbuseReport,
+  sendSuspensionStatement,
   setBudgetOverride,
   setOwnerPlan,
   showBrand,
@@ -97,6 +110,7 @@ import {
   suspendArtifact,
   suspendBrand,
   unblockHostname,
+  updateHoldRelease,
   type WorkspaceDetail,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
@@ -109,20 +123,28 @@ export const OPERATOR_USAGE = `Usage: bun run --cwd apps/jobs operator [--local 
 
 Commands:
   reports [--status open|actioned|dismissed|all] [--limit N]
-  resolve-report <report-id> actioned|dismissed
+  report <report-id>           (one report in full: the address, the notice's parts, the outcome email)
+  resolve-report <report-id> actioned|dismissed [--withhold-notice]
   show-artifact <artifact-id>
   find-share-link              (reads the reported link or token from standard input)
   find-service-token           (reads a leaked service token from standard input)
   revoke-service-token <service-token-id>
   find-scim-token              (reads a leaked SCIM token from standard input)
   revoke-scim-token <scim-token-id>
-  suspend-artifact <artifact-id> --reason <reason> [--report <report-id>] [--note <text>]
-  reinstate-artifact <artifact-id>
-  suspend-account <user-id|email> --reason <reason> [--report <report-id>] [--note <text>]
-  reinstate-account <user-id|email>
+  suspend-artifact <artifact-id> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--note <text>] [--withhold-notice]
+  reinstate-artifact <artifact-id> --facts <text> [--source notice|review] [--withhold-notice]
+  suspend-account <user-id|email> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--note <text>] [--withhold-notice]
+  reinstate-account <user-id|email> --facts <text> [--source notice|review] [--withhold-notice]
   brand <owner: user-id|email|workspace-id>
-  suspend-brand <owner> --reason <reason>
-  reinstate-brand <owner>
+  suspend-brand <owner> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--withhold-notice]
+  reinstate-brand <owner> --facts <text> [--source notice|review] [--withhold-notice]
+  decisions artifact|account|brand <id|email>   (statements of reasons and who they were sent to)
+  send-statement artifact|account|brand <id|email> [--facts <text> --ground <text> [--source notice|review]]
+                               (sends the withheld statement of an open suspension, or records and sends a new one)
+  hold-artifact <artifact-id> --ground <text> [--until <date>]   (a suspended artifact only)
+  release-hold <artifact-id>
+  holds [--all] [--limit N]
+  hold <artifact-id>           (an open hold's ground and the people it keeps, with their emails)
   storage-report [--limit N]
   export-tombstones --out <file> [--region all|<region>]   (with more than one region: all, or a region with its own database)
   apply-tombstones [--file <file>] [--region all|<region>]
@@ -204,12 +226,23 @@ function parseJsonLines<T>(
   return { ok: true, items };
 }
 
-/** Parses the JSON lines `export-tombstones` writes; any bad line refuses the whole file. */
+/**
+ * Parses the JSON lines `export-tombstones` writes: tombstone markers and legal holds. Any bad
+ * line refuses the whole file; a file from before holds were exported has none.
+ */
 export function parseTombstones(
   text: string,
-): { ok: true; markers: TombstoneMarker[] } | { ok: false; line: number } {
-  const parsed = parseJsonLines(text, TombstoneMarker);
-  return parsed.ok ? { ok: true, markers: parsed.items } : parsed;
+): { ok: true; markers: TombstoneMarker[]; holds: LegalHoldLine[] } | { ok: false; line: number } {
+  const RestoreLine = TombstoneMarker.or(LegalHoldLine);
+  const parsed = parseJsonLines(text, RestoreLine);
+  if (!parsed.ok) return parsed;
+  const markers: TombstoneMarker[] = [];
+  const holds: LegalHoldLine[] = [];
+  for (const item of parsed.items) {
+    if ("legalHold" in item) holds.push(item);
+    else markers.push(item);
+  }
+  return { ok: true, markers, holds };
 }
 
 /** Which database the script binds: production, the local dev state or another configuration. */
@@ -308,6 +341,25 @@ function oneLine(text: string | null): string {
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
+
+/**
+ * An explicit UTC date (`2027-11-12`, midnight UTC) or UTC timestamp (`2027-11-12T10:00:00Z`) as
+ * milliseconds; null for anything else, including a local time or an impossible date.
+ */
+export function parseUtcDate(value: string): number | null {
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const stamp = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z$/.exec(value);
+  const parts = day ?? stamp;
+  if (!parts) return null;
+  const at = day
+    ? Date.UTC(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]))
+    : Date.parse(value);
+  if (Number.isNaN(at)) return null;
+  // An impossible date (February 30) rolls over: refuse it rather than move it.
+  return new Date(at).toISOString().slice(0, 10) === `${parts[1]}-${parts[2]}-${parts[3]}`
+    ? at
+    : null;
+}
 const usd = (value: number) => `US$${value.toFixed(2)}`;
 const list = (actions: readonly string[]) => (actions.length > 0 ? actions.join(", ") : "none");
 
@@ -740,11 +792,52 @@ export async function runOperator(
   const artifactDb = async (artifactId: string) =>
     (await artifactHandles(regions, artifactId))?.db ?? db;
   const reasonOption = () => AbuseReason.safeParse(options.get("reason"));
+  /** A `--report` must name a report that exists; a string is the refusal. */
+  const reportMissing = async (): Promise<string | null> => {
+    const reportId = options.get("report");
+    if (!reportId) return null;
+    const [found] = await global
+      .select({ id: schema.abuseReports.id })
+      .from(schema.abuseReports)
+      .where(eq(schema.abuseReports.id, reportId))
+      .limit(1);
+    return found ? null : "No report with that ID.";
+  };
   const suspendOptions = () => ({
     reportId: options.get("report") || undefined,
     note: options.get("note") || undefined,
     now,
   });
+  /**
+   * The statement of reasons the command records and emails (docs/operations.md, "Reports"): the
+   * facts and, for a restriction, the ground, as bounded plain text; `--withhold-notice` records it
+   * without emailing anyone, where the law requires silence. A string is the refusal to print.
+   */
+  const statementOption = (restricting: boolean) => {
+    const source = DecisionSource.safeParse(options.get("source") ?? undefined);
+    if (options.has("source") && !source.success) return "--source must be notice or review.";
+    const facts = options.get("facts") ?? "";
+    const ground = restricting ? (options.get("ground") ?? "") : "-";
+    const text = StatementText.safeParse({ facts, ground });
+    if (!text.success) {
+      return restricting
+        ? "--facts and --ground are required plain text (facts up to 2,000 characters, ground up to 500)."
+        : "--facts is required plain text, up to 2,000 characters.";
+    }
+    return {
+      facts: text.data.facts,
+      ...(restricting ? { ground: text.data.ground } : {}),
+      source: decisionSource(
+        source.success ? source.data : undefined,
+        options.get("report") || undefined,
+      ),
+      withhold: options.has("withhold-notice"),
+    };
+  };
+  const noticeLine = (withhold: boolean) =>
+    withhold
+      ? "The statement of reasons is recorded and withheld: nobody is emailed."
+      : "The statement of reasons is recorded; the people affected are emailed shortly (see: decisions).";
 
   switch (command) {
     case "reports": {
@@ -764,19 +857,63 @@ export async function runOperator(
       // Report text is untrusted: it is printed as one plain line, never interpreted.
       const lines = reports.map(
         (r) =>
-          `${r.id}  ${new Date(r.createdAt).toISOString()}  ${r.status}  ${r.artifactId}  ${r.reason}  ${r.reporterEmail ? "has-email" : "anonymous"}  ${oneLine(r.details)}`,
+          `${r.id}  ${new Date(r.createdAt).toISOString()}  ${r.status}  ${r.artifactId}  ${r.reason}  ${r.confirmed ? "full-notice" : "report"}  ${r.reporterEmail ? "has-email" : "anonymous"}  ${oneLine(r.details)}`,
       );
       return { exitCode: 0, output: lines.join("\n") };
+    }
+    case "report": {
+      const [reportId] = args;
+      // How many reports one address sent lately, so the operator can withhold outcome emails
+      // to an address someone else typed; the address itself is never printed.
+      const reportsFromEmail = async (email: string) => {
+        const [row] = await global
+          .select({ count: sql<number>`count(*)` })
+          .from(schema.abuseReports)
+          .where(
+            sql`lower(${schema.abuseReports.reporterEmail}) = ${email.toLowerCase()} and ${schema.abuseReports.createdAt} > ${now - 86_400_000}`,
+          );
+        return Number(row?.count ?? 0);
+      };
+      if (!reportId) return usage("report needs a report ID.");
+      const [r] = await global
+        .select()
+        .from(schema.abuseReports)
+        .where(eq(schema.abuseReports.id, reportId))
+        .limit(1);
+      if (!r) return { exitCode: 1, output: "No report with that ID." };
+      // Untrusted text: each field on its own plain line, JSON-quoted, never interpreted. The
+      // reporter's email is read from D1 only when replying.
+      return {
+        exitCode: 0,
+        output: [
+          `report     ${r.id}  ${r.status}  ${iso(r.createdAt)}`,
+          `artifact   ${r.artifactId}`,
+          `address    ${r.address === null ? "none (an ID was given)" : JSON.stringify(r.address)}`,
+          `reason     ${r.reason}`,
+          `notice     ${r.confirmed ? "full: the reporter confirmed it is accurate, complete and in good faith" : "not confirmed"}`,
+          `name       ${r.reporterName === null ? "none" : JSON.stringify(oneLine(r.reporterName))}`,
+          `email      ${r.reporterEmail ? `given (${await reportsFromEmail(r.reporterEmail)} report(s) with it in the last 24 hours)` : "none"}`,
+          `language   ${r.locale ?? "en"}`,
+          `outcome    ${r.outcomeNotice ?? "none"}${r.outcomeNotifiedAt ? ` ${iso(r.outcomeNotifiedAt)}` : ""}`,
+          `details    ${JSON.stringify(r.details ?? "")}`,
+        ].join("\n"),
+      };
     }
     case "resolve-report": {
       const [reportId, status] = args;
       if (!reportId || (status !== "actioned" && status !== "dismissed")) {
         return usage("resolve-report needs a report ID and actioned or dismissed.");
       }
-      const result = await resolveAbuseReport(global, { reportId, status, now });
-      return result.ok
-        ? { exitCode: 0, output: `Report ${reportId} marked ${status}.` }
-        : { exitCode: 1, output: result.message };
+      const withhold = options.has("withhold-notice");
+      const result = await resolveAbuseReport(global, { reportId, status, now, withhold });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      const told = {
+        pending: "The reporter is emailed the outcome shortly.",
+        withheld: "The reporter's email is withheld.",
+        none: "The report has no email: nobody to tell.",
+        unchanged: "It was resolved before: nobody is emailed again.",
+      }[result.value.notice];
+      return { exitCode: 0, output: `Report ${reportId} marked ${status}. ${told}` };
     }
     case "show-artifact": {
       const [artifactId] = args;
@@ -898,28 +1035,39 @@ export async function runOperator(
       if (!artifactId || !reason.success) {
         return usage("suspend-artifact needs an artifact ID and a valid --reason.");
       }
+      const statement = statementOption(true);
+      if (typeof statement === "string") return usage(statement);
+      const noReport = await reportMissing();
+      if (noReport) return { exitCode: 1, output: noReport };
       const result = await suspendArtifact(await artifactDb(artifactId), {
         artifactId,
         reason: reason.data,
         ...suspendOptions(),
+        statement,
       });
       if (!result.ok) return { exitCode: 1, output: result.message };
       return {
         exitCode: 0,
         output: result.value.changed
-          ? `Suspended ${artifactId} (${result.value.suspensionId}).`
-          : `${artifactId} was already suspended (${result.value.suspensionId}).`,
+          ? `Suspended ${artifactId} (${result.value.suspensionId}). ${noticeLine(statement.withhold)}`
+          : `${artifactId} was already suspended (${result.value.suspensionId}); nothing was recorded or sent.`,
       };
     }
     case "reinstate-artifact": {
       const [artifactId] = args;
       if (!artifactId) return usage("reinstate-artifact needs an artifact ID.");
-      const result = await reinstateArtifact(await artifactDb(artifactId), { artifactId, now });
+      const statement = statementOption(false);
+      if (typeof statement === "string") return usage(statement);
+      const result = await reinstateArtifact(await artifactDb(artifactId), {
+        artifactId,
+        now,
+        statement,
+      });
       if (!result.ok) return { exitCode: 1, output: result.message };
       return {
         exitCode: 0,
         output: result.value.changed
-          ? `Reinstated ${artifactId} as ${result.value.state}.`
+          ? `Reinstated ${artifactId} as ${result.value.state}. ${noticeLine(statement.withhold)}`
           : `${artifactId} was not suspended; it is ${result.value.state}.`,
       };
     }
@@ -929,28 +1077,43 @@ export async function runOperator(
       if (!who || !reason.success) {
         return usage("suspend-account needs a user ID or email and a valid --reason.");
       }
+      const statement = statementOption(true);
+      if (typeof statement === "string") return usage(statement);
+      const noReport = await reportMissing();
+      if (noReport) return { exitCode: 1, output: noReport };
       const userId = await userIdFor(global, who);
       if (!userId) return { exitCode: 1, output: "Account not found." };
-      const result = await suspendAccount(db, { userId, reason: reason.data, ...suspendOptions() });
+      const result = await suspendAccount(db, {
+        userId,
+        reason: reason.data,
+        ...suspendOptions(),
+        statement,
+      });
       if (!result.ok) return { exitCode: 1, output: result.message };
       return {
         exitCode: 0,
         output: result.value.changed
-          ? `Suspended account ${userId} and ${result.value.artifacts} artifact(s).`
-          : `Account ${userId} was already suspended.`,
+          ? `Suspended account ${userId} and ${result.value.artifacts} artifact(s). ${noticeLine(statement.withhold)}`
+          : `Account ${userId} was already suspended; nothing was recorded or sent.`,
       };
     }
     case "reinstate-account": {
       const [who] = args;
       if (!who) return usage("reinstate-account needs a user ID or email.");
+      const statement = statementOption(false);
+      if (typeof statement === "string") return usage(statement);
       const userId = await userIdFor(global, who);
       if (!userId) return { exitCode: 1, output: "Account not found." };
-      const result = await reinstateAccount(db, { userId, now });
+      const result = await reinstateAccount(db, { userId, now, statement });
       if (!result.ok) return { exitCode: 1, output: result.message };
+      const held =
+        result.value.held > 0
+          ? ` ${result.value.held} artifact(s) with a legal hold stay suspended.`
+          : "";
       return {
         exitCode: 0,
         output: result.value.changed
-          ? `Reinstated account ${userId} and ${result.value.artifacts} artifact(s).`
+          ? `Reinstated account ${userId} and ${result.value.artifacts} artifact(s).${held} ${noticeLine(statement.withhold)}`
           : `Account ${userId} was not suspended.`,
       };
     }
@@ -982,29 +1145,189 @@ export async function runOperator(
       if (!who || !reason.success) {
         return usage("suspend-brand needs an owner and a valid --reason.");
       }
+      const statement = statementOption(true);
+      if (typeof statement === "string") return usage(statement);
+      const noReport = await reportMissing();
+      if (noReport) return { exitCode: 1, output: noReport };
       const ownerId = await userIdFor(global, who);
       if (!ownerId) return { exitCode: 1, output: "Account not found." };
-      const result = await suspendBrand(db, { ownerId, reason: reason.data, now });
+      const result = await suspendBrand(db, {
+        ownerId,
+        reason: reason.data,
+        now,
+        reportId: options.get("report") || undefined,
+        statement,
+      });
       if (!result.ok) return { exitCode: 1, output: result.message };
       return {
         exitCode: 0,
         output: result.value.suspended
-          ? `Suspended the brand of ${ownerId}; its viewer shows the default bar.`
-          : `The brand of ${ownerId} was already suspended.`,
+          ? `Suspended the brand of ${ownerId}; its viewer shows the default bar. ${noticeLine(statement.withhold)}`
+          : `The brand of ${ownerId} was already suspended; nothing was recorded or sent.`,
       };
     }
     case "reinstate-brand": {
       const [who] = args;
       if (!who) return usage("reinstate-brand needs an owner.");
+      const statement = statementOption(false);
+      if (typeof statement === "string") return usage(statement);
       const ownerId = await userIdFor(global, who);
       if (!ownerId) return { exitCode: 1, output: "Account not found." };
-      const result = await reinstateBrand(db, { ownerId, now });
+      const result = await reinstateBrand(db, { ownerId, now, statement });
       if (!result.ok) return { exitCode: 1, output: result.message };
       return {
         exitCode: 0,
         output: result.value.reinstated
-          ? `Reinstated the brand of ${ownerId}.`
+          ? `Reinstated the brand of ${ownerId}. ${noticeLine(statement.withhold)}`
           : `The brand of ${ownerId} was not suspended.`,
+      };
+    }
+    case "send-statement": {
+      const [kind, who] = args;
+      if ((kind !== "artifact" && kind !== "account" && kind !== "brand") || !who) {
+        return usage("send-statement needs artifact, account or brand and an ID or email.");
+      }
+      let statement: { facts: string; ground?: string; source: "notice" | "review" } | undefined;
+      if (options.has("facts") || options.has("ground")) {
+        const given = statementOption(true);
+        if (typeof given === "string") return usage(given);
+        if (given.withhold) return usage("send-statement sends; leave out --withhold-notice.");
+        statement = { facts: given.facts, ground: given.ground ?? "", source: given.source };
+      }
+      const targetId = kind === "artifact" ? who : await userIdFor(global, who);
+      if (!targetId) return { exitCode: 1, output: "Account not found." };
+      const where = kind === "artifact" ? await artifactDb(targetId) : db;
+      const result = await sendSuspensionStatement(where, {
+        targetKind: kind,
+        targetId,
+        statement,
+        now,
+      });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      return {
+        exitCode: 0,
+        output: `${result.value.recorded ? "Recorded and sending" : "Sending the withheld statement"} ${result.value.decisionId}; the people affected are emailed shortly (see: decisions).`,
+      };
+    }
+    case "decisions": {
+      const [kind, who] = args;
+      if ((kind !== "artifact" && kind !== "account" && kind !== "brand") || !who) {
+        return usage("decisions needs artifact, account or brand and an ID or email.");
+      }
+      const targetId = kind === "artifact" ? who : await userIdFor(global, who);
+      if (!targetId) return { exitCode: 1, output: "Account not found." };
+      const where = kind === "artifact" ? await artifactDb(targetId) : db;
+      const decisions = await listDecisions(where, kind, targetId);
+      if (decisions.length === 0) return { exitCode: 0, output: "No decisions recorded." };
+      // The operator's own text, as JSON strings on their lines; the sends are the proof.
+      return {
+        exitCode: 0,
+        output: decisions
+          .map((d) =>
+            [
+              `${d.id}  ${iso(d.createdAt)}  ${d.action}  ${d.reason ?? "-"}  ${d.source}  notice ${d.notice}${d.notifiedAt ? ` ${iso(d.notifiedAt)}` : ""}`,
+              `  facts   ${JSON.stringify(d.facts)}`,
+              ...(d.ground === null ? [] : [`  ground  ${JSON.stringify(d.ground)}`]),
+              ...d.sends.map((send) => `  sent    ${iso(send.sentAt)} to ${send.userId}`),
+            ].join("\n"),
+          )
+          .join("\n"),
+      };
+    }
+    case "hold-artifact": {
+      const [artifactId] = args;
+      const ground = options.get("ground") ?? "";
+      if (!artifactId || !ground.trim()) {
+        return usage("hold-artifact needs an artifact ID and --ground <text>.");
+      }
+      const until = options.get("until");
+      const releaseAt = until === undefined ? null : parseUtcDate(until);
+      if (until !== undefined && releaseAt === null) {
+        return usage(
+          "--until must be a UTC date (2027-11-12) or a UTC timestamp (2027-11-12T10:00:00Z).",
+        );
+      }
+      const result = await placeLegalHold(await artifactDb(artifactId), {
+        artifactId,
+        ground,
+        releaseAt,
+        now,
+      });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      const hold = result.value.hold;
+      if (result.value.changed) {
+        return {
+          exitCode: 0,
+          output: `Held ${artifactId} (${hold.id})${hold.releaseAt ? ` until ${iso(hold.releaseAt)}` : " until released"}. Nothing deletes, moves or serves it meanwhile.`,
+        };
+      }
+      // Already held: only a new --until changes it, and says so; the ground stays the first.
+      if (releaseAt === null) {
+        return {
+          exitCode: 1,
+          output: `${artifactId} is already held (${hold.id}); nothing changed. Give --until to change its release date, or release-hold.`,
+        };
+      }
+      const moved = await updateHoldRelease(await artifactDb(artifactId), {
+        artifactId,
+        releaseAt,
+        now,
+      });
+      if (!moved.ok) return { exitCode: 1, output: moved.message };
+      return {
+        exitCode: 0,
+        output: `${artifactId} is already held (${hold.id}); its release date is now ${iso(releaseAt)}.`,
+      };
+    }
+    case "release-hold": {
+      const [artifactId] = args;
+      if (!artifactId) return usage("release-hold needs an artifact ID.");
+      const result = await releaseLegalHold(await artifactDb(artifactId), { artifactId, now });
+      return result.released
+        ? {
+            exitCode: 0,
+            output: `Released the hold on ${artifactId}. It stays suspended until reinstate-artifact; a deletion that waited goes on at its next run.`,
+          }
+        : { exitCode: 1, output: `${artifactId} has no open hold.` };
+    }
+    case "hold": {
+      const [artifactId] = args;
+      if (!artifactId) return usage("hold needs an artifact ID.");
+      const where = await artifactDb(artifactId);
+      const people = await holdIdentities(where, artifactId);
+      const open = await openHold(where, artifactId);
+      if (!open) return { exitCode: 1, output: `${artifactId} has no open hold.` };
+      // For the authority's request only: addresses are printed, nothing else is.
+      return {
+        exitCode: 0,
+        output: [
+          `hold      ${open.id}  since ${iso(open.createdAt)}  until ${open.releaseAt === null ? "released" : iso(open.releaseAt)}`,
+          `ground    ${JSON.stringify(oneLine(open.ground))}`,
+          ...people.map(
+            (p) =>
+              `${p.role.padEnd(9)} ${p.actorId}${p.versionId ? ` (${p.versionId})` : ""}  ${p.email ?? "no email"}`,
+          ),
+        ].join("\n"),
+      };
+    }
+    case "holds": {
+      const limit = Number(options.get("limit") ?? 100);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+        return usage("--limit must be 1 to 500.");
+      }
+      const rows = [];
+      for (const handles of regions.all()) {
+        rows.push(...(await listLegalHolds(handles.db, { all: options.has("all"), limit })));
+      }
+      if (rows.length === 0) return { exitCode: 0, output: "No holds." };
+      return {
+        exitCode: 0,
+        output: rows
+          .map(
+            (row) =>
+              `${row.id}  ${row.artifactId}  ${row.releasedAt === null ? "open" : `released ${iso(row.releasedAt)}`}  since ${iso(row.createdAt)}  until ${row.releaseAt === null ? "released" : iso(row.releaseAt)}  owner ${row.ownerId}  ground ${JSON.stringify(oneLine(row.ground))}`,
+          )
+          .join("\n"),
       };
     }
     case "storage-report": {
@@ -1026,12 +1349,19 @@ export async function runOperator(
       const chosen = restoreRegions(regions, regionOption);
       if (typeof chosen === "string") return usage(chosen);
       const markers = await exportTombstones(chosen);
-      await files.write(out, markers.map((marker) => `${JSON.stringify(marker)}\n`).join(""));
-      return { exitCode: 0, output: `Wrote ${markers.length} tombstone marker(s) to ${out}.` };
+      // Legal holds go with the markers, so a restore never loses or reopens one.
+      const holds = await exportLegalHolds(chosen);
+      const lines = [...markers, ...holds].map((line) => `${JSON.stringify(line)}\n`);
+      await files.write(out, lines.join(""));
+      return {
+        exitCode: 0,
+        output: `Wrote ${markers.length} tombstone marker(s) and ${holds.length} legal hold(s) to ${out}.`,
+      };
     }
     case "apply-tombstones": {
       const file = options.get("file");
       let markers: TombstoneMarker[] = [];
+      let holds: LegalHoldLine[] = [];
       if (file !== undefined) {
         if (!file) return usage("--file needs a path.");
         const parsed = parseTombstones(await files.read(file));
@@ -1042,9 +1372,19 @@ export async function runOperator(
           };
         }
         markers = parsed.markers;
+        holds = parsed.holds;
       }
       const chosen = restoreRegions(regions, regionOption);
       if (typeof chosen === "string") return usage(chosen);
+      // Holds first: a re-applied deletion never takes an artifact a hold keeps.
+      // Holds of artifacts in a region this restore did not cover are left alone, not missing.
+      const covered = new Set(chosen.all().map((h) => h.region));
+      const inScope: LegalHoldLine[] = [];
+      for (const line of holds) {
+        const home = await artifactHandles(regions, line.legalHold.artifactId);
+        if (!home || covered.has(home.region)) inScope.push(line);
+      }
+      const held = await applyLegalHolds(chosen, inScope, now);
       const result = await applyTombstones(chosen, markers, now);
       // Issue connections, per region from the stored markers (decision 0018).
       const { integrations } = await applyIntegrationTombstones(chosen);
@@ -1055,7 +1395,7 @@ export async function runOperator(
       }
       return {
         exitCode: 0,
-        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${result.groups} group(s) and ${result.groupMembers} group membership(s) removed again, ${result.ssoProviders} single sign-on provider(s) removed again, ${result.members} membership(s) ended again, ${result.invitations} invitation(s) withdrawn again, ${result.commentThreads} comment thread(s) and ${result.commentMessages} message(s) deleted again, ${result.noticeOptOuts} email preference(s) turned off again, ${result.noticeMutes} notice mute(s) set again, ${result.sessions} session(s) ended again, ${result.oauthTokens} app token(s) revoked again, ${result.oauthGrants} app consent(s) withdrawn again, ${integrations} issue connection(s) removed again, ${directory} artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.`,
+        output: `Applied tombstones: ${result.inserted} restored, ${result.artifacts} artifact(s) claimed for purging, ${result.accounts} account(s) and ${result.workspaces} workspace(s) deleted again, ${result.shareLinks} share link(s) revoked again, ${result.serviceTokens} service token(s) deleted again, ${result.groups} group(s) and ${result.groupMembers} group membership(s) removed again, ${result.ssoProviders} single sign-on provider(s) removed again, ${result.members} membership(s) ended again, ${result.invitations} invitation(s) withdrawn again, ${result.commentThreads} comment thread(s) and ${result.commentMessages} message(s) deleted again, ${result.noticeOptOuts} email preference(s) turned off again, ${result.noticeMutes} notice mute(s) set again, ${result.sessions} session(s) ended again, ${result.oauthTokens} app token(s) revoked again, ${result.oauthGrants} app consent(s) withdrawn again, ${integrations} issue connection(s) removed again, ${directory} artifact directory row(s) rebuilt, ${held.restored} legal hold(s) put back (${held.suspended} artifact(s) suspended again). The jobs Worker purges them on its next runs.${held.missing.length > 0 ? ` Held artifacts missing after the restore: ${held.missing.join(", ")}.` : ""}`,
       };
     }
     case "budget": {

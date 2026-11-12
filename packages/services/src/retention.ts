@@ -20,9 +20,18 @@ export function previousRetainedSql(retention: VersionRetention, now: number): S
   return sql`("versions"."state" = 'committed' and "versions"."superseded_at" > ${retentionCutoff(retention, now)} and ${NEWER_PREVIOUS} < ${retention.previousVersions})`;
 }
 
-/** The negation for the pruning scan: a replaced version the owner's plan no longer keeps. */
+/**
+ * An open legal hold on the version's artifact: nothing of a held artifact is pruned
+ * (docs/operations.md, "Legal holds"; a trigger backs it).
+ */
+const HELD = sql`exists (select 1 from "legal_holds" where "legal_holds"."artifact_id" = "versions"."artifact_id" and "legal_holds"."released_at" is null)`;
+
+/**
+ * The negation for the pruning scan: a replaced version the owner's plan no longer keeps, of an
+ * artifact without a legal hold.
+ */
 export function previousPrunableSql(retention: VersionRetention, now: number): SQL {
-  return sql`("versions"."state" = 'committed' and "versions"."superseded_at" is not null and ("versions"."superseded_at" <= ${retentionCutoff(retention, now)} or ${NEWER_PREVIOUS} >= ${retention.previousVersions}))`;
+  return sql`("versions"."state" = 'committed' and "versions"."superseded_at" is not null and ("versions"."superseded_at" <= ${retentionCutoff(retention, now)} or ${NEWER_PREVIOUS} >= ${retention.previousVersions}) and not ${HELD})`;
 }
 
 /** The artifact's current version (`current`, an ID or a column) or a retained previous one. */

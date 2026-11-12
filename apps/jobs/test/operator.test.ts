@@ -7,6 +7,16 @@ import { OPERATOR_USAGE, operatorTarget, parseArgs, runOperator } from "../src/o
 const NOW = Date.UTC(2026, 10, 8, 12);
 const db = () => regionsFromEnv(env).get("default").db;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+/** The statement of reasons every restriction needs, and the facts of a reinstatement. */
+const WHY = [
+  "--facts",
+  "It asks for bank passwords.",
+  "--ground",
+  "Acceptable Use Policy: phishing.",
+];
+const LIFT = ["--facts", "The owner removed the page."];
+const RECORDED =
+  "The statement of reasons is recorded; the people affected are emailed shortly (see: decisions).";
 
 function artifactId(): string {
   let id = "";
@@ -128,9 +138,31 @@ describe("operator arguments", () => {
       ["show-artifact"],
       ["suspend-artifact", "abc"],
       ["suspend-artifact", "abc", "--reason", "boredom"],
+      ["suspend-artifact", "abc", "--reason", "spam"],
+      ["suspend-artifact", "abc", "--reason", "spam", "--facts", "x"],
+      ["suspend-artifact", "abc", "--reason", "spam", ...WHY, "--source", "maybe"],
+      ["suspend-artifact", "abc", "--reason", "spam", "--facts", "x".repeat(2001), "--ground", "g"],
       ["reinstate-artifact"],
+      ["reinstate-artifact", "abc"],
       ["suspend-account", "someone"],
+      ["suspend-account", "someone", "--reason", "spam"],
       ["reinstate-account"],
+      ["reinstate-account", "someone"],
+      ["suspend-brand", "someone", "--reason", "spam"],
+      ["reinstate-brand", "someone"],
+      ["report"],
+      ["decisions", "artifact"],
+      ["decisions", "thing", "x"],
+      ["hold-artifact", "abc"],
+      ["hold-artifact", "abc", "--ground", "g", "--until", "never"],
+      ["hold-artifact", "abc", "--ground", "g", "--until", "12/11/2027"],
+      ["hold-artifact", "abc", "--ground", "g", "--until", "2027-11-12T10:00:00"],
+      ["hold-artifact", "abc", "--ground", "g", "--until", "2027-02-30"],
+      ["send-statement", "artifact"],
+      ["send-statement", "thing", "x"],
+      ["release-hold"],
+      ["hold"],
+      ["holds", "--limit", "0"],
     ]) {
       const result = await run(...argv);
       expect(result.exitCode, argv.join(" ")).toBe(2);
@@ -154,13 +186,13 @@ describe("operator commands", () => {
     const listed = await run("reports");
     expect(listed.exitCode).toBe(0);
     const line = listed.output.split("\n").find((l) => l.startsWith("rep_operator"));
-    expect(line).toContain(`open  ${id}  phishing  has-email  line one line two`);
+    expect(line).toContain(`open  ${id}  phishing  report  has-email  line one line two`);
     // The reporter's address is not printed.
     expect(listed.output).not.toContain("reporter@example.test");
 
     expect(await run("resolve-report", "rep_operator", "actioned")).toEqual({
       exitCode: 0,
-      output: "Report rep_operator marked actioned.",
+      output: "Report rep_operator marked actioned. The reporter is emailed the outcome shortly.",
     });
     expect((await run("reports", "--status", "actioned", "--limit", "500")).output).toContain(
       "rep_operator",
@@ -175,56 +207,64 @@ describe("operator commands", () => {
     const user = await owner();
     const id = await artifact(user.id);
     expect(
-      await run("suspend-artifact", id, "--reason", "malware", "--note", "seen it"),
+      await run("suspend-artifact", id, "--reason", "malware", "--note", "seen it", ...WHY),
     ).toMatchObject({
       exitCode: 0,
-      output: expect.stringMatching(new RegExp(`^Suspended ${id} \\(sus_`)),
+      output: expect.stringMatching(
+        new RegExp(`^Suspended ${id} \\(sus_\\w+\\)\\. ${RECORDED.replace(/[().]/g, "\\$&")}$`),
+      ),
     });
-    expect((await run("suspend-artifact", id, "--reason", "malware")).output).toContain(
+    expect((await run("suspend-artifact", id, "--reason", "malware", ...WHY)).output).toContain(
       "was already suspended",
     );
     expect((await run("show-artifact", id)).output).toContain("state     suspended (malware)");
-    expect(await run("reinstate-artifact", id)).toEqual({
+    expect(await run("reinstate-artifact", id, ...LIFT)).toEqual({
       exitCode: 0,
-      output: `Reinstated ${id} as active.`,
+      output: `Reinstated ${id} as active. ${RECORDED}`,
     });
-    expect((await run("reinstate-artifact", id)).output).toBe(
+    expect((await run("reinstate-artifact", id, ...LIFT)).output).toBe(
       `${id} was not suspended; it is active.`,
     );
     expect(await run("show-artifact", "zzzzzzzzzz")).toEqual({
       exitCode: 1,
       output: "Artifact not found.",
     });
-    expect((await run("suspend-artifact", "zzzzzzzzzz", "--reason", "spam")).exitCode).toBe(1);
-    expect((await run("reinstate-artifact", "zzzzzzzzzz")).exitCode).toBe(1);
+    expect((await run("suspend-artifact", "zzzzzzzzzz", "--reason", "spam", ...WHY)).exitCode).toBe(
+      1,
+    );
+    expect((await run("reinstate-artifact", "zzzzzzzzzz", ...LIFT)).exitCode).toBe(1);
   });
 
   it("suspends and reinstates an account by email or ID", async () => {
     const user = await owner();
     const id = await artifact(user.id);
-    expect(await run("suspend-account", user.email.toUpperCase(), "--reason", "spam")).toEqual({
+    expect(
+      await run("suspend-account", user.email.toUpperCase(), "--reason", "spam", ...WHY),
+    ).toEqual({
       exitCode: 0,
-      output: `Suspended account ${user.id} and 1 artifact(s).`,
+      output: `Suspended account ${user.id} and 1 artifact(s). ${RECORDED}`,
     });
-    expect((await run("suspend-account", user.id, "--reason", "spam")).output).toBe(
-      `Account ${user.id} was already suspended.`,
+    expect((await run("suspend-account", user.id, "--reason", "spam", ...WHY)).output).toBe(
+      `Account ${user.id} was already suspended; nothing was recorded or sent.`,
     );
     expect((await run("show-artifact", id)).output).toContain("(account suspended: spam)");
-    expect(await run("reinstate-account", user.email)).toEqual({
+    expect(await run("reinstate-account", user.email, ...LIFT)).toEqual({
       exitCode: 0,
-      output: `Reinstated account ${user.id} and 1 artifact(s).`,
+      output: `Reinstated account ${user.id} and 1 artifact(s). ${RECORDED}`,
     });
-    expect((await run("reinstate-account", user.id)).output).toBe(
+    expect((await run("reinstate-account", user.id, ...LIFT)).output).toBe(
       `Account ${user.id} was not suspended.`,
     );
     const [row] = await db().select().from(schema.artifacts).where(eq(schema.artifacts.id, id));
     expect(row?.state).toBe("active");
     for (const command of ["suspend-account", "reinstate-account"]) {
-      expect((await run(command, "nobody@example.test", "--reason", "spam")).output).toBe(
+      expect((await run(command, "nobody@example.test", "--reason", "spam", ...WHY)).output).toBe(
         "Account not found.",
       );
     }
-    expect((await run("suspend-account", "u_missing", "--reason", "spam")).exitCode).toBe(1);
+    expect((await run("suspend-account", "u_missing", "--reason", "spam", ...WHY)).exitCode).toBe(
+      1,
+    );
   });
 });
 
@@ -283,7 +323,11 @@ describe("operator backup commands", () => {
     expect(exported.exitCode).toBe(0);
     const lines = (files.store.get("t.jsonl") ?? "").trim().split("\n");
     expect(lines).toContain(JSON.stringify({ kind: "artifact", id, deletedAt: NOW }));
-    expect(exported.output).toBe(`Wrote ${lines.length} tombstone marker(s) to t.jsonl.`);
+    const holdLines = lines.filter((l) => l.startsWith('{"legalHold"')).length;
+    const markerLines = lines.length - holdLines;
+    expect(exported.output).toBe(
+      `Wrote ${markerLines} tombstone marker(s) and ${holdLines} legal hold(s) to t.jsonl.`,
+    );
 
     // The restore lost the tombstones; the resurrected rows are still there.
     await db().delete(schema.tombstones);
@@ -293,7 +337,7 @@ describe("operator backup commands", () => {
       // Other tests in this file write artifacts without directory rows, so the count varies.
       output: expect.stringMatching(
         new RegExp(
-          `^Applied tombstones: ${lines.length} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, 0 share link\\(s\\) revoked again, 0 service token\\(s\\) deleted again, 0 group\\(s\\) and 0 group membership\\(s\\) removed again, 0 single sign-on provider\\(s\\) removed again, 0 membership\\(s\\) ended again, 0 invitation\\(s\\) withdrawn again, 0 comment thread\\(s\\) and 0 message\\(s\\) deleted again, 0 email preference\\(s\\) turned off again, 0 notice mute\\(s\\) set again, \\d+ session\\(s\\) ended again, \\d+ app token\\(s\\) revoked again, \\d+ app consent\\(s\\) withdrawn again, 0 issue connection\\(s\\) removed again, [1-9]\\d* artifact directory row\\(s\\) rebuilt\\. The jobs Worker purges them on its next runs\\.$`,
+          `^Applied tombstones: ${markerLines} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, 0 share link\\(s\\) revoked again, 0 service token\\(s\\) deleted again, 0 group\\(s\\) and 0 group membership\\(s\\) removed again, 0 single sign-on provider\\(s\\) removed again, 0 membership\\(s\\) ended again, 0 invitation\\(s\\) withdrawn again, 0 comment thread\\(s\\) and 0 message\\(s\\) deleted again, 0 email preference\\(s\\) turned off again, 0 notice mute\\(s\\) set again, \\d+ session\\(s\\) ended again, \\d+ app token\\(s\\) revoked again, \\d+ app consent\\(s\\) withdrawn again, 0 issue connection\\(s\\) removed again, [1-9]\\d* artifact directory row\\(s\\) rebuilt, 0 legal hold\\(s\\) put back \\(0 artifact\\(s\\) suspended again\\)\\. The jobs Worker purges them on its next runs\\.$`,
         ),
       ),
     });
@@ -304,7 +348,7 @@ describe("operator backup commands", () => {
     expect(
       (await runOperator(db(), ["apply-tombstones", "--file", "t.jsonl"], NOW, files)).output,
     ).toBe(
-      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) and 0 workspace(s) deleted again, 0 share link(s) revoked again, 0 service token(s) deleted again, 0 group(s) and 0 group membership(s) removed again, 0 single sign-on provider(s) removed again, 0 membership(s) ended again, 0 invitation(s) withdrawn again, 0 comment thread(s) and 0 message(s) deleted again, 0 email preference(s) turned off again, 0 notice mute(s) set again, 0 session(s) ended again, 0 app token(s) revoked again, 0 app consent(s) withdrawn again, 0 issue connection(s) removed again, 0 artifact directory row(s) rebuilt. The jobs Worker purges them on its next runs.",
+      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) and 0 workspace(s) deleted again, 0 share link(s) revoked again, 0 service token(s) deleted again, 0 group(s) and 0 group membership(s) removed again, 0 single sign-on provider(s) removed again, 0 membership(s) ended again, 0 invitation(s) withdrawn again, 0 comment thread(s) and 0 message(s) deleted again, 0 email preference(s) turned off again, 0 notice mute(s) set again, 0 session(s) ended again, 0 app token(s) revoked again, 0 app consent(s) withdrawn again, 0 issue connection(s) removed again, 0 artifact directory row(s) rebuilt, 0 legal hold(s) put back (0 artifact(s) suspended again). The jobs Worker purges them on its next runs.",
     );
     expect((await run("apply-tombstones")).exitCode).toBe(0);
   });
@@ -536,12 +580,12 @@ describe("brand commands", () => {
 
   it("suspends a brand back to the default bar and reinstates it, once each", async () => {
     const account = await branded();
-    expect(await run("suspend-brand", account.id, "--reason", "impersonation")).toEqual({
+    expect(await run("suspend-brand", account.id, "--reason", "impersonation", ...WHY)).toEqual({
       exitCode: 0,
-      output: `Suspended the brand of ${account.id}; its viewer shows the default bar.`,
+      output: `Suspended the brand of ${account.id}; its viewer shows the default bar. ${RECORDED}`,
     });
-    expect((await run("suspend-brand", account.id, "--reason", "phishing")).output).toBe(
-      `The brand of ${account.id} was already suspended.`,
+    expect((await run("suspend-brand", account.id, "--reason", "phishing", ...WHY)).output).toBe(
+      `The brand of ${account.id} was already suspended; nothing was recorded or sent.`,
     );
     const [row] = await db()
       .select()
@@ -551,28 +595,201 @@ describe("brand commands", () => {
     expect((await run("brand", account.id)).output).toContain(
       `suspended   ${new Date(NOW).toISOString()} (impersonation)\nshown       no (default bar)`,
     );
-    expect(await run("reinstate-brand", account.email)).toEqual({
+    expect(await run("reinstate-brand", account.email, ...LIFT)).toEqual({
       exitCode: 0,
-      output: `Reinstated the brand of ${account.id}.`,
+      output: `Reinstated the brand of ${account.id}. ${RECORDED}`,
     });
-    expect((await run("reinstate-brand", account.id)).output).toBe(
+    expect((await run("reinstate-brand", account.id, ...LIFT)).output).toBe(
       `The brand of ${account.id} was not suspended.`,
     );
     expect((await run("suspend-brand", account.id)).exitCode).toBe(2);
     expect((await run("suspend-brand", account.id, "--reason", "nope")).exitCode).toBe(2);
     expect((await run("reinstate-brand")).exitCode).toBe(2);
     const none = await owner();
-    expect(await run("suspend-brand", none.id, "--reason", "spam")).toEqual({
+    expect(await run("suspend-brand", none.id, "--reason", "spam", ...WHY)).toEqual({
       exitCode: 1,
       output: "This owner has no brand.",
     });
-    expect(await run("reinstate-brand", none.id)).toEqual({
+    expect(await run("reinstate-brand", none.id, ...LIFT)).toEqual({
       exitCode: 1,
       output: "This owner has no brand.",
     });
-    expect((await run("suspend-brand", "x@example.test", "--reason", "spam")).output).toBe(
+    expect((await run("suspend-brand", "x@example.test", "--reason", "spam", ...WHY)).output).toBe(
       "Account not found.",
     );
-    expect((await run("reinstate-brand", "x@example.test")).output).toBe("Account not found.");
+    expect((await run("reinstate-brand", "x@example.test", ...LIFT)).output).toBe(
+      "Account not found.",
+    );
+  });
+});
+
+describe("notices, statements of reasons and legal holds", () => {
+  it("shows one report in full, without the reporter's email", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    await db()
+      .insert(schema.abuseReports)
+      .values({
+        id: "rep_full",
+        artifactId: id,
+        reporterEmail: "reporter@example.test",
+        reporterName: "Ada\nLovelace",
+        address: `https://${id}.portifact.dev/a?b=1`,
+        confirmed: true,
+        locale: "es",
+        reason: "harassment",
+        details: "line one\nline two",
+        createdAt: NOW,
+      });
+    const shown = await run("report", "rep_full");
+    expect(shown.exitCode).toBe(0);
+    expect(shown.output).toContain(`address    "https://${id}.portifact.dev/a?b=1"`);
+    expect(shown.output).toContain("notice     full: the reporter confirmed");
+    expect(shown.output).toContain('name       "Ada Lovelace"');
+    expect(shown.output).toContain("email      given");
+    expect(shown.output).toContain("language   es");
+    expect(shown.output).toContain('details    "line one\\nline two"');
+    expect(shown.output).not.toContain("reporter@example.test");
+    expect((await run("reports", "--limit", "500")).output).toContain("full-notice");
+    expect(await run("report", "rep_none")).toEqual({
+      exitCode: 1,
+      output: "No report with that ID.",
+    });
+    expect(await run("resolve-report", "rep_full", "actioned", "--withhold-notice")).toEqual({
+      exitCode: 0,
+      output: "Report rep_full marked actioned. The reporter's email is withheld.",
+    });
+  });
+
+  it("refuses a --report that names no report", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    expect(
+      await run("suspend-artifact", id, "--reason", "spam", ...WHY, "--report", "rep_nope"),
+    ).toEqual({
+      exitCode: 1,
+      output: "No report with that ID.",
+    });
+    const [row] = await db().select().from(schema.artifacts).where(eq(schema.artifacts.id, id));
+    expect(row?.state).toBe("active");
+  });
+
+  it("sends a withheld statement later, once", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    await run("suspend-artifact", id, "--reason", "child_safety", ...WHY, "--withhold-notice");
+    expect((await run("send-statement", "artifact", id)).output).toMatch(
+      /^Sending the withheld statement dec_\w+; the people affected are emailed shortly/,
+    );
+    expect((await run("send-statement", "artifact", id)).exitCode).toBe(1);
+    expect((await run("send-statement", "artifact", id, ...WHY)).output).toMatch(
+      /^Recorded and sending dec_/,
+    );
+    expect((await run("decisions", "artifact", id)).output).toContain("notice pending");
+  });
+
+  it("shows how many reports one email sent in the last day, so spam can be withheld", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    for (const n of [1, 2, 3]) {
+      await db()
+        .insert(schema.abuseReports)
+        .values({
+          id: `rep_spammy_${n}`,
+          artifactId: id,
+          reporterEmail: "Spammy@example.test",
+          reason: "spam",
+          createdAt: NOW - n * 1000,
+        });
+    }
+    expect((await run("report", "rep_spammy_1")).output).toContain(
+      "email      given (3 report(s) with it in the last 24 hours)",
+    );
+  });
+
+  it("records a statement of reasons, withheld or sent, and lists who it was sent to", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    expect(
+      (
+        await run(
+          "suspend-artifact",
+          id,
+          "--reason",
+          "child_safety",
+          ...WHY,
+          "--source",
+          "notice",
+          "--withhold-notice",
+        )
+      ).output,
+    ).toContain("The statement of reasons is recorded and withheld: nobody is emailed.");
+    const listed = await run("decisions", "artifact", id);
+    expect(listed.output).toMatch(
+      /^dec_\w+ {2}\S+ {2}suspend {2}child_safety {2}notice {2}notice withheld$/m,
+    );
+    expect(listed.output).toContain('  facts   "It asks for bank passwords."');
+    expect(listed.output).toContain('  ground  "Acceptable Use Policy: phishing."');
+    expect(await run("decisions", "artifact", "zzzzzzzzzz")).toEqual({
+      exitCode: 0,
+      output: "No decisions recorded.",
+    });
+    expect((await run("decisions", "account", "nobody@example.test")).exitCode).toBe(1);
+  });
+
+  it("holds a suspended artifact, lists it, refuses its reinstatement and releases it", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    expect((await run("hold-artifact", id, "--ground", "Authority")).output).toBe(
+      "Suspend the artifact first: a held artifact is never served.",
+    );
+    await run("suspend-artifact", id, "--reason", "child_safety", ...WHY);
+    const held = await run(
+      "hold-artifact",
+      id,
+      "--ground",
+      "Authority request 7",
+      "--until",
+      "2027-11-12",
+    );
+    expect(held.output).toMatch(
+      new RegExp(`^Held ${id} \\(hold_\\w+\\) until 2027-11-12T00:00:00.000Z\\.`),
+    );
+    expect(await run("hold-artifact", id, "--ground", "Again")).toMatchObject({
+      exitCode: 1,
+      output: expect.stringContaining("is already held"),
+    });
+    expect(
+      await run("hold-artifact", id, "--ground", "Again", "--until", "2028-01-31T12:00:00Z"),
+    ).toEqual({
+      exitCode: 0,
+      output: expect.stringMatching(/release date is now 2028-01-31T12:00:00.000Z/),
+    });
+    expect((await run("holds")).output).toContain(`${id}  open`);
+    const shown = await run("hold", id);
+    expect(shown.output).toContain('ground    "Authority request 7"');
+    expect(shown.output).toContain(`owner     ${user.id}  ${user.email}`);
+    expect(await run("hold", "zzzzzzzzzz")).toEqual({
+      exitCode: 1,
+      output: "zzzzzzzzzz has no open hold.",
+    });
+    expect((await run("reinstate-artifact", id, ...LIFT)).output).toBe(
+      "This artifact has a legal hold; release it first.",
+    );
+    const files = memoryFiles();
+    await runOperator(db(), ["export-tombstones", "--out", "h.jsonl"], NOW, files);
+    expect(files.store.get("h.jsonl")).toContain(`"artifactId":"${id}"`);
+    expect((await run("release-hold", id)).output).toContain(`Released the hold on ${id}.`);
+    expect(await run("release-hold", id)).toEqual({
+      exitCode: 1,
+      output: `${id} has no open hold.`,
+    });
+    expect((await run("holds", "--all", "--limit", "500")).output).toContain(`${id}  released`);
+    // The file is the truth as of the export: applying it reopens a hold released since, the
+    // safe side, and the operator releases it again.
+    const applied = await runOperator(db(), ["apply-tombstones", "--file", "h.jsonl"], NOW, files);
+    expect(applied.output).toContain("1 legal hold(s) put back (0 artifact(s) suspended again)");
+    expect((await run("holds")).output).toContain(`${id}  open`);
+    expect((await run("release-hold", id)).exitCode).toBe(0);
   });
 });

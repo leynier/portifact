@@ -50,6 +50,102 @@ beforeEach(async () => {
 });
 
 describe("public abuse reports", () => {
+  it("keeps a full notice: the exact address in full, the name, the statement and the language", async () => {
+    const h = createHarness();
+    const owner = await tokenClient(h, "notice-owner@example.test");
+    const id = await publishSite(owner);
+    const address = `https://${id}.portifact.dev/Some/Page.html?q=1#part`;
+    const response = await h.request(
+      "/api/v1/reports",
+      report({
+        artifact: address,
+        reason: "harassment",
+        details: "Threatens a named person.\nSee the second paragraph.",
+        name: "Ada Lovelace",
+        email: "ada@example.test",
+        confirmed: true,
+        locale: "pt-BR",
+      }),
+    );
+    expect(response.status).toBe(202);
+    const rows = (
+      await env.DB.prepare(
+        "select address, reporter_name, confirmed, locale, details, length(reporter_email_key) as key_length from abuse_reports where artifact_id = ?",
+      )
+        .bind(id)
+        .all()
+    ).results;
+    expect(rows).toEqual([
+      {
+        address,
+        reporter_name: "Ada Lovelace",
+        confirmed: 1,
+        locale: "pt-BR",
+        details: "Threatens a named person.\nSee the second paragraph.",
+        key_length: 64,
+      },
+    ]);
+  });
+
+  it("keeps an address on an artifact's active custom host only while custom domains serve", async () => {
+    const off = createHarness();
+    const owner = await tokenClient(off, "custom-report@example.test");
+    const id = await publishSite(owner);
+    const hostname = `docs-${crypto.randomUUID().slice(0, 8)}.example.com`;
+    await env.DB.prepare(
+      "INSERT INTO custom_domains (hostname, artifact_id, owner_id, region, state, token, verified_at, checked_at) VALUES (?, ?, 'u_x', 'default', 'active', 't', 0, 0)",
+    )
+      .bind(hostname, id)
+      .run();
+    const body = { artifact: `https://${hostname}/page?x=1`, reason: "spam" };
+    expect((await off.request("/api/v1/reports", report(body))).status).toBe(400);
+    const on = createHarness({ env: { CUSTOM_DOMAINS_ENABLED: "true" } });
+    await env.DB.exec("DELETE FROM rate_limits");
+    expect((await on.request("/api/v1/reports", report(body))).status).toBe(202);
+    const rows = (
+      await env.DB.prepare("select address from abuse_reports where artifact_id = ?").bind(id).all()
+    ).results;
+    expect(rows).toEqual([{ address: `https://${hostname}/page?x=1` }]);
+    // A host that is a bare ID is not an artifact's host.
+    await env.DB.exec("DELETE FROM rate_limits");
+    expect(
+      (
+        await on.request(
+          "/api/v1/reports",
+          report({ artifact: `https://${id}/page`, reason: "spam" }),
+        )
+      ).status,
+    ).toBe(400);
+  });
+
+  it("drops the name of a report about minors and still takes an older page's report", async () => {
+    const h = createHarness();
+    const owner = await tokenClient(h, "notice-minors@example.test");
+    const id = await publishSite(owner);
+    expect(
+      (
+        await h.request(
+          "/api/v1/reports",
+          report({ artifact: id, reason: "child_safety", name: "Ada", confirmed: true }),
+        )
+      ).status,
+    ).toBe(202);
+    expect(
+      (await h.request("/api/v1/reports", report({ artifact: id, reason: "spam" }))).status,
+    ).toBe(202);
+    const rows = (
+      await env.DB.prepare(
+        "select reason, address, reporter_name, confirmed from abuse_reports where artifact_id = ? order by reason",
+      )
+        .bind(id)
+        .all()
+    ).results;
+    expect(rows).toEqual([
+      { reason: "child_safety", address: null, reporter_name: null, confirmed: 1 },
+      { reason: "spam", address: null, reporter_name: null, confirmed: 0 },
+    ]);
+  });
+
   it("stores a report given the artifact's address and answers 202 without credentials", async () => {
     const h = createHarness();
     const owner = await tokenClient(h, "report-owner@example.test");
@@ -128,6 +224,14 @@ describe("public abuse reports", () => {
       { artifact: "zzzzzzzzzz", reason: "spam", details: "bell\u0007" },
       { artifact: "zzzzzzzzzz", reason: "spam", email: "not-an-email" },
       { artifact: "zzzzzzzzzz", reason: "spam", artifactOwner: "u_1" },
+      { artifact: "zzzzzzzzzz", reason: "spam", name: "two\nlines" },
+      { artifact: "zzzzzzzzzz", reason: "spam", name: "x".repeat(REPORT_LIMITS.nameMax + 1) },
+      { artifact: "zzzzzzzzzz", reason: "spam", confirmed: false },
+      { artifact: "zzzzzzzzzz", reason: "spam", locale: "xx" },
+      {
+        artifact: `https://zzzzzzzzzz.portifact.dev/${"a".repeat(REPORT_LIMITS.addressMax)}`,
+        reason: "spam",
+      },
     ]) {
       await env.DB.exec("DELETE FROM rate_limits");
       const response = await h.request("/api/v1/reports", report(body));
@@ -136,7 +240,7 @@ describe("public abuse reports", () => {
     }
     const huge = await h.request(
       "/api/v1/reports",
-      report({ artifact: "zzzzzzzzzz", reason: "spam", details: "é".repeat(5000) }),
+      report({ artifact: "zzzzzzzzzz", reason: "spam", details: "é".repeat(25_000) }),
     );
     expect(huge.status).toBe(400);
   });

@@ -8,6 +8,7 @@ import {
   AccountDeletionResult,
   AccountSettings,
   type AccountSettingsUpdate,
+  AccountSuspensionView,
   AccountUsageView,
   ANNOTATION_HISTORY_PAGE,
   AnnotationDeleteResult,
@@ -204,6 +205,8 @@ export interface DashboardApi {
   disconnectApp(clientId: string): Promise<DisconnectResult>;
   /** The defaults new artifacts start with. */
   accountSettings(): Promise<AccountSettings>;
+  /** Whether the operator suspended the account, with the statement of reasons. */
+  accountSuspension(): Promise<AccountSuspensionView>;
   updateAccountSettings(update: AccountSettingsUpdate): Promise<AccountSettings>;
   /** The brand of a space on the viewer's bar, and whether its plan includes it. */
   brandSettings(workspace?: string): Promise<BrandSettings>;
@@ -672,6 +675,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     accountSettings() {
       return call("/api/v1/account/settings", AccountSettings);
+    },
+    accountSuspension() {
+      return call("/api/v1/account/suspension", AccountSuspensionView);
     },
     updateAccountSettings(update) {
       return call("/api/v1/account/settings", AccountSettings, "PATCH", update);

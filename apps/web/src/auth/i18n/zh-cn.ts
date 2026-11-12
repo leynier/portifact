@@ -94,11 +94,13 @@ const messages = {
   unknownScope: (name: string) => `使用权限“${name}”`,
   languageLabel: "语言",
   report: {
-    artifactRequired: "请输入 artifact 的地址或 ID。",
+    artifactRequired: "请输入确切地址或 artifact 的 ID。",
     artifactInvalid: "请输入类似 https://abcdefghij.portifact.dev/ 的地址或 10 个字符的 ID。",
     reasonRequired: "请选择此 artifact 存在的问题。",
     detailsInvalid: "请移除控制字符或缩短详情。",
     emailInvalid: "请输入有效的邮箱地址，或留空。",
+    nameInvalid: "请在一行内输入姓名,最多 200 个字符,或留空。",
+    confirmRequired: "请确认信息准确完整,并且你是出于善意提交的。",
     rateLimited: "从这里提交的举报过多。请稍后重试，或发送邮件至 abuse@portifact.com。",
     network: "无法连接到 Portifact。请检查网络连接后重试。",
     failed: "无法发送举报。请重试，或发送邮件至 abuse@portifact.com。",
@@ -216,7 +218,6 @@ export const zhCN: AuthCatalog = {
     "report.heading": "举报 artifact",
     "report.intro":
       '告诉我们违反<a href="https://portifact.com/acceptable-use">可接受使用政策</a>的内容。你无需拥有账号。我们会尽量在 48 小时内回复。',
-    "report.artifactLabel": "Artifact 地址或 ID",
     "report.reasonLabel": "存在什么问题",
     "report.reason.none": "选择原因",
     "report.reason.phishing": "网络钓鱼或伪造的登录页面",
@@ -229,12 +230,19 @@ export const zhCN: AuthCatalog = {
     "report.reason.private_information": "他人的私人信息",
     "report.reason.spam": "垃圾内容",
     "report.reason.other": "其他违反规则的内容",
-    "report.detailsLabel": '详情<span class="font-normal text-text-muted">（可选）</span>',
-    "report.detailsHint":
-      "你看到了什么、在哪里看到的。不要粘贴非法内容，提供地址即可。最多 2000 个字符。",
     "report.emailLabel": '你的邮箱<span class="font-normal text-text-muted">（可选）</span>',
+    "report.artifactLabel": "内容的确切地址",
+    "report.artifactHint":
+      "完整链接,包括 artifact 内的页面,例如 https://abcdefghij.portifact.dev/page.html。也可以填写 artifact 的 10 位 ID。",
+    "report.detailsLabel":
+      '为什么它违法或违反规则<span class="font-normal text-text-muted">（可选）</span>',
+    "report.detailsHint":
+      "说明你看到了什么、在哪里,以及你为什么认为它违法或违反可接受使用政策。不要粘贴违法材料,提供地址即可。最多 8,000 个字符。",
+    "report.nameLabel": '你的姓名<span class="font-normal text-text-muted">（可选）</span>',
+    "report.nameHint": "完整的违法内容通知包括你的姓名。我们会将其与举报一起保存。",
     "report.emailHint":
-      '仅在你希望我们能回复你时填写。请参阅<a href="https://portifact.com/privacy">隐私政策</a>。',
+      '我们用它告知你处理结果并回复你。请参阅<a href="https://portifact.com/privacy">隐私政策</a>。',
+    "report.confirmLabel": "我确认,据我所知,本举报中的信息准确完整,并且我是出于善意提交的",
     "report.send": "发送举报",
     "report.doneHeading": "谢谢，我们已收到你的举报",
     "report.doneBody":

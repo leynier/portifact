@@ -257,6 +257,7 @@ describe("report page accessibility", () => {
 
     element<HTMLInputElement>("artifact").value = "k7d2qm4xab";
     element<HTMLSelectElement>("reason").value = "spam";
+    element<HTMLInputElement>("confirmed").checked = true;
     submit(element<HTMLFormElement>("report-form"));
     await settle();
     expect(element("done").hidden).toBe(false);

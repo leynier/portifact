@@ -1,8 +1,10 @@
 // Rate limits on the endpoints that cost money or storage: sending sign-in codes, registering
 // clients, starting device authorizations and entering protected artifacts. Counters live in D1, so every
 // isolate sees the same count.
+
 import { OTP_LIMITS } from "@portifact/contracts";
 import { hitRateLimit, pruneRateLimits } from "@portifact/db";
+import { keyedHash } from "@portifact/services";
 
 export interface Limit {
   max: number;
@@ -87,16 +89,4 @@ export const GLOBAL_OTP_KEY = "otp:global";
 /** Removes counters older than the longest window. */
 export function pruneOldCounters(d1: D1Database, now: number): Promise<number> {
   return pruneRateLimits(d1, now - 2 * OTP_LIMITS.global.windowSeconds * 1000);
-}
-
-async function keyedHash(secret: string, value: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
-  return [...new Uint8Array(mac)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }

@@ -225,6 +225,16 @@ export const ja = {
   "detail.suspended.title": "利用ポリシー違反の可能性により停止中",
   "detail.suspended.body":
     "審査の結果、Portifactはこのartifactを停止しました。誰にも配信されず、変更や公開もできません。理由：{reason}。誤りだと思われる場合は、artifactのアドレスを添えてabuse@portifact.comまでご連絡ください。",
+  "detail.suspended.facts": "根拠とした事実",
+  "detail.suspended.ground": "根拠(法律または利用規約の規定)とそれが適用される理由",
+  "detail.suspended.notice":
+    "{date} に、受け取った通報に基づいて決定しました。この決定は人が行いました。",
+  "detail.suspended.review":
+    "{date} に、当社自身の確認に基づいて決定しました。この決定は人が行いました。",
+  "settings.suspended.title": "アカウントは停止されています",
+  "settings.suspended.body":
+    "Portifact はあなたのアカウントを停止しました。公開できず、そのアーティファクトもあわせて停止されています。サインイン、データのエクスポート、アカウントの削除は引き続き行えます。理由: {reason}。見直しを求めるには abuse@portifact.com までご連絡ください。",
+  "branding.suspendedReason": "理由: {reason}。",
   "reason.phishing": "フィッシングまたは偽のサインインページ",
   "reason.malware": "マルウェア、エクスプロイト、暗号資産のマイニング",
   "reason.sexual_content": "露骨な性的コンテンツ",

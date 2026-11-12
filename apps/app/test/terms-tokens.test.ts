@@ -6,6 +6,8 @@
 import { env } from "cloudflare:workers";
 import { TERMS_VERSION } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
+import { HELD_MESSAGE } from "@portifact/domain";
+import { placeLegalHold, suspendArtifact } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { authorizeWithPkce, exchangeCode, type TokenResponse } from "./flows.ts";
 import { createHarness, type Harness, ORIGIN } from "./harness.ts";
@@ -176,6 +178,27 @@ describe("a person's API token without the current terms", () => {
       method: "DELETE",
     });
     expect(removed.status, await removed.clone().text()).toBe(200);
+  });
+
+  it("is refused deleting a held artifact for the hold's reason, without learning it, through the API and MCP", async () => {
+    const s = await olderVersion("terms-api-held@example.test");
+    const db = regionsFromEnv(env).get("default").db;
+    await suspendArtifact(db, { artifactId: s.privateId, reason: "child_safety", now: Date.now() });
+    await placeLegalHold(db, {
+      artifactId: s.privateId,
+      ground: "Authority",
+      releaseAt: null,
+      now: Date.now(),
+    });
+    const viaApi = await api(s.h, s.cli, `/api/v1/artifacts/${s.privateId}`, { method: "DELETE" });
+    expect(viaApi.status).toBe(403);
+    const answered = await viaApi.json<{ error: { code: string; message: string } }>();
+    expect(answered).toEqual({ error: { code: "forbidden", message: HELD_MESSAGE } });
+    const viaMcp = await callTool(s.mcp, "delete_artifact", {
+      artifactId: s.privateId,
+      confirm: s.privateId,
+    });
+    expect(viaMcp.structuredContent).toEqual(answered);
   });
 
   it("revokes a share link it can no longer create", async () => {

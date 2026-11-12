@@ -24,6 +24,7 @@ import { and, eq, type SQL, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
 import { auditEvent } from "./audit.ts";
 import { searchIndexJob } from "./content-search.ts";
+import { heldRefusal, isHeld, notHeldSql } from "./legal-holds.ts";
 import { deleteArtifactData } from "./maintenance.ts";
 import { cappedExpirySql, uncappedExpirySql } from "./max-life.ts";
 import { OUTBOX_INLINE_GRACE_MS, purgeJobs } from "./outbox.ts";
@@ -108,6 +109,8 @@ function lifecycleEvent(
     | "artifact.deleted"
     | "artifact.pinned"
     | "artifact.unpinned",
+  /** The claim the change's guarded update uses, when it holds more than the guard. */
+  condition: SQL = stillAsRead(artifact),
 ) {
   return auditEvent(
     db,
@@ -120,7 +123,7 @@ function lifecycleEvent(
       detail: {},
       now: input.now,
     },
-    stillAsRead(artifact),
+    condition,
   );
 }
 
@@ -313,12 +316,21 @@ export async function deleteArtifact(
   const artifact = loaded.value;
   if (artifact.state === "purging" || artifact.state === "deleted")
     return ok({ state: "deleted", expiresAt: null, purgeAt: null, pinned: false });
+  // A legal hold keeps it (docs/operations.md); held artifacts are always suspended.
+  if (artifact.state === "suspended" && (await isHeld(db, artifact.id))) return heldRefusal();
   // The purge job is written with the claim, on the same old state, so the queue finishes the
-  // deletion if this request dies before it does.
-  const unchanged = guard(artifact) as SQL;
+  // deletion if this request dies before it does. A hold placed in between fails the claim.
+  const unchanged = and(guard(artifact), notHeldSql()) as SQL;
   const [, , claimed] = await db.batch([
     purgeJobs(db, unchanged, input.now, input.now + OUTBOX_INLINE_GRACE_MS),
-    lifecycleEvent(db, artifact, input, "artifact.deleted"),
+    // On the claim itself: a hold placed after the check writes no event either.
+    lifecycleEvent(
+      db,
+      artifact,
+      input,
+      "artifact.deleted",
+      sql`exists (select 1 from ${schema.artifacts} where ${unchanged})`,
+    ),
     db
       .update(schema.artifacts)
       .set({
@@ -329,7 +341,9 @@ export async function deleteArtifact(
       .where(unchanged)
       .returning({ id: schema.artifacts.id }),
   ]);
-  if (claimed.length === 0) return conflict();
+  if (claimed.length === 0) {
+    return (await isHeld(db, artifact.id)) ? heldRefusal() : conflict();
+  }
   await deleteArtifactData(db, bucket, artifact.id, input.now);
   return ok({ state: "deleted", expiresAt: null, purgeAt: null, pinned: false });
 }

@@ -102,11 +102,14 @@ const messages = {
   unknownScope: (name: string) => `Использовать разрешение «${name}»`,
   languageLabel: "Язык",
   report: {
-    artifactRequired: "Введите адрес или ID artifact.",
+    artifactRequired: "Введите точный адрес или ID artifact.",
     artifactInvalid: "Введите адрес вида https://abcdefghij.portifact.dev/ или ID из 10 символов.",
     reasonRequired: "Выберите, что не так с artifact.",
     detailsInvalid: "Удалите управляющие символы или сократите описание.",
     emailInvalid: "Введите корректный адрес электронной почты или оставьте поле пустым.",
+    nameInvalid: "Введите имя одной строкой, не длиннее 200 символов, или оставьте поле пустым.",
+    confirmRequired:
+      "Подтвердите, что сведения точны и полны и что вы отправляете их добросовестно.",
     rateLimited:
       "Отсюда отправлено слишком много жалоб. Попробуйте позже или напишите на abuse@portifact.com.",
     network: "Не удалось связаться с Portifact. Проверьте подключение и попробуйте ещё раз.",
@@ -236,7 +239,6 @@ export const ru: AuthCatalog = {
     "report.heading": "Пожаловаться на artifact",
     "report.intro":
       'Сообщите нам о контенте, который нарушает <a href="https://portifact.com/acceptable-use">Правила допустимого использования</a>. Аккаунт не нужен. Мы стараемся ответить в течение 48 часов.',
-    "report.artifactLabel": "Адрес или ID artifact",
     "report.reasonLabel": "Что не так",
     "report.reason.none": "Выберите причину",
     "report.reason.phishing": "Фишинг или поддельная страница входа",
@@ -250,14 +252,22 @@ export const ru: AuthCatalog = {
     "report.reason.private_information": "Чужая личная информация",
     "report.reason.spam": "Спам",
     "report.reason.other": "Другое нарушение правил",
-    "report.detailsLabel":
-      'Подробности <span class="font-normal text-text-muted">(необязательно)</span>',
-    "report.detailsHint":
-      "Что вы увидели и где. Не вставляйте незаконные материалы; адреса достаточно. До 2000 символов.",
     "report.emailLabel":
       'Ваша электронная почта <span class="font-normal text-text-muted">(необязательно)</span>',
+    "report.artifactLabel": "Точный адрес контента",
+    "report.artifactHint":
+      "Полная ссылка, включая страницу внутри artifact, например https://abcdefghij.portifact.dev/page.html. Подойдёт и 10-символьный ID artifact.",
+    "report.detailsLabel":
+      'Почему это незаконно или нарушает правила <span class="font-normal text-text-muted">(необязательно)</span>',
+    "report.detailsHint":
+      "Объясните, что вы увидели, где и почему считаете это незаконным или нарушением Политики допустимого использования. Не вставляйте незаконные материалы; достаточно адреса. До 8000 символов.",
+    "report.nameLabel": 'Ваше имя <span class="font-normal text-text-muted">(необязательно)</span>',
+    "report.nameHint":
+      "Полное уведомление о незаконном контенте содержит ваше имя. Мы храним его вместе с жалобой.",
     "report.emailHint":
-      'Только если хотите, чтобы мы могли ответить. См. <a href="https://portifact.com/privacy">Политику конфиденциальности</a>.',
+      'Мы используем его, чтобы сообщить вам о решении и ответить. См. <a href="https://portifact.com/privacy">Политику конфиденциальности</a>.',
+    "report.confirmLabel":
+      "Я подтверждаю, что, насколько мне известно, сведения в этой жалобе точны и полны и что я отправляю её добросовестно",
     "report.send": "Отправить жалобу",
     "report.doneHeading": "Спасибо, мы получили вашу жалобу",
     "report.doneBody":

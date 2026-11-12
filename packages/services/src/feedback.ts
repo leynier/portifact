@@ -26,6 +26,7 @@ import {
 } from "@portifact/domain";
 import { and, desc, eq, getTableColumns, gt, inArray, lt, or, type SQL, sql } from "drizzle-orm";
 import { ownerSide } from "./actors.ts";
+import { notHeldSql } from "./legal-holds.ts";
 import { ownerEntitlements } from "./plans.ts";
 import { type ThreadRow, threadViews } from "./thread-views.ts";
 import { policyDomains } from "./workspace-domains.ts";
@@ -101,6 +102,8 @@ function visibleThreads(caller: Caller, input: FeedbackInput): SQL {
     scopeCondition(caller),
     input.since === undefined ? undefined : gt(th.updatedAt, input.since),
     input.mine ? mineCondition(caller.userId) : undefined,
+    // Nobody but the operator reads a held artifact's comments (legal-holds.ts).
+    notHeldSql(),
   ) as SQL;
 }
 

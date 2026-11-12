@@ -31,6 +31,7 @@ import { useDocumentTitle } from "../use-document-title.ts";
 import { Loaded, Section } from "./account.tsx";
 import { errorMessage } from "./artifact-list.tsx";
 import { RoleNotice, SpaceBadge } from "./space-parts.tsx";
+import { SuspensionReasons } from "./suspension-reasons.tsx";
 
 export const BRAND_QUERY = ["account", "branding"] as const;
 
@@ -114,6 +115,12 @@ function Branding({ settings }: { settings: BrandSettings }) {
           icon={<ShieldAlert className="size-5" />}
         >
           {t("branding.suspended")}
+          {settings.reason ? (
+            <p className="mt-2">
+              {t("branding.suspendedReason", { reason: t(`reason.${settings.reason}`) })}
+            </p>
+          ) : null}
+          {settings.statement ? <SuspensionReasons statement={settings.statement} /> : null}
         </Callout>
       ) : null}
       {settings.available ? null : (

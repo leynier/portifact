@@ -16,6 +16,7 @@ import {
 import { and, asc, eq, gt, inArray, lt, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAuditEventsOf } from "./audit.ts";
+import { notHeldSql } from "./legal-holds.ts";
 import { purgeJobs } from "./outbox.ts";
 import { recomputeDirectoryRoles } from "./scim-groups.ts";
 import { chunked, JSON_CHUNK } from "./shapes.ts";
@@ -496,8 +497,9 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
   const resurrectedWorkspace = sql`${t.kind} = 'workspace' and not exists (select 1 from ${wd} where ${wd.workspaceId} = ${t.id}) and ${leftovers("workspace", oneDatabase, evidence)}`;
   // An account with anything left of it and no deletion in progress.
   const resurrectedAccount = sql`${t.kind} = 'account' and not exists (select 1 from ${schema.accountDeletions} where ${schema.accountDeletions.userId} = ${t.id}) and ${leftovers("account", oneDatabase, evidence)}`;
+  // An artifact under a legal hold is never claimed: `apply-tombstones` puts the holds back first.
   const resurrectedArtifact = (refs: Refs) =>
-    sql`${a.state} <> 'purging' and (${a.id} in (${refs.artifacts}) or ${a.ownerId} in (${refs.owners}))`;
+    sql`${a.state} <> 'purging' and (${a.id} in (${refs.artifacts}) or ${a.ownerId} in (${refs.owners})) and ${notHeldSql()}`;
   return [
     {
       name: "accountJobs",
@@ -515,7 +517,7 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
       build: (db) =>
         db
           .insert(schema.accountDeletions)
-          .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedAccount}`)
+          .select(sql`select ${t.id}, ${now}, null from ${t} where ${resurrectedAccount}`)
           .onConflictDoNothing()
           .returning({ userId: schema.accountDeletions.userId }),
     },
@@ -536,7 +538,7 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
       build: (db) =>
         db
           .insert(wd)
-          .select(sql`select ${t.id}, ${now} from ${t} where ${resurrectedWorkspace}`)
+          .select(sql`select ${t.id}, ${now}, null from ${t} where ${resurrectedWorkspace}`)
           .onConflictDoNothing()
           .returning({ id: wd.workspaceId }),
     },
@@ -621,7 +623,7 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
       build: (db) =>
         db
           .update(schema.abuseReports)
-          .set({ reporterEmail: null })
+          .set({ reporterEmail: null, reporterEmailKey: null, reporterName: null })
           .where(
             sql`lower(${schema.abuseReports.reporterEmail}) in (select lower(${u.email}) from ${u} where ${u.id} in (${tombstonedAccounts}))`,
           ),

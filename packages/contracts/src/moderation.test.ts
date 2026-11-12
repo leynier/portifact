@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   AbuseReportInput,
   AccountDeletionInput,
+  DecisionSource,
   REPORT_LIMITS,
+  reportedAddress,
   reportedArtifactId,
+  reportedHost,
+  STATEMENT_LIMITS,
+  StatementText,
+  SuspensionView,
 } from "./moderation.ts";
 import { ArtifactSummary, ERROR_STATUS } from "./publishing.ts";
 
@@ -106,5 +112,89 @@ describe("account shapes", () => {
     expect(ArtifactSummary.safeParse({ ...summary, suspension: { reason: "x" } }).success).toBe(
       false,
     );
+  });
+});
+
+describe("full notices and statements of reasons", () => {
+  it("keeps the exact address of an artifact in full, and nothing else", () => {
+    expect(
+      reportedAddress("https://k7d2qm4xab.portifact.dev/A/b.html?q=1#x", "portifact.dev"),
+    ).toBe("https://k7d2qm4xab.portifact.dev/A/b.html?q=1#x");
+    expect(reportedAddress(" k7d2qm4xab.portifact.dev/page ", "portifact.dev")).toBe(
+      "https://k7d2qm4xab.portifact.dev/page",
+    );
+    for (const value of [
+      "k7d2qm4xab",
+      "K7D2QM4XAB",
+      "https://k7d2qm4xab.evil.example/",
+      "ftp://k7d2qm4xab.portifact.dev/",
+      "https://user:pass@k7d2qm4xab.portifact.dev/",
+      "https://[bad",
+      "https://k7d2qm4xab/page",
+      "k7d2qm4xab/page",
+      "https://k7d2qm4xab.portifact.dev.evil.example/",
+      `https://k7d2qm4xab.portifact.dev/${"a".repeat(REPORT_LIMITS.addressMax)}`,
+    ]) {
+      expect(reportedAddress(value, "portifact.dev"), value).toBeNull();
+    }
+  });
+
+  it("keeps the address on an active custom host of the artifact, and only that host", () => {
+    const custom = { hostname: "docs.example.com", artifactId: "k7d2qm4xab" };
+    expect(reportedAddress("https://Docs.Example.com/a?b=1", "portifact.dev", custom)).toBe(
+      "https://docs.example.com/a?b=1",
+    );
+    expect(reportedAddress("https://other.example.com/a", "portifact.dev", custom)).toBeNull();
+    expect(reportedAddress("https://docs.example.com/a", "portifact.dev", null)).toBeNull();
+    expect(reportedHost(" https://Docs.Example.com/a ")).toBe("docs.example.com");
+    expect(reportedHost("k7d2qm4xab")).toBeNull();
+    expect(reportedHost("https://[bad")).toBeNull();
+  });
+
+  it("takes the notice's parts as optional, and refuses a bad name, statement or language", () => {
+    const base = { artifact: "k7d2qm4xab", reason: "spam" };
+    expect(
+      AbuseReportInput.parse({ ...base, name: " Ada ", confirmed: true, locale: "pt-BR" }),
+    ).toMatchObject({ name: "Ada", confirmed: true, locale: "pt-BR" });
+    for (const extra of [
+      { name: "two\nlines" },
+      { name: "x".repeat(REPORT_LIMITS.nameMax + 1) },
+      { name: "bell\u0007" },
+      { confirmed: false },
+      { locale: "xx" },
+    ]) {
+      expect(AbuseReportInput.safeParse({ ...base, ...extra }).success, JSON.stringify(extra)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("bounds the operator's statement and requires both parts", () => {
+    expect(StatementText.parse({ facts: " Facts\nmore ", ground: " Rule " })).toEqual({
+      facts: "Facts\nmore",
+      ground: "Rule",
+    });
+    for (const value of [
+      { facts: "", ground: "Rule" },
+      { facts: "Facts", ground: "  " },
+      { facts: "x".repeat(STATEMENT_LIMITS.factsMax + 1), ground: "Rule" },
+      { facts: "Facts", ground: "x".repeat(STATEMENT_LIMITS.groundMax + 1) },
+      { facts: "bell\u0007", ground: "Rule" },
+    ]) {
+      expect(StatementText.safeParse(value).success).toBe(false);
+    }
+    expect(DecisionSource.options).toEqual(["notice", "review"]);
+    expect(
+      SuspensionView.parse({
+        reason: "spam",
+        statement: {
+          facts: "f",
+          ground: "g",
+          source: "review",
+          decidedAt: "2026-11-08T12:00:00.000Z",
+        },
+      }).statement,
+    ).toMatchObject({ source: "review" });
+    expect(SuspensionView.parse({ reason: "spam" }).statement).toBeUndefined();
   });
 });

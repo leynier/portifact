@@ -274,6 +274,33 @@ reason("the owner is erased with its events", [
   "deleteArtifactData",
   "eraseOwnerBrand",
 ]);
+reason("a keyed hash for rate limit keys: it computes and changes nothing", ["keyedHash"]);
+reason(
+  "legal holds: operator-only, kept in legal_holds and never shown to the owner side, whose audit log must not reveal a hold",
+  [
+    "placeLegalHold",
+    "releaseLegalHold",
+    "releaseDueHolds",
+    "applyLegalHolds",
+    "isHeld",
+    "updateHoldRelease",
+    "openHold",
+    "heldArtifactIds",
+    "holdIdentities",
+    "runHoldRelease",
+  ],
+);
+reason(
+  "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",
+  [
+    "sendModerationNotice",
+    "sendReportOutcome",
+    "suspensionStatement",
+    "sendSuspensionStatement",
+    "accountSuspensionView",
+    "brandSuspensionStatement",
+  ],
+);
 reason("operator moderation and platform controls, kept by the operator tool's own records", [
   "suspendArtifact",
   "reinstateArtifact",

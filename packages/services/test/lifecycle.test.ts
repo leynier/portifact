@@ -431,6 +431,7 @@ describe("purging archives", () => {
   it("runs every job from the scheduled entry point", async () => {
     await publish({ "index.html": "<h1>a</h1>" });
     expect(await runMaintenance(db(), env.ARTIFACTS, T0 + 31 * DAY)).toEqual({
+      releasedHolds: 0,
       archived: 1,
       expiryNotices: 0,
       commentNotices: 0,

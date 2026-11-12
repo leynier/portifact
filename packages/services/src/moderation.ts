@@ -2,12 +2,19 @@
 // public form; suspensions are applied only by the operator tool (apps/jobs/scripts/operator.ts),
 // never by a web route. A suspended artifact is not servable, so delivery, read sessions,
 // downloads and annotations refuse it through their existing state checks.
-import type { AbuseReason } from "@portifact/contracts";
+import type { AbuseReason, Locale } from "@portifact/contracts";
 import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
-import { fail, ok, purgeDate, type Result } from "@portifact/domain";
+import { fail, ok, purgeDate, type Result, reporterNameKept } from "@portifact/domain";
 import { and, asc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
+import { isHeld } from "./legal-holds.ts";
+import {
+  type DecisionStatement,
+  decisionStatements,
+  newDecisionId,
+  reportOutcomeJob,
+} from "./moderation-notices.ts";
 import { ownerEntitlements } from "./plans.ts";
 
 type Batch = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
@@ -17,6 +24,14 @@ export interface AbuseReportSubmission {
   reason: AbuseReason;
   details: string | undefined;
   email: string | undefined;
+  /** The keyed hash of `email` (`keyedHash`), computed where the secret is. */
+  emailKey?: string | undefined;
+  /** The exact address reported, in full, when the reporter gave one. */
+  address?: string | null | undefined;
+  name?: string | undefined;
+  /** The reporter's statement that the report is accurate, complete and in good faith. */
+  confirmed?: boolean | undefined;
+  locale?: Locale | undefined;
   now: number;
 }
 
@@ -45,10 +60,17 @@ export async function submitAbuseReport(
     id,
     artifactId: input.artifactId,
     reporterEmail: input.email || null,
+    reporterEmailKey: input.email ? (input.emailKey ?? null) : null,
+    reporterName: reporterNameKept(input.reason, input.name),
+    address: input.address ?? null,
+    confirmed: input.confirmed === true,
+    locale: input.locale ?? null,
     reason: input.reason,
     details: input.details || null,
     status: "open",
     resolvedAt: null,
+    outcomeNotice: null,
+    outcomeNotifiedAt: null,
     createdAt: input.now,
   });
   return { stored: true };
@@ -68,23 +90,59 @@ export async function listAbuseReports(
     .limit(input.limit);
 }
 
+/**
+ * Resolves a report. Resolving an open report that came with an email writes the job that tells
+ * the reporter the outcome, in the same batch and on the report still being open, unless the
+ * operator withholds it where the law requires silence; changing a resolved report's status
+ * tells nobody again. `notice` says what happened to the reporter's email.
+ */
 export async function resolveAbuseReport(
   db: GlobalDb,
-  input: { reportId: string; status: "actioned" | "dismissed"; now: number },
-): Promise<Result<{ reportId: string }>> {
+  input: {
+    reportId: string;
+    status: "actioned" | "dismissed";
+    now: number;
+    withhold?: boolean | undefined;
+  },
+): Promise<Result<{ reportId: string; notice: "pending" | "withheld" | "none" | "unchanged" }>> {
+  const r = schema.abuseReports;
+  const open = sql`exists (select 1 from ${r} where ${r.id} = ${input.reportId} and ${r.status} = 'open')`;
+  const withEmail = sql`exists (select 1 from ${r} where ${r.id} = ${input.reportId} and ${r.status} = 'open' and ${r.reporterEmail} is not null)`;
+  const [, resolved] = (await db.batch([
+    reportOutcomeJob(db, input.reportId, input.withhold ? sql`0` : withEmail, input.now),
+    db
+      .update(r)
+      .set({
+        status: input.status,
+        resolvedAt: input.now,
+        outcomeNotice: sql`case when ${r.reporterEmail} is null then null else ${input.withhold ? "withheld" : "pending"} end`,
+      })
+      .where(and(eq(r.id, input.reportId), open))
+      .returning({ email: r.reporterEmail }),
+  ])) as unknown as [unknown, { email: string | null }[]];
+  const [first] = resolved;
+  if (first) {
+    const notice = first.email === null ? "none" : input.withhold ? "withheld" : "pending";
+    return ok({ reportId: input.reportId, notice });
+  }
   const updated = await db
-    .update(schema.abuseReports)
+    .update(r)
     .set({ status: input.status, resolvedAt: input.now })
-    .where(eq(schema.abuseReports.id, input.reportId))
-    .returning({ id: schema.abuseReports.id });
+    .where(eq(r.id, input.reportId))
+    .returning({ id: r.id });
   if (updated.length === 0) return fail("not_found", "No report with that ID.");
-  return ok({ reportId: input.reportId });
+  return ok({ reportId: input.reportId, notice: "unchanged" });
 }
 
 export interface SuspendInput {
   reason: AbuseReason;
   reportId?: string | undefined;
   note?: string | undefined;
+  /**
+   * The statement of reasons: recorded with the suspension and emailed to the people affected
+   * unless withheld. Left out only where nothing is decided anew (a restore suspending again).
+   */
+  statement?: DecisionStatement | undefined;
   now: number;
 }
 
@@ -158,6 +216,24 @@ export async function suspendArtifact(
   const s = schema.suspensions;
   const readState = sql`exists (select 1 from ${a} where ${a.id} = ${artifact.id} and ${a.state} = ${artifact.state} and ${a.lifecycleGeneration} = ${artifact.lifecycleGeneration})`;
   const claimed = sql`exists (select 1 from ${s} where ${s.id} = ${id})`;
+  const decision = input.statement
+    ? decisionStatements(
+        db,
+        newDecisionId(),
+        {
+          targetKind: "artifact",
+          targetId: artifact.id,
+          ownerId: artifact.ownerId,
+          action: "suspend",
+          reason: input.reason,
+          suspensionId: id,
+          reportId: input.reportId ?? null,
+          now: input.now,
+        },
+        input.statement,
+        claimed,
+      )
+    : [];
   try {
     const [inserted] = (await db.batch([
       db
@@ -170,6 +246,7 @@ export async function suspendArtifact(
         // id, artifact, actor, channel, event, details, at
         sql`select null, ${artifact.id}, null, 'system', 'suspended', ${JSON.stringify({ reason: input.reason, suspensionId: id })}, ${input.now} where ${claimed}`,
       ),
+      ...decision,
       db
         .update(a)
         .set({
@@ -213,7 +290,13 @@ async function alreadySuspended(
  */
 export async function reinstateArtifact(
   db: RegionalDb,
-  input: { artifactId: string; now: number; viaAccount?: boolean },
+  input: {
+    artifactId: string;
+    now: number;
+    viaAccount?: boolean;
+    /** What the people affected are told; none when it comes back with its account. */
+    statement?: DecisionStatement | undefined;
+  },
 ): Promise<Result<{ state: "active" | "archived"; changed: boolean }>> {
   const [artifact] = await db
     .select()
@@ -227,6 +310,10 @@ export async function reinstateArtifact(
       return ok({ state: artifact.state, changed: false });
     }
     return fail("invalid_input", `A ${artifact.state} artifact cannot be reinstated.`);
+  }
+  // A held artifact stays suspended until its hold is released (docs/operations.md).
+  if (await isHeld(db, artifact.id)) {
+    return fail("invalid_input", "This artifact has a legal hold; release it first.");
   }
   if (open.parentId && !input.viaAccount) {
     const [parent] = await db
@@ -258,7 +345,26 @@ export async function reinstateArtifact(
             purgeAt: purgeDate(new Date(input.now), archiveMonths).getTime(),
           }
         : {};
-    const statements: Batch = [
+    const decision = input.statement
+      ? decisionStatements(
+          db,
+          newDecisionId(),
+          {
+            targetKind: "artifact",
+            targetId: artifact.id,
+            ownerId: artifact.ownerId,
+            action: "reinstate",
+            reason: null,
+            suspensionId: open.id,
+            reportId: null,
+            now: input.now,
+          },
+          input.statement,
+          readState,
+        )
+      : [];
+    const statements = [
+      ...decision,
       db
         .update(s)
         .set({ liftedAt: input.now })
@@ -287,9 +393,9 @@ export async function reinstateArtifact(
           ),
         )
         .returning({ id: a.id }),
-    ];
+    ] as unknown as Batch;
     const results = (await db.batch(statements)) as unknown[];
-    return (results[2] as unknown[]).length === 1;
+    return (results.at(-1) as unknown[]).length === 1;
   };
 
   const target = open.previousState === "archived" ? "archived" : "active";
@@ -328,6 +434,24 @@ export async function suspendAccount(
   const s = schema.suspensions;
   const claimed = sql`exists (select 1 from ${s} where ${s.id} = ${id})`;
   const childOf = sql`exists (select 1 from ${s} where ${s.kind} = 'artifact' and ${s.targetId} = ${a.id} and ${s.parentId} = ${id} and ${s.liftedAt} is null)`;
+  const decision = input.statement
+    ? decisionStatements(
+        db,
+        newDecisionId(),
+        {
+          targetKind: "account",
+          targetId: input.userId,
+          ownerId: input.userId,
+          action: "suspend",
+          reason: input.reason,
+          suspensionId: id,
+          reportId: input.reportId ?? null,
+          now: input.now,
+        },
+        input.statement,
+        claimed,
+      )
+    : [];
   try {
     const results = (await db.batch([
       db.insert(s).values({
@@ -359,6 +483,7 @@ export async function suspendAccount(
         })
         .where(and(eq(a.ownerId, input.userId), inArray(a.state, ["active", "archived"]), childOf))
         .returning({ id: a.id }),
+      ...decision,
     ])) as unknown[];
     return ok({
       suspensionId: id,
@@ -380,10 +505,10 @@ export async function suspendAccount(
  */
 export async function reinstateAccount(
   db: RegionalDb,
-  input: { userId: string; now: number },
-): Promise<Result<{ artifacts: number; changed: boolean }>> {
+  input: { userId: string; now: number; statement?: DecisionStatement | undefined },
+): Promise<Result<{ artifacts: number; changed: boolean; held: number }>> {
   const open = await openSuspension(db, "account", input.userId);
-  if (!open) return ok({ artifacts: 0, changed: false });
+  if (!open) return ok({ artifacts: 0, changed: false, held: 0 });
   const children = await db
     .select({ artifactId: schema.suspensions.targetId })
     .from(schema.suspensions)
@@ -395,7 +520,13 @@ export async function reinstateAccount(
       ),
     );
   let artifacts = 0;
+  let held = 0;
   for (const child of children) {
+    // A held artifact keeps its own suspension; `reinstate-artifact` lifts it after the release.
+    if (await isHeld(db, child.artifactId)) {
+      held += 1;
+      continue;
+    }
     const result = await reinstateArtifact(db, {
       artifactId: child.artifactId,
       now: input.now,
@@ -404,9 +535,32 @@ export async function reinstateAccount(
     if (!result.ok && result.code !== "not_found") return result;
     if (result.ok && result.value.changed) artifacts += 1;
   }
-  await db
-    .update(schema.suspensions)
-    .set({ liftedAt: input.now })
-    .where(and(eq(schema.suspensions.id, open.id), isNull(schema.suspensions.liftedAt)));
-  return ok({ artifacts, changed: true });
+  const s = schema.suspensions;
+  const stillOpen = sql`exists (select 1 from ${s} where ${s.id} = ${open.id} and ${s.liftedAt} is null)`;
+  const decision = input.statement
+    ? decisionStatements(
+        db,
+        newDecisionId(),
+        {
+          targetKind: "account",
+          targetId: input.userId,
+          ownerId: input.userId,
+          action: "reinstate",
+          reason: null,
+          suspensionId: open.id,
+          reportId: null,
+          now: input.now,
+        },
+        input.statement,
+        stillOpen,
+      )
+    : [];
+  await db.batch([
+    ...decision,
+    db
+      .update(s)
+      .set({ liftedAt: input.now })
+      .where(and(eq(s.id, open.id), isNull(s.liftedAt))),
+  ] as unknown as Batch);
+  return ok({ artifacts, changed: true, held });
 }

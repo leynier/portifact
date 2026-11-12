@@ -45,10 +45,13 @@ export * from "./integration-keys.ts";
 export * from "./integrations.ts";
 export * from "./invitation-lookup.ts";
 export * from "./invitations.ts";
+export * from "./keyed-hash.ts";
+export * from "./legal-holds.ts";
 export * from "./lifecycle.ts";
 export * from "./maintenance.ts";
 export * from "./max-life.ts";
 export * from "./moderation.ts";
+export * from "./moderation-notices.ts";
 export {
   abortSessionMultipart,
   type MultipartState,

@@ -732,6 +732,9 @@ export const OUTBOX_TOPICS = [
   "plan_grace_notice",
   "comment_retention_notice",
   "comment_tombstones",
+  "moderation_notice",
+  "report_outcome",
+  "legal_hold_release",
 ] as const;
 
 /**
@@ -878,8 +881,11 @@ export const tombstones = sqliteTable(
 
 /**
  * Reports sent through the public report form (`POST /api/v1/reports`). Untrusted text; the
- * operator reads them with the operator tool (docs/operations.md). The reporter's email is
- * optional and erased when that address's account is deleted.
+ * operator reads them with the operator tool (docs/operations.md). The reporter's email and name
+ * are optional and erased when that address's account is deleted. `address` is the exact address
+ * reported, in full; `confirmed` the reporter's statement that the report is accurate, complete
+ * and sent in good faith (a full notice). `outcome_notice` records the email that told the
+ * reporter the decision: `sent`, `withheld` by the operator, or `undeliverable`.
  */
 export const abuseReports = sqliteTable(
   "abuse_reports",
@@ -887,12 +893,25 @@ export const abuseReports = sqliteTable(
     id: text("id").primaryKey(),
     artifactId: text("artifact_id").notNull(),
     reporterEmail: text("reporter_email"),
+    /**
+     * The keyed hash of the reporter's email (the sign-in limits' `keyedHash`), which keys the
+     * outcome emails' daily counter; erased with the email.
+     */
+    reporterEmailKey: text("reporter_email_key"),
+    reporterName: text("reporter_name"),
+    address: text("address"),
+    confirmed: integer("confirmed", { mode: "boolean" }).notNull().default(false),
+    locale: text("locale"),
     reason: text("reason").notNull(),
     details: text("details"),
     status: text("status", { enum: ["open", "actioned", "dismissed"] })
       .notNull()
       .default("open"),
     resolvedAt: timestamp("resolved_at"),
+    outcomeNotice: text("outcome_notice", {
+      enum: ["pending", "sent", "withheld", "undeliverable"],
+    }),
+    outcomeNotifiedAt: timestamp("outcome_notified_at"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -942,6 +961,109 @@ export const suspensions = sqliteTable(
 );
 
 /**
+ * The operator's moderation decisions about an artifact, an account or a brand (suspending and
+ * reinstating them), with the statement of reasons sent to the people affected (the account of a
+ * personal space, or a workspace's admins): the facts and the ground the operator wrote, whether
+ * it followed a notice or the operator's own review, and the state of the email. Written in the
+ * batch of the change it explains, in the region of what it is about, with the
+ * `moderation_notice` job. No foreign keys: the record outlives what it points at.
+ */
+export const moderationDecisions = sqliteTable(
+  "moderation_decisions",
+  {
+    id: text("id").primaryKey(),
+    targetKind: text("target_kind", { enum: ["artifact", "account", "brand"] }).notNull(),
+    targetId: text("target_id").notNull(),
+    /** The owner whose people are told: the account, or the workspace. */
+    ownerId: text("owner_id").notNull(),
+    action: text("action", { enum: ["suspend", "reinstate"] }).notNull(),
+    reason: text("reason", { enum: ABUSE_REASONS }),
+    suspensionId: text("suspension_id"),
+    reportId: text("report_id"),
+    source: text("source", { enum: ["notice", "review"] }).notNull(),
+    facts: text("facts").notNull(),
+    ground: text("ground"),
+    /**
+     * `pending` until the job sends it; `sent` to at least one person, `no_recipient` when no
+     * one could be told (no account, suppressed addresses), `withheld` by the operator where the
+     * law requires silence.
+     */
+    notice: text("notice", { enum: ["pending", "sent", "no_recipient", "withheld"] }).notNull(),
+    recipients: integer("recipients").notNull().default(0),
+    notifiedAt: timestamp("notified_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("moderation_decisions_target_idx").on(t.targetKind, t.targetId, t.createdAt),
+    index("moderation_decisions_suspension_idx").on(t.suspensionId),
+  ],
+);
+
+/** Each person a statement of reasons was sent to, and when: the operator's proof of sending. */
+export const moderationNoticeSends = sqliteTable(
+  "moderation_notice_sends",
+  {
+    decisionId: text("decision_id").notNull(),
+    userId: text("user_id").notNull(),
+    sentAt: timestamp("sent_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.decisionId, t.userId] })],
+);
+
+/**
+ * Legal holds (docs/operations.md, "Legal holds"): an artifact the operator must preserve for an
+ * authority. While a hold is open (`released_at` null) the artifact stays suspended, nothing
+ * deletes it, moves it or prunes its versions, and its content is served to nobody, its owner
+ * included; triggers back the services (`legal_holds` migration). Set, listed and released only
+ * with the operator tool; `export-tombstones` carries every hold across a restore. `owner_email`
+ * is the account's address when the hold was set (null for a workspace), kept until release.
+ */
+export const legalHolds = sqliteTable(
+  "legal_holds",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    ownerEmail: text("owner_email"),
+    /** The suspension's category when the hold was set, to suspend again after a restore. */
+    reason: text("reason", { enum: ABUSE_REASONS }).notNull(),
+    /** The legal ground, written by the operator; never shown to the owner. */
+    ground: text("ground").notNull(),
+    createdAt: createdAt(),
+    /** When the hold is planned to end; the maintenance scan releases it then. */
+    releaseAt: timestamp("release_at"),
+    releasedAt: timestamp("released_at"),
+  },
+  (t) => [
+    uniqueIndex("legal_holds_open_artifact_idx")
+      .on(t.artifactId)
+      .where(sql`${t.releasedAt} is null`),
+    index("legal_holds_release_idx").on(t.releasedAt, t.releaseAt),
+  ],
+);
+
+/**
+ * Who a legal hold keeps (docs/operations.md, "Legal holds"): the owner account, the account or
+ * token that created the artifact and the publisher of each of its committed versions, with the
+ * account's email when the hold was set (null for a token or an account already gone). Kept with
+ * the hold in the artifact's region, deleted at release, never in an export; a restore captures
+ * them again (`applyLegalHolds`).
+ */
+export const legalHoldIdentities = sqliteTable(
+  "legal_hold_identities",
+  {
+    holdId: text("hold_id").notNull(),
+    role: text("role", { enum: ["owner", "creator", "publisher"] }).notNull(),
+    /** The version a publisher published; empty for the owner and the creator. */
+    versionId: text("version_id").notNull().default(""),
+    actorId: text("actor_id").notNull(),
+    email: text("email"),
+    recordedAt: timestamp("recorded_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.holdId, t.role, t.versionId, t.actorId] })],
+);
+
+/**
  * Accounts being deleted. The request deletes the user (and with it every session, token and
  * identity) and claims the artifacts for purging at once; the maintenance job then purges the
  * artifacts, erases the account's comments on other people's artifacts in small batches and,
@@ -950,6 +1072,11 @@ export const suspensions = sqliteTable(
 export const accountDeletions = sqliteTable("account_deletions", {
   userId: text("user_id").primaryKey(),
   requestedAt: timestamp("requested_at").notNull(),
+  /**
+   * When a run last found it still pending; runs take the least recently tried first, so a
+   * deletion that waits (a legal hold on one of its artifacts) never stops the others.
+   */
+  attemptedAt: timestamp("attempted_at"),
 });
 
 /**
@@ -2312,6 +2439,8 @@ export const workspaceGroupMembers = sqliteTable(
 export const workspaceDeletions = sqliteTable("workspace_deletions", {
   workspaceId: text("workspace_id").primaryKey(),
   requestedAt: timestamp("requested_at").notNull(),
+  /** As `account_deletions.attempted_at`: the least recently tried runs first. */
+  attemptedAt: timestamp("attempted_at"),
 });
 
 /**

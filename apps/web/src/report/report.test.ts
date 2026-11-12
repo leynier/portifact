@@ -8,7 +8,7 @@ import { reportSender, setupReport } from "./report.ts";
 let sent: unknown[];
 let answer: ApiResponse;
 
-function open(search = "") {
+function open(search = "", locale?: string) {
   loadPage("report");
   sent = [];
   setupReport(document, {
@@ -17,14 +17,28 @@ function open(search = "") {
       return answer;
     },
     location: fakeLocation(search),
+    locale,
   });
 }
 
-function fill(values: { artifact?: string; reason?: string; details?: string; email?: string }) {
+function fill(values: {
+  artifact?: string;
+  reason?: string;
+  details?: string;
+  email?: string;
+  name?: string;
+  confirmed?: boolean;
+}) {
   if (values.artifact !== undefined) element<HTMLInputElement>("artifact").value = values.artifact;
-  if (values.reason !== undefined) element<HTMLSelectElement>("reason").value = values.reason;
+  if (values.reason !== undefined) {
+    const reason = element<HTMLSelectElement>("reason");
+    reason.value = values.reason;
+    reason.dispatchEvent(new Event("change"));
+  }
   if (values.details !== undefined) element<HTMLTextAreaElement>("details").value = values.details;
   if (values.email !== undefined) element<HTMLInputElement>("email").value = values.email;
+  if (values.name !== undefined) element<HTMLInputElement>("name").value = values.name;
+  element<HTMLInputElement>("confirmed").checked = values.confirmed ?? true;
 }
 
 async function send() {
@@ -37,17 +51,25 @@ beforeEach(() => {
 });
 
 describe("report page", () => {
-  it("fills the artifact from the link and sends the report", async () => {
-    open("?artifact=k7d2qm4xab");
+  it("fills the artifact from the link and sends a full notice in the page's language", async () => {
+    open("?artifact=k7d2qm4xab", "es");
     expect(element<HTMLInputElement>("artifact").value).toBe("k7d2qm4xab");
-    fill({ reason: "phishing", details: "  Fake bank login  ", email: "me@example.test" });
+    fill({
+      reason: "phishing",
+      details: "  Fake bank login  ",
+      email: "me@example.test",
+      name: "  Ada Lovelace ",
+    });
     await send();
     expect(sent).toEqual([
       {
         artifact: "k7d2qm4xab",
         reason: "phishing",
         details: "Fake bank login",
+        name: "Ada Lovelace",
         email: "me@example.test",
+        confirmed: true,
+        locale: "es",
       },
     ]);
     expect(element("report-form").hidden).toBe(true);
@@ -61,7 +83,34 @@ describe("report page", () => {
     expect(element<HTMLInputElement>("artifact").value).toBe("");
     fill({ artifact: "https://k7d2qm4xab.portifact.dev/", reason: "spam" });
     await send();
-    expect(sent).toEqual([{ artifact: "https://k7d2qm4xab.portifact.dev/", reason: "spam" }]);
+    expect(sent).toEqual([
+      { artifact: "https://k7d2qm4xab.portifact.dev/", reason: "spam", confirmed: true },
+    ]);
+  });
+
+  it("never asks for the name in a report about minors, and drops one typed before", async () => {
+    open();
+    expect(element("name-field").hidden).toBe(false);
+    fill({ artifact: "https://k7d2qm4xab.portifact.dev/a", name: "Ada" });
+    fill({ reason: "child_safety" });
+    expect(element("name-field").hidden).toBe(true);
+    expect(element<HTMLInputElement>("name").value).toBe("");
+    element<HTMLInputElement>("name").value = "Ada";
+    await send();
+    expect(sent).toEqual([
+      { artifact: "https://k7d2qm4xab.portifact.dev/a", reason: "child_safety", confirmed: true },
+    ]);
+    fill({ reason: "spam" });
+    expect(element("name-field").hidden).toBe(false);
+  });
+
+  it("requires the statement of good faith before sending", async () => {
+    open();
+    fill({ artifact: "k7d2qm4xab", reason: "spam", confirmed: false });
+    await send();
+    expect(sent).toEqual([]);
+    expect(element("confirmed-error").textContent).toBe(messages.report.confirmRequired);
+    expect(element("confirmed").getAttribute("aria-invalid")).toBe("true");
   });
 
   it("checks required fields and the email before sending", async () => {
@@ -88,6 +137,7 @@ describe("report page", () => {
       ["artifact", messages.report.artifactInvalid, "artifact"],
       ["details", messages.report.detailsInvalid, "details"],
       ["email", messages.report.emailInvalid, "email"],
+      ["name", messages.report.nameInvalid, "name"],
       ["reason", messages.report.reasonRequired, "reason"],
     ] as const) {
       open();

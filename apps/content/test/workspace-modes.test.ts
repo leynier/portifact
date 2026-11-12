@@ -29,7 +29,7 @@ const appSession = (userId: string) => `as_${userId}`;
 
 async function seed(mode: "restricted" | "workspace" | "domain") {
   // A deletion row first, as a workspace deletion writes it, so the last-admin trigger lets go.
-  await env.DB.exec("INSERT OR IGNORE INTO workspace_deletions SELECT id, 0 FROM workspaces");
+  await env.DB.exec("INSERT OR IGNORE INTO workspace_deletions SELECT id, 0, null FROM workspaces");
   for (const table of [
     "traffic_counters",
     "read_sessions",
