@@ -107,6 +107,8 @@ const messages = {
     "annotations:read": "artifactへのコメントの閲覧",
     "annotations:write": "あなたとしてのコメントの作成と返信",
     "annotations:moderate": "artifactへのコメントの解決、非表示、削除",
+    "data:read": "artifactに保存されたデータの読み取りとエクスポート",
+    "data:write": "artifactに保存されたデータの変更",
     "credentials:manage": "アカウントに連携しているアプリの閲覧と連携解除",
     offline_access: "アクセスを取り消すまで接続を維持",
   },

@@ -71,6 +71,7 @@ import {
   pageHunks,
   textDiffEligibility,
 } from "@portifact/domain";
+import { createFakeData, dataRoute, type FakeData } from "./fake-data.ts";
 
 export interface Reply {
   status: number;
@@ -209,6 +210,8 @@ export interface FakeApiState {
   auditExportPart: number;
   /** Analytics by artifact, as GET /artifacts/:id/stats returns them; missing means none seeded. */
   stats: Map<string, ArtifactStatsView>;
+  /** Artifact data's collections and documents (decision 0026), for `portifact data`. */
+  data: FakeData;
   /** Search pages by space (`personal` or a slug), as GET /search returns them for any query. */
   search: Map<string, SearchResults>;
   /** The query strings GET /search received, in order. */
@@ -308,6 +311,7 @@ export function createFakeApi(origin: () => string, clock: () => number) {
     auditExportQueries: [],
     auditExportPart: 2,
     stats: new Map(),
+    data: createFakeData(),
     search: new Map(),
     searchQueries: [],
     feedback: new Map(),
@@ -1712,6 +1716,19 @@ export function createFakeApi(origin: () => string, clock: () => number) {
         },
       };
     }
+    const data = dataRoute(state.data, {
+      method,
+      url,
+      raw,
+      key,
+      artifactExists: (id) => {
+        const artifact = state.artifacts.get(id);
+        return artifact !== undefined && artifact.state !== "deleted";
+      },
+      now: clock(),
+      error,
+    });
+    if (data) return data;
     const statsPath = /^\/artifacts\/([^/]+)\/stats$/.exec(path);
     if (statsPath && method === "GET") {
       const id = decodeURIComponent(statsPath[1] as string);

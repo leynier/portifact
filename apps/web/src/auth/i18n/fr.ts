@@ -110,6 +110,8 @@ const messages = {
     "annotations:read": "Lire les commentaires sur vos artifacts",
     "annotations:write": "Écrire des commentaires et y répondre en votre nom",
     "annotations:moderate": "Résoudre, masquer et supprimer les commentaires sur vos artifacts",
+    "data:read": "Lire et exporter les données enregistrées dans vos artifacts",
+    "data:write": "Modifier les données enregistrées dans vos artifacts",
     "credentials:manage": "Voir les apps connectées à votre compte et les déconnecter",
     offline_access: "Rester connectée jusqu’à ce que vous révoquiez l’accès",
   },

@@ -159,7 +159,7 @@ describe("the records downloads", () => {
       seq: 0,
       history: entries,
     };
-    // Three items: two pages of the change list, read in full.
+    // The change list, every item.
     const items = ["chg_1", "chg_2", "chg_3"].map((id) => ({
       id,
       artifactId: ID,
@@ -176,7 +176,7 @@ describe("the records downloads", () => {
       closedVersionId: null,
       revision: 1,
     }));
-    server.changes[ID] = items;
+    server.suggestions.changes[ID] = items;
     const { container, saved } = renderDashboard("/data", server);
     fireEvent.click(await screen.findByText(/^Launch plan: 2 retained versions$/));
     fireEvent.click(await screen.findByRole("button", { name: "Records (JSON) of Launch plan" }));
@@ -227,6 +227,7 @@ describe("the records downloads", () => {
   });
 
   it("records what may not be read instead of failing the download", async () => {
+    server.suggestions.off = true;
     const { saved } = renderDashboard("/data", server);
     fireEvent.click(await screen.findByText(/^Launch plan: 2 retained versions$/));
     fireEvent.click(await screen.findByRole("button", { name: "Records (JSON) of Launch plan" }));

@@ -39,7 +39,7 @@
       "outputs": ["coverage/**"]
     },
     "@portifact/app#test": {
-      "dependsOn": ["^typecheck", "@portifact/web#build"],
+      "dependsOn": ["^typecheck", "@portifact/web#build", "@portifact/data#build"],
       "outputs": ["coverage/**"]
     },
     "@portifact/app#typecheck": {

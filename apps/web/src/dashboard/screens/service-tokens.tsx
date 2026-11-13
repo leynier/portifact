@@ -54,12 +54,16 @@ const SCOPE_LABELS: Record<ServiceTokenScope, MessageId> = {
   "artifacts:write": "tokens.scope.write",
   "artifacts:share": "tokens.scope.share",
   "artifacts:delete": "tokens.scope.delete",
+  "data:read": "tokens.scope.dataRead",
+  "data:write": "tokens.scope.dataWrite",
 };
 const SCOPE_HINTS: Record<ServiceTokenScope, MessageId> = {
   "artifacts:read": "tokens.scope.readHint",
   "artifacts:write": "tokens.scope.writeHint",
   "artifacts:share": "tokens.scope.shareHint",
   "artifacts:delete": "tokens.scope.deleteHint",
+  "data:read": "tokens.scope.dataReadHint",
+  "data:write": "tokens.scope.dataWriteHint",
 };
 
 export function ServiceTokensScreen() {
