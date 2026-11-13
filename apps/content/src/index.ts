@@ -11,6 +11,7 @@ import {
   type ReviewKind,
   requestContextOf,
 } from "@portifact/contracts";
+import type { StorageReport } from "@portifact/contracts/artifact-data";
 import {
   type AccessDb,
   type DeliveryArtifact,
@@ -46,8 +47,10 @@ import {
 import { documentPolicy } from "@portifact/render/policy";
 import {
   customDomainsServing,
+  dataNamespaces,
   findBrandLogo,
   recordOpenings,
+  recordStorageReport,
   recordTraffic,
   recordViews,
   reportUnreadablePolicy,
@@ -55,6 +58,8 @@ import {
 import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
 import { hintAgrees, isolateHosts, resolveCustomHost } from "./custom-hosts.ts";
+import { type DataContext, handleData, isDataPath } from "./data.ts";
+import { StorageReports } from "./data-storage.ts";
 import { DIAGRAM_VERSION, diagramScript, isDiagramPath } from "./diagrams.ts";
 import { deliveryRegion, lookupDelivery } from "./directory.ts";
 import {
@@ -124,6 +129,13 @@ export interface Env extends BudgetEnv {
    * serves exactly as before custom domains existed.
    */
   CUSTOM_DOMAINS_ENABLED?: string | undefined;
+  /**
+   * The documents objects of artifact data (decision 0026), exported by `portifact-data`; the
+   * page's data routes reach them only through `dataNamespaces`.
+   */
+  ARTIFACT_DOCUMENTS?: DurableObjectNamespace | undefined;
+  /** Exactly `"true"` turns the page's data routes on; anything else answers them 404. */
+  ARTIFACT_DATA_ENABLED?: string | undefined;
 }
 
 /** Whether this deployment serves custom hosts: the same condition the app decides with. */
@@ -224,6 +236,25 @@ export function isolateViews(env: Env, region: Region = DEFAULT_REGION): ViewMet
   return meter;
 }
 
+/** One storage report buffer per region per isolate (decision 0026, "Storage accounting"). */
+const storageReports = new Map<Region, StorageReports>();
+
+/** The isolate's storage report buffer for a region, written into that region's database. */
+export function isolateStorage(env: Env, region: Region = DEFAULT_REGION): StorageReports {
+  let reports = storageReports.get(region);
+  if (!reports) {
+    reports = new StorageReports(async (pending) => {
+      const db = regionsFromEnv(env).get(region).db;
+      const now = Date.now();
+      for (const [artifactId, report] of pending) {
+        await recordStorageReport(db, artifactId, report, now);
+      }
+    });
+    storageReports.set(region, reports);
+  }
+  return reports;
+}
+
 export default {
   fetch: (request, env, ctx) => {
     const waitUntil = (promise: Promise<unknown>) => ctx.waitUntil(promise);
@@ -234,13 +265,19 @@ export default {
       (charge, region) => isolateMeter(env, region).count(charge, waitUntil),
       (opening, region) => isolateOpenings(env, region).record(opening, waitUntil),
       (view, region) => isolateViews(env, region).count(view, waitUntil),
+      (artifactId, report, region) =>
+        isolateStorage(env, region).keep(artifactId, report, waitUntil),
     );
   },
 } satisfies ExportedHandler<Env>;
 
+/** Keeps a documents object's storage report, for the artifact's region. */
+export type KeepStorage = (artifactId: string, report: StorageReport, region: Region) => void;
+
 const NO_TRAFFIC: CountTraffic = () => {};
 const NO_OPENINGS: LogOpening = () => {};
 const NO_VIEWS: CountView = () => {};
+const NO_STORAGE: KeepStorage = () => {};
 
 /**
  * Answers one request. `countTraffic` is charged once for every authorized request served for an
@@ -257,13 +294,14 @@ export async function handle(
   countTraffic: CountTraffic = NO_TRAFFIC,
   logOpening: LogOpening = NO_OPENINGS,
   countView: CountView = NO_VIEWS,
+  keepStorage: KeepStorage = NO_STORAGE,
 ): Promise<Response> {
   // The preview origin first, before any artifact lookup and outside everything below: it sets
   // no cookie (not even the injected-cookie cleanup), charges nothing and logs nothing.
   if (isPreviewHost(new URL(request.url).hostname, env.CONTENT_DOMAIN)) {
     return handlePreview(request, env, now);
   }
-  const response = await route(request, env, now, countTraffic, logOpening, countView);
+  const response = await route(request, env, now, countTraffic, logOpening, countView, keepStorage);
   // Whatever a top-level page gets, a frame review cookie it carries was planted: clear it.
   const stray = strayFrameCookie(request);
   // Cookies siblings set on the shared domain: expired once they grow, on every answer, so the
@@ -292,11 +330,14 @@ async function route(
   countRegionTraffic: CountTraffic,
   logRegionOpening: LogOpening,
   countRegionView: CountView,
+  keepStorage: KeepStorage,
 ): Promise<Response> {
   // The request context (decision 0020): read and review sessions renew through `actorOn`, which
   // applies a workspace's network policy to this request.
   let env = withRequestContext(workerEnv, requestContextOf(request));
-  if (request.method !== "GET" && request.method !== "HEAD") {
+  // The data API takes writes (decision 0026); every other path is `GET` and `HEAD` only.
+  const data = isDataPath(new URL(request.url).pathname);
+  if (!data && request.method !== "GET" && request.method !== "HEAD") {
     return message(405, PAGES.methodNotAllowed, { allow: "GET, HEAD" });
   }
   // Blocks service worker registration: a worker could intercept requests the platform must see.
@@ -340,6 +381,25 @@ async function route(
   const countView: CountView = (view) => countRegionView(view, region);
   // The exact host a one-use code must have been issued for, and the artifact's `.dev` host.
   const hosts = { host: url.hostname, devHost: `${id}.${env.CONTENT_DOMAIN}` };
+
+  if (data) {
+    return handleData(
+      dataContext({
+        request,
+        env,
+        db,
+        region,
+        id,
+        url,
+        now,
+        cycle,
+        resolved,
+        regions,
+        countTraffic,
+        keepStorage: (artifactId, report) => keepStorage(artifactId, report, region),
+      }),
+    );
+  }
 
   if (url.pathname === REPORT_PATH) {
     // Every artifact has a predictable report link; the form lives on the app, where reports are
@@ -448,6 +508,103 @@ async function route(
   );
 }
 
+/** What the data routes need from routing (decision 0026, delivery 6). */
+interface DataRouting {
+  request: Request;
+  env: Env;
+  db: RegionalDb;
+  region: Region;
+  id: string;
+  url: URL;
+  now: number;
+  cycle: TrafficCycle;
+  /** The artifact a custom host resolved to, or undefined on the `.dev` host. */
+  resolved: DeliveryArtifact | null | undefined;
+  regions: Regions;
+  countTraffic: CountTraffic;
+  keepStorage: (artifactId: string, report: StorageReport) => void;
+}
+
+/**
+ * The data routes' view of delivery: reading is authorized exactly as for a file (a review
+ * session, a public artifact, a read session, then a share link's session), then the same gates,
+ * and every answered request is charged to the owner's traffic.
+ */
+function dataContext(routing: DataRouting): DataContext {
+  const { request, env, db, id, url, now, cycle, resolved, regions } = routing;
+  const delivery: Delivery = {
+    request,
+    env,
+    db,
+    url,
+    now,
+    cycle,
+    countTraffic: routing.countTraffic,
+    logOpening: NO_OPENINGS,
+    countView: NO_VIEWS,
+    onDevHost: resolved === undefined,
+    customDomains: customDomainsOn(env),
+    regions,
+  };
+  const reader = (artifact: ServableArtifact, setCookies: string[], signedIn: boolean) => ({
+    artifact,
+    setCookies,
+    signedIn,
+    limits: entitlements(artifact.plan, now).data.perArtifact,
+  });
+  return {
+    request,
+    env,
+    db,
+    region: routing.region,
+    artifactId: id,
+    host: url.hostname,
+    customHost: resolved === undefined ? null : url.hostname,
+    now,
+    objects: dataNamespaces(env, routing.region),
+    async read() {
+      const found =
+        resolved === undefined ? await lookupDelivery(regions, db, id, cycle.start, now) : resolved;
+      const artifact = found && isServable(found, now) ? found : null;
+      if (artifact === null) return null;
+      const review = await authorizeReview(request, env, db, id, artifact, now);
+      if (review.kind === "review") return reader(review.artifact, review.setCookies, true);
+      if (artifact.accessMode === "public") return reader(artifact, [], false);
+      const decision = await authorizeRead(
+        request,
+        env,
+        db,
+        id,
+        artifact,
+        now,
+        () => authorizeLink(request, env, db, id, artifact, now),
+        resolved === undefined ? null : url.hostname,
+      );
+      if (decision.kind !== "allow") return null;
+      return reader(
+        decision.artifact,
+        decision.setCookies,
+        decision.userId !== null && decision.linkId === undefined,
+      );
+    },
+    gate: (reading) =>
+      deliveryGate(
+        delivery,
+        reading.artifact,
+        reading.signedIn,
+        reading.artifact.accessMode === "public",
+      ),
+    charge(reading, bytes) {
+      routing.countTraffic({
+        ownerId: reading.artifact.ownerId,
+        cycleStart: cycle.start,
+        bytes: chargedBytes(200, request.method === "HEAD" ? "HEAD" : "GET", bytes),
+      });
+    },
+    keepStorage: routing.keepStorage,
+  };
+}
+
 /** What serving a request needs besides the artifact. */
 interface Delivery {
   request: Request;
@@ -492,42 +649,15 @@ async function serve(
   linkId?: string,
 ): Promise<Response> {
   const { request, cycle, now } = delivery;
-  // A workspace's network policy (decision 0020), part of authorization, so a refusal charges
-  // nothing: it binds the signed-in readers of a `workspace` artifact, who are all its members,
-  // on every request. The allowlist came with the artifact lookup, so it adds no read. Members
-  // reading another mode are bound when their session renews (`actorOn`), within a minute;
-  // public visitors and share links are for people outside and are never bound.
-  const network = networkDecision({
-    accessMode: artifact.accessMode,
-    networks: artifact.networks,
-    signedIn: visitorId !== null && linkId === undefined,
-    ip: request.headers.get("CF-Connecting-IP"),
-  });
-  if (network !== "allowed") {
-    // A stored list that does not parse refuses (fail closed) and is logged by owner, no address.
-    if (network === "unreadable") reportUnreadablePolicy(artifact.ownerId);
-    return withCookies(message(403, PAGES.networkRefused), setCookies);
-  }
-  // The plan came with the artifact lookup, so the quota and the view count add no read.
-  const plan = entitlements(artifact.plan, now);
-  if (trafficExhausted(artifact.traffic, plan.limits)) {
-    return withCookies(trafficExceeded(cycle.resetsAt, now), setCookies);
-  }
-  // Then budget protection (plan section 12): a tight per-visitor limit, public traffic first.
-  // A refused request sends no file, so it charges no traffic.
   const isPublic = artifact.accessMode === "public" && reviewSession === undefined;
-  const limitedUntil = await overTrafficLimit(
-    request,
-    delivery.env,
-    delivery.db.global,
+  const refused = await deliveryGate(
+    delivery,
+    artifact,
+    visitorId !== null && linkId === undefined,
     isPublic,
-    now,
   );
-  if (limitedUntil !== null) {
-    const limited = withCookies(message(429, PAGES.slowDown), setCookies);
-    limited.headers.set("Retry-After", String(Math.max(1, Math.ceil((limitedUntil - now) / 1000))));
-    return limited;
-  }
+  if (refused !== null) return withCookies(refused, setCookies);
+  const plan = entitlements(artifact.plan, now);
   const { response, bytes, page, redirect, canonical } = await serveFile(
     delivery,
     artifact,
@@ -584,6 +714,52 @@ async function serve(
     delivery.logOpening({ artifactId: artifact.id, userId: linkId, linkId, at: now });
   }
   return response;
+}
+
+/**
+ * The delivery gates after authorization, shared by files and the data API: a workspace's network
+ * policy (decision 0020), the owner's traffic quota, then budget protection's traffic steps. A
+ * refusal sends nothing, so it charges no traffic.
+ */
+async function deliveryGate(
+  delivery: Delivery,
+  artifact: ServableArtifact,
+  signedIn: boolean,
+  isPublic: boolean,
+): Promise<Response | null> {
+  const { request, cycle, now } = delivery;
+  // A workspace's network policy binds the signed-in readers of a `workspace` artifact, who are
+  // all its members, on every request; the allowlist came with the artifact lookup, so it adds no
+  // read. Members reading another mode are bound when their session renews (`actorOn`), within
+  // a minute; public visitors and share links are for people outside and are never bound.
+  const network = networkDecision({
+    accessMode: artifact.accessMode,
+    networks: artifact.networks,
+    signedIn,
+    ip: request.headers.get("CF-Connecting-IP"),
+  });
+  if (network !== "allowed") {
+    // A stored list that does not parse refuses (fail closed) and is logged by owner, no address.
+    if (network === "unreadable") reportUnreadablePolicy(artifact.ownerId);
+    return message(403, PAGES.networkRefused);
+  }
+  // The plan came with the artifact lookup, so the quota adds no read.
+  const plan = entitlements(artifact.plan, now);
+  if (trafficExhausted(artifact.traffic, plan.limits)) return trafficExceeded(cycle.resetsAt, now);
+  // Then budget protection (plan section 12): a tight per-visitor limit, public traffic first.
+  const limitedUntil = await overTrafficLimit(
+    request,
+    delivery.env,
+    delivery.db.global,
+    isPublic,
+    now,
+  );
+  if (limitedUntil !== null) {
+    const limited = message(429, PAGES.slowDown);
+    limited.headers.set("Retry-After", String(Math.max(1, Math.ceil((limitedUntil - now) / 1000))));
+    return limited;
+  }
+  return null;
 }
 
 /**
