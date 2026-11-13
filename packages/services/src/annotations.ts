@@ -2021,6 +2021,7 @@ export const annotationParts = {
   findThread,
   artifactGuard,
   currentThreadGuard,
+  scopeGuard,
   rateGuard,
   claim,
   claimed,

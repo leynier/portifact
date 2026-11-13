@@ -202,3 +202,34 @@ it("R16: the decision's budget protection must also stop no-version acceptance w
     await clearBudgetOverride(db().global, NOW);
   }
 });
+
+it("R1b: a plan started under the old owner must not recreate the cache a transfer deleted", async () => {
+  const { createWorkspace } = await import("../src/workspaces.ts");
+  const { transferArtifact } = await import("../src/transfer.ts");
+  const { grantPlan } = await import("./fixtures.ts");
+  const s = await setup();
+  const slug = `x-${crypto.randomUUID().slice(0, 8)}`;
+  const team = value(
+    await createWorkspace(db().global, { slug, name: "Team", adminUserId: s.owner.id, now: NOW }),
+  );
+  await grantPlan(team.id, "team", { seats: 10 });
+  await db().delete(schema.suggestionPlans).where(eq(schema.suggestionPlans.artifactId, s.doc.artifactId));
+  const handle = raceBeforeBatchWith(/insert into "suggestion_plans"/i, async () => {
+    value(
+      await transferArtifact(db(), env.ARTIFACTS, {
+        userId: s.owner.id,
+        artifactId: s.doc.artifactId,
+        workspace: slug,
+        now: NOW + 150,
+      }),
+    );
+  });
+  expect(await planSuggestion(handle, env.ARTIFACTS, { ...s.params, now: NOW + 150 })).toMatchObject({
+    ok: false,
+  });
+  const rows = await db()
+    .select()
+    .from(schema.suggestionPlans)
+    .where(eq(schema.suggestionPlans.artifactId, s.doc.artifactId));
+  expect(rows).toEqual([]);
+});
