@@ -281,6 +281,23 @@ it("B5: another reader cannot keep a signed-out reader's socket alive", async ()
   const client = listen(socket);
   try {
     const hello = await client.next(1);
+    // The reader's own session renews it, never past its claims' end.
+    const own = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/live/renew`, {
+        method: "POST",
+        headers: {
+          ...FETCH,
+          Origin: `https://${id}.portifact.dev`,
+          "Content-Type": "application/json",
+          Cookie: cookies[READER] ?? "",
+        },
+        body: JSON.stringify({ socket: hello.connected }),
+      }),
+      LIVE_ON,
+      NOW + 10_000,
+    );
+    expect(own.status).toBe(200);
+    expect(await own.json()).toEqual({ deadline: NOW + 60_000 });
     await env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(`as_${READER}`).run();
     const responses: { at: number; status: number; body: unknown }[] = [];
     for (const at of [50_000, 100_000, 150_000]) {

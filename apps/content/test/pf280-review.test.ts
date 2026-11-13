@@ -263,9 +263,9 @@ describe("PR 280 review reproductions", () => {
         LIVE_ON,
         NOW + 59_000,
       );
-      const body = (await renewal.json()) as { deadline: number };
-      expect(renewal.status).toBe(200);
-      expect(body.deadline).toBeLessThanOrEqual(NOW + 60_000);
+      // A revoked grant is renewed against D1 before any new window: the renewal is refused,
+      // so the connection ends at its first deadline, within the claims' minute.
+      expect(renewal.status).toBe(404);
     } finally {
       socket.close(1000);
     }

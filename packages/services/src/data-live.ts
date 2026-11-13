@@ -39,9 +39,19 @@ export interface LiveCaller {
   author: string | null;
   /** The grant's ID for a visitor, the read or link session's for a reader. */
   principal: string;
+  /**
+   * When the credential that holds the connection stops being trusted (its claims' end): the
+   * deadline never passes it, so revocation, sign-out or lost access end the connection with them.
+   */
+  expiresAt: number;
   /** The owner plan's per-artifact limits when the caller already holds them (no plan read). */
   limits?: ArtifactDataLimits | undefined;
   now: number;
+}
+
+/** A connection's deadline: a minute at most, and never past its credential's claims. */
+function liveDeadline(input: { now: number; expiresAt: number }): number {
+  return Math.min(input.now + ARTIFACT_DATA.live.deadlineMs, input.expiresAt);
 }
 
 const notAvailable = () => fail<never>("not_found", "Live updates are not available.");
@@ -114,7 +124,7 @@ export async function openLiveConnection(
     envelope,
     author: input.author,
     principal: input.principal,
-    deadline: input.now + ARTIFACT_DATA.live.deadlineMs,
+    deadline: liveDeadline(input),
     limits,
     now: input.now,
   };
@@ -148,7 +158,8 @@ export async function renewLiveConnection(
   const found = await liveTarget(db, deps, input);
   if (!found.ok) return found;
   const { envelope, limits, objects } = found.value;
-  const deadline = input.now + ARTIFACT_DATA.live.deadlineMs;
+  const deadline = liveDeadline(input);
+  if (deadline <= input.now) return notAvailable();
   const renewed = await objects
     .object(input.artifactId)
     .liveRenew(envelope, input.socketId, input.principal, deadline, limits, input.now);

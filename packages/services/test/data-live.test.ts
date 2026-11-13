@@ -63,6 +63,8 @@ const caller = (artifactId: string, principal = "dg_one", author: string | null 
   artifactId,
   author,
   principal,
+  // The credential's claims hold well past these tests unless one says otherwise.
+  expiresAt: NOW + 10 * 60_000,
   now: NOW,
 });
 
@@ -188,6 +190,35 @@ describe("renewing and the owner's counters", () => {
     expect(described.live.connections).toBe(1);
     expect(described.live.messagesToday).toBeGreaterThan(0);
     expect(described.limits.liveMessagesPerDay).toBeGreaterThan(0);
+  });
+
+  it("never gives a connection a deadline past its credential's claims", async () => {
+    const { owner, live, of } = harness();
+    const { artifactId } = await withData(owner);
+    const soon = NOW + 20_000;
+    value(await openLiveConnection(db(), live, { ...caller(artifactId), expiresAt: soon }));
+    const [socket] = [...of(artifactId).sockets.values()];
+    expect(socket?.attachment.deadline).toBe(soon);
+    const socketId = socket?.attachment.socketId ?? "";
+    expect(
+      value(
+        await renewLiveConnection(db(), live, {
+          ...caller(artifactId),
+          now: NOW + 10_000,
+          expiresAt: soon,
+          socketId,
+        }),
+      ),
+    ).toEqual({ deadline: soon });
+    // Claims already over renew nothing.
+    expect(
+      await renewLiveConnection(db(), live, {
+        ...caller(artifactId),
+        now: soon,
+        expiresAt: soon,
+        socketId,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
   });
 
   it("reads both switches", () => {

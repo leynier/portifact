@@ -27,6 +27,7 @@ import {
   OpaqueToken,
 } from "@portifact/contracts";
 import {
+  ARTIFACT_DATA,
   type ArtifactDataLimits,
   CollectionName,
   DataQuery,
@@ -84,6 +85,11 @@ export interface DataReader {
   signedIn: boolean;
   /** The owner plan's per-artifact data limits, from the plan the delivery lookup holds. */
   limits: ArtifactDataLimits;
+  /**
+   * The read, link or review session that allowed the request and how long its claims hold, or
+   * null for an anonymous reader of a public artifact. Never sent to the page.
+   */
+  credential: { id: string; expiresAt: number } | null;
 }
 
 /** What the content Worker gives the data routes. */
@@ -99,8 +105,11 @@ export interface DataContext {
   customHost: string | null;
   now: number;
   objects: DataObjects | null;
-  /** Authorizes reading the artifact (a public artifact, or a read, review or link session). */
-  read(): Promise<DataReader | null>;
+  /**
+   * Authorizes reading the artifact (a public artifact, or a read, review or link session);
+   * claims expiring within `freshWithin` are renewed against D1 first.
+   */
+  read(freshWithin?: number): Promise<DataReader | null>;
   /**
    * The delivery gates after authorization (the network policy, the traffic quota, budget
    * protection): a refusal, or null to go on.
@@ -177,6 +186,8 @@ async function transaction(
 async function grantOf(
   context: DataContext,
   secret: string,
+  /** Claims expiring within this are renewed against D1 now (live updates' renewals). */
+  freshWithin = 0,
 ): Promise<{ claims: DataGrantClaims | null; setCookies: string[] }> {
   const { request, artifactId, now } = context;
   const value = cookieValue(request.headers.get("Cookie"), GRANT_COOKIE);
@@ -189,7 +200,7 @@ async function grantOf(
   }
   const flow: Flow = claims.part ? "frame" : "top";
   if (claims.gexp <= now) return { claims: null, setCookies: [clearGrant(flow)] };
-  if (claims.exp > now) return { claims, setCookies: [] };
+  if (claims.exp > now + freshWithin) return { claims, setCookies: [] };
   const renewed = await renewDataGrant(context.db, { grantId: claims.gid, artifactId, now });
   if (!renewed.ok) return { claims: null, setCookies: [clearGrant(flow)] };
   const next: DataGrantClaims = {
@@ -396,11 +407,14 @@ async function api(context: DataContext, secret: string, path: string): Promise<
   if (path !== "me" && path !== "mine" && path !== "live" && path !== "live/renew") {
     if (!path.startsWith("c/")) return apiError("not_found", "Not found.");
   }
-  const reader = await context.read();
+  // Live updates renew from claims fresh enough to outlast the next renewal, so a connection never
+  // outlives the credential that holds it by more than the claims' own minute.
+  const fresh = path === "live" || path === "live/renew" ? LIVE_FRESH_MS : 0;
+  const reader = await context.read(fresh);
   if (reader === null) return apiError("not_found", "Not found.");
   const refusal = await context.gate(reader);
   if (refusal !== null) return refusal;
-  const held = await grantOf(context, secret);
+  const held = await grantOf(context, secret, fresh);
   const setCookies = [...reader.setCookies, ...held.setCookies];
   if (path === "live" || path === "live/renew") {
     return live(context, reader, held.claims, setCookies, path);
@@ -460,6 +474,40 @@ async function api(context: DataContext, secret: string, path: string): Promise<
 
 // Live updates (delivery 7).
 
+/** Claims expiring within this are renewed before a live connect or renewal. */
+const LIVE_FRESH_MS = 30_000;
+
+/**
+ * The credential a connection is bound to and when it stops holding: the visitor's grant, or the
+ * reader's own read, link or review session (named by a hash of its ID, which never leaves this
+ * Worker or the object); an anonymous reader of a public artifact is bound to the artifact staying
+ * public, which every renewal checks. A connection is renewed only by the same credential, checked
+ * live at each renewal, so knowing its ID grants nothing.
+ */
+async function liveCredential(
+  claims: DataGrantClaims | null,
+  reader: DataReader,
+  now: number,
+): Promise<{ principal: string; expiresAt: number }> {
+  if (claims !== null) {
+    return { principal: `grant:${claims.gid}`, expiresAt: Math.min(claims.exp, claims.gexp) };
+  }
+  if (reader.credential === null) {
+    return { principal: "public", expiresAt: now + ARTIFACT_DATA.live.deadlineMs };
+  }
+  const [kind] = reader.credential.id.split(":", 1);
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(reader.credential.id)),
+  );
+  return {
+    principal: `${kind}:${btoa(String.fromCharCode(...digest))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")}`,
+    expiresAt: reader.credential.expiresAt,
+  };
+}
+
 /**
  * `live` opens a connection (`GET` with `Upgrade: websocket`, the exact origin), `live/renew`
  * (`POST` JSON `{ socket }`) keeps it another minute. The caller is the grant holder, bound to the
@@ -475,10 +523,12 @@ async function live(
 ): Promise<Response> {
   const { request } = context;
   const deps = { objects: context.objects, enabled: dataLiveEnabled(context.env) };
+  const held = await liveCredential(claims, reader, context.now);
   const caller = {
     artifactId: context.artifactId,
     author: claims === null ? null : claims.vid,
-    principal: claims === null ? "reader" : claims.gid,
+    principal: held.principal,
+    expiresAt: held.expiresAt,
     limits: reader.limits,
     now: context.now,
   };
@@ -709,7 +759,7 @@ export const CLIENT_SCRIPT = `(() => {
       if (!popup) location.assign(url);
     });
   const mine = (after) => call("GET", "mine" + (after ? "?after=" + encodeURIComponent(after) : ""));
-  // Live updates: follows collections' changes over one WebSocket, renewed every 30 seconds
+  // Live updates: follows collections' changes over one WebSocket, renewed every 20 seconds
   // (a connection lasts a minute), reconnecting after a deadline or a reset (4001, 4003) and
   // stopping for good when the day's messages are spent or the author's data was erased.
   const live = (names, onChange) => {
@@ -740,7 +790,7 @@ export const CLIENT_SCRIPT = `(() => {
           stop();
           timer = setInterval(() => {
             call("POST", "live/renew", { socket: id }).catch(() => {});
-          }, 30000);
+          }, 20000);
           return;
         }
         if (message && typeof message.collection === "string" && typeof message.kind === "string") {
