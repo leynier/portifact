@@ -1142,10 +1142,10 @@ export const ru = {
   "suggest.search.refused":
     "Это место нельзя изменить. Попробуйте более короткий или более длинный фрагмент текста.",
   "suggest.search.unavailable":
-    "Поиск доступен на HTML-страницах. На этой странице выделите текст в artifact.",
+    "По этой странице нельзя выполнить поиск. Выделите текст в artifact.",
+  "suggest.search.stale":
+    "У artifact есть более новая версия. Перезагрузите страницу, чтобы искать в ней.",
   "draft.conflictReason": "Изменённый текст в текущей версии другой или отсутствует.",
-  "suggest.search.ownerOnly":
-    "Поиск по странице пока недоступен рецензентам. Выделите текст в artifact.",
   "review.open": "Проверить и прокомментировать",
   "viewer.loading": "Открытие artifact",
   "viewer.unavailable.title": "Этот artifact нельзя открыть",

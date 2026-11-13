@@ -1133,10 +1133,10 @@ export const ptBR = {
   "suggest.search.refused":
     "Este lugar não pode ser alterado. Tente um trecho de texto mais curto ou mais longo.",
   "suggest.search.unavailable":
-    "A busca está disponível em páginas HTML. Nesta página, selecione o texto no artifact.",
+    "Não é possível buscar nesta página. Selecione o texto no artifact.",
+  "suggest.search.stale":
+    "O artifact tem uma versão mais recente. Recarregue a página para buscar nela.",
   "draft.conflictReason": "O texto alterado está diferente ou não existe na versão atual.",
-  "suggest.search.ownerOnly":
-    "A busca na página ainda não está disponível para revisores. Selecione o texto no artifact.",
   "review.open": "Revisar e comentar",
   "viewer.loading": "Abrindo o artifact",
   "viewer.unavailable.title": "Este artifact não pode ser aberto",

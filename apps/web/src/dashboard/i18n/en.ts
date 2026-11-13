@@ -1106,10 +1106,9 @@ export const en = {
   "suggest.search.choose": "Change the text at place {number}",
   "suggest.search.refused": "This place cannot be changed. Try a shorter or longer piece of text.",
   "suggest.search.unavailable":
-    "Search is available on HTML pages. On this page, select the text in the artifact.",
+    "This page cannot be searched. Select the text in the artifact instead.",
+  "suggest.search.stale": "The artifact has a newer version. Reload the page to search it.",
   "draft.conflictReason": "The text it changed is different or gone on the current version.",
-  "suggest.search.ownerOnly":
-    "Searching the page is not available to reviewers yet. Select the text in the artifact instead.",
   "review.open": "Review and comment",
   "viewer.loading": "Opening the artifact",
   "viewer.unavailable.title": "This artifact cannot be opened",

@@ -1118,10 +1118,10 @@ export const ja = {
   "suggest.search.choose": "{number}番目の箇所のテキストを変更",
   "suggest.search.refused": "この箇所は変更できません。もっと短いか長いテキストで試してください。",
   "suggest.search.unavailable":
-    "検索はHTMLページで利用できます。このページでは、artifact内のテキストを選択してください。",
+    "このページは検索できません。代わりに artifact でテキストを選択してください。",
+  "suggest.search.stale":
+    "artifact に新しいバージョンがあります。検索するにはページを再読み込みしてください。",
   "draft.conflictReason": "変更したテキストは、現在のバージョンでは異なるか存在しません。",
-  "suggest.search.ownerOnly":
-    "ページ内の検索はまだレビュアーには利用できません。代わりに artifact でテキストを選択してください。",
   "review.open": "レビューしてコメント",
   "viewer.loading": "artifactを開いています",
   "viewer.unavailable.title": "このartifactは開けません",

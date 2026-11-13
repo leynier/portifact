@@ -54,6 +54,7 @@ import {
   type ManifestFile,
   NO_APPROVAL_REVIEW,
   type OwnerView,
+  type PageText,
   PLANS,
   type Plan,
   type PolicyImpact,
@@ -376,8 +377,8 @@ export interface FakeSuggestions {
   draftPlans: Record<string, Plan>;
   /** POST .../draft/rebase answers this (and stores its draft); missing answers 404. */
   rebased?: RebasedDraft;
-  /** The current version's files as GET .../versions/current/content reads them, by `id:path`. */
-  pages: Record<string, { contentType: string; content: string }>;
+  /** GET .../page-text answers, by `id:path`; missing ones answer 404. */
+  pageTexts: Record<string, PageText>;
   /** Every preview request body, in order. */
   previewRequests: unknown[];
 }
@@ -752,7 +753,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       previews: 0,
       drafts: {},
       draftPlans: {},
-      pages: {},
+      pageTexts: {},
       previewRequests: [],
     },
     annotations: {},
@@ -1581,28 +1582,11 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   const integrations = integrationRoute(server, method, path, headers);
   if (integrations) return integrations;
-  const content = /^\/api\/v1\/artifacts\/([^/]+)\/versions\/current\/content$/.exec(path);
-  if (content && method === "GET") {
-    const file = server.suggestions.pages[`${content[1]}:${url.searchParams.get("path")}`];
-    if (!file) return apiError("not_found", 404);
-    const offset = Number(url.searchParams.get("offset") ?? 0);
-    // Two pages of at most 64 characters each are enough to prove the paging.
-    const chunk = file.content.slice(offset, offset + 64);
-    const next = offset + 64 < file.content.length ? offset + 64 : null;
-    return json({
-      artifactId: content[1],
-      versionId: "v1",
-      versionNumber: 1,
-      kind: "published",
-      path: url.searchParams.get("path"),
-      contentType: file.contentType,
-      size: file.content.length,
-      sha256: "a".repeat(64),
-      offset,
-      length: chunk.length,
-      nextOffset: next,
-      content: chunk,
-    });
+  const pageText = /^\/api\/v1\/artifacts\/([^/]+)\/page-text$/.exec(path);
+  if (pageText && method === "GET") {
+    const answer = server.suggestions.pageTexts[`${pageText[1]}:${url.searchParams.get("path")}`];
+    if (server.suggestions.off || !answer) return apiError("not_found", 404);
+    return json(answer);
   }
   const suggested =
     /^\/api\/v1\/artifacts\/([^/]+)\/(suggestions|previews|changes|draft)(\/.*)?$/.exec(path);

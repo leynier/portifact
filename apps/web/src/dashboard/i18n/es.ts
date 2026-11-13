@@ -1149,10 +1149,10 @@ export const es = {
   "suggest.search.refused":
     "Este lugar no se puede cambiar. Prueba con un fragmento de texto más corto o más largo.",
   "suggest.search.unavailable":
-    "La búsqueda está disponible en páginas HTML. En esta página, selecciona el texto en el artifact.",
+    "No se puede buscar en esta página. Selecciona el texto en el artifact.",
+  "suggest.search.stale":
+    "El artifact tiene una versión más reciente. Vuelve a cargar la página para buscar en ella.",
   "draft.conflictReason": "El texto que cambiaba es distinto o ya no está en la versión actual.",
-  "suggest.search.ownerOnly":
-    "La búsqueda en la página aún no está disponible para revisores. Selecciona el texto en el artifact.",
   "review.open": "Revisar y comentar",
   "viewer.loading": "Abriendo el artifact",
   "viewer.unavailable.title": "No se puede abrir este artifact",
