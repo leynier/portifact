@@ -31,7 +31,7 @@ import {
   type StoredRendering,
 } from "@portifact/domain/suggestions";
 import { DOCUMENT_RENDERER } from "@portifact/render";
-import { and, eq, gt, inArray, isNull, lte } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { type CommentStanding, readableThread } from "./annotations.ts";
 
 type ThreadRow = typeof schema.annotationThreads.$inferSelect;
@@ -232,23 +232,33 @@ export async function issuePreviewCode(
   const codeSha256 = await sha256Hex(code);
   const r2Key = previewKey(now);
   const expiresAt = now + PREVIEW_CODES.ttlMs;
+  // One statement, written only while everything this request authorized and planned against
+  // still holds (AGENTS.md: a write after `actorOn` is conditioned on the owner it read): the
+  // artifact's owner, its active state and current version, and the suggestion pending at the
+  // revision planned. No row means no document and no URL.
+  const c = schema.previewCodes;
+  const a = schema.artifacts;
+  const t = schema.annotationThreads;
+  let inserted: { codeSha256: string }[];
   try {
-    await db.insert(schema.previewCodes).values({
-      codeSha256,
-      userId,
-      sessionId: input.sessionId,
-      artifactId,
-      threadId: thread.id,
-      r2Key,
-      createdAt: now,
-      expiresAt,
-    });
+    inserted = await db
+      .insert(c)
+      .select(
+        sql`select ${codeSha256}, ${userId}, ${input.sessionId}, ${artifactId}, ${thread.id}, ${r2Key}, ${now}, ${expiresAt}, null
+          where exists (select 1 from ${a} where ${a.id} = ${artifactId} and ${a.ownerId} = ${standing.artifact.ownerId}
+            and ${a.state} = 'active' and (${a.expiresAt} is null or ${a.expiresAt} > ${now})
+            and ${a.currentVersionId} = ${binding.versionId})
+          and exists (select 1 from ${t} where ${t.id} = ${thread.id} and ${t.artifactId} = ${artifactId}
+            and ${t.suggestionState} = 'pending' and ${t.suggestionRevision} = ${binding.revision})`,
+      )
+      .returning({ codeSha256: c.codeSha256 });
   } catch (error) {
     if (causeIncludes(error, "preview_codes_limit")) {
       return fail("rate_limited", "Too many previews open. Wait a minute and try again.");
     }
     throw error;
   }
+  if (inserted.length === 0) return planChanged();
   // The row first: a document is never stored without a row the scan can find.
   await bucket.put(r2Key, preview.document);
   return ok({
