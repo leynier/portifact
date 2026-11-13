@@ -185,6 +185,24 @@ describe("Suggest mode's protocol", () => {
     expect(sent().every((m) => m.v === REVIEW_PROTOCOL)).toBe(true);
   });
 
+  it("runs exactly the version 2 protocol for comments while suggestions are off", async () => {
+    server.reviews[ID] = { ...START, suggestions: false };
+    await open();
+    // A bridge of this build announces both versions; the viewer answers only version 2.
+    const { v, nonce } = await connect();
+    expect(v).toBe(REVIEW_PROTOCOL);
+    expect(sent().filter((m) => m.type === "init")).toHaveLength(1);
+    // A later page load is checked in version 2 and stays connected after the answer.
+    fireEvent.load(screen.getByTitle("Launch plan, published with Portifact"));
+    expect(sent().find((m) => m.type === "ping")).toMatchObject({ v: REVIEW_PROTOCOL, nonce });
+    fromBridge(nonce, { type: "pong" }, REVIEW_PROTOCOL);
+    // Selections offer a comment as before, and every message to the frame is version 2.
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT }, REVIEW_PROTOCOL);
+    await waitFor(() => expect(floating("Comment")).not.toBeNull());
+    expect(sent().every((m) => m.v === REVIEW_PROTOCOL)).toBe(true);
+    expect(screen.queryByText("The frame stopped answering from the artifact")).toBeNull();
+  });
+
   it("offers no Suggest mode while the API has suggestions switched off", async () => {
     server.reviews[ID] = { ...START, suggestions: false };
     await open();

@@ -87,6 +87,11 @@ export function useBridge(
   origin: string | null,
   sessionTag: string,
   events: BridgeEvents,
+  /**
+   * Whether this viewer may use protocol 3 (edit suggestions switched on). Off, it answers only
+   * the version 2 announcement, so commenting runs exactly the protocol it ran before.
+   */
+  edit = false,
 ): BridgeConnection {
   const [state, setState] = useState<BridgeState>("connecting");
   const [page, setPage] = useState<BridgePage | null>(null);
@@ -126,6 +131,7 @@ export function useBridge(
       if (!message) return;
       switch (message.type) {
         case "ready": {
+          if (message.v === REVIEW_PROTOCOL_EDIT && !edit) return;
           // A bridge of protocol 3 announces itself in both versions, the newer first: the
           // version 2 announcement that follows a version 3 handshake is the same page's.
           if (
@@ -215,7 +221,7 @@ export function useBridge(
       clearTimeout(timer.current);
       nonce.current = null;
     };
-  }, [frame, origin, sessionTag]);
+  }, [frame, origin, sessionTag, edit]);
 
   const onFrameLoad = useCallback(() => {
     // Every load must be answered from the artifact's origin: by a `ready` of the new page, or,

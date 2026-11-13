@@ -943,7 +943,7 @@ function ReviewSession({
         card?.scrollIntoView?.({ block: "nearest" });
       }, 0);
     },
-  });
+  }, start.suggestions === true);
 
   // The frame only gets the targets of the threads of the page it shows, never bodies or names.
   const { send, state, page } = bridge;
