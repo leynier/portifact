@@ -114,29 +114,40 @@ function inside(f: Frame) {
 const outside = (requests: string[], allowed: string[]) =>
   requests.filter((u) => !allowed.includes(u) && !u.endsWith("/favicon.ico"));
 
-test("built previews of Markdown and text show the change, load nothing and work once", async ({
-  page,
-  context,
-}) => {
-  const owner = await createUser("Owner");
-  await signIn(context, owner);
-  const documents = [
-    {
-      type: "markdown" as const,
-      path: "index.md",
-      source:
-        "# Notes\n\nThe quick brown cat jumps.\n\n![secret](secret.png) [link](https://evil.example) <img src=x>\n",
-      before: "cat",
-    },
-    {
-      type: "text" as const,
-      path: "notes.txt",
-      source: "First line\nThe cat sat\n<img src=x>\n",
-      before: "cat",
-    },
-  ];
-  const requests = await hostPage(page);
-  for (const doc of documents) {
+/**
+ * Waits until the frame's document has nothing left to load: its `load` event (images, styles)
+ * and its fonts settled. A request the page could start would have started by then, so no fixed
+ * delay is needed before checking that none left the frame.
+ */
+async function settled(f: Frame): Promise<void> {
+  await f.waitForLoadState("load");
+  await f.evaluate(() => document.fonts.ready.then(() => document.fonts.status));
+}
+
+const DOCUMENTS = [
+  {
+    type: "markdown" as const,
+    path: "index.md",
+    source:
+      "# Notes\n\nThe quick brown cat jumps.\n\n![secret](secret.png) [link](https://evil.example) <img src=x>\n",
+    gone: "brown cat",
+  },
+  {
+    type: "text" as const,
+    path: "notes.txt",
+    source: "First line\nThe cat sat\n<img src=x>\n",
+    gone: "The cat sat",
+  },
+];
+
+for (const doc of DOCUMENTS) {
+  test(`a built preview of a ${doc.type} document shows the change, loads nothing and works once`, async ({
+    page,
+    context,
+  }) => {
+    const owner = await createUser("Owner");
+    await signIn(context, owner);
+    const requests = await hostPage(page);
     const published = await publish({
       ownerId: owner.userId,
       type: doc.type,
@@ -151,19 +162,19 @@ test("built previews of Markdown and text show the change, load nothing and work
       path: doc.path,
       source: doc.source,
       title: "Notes",
-      before: doc.before,
+      before: "cat",
       after: "dog",
     });
     expect(planned.applies).toBe(true);
     const issued = await issue(page, published.artifactId, planned.digest);
-    expect(issued.status, doc.type).toBe(200);
+    expect(issued.status).toBe(200);
     expect(issued.body.state).toBe("ready");
     const url = issued.body.url as string;
     expect(new URL(url).origin).toBe(PREVIEW_ORIGIN);
 
     requests.length = 0;
     const response = page.waitForResponse(url);
-    const f = await frame(page, url, `f-${doc.type}`);
+    const f = await frame(page, url, "preview");
     const headers = (await response).headers();
     expect(headers["content-security-policy"]).toBe(
       `default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'; frame-ancestors ${APP_ORIGIN}; sandbox`,
@@ -171,7 +182,7 @@ test("built previews of Markdown and text show the change, load nothing and work
     expect(headers["cache-control"]).toBe("no-store");
     expect(headers["set-cookie"]).toBeUndefined();
     await expect(f.locator("body")).toContainText("dog");
-    await expect(f.locator("body")).not.toContainText("brown cat");
+    await expect(f.locator("body")).not.toContainText(doc.gone);
     expect(await inside(f)).toMatchObject({
       origin: "null",
       scripts: 0,
@@ -181,18 +192,17 @@ test("built previews of Markdown and text show the change, load nothing and work
       frames: 0,
       hrefs: 0,
     });
-    // Let anything the page might start arrive, then check nothing left the frame.
-    await page.waitForTimeout(300);
-    expect(outside(requests, [url]), doc.type).toEqual([]);
+    await settled(f);
+    expect(outside(requests, [url])).toEqual([]);
 
     // The same URL again: refused, whatever asks.
-    const again = await frame(page, url, `again-${doc.type}`);
+    const again = await frame(page, url, "again");
     await expect(again.locator("body")).toHaveText(REFUSED);
-  }
-  expect(
-    await page.evaluate(() => (window as unknown as { __messages: string[] }).__messages),
-  ).toEqual([]);
-});
+    expect(
+      await page.evaluate(() => (window as unknown as { __messages: string[] }).__messages),
+    ).toEqual([]);
+  });
+}
 
 test("a hostile page's built preview runs nothing, loads nothing and goes nowhere", async ({
   page,
@@ -229,6 +239,7 @@ test("a hostile page's built preview runs nothing, loads nothing and goes nowher
   const requests = await hostPage(page);
   const f = await frame(page, url, "hostile");
   await expect(f.locator("p")).toHaveText("Hostile text");
+  await settled(f);
   expect(await inside(f)).toEqual({
     origin: "null",
     // The built document has no title: the head is written from scratch.
@@ -242,8 +253,12 @@ test("a hostile page's built preview runs nothing, loads nothing and goes nowher
     hrefs: 0,
   });
   // The link kept its text without a destination: clicking it navigates nowhere.
+  await settled(f);
   await f.locator("a").click();
-  await page.waitForTimeout(300);
+  // A navigation the click started would replace the frame's document or the page's: both are
+  // still the ones they were once they finished loading.
+  await settled(f);
+  await page.waitForLoadState("load");
   expect(f.url()).toBe(url);
   expect(page.url()).toBe(HOST_PAGE);
   expect(outside(requests, [url])).toEqual([]);
