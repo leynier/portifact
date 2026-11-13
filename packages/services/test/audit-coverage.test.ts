@@ -245,6 +245,16 @@ reason("statements for a settings change's own batch, which records scim.changed
   "roleMappingStatements",
 ]);
 reason(
+  "a visitor's own grant of artifact data (decision 0026): the person's consent in one browser, not something an owner has; the person lists and revokes it themselves",
+  [
+    "claimVisitorId",
+    "issueDataGrantCode",
+    "redeemDataGrantCode",
+    "revokeDataGrants",
+    "pruneDataGrants",
+  ],
+);
+reason(
   "what a directory said about people who never got an account, once it lapsed (decision 0017)",
   ["pruneDirectoryUsers"],
 );
@@ -546,6 +556,10 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // The grant's control and renewal read access and the account (decision 0026); the digest computes.
+  "dataGrantControl",
+  "renewDataGrant",
+  "nonceDigest",
   // Edit suggestions (decision 0027): rebuilds a replayed acceptance's answer, writes nothing.
   "replayAcceptance",
   // Budget protection's data step (decision 0026): reads the platform's protection only.

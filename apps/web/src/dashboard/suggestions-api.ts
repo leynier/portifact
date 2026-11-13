@@ -12,15 +12,17 @@ import {
   ChangeItemView,
   type ConfirmPlan,
   type DecideSuggestionRequest,
+  DraftView,
   type MarkChangeItem,
   Plan,
   PreviewResponse,
+  type SaveDraftRequest,
   type SubmitSuggestionRequest,
   SuggestionAnnotationPage,
   SuggestionThreadView,
   SuggestionView,
 } from "@portifact/contracts";
-import type { z } from "zod";
+import { z } from "zod";
 
 /** The dashboard's validated call: same origin, the session cookie, a schema for the answer. */
 export type ApiCall = <T>(
@@ -32,6 +34,19 @@ export type ApiCall = <T>(
 ) => Promise<T>;
 
 export interface SuggestionsApi {
+  /** The caller's own draft on an artifact; the route answers `not_found` when there is none. */
+  draft(artifactId: string): Promise<DraftView>;
+  /** Saves the whole draft at the revision and incarnation the caller holds (null for a new one). */
+  saveDraft(artifactId: string, request: SaveDraftRequest): Promise<DraftView>;
+  discardDraft(artifactId: string): Promise<void>;
+  /** Builds the plan of the caller's draft on the current version (a dry run). */
+  planDraft(artifactId: string): Promise<Plan>;
+  /** Publishes the draft's plan the owner confirmed by its digest; the jobs Worker applies it. */
+  publishDraft(
+    artifactId: string,
+    request: ConfirmPlan,
+    idempotencyKey: string,
+  ): Promise<AcceptanceStarted>;
   /** A page of the threads of `version` with their kind and suggestion (`?fields=suggestion`). */
   listAnnotations(
     artifactId: string,
@@ -84,7 +99,25 @@ const suggestionPath = (artifactId: string, threadId: string) =>
   `${artifactPath(artifactId)}/suggestions/${encodeURIComponent(threadId)}`;
 
 export function suggestionsApi(call: ApiCall): SuggestionsApi {
+  const draftPath = (artifactId: string) => `${artifactPath(artifactId)}/draft`;
   return {
+    draft(artifactId) {
+      return call(draftPath(artifactId), DraftView);
+    },
+    saveDraft(artifactId, request) {
+      return call(draftPath(artifactId), DraftView, "PUT", request);
+    },
+    async discardDraft(artifactId) {
+      await call(draftPath(artifactId), z.unknown(), "DELETE");
+    },
+    planDraft(artifactId) {
+      return call(`${draftPath(artifactId)}/plan`, Plan, "POST");
+    },
+    publishDraft(artifactId, request, idempotencyKey) {
+      return call(`${draftPath(artifactId)}/publish`, AcceptanceStarted, "POST", request, {
+        "idempotency-key": idempotencyKey,
+      });
+    },
     listAnnotations(artifactId, cursor, version) {
       const params = new URLSearchParams({ fields: "suggestion" });
       if (cursor) params.set("cursor", cursor);

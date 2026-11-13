@@ -94,6 +94,8 @@ export const TABLE_HOMES = {
   artifact_data: "regional",
   data_operations: "regional",
   data_findings: "regional",
+  data_grants: "regional",
+  data_grant_codes: "regional",
   annotation_threads: "regional",
   annotation_messages: "regional",
   annotation_events: "regional",

@@ -408,6 +408,7 @@ describe("pruning restore markers", () => {
         "comment_notice_mute",
         "comment_thread",
         "edit_draft",
+        "data_grant",
         "notice_opt_out",
         "oauth_grant",
         "oauth_token",

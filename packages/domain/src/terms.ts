@@ -113,6 +113,11 @@ export const ACCOUNT_SESSION_OPERATIONS = {
   delete_account: "leaving",
   request_account_deletion_code: "leaving",
   delete_account_with_code: "leaving",
+  // Grants of artifact data (decision 0026): giving one acts anew, listing and revoking never.
+  list_data_grants: "read",
+  read_data_grant_control: "read",
+  issue_data_grant: "refused",
+  revoke_data_grants: "removes",
 } as const satisfies Record<string, "read" | "removes" | "narrowing" | "leaving" | "refused">;
 
 export type AccountSessionOperation = keyof typeof ACCOUNT_SESSION_OPERATIONS;

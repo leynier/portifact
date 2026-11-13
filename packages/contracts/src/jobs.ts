@@ -221,6 +221,7 @@ export const TombstoneMarker = z.strictObject({
     "suggestion_withdrawn",
     "suggestion_rejected",
     "edit_draft",
+    "data_grant",
   ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
