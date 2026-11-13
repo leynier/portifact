@@ -264,12 +264,8 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     },
     async (args: QueryDataInput) => {
       const { artifactId, collection, ...params } = args;
-      let query: ReturnType<typeof dataQueryOf>;
-      try {
-        query = dataQueryOf(collection, params);
-      } catch {
-        return failure("invalid_input", "Invalid query.");
-      }
+      // The input schema already validated every part, so building the query cannot fail.
+      const query = dataQueryOf(collection, params);
       const { db, deps } = await at(artifactId);
       const result = await queryArtifactData(db, deps, {
         ...input(artifactId),
@@ -316,12 +312,7 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     },
     async (args: CountDataInput) => {
       const { artifactId, ...params } = args;
-      let count: ReturnType<typeof dataCountOf>;
-      try {
-        count = dataCountOf(params);
-      } catch {
-        return failure("invalid_input", "Invalid count: name a collection.");
-      }
+      const count = dataCountOf(params);
       const { db, deps } = await at(artifactId);
       const result = await countArtifactData(db, deps, {
         ...input(artifactId),

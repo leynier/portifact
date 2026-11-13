@@ -91,7 +91,8 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
     const region = await artifactRegion(c.env, artifactId);
     return { artifactId, region, deps: ownerDataDeps(c.env, region) };
   };
-  const key = (c: ApiContext) => c.req.header("idempotency-key") ?? "";
+  // `idempotent` refused a request without a valid key before any handler reads it.
+  const key = (c: ApiContext) => c.req.header("idempotency-key") as string;
 
   api.get(
     base,

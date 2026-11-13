@@ -5,7 +5,6 @@ import { env } from "cloudflare:workers";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { createWorkspace } from "@portifact/services";
 import { describe, expect, it } from "vitest";
-import { CLI_CLIENT_ID } from "../src/auth/config.ts";
 import { DATA_TOOL_SCOPES } from "../src/mcp/data-tools.ts";
 import { TOOL_SCOPES } from "../src/mcp/tools.ts";
 import { authorizeWithPkce, exchangeCode, type TokenResponse } from "./flows.ts";
@@ -23,28 +22,6 @@ import {
 const SCOPES =
   "artifacts:read artifacts:write artifacts:delete data:read data:write offline_access";
 
-/** The CLI client's record may list the data scopes (a migration grants them); tests ensure it. */
-async function cliClientWithDataScopes() {
-  await env.DB.prepare("UPDATE oauth_clients SET scopes = ? WHERE client_id = ?")
-    .bind(
-      JSON.stringify([
-        "artifacts:read",
-        "artifacts:write",
-        "artifacts:share",
-        "artifacts:delete",
-        "annotations:read",
-        "annotations:write",
-        "annotations:moderate",
-        "data:read",
-        "data:write",
-        "credentials:manage",
-        "offline_access",
-      ]),
-      CLI_CLIENT_ID,
-    )
-    .run();
-}
-
 async function mcpTokenWith(h: Harness, email: string, scope: string) {
   const clientId = await registerClient(h, SCOPES);
   const cookie = await h.signIn(email);
@@ -61,7 +38,6 @@ interface Both {
 }
 
 async function both(email: string, scope = SCOPES): Promise<Both> {
-  await cliClientWithDataScopes();
   const h = createHarness();
   const apiAccess = await apiToken(h, email, scope);
   const client = await connect(h, await mcpTokenWith(h, email, scope));
@@ -112,7 +88,6 @@ describe("artifact data tools", () => {
   });
 
   it("describes reads as read-only, deletes as destructive and documents as untrusted", async () => {
-    await cliClientWithDataScopes();
     const h = createHarness();
     const client = await connect(h, await mcpTokenWith(h, "data-list@example.test", SCOPES));
     const { tools } = await client.listTools();
@@ -325,6 +300,28 @@ describe("artifact data tools", () => {
         viaApi,
       );
     }
+    // Every tool answers a stranger like a missing artifact, before anything reaches the object.
+    const target = { artifactId: id, collection: "votes" };
+    const doc = "AAAAAAAAAAAAAAAA";
+    for (const [name, args] of [
+      ["declare_data_collection", { artifactId: id, name: "votes", mode: "own" }],
+      ["build_data_indexes", { artifactId: id }],
+      ["query_artifact_data", target],
+      ["get_data_document", { ...target, id: doc }],
+      ["count_artifact_data", target],
+      ["export_artifact_data", { artifactId: id }],
+      ["create_data_document", { ...target, body: {} }],
+      ["replace_data_document", { ...target, id: doc, body: {} }],
+      ["delete_data_document", { ...target, id: doc, confirm: true }],
+      ["create_data_documents", { ...target, documents: [{}] }],
+      ["replace_data_documents", { ...target, documents: [{ id: doc, body: {} }] }],
+      ["delete_data_documents", { ...target, ids: [doc], confirm: true }],
+    ] as const) {
+      expect(fromTool(await stranger.tool(name, args)), name).toEqual({
+        ok: false,
+        body: { error: { code: "not_found", message: "Artifact not found." } },
+      });
+    }
     const refused = await fromApi(await member.apiCall(`/api/v1/artifacts/${id}/data`));
     expect(refused).toMatchObject({ ok: false, body: { error: { code: "forbidden" } } });
     expect(fromTool(await member.tool("describe_artifact_data", { artifactId: id }))).toEqual(
@@ -356,7 +353,6 @@ describe("artifact data tools", () => {
   });
 
   it("needs data:read to read and data:write to change, at both", async () => {
-    await cliClientWithDataScopes();
     const h = createHarness();
     const email = "data-scope@example.test";
     const reader = "artifacts:read data:read";
@@ -395,5 +391,65 @@ describe("artifact data tools", () => {
       id: "AAAAAAAAAAAAAAAA",
     });
     expect(result.isError).toBe(true);
+  });
+
+  it("summarizes collections, pages and exports in text, with a cursor when more remain", async () => {
+    const b = await both("data-text@example.test");
+    const id = await publish(b);
+    const declared = await b.tool("declare_data_collection", {
+      artifactId: id,
+      name: "people",
+      mode: "read",
+      uniqueKey: "email",
+      indexed: ["team"],
+    });
+    expect(declared.isError).not.toBe(true);
+    await b.tool("create_data_documents", {
+      artifactId: id,
+      collection: "people",
+      documents: [
+        { email: "a@x.test", team: "red" },
+        { email: "b@x.test", team: "red" },
+        { email: "c@x.test", team: "blue" },
+      ],
+    });
+    await b.tool("declare_data_collection", { artifactId: id, name: "notes", mode: "own" });
+    const described = await b.tool("describe_artifact_data", { artifactId: id });
+    const text = (described.content as { text: string }[])[0]?.text;
+    expect(text).toContain("unique email");
+    expect(text).toContain("indexed team (ready)");
+    expect(text).toMatch(/^- notes: own, 0 document\(s\), 0 bytes$/m);
+    const page = await b.tool("query_artifact_data", {
+      artifactId: id,
+      collection: "people",
+      equalsField: "team",
+      equalsValue: "red",
+      limit: 1,
+    });
+    expect((page.content as { text: string }[])[0]?.text).toContain("More: call again with after");
+    const next = (page.structuredContent as { next: string }).next;
+    const second = await b.tool("query_artifact_data", {
+      artifactId: id,
+      collection: "people",
+      equalsField: "team",
+      equalsValue: "red",
+      limit: 1,
+      after: next,
+    });
+    expect((second.structuredContent as { documents: unknown[] }).documents).toHaveLength(1);
+    const built = await b.tool("build_data_indexes", { artifactId: id });
+    expect((built.content as { text: string }[])[0]?.text).toContain(
+      "Every indexed field is built.",
+    );
+    const exported = await b.tool("export_artifact_data", { artifactId: id });
+    expect(exported.structuredContent).toMatchObject({ next: null, header: { revision: 3 } });
+    const badCursor = await b.tool("export_artifact_data", { artifactId: id, after: "people" });
+    expect(badCursor.isError).toBe(true);
+    const missing = await b.tool("get_data_document", {
+      artifactId: id,
+      collection: "people",
+      id: "AAAAAAAAAAAAAAAA",
+    });
+    expect(missing.structuredContent).toMatchObject({ error: { code: "not_found" } });
   });
 });

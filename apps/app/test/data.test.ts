@@ -270,3 +270,46 @@ describe("the audit relay with the real object", () => {
     ]);
   });
 });
+
+describe("more routes", () => {
+  it("builds indexes, counts by author and refuses an invalid collection in a query", async () => {
+    const o = await owner("data-routes@example.test");
+    expect((await o.call(`${base(o)}/indexes/build`, json("POST"))).status).toBe(404);
+    await declare(o);
+    const built = await o.call(`${base(o)}/indexes/build`, json("POST"));
+    expect(await built.json()).toEqual({ building: 0 });
+    await o.call(docs(o), json("POST", { choice: "a" }));
+    expect(await (await o.call(`${base(o)}/count?collection=votes&by=owner`)).json()).toEqual({
+      documents: 1,
+    });
+    expect(
+      await (
+        await o.call(`${base(o)}/count?collection=votes&equalsField=choice&equalsValue=a`)
+      ).json(),
+    ).toEqual({ documents: 1 });
+    expect((await o.call(`${docs(o, "Bad-Name")}`)).status).toBe(400);
+    expect((await o.call(`${docs(o)}?createdOp=gt&createdValue=5&order=-created`)).status).toBe(
+      200,
+    );
+  });
+
+  it("refuses a change without a JSON body on every route", async () => {
+    const o = await owner("data-bodies@example.test");
+    const plain = (method: string): RequestInit => ({
+      method,
+      headers: { "content-type": "text/plain", "idempotency-key": crypto.randomUUID() },
+      body: "x",
+    });
+    for (const [path, method] of [
+      [`${base(o)}/collections`, "POST"],
+      [docs(o), "POST"],
+      [`${docs(o)}/bulk`, "POST"],
+      [`${docs(o)}/bulk`, "PUT"],
+      [`${docs(o)}/bulk-delete`, "POST"],
+      [`${docs(o)}/AAAAAAAAAAAAAAAA`, "PUT"],
+    ] as const) {
+      const response = await o.call(path, plain(method));
+      expect(response.status, `${method} ${path}`).toBe(400);
+    }
+  });
+});
