@@ -113,7 +113,7 @@ describe("webhook deliveries in the jobs Worker", () => {
     expect((await webhookDepsFromEnv({ ...keyed, WEBHOOKS_PAUSED: "" })).paused).toBe(false);
   });
 
-  it("only relays on the one-minute schedule", async () => {
+  it("only relays (and prunes previews) on the one-minute schedule", async () => {
     const { job } = await hookWithTest();
     const waits: Promise<unknown>[] = [];
     const ctx = {
@@ -126,8 +126,11 @@ describe("webhook deliveries in the jobs Worker", () => {
       env,
       ctx as unknown as ExecutionContext,
     );
-    expect(waits).toHaveLength(1);
+    // The relay, and the preview prune of decision 0027, which does nothing while suggestions
+    // are switched off; no maintenance scan runs on this schedule.
+    expect(waits).toHaveLength(2);
     expect(await waits[0]).toEqual(expect.any(Number));
+    expect(await waits[1]).toBe("off");
     const [row] = await db().select().from(schema.outbox).where(eq(schema.outbox.id, job.id));
     // The consumer may already have run it; if not, it is marked sent.
     if (row) expect(row.dispatchedAt).toBe(NOW);
