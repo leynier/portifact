@@ -1120,6 +1120,50 @@ export async function runDataReset(
 // Deleting one author's documents (the owner side's moderation; decision 0026).
 
 /**
+ * The selection a key's author deletion is bound to: the documents created up to the moment its
+ * key was first claimed (`data_operations`, no document bodies), so a retry with the same key only
+ * continues that selection and never reaches what the author wrote after it; another batch needs a
+ * new key. A key used for another request is refused, one past the horizon has expired.
+ */
+async function authorDeleteCutoff(
+  db: RegionalDb,
+  input: OwnerDataWrite & { author: string },
+): Promise<Result<number>> {
+  const requestHash = await hashRequest({
+    artifactId: input.artifactId,
+    command: "author_delete",
+    author: input.author,
+  });
+  await db
+    .insert(ops)
+    .values({
+      actorId: input.userId,
+      idempotencyKey: input.idempotencyKey,
+      artifactId: input.artifactId,
+      opId: newOperationId(input.now),
+      requestHash,
+      createdAt: input.now,
+      target: null,
+    })
+    .onConflictDoNothing();
+  const [claimed] = await db
+    .select({ hash: ops.requestHash, artifactId: ops.artifactId, createdAt: ops.createdAt })
+    .from(ops)
+    .where(and(eq(ops.actorId, input.userId), eq(ops.idempotencyKey, input.idempotencyKey)))
+    .limit(1);
+  if (!claimed || claimed.hash !== requestHash || claimed.artifactId !== input.artifactId) {
+    return fail("invalid_input", "This Idempotency-Key was used for a different request.");
+  }
+  if (input.now - claimed.createdAt > ARTIFACT_DATA.horizonMs) {
+    return fail(
+      "invalid_input",
+      "This Idempotency-Key has expired. Send the change with a new one.",
+    );
+  }
+  return ok(claimed.createdAt);
+}
+
+/**
  * Deletes the documents one author created, collection by collection, in bulk deletes of up to
  * 100 through the same claimed path as any owner-side change (so each is audited and applied
  * once), at most `AUTHOR_DELETE_PAGES` a call; `more` asks the caller to call again. It is not an
@@ -1133,6 +1177,8 @@ export async function deleteAuthorData(
 ): Promise<Result<{ removed: number; more: boolean }>> {
   const described = await describeArtifactData(db, deps, input);
   if (!described.ok) return described;
+  const cutoff = await authorDeleteCutoff(db, input);
+  if (!cutoff.ok) return cutoff;
   let removed = 0;
   let pages = 0;
   for (const collection of described.value.collections) {
@@ -1143,6 +1189,7 @@ export async function deleteAuthorData(
         query: {
           collection: collection.name,
           equals: { field: "_by", value: input.author },
+          created: { op: "lte", value: cutoff.value },
           limit: ARTIFACT_DATA.caps.bulkDocuments,
         },
       });
