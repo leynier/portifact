@@ -76,13 +76,16 @@ import {
   threadInScope,
   threadVisible,
 } from "@portifact/domain";
+import { checkSuggestionThreadState, firstMessageDeletion } from "@portifact/domain/suggestions";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actorAndPlanOn, actorOn, ownerSide } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
 import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerPlanRecord } from "./plans.ts";
+import { endAttempt } from "./suggestion-accept.ts";
 import { type ThreadViewContext, threadViews } from "./thread-views.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { policyDomains } from "./workspace-domains.ts";
@@ -120,6 +123,10 @@ interface Loaded {
    * editors. Their threads are "the owner's" in the `own` scope.
    */
   ownerSide: readonly string[];
+  /** Whether the caller is a member of the owning workspace (any role). */
+  member: boolean;
+  /** The verified email domain that admitted the caller to a `domain` artifact, or null. */
+  admittedDomain: string | null;
   /**
    * What the owner's plan grants, read with the artifact: the annotation quota and whether a
    * write marks comment notice activity, with no read of its own.
@@ -227,7 +234,7 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<LoadOutcome
     new Date(input.now),
   );
   const owner = entitlements(plan, input.now);
-  const { role, verifiedEmail, exception, groups } = await roleOf(
+  const { role, verifiedEmail, exception, groups, domain } = await roleOf(
     db,
     artifact,
     input.userId,
@@ -248,6 +255,8 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<LoadOutcome
     verifiedEmail,
     scope,
     groupIds: groups.map((group) => group.id),
+    member: actor?.ownerId === artifact.ownerId,
+    admittedDomain: domain,
     // A personal space needs no read.
     ownerSide: await ownerSide(db.global, artifact.ownerId),
     entitlements: owner,
@@ -261,6 +270,11 @@ interface Caller {
   exception: CommentScope | null;
   /** Listed groups the caller belongs to, with their exceptions, in any access mode. */
   groups: GroupMatch["matched"];
+  /**
+   * The owning workspace's verified email domain that admitted the caller to a `domain`
+   * artifact, or null when nothing but a domain admitted them.
+   */
+  domain: string | null;
 }
 
 /**
@@ -280,16 +294,16 @@ async function roleOf(
   // Comments are people's words: a service token takes no part, whatever its role (decision
   // 0011), and gets what a missing artifact gives.
   if (isServiceTokenId(userId))
-    return { role: null, verifiedEmail: null, exception: null, groups: [] };
+    return { role: null, verifiedEmail: null, exception: null, groups: [], domain: null };
   if (actsForOwner(actor, artifact.ownerId)) {
-    return { role: "owner", verifiedEmail: null, exception: null, groups: [] };
+    return { role: "owner", verifiedEmail: null, exception: null, groups: [], domain: null };
   }
   const [user] = await db.global
     .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
     .from(schema.users)
     .where(eq(schema.users.id, userId))
     .limit(1);
-  if (!user) return { role: null, verifiedEmail: null, exception: null, groups: [] };
+  if (!user) return { role: null, verifiedEmail: null, exception: null, groups: [], domain: null };
   const verifiedEmail = user.emailVerified ? user.email.toLowerCase() : null;
   const r = schema.artifactReaders;
   const columns = { email: r.email, commentVisibility: r.commentVisibility };
@@ -337,11 +351,18 @@ async function roleOf(
     verifiedEmail === null
       ? null
       : (listed.find((row) => row.email === verifiedEmail)?.commentVisibility ?? null);
+  // In `domain` mode a non-member is admitted only by their address's verified domain.
+  const byDomain =
+    decision.ok &&
+    artifact.accessMode === "domain" &&
+    actor?.ownerId !== artifact.ownerId &&
+    verifiedEmail !== null;
   return {
     role: decision.ok ? "participant" : null,
     verifiedEmail,
     exception,
     groups: groups?.matched ?? [],
+    domain: byDomain ? emailDomainOf(verifiedEmail) : null,
   };
 }
 
@@ -517,6 +538,55 @@ function scopeGuard(loaded: Authorized, threadId: string): SQL {
     sql`, `,
   );
   return sql`exists (select 1 from ${th} join ${t} on ${t.id} = ${th.artifactId} where ${th.id} = ${threadId} and (${th.authorId} in (${owners}) or ${scope} = 'all'))`;
+}
+
+/**
+ * The global facts an authorization was decided on, which no regional row records: an owner-side
+ * person's membership and role on a workspace owner, a reader's membership of a workspace
+ * artifact's workspace, and each listed group the reader belongs to. Null when there is none to
+ * hold. A write held to them names them in its batch when the region's database is the global
+ * one (`bothSides`), and reads them again right before its batch (`standingHolds`) otherwise.
+ */
+function liveStanding(loaded: Authorized): SQL | null {
+  const ownerId = loaded.artifact.ownerId;
+  const m = schema.workspaceMembers;
+  const gm = schema.workspaceGroupMembers;
+  const facts: SQL[] = [];
+  if (isWorkspaceId(ownerId)) {
+    const roles =
+      loaded.role === "owner" ? sql` and "standing"."role" in ('admin', 'editor')` : sql``;
+    // A member is admitted to a `workspace` artifact, and to a `domain` one, by the membership.
+    const mode = loaded.artifact.accessMode;
+    if (loaded.role === "owner" || mode === "workspace" || (mode === "domain" && loaded.member)) {
+      facts.push(
+        sql`exists (select 1 from ${m} as "standing" where "standing"."workspace_id" = ${ownerId} and "standing"."user_id" = ${loaded.viewerId}${roles})`,
+      );
+    }
+  }
+  if (loaded.admittedDomain !== null && loaded.verifiedEmail !== null) {
+    // The domain still verified for the workspace, and the caller's address still the verified
+    // one whose domain it is (`policyDomains` decided it from that address).
+    const wd = schema.workspaceDomains;
+    const u = schema.users;
+    facts.push(
+      sql`exists (select 1 from ${wd} as "admitting" where "admitting"."workspace_id" = ${ownerId} and "admitting"."domain" = ${loaded.admittedDomain} and "admitting"."state" = 'verified')`,
+      sql`exists (select 1 from ${u} as "reader" where "reader"."id" = ${loaded.viewerId} and "reader"."email_verified" = 1 and lower("reader"."email") = ${loaded.verifiedEmail})`,
+    );
+  }
+  for (const groupId of loaded.groupIds) {
+    facts.push(
+      sql`exists (select 1 from ${gm} as "listed" where "listed"."group_id" = ${groupId} and "listed"."user_id" = ${loaded.viewerId})`,
+    );
+  }
+  return facts.length === 0 ? null : sql.join(facts, sql` and `);
+}
+
+/** The same facts as `liveStanding`, read from the global database right before a batch. */
+async function standingHolds(db: RegionalDb, loaded: Authorized): Promise<boolean> {
+  const facts = liveStanding(loaded);
+  if (facts === null) return true;
+  const rows = await db.global.all<{ holds: number }>(sql`select ${facts} as holds`);
+  return rows[0]?.holds === 1;
 }
 
 /** The author and the artifact are under their write limits. */
@@ -1135,6 +1205,63 @@ export async function moderateAnnotationMessage(
   );
 }
 
+/** The first message of a thread: the one its author started it with. */
+async function firstMessageId(db: RegionalDb, threadId: string): Promise<string | null> {
+  const m = schema.annotationMessages;
+  const [row] = await db
+    .select({ id: m.id })
+    .from(m)
+    .where(eq(m.threadId, threadId))
+    .orderBy(asc(m.createdAt), sql`${m}.rowid`)
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/**
+ * Withdraws a pending suggestion in a claimed batch, with its audit event: the edit is cleared
+ * (its bytes given back by the usage trigger) and the thread stays as a conversation. Only while
+ * it is still pending, so an acceptance that started first wins.
+ */
+function withdrawalStatements(
+  x: Db,
+  loaded: Authorized,
+  threadId: string,
+  writeId: string,
+  input: AnnotationActor,
+): BatchItem<"sqlite">[] {
+  const th = schema.annotationThreads;
+  const pending = sql`exists (select 1 from ${th} where ${th.id} = ${threadId} and ${th.suggestionState} = 'pending')`;
+  return [
+    auditEvent(
+      x,
+      {
+        ownerId: loaded.artifact.ownerId,
+        kind: "suggestion.withdrawn",
+        actor: { type: "user", id: input.userId },
+        targetId: loaded.artifact.id,
+        artifactId: loaded.artifact.id,
+        detail: {},
+        now: input.now,
+      },
+      sql`${claimed(writeId)} and ${pending}`,
+    ),
+    x
+      .update(th)
+      .set(WITHDRAWN)
+      .where(and(eq(th.id, threadId), eq(th.suggestionState, "pending"), claimed(writeId))),
+  ];
+}
+
+/** What a withdrawal writes on the thread. */
+export const WITHDRAWN = {
+  suggestionState: "withdrawn",
+  edit: null,
+  editBytes: 0,
+  editProofs: null,
+  attemptReason: null,
+  suggestionRevision: sql`${schema.annotationThreads.suggestionRevision} + 1`,
+} as const;
+
 /**
  * Deletes a message, keeping a marker so replies keep their place. When no other message of
  * the thread is left, the thread is removed. Deleting a deleted message changes nothing.
@@ -1170,9 +1297,30 @@ async function removeMessage(
           ),
         );
       const remaining = Number((others as { count: number }).count);
-      return ok({ loaded: loaded.value, found, removesThread: remaining === 0 });
+      // Deleting one's own first message of a pending suggestion withdraws it (decision 0027,
+      // "Withdrawal, deletion and retention"); the author's words and their edit go together.
+      const first =
+        found.thread.kind === "suggestion" && action === "delete_own"
+          ? await firstMessageId(db, found.thread.id)
+          : null;
+      const isFirst = first === input.messageId && found.thread.authorId === input.userId;
+      const deletion = firstMessageDeletion(
+        found.thread.kind,
+        found.thread.suggestionState,
+        isFirst,
+      );
+      if (!deletion.ok) return deletion;
+      return ok({
+        loaded: loaded.value,
+        found,
+        removesThread: remaining === 0,
+        withdraws: deletion.value.withdraws,
+        // The author's first words of a suggestion go only with the suggestion as read: an
+        // acceptance that started meanwhile wins, and the deletion is refused as it would be now.
+        bindsSuggestion: found.thread.kind === "suggestion" && isFirst,
+      });
     },
-    async ({ loaded, found, removesThread }) => {
+    async ({ loaded, found, removesThread, withdraws, bindsSuggestion }) => {
       if (found.message.state === "deleted") return ok(true);
       const th = schema.annotationThreads;
       const others = sql`exists (select 1 from ${m} where ${m.threadId} = ${found.thread.id} and ${m.id} <> ${input.messageId} and ${m.state} <> 'deleted')`;
@@ -1180,6 +1328,10 @@ async function removeMessage(
         // A participant only deletes their own message (checked above, and authors never
         // change), so the thread's scope does not matter here.
         loaded.role === "participant" ? sql` and ${currentThreadGuard(found.thread.id)}` : sql``
+      }${
+        bindsSuggestion
+          ? sql` and exists (select 1 from ${th} where ${th.id} = ${found.thread.id} and ${th.suggestionState} is ${found.thread.suggestionState} and ${th.suggestionRevision} = ${found.thread.suggestionRevision})`
+          : sql``
       }`;
       const event: Claim = {
         artifactId: loaded.artifact.id,
@@ -1213,6 +1365,7 @@ async function removeMessage(
           .update(m)
           .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
           .where(and(eq(m.id, input.messageId), claimed(writeId))),
+        ...(withdraws ? withdrawalStatements(x, loaded, found.thread.id, writeId, input) : []),
         touchThread(x, found.thread.id, writeId, input.now),
       ]);
     },
@@ -1239,12 +1392,15 @@ export async function setAnnotationThreadState(
       if (!thread) return missingThread();
       const allowed = checkResolve(loaded.value.role, input.userId, thread.authorId);
       if (!allowed.ok) return allowed;
+      // An undecided suggestion is accepted, rejected or withdrawn, never resolved (decision 0027).
+      const decided = checkSuggestionThreadState(thread.kind, thread.suggestionState, input.state);
+      if (!decided.ok) return decided;
       return ok({ loaded: loaded.value, thread });
     },
     async ({ loaded, thread }) => {
       if (thread.state === input.state) return ok(true);
       const th = schema.annotationThreads;
-      const guard = sql`${artifactGuard(loaded, "resolve", input.now)} and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.state} = ${thread.state})${
+      const guard = sql`${artifactGuard(loaded, "resolve", input.now)} and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.state} = ${thread.state} and (${th.kind} = 'comment' or ${th.suggestionState} not in ('pending', 'applying') or ${input.state} = 'open'))${
         loaded.role === "participant" ? sql` and ${currentThreadGuard(thread.id)}` : sql``
       }`;
       const resolved = input.state === "resolved";
@@ -1673,21 +1829,33 @@ export async function eraseAuthorFromThread(
         ),
         // The author's words go, so does their pending suggestion (decision 0027, "Withdrawal,
         // deletion and retention"): withdrawn, its edit cleared, the thread kept as a conversation.
+        // An acceptance still running for it is ended first, so its job's claim loses and
+        // nothing returns the edit to pending; an acceptance whose commit already won stays.
+        db
+          .update(schema.acceptanceAttempts)
+          .set({ state: "ended", reason: "revoked", updatedAt: input.now })
+          .where(
+            and(
+              eq(schema.acceptanceAttempts.threadId, thread.id),
+              eq(schema.acceptanceAttempts.state, "running"),
+              sql`exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.authorId} = ${input.authorId} and ${th.suggestionState} = 'applying')`,
+              claimed(writeId),
+            ),
+          )
+          .returning({
+            id: schema.acceptanceAttempts.id,
+            artifactId: schema.acceptanceAttempts.artifactId,
+            ownerId: schema.acceptanceAttempts.ownerId,
+            origin: schema.acceptanceAttempts.origin,
+          }),
         db
           .update(th)
-          .set({
-            suggestionState: "withdrawn",
-            edit: null,
-            editBytes: 0,
-            editProofs: null,
-            attemptReason: null,
-            suggestionRevision: sql`${th.suggestionRevision} + 1`,
-          })
+          .set({ ...WITHDRAWN, attemptId: null })
           .where(
             and(
               eq(th.id, thread.id),
               eq(th.kind, "suggestion"),
-              eq(th.suggestionState, "pending"),
+              inArray(th.suggestionState, ["pending", "applying"]),
               eq(th.authorId, input.authorId),
               claimed(writeId),
             ),
@@ -1700,9 +1868,22 @@ export async function eraseAuthorFromThread(
         claim(db, writeId, event, guard),
         db.delete(th).where(and(eq(th.id, thread.id), claimed(writeId))),
       ];
-  const [first] = (await db.batch(statements)) as [{ id: number }[]];
+  const outcome = await db.batch(statements);
+  const [first] = outcome as [{ id: number }[]];
+  if (visibleLeft) {
+    // The ended acceptance's upload is released at once, through the ending path every attempt
+    // takes (`endAttempt`, idempotent: its writes need a running attempt, so the withdrawn
+    // thread is left as it is).
+    const ended = outcome[1 + chunks(remove).length + chunks(mark).length] as EndedAttempt[];
+    for (const attempt of ended) await endAttempt(db, attempt, "revoked", input.now);
+  }
   return first.length === 1;
 }
+
+type EndedAttempt = Pick<
+  typeof schema.acceptanceAttempts.$inferSelect,
+  "id" | "artifactId" | "ownerId" | "origin"
+>;
 
 // Comment notices
 
@@ -1938,3 +2119,29 @@ export async function participation(
   }
   return result;
 }
+
+/**
+ * The annotation paths' loading, guards and claimed writes, for the suggestion services (decision
+ * 0027), which are comment threads under exactly these rules. Not a use case.
+ */
+export const annotationParts = {
+  authorize,
+  findThread,
+  artifactGuard,
+  currentThreadGuard,
+  scopeGuard,
+  liveStanding,
+  standingHolds,
+  rateGuard,
+  claim,
+  claimed,
+  claimedEventId,
+  runClaimed,
+  guardedWrite,
+  checkLimits,
+  humanGate,
+  noticeMark,
+  insertMessage,
+  threadResult,
+} as const;
+export type { Authorized as AuthorizedAnnotations };

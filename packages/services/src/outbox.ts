@@ -51,6 +51,8 @@ import { type GraceNotifier, sendGraceNotice } from "./plan-grace-notices.ts";
 import { applyOwnerPlanRegion } from "./plans.ts";
 import { type RetentionNotifier, sendRetentionNotice } from "./retention-notices.ts";
 import { type ReviewNotifier, runReviewNotice } from "./review-notices.ts";
+import { runAcceptance } from "./suggestion-accept.ts";
+import { runChangeListCheck, runSuggestionCarry } from "./suggestion-versions.ts";
 import { runThreadIssue, type ThreadIssueDeps } from "./thread-issues.ts";
 import { deliverWebhook, type WebhookDeps } from "./webhooks.ts";
 import {
@@ -200,6 +202,12 @@ export interface JobDeps {
   reportOutcomeNotifier?: ReportOutcomeNotifier | undefined;
   /** Every region, for the deletions that reach all of them; only the job's own without it. */
   regions?: DeletionRegions | undefined;
+  /**
+   * Edit suggestions (decision 0027): whether the switch is on in this Worker and the content
+   * domain pages are served on, for `suggestion_accept`, `draft_publish`, `suggestion_carry` and
+   * `change_list_check`. Off, those jobs are thrown back and wait, as with a missing binding.
+   */
+  suggestions?: { enabled: boolean; contentDomain: string } | undefined;
   /** The job's region's documents objects (decision 0026), for the `data_*` jobs. */
   data?: DataObjects | null | undefined;
 }
@@ -244,6 +252,7 @@ async function runRow(
     moderationNotifier,
     reportOutcomeNotifier,
     regions = singleRegion(db, bucket),
+    suggestions,
     data,
   }: JobDeps,
 ): Promise<JobOutcome> {
@@ -354,6 +363,17 @@ async function runRow(
     case "report_outcome":
       if (!reportOutcomeNotifier) throw new Error("report_outcome needs the report notifier");
       return sendReportOutcome(db, row, now, reportOutcomeNotifier);
+    case "suggestion_accept":
+    case "draft_publish":
+      // Thrown, not reported done: the row stays and runs again once suggestions are on.
+      if (!suggestions?.enabled) throw new Error(`${row.topic} needs suggestions switched on`);
+      return runAcceptance(db, bucket, row, now);
+    case "suggestion_carry":
+      if (!suggestions?.enabled) throw new Error("suggestion_carry needs suggestions switched on");
+      return runSuggestionCarry(db, bucket, row, now, suggestions.contentDomain);
+    case "change_list_check":
+      if (!suggestions?.enabled) throw new Error("change_list_check needs suggestions switched on");
+      return runChangeListCheck(db, bucket, row, now, suggestions.contentDomain);
     // Artifact data (decision 0026): each throws without the binding, so the row stays.
     case "data_fence":
       return runDataFence(db, data, row, now);

@@ -16,11 +16,13 @@ import {
   Envelope,
   MarkChangeItem,
   operationTargets,
+  PLAN_LIMITS as PLAN_SIZE_LIMITS,
   Proof,
   REFUSAL_MESSAGES,
   REFUSAL_REASONS,
   ShownEnvelope,
   STYLE_PROPERTIES,
+  SUGGESTION_LIMITS,
   SUGGESTIONS_SWITCH,
   Token,
   textOperationsOverlap,
@@ -487,5 +489,12 @@ describe("the preview origin", () => {
     expect(
       PreviewResponse.safeParse({ state: "ready", url: "not a url", expiresAt: "x" }).success,
     ).toBe(false);
+  });
+});
+
+describe("the job read budget", () => {
+  it("fits a carry group's two pages at their largest, a byte order mark each", () => {
+    const page = Math.max(PLAN_SIZE_LIMITS.htmlBytes, PLAN_SIZE_LIMITS.documentBytes) + 3;
+    expect(2 * page).toBeLessThanOrEqual(SUGGESTION_LIMITS.jobReadBytes);
   });
 });

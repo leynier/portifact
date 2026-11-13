@@ -1711,6 +1711,7 @@ export const en = {
   "audit.group.all": "All changes",
   "audit.group.access": "Access and sharing",
   "audit.group.lifecycle": "Publishing and lifecycle",
+  "audit.group.suggestions": "Suggestions and change list",
   "audit.group.integrations": "Domains, webhooks and brand",
   "audit.group.members": "Members, tokens and plan",
   "audit.actor.all": "Anyone",
@@ -1826,6 +1827,19 @@ export const en = {
     "{reviewers, plural, one {Asked # person to review} other {Asked # people to review}}",
   "audit.kind.reviewChanged": "Changed a review request",
   "audit.kind.reviewCancelled": "Cancelled a review request",
+  "audit.kind.suggestionAccepted":
+    "Accepted a suggestion as version {version}: {applied} applied, {listed} to the change list",
+  "audit.kind.suggestionAcceptedNothing":
+    "Accepted a suggestion with nothing applied: {listed} to the change list",
+  "audit.kind.draftPublished":
+    "Published a draft as version {version}: {applied} applied, {listed} to the change list",
+  "audit.kind.draftPublishedNothing":
+    "Published a draft with nothing applied: {listed} to the change list",
+  "audit.kind.suggestionRejected": "Rejected a suggestion",
+  "audit.kind.suggestionWithdrawn": "Withdrew a suggestion",
+  "audit.kind.changeItemApplied": "Marked a change-list item as applied",
+  "audit.kind.changeItemDismissed": "Dismissed a change-list item",
+  "audit.kind.changeItemReopened": "Reopened a change-list item",
   "audit.kind.reviewVerdict":
     "{verdict, select, approve {Approved version {version}} other {Asked for changes to version {version}}}",
   "audit.kind.domainAttached": "Attached the domain {hostname}",

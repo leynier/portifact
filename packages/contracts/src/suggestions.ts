@@ -654,6 +654,85 @@ export const ConfirmPlan = z.strictObject({ digest: Sha256 });
 export type ConfirmPlan = z.infer<typeof ConfirmPlan>;
 
 /**
+ * Bounds of the suggestion services (decision 0027, "Costs and limits"): the acceptance rate limit,
+ * the acceptance attempt's lifetime, how long records are kept and how much a run reads.
+ */
+export const SUGGESTION_LIMITS = {
+  // Planning windows (dry runs, previews, acceptances) are `PLANNING_RATE_LIMITS` below.
+  /** Acceptances and draft publishes started per owner per day (a version or not). */
+  acceptsPerOwner: 100,
+  acceptsOwnerWindowMs: 24 * 60 * 60_000,
+  /** An attempt still running after this many deliveries or this long is ended as `failed`. */
+  attemptDeliveries: 3,
+  attemptMs: 30 * 60_000,
+  /** Ended and done attempts, with their claims, are deleted this long after they started. */
+  attemptRetentionMs: 30 * 24 * 60 * 60_000,
+  /** Change items checked for closure, and suggestions carried, in one run of their job. */
+  itemsPerCheck: 200,
+  /**
+   * A document's stored rendering or block map a plan reads at most, in bytes, checked by its
+   * stored size before reading; a larger one is no baseline (everything is listed).
+   */
+  renderingReadBytes: 16 * 1024 * 1024,
+  /**
+   * Stored bytes one run of a carry or closure job reads at most: each unit (a carry group's two
+   * pages, a closure's page; sources only) is admitted by its stored size before any read, the
+   * rest continues in the next job. Two pages at their largest fit, so a unit always does.
+   */
+  jobReadBytes: 8 * 1024 * 1024,
+} as const;
+
+/**
+ * The proof data persisted with a suggestion once it was planned (`annotation_threads.edit_proofs`,
+ * decision 0027, "Suggestions and new versions"), one entry per operation of its edit, in the
+ * edit's order: where the selected text is on `versionId`'s page (code points, as an anchor's
+ * position) and its proof, or null for an operation that was never located (style and structure
+ * operations among them). The submitted edit never changes; a carry rewrites only this. Never
+ * exported or shown.
+ */
+export const SuggestionProofs = z.object({
+  format: z.literal(1),
+  versionId: z.string().min(1).max(64),
+  operations: z.array(
+    z
+      .object({
+        start: z.number().int().nonnegative(),
+        end: z.number().int().nonnegative(),
+        proof: Proof,
+      })
+      .nullable(),
+  ),
+});
+export type SuggestionProofs = z.infer<typeof SuggestionProofs>;
+
+/** A suggestion as its own route returns it (`?fields=suggestion` adds the same block). */
+export const SuggestionView = z.object({
+  threadId: z.string(),
+  artifactId: z.string(),
+  versionId: z.string(),
+  state: Token,
+  /** The submitted edit; null once withdrawn. Untrusted reviewer text. */
+  edit: z.unknown().nullable(),
+  revision: z.number().int().nonnegative(),
+  /** Why the last acceptance ended without completing, while the suggestion is pending again. */
+  attemptReason: Token.nullable(),
+  decidedAt: z.number().int().nullable(),
+  resultVersionId: z.string().nullable(),
+  /** Where a carried suggestion was made. */
+  originVersionId: z.string().nullable(),
+  /** Whether the suggestion was planned on its current version, so it can be carried. */
+  planned: z.boolean(),
+});
+export type SuggestionView = z.infer<typeof SuggestionView>;
+
+/** What starting an acceptance or a draft publish answers: the attempt the job runs. */
+export const AcceptanceStarted = z.object({
+  attemptId: z.string(),
+  state: z.literal("applying"),
+});
+export type AcceptanceStarted = z.infer<typeof AcceptanceStarted>;
+
+/**
  * Planning work a person may cause (decision 0027, "Costs and limits"): dry runs and previews
  * share these windows in `rate_limits`, per person and per artifact.
  */

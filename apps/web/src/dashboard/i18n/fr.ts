@@ -1778,6 +1778,7 @@ export const fr = {
   "audit.group.all": "Tous les changements",
   "audit.group.access": "Accès et partage",
   "audit.group.lifecycle": "Publication et cycle de vie",
+  "audit.group.suggestions": "Suggestions et liste des modifications",
   "audit.group.integrations": "Domaines, webhooks et marque",
   "audit.group.members": "Membres, jetons et forfait",
   "audit.actor.all": "N'importe qui",
@@ -1898,6 +1899,20 @@ export const fr = {
     "{reviewers, plural, one {A demandé à # personne de relire} other {A demandé à # personnes de relire}}",
   "audit.kind.reviewChanged": "A modifié une demande de relecture",
   "audit.kind.reviewCancelled": "A annulé une demande de relecture",
+  "audit.kind.suggestionAccepted":
+    "A accepté une suggestion comme version {version} : {applied} appliquées, {listed} dans la liste des modifications",
+  "audit.kind.suggestionAcceptedNothing":
+    "A accepté une suggestion sans rien appliquer : {listed} dans la liste des modifications",
+  "audit.kind.draftPublished":
+    "A publié un brouillon comme version {version} : {applied} appliquées, {listed} dans la liste des modifications",
+  "audit.kind.draftPublishedNothing":
+    "A publié un brouillon sans rien appliquer : {listed} dans la liste des modifications",
+  "audit.kind.suggestionRejected": "A refusé une suggestion",
+  "audit.kind.suggestionWithdrawn": "A retiré une suggestion",
+  "audit.kind.changeItemApplied":
+    "A marqué un élément de la liste des modifications comme appliqué",
+  "audit.kind.changeItemDismissed": "A écarté un élément de la liste des modifications",
+  "audit.kind.changeItemReopened": "A rouvert un élément de la liste des modifications",
   "audit.kind.reviewVerdict":
     "{verdict, select, approve {A approuvé la version {version}} other {A demandé des modifications à la version {version}}}",
   "audit.kind.domainAttached": "A rattaché le domaine {hostname}",

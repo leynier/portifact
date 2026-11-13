@@ -24,6 +24,7 @@ import { DOCUMENT_RENDERER } from "@portifact/render";
 import { and, eq } from "drizzle-orm";
 import { expect } from "vitest";
 import { commitPublish, preparePublish } from "../src/publish.ts";
+import { suggestionPlanOf } from "../src/suggestion-plans.ts";
 import { issuePreviewCode } from "../src/suggestion-previews.ts";
 import { db, NOW, session, sha256, user } from "./fixtures.ts";
 
@@ -166,38 +167,31 @@ export async function suggestionWithPlan(input: SuggestionInput): Promise<{
   return { threadId, plan };
 }
 
-/** The plan of a suggestion from the version's stored files, as the services will build it. */
+/**
+ * The plan of a suggestion from the version's stored files, built by the suggestion services'
+ * own builder (`suggestionPlanOf`), as the viewer's dry run builds it: the owner side plans as
+ * the acceptor.
+ */
 export async function planFor(
   input: SuggestionInput & { threadId: string; revision: number },
 ): Promise<BuiltPlan> {
-  const path = PATHS[input.kind];
-  let stored: StoredRendering | undefined;
-  if (input.kind !== "html") {
-    stored = {
-      html: (await storedEntry(input.versionId, "rendered", path)) ?? "",
-      blockMap:
-        input.kind === "markdown" ? await storedEntry(input.versionId, "block_map", path) : null,
-      options: { title: TITLE },
-    };
-  }
-  return buildPlan({
-    binding: {
-      artifactId: input.artifactId,
-      versionId: input.versionId,
-      path,
-      fileSha256: await sha256(input.source),
-      renderer: DOCUMENT_RENDERER.label,
-      subject: input.threadId,
-      revision: input.revision,
-    },
-    people: { submitter: true, acceptor: true },
-    kind: input.kind,
-    source: input.source,
-    operations: input.operations,
-    ...(stored ? { stored } : {}),
-    pageUrl: planPageUrl(input.kind, input.artifactId, CONTENT_DOMAIN, path),
-    renderer: DOCUMENT_RENDERER,
+  const [artifact] = await db()
+    .select()
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, input.artifactId));
+  const [thread] = await db()
+    .select()
+    .from(schema.annotationThreads)
+    .where(eq(schema.annotationThreads.id, input.threadId));
+  if (!artifact || !thread) throw new Error("no artifact or thread to plan");
+  const built = await suggestionPlanOf(db(), env.ARTIFACTS, {
+    artifact,
+    thread,
+    acceptor: input.viewerId === input.ownerId,
+    contentDomain: CONTENT_DOMAIN,
   });
+  if (!built.ok) throw new Error(built.message);
+  return built.value.plan;
 }
 
 /** Stores a plan in the person's cache, as the suggestion services will (10 minutes). */
@@ -208,7 +202,7 @@ export async function storePlan(
   plan: BuiltPlan,
   now = NOW,
 ) {
-  const { newSource: _n, proofs: _p, work: _w, ...exported } = plan;
+  const { newSource: _n, proofs: _p, operations: _o, work: _w, ...exported } = plan;
   await db()
     .insert(schema.suggestionPlans)
     .values({

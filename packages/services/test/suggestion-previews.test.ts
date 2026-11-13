@@ -218,18 +218,9 @@ describe("issuing a preview code", () => {
 
   it("refuses a stored plan whose digest no longer matches what the files and edit give", async () => {
     const s = await ownerSuggestion();
-    // A stored plan claiming another rendering title: rebuilt from the stored files, the
-    // baseline no longer reproduces and every operation is listed, so the digest differs.
-    const [row] = await db()
-      .select({ plan: schema.suggestionPlans.plan })
-      .from(schema.suggestionPlans)
-      .where(eq(schema.suggestionPlans.digest, s.plan.digest));
-    const tampered = JSON.parse(row?.plan ?? "{}") as { output: { options: { title: string } } };
-    tampered.output.options.title = "Another title";
-    await db()
-      .update(schema.suggestionPlans)
-      .set({ plan: JSON.stringify(tampered) })
-      .where(eq(schema.suggestionPlans.digest, s.plan.digest));
+    // The artifact's name is the stored rendering's title: after a rename, the plan rebuilt from
+    // the stored files lists every operation, so its digest is not the one the person holds.
+    await openArtifact(s.artifactId, { name: "Another title" });
     expect(await issue(s)).toMatchObject({ ok: false, code: "version_conflict" });
   });
 
@@ -358,7 +349,7 @@ describe("what decides a stored plan", () => {
 
   // The row's own `digest` and `kind` are never read (the digest asked for and the artifact's
   // type are); everything the rebuild takes from the row is confirmed by the digest.
-  it("trusts nothing a cached row says that the rebuilt plan does not confirm", async () => {
+  it("trusts nothing a cached row says: the plan rebuilt from stored state decides", async () => {
     for (const change of [
       (plan: Record<string, unknown>) => ({
         ...plan,
@@ -368,11 +359,24 @@ describe("what decides a stored plan", () => {
         ...plan,
         binding: { ...(plan.binding as object), subject: "th_other" },
       }),
+      (plan: Record<string, unknown>) => ({
+        ...plan,
+        output: { ...(plan.output as object), options: { title: "Another title" } },
+      }),
     ]) {
       const s = await ownerSuggestion();
       await rewritePlan(s.plan.digest, (plan) => JSON.stringify(change(plan)));
-      expect(await issue(s)).toEqual(CHANGED);
+      // The rebuild reads none of these fields: the preview is of the plan the stored files and
+      // the thread give, which has the digest the person holds.
+      const issued = await issue(s);
+      expect(issued).toMatchObject({ ok: true, value: { state: "ready" } });
     }
+    // A row whose binding names another version is refused by that version check.
+    const s = await ownerSuggestion();
+    await rewritePlan(s.plan.digest, (plan) =>
+      JSON.stringify({ ...plan, binding: { ...(plan.binding as object), versionId: "ver_other" } }),
+    );
+    expect(await issue(s)).toEqual(CHANGED);
   });
 
   it("refuses when a stored file of the version is gone", async () => {
@@ -409,7 +413,7 @@ describe("what decides a stored plan", () => {
     expect(await issue(s)).toEqual({
       ok: false,
       code: "rate_limited",
-      message: "Too many previews. Wait a moment.",
+      message: "Too many plans in a short time. Try again in a few minutes.",
     });
   });
 });

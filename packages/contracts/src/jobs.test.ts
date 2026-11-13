@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AcceptancePayload,
   COMMENT_NOTICE_THREADS_MAX,
   CommentNoticePayload,
   DataAuthorErasurePayload,
@@ -18,6 +19,7 @@ import {
   OutboxTopic,
   ReviewNoticePayload,
   TombstoneMarker,
+  VersionJobPayload,
 } from "./index.ts";
 
 describe("job contracts", () => {
@@ -130,6 +132,10 @@ describe("job contracts", () => {
       "moderation_notice",
       "report_outcome",
       "legal_hold_release",
+      "suggestion_accept",
+      "draft_publish",
+      "suggestion_carry",
+      "change_list_check",
       "data_fence",
       "data_erase",
       "data_author_erasure",
@@ -271,5 +277,19 @@ describe("legal hold lines", () => {
       LegalHoldLine.safeParse({ legalHold: { ...line.legalHold, id: "hold_x" } }).success,
     ).toBe(false);
     expect(LegalHoldLine.safeParse({ ...line, extra: 1 }).success).toBe(false);
+  });
+});
+
+describe("suggestion job payloads", () => {
+  it("names the attempt and the content domain, or the version and where a check resumes", () => {
+    expect(AcceptancePayload.parse({ attemptId: "att_1", contentDomain: "portifact.dev" })).toEqual(
+      {
+        attemptId: "att_1",
+        contentDomain: "portifact.dev",
+      },
+    );
+    expect(AcceptancePayload.safeParse({ attemptId: "att_1" }).success).toBe(false);
+    expect(VersionJobPayload.parse({ versionId: "ver_1", after: "chg_1" }).after).toBe("chg_1");
+    expect(VersionJobPayload.safeParse({ versionId: "ver_1", extra: 1 }).success).toBe(false);
   });
 });

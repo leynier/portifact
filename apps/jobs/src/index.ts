@@ -402,6 +402,8 @@ export async function runQueue(
         commentRetentionNotifier,
         reportOutcomeNotifier,
         regions,
+        // Edit suggestions (decision 0027): their jobs wait while the switch is off.
+        suggestions: { enabled: suggestionsEnabled(env), contentDomain: env.CONTENT_DOMAIN },
         // The region's documents objects (decision 0026), in its jurisdiction.
         data: dataNamespaces(env, handles.region),
       });

@@ -622,8 +622,9 @@ describe("what issuing and redeeming cost", () => {
       }),
     );
     // Plan cache, the thread's authorization (artifact with its plan, thread), two planning
-    // windows, three stored entries, the conditioned insert.
-    expect(issuing.count()).toBe(9);
+    // windows, the stored entries in one read (`storedPage`), whether the suggester still has an
+    // account (the envelope's people flag), the conditioned insert.
+    expect(issuing.count()).toBe(8);
     expect(issueBucket.calls).toEqual({ get: 3, put: 1 });
 
     const redeeming = recording();

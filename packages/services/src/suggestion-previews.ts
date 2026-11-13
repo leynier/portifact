@@ -4,39 +4,28 @@
 // with the document built here.
 //
 // What is computed when (pinned by the cost test in `test/suggestion-previews-review.test.ts`).
-// At issue, 9 D1 calls and 3 R2 reads and 1 write for a Markdown document: the cached plan, the
-// thread's read authorization, the two planning windows (counted after authorization), the stored
-// file, rendering and block map, the plan rebuilt from them and the suggestion's edit (its digest
-// must be the one the person holds), the preview built by the domain (`previewOfPlan`), one
-// conditioned insert of the code row and the document written with the version and revision it
-// shows. The cost is the plan's, bounded inside the planners by `PLAN_LIMITS`, and counted with
+// At issue, 8 D1 calls and 3 R2 reads and 1 write for a Markdown document: the cached plan, the
+// thread's read authorization, the two planning windows (counted after authorization, the windows
+// dry runs and acceptances share), the stored file, rendering and block map in one read, whether
+// the suggester still has an account, the plan rebuilt from them by the suggestion services' own
+// builder (`suggestionPlanOf`; its digest must be the one the person holds), the preview built by
+// the domain (`previewOfPlan`), one conditioned insert of the code row and the document written
+// with the version and revision it shows. The cost is the plan's, bounded inside the planners by `PLAN_LIMITS`, and counted with
 // dry runs in `PLANNING_RATE_LIMITS`. At redemption, 4 D1 calls with one region (one spend per
 // region), 1 R2 read and 1 delete: the spend, the session with its account, the thread's read
 // authorization again, and the document compared with the current version and revision: no
 // plan, no parse, no render.
 //
 // Only the code's SHA-256 is stored. A code is never logged, audited or written anywhere else.
-import {
-  Edit,
-  type FileKind,
-  PLANNING_RATE_LIMITS,
-  Plan,
-  PREVIEW_CODES,
-  planningRateKeys,
-  previewHost,
-} from "@portifact/contracts";
-import { hitRateLimit, type Region, type RegionalDb, type Regions, schema } from "@portifact/db";
+import { Plan, PREVIEW_CODES, previewHost } from "@portifact/contracts";
+import { type Region, type RegionalDb, type Regions, schema } from "@portifact/db";
 import { fail, logEvent, needsTermsAcceptance, ok, type Result } from "@portifact/domain";
-import {
-  buildPlan,
-  planPageUrl,
-  previewOfPlan,
-  type StoredRendering,
-} from "@portifact/domain/suggestions";
+import { previewOfPlan } from "@portifact/domain/suggestions";
 import { DOCUMENT_RENDERER } from "@portifact/render";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { type CommentStanding, readableThread } from "./annotations.ts";
 import { recordSessionRenewal } from "./read-access.ts";
+import { admitPlanning, suggestionPlanOf } from "./suggestion-plans.ts";
 
 type ThreadRow = typeof schema.annotationThreads.$inferSelect;
 
@@ -83,35 +72,6 @@ export async function previewSubject(
     return planChanged();
   }
   return ok({ standing, thread });
-}
-
-/** The file kind a plan of this artifact type must have. */
-const KIND_OF_TYPE: Readonly<Record<string, FileKind>> = {
-  site: "html",
-  markdown: "markdown",
-  text: "text",
-};
-
-/**
- * One stored entry of a version as text, or undefined when it is missing. Its size is bounded by
- * the plan: the published file has the hash the plan was built from under `PLAN_LIMITS`, and the
- * stored rendering and block map are the renderer's output for it.
- */
-async function storedText(
-  db: RegionalDb,
-  bucket: R2Bucket,
-  where: { versionId: string; kind: "published" | "rendered" | "block_map"; path: string },
-): Promise<string | undefined> {
-  const vf = schema.versionFiles;
-  const o = schema.objects;
-  const [row] = await db
-    .select({ r2Key: o.r2Key })
-    .from(vf)
-    .innerJoin(o, and(eq(o.ownerId, vf.ownerId), eq(o.sha256, vf.sha256)))
-    .where(and(eq(vf.versionId, where.versionId), eq(vf.kind, where.kind), eq(vf.path, where.path)))
-    .limit(1);
-  const object = row && (await bucket.get(row.r2Key));
-  return object ? object.text() : undefined;
 }
 
 function newCode(): string {
@@ -171,70 +131,26 @@ export async function issuePreviewCode(
   if (!subject.ok) return subject;
   const { standing, thread } = subject.value;
 
-  const keys = planningRateKeys(userId, artifactId);
-  const perUser = await hitRateLimit(
-    db.global.$client,
-    keys.user,
-    PLANNING_RATE_LIMITS.perUser.windowMs,
-    now,
-  );
-  const perArtifact = await hitRateLimit(
-    db.global.$client,
-    keys.artifact,
-    PLANNING_RATE_LIMITS.perArtifact.windowMs,
-    now,
-  );
-  if (
-    perUser.count > PLANNING_RATE_LIMITS.perUser.requests ||
-    perArtifact.count > PLANNING_RATE_LIMITS.perArtifact.requests
-  ) {
-    return fail("rate_limited", "Too many previews. Wait a moment.");
-  }
+  // The same planning windows as dry runs and acceptances (`admitPlanning`).
+  const admitted = await admitPlanning(db, userId, artifactId, now);
+  if (!admitted.ok) return admitted;
 
   if (standing.artifact.currentVersionId !== binding.versionId) return planChanged();
   // Nothing applies: the plan says why, and nothing is read or built.
   if (plan.output === null) {
     return ok({ state: "unavailable", reasons: plan.listed.map((e) => e.reason ?? "unknown") });
   }
-  const kind = KIND_OF_TYPE[standing.artifact.type] as FileKind;
-  const where = { versionId: binding.versionId, path: binding.path };
-  const source = await storedText(db, bucket, { ...where, kind: "published" });
-  let stored: StoredRendering | undefined;
-  if (kind !== "html") {
-    // A missing stored rendering or block map is the baseline not reproducing: every operation
-    // is listed, the digest differs and the request ends below with `version_conflict`.
-    const html = await storedText(db, bucket, { ...where, kind: "rendered" });
-    const blockMap =
-      kind === "markdown" ? await storedText(db, bucket, { ...where, kind: "block_map" }) : null;
-    stored = {
-      html: html ?? "",
-      blockMap: blockMap ?? null,
-      options: plan.output.options ?? { title: "" },
-    };
-  }
-  const edit = Edit.safeParse(safeJson(thread.edit ?? ""));
-  if (source === undefined || !edit.success) return planChanged();
-
-  const rebuilt = await buildPlan({
-    binding: {
-      artifactId: binding.artifactId,
-      versionId: binding.versionId,
-      path: binding.path,
-      fileSha256: binding.fileSha256,
-      renderer: binding.renderer,
-      subject: binding.subject,
-      revision: binding.revision,
-    },
-    // A plan that applies something has at least one applied envelope.
-    people: (plan.applied[0] as (typeof plan.applied)[number]).people,
-    kind,
-    source,
-    operations: edit.data.operations,
-    ...(stored ? { stored } : {}),
-    pageUrl: planPageUrl(kind, artifactId, input.contentDomain, binding.path),
-    renderer: DOCUMENT_RENDERER,
+  // Rebuilt by the one plan builder the suggestion services use (`suggestionPlanOf`: the stored
+  // files read within their bounds, a carried suggestion at its carried positions, a stored byte
+  // order mark kept), so a plan and its preview hash alike.
+  const built = await suggestionPlanOf(db, bucket, {
+    artifact: standing.artifact,
+    thread,
+    acceptor: standing.role === "owner",
+    contentDomain: input.contentDomain,
   });
-  if (rebuilt.digest !== input.digest) return planChanged();
+  if (!built.ok || built.value.plan.digest !== input.digest) return planChanged();
+  const rebuilt = built.value.plan;
   const preview = previewOfPlan(rebuilt, DOCUMENT_RENDERER);
   if (preview.state === "unavailable") return ok(preview);
 
