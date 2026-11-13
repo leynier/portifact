@@ -15,6 +15,7 @@ import {
 } from "../src/annotations.ts";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
 import { writeCommentTombstones } from "../src/comment-retention.ts";
+import { rebaseDraft } from "../src/draft-rebase.ts";
 import { discardDraft, removeDraftBatch, saveDraft } from "../src/edit-drafts.ts";
 import { runJob } from "../src/outbox.ts";
 import { acceptSuggestion, publishDraft } from "../src/suggestion-accept.ts";
@@ -36,6 +37,7 @@ import {
   JOB_DEPS,
   jobsOf,
   publishDoc,
+  republish,
   runJobs,
   textOp,
   thread,
@@ -742,5 +744,31 @@ describe("restore markers, review of #275", () => {
     expect(
       await marker("edit_draft", draftMarkerId(doc.artifactId, owner.id, replacement)),
     ).toBeUndefined();
+  });
+  it("marks the draft a rebase that keeps nothing removes, and a restore removes it again", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    const held = await save(doc, owner.id);
+    const before = present(await draftRow(doc, owner.id));
+    // The target's own text changes: nothing carries, so the rebase removes the draft.
+    await republish(owner.id, doc, DOC.replace("Second", "Other"), NOW + 1_000);
+    const rebased = value(
+      await rebaseDraft(db(), env.ARTIFACTS, {
+        userId: owner.id,
+        artifactId: doc.artifactId,
+        now: NOW + 2_000,
+        baseRevision: held.revision,
+        baseIncarnation: held.incarnation,
+        contentDomain: DOMAIN,
+      }),
+    );
+    expect(rebased.draft).toBeNull();
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    expect(
+      await marker("edit_draft", draftMarkerId(doc.artifactId, owner.id, held.incarnation)),
+    ).toMatchObject({ deletedAt: NOW + 2_000 });
+    await db().insert(dr).values(before);
+    expect((await restore()).drafts).toBe(1);
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
   });
 });
