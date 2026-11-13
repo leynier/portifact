@@ -14,7 +14,7 @@ import {
   replyToAnnotationThread,
 } from "../src/annotations.ts";
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
-import { writeCommentTombstones } from "../src/comment-retention.ts";
+import { commentTombstoneMarkers, writeCommentTombstones } from "../src/comment-retention.ts";
 import { rebaseDraft } from "../src/draft-rebase.ts";
 import { discardDraft, removeDraftBatch, saveDraft } from "../src/edit-drafts.ts";
 import { runJob } from "../src/outbox.ts";
@@ -770,5 +770,45 @@ describe("restore markers, review of #275", () => {
     await db().insert(dr).values(before);
     expect((await restore()).drafts).toBe(1);
     expect(await draftRow(doc, owner.id)).toBeUndefined();
+  });
+  it("reads a waiting job's markers once, and skips a payload that cannot be read", async () => {
+    const at = NOW + 7;
+    expect(
+      commentTombstoneMarkers(
+        JSON.stringify({
+          ids: ["t1"],
+          messages: ["m1"],
+          markers: [{ kind: "edit_draft", id: "a:u:i" }],
+          at,
+        }),
+      ),
+    ).toEqual([
+      { kind: "comment_thread", id: "t1", deletedAt: at },
+      { kind: "comment_message", id: "m1", deletedAt: at },
+      { kind: "edit_draft", id: "a:u:i", deletedAt: at },
+    ]);
+    expect(commentTombstoneMarkers({ ids: ["t2"], at })).toEqual([
+      { kind: "comment_thread", id: "t2", deletedAt: at },
+    ]);
+    expect(commentTombstoneMarkers("{")).toBeNull();
+    expect(commentTombstoneMarkers({ ids: [], at })).toBeNull();
+    // The export carries a readable waiting job's markers and passes over an unreadable one.
+    const eu = regions().get("eu").db;
+    const tag = crypto.randomUUID();
+    await eu.insert(schema.outbox).values([
+      {
+        topic: "comment_tombstones",
+        payload: JSON.stringify({ ids: [], markers: [{ kind: "edit_draft", id: tag }], at }),
+        availableAt: NOW,
+        createdAt: NOW,
+        subject: tag,
+      },
+      { topic: "comment_tombstones", payload: "{", availableAt: NOW, createdAt: NOW, subject: tag },
+    ]);
+    const exported = await exportTombstones(regions());
+    expect(exported.filter((m) => m.id === tag)).toEqual([
+      { kind: "edit_draft", id: tag, deletedAt: at },
+    ]);
+    await eu.delete(schema.outbox).where(eq(schema.outbox.subject, tag));
   });
 });
