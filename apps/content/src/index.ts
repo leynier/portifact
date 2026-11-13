@@ -137,6 +137,7 @@ export interface Env extends BudgetEnv {
   ARTIFACT_DOCUMENTS?: DurableObjectNamespace | undefined;
   /** Exactly `"true"` turns the page's data routes on; anything else answers them 404. */
   ARTIFACT_DATA_ENABLED?: string | undefined;
+  DATA_LIVE_ENABLED?: string | undefined;
   /** Exactly `"true"` lets pages create and replace documents (decision 0026, "Switches"). */
   DATA_PAGE_WRITES_ENABLED?: string | undefined;
   /**
@@ -554,11 +555,17 @@ function dataContext(routing: DataRouting): DataContext {
     customDomains: customDomainsOn(env),
     regions,
   };
-  const reader = (artifact: ServableArtifact, setCookies: string[], signedIn: boolean) => ({
+  const reader = (
+    artifact: ServableArtifact,
+    setCookies: string[],
+    signedIn: boolean,
+    credential: { id: string; expiresAt: number } | null,
+  ) => ({
     artifact,
     setCookies,
     signedIn,
     limits: entitlements(artifact.plan, now).data.perArtifact,
+    credential,
   });
   return {
     request,
@@ -570,14 +577,16 @@ function dataContext(routing: DataRouting): DataContext {
     customHost: resolved === undefined ? null : url.hostname,
     now,
     objects: dataNamespaces(env, routing.region),
-    async read() {
+    async read(freshWithin = 0) {
       const found =
         resolved === undefined ? await lookupDelivery(regions, db, id, cycle.start, now) : resolved;
       const artifact = found && isServable(found, now) ? found : null;
       if (artifact === null) return null;
-      const review = await authorizeReview(request, env, db, id, artifact, now);
-      if (review.kind === "review") return reader(review.artifact, review.setCookies, true);
-      if (artifact.accessMode === "public") return reader(artifact, [], false);
+      const review = await authorizeReview(request, env, db, id, artifact, now, freshWithin);
+      if (review.kind === "review") {
+        return reader(review.artifact, review.setCookies, true, review.credential);
+      }
+      if (artifact.accessMode === "public") return reader(artifact, [], false, null);
       const decision = await authorizeRead(
         request,
         env,
@@ -585,14 +594,16 @@ function dataContext(routing: DataRouting): DataContext {
         id,
         artifact,
         now,
-        () => authorizeLink(request, env, db, id, artifact, now),
+        () => authorizeLink(request, env, db, id, artifact, now, freshWithin),
         resolved === undefined ? null : url.hostname,
+        freshWithin,
       );
       if (decision.kind !== "allow") return null;
       return reader(
         decision.artifact,
         decision.setCookies,
         decision.userId !== null && decision.linkId === undefined,
+        decision.credential ?? null,
       );
     },
     gate: (reading) =>

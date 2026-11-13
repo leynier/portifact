@@ -727,7 +727,13 @@ describe("artifact data contracts", () => {
       intents: 0,
     };
     expect(
-      DataDescription.safeParse({ generation: 0, revision: 0, collections: [], today }).success,
+      DataDescription.safeParse({
+        generation: 0,
+        revision: 0,
+        collections: [],
+        today,
+        connections: 0,
+      }).success,
     ).toBe(true);
     expect(
       DataDescription.safeParse({ generation: 0, revision: 0, collections: [], today: {} }).success,

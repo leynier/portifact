@@ -68,6 +68,7 @@ export function describe(
     revision: number;
     collections: readonly CollectionInfo[];
     today: DayCounters;
+    connections: number;
   },
 ): Decision<DataDescription> {
   if (caller.kind !== "owner") return refuse("forbidden", "owner side only");
@@ -76,5 +77,6 @@ export function describe(
     revision: input.revision,
     collections: [...input.collections].sort((a, b) => (a.name < b.name ? -1 : 1)),
     today: input.today,
+    connections: input.connections,
   });
 }

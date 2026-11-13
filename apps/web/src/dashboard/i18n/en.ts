@@ -3373,6 +3373,8 @@ export const en = {
   "artifactData.usage.written": "Rows written today",
   "artifactData.usage.cleanup": "Rows cleaned up today",
   "artifactData.usage.export": "Rows exported today",
+  "artifactData.usage.connections": "Live connections open",
+  "artifactData.usage.live": "Live messages today",
   "artifactData.usage.ofLimit": "{used} of {limit}",
   "artifactData.documents.title": "Documents",
   "artifactData.untrusted":

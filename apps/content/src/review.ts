@@ -59,6 +59,8 @@ export type ReviewDecision =
       versionId: string;
       sessionTag: string;
       setCookies: string[];
+      /** The review session and how long its claims hold, so live updates end with it. */
+      credential: { id: string; expiresAt: number };
     }
   /** The session is over: tell the viewer, and drop the cookie. */
   | { kind: "status"; status: ReviewStatus; httpStatus: number; setCookies: string[] };
@@ -232,6 +234,8 @@ export async function authorizeReview(
   artifactId: string,
   artifact: ServableArtifact | null,
   now: number,
+  /** Claims expiring within this are renewed against D1 now (live updates' renewals). */
+  freshWithin = 0,
 ): Promise<ReviewDecision> {
   const secret = env.READ_SESSION_SECRET;
   if (!usableSecret(secret)) return { kind: "none" };
@@ -247,6 +251,7 @@ export async function authorizeReview(
       artifactId,
       artifact,
       now,
+      freshWithin,
     );
     if (decision.kind !== "none") return decision;
   }
@@ -261,11 +266,12 @@ async function authorizeChannel(
   artifactId: string,
   artifact: ServableArtifact | null,
   now: number,
+  freshWithin: number,
 ): Promise<ReviewDecision> {
   const claims = await readClaims(channel, request, secret, artifactId, now);
   if (!claims) return { kind: "none" };
   if (!artifact || artifact.currentVersionId !== claims.vid) return ended(channel);
-  const review = (setCookies: string[]): ReviewDecision => ({
+  const review = (setCookies: string[], expiresAt: number): ReviewDecision => ({
     kind: "review",
     mode: channel.mode,
     artifact,
@@ -273,8 +279,11 @@ async function authorizeChannel(
     versionId: claims.vid,
     sessionTag: claims.tag,
     setCookies,
+    credential: { id: `review:${claims.sid}`, expiresAt },
   });
-  if (claims.exp > now && claims.gen === artifact.policyGeneration) return review([]);
+  if (claims.exp > now + freshWithin && claims.gen === artifact.policyGeneration) {
+    return review([], claims.exp);
+  }
   const renewed = await refreshReviewSession(db, { sessionId: claims.sid, artifactId, now });
   if (
     !renewed.ok ||
@@ -297,7 +306,10 @@ async function authorizeChannel(
     },
     now,
   );
-  return review([cookie]);
+  return review(
+    [cookie],
+    Math.min(now + REVIEW_SESSION.claimsTtlSeconds * SECOND_MS, renewed.value.expiresAt),
+  );
 }
 
 /** A redirect or a page answered on the reserved review paths. */

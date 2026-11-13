@@ -67,10 +67,12 @@ import {
   erasedObligation,
   flushPending,
   growthRefusal,
+  helloMessage,
   type IndexField,
   inbound,
   indexEntries,
   type LiveAttachment,
+  liveCaller,
   liveCheck,
   liveReservation,
   type MutationActor,
@@ -2032,6 +2034,7 @@ export class DocumentsStore {
       revision: 0,
       collections: [],
       today: emptyDay(dayOf(context.now)),
+      connections: 0,
     });
     return this.#readCommand(envelope, caller, context, "describe", emptyDescription, () => {
       // Declaration order, sorted here: a sort in SQL reads every row twice.
@@ -2058,6 +2061,7 @@ export class DocumentsStore {
         revision: control.payloadRevision,
         collections,
         today: this.#dayRow(dayOf(context.now)),
+        connections: [...this.sockets.values()].filter((socket) => socket.closed === null).length,
       });
       if (!decided.ok) fail(decided);
       return decided.value;
@@ -2554,6 +2558,7 @@ export class DocumentsStore {
     principal: string,
     deadline: number,
     context: Context,
+    modes: readonly CollectionMode[] | null = null,
   ): Answer<string> {
     return this.#running(context.now, () => {
       const now = context.now;
@@ -2599,6 +2604,7 @@ export class DocumentsStore {
             deadline,
             now,
             limits: context.limits,
+            modes,
           });
           charged = true;
           this.#charge("connect", "growth", now, false);
@@ -2719,6 +2725,19 @@ export class DocumentsStore {
     socket.port.send(text);
   }
 
+  /** Sends a new connection its hello message (`helloMessage`), after it was accepted. */
+  hello(socketId: string, now: number): void {
+    this.#running(now, () =>
+      this.#uncharged(now, () => {
+        const socket = this.sockets.get(socketId);
+        if (socket === undefined) return;
+        const current = this.#live(socket, now);
+        if (current === null) return;
+        this.#send(socket, current, helloMessage(current), now);
+      }),
+    );
+  }
+
   message(socketId: string, text: string, now: number): void {
     this.#running(now, () => this.#uncharged(now, () => this.#message(socketId, text, now)));
   }
@@ -2741,10 +2760,7 @@ export class DocumentsStore {
       name = "";
     }
     const [row] = this.#read("SELECT mode FROM pf_collections WHERE name = ?", name);
-    const caller: Caller =
-      current.author === null
-        ? { kind: "reader" }
-        : { kind: "visitor", author: current.author, canWrite: false };
+    const caller = liveCaller(current);
     if (row === undefined || readScope(str(row.mode) as CollectionMode, caller) === "none") {
       this.#send(socket, received.attachment, JSON.stringify({ error: "not_found" }), now);
       return;

@@ -60,7 +60,10 @@ function description(exists = true): DataDescriptionView {
       rowsWrittenPerDay: 5_000,
       cleanupRowsPerDay: 5_000,
       exportRowsPerDay: 200_000,
+      liveMessagesPerDay: 2_000,
+      connectionsPerArtifact: 10,
     },
+    live: { connections: 2, messagesToday: 40 },
     storedBytes: 2_048,
   };
 }
@@ -102,6 +105,9 @@ describe("the artifact's data section", () => {
     expect(table.textContent).toContain("Each writer their own");
     expect(table.textContent).toContain("tag (building)");
     expect(region.textContent).toContain("1,200 of 500,000");
+    expect(region.textContent).toContain("Live connections open");
+    expect(region.textContent).toContain("2 of 10");
+    expect(region.textContent).toContain("40 of 2,000");
     const first = await within(region).findByRole("region", { name: "Document AAAAAAAAAAAAAA01" });
     expect(first.textContent).toContain('"choice": "<img src=x onerror=alert(1)>"');
     expect(region.querySelector("img")).toBeNull();

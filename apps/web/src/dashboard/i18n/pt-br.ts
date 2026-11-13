@@ -3434,6 +3434,8 @@ export const ptBR = {
   "artifactData.usage.written": "Linhas escritas hoje",
   "artifactData.usage.cleanup": "Linhas limpas hoje",
   "artifactData.usage.export": "Linhas exportadas hoje",
+  "artifactData.usage.connections": "Conexões ao vivo abertas",
+  "artifactData.usage.live": "Mensagens ao vivo hoje",
   "artifactData.usage.ofLimit": "{used} de {limit}",
   "artifactData.documents.title": "Documentos",
   "artifactData.untrusted":

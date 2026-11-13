@@ -3490,6 +3490,8 @@ export const de = {
   "artifactData.usage.written": "Heute geschriebene Zeilen",
   "artifactData.usage.cleanup": "Heute bereinigte Zeilen",
   "artifactData.usage.export": "Heute exportierte Zeilen",
+  "artifactData.usage.connections": "Offene Live-Verbindungen",
+  "artifactData.usage.live": "Live-Nachrichten heute",
   "artifactData.usage.ofLimit": "{used} von {limit}",
   "artifactData.documents.title": "Dokumente",
   "artifactData.untrusted":

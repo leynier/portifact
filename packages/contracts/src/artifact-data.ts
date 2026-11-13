@@ -602,6 +602,8 @@ export const DataDescription = z.looseObject({
   revision: Count,
   collections: z.array(CollectionInfo).max(MAX_COLLECTIONS),
   today: DayCounters,
+  /** Live connections open on the object now (delivery 7). */
+  connections: Count,
 });
 export type DataDescription = z.infer<typeof DataDescription>;
 
@@ -708,3 +710,50 @@ export const PAGE_MUTATIONS = [
   "replace",
   "remove",
 ] as const satisfies readonly PageDataCommand["kind"][];
+
+// Live updates (decision 0026, delivery 7).
+
+/**
+ * Who holds a live connection, as the content Worker names it: a grant's ID for a visitor, a read
+ * or link session for a reader. Only the same principal renews the connection.
+ */
+export const LivePrincipal = z.string().regex(/^[A-Za-z0-9_:.-]{1,128}$/, "Invalid principal");
+export type LivePrincipal = z.infer<typeof LivePrincipal>;
+
+/** A live connection's ID: the object issues it, in the form of a document ID. */
+export const LiveSocketId = DocumentId;
+
+/**
+ * The header carrying a live connect's parameters from the calling Worker to the documents
+ * object's upgrade handler. The binding is the credential: no route reaches the object.
+ */
+export const LIVE_CONNECT_HEADER = "portifact-live-connect";
+
+/** A live connect as the calling Worker sends it in `LIVE_CONNECT_HEADER`, parsed by the object. */
+export const LiveConnectRequest = z.strictObject({
+  envelope: LifecycleEnvelope,
+  /** The grant's visitor, or null for a reader. */
+  author: VisitorId.nullable(),
+  principal: LivePrincipal,
+  deadline: DataTime,
+  limits: ArtifactDataLimits,
+  now: DataTime,
+});
+export type LiveConnectRequest = z.infer<typeof LiveConnectRequest>;
+
+/** The first message a new connection receives: its ID (for renewal) and its deadline. */
+export const LiveHello = z.strictObject({ connected: LiveSocketId, deadline: DataTime });
+export type LiveHello = z.infer<typeof LiveHello>;
+
+/** The message a page sends to follow a collection's changes. */
+export const LiveSubscribe = z.strictObject({ subscribe: CollectionName });
+
+/** A change a subscribed connection receives: no body, only what changed. */
+export const LiveChange = z.strictObject({
+  collection: CollectionName,
+  kind: z.enum(["created", "updated", "deleted"]),
+  id: DocumentId,
+  seq: Count,
+  by: z.string(),
+});
+export type LiveChange = z.infer<typeof LiveChange>;

@@ -3402,6 +3402,8 @@ export const ja = {
   "artifactData.usage.written": "今日書き込んだ行",
   "artifactData.usage.cleanup": "今日整理した行",
   "artifactData.usage.export": "今日エクスポートした行",
+  "artifactData.usage.connections": "開いているライブ接続",
+  "artifactData.usage.live": "今日のライブメッセージ",
   "artifactData.usage.ofLimit": "{limit} 中 {used}",
   "artifactData.documents.title": "ドキュメント",
   "artifactData.untrusted":

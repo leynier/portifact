@@ -102,6 +102,26 @@ describe("SuggestionPreview", () => {
 });
 
 describe("ModeSwitch", () => {
+  it("shows a mode that is not choosable yet in its place, disabled", () => {
+    const onChange = vi.fn();
+    render(
+      <ModeSwitch
+        label="Review mode"
+        options={[
+          { value: "comment", label: "Comment" },
+          { value: "suggest", label: "Suggest", disabled: true },
+        ]}
+        value="comment"
+        onChange={onChange}
+      />,
+    );
+    const suggest = screen.getByRole("button", { name: "Suggest" });
+    expect(suggest).toHaveProperty("disabled", true);
+    fireEvent.click(suggest);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Comment" })).toHaveProperty("disabled", false);
+  });
+
   it("is a labelled group of toggle buttons", async () => {
     const onChange = vi.fn();
     const { container } = render(

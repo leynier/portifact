@@ -401,6 +401,10 @@ reason(
   ],
 );
 reason(
+  "artifact data's live updates (decision 0026, delivery 7): a connection and its renewal change no document; what a connection receives is already audited where it was written",
+  ["openLiveConnection", "renewLiveConnection"],
+);
+reason(
   "artifact data's audit sweep only relays obligations the object already holds to data_audit jobs; runDataAudit records them",
   ["sweepDataAudit"],
 );

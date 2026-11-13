@@ -10,6 +10,8 @@
 // - `grant/check`: whether the cookie was kept; the frame tells the viewer, the popup its opener.
 // - `me`, `c/<collection>[/<id>]`, `mine`: the data API, same-origin only (`apiGate`), after the
 //   reading authorization, the network policy, the traffic quota and budget protection.
+// - `live` (a WebSocket upgrade) and `live/renew`: live updates (delivery 7), the same gate and
+//   reading authorization; a connection lasts a minute unless the page renews it.
 // - `data.js`: the client script.
 //
 // The grant's claims are renewed against D1 every 60 seconds (`renewDataGrant`), so revoking,
@@ -25,11 +27,13 @@ import {
   OpaqueToken,
 } from "@portifact/contracts";
 import {
+  ARTIFACT_DATA,
   type ArtifactDataLimits,
   CollectionName,
   DataQuery,
   DocumentId,
   ExportCursor,
+  LiveSocketId,
   type PageCaller,
   type PageDataCommand,
   type StorageReport,
@@ -38,12 +42,15 @@ import type { RegionalDb } from "@portifact/db";
 import { apiGate, beginGate, redeemGate } from "@portifact/domain/artifact-data";
 import {
   type DataObjects,
+  dataLiveEnabled,
   nonceDigest,
+  openLiveConnection,
   pageDataCommand,
   pageWritesEnabled,
   randomToken,
   redeemDataGrantCode,
   renewDataGrant,
+  renewLiveConnection,
 } from "@portifact/services";
 import { cookieValue, MAX_VALUE_LENGTH, seal, unseal, usableSecret } from "./cookies.ts";
 import { cspNonce } from "./inject.ts";
@@ -64,6 +71,7 @@ export interface DataEnv {
   APP_ORIGIN: string;
   READ_SESSION_SECRET?: string | undefined;
   ARTIFACT_DATA_ENABLED?: string | undefined;
+  DATA_LIVE_ENABLED?: string | undefined;
   /** Exactly `"true"` lets pages create and replace documents; off, only reads and deletes. */
   DATA_PAGE_WRITES_ENABLED?: string | undefined;
 }
@@ -80,6 +88,11 @@ export interface DataReader {
   signedIn: boolean;
   /** The owner plan's per-artifact data limits, from the plan the delivery lookup holds. */
   limits: ArtifactDataLimits;
+  /**
+   * The read, link or review session that allowed the request and how long its claims hold, or
+   * null for an anonymous reader of a public artifact. Never sent to the page.
+   */
+  credential: { id: string; expiresAt: number } | null;
 }
 
 /** What the content Worker gives the data routes. */
@@ -95,8 +108,11 @@ export interface DataContext {
   customHost: string | null;
   now: number;
   objects: DataObjects | null;
-  /** Authorizes reading the artifact (a public artifact, or a read, review or link session). */
-  read(): Promise<DataReader | null>;
+  /**
+   * Authorizes reading the artifact (a public artifact, or a read, review or link session);
+   * claims expiring within `freshWithin` are renewed against D1 first.
+   */
+  read(freshWithin?: number): Promise<DataReader | null>;
   /**
    * The delivery gates after authorization (the network policy, the traffic quota, budget
    * protection): a refusal, or null to go on.
@@ -173,6 +189,8 @@ async function transaction(
 async function grantOf(
   context: DataContext,
   secret: string,
+  /** Claims expiring within this are renewed against D1 now (live updates' renewals). */
+  freshWithin = 0,
 ): Promise<{ claims: DataGrantClaims | null; setCookies: string[] }> {
   const { request, artifactId, now } = context;
   const value = cookieValue(request.headers.get("Cookie"), GRANT_COOKIE);
@@ -185,7 +203,7 @@ async function grantOf(
   }
   const flow: Flow = claims.part ? "frame" : "top";
   if (claims.gexp <= now) return { claims: null, setCookies: [clearGrant(flow)] };
-  if (claims.exp > now) return { claims, setCookies: [] };
+  if (claims.exp > now + freshWithin) return { claims, setCookies: [] };
   const renewed = await renewDataGrant(context.db, { grantId: claims.gid, artifactId, now });
   if (!renewed.ok) return { claims: null, setCookies: [clearGrant(flow)] };
   const next: DataGrantClaims = {
@@ -429,15 +447,21 @@ async function api(context: DataContext, secret: string, path: string): Promise<
   if (apiGate(request.headers, origin, write) === "refused") {
     return apiError("forbidden", "Only the artifact's own page may use its data.");
   }
-  if (path !== "me" && path !== "mine" && !path.startsWith("c/")) {
-    return apiError("not_found", "Not found.");
+  if (path !== "me" && path !== "mine" && path !== "live" && path !== "live/renew") {
+    if (!path.startsWith("c/")) return apiError("not_found", "Not found.");
   }
-  const reader = await context.read();
+  // Live updates renew from claims fresh enough to outlast the next renewal, so a connection never
+  // outlives the credential that holds it by more than the claims' own minute.
+  const fresh = path === "live" || path === "live/renew" ? LIVE_FRESH_MS : 0;
+  const reader = await context.read(fresh);
   if (reader === null) return apiError("not_found", "Not found.");
   const refusal = await context.gate(reader);
   if (refusal !== null) return refusal;
-  const held = await grantOf(context, secret);
+  const held = await grantOf(context, secret, fresh);
   const setCookies = [...reader.setCookies, ...held.setCookies];
+  if (path === "live" || path === "live/renew") {
+    return live(context, reader, held.claims, setCookies, path);
+  }
   if (path === "me") {
     const me: DataMe =
       held.claims === null
@@ -488,6 +512,104 @@ async function api(context: DataContext, secret: string, path: string): Promise<
       ? apiJson({ replayed: true }, 200)
       : apiJson(result.value.value, parsed.status)
     : apiError(result.code, result.message);
+  return answered(context, reader, response, setCookies);
+}
+
+// Live updates (delivery 7).
+
+/** Claims expiring within this are renewed before a live connect or renewal. */
+const LIVE_FRESH_MS = 30_000;
+
+/**
+ * The credential a connection is bound to and when it stops holding: the visitor's grant, or the
+ * reader's own read, link or review session (named by a hash of its ID, which never leaves this
+ * Worker or the object); an anonymous reader of a public artifact is bound to the artifact staying
+ * public, which every renewal checks. A connection is renewed only by the same credential, checked
+ * live at each renewal, so knowing its ID grants nothing.
+ */
+async function liveCredential(
+  claims: DataGrantClaims | null,
+  reader: DataReader,
+  now: number,
+): Promise<{ principal: string; expiresAt: number }> {
+  if (claims !== null) {
+    return { principal: `grant:${claims.gid}`, expiresAt: Math.min(claims.exp, claims.gexp) };
+  }
+  if (reader.credential === null) {
+    return { principal: "public", expiresAt: now + ARTIFACT_DATA.live.deadlineMs };
+  }
+  const [kind] = reader.credential.id.split(":", 1);
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(reader.credential.id)),
+  );
+  return {
+    principal: `${kind}:${btoa(String.fromCharCode(...digest))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")}`,
+    expiresAt: reader.credential.expiresAt,
+  };
+}
+
+/**
+ * `live` opens a connection (`GET` with `Upgrade: websocket`, the exact origin), `live/renew`
+ * (`POST` JSON `{ socket }`) keeps it another minute. The caller is the grant holder, bound to the
+ * grant's ID, or a reader, bound to reading this artifact now: renewing needs the same grant, or
+ * any current reading of the artifact plus the connection's ID, which only its own socket learned.
+ */
+async function live(
+  context: DataContext,
+  reader: DataReader,
+  claims: DataGrantClaims | null,
+  setCookies: string[],
+  path: string,
+): Promise<Response> {
+  const { request } = context;
+  const deps = { objects: context.objects, enabled: dataLiveEnabled(context.env) };
+  const held = await liveCredential(claims, reader, context.now);
+  const caller = {
+    artifactId: context.artifactId,
+    author: claims === null ? null : claims.vid,
+    principal: held.principal,
+    expiresAt: held.expiresAt,
+    limits: reader.limits,
+    now: context.now,
+  };
+  if (path === "live") {
+    if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      return answered(
+        context,
+        reader,
+        apiError("invalid_input", "Open a WebSocket.", 426),
+        setCookies,
+      );
+    }
+    const opened = await openLiveConnection(context.db, deps, caller);
+    if (!opened.ok) {
+      return answered(context, reader, apiError(opened.code, opened.message), setCookies);
+    }
+    context.charge(reader, 0);
+    const headers = new Headers();
+    for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
+    return new Response(null, { status: 101, webSocket: opened.value.webSocket, headers });
+  }
+  if (request.method !== "POST") {
+    return answered(
+      context,
+      reader,
+      apiError("invalid_input", "Method not allowed.", 405),
+      setCookies,
+    );
+  }
+  const body = await jsonBody(request);
+  const socket = LiveSocketId.safeParse(body?.socket);
+  if (!socket.success) {
+    return answered(context, reader, apiError("invalid_input", "Name the connection."), setCookies);
+  }
+  const renewed = await renewLiveConnection(context.db, deps, { ...caller, socketId: socket.data });
+  const response = renewed.ok
+    ? apiJson(renewed.value, 200)
+    : apiError(renewed.code, renewed.message);
   return answered(context, reader, response, setCookies);
 }
 
@@ -620,7 +742,8 @@ function clientScript(request: Request): Response {
 
 /**
  * `window.portifact.data`: `me()`, `collection(name)` with `list(query)`, `get(id)`,
- * `create(body)`, `replace(id, body)` and `remove(id)`, `mine(after)`, and `allow()`, which starts
+ * `create(body)`, `replace(id, body)` and `remove(id)`, `mine(after)`, `live(collections, onChange)`
+ * (live updates, delivery 7; `close()` ends them), and `allow()`, which starts
  * the grant: in the viewer's frame it asks the viewer (which draws the control and reloads the
  * frame once granted), otherwise it opens the top-level flow in a popup, which answers on this
  * origin only, and falls back to this tab. Every write carries an
@@ -681,9 +804,63 @@ export const CLIENT_SCRIPT = `(() => {
       if (!popup) location.assign(url);
     });
   const mine = (after) => call("GET", "mine" + (after ? "?after=" + encodeURIComponent(after) : ""));
+  // Live updates: follows collections' changes over one WebSocket, renewed every 20 seconds
+  // (a connection lasts a minute), reconnecting after a deadline or a reset (4001, 4003) and
+  // stopping for good when the day's messages are spent or the author's data was erased.
+  const live = (names, onChange) => {
+    let socket = null;
+    let timer = null;
+    let closed = false;
+    let wait = 1000;
+    const stop = () => {
+      if (timer !== null) clearInterval(timer);
+      timer = null;
+    };
+    const open = () => {
+      if (closed) return;
+      const url = new URL(base + "live", location.href);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      socket = new WebSocket(url);
+      socket.addEventListener("message", (event) => {
+        let message = null;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (message && typeof message.connected === "string") {
+          wait = 1000;
+          const id = message.connected;
+          for (const name of names) socket.send(JSON.stringify({ subscribe: name }));
+          stop();
+          timer = setInterval(() => {
+            call("POST", "live/renew", { socket: id }).catch(() => {});
+          }, 20000);
+          return;
+        }
+        if (message && typeof message.collection === "string" && typeof message.kind === "string") {
+          onChange(message);
+        }
+      });
+      socket.addEventListener("close", (event) => {
+        stop();
+        if (closed || event.code === 4029 || event.code === 4410 || event.code === 4008) return;
+        setTimeout(open, wait);
+        wait = Math.min(wait * 2, 60000);
+      });
+    };
+    open();
+    return Object.freeze({
+      close: () => {
+        closed = true;
+        stop();
+        if (socket !== null) socket.close(1000);
+      },
+    });
+  };
   window.portifact = Object.freeze({
     ...(window.portifact || {}),
-    data: Object.freeze({ me: () => call("GET", "me"), collection, mine, allow }),
+    data: Object.freeze({ me: () => call("GET", "me"), collection, mine, allow, live }),
   });
 })();
 `;

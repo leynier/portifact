@@ -147,7 +147,8 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
       const head = body.exists
         ? `${args.artifactId} has ${body.collections.length} collection(s), revision ${body.revision}.`
         : `${args.artifactId} has no data yet.`;
-      return success([head, ...lines].join("\n"), body);
+      const live = `Live: ${body.live.connections} of ${body.limits.connectionsPerArtifact} connection(s) open, ${body.live.messagesToday} of ${body.limits.liveMessagesPerDay} message(s) today.`;
+      return success([head, ...lines, live].join("\n"), body);
     },
   );
 
