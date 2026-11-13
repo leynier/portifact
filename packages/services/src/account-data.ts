@@ -30,7 +30,6 @@ import {
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
-import { draftMarker } from "./suggestion-markers.ts";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
@@ -51,6 +50,7 @@ import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
 import { exportServiceTokens } from "./service-tokens.ts";
+import { draftMarker } from "./suggestion-markers.ts";
 import { forgetIssueRequester } from "./thread-issues.ts";
 import { exportWebhooks } from "./webhooks.ts";
 import { viewerGroupIds } from "./workspace-groups.ts";
