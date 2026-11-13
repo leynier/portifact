@@ -259,6 +259,10 @@ reason(
   ["pageDataCommand", "pageOperationId"],
 );
 reason(
+  "a person's rights over what they saved (decision 0026): their own deletes and requests to the people who manage the artifact; not an owner's change, and the request's notice reaches the admins by email",
+  ["deleteOwnDocument", "requestDataRights", "sendDataRightsNotice"],
+);
+reason(
   "what a directory said about people who never got an account, once it lapsed (decision 0017)",
   ["pruneDirectoryUsers"],
 );
@@ -560,6 +564,9 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // The journal's visitor ID and the count of a person's open grants (decision 0026): reads.
+  "journalVisitorId",
+  "openDataGrants",
   // The grant's control and renewal read access and the account (decision 0026); the digest computes.
   "dataGrantControl",
   "renewDataGrant",
