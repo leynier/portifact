@@ -80,6 +80,7 @@ import {
   type ManifestEntry,
   preparePublish,
 } from "./publish.ts";
+import { draftMarker } from "./suggestion-markers.ts";
 import {
   admitPlanning,
   draftPlanOf,
@@ -511,6 +512,8 @@ interface Completion {
   /** The handle the completing batch runs on, and the person's role condition. */
   w: Db;
   holds: SQL;
+  /** Whether `w` writes both databases (one database): restore markers go straight in. */
+  shared: boolean;
 }
 
 /**
@@ -578,8 +581,17 @@ function completionStatements(
     attempt.origin === "suggestion"
       ? sql`(select ${th.authorId} from ${th} where ${th.id} = ${attempt.threadId})`
       : sql`${attempt.userId}`;
+  const publishedDraft = and(
+    eq(dr.artifactId, attempt.artifactId),
+    eq(dr.userId, attempt.userId as string),
+    eq(dr.attemptId, attempt.id),
+    condition,
+  ) as SQL;
   return [
     ...itemStatements(c, condition, submittedBy),
+    // A published draft stays gone through a restore (decision 0027): its marker, on the same
+    // condition, before the draft is removed (a statement after it would find no row to name).
+    ...(attempt.origin === "suggestion" ? [] : [draftMarker(w, c.shared, publishedDraft, now)]),
     attempt.origin === "suggestion"
       ? w
           .update(th)
@@ -599,16 +611,7 @@ function completionStatements(
           .where(
             and(eq(th.id, attempt.threadId as string), eq(th.attemptId, attempt.id), condition),
           )
-      : w
-          .delete(dr)
-          .where(
-            and(
-              eq(dr.artifactId, attempt.artifactId),
-              eq(dr.userId, attempt.userId as string),
-              eq(dr.attemptId, attempt.id),
-              condition,
-            ),
-          ),
+      : w.delete(dr).where(publishedDraft),
     auditEvent(
       w,
       {
@@ -924,6 +927,7 @@ export async function runAcceptance(
     token: crypto.randomUUID(),
     now,
     ...scope,
+    shared: bothSides(db) !== null,
   };
   if (checked.built.plan.output === null) {
     if (!bothSides(db) && !(await stillActs(db, attempt.ownerId, attempt.userId as string))) {

@@ -34,6 +34,8 @@ import {
   type LifecycleEnvelope,
   type OwnerDataCommand,
   type OwnerEnvelope,
+  type PageCaller,
+  type PageDataCommand,
   type PendingObligation,
   type QuarantineReason,
   type QuarantineResolutionRequest,
@@ -42,6 +44,7 @@ import {
   type SettleAnswer,
   type StorageReport,
 } from "@portifact/contracts/artifact-data";
+
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import { logEvent } from "@portifact/domain";
 import {
@@ -140,6 +143,14 @@ export interface DataObjectRpc {
     envelope: OwnerEnvelope,
     actor: string,
     command: OwnerDataCommand,
+    limits: ArtifactDataLimits,
+    now: number,
+  ): Promise<DataReplayable<unknown>>;
+  /** One page command (delivery 6, `artifact-data-page.ts`); the answer as RPC carries it. */
+  pageCommand(
+    envelope: OwnerEnvelope,
+    caller: PageCaller,
+    command: PageDataCommand,
     limits: ArtifactDataLimits,
     now: number,
   ): Promise<DataReplayable<unknown>>;

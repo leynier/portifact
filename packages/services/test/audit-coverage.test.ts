@@ -259,6 +259,10 @@ reason(
   ],
 );
 reason(
+  "a visitor's own documents from the page (decision 0026, delivery 6): what visitors write is not an owner's change; the object keeps its own records",
+  ["pageDataCommand", "pageOperationId"],
+);
+reason(
   "what a directory said about people who never got an account, once it lapsed (decision 0017)",
   ["pruneDirectoryUsers"],
 );
@@ -293,7 +297,7 @@ reason("comments are not in the audit log's scope (T10); their text never is", [
 ]);
 reason(
   "edit suggestions (decision 0027): the owner's draft is private to its author until published, and publishing it records suggestion.accepted",
-  ["saveDraft", "discardDraft", "rebaseDraft"],
+  ["saveDraft", "discardDraft", "rebaseDraft", "removeDraftBatch"],
 );
 reason("a suggestion is a comment: its creation is outside the T10 catalog like any comment", [
   "submitSuggestion",

@@ -16,12 +16,18 @@
 // reads only CF-Connecting-IP, which Cloudflare sets and a client cannot.
 
 import { workerDeps } from "../../apps/app/src/auth/deps.ts";
+
+// The documents objects of artifact data (decision 0026): hosted here, as `portifact-data` hosts
+// them in production, so the page's data routes reach real objects on the stack's storage.
+export { ArtifactDocuments } from "../../apps/data/src/documents.ts";
+
 import type { EmailSender } from "../../apps/app/src/auth/email.ts";
 import { createWorker } from "../../apps/app/src/index.ts";
 import {
   handle,
   isolateMeter,
   isolateOpenings,
+  isolateStorage,
   isolateViews,
 } from "../../apps/content/src/index.ts";
 import { IDP_HOST, SITE_HOST } from "../src/hosts.ts";
@@ -95,8 +101,17 @@ function atEdge(request: Request): Request {
   return edged;
 }
 
+/**
+ * Artifact data is switched on for the stack in code: no configuration may name its switch
+ * (scripts/durable-migrations.test.ts), the e2e one included.
+ */
+function withData(env: E2eEnv): E2eEnv {
+  return { ...env, ARTIFACT_DATA_ENABLED: "true", DATA_PAGE_WRITES_ENABLED: "true" };
+}
+
 export default {
-  async fetch(incoming, env, ctx) {
+  async fetch(incoming, workerEnv, ctx) {
+    const env = withData(workerEnv);
     const request = atEdge(incoming);
     const host = new URL(request.url).hostname;
     if (host === CONTROL_HOST) return control(request, env);
@@ -119,6 +134,8 @@ export default {
         (charge, region) => isolateMeter(env, region).count(charge, waitUntil),
         (opening, region) => isolateOpenings(env, region).record(opening, waitUntil),
         (view, region) => isolateViews(env, region).count(view, waitUntil),
+        (artifactId, report, region) =>
+          isolateStorage(env, region).keep(artifactId, report, waitUntil),
       );
     }
     return app.fetch(request, env, ctx);

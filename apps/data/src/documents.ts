@@ -22,6 +22,8 @@ import {
   OwnerActor,
   OwnerDataCommand,
   OwnerEnvelope,
+  PageCaller,
+  PageDataCommand,
   PENDING_OBLIGATIONS_PER_CALL,
   QuarantineReason,
   QuarantineResolutionRequest,
@@ -29,11 +31,13 @@ import {
   type StorageReport,
   VisitorId,
 } from "@portifact/contracts/artifact-data";
+
 import {
   LIFECYCLE_LIMITS,
   type LiveAttachment,
   mutationActorName,
   runOwnerCommand,
+  runPageCommand,
 } from "@portifact/domain/artifact-data";
 import { DocumentsStore, type Instrument, type SocketPort, type WokenSocket } from "./store.ts";
 
@@ -245,6 +249,24 @@ export class ArtifactDocuments extends DurableObject<Env> {
     }));
     if ("refused" in input) return input.refused;
     return runOwnerCommand(this.store, input.envelope, input.actor, input.command, input.context);
+  }
+
+  // The page (decision 0026, delivery 6). The content Worker calls this after its own gates and
+  // authorization, with the envelope from D1, the caller it decided (a grant holder's visitor ID
+  // and whether they may write now, or a reader without a grant), the plan's limits and an
+  // operation ID on every mutation. The object admits, authorizes by the collection's mode and
+  // charges by the domain's rules; every argument is parsed here and an invalid one answered.
+
+  /** One page command: a read, a query, a create, replace or remove, or the visitor's own export. */
+  pageCommand(envelope: unknown, caller: unknown, command: unknown, limits: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: OwnerEnvelope.parse(envelope) satisfies DataEnvelope,
+      caller: PageCaller.parse(caller),
+      command: PageDataCommand.parse(command),
+      context: { now: Now.parse(now), limits: ArtifactDataLimits.parse(limits) },
+    }));
+    if ("refused" in input) return input.refused;
+    return runPageCommand(this.store, input.envelope, input.caller, input.command, input.context);
   }
 
   /**

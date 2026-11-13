@@ -21,9 +21,9 @@ import {
   textEditOf,
 } from "@portifact/domain/suggestions";
 import { DOCUMENT_RENDERER } from "@portifact/render";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import { type AnnotationActor, annotationParts } from "./annotations.ts";
-import { draftView } from "./edit-drafts.ts";
+import { draftView, removeDraftBatch } from "./edit-drafts.ts";
 import {
   admitPlanning,
   draftPlanOf,
@@ -183,7 +183,8 @@ export async function rebaseDraft(
     on.standing,
   );
   if (kept === null) {
-    const deleted = await on.w.delete(dr).where(asRead).returning({ revision: dr.revision });
+    // Removed with the marker that keeps it gone through a restore (decision 0027).
+    const [, deleted] = await removeDraftBatch(db, on.w, asRead as SQL, input.now);
     return deleted.length === 1 ? ok({ draft: null, conflicts }) : draftChanged();
   }
   const text = JSON.stringify(kept);

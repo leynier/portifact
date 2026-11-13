@@ -7,6 +7,12 @@ import type { Catalog } from "./en.ts";
 export const fr = {
   ...planTextFr,
   "app.title": "Portifact",
+  "dataGrant.frame.granted": "Cette page peut maintenant enregistrer ce que vous saisissez",
+  "dataGrant.frame.saving": "Enregistrement de votre choix",
+  "dataGrant.frame.unavailable": "L'enregistrement n'est pas disponible dans ce cadre",
+  "dataGrant.frame.unavailableHint":
+    "Ce navigateur empêche le cadre de retenir votre choix. Ouvrez l'artifact dans son propre onglet et autorisez-le là.",
+  "dataGrant.frame.openTab": "Ouvrir dans un nouvel onglet",
   "dataGrant.pageTitle": "Enregistrer ce que vous saisissez",
   "dataGrant.title": "Autoriser {host} à enregistrer ce que vous saisissez ?",
   "dataGrant.ownerPerson": "Publié par {name}",
@@ -1133,6 +1139,31 @@ export const fr = {
   "draft.refused.full":
     "Votre brouillon contient déjà le maximum de modifications. Publiez-le ou abandonnez-le d’abord.",
   "draft.refused.invalid": "Cette modification ne peut pas être ajoutée au brouillon.",
+  "suggest.editor.tabs": "Votre modification",
+  "suggest.editor.tabs.change": "Modification",
+  "draft.tabs": "Plan de votre brouillon",
+  "draft.rebase": "Déplacer le brouillon vers la version actuelle",
+  "draft.rebased":
+    "Brouillon déplacé vers la version actuelle : {carried, plural, one {# modification reportée} other {# modifications reportées}}, {left, plural, one {# à refaire} other {# à refaire}}.",
+  "draft.conflicts": "Modifications qui n’ont pas pu être déplacées, à refaire",
+  "draft.conflicts.dismiss": "Masquer cette liste",
+  "suggest.search.heading": "Suggérer une modification de texte",
+  "suggest.search.hint":
+    "Trouvez le texte dans la page au lieu de le sélectionner dans l’artifact. La recherche lit la page publiée, pas ce que ses scripts affichent.",
+  "suggest.search.query": "Texte à trouver",
+  "suggest.search.find": "Rechercher",
+  "suggest.search.found":
+    "{count, plural, =0 {Aucun emplacement trouvé.} one {# emplacement trouvé.} other {# emplacements trouvés.}}",
+  "suggest.search.none": "Le texte n’a pas été trouvé sur cette page.",
+  "suggest.search.results": "Emplacements contenant le texte",
+  "suggest.search.choose": "Modifier le texte à l’emplacement {number}",
+  "suggest.search.refused":
+    "Cet emplacement ne peut pas être modifié. Essayez un morceau de texte plus court ou plus long.",
+  "suggest.search.unavailable":
+    "La recherche est disponible sur les pages HTML. Sur cette page, sélectionnez le texte dans l’artifact.",
+  "draft.conflictReason": "Le texte modifié est différent ou absent dans la version actuelle.",
+  "suggest.search.ownerOnly":
+    "La recherche dans la page n'est pas encore disponible pour les relecteurs. Sélectionnez plutôt le texte dans l'artifact.",
   "review.open": "Relire et commenter",
   "viewer.loading": "Ouverture de l’artifact",
   "viewer.unavailable.title": "Cet artifact ne peut pas être ouvert",

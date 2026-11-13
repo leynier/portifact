@@ -7,6 +7,7 @@
 import {
   AcceptanceStarted,
   type AnnotationVersionFilter,
+  ArtifactContent,
   ChangeItemList,
   type ChangeItemState,
   ChangeItemView,
@@ -15,7 +16,10 @@ import {
   DraftView,
   type MarkChangeItem,
   Plan,
+  type PreviewRequest,
   PreviewResponse,
+  type RebaseDraftRequest,
+  RebasedDraft,
   type SaveDraftRequest,
   type SubmitSuggestionRequest,
   SuggestionAnnotationPage,
@@ -62,8 +66,18 @@ export interface SuggestionsApi {
   get(artifactId: string, threadId: string): Promise<SuggestionView>;
   /** Builds the plan of a pending suggestion on the current version (a dry run). */
   plan(artifactId: string, threadId: string): Promise<Plan>;
-  /** A one-use URL of the built preview of a plan the person holds, or why there is none. */
-  preview(artifactId: string, digest: string): Promise<PreviewResponse>;
+  /**
+   * A one-use URL of the built preview of a plan the person holds (a suggestion's or their own
+   * draft's, by digest) or of an edit not saved yet, or why there is none.
+   */
+  preview(artifactId: string, request: PreviewRequest): Promise<PreviewResponse>;
+  /** Rebases the caller's draft onto the current version, at the revision and incarnation held. */
+  rebaseDraft(artifactId: string, request: RebaseDraftRequest): Promise<RebasedDraft>;
+  /**
+   * A page of a file of the current version, as text (whoever may read the artifact): the
+   * stored page the sidebar's text search reads, never the frame.
+   */
+  pageContent(artifactId: string, path: string, offset: number): Promise<ArtifactContent>;
   /** Accepts the plan the person confirmed by its digest; the jobs Worker applies it. */
   accept(
     artifactId: string,
@@ -139,8 +153,18 @@ export function suggestionsApi(call: ApiCall): SuggestionsApi {
     plan(artifactId, threadId) {
       return call(`${suggestionPath(artifactId, threadId)}/plan`, Plan, "POST");
     },
-    preview(artifactId, digest) {
-      return call(`${artifactPath(artifactId)}/previews`, PreviewResponse, "POST", { digest });
+    preview(artifactId, request) {
+      return call(`${artifactPath(artifactId)}/previews`, PreviewResponse, "POST", request);
+    },
+    rebaseDraft(artifactId, request) {
+      return call(`${draftPath(artifactId)}/rebase`, RebasedDraft, "POST", request);
+    },
+    pageContent(artifactId, path, offset) {
+      const params = new URLSearchParams({ kind: "published", path, offset: String(offset) });
+      return call(
+        `${artifactPath(artifactId)}/versions/current/content?${params}`,
+        ArtifactContent,
+      );
     },
     accept(artifactId, threadId, request, idempotencyKey) {
       return call(
