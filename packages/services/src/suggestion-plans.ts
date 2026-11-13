@@ -22,7 +22,7 @@ import {
   planningRateKeys,
   SUGGESTION_LIMITS,
 } from "@portifact/contracts";
-import { type Db, hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import {
   type BuiltPlan,
@@ -357,7 +357,7 @@ export function suggestionPlanView(built: BuiltPlan): Plan {
  * authorization the plan was built under, checked inside the batch. Returns the row it wrote.
  */
 function cachePlan(
-  db: RegionalDb,
+  db: Db,
   input: { userId: string; artifactId: string; threadId: string | null; plan: Plan; now: number },
   guard: SQL,
 ) {
@@ -402,6 +402,23 @@ async function plannableSuggestion(
   return ok({ loaded: standing as AuthorizedAnnotations, thread });
 }
 
+/**
+ * Where a plan's batch runs and the live standing it holds (`liveStanding`): named in the batch
+ * when the region's database is the global one, read again right before it otherwise; null when
+ * that read refuses, so the batch does not run (fail closed). With a separate database a removal
+ * between that read and the batch is not seen, the one window (decision 0027).
+ */
+async function planBatchOn(
+  db: RegionalDb,
+  loaded: AuthorizedAnnotations,
+): Promise<{ w: Db; standing: SQL } | null> {
+  const facts = annotationParts.liveStanding(loaded);
+  if (facts === null) return { w: db, standing: sql`1` };
+  const both = bothSides(db);
+  if (both) return { w: both, standing: facts };
+  return (await annotationParts.standingHolds(db, loaded)) ? { w: db, standing: sql`1` } : null;
+}
+
 /** What a request whose guarded write lost answers: a fresh refusal, never the plan. */
 async function lostPlan<T>(again: Promise<Result<T>>): Promise<Result<never>> {
   const fresh = await again;
@@ -439,10 +456,13 @@ export async function planSuggestion(
   const { plan: result, operations } = built.value;
   const view = suggestionPlanView(result);
   const proofs = JSON.stringify(proofsOfPlan(result, operations, thread.versionId));
-  const guard = suggestionPlanGuard(loaded, thread, input.now);
-  const [cached] = await db.batch([
+  const on = await planBatchOn(db, loaded);
+  if (!on) return lostPlan(plannableSuggestion(db, input));
+  const { w } = on;
+  const guard = sql`${suggestionPlanGuard(loaded, thread, input.now)} and ${on.standing}`;
+  const [cached] = await w.batch([
     cachePlan(
-      db,
+      w,
       {
         userId: input.userId,
         artifactId: artifact.id,
@@ -452,7 +472,7 @@ export async function planSuggestion(
       },
       guard,
     ),
-    db
+    w
       .update(th)
       .set({ editProofs: proofs })
       .where(and(eq(th.id, thread.id), sql`${th.editProofs} is not ${proofs}`, guard)),
@@ -505,9 +525,12 @@ export async function planDraft(
   });
   if (!built.ok) return built;
   const view = suggestionPlanView(built.value.plan);
-  const [cached] = await db.batch([
+  const on = await planBatchOn(db, loaded);
+  if (!on) return lostPlan(draftAtCurrentVersion(db, input));
+  const { w } = on;
+  const [cached] = await w.batch([
     cachePlan(
-      db,
+      w,
       {
         userId: input.userId,
         artifactId: loaded.artifact.id,
@@ -515,7 +538,7 @@ export async function planDraft(
         plan: view,
         now: input.now,
       },
-      draftPlanGuard(loaded, draft, input.now),
+      sql`${draftPlanGuard(loaded, draft, input.now)} and ${on.standing}`,
     ),
   ]);
   if (cached.length === 0) return lostPlan(draftAtCurrentVersion(db, input));

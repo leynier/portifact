@@ -6,7 +6,7 @@ import { PLAN_LIMITS, SUGGESTION_LIMITS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { and, eq, sql } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { eraseAuthorFromThread, replyToAnnotationThread } from "../src/annotations.ts";
 import { runJob } from "../src/outbox.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
@@ -1561,4 +1561,96 @@ it("A29: a suggestion plan loses to a publish before the cache batch even before
       .from(schema.suggestionPlans)
       .where(eq(schema.suggestionPlans.artifactId, doc.artifactId)),
   ).toHaveLength(0);
+});
+
+describe("plan batches hold the live standing they were authorized on", () => {
+  const member = (workspaceId: string, userId: string) =>
+    and(
+      eq(schema.workspaceMembers.workspaceId, workspaceId),
+      eq(schema.workspaceMembers.userId, userId),
+    );
+  const cached = (artifactId: string) =>
+    db()
+      .select()
+      .from(schema.suggestionPlans)
+      .where(eq(schema.suggestionPlans.artifactId, artifactId));
+
+  it("A1b: a draft plan loses to the author's demotion before its batch", async () => {
+    const team = await workspace(() => user("Member"));
+    const s = await draft(team.editor, team.id);
+    const h = raceBeforeBatchWith(/insert into "suggestion_plans"/i, async () => {
+      await db()
+        .global.update(schema.workspaceMembers)
+        .set({ role: "member" })
+        .where(member(team.id, team.editor.id));
+    });
+    expect(await planDraft(h, env.ARTIFACTS, s.input)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(await cached(s.doc.artifactId)).toEqual([]);
+  });
+
+  it("A1c: an owner-side suggestion plan loses to the planner's demotion before its batch", async () => {
+    const team = await workspace(() => user("Member"));
+    const doc = await publishDoc(team.editor.id, { ownerId: team.id });
+    const input = { userId: team.editor.id, artifactId: doc.artifactId, now: NOW + 10 };
+    const t = value(
+      await submitSuggestion(db(), {
+        ...input,
+        versionId: doc.versionId,
+        edit: { operations: [textOp(doc, DOC, "Second", "Next")] },
+        body: "Fix",
+        humanCheck,
+      }),
+    );
+    const h = raceBeforeBatchWith(/insert into "suggestion_plans"/i, async () => {
+      await db()
+        .global.update(schema.workspaceMembers)
+        .set({ role: "member" })
+        .where(member(team.id, team.editor.id));
+    });
+    expect(
+      await planSuggestion(h, env.ARTIFACTS, { ...input, threadId: t.id, contentDomain: DOMAIN }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(await cached(doc.artifactId)).toEqual([]);
+  });
+
+  it("A8b: a workspace artifact's reader loses the plan when they leave the workspace before its batch", async () => {
+    const team = await workspace(() => user("Member"));
+    await grantPlan(team.id, "team", { seats: 10 });
+    const doc = await publishDoc(team.editor.id, { ownerId: team.id });
+    await db()
+      .update(schema.artifacts)
+      .set({ accessMode: "workspace", commentVisibility: "everyone" })
+      .where(eq(schema.artifacts.id, doc.artifactId));
+    const t = value(
+      await submitSuggestion(db(), {
+        userId: team.editor.id,
+        artifactId: doc.artifactId,
+        now: NOW,
+        versionId: doc.versionId,
+        edit: { operations: [textOp(doc, DOC, "Second", "Next")] },
+        body: "Fix",
+        humanCheck,
+      }),
+    );
+    const input = {
+      userId: team.member.id,
+      artifactId: doc.artifactId,
+      now: NOW + 10,
+      threadId: t.id,
+      contentDomain: DOMAIN,
+    };
+    // The control: the member plans it while they belong to the workspace.
+    value(await planSuggestion(db(), env.ARTIFACTS, input));
+    await db()
+      .delete(schema.suggestionPlans)
+      .where(eq(schema.suggestionPlans.artifactId, doc.artifactId));
+    const h = raceBeforeBatchWith(/insert into "suggestion_plans"/i, async () => {
+      await db().global.delete(schema.workspaceMembers).where(member(team.id, team.member.id));
+    });
+    expect(await planSuggestion(h, env.ARTIFACTS, input)).toMatchObject({ ok: false });
+    expect(await cached(doc.artifactId)).toEqual([]);
+  });
 });

@@ -337,3 +337,80 @@ describe("the re-read right before each batch", () => {
     }
   });
 });
+
+/** The EU bucket, running `before` once right before its first read: after authorization. */
+function demotingOnRead(before: () => Promise<unknown>): R2Bucket {
+  let fired = false;
+  return new Proxy(env.ARTIFACTS_EU, {
+    get(target, key) {
+      if (key === "get") {
+        return async (...args: Parameters<R2Bucket["get"]>) => {
+          if (!fired) {
+            fired = true;
+            await before();
+          }
+          return target.get(...args);
+        };
+      }
+      const member = Reflect.get(target, key, target);
+      return typeof member === "function" ? member.bind(target) : member;
+    },
+  });
+}
+
+describe("plan batches in a region with its own database", () => {
+  const cached = (artifactId: string) =>
+    eu()
+      .db.select()
+      .from(schema.suggestionPlans)
+      .where(eq(schema.suggestionPlans.artifactId, artifactId));
+
+  it("refuses a suggestion's plan when the planner's role went while it was built", async () => {
+    const s = await euSuggestion(PAGE);
+    await eu()
+      .db.delete(schema.suggestionPlans)
+      .where(eq(schema.suggestionPlans.artifactId, s.artifactId));
+    const planned = await planSuggestion(eu().db, demotingOnRead(s.demote), {
+      ...s.input,
+      threadId: s.threadId,
+      contentDomain: DOMAIN,
+    });
+    expect(planned).toMatchObject({ ok: false, code: "not_found" });
+    expect(await cached(s.artifactId)).toEqual([]);
+  });
+
+  it("refuses a draft's plan when its author's role went while it was built", async () => {
+    const s = await euSuggestion(PAGE);
+    const edit = JSON.stringify({ operations: [textOp(SITE, PAGE, "Second", "Next")] });
+    await eu().db.insert(schema.editDrafts).values({
+      artifactId: s.artifactId,
+      userId: s.editor.id,
+      ownerId: s.ws.id,
+      baseVersionId: s.versionId,
+      edit,
+      editBytes: edit.length,
+      updatedAt: NOW,
+    });
+    await eu()
+      .db.delete(schema.suggestionPlans)
+      .where(eq(schema.suggestionPlans.artifactId, s.artifactId));
+    const input = { ...s.input, contentDomain: DOMAIN };
+    expect(await planDraft(eu().db, demotingOnRead(s.demote), input)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(await cached(s.artifactId)).toEqual([]);
+    // The control: undisturbed, the same draft plans and is cached.
+    await regions()
+      .global.update(schema.workspaceMembers)
+      .set({ role: "editor" })
+      .where(
+        and(
+          eq(schema.workspaceMembers.workspaceId, s.ws.id),
+          eq(schema.workspaceMembers.userId, s.editor.id),
+        ),
+      );
+    value(await planDraft(eu().db, env.ARTIFACTS_EU, input));
+    expect(await cached(s.artifactId)).toHaveLength(1);
+  });
+});

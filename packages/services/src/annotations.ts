@@ -522,6 +522,42 @@ function scopeGuard(loaded: Authorized, threadId: string): SQL {
   return sql`exists (select 1 from ${th} join ${t} on ${t.id} = ${th.artifactId} where ${th.id} = ${threadId} and (${th.authorId} in (${owners}) or ${scope} = 'all'))`;
 }
 
+/**
+ * The global facts an authorization was decided on, which no regional row records: an owner-side
+ * person's membership and role on a workspace owner, a reader's membership of a workspace
+ * artifact's workspace, and each listed group the reader belongs to. Null when there is none to
+ * hold. A write held to them names them in its batch when the region's database is the global
+ * one (`bothSides`), and reads them again right before its batch (`standingHolds`) otherwise.
+ */
+function liveStanding(loaded: Authorized): SQL | null {
+  const ownerId = loaded.artifact.ownerId;
+  const m = schema.workspaceMembers;
+  const gm = schema.workspaceGroupMembers;
+  const facts: SQL[] = [];
+  if (isWorkspaceId(ownerId)) {
+    const roles = loaded.role === "owner" ? sql` and "standing"."role" in ('admin', 'editor')` : sql``;
+    if (loaded.role === "owner" || loaded.artifact.accessMode === "workspace") {
+      facts.push(
+        sql`exists (select 1 from ${m} as "standing" where "standing"."workspace_id" = ${ownerId} and "standing"."user_id" = ${loaded.viewerId}${roles})`,
+      );
+    }
+  }
+  for (const groupId of loaded.groupIds) {
+    facts.push(
+      sql`exists (select 1 from ${gm} as "listed" where "listed"."group_id" = ${groupId} and "listed"."user_id" = ${loaded.viewerId})`,
+    );
+  }
+  return facts.length === 0 ? null : sql.join(facts, sql` and `);
+}
+
+/** The same facts as `liveStanding`, read from the global database right before a batch. */
+async function standingHolds(db: RegionalDb, loaded: Authorized): Promise<boolean> {
+  const facts = liveStanding(loaded);
+  if (facts === null) return true;
+  const rows = await db.global.all<{ holds: number }>(sql`select ${facts} as holds`);
+  return rows[0]?.holds === 1;
+}
+
 /** The author and the artifact are under their write limits. */
 function rateGuard(actorId: string, artifactId: string, now: number): SQL {
   const e = schema.annotationEvents;
@@ -2063,6 +2099,8 @@ export const annotationParts = {
   artifactGuard,
   currentThreadGuard,
   scopeGuard,
+  liveStanding,
+  standingHolds,
   rateGuard,
   claim,
   claimed,
