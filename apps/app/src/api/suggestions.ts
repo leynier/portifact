@@ -26,23 +26,29 @@ import {
   Plan,
   SaveDraftRequest,
   SubmitSuggestionRequest,
+  SuggestionThreadView,
   SuggestionView,
 } from "@portifact/contracts";
+import type { RegionalDb } from "@portifact/db";
 import { suggestionsEnabled } from "@portifact/domain";
 import type { StoredResponse } from "@portifact/services";
 import {
   acceptSuggestion,
   discardDraft,
+  getAnnotationThread,
   getChangeItem,
   getDraft,
   getSuggestion,
   hashRequest,
+  idempotentThreadWrite,
   listChangeItems,
   markChangeItemOnce,
   planDraft,
   planSuggestion,
   publishDraft,
   rejectSuggestion,
+  replayAcceptance,
+  runIdempotent,
   saveDraft,
   submitSuggestion,
   withdrawSuggestion,
@@ -52,15 +58,7 @@ import type { FetchLike } from "../auth/deps.ts";
 import type { Env } from "../env.ts";
 import { artifactRegion } from "../regions.ts";
 import { humanCheck } from "../turnstile.ts";
-import {
-  type ApiContext,
-  error,
-  failure,
-  type Guarded,
-  idempotent,
-  idempotentThread,
-  readJson,
-} from "./http.ts";
+import { type ApiContext, error, failure, type Guarded, readJson } from "./http.ts";
 
 const BASE = "/api/v1/artifacts/:artifactId";
 
@@ -112,11 +110,24 @@ export function suggestionRoutes(
       const id = param(c, "artifactId");
       const { turnstileToken, ...suggestion } = body.value;
       const { db } = await region(c);
-      return idempotentThread(
-        c,
-        // The single-use token is not part of what the request asks for (as for comments).
-        { db, userId, operation: "suggestions.create", request: [id, suggestion], now: at },
-        { userId, artifactId: id, now: at },
+      const key = IdempotencyKey.safeParse(c.req.header("idempotency-key"));
+      if (!key.success) {
+        return error(c, "invalid_input", "Send an Idempotency-Key header (8 to 128 characters).");
+      }
+      const reader = { userId, artifactId: id, now: at };
+      // The stored answer is the thread's reference only, rebuilt on replay under the caller's
+      // current authorization (`idempotentThreadWrite`), as for comments.
+      const outcome = await idempotentThreadWrite(
+        db,
+        {
+          actorId: userId,
+          key: key.data,
+          // The single-use token is not part of what the request asks for (as for comments).
+          operation: "suggestions.create",
+          requestHash: await hashRequest([id, suggestion]),
+          now: at,
+        },
+        reader,
         () =>
           submitSuggestion(db, {
             ...actor(c, userId, at),
@@ -124,6 +135,26 @@ export function suggestionRoutes(
             humanCheck: humanCheck(c.env, siteverify(c.env), c.req.raw, turnstileToken),
           }),
       );
+      if (outcome.kind === "mismatch") {
+        return error(c, "invalid_input", "This Idempotency-Key was used for a different request.");
+      }
+      if (outcome.kind === "in_progress") {
+        return error(
+          c,
+          "version_conflict",
+          "A request with this Idempotency-Key is still running.",
+        );
+      }
+      if (!outcome.result.ok) return refused(c, outcome.result);
+      // The route answers the suggestion's thread with its kind and suggestion block, read under
+      // the same authorization as `?fields=suggestion`.
+      const view = await getAnnotationThread(db, {
+        ...reader,
+        threadId: outcome.result.value.id,
+        suggestionFields: true,
+      });
+      if (!view.ok) return refused(c, view);
+      return c.json(SuggestionThreadView.parse(view.value), 201);
     }),
   );
 
@@ -164,24 +195,25 @@ export function suggestionRoutes(
       const threadId = param(c, "threadId");
       const { db, bucket } = await region(c);
       if (!bucket) return error(c, "capacity_unavailable", "Accepting is unavailable.");
-      return idempotent(
+      return startOnce(
         c,
+        db,
         {
-          db,
           userId,
           operation: "suggestions.accept",
           request: [param(c, "artifactId"), threadId, body.value.digest],
           now: at,
         },
-        async () => {
-          const result = await acceptSuggestion(db, bucket, {
-            ...actor(c, userId, at),
-            threadId,
-            digest: body.value.digest,
-            contentDomain: c.env.CONTENT_DOMAIN,
-          });
-          return started(result);
-        },
+        threadId,
+        async () =>
+          started(
+            await acceptSuggestion(db, bucket, {
+              ...actor(c, userId, at),
+              threadId,
+              digest: body.value.digest,
+              contentDomain: c.env.CONTENT_DOMAIN,
+            }),
+          ),
       );
     }),
   );
@@ -265,15 +297,16 @@ export function suggestionRoutes(
       const at = now();
       const { db, bucket } = await region(c);
       if (!bucket) return error(c, "capacity_unavailable", "Publishing is unavailable.");
-      return idempotent(
+      return startOnce(
         c,
+        db,
         {
-          db,
           userId,
           operation: "drafts.publish",
           request: [param(c, "artifactId"), body.value.digest],
           now: at,
         },
+        null,
         async () =>
           started(
             await publishDraft(db, bucket, {
@@ -372,6 +405,54 @@ function failureOf(result: Failed): StoredResponse {
 function refused(c: ApiContext, result: Failed): Response {
   const { status, body } = failureOf(result);
   return c.json(body, status as 400);
+}
+
+/**
+ * Starts an acceptance or a draft publish once per idempotency key. The stored answer holds the
+ * attempt's ID only; a replay answers again only under the caller's current authorization
+ * (`replayAcceptance`), never from the stored answer alone.
+ */
+async function startOnce(
+  c: ApiContext,
+  db: RegionalDb,
+  input: { userId: string; operation: string; request: unknown; now: number },
+  threadId: string | null,
+  work: () => Promise<StoredResponse>,
+): Promise<Response> {
+  const key = IdempotencyKey.safeParse(c.req.header("idempotency-key"));
+  if (!key.success) {
+    return error(c, "invalid_input", "Send an Idempotency-Key header (8 to 128 characters).");
+  }
+  const outcome = await runIdempotent(
+    db,
+    {
+      actorId: input.userId,
+      key: key.data,
+      operation: input.operation,
+      requestHash: await hashRequest(input.request),
+      now: input.now,
+    },
+    work,
+  );
+  if (outcome.kind === "mismatch") {
+    return error(c, "invalid_input", "This Idempotency-Key was used for a different request.");
+  }
+  if (outcome.kind === "in_progress") {
+    return error(c, "version_conflict", "A request with this Idempotency-Key is still running.");
+  }
+  const { status, body } = outcome.response;
+  if (outcome.kind === "replayed" && status === 202) {
+    const again = await replayAcceptance(db, {
+      userId: input.userId,
+      artifactId: c.req.param("artifactId") as string,
+      now: input.now,
+      attemptId: AcceptanceStarted.parse(body).attemptId,
+      threadId,
+    });
+    if (!again.ok) return refused(c, again);
+    return c.json(AcceptanceStarted.parse(again.value), 202);
+  }
+  return c.json(body as object, status as 202);
 }
 
 function started(result: Awaited<ReturnType<typeof acceptSuggestion>>): StoredResponse {

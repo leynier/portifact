@@ -522,6 +522,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // Edit suggestions (decision 0027): rebuilds a replayed acceptance's answer, writes nothing.
+  "replayAcceptance",
   // D1's hold level for the data convergence rule (decision 0026): one read of `legal_holds`.
   "holdLevel",
   // The grace forecast's counts (decision 0022), shared by its route and the grace emails.
