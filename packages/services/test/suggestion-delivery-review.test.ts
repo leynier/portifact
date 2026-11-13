@@ -155,3 +155,136 @@ describe("the account export's drafts (review findings 1 and 2)", () => {
     ]);
   });
 });
+
+describe("guards the suites did not hold (review finding 3)", () => {
+  it("M1: a stored draft preview dies when the draft is replaced at the same revision", async () => {
+    const s = await setup();
+    const sessionId = await session(s.owner.id);
+    const plan = value(await planDraft(db(), env.ARTIFACTS, { ...s.actor, contentDomain: DOMAIN }));
+    const code = codeOf(
+      await issuePreviewCode(db(), env.ARTIFACTS, {
+        ...s.actor,
+        sessionId,
+        digest: plan.digest,
+        contentDomain: DOMAIN,
+      }),
+    );
+    value(await discardDraft(db(), s.actor));
+    const replacement = value(
+      await saveDraft(db(), {
+        ...s.actor,
+        baseVersionId: s.doc.versionId,
+        baseRevision: null,
+        baseIncarnation: null,
+        edit: s.edit,
+      }),
+    );
+    expect(replacement.revision).toBe(s.held.revision);
+    expect(await redeemPreviewCode(regionsFromEnv(env), code, NOW + 30)).toBeUndefined();
+  });
+
+  for (const change of ["incarnation", "version"] as const) {
+    it(`M3/M4: a rebase loses to a concurrent ${change} change`, async () => {
+      const s = await setup(true);
+      await publishVersion(
+        s.owner.id,
+        { "index.md": { body: `Intro.\n\n${DOC}`, contentType: "text/markdown" } },
+        {
+          base: s.doc,
+          ownerId: s.ws?.id ?? "",
+          type: "markdown",
+          entrypoint: "index.md",
+          now: NOW + 1_000,
+        },
+      );
+      let fired = false;
+      const handle = raceBeforeStatement(/^update "edit_drafts"/i, async () => {
+        fired = true;
+        if (change === "incarnation") {
+          await db()
+            .update(schema.editDrafts)
+            .set({ incarnation: "BBBBBBBBBBBBBBBBBBBBBB" })
+            .where(eq(schema.editDrafts.artifactId, s.doc.artifactId));
+        } else {
+          await db()
+            .update(schema.artifacts)
+            .set({ currentVersionId: s.doc.versionId })
+            .where(eq(schema.artifacts.id, s.doc.artifactId));
+        }
+      });
+      const result = await rebaseDraft(handle, env.ARTIFACTS, {
+        ...s.actor,
+        now: NOW + 2_000,
+        baseRevision: s.held.revision,
+        baseIncarnation: s.held.incarnation,
+        contentDomain: DOMAIN,
+      });
+      expect(fired).toBe(true);
+      expect(result.ok).toBe(false);
+      const [row] = await db()
+        .select()
+        .from(schema.editDrafts)
+        .where(
+          and(
+            eq(schema.editDrafts.artifactId, s.doc.artifactId),
+            eq(schema.editDrafts.userId, s.owner.id),
+          ),
+        );
+      expect(row?.baseVersionId).toBe(s.doc.versionId);
+    });
+  }
+
+  it("M5: an unsaved preview counts in the artifact's planning window", async () => {
+    const s = await setup();
+    const sessionId = await session(s.owner.id);
+    const preview = () =>
+      issuePreviewCode(db(), env.ARTIFACTS, {
+        ...s.actor,
+        sessionId,
+        contentDomain: DOMAIN,
+        unsaved: { versionId: s.doc.versionId, as: "suggestion", edit: s.edit },
+      });
+    // Ten plans a minute per artifact: ten previews, then a refusal.
+    for (let i = 0; i < 10; i++) {
+      const code = codeOf(await preview());
+      expect(await redeemPreviewCode(regionsFromEnv(env), code, NOW + 20)).toBeTruthy();
+    }
+    expect(await preview()).toMatchObject({ ok: false, code: "rate_limited" });
+  });
+
+  it("M6: exporting a reply elsewhere leaves out the other author's suggestion", async () => {
+    const author = await person("Other name");
+    const reader = await person("Exporting person");
+    const doc = await publishDoc(author.id);
+    await db()
+      .insert(schema.artifactReaders)
+      .values({ artifactId: doc.artifactId, email: reader.email });
+    const suggestion = value(
+      await submitSuggestion(db(), {
+        userId: author.id,
+        artifactId: doc.artifactId,
+        now: NOW + 10,
+        versionId: doc.versionId,
+        body: "Other body",
+        humanCheck,
+        edit: { operations: [textOp(doc, DOC, "Second", "Other author's replacement")] },
+      }),
+    );
+    value(
+      await replyToAnnotationThread(db(), {
+        userId: reader.id,
+        artifactId: doc.artifactId,
+        threadId: suggestion.id,
+        now: NOW + 20,
+        body: "My reply",
+        humanCheck,
+      }),
+    );
+    const exported = value(
+      await exportAccount(db(), { userId: reader.id, now: NOW + 30, regions: everyRegion() }),
+    );
+    expect(exported.commentsElsewhere).toHaveLength(1);
+    expect(exported.commentsElsewhere[0]?.suggestion).toBeUndefined();
+    expect(JSON.stringify(exported.commentsElsewhere)).not.toContain("Other author's replacement");
+  });
+});
