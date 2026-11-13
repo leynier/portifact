@@ -38,9 +38,12 @@ import {
   ERROR_STATUS,
   type ErrorCode,
   type ErrorDetail,
+  OwnDataPage,
+  OwnDocumentDeletion,
   SignOutOthersResult,
   WorkspaceParam,
 } from "@portifact/contracts";
+import { CollectionName, DocumentId, ExportCursor } from "@portifact/contracts/artifact-data";
 import { accountSessionUsableWithoutCurrentTerms } from "@portifact/domain";
 import {
   accountSuspensionView,
@@ -48,10 +51,13 @@ import {
   type ConnectedAppRow,
   customDomainsServing,
   dataGrantControl,
+  dataNamespaces,
   deleteAccountWithCode,
   deleteBrand,
+  deleteOwnDocument,
   disconnectApp,
   exportAccount,
+  exportOwnData,
   getAccountSettings,
   getBrandSettings,
   getCommentNoticeMute,
@@ -78,6 +84,7 @@ import { checkLimits, deletionCodeAttemptChecks, deletionCodeSendChecks } from "
 import type { Env } from "../env.ts";
 import {
   artifactDb,
+  artifactRegion,
   artifactStorage,
   bucketOf,
   defaultDb,
@@ -618,6 +625,83 @@ export function accountRoutes(deps: AccountDeps) {
         now: deps.now(),
       });
       return c.json(DataGrantRevocation.parse({ artifactId: artifactId.data, ...result }));
+    }),
+  );
+
+  // A person's own documents in an artifact (decision 0026): exported and deleted as the visitor
+  // the author journal names them, without write permission, the current terms or an open grant.
+  const ownData = async (c: AccountContext) => {
+    const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+    if (!artifactId.success) return null;
+    const handles = await artifactRegion(c.env, artifactId.data);
+    return {
+      artifactId: artifactId.data,
+      db: handles.db,
+      region: handles.region,
+      deps: { objects: dataNamespaces(c.env, handles.region), bucket: bucketOf(handles) },
+    };
+  };
+
+  routes.get(
+    "/api/v1/account/data-grants/:artifactId/mine",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      const target = await ownData(c);
+      if (target === null) return error(c, "not_found", "Artifact not found.");
+      const raw = c.req.query("after");
+      const at = raw?.indexOf(":") ?? -1;
+      const after =
+        raw === undefined
+          ? null
+          : ExportCursor.safeParse({ collection: raw.slice(0, at), id: raw.slice(at + 1) });
+      if (after !== null && (at <= 0 || !after.success)) {
+        return error(c, "invalid_input", "Invalid cursor.");
+      }
+      const result = await exportOwnData(target.db, target.deps, {
+        userId: session.userId,
+        artifactId: target.artifactId,
+        region: target.region,
+        now: deps.now(),
+        after: after === null ? null : (after.data ?? null),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      const page = result.value as {
+        rows: { collection: string; id: string }[];
+        next: { collection: string; id: string } | null;
+        revision: number;
+      };
+      return c.json(
+        OwnDataPage.parse({
+          rows: page.rows,
+          next: page.next === null ? null : `${page.next.collection}:${page.next.id}`,
+          revision: page.revision,
+        }),
+      );
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/account/data-grants/:artifactId/documents/:collection/:id",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      const target = await ownData(c);
+      const collection = CollectionName.safeParse(c.req.param("collection"));
+      const id = DocumentId.safeParse(c.req.param("id"));
+      if (target === null || !collection.success || !id.success) {
+        return error(c, "not_found", "No such document.");
+      }
+      const key = c.req.header("Idempotency-Key") ?? null;
+      const result = await deleteOwnDocument(target.db, target.deps, {
+        userId: session.userId,
+        artifactId: target.artifactId,
+        region: target.region,
+        now: deps.now(),
+        collection: collection.data,
+        id: id.data,
+        idempotencyKey: key !== null && key.length <= 128 ? key : null,
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(OwnDocumentDeletion.parse(result.value));
     }),
   );
 

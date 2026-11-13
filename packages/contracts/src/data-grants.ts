@@ -139,3 +139,17 @@ export const DataMe = z.union([
   }),
 ]);
 export type DataMe = z.infer<typeof DataMe>;
+
+/**
+ * One page of the documents a person created in an artifact (`GET
+ * /api/v1/account/data-grants/:artifactId/mine`): rows as the export stores them, untrusted text.
+ * `next` is `<collection>:<id>` of the last row while more may follow.
+ */
+export const OwnDataPage = z.strictObject({
+  rows: z.array(z.looseObject({ collection: z.string(), id: z.string() })),
+  next: z.string().max(80).nullable(),
+  revision: z.number().int().nonnegative(),
+});
+export type OwnDataPage = z.infer<typeof OwnDataPage>;
+
+export const OwnDocumentDeletion = z.strictObject({ deleted: z.literal(true) });

@@ -118,6 +118,8 @@ export const ACCOUNT_SESSION_OPERATIONS = {
   read_data_grant_control: "read",
   issue_data_grant: "refused",
   revoke_data_grants: "removes",
+  export_own_data: "leaving",
+  delete_own_document: "removes",
 } as const satisfies Record<string, "read" | "removes" | "narrowing" | "leaving" | "refused">;
 
 export type AccountSessionOperation = keyof typeof ACCOUNT_SESSION_OPERATIONS;

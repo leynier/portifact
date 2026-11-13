@@ -1,7 +1,14 @@
 // The app's side of artifact data grants (decision 0026, "The grant"): the consent control, the
 // code a person's Allow issues, "Data you shared" and revocation. Session only, off by default.
 import { env } from "cloudflare:workers";
+import { PLANS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
+import {
+  claimVisitorId,
+  dataNamespaces,
+  declareDataCollection,
+  pageDataCommand,
+} from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { publishSite, tokenClient } from "./api-client.ts";
@@ -317,5 +324,71 @@ describe("data grants on the app", () => {
     expect(new Set(seen).size).toBe(52);
     const bad = await h.request("/api/v1/account/data-grants?after=nowhere:x", dashboard(cookie));
     expect(bad.status).toBe(400);
+  });
+
+  it("exports and deletes the person's own documents, as the journal names them, and nobody else's", async () => {
+    const h = on();
+    const ownerClient = await tokenClient(h, "rights-owner@example.test");
+    const id = await publishSite(ownerClient, "Votes");
+    const db = regionsFromEnv(env).get("default").db;
+    const objects = dataNamespaces({ ...env, ARTIFACT_DATA_ENABLED: "true" }, "default");
+    const declared = await declareDataCollection(
+      db,
+      { objects, bucket: env.ARTIFACTS, enabled: true },
+      {
+        userId: ownerClient.userId,
+        artifactId: id,
+        now: Date.now(),
+        idempotencyKey: crypto.randomUUID(),
+        declaration: { name: "votes", mode: "own" },
+      },
+    );
+    expect(declared.ok).toBe(true);
+    const visitor = await tokenClient(h, "rights-visitor@example.test");
+    const claimed = await claimVisitorId(env.ARTIFACTS, visitor.userId, id, Date.now());
+    if (!claimed.ok) throw new Error("claim failed");
+    const created = await pageDataCommand(
+      db,
+      { objects },
+      {
+        artifactId: id,
+        region: "default",
+        limits: PLANS.free.data.perArtifact,
+        caller: { kind: "visitor", author: claimed.value, canWrite: true },
+        command: { kind: "create", collection: "votes", body: { choice: "a" } },
+        idempotencyKey: null,
+        now: Date.now(),
+      },
+    );
+    if (!created.result.ok) throw new Error("create failed");
+    const docId = (created.result.value.value as { _id: string })._id;
+
+    const page = await h.request(
+      `/api/v1/account/data-grants/${id}/mine`,
+      dashboard(visitor.cookie),
+    );
+    expect(page.status).toBe(200);
+    const body = await page.json<{ rows: { id: string }[]; next: string | null }>();
+    expect(body.rows.map((row) => row.id)).toEqual([docId]);
+    expect(body.next).toBeNull();
+
+    // Someone else has nothing there, and cannot delete the visitor's document.
+    const stranger = await h.signIn("rights-stranger@example.test");
+    expect(
+      (await h.request(`/api/v1/account/data-grants/${id}/mine`, dashboard(stranger))).status,
+    ).toBe(404);
+    const path = `/api/v1/account/data-grants/${id}/documents/votes/${docId}`;
+    expect((await h.request(path, dashboard(stranger, "DELETE"))).status).toBe(404);
+    const removed = await h.request(path, dashboard(visitor.cookie, "DELETE"));
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({ deleted: true });
+    expect(
+      (
+        await h.request(
+          `/api/v1/account/data-grants/${id}/mine?after=nocolon`,
+          dashboard(visitor.cookie),
+        )
+      ).status,
+    ).toBe(400);
   });
 });
