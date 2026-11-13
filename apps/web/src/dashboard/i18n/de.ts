@@ -56,6 +56,7 @@ export const de = {
     "Die Seite kennt dich nicht mehr und speichert innerhalb einer Minute nicht mehr in deinem Namen, in allen Browsern. Gespeichertes bleibt beim Artifact.",
   "sharedData.cancel": "Abbrechen",
   "sharedData.revokeFailed": "Widerruf wurde nicht abgeschlossen",
+  "sharedData.more": "Mehr anzeigen",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Zum Inhalt springen",
   "shell.navigation": "Hauptnavigation",

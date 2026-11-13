@@ -525,19 +525,32 @@ export function accountRoutes(deps: AccountDeps) {
     "/api/v1/account/data-grants",
     sessionOnly(async (c, session) => {
       if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      // The cursor is `<region>:<artifact>`: pages follow the regions in order, then the IDs.
+      const regions = regionsOf(c.env).all();
+      const raw = c.req.query("after") ?? "";
+      const at = raw.indexOf(":");
+      const from = at > 0 ? regions.findIndex((handles) => handles.region === raw.slice(0, at)) : 0;
+      if (raw !== "" && (at <= 0 || from < 0)) return error(c, "invalid_input", "Invalid cursor.");
       const now = deps.now();
-      const items = [];
-      for (const { db } of regionsOf(c.env).all()) {
-        items.push(
-          ...(await listDataGrants(db, {
-            userId: session.userId,
-            contentDomain: c.env.CONTENT_DOMAIN,
-            now,
-          })),
-        );
+      for (let index = from; index < regions.length; index++) {
+        const handles = regions[index] as (typeof regions)[number];
+        const page = await listDataGrants(handles.db, {
+          userId: session.userId,
+          contentDomain: c.env.CONTENT_DOMAIN,
+          now,
+          after: index === from && raw !== "" ? raw.slice(at + 1) : null,
+        });
+        const last = index === regions.length - 1;
+        if (page.items.length === 0 && page.next === null && !last) continue;
+        const next =
+          page.next !== null
+            ? `${handles.region}:${page.next}`
+            : last
+              ? null
+              : `${(regions[index + 1] as (typeof regions)[number]).region}:`;
+        return c.json(DataGrantList.parse({ items: page.items, next }));
       }
-      items.sort((a, b) => b.lastGrantedAt.localeCompare(a.lastGrantedAt));
-      return c.json(DataGrantList.parse({ items }));
+      return c.json(DataGrantList.parse({ items: [], next: null }));
     }),
   );
 

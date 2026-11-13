@@ -28,4 +28,6 @@ CREATE TABLE `data_grants` (
 --> statement-breakpoint
 CREATE INDEX `data_grants_user_artifact_idx` ON `data_grants` (`user_id`,`artifact_id`);--> statement-breakpoint
 CREATE INDEX `data_grants_artifact_idx` ON `data_grants` (`artifact_id`);--> statement-breakpoint
-CREATE INDEX `data_grants_expires_idx` ON `data_grants` (`expires_at`);
+CREATE INDEX `data_grants_expires_idx` ON `data_grants` (`expires_at`);--> statement-breakpoint
+CREATE INDEX `data_grants_revoked_idx` ON `data_grants` (`revoked_at`) WHERE "data_grants"."revoked_at" is not null;--> statement-breakpoint
+CREATE INDEX `data_grants_unredeemed_idx` ON `data_grants` (`created_at`) WHERE "data_grants"."redeemed_at" is null;

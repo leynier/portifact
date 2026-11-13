@@ -228,7 +228,7 @@ describe("data grants on the app", () => {
     expect(bad.status).toBe(400);
   });
 
-  it("lists several artifacts newest first and answers 429 once codes run out", async () => {
+  it("lists several artifacts in artifact order and answers 429 once codes run out", async () => {
     await env.DB.exec("DELETE FROM rate_limits");
     const h = on();
     const reader = "grants-reader6@example.test";
@@ -253,7 +253,7 @@ describe("data grants on the app", () => {
     const listed = await (await h.request("/api/v1/account/data-grants", dashboard(cookie))).json<{
       items: { artifactId: string }[];
     }>();
-    expect(listed.items.map((item) => item.artifactId)).toEqual([newer, older]);
+    expect(listed.items.map((item) => item.artifactId)).toEqual([newer, older].sort());
 
     let last = 0;
     for (let i = 0; i < 10; i++) {
@@ -265,5 +265,56 @@ describe("data grants on the app", () => {
       ).status;
     }
     expect(last).toBe(429);
+  });
+
+  it("pages Data you shared by region and artifact, and refuses a cursor it never gave", async () => {
+    const h = on();
+    const reader = "grants-pages@example.test";
+    const cookie = await h.signIn(reader);
+    const db = regionsFromEnv(env).get("default").db;
+    const [person] = await db.global
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, reader));
+    const userId = person?.id ?? "";
+    const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+    for (let n = 0; n < 52; n++) {
+      const id = `pg${alphabet[(n >> 5) & 31]}${alphabet[n & 31]}aaaaaa`;
+      await db.insert(schema.artifacts).values({
+        id,
+        ownerId: userId,
+        type: "site",
+        name: `Board ${n}`,
+        state: "active",
+        accessMode: "restricted",
+        currentVersionId: "v1",
+        expiresAt: Date.now() + 86_400_000,
+      });
+      await db.insert(schema.dataGrants).values({
+        id: `dg_${String(n).padStart(22, "0")}`,
+        artifactId: id,
+        userId,
+        visitorId: "v_123456789012345678901234",
+        authSessionId: "as_pages",
+        host: `${id}.${env.CONTENT_DOMAIN}`,
+        expiresAt: Date.now() + 86_400_000,
+        redeemedAt: Date.now(),
+      });
+    }
+    const seen: string[] = [];
+    let after: string | null = null;
+    for (let page = 0; page < 5; page++) {
+      const query: string = after === null ? "" : `?${new URLSearchParams({ after })}`;
+      const response = await h.request(`/api/v1/account/data-grants${query}`, dashboard(cookie));
+      expect(response.status).toBe(200);
+      const body = await response.json<{ items: { artifactId: string }[]; next: string | null }>();
+      seen.push(...body.items.map((item) => item.artifactId));
+      after = body.next;
+      if (after === null) break;
+    }
+    expect(seen).toHaveLength(52);
+    expect(new Set(seen).size).toBe(52);
+    const bad = await h.request("/api/v1/account/data-grants?after=nowhere:x", dashboard(cookie));
+    expect(bad.status).toBe(400);
   });
 });

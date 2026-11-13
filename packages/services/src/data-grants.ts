@@ -21,8 +21,7 @@ import {
   type Result,
 } from "@portifact/domain";
 import { claimOutcome, journalKey } from "@portifact/domain/artifact-data";
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
-import { activeCustomHost } from "./custom-domains.ts";
+import { and, eq, gt, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import {
   appSessionSignIn,
   checkReadAccess,
@@ -91,23 +90,42 @@ interface GrantTarget {
  * Anything else answers like a missing artifact.
  */
 async function grantTarget(db: RegionalDb, input: GrantTargetInput): Promise<Result<GrantTarget>> {
-  const access = await checkReadAccess(db, input);
-  if (!access.ok) return unavailable();
+  // A fixed plan, whatever the answer (decision 0026: a refusal reads like a missing artifact):
+  // one regional read of the artifact's data row and custom host, the custom host's global row
+  // when one was asked for, then the read access check, which takes the same reads for a missing
+  // artifact as for a refused one. Only then is anything decided.
   const [row] = await db
-    .select({ name: schema.artifacts.name, ownerId: schema.artifacts.ownerId })
+    .select({
+      name: schema.artifacts.name,
+      ownerId: schema.artifacts.ownerId,
+      customHost: schema.artifacts.customHost,
+      hasData: sql<number>`${schema.artifactData.artifactId} is not null`,
+    })
     .from(schema.artifacts)
-    .innerJoin(schema.artifactData, eq(schema.artifactData.artifactId, schema.artifacts.id))
+    .leftJoin(schema.artifactData, eq(schema.artifactData.artifactId, schema.artifacts.id))
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
-  if (!row) return unavailable();
+  const askedHost = input.customDomains && input.requestedHost !== null;
+  const [active] = askedHost
+    ? await db.global
+        .select({ hostname: schema.customDomains.hostname })
+        .from(schema.customDomains)
+        .where(
+          and(
+            eq(schema.customDomains.hostname, row?.customHost ?? input.requestedHost ?? ""),
+            eq(schema.customDomains.state, "active"),
+            eq(schema.customDomains.artifactId, input.artifactId),
+          ),
+        )
+        .limit(1)
+    : [];
+  const access = await checkReadAccess(db, input);
+  if (!access.ok || !row || !row.hasData) return unavailable();
   const host = handoffHost({
     artifactId: input.artifactId,
     contentDomain: input.contentDomain,
     requested: input.requestedHost,
-    activeHost:
-      input.requestedHost === null
-        ? null
-        : await activeCustomHost(db, input.artifactId, input.customDomains),
+    activeHost: active !== undefined && row.customHost !== null ? row.customHost : null,
   });
   if (host === null) return unavailable();
   return ok({ host, artifactName: row.name, ownerId: row.ownerId });
@@ -380,10 +398,19 @@ export async function renewDataGrant(
 }
 
 /**
- * Revokes every open grant of the person on an artifact (from "Data you shared" or the viewer).
- * The `data_grant` window tombstones are written first, in the global database, so a restore
- * never revives a revoked grant; then the regional rows, conditioned on being still open. With
- * one database both are one batch.
+ * Grants one revocation step handles: three bound parameters per tombstone, so a step stays well
+ * under D1's 100 bound parameters a statement.
+ */
+const REVOKE_STEP = 30;
+/** Steps one revocation takes at most: far above what the issue rate lets a person open. */
+const REVOKE_STEPS = 200;
+
+/**
+ * Revokes every open grant of the person on an artifact (from "Data you shared" or the viewer),
+ * in steps of `REVOKE_STEP`, until none is open. Each step writes its `data_grant` window
+ * tombstones first, in the global database, so a restore never revives a revoked grant, then
+ * revokes those rows, conditioned on being still open; with one database both are one batch.
+ * Answers only once no open grant is left.
  */
 export async function revokeDataGrants(
   db: RegionalDb,
@@ -395,72 +422,99 @@ export async function revokeDataGrants(
     isNull(g.revokedAt),
     gt(g.expiresAt, input.now),
   );
-  const rows = await db.select({ id: g.id }).from(g).where(open);
-  if (rows.length === 0) return { revoked: 0 };
-  const ids = rows.map((row) => row.id);
-  const markers = ids.map((id) => ({ kind: "data_grant" as const, id, deletedAt: input.now }));
   const both = bothSides(db);
-  if (both) {
-    const [, revoked] = await both.batch([
-      both.insert(schema.tombstones).values(markers).onConflictDoNothing(),
-      both
-        .update(g)
-        .set({ revokedAt: input.now })
-        .where(and(open, inArray(g.id, ids)))
-        .returning({ id: g.id }),
-    ]);
-    return { revoked: revoked.length };
+  let revoked = 0;
+  for (let step = 0; step < REVOKE_STEPS; step++) {
+    const rows = await db.select({ id: g.id }).from(g).where(open).limit(REVOKE_STEP);
+    if (rows.length === 0) return { revoked };
+    const ids = rows.map((row) => row.id);
+    const markers = ids.map((id) => ({ kind: "data_grant" as const, id, deletedAt: input.now }));
+    if (both) {
+      const [, done] = await both.batch([
+        both.insert(schema.tombstones).values(markers).onConflictDoNothing(),
+        both
+          .update(g)
+          .set({ revokedAt: input.now })
+          .where(and(open, inArray(g.id, ids)))
+          .returning({ id: g.id }),
+      ]);
+      revoked += done.length;
+      continue;
+    }
+    await db.global.insert(schema.tombstones).values(markers).onConflictDoNothing();
+    const done = await db
+      .update(g)
+      .set({ revokedAt: input.now })
+      .where(and(open, inArray(g.id, ids)))
+      .returning({ id: g.id });
+    revoked += done.length;
   }
-  await db.global.insert(schema.tombstones).values(markers).onConflictDoNothing();
-  const revoked = await db
-    .update(g)
-    .set({ revokedAt: input.now })
-    .where(and(open, inArray(g.id, ids)))
-    .returning({ id: g.id });
-  return { revoked: revoked.length };
+  throw new Error("grants kept opening while they were revoked");
 }
 
+/** Artifacts one page of "Data you shared" lists, per region. */
+export const DATA_GRANT_PAGE = 50;
+
 /**
- * The artifacts the person shared data with in one region, newest first: one row per artifact,
- * with the grants still open, for "Data you shared".
+ * One page of the artifacts the person shared data with in one region, by artifact ID after
+ * `after`, through the `(user_id, artifact_id)` index: one row per artifact with the grants
+ * still open. `next` names the last artifact when more may follow.
  */
 export async function listDataGrants(
   db: RegionalDb,
-  input: { userId: string; contentDomain: string; now: number },
-): Promise<DataGrantView[]> {
-  const open = sql<number>`sum(case when ${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now} then 1 else 0 end)`;
+  input: {
+    userId: string;
+    contentDomain: string;
+    now: number;
+    after?: string | null;
+    limit?: number;
+  },
+): Promise<{ items: DataGrantView[]; next: string | null }> {
+  const limit = Math.min(Math.max(1, input.limit ?? DATA_GRANT_PAGE), DATA_GRANT_PAGE);
+  const live = sql`${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now}`;
   const rows = await db
     .select({
       artifactId: g.artifactId,
-      name: schema.artifacts.name,
+      name: sql<
+        string | null
+      >`(select ${schema.artifacts.name} from ${schema.artifacts} where ${schema.artifacts.id} = "data_grants"."artifact_id")`,
       host: sql<string>`max(${g.host})`,
-      open,
+      open: sql<number>`sum(case when ${live} then 1 else 0 end)`,
       first: sql<number>`min(${g.createdAt})`,
       last: sql<number>`max(${g.createdAt})`,
-      expiresAt: sql<
-        number | null
-      >`max(case when ${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now} then ${g.expiresAt} end)`,
+      expiresAt: sql<number | null>`max(case when ${live} then ${g.expiresAt} end)`,
     })
     .from(g)
-    .leftJoin(schema.artifacts, eq(schema.artifacts.id, g.artifactId))
-    .where(and(eq(g.userId, input.userId), isNotNull(g.redeemedAt)))
+    .where(
+      and(
+        eq(g.userId, input.userId),
+        isNotNull(g.redeemedAt),
+        input.after ? gt(g.artifactId, input.after) : undefined,
+      ),
+    )
     .groupBy(g.artifactId)
-    .orderBy(desc(sql`max(${g.createdAt})`))
-    .limit(200);
-  return rows.map((row) => ({
-    artifactId: row.artifactId,
-    artifactName: row.name ?? null,
-    host: row.host ?? devHost(row.artifactId, input.contentDomain),
-    openGrants: Number(row.open),
-    firstGrantedAt: new Date(Number(row.first)).toISOString(),
-    lastGrantedAt: new Date(Number(row.last)).toISOString(),
-    expiresAt: row.expiresAt === null ? null : new Date(Number(row.expiresAt)).toISOString(),
-  }));
+    .orderBy(g.artifactId)
+    .limit(limit + 1);
+  const page = rows.slice(0, limit);
+  return {
+    items: page.map((row) => ({
+      artifactId: row.artifactId,
+      artifactName: row.name ?? null,
+      host: row.host ?? devHost(row.artifactId, input.contentDomain),
+      openGrants: Number(row.open),
+      firstGrantedAt: new Date(Number(row.first)).toISOString(),
+      lastGrantedAt: new Date(Number(row.last)).toISOString(),
+      expiresAt: row.expiresAt === null ? null : new Date(Number(row.expiresAt)).toISOString(),
+    })),
+    next: rows.length > limit ? (page.at(-1)?.artifactId ?? null) : null,
+  };
 }
 
 /**
- * Deletes expired codes and grants that ended `DATA_GRANT.endedKeepMs` ago (revoked or expired),
- * at most `limit` of each per run. Called by the maintenance job.
+ * Deletes, at most `limit` of each per run, expired codes and grants 30 days after they expired,
+ * were revoked, or (never redeemed) after their code could no longer redeem. Each selection runs
+ * through its own index leading with that time, so a run reads what it deletes and not the
+ * table. Called by the maintenance job.
  */
 export async function pruneDataGrants(
   db: RegionalDb,
@@ -468,36 +522,25 @@ export async function pruneDataGrants(
   limit = PRUNE_BATCH,
 ): Promise<{ processed: number }> {
   const before = now - DATA_GRANT.endedKeepMs;
-  const [codes, grants] = await db.batch([
+  const unredeemedBefore = now - DATA_GRANT.codeTtlSeconds * 2 * SECOND_MS;
+  const grants = (select: SQL) =>
+    db.delete(g).where(sql`${g.id} in (${select})`).returning({ id: g.id });
+  const results = await db.batch([
     db
       .delete(c)
       .where(
-        inArray(
-          c.codeHash,
-          db.select({ id: c.codeHash }).from(c).where(lte(c.expiresAt, now)).limit(limit),
-        ),
+        sql`${c.codeHash} in (select ${c.codeHash} from ${c} indexed by data_grant_codes_expires_idx where ${c.expiresAt} <= ${now} order by ${c.expiresAt} limit ${limit})`,
       )
       .returning({ id: c.codeHash }),
-    db
-      .delete(g)
-      .where(
-        inArray(
-          g.id,
-          db
-            .select({ id: g.id })
-            .from(g)
-            .where(
-              or(
-                lte(g.expiresAt, before),
-                and(isNotNull(g.revokedAt), lte(g.revokedAt, before)),
-                // A grant whose code never redeemed gives nothing once its code expired.
-                and(isNull(g.redeemedAt), lte(g.createdAt, now - DATA_GRANT.codeTtlSeconds * 2000)),
-              ),
-            )
-            .limit(limit),
-        ),
-      )
-      .returning({ id: g.id }),
+    grants(
+      sql`select ${g.id} from ${g} indexed by data_grants_expires_idx where ${g.expiresAt} <= ${before} order by ${g.expiresAt} limit ${limit}`,
+    ),
+    grants(
+      sql`select ${g.id} from ${g} indexed by data_grants_revoked_idx where ${g.revokedAt} is not null and ${g.revokedAt} <= ${before} order by ${g.revokedAt} limit ${limit}`,
+    ),
+    grants(
+      sql`select ${g.id} from ${g} indexed by data_grants_unredeemed_idx where ${g.redeemedAt} is null and ${g.createdAt} <= ${unredeemedBefore} order by ${g.createdAt} limit ${limit}`,
+    ),
   ]);
-  return { processed: codes.length + grants.length };
+  return { processed: results.reduce((n, rows) => n + rows.length, 0) };
 }

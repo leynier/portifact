@@ -1183,6 +1183,9 @@ export const dataGrants = sqliteTable(
     index("data_grants_user_artifact_idx").on(t.userId, t.artifactId),
     index("data_grants_artifact_idx").on(t.artifactId),
     index("data_grants_expires_idx").on(t.expiresAt),
+    // The prune's other two selections (`pruneDataGrants`), each led by its own time.
+    index("data_grants_revoked_idx").on(t.revokedAt).where(sql`${t.revokedAt} is not null`),
+    index("data_grants_unredeemed_idx").on(t.createdAt).where(sql`${t.redeemedAt} is null`),
   ],
 );
 

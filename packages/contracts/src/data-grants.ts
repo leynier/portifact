@@ -80,7 +80,14 @@ export const DataGrantView = z.strictObject({
 });
 export type DataGrantView = z.infer<typeof DataGrantView>;
 
-export const DataGrantList = z.strictObject({ items: z.array(DataGrantView) });
+/**
+ * One page of "Data you shared". `next` is the opaque cursor of the following page, null on the
+ * last; pages follow the regions in order, then the artifact IDs.
+ */
+export const DataGrantList = z.strictObject({
+  items: z.array(DataGrantView),
+  next: z.string().max(64).nullable(),
+});
 export type DataGrantList = z.infer<typeof DataGrantList>;
 
 export const DataGrantRevocation = z.strictObject({

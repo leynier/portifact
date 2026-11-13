@@ -18,7 +18,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@portifact/ui";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Unplug } from "lucide-react";
 import { useState } from "react";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
@@ -31,7 +31,13 @@ export function SharedDataScreen() {
   const t = useT();
   useDocumentTitle(t("sharedData.title"));
   const { api } = useDashboard();
-  const grants = useQuery({ queryKey: DATA_GRANTS_QUERY, queryFn: () => api.dataGrants() });
+  const grants = useInfiniteQuery({
+    queryKey: DATA_GRANTS_QUERY,
+    queryFn: ({ pageParam }) => api.dataGrants(pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next,
+  });
+  const items = grants.data?.pages.flatMap((page) => page.items) ?? [];
   return (
     <div className="flex flex-col gap-6">
       <PageHeader title={t("sharedData.title")} description={t("sharedData.description")} />
@@ -46,10 +52,23 @@ export function SharedDataScreen() {
           >
             {errorMessage(t, grants.error)}
           </Callout>
-        ) : grants.data.items.length === 0 ? (
+        ) : items.length === 0 ? (
           <EmptyState title={t("sharedData.empty")}>{t("sharedData.emptyHint")}</EmptyState>
         ) : (
-          <GrantTable items={grants.data.items} />
+          <>
+            <GrantTable items={items} />
+            {grants.hasNextPage ? (
+              <div>
+                <Button
+                  intent="secondary"
+                  busy={grants.isFetchingNextPage}
+                  onClick={() => void grants.fetchNextPage()}
+                >
+                  {t("sharedData.more")}
+                </Button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     </div>

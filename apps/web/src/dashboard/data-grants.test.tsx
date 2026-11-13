@@ -106,6 +106,25 @@ describe("Data you shared", () => {
     expect(server.dataGrants[0]?.openGrants).toBe(0);
   });
 
+  it("reaches every artifact through Show more", async () => {
+    const server = fakeServer();
+    server.dataGrants = ["a", "b", "c"].map((letter, n) => ({
+      artifactId: `${letter.repeat(9)}2`,
+      artifactName: `Board ${letter}`,
+      host: `${letter.repeat(9)}2.portifact.dev`,
+      openGrants: 1,
+      firstGrantedAt: "2026-11-01T10:00:00.000Z",
+      lastGrantedAt: `2026-11-0${n + 1}T10:00:00.000Z`,
+      expiresAt: "2026-12-10T10:00:00.000Z",
+    }));
+    renderDashboard("/shared-data", server);
+    expect(await screen.findByText("Board a")).toBeTruthy();
+    expect(screen.queryByText("Board c")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(await screen.findByText("Board c")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+  });
+
   it("says when nothing was shared", async () => {
     renderDashboard("/shared-data", fakeServer());
     expect(await screen.findByText("Nothing shared yet")).toBeTruthy();

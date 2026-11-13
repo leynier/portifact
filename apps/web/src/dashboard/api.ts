@@ -232,7 +232,7 @@ export interface DashboardApi {
   /** The person allowed: a one-use code bound to the beginning browser's nonce. */
   issueDataGrant(input: DataGrantCodeRequest): Promise<DataGrantCode>;
   /** "Data you shared": the artifacts the person granted. */
-  dataGrants(): Promise<DataGrantList>;
+  dataGrants(after?: string | null): Promise<DataGrantList>;
   /** Revokes the person's grants on an artifact. */
   revokeDataGrants(artifactId: string): Promise<DataGrantRevocation>;
   /** Deletes the account; the email typed again confirms it. */
@@ -858,8 +858,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     issueDataGrant(input) {
       return call("/api/v1/account/data-grants", DataGrantCode, "POST", input);
     },
-    dataGrants() {
-      return call("/api/v1/account/data-grants", DataGrantList);
+    dataGrants(after) {
+      const query = after ? `?${new URLSearchParams({ after })}` : "";
+      return call(`/api/v1/account/data-grants${query}`, DataGrantList);
     },
     revokeDataGrants(artifactId) {
       return call(

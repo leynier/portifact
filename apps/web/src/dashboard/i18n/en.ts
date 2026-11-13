@@ -53,6 +53,7 @@ export const en = {
     "The page stops knowing you and saving as you within a minute, in every browser. What you saved stays with the artifact.",
   "sharedData.cancel": "Cancel",
   "sharedData.revokeFailed": "Revoking did not finish",
+  "sharedData.more": "Show more",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Skip to content",
   "shell.navigation": "Main",

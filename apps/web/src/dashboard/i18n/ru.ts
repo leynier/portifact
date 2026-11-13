@@ -58,6 +58,7 @@ export const ru = {
     "В течение минуты, во всех браузерах, страница перестанет знать вас и сохранять от вашего имени. Сохранённое остаётся в artifact.",
   "sharedData.cancel": "Отмена",
   "sharedData.revokeFailed": "Отзыв не завершён",
+  "sharedData.more": "Показать ещё",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Перейти к содержимому",
   "shell.navigation": "Основное",
