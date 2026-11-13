@@ -1007,11 +1007,9 @@ function ReviewSession({
   // Suggesting is offered only when the API switched it on, comments are open, and the bridge
   // in the frame announced it can (protocol 3). The page can forge that announcement: it only
   // decides what this screen offers, never what is saved.
+  const suggestOffered = start.suggestions === true && canComment;
   const canSuggest =
-    start.suggestions === true &&
-    canComment &&
-    state === "connected" &&
-    bridge.capabilities.includes("edit");
+    suggestOffered && state === "connected" && bridge.capabilities.includes("edit");
   useEffect(() => {
     if (!canSuggest) dispatchSuggest({ type: "toggle", on: false });
   }, [canSuggest]);
@@ -1223,7 +1221,10 @@ function ReviewSession({
             aria-label={t("review.toolbar.label")}
             className="flex flex-wrap gap-2"
           >
-            {canSuggest ? (
+            {/* Drawn as soon as the API offers suggesting, its other modes enabled once the
+                bridge can take them: the switch never appears under the pointer when the page
+                connects, which would move the thread list between a press and its release. */}
+            {suggestOffered ? (
               <ModeSwitch
                 label={t("suggest.mode.label")}
                 value={suggest.mode === "off" ? "comment" : purpose}
@@ -1240,6 +1241,7 @@ function ReviewSession({
                     label: t("suggest.mode.suggest"),
                     name: t("suggest.mode.name", { mode: t("suggest.mode.suggest") }),
                     icon: <PencilLine className="size-4" />,
+                    disabled: !canSuggest,
                   },
                   // The owner side may also edit directly, into a private draft.
                   ...(ownerSide
@@ -1249,6 +1251,7 @@ function ReviewSession({
                           label: t("draft.mode.edit"),
                           name: t("suggest.mode.name", { mode: t("draft.mode.edit") }),
                           icon: <FilePen className="size-4" />,
+                          disabled: !canSuggest,
                         },
                       ]
                     : []),
