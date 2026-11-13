@@ -645,6 +645,13 @@ export interface ServerCommit {
   held: SQL;
   completion: (switched: SQL) => BatchItem<"sqlite">[];
   via: "suggestion" | "draft";
+  /**
+   * With a separate regional database, the accepting person's role read again from the global
+   * one after every asynchronous step of the commit and right before its batch (fail closed); a
+   * refusal closes the upload and answers `forbidden`. Absent with one database, where the claim
+   * names the membership inside the batch.
+   */
+  stillActs?: () => Promise<boolean>;
   /** The SHA-256s the plan committed to for a document's rendering and block map; null else. */
   renderedSha256: string | null;
   blockMapSha256: string | null;
@@ -1027,6 +1034,10 @@ export async function commitPublish(
       .set({ state: "committed" })
       .where(and(eq(schema.uploadSessions.id, session.id), switched)),
   ];
+  if (server?.stillActs && !(await server.stillActs())) {
+    await closeUploadSession(db, { ownerId, sessionId: session.id, now: input.now }, "failed");
+    return fail("forbidden", "You no longer act for this artifact's owner.");
+  }
   const batch = w.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
   // A CHECK failure means the renderings do not fit the account; anything else is unexpected.
   const outcome = await batch.catch((error: unknown) => {

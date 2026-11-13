@@ -187,44 +187,73 @@ async function euSetup({ listed = false, start = true } = {}) {
   if (start) value(await acceptSuggestion(e.db, e.bucket, { ...params, digest: plan.digest }));
   return { e, regions, ws, editor, view, doc, params, plan };
 }
-it.each(["demoted", "removed", "workspace-deleted"] as const)(
-  "A3: EU final claim must reread role after render IO, change=%s",
-  async (change) => {
-    const s = await euSetup();
+it.each([
+  ["suggestion", "demoted"],
+  ["suggestion", "removed"],
+  ["suggestion", "workspace-deleted"],
+  ["draft", "demoted"],
+  ["draft", "removed"],
+] as const)(
+  "A3: EU %s commit rereads the role after its render IO, change=%s",
+  async (origin, change) => {
+    const s = await euSetup({ start: origin === "suggestion" });
+    if (origin === "draft") {
+      const edit = JSON.stringify({
+        operations: [textOp({ type: "markdown", path: "index.md" }, DOC, "Second", "Next")],
+      });
+      await s.e.db.insert(schema.editDrafts).values({
+        artifactId: s.doc.artifactId,
+        userId: s.editor.id,
+        ownerId: s.ws.id,
+        baseVersionId: s.doc.versionId,
+        edit,
+        editBytes: edit.length,
+        updatedAt: NOW,
+      });
+      const plan = value(
+        await planDraft(s.e.db, s.e.bucket, {
+          userId: s.editor.id,
+          artifactId: s.doc.artifactId,
+          now: NOW + 10,
+          contentDomain: DOMAIN,
+        }),
+      );
+      value(
+        await publishDraft(s.e.db, s.e.bucket, {
+          userId: s.editor.id,
+          artifactId: s.doc.artifactId,
+          now: NOW + 10,
+          contentDomain: DOMAIN,
+          digest: plan.digest,
+        }),
+      );
+    }
     let fired = false;
     const bucket = new Proxy(s.e.bucket, {
       get(target: R2Bucket, key) {
         if (key === "put")
           return async (...args: Parameters<R2Bucket["put"]>) => {
-            // The source put precedes stillActs. The rendered HTML put is INSIDE commitPublish,
-            // after both stillActs and authorizeUpload, so this is not the documented final-read gap.
+            // The rendered page's put is inside commitPublish, after its authorization and reads.
+            const meta = args[2]?.httpMetadata;
             if (
               !fired &&
-              args[2]?.httpMetadata &&
-              typeof args[2].httpMetadata === "object" &&
-              "contentType" in args[2].httpMetadata &&
-              String(args[2].httpMetadata.contentType).includes("text/html")
+              meta &&
+              typeof meta === "object" &&
+              "contentType" in meta &&
+              String(meta.contentType).includes("text/html")
             ) {
               fired = true;
+              const member = and(
+                eq(schema.workspaceMembers.workspaceId, s.ws.id),
+                eq(schema.workspaceMembers.userId, s.editor.id),
+              );
               if (change === "demoted")
                 await s.regions.global
                   .update(schema.workspaceMembers)
                   .set({ role: "member" })
-                  .where(
-                    and(
-                      eq(schema.workspaceMembers.workspaceId, s.ws.id),
-                      eq(schema.workspaceMembers.userId, s.editor.id),
-                    ),
-                  );
+                  .where(member);
               if (change === "removed")
-                await s.regions.global
-                  .delete(schema.workspaceMembers)
-                  .where(
-                    and(
-                      eq(schema.workspaceMembers.workspaceId, s.ws.id),
-                      eq(schema.workspaceMembers.userId, s.editor.id),
-                    ),
-                  );
+                await s.regions.global.delete(schema.workspaceMembers).where(member);
               if (change === "workspace-deleted") {
                 const { deleteWorkspace } = await import("../src/workspaces.ts");
                 value(await deleteWorkspace(s.regions, { workspaceId: s.ws.id, now: NOW + 1500 }));
@@ -236,20 +265,35 @@ it.each(["demoted", "removed", "workspace-deleted"] as const)(
         return typeof member === "function" ? member.bind(target) : member;
       },
     });
-    const [job] = await jobsOf("suggestion_accept", s.doc.artifactId, s.e.db);
-    await runJob(
-      s.e.db,
-      bucket,
-      { id: the(job).id, topic: "suggestion_accept" },
-      NOW + 2000,
-      JOB_DEPS,
-    );
+    const topic = origin === "suggestion" ? "suggestion_accept" : "draft_publish";
+    const [job] = await jobsOf(topic, s.doc.artifactId, s.e.db);
+    await runJob(s.e.db, bucket, { id: the(job).id, topic }, NOW + 2000, JOB_DEPS);
     expect(fired).toBe(true);
     const [t] = await s.e.db
       .select()
       .from(schema.annotationThreads)
       .where(eq(schema.annotationThreads.id, s.view.id));
     expect(t?.suggestionState).not.toBe("accepted");
+    const committed = await s.e.db
+      .select()
+      .from(schema.versions)
+      .where(
+        and(
+          eq(schema.versions.artifactId, s.doc.artifactId),
+          eq(schema.versions.state, "committed"),
+        ),
+      );
+    expect(committed).toHaveLength(1);
+    if (change !== "workspace-deleted") {
+      expect(await attempts(s.doc.artifactId, s.e.db)).toMatchObject([
+        { state: "ended", reason: "revoked" },
+      ]);
+      const [usage] = await s.e.db
+        .select()
+        .from(schema.accountUsage)
+        .where(eq(schema.accountUsage.ownerId, s.ws.id));
+      expect(usage?.openUploads ?? 0).toBe(0);
+    }
   },
 );
 it("A4: actual carry R2 reads stay within the documented per-run byte budget", async () => {

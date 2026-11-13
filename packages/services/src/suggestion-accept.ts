@@ -690,6 +690,7 @@ async function manifestOf(
 const COMMIT_REASONS: Partial<Record<string, AttemptEndReason>> = {
   upload_incomplete: "failed",
   quota_exceeded: "quota_exceeded",
+  forbidden: "revoked",
 };
 
 const PREPARE_REASONS: Partial<Record<string, AttemptEndReason>> = {
@@ -786,11 +787,8 @@ export async function publishFromPlan(
   if (object?.state === "pending") {
     await bucket.put(object.r2Key, bytes, { sha256: fileSha });
   }
-  // With a separate regional database the role is read again right before the commit.
-  if (!bothSides(db) && !(await stillActs(db, attempt.ownerId, userId))) {
-    await endAttempt(db, attempt, "revoked", now);
-    return "done";
-  }
+  // With one database the claim names the membership; with a separate regional one the commit
+  // reads the role again after its rendering and right before its batch (`stillActs`).
   const held = heldBy(attempt.id, c.token);
   const versionNumber = sql`(select ${schema.versions.number} from ${schema.versions} where ${schema.versions.id} = ${ids.versionId})`;
   const committed = await commitPublish(
@@ -807,6 +805,7 @@ export async function publishFromPlan(
           number: versionNumber,
         }),
       via: attempt.origin,
+      ...(bothSides(db) ? {} : { stillActs: () => stillActs(db, attempt.ownerId, userId) }),
       renderedSha256: output.renderedSha256,
       blockMapSha256: output.blockMapSha256,
     },

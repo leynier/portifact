@@ -191,8 +191,8 @@ export async function items(artifactId: string) {
     .orderBy(schema.changeItems.id);
 }
 
-export async function attempts(artifactId: string) {
-  return db()
+export async function attempts(artifactId: string, handle: RegionalDb = db()) {
+  return handle
     .select()
     .from(schema.acceptanceAttempts)
     .where(eq(schema.acceptanceAttempts.artifactId, artifactId));
