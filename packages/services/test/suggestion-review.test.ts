@@ -121,7 +121,8 @@ it("R7: a no-version acceptance must not finish on an expired artifact", async (
   await db().update(schema.artifacts).set({expiresAt: NOW + 150}).where(eq(schema.artifacts.id, s.doc.artifactId));
   value(await s.accept());
   await runJobs("suggestion_accept", s.doc.artifactId, NOW + 2000);
-  expect((await thread(s.view.id))?.suggestionState).not.toBe("accepted");
+  expect(await thread(s.view.id)).toMatchObject({ suggestionState: "pending", attemptReason: "revoked" });
+  expect(await items(s.doc.artifactId)).toEqual([]);
 });
 
 it("R10: two already-running no-version deliveries must not duplicate items", async () => {
@@ -146,6 +147,7 @@ it("R11: no-version acceptance must refuse an editor demoted before the job", as
   await runJobs("suggestion_accept", s.doc.artifactId);
   expect((await thread(s.view.id))?.suggestionState).not.toBe("accepted");
   expect(await items(s.doc.artifactId)).toHaveLength(0);
+  expect((await thread(s.view.id))?.attemptReason).toBe("revoked");
 });
 
 it("R12: no-version item-byte quota refusal must end the attempt as quota_exceeded", async () => {
@@ -387,3 +389,20 @@ it("R15b: erasing an author's words alone ends their suggestion's running accept
   expect(await thread(view.id)).toMatchObject({ suggestionState: "withdrawn", edit: null });
   expect(await committedVersions(doc.artifactId)).toBe(1);
 });
+
+it("R11b: a demoted editor who can still read the artifact is refused by the job", async () => {
+  const team = await workspace(() => user("Member"));
+  await grantPlanFor(team.id);
+  const s = await setup({ listed: true, owner: team.editor, ownerId: team.id });
+  await db().update(schema.artifacts).set({ accessMode: "workspace" }).where(eq(schema.artifacts.id, s.doc.artifactId));
+  value(await s.accept());
+  await demote(team.id, team.editor.id);
+  await runJobs("suggestion_accept", s.doc.artifactId);
+  expect(await thread(s.view.id)).toMatchObject({ suggestionState: "pending", attemptReason: "revoked" });
+  expect(await items(s.doc.artifactId)).toEqual([]);
+});
+
+async function grantPlanFor(ownerId: string) {
+  const { grantPlan } = await import("./fixtures.ts");
+  await grantPlan(ownerId, "team", { seats: 10 });
+}
