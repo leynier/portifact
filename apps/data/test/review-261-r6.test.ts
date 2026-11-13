@@ -1,6 +1,7 @@
 // The sixth review of PR #261 (at cc38e93e): R6-1 through the real services (an account
 // deletion's author erasure under a hold D1 has open, in the ordinary interval before that hold's
-// fence lands), the same for a purge's whole erase, and the controls without a hold.
+// fence lands), the same for a purge's whole erase, the controls without a hold, and the
+// discriminators R6-3 asked for: what may count as the open hold's waiting fence.
 import { env } from "cloudflare:test";
 import type { JobMessage } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
@@ -11,6 +12,7 @@ import {
   placeLegalHold,
   releaseLegalHold,
   requestAccountDeletion,
+  runDataFence,
   runJob,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
@@ -209,4 +211,52 @@ describe("R6-1: an erasing job asks D1 for its hold at delivery", () => {
     expect(await run(erase)).toBe("done");
     expect(await documentsOf(id)).toBe(0);
   });
+});
+
+describe("R6-3: only the open hold's own fence, above the object's epoch, sends a release", () => {
+  for (const decoy of [
+    "of another hold",
+    "of another artifact",
+    "of the open hold at the object's epoch",
+    "of the open hold below it",
+  ] as const) {
+    it(`a waiting fence ${decoy} does not`, async () => {
+      const { id, ownerId } = await withData({ state: "suspended" });
+      value(await place(id));
+      await fences(id);
+      await releaseLegalHold(db(), { artifactId: id, now: D1_NOW + 1 });
+      const [release] = await jobsOf(db(), ["data_fence"], id);
+      if (release === undefined) throw new Error("no release");
+      const h2 = value(await place(id, D1_NOW + 2)).hold.id;
+      // A restore left H2 open with no fence of its own; only the decoy waits.
+      for (const job of await jobsOf(db(), ["data_fence"], id)) {
+        if (job.id !== release.id)
+          await db().delete(schema.outbox).where(eq(schema.outbox.id, job.id));
+      }
+      const before = await control(id);
+      const other = decoy === "of another artifact" ? await withData({ state: "suspended" }) : null;
+      const epoch =
+        decoy === "of the open hold at the object's epoch"
+          ? before.epoch
+          : decoy === "of the open hold below it"
+            ? before.epoch - 1
+            : before.epoch + 5;
+      await db()
+        .insert(schema.outbox)
+        .values({
+          topic: "data_fence",
+          subject: other?.id ?? id,
+          availableAt: NOW,
+          payload: {
+            ownerId,
+            generation: 0,
+            epoch,
+            fence: { kind: "hold", transition: decoy === "of another hold" ? "hold_wrong" : h2 },
+          },
+        });
+      // Killed mutations: the lookup without the hold's name, or without the lower bound.
+      expect(await runDataFence(db(), objectsFor(), release, NOW)).toBe("stale");
+      expect((await control(id)).hold).toEqual(before.hold);
+    });
+  }
 });
