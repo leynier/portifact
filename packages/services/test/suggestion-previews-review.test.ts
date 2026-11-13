@@ -23,6 +23,7 @@ import {
 import { createWorkspace } from "../src/workspaces.ts";
 import { db, NOW, session, sha256 } from "./fixtures.ts";
 import { raceBeforeStatement } from "./race.ts";
+import { recording } from "./recording.ts";
 import {
   CONTENT_DOMAIN,
   codeOf,
@@ -561,5 +562,61 @@ describe("finding 8: the session's own sign-in decides workspace sign-in policie
       withRequestContext(env, { kind: "request", ip: "192.0.2.10" }),
     );
     expect(await redeemPreviewCode(redeemRegions, code, NOW)).toBeUndefined();
+  });
+});
+
+describe("what issuing and redeeming cost", () => {
+  /** A bucket that counts its calls by method. */
+  const countingBucket = (bucket: R2Bucket) => {
+    const calls: Record<string, number> = {};
+    const proxy = new Proxy(bucket, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target);
+        if (typeof value !== "function") return value;
+        return (...args: unknown[]) => {
+          calls[String(property)] = (calls[String(property)] ?? 0) + 1;
+          return value.apply(target, args);
+        };
+      },
+    });
+    return { bucket: proxy, calls };
+  };
+
+  it("issues an owner's Markdown preview and redeems it with no plan, parse or render", async () => {
+    const s = await ownerSuggestion();
+    const issuing = recording();
+    const issueBucket = countingBucket(env.ARTIFACTS);
+    const code = codeOf(
+      await issuePreviewCode(issuing.database, issueBucket.bucket, {
+        userId: s.owner.id,
+        sessionId: s.sessionId,
+        artifactId: s.artifactId,
+        digest: s.plan.digest,
+        now: NOW,
+        contentDomain: CONTENT_DOMAIN,
+      }),
+    );
+    // Plan cache, the thread's authorization (artifact with its plan, thread), two planning
+    // windows, three stored entries, the conditioned insert.
+    expect(issuing.count()).toBe(9);
+    expect(issueBucket.calls).toEqual({ get: 3, put: 1 });
+
+    const redeeming = recording();
+    const redeemBucket = countingBucket(env.ARTIFACTS);
+    const handles = {
+      region: "default" as const,
+      db: redeeming.database,
+      accessDb: undefined,
+      bucket: redeemBucket.bucket,
+    };
+    const oneRegion = {
+      global: redeeming.database.global,
+      get: () => handles,
+      all: () => [handles],
+    };
+    expect(await redeemPreviewCode(oneRegion, code, NOW)).toContain("dog");
+    // The spend, the session with its account, the thread's authorization (artifact, thread).
+    expect(redeeming.count()).toBe(4);
+    expect(redeemBucket.calls).toEqual({ get: 1, delete: 1 });
   });
 });

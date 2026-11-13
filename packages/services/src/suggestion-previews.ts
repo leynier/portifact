@@ -3,14 +3,17 @@
 // content Worker redeems it on `preview.<content domain>`, re-checking the same rule, and answers
 // with the document built here.
 //
-// What is computed when. At issue: the authorization, the planning rate limit, one read of the
-// stored file (and, for a document, of its stored rendering and block map), the plan rebuilt from
-// them and the suggestion's edit (its digest must be the stored plan's, so the preview shows
-// exactly what the person was shown), the preview built by the domain (`previewOfPlan`), one code
-// row and one R2 write. The cost is the plan's, bounded inside the planners by `PLAN_LIMITS`, and
-// counted with dry runs in `PLANNING_RATE_LIMITS`. At redemption: one guarded update per region,
-// one session read, the thread's read authorization again, one R2 read and one delete: no plan,
-// no parse, no render.
+// What is computed when (pinned by the cost test in `test/suggestion-previews-review.test.ts`).
+// At issue, 9 D1 calls and 3 R2 reads and 1 write for a Markdown document: the cached plan, the
+// thread's read authorization, the two planning windows (counted after authorization), the stored
+// file, rendering and block map, the plan rebuilt from them and the suggestion's edit (its digest
+// must be the one the person holds), the preview built by the domain (`previewOfPlan`), one
+// conditioned insert of the code row and the document written with the version and revision it
+// shows. The cost is the plan's, bounded inside the planners by `PLAN_LIMITS`, and counted with
+// dry runs in `PLANNING_RATE_LIMITS`. At redemption, 4 D1 calls with one region (one spend per
+// region), 1 R2 read and 1 delete: the spend, the session with its account, the thread's read
+// authorization again, and the document compared with the current version and revision: no
+// plan, no parse, no render.
 //
 // Only the code's SHA-256 is stored. A code is never logged, audited or written anywhere else.
 import {
