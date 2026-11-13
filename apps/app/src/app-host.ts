@@ -393,6 +393,7 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
       siteverify: (env) => depsFor(env).siteverify,
       multipart: (env) => depsFor(env).multipart,
       domains: (env) => depsFor(env).domains,
+      accountSession: accountSessionFor,
       now: () => Date.now(),
     }),
   );

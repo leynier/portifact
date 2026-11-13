@@ -78,6 +78,7 @@ export * from "./slack-events.ts";
 export * from "./sso.ts";
 export * from "./sso-keys.ts";
 export * from "./sso-required.ts";
+export * from "./suggestion-previews.ts";
 export * from "./thread-idempotency.ts";
 export * from "./thread-issue-views.ts";
 export * from "./thread-issues.ts";

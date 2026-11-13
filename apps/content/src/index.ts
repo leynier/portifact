@@ -67,6 +67,7 @@ import {
   reviewStatusPage,
 } from "./inject.ts";
 import { injectedCookieCleanup } from "./injected.ts";
+import { handlePreview, isPreviewHost } from "./preview.ts";
 import {
   authorizeRead,
   CALLBACK_PATH,
@@ -257,6 +258,11 @@ export async function handle(
   logOpening: LogOpening = NO_OPENINGS,
   countView: CountView = NO_VIEWS,
 ): Promise<Response> {
+  // The preview origin first, before any artifact lookup and outside everything below: it sets
+  // no cookie (not even the injected-cookie cleanup), charges nothing and logs nothing.
+  if (isPreviewHost(new URL(request.url).hostname, env.CONTENT_DOMAIN)) {
+    return handlePreview(request, env, now);
+  }
   const response = await route(request, env, now, countTraffic, logOpening, countView);
   // Whatever a top-level page gets, a frame review cookie it carries was planted: clear it.
   const stray = strayFrameCookie(request);

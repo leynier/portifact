@@ -77,7 +77,9 @@ const DEVELOP = {
   // And the legal holds whose release date came (`releaseDueHolds`), one batch.
   // And the leftover journal scan positions of ended account deletions (`pruneJournalCursors`,
   // decision 0026): one read of at most 50, and no delete when none is left.
-  runMaintenance: 73,
+  // Plus the prune of preview codes (decision 0027): one read of due rows (its R2 listing adds
+  // no D1 call; the delete runs only when a row is due).
+  runMaintenance: 74,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads
