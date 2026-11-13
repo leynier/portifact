@@ -19,8 +19,8 @@ import {
   attempts,
   currentText,
   DOC,
-  type Doc,
   DOMAIN,
+  type Doc,
   humanCheck,
   JOB_DEPS,
   jobsOf,
@@ -51,7 +51,13 @@ async function pending(doc: Doc, userId: string, operation = textOp(MD, DOC, "Se
 }
 
 const planned = (userId: string, doc: Doc, threadId: string, now = NOW + 10) =>
-  planSuggestion(db(), env.ARTIFACTS, { userId, artifactId: doc.artifactId, now, threadId, contentDomain: DOMAIN });
+  planSuggestion(db(), env.ARTIFACTS, {
+    userId,
+    artifactId: doc.artifactId,
+    now,
+    threadId,
+    contentDomain: DOMAIN,
+  });
 
 async function accepted(owner: { id: string }, doc: Doc, threadId: string) {
   const plan = value(await planned(owner.id, doc, threadId));
@@ -74,7 +80,10 @@ async function renderedKey(versionId: string, kind: "rendered" | "published") {
     .from(schema.versionFiles)
     .innerJoin(
       schema.objects,
-      and(eq(schema.objects.ownerId, schema.versionFiles.ownerId), eq(schema.objects.sha256, schema.versionFiles.sha256)),
+      and(
+        eq(schema.objects.ownerId, schema.versionFiles.ownerId),
+        eq(schema.objects.sha256, schema.versionFiles.sha256),
+      ),
     )
     .where(and(eq(schema.versionFiles.versionId, versionId), eq(schema.versionFiles.kind, kind)));
   return row?.r2Key ?? "";
@@ -89,7 +98,10 @@ describe("stored data a plan cannot use", () => {
     const plan = value(await planned(owner.id, doc, threadId));
     expect(plan.listed.map((item) => item.reason)).toEqual(["renderer_changed"]);
     await env.ARTIFACTS.delete(await renderedKey(doc.versionId, "published"));
-    expect(await planned(owner.id, doc, threadId, NOW + 20)).toMatchObject({ ok: false, code: "not_found" });
+    expect(await planned(owner.id, doc, threadId, NOW + 20)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
   });
 
   it("reads a suggestion whose stored edit or proofs cannot be read", async () => {
@@ -100,7 +112,14 @@ describe("stored data a plan cannot use", () => {
       .update(schema.annotationThreads)
       .set({ editProofs: "{not json" })
       .where(eq(schema.annotationThreads.id, threadId));
-    const view = value(await getSuggestion(db(), { userId: owner.id, artifactId: doc.artifactId, now: NOW, threadId }));
+    const view = value(
+      await getSuggestion(db(), {
+        userId: owner.id,
+        artifactId: doc.artifactId,
+        now: NOW,
+        threadId,
+      }),
+    );
     expect(view.planned).toBe(false);
     // A pending suggestion whose stored edit no longer parses (an older format) holds no edit.
     const odd = crypto.randomUUID();
@@ -169,10 +188,20 @@ describe("stored data a plan cannot use", () => {
       }),
     );
     const input = { userId: owner.id, artifactId: doc.artifactId, now: NOW, threadId: comment.id };
-    expect(await rejectSuggestion(db(), { ...input, revision: 0 })).toMatchObject({ ok: false, code: "not_found" });
-    expect(await planned(owner.id, doc, comment.id)).toMatchObject({ ok: false, code: "not_found" });
+    expect(await rejectSuggestion(db(), { ...input, revision: 0 })).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+    expect(await planned(owner.id, doc, comment.id)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
     expect(
-      await acceptSuggestion(db(), env.ARTIFACTS, { ...input, digest: "a".repeat(64), contentDomain: DOMAIN }),
+      await acceptSuggestion(db(), env.ARTIFACTS, {
+        ...input,
+        digest: "a".repeat(64),
+        contentDomain: DOMAIN,
+      }),
     ).toMatchObject({ ok: false, code: "not_found" });
   });
 });
@@ -185,14 +214,27 @@ describe("jobs that find their subject changed", () => {
     await accepted(owner, doc, threadId);
     await republish(owner.id, doc, LONGER);
     await runJobs("suggestion_accept", doc.artifactId);
-    expect((await attempts(doc.artifactId))[0]).toMatchObject({ state: "ended", reason: "version_conflict" });
+    expect((await attempts(doc.artifactId))[0]).toMatchObject({
+      state: "ended",
+      reason: "version_conflict",
+    });
 
     const other = await publishDoc(owner.id);
     const gone = await pending(other, owner.id);
     await accepted(owner, other, gone);
-    value(await deleteAnnotationThread(db(), { userId: owner.id, artifactId: other.artifactId, now: NOW + 20, threadId: gone }));
+    value(
+      await deleteAnnotationThread(db(), {
+        userId: owner.id,
+        artifactId: other.artifactId,
+        now: NOW + 20,
+        threadId: gone,
+      }),
+    );
     await runJobs("suggestion_accept", other.artifactId);
-    expect((await attempts(other.artifactId))[0]).toMatchObject({ state: "ended", reason: "revoked" });
+    expect((await attempts(other.artifactId))[0]).toMatchObject({
+      state: "ended",
+      reason: "revoked",
+    });
   });
 
   it("ends an attempt whose person's account went, and one delivered too often", async () => {
@@ -200,16 +242,28 @@ describe("jobs that find their subject changed", () => {
     const doc = await publishDoc(owner.id);
     const threadId = await pending(doc, owner.id);
     await accepted(owner, doc, threadId);
-    await db().update(schema.acceptanceAttempts).set({ userId: null }).where(eq(schema.acceptanceAttempts.artifactId, doc.artifactId));
+    await db()
+      .update(schema.acceptanceAttempts)
+      .set({ userId: null })
+      .where(eq(schema.acceptanceAttempts.artifactId, doc.artifactId));
     await runJobs("suggestion_accept", doc.artifactId);
-    expect((await attempts(doc.artifactId))[0]).toMatchObject({ state: "ended", reason: "revoked" });
+    expect((await attempts(doc.artifactId))[0]).toMatchObject({
+      state: "ended",
+      reason: "revoked",
+    });
 
     const other = await publishDoc(owner.id);
     const often = await pending(other, owner.id);
     await accepted(owner, other, often);
-    await db().update(schema.acceptanceAttempts).set({ deliveries: 3 }).where(eq(schema.acceptanceAttempts.artifactId, other.artifactId));
+    await db()
+      .update(schema.acceptanceAttempts)
+      .set({ deliveries: 3 })
+      .where(eq(schema.acceptanceAttempts.artifactId, other.artifactId));
     await runJobs("suggestion_accept", other.artifactId);
-    expect((await attempts(other.artifactId))[0]).toMatchObject({ state: "ended", reason: "failed" });
+    expect((await attempts(other.artifactId))[0]).toMatchObject({
+      state: "ended",
+      reason: "failed",
+    });
   });
 
   it("ends an attempt whose upload expired, and one whose prepare is refused", async () => {
@@ -228,8 +282,13 @@ describe("jobs that find their subject changed", () => {
         return typeof v === "function" ? v.bind(target) : v;
       },
     });
-    await expect(runJob(db(), broken, { id: job?.id ?? 0, topic: "suggestion_accept" }, NOW + 2_000, JOB_DEPS)).rejects.toThrow();
-    await db().update(schema.uploadSessions).set({ state: "expired" }).where(eq(schema.uploadSessions.id, `upl_${key}`));
+    await expect(
+      runJob(db(), broken, { id: job?.id ?? 0, topic: "suggestion_accept" }, NOW + 2_000, JOB_DEPS),
+    ).rejects.toThrow();
+    await db()
+      .update(schema.uploadSessions)
+      .set({ state: "expired" })
+      .where(eq(schema.uploadSessions.id, `upl_${key}`));
     await runJobs("suggestion_accept", doc.artifactId);
     expect((await attempts(doc.artifactId))[0]).toMatchObject({ state: "ended", reason: "failed" });
 
@@ -237,10 +296,19 @@ describe("jobs that find their subject changed", () => {
     const other = await publishDoc(owner.id);
     const refused = await pending(other, owner.id);
     await accepted(owner, other, refused);
-    await db().update(schema.accountUsage).set({ openUploads: 2 }).where(eq(schema.accountUsage.ownerId, owner.id));
+    await db()
+      .update(schema.accountUsage)
+      .set({ openUploads: 2 })
+      .where(eq(schema.accountUsage.ownerId, owner.id));
     await runJobs("suggestion_accept", other.artifactId);
-    await db().update(schema.accountUsage).set({ openUploads: 0 }).where(eq(schema.accountUsage.ownerId, owner.id));
-    expect((await attempts(other.artifactId))[0]).toMatchObject({ state: "ended", reason: "quota_exceeded" });
+    await db()
+      .update(schema.accountUsage)
+      .set({ openUploads: 0 })
+      .where(eq(schema.accountUsage.ownerId, owner.id));
+    expect((await attempts(other.artifactId))[0]).toMatchObject({
+      state: "ended",
+      reason: "quota_exceeded",
+    });
   });
 
   it("ends the attempt when the rendering at commit is not the one confirmed", async () => {
@@ -249,11 +317,23 @@ describe("jobs that find their subject changed", () => {
     const threadId = await pending(doc, owner.id);
     await accepted(owner, doc, threadId);
     const raced = raceBeforeStatement(/update "acceptance_attempts" set "version_id"/, async () => {
-      await db().update(schema.artifacts).set({ name: "Renamed" }).where(eq(schema.artifacts.id, doc.artifactId));
+      await db()
+        .update(schema.artifacts)
+        .set({ name: "Renamed" })
+        .where(eq(schema.artifacts.id, doc.artifactId));
     });
     const [job] = await jobsOf("suggestion_accept", doc.artifactId);
-    await runJob(raced, env.ARTIFACTS, { id: job?.id ?? 0, topic: "suggestion_accept" }, NOW + 2_000, JOB_DEPS);
-    expect(await thread(threadId)).toMatchObject({ suggestionState: "pending", attemptReason: "plan_changed" });
+    await runJob(
+      raced,
+      env.ARTIFACTS,
+      { id: job?.id ?? 0, topic: "suggestion_accept" },
+      NOW + 2_000,
+      JOB_DEPS,
+    );
+    expect(await thread(threadId)).toMatchObject({
+      suggestionState: "pending",
+      attemptReason: "plan_changed",
+    });
     expect((await artifactOf(doc.artifactId))?.currentVersionId).toBe(doc.versionId);
   });
 
@@ -287,11 +367,42 @@ describe("jobs that find their subject changed", () => {
     const doc = await publishDoc(owner.id);
     await pending(doc, owner.id);
     const row = (subject: string | null, payload: unknown) =>
-      ({ id: 0, topic: "suggestion_carry", payload, availableAt: NOW, dispatchedAt: null, attempts: 0, createdAt: NOW, subject, generation: null }) as const;
-    expect(await runSuggestionCarry(db(), env.ARTIFACTS, row(doc.artifactId, {}), NOW, DOMAIN)).toBe("stale");
-    expect(await runSuggestionCarry(db(), env.ARTIFACTS, row(null, { versionId: doc.versionId }), NOW, DOMAIN)).toBe("stale");
-    await db().update(schema.artifacts).set({ state: "archived", archivedAt: NOW }).where(eq(schema.artifacts.id, doc.artifactId));
-    expect(await runChangeListCheck(db(), env.ARTIFACTS, row(doc.artifactId, { versionId: doc.versionId }), NOW, DOMAIN)).toBe("stale");
+      ({
+        id: 0,
+        topic: "suggestion_carry",
+        payload,
+        availableAt: NOW,
+        dispatchedAt: null,
+        attempts: 0,
+        createdAt: NOW,
+        subject,
+        generation: null,
+      }) as const;
+    expect(
+      await runSuggestionCarry(db(), env.ARTIFACTS, row(doc.artifactId, {}), NOW, DOMAIN),
+    ).toBe("stale");
+    expect(
+      await runSuggestionCarry(
+        db(),
+        env.ARTIFACTS,
+        row(null, { versionId: doc.versionId }),
+        NOW,
+        DOMAIN,
+      ),
+    ).toBe("stale");
+    await db()
+      .update(schema.artifacts)
+      .set({ state: "archived", archivedAt: NOW })
+      .where(eq(schema.artifacts.id, doc.artifactId));
+    expect(
+      await runChangeListCheck(
+        db(),
+        env.ARTIFACTS,
+        row(doc.artifactId, { versionId: doc.versionId }),
+        NOW,
+        DOMAIN,
+      ),
+    ).toBe("stale");
   });
 });
 
@@ -313,35 +424,57 @@ describe("bounded runs", () => {
     expect((await thread(a))?.versionId).toBe(next.versionId);
     expect((await thread(b))?.versionId).toBe(next.versionId);
     // Nothing waits any more.
-    const [again] = await db().insert(schema.outbox).values({ ...row, id: undefined } as never).returning();
-    expect(await runSuggestionCarry(db(), env.ARTIFACTS, again as never, NOW + 3_000, DOMAIN)).toBe("done");
+    const [again] = await db()
+      .insert(schema.outbox)
+      .values({ ...row, id: undefined } as never)
+      .returning();
+    expect(await runSuggestionCarry(db(), env.ARTIFACTS, again as never, NOW + 3_000, DOMAIN)).toBe(
+      "done",
+    );
   });
 
   it("checks items in bounded runs that resume after the last one", async () => {
     const owner = await user("Owner");
     const doc = await publishDoc(owner.id);
-    const proof = JSON.stringify({ unit: "utf16", start: 0, end: 1, before: "x", after: "y", shownBefore: "x", shownAfter: "y", nodeLeft: "", nodeRight: "", identity: [] });
+    const proof = JSON.stringify({
+      unit: "utf16",
+      start: 0,
+      end: 1,
+      before: "x",
+      after: "y",
+      shownBefore: "x",
+      shownAfter: "y",
+      nodeLeft: "",
+      nodeRight: "",
+      identity: [],
+    });
     for (const id of ["a", "b"]) {
-      await db().insert(schema.changeItems).values({
-        id: `${id}_${doc.artifactId}`,
-        artifactId: doc.artifactId,
-        ownerId: owner.id,
-        origin: "draft",
-        versionId: doc.versionId,
-        path: "index.md",
-        envelope: '{"format":1}',
-        proof: id === "a" ? "{broken" : proof,
-        bytes: 12 + (id === "a" ? 7 : proof.length),
-        reason: "spans_nodes",
-      });
+      await db()
+        .insert(schema.changeItems)
+        .values({
+          id: `${id}_${doc.artifactId}`,
+          artifactId: doc.artifactId,
+          ownerId: owner.id,
+          origin: "draft",
+          versionId: doc.versionId,
+          path: "index.md",
+          envelope: '{"format":1}',
+          proof: id === "a" ? "{broken" : proof,
+          bytes: 12 + (id === "a" ? 7 : proof.length),
+          reason: "spans_nodes",
+        });
     }
     await republish(owner.id, doc, LONGER);
     const [job] = await jobsOf("change_list_check", doc.artifactId);
-    expect(await runChangeListCheck(db(), env.ARTIFACTS, job as never, NOW + 2_000, DOMAIN, 1)).toBe("done");
+    expect(
+      await runChangeListCheck(db(), env.ARTIFACTS, job as never, NOW + 2_000, DOMAIN, 1),
+    ).toBe("done");
     const jobs = await jobsOf("change_list_check", doc.artifactId);
     expect(jobs).toHaveLength(2);
-    expect((jobs[1]?.payload as { after?: string }).after).toBe(`a_${doc.artifactId}`);
-    await db().delete(schema.outbox).where(eq(schema.outbox.id, job?.id ?? 0));
+    expect((jobs[1]?.payload as { after?: string } | undefined)?.after).toBe(`a_${doc.artifactId}`);
+    await db()
+      .delete(schema.outbox)
+      .where(eq(schema.outbox.id, job?.id ?? 0));
     expect(await runJobs("change_list_check", doc.artifactId)).toEqual(["done"]);
   });
 
@@ -353,10 +486,21 @@ describe("bounded runs", () => {
       "other.html": PAGE,
       "app.js": { body: "1", contentType: "text/javascript" },
     });
-    await db().update(schema.artifacts).set({ annotations: "open" }).where(eq(schema.artifacts.id, site.artifactId));
+    await db()
+      .update(schema.artifacts)
+      .set({ annotations: "open" })
+      .where(eq(schema.artifacts.id, site.artifactId));
     const doc = { ...site, type: "site" as const, path: "index.html" };
-    const onScripted = await pending(doc, owner.id, textOp({ type: "site", path: "index.html" }, scripted, "Second", "Next"));
-    const onOther = await pending(doc, owner.id, textOp({ type: "site", path: "other.html" }, PAGE, "Second", "Next"));
+    const onScripted = await pending(
+      doc,
+      owner.id,
+      textOp({ type: "site", path: "index.html" }, scripted, "Second", "Next"),
+    );
+    const onOther = await pending(
+      doc,
+      owner.id,
+      textOp({ type: "site", path: "other.html" }, PAGE, "Second", "Next"),
+    );
     value(await planned(owner.id, doc, onScripted));
     value(await planned(owner.id, doc, onOther, NOW + 11));
     const { publishVersion: next } = await import("./version-support.ts");
@@ -385,21 +529,37 @@ describe("less common refusals", () => {
       editBytes: edit.length,
       updatedAt: NOW,
     });
-    const input = { userId: owner.id, artifactId: doc.artifactId, now: NOW + 10, contentDomain: DOMAIN };
-    expect(await publishDraft(db(), env.ARTIFACTS, { ...input, digest: "0".repeat(64) })).toMatchObject({
+    const input = {
+      userId: owner.id,
+      artifactId: doc.artifactId,
+      now: NOW + 10,
+      contentDomain: DOMAIN,
+    };
+    expect(
+      await publishDraft(db(), env.ARTIFACTS, { ...input, digest: "0".repeat(64) }),
+    ).toMatchObject({
       ok: false,
       detail: "plan_changed",
     });
     const plan = value(await planDraft(db(), env.ARTIFACTS, input));
     const raced = raceBeforeFirstWrite(async () => {
-      await db().update(schema.editDrafts).set({ revision: 2 }).where(eq(schema.editDrafts.artifactId, doc.artifactId));
+      await db()
+        .update(schema.editDrafts)
+        .set({ revision: 2 })
+        .where(eq(schema.editDrafts.artifactId, doc.artifactId));
     });
-    expect(await publishDraft(raced, env.ARTIFACTS, { ...input, digest: plan.digest })).toMatchObject({
+    expect(
+      await publishDraft(raced, env.ARTIFACTS, { ...input, digest: plan.digest }),
+    ).toMatchObject({
       ok: false,
       code: "version_conflict",
     });
     expect(
-      await publishDraft(db(), env.ARTIFACTS, { ...input, userId: (await user("Other")).id, digest: plan.digest }),
+      await publishDraft(db(), env.ARTIFACTS, {
+        ...input,
+        userId: (await user("Other")).id,
+        digest: plan.digest,
+      }),
     ).toMatchObject({ ok: false, code: "not_found" });
   });
 
@@ -407,19 +567,21 @@ describe("less common refusals", () => {
     const owner = await user("Owner");
     const doc = await publishDoc(owner.id);
     for (const state of ["open", "dismissed"] as const) {
-      await db().insert(schema.changeItems).values({
-        id: `${state}_${doc.artifactId}`,
-        artifactId: doc.artifactId,
-        ownerId: owner.id,
-        origin: "draft",
-        versionId: doc.versionId,
-        path: "index.md",
-        envelope: '{"format":1}',
-        bytes: 12,
-        reason: "not_text",
-        state,
-        ...(state === "open" ? {} : { closedAt: NOW, closedBy: owner.id }),
-      });
+      await db()
+        .insert(schema.changeItems)
+        .values({
+          id: `${state}_${doc.artifactId}`,
+          artifactId: doc.artifactId,
+          ownerId: owner.id,
+          origin: "draft",
+          versionId: doc.versionId,
+          path: "index.md",
+          envelope: '{"format":1}',
+          bytes: 12,
+          reason: "not_text",
+          state,
+          ...(state === "open" ? {} : { closedAt: NOW, closedBy: owner.id }),
+        });
     }
     const input = { userId: owner.id, artifactId: doc.artifactId, now: NOW };
     const open = value(await listChangeItems(db(), { ...input, state: "open", limit: 10 }));
@@ -429,10 +591,18 @@ describe("less common refusals", () => {
       code: "invalid_input",
     });
     const raced = raceBeforeFirstWrite(async () => {
-      await db().update(schema.changeItems).set({ revision: 5 }).where(eq(schema.changeItems.id, `open_${doc.artifactId}`));
+      await db()
+        .update(schema.changeItems)
+        .set({ revision: 5 })
+        .where(eq(schema.changeItems.id, `open_${doc.artifactId}`));
     });
     expect(
-      await markChangeItem(raced, { ...input, itemId: `open_${doc.artifactId}`, state: "applied", baseRevision: 1 }),
+      await markChangeItem(raced, {
+        ...input,
+        itemId: `open_${doc.artifactId}`,
+        state: "applied",
+        baseRevision: 1,
+      }),
     ).toMatchObject({ ok: false, code: "version_conflict" });
   });
 });

@@ -31,17 +31,6 @@ export {
 } from "./envelope.ts";
 export { escapeHtml, planHtml } from "./html-planner.ts";
 export {
-  attemptOverdue,
-  checkDecide,
-  checkMark,
-  checkSuggestionThreadState,
-  checkWithdraw,
-  firstMessageDeletion,
-  type MarkTarget,
-  plannableKind,
-  type SuggestionRole,
-} from "./lifecycle.ts";
-export {
   decodeHtml,
   htmlEligibility,
   type SubsetRefusal,
@@ -54,6 +43,17 @@ export {
   linksAroundAll,
   sameIdentity,
 } from "./identity.ts";
+export {
+  attemptOverdue,
+  checkDecide,
+  checkMark,
+  checkSuggestionThreadState,
+  checkWithdraw,
+  firstMessageDeletion,
+  type MarkTarget,
+  plannableKind,
+  type SuggestionRole,
+} from "./lifecycle.ts";
 export { planMarkdown } from "./markdown-planner.ts";
 export {
   admitItems,

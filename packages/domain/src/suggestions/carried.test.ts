@@ -44,7 +44,8 @@ describe("a suggestion's proofs", () => {
     expect(proofs.operations[1]).toBeNull();
     const located = proofs.operations[2];
     expect(located?.proof.before).toBe("Second");
-    expect(located?.start).toBe((second as TextOperation).target.anchor.position?.start);
+    const anchor = (second as TextOperation).target.anchor;
+    expect(located?.start).toBe(anchor.kind === "text" ? anchor.position.start : -1);
     expect(plannedOn(proofs, "ver_1")).toBe(true);
     expect(plannedOn(proofs, "ver_2")).toBe(false);
     expect(plannedOn(null, "ver_1")).toBe(false);
@@ -128,7 +129,8 @@ describe("a suggestion's proofs", () => {
 
 describe("a file that cannot be read", () => {
   it("lists every operation without parsing or rendering anything", async () => {
-    const page = "<!doctype html><html><head><title>t</title></head><body><p>Second</p></body></html>";
+    const page =
+      "<!doctype html><html><head><title>t</title></head><body><p>Second</p></body></html>";
     const change = await edit("html", page, "Second", "Next");
     const built = await plan("html", page, [textOperation(change, "index.html")]);
     expect(built.applied).toHaveLength(1);

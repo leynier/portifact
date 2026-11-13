@@ -37,7 +37,6 @@ import {
 } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
 
-
 const th = schema.annotationThreads;
 
 const missingThread = () => fail<never>("not_found", "Thread not found.");
@@ -107,7 +106,10 @@ export async function submitSuggestion(
 ): Promise<Result<AnnotationThreadView>> {
   const parsed = Edit.safeParse(input.edit);
   if (!parsed.success) {
-    return fail("invalid_input", `Invalid edit: ${(parsed.error.issues[0] as { message: string }).message}`);
+    return fail(
+      "invalid_input",
+      `Invalid edit: ${(parsed.error.issues[0] as { message: string }).message}`,
+    );
   }
   const edit = parsed.data;
   const target = (edit.operations[0] as { target: AnnotationTarget }).target;

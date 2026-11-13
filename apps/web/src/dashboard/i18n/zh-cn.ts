@@ -1709,9 +1709,11 @@ export const zhCN = {
   "audit.kind.reviewRequested": "{reviewers, plural, one {请 # 人审阅} other {请 # 人审阅}}",
   "audit.kind.reviewChanged": "更改了审阅请求",
   "audit.kind.reviewCancelled": "取消了审阅请求",
-  "audit.kind.suggestionAccepted": "将建议接受为版本 {version}：已应用 {applied} 项，{listed} 项进入变更列表",
+  "audit.kind.suggestionAccepted":
+    "将建议接受为版本 {version}：已应用 {applied} 项，{listed} 项进入变更列表",
   "audit.kind.suggestionAcceptedNothing": "接受了建议但未应用任何内容：{listed} 项进入变更列表",
-  "audit.kind.draftPublished": "将草稿发布为版本 {version}：已应用 {applied} 项，{listed} 项进入变更列表",
+  "audit.kind.draftPublished":
+    "将草稿发布为版本 {version}：已应用 {applied} 项，{listed} 项进入变更列表",
   "audit.kind.draftPublishedNothing": "发布了草稿但未应用任何内容：{listed} 项进入变更列表",
   "audit.kind.suggestionRejected": "拒绝了一条建议",
   "audit.kind.suggestionWithdrawn": "撤回了一条建议",

@@ -16,8 +16,8 @@ import {
   type Edit,
   type EditOperation,
   type FileKind,
-  type Plan,
   PLAN_LIMITS,
+  type Plan,
   SUGGESTION_LIMITS,
 } from "@portifact/contracts";
 import { type Db, hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
@@ -33,7 +33,11 @@ import {
 } from "@portifact/domain/suggestions";
 import { DOCUMENT_RENDERER } from "@portifact/render";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { type AnnotationActor, type AuthorizedAnnotations, annotationParts } from "./annotations.ts";
+import {
+  type AnnotationActor,
+  type AuthorizedAnnotations,
+  annotationParts,
+} from "./annotations.ts";
 import { storedEdit, storedProofs } from "./suggestions.ts";
 
 type ArtifactRow = typeof schema.artifacts.$inferSelect;
@@ -277,7 +281,7 @@ async function admitPlanning(
 }
 
 /** What a client receives of a plan: its contents and digest, never its bytes or proofs. */
-export function planView(built: BuiltPlan): Plan {
+export function suggestionPlanView(built: BuiltPlan): Plan {
   const { format, binding, kind, applied, listed, output, lines, digest } = built;
   return { format, binding, kind, applied, listed, output, lines, digest };
 }
@@ -336,11 +340,17 @@ export async function planSuggestion(
   });
   if (!built.ok) return built;
   const { plan: result, operations } = built.value;
-  const view = planView(result);
+  const view = suggestionPlanView(result);
   const proofs = JSON.stringify(proofsOfPlan(result, operations, thread.versionId));
   const th = schema.annotationThreads;
   await db.batch([
-    cachePlan(db, { userId: input.userId, artifactId: artifact.id, threadId: thread.id, plan: view, now: input.now }),
+    cachePlan(db, {
+      userId: input.userId,
+      artifactId: artifact.id,
+      threadId: thread.id,
+      plan: view,
+      now: input.now,
+    }),
     // Only for the suggestion as planned: still pending, on that version, at that revision.
     db
       .update(th)
@@ -404,7 +414,7 @@ export async function planDraft(
     contentDomain: input.contentDomain,
   });
   if (!built.ok) return built;
-  const view = planView(built.value.plan);
+  const view = suggestionPlanView(built.value.plan);
   await cachePlan(db, {
     userId: input.userId,
     artifactId: loaded.artifact.id,

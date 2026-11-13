@@ -24,8 +24,8 @@ import {
   auditKinds,
   currentText,
   DOC,
-  type Doc,
   DOMAIN,
+  type Doc,
   humanCheck,
   items,
   JOB_DEPS,
@@ -176,9 +176,12 @@ describe("accepting a suggestion", () => {
   });
 
   it("applies an HTML page in the subset", async () => {
-    const s = await setup(() => [textOp({ type: "site", path: "index.html" }, PAGE, "Second", "Next")], {
-      type: "site",
-    });
+    const s = await setup(
+      () => [textOp({ type: "site", path: "index.html" }, PAGE, "Second", "Next")],
+      {
+        type: "site",
+      },
+    );
     value(await s.accept());
     await runJobs("suggestion_accept", s.doc.artifactId);
     expect(await currentText(s.doc.artifactId, "index.html")).toBe(PAGE.replace("Second", "Next"));
@@ -208,7 +211,9 @@ describe("accepting a suggestion", () => {
     value(await s.accept());
     const [job] = await jobsOf("suggestion_accept", s.doc.artifactId);
     // A duplicate row, as a second delivery of the same job.
-    await db().insert(schema.outbox).values({ ...job, id: undefined } as never);
+    await db()
+      .insert(schema.outbox)
+      .values({ ...job, id: undefined } as never);
     expect(await runJobs("suggestion_accept", s.doc.artifactId)).toEqual(["done", "done"]);
     expect(await thread(s.threadId)).toMatchObject({
       suggestionState: "accepted",
@@ -217,7 +222,9 @@ describe("accepting a suggestion", () => {
     });
     expect(await items(s.doc.artifactId)).toHaveLength(1);
     expect(await versionCount(s.doc.artifactId)).toBe(1);
-    const accepted = (await auditKinds(s.doc.artifactId)).filter((k) => k === "suggestion.accepted");
+    const accepted = (await auditKinds(s.doc.artifactId)).filter(
+      (k) => k === "suggestion.accepted",
+    );
     expect(accepted).toHaveLength(1);
   });
 });
@@ -239,7 +246,9 @@ describe("refusals at the route", () => {
   it("answers anyone but the owner side, a token or a stranger without starting anything", async () => {
     const s = await setup();
     const reader = await user("Reader");
-    await db().insert(schema.artifactReaders).values({ artifactId: s.doc.artifactId, email: reader.email });
+    await db()
+      .insert(schema.artifactReaders)
+      .values({ artifactId: s.doc.artifactId, email: reader.email });
     const as = (userId: string) =>
       acceptSuggestion(db(), env.ARTIFACTS, {
         ...s.input,
@@ -266,7 +275,13 @@ describe("refusals at the route", () => {
   it("refuses when budget protection blocks uploads, and lets a no-version acceptance through", async () => {
     const s = await setup();
     const n = await setup(() => [CROSSING()]);
-    await setBudgetOverride(db().global, { level: "protect100", steps: 2, until: null, note: null, now: NOW });
+    await setBudgetOverride(db().global, {
+      level: "protect100",
+      steps: 2,
+      until: null,
+      note: null,
+      now: NOW,
+    });
     try {
       expect(await s.accept()).toMatchObject({ ok: false, code: "capacity_unavailable" });
       expect((await n.accept()).ok).toBe(true);
@@ -335,7 +350,13 @@ describe("races", () => {
     });
     const [job] = await jobsOf("suggestion_accept", s.doc.artifactId);
     expect(
-      await runJob(raced, env.ARTIFACTS, { id: job?.id ?? 0, topic: "suggestion_accept" }, NOW + 2_000, JOB_DEPS),
+      await runJob(
+        raced,
+        env.ARTIFACTS,
+        { id: job?.id ?? 0, topic: "suggestion_accept" },
+        NOW + 2_000,
+        JOB_DEPS,
+      ),
     ).toBe("done");
     const [attempt] = await attempts(s.doc.artifactId);
     expect(attempt).toMatchObject({ state: "ended", reason: "version_conflict" });
@@ -354,25 +375,35 @@ describe("races", () => {
     await fillChangeList(s.doc, s.owner.id, CHANGE_LIST_LIMITS.openPerArtifact - 1);
     value(await s.accept());
     const raced = raceBeforeBatchWith(/acceptance_claims/, async () => {
-      await db().insert(schema.changeItems).values({
-        id: `late_${s.doc.artifactId}`,
-        artifactId: s.doc.artifactId,
-        ownerId: s.owner.id,
-        origin: "draft",
-        versionId: s.doc.versionId,
-        path: "index.md",
-        envelope: '{"format":1}',
-        bytes: 12,
-        reason: "spans_nodes",
-      });
+      await db()
+        .insert(schema.changeItems)
+        .values({
+          id: `late_${s.doc.artifactId}`,
+          artifactId: s.doc.artifactId,
+          ownerId: s.owner.id,
+          origin: "draft",
+          versionId: s.doc.versionId,
+          path: "index.md",
+          envelope: '{"format":1}',
+          bytes: 12,
+          reason: "spans_nodes",
+        });
     });
     const [job] = await jobsOf("suggestion_accept", s.doc.artifactId);
-    await runJob(raced, env.ARTIFACTS, { id: job?.id ?? 0, topic: "suggestion_accept" }, NOW + 2_000, JOB_DEPS);
+    await runJob(
+      raced,
+      env.ARTIFACTS,
+      { id: job?.id ?? 0, topic: "suggestion_accept" },
+      NOW + 2_000,
+      JOB_DEPS,
+    );
     expect(await thread(s.threadId)).toMatchObject({
       suggestionState: "pending",
       attemptReason: "quota_exceeded",
     });
-    expect((await items(s.doc.artifactId)).filter((item) => item.threadId === s.threadId)).toEqual([]);
+    expect((await items(s.doc.artifactId)).filter((item) => item.threadId === s.threadId)).toEqual(
+      [],
+    );
     expect(await versionCount(s.doc.artifactId)).toBe(1);
   });
 
@@ -409,11 +440,20 @@ describe("recovery", () => {
     // Two more failed deliveries; the scan then ends it as failed.
     for (let i = 0; i < 2; i++) {
       await expect(
-        runJob(raceBeforeBatchWith(/upload_sessions/, crash), env.ARTIFACTS, message, NOW + 2_000, JOB_DEPS),
+        runJob(
+          raceBeforeBatchWith(/upload_sessions/, crash),
+          env.ARTIFACTS,
+          message,
+          NOW + 2_000,
+          JOB_DEPS,
+        ),
       ).rejects.toThrow();
     }
     expect((await expireAcceptAttempts(db(), NOW + 3_000)).ended).toBeGreaterThan(0);
-    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "pending", attemptReason: "failed" });
+    expect(await thread(s.threadId)).toMatchObject({
+      suggestionState: "pending",
+      attemptReason: "failed",
+    });
     // The viewer offers to accept again: the same plan is still the plan.
     expect((await s.accept()).ok).toBe(true);
   });
@@ -438,7 +478,13 @@ describe("recovery", () => {
     const [job] = await jobsOf("suggestion_accept", s.doc.artifactId);
     const message = { id: job?.id ?? 0, topic: "suggestion_accept" as const };
     await expect(
-      runJob(raceBeforeBatchWith(/acceptance_claims/, crash), env.ARTIFACTS, message, NOW + 2_000, JOB_DEPS),
+      runJob(
+        raceBeforeBatchWith(/acceptance_claims/, crash),
+        env.ARTIFACTS,
+        message,
+        NOW + 2_000,
+        JOB_DEPS,
+      ),
     ).rejects.toThrow();
     expect((await thread(s.threadId))?.suggestionState).toBe("applying");
     expect(await runJob(db(), env.ARTIFACTS, message, NOW + 3_000, JOB_DEPS)).toBe("done");
@@ -457,7 +503,9 @@ describe("recovery", () => {
       .from(schema.accountUsage)
       .where(eq(schema.accountUsage.ownerId, s.owner.id));
     expect(usage?.open).toBe(1);
-    expect((await expireAcceptAttempts(db(), NOW + 100 + SUGGESTION_LIMITS.attemptMs)).ended).toBeGreaterThan(0);
+    expect(
+      (await expireAcceptAttempts(db(), NOW + 100 + SUGGESTION_LIMITS.attemptMs)).ended,
+    ).toBeGreaterThan(0);
     const [attempt] = await attempts(s.doc.artifactId);
     expect(await uploadState(attempt?.id ?? "")).toBe("failed");
     const [after] = await db()
@@ -466,14 +514,22 @@ describe("recovery", () => {
       .where(eq(schema.accountUsage.ownerId, s.owner.id));
     expect(after?.open).toBe(0);
     // A later delivery of the job finds nothing to do.
-    expect(await runJob(db(), env.ARTIFACTS, message, NOW + SUGGESTION_LIMITS.attemptMs + 2, JOB_DEPS)).toBe("done");
+    expect(
+      await runJob(db(), env.ARTIFACTS, message, NOW + SUGGESTION_LIMITS.attemptMs + 2, JOB_DEPS),
+    ).toBe("done");
     expect(await versionCount(s.doc.artifactId)).toBe(1);
   });
 
   it("ends the attempt when budget protection refuses the publish at the job", async () => {
     const s = await setup();
     value(await s.accept());
-    await setBudgetOverride(db().global, { level: "protect100", steps: 2, until: null, note: null, now: NOW });
+    await setBudgetOverride(db().global, {
+      level: "protect100",
+      steps: 2,
+      until: null,
+      note: null,
+      now: NOW,
+    });
     try {
       await runJobs("suggestion_accept", s.doc.artifactId);
     } finally {
@@ -501,7 +557,10 @@ describe("recovery", () => {
       }),
     );
     await runJobs("suggestion_accept", held.doc.artifactId);
-    expect((await attempts(held.doc.artifactId))[0]).toMatchObject({ state: "ended", reason: "revoked" });
+    expect((await attempts(held.doc.artifactId))[0]).toMatchObject({
+      state: "ended",
+      reason: "revoked",
+    });
 
     const team = await workspace(() => user("Member"));
     const ws = await setup(() => [SECOND()], { owner: team.editor, ownerId: team.id });
@@ -509,10 +568,21 @@ describe("recovery", () => {
     await db()
       .update(schema.workspaceMembers)
       .set({ role: "member" })
-      .where(and(eq(schema.workspaceMembers.workspaceId, team.id), eq(schema.workspaceMembers.userId, team.editor.id)));
+      .where(
+        and(
+          eq(schema.workspaceMembers.workspaceId, team.id),
+          eq(schema.workspaceMembers.userId, team.editor.id),
+        ),
+      );
     await runJobs("suggestion_accept", ws.doc.artifactId);
-    expect((await attempts(ws.doc.artifactId))[0]).toMatchObject({ state: "ended", reason: "revoked" });
-    expect(await thread(ws.threadId)).toMatchObject({ suggestionState: "pending", attemptReason: "revoked" });
+    expect((await attempts(ws.doc.artifactId))[0]).toMatchObject({
+      state: "ended",
+      reason: "revoked",
+    });
+    expect(await thread(ws.threadId)).toMatchObject({
+      suggestionState: "pending",
+      attemptReason: "revoked",
+    });
     expect(await versionCount(ws.doc.artifactId)).toBe(1);
   });
 
@@ -520,9 +590,15 @@ describe("recovery", () => {
     const s = await setup();
     value(await s.accept());
     // The name is the document's title: a rename means another rendering than the one confirmed.
-    await db().update(schema.artifacts).set({ name: "Renamed" }).where(eq(schema.artifacts.id, s.doc.artifactId));
+    await db()
+      .update(schema.artifacts)
+      .set({ name: "Renamed" })
+      .where(eq(schema.artifacts.id, s.doc.artifactId));
     await runJobs("suggestion_accept", s.doc.artifactId);
-    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "pending", attemptReason: "plan_changed" });
+    expect(await thread(s.threadId)).toMatchObject({
+      suggestionState: "pending",
+      attemptReason: "plan_changed",
+    });
   });
 
   it("waits while suggestions are switched off in the jobs Worker", async () => {

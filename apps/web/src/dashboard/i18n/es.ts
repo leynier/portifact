@@ -1881,10 +1881,14 @@ export const es = {
     "{reviewers, plural, one {Pidió a # persona que revise} other {Pidió a # personas que revisen}}",
   "audit.kind.reviewChanged": "Cambió una solicitud de revisión",
   "audit.kind.reviewCancelled": "Canceló una solicitud de revisión",
-  "audit.kind.suggestionAccepted": "Aceptó una sugerencia como versión {version}: {applied} aplicados, {listed} a la lista de cambios",
-  "audit.kind.suggestionAcceptedNothing": "Aceptó una sugerencia sin aplicar nada: {listed} a la lista de cambios",
-  "audit.kind.draftPublished": "Publicó un borrador como versión {version}: {applied} aplicados, {listed} a la lista de cambios",
-  "audit.kind.draftPublishedNothing": "Publicó un borrador sin aplicar nada: {listed} a la lista de cambios",
+  "audit.kind.suggestionAccepted":
+    "Aceptó una sugerencia como versión {version}: {applied} aplicados, {listed} a la lista de cambios",
+  "audit.kind.suggestionAcceptedNothing":
+    "Aceptó una sugerencia sin aplicar nada: {listed} a la lista de cambios",
+  "audit.kind.draftPublished":
+    "Publicó un borrador como versión {version}: {applied} aplicados, {listed} a la lista de cambios",
+  "audit.kind.draftPublishedNothing":
+    "Publicó un borrador sin aplicar nada: {listed} a la lista de cambios",
   "audit.kind.suggestionRejected": "Rechazó una sugerencia",
   "audit.kind.suggestionWithdrawn": "Retiró una sugerencia",
   "audit.kind.changeItemApplied": "Marcó un elemento de la lista de cambios como aplicado",

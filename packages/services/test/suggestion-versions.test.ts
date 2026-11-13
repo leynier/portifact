@@ -15,8 +15,8 @@ import { db, NOW, user, value } from "./fixtures.ts";
 import {
   currentText,
   DOC,
-  type Doc,
   DOMAIN,
+  type Doc,
   humanCheck,
   items,
   JOB_DEPS,
@@ -32,7 +32,13 @@ import {
 const MD = { type: "markdown" as const, path: "index.md" };
 const LONGER = DOC.replace("First paragraph.", "First paragraph, now much longer than before.");
 
-async function suggest(owner: { id: string }, doc: Doc, body: string, before: string, after: string) {
+async function suggest(
+  owner: { id: string },
+  doc: Doc,
+  body: string,
+  before: string,
+  after: string,
+) {
   const view = value(
     await submitSuggestion(db(), {
       userId: owner.id,
@@ -62,7 +68,9 @@ describe("carrying suggestions", () => {
     const doc = await publishDoc(owner.id);
     const threadId = await suggest(owner, doc, DOC, "Second", "Next");
     value(await plan(owner, doc, threadId));
-    expect(storedProofs((await thread(threadId)) ?? { editProofs: null })?.versionId).toBe(doc.versionId);
+    expect(storedProofs((await thread(threadId)) ?? { editProofs: null })?.versionId).toBe(
+      doc.versionId,
+    );
     const next = await republish(owner.id, doc, LONGER);
     expect(await jobsOf("suggestion_carry", doc.artifactId)).toHaveLength(1);
     expect(await runJobs("suggestion_carry", doc.artifactId)).toEqual(["done"]);
@@ -100,8 +108,14 @@ describe("carrying suggestions", () => {
     value(await plan(owner, doc, changed));
     await republish(owner.id, doc, DOC.replace("First paragraph.", "The first paragraph."));
     await runJobs("suggestion_carry", doc.artifactId);
-    expect(await thread(unplanned)).toMatchObject({ suggestionState: "outdated", versionId: doc.versionId });
-    expect(await thread(changed)).toMatchObject({ suggestionState: "outdated", versionId: doc.versionId });
+    expect(await thread(unplanned)).toMatchObject({
+      suggestionState: "outdated",
+      versionId: doc.versionId,
+    });
+    expect(await thread(changed)).toMatchObject({
+      suggestionState: "outdated",
+      versionId: doc.versionId,
+    });
   });
 
   it("does nothing for a version that is no longer current, and once only", async () => {
@@ -113,7 +127,13 @@ describe("carrying suggestions", () => {
     const [stale] = await jobsOf("suggestion_carry", doc.artifactId);
     await republish(owner.id, second, LONGER.replace("much longer", "far longer"), NOW + 1_500);
     expect(
-      await runJob(db(), env.ARTIFACTS, { id: stale?.id ?? 0, topic: "suggestion_carry" }, NOW + 2_000, JOB_DEPS),
+      await runJob(
+        db(),
+        env.ARTIFACTS,
+        { id: stale?.id ?? 0, topic: "suggestion_carry" },
+        NOW + 2_000,
+        JOB_DEPS,
+      ),
     ).toBe("stale");
     await runJobs("suggestion_carry", doc.artifactId);
     const carried = await thread(threadId);
@@ -183,7 +203,12 @@ describe("closing change items by a new version", () => {
     expect(item).toMatchObject({ state: "open", reason: "not_eligible" });
     expect(item?.proof).not.toBeNull();
     // A publish that does not show the change leaves it open.
-    const unrelated = await republish(owner.id, doc, SCRIPTED.replace("Title", "Heading"), NOW + 1_000);
+    const unrelated = await republish(
+      owner.id,
+      doc,
+      SCRIPTED.replace("Title", "Heading"),
+      NOW + 1_000,
+    );
     await runJobs("change_list_check", doc.artifactId);
     expect((await items(doc.artifactId))[0]?.state).toBe("open");
     const fixed = await republish(
@@ -203,20 +228,25 @@ describe("closing change items by a new version", () => {
   it("checks no item without proof data", async () => {
     const owner = await user("Owner");
     const doc = await publishDoc(owner.id);
-    await db().insert(schema.changeItems).values({
-      id: `noproof_${doc.artifactId}`,
-      artifactId: doc.artifactId,
-      ownerId: owner.id,
-      origin: "draft",
-      versionId: doc.versionId,
-      path: "index.md",
-      envelope: '{"format":1}',
-      bytes: 12,
-      reason: "spans_nodes",
-    });
+    await db()
+      .insert(schema.changeItems)
+      .values({
+        id: `noproof_${doc.artifactId}`,
+        artifactId: doc.artifactId,
+        ownerId: owner.id,
+        origin: "draft",
+        versionId: doc.versionId,
+        path: "index.md",
+        envelope: '{"format":1}',
+        bytes: 12,
+        reason: "spans_nodes",
+      });
     await republish(owner.id, doc, LONGER);
     expect(await jobsOf("change_list_check", doc.artifactId)).toEqual([]);
-    const [row] = await db().select().from(schema.changeItems).where(eq(schema.changeItems.artifactId, doc.artifactId));
+    const [row] = await db()
+      .select()
+      .from(schema.changeItems)
+      .where(eq(schema.changeItems.artifactId, doc.artifactId));
     expect(row?.state).toBe("open");
   });
 });

@@ -18,7 +18,11 @@ import { type RegionalDb, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import { checkMark, presentEnvelope } from "@portifact/domain/suggestions";
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
-import { type AnnotationActor, type AuthorizedAnnotations, annotationParts } from "./annotations.ts";
+import {
+  type AnnotationActor,
+  type AuthorizedAnnotations,
+  annotationParts,
+} from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
 import { openItemsSql } from "./suggestion-versions.ts";
 
@@ -38,7 +42,10 @@ async function ownerSide(
   return loaded;
 }
 
-async function names(db: RegionalDb, ids: readonly (string | null)[]): Promise<Map<string, string>> {
+async function names(
+  db: RegionalDb,
+  ids: readonly (string | null)[],
+): Promise<Map<string, string>> {
   const wanted = [...new Set(ids.filter((id): id is string => id !== null))];
   const found = new Map<string, string>();
   // D1 binds at most 100 parameters per statement.
@@ -96,7 +103,11 @@ function decodeCursor(cursor: string): { createdAt: number; id: string } | undef
 /** The artifact's change list, oldest first, optionally one state only. */
 export async function listChangeItems(
   db: RegionalDb,
-  input: AnnotationActor & { state?: ChangeItemState | undefined; cursor?: string | undefined; limit: number },
+  input: AnnotationActor & {
+    state?: ChangeItemState | undefined;
+    cursor?: string | undefined;
+    limit: number;
+  },
 ): Promise<Result<ChangeItemList>> {
   const loaded = await ownerSide(db, input);
   if (!loaded.ok) return loaded;
@@ -125,7 +136,10 @@ export async function listChangeItems(
     .orderBy(asc(ci.createdAt), asc(ci.id))
     .limit(limit + 1);
   const page = rows.slice(0, limit);
-  const people = await names(db, page.flatMap((row) => [row.submittedBy, row.createdBy]));
+  const people = await names(
+    db,
+    page.flatMap((row) => [row.submittedBy, row.createdBy]),
+  );
   const last = page.at(-1);
   return ok({
     items: page.map((row) => itemView(row, people)),
@@ -163,7 +177,8 @@ export async function markChangeItem(
   if (item.revision !== input.baseRevision) {
     return fail("version_conflict", "The item changed meanwhile. Reload and try again.");
   }
-  if (allowed.value === "unchanged") return ok(itemView(item, await names(db, [item.submittedBy, item.createdBy])));
+  if (allowed.value === "unchanged")
+    return ok(itemView(item, await names(db, [item.submittedBy, item.createdBy])));
   const t = schema.artifacts;
   const guard = sql`exists (select 1 from ${ci} where ${ci.id} = ${item.id} and ${ci.state} = ${item.state} and ${ci.revision} = ${item.revision}) and exists (select 1 from ${t} where ${t.id} = ${artifact.id} and ${t.ownerId} = ${artifact.ownerId})${
     input.state === "open"

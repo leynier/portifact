@@ -24,7 +24,10 @@ const applying = () =>
 /** Accepting or rejecting: only the owner side, and only a pending suggestion. */
 export function checkDecide(role: SuggestionRole, state: SuggestionState | null): Result<true> {
   if (role !== "owner") {
-    return fail("forbidden", "Only the people who manage the artifact accept or reject suggestions.");
+    return fail(
+      "forbidden",
+      "Only the people who manage the artifact accept or reject suggestions.",
+    );
   }
   if (state === "applying") return applying();
   if (state !== "pending") return fail("invalid_input", "This suggestion was already decided.");

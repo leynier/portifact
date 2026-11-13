@@ -76,10 +76,7 @@ import {
   threadInScope,
   threadVisible,
 } from "@portifact/domain";
-import {
-  checkSuggestionThreadState,
-  firstMessageDeletion,
-} from "@portifact/domain/suggestions";
+import { checkSuggestionThreadState, firstMessageDeletion } from "@portifact/domain/suggestions";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actorAndPlanOn, actorOn, ownerSide } from "./actors.ts";

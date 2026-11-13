@@ -1826,10 +1826,14 @@ export const en = {
     "{reviewers, plural, one {Asked # person to review} other {Asked # people to review}}",
   "audit.kind.reviewChanged": "Changed a review request",
   "audit.kind.reviewCancelled": "Cancelled a review request",
-  "audit.kind.suggestionAccepted": "Accepted a suggestion as version {version}: {applied} applied, {listed} to the change list",
-  "audit.kind.suggestionAcceptedNothing": "Accepted a suggestion with nothing applied: {listed} to the change list",
-  "audit.kind.draftPublished": "Published a draft as version {version}: {applied} applied, {listed} to the change list",
-  "audit.kind.draftPublishedNothing": "Published a draft with nothing applied: {listed} to the change list",
+  "audit.kind.suggestionAccepted":
+    "Accepted a suggestion as version {version}: {applied} applied, {listed} to the change list",
+  "audit.kind.suggestionAcceptedNothing":
+    "Accepted a suggestion with nothing applied: {listed} to the change list",
+  "audit.kind.draftPublished":
+    "Published a draft as version {version}: {applied} applied, {listed} to the change list",
+  "audit.kind.draftPublishedNothing":
+    "Published a draft with nothing applied: {listed} to the change list",
   "audit.kind.suggestionRejected": "Rejected a suggestion",
   "audit.kind.suggestionWithdrawn": "Withdrew a suggestion",
   "audit.kind.changeItemApplied": "Marked a change-list item as applied",

@@ -71,17 +71,17 @@ import { pruneDirectoryUsers } from "./scim.ts";
 import { jsonValues, ownerOfRegion } from "./shapes.ts";
 import { pruneShareLinks } from "./share-links.ts";
 import { syncSsoRequirementStates } from "./sso-required.ts";
+import {
+  expireAcceptAttempts,
+  pruneDraftsWithoutRole,
+  pruneSuggestionRecords,
+} from "./suggestion-maintenance.ts";
 import { requeueThreadIssues } from "./thread-issues.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
 import { pruneArtifactGroups, pruneGroupTombstones } from "./workspace-groups.ts";
 import { enforceWorkspacePolicies, ownerEntitlementsAndPolicy } from "./workspace-policies.ts";
 import { type DeletionRegions, processWorkspaceDeletions, singleRegion } from "./workspaces.ts";
-import {
-  expireAcceptAttempts,
-  pruneDraftsWithoutRole,
-  pruneSuggestionRecords,
-} from "./suggestion-maintenance.ts";
 
 const DEFAULT_BATCH = 50;
 const RELEASE_CHUNK = 40;

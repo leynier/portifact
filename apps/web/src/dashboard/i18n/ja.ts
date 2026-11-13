@@ -1842,10 +1842,14 @@ export const ja = {
     "{reviewers, plural, one {# 人にレビューを依頼しました} other {# 人にレビューを依頼しました}}",
   "audit.kind.reviewChanged": "レビュー依頼を変更しました",
   "audit.kind.reviewCancelled": "レビュー依頼をキャンセルしました",
-  "audit.kind.suggestionAccepted": "提案をバージョン {version} として承認しました: 適用 {applied} 件、変更リストへ {listed} 件",
-  "audit.kind.suggestionAcceptedNothing": "何も適用せずに提案を承認しました: 変更リストへ {listed} 件",
-  "audit.kind.draftPublished": "下書きをバージョン {version} として公開しました: 適用 {applied} 件、変更リストへ {listed} 件",
-  "audit.kind.draftPublishedNothing": "何も適用せずに下書きを公開しました: 変更リストへ {listed} 件",
+  "audit.kind.suggestionAccepted":
+    "提案をバージョン {version} として承認しました: 適用 {applied} 件、変更リストへ {listed} 件",
+  "audit.kind.suggestionAcceptedNothing":
+    "何も適用せずに提案を承認しました: 変更リストへ {listed} 件",
+  "audit.kind.draftPublished":
+    "下書きをバージョン {version} として公開しました: 適用 {applied} 件、変更リストへ {listed} 件",
+  "audit.kind.draftPublishedNothing":
+    "何も適用せずに下書きを公開しました: 変更リストへ {listed} 件",
   "audit.kind.suggestionRejected": "提案を却下しました",
   "audit.kind.suggestionWithdrawn": "提案を取り下げました",
   "audit.kind.changeItemApplied": "変更リストの項目を適用済みにしました",

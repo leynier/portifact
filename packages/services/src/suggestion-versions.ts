@@ -263,7 +263,12 @@ export async function runSuggestionCarry(
   }
   if (threads.length > limit) {
     statements.push(
-      versionJob(db, "suggestion_carry", { artifactId: artifact.id, versionId, condition: switchedHere, now }, sql`1`),
+      versionJob(
+        db,
+        "suggestion_carry",
+        { artifactId: artifact.id, versionId, condition: switchedHere, now },
+        sql`1`,
+      ),
     );
   }
   const [first, ...rest] = statements;

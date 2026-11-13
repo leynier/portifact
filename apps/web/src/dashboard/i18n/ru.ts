@@ -1872,10 +1872,14 @@ export const ru = {
     "{reviewers, plural, one {Попросил(а) # человека проверить} few {Попросил(а) # человек проверить} many {Попросил(а) # человек проверить} other {Попросил(а) # человека проверить}}",
   "audit.kind.reviewChanged": "Изменил(а) запрос на проверку",
   "audit.kind.reviewCancelled": "Отменил(а) запрос на проверку",
-  "audit.kind.suggestionAccepted": "Принял(а) предложение как версию {version}: применено {applied}, в список изменений {listed}",
-  "audit.kind.suggestionAcceptedNothing": "Принял(а) предложение, ничего не применив: в список изменений {listed}",
-  "audit.kind.draftPublished": "Опубликовал(а) черновик как версию {version}: применено {applied}, в список изменений {listed}",
-  "audit.kind.draftPublishedNothing": "Опубликовал(а) черновик, ничего не применив: в список изменений {listed}",
+  "audit.kind.suggestionAccepted":
+    "Принял(а) предложение как версию {version}: применено {applied}, в список изменений {listed}",
+  "audit.kind.suggestionAcceptedNothing":
+    "Принял(а) предложение, ничего не применив: в список изменений {listed}",
+  "audit.kind.draftPublished":
+    "Опубликовал(а) черновик как версию {version}: применено {applied}, в список изменений {listed}",
+  "audit.kind.draftPublishedNothing":
+    "Опубликовал(а) черновик, ничего не применив: в список изменений {listed}",
   "audit.kind.suggestionRejected": "Отклонил(а) предложение",
   "audit.kind.suggestionWithdrawn": "Отозвал(а) предложение",
   "audit.kind.changeItemApplied": "Отметил(а) пункт списка изменений как применённый",

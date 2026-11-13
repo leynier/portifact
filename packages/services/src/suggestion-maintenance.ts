@@ -21,7 +21,7 @@ import {
 import { type RegionalDb, schema } from "@portifact/db";
 import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { notHeldSql } from "./legal-holds.ts";
-import { cursorRead, resumeAt, savedCursorSql, type ScanCaps } from "./maintenance-cursors.ts";
+import { cursorRead, resumeAt, type ScanCaps, savedCursorSql } from "./maintenance-cursors.ts";
 import { endAttempt } from "./suggestion-accept.ts";
 
 const at = schema.acceptanceAttempts;

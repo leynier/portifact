@@ -1863,10 +1863,14 @@ export const ptBR = {
     "{reviewers, plural, one {Pediu a # pessoa que revisasse} other {Pediu a # pessoas que revisassem}}",
   "audit.kind.reviewChanged": "Alterou um pedido de revisão",
   "audit.kind.reviewCancelled": "Cancelou um pedido de revisão",
-  "audit.kind.suggestionAccepted": "Aceitou uma sugestão como versão {version}: {applied} aplicados, {listed} para a lista de alterações",
-  "audit.kind.suggestionAcceptedNothing": "Aceitou uma sugestão sem aplicar nada: {listed} para a lista de alterações",
-  "audit.kind.draftPublished": "Publicou um rascunho como versão {version}: {applied} aplicados, {listed} para a lista de alterações",
-  "audit.kind.draftPublishedNothing": "Publicou um rascunho sem aplicar nada: {listed} para a lista de alterações",
+  "audit.kind.suggestionAccepted":
+    "Aceitou uma sugestão como versão {version}: {applied} aplicados, {listed} para a lista de alterações",
+  "audit.kind.suggestionAcceptedNothing":
+    "Aceitou uma sugestão sem aplicar nada: {listed} para a lista de alterações",
+  "audit.kind.draftPublished":
+    "Publicou um rascunho como versão {version}: {applied} aplicados, {listed} para a lista de alterações",
+  "audit.kind.draftPublishedNothing":
+    "Publicou um rascunho sem aplicar nada: {listed} para a lista de alterações",
   "audit.kind.suggestionRejected": "Recusou uma sugestão",
   "audit.kind.suggestionWithdrawn": "Retirou uma sugestão",
   "audit.kind.changeItemApplied": "Marcou um item da lista de alterações como aplicado",

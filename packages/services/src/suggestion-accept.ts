@@ -20,8 +20,8 @@
 // Every failure point ends in a state the job or the scan (`expireAcceptAttempts`) recovers: see
 // the recovery table in the record and in docs/operations.md, "Edit suggestions".
 import {
-  type AcceptanceStarted,
   AcceptancePayload,
+  type AcceptanceStarted,
   CHANGE_LIST_LIMITS,
   type Envelope,
   type Proof,
@@ -29,13 +29,7 @@ import {
   utf8Length,
 } from "@portifact/contracts";
 import { hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
-import {
-  actsForOwner,
-  checkPublishCapacity,
-  fail,
-  ok,
-  type Result,
-} from "@portifact/domain";
+import { actsForOwner, checkPublishCapacity, fail, ok, type Result } from "@portifact/domain";
 import {
   admitItems,
   attemptOverdue,
@@ -110,7 +104,10 @@ async function admitAcceptance(
   });
   if (confirmed !== "confirmed") return planChanged();
   if (plan.output !== null) {
-    const capacity = checkPublishCapacity((await platformProtection(db.global, input.now)).actions, false);
+    const capacity = checkPublishCapacity(
+      (await platformProtection(db.global, input.now)).actions,
+      false,
+    );
     if (!capacity.ok) return capacity;
   }
   if (!admitItems(await openItems(db, input.artifactId), plan.listed.length, CHANGE_LIST_CAP)) {
@@ -232,7 +229,9 @@ export async function acceptSuggestion(
     db
       .update(th)
       .set({ suggestionState: "applying", attemptId, attemptReason: null, updatedAt: input.now })
-      .where(and(eq(th.id, thread.id), eq(th.suggestionState, "pending"), attemptExists(attemptId))),
+      .where(
+        and(eq(th.id, thread.id), eq(th.suggestionState, "pending"), attemptExists(attemptId)),
+      ),
     acceptanceJob(db, "suggestion_accept", {
       attemptId,
       artifactId: artifact.id,
@@ -454,7 +453,9 @@ function completionStatements(
             suggestionRevision: sql`${th.suggestionRevision} + 1`,
             updatedAt: now,
           })
-          .where(and(eq(th.id, attempt.threadId as string), eq(th.attemptId, attempt.id), condition))
+          .where(
+            and(eq(th.id, attempt.threadId as string), eq(th.attemptId, attempt.id), condition),
+          )
       : db
           .delete(dr)
           .where(
@@ -492,17 +493,20 @@ function completionStatements(
 }
 
 /** Why a claim was not taken: a duplicate run holds it, the list is full, or the state moved. */
-async function lostClaim(
-  db: RegionalDb,
-  c: Completion,
-): Promise<"duplicate" | AttemptEndReason> {
+async function lostClaim(db: RegionalDb, c: Completion): Promise<"duplicate" | AttemptEndReason> {
   const [held] = await db
     .select({ token: cl.runToken })
     .from(cl)
     .where(eq(cl.attemptId, c.attempt.id))
     .limit(1);
   if (held) return "duplicate";
-  if (!admitItems(await openItems(db, c.attempt.artifactId), c.built.plan.listed.length, CHANGE_LIST_CAP)) {
+  if (
+    !admitItems(
+      await openItems(db, c.attempt.artifactId),
+      c.built.plan.listed.length,
+      CHANGE_LIST_CAP,
+    )
+  ) {
     return "quota_exceeded";
   }
   return "version_conflict";
@@ -522,7 +526,13 @@ async function completeWithoutVersion(db: RegionalDb, c: Completion): Promise<Jo
 }
 
 /** The version's manifest with the planned file replaced, and its declared source origin. */
-async function manifestOf(db: RegionalDb, versionId: string, path: string, sha256: string, size: number) {
+async function manifestOf(
+  db: RegionalDb,
+  versionId: string,
+  path: string,
+  sha256: string,
+  size: number,
+) {
   const vf = schema.versionFiles;
   const files = await db
     .select({
