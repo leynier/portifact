@@ -620,3 +620,48 @@ describe("what issuing and redeeming cost", () => {
     expect(redeemBucket.calls).toEqual({ get: 1, delete: 1 });
   });
 });
+
+describe("what the mutation run after the review found untested", () => {
+  it("refuses a code whose suggestion was decided after issue at the same revision", async () => {
+    const s = await ownerSuggestion();
+    const code = codeOf(await issue(s));
+    await db()
+      .update(schema.annotationThreads)
+      .set({ suggestionState: "rejected", decidedAt: NOW, state: "resolved" })
+      .where(eq(schema.annotationThreads.id, s.threadId));
+    expect(await redeemPreviewCode(regions(), code, NOW + 1)).toBeUndefined();
+  });
+
+  it("works off due rows a page at a time and says when it stops at its cap", async () => {
+    const s = await ownerSuggestion();
+    await db().delete(schema.previewCodes);
+    for (let i = 0; i < 25; i++) {
+      await db()
+        .insert(schema.previewCodes)
+        .values({
+          codeSha256: (i + 1000).toString(16).padStart(64, "0"),
+          userId: `user_${i}`,
+          sessionId: s.sessionId,
+          artifactId: s.artifactId,
+          threadId: s.threadId,
+          r2Key: previewKey(NOW),
+          createdAt: NOW,
+          expiresAt: NOW + PREVIEW_CODES.ttlMs,
+        });
+    }
+    const warnings: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((line: unknown) => {
+      warnings.push(String(line));
+    });
+    const at = NOW + PREVIEW_CODES.documentTtlMs;
+    const first = await prunePreviewCodes(db(), env.ARTIFACTS, at, { pageSize: 10, pages: 2 });
+    expect(first).toMatchObject({ rows: 20, behind: true });
+    expect(JSON.parse(warnings.at(-1) ?? "{}")).toMatchObject({
+      event: "preview_prune_behind",
+      rows: 20,
+    });
+    const second = await prunePreviewCodes(db(), env.ARTIFACTS, at, { pageSize: 10, pages: 2 });
+    expect(second).toMatchObject({ rows: 5, behind: false });
+    expect(await db().select().from(schema.previewCodes)).toEqual([]);
+  });
+});
