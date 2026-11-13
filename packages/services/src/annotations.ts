@@ -123,6 +123,10 @@ interface Loaded {
    * editors. Their threads are "the owner's" in the `own` scope.
    */
   ownerSide: readonly string[];
+  /** Whether the caller is a member of the owning workspace (any role). */
+  member: boolean;
+  /** The verified email domain that admitted the caller to a `domain` artifact, or null. */
+  admittedDomain: string | null;
   /**
    * What the owner's plan grants, read with the artifact: the annotation quota and whether a
    * write marks comment notice activity, with no read of its own.
@@ -230,7 +234,7 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<LoadOutcome
     new Date(input.now),
   );
   const owner = entitlements(plan, input.now);
-  const { role, verifiedEmail, exception, groups } = await roleOf(
+  const { role, verifiedEmail, exception, groups, domain } = await roleOf(
     db,
     artifact,
     input.userId,
@@ -251,6 +255,8 @@ async function load(db: RegionalDb, input: AnnotationActor): Promise<LoadOutcome
     verifiedEmail,
     scope,
     groupIds: groups.map((group) => group.id),
+    member: actor?.ownerId === artifact.ownerId,
+    admittedDomain: domain,
     // A personal space needs no read.
     ownerSide: await ownerSide(db.global, artifact.ownerId),
     entitlements: owner,
@@ -264,6 +270,11 @@ interface Caller {
   exception: CommentScope | null;
   /** Listed groups the caller belongs to, with their exceptions, in any access mode. */
   groups: GroupMatch["matched"];
+  /**
+   * The owning workspace's verified email domain that admitted the caller to a `domain`
+   * artifact, or null when nothing but a domain admitted them.
+   */
+  domain: string | null;
 }
 
 /**
@@ -283,16 +294,16 @@ async function roleOf(
   // Comments are people's words: a service token takes no part, whatever its role (decision
   // 0011), and gets what a missing artifact gives.
   if (isServiceTokenId(userId))
-    return { role: null, verifiedEmail: null, exception: null, groups: [] };
+    return { role: null, verifiedEmail: null, exception: null, groups: [], domain: null };
   if (actsForOwner(actor, artifact.ownerId)) {
-    return { role: "owner", verifiedEmail: null, exception: null, groups: [] };
+    return { role: "owner", verifiedEmail: null, exception: null, groups: [], domain: null };
   }
   const [user] = await db.global
     .select({ email: schema.users.email, emailVerified: schema.users.emailVerified })
     .from(schema.users)
     .where(eq(schema.users.id, userId))
     .limit(1);
-  if (!user) return { role: null, verifiedEmail: null, exception: null, groups: [] };
+  if (!user) return { role: null, verifiedEmail: null, exception: null, groups: [], domain: null };
   const verifiedEmail = user.emailVerified ? user.email.toLowerCase() : null;
   const r = schema.artifactReaders;
   const columns = { email: r.email, commentVisibility: r.commentVisibility };
@@ -340,11 +351,18 @@ async function roleOf(
     verifiedEmail === null
       ? null
       : (listed.find((row) => row.email === verifiedEmail)?.commentVisibility ?? null);
+  // In `domain` mode a non-member is admitted only by their address's verified domain.
+  const byDomain =
+    decision.ok &&
+    artifact.accessMode === "domain" &&
+    actor?.ownerId !== artifact.ownerId &&
+    verifiedEmail !== null;
   return {
     role: decision.ok ? "participant" : null,
     verifiedEmail,
     exception,
     groups: groups?.matched ?? [],
+    domain: byDomain ? emailDomainOf(verifiedEmail) : null,
   };
 }
 
@@ -537,11 +555,23 @@ function liveStanding(loaded: Authorized): SQL | null {
   if (isWorkspaceId(ownerId)) {
     const roles =
       loaded.role === "owner" ? sql` and "standing"."role" in ('admin', 'editor')` : sql``;
-    if (loaded.role === "owner" || loaded.artifact.accessMode === "workspace") {
+    // A member is admitted to a `workspace` artifact, and to a `domain` one, by the membership.
+    const mode = loaded.artifact.accessMode;
+    if (loaded.role === "owner" || mode === "workspace" || (mode === "domain" && loaded.member)) {
       facts.push(
         sql`exists (select 1 from ${m} as "standing" where "standing"."workspace_id" = ${ownerId} and "standing"."user_id" = ${loaded.viewerId}${roles})`,
       );
     }
+  }
+  if (loaded.admittedDomain !== null && loaded.verifiedEmail !== null) {
+    // The domain still verified for the workspace, and the caller's address still the verified
+    // one whose domain it is (`policyDomains` decided it from that address).
+    const wd = schema.workspaceDomains;
+    const u = schema.users;
+    facts.push(
+      sql`exists (select 1 from ${wd} as "admitting" where "admitting"."workspace_id" = ${ownerId} and "admitting"."domain" = ${loaded.admittedDomain} and "admitting"."state" = 'verified')`,
+      sql`exists (select 1 from ${u} as "reader" where "reader"."id" = ${loaded.viewerId} and "reader"."email_verified" = 1 and lower("reader"."email") = ${loaded.verifiedEmail})`,
+    );
   }
   for (const groupId of loaded.groupIds) {
     facts.push(

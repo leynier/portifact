@@ -1847,3 +1847,96 @@ it("a document's closure reads only its source, never the stored rendering", asy
     );
   expect(keys).toEqual([`objects/${owner.id}/${the(source).sha256}`]);
 });
+
+describe("a domain reader's plan holds the verified domain that admitted them", () => {
+  /** A `domain` artifact of a workspace with a verified domain, a suggestion on it and a reader at the domain. */
+  async function domainReader() {
+    const team = await workspace(() => user("Member"));
+    await grantPlan(team.id, "team", { seats: 10 });
+    const domain = `acme${crypto.randomUUID().slice(0, 8)}.com`;
+    const domainId = `wd_${crypto.randomUUID()}`;
+    await db()
+      .global.insert(schema.workspaceDomains)
+      .values({
+        id: domainId,
+        workspaceId: team.id,
+        domain,
+        token: "t",
+        state: "verified",
+        createdAt: NOW,
+        expiresAt: NOW + DAY,
+        verifiedAt: NOW,
+      });
+    const reader = await user("Reader");
+    await db()
+      .global.update(schema.users)
+      .set({ email: `Dana@${domain.toUpperCase()}`, emailVerified: true })
+      .where(eq(schema.users.id, reader.id));
+    const doc = await publishDoc(team.editor.id, { ownerId: team.id });
+    await db()
+      .update(schema.artifacts)
+      .set({ accessMode: "domain", commentVisibility: "everyone" })
+      .where(eq(schema.artifacts.id, doc.artifactId));
+    const t = value(
+      await submitSuggestion(db(), {
+        userId: team.editor.id,
+        artifactId: doc.artifactId,
+        now: NOW,
+        versionId: doc.versionId,
+        edit: { operations: [textOp(doc, DOC, "Second", "Next")] },
+        body: "Fix",
+        humanCheck,
+      }),
+    );
+    const input = {
+      userId: reader.id,
+      artifactId: doc.artifactId,
+      now: NOW + 10,
+      threadId: t.id,
+      contentDomain: DOMAIN,
+    };
+    const cached = () =>
+      db()
+        .select()
+        .from(schema.suggestionPlans)
+        .where(eq(schema.suggestionPlans.artifactId, doc.artifactId));
+    const domainRow = eq(schema.workspaceDomains.id, domainId);
+    return { input, cached, domainRow, reader };
+  }
+
+  it("plans while the domain is still verified (the control)", async () => {
+    const s = await domainReader();
+    value(await planSuggestion(db(), env.ARTIFACTS, s.input));
+    expect(await s.cached()).toHaveLength(1);
+  });
+
+  it.each(["removed", "unverified"] as const)(
+    "refuses the plan when the domain is %s before its batch",
+    async (change) => {
+      const s = await domainReader();
+      const h = raceBeforeBatchWith(/insert into "suggestion_plans"/i, async () => {
+        if (change === "removed")
+          await db().global.delete(schema.workspaceDomains).where(s.domainRow);
+        else
+          await db()
+            .global.update(schema.workspaceDomains)
+            .set({ state: "pending" })
+            .where(s.domainRow);
+      });
+      expect(await planSuggestion(h, env.ARTIFACTS, s.input)).toMatchObject({ ok: false });
+      expect(await s.cached()).toEqual([]);
+    },
+  );
+
+  it("refuses the plan when the reader's address leaves the domain before its batch", async () => {
+    const s = await domainReader();
+    const h = raceBeforeBatchWith(/insert into "suggestion_plans"/i, async () => {
+      await db()
+        .global.update(schema.users)
+        .set({ email: `dana@elsewhere-${crypto.randomUUID().slice(0, 6)}.org` })
+        .where(eq(schema.users.id, s.reader.id));
+    });
+    expect(await planSuggestion(h, env.ARTIFACTS, s.input)).toMatchObject({ ok: false });
+    expect(await s.cached()).toEqual([]);
+  });
+});

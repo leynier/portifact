@@ -414,3 +414,64 @@ describe("plan batches in a region with its own database", () => {
     expect(await cached(s.artifactId)).toHaveLength(1);
   });
 });
+
+describe("a domain reader's plan in a region with its own database", () => {
+  async function euDomainReader() {
+    const s = await euSuggestion(PAGE);
+    const domain = `acme${crypto.randomUUID().slice(0, 8)}.com`;
+    const domainId = `wd_${crypto.randomUUID()}`;
+    await regions()
+      .global.insert(schema.workspaceDomains)
+      .values({
+        id: domainId,
+        workspaceId: s.ws.id,
+        domain,
+        token: "t",
+        state: "verified",
+        createdAt: NOW,
+        expiresAt: NOW + 86_400_000,
+        verifiedAt: NOW,
+      });
+    const reader = await user("Reader");
+    await regions()
+      .global.update(schema.users)
+      .set({ email: `dana@${domain}`, emailVerified: true })
+      .where(eq(schema.users.id, reader.id));
+    await eu()
+      .db.update(schema.artifacts)
+      .set({ accessMode: "domain" })
+      .where(eq(schema.artifacts.id, s.artifactId));
+    const input = {
+      userId: reader.id,
+      artifactId: s.artifactId,
+      now: NOW + 10,
+      threadId: s.threadId,
+      contentDomain: DOMAIN,
+    };
+    const unverify = () =>
+      regions()
+        .global.update(schema.workspaceDomains)
+        .set({ state: "pending" })
+        .where(eq(schema.workspaceDomains.id, domainId));
+    const readerPlans = () =>
+      eu()
+        .db.select()
+        .from(schema.suggestionPlans)
+        .where(eq(schema.suggestionPlans.userId, reader.id));
+    return { input, unverify, readerPlans };
+  }
+
+  it("plans while the domain is still verified (the control)", async () => {
+    const s = await euDomainReader();
+    value(await planSuggestion(eu().db, env.ARTIFACTS_EU, s.input));
+    expect(await s.readerPlans()).toHaveLength(1);
+  });
+
+  it("refuses the plan when the domain loses verification while it was built", async () => {
+    const s = await euDomainReader();
+    expect(await planSuggestion(eu().db, demotingOnRead(s.unverify), s.input)).toMatchObject({
+      ok: false,
+    });
+    expect(await s.readerPlans()).toEqual([]);
+  });
+});
