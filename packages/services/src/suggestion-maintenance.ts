@@ -22,11 +22,12 @@ import {
   isWorkspaceId,
   SUGGESTION_LIMITS,
 } from "@portifact/contracts";
-import { type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import { notHeldSql } from "./legal-holds.ts";
 import { type ScanCaps, saveCursor } from "./maintenance-cursors.ts";
 import { endAttempt } from "./suggestion-accept.ts";
+import { draftMarker } from "./suggestion-markers.ts";
 
 const at = schema.acceptanceAttempts;
 const dr = schema.editDrafts;
@@ -265,23 +266,29 @@ export async function pruneDraftsWithoutRole(
   for (const row of workspace) {
     if (!acting.has(`${row.ownerId}|${row.userId}`)) lost.push(row);
   }
-  const deletes = lost.map((row) =>
-    db
-      .delete(dr)
-      .where(
-        and(
-          eq(dr.artifactId, row.artifactId),
-          eq(dr.userId, row.userId),
-          eq(dr.ownerId, row.ownerId),
-          isNull(dr.attemptId),
-          notHeldSql(sql`${dr.artifactId}`),
-        ),
-      )
-      .returning({ id: dr.userId }),
-  );
-  const [first, ...rest] = deletes;
-  const results = first ? await db.batch([first, ...rest]) : [];
-  const deleted = results.reduce((sum, gone) => sum + gone.length, 0);
+  // Each draft with the marker that keeps it gone through a restore (decision 0027), on the same
+  // condition and before it; with one database the batch runs on the handle that writes both.
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const statements = lost.flatMap((row) => {
+    const where = and(
+      eq(dr.artifactId, row.artifactId),
+      eq(dr.userId, row.userId),
+      eq(dr.ownerId, row.ownerId),
+      isNull(dr.attemptId),
+      notHeldSql(sql`${dr.artifactId}`),
+    ) as SQL;
+    return [
+      draftMarker(x, shared !== null, where, now),
+      x.delete(dr).where(where).returning({ id: dr.userId }),
+    ];
+  });
+  const [first, ...rest] = statements;
+  const results = (first ? await x.batch([first, ...rest]) : []) as unknown[];
+  // The deletions are every second statement.
+  const deleted = results
+    .filter((_, i) => i % 2 === 1)
+    .reduce((sum: number, gone) => sum + (gone as unknown[]).length, 0);
   const last = rows.at(-1);
   const next = rows.length === caps.pageSize && last ? `${last.artifactId}|${last.userId}` : "";
   if (next !== started) await saveCursor(db, DRAFT_SCAN, next, now);

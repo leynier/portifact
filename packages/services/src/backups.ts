@@ -15,12 +15,14 @@ import {
 } from "@portifact/db";
 import { and, asc, eq, gt, inArray, lt, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { WITHDRAWN } from "./annotations.ts";
 import { eraseAuditEventsOf } from "./audit.ts";
 import { notHeldSql } from "./legal-holds.ts";
 import { purgeJobs } from "./outbox.ts";
 import { recomputeDirectoryRoles } from "./scim-groups.ts";
 import { chunked, JSON_CHUNK } from "./shapes.ts";
 import { revokedShareLinks } from "./share-links.ts";
+import { DRAFT_MARKER_SQL } from "./suggestion-markers.ts";
 import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
 const IN_CHUNK = 80;
@@ -298,6 +300,12 @@ export interface ApplyTombstonesResult {
   commentMessages: number;
   /** Email preferences turned off before the restore that it turned back on, off again. */
   noticeOptOuts: number;
+  /** Suggestions withdrawn before the restore that it brought back undecided, withdrawn again. */
+  withdrawnSuggestions: number;
+  /** Suggestions rejected before the restore that it brought back undecided, rejected again. */
+  rejectedSuggestions: number;
+  /** Drafts discarded, published or removed before the restore that it brought back, gone again. */
+  drafts: number;
   /** Per-artifact comment notice mutes set before the restore that it lost, set again. */
   noticeMutes: number;
   /** Browser sessions that ended before the restore (sign-outs), ended again. */
@@ -325,6 +333,9 @@ const REGIONAL_KINDS = [
   "comment_thread",
   "comment_message",
   "comment_notice_mute",
+  "suggestion_withdrawn",
+  "suggestion_rejected",
+  "edit_draft",
 ] as const;
 type RegionalKind = (typeof REGIONAL_KINDS)[number];
 
@@ -393,6 +404,11 @@ interface Refs {
   commentMessages: SQL;
   /** As rows with one column, `ref` (`<artifact>:<user>`), not only a list for `in`. */
   mutes: SQL;
+  /** Edit suggestions (decision 0027): withdrawn and rejected suggestions, removed drafts. */
+  withdrawnSuggestions: SQL;
+  rejectedSuggestions: SQL;
+  /** `<artifact>:<user>:<incarnation>`. */
+  drafts: SQL;
 }
 
 const t = schema.tombstones;
@@ -417,6 +433,9 @@ const SUBQUERIES: Refs = {
   commentThreads: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_thread'`,
   commentMessages: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_message'`,
   mutes: sql`select ${t.id} as ref from ${t} where ${t.kind} = 'comment_notice_mute'`,
+  withdrawnSuggestions: sql`select ${t.id} from ${t} where ${t.kind} = 'suggestion_withdrawn'`,
+  rejectedSuggestions: sql`select ${t.id} from ${t} where ${t.kind} = 'suggestion_rejected'`,
+  drafts: sql`select ${t.id} from ${t} where ${t.kind} = 'edit_draft'`,
 };
 
 /** A JSON list as the body of an `in (...)` subquery. */
@@ -602,6 +621,66 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
             sql`${schema.annotationMessages.state} <> 'deleted' and ${schema.annotationMessages.id} in (${refs.commentMessages})`,
           )
           .returning({ id: schema.annotationMessages.id }),
+    },
+    // Edit suggestions (decision 0027): a running acceptance of a suggestion withdrawn or
+    // rejected, or of a draft removed, before the restore is ended first (as an erasure ends one),
+    // so its job's claim loses and nothing publishes it; then the suggestion is withdrawn (its
+    // edit cleared, its bytes given back by the usage trigger) or rejected again, and the draft
+    // deleted again. Only an undecided suggestion changes (a decided one stays as it is, which the
+    // immutability trigger also holds), and only the draft of the marker's incarnation goes.
+    {
+      name: "suggestionAttempts",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.acceptanceAttempts)
+          .set({ state: "ended", reason: "revoked", updatedAt: now })
+          .where(
+            sql`${schema.acceptanceAttempts.state} = 'running' and (${schema.acceptanceAttempts.threadId} in (${refs.withdrawnSuggestions}) or ${schema.acceptanceAttempts.threadId} in (${refs.rejectedSuggestions}) or exists (select 1 from ${schema.editDrafts} where ${schema.editDrafts.attemptId} = ${schema.acceptanceAttempts.id} and ${DRAFT_MARKER_SQL} in (${refs.drafts})))`,
+          )
+          .returning({ id: schema.acceptanceAttempts.id }),
+    },
+    {
+      name: "withdrawnSuggestions",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.annotationThreads)
+          .set({ ...WITHDRAWN, attemptId: null, updatedAt: now })
+          .where(
+            sql`${schema.annotationThreads.kind} = 'suggestion' and ${schema.annotationThreads.suggestionState} in ('pending', 'applying', 'outdated') and ${schema.annotationThreads.id} in (${refs.withdrawnSuggestions})`,
+          )
+          .returning({ id: schema.annotationThreads.id }),
+    },
+    {
+      name: "rejectedSuggestions",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.annotationThreads)
+          .set({
+            suggestionState: "rejected",
+            attemptId: null,
+            attemptReason: null,
+            // Who rejected it is not in the marker: the restore's own time stands for the decision.
+            decidedBy: null,
+            decidedAt: now,
+            suggestionRevision: sql`${schema.annotationThreads.suggestionRevision} + 1`,
+            updatedAt: now,
+          })
+          .where(
+            sql`${schema.annotationThreads.kind} = 'suggestion' and ${schema.annotationThreads.suggestionState} in ('pending', 'applying', 'outdated') and ${schema.annotationThreads.id} in (${refs.rejectedSuggestions})`,
+          )
+          .returning({ id: schema.annotationThreads.id }),
+    },
+    {
+      name: "drafts",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .delete(schema.editDrafts)
+          .where(sql`${DRAFT_MARKER_SQL} in (${refs.drafts})`)
+          .returning({ artifactId: schema.editDrafts.artifactId }),
     },
     // Per-artifact mutes the restore lost come back, on artifacts that are still there, for
     // accounts that are not deleted.
@@ -1046,6 +1125,9 @@ async function applyRegionalTombstones(
       commentThreads: part(lists.comment_thread),
       commentMessages: part(lists.comment_message),
       mutes: listedRefs(mutes.slice(round * JSON_CHUNK, (round + 1) * JSON_CHUNK)),
+      withdrawnSuggestions: part(lists.suggestion_withdrawn),
+      rejectedSuggestions: part(lists.suggestion_rejected),
+      drafts: part(lists.edit_draft),
     };
     for (const [name, rows] of await runEntries(db, regional, refs)) {
       counts.set(name, (counts.get(name) ?? 0) + rows.length);
@@ -1146,6 +1228,9 @@ export async function applyTombstones(
     members: count("members"),
     commentThreads: count("commentThreads"),
     commentMessages: count("commentMessages"),
+    withdrawnSuggestions: count("withdrawnSuggestions"),
+    rejectedSuggestions: count("rejectedSuggestions"),
+    drafts: count("drafts"),
     noticeOptOuts: count("noticeOptOuts:comment_notices") + count("noticeOptOuts:expiry_notices"),
     noticeMutes: count("noticeMutes"),
     sessions: count("sessions"),

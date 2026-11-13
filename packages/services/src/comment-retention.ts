@@ -294,6 +294,13 @@ export async function writeCommentTombstones(
   if (parsed.data.ids.length > 0) await marker("comment_thread", parsed.data.ids);
   const messages = parsed.data.messages ?? [];
   if (messages.length > 0) await marker("comment_message", messages);
+  // Edit suggestions' restore markers (decision 0027, `suggestion-markers.ts`).
+  for (const { kind, id } of parsed.data.markers ?? []) {
+    await db.global
+      .insert(schema.tombstones)
+      .values({ kind, id, deletedAt: parsed.data.at })
+      .onConflictDoNothing();
+  }
   return "done";
 }
 
