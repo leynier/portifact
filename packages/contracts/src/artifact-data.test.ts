@@ -34,7 +34,9 @@ import {
   FieldName,
   JournalEntry,
   LIVE_CLOSE,
+  MAX_ARTIFACT_BYTES,
   MAX_COLLECTIONS,
+  MAX_DOCUMENT_BYTES,
   MAX_INDEXED_FIELDS,
   OperationId,
   OperationRecord,
@@ -71,6 +73,7 @@ const control = {
   last: { id: "created", kind: "created", epoch: 0, fromOwner: null, toOwner: "ws_1", at: NOW },
   storageSeq: 4,
   payloadRevision: 2,
+  liveEpoch: 1,
 };
 
 describe("artifact data contracts", () => {
@@ -202,6 +205,21 @@ describe("artifact data contracts", () => {
     };
     expect(ArtifactDataLimits.safeParse(limits).success).toBe(true);
     expect(ArtifactDataLimits.safeParse({ ...limits, rowsWrittenPerDay: 0 }).success).toBe(false);
+    // Limits the platform cannot hold are refused whatever plan sends them.
+    const largest = {
+      ...limits,
+      documentBytes: MAX_DOCUMENT_BYTES,
+      bytesPerArtifact: MAX_ARTIFACT_BYTES,
+    };
+    expect(ArtifactDataLimits.safeParse(largest).success).toBe(true);
+    expect(
+      ArtifactDataLimits.safeParse({ ...largest, documentBytes: MAX_DOCUMENT_BYTES + 1 }).success,
+    ).toBe(false);
+    expect(
+      ArtifactDataLimits.safeParse({ ...largest, bytesPerArtifact: MAX_ARTIFACT_BYTES + 1 })
+        .success,
+    ).toBe(false);
+    expect(MAX_ARTIFACT_BYTES + ARTIFACT_DATA.controlReserveBytes).toBeLessThan(10_000_000_000);
     expect(
       CollectionDeclaration.safeParse({
         name: "votes_1",

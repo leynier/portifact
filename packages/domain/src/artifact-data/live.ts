@@ -20,6 +20,8 @@ export interface LiveAttachment {
   /** The credential that opened it; only the same principal renews it. */
   principal: string;
   generation: number;
+  /** The control record's `liveEpoch` it opened under: any later closing transition ends it. */
+  liveEpoch: number;
   subscriptions: string[];
   deadline: number;
   window: number;
@@ -64,6 +66,7 @@ export function newAttachment(input: {
   author: string | null;
   principal: string;
   generation: number;
+  liveEpoch: number;
   deadline: number;
   now: number;
   limits: ArtifactDataLimits;
@@ -73,6 +76,7 @@ export function newAttachment(input: {
     author: input.author,
     principal: input.principal,
     generation: input.generation,
+    liveEpoch: input.liveEpoch,
     subscriptions: [],
     deadline: input.deadline,
     window: minuteOf(input.now),
@@ -86,7 +90,8 @@ export function newAttachment(input: {
 
 /**
  * Re-admission, before any message in or out: a passed deadline closes `renew`; a hold, a
- * quarantine, a prepared erase or a new generation closes `reconnect`; an erased author closes
+ * quarantine, a prepared erase, a new generation or any closing transition since it opened (a
+ * newer `liveEpoch`: a close lost before hibernation) closes `reconnect`; an erased author closes
  * `erased`. Otherwise the attachment with its minute's counters reset when the minute changed.
  */
 export function liveCheck(
@@ -102,7 +107,8 @@ export function liveCheck(
     control.hold !== null ||
     control.quarantine !== null ||
     control.erasing !== null ||
-    control.generation !== attachment.generation
+    control.generation !== attachment.generation ||
+    control.liveEpoch !== attachment.liveEpoch
   ) {
     return { close: LIVE_CLOSE.reconnect };
   }

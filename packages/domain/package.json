@@ -10,6 +10,7 @@
     "./locale": "./src/locale.ts",
     "./artifact-data": "./src/artifact-data/index.ts",
     "./testing/images": "./src/testing/images.ts",
+    "./testing/artifact-data": "./src/testing/artifact-data.ts",
     "./suggestions": "./src/suggestions/index.ts",
     "./suggestion-display": "./src/suggestions/display.ts"
   },

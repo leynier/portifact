@@ -22,6 +22,7 @@ const ROOT = join(import.meta.dirname, "..");
 const SOURCES = [
   "apps/app/src",
   "apps/content/src",
+  "apps/data/src",
   "apps/jobs/src",
   "packages/anchors/src",
   "packages/contracts/src",

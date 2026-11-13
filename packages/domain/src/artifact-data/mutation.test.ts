@@ -753,6 +753,7 @@ describe("boundaries the code review's rules turn on", () => {
       author: null,
       principal: "p",
       generation: 0,
+      liveEpoch: 0,
       deadline: NOW + 60_000,
       now: NOW,
       limits: ROOMY,

@@ -105,7 +105,6 @@ import {
   renewDecision,
   requestHash,
   resolveQuarantine,
-  rollPending,
   type SettleDecision,
   sequenceAdvances,
   sequenceScope,
@@ -116,6 +115,7 @@ import {
   uniqueValue,
   valueCountDeltas,
 } from "../artifact-data/index.ts";
+import type { DataObject, MakeObject, ObjectView, SeedRows } from "./artifact-data-driver.ts";
 
 export interface Doc {
   collection: string;
@@ -257,7 +257,8 @@ type Proceed = Extract<MutationPlan, { decision: "proceed" }>;
 const key2 = (...parts: (string | number)[]) => parts.join("\u0000");
 const ACCOUNTED = ["growth", "read", "cleanup", "export", "rights", "protected"] as const;
 
-export class MemoryObject {
+export class MemoryObject implements DataObject {
+  readonly kind = "memory" as const;
   durable: Durable;
   pending: PendingReads = noPendingReads(0);
   /** Each caller's attempts in the current minute, in memory (one minute is kept). */
@@ -287,6 +288,30 @@ export class MemoryObject {
 
   constructor(readonly name = "obj") {
     this.durable = this.#instrument(emptyDurable());
+  }
+
+  /** The object's state and meters: the object itself, live. */
+  view(): ObjectView {
+    return this;
+  }
+
+  setFaults(faults: Faults): void {
+    this.faults = faults;
+  }
+
+  setRowBounds(bounds: Partial<Record<OperationKind, number>>): void {
+    Object.assign(this.rowBounds, bounds);
+  }
+
+  seed(rows: SeedRows): void {
+    const d = this.durable;
+    for (const table of rows.clear ?? []) d[table].clear();
+    for (const [key, row] of rows.ops ?? []) d.ops.set(key, row);
+    for (const [key, row] of rows.ended ?? []) d.ended.set(key, row);
+    for (const [key, row] of rows.audit ?? []) d.audit.set(key, row);
+    for (const [key, count] of rows.rates ?? []) d.rates.set(key, count);
+    for (const day of rows.days ?? []) d.days.set(day.day, day);
+    for (const [key, used] of rows.rights ?? []) d.rights.set(key, used);
   }
 
   // The instrumented store. Every map of `durable` counts its own reads (`get`, `has`, each entry
@@ -1447,7 +1472,11 @@ export class MemoryObject {
           const seq = this.#deleteDoc(doc);
           notices.push({ mode, doc: { ...doc, seq }, kind: "deleted" });
         }
+        // Every bounded selection takes rows in key order, as the real object's index seeks do.
+        const byKey = <K>(a: [K, unknown], b: [K, unknown]) =>
+          String(a[0]) < String(b[0]) ? -1 : 1;
         const edited = this.#select(d.documents, (_key, doc) => doc.editor === author, {
+          order: byKey,
           limit: take,
         }).map(([, doc]) => doc);
         for (const found of edited) {
@@ -1457,12 +1486,15 @@ export class MemoryObject {
           doc.seq = this.#advance(sequenceScope(mode, doc.collection, doc.author));
           notices.push({ mode, doc: { ...doc }, kind: "updated" });
         }
-        const ops = this.#select(d.ops, (_key, row) => row.actor === author, { limit: take });
+        const ops = this.#select(d.ops, (_key, row) => row.actor === author, {
+          order: byKey,
+          limit: take,
+        });
         for (const [key] of ops) d.ops.delete(key);
         const mine = (key: string, part: number) => key.split("\u0000")[part] === author;
-        const rates = this.#select(d.rates, (key) => mine(key, 0), { limit: take });
+        const rates = this.#select(d.rates, (key) => mine(key, 0), { order: byKey, limit: take });
         for (const [key] of rates) d.rates.delete(key);
-        const rights = this.#select(d.rights, (key) => mine(key, 0), { limit: take });
+        const rights = this.#select(d.rights, (key) => mine(key, 0), { order: byKey, limit: take });
         for (const [key] of rights) d.rights.delete(key);
         let more = chunkLeavesMore(
           {
@@ -2129,6 +2161,7 @@ export class MemoryObject {
               author,
               principal,
               generation: control.generation,
+              liveEpoch: control.liveEpoch,
               deadline,
               now,
               limits: context.limits,
@@ -2300,8 +2333,13 @@ export class MemoryObject {
   }
 }
 
+/** A fresh in-memory object, as the suites make one. */
+export const memoryObject: MakeObject = async (name) => new MemoryObject(name);
+
+type StateView = Pick<ObjectView, "durable" | "sockets">;
+
 /** A stable, comparable view of everything an author left in an object. */
-export function authorTraces(object: MemoryObject, author: string) {
+export function authorTraces(object: StateView, author: string) {
   const d = object.durable;
   return {
     documents: [...d.documents.values()].filter((doc) => doc.author === author).length,
@@ -2320,7 +2358,7 @@ export function authorTraces(object: MemoryObject, author: string) {
 }
 
 /** Value-count rows that do not match the indexed values of the current documents exactly. */
-export function orphanValueCounts(object: MemoryObject): number {
+export function orphanValueCounts(object: StateView): number {
   const d = object.durable;
   const expected = new Map<string, number>();
   for (const doc of d.documents.values()) {

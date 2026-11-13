@@ -416,6 +416,16 @@ Released CLIs: Slack connections never appear in the owner side's listing, so no
 
 Edit suggestions ship switched off ([decision 0027](decisions/0027-edit-suggestions.md)). The text delivery is built as stacked pull requests; `SUGGESTIONS_ENABLED="true"` goes on `portifact-app` and `portifact-jobs` (never in a `wrangler.jsonc`) only when the whole delivery works and its release checks pass: the decision's "Deliveries" lists them (the e2e suite in every project, the browser differential with WebKit, crash tests for every recovery row and a screen reader pass). The legal pages and `TERMS_VERSION` change in the delivery's last pull request. A test in `packages/domain` fails when the variable appears in a Worker's `wrangler.jsonc`.
 
+### Artifact data Worker (not deployed)
+
+`apps/data` is the data Worker of [decision 0026](decisions/0026-artifact-data.md) (`portifact-data`): it exports the documents Durable Object `ArtifactDocuments` and answers `404` to everything, with no route, binding to D1, R2 or a queue, or secret. Its `wrangler.jsonc` declares the class with the legacy migration `v1` (`new_sqlite_classes`) so its tests run it as configured, but no workflow deploys it and no other Worker binds it: a release from this change creates nothing on Cloudflare. It stays undeployed until the delivery that adds its first caller (the jobs Worker's fences, erasure and reconciliation), because a deployed class can only be removed with a `deleted_classes` migration, which deletes every object of the class and which `scripts/durable-migrations.test.ts` refuses in every configuration; an unreachable class buys nothing until then.
+
+When that delivery deploys it:
+
+1. **What the release creates.** The Worker `portifact-data` and the Durable Object namespace of `ArtifactDocuments` (SQLite storage). Deploy it before the jobs, content and app Workers (each binds it with `script_name: "portifact-data"`), add `.github/workflows/release.yml` and `ci.yml` steps for it (the dry run too), and add the Worker and its namespace to `PORTIFACT_RESOURCES` (`apps/jobs/src/analytics.ts`) so the budget collector counts its requests, duration and rows. The EU jurisdiction is chosen per stub (`namespace.jurisdiction("eu")` from the artifact's region, `dataNamespaces` in `packages/services`), never by a second class.
+2. **How to verify.** `npx wrangler deployments list --name portifact-data` shows the version; a request to the Worker's `workers.dev` host, if enabled, answers `404`; the dashboard's Durable Objects page lists the namespace with no objects until a caller creates one; no route is attached.
+3. **How to roll back.** Roll the Worker back to its previous version (`npx wrangler rollback --name portifact-data`) or remove the callers' bindings. Never roll back with a `deleted_classes`, `renamed_classes` or `transferred_classes` migration: objects hold data and control records (barriers, ended erase intents, audit obligations) that reconciliation reads. A class that must stop answering is left in place with no binding reaching it.
+
 ## Platforms
 
 `linux-x64`, `linux-arm64`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`, `darwin-arm64`, `windows-x64` and `windows-arm64`. Unix archives are `.tar.gz` and Windows archives are `.zip`; each holds a single executable that does not need Node or Bun.
