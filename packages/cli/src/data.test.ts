@@ -151,6 +151,62 @@ describe("portifact data", () => {
     expect((await h.invoke("data", "delete", id, "votes", docId)).code).toBe(0);
   });
 
+  it("erases all of an artifact's data only after a confirmation", async () => {
+    const id = await declared();
+    await h.invoke("data", "create", id, "votes", "--body", "{}");
+    const refused = await h.invoke("data", "erase", id);
+    expect(refused.code).toBe(EXIT.usage);
+    expect(refused.stderr).toContain("--yes");
+    expect(dataRequests().some((r) => r.path.endsWith("/erase"))).toBe(false);
+    const erased = await h.invoke("data", "erase", id, "--yes");
+    expect(erased.stdout).toBe(`Erased all of ${id}'s data.\n`);
+    const json = await h.invoke("data", "erase", id, "--yes", "--json");
+    expect(JSON.parse(json.stdout)).toMatchObject({ erased: true, generation: expect.any(Number) });
+    expect(server.api.data.collections.get(id)?.size).toBe(0);
+    const erase = server.requests.filter((r) => r.path.endsWith("/erase"));
+    expect(erase).toHaveLength(2);
+  });
+
+  it("asks at the terminal before erasing, and cancels on any answer but erase", async () => {
+    await h.cleanup();
+    h = await createHarness({ server, answers: ["delete", "erase"] });
+    const id = await declared();
+    const cancelled = await h.invoke("data", "erase", id);
+    expect(cancelled.code).not.toBe(0);
+    expect(h.prompts[0]).toContain('Type "erase"');
+    expect((await h.invoke("data", "erase", id)).code).toBe(0);
+  });
+
+  it("deletes one author's documents, calling again while more are left", async () => {
+    const id = await declared();
+    const author = "v_AAAAAAAAAAAAAAAA";
+    const votes = server.api.data.collections.get(id)?.get("votes");
+    for (let n = 0; n < 5; n += 1) {
+      votes?.documents.set(`doc-author-${n}`, { body: "{}", created: 1, updated: 1, by: author });
+    }
+    votes?.documents.set("doc-other", { body: "{}", created: 1, updated: 1, by: "owner" });
+    server.api.data.authorPage = 2;
+    const refused = await h.invoke("data", "delete-author", id, author);
+    expect(refused.code).toBe(EXIT.usage);
+    const deleted = await h.invoke("data", "delete-author", id, author, "--yes", "--json");
+    expect(JSON.parse(deleted.stdout)).toEqual({ removed: 5 });
+    expect(votes?.documents.size).toBe(1);
+    const calls = server.requests.filter((r) => r.path.endsWith(`/authors/${author}/delete`));
+    expect(calls).toHaveLength(3);
+    // Each call is its own change with its own key.
+    expect(new Set(server.api.data.keys.slice(-3)).size).toBe(3);
+    const text = await h.invoke("data", "delete-author", id, author, "--yes");
+    expect(text.stdout).toBe(`Deleted 0 document(s) by ${author}.\n`);
+  });
+
+  it("refuses an author that is not a visitor's opaque ID before any request", async () => {
+    const id = await declared();
+    const before = dataRequests().length;
+    const bad = await h.invoke("data", "delete-author", id, "someone@example.test", "--yes");
+    expect(bad.code).toBe(EXIT.usage);
+    expect(dataRequests()).toHaveLength(before);
+  });
+
   it("writes an export file that loads into SQLite", async () => {
     const id = await declared();
     await h.invoke(

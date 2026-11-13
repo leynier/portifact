@@ -9,6 +9,7 @@ import {
   CountDataInput,
   CreateDataDocumentInput,
   CreateDataDocumentsInput,
+  DataAuthorDeleted,
   DataBulkCreated,
   DataBulkRemoved,
   DataBulkReplaced,
@@ -17,15 +18,18 @@ import {
   DataDescriptionView,
   DataDocumentRemoved,
   DataDocumentView,
+  DataErased,
   DataExportPageView,
   DataQueryPage,
   DeclareDataCollectionInput,
+  DeleteAuthorDataInput,
   DeleteDataDocumentInput,
   DeleteDataDocumentsInput,
   DescribeDataInput,
   dataCountOf,
   dataQueryOf,
   ERROR_STATUS,
+  EraseArtifactDataInput,
   type ErrorCode,
   ExportDataInput,
   GetDataDocumentInput,
@@ -41,9 +45,11 @@ import {
   createDataDocument,
   createDataDocuments,
   declareDataCollection,
+  deleteAuthorData,
   deleteDataDocument,
   deleteDataDocuments,
   describeArtifactData,
+  eraseArtifactData,
   exportArtifactData,
   getDataDocument,
   queryArtifactData,
@@ -70,6 +76,8 @@ export const DATA_TOOL_SCOPES: [string, OAuthScope][] = [
   ["create_data_documents", "data:write"],
   ["replace_data_documents", "data:write"],
   ["delete_data_documents", "data:write"],
+  ["erase_artifact_data", "data:write"],
+  ["delete_author_data", "data:write"],
 ];
 
 /** Every tool that returns documents says what they are. */
@@ -505,6 +513,70 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
       if (!result.ok) return failure(result.code, result.message);
       const body = DataBulkRemoved.parse(result.body);
       return success(`Deleted ${body.removed} document(s) from ${collection}.`, body);
+    },
+  );
+
+  register(
+    "erase_artifact_data",
+    {
+      title: "Erase an artifact's data",
+      description: `Erase all of an artifact's data for good: every document and every collection, whoever wrote them. It cannot be undone and the artifact's pages lose what visitors saved. Works on an archived artifact too, never on a held one. At most 20 erases an artifact a day. Always ask the user before erasing, then pass confirm: true. Send the same idempotencyKey when retrying. ${WHO}`,
+      inputSchema: EraseArtifactDataInput,
+      outputSchema: DataErased,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args: EraseArtifactDataInput) => {
+      const { artifactId, idempotencyKey } = args;
+      const { db, deps } = await at(artifactId);
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await eraseArtifactData(db, deps, { ...input(artifactId), now, idempotencyKey: key }),
+        ),
+      );
+      if (!result.ok) return failure(result.code, result.message);
+      const body = DataErased.parse(result.body);
+      return success(`Erased all of ${artifactId}'s data.`, body);
+    },
+  );
+
+  register(
+    "delete_author_data",
+    {
+      title: "Delete one author's data documents",
+      description: `Delete every document one author (the opaque _by of a document, never an email) created in an artifact's data, across its collections, up to 500 a call; more: true means call again with a new idempotencyKey. Edits the author made to other people's documents stay, and the author can still write. Always ask the user before deleting, then pass confirm: true. ${UNTRUSTED} ${WHO}`,
+      inputSchema: DeleteAuthorDataInput,
+      outputSchema: DataAuthorDeleted,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args: DeleteAuthorDataInput) => {
+      const { artifactId, author, idempotencyKey } = args;
+      const { db, deps } = await at(artifactId);
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await deleteAuthorData(db, deps, {
+            ...input(artifactId),
+            now,
+            idempotencyKey: key,
+            author,
+          }),
+        ),
+      );
+      if (!result.ok) return failure(result.code, result.message);
+      const body = DataAuthorDeleted.parse(result.body);
+      return success(
+        `Deleted ${body.removed} document(s) by ${author}.${body.more ? " More remain: call again." : ""}`,
+        body,
+      );
     },
   );
 }

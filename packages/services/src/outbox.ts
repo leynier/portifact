@@ -25,7 +25,7 @@ import {
   runDataReconcile,
   runDataResolve,
 } from "./artifact-data.ts";
-import { runDataAudit } from "./artifact-data-owner.ts";
+import { runDataAudit, runDataReset } from "./artifact-data-owner.ts";
 import { type AuditStreamDeps, deliverAuditStream } from "./audit-streams.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
@@ -390,6 +390,8 @@ async function runRow(
       return runDataExport(db, bucket, data, row, now);
     case "data_audit":
       return runDataAudit(db, data, row, now);
+    case "data_reset":
+      return runDataReset(db, data, row, now);
   }
 }
 

@@ -3413,6 +3413,9 @@ export const es = {
     "{count, plural, one {Reemplazó # documento de datos} other {Reemplazó # documentos de datos}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Eliminó # documento de datos} other {Eliminó # documentos de datos}}",
+  "audit.kind.dataErased": "Borró todos los datos del artefacto",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Borró # documento de datos} other {Borró # documentos de datos}} y {edits, plural, one {# edición} other {# ediciones}} de una cuenta eliminada",
   "detail.section.data": "Datos",
   "artifactData.loading": "Cargando los datos del artifact",
   "artifactData.error.title": "No se pudieron cargar los datos",

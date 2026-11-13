@@ -24,6 +24,8 @@ export const API_TERMS_OPERATIONS: Readonly<Record<string, TermsOpenOperation>> 
     "delete_data_document",
   "POST /api/v1/artifacts/:artifactId/data/collections/:collection/documents/bulk-delete":
     "delete_data_documents",
+  "POST /api/v1/artifacts/:artifactId/data/erase": "erase_artifact_data",
+  "POST /api/v1/artifacts/:artifactId/data/authors/:author/delete": "delete_author_data",
 };
 
 /** The operation a matched route performs, or null when it has none of these names. */
