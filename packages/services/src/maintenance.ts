@@ -65,6 +65,7 @@ import {
   unpinLapsedPlans,
 } from "./plans.ts";
 import { closeUploadSession } from "./publish.ts";
+import { pruneDataGrants } from "./data-grants.ts";
 import { pruneReadSessions } from "./read-access.ts";
 import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";
@@ -967,6 +968,8 @@ export async function runRegionalMaintenance(
     // Account journal scan positions left after their deletion ended (decision 0026).
     journalCursors: await pruneJournalCursors(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
+    // Grant codes past their minute and grants of artifact data 30 days after they ended.
+    dataGrants: (await pruneDataGrants(db, now)).processed,
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
@@ -1027,6 +1030,8 @@ export async function runMaintenance(
     // Expired sign-in records and unused app registrations (global; docs/operations.md).
     authRecords: await pruneAuthRecords(db.global, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
+    // Grant codes past their minute and grants of artifact data 30 days after they ended.
+    dataGrants: (await pruneDataGrants(db, now)).processed,
     // Artifact group rows whose group is gone grant nothing; the scan removes them (decision 0014):
     // one read of at most 500 rows, at most 6 global reads of 90 group IDs and at most 14 writes
     // of 40 rows.

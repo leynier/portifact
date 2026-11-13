@@ -116,6 +116,11 @@ export interface Env extends DomainEnv {
    * never in a `wrangler.jsonc` before the checks in docs/releasing.md ("Suggestions") pass.
    */
   SUGGESTIONS_ENABLED?: string | undefined;
+  /**
+   * Exactly `"true"` turns artifact data on (decision 0026, "Switches"): without it the grant
+   * routes answer 404 and nothing creates an object. Never in a deployed `wrangler.jsonc`.
+   */
+  ARTIFACT_DATA_ENABLED?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

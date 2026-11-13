@@ -672,6 +672,7 @@ export const WINDOW_TOMBSTONE_KINDS = [
   "session",
   "oauth_token",
   "oauth_grant",
+  "data_grant",
 ] as const;
 
 /** Rows each kind gives a statement at most, and statements per run at most. */

@@ -136,3 +136,4 @@ export * from "./workspace-domains.ts";
 export * from "./workspace-groups.ts";
 export * from "./workspace-policies.ts";
 export * from "./workspaces.ts";
+export * from "./data-grants.ts";

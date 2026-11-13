@@ -876,6 +876,8 @@ function regionalDeletion(
     db.delete(schema.readSessions).where(eq(schema.readSessions.userId, userId)),
     db.delete(schema.reviewHandoffs).where(eq(schema.reviewHandoffs.userId, userId)),
     db.delete(schema.reviewSessions).where(eq(schema.reviewSessions.userId, userId)),
+    // Its grants of artifact data (decision 0026) and, by cascade, their codes.
+    db.delete(schema.dataGrants).where(eq(schema.dataGrants.userId, userId)),
     // The account's openings of other people's artifacts are in the region's access log.
     eraseAccessEventsJob(db, "user", userId, eraseOpenings ? sql`1` : sql`0`, now),
   ];

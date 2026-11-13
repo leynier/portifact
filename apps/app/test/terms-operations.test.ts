@@ -76,6 +76,8 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/account/delete": "no_person_token",
   "POST /api/v1/account/deletion-code": "no_person_token",
   "POST /api/v1/account/delete-with-code": "no_person_token",
+  "POST /api/v1/account/data-grants": "no_person_token",
+  "DELETE /api/v1/account/data-grants/:artifactId": "no_person_token",
   "POST /api/v1/account/sessions/sign-out-others": "no_person_token",
   "DELETE /api/v1/account/apps/:clientId": "no_person_token",
   "PUT /api/v1/account/branding": "no_person_token",
@@ -276,6 +278,10 @@ const ACCOUNT_ROUTES: Record<string, "open" | "refused"> = {
   "POST /api/v1/account/delete": "open",
   "POST /api/v1/account/deletion-code": "open",
   "POST /api/v1/account/delete-with-code": "open",
+  "GET /api/v1/account/data-grants": "open",
+  "GET /api/v1/account/data-grants/:artifactId/control": "open",
+  "POST /api/v1/account/data-grants": "refused",
+  "DELETE /api/v1/account/data-grants/:artifactId": "open",
 };
 
 describe("account routes for sessions without the current terms", () => {

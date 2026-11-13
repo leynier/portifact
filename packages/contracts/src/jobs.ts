@@ -217,6 +217,7 @@ export const TombstoneMarker = z.strictObject({
     "session",
     "oauth_token",
     "oauth_grant",
+    "data_grant",
   ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
