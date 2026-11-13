@@ -388,6 +388,40 @@ export async function draftPlanOf(
   });
 }
 
+/** The subject an unsaved edit's plan binds: nothing stored, so nothing to name but the person. */
+export const unsavedSubject = (userId: string) => `unsaved:${userId}`;
+
+/**
+ * The plan of an edit nobody saved (decision 0027, "Previews"), on `versionId`, for a preview
+ * only: it is never cached, never confirmed and never written anywhere. A suggestion's edit is
+ * planned as its reviewer would see it, a draft's as the owner side would (`acceptor`).
+ */
+export async function unsavedPlanOf(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  input: {
+    artifact: ArtifactRow;
+    userId: string;
+    versionId: string;
+    edit: Edit;
+    acceptor: boolean;
+    contentDomain: string;
+  },
+): Promise<Result<SubjectPlan>> {
+  const path = (input.edit.operations[0] as EditOperation).target.path;
+  return plan(db, bucket, {
+    artifact: input.artifact,
+    versionId: input.versionId,
+    path,
+    subject: unsavedSubject(input.userId),
+    revision: 0,
+    operations: input.edit.operations,
+    submitter: input.userId,
+    acceptor: input.acceptor,
+    contentDomain: input.contentDomain,
+  });
+}
+
 /**
  * Counts one plan for the person and the artifact; `rate_limited` past either limit. Dry runs,
  * acceptances and draft publishes all count here, after authorization and before any file is
