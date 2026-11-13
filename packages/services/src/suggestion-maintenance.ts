@@ -178,7 +178,10 @@ export async function pruneSuggestionRecords(
       await db.all<SweepRow>(sweepPage(sweep, parseCursor(sweep, saved.get(sweep.name)), limit)),
     );
   }
-  const deletes = list.map((sweep, index) => {
+  // With one database the batch runs on the handle that also writes the drafts' restore markers.
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const conditions = list.map((sweep, index) => {
     const free = (pages[index] ?? []).filter((row) => Number(row.free) === 1);
     const rowids =
       free.length === 0
@@ -188,13 +191,20 @@ export async function pruneSuggestionRecords(
             sql`, `,
           )})`;
     // Deleted only while still due and not held, by the rows the page read.
-    return db
-      .delete(sweep.table)
-      .where(sql`rowid in ${rowids} and ${sweep.due} and ${notHeldSql(sweep.artifactId)}`)
-      .returning({ one: sql<number>`1` });
+    return sql`rowid in ${rowids} and ${sweep.due} and ${notHeldSql(sweep.artifactId)}`;
   });
-  const [plans, attempts, items, drafts] = await db.batch([
-    db
+  const deletes = list.map((sweep, index) =>
+    x
+      .delete(sweep.table)
+      .where(conditions[index] as SQL)
+      .returning({ one: sql<number>`1` }),
+  );
+  const draftSweep = list.findIndex((sweep) => sweep.table === dr);
+  const [, plans, attempts, items, drafts] = await x.batch([
+    // An unused draft the prune removes stays gone through a restore (decision 0027): a restored
+    // one could be published before the next prune. Its marker, on the deletion's own condition.
+    draftMarker(x, shared !== null, conditions[draftSweep] as SQL, now),
+    x
       .delete(sp)
       .where(
         sql`(${sp.userId}, ${sp.digest}) in (select ${sp.userId}, ${sp.digest} from ${sp} where ${sp.expiresAt} <= ${now} order by ${sp.expiresAt} limit ${limit})`,

@@ -576,4 +576,32 @@ describe("restore markers, review of #275", () => {
     expect((await planSuggestion(eu, env.ARTIFACTS_EU, input)).ok).toBe(false);
     expect(await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId))).toEqual([]);
   });
+  it("PF275 a 30-day-pruned draft cannot publish after restore plus apply", async () => {
+    const owner = await user();
+    const doc = await publishDoc(owner.id);
+    await save(doc, owner.id, NOW);
+    const saved = await draftRow(doc, owner.id);
+    if (!saved) throw new Error("no draft");
+    // The artifact was renewed; its draft was never touched.
+    await db()
+      .update(schema.artifacts)
+      .set({ expiresAt: NOW + 60 * DAY })
+      .where(eq(schema.artifacts.id, doc.artifactId));
+    const now = NOW + 31 * DAY;
+    await pruneSuggestionRecords(db(), now);
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    const exported = await exportTombstones(regions());
+    await db().insert(dr).values(saved);
+    await applyTombstones(regions(), exported, now + 1);
+    const input = {
+      userId: owner.id,
+      artifactId: doc.artifactId,
+      now: now + 2,
+      contentDomain: DOMAIN,
+    };
+    // The pruned draft is gone again: nothing is left to plan or publish.
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    expect(await planDraft(db(), env.ARTIFACTS, input)).toMatchObject({ ok: false });
+    expect(await currentText(doc.artifactId, doc.path)).toBe(DOC);
+  });
 });
