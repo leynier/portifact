@@ -21,8 +21,7 @@ import {
   type Result,
 } from "@portifact/domain";
 import { claimOutcome, journalKey } from "@portifact/domain/artifact-data";
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
-import { activeCustomHost } from "./custom-domains.ts";
+import { and, eq, gt, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import {
   appSessionSignIn,
   checkReadAccess,
@@ -512,8 +511,10 @@ export async function listDataGrants(
 }
 
 /**
- * Deletes expired codes and grants that ended `DATA_GRANT.endedKeepMs` ago (revoked or expired),
- * at most `limit` of each per run. Called by the maintenance job.
+ * Deletes, at most `limit` of each per run, expired codes and grants 30 days after they expired,
+ * were revoked, or (never redeemed) after their code could no longer redeem. Each selection runs
+ * through its own index leading with that time, so a run reads what it deletes and not the
+ * table. Called by the maintenance job.
  */
 export async function pruneDataGrants(
   db: RegionalDb,
@@ -521,36 +522,25 @@ export async function pruneDataGrants(
   limit = PRUNE_BATCH,
 ): Promise<{ processed: number }> {
   const before = now - DATA_GRANT.endedKeepMs;
-  const [codes, grants] = await db.batch([
+  const unredeemedBefore = now - DATA_GRANT.codeTtlSeconds * 2 * SECOND_MS;
+  const grants = (select: SQL) =>
+    db.delete(g).where(sql`${g.id} in (${select})`).returning({ id: g.id });
+  const results = await db.batch([
     db
       .delete(c)
       .where(
-        inArray(
-          c.codeHash,
-          db.select({ id: c.codeHash }).from(c).where(lte(c.expiresAt, now)).limit(limit),
-        ),
+        sql`${c.codeHash} in (select ${c.codeHash} from ${c} indexed by data_grant_codes_expires_idx where ${c.expiresAt} <= ${now} order by ${c.expiresAt} limit ${limit})`,
       )
       .returning({ id: c.codeHash }),
-    db
-      .delete(g)
-      .where(
-        inArray(
-          g.id,
-          db
-            .select({ id: g.id })
-            .from(g)
-            .where(
-              or(
-                lte(g.expiresAt, before),
-                and(isNotNull(g.revokedAt), lte(g.revokedAt, before)),
-                // A grant whose code never redeemed gives nothing once its code expired.
-                and(isNull(g.redeemedAt), lte(g.createdAt, now - DATA_GRANT.codeTtlSeconds * 2000)),
-              ),
-            )
-            .limit(limit),
-        ),
-      )
-      .returning({ id: g.id }),
+    grants(
+      sql`select ${g.id} from ${g} indexed by data_grants_expires_idx where ${g.expiresAt} <= ${before} order by ${g.expiresAt} limit ${limit}`,
+    ),
+    grants(
+      sql`select ${g.id} from ${g} indexed by data_grants_revoked_idx where ${g.revokedAt} is not null and ${g.revokedAt} <= ${before} order by ${g.revokedAt} limit ${limit}`,
+    ),
+    grants(
+      sql`select ${g.id} from ${g} indexed by data_grants_unredeemed_idx where ${g.redeemedAt} is null and ${g.createdAt} <= ${unredeemedBefore} order by ${g.createdAt} limit ${limit}`,
+    ),
   ]);
-  return { processed: codes.length + grants.length };
+  return { processed: results.reduce((n, rows) => n + rows.length, 0) };
 }
