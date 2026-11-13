@@ -245,7 +245,7 @@ describe("issuing a preview code", () => {
       .update(schema.annotationThreads)
       .set({ suggestionState: "withdrawn", edit: null, editBytes: 0, suggestionRevision: 2 })
       .where(eq(schema.annotationThreads.id, withdrawn.threadId));
-    expect(await issue(withdrawn)).toMatchObject({ ok: false, code: "not_found" });
+    expect(await issue(withdrawn)).toMatchObject({ ok: false, code: "version_conflict" });
 
     const revised = await ownerSuggestion();
     await db()
@@ -349,7 +349,121 @@ describe("issuing a preview code", () => {
     }
     const result = await issue(s);
     expect(result).toMatchObject({ ok: false, code: "rate_limited" });
-    expect(!result.ok && result.message).toContain("open");
+    expect(!result.ok && result.message).toBe(
+      "Too many previews open. Wait a minute and try again.",
+    );
+  });
+});
+
+describe("what decides a stored plan", () => {
+  const MISSING = { ok: false, code: "not_found", message: "Preview not found." };
+  const CHANGED = {
+    ok: false,
+    code: "version_conflict",
+    message: "The suggestion or the artifact changed. Review it again.",
+  };
+
+  async function rewritePlan(digest: string, change: (plan: Record<string, unknown>) => string) {
+    const [row] = await db()
+      .select({ plan: schema.suggestionPlans.plan })
+      .from(schema.suggestionPlans)
+      .where(eq(schema.suggestionPlans.digest, digest));
+    await db()
+      .update(schema.suggestionPlans)
+      .set({ plan: change(JSON.parse(row?.plan ?? "{}") as Record<string, unknown>) })
+      .where(eq(schema.suggestionPlans.digest, digest));
+  }
+
+  it("answers a missing plan with one message, also for a draft's plan or an unreadable row", async () => {
+    const s = await ownerSuggestion();
+    expect(await issue(s, { digest: "0".repeat(64) })).toEqual(MISSING);
+    await db()
+      .update(schema.suggestionPlans)
+      .set({ threadId: null })
+      .where(eq(schema.suggestionPlans.digest, s.plan.digest));
+    expect(await issue(s)).toEqual(MISSING);
+
+    const unreadable = await ownerSuggestion();
+    await rewritePlan(unreadable.plan.digest, () => "not json");
+    expect(await issue(unreadable)).toEqual(MISSING);
+  });
+
+  it("answers a plan whose thread is a comment like a missing one", async () => {
+    const s = await ownerSuggestion();
+    const commentId = `th_${crypto.randomUUID()}`;
+    await db().insert(schema.annotationThreads).values({
+      id: commentId,
+      artifactId: s.artifactId,
+      versionId: s.versionId,
+      ownerId: s.owner.id,
+      authorId: s.owner.id,
+      target: "{}",
+      targetBytes: 2,
+      path: "index.md",
+      updatedAt: NOW,
+    });
+    await db()
+      .update(schema.suggestionPlans)
+      .set({ threadId: commentId })
+      .where(eq(schema.suggestionPlans.digest, s.plan.digest));
+    expect(await issue(s)).toEqual(MISSING);
+  });
+
+  // The row's own `digest` and `kind` are never read (the digest asked for and the artifact's
+  // type are); everything the rebuild takes from the row is confirmed by the digest.
+  it("trusts nothing a cached row says that the rebuilt plan does not confirm", async () => {
+    for (const change of [
+      (plan: Record<string, unknown>) => ({
+        ...plan,
+        binding: { ...(plan.binding as object), fileSha256: "e".repeat(64) },
+      }),
+      (plan: Record<string, unknown>) => ({
+        ...plan,
+        binding: { ...(plan.binding as object), subject: "th_other" },
+      }),
+    ]) {
+      const s = await ownerSuggestion();
+      await rewritePlan(s.plan.digest, (plan) => JSON.stringify(change(plan)));
+      expect(await issue(s)).toEqual(CHANGED);
+    }
+  });
+
+  it("refuses when a stored file of the version is gone", async () => {
+    const noFile = await ownerSuggestion();
+    await db()
+      .delete(schema.versionFiles)
+      .where(
+        and(
+          eq(schema.versionFiles.versionId, noFile.versionId),
+          eq(schema.versionFiles.kind, "published"),
+        ),
+      );
+    expect(await issue(noFile)).toEqual(CHANGED);
+
+    for (const kind of ["rendered", "block_map"] as const) {
+      const s = await ownerSuggestion();
+      const [entry] = await db()
+        .select()
+        .from(schema.versionFiles)
+        .where(
+          and(eq(schema.versionFiles.versionId, s.versionId), eq(schema.versionFiles.kind, kind)),
+        );
+      await env.ARTIFACTS.delete(`objects/${entry?.ownerId}/${entry?.sha256}`);
+      expect(await issue(s), kind).toEqual(CHANGED);
+    }
+  });
+
+  it("counts the person's planning across artifacts", async () => {
+    const s = await ownerSuggestion();
+    await db()
+      .$client.prepare("insert into rate_limits (key, window_start, count) values (?, ?, ?)")
+      .bind(`suggestion-plan:user:${s.owner.id}`, NOW, PLANNING_RATE_LIMITS.perUser.requests)
+      .run();
+    expect(await issue(s)).toEqual({
+      ok: false,
+      code: "rate_limited",
+      message: "Too many previews. Wait a moment.",
+    });
   });
 });
 

@@ -15,14 +15,10 @@
 // Only the code's SHA-256 is stored. A code is never logged, audited or written anywhere else.
 import {
   Edit,
-  type EnvelopePeople,
   type FileKind,
-  isServiceTokenId,
-  PLAN_LIMITS,
   PLANNING_RATE_LIMITS,
   Plan,
   PREVIEW_CODES,
-  PreviewCode,
   planningRateKeys,
   previewHost,
 } from "@portifact/contracts";
@@ -30,7 +26,6 @@ import { hitRateLimit, type RegionalDb, type Regions, schema } from "@portifact/
 import { fail, ok, type Result } from "@portifact/domain";
 import {
   buildPlan,
-  PlanTooLargeError,
   planPageUrl,
   previewOfPlan,
   type StoredRendering,
@@ -72,13 +67,13 @@ export async function previewSubject(
   input: { userId: string; artifactId: string; now: number },
   subject: { threadId: string; revision: number | null },
 ): Promise<Result<{ standing: CommentStanding; thread: ThreadRow }>> {
-  if (isServiceTokenId(input.userId)) return missingPlan();
+  // A service token takes no part in comments: `readableThread` gives it a missing thread.
   const readable = await readableThread(db, { ...input, threadId: subject.threadId });
   if (!readable.ok) return readable.code === "not_found" ? missingPlan() : readable;
   const { standing, thread } = readable.value;
   // Content is shown only while the artifact is: never archived or suspended (held or not).
   if (standing.state !== "active") return missingPlan();
-  if (thread.kind !== "suggestion" || thread.edit === null) return missingPlan();
+  if (thread.kind !== "suggestion") return missingPlan();
   if (thread.suggestionState !== "pending") return planChanged();
   if (subject.revision !== null && thread.suggestionRevision !== subject.revision) {
     return planChanged();
@@ -93,51 +88,35 @@ const KIND_OF_TYPE: Readonly<Record<string, FileKind>> = {
   text: "text",
 };
 
-/** One stored entry of a version as text, or undefined when it is missing or over `maxBytes`. */
+/**
+ * One stored entry of a version as text, or undefined when it is missing. Its size is bounded by
+ * the plan: the published file has the hash the plan was built from under `PLAN_LIMITS`, and the
+ * stored rendering and block map are the renderer's output for it.
+ */
 async function storedText(
   db: RegionalDb,
   bucket: R2Bucket,
   where: { versionId: string; kind: "published" | "rendered" | "block_map"; path: string },
-  maxBytes: number,
 ): Promise<string | undefined> {
   const vf = schema.versionFiles;
   const o = schema.objects;
   const [row] = await db
-    .select({ r2Key: o.r2Key, size: vf.size })
+    .select({ r2Key: o.r2Key })
     .from(vf)
     .innerJoin(o, and(eq(o.ownerId, vf.ownerId), eq(o.sha256, vf.sha256)))
     .where(and(eq(vf.versionId, where.versionId), eq(vf.kind, where.kind), eq(vf.path, where.path)))
     .limit(1);
-  if (!row || row.size > maxBytes) return undefined;
-  const object = await bucket.get(row.r2Key);
-  if (!object) return undefined;
-  try {
-    // The subset decodes strictly; a file that is not UTF-8 never had an applicable plan.
-    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
-      await object.arrayBuffer(),
-    );
-  } catch {
-    return undefined;
-  }
-}
-
-/** The SHA-256 of a version entry, to check the plan's binding without reading the bytes. */
-async function storedSha256(db: RegionalDb, versionId: string, path: string) {
-  const vf = schema.versionFiles;
-  const [row] = await db
-    .select({ sha256: vf.sha256 })
-    .from(vf)
-    .where(and(eq(vf.versionId, versionId), eq(vf.kind, "published"), eq(vf.path, path)))
-    .limit(1);
-  return row?.sha256;
+  const object = row && (await bucket.get(row.r2Key));
+  return object ? object.text() : undefined;
 }
 
 function newCode(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
+  // 32 bytes are 43 base64 characters and one `=` of padding, dropped.
   return btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
-    .replace(/=+$/, "");
+    .slice(0, 43);
 }
 
 async function sha256Hex(text: string): Promise<string> {
@@ -171,18 +150,14 @@ export async function issuePreviewCode(
       ),
     )
     .limit(1);
-  if (!row || row.threadId === null) return missingPlan();
+  // A draft's plan has no thread; drafts are previewed by the suggestion services.
+  if (!row?.threadId) return missingPlan();
   const parsed = Plan.safeParse(safeJson(row.plan));
   if (!parsed.success) return missingPlan();
+  // The cached contents decide nothing by themselves: the plan rebuilt below from the stored
+  // files must hash to the digest the person holds, so a tampered row only fails that check.
   const plan = parsed.data;
   const { binding } = plan;
-  if (
-    plan.digest !== input.digest ||
-    binding.artifactId !== artifactId ||
-    binding.subject !== row.threadId
-  ) {
-    return missingPlan();
-  }
   const subject = await previewSubject(
     db,
     { userId, artifactId, now },
@@ -211,49 +186,45 @@ export async function issuePreviewCode(
     return fail("rate_limited", "Too many previews. Wait a moment.");
   }
 
-  const kind = KIND_OF_TYPE[standing.artifact.type];
-  if (kind !== plan.kind || standing.artifact.currentVersionId !== binding.versionId) {
-    return planChanged();
-  }
+  if (standing.artifact.currentVersionId !== binding.versionId) return planChanged();
   // Nothing applies: the plan says why, and nothing is read or built.
   if (plan.output === null) {
     return ok({ state: "unavailable", reasons: plan.listed.map((e) => e.reason ?? "unknown") });
   }
-  if ((await storedSha256(db, binding.versionId, binding.path)) !== binding.fileSha256) {
-    return planChanged();
-  }
-  const limit = kind === "html" ? PLAN_LIMITS.htmlBytes : PLAN_LIMITS.documentBytes;
+  const kind = KIND_OF_TYPE[standing.artifact.type] as FileKind;
   const where = { versionId: binding.versionId, path: binding.path };
-  const source = await storedText(db, bucket, { ...where, kind: "published" }, limit);
-  if (source === undefined) return planChanged();
+  const source = await storedText(db, bucket, { ...where, kind: "published" });
   let stored: StoredRendering | undefined;
   if (kind !== "html") {
-    // The stored page is at most the renderer's output of a bounded file; a generous bound.
-    const pageLimit = 8 * PLAN_LIMITS.documentBytes;
-    const html = await storedText(db, bucket, { ...where, kind: "rendered" }, pageLimit);
+    const html = await storedText(db, bucket, { ...where, kind: "rendered" });
     const blockMap =
-      kind === "markdown"
-        ? await storedText(db, bucket, { ...where, kind: "block_map" }, pageLimit)
-        : null;
-    if (html === undefined || blockMap === undefined || plan.output.options === null) {
-      return planChanged();
-    }
-    stored = { html, blockMap, options: plan.output.options };
+      kind === "markdown" ? await storedText(db, bucket, { ...where, kind: "block_map" }) : null;
+    if (html === undefined || blockMap === undefined) return planChanged();
+    stored = { html, blockMap, options: plan.output.options ?? { title: "" } };
   }
   const edit = Edit.safeParse(safeJson(thread.edit ?? ""));
-  const people = plan.applied[0]?.people ?? plan.listed[0]?.people;
-  if (!edit.success || !people) return planChanged();
+  if (source === undefined || !edit.success) return planChanged();
 
-  const rebuilt = await rebuild({
-    binding,
-    people,
+  const rebuilt = await buildPlan({
+    binding: {
+      artifactId: binding.artifactId,
+      versionId: binding.versionId,
+      path: binding.path,
+      fileSha256: binding.fileSha256,
+      renderer: binding.renderer,
+      subject: binding.subject,
+      revision: binding.revision,
+    },
+    // A plan that applies something has at least one applied envelope.
+    people: (plan.applied[0] as (typeof plan.applied)[number]).people,
     kind,
     source,
     operations: edit.data.operations,
-    stored,
+    ...(stored ? { stored } : {}),
     pageUrl: planPageUrl(kind, artifactId, input.contentDomain, binding.path),
+    renderer: DOCUMENT_RENDERER,
   });
-  if (!rebuilt || rebuilt.digest !== plan.digest) return planChanged();
+  if (rebuilt.digest !== input.digest) return planChanged();
   const preview = previewOfPlan(rebuilt, DOCUMENT_RENDERER);
   if (preview.state === "unavailable") return ok(preview);
 
@@ -279,41 +250,12 @@ export async function issuePreviewCode(
     throw error;
   }
   // The row first: a document is never stored without a row the scan can find.
-  await bucket.put(r2Key, preview.document, {
-    httpMetadata: { contentType: "text/html; charset=utf-8" },
-  });
+  await bucket.put(r2Key, preview.document);
   return ok({
     state: "ready",
     url: `https://${previewHost(input.contentDomain)}${PREVIEW_CODES.pathPrefix}${code}`,
     expiresAt,
   });
-}
-
-async function rebuild(input: {
-  binding: Plan["binding"];
-  people: EnvelopePeople;
-  kind: FileKind;
-  source: string;
-  operations: Edit["operations"];
-  stored: StoredRendering | undefined;
-  pageUrl: string;
-}) {
-  const { route: _route, ...binding } = input.binding;
-  try {
-    return await buildPlan({
-      binding,
-      people: input.people,
-      kind: input.kind,
-      source: input.source,
-      operations: input.operations,
-      ...(input.stored ? { stored: input.stored } : {}),
-      pageUrl: input.pageUrl,
-      renderer: DOCUMENT_RENDERER,
-    });
-  } catch (error) {
-    if (error instanceof PlanTooLargeError) return undefined;
-    throw error;
-  }
 }
 
 function causeIncludes(error: unknown, text: string): boolean {
@@ -343,7 +285,6 @@ export async function redeemPreviewCode(
   code: string,
   now: number,
 ): Promise<string | undefined> {
-  if (!PreviewCode.safeParse(code).success) return undefined;
   const codeSha256 = await sha256Hex(code);
   const c = schema.previewCodes;
   const all = regions.all();
@@ -365,8 +306,9 @@ export async function redeemPreviewCode(
     }),
   );
   const found = spent.find((each) => each !== undefined);
-  if (!found?.handles.bucket) return undefined;
+  if (!found) return undefined;
   const { handles, row } = found;
+  // The content Worker binds every region's bucket with its database.
   const bucket = handles.bucket as R2Bucket;
   try {
     const s = schema.sessions;
@@ -375,11 +317,12 @@ export async function redeemPreviewCode(
       .from(s)
       .where(and(eq(s.id, row.sessionId), eq(s.userId, row.userId), gt(s.expiresAt, new Date(now))))
       .limit(1);
-    if (!session || row.threadId === null) return undefined;
+    if (!session) return undefined;
     const subject = await previewSubject(
       handles.db,
       { userId: row.userId, artifactId: row.artifactId, now },
-      { threadId: row.threadId, revision: null },
+      // Every code is issued for a thread; the column clears only with the thread's cascade.
+      { threadId: row.threadId ?? "", revision: null },
     );
     if (!subject.ok) return undefined;
     const object = await bucket.get(row.r2Key);
@@ -393,12 +336,9 @@ export async function redeemPreviewCode(
 /** Codes and documents pruned per region per run. */
 const PRUNE_BATCH = 90;
 
-/** Every cached document's key starts with its creation time, so the scan needs no row. */
-const KEY_TIME_DIGITS = 15;
-
 /** The internal cache key of a document built at `now`: `previews/<time>/<random>`. */
 export function previewKey(now: number): string {
-  return `previews/${String(now).padStart(KEY_TIME_DIGITS, "0")}/${crypto.randomUUID()}`;
+  return `previews/${now}/${crypto.randomUUID()}`;
 }
 
 /**
@@ -413,11 +353,11 @@ export async function prunePreviewCodes(
 ): Promise<number> {
   const cutoff = now - PREVIEW_CODES.documentTtlMs;
   const listed = await bucket.list({ prefix: "previews/", limit: PRUNE_BATCH });
-  // Keys sort by their time: the old ones come first, and the listing stops being due at once.
+  // Keys sort by their time (13 digits of milliseconds until the year 2286): the old come first.
   const old = listed.objects
     .map((object) => object.key)
     .filter((key) => Number(key.slice("previews/".length).split("/")[0]) <= cutoff);
-  if (old.length > 0) await bucket.delete(old);
+  await bucket.delete(old);
   const c = schema.previewCodes;
   const due = await db
     .select({ codeSha256: c.codeSha256 })
