@@ -160,6 +160,8 @@ export interface AnnotationListInput extends AnnotationActor {
   limit: number;
   version: AnnotationVersionFilter;
   state?: AnnotationThreadState | undefined;
+  /** `?fields=suggestion`: each thread's kind and suggestion block. */
+  suggestionFields?: boolean | undefined;
 }
 
 const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
@@ -1489,11 +1491,11 @@ export async function deleteAnnotationThread(
 /** One thread with its messages, if the caller can see it. */
 export async function getAnnotationThread(
   db: RegionalDb,
-  input: AnnotationActor & { threadId: string },
+  input: AnnotationActor & { threadId: string; suggestionFields?: boolean | undefined },
 ): Promise<Result<AnnotationThreadView>> {
   const loaded = await authorize(db, input, "read");
   if (!loaded.ok) return loaded;
-  return threadResult(db, loaded.value, input.userId, input.threadId);
+  return threadResult(db, loaded.value, input.userId, input.threadId, input.suggestionFields);
 }
 
 async function threadResult(
@@ -1501,10 +1503,11 @@ async function threadResult(
   loaded: Authorized,
   viewerId: string,
   threadId: string,
+  suggestionFields = false,
 ): Promise<Result<AnnotationThreadView>> {
   const thread = await findThread(db, loaded, threadId);
   if (!thread) return missingThread();
-  const [view] = await threadViews(db, viewContext(loaded), viewerId, [thread]);
+  const [view] = await threadViews(db, viewContext(loaded, suggestionFields), viewerId, [thread]);
   return ok(view as AnnotationThreadView);
 }
 
@@ -1643,7 +1646,12 @@ export async function listAnnotations(
     humanCheck:
       loaded.role === "participant" &&
       needsHumanCheck(loaded.role, await commentsOnOthersArtifacts(db, input.userId)),
-    threads: await threadViews(db, viewContext(loaded), input.userId, page.filter(matches)),
+    threads: await threadViews(
+      db,
+      viewContext(loaded, input.suggestionFields),
+      input.userId,
+      page.filter(matches),
+    ),
     removed: [...removed],
     cursor: encodeAnnotationCursor(upper),
     hasMore,
@@ -1750,11 +1758,12 @@ export async function listAnnotationHistory(
 // Views
 
 /** How the caller sees the threads of one loaded artifact. */
-function viewContext(loaded: Authorized): ThreadViewContext {
+function viewContext(loaded: Authorized, suggestionFields = false): ThreadViewContext {
   return {
     role: loaded.role,
     ownerSide: loaded.ownerSide,
     currentVersionOf: () => loaded.artifact.currentVersionId,
+    suggestionFields,
   };
 }
 

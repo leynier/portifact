@@ -483,7 +483,7 @@ async function plannableSuggestion(
  * that read refuses, so the batch does not run (fail closed). With a separate database a removal
  * between that read and the batch is not seen, the one window (decision 0027).
  */
-async function planBatchOn(
+export async function planBatchOn(
   db: RegionalDb,
   loaded: AuthorizedAnnotations,
 ): Promise<{ w: Db; standing: SQL } | null> {

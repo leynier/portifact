@@ -31,6 +31,7 @@ import {
 import type { RegionalDb, RegionHandles } from "@portifact/db";
 import {
   type MultipartConfig,
+  suggestionsEnabled,
   TERMS_AGENT_SENTENCE,
   termsRefusalMessage,
   usableWithoutCurrentTerms,
@@ -66,6 +67,7 @@ import { ACCESS_LOG_TOOL_SCOPES, registerAccessLogTools } from "./access-log-too
 import { ACCESS_TOOL_SCOPES, registerAccessTools } from "./access-tools.ts";
 import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-tools.ts";
 import { AUDIT_TOOL_SCOPES, registerAuditTools } from "./audit-tools.ts";
+import { CHANGE_TOOL_SCOPES, registerChangeTools } from "./change-tools.ts";
 import { DOMAIN_TOOL_SCOPES, registerDomainTools } from "./domain-tools.ts";
 import { type Outcome, publishInline } from "./inline.ts";
 import { INTEGRATION_TOOL_SCOPES, registerIntegrationTools } from "./integration-tools.ts";
@@ -97,6 +99,7 @@ export const TOOL_SCOPES = new Map<string, OAuthScope>([
   ...WEBHOOK_TOOL_SCOPES,
   ...INTEGRATION_TOOL_SCOPES,
   ...DOMAIN_TOOL_SCOPES,
+  ...CHANGE_TOOL_SCOPES,
   ["list_artifacts", "artifacts:read"],
   ["get_artifact", "artifacts:read"],
   ["publish_document", "artifacts:write"],
@@ -506,6 +509,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
   registerAnnotationTools(register, context, db);
   registerWebhookTools(register, context);
   registerIntegrationTools(register, context);
+  // Edit suggestions are switched off unless the app Worker turns them on (decision 0027).
+  if (suggestionsEnabled(context.env)) registerChangeTools(register, context);
 
   return server;
 }

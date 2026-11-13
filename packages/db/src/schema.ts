@@ -1894,6 +1894,12 @@ export const editDrafts = sqliteTable(
     attemptReason: text("attempt_reason", { enum: ACCEPTANCE_END_REASONS }),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at").notNull(),
+    /**
+     * A random token of this draft's incarnation, set when the row is created and never reused:
+     * a save names it with the revision, so a tab holding a discarded draft never overwrites the
+     * one that replaced it, whose revision starts at 1 again (migration 0083).
+     */
+    incarnation: text("incarnation").notNull().default(""),
   },
   (t) => [
     primaryKey({ columns: [t.artifactId, t.userId] }),
