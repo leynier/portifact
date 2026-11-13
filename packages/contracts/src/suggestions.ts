@@ -670,15 +670,16 @@ export const planningRateKeys = (userId: string, artifactId: string) => ({
 
 /**
  * Built previews on the preview origin (decision 0027, "Previews"): the reserved host's label on
- * the content domain, the one path a code is redeemed at, how long a code lives, how long the
- * built document may stay in the internal cache, and how many codes one person holds open (the
+ * the content domain, the one path a code is redeemed at, how long a code lives, the age at which
+ * the every-minute scan deletes a built document nobody redeemed (nothing can use it after the
+ * code's minute), and how many codes one person holds open in each region (the regional
  * `preview_codes_limit` trigger).
  */
 export const PREVIEW_CODES = {
   hostLabel: "preview",
   pathPrefix: "/p/",
   ttlMs: 60_000,
-  documentTtlMs: 5 * 60_000,
+  documentTtlMs: 2 * 60_000,
   openPerUser: 10,
 } as const;
 

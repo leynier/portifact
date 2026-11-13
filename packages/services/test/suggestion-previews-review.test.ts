@@ -428,7 +428,7 @@ describe("finding 6: cached documents go within minutes, and a backlog is worked
     );
     expect(done).toMatchObject({ documents: 20, behind: true });
     expect(warnings.map((line) => JSON.parse(line))).toEqual([
-      { event: "preview_prune_behind", region: "default", documents: 20 },
+      { event: "preview_prune_behind", region: "default", documents: 20, rows: 0 },
     ]);
     // The next run finishes what was left.
     const next = await prunePreviewCodes(db(), env.ARTIFACTS, NOW + PREVIEW_CODES.documentTtlMs);

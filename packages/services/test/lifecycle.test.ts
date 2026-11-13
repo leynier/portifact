@@ -482,7 +482,7 @@ describe("purging archives", () => {
       webhooks: { prunedDeliveries: 0, requeued: 0 },
       threadIssues: 0,
       pendingConnections: 0,
-      previewCodes: { documents: 0, rows: 0 },
+      previewCodes: { documents: 0, rows: 0, behind: false },
       workspacePolicies: { checked: 0, corrected: 0, failed: 0 },
       commentRetention: {
         checked: 0,

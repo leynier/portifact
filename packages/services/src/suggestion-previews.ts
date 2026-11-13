@@ -22,8 +22,8 @@ import {
   planningRateKeys,
   previewHost,
 } from "@portifact/contracts";
-import { hitRateLimit, type RegionalDb, type Regions, schema } from "@portifact/db";
-import { fail, needsTermsAcceptance, ok, type Result } from "@portifact/domain";
+import { hitRateLimit, type Region, type RegionalDb, type Regions, schema } from "@portifact/db";
+import { fail, logEvent, needsTermsAcceptance, ok, type Result } from "@portifact/domain";
 import {
   buildPlan,
   planPageUrl,
@@ -362,53 +362,82 @@ export async function redeemPreviewCode(
   }
 }
 
-/** Codes and documents pruned per region per run. */
-const PRUNE_BATCH = 90;
+/**
+ * What one prune run may do per region (`pageSize` objects or rows per call, `pages` calls of
+ * each): R2 lists and deletes at most 1,000 keys a call, and a D1 delete of 1,000 rows by key is
+ * one short statement with two bound values. Five pages are 5,000 documents and 5,000 rows a
+ * minute per region, far above what the planning rate limits let people issue.
+ */
+export const PREVIEW_PRUNE = { pageSize: 1_000, pages: 5 } as const;
 
 /** The internal cache key of a document built at `now`: `previews/<time>/<random>`. */
 export function previewKey(now: number): string {
   return `previews/${now}/${crypto.randomUUID()}`;
 }
 
-/** What one prune run did in one region. */
+/** What one prune run did in one region; `behind` when it stopped at its cap with more due. */
 export interface PreviewPrune {
   documents: number;
   rows: number;
+  behind: boolean;
 }
 
+/** The creation time a cached document's key starts with. */
+const keyTime = (key: string) => Number(key.slice("previews/".length).split("/")[0]);
+
 /**
- * Deletes cached preview documents and preview codes once the cache's lifetime has passed,
- * redeemed or not. Documents are found by their key, which starts with their creation time, so a
- * document whose row went another way (an account deletion deletes the rows) is still deleted.
- * Rows are reached through the `expires_at` index: a code's expiry is always its creation plus
- * `PREVIEW_CODES.ttlMs`, so a row created at or before the cutoff expires at or before
- * `cutoff + ttlMs`, and the statement reads only the rows it deletes.
+ * Deletes cached preview documents and preview codes once they are `PREVIEW_CODES.documentTtlMs`
+ * old, redeemed or not; it runs every minute on the jobs Worker (while suggestions are on) and in
+ * every maintenance run. Documents are found by their key, which starts with their creation time
+ * and so sorts oldest first, so a document whose row went another way (an account deletion
+ * deletes the rows) is still deleted. Rows are reached through the `expires_at` index: a code's
+ * expiry is always its creation plus `PREVIEW_CODES.ttlMs`, so a row created at or before the
+ * cutoff expires at or before `cutoff + ttlMs`, and each statement reads only the rows it
+ * deletes. A run keeps going while its last page was full, up to its cap, and says so once when
+ * it stops there with more due.
  */
 export async function prunePreviewCodes(
   db: RegionalDb,
   bucket: R2Bucket,
   now: number,
+  limits: { pageSize: number; pages: number } = PREVIEW_PRUNE,
+  region: Region = "default",
 ): Promise<PreviewPrune> {
   const cutoff = now - PREVIEW_CODES.documentTtlMs;
-  const listed = await bucket.list({ prefix: "previews/", limit: PRUNE_BATCH });
-  // Keys sort by their time (13 digits of milliseconds until the year 2286): the old come first.
-  const old = listed.objects
-    .map((object) => object.key)
-    .filter((key) => Number(key.slice("previews/".length).split("/")[0]) <= cutoff);
-  await bucket.delete(old);
+  let documents = 0;
+  let documentsBehind = false;
+  for (let page = 0; page < limits.pages; page++) {
+    const listed = await bucket.list({ prefix: "previews/", limit: limits.pageSize });
+    const old = listed.objects.map((object) => object.key).filter((key) => keyTime(key) <= cutoff);
+    if (old.length > 0) await bucket.delete(old);
+    documents += old.length;
+    // A young key ends the old ones; a short listing ends the prefix.
+    const more = old.length === listed.objects.length && listed.truncated;
+    if (!more) break;
+    documentsBehind = page === limits.pages - 1;
+  }
   const c = schema.previewCodes;
-  const deleted = await db
-    .delete(c)
-    .where(
-      inArray(
-        c.codeSha256,
-        db
-          .select({ codeSha256: c.codeSha256 })
-          .from(c)
-          .where(lte(c.expiresAt, cutoff + PREVIEW_CODES.ttlMs))
-          .limit(PRUNE_BATCH),
-      ),
-    )
-    .returning({ codeSha256: c.codeSha256 });
-  return { documents: old.length, rows: deleted.length };
+  let rows = 0;
+  let rowsBehind = false;
+  for (let page = 0; page < limits.pages; page++) {
+    const deleted = await db
+      .delete(c)
+      .where(
+        inArray(
+          c.codeSha256,
+          db
+            .select({ codeSha256: c.codeSha256 })
+            .from(c)
+            .where(lte(c.expiresAt, cutoff + PREVIEW_CODES.ttlMs))
+            .limit(limits.pageSize),
+        ),
+      )
+      .returning({ codeSha256: c.codeSha256 });
+    rows += deleted.length;
+    if (deleted.length < limits.pageSize) break;
+    rowsBehind = page === limits.pages - 1;
+  }
+  const behind = documentsBehind || rowsBehind;
+  if (behind) logEvent("warn", "preview_prune_behind", { region, documents, rows });
+  return { documents, rows, behind };
 }
