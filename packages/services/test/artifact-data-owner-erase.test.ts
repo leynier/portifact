@@ -182,8 +182,8 @@ describe("the owner's erase", () => {
     expect(await jobs("data_reset", artifactId)).toEqual([]);
   });
 
-  it("takes back the claim when the object refuses, and limits erases a day", async () => {
-    const { deps, of } = harness();
+  it("keeps a refused erase's claim and job, which then ends erasing nothing, and limits erases a day", async () => {
+    const { deps, objects, of } = harness();
     const { artifactId, input } = await seeded(deps, 0);
     // The object starts at most `erase.intentsPerDay` optional erase intents a day.
     let refused: unknown = null;
@@ -196,7 +196,13 @@ describe("the owner's erase", () => {
       if (!answer.ok) refused = answer;
     }
     expect(refused).toMatchObject({ ok: false, code: "rate_limited" });
-    expect(await jobs("data_reset", artifactId)).toEqual([]);
+    // The refusal does not prove no other copy of the same key committed: the claim and its job
+    // stay, and the job, refused the same way, ends without erasing anything.
+    const left = await jobs("data_reset", artifactId);
+    expect(left).toHaveLength(1);
+    const [job] = left;
+    if (!job) throw new Error("no job");
+    expect(await runDataReset(db(), objects, job, NOW + DATA_RESET_DELAY_MS)).toBe("stale");
     expect(of(artifactId).durable.control).not.toBeNull();
   });
 
@@ -234,7 +240,31 @@ describe("the owner's erase", () => {
       .update(schema.artifacts)
       .set({ state: "active" })
       .where(eq(schema.artifacts.id, artifactId));
+    // The hold moved D1's epoch: the erase confirmed before it no longer holds and ends, erasing
+    // nothing; confirming again is a new erase.
+    expect(await runDataReset(db(), objects, job, NOW + DATA_RESET_DELAY_MS)).toBe("stale");
+    expect(of(artifactId).durable.documents.size).toBe(2);
+    expect(await events(artifactId, "data.erased")).toHaveLength(0);
+  });
 
+  it("finishes a reset the request left between its steps, once", async () => {
+    let crash = true;
+    const { deps, objects, of } = harness(true, (rpc) => ({
+      ...rpc,
+      ownerCommand: async (envelope, actor, command, limits, now) => {
+        if (crash && command.kind === "erase" && command.step === "commit") {
+          throw new Error("the Worker went away");
+        }
+        return rpc.ownerCommand(envelope, actor, command, limits, now);
+      },
+    }));
+    const { artifactId, input } = await seeded(deps);
+    await expect(
+      eraseArtifactData(db(), deps, { ...input, idempotencyKey: key() }),
+    ).rejects.toThrow("went away");
+    const [job] = await jobs("data_reset", artifactId);
+    if (!job) throw new Error("no job");
+    crash = false;
     expect(await runDataReset(db(), objects, job, NOW + DATA_RESET_DELAY_MS)).toBe("done");
     expect(of(artifactId).durable.documents.size).toBe(0);
     expect((await dataRow(artifactId))?.generation).toBe(1);

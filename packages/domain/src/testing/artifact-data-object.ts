@@ -55,6 +55,7 @@ import {
   type ExportPage,
   editorAfter,
   emptyDay,
+  erasedObligation,
   flushPending,
   growthRefusal,
   type IndexField,
@@ -1972,6 +1973,7 @@ export class MemoryObject implements DataObject {
     envelope: DataEnvelope,
     eraseId: string,
     now: number,
+    audit: string | null = null,
   ) {
     return this.#control(now, `erase_${step}`, () => {
       const ended = this.durable.ended.get(eraseId)?.outcome ?? null;
@@ -1986,6 +1988,17 @@ export class MemoryObject implements DataObject {
       if (!decided.ok) fail(decided);
       const result = decided.value;
       if (result.erasePayload) this.#erasePayload();
+      if (audit !== null && result.erasePayload) {
+        const { key, ...obligation } = erasedObligation(envelope, eraseId, audit);
+        if (!this.durable.audit.has(key)) {
+          this.durable.audit.set(key, {
+            ...obligation,
+            owner: envelope.ownerId,
+            state: "pending",
+            at: now,
+          });
+        }
+      }
       if (result.ended !== null) {
         this.durable.ended.set(result.ended.id, { outcome: result.ended.outcome, at: now });
       }
@@ -2003,8 +2016,8 @@ export class MemoryObject implements DataObject {
     return this.#eraseStep("prepare", envelope, eraseId, now);
   }
 
-  commitErase(envelope: DataEnvelope, eraseId: string, now: number) {
-    return this.#eraseStep("commit", envelope, eraseId, now);
+  commitErase(envelope: DataEnvelope, eraseId: string, now: number, audit?: string) {
+    return this.#eraseStep("commit", envelope, eraseId, now, audit ?? null);
   }
 
   cancelErase(envelope: DataEnvelope, eraseId: string, now: number) {

@@ -28,10 +28,12 @@ import {
   type DataQuery,
   type DataResetPayload,
   DataResetPayload as DataResetPayloadSchema,
+  DataResetTarget,
   ERASURE_ACTOR,
   type ErrorCode,
   type ExportCursor,
   exportCursorText,
+  type LifecycleEnvelope,
   type OwnerDataCommand,
   type StoredDocument,
 } from "@portifact/contracts";
@@ -56,6 +58,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
 import {
   DATA_JOB_WAIT_MS,
+  type DataObjectRpc,
   type DataObjects,
   readDataRow,
   recordStorageReport,
@@ -237,7 +240,7 @@ async function claimOperation(
   found: Target & { row: NonNullable<Target["row"]> },
   requestHash: string,
   kind: "change" | "erase" = "change",
-): Promise<Result<{ opId: string; fresh: boolean }>> {
+): Promise<Result<{ opId: string; fresh: boolean; target: string | null }>> {
   const proposed = newOperationId(input.now);
   const { row } = found;
   const a = schema.artifacts;
@@ -250,6 +253,11 @@ async function claimOperation(
     kind === "erase"
       ? sql`json_object('ownerId', ${row.ownerId}, 'generation', ${row.generation}, 'epoch', ${row.epoch}, 'actor', ${input.userId}, 'eraseId', ${proposed})`
       : sql`json_object('ownerId', ${row.ownerId}, 'generation', ${row.generation}, 'epoch', ${row.epoch}, 'actor', ${input.userId}, 'opId', ${proposed})`;
+  // An erase binds its confirmed target once, here; every retry and its job act on that alone.
+  const bound =
+    kind === "erase"
+      ? JSON.stringify({ ownerId: row.ownerId, generation: row.generation, epoch: row.epoch })
+      : null;
   const topic = kind === "erase" ? "data_reset" : "data_audit";
   const available =
     kind === "erase" ? input.now + DATA_RESET_DELAY_MS : input.now + DATA_AUDIT_DELAY_MS;
@@ -259,14 +267,14 @@ async function claimOperation(
     db
       .insert(ops)
       .select(
-        sql`select ${input.userId}, ${input.idempotencyKey}, ${input.artifactId}, ${proposed}, ${requestHash}, ${input.now} where ${guard}`,
+        sql`select ${input.userId}, ${input.idempotencyKey}, ${input.artifactId}, ${proposed}, ${requestHash}, ${input.now}, ${bound} where ${guard}`,
       )
       .onConflictDoUpdate({
         target: [ops.actorId, ops.idempotencyKey],
         set: { artifactId: sql`${ops.artifactId}` },
         setWhere: sql`${ops.requestHash} = excluded.request_hash and ${ops.artifactId} = excluded.artifact_id`,
       })
-      .returning({ opId: ops.opId }),
+      .returning({ opId: ops.opId, target: ops.target }),
     db
       .insert(schema.outbox)
       .select(
@@ -274,6 +282,7 @@ async function claimOperation(
       ),
   ]);
   const opId = claimed[0]?.opId;
+  const kept = claimed[0]?.target ?? null;
   if (opId !== undefined) {
     // A kept claim past the object's horizon would be refused there: the key has expired.
     if (input.now - Number(opId.slice(0, 13)) > ARTIFACT_DATA.horizonMs) {
@@ -282,14 +291,14 @@ async function claimOperation(
         "This Idempotency-Key has expired. Send the change with a new one.",
       );
     }
-    return ok({ opId, fresh: opId === proposed });
+    return ok({ opId, fresh: opId === proposed, target: kept });
   }
-  const [kept] = await db
+  const [other] = await db
     .select({ hash: ops.requestHash, artifactId: ops.artifactId })
     .from(ops)
     .where(and(eq(ops.actorId, input.userId), eq(ops.idempotencyKey, input.idempotencyKey)))
     .limit(1);
-  if (kept && (kept.hash !== requestHash || kept.artifactId !== input.artifactId)) {
+  if (other && (other.hash !== requestHash || other.artifactId !== input.artifactId)) {
     return fail("invalid_input", "This Idempotency-Key was used for a different request.");
   }
   // The artifact changed after authorization: answer what it is now.
@@ -844,10 +853,12 @@ export const DATA_RESET_DELAY_MS = 60_000;
  * Erases all an artifact's documents and collections, an owner's reset (an optional erase intent,
  * at most `erase.intentsPerDay` a day, never `requiredErase`). Authorized like a change but also
  * on an archived artifact, and while artifact data is switched off (decision 0026, "Switches":
- * erasure works on objects that exist). Claimed in D1 with its `data_reset` job, so a crash
- * between the object's two steps is finished by the job under the same erase ID; then D1 asks
- * for an open hold before each step and follows the object's new generation, recording
- * `data.erased` in that batch. An artifact that never stored data has nothing to erase.
+ * erasure works on objects that exist, and binds none that does not). The confirmation binds the
+ * erase once, in its D1 claim, to the artifact's owner, generation and epoch and to the intent's
+ * ID; a retry with the same key and the `data_reset` job act only on that target: one whose owner
+ * or epoch D1 no longer holds is refused, one the object moved past is superseded, and one already
+ * done answers how it ended. D1 is asked for an open hold before each object step; the object's
+ * commit writes the erase's audit obligation, which this path or the sweep records as `data.erased`.
  */
 export async function eraseArtifactData(
   db: RegionalDb,
@@ -867,6 +878,10 @@ export async function eraseArtifactData(
   if (hit.count > DATA_OWNER_WRITES_PER_MINUTE) {
     return fail("rate_limited", "Too many changes to this artifact's data. Try again in a minute.");
   }
+  // Switched off, a D1 row is no proof an object exists: never bind an empty one to erase it.
+  if (await noObject(deps.objects, input.artifactId)) {
+    return ok({ erased: true, generation: row.generation });
+  }
   const requestHash = await hashRequest({ artifactId: input.artifactId, command: "erase" });
   const claim = await claimOperation(
     db,
@@ -877,53 +892,79 @@ export async function eraseArtifactData(
     "erase",
   );
   if (!claim.ok) return claim;
-  const payload: DataResetPayload = {
-    ownerId: row.ownerId,
-    generation: row.generation,
-    epoch: row.epoch,
-    actor: input.userId,
-    eraseId: claim.value.opId,
-  };
-  const reset = await completeReset(db, deps.objects, input.artifactId, payload, input.now);
-  if (!reset.ok && claim.value.fresh && reset.definite) {
-    await retireReset(db, input, claim.value.opId);
+  const bound = DataResetTarget.safeParse(JSON.parse(claim.value.target ?? "null"));
+  if (!bound.success) {
+    return fail("version_conflict", "The artifact's data changed; try again.");
   }
-  return reset.ok ? ok({ erased: true, generation: reset.generation }) : reset;
+  if (bound.data.done !== undefined) return ok({ erased: true, generation: bound.data.done });
+  const reset = await completeReset(
+    db,
+    deps.objects,
+    input.artifactId,
+    {
+      ownerId: bound.data.ownerId,
+      generation: bound.data.generation,
+      epoch: bound.data.epoch,
+      actor: input.userId,
+      eraseId: claim.value.opId,
+    },
+    input.now,
+  );
+  return reset.ok
+    ? ok({ erased: true, generation: reset.generation })
+    : fail(reset.code, reset.message);
 }
 
 type ResetOutcome =
   | { ok: true; generation: number }
-  | { ok: false; code: ErrorCode; message: string; definite: boolean; wait?: boolean };
+  | { ok: false; code: ErrorCode; message: string; wait?: boolean };
 
-/** Takes back a refused reset's claim and job: the object erased nothing. */
-async function retireReset(db: RegionalDb, input: OwnerDataWrite, eraseId: string) {
-  const o = schema.outbox;
-  await db.batch([
-    db
-      .delete(o)
-      .where(
-        and(
-          eq(o.topic, "data_reset"),
-          eq(o.subject, input.artifactId),
-          sql`json_extract(${o.payload}, '$.eraseId') = ${eraseId}`,
-        ),
-      ),
-    db
-      .delete(ops)
-      .where(
-        and(
-          eq(ops.actorId, input.userId),
-          eq(ops.idempotencyKey, input.idempotencyKey),
-          eq(ops.opId, eraseId),
-        ),
-      ),
-  ]);
+const RESET_CHANGED: ResetOutcome = {
+  ok: false,
+  code: "version_conflict",
+  message: "The artifact's data changed since this erase was confirmed; try again.",
+};
+
+/** Whether, switched off, the artifact has no object to erase (nothing may create one). */
+async function noObject(objects: DataObjects | null, artifactId: string): Promise<boolean> {
+  if (objects === null || objects.createsObjects) return false;
+  return (await objects.object(artifactId).lifecycleControl()) === null;
 }
 
 /**
- * The reset's two steps under its erase ID, then D1. Asks D1 for an open hold before each step
- * (decision 0026, note 15: every job that erases payload does), never erasing held data; the
- * object refuses a held one too. A step repeated after a crash answers how the intent ended.
+ * Whether D1 still holds the target the erase was confirmed for: the same owner, an active or
+ * archived artifact, the same epoch. A transfer, a hold or a release moves the epoch, so an erase
+ * confirmed before never runs after it under the authority it was confirmed with.
+ */
+async function targetHolds(
+  db: RegionalDb,
+  artifactId: string,
+  payload: DataResetPayload,
+): Promise<boolean> {
+  const a = schema.artifacts;
+  const d = schema.artifactData;
+  const [found] = await db
+    .select({ id: a.id })
+    .from(a)
+    .innerJoin(d, eq(d.artifactId, a.id))
+    .where(
+      and(
+        eq(a.id, artifactId),
+        eq(a.ownerId, payload.ownerId),
+        sql`${a.state} in ('active', 'archived')`,
+        eq(d.epoch, payload.epoch),
+      ),
+    )
+    .limit(1);
+  return found !== undefined;
+}
+
+/**
+ * The reset's two steps under its bound target and erase ID, then D1. Before each step D1 is
+ * asked for an open hold (decision 0026, note 15: every job that erases payload does), which
+ * keeps the work waiting, and whether it still holds the target, which ends it; the object
+ * refuses a held one too. A step repeated after a crash answers how the intent ended, and an
+ * intent the object moved past is recorded only if its own commit left the audit obligation.
  */
 async function completeReset(
   db: RegionalDb,
@@ -937,7 +978,6 @@ async function completeReset(
       ok: false,
       code: "capacity_unavailable",
       message: "Artifact data is unavailable. Try again later.",
-      definite: false,
     };
   }
   const object = objects.object(artifactId);
@@ -950,14 +990,9 @@ async function completeReset(
   };
   for (const step of ["prepare", "commit"] as const) {
     if (await isHeld(db, artifactId)) {
-      return {
-        ok: false,
-        code: "forbidden",
-        message: HELD_MESSAGE,
-        definite: step === "prepare",
-        wait: true,
-      };
+      return { ok: false, code: "forbidden", message: HELD_MESSAGE, wait: true };
     }
+    if (!(await targetHolds(db, artifactId, payload))) return RESET_CHANGED;
     const answer = (await object.ownerCommand(
       envelope,
       payload.actor,
@@ -967,28 +1002,45 @@ async function completeReset(
     )) as Answer & { value?: { outcome?: string } };
     if (!answer.ok) {
       const error = dataRefusalError(answer.code, answer.message);
-      return { ok: false, ...error, definite: step === "prepare", wait: answer.code === "held" };
+      return { ok: false, ...error, wait: answer.code === "held" };
     }
     const outcome = answer.value?.outcome;
     if (outcome === "cancelled" || outcome === "superseded") {
-      return {
-        ok: false,
-        code: "version_conflict",
-        message: "The artifact's data changed; try again.",
-        definite: true,
-      };
+      // Only the object's own audit obligation proves this intent committed.
+      return finishReset(db, object, artifactId, payload, envelope, now);
     }
-    if (step === "commit") {
-      const generation = answer.storage.generation;
-      await followReset(db, artifactId, payload, generation, now);
-      return { ok: true, generation };
-    }
+    if (step === "commit") return finishReset(db, object, artifactId, payload, envelope, now);
   }
   /* c8 ignore next */
   throw new Error("unreachable");
 }
 
-/** D1 follows the object's new generation, records `data.erased` and ends the reset's job. */
+/**
+ * Settles the erase's audit obligation, which the object's commit wrote in its own transaction:
+ * committed, D1 follows the object's generation, records `data.erased` once, ends the job and
+ * marks the claim done, then acknowledges the obligation. No obligation means this intent never
+ * committed (a cancel or a later erase superseded it).
+ */
+async function finishReset(
+  db: RegionalDb,
+  object: DataObjectRpc,
+  artifactId: string,
+  payload: DataResetPayload,
+  envelope: LifecycleEnvelope,
+  now: number,
+): Promise<ResetOutcome> {
+  const settled = await object.auditSettle(envelope, payload.actor, payload.eraseId, now);
+  if (settled.state !== "committed") return RESET_CHANGED;
+  const generation = (await object.lifecycleControl())?.generation ?? payload.generation + 1;
+  await followReset(db, artifactId, payload, generation, now);
+  await object.auditAcknowledge(envelope, payload.actor, payload.eraseId, now);
+  return { ok: true, generation };
+}
+
+/**
+ * D1 follows the object's new generation, records `data.erased`, ends the reset's job and marks
+ * the claim done, so a retry with its key answers without reaching the object again.
+ */
 async function followReset(
   db: RegionalDb,
   artifactId: string,
@@ -1028,13 +1080,18 @@ async function followReset(
           sql`json_extract(${o.payload}, '$.eraseId') = ${payload.eraseId}`,
         ),
       ),
+    db
+      .update(ops)
+      .set({ target: sql`json_set(${ops.target}, '$.done', ${generation})` })
+      .where(and(eq(ops.artifactId, artifactId), eq(ops.opId, payload.eraseId))),
   ]);
 }
 
 /**
- * The `data_reset` job: finishes a reset the request left (a crash between its steps). A held
- * artifact keeps the job a day at a time, erasing nothing; a refusal ends it. Throws without the
- * binding, so the row stays.
+ * The `data_reset` job: finishes a reset the request left (a crash between its steps), under the
+ * target bound at confirmation. A held artifact keeps the job a day at a time, erasing nothing; a
+ * changed target or a refusal ends it. Switched off, an artifact without an object has nothing to
+ * erase. Throws without the binding, so the row stays.
  */
 export async function runDataReset(
   db: RegionalDb,
@@ -1045,6 +1102,7 @@ export async function runDataReset(
   if (!objects) throw new Error("data_reset needs the documents binding");
   const parsed = DataResetPayloadSchema.safeParse(row.payload);
   if (!parsed.success || row.subject === null) return "stale";
+  if (await noObject(objects, row.subject)) return "done";
   const result = await completeReset(db, objects, row.subject, parsed.data, now);
   if (result.ok) return "done";
   if (result.wait) {

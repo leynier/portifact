@@ -56,6 +56,7 @@ export const DATA_AUDIT_EVENTS = {
   "data.documents_replaced": "data.documents_replaced",
   "data.documents_deleted": "data.documents_deleted",
   "data.author_erased": "data.author_erased",
+  "data.erased": "data.erased",
 } as const;
 export type DataAuditEventKind = (typeof DATA_AUDIT_EVENTS)[keyof typeof DATA_AUDIT_EVENTS];
 

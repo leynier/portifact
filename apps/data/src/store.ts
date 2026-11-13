@@ -64,6 +64,7 @@ import {
   type ExportPage,
   editorAfter,
   emptyDay,
+  erasedObligation,
   flushPending,
   growthRefusal,
   type IndexField,
@@ -2291,6 +2292,7 @@ export class DocumentsStore {
     envelope: DataEnvelope,
     eraseId: string,
     now: number,
+    audit: string | null = null,
   ) {
     return this.#controlCommand(now, `erase_${step}`, () => {
       const [found] = this.#read("SELECT outcome FROM pf_ended WHERE id = ?", eraseId);
@@ -2305,6 +2307,19 @@ export class DocumentsStore {
       if (!decided.ok) fail(decided);
       const result = decided.value;
       if (result.erasePayload) this.#erasePayload();
+      if (audit !== null && result.erasePayload) {
+        // An owner's reset: its audit obligation commits with it (control data, kept by the erase).
+        const obligation = erasedObligation(envelope, eraseId, audit);
+        this.#exec(
+          `INSERT INTO pf_audit (key, kind, detail, owner, state, at) VALUES (?, ?, ?, ?, 'pending', ?)
+           ON CONFLICT(key) DO NOTHING`,
+          obligation.key,
+          obligation.kind,
+          JSON.stringify(obligation.detail),
+          envelope.ownerId,
+          now,
+        );
+      }
       if (result.ended !== null) this.#endIntent(result.ended.id, result.ended.outcome, now);
       if (result.control !== null) this.#setControl(result.control);
       if (result.startsIntent) {
@@ -2320,8 +2335,8 @@ export class DocumentsStore {
     return this.#eraseStep("prepare", envelope, eraseId, now);
   }
 
-  commitErase(envelope: DataEnvelope, eraseId: string, now: number) {
-    return this.#eraseStep("commit", envelope, eraseId, now);
+  commitErase(envelope: DataEnvelope, eraseId: string, now: number, audit?: string) {
+    return this.#eraseStep("commit", envelope, eraseId, now, audit ?? null);
   }
 
   cancelErase(envelope: DataEnvelope, eraseId: string, now: number) {

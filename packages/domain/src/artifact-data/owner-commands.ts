@@ -13,6 +13,7 @@ import type {
   OwnerDataCommand,
 } from "@portifact/contracts/artifact-data";
 import type { Caller } from "./documents.ts";
+import { mutationActorName } from "./mutation.ts";
 
 type Context = { now: number; limits: ArtifactDataLimits };
 
@@ -82,7 +83,8 @@ export interface OwnerCommandTarget {
     context: Context,
   ): unknown;
   prepareErase(envelope: DataEnvelope, eraseId: string, now: number): unknown;
-  commitErase(envelope: DataEnvelope, eraseId: string, now: number): unknown;
+  /** `audit`: the owner side's actor name; an owner's reset leaves its audit obligation. */
+  commitErase(envelope: DataEnvelope, eraseId: string, now: number, audit?: string): unknown;
   cancelErase(envelope: DataEnvelope, eraseId: string, now: number): unknown;
 }
 
@@ -138,7 +140,9 @@ export function runOwnerCommand(
       const { opId: _op, requiredErase: _required, ...plain } = envelope;
       if (command.step === "prepare")
         return target.prepareErase(plain, command.eraseId, context.now);
-      if (command.step === "commit") return target.commitErase(plain, command.eraseId, context.now);
+      if (command.step === "commit") {
+        return target.commitErase(plain, command.eraseId, context.now, mutationActorName(caller));
+      }
       return target.cancelErase(plain, command.eraseId, context.now);
     }
   }

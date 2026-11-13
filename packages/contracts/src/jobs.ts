@@ -387,3 +387,16 @@ export const DataResetPayload = z.strictObject({
   eraseId: OperationId,
 });
 export type DataResetPayload = z.infer<typeof DataResetPayload>;
+
+/**
+ * What an owner's erase claim bound at confirmation (`data_operations.target`): the owner,
+ * generation and epoch it was authorized for, and `done`, the generation it reached once D1
+ * followed it.
+ */
+export const DataResetTarget = z.object({
+  ownerId: DataOwnerId,
+  generation: DataCount,
+  epoch: DataCount,
+  done: DataCount.optional(),
+});
+export type DataResetTarget = z.infer<typeof DataResetTarget>;
