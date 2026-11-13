@@ -1062,6 +1062,32 @@ async function recordFinding(
     });
 }
 
+/**
+ * Clears the jobs' `refused (owner)` finding once D1 and the object agree on the owner, only as it
+ * was read (the action, reason and both times), so a newer finding a racing job writes stays. One
+ * read, and one delete when there is such a finding.
+ */
+async function clearOwnerFinding(db: RegionalDb, artifactId: string): Promise<void> {
+  const f = schema.dataFindings;
+  const [finding] = await db
+    .select({ action: f.action, reason: f.reason, first: f.firstSeenAt, last: f.lastSeenAt })
+    .from(f)
+    .where(eq(f.artifactId, artifactId))
+    .limit(1);
+  if (finding?.action !== "refused" || finding.reason !== "owner") return;
+  await db
+    .delete(f)
+    .where(
+      and(
+        eq(f.artifactId, artifactId),
+        eq(f.action, "refused"),
+        eq(f.reason, "owner"),
+        eq(f.firstSeenAt, finding.first),
+        eq(f.lastSeenAt, finding.last),
+      ),
+    );
+}
+
 /** Inventory entries one reconciliation run walks at most. */
 const RECONCILE_PAGE = 50;
 
@@ -1104,6 +1130,9 @@ export async function reconcileObject(
   const current = await readDataRow(db, objects.region, artifactId);
   // A purged artifact's object: its own erase committed before the entry was retired.
   if (current === null && entry.retiredAt !== undefined) return "none";
+  if (current !== null && current.ownerId === control.ownerId) {
+    await clearOwnerFinding(db, artifactId);
+  }
   const level =
     current === null ? null : await holdLevel(db, artifactId, control.hold?.transition ?? null);
   if (level !== null) {

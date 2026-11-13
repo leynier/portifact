@@ -41,7 +41,7 @@ import {
 import { placeLegalHold, releaseLegalHold } from "../src/legal-holds.ts";
 import { runJob } from "../src/outbox.ts";
 import { db, NOW } from "./fixtures.ts";
-import { raceBeforeBatchWith } from "./race.ts";
+import { raceBeforeBatchWith, raceBeforeStatement } from "./race.ts";
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 function artifactId(): string {
@@ -536,6 +536,52 @@ describe("the hold convergence rule", () => {
       NOW,
     );
     expect(await reconcileObject(db(), memory.data, entry(other.id), NOW)).toBe("quarantine:hold");
+  });
+});
+
+describe("the jobs' owner finding", () => {
+  const entry = (id: string) => inventoryEntry(id, "default", NOW);
+  const finding = (id: string, action: "refused" | "quarantined", at: number) =>
+    db()
+      .insert(schema.dataFindings)
+      .values({ artifactId: id, action, reason: "owner", firstSeenAt: at, lastSeenAt: at });
+  const findings = (id: string) =>
+    db().select().from(schema.dataFindings).where(eq(schema.dataFindings.artifactId, id));
+
+  it("is cleared by reconciliation once the owners agree, and only as it was read", async () => {
+    const memory = memoryObjects();
+    const agreeing = await seeded(memory);
+    await finding(agreeing.id, "refused", NOW);
+    expect(await reconcileObject(db(), memory.data, entry(agreeing.id), NOW)).toBe("none");
+    expect(await findings(agreeing.id)).toEqual([]);
+    // Another kind of finding is never cleared by agreement.
+    const quarantined = await seeded(memory);
+    await finding(quarantined.id, "quarantined", NOW);
+    await reconcileObject(db(), memory.data, entry(quarantined.id), NOW);
+    expect(await findings(quarantined.id)).toHaveLength(1);
+    // A job records the finding again between the read and the delete: the newer one stays.
+    const racing = await seeded(memory);
+    await finding(racing.id, "refused", NOW);
+    const raced = raceBeforeStatement(/^delete from "data_findings"/, async () => {
+      await db()
+        .update(schema.dataFindings)
+        .set({ lastSeenAt: NOW + 5 })
+        .where(eq(schema.dataFindings.artifactId, racing.id));
+    });
+    await reconcileObject(raced, memory.data, entry(racing.id), NOW);
+    expect((await findings(racing.id)).map((row) => row.lastSeenAt)).toEqual([NOW + 5]);
+  });
+
+  it("stays while the owners disagree", async () => {
+    const memory = memoryObjects();
+    const { id } = await seeded(memory);
+    await finding(id, "refused", NOW);
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: "u_elsewhere" })
+      .where(eq(schema.artifacts.id, id));
+    await reconcileObject(db(), memory.data, entry(id), NOW);
+    expect((await findings(id)).map((row) => row.action)).not.toEqual([]);
   });
 });
 

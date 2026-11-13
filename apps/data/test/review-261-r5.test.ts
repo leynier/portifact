@@ -206,6 +206,43 @@ it("R5-A release variant: releasing H2 as well leaves the object free under B", 
   expect(await jobsOf(db(), ["data_fence"], id)).toEqual([]);
 });
 
+it("R5-G: reconciliation clears the job's owner finding once D1 and the object agree", async () => {
+  const { id, ownerId } = await withData({ state: "suspended" });
+  const other = workspaceId();
+  await db().update(schema.artifacts).set({ ownerId: other }).where(eq(schema.artifacts.id, id));
+  async function oldFence(at: number) {
+    const [row] = await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "data_fence",
+        subject: id,
+        availableAt: NOW,
+        payload: {
+          ownerId: other,
+          generation: 0,
+          epoch: at,
+          fence: { kind: "hold", transition: `hold_old_${at}` },
+        },
+      })
+      .returning();
+    if (row === undefined) throw new Error("no row");
+    await deliver(row, objectsFor(), NOW + at);
+  }
+  await oldFence(1);
+  const [first] = await findings(id);
+  await oldFence(2);
+  const [second] = await findings(id);
+  expect(first?.action).toBe("refused");
+  expect(second?.lastSeenAt).toBe(NOW + 2);
+  expect(second?.firstSeenAt).toBe(first?.firstSeenAt);
+  // The runbook's repair of D1 to the object's authoritative owner.
+  await db().update(schema.artifacts).set({ ownerId }).where(eq(schema.artifacts.id, id));
+  expect(
+    await reconcileObject(db(), objectsFor(), inventoryEntry(id, "default", NOW), NOW + 3),
+  ).toBe("none");
+  expect(await findings(id), "the owner finding goes once the owners agree").toEqual([]);
+});
+
 it("R5-B: a new hold placed and released inside a release's delivery window converges free", async () => {
   const { id } = await withData({ state: "suspended" });
   await place(id);
