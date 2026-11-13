@@ -24,6 +24,7 @@ import {
   showAccess,
 } from "./artifacts.ts";
 import { audit, auditExport } from "./audit.ts";
+import { listChanges, markChange, showChange } from "./changes.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
 import { diff } from "./diff.ts";
 import { addDomain, domainInfo, listDomains, removeDomain, verifyDomain } from "./domains.ts";
@@ -1175,6 +1176,74 @@ An artifact shared with its workspace or an email domain becomes restricted when
           yes: options.yes === true,
           json: options.json === true,
         }),
+      ),
+    );
+
+  // Edit suggestions are switched off on the server until their release (decision 0027): the
+  // command is hidden from the help until then, and the server answers not_found.
+  const changes = program
+    .command("changes", { hidden: true })
+    .description(
+      "Read and mark an artifact's change list: accepted edits Portifact could not apply",
+    )
+    .enablePositionalOptions();
+  changes
+    .command("list")
+    .description("List the change items of an artifact, open ones by default")
+    .argument("<id>", "artifact ID")
+    .option("--state <state>", "open, applied, dismissed, closed_by_version or all", "open")
+    .option("--limit <n>", "items per page, 1 to 100 (default: 50)", Number)
+    .option("--cursor <cursor>", "continue from where the previous page ended")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { state?: string; limit?: number; cursor?: string; json?: boolean },
+          id: string,
+        ) =>
+          listChanges(io, runtime, id, {
+            state: options.state,
+            limit: options.limit,
+            cursor: options.cursor,
+            json: options.json === true,
+          }),
+      ),
+    );
+  changes
+    .command("show")
+    .description("Show one change item as the people who accepted it saw it")
+    .argument("<id>", "artifact ID")
+    .argument("<item>", "the item's ID from `portifact changes list`")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, item: string) =>
+        showChange(io, runtime, id, item, { json: options.json === true }),
+      ),
+    );
+  changes
+    .command("mark")
+    .description("Mark a change item applied, dismissed or open again")
+    .argument("<id>", "artifact ID")
+    .argument("<item>", "the item's ID from `portifact changes list`")
+    .argument("<state>", "applied, dismissed or open")
+    .option("--revision <n>", "the item's revision you read; refused if it changed since", Number)
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { revision?: number; json?: boolean },
+          id: string,
+          item: string,
+          state: string,
+        ) =>
+          markChange(io, runtime, id, item, state, {
+            revision: options.revision,
+            json: options.json === true,
+          }),
       ),
     );
 
