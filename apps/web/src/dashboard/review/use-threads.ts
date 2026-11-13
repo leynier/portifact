@@ -40,10 +40,16 @@ export interface ThreadsState {
  * Without `version`, the prefix of every version's query of the artifact, for invalidating and
  * updating them all at once.
  */
-export const threadsQuery = (artifactId: string, version?: AnnotationVersionFilter) =>
+export const threadsQuery = (
+  artifactId: string,
+  version?: AnnotationVersionFilter,
+  suggestions = false,
+) =>
   version === undefined
     ? (["annotations", artifactId] as const)
-    : (["annotations", artifactId, version] as const);
+    : suggestions
+      ? (["annotations", artifactId, version, "suggestions"] as const)
+      : (["annotations", artifactId, version] as const);
 
 const byCreation = (a: AnnotationThreadView, b: AnnotationThreadView) =>
   a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
@@ -53,19 +59,23 @@ export async function loadThreads(
   artifactId: string,
   version: AnnotationVersionFilter = "current",
   previous?: ThreadsState,
+  suggestions = false,
 ): Promise<ThreadsState> {
   const threads = new Map(previous?.threads.map((thread) => [thread.id, thread]));
   let cursor = previous?.cursor;
   let page: AnnotationPage;
   do {
-    page = await api.listAnnotations(artifactId, cursor, version);
+    // With suggestions on, each thread also says its kind and carries its suggestion.
+    page = suggestions
+      ? await api.suggestions.listAnnotations(artifactId, cursor, version)
+      : await api.listAnnotations(artifactId, cursor, version);
     if (
       previous &&
       (page.annotations !== previous.annotations ||
         page.currentVersionId !== previous.currentVersionId ||
         page.commentScope !== previous.commentScope)
     ) {
-      return loadThreads(api, artifactId, version);
+      return loadThreads(api, artifactId, version, undefined, suggestions);
     }
     for (const id of page.removed) threads.delete(id);
     for (const thread of page.threads) threads.set(thread.id, thread);
@@ -87,18 +97,21 @@ export function useThreads(
   artifactId: string,
   version: AnnotationVersionFilter = "current",
   enabled = true,
+  suggestions = false,
 ) {
   const { api } = useDashboard();
   const queryClient = useQueryClient();
+  const key = threadsQuery(artifactId, version, suggestions);
   return useQuery({
-    queryKey: threadsQuery(artifactId, version),
+    queryKey: key,
     enabled,
     queryFn: () =>
       loadThreads(
         api,
         artifactId,
         version,
-        queryClient.getQueryData<ThreadsState>(threadsQuery(artifactId, version)),
+        queryClient.getQueryData<ThreadsState>(key),
+        suggestions,
       ),
     // Another version's threads load behind the ones on screen, so the panel never empties.
     placeholderData: keepPreviousData,
@@ -121,11 +134,14 @@ export function applyThread(
 ): void {
   queryClient.setQueriesData<ThreadsState>({ queryKey: threadsQuery(artifactId) }, (state) => {
     if (!state) return state;
-    const known = state.threads.some((t) => t.id === thread.id);
-    if (!known && !belongs(state.version, thread)) return state;
+    const old = state.threads.find((t) => t.id === thread.id);
+    if (!old && !belongs(state.version, thread)) return state;
+    // A reply or a resolution answers the plain thread view: a suggestion keeps its fields.
+    const next =
+      old && "kind" in old && !("kind" in thread) ? { ...withKind(old), ...thread } : thread;
     return {
       ...state,
-      threads: [...state.threads.filter((t) => t.id !== thread.id), thread].sort(byCreation),
+      threads: [...state.threads.filter((t) => t.id !== thread.id), next].sort(byCreation),
     };
   });
 }
@@ -135,4 +151,13 @@ export function dropThread(queryClient: QueryClient, artifactId: string, threadI
   queryClient.setQueriesData<ThreadsState>({ queryKey: threadsQuery(artifactId) }, (state) =>
     state ? { ...state, threads: state.threads.filter((t) => t.id !== threadId) } : state,
   );
+}
+
+/** The suggestion fields of a thread listed with `?fields=suggestion`. */
+function withKind(thread: AnnotationThreadView): Record<string, unknown> {
+  const { kind, suggestion } = thread as AnnotationThreadView & {
+    kind?: unknown;
+    suggestion?: unknown;
+  };
+  return { kind, suggestion };
 }

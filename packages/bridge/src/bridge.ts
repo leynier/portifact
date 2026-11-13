@@ -24,13 +24,17 @@ import {
   threadsAt,
 } from "./overlay.ts";
 import {
+  BRIDGE_CAPABILITIES,
   type BridgeBody,
   BridgePage,
+  type EditKind,
   type Highlight,
   type HighlightResolution,
   REVIEW_CHANNEL,
   REVIEW_PROTOCOL,
+  REVIEW_PROTOCOL_EDIT,
   type RefusalReason,
+  type ReviewProtocol,
 } from "./protocol.ts";
 
 export interface BridgeConfig {
@@ -82,6 +86,10 @@ export function startBridge(
 ): Bridge {
   const { document } = window;
   let nonce: string | null = null;
+  /** The protocol version the viewer's `init` used; every message after it uses the same. */
+  let version: ReviewProtocol = REVIEW_PROTOCOL;
+  /** Edit mode (protocol 3): the epoch to echo and what the person chooses, while it is on. */
+  let editing: { epoch: number; kind: EditKind } | null = null;
   let highlights: Highlight[] = [];
   let selected: string[] = [];
   /** What is drawn now, for hit-testing clicks. */
@@ -100,8 +108,11 @@ export function startBridge(
 
   const page = () => ({ path: config.path, ...(route === undefined ? {} : { route }) });
   const send = (body: BridgeBody) => {
-    if (nonce !== null) parent.postMessage(bridgeEnvelope(nonce, body), config.appOrigin);
+    if (nonce !== null) parent.postMessage(bridgeEnvelope(nonce, body, version), config.appOrigin);
   };
+  /** The edit epoch an offer was made in, echoed only on a protocol 3 handshake. */
+  const epoch = () =>
+    version === REVIEW_PROTOCOL_EDIT && editing !== null ? { epoch: editing.epoch } : {};
 
   const overlay = createOverlay(document);
 
@@ -161,7 +172,7 @@ export function startBridge(
     reportedSelection = true;
     offered = range.cloneRange();
     const rect = frameRect(range.getBoundingClientRect());
-    send({ type: "selection", target, ...(rect ? { rect } : {}) });
+    send({ type: "selection", target, ...(rect ? { rect } : {}), ...epoch() });
   };
 
   // Where the offered selection or element is drawn, so the viewer's "Comment" control follows
@@ -223,7 +234,7 @@ export function startBridge(
       if (target) {
         offered = element;
         const rect = frameRect(element.getBoundingClientRect());
-        send({ type: "element", target, ...(rect ? { rect } : {}) });
+        send({ type: "element", target, ...(rect ? { rect } : {}), ...epoch() });
       } else refuse("too_large");
     }
     send({ type: "pick-ended" });
@@ -337,9 +348,12 @@ export function startBridge(
       nonce,
     });
     if (!message) return;
+    // After the handshake only messages of its version count.
+    if (message.type !== "init" && message.v !== version) return;
     switch (message.type) {
       case "init":
         nonce = message.nonce;
+        version = message.v;
         send({ type: "location", page: page() });
         return;
       case "highlights":
@@ -369,6 +383,25 @@ export function startBridge(
       case "ping":
         send({ type: "pong" });
         return;
+      case "edit-mode":
+        setEditMode(message.active ? message : null);
+        return;
+    }
+  };
+
+  // Edit mode (decision 0027): the bridge only shows the hint and echoes the epoch on what it
+  // reports; choosing an element for style or structure is element mode. It never receives what
+  // the person types.
+  const setEditMode = (next: { epoch: number; kind: EditKind; hint: string } | null) => {
+    editing = next ? { epoch: next.epoch, kind: next.kind } : null;
+    if (next && next.kind !== "text") {
+      picking = { hint: next.hint };
+      overlay.pick(null, next.hint);
+    } else if (next) {
+      picking = null;
+      overlay.pick(null, next.hint);
+    } else {
+      endPick();
     }
   };
 
@@ -389,16 +422,21 @@ export function startBridge(
   // Capturing, so scrolling inside any scrollable element of the page counts too.
   window.addEventListener("scroll", onMove, true);
 
-  parent.postMessage(
-    {
-      channel: REVIEW_CHANNEL,
-      v: REVIEW_PROTOCOL,
-      type: "ready",
-      page: page(),
-      sessionTag: config.sessionTag,
-    },
-    config.appOrigin,
-  );
+  // Both versions are announced, the newer first: a viewer that reads protocol 3 answers the
+  // first and ignores the second; an older viewer drops the first and answers the second.
+  for (const v of [REVIEW_PROTOCOL_EDIT, REVIEW_PROTOCOL]) {
+    parent.postMessage(
+      {
+        channel: REVIEW_CHANNEL,
+        v,
+        type: "ready",
+        page: page(),
+        sessionTag: config.sessionTag,
+        ...(v === REVIEW_PROTOCOL_EDIT ? { capabilities: [...BRIDGE_CAPABILITIES] } : {}),
+      },
+      config.appOrigin,
+    );
+  }
 
   return {
     overlay: overlay.root,

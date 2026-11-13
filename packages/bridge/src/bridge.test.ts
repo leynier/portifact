@@ -12,7 +12,13 @@ import {
   startBridge,
 } from "./bridge.ts";
 import { viewerEnvelope } from "./channel.ts";
-import { type BridgeMessage, REVIEW_PROTOCOL, type ViewerBody } from "./protocol.ts";
+import {
+  type AnyBridgeMessage as BridgeMessage,
+  REVIEW_PROTOCOL,
+  REVIEW_PROTOCOL_EDIT,
+  type ReviewProtocol,
+  type ViewerBody,
+} from "./protocol.ts";
 
 const VIEWER = "https://app.portifact.com";
 const NONCE = "abcdefghijklmnopqrstuv";
@@ -43,7 +49,8 @@ function deliver(data: unknown, origin = VIEWER, source: unknown = parent) {
   window.dispatchEvent(event);
 }
 
-const fromViewer = (body: ViewerBody, nonce = NONCE) => deliver(viewerEnvelope(nonce, body));
+const fromViewer = (body: ViewerBody, nonce = NONCE, version: ReviewProtocol = REVIEW_PROTOCOL) =>
+  deliver(viewerEnvelope(nonce, body, version));
 
 function start(html: string, path = "index.html") {
   document.body.innerHTML = html;
@@ -132,19 +139,20 @@ afterEach(() => {
 });
 
 describe("handshake", () => {
-  it("announces itself to the viewer's exact origin and waits for a nonce", () => {
+  it("announces itself in both protocol versions, the newer first, and waits for a nonce", () => {
     start("<p>Hello</p>");
+    const ready = {
+      channel: "portifact-review",
+      type: "ready",
+      page: { path: "index.html", route: "/" },
+      sessionTag: SESSION_TAG,
+    };
     expect(parent.sent).toEqual([
       {
         origin: VIEWER,
-        message: {
-          channel: "portifact-review",
-          v: REVIEW_PROTOCOL,
-          type: "ready",
-          page: { path: "index.html", route: "/" },
-          sessionTag: SESSION_TAG,
-        },
+        message: { ...ready, v: REVIEW_PROTOCOL_EDIT, capabilities: ["edit"] },
       },
+      { origin: VIEWER, message: { ...ready, v: REVIEW_PROTOCOL } },
     ]);
   });
 
@@ -165,7 +173,7 @@ describe("handshake", () => {
     fromViewer({ type: "focus", id: "t1" });
     deliver(viewerEnvelope(NONCE, { type: "init" }), "https://k7d2qm4xab.portifact.dev");
     deliver(viewerEnvelope(NONCE, { type: "init" }), VIEWER, window);
-    expect(parent.sent).toHaveLength(1);
+    expect(parent.sent).toHaveLength(2);
     fromViewer({ type: "init" });
     expect(sentOf("location")).toEqual([
       {
@@ -190,7 +198,7 @@ describe("handshake", () => {
     expect(parent.sent.every((entry) => entry.origin === VIEWER)).toBe(true);
     expect(
       parent.sent
-        .slice(1)
+        .slice(2)
         .every((entry) => "nonce" in entry.message && entry.message.nonce === NONCE),
     ).toBe(true);
   });
@@ -236,7 +244,7 @@ describe("selection", () => {
     start("<p>Hello world</p>");
     select(textOf("p"), 0, textOf("p"), 5);
     await settle(SELECTION_SETTLE_MS);
-    expect(parent.sent).toHaveLength(1);
+    expect(parent.sent).toHaveLength(2);
   });
 
   it("refuses a quote over the limit instead of truncating it", async () => {
@@ -738,7 +746,7 @@ describe("lifecycle", () => {
     expect(document.querySelector("portifact-review")).toBeNull();
     fromViewer({ type: "init" });
     window.dispatchEvent(new Event("scroll"));
-    expect(parent.sent).toHaveLength(1);
+    expect(parent.sent).toHaveLength(2);
   });
 
   it("keeps the overlay out of the text that anchors see", () => {
@@ -754,5 +762,70 @@ describe("routes", () => {
     expect(currentRoute({ pathname: "/a/b", hash: "#c" })).toBe("/a/b#c");
     expect(currentRoute({ pathname: "/a b", hash: "" })).toBeUndefined();
     expect(currentRoute({ pathname: `/${"a".repeat(3000)}`, hash: "" })).toBeUndefined();
+  });
+});
+
+describe("protocol 3 (edit suggestions)", () => {
+  const EPOCH = 7;
+  const editMode = (active: boolean, kind: "text" | "style" = "text", epoch = EPOCH) =>
+    fromViewer(
+      { type: "edit-mode", epoch, active, kind, hint: "Select the text to change" },
+      NONCE,
+      REVIEW_PROTOCOL_EDIT,
+    );
+
+  it("speaks the version the viewer's init used, and ignores the other one after it", async () => {
+    start("<p>Hello world</p>");
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    fromViewer({ type: "ping" });
+    fromViewer({ type: "ping" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    expect(sentOf("location").map((m) => m.v)).toEqual([REVIEW_PROTOCOL_EDIT]);
+    expect(sentOf("pong").map((m) => m.v)).toEqual([REVIEW_PROTOCOL_EDIT]);
+  });
+
+  it("keeps speaking version 2 to a viewer that started with it, and ignores edit mode", async () => {
+    start("<p>Hello world</p>");
+    fromViewer({ type: "init" });
+    editMode(true);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    const [selection] = sentOf("selection");
+    expect(selection?.v).toBe(REVIEW_PROTOCOL);
+    expect(selection).not.toHaveProperty("epoch");
+    expect(bridge?.overlay.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("echoes the edit epoch on selections while edit mode is on, and not after", async () => {
+    start("<p>Hello world</p>");
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    editMode(true);
+    expect(bridge?.overlay.querySelector('[role="status"]')?.textContent).toBe(
+      "Select the text to change",
+    );
+    select(textOf("p"), 6, textOf("p"), 11);
+    await settle(SELECTION_SETTLE_MS);
+    editMode(false);
+    expect(bridge?.overlay.querySelector('[role="status"]')).toBeNull();
+    select(textOf("p"), 0, textOf("p"), 11);
+    await settle(SELECTION_SETTLE_MS);
+    expect(sentOf("selection").map((m) => ("epoch" in m ? m.epoch : null))).toEqual([
+      null,
+      EPOCH,
+      null,
+    ]);
+  });
+
+  it("picks an element for a style edit and echoes the epoch on it", async () => {
+    start('<main><button id="buy" type="button">Buy now</button></main>');
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    editMode(true, "style");
+    document
+      .querySelector("#buy")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await settle(0);
+    const [element] = sentOf("element");
+    expect(element).toMatchObject({ v: REVIEW_PROTOCOL_EDIT, epoch: EPOCH });
   });
 });
