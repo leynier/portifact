@@ -141,19 +141,28 @@ export type JobStep = "done" | "retry" | "wait";
  * never apply); retry while an earlier fence or D1's repair after an erase has yet to land; done
  * for a fence that can never apply (a transfer to its own owner, another artifact). A fence never
  * takes a new epoch: when a stale hold or release ends, the job compares the levels once
- * (`holdCorrective`), and a transfer from an owner the object no longer has ends for good, its
- * disagreement left to reconciliation's owner finding.
+ * (`holdCorrective`), and a fence under an owner the object does not have waits only while a
+ * transfer to that owner is waiting in D1 (an obsolete transfer ends for good), its disagreement
+ * left to reconciliation's owner finding.
  */
 export function fenceRefused(
   control: DataControl,
   envelope: DataEnvelope,
   code: DataRefusalCode,
-  evidence: { dataRowGone: boolean },
+  evidence: {
+    dataRowGone: boolean;
+    /** Whether D1 still has a transfer to the envelope's owner waiting for this artifact. */
+    ownerAwaited: boolean;
+  },
 ): JobStep {
   // `conflict` (this transition ID applied with other contents) ends like any code but these two.
   if (code === "held") return "retry";
   if (code !== "stale") return "done";
   if (envelope.generation < control.generation && evidence.dataRowGone) return "done";
+  // A fence under an owner the object does not have can only wait for the transfer to that owner;
+  // with none waiting it can never apply (a restore lost the transfer, or it is obsolete), and the
+  // owner disagreement is reconciliation's finding.
+  if (envelope.ownerId !== control.ownerId && !evidence.ownerAwaited) return "done";
   // A repeat of the last transition is acknowledged, never stale, so only the epoch tells.
   if (control.last.epoch < envelope.epoch) return "retry";
   return "done";

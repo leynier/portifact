@@ -10,6 +10,7 @@ import { controlEnvelope, inventoryEntry, reviewedState } from "@portifact/domai
 import {
   DATA_ERASE_FRESH_MS,
   type DataObjectRpc,
+  dataFenceStatements,
   deleteArtifactData,
   lifecycleId,
   placeLegalHold,
@@ -443,4 +444,36 @@ it("two convergence runs racing write one corrective", async () => {
   );
   await fences(id);
   expect((await control(id)).hold).toBeNull();
+});
+
+it("a fence under an owner the object never got ends once no transfer to it is waiting", async () => {
+  // Found by the model check: the object at epoch 2, D1 rewound, then a transfer (stale, so it
+  // ends), a hold and its release under the new owner. The release's epoch is above the object's
+  // last, so it used to wait for the lost transfer forever.
+  const { id, ownerId } = await withData({ state: "suspended" });
+  await place(id);
+  await release(id);
+  await fences(id);
+  await rewind(id);
+  const to = `u_to_${crypto.randomUUID()}`;
+  const [raise, job] = dataFenceStatements(db(), {
+    which: sql`d.artifact_id = ${id}`,
+    fence: sql`json_object('kind', 'transfer', 'transition', 'transfer_lost', 'toOwner', ${to})`,
+    owner: sql`${ownerId}`,
+    now: D1_NOW + 9,
+  });
+  if (raise === undefined || job === undefined) throw new Error("no statements");
+  await db().batch([
+    raise,
+    job,
+    db().update(schema.artifacts).set({ ownerId: to }).where(eq(schema.artifacts.id, id)),
+  ]);
+  await place(id, D1_NOW + 10);
+  await release(id, D1_NOW + 11);
+  await drain({ subject: id });
+  expect(await jobsOf(db(), ["data_fence"], id)).toEqual([]);
+  // The owner disagreement is reconciliation's finding.
+  expect(await reconcileObject(db(), objectsFor(), inventoryEntry(id, "default", NOW), NOW)).toBe(
+    "quarantine:owner",
+  );
 });

@@ -680,11 +680,30 @@ export async function runDataFence(
   const step =
     after === null
       ? "retry"
-      : fenceRefused(after, envelope, answer.code, { dataRowGone: current === null });
+      : fenceRefused(after, envelope, answer.code, {
+          dataRowGone: current === null,
+          ownerAwaited:
+            answer.code === "stale" &&
+            after.ownerId !== envelope.ownerId &&
+            (await transferWaiting(db, artifactId, envelope.ownerId)),
+        });
   if (step === "done" && answer.code === "stale" && payload.fence.kind !== "transfer") {
     await convergeHold(db, artifactId, after, current, now, row.id);
   }
   return afterRefusal(db, row, step, answer.code, now);
+}
+
+/** Whether D1 has a transfer of the artifact to `owner` waiting in its outbox (one read). */
+async function transferWaiting(db: RegionalDb, artifactId: string, owner: string) {
+  const o = schema.outbox;
+  const [waiting] = await db
+    .select({ id: o.id })
+    .from(o)
+    .where(
+      sql`${o.topic} = 'data_fence' and ${o.subject} = ${artifactId} and json_extract(${o.payload}, '$.fence.kind') = 'transfer' and json_extract(${o.payload}, '$.fence.toOwner') = ${owner}`,
+    )
+    .limit(1);
+  return waiting !== undefined;
 }
 
 /** What `convergeHold` did: a corrective written, none needed, or a claim another run won. */
