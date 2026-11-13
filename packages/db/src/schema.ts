@@ -1781,9 +1781,7 @@ export const changeItems = sqliteTable(
     index("change_items_artifact_state_idx").on(t.artifactId, t.state, t.createdAt),
     index("change_items_thread_idx").on(t.threadId).where(sql`${t.threadId} is not null`),
     // The retention sweep seeks its cursor on `(closed_at, id)` (decision 0027, migration 0079).
-    index("change_items_closed_key_idx")
-      .on(t.closedAt, t.id)
-      .where(sql`${t.closedAt} is not null`),
+    index("change_items_closed_key_idx").on(t.closedAt, t.id).where(sql`${t.closedAt} is not null`),
     index("change_items_created_by_idx").on(t.createdBy).where(sql`${t.createdBy} is not null`),
     index("change_items_closed_by_idx").on(t.closedBy).where(sql`${t.closedBy} is not null`),
     index("change_items_submitted_by_idx")
