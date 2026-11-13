@@ -44,6 +44,11 @@ describe("data grants on the app", () => {
     ] as const) {
       expect((await h.request(path, dashboard(cookie, method))).status).toBe(404);
     }
+    const issued = await h.request(
+      "/api/v1/account/data-grants",
+      dashboard(cookie, "POST", { artifactId: "k7d2qm4xab", nonceHash: NONCE_HASH, flow: "top" }),
+    );
+    expect(issued.status).toBe(404);
   });
 
   it("draws the control, issues a code to the reader and lists then revokes the grant", async () => {
@@ -221,5 +226,44 @@ describe("data grants on the app", () => {
       dashboard(cookie, "POST", { artifactId: id, nonceHash: "short", flow: "top" }),
     );
     expect(bad.status).toBe(400);
+  });
+
+  it("lists several artifacts newest first and answers 429 once codes run out", async () => {
+    await env.DB.exec("DELETE FROM rate_limits");
+    const h = on();
+    const reader = "grants-reader6@example.test";
+    const older = await artifactWithData(h, "grants-owner6@example.test", reader);
+    const newer = await artifactWithData(h, "grants-owner7@example.test", reader);
+    const cookie = await h.signIn(reader);
+    const db = regionsFromEnv(env).get("default").db;
+    for (const [id, at] of [
+      [older, Date.now() - 60_000],
+      [newer, Date.now()],
+    ] as const) {
+      const issued = await h.request(
+        "/api/v1/account/data-grants",
+        dashboard(cookie, "POST", { artifactId: id, nonceHash: NONCE_HASH, flow: "top" }),
+      );
+      expect(issued.status).toBe(200);
+      await db
+        .update(schema.dataGrants)
+        .set({ redeemedAt: at, createdAt: at })
+        .where(eq(schema.dataGrants.artifactId, id));
+    }
+    const listed = await (
+      await h.request("/api/v1/account/data-grants", dashboard(cookie))
+    ).json<{ items: { artifactId: string }[] }>();
+    expect(listed.items.map((item) => item.artifactId)).toEqual([newer, older]);
+
+    let last = 0;
+    for (let i = 0; i < 10; i++) {
+      last = (
+        await h.request(
+          "/api/v1/account/data-grants",
+          dashboard(cookie, "POST", { artifactId: newer, nonceHash: NONCE_HASH, flow: "top" }),
+        )
+      ).status;
+    }
+    expect(last).toBe(429);
   });
 });
