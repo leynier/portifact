@@ -22,6 +22,7 @@ import {
   isWorkspaceId,
 } from "@portifact/contracts";
 import {
+  type ArtifactDataLimits,
   type DataControl,
   type DataEnvelope,
   type DataFence,
@@ -31,10 +32,13 @@ import {
   type JournalEntry,
   JournalEntry as JournalEntrySchema,
   type LifecycleEnvelope,
+  type OwnerDataCommand,
+  type OwnerEnvelope,
   type QuarantineReason,
   type QuarantineResolutionRequest,
   type RequiredErase,
   type ReviewedQuarantine,
+  type SettleAnswer,
   type StorageReport,
 } from "@portifact/contracts/artifact-data";
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
@@ -130,6 +134,27 @@ export interface DataObjectRpc {
     after: ExportCursor | null,
     now: number,
   ): Promise<DataAnswer<{ rows: ExportedRow[]; next: ExportCursor | null; revision: number }>>;
+  /** One owner-side command (delivery 5, `artifact-data-owner.ts`); the answer as RPC carries it. */
+  ownerCommand(
+    envelope: OwnerEnvelope,
+    actor: string,
+    command: OwnerDataCommand,
+    limits: ArtifactDataLimits,
+    now: number,
+  ): Promise<DataReplayable<unknown>>;
+  /** The audit relay's settlement of one owner-side operation (`data_audit`). */
+  auditSettle(
+    envelope: LifecycleEnvelope,
+    actor: string,
+    opId: string,
+    now: number,
+  ): Promise<SettleAnswer>;
+  auditAcknowledge(
+    envelope: LifecycleEnvelope,
+    actor: string,
+    opId: string,
+    now: number,
+  ): Promise<boolean>;
 }
 
 /** The objects of one region, as a job reaches them. */
@@ -324,7 +349,10 @@ async function readJson<T>(bucket: R2Bucket, key: string, parse: (value: unknown
  * Registers an artifact's object before anything can bind it: the R2 inventory entry first (a
  * conditional put; a restore never rewinds it, so reconciliation always finds the object), then
  * D1's row. A crash between leaves an entry without a row, which reconciliation reads as an object
- * with no control record (nothing to do). The owner API's first write calls it (delivery 5).
+ * with no control record (nothing to do). The owner API's first write calls it (delivery 5) with
+ * the plan's data artifact count: the row is inserted only while the owner's other artifacts with
+ * data (not purging or deleted) are fewer, in the insert's own statement, so two racing first
+ * writes cannot both pass a full count. Answers whether the artifact has its row now.
  */
 export async function registerDataObject(
   db: RegionalDb,
@@ -332,7 +360,8 @@ export async function registerDataObject(
   region: string,
   artifactId: string,
   now: number,
-): Promise<void> {
+  limit?: { ownerId: string; dataArtifacts: number },
+): Promise<boolean> {
   await bucket.put(
     inventoryKey(artifactId),
     JSON.stringify(inventoryEntry(artifactId, region, now)),
@@ -340,10 +369,27 @@ export async function registerDataObject(
       onlyIf: { etagDoesNotMatch: "*" },
     },
   );
+  if (limit === undefined) {
+    await db
+      .insert(d)
+      .values({ artifactId, generation: 0, epoch: 0, updatedAt: now })
+      .onConflictDoNothing();
+    return true;
+  }
+  // Columns in schema order: artifact, generation, epoch, documents' bytes, report generation,
+  // report sequence, created, updated.
   await db
     .insert(d)
-    .values({ artifactId, generation: 0, epoch: 0, updatedAt: now })
+    .select(
+      sql`select ${artifactId}, 0, 0, 0, 0, 0, ${now}, ${now} where (select count(*) from ${d} od join ${a} oa on oa.id = od.artifact_id where oa.owner_id = ${limit.ownerId} and oa.state not in ('purging', 'deleted') and od.artifact_id <> ${artifactId}) < ${limit.dataArtifacts}`,
+    )
     .onConflictDoNothing();
+  const [row] = await db
+    .select({ id: d.artifactId })
+    .from(d)
+    .where(eq(d.artifactId, artifactId))
+    .limit(1);
+  return row !== undefined;
 }
 
 /**

@@ -59,6 +59,7 @@ import type { AccountSessionLookup } from "./account.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { approvalReviewRoutes } from "./approval-reviews.ts";
 import { auditRoutes } from "./audit.ts";
+import { dataRoutes } from "./data.ts";
 import { documentRoutes } from "./documents.ts";
 import { domainRoutes } from "./domains.ts";
 import { feedbackRoutes } from "./feedback.ts";
@@ -425,6 +426,7 @@ export function apiRoutes(deps: ApiDeps) {
   shareLinkRoutes(api, guarded, deps.now);
   approvalReviewRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
+  dataRoutes(api, guarded, deps.now);
   suggestionPreviewRoutes(api, guarded, { accountSession: deps.accountSession, now: deps.now });
   searchRoutes(api, guarded, deps.now);
   feedbackRoutes(api, guarded, deps.now);

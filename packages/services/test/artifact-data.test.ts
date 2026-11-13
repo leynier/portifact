@@ -40,6 +40,7 @@ import {
 } from "../src/artifact-data.ts";
 import { placeLegalHold, releaseLegalHold } from "../src/legal-holds.ts";
 import { runJob } from "../src/outbox.ts";
+import { ownerRpc } from "./data-owner-rpc.ts";
 import { db, NOW } from "./fixtures.ts";
 import { raceBeforeBatchWith, raceBeforeStatement } from "./race.ts";
 import { recording } from "./recording.ts";
@@ -138,6 +139,7 @@ function memoryObjects(createsObjects = false) {
             { now, limits: LIFECYCLE_LIMITS },
             true,
           ) as never,
+        ...ownerRpc(memory),
       };
     },
   };

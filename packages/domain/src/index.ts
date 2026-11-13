@@ -3,6 +3,7 @@ export * from "./access-log.ts";
 export * from "./account-deletion-code.ts";
 export * from "./account-settings.ts";
 export * from "./actor.ts";
+export * from "./artifact-data-owner.ts";
 export * from "./analytics.ts";
 export * from "./annotations.ts";
 export * from "./approval-reviews.ts";

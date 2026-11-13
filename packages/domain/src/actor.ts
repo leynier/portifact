@@ -71,6 +71,8 @@ const EDITOR: readonly RoleAction[] = [
   "search",
   // Creating an issue from a thread sends comments out through a connection (decision 0018).
   "issues",
+  // An artifact's data from the owner side (decision 0026): its collections and documents.
+  "data",
 ];
 const ADMIN: readonly RoleAction[] = [
   ...EDITOR,
@@ -118,6 +120,9 @@ export const TOKEN_ACTIONS: ReadonlySet<RoleAction> = new Set<RoleAction>([
   "approvals",
   // A token already downloads every version it reaches; its search is limited to the same reach.
   "search",
+  // Artifact data (decision 0026): only with the `data:read` or `data:write` scope its admin
+  // granted, which the route's scope check requires; a token created before them has neither.
+  "data",
 ]);
 
 const ALLOWED: Record<WorkspaceRole, ReadonlySet<RoleAction>> = {

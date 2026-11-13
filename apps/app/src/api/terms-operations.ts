@@ -20,6 +20,10 @@ export const API_TERMS_OPERATIONS: Readonly<Record<string, TermsOpenOperation>> 
   "DELETE /api/v1/publishes/:uploadId": "cancel_upload",
   "DELETE /api/v1/webhooks/:webhookId": "delete_webhook",
   "PATCH /api/v1/webhooks/:webhookId": "update_webhook",
+  "DELETE /api/v1/artifacts/:artifactId/data/collections/:collection/documents/:documentId":
+    "delete_data_document",
+  "POST /api/v1/artifacts/:artifactId/data/collections/:collection/documents/bulk-delete":
+    "delete_data_documents",
 };
 
 /** The operation a matched route performs, or null when it has none of these names. */
