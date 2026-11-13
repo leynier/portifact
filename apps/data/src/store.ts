@@ -600,6 +600,11 @@ export class DocumentsStore {
     return row === undefined ? null : (JSON.parse(str(row.value)) as DataControl);
   }
 
+  /** The storage report every answer carries, for an answer the store did not make itself. */
+  currentReport(): StorageReport {
+    return this.#storageReport();
+  }
+
   #storageReport(): StorageReport {
     return this.#keeping(() => {
       const control = this.#readControl();

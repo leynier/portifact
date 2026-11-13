@@ -359,6 +359,8 @@ export async function retireJournalEntry(
     const next = retired(found?.value ?? null, now);
     const written = await bucket.put(key, JSON.stringify(next), {
       onlyIf: found === null ? { etagDoesNotMatch: "*" } : { etagMatches: found.etag },
+      // Listed with the key, so a walk skips retired entries without reading each one.
+      customMetadata: { retired: "1" },
     });
     if (written !== null) return next;
   }
@@ -380,15 +382,18 @@ function authorErasureJob(
     );
 }
 
-/** Journal entries one call walks at most, per region. */
-const JOURNAL_PAGE = 100;
+/** Journal entries one call retires at most, per region. */
+const JOURNAL_BATCH = 100;
+/** Pages of the account's journal one call lists at most (each up to 1,000 keys). */
+const JOURNAL_PAGES = 10;
 
 /**
  * An account deletion's part in one region: every journal entry of the account that is not yet
  * retired gets its `data_author_erasure` job, then is retired. The job comes first, so a crash
  * between leaves an entry the next run finds again; the job retires it too before any chunk.
- * Entries already retired are skipped (their job ran, or reconciliation re-derives it after a
- * restore). `more` while entries remain past this call's page.
+ * Retired entries carry `retired` in their metadata, so the walk skips them from the listing
+ * (their job ran, or reconciliation re-derives it after a restore). `more` while entries remain
+ * past this call's batch or pages.
  */
 export async function scheduleAuthorErasures(
   db: RegionalDb,
@@ -396,27 +401,38 @@ export async function scheduleAuthorErasures(
   userId: string,
   now: number,
 ): Promise<{ more: boolean; scheduled: number }> {
-  const listed = await bucket.list({ prefix: journalPrefixOf(userId), limit: JOURNAL_PAGE });
   let scheduled = 0;
-  for (const object of listed.objects) {
-    const subject = journalSubject(object.key);
-    if (subject === null || subject.userId !== userId) continue;
-    const found = await readJson(bucket, object.key, (value) => JournalEntrySchema.parse(value));
-    if (found === null || found.value.retiredAt !== undefined) continue;
-    if (found.value.visitorId !== null) {
-      await authorErasureJob(
-        db,
-        subject.artifactId,
-        { userId, visitorId: found.value.visitorId },
-        now,
-      );
-      scheduled += 1;
+  let retiredHere = 0;
+  let cursor: string | undefined;
+  for (let page = 0; page < JOURNAL_PAGES; page += 1) {
+    const listed = await bucket.list({
+      prefix: journalPrefixOf(userId),
+      limit: 1000,
+      include: ["customMetadata"],
+      ...(cursor === undefined ? {} : { cursor }),
+    });
+    for (const object of listed.objects) {
+      if (object.customMetadata?.retired === "1") continue;
+      const subject = journalSubject(object.key);
+      if (subject === null || subject.userId !== userId) continue;
+      if (retiredHere >= JOURNAL_BATCH) return { more: true, scheduled };
+      const found = await readJson(bucket, object.key, (value) => JournalEntrySchema.parse(value));
+      if (found !== null && found.value.retiredAt === undefined && found.value.visitorId !== null) {
+        await authorErasureJob(
+          db,
+          subject.artifactId,
+          { userId, visitorId: found.value.visitorId },
+          now,
+        );
+        scheduled += 1;
+      }
+      await retireJournalEntry(bucket, userId, subject.artifactId, now);
+      retiredHere += 1;
     }
-    await retireJournalEntry(bucket, userId, subject.artifactId, now);
+    if (!listed.truncated) return { more: false, scheduled };
+    cursor = listed.cursor;
   }
-  // Retired entries stay listed until their retention, so a long list is walked again later.
-  const pending = listed.objects.length > 0 && listed.truncated;
-  return { more: pending, scheduled };
+  return { more: true, scheduled };
 }
 
 // The jobs.
@@ -448,14 +464,13 @@ async function afterRefusal(
   db: Db,
   row: OutboxRow,
   step: JobStep,
-  code: DataRefusalCode,
+  reason: DataRefusalCode,
   now: number,
 ): Promise<DataJobOutcome> {
-  logEvent(step === "done" ? "warn" : "log", "data_job_refused", {
-    id: row.id,
-    topic: row.topic,
-    reason: code,
-  });
+  // A refusal that ends the job is worth a look; one that waits or retries is expected.
+  if (step === "done")
+    logEvent("warn", "data_job_refused", { id: row.id, topic: row.topic, reason });
+  else logEvent("log", "data_job_refused", { id: row.id, topic: row.topic, reason });
   if (step === "wait") return keep(db, row, now + DATA_JOB_WAIT_MS);
   return step === "retry" ? "pending" : "stale";
 }
@@ -582,13 +597,15 @@ async function recordFinding(
   action: (typeof schema.DATA_FINDING_ACTIONS)[number],
   reason: string | null,
   now: number,
+  /** Keeps the action an existing finding holds, only marking it seen again. */
+  keepAction = false,
 ): Promise<void> {
   await db
     .insert(schema.dataFindings)
     .values({ artifactId, action, reason, firstSeenAt: now, lastSeenAt: now })
     .onConflictDoUpdate({
       target: schema.dataFindings.artifactId,
-      set: { action, reason, lastSeenAt: now },
+      set: keepAction ? { lastSeenAt: now } : { action, reason, lastSeenAt: now },
     });
 }
 
@@ -628,27 +645,30 @@ export async function reconcileObject(
     case "none":
       return "none";
     case "operator":
+      // A quarantine an earlier run recorded keeps its finding, only marked seen again.
       await recordFinding(
         db,
         artifactId,
         "awaiting_operator",
         control.quarantine?.reason ?? null,
         now,
+        true,
       );
       return "operator";
     case "quarantine": {
+      // The finding first: a run that stops after the quarantine leaves the operator's line.
+      await recordFinding(db, artifactId, "quarantined", decision.reason, now);
       const answer = await object.lifecycleQuarantine(
         controlEnvelope(control),
         decision.reason,
         now,
       );
       if (!answer.ok) throw new Error(`quarantine refused: ${answer.code}`);
-      await recordFinding(db, artifactId, "quarantined", decision.reason, now);
       return `quarantine:${decision.reason}`;
     }
     case "raise":
-      await raiseRow(db, artifactId, current, decision.generation, decision.epoch, now);
       await recordFinding(db, artifactId, "raised", null, now);
+      await raiseRow(db, artifactId, current, decision.generation, decision.epoch, now);
       return "raise";
     case "resume_erase": {
       if (current === null) return "none";
@@ -663,10 +683,30 @@ export async function reconcileObject(
         await recordFinding(db, artifactId, "refused", answer.code, now);
         return `refused:${answer.code}`;
       }
-      await raiseRow(db, artifactId, current, decision.generation + 1, decision.epoch, now);
+      // D1 follows the object as it now is: the same raise a later run would make if this one
+      // stopped here, so a crash between the commit and D1 changes nothing.
       await recordFinding(db, artifactId, "resumed_erase", null, now);
+      await followObject(db, object, current, now);
       return "resume_erase";
     }
+  }
+}
+
+/**
+ * Raises D1 to the object after a step that moved it (a resumed erase): reconciliation's own
+ * raise, from the control record read again, so D1 is never ahead of what the object holds.
+ */
+async function followObject(
+  db: RegionalDb,
+  object: DataObjectRpc,
+  read: { ownerId: string; generation: number; epoch: number; artifactId: string },
+  now: number,
+): Promise<void> {
+  const after = await object.lifecycleControl();
+  const held = await isHeld(db, read.artifactId);
+  const decision = reconcile({ ...read, held }, after);
+  if (decision.action === "raise") {
+    await raiseRow(db, read.artifactId, read, decision.generation, decision.epoch, now);
   }
 }
 
@@ -712,27 +752,38 @@ export async function runDataReconcile(
   for (const object of listed.objects) {
     if (payload.phase === "inventory") {
       if (inventoryArtifact(object.key) === null) continue;
-      const found = await readJson(bucket, object.key, (value) => InventoryEntry.parse(value));
+      const found = await readJson(bucket, object.key, (value) => InventoryEntry.safeParse(value));
       if (found === null) continue;
-      if (inventoryPrunable(found.value, now)) {
+      if (!found.value.success) {
+        logEvent("warn", "data_record_unreadable", { id: row.id, topic: row.topic });
+        continue;
+      }
+      if (inventoryPrunable(found.value.data, now)) {
         await bucket.delete(object.key);
         continue;
       }
-      await reconcileObject(db, objects, found.value, now);
+      await reconcileObject(db, objects, found.value.data, now);
     } else {
       const subject = journalSubject(object.key);
       if (subject === null) continue;
-      const found = await readJson(bucket, object.key, (value) => JournalEntrySchema.parse(value));
+      const found = await readJson(bucket, object.key, (value) =>
+        JournalEntrySchema.safeParse(value),
+      );
       if (found === null) continue;
-      if (journalPrunable(found.value, now)) {
+      if (!found.value.success) {
+        logEvent("warn", "data_record_unreadable", { id: row.id, topic: row.topic });
+        continue;
+      }
+      const entry = found.value.data;
+      if (journalPrunable(entry, now)) {
         await bucket.delete(object.key);
         continue;
       }
-      if (found.value.retiredAt !== undefined && found.value.visitorId !== null) {
+      if (entry.retiredAt !== undefined && entry.visitorId !== null) {
         await authorErasureJob(
           db,
           subject.artifactId,
-          { userId: subject.userId, visitorId: found.value.visitorId },
+          { userId: subject.userId, visitorId: entry.visitorId },
           now,
         );
       }
@@ -764,43 +815,77 @@ export async function runDataResolve(
   const { decision } = DataResolvePayload.parse(row.payload);
   const artifactId = row.subject ?? "";
   const object = objects.object(artifactId);
-  const control = await object.lifecycleControl();
-  if (control === null || control.quarantine === null) {
-    await recordFinding(db, artifactId, "refused", "conflict", now);
-    return "stale";
-  }
   const [artifact] = await db
     .select({ ownerId: a.ownerId })
     .from(a)
     .where(eq(a.id, artifactId))
     .limit(1);
-  if (decision === "adopt") {
-    if (!artifact || artifact.ownerId !== control.ownerId) {
-      await recordFinding(db, artifactId, "refused", "stale", now);
-      return "stale";
+  let control = await object.lifecycleControl();
+  if (control === null) return refuseResolution(db, artifactId, "not_found", now);
+  if (control.quarantine !== null) {
+    if (decision === "adopt") {
+      if (!artifact || artifact.ownerId !== control.ownerId) {
+        return refuseResolution(db, artifactId, "stale", now);
+      }
+      await setRow(db, artifactId, control, now);
     }
-    await db
-      .insert(d)
-      .values({ artifactId, generation: control.generation, epoch: control.epoch, updatedAt: now })
-      .onConflictDoUpdate({
-        target: d.artifactId,
-        set: { generation: control.generation, epoch: control.epoch, updatedAt: now },
-      });
+    const answer = await object.lifecycleResolve(controlEnvelope(control), decision, now);
+    if (!answer.ok) return refuseResolution(db, artifactId, answer.code, now);
+    control = await object.lifecycleControl();
+    if (control === null) return refuseResolution(db, artifactId, "not_found", now);
+  } else if (!(await awaitingResolution(db, artifactId, decision))) {
+    // Nothing to resolve, and no quarantine this job's earlier run ended.
+    return refuseResolution(db, artifactId, "conflict", now);
   }
-  const answer = await object.lifecycleResolve(controlEnvelope(control), decision, now);
-  if (!answer.ok) {
-    await recordFinding(db, artifactId, "refused", answer.code, now);
-    return "stale";
-  }
-  if (decision === "erase") {
-    await db
-      .update(d)
-      .set({ generation: control.generation + 1, epoch: control.epoch, updatedAt: now })
-      .where(eq(d.artifactId, artifactId));
-    if (!artifact) await retireInventory(bucket, objects.region, artifactId, now);
-  }
+  // D1 follows the object as it now is, so a retry after a crash anywhere above ends the same.
+  if (artifact && artifact.ownerId === control.ownerId) await setRow(db, artifactId, control, now);
+  if (!artifact) await retireInventory(bucket, objects.region, artifactId, now);
   await recordFinding(db, artifactId, decision === "adopt" ? "adopted" : "erased", null, now);
   return "done";
+}
+
+async function refuseResolution(
+  db: RegionalDb,
+  artifactId: string,
+  code: DataRefusalCode,
+  now: number,
+): Promise<"stale"> {
+  await recordFinding(db, artifactId, "refused", code, now);
+  return "stale";
+}
+
+/**
+ * Whether this resolution is still the operator's to finish: the last finding is the quarantine
+ * (a run that stopped after the object resolved it) or this resolution's own outcome (a run that
+ * stopped before its acknowledgement).
+ */
+async function awaitingResolution(
+  db: RegionalDb,
+  artifactId: string,
+  decision: "adopt" | "erase",
+): Promise<boolean> {
+  const [finding] = await db
+    .select({ action: schema.dataFindings.action })
+    .from(schema.dataFindings)
+    .where(eq(schema.dataFindings.artifactId, artifactId))
+    .limit(1);
+  const outcome = decision === "adopt" ? "adopted" : "erased";
+  return (
+    finding?.action === "quarantined" ||
+    finding?.action === "awaiting_operator" ||
+    finding?.action === outcome
+  );
+}
+
+/** Sets D1's numbers to the object's (the operator's resolution). */
+async function setRow(db: RegionalDb, artifactId: string, control: DataControl, now: number) {
+  await db
+    .insert(d)
+    .values({ artifactId, generation: control.generation, epoch: control.epoch, updatedAt: now })
+    .onConflictDoUpdate({
+      target: d.artifactId,
+      set: { generation: control.generation, epoch: control.epoch, updatedAt: now },
+    });
 }
 
 /**
@@ -822,7 +907,8 @@ export async function runDataExport(
   if (control === null) return "done";
   const answer = await object.lifecycleExport(controlEnvelope(control), payload.after, now);
   if (!answer.ok) {
-    logEvent("warn", "data_job_refused", { id: row.id, topic: row.topic, reason: answer.code });
+    const reason = answer.code;
+    logEvent("warn", "data_job_refused", { id: row.id, topic: row.topic, reason });
     return "stale";
   }
   const header = {

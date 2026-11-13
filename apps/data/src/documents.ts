@@ -18,10 +18,20 @@ import {
   QuarantineReason,
   RequiredErase,
   QuarantineResolution as Resolution,
+  type StorageReport,
   VisitorId,
 } from "@portifact/contracts/artifact-data";
 import { LIFECYCLE_LIMITS, type LiveAttachment } from "@portifact/domain/artifact-data";
 import { DocumentsStore, type Instrument, type SocketPort, type WokenSocket } from "./store.ts";
+
+/** What an invalid lifecycle command is answered. */
+interface InvalidInput {
+  ok: false;
+  code: "invalid_input";
+  message: string;
+  cost: { rowsRead: number; rowsWritten: number };
+  storage: StorageReport;
+}
 
 /** The most documents an export page of the operator's returns (the export cap). */
 const EXPORT_TAKE = 500;
@@ -110,11 +120,13 @@ export class ArtifactDocuments extends DurableObject<Env> {
 
   /** A hold, a release, a transfer or an epoch raise. */
   lifecycleFence(envelope: unknown, fence: unknown, now: unknown) {
-    return this.store.fence(
-      LifecycleEnvelope.parse(envelope),
-      DataFence.parse(fence),
-      Now.parse(now),
-    );
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope),
+      fence: DataFence.parse(fence),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.fence(input.envelope, input.fence, input.now);
   }
 
   /**
@@ -128,62 +140,97 @@ export class ArtifactDocuments extends DurableObject<Env> {
     reason: unknown,
     now: unknown,
   ) {
-    const parsed: DataEnvelope = {
-      ...LifecycleEnvelope.parse(envelope),
-      requiredErase: RequiredErase.parse(reason),
-    };
-    const id = OperationId.parse(eraseId);
-    const at = Now.parse(now);
-    switch (EraseStep.parse(step)) {
-      case "prepare":
-        return this.store.prepareErase(parsed, id, at);
-      case "commit":
-        return this.store.commitErase(parsed, id, at);
-      case "cancel":
-        return this.store.cancelErase(parsed, id, at);
-    }
+    const input = this.#parsed(() => ({
+      step: EraseStep.parse(step),
+      envelope: {
+        ...LifecycleEnvelope.parse(envelope),
+        requiredErase: RequiredErase.parse(reason),
+      } satisfies DataEnvelope,
+      eraseId: OperationId.parse(eraseId),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    const { envelope: parsed, eraseId: id, now: at } = input;
+    if (input.step === "prepare") return this.store.prepareErase(parsed, id, at);
+    if (input.step === "commit") return this.store.commitErase(parsed, id, at);
+    return this.store.cancelErase(parsed, id, at);
   }
 
   /** One bounded chunk of a deleted account's erasure, under its own operation ID. */
   lifecycleEraseAuthor(envelope: unknown, visitorId: unknown, opId: unknown, now: unknown) {
-    const parsed: DataEnvelope = {
-      ...LifecycleEnvelope.parse(envelope),
-      opId: OperationId.parse(opId),
-    };
-    return this.store.eraseAuthorChunk(parsed, VisitorId.parse(visitorId), CHUNK_TAKE, {
+    const input = this.#parsed(() => ({
+      envelope: {
+        ...LifecycleEnvelope.parse(envelope),
+        opId: OperationId.parse(opId),
+      } satisfies DataEnvelope,
+      visitorId: VisitorId.parse(visitorId),
       now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.eraseAuthorChunk(input.envelope, input.visitorId, CHUNK_TAKE, {
+      now: input.now,
       limits: LIFECYCLE_LIMITS,
     });
   }
 
   /** Reconciliation's quarantine. */
   lifecycleQuarantine(envelope: unknown, reason: unknown, now: unknown) {
-    return this.store.quarantine(
-      LifecycleEnvelope.parse(envelope),
-      QuarantineReason.parse(reason),
-      Now.parse(now),
-    );
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope),
+      reason: QuarantineReason.parse(reason),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.quarantine(input.envelope, input.reason, input.now);
   }
 
   /** The operator's resolution of a quarantine. */
   lifecycleResolve(envelope: unknown, decision: unknown, now: unknown) {
-    return this.store.resolveQuarantine(
-      LifecycleEnvelope.parse(envelope),
-      Resolution.parse(decision),
-      Now.parse(now),
-    );
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope),
+      decision: Resolution.parse(decision),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.resolveQuarantine(input.envelope, input.decision, input.now);
   }
 
   /** One page of the operator's export, allowed under a hold or a quarantine. */
   lifecycleExport(envelope: unknown, after: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope),
+      after: ExportCursor.nullable().parse(after),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
     return this.store.exportPage(
-      LifecycleEnvelope.parse(envelope),
+      input.envelope,
       { kind: "owner", actor: "operator" },
-      ExportCursor.nullable().parse(after),
+      input.after,
       EXPORT_TAKE,
-      { now: Now.parse(now), limits: LIFECYCLE_LIMITS },
+      { now: input.now, limits: LIFECYCLE_LIMITS },
       true,
     );
+  }
+
+  /**
+   * The arguments as parsed, or the refusal an invalid one gets: answered as a value, never
+   * thrown across the RPC boundary, and before anything reads or writes storage.
+   */
+  #parsed<T extends object>(parse: () => T): T | { refused: InvalidInput } {
+    try {
+      return parse();
+    } catch {
+      return {
+        refused: {
+          ok: false,
+          code: "invalid_input",
+          message: "invalid lifecycle command",
+          cost: { rowsRead: 0, rowsWritten: 0 },
+          storage: this.store.currentReport(),
+        },
+      };
+    }
   }
 
   override async alarm(): Promise<void> {

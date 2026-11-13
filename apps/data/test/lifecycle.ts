@@ -150,14 +150,18 @@ export function objectsFor(
       const stub = env.DOCUMENTS.get(env.DOCUMENTS.idFromName(id)) as unknown as DataObjectRpc;
       const crash = options.crash;
       if (crash === undefined) return stub;
+      const methods = stub as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
       return new Proxy(stub, {
         get(target, property) {
-          const value = Reflect.get(target, property) as (...args: unknown[]) => Promise<unknown>;
           if (typeof property === "string" && MUTATING.has(property)) {
+            // Called on the stub itself: an RPC stub's methods are not ordinary functions.
             return (...args: unknown[]) =>
-              crash.step(`object:${property}`, () => value.apply(target, args));
+              crash.step(
+                `object:${property}`,
+                () => methods[property]?.(...args) as Promise<unknown>,
+              );
           }
-          return value;
+          return Reflect.get(target, property);
         },
       });
     },

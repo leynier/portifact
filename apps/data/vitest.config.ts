@@ -9,7 +9,7 @@ import { defineConfig } from "vitest/config";
 // services drive the real object exactly as the jobs Worker does.
 export default defineConfig(async () => {
   const migrations = await readD1Migrations(
-    fileURLToPath(new URL("../../packages/db/migrations", import.meta.url)),
+    fileURLToPath(new URL("../../packages/db/migrations", import.meta.url).href),
   );
   return {
     plugins: [

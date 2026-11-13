@@ -85,7 +85,7 @@ describe("analytics collector", () => {
         startDate: "2026-11-01",
         endDate: "2026-11-08",
         buckets: ["portifact-artifacts", "eu_portifact-artifacts-eu"],
-        scripts: ["portifact-app", "portifact-content", "portifact-jobs"],
+        scripts: ["portifact-app", "portifact-content", "portifact-jobs", "portifact-data"],
         databaseIds: [
           "6cf93803-aa3c-4859-9f58-e36e2fd784e3",
           "b5285aa9-aa8d-4c2c-9828-22e31c1aec9e",
