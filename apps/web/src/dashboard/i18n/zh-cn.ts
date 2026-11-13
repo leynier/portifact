@@ -6,6 +6,12 @@ import type { Catalog } from "./en.ts";
 export const zhCN = {
   ...planTextZhCN,
   "app.title": "Portifact",
+  "dataGrant.frame.granted": "此页面现在可以保存你输入的内容",
+  "dataGrant.frame.saving": "正在保存你的选择",
+  "dataGrant.frame.unavailable": "此框架中无法保存",
+  "dataGrant.frame.unavailableHint":
+    "此浏览器不允许框架记住你的选择。请在单独的标签页中打开 artifact，并在那里允许。",
+  "dataGrant.frame.openTab": "在新标签页中打开",
   "dataGrant.pageTitle": "保存你输入的内容",
   "dataGrant.title": "允许 {host} 保存你输入的内容吗？",
   "dataGrant.ownerPerson": "由 {name} 发布",

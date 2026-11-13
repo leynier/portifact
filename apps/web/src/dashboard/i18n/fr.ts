@@ -7,6 +7,12 @@ import type { Catalog } from "./en.ts";
 export const fr = {
   ...planTextFr,
   "app.title": "Portifact",
+  "dataGrant.frame.granted": "Cette page peut maintenant enregistrer ce que vous saisissez",
+  "dataGrant.frame.saving": "Enregistrement de votre choix",
+  "dataGrant.frame.unavailable": "L'enregistrement n'est pas disponible dans ce cadre",
+  "dataGrant.frame.unavailableHint":
+    "Ce navigateur empêche le cadre de retenir votre choix. Ouvrez l'artifact dans son propre onglet et autorisez-le là.",
+  "dataGrant.frame.openTab": "Ouvrir dans un nouvel onglet",
   "dataGrant.pageTitle": "Enregistrer ce que vous saisissez",
   "dataGrant.title": "Autoriser {host} à enregistrer ce que vous saisissez ?",
   "dataGrant.ownerPerson": "Publié par {name}",

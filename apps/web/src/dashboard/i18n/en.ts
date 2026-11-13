@@ -5,6 +5,12 @@ import { planTextEn } from "../../plans/i18n/en.ts";
 export const en = {
   ...planTextEn,
   "app.title": "Portifact",
+  "dataGrant.frame.granted": "This page can now save what you enter",
+  "dataGrant.frame.saving": "Saving your choice",
+  "dataGrant.frame.unavailable": "Saving is not available in this frame",
+  "dataGrant.frame.unavailableHint":
+    "This browser keeps the frame from remembering your choice. Open the artifact in its own tab and allow it there.",
+  "dataGrant.frame.openTab": "Open in a new tab",
   "dataGrant.pageTitle": "Save what you enter",
   "dataGrant.title": "Let {host} save what you enter?",
   "dataGrant.ownerPerson": "Published by {name}",
