@@ -6,6 +6,18 @@ import type { Catalog } from "./en.ts";
 export const zhCN = {
   ...planTextZhCN,
   "app.title": "Portifact",
+  "sharedData.download": "下载我保存的内容",
+  "sharedData.downloadNamed": "下载你在 {name} 中保存的内容",
+  "sharedData.downloaded": "已保存 {file}",
+  "sharedData.downloadFailed": "下载未完成",
+  "sharedData.nothingSaved": "你没有在 {name} 中保存任何内容",
+  "sharedData.deleteMine": "删除我保存的内容",
+  "sharedData.deleteMineNamed": "删除你在 {name} 中保存的内容",
+  "sharedData.deleteTitle": "删除你在 {name} 中保存的内容？",
+  "sharedData.deleteBody":
+    "你在其中创建的每个文档都将被永久删除，包括他人之后的编辑。你对他人文档的编辑会保留，但不再显示你的名字。",
+  "sharedData.deleted": "已删除你在 {name} 中保存的内容（{count} 个文档）",
+  "sharedData.deleteFailed": "删除未完成",
   "dataGrant.frame.granted": "此页面现在可以保存你输入的内容",
   "dataGrant.frame.saving": "正在保存你的选择",
   "dataGrant.frame.unavailable": "此框架中无法保存",

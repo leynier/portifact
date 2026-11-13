@@ -6,6 +6,18 @@ import type { Catalog } from "./en.ts";
 export const ptBR = {
   ...planTextPtBR,
   "app.title": "Portifact",
+  "sharedData.download": "Baixar o que salvei",
+  "sharedData.downloadNamed": "Baixar o que você salvou em {name}",
+  "sharedData.downloaded": "{file} salvo",
+  "sharedData.downloadFailed": "O download não foi concluído",
+  "sharedData.nothingSaved": "Você não salvou nada em {name}",
+  "sharedData.deleteMine": "Excluir o que salvei",
+  "sharedData.deleteMineNamed": "Excluir o que você salvou em {name}",
+  "sharedData.deleteTitle": "Excluir o que você salvou em {name}?",
+  "sharedData.deleteBody":
+    "Cada documento que você criou ali é excluído para sempre, com as edições que outros fizeram depois. Suas edições em documentos de outras pessoas ficam, sem seu nome.",
+  "sharedData.deleted": "O que você salvou em {name} foi excluído ({count} documentos)",
+  "sharedData.deleteFailed": "A exclusão não foi concluída",
   "dataGrant.frame.granted": "Esta página já pode salvar o que você digita",
   "dataGrant.frame.saving": "Salvando sua escolha",
   "dataGrant.frame.unavailable": "Salvar não está disponível neste quadro",

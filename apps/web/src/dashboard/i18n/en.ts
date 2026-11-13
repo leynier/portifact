@@ -5,6 +5,18 @@ import { planTextEn } from "../../plans/i18n/en.ts";
 export const en = {
   ...planTextEn,
   "app.title": "Portifact",
+  "sharedData.download": "Download what I saved",
+  "sharedData.downloadNamed": "Download what you saved in {name}",
+  "sharedData.downloaded": "Saved {file}",
+  "sharedData.downloadFailed": "The download did not finish",
+  "sharedData.nothingSaved": "You saved nothing in {name}",
+  "sharedData.deleteMine": "Delete what I saved",
+  "sharedData.deleteMineNamed": "Delete what you saved in {name}",
+  "sharedData.deleteTitle": "Delete what you saved in {name}?",
+  "sharedData.deleteBody":
+    "Every document you created there is deleted for good, with later edits others made to it. Your edits to other people's documents stay, without your name.",
+  "sharedData.deleted": "Deleted what you saved in {name} ({count} documents)",
+  "sharedData.deleteFailed": "Deleting did not finish",
   "dataGrant.frame.granted": "This page can now save what you enter",
   "dataGrant.frame.saving": "Saving your choice",
   "dataGrant.frame.unavailable": "Saving is not available in this frame",

@@ -7,6 +7,19 @@ import type { Catalog } from "./en.ts";
 export const fr = {
   ...planTextFr,
   "app.title": "Portifact",
+  "sharedData.download": "Télécharger ce que j'ai enregistré",
+  "sharedData.downloadNamed": "Télécharger ce que vous avez enregistré dans {name}",
+  "sharedData.downloaded": "{file} enregistré",
+  "sharedData.downloadFailed": "Le téléchargement n'a pas abouti",
+  "sharedData.nothingSaved": "Vous n'avez rien enregistré dans {name}",
+  "sharedData.deleteMine": "Supprimer ce que j'ai enregistré",
+  "sharedData.deleteMineNamed": "Supprimer ce que vous avez enregistré dans {name}",
+  "sharedData.deleteTitle": "Supprimer ce que vous avez enregistré dans {name} ?",
+  "sharedData.deleteBody":
+    "Chaque document que vous y avez créé est supprimé définitivement, avec les modifications faites ensuite par d'autres. Vos modifications des documents d'autres personnes restent, sans votre nom.",
+  "sharedData.deleted":
+    "Ce que vous avez enregistré dans {name} a été supprimé ({count} documents)",
+  "sharedData.deleteFailed": "La suppression n'a pas abouti",
   "dataGrant.frame.granted": "Cette page peut maintenant enregistrer ce que vous saisissez",
   "dataGrant.frame.saving": "Enregistrement de votre choix",
   "dataGrant.frame.unavailable": "L'enregistrement n'est pas disponible dans ce cadre",

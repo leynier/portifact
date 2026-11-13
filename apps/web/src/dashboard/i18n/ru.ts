@@ -7,6 +7,18 @@ import type { Catalog } from "./en.ts";
 export const ru = {
   ...planTextRu,
   "app.title": "Portifact",
+  "sharedData.download": "Скачать то, что я сохранил(а)",
+  "sharedData.downloadNamed": "Скачать то, что вы сохранили в {name}",
+  "sharedData.downloaded": "{file} сохранён",
+  "sharedData.downloadFailed": "Скачивание не завершено",
+  "sharedData.nothingSaved": "Вы ничего не сохраняли в {name}",
+  "sharedData.deleteMine": "Удалить то, что я сохранил(а)",
+  "sharedData.deleteMineNamed": "Удалить то, что вы сохранили в {name}",
+  "sharedData.deleteTitle": "Удалить то, что вы сохранили в {name}?",
+  "sharedData.deleteBody":
+    "Каждый созданный вами там документ удаляется навсегда вместе с последующими правками других. Ваши правки в документах других людей останутся, без вашего имени.",
+  "sharedData.deleted": "Удалено то, что вы сохранили в {name} (документов: {count})",
+  "sharedData.deleteFailed": "Удаление не завершено",
   "dataGrant.frame.granted": "Теперь эта страница может сохранять то, что вы вводите",
   "dataGrant.frame.saving": "Сохраняем ваш выбор",
   "dataGrant.frame.unavailable": "Сохранение недоступно в этой рамке",

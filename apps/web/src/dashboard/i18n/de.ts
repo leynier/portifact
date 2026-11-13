@@ -6,6 +6,18 @@ import type { Catalog } from "./en.ts";
 export const de = {
   ...planTextDe,
   "app.title": "Portifact",
+  "sharedData.download": "Herunterladen, was ich gespeichert habe",
+  "sharedData.downloadNamed": "Herunterladen, was du in {name} gespeichert hast",
+  "sharedData.downloaded": "{file} gespeichert",
+  "sharedData.downloadFailed": "Der Download wurde nicht abgeschlossen",
+  "sharedData.nothingSaved": "Du hast in {name} nichts gespeichert",
+  "sharedData.deleteMine": "Löschen, was ich gespeichert habe",
+  "sharedData.deleteMineNamed": "Löschen, was du in {name} gespeichert hast",
+  "sharedData.deleteTitle": "Löschen, was du in {name} gespeichert hast?",
+  "sharedData.deleteBody":
+    "Jedes Dokument, das du dort erstellt hast, wird endgültig gelöscht, samt späterer Änderungen anderer. Deine Änderungen an Dokumenten anderer bleiben, ohne deinen Namen.",
+  "sharedData.deleted": "Gelöscht, was du in {name} gespeichert hast ({count} Dokumente)",
+  "sharedData.deleteFailed": "Löschen wurde nicht abgeschlossen",
   "dataGrant.frame.granted": "Diese Seite kann jetzt speichern, was du eingibst",
   "dataGrant.frame.saving": "Deine Wahl wird gespeichert",
   "dataGrant.frame.unavailable": "Speichern ist in diesem Rahmen nicht verfügbar",

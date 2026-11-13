@@ -83,6 +83,8 @@ import {
   InvitationLookup,
   InvitationView,
   LifecycleResult,
+  OwnDataPage,
+  OwnDocumentDeletion,
   type PolicyImpact,
   PolicyPreview,
   PreparedPublish,
@@ -236,6 +238,10 @@ export interface DashboardApi {
   issueDataGrant(input: DataGrantCodeRequest): Promise<DataGrantCode>;
   /** "Data you shared": the artifacts the person granted. */
   dataGrants(after?: string | null): Promise<DataGrantList>;
+  /** One page of the documents the person created in an artifact. */
+  ownData(artifactId: string, after: string | null): Promise<OwnDataPage>;
+  /** Deletes one document the person created. */
+  deleteOwnDocument(artifactId: string, collection: string, id: string): Promise<unknown>;
   /** Revokes the person's grants on an artifact. */
   revokeDataGrants(artifactId: string): Promise<DataGrantRevocation>;
   /** Deletes the account; the email typed again confirms it. */
@@ -865,6 +871,24 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     dataGrants(after) {
       const query = after ? `?${new URLSearchParams({ after })}` : "";
       return call(`/api/v1/account/data-grants${query}`, DataGrantList);
+    },
+    ownData(artifactId, after) {
+      const query = after ? `?${new URLSearchParams({ after })}` : "";
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/mine${query}`,
+        OwnDataPage,
+      );
+    },
+    deleteOwnDocument(artifactId, collection, id) {
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/documents/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,
+        OwnDocumentDeletion,
+        "DELETE",
+        undefined,
+        {
+          "idempotency-key": `${String(Date.now()).padStart(13, "0")}.${crypto.randomUUID().replaceAll("-", "")}`,
+        },
+      );
     },
     revokeDataGrants(artifactId) {
       return call(

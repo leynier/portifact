@@ -6,6 +6,18 @@ import type { Catalog } from "./en.ts";
 export const ja = {
   ...planTextJa,
   "app.title": "Portifact",
+  "sharedData.download": "保存した内容をダウンロード",
+  "sharedData.downloadNamed": "{name} に保存した内容をダウンロード",
+  "sharedData.downloaded": "{file} を保存しました",
+  "sharedData.downloadFailed": "ダウンロードを完了できませんでした",
+  "sharedData.nothingSaved": "{name} には何も保存していません",
+  "sharedData.deleteMine": "保存した内容を削除",
+  "sharedData.deleteMineNamed": "{name} に保存した内容を削除",
+  "sharedData.deleteTitle": "{name} に保存した内容を削除しますか？",
+  "sharedData.deleteBody":
+    "そこで作成したドキュメントは、他の人が後から加えた編集も含めて完全に削除されます。他の人のドキュメントへのあなたの編集は、名前なしで残ります。",
+  "sharedData.deleted": "{name} に保存した内容を削除しました（{count} 件）",
+  "sharedData.deleteFailed": "削除を完了できませんでした",
   "dataGrant.frame.granted": "このページで入力内容を保存できるようになりました",
   "dataGrant.frame.saving": "選択を保存しています",
   "dataGrant.frame.unavailable": "このフレームでは保存できません",

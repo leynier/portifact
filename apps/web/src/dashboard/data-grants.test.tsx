@@ -125,6 +125,40 @@ describe("Data you shared", () => {
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
   });
 
+  it("downloads and deletes what the person saved, after a confirmation", async () => {
+    const server = fakeServer();
+    server.dataGrants = [
+      {
+        artifactId: ID,
+        artifactName: "Board",
+        host: HOST,
+        openGrants: 0,
+        firstGrantedAt: "2026-11-01T10:00:00.000Z",
+        lastGrantedAt: "2026-11-01T10:00:00.000Z",
+        expiresAt: null,
+      },
+    ];
+    server.ownData[ID] = [
+      { collection: "votes", id: "a".repeat(16), body: '{"choice":"a"}' },
+      { collection: "votes", id: "b".repeat(16), body: '{"choice":"b"}' },
+    ];
+    const view = renderDashboard("/shared-data", server);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Download what you saved in Board" }),
+    );
+    await waitFor(() => expect(view.saved).toHaveLength(1));
+    const file = view.saved[0];
+    expect(file?.fileName).toBe("Board-my-data.jsonl");
+    expect((await file?.blob.text())?.trim().split("\n")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete what you saved in Board" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete what you saved in Board?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete what I saved" }));
+    await waitFor(() => expect(server.ownData[ID]).toEqual([]));
+    // A closed grant offers no Revoke, but the person's documents stay theirs to take or delete.
+    expect(screen.queryByRole("button", { name: "Revoke Board" })).toBeNull();
+  });
+
   it("says when nothing was shared", async () => {
     renderDashboard("/shared-data", fakeServer());
     expect(await screen.findByText("Nothing shared yet")).toBeTruthy();

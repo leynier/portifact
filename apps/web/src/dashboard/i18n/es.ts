@@ -6,6 +6,18 @@ import type { Catalog } from "./en.ts";
 export const es = {
   ...planTextEs,
   "app.title": "Portifact",
+  "sharedData.download": "Descargar lo que guardé",
+  "sharedData.downloadNamed": "Descargar lo que guardaste en {name}",
+  "sharedData.downloaded": "Guardado {file}",
+  "sharedData.downloadFailed": "La descarga no se completó",
+  "sharedData.nothingSaved": "No guardaste nada en {name}",
+  "sharedData.deleteMine": "Eliminar lo que guardé",
+  "sharedData.deleteMineNamed": "Eliminar lo que guardaste en {name}",
+  "sharedData.deleteTitle": "¿Eliminar lo que guardaste en {name}?",
+  "sharedData.deleteBody":
+    "Cada documento que creaste ahí se elimina para siempre, con las ediciones que otros le hicieron después. Tus ediciones en documentos de otras personas se quedan, sin tu nombre.",
+  "sharedData.deleted": "Se eliminó lo que guardaste en {name} ({count} documentos)",
+  "sharedData.deleteFailed": "No se pudo completar la eliminación",
   "dataGrant.frame.granted": "Esta página ya puede guardar lo que escribes",
   "dataGrant.frame.saving": "Guardando tu elección",
   "dataGrant.frame.unavailable": "Guardar no está disponible en este marco",
