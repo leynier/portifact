@@ -367,6 +367,8 @@ export interface FakeSuggestions {
   changes: Record<string, ChangeItemView[]>;
   /** Previews issued so far. */
   previews: number;
+  /** Edit suggestions switched off on the server: every suggestion route answers 404. */
+  off?: boolean;
   /** The caller's draft, by artifact ID (decision 0027, "The owner's draft"). */
   drafts: Record<string, DraftView>;
   /** POST .../draft/plan, by artifact ID; missing ones answer 404. */
@@ -3254,6 +3256,7 @@ function suggestionRoute(
 ): Response {
   const store = server.annotations[id];
   const fake = server.suggestions;
+  if (fake.off) return apiError("not_found", 404);
   const body = server.bodies.at(-1) as Record<string, unknown> | undefined;
   if (kind === "previews" && method === "POST") {
     fake.previews += 1;
