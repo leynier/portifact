@@ -496,7 +496,8 @@ describe("pruning preview codes", () => {
     await env.ARTIFACTS.put(stray, "x");
 
     const pruned = await prunePreviewCodes(db(), env.ARTIFACTS, NOW + PREVIEW_CODES.documentTtlMs);
-    expect(pruned).toBeGreaterThanOrEqual(3);
+    expect(pruned.documents).toBeGreaterThanOrEqual(2);
+    expect(pruned.rows).toBeGreaterThanOrEqual(1);
     expect(await env.ARTIFACTS.get(stray)).toBeNull();
     expect(await env.ARTIFACTS.get(oldRow?.r2Key ?? "")).toBeNull();
     const left = await codeRows(s.artifactId);

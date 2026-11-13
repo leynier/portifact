@@ -370,16 +370,25 @@ export function previewKey(now: number): string {
   return `previews/${now}/${crypto.randomUUID()}`;
 }
 
+/** What one prune run did in one region. */
+export interface PreviewPrune {
+  documents: number;
+  rows: number;
+}
+
 /**
  * Deletes cached preview documents and preview codes once the cache's lifetime has passed,
  * redeemed or not. Documents are found by their key, which starts with their creation time, so a
  * document whose row went another way (an account deletion deletes the rows) is still deleted.
+ * Rows are reached through the `expires_at` index: a code's expiry is always its creation plus
+ * `PREVIEW_CODES.ttlMs`, so a row created at or before the cutoff expires at or before
+ * `cutoff + ttlMs`, and the statement reads only the rows it deletes.
  */
 export async function prunePreviewCodes(
   db: RegionalDb,
   bucket: R2Bucket,
   now: number,
-): Promise<number> {
+): Promise<PreviewPrune> {
   const cutoff = now - PREVIEW_CODES.documentTtlMs;
   const listed = await bucket.list({ prefix: "previews/", limit: PRUNE_BATCH });
   // Keys sort by their time (13 digits of milliseconds until the year 2286): the old come first.
@@ -388,18 +397,18 @@ export async function prunePreviewCodes(
     .filter((key) => Number(key.slice("previews/".length).split("/")[0]) <= cutoff);
   await bucket.delete(old);
   const c = schema.previewCodes;
-  const due = await db
-    .select({ codeSha256: c.codeSha256 })
-    .from(c)
-    .where(lte(c.createdAt, cutoff))
-    .limit(PRUNE_BATCH);
-  if (due.length > 0) {
-    await db.delete(c).where(
+  const deleted = await db
+    .delete(c)
+    .where(
       inArray(
         c.codeSha256,
-        due.map((row) => row.codeSha256),
+        db
+          .select({ codeSha256: c.codeSha256 })
+          .from(c)
+          .where(lte(c.expiresAt, cutoff + PREVIEW_CODES.ttlMs))
+          .limit(PRUNE_BATCH),
       ),
-    );
-  }
-  return old.length + due.length;
+    )
+    .returning({ codeSha256: c.codeSha256 });
+  return { documents: old.length, rows: deleted.length };
 }
