@@ -474,15 +474,13 @@ describe("finding 8: the session's own sign-in decides workspace sign-in policie
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     const s = await euPreview();
-    await db()
-      .global.insert(schema.ownerPlans)
-      .values({
-        ownerId: s.ws.id,
-        plan: "enterprise",
-        seats: 5,
-        grantedBy: "test",
-        updatedAt: NOW,
-      });
+    await db().global.insert(schema.ownerPlans).values({
+      ownerId: s.ws.id,
+      plan: "enterprise",
+      seats: 5,
+      grantedBy: "test",
+      updatedAt: NOW,
+    });
     await db()
       .global.update(schema.workspaces)
       .set({ policy: { ...DEFAULT_POLICY, sessionMaxHours: 24 } })
@@ -519,15 +517,13 @@ describe("finding 8: the session's own sign-in decides workspace sign-in policie
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(NOW);
     const s = await euPreview();
-    await db()
-      .global.insert(schema.ownerPlans)
-      .values({
-        ownerId: s.ws.id,
-        plan: "enterprise",
-        seats: 5,
-        grantedBy: "test",
-        updatedAt: NOW,
-      });
+    await db().global.insert(schema.ownerPlans).values({
+      ownerId: s.ws.id,
+      plan: "enterprise",
+      seats: 5,
+      grantedBy: "test",
+      updatedAt: NOW,
+    });
     const context = {
       kind: "request" as const,
       ip: "192.0.2.10",

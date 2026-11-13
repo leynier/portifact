@@ -535,7 +535,19 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       .replace(/\//g, "_")
       .replace(/=+$/, "");
     const r2Key = previewKey(now);
-    await regionBindings(env).bucket.put(r2Key, built.document);
+    const thread = await regionBindings(env)
+      .db.prepare(
+        "SELECT t.suggestion_revision AS revision, a.current_version_id AS version FROM annotation_threads t JOIN artifacts a ON a.id = t.artifact_id WHERE t.id = ?",
+      )
+      .bind(i.threadId)
+      .first<{ revision: number; version: string }>();
+    // The binding the issuer stores with every document (packages/services, finding 3).
+    await regionBindings(env).bucket.put(r2Key, built.document, {
+      customMetadata: {
+        versionId: thread?.version ?? "",
+        revision: String(thread?.revision ?? ""),
+      },
+    });
     await db.insert(schema.previewCodes).values({
       codeSha256: await sha256(new TextEncoder().encode(code)),
       userId: i.userId,

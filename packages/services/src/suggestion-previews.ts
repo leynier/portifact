@@ -260,7 +260,11 @@ export async function issuePreviewCode(
   }
   if (inserted.length === 0) return planChanged();
   // The row first: a document is never stored without a row the scan can find.
-  await bucket.put(r2Key, preview.document);
+  // What the plan was built against travels with the document (no column, no added call): a
+  // new version or a revised suggestion before redemption makes the document stale.
+  await bucket.put(r2Key, preview.document, {
+    customMetadata: { versionId: binding.versionId, revision: String(binding.revision) },
+  });
   return ok({
     state: "ready",
     url: `https://${previewHost(input.contentDomain)}${PREVIEW_CODES.pathPrefix}${code}`,
@@ -340,7 +344,18 @@ export async function redeemPreviewCode(
     );
     if (!subject.ok) return undefined;
     const object = await bucket.get(row.r2Key);
-    return object ? await object.text() : undefined;
+    if (!object) return undefined;
+    // The plan the document shows must still be the one in force: the version it was built
+    // against still current, the suggestion still at the revision planned.
+    const { standing, thread } = subject.value;
+    const planned = object.customMetadata ?? {};
+    if (
+      planned.versionId !== standing.artifact.currentVersionId ||
+      planned.revision !== String(thread.suggestionRevision)
+    ) {
+      return undefined;
+    }
+    return await object.text();
   } finally {
     // A spent code's document is never needed again, whatever the answer.
     await bucket.delete(row.r2Key);

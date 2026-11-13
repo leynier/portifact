@@ -29,7 +29,8 @@ async function sha256(text: string): Promise<string> {
 
 async function code(value: string) {
   const r2Key = previewKey(NOW);
-  await env.ARTIFACTS.put(r2Key, DOCUMENT);
+  // The plan it shows: the artifact's current version and the suggestion's revision.
+  await env.ARTIFACTS.put(r2Key, DOCUMENT, { customMetadata: { versionId: "v1", revision: "1" } });
   await db()
     .insert(schema.previewCodes)
     .values({
