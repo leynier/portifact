@@ -150,8 +150,7 @@ export async function issuePreviewCode(
       ),
     )
     .limit(1);
-  // A draft's plan has no thread; drafts are previewed by the suggestion services.
-  if (!row?.threadId) return missingPlan();
+  if (!row) return missingPlan();
   const parsed = Plan.safeParse(safeJson(row.plan));
   if (!parsed.success) return missingPlan();
   // The cached contents decide nothing by themselves: the plan rebuilt below from the stored
@@ -161,7 +160,9 @@ export async function issuePreviewCode(
   const subject = await previewSubject(
     db,
     { userId, artifactId, now },
-    { threadId: row.threadId, revision: binding.revision },
+    // A draft's plan has no thread (drafts are previewed by the suggestion services): no thread
+    // has an empty ID, so `readableThread` answers it like a missing one.
+    { threadId: row.threadId ?? "", revision: binding.revision },
   );
   if (!subject.ok) return subject;
   const { standing, thread } = subject.value;
@@ -196,11 +197,16 @@ export async function issuePreviewCode(
   const source = await storedText(db, bucket, { ...where, kind: "published" });
   let stored: StoredRendering | undefined;
   if (kind !== "html") {
+    // A missing stored rendering or block map is the baseline not reproducing: every operation
+    // is listed, the digest differs and the request ends below with `version_conflict`.
     const html = await storedText(db, bucket, { ...where, kind: "rendered" });
     const blockMap =
       kind === "markdown" ? await storedText(db, bucket, { ...where, kind: "block_map" }) : null;
-    if (html === undefined || blockMap === undefined) return planChanged();
-    stored = { html, blockMap, options: plan.output.options ?? { title: "" } };
+    stored = {
+      html: html ?? "",
+      blockMap: blockMap ?? null,
+      options: plan.output.options ?? { title: "" },
+    };
   }
   const edit = Edit.safeParse(safeJson(thread.edit ?? ""));
   if (source === undefined || !edit.success) return planChanged();

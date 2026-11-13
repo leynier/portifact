@@ -209,6 +209,14 @@ describe("the preview host", () => {
     expect((await ask(`/p/${CODE}`)).response.status).toBe(200);
   });
 
+  it("does not redeem a real code under another prefix", async () => {
+    await code(CODE);
+    const { response } = await ask(`/x/${CODE}`);
+    expect(response.status).toBe(404);
+    const [row] = await db().select().from(schema.previewCodes);
+    expect(row?.redeemedAt).toBeNull();
+  });
+
   it("refuses unknown and expired codes and ended sessions alike", async () => {
     await code(CODE);
     expect((await ask(`/p/${OTHER_CODE}`)).response.status).toBe(404);
