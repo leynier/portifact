@@ -52,8 +52,7 @@ function harness(enabled = true) {
   return { deps, of, objects };
 }
 
-let keys = 0;
-const key = () => `key-${(keys += 1)}-${crypto.randomUUID()}`;
+const key = () => `key-${crypto.randomUUID()}`;
 
 async function ownedArtifact() {
   const owner = await user("Owner");

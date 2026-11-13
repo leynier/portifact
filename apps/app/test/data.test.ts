@@ -29,8 +29,11 @@ interface Owner {
   artifactId: string;
 }
 
-let keys = 0;
-const json = (method: string, body?: unknown, key = `data-key-${(keys += 1)}`): RequestInit => ({
+const json = (
+  method: string,
+  body?: unknown,
+  key = `data-key-${crypto.randomUUID()}`,
+): RequestInit => ({
   method,
   headers: { "content-type": "application/json", "idempotency-key": key },
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
