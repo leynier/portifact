@@ -23,7 +23,7 @@ import {
   previewHost,
 } from "@portifact/contracts";
 import { hitRateLimit, type RegionalDb, type Regions, schema } from "@portifact/db";
-import { fail, ok, type Result } from "@portifact/domain";
+import { fail, needsTermsAcceptance, ok, type Result } from "@portifact/domain";
 import {
   buildPlan,
   planPageUrl,
@@ -311,13 +311,17 @@ export async function redeemPreviewCode(
   // The content Worker binds every region's bucket with its database.
   const bucket = handles.bucket as R2Bucket;
   try {
+    // The dashboard session the code was issued to, with its account: a session of an account
+    // that has not accepted the current terms counts as none (AGENTS.md, terms).
     const s = schema.sessions;
+    const u = schema.users;
     const [session] = await regions.global
-      .select({ id: s.id })
+      .select({ termsVersion: u.termsVersion })
       .from(s)
+      .innerJoin(u, eq(u.id, s.userId))
       .where(and(eq(s.id, row.sessionId), eq(s.userId, row.userId), gt(s.expiresAt, new Date(now))))
       .limit(1);
-    if (!session) return undefined;
+    if (!session || needsTermsAcceptance(session.termsVersion)) return undefined;
     const subject = await previewSubject(
       handles.db,
       { userId: row.userId, artifactId: row.artifactId, now },

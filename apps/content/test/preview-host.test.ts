@@ -2,7 +2,7 @@
 // answered before any artifact lookup, serves only a redeemed code's document from a frame, with
 // exactly the preview headers, and sets, reads, charges and logs nothing.
 import { env } from "cloudflare:test";
-import { ArtifactId } from "@portifact/contracts";
+import { ArtifactId, TERMS_VERSION } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { previewKey } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -62,6 +62,7 @@ beforeEach(async () => {
     name: "Owner",
     email: "owner@example.com",
     emailVerified: true,
+    termsVersion: TERMS_VERSION,
     createdAt: at,
     updatedAt: at,
   });
