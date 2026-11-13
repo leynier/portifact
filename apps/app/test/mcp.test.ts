@@ -3,6 +3,7 @@ import { LIMITS } from "@portifact/contracts";
 import { regionsFromEnv } from "@portifact/db";
 import { commitPublish, hashRequest, preparePublish } from "@portifact/services";
 import { describe, expect, it } from "vitest";
+import { DATA_TOOL_SCOPES } from "../src/mcp/data-tools.ts";
 import { publishInline } from "../src/mcp/inline.ts";
 import { MAX_REQUEST_BYTES, requiredScopes } from "../src/mcp/routes.ts";
 import { TOOL_SCOPES } from "../src/mcp/tools.ts";
@@ -71,6 +72,7 @@ const TOOLS = [
   ...["list_webhooks", "list_webhook_deliveries"],
   ...["list_integrations", "create_issue_from_thread"],
   ...["request_review", "submit_review", "get_review_status"],
+  ...DATA_TOOL_SCOPES.map(([name]) => name),
 ].sort();
 
 interface Committed {

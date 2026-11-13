@@ -22,6 +22,7 @@ import {
 } from "./artifact-data.ts";
 import { ArtifactId } from "./core.ts";
 import type { PlanName } from "./plans.ts";
+import { IdempotencyKey } from "./publishing.ts";
 
 /** One plan's artifact data: how many artifacts may hold data, and the limits each carries. */
 export interface ArtifactDataPlan {
@@ -281,38 +282,70 @@ export function parseExportCursor(text: string | undefined): ExportCursor | null
   return rest.length === 0 && parsed.success ? parsed.data : undefined;
 }
 
-// MCP tool inputs: the API's inputs with the artifact named.
+// MCP tool inputs: the API's inputs with the artifact named. Changes take an optional
+// idempotency key (the API's `Idempotency-Key`): the same key retried answers the same result.
 
 const OnArtifact = { artifactId: ArtifactId };
 const OnCollection = { ...OnArtifact, collection: CollectionName };
+const Retry = { idempotencyKey: IdempotencyKey.optional() };
 
 export const DescribeDataInput = z.object(OnArtifact);
-export const DeclareDataCollectionInput = z.object({ ...OnArtifact, ...CollectionDeclaration.shape });
+export type DescribeDataInput = z.infer<typeof DescribeDataInput>;
+export const DeclareDataCollectionInput = z.object({
+  ...OnArtifact,
+  ...CollectionDeclaration.shape,
+  ...Retry,
+});
+export type DeclareDataCollectionInput = z.infer<typeof DeclareDataCollectionInput>;
+export const BuildDataIndexesInput = z.object({ ...OnArtifact, ...Retry });
+export type BuildDataIndexesInput = z.infer<typeof BuildDataIndexesInput>;
 export const GetDataDocumentInput = z.object({ ...OnCollection, id: DocumentId });
+export type GetDataDocumentInput = z.infer<typeof GetDataDocumentInput>;
 export const QueryDataInput = z.object({ ...OnCollection, ...DataQueryParams.shape });
+export type QueryDataInput = z.infer<typeof QueryDataInput>;
 export const CountDataInput = z.object({ ...OnArtifact, ...DataCountParams.shape });
-export const CreateDataDocumentInput = z.object({ ...OnCollection, body: DataDocumentBody });
+export type CountDataInput = z.infer<typeof CountDataInput>;
+export const CreateDataDocumentInput = z.object({
+  ...OnCollection,
+  body: DataDocumentBody,
+  ...Retry,
+});
+export type CreateDataDocumentInput = z.infer<typeof CreateDataDocumentInput>;
 export const ReplaceDataDocumentInput = z.object({
   ...OnCollection,
   id: DocumentId,
   body: DataDocumentBody,
+  ...Retry,
 });
+export type ReplaceDataDocumentInput = z.infer<typeof ReplaceDataDocumentInput>;
 export const DeleteDataDocumentInput = z.object({
   ...OnCollection,
   id: DocumentId,
   confirm: z.literal(true),
+  ...Retry,
 });
-export const CreateDataDocumentsInput = z.object({ ...OnCollection, ...DataBulkCreate.shape });
+export type DeleteDataDocumentInput = z.infer<typeof DeleteDataDocumentInput>;
+export const CreateDataDocumentsInput = z.object({
+  ...OnCollection,
+  ...DataBulkCreate.shape,
+  ...Retry,
+});
+export type CreateDataDocumentsInput = z.infer<typeof CreateDataDocumentsInput>;
 export const ReplaceDataDocumentsInput = z.object({
   ...OnCollection,
   documents: BulkReplace.shape.documents,
+  ...Retry,
 });
+export type ReplaceDataDocumentsInput = z.infer<typeof ReplaceDataDocumentsInput>;
 export const DeleteDataDocumentsInput = z.object({
   ...OnCollection,
   ids: DataBulkRemove.shape.ids,
   confirm: z.literal(true),
+  ...Retry,
 });
+export type DeleteDataDocumentsInput = z.infer<typeof DeleteDataDocumentsInput>;
 export const ExportDataInput = z.object({
   ...OnArtifact,
   after: z.string().min(1).max(80).optional(),
 });
+export type ExportDataInput = z.infer<typeof ExportDataInput>;
