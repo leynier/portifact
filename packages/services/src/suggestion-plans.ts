@@ -22,7 +22,14 @@ import {
   planningRateKeys,
   SUGGESTION_LIMITS,
 } from "@portifact/contracts";
-import { bothSides, type Db, hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
+import {
+  bothSides,
+  type Db,
+  hitRateLimits,
+  type RateLimitHit,
+  type RegionalDb,
+  schema,
+} from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import {
   type BuiltPlan,
@@ -112,15 +119,27 @@ export async function readCapped(
   return bytes;
 }
 
-/**
- * Reads the published file at `path` of a version, and a document's stored rendering, each
- * checked by its stored size before any byte is read and read no further than its limit.
- */
-export async function storedPage(
+/** The rows of a version's page and, for a document, of its stored rendering and block map. */
+export interface StoredFiles {
+  kind: FileKind;
+  file: {
+    path: string;
+    sha256: string;
+    size: number;
+    contentType: string;
+    r2Key: string;
+    entrypoint: string;
+  };
+  rendered: { size: number; r2Key: string } | undefined;
+  blockMap: { size: number; r2Key: string } | undefined;
+  pageUrl: string;
+}
+
+/** The rows `storedPage` reads, before any byte: what is there and how large it is stored. */
+export async function storedFiles(
   db: Db,
-  bucket: R2Bucket,
   input: { artifact: ArtifactRow; versionId: string; path: string; contentDomain: string },
-): Promise<Result<StoredPage>> {
+): Promise<Result<StoredFiles>> {
   const vf = schema.versionFiles;
   const o = schema.objects;
   const rows = await db
@@ -147,21 +166,58 @@ export async function storedPage(
   if (!file) return fail("not_found", "The suggested page is not in this version.");
   const kind = plannableKind(input.artifact.type, file, file.entrypoint);
   if (kind === null) return fail("invalid_input", "Suggestions are made on pages and documents.");
+  return ok({
+    kind,
+    file,
+    rendered: rows.find((row) => row.kind === "rendered"),
+    blockMap: rows.find((row) => row.kind === "block_map"),
+    pageUrl: planPageUrl(kind, input.artifact.id, input.contentDomain, file.path),
+  });
+}
+
+/** The page's own read limit (a mark included): a file stored larger is never read. */
+const pageCap = (files: StoredFiles) => fileLimit(files.kind) + UTF8_BOM.length;
+const baselineRead = (row: { size: number } | undefined) =>
+  row && row.size <= SUGGESTION_LIMITS.renderingReadBytes ? row.size : 0;
+
+/**
+ * At most the bytes `readStoredPage` reads, from the stored sizes, before any byte is read:
+ * every read is capped at its object's stored size, so the bytes read never exceed it.
+ */
+export function storedReadCost(files: StoredFiles, baseline: boolean): number {
+  const source = files.file.size > pageCap(files) ? 0 : files.file.size;
+  if (!baseline || files.kind === "html" || source === 0) return source;
+  return source + baselineRead(files.rendered) + baselineRead(files.blockMap);
+}
+
+/**
+ * Reads the page `files` describes, and with `baseline` a document's stored rendering and block
+ * map, each checked by its stored size before any byte is read and read no further than it.
+ * `read` is the bytes actually read.
+ */
+export async function readStoredPage(
+  bucket: R2Bucket,
+  files: StoredFiles,
+  input: { artifact: ArtifactRow },
+  baseline = true,
+): Promise<Result<StoredPage & { read: number }>> {
+  const { kind, file } = files;
   const base = {
     kind,
     path: file.path,
     sha256: file.sha256,
     contentType: file.contentType,
     entrypoint: file.entrypoint,
-    pageUrl: planPageUrl(kind, input.artifact.id, input.contentDomain, file.path),
+    pageUrl: files.pageUrl,
   };
   // Over the limit by its stored size (a mark included): listed without reading a byte.
-  const limit = fileLimit(kind) + UTF8_BOM.length;
-  const bytes = file.size > limit ? "too_large" : await readCapped(bucket, file.r2Key, limit);
+  const bytes =
+    file.size > pageCap(files) ? "too_large" : await readCapped(bucket, file.r2Key, file.size);
   if (bytes === null) return fail("not_found", "The suggested page is missing from storage.");
   if (bytes === "too_large") {
-    return ok({ ...base, source: "", decoded: false, oversized: true, bom: false });
+    return ok({ ...base, source: "", decoded: false, oversized: true, bom: false, read: 0 });
   }
+  let read = bytes.byteLength;
   const decoded = decodeHtml(bytes);
   const page: StoredPage = {
     ...base,
@@ -170,25 +226,44 @@ export async function storedPage(
     oversized: false,
     bom: UTF8_BOM.every((byte, index) => bytes[index] === byte),
   };
-  if (kind === "html" || !page.decoded) return ok(page);
-  const rendered = rows.find((row) => row.kind === "rendered");
-  const blockMap = rows.find((row) => row.kind === "block_map");
-  const cap = SUGGESTION_LIMITS.renderingReadBytes;
-  const read = (row: { size: number; r2Key: string } | undefined) =>
-    row && row.size <= cap ? readCapped(bucket, row.r2Key, cap) : Promise.resolve(null);
-  const html = await read(rendered);
+  if (!baseline || kind === "html" || !page.decoded) return ok({ ...page, read });
+  const fetch = async (row: { size: number; r2Key: string } | undefined) => {
+    if (!row || row.size > SUGGESTION_LIMITS.renderingReadBytes) return null;
+    const got = await readCapped(bucket, row.r2Key, row.size);
+    if (got instanceof Uint8Array) read += got.byteLength;
+    return got;
+  };
+  const html = await fetch(files.rendered);
   // A rendering that is missing or over its bound is no baseline: everything is listed.
-  if (html === null || html === "too_large") return ok(page);
-  const map = await read(blockMap);
+  if (html === null || html === "too_large") return ok({ ...page, read });
+  const map = await fetch(files.blockMap);
   const text = new TextDecoder();
   return ok({
     ...page,
+    read,
     stored: {
       html: text.decode(html),
       blockMap: map === null || map === "too_large" ? null : text.decode(map),
       options: { title: input.artifact.name },
     },
   });
+}
+
+/**
+ * Reads the published file at `path` of a version, and a document's stored rendering, each
+ * checked by its stored size before any byte is read and read no further than it.
+ */
+export async function storedPage(
+  db: Db,
+  bucket: R2Bucket,
+  input: { artifact: ArtifactRow; versionId: string; path: string; contentDomain: string },
+): Promise<Result<StoredPage>> {
+  const files = await storedFiles(db, input);
+  if (!files.ok) return files;
+  const page = await readStoredPage(bucket, files.value, input);
+  if (!page.ok) return page;
+  const { read: _read, ...rest } = page.value;
+  return ok(rest);
 }
 
 /** The bytes of a plan's new file: the stored file's byte order mark, then the new source. */

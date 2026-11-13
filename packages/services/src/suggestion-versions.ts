@@ -22,7 +22,6 @@ import {
   type FileKind,
   type Proof,
   SUGGESTION_LIMITS,
-  utf8Length,
   VersionJobPayload,
 } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";
@@ -41,7 +40,13 @@ import { DOCUMENT_RENDERER } from "@portifact/render";
 import { and, asc, eq, gt, ne, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { JobOutcome } from "./outbox.ts";
-import { type StoredPage, storedPage } from "./suggestion-plans.ts";
+import {
+  readStoredPage,
+  type StoredFiles,
+  type StoredPage,
+  storedFiles,
+  storedReadCost,
+} from "./suggestion-plans.ts";
 import { storedEdit, storedProofs } from "./suggestions.ts";
 
 const th = schema.annotationThreads;
@@ -134,7 +139,34 @@ const pageOptions = (artifact: ArtifactRow, page: StoredPage) => ({
   renderer: DOCUMENT_RENDERER,
 });
 
-/** The carry of one group of suggestions on one old version and path. */
+/**
+ * The read budget of one job (decision 0027, "Costs and limits"): a unit (a carry group's two
+ * pages, a closure's page) is admitted only when its stored cost fits what is left, so the bytes
+ * read never pass `limit`; the first unit of a run is always admitted, so a run makes progress
+ * (with the default limit any unit fits: two pages at their largest are under it).
+ */
+class ReadBudget {
+  spent = 0;
+  units = 0;
+  constructor(readonly limit: number) {}
+  admit(cost: number): boolean {
+    if (this.units > 0 && this.spent + cost > this.limit) return false;
+    this.units++;
+    return true;
+  }
+  charge(read: number) {
+    this.spent += read;
+  }
+}
+
+/** A page's stored rows, or the refusal reading it would give. */
+type Files = Awaited<ReturnType<typeof storedFiles>>;
+const costOf = (files: Files) => (files.ok ? storedReadCost(files.value, false) : 0);
+
+/**
+ * The carry of one group of suggestions on one old version and path, or null when its two pages
+ * do not fit the run's read budget (the group waits for the next job, untouched).
+ */
 async function carryGroup(
   db: RegionalDb,
   bucket: R2Bucket,
@@ -142,21 +174,29 @@ async function carryGroup(
   versionId: string,
   contentDomain: string,
   threads: ThreadRow[],
-): Promise<{ outcome: Map<string, ReturnType<typeof carriedProofs>>; bytes: number }> {
+  budget: ReadBudget,
+): Promise<Map<string, ReturnType<typeof carriedProofs>> | null> {
   const outcome = new Map<string, ReturnType<typeof carriedProofs>>();
-  let bytes = 0;
-  const done = () => ({ outcome, bytes });
   const first = threads[0] as ThreadRow;
   const outdate = (reason: "not_on_page" | "not_planned" | "not_eligible") => {
     for (const thread of threads) outcome.set(thread.id, { outdated: reason });
-    return done();
+    return outcome;
   };
-  const read = { artifact, path: first.path, contentDomain };
-  const [before, after] = [
-    await storedPage(db, bucket, { ...read, versionId: first.versionId }),
-    await storedPage(db, bucket, { ...read, versionId }),
+  const where = { artifact, path: first.path, contentDomain };
+  const files = [
+    await storedFiles(db, { ...where, versionId: first.versionId }),
+    await storedFiles(db, { ...where, versionId }),
   ];
-  for (const page of [before, after]) bytes += page.ok ? utf8Length(page.value.source) : 0;
+  if (!budget.admit(costOf(files[0] as Files) + costOf(files[1] as Files))) return null;
+  // Only the sources: carry renders them itself and never reads the stored rendering.
+  const read = async (found: Files) => {
+    if (!found.ok) return found;
+    const page = await readStoredPage(bucket, found.value as StoredFiles, { artifact }, false);
+    if (page.ok) budget.charge(page.value.read);
+    return page;
+  };
+  const before = await read(files[0] as Files);
+  const after = await read(files[1] as Files);
   if (!after.ok) return outdate("not_on_page");
   if (!before.ok || !before.value.decoded || !after.value.decoded) return outdate("not_eligible");
   const requests: { thread: ThreadRow; from: number; count: number }[] = [];
@@ -173,7 +213,7 @@ async function carryGroup(
     requests.push({ thread, from: items.length, count: request.items.length });
     items.push(...request.items);
   }
-  if (items.length === 0) return done();
+  if (items.length === 0) return outcome;
   const unchanged = otherFilesUnchanged(
     await publishedFiles(db, first.versionId),
     await publishedFiles(db, versionId),
@@ -189,7 +229,7 @@ async function carryGroup(
     const own: Carry[] = results.slice(request.from, request.from + request.count);
     outcome.set(request.thread.id, carriedProofs(own, versionId));
   }
-  return done();
+  return outcome;
 }
 
 /**
@@ -230,18 +270,16 @@ export async function runSuggestionCarry(
   }
   const switchedHere = sql`exists (select 1 from ${t} where ${t.id} = ${artifact.id} and ${t.currentVersionId} = ${versionId})`;
   const statements: BatchItem<"sqlite">[] = [];
-  let spent = 0;
+  const budget = new ReadBudget(readBytes);
   let stopped = false;
   for (const group of groups.values()) {
     // At most `readBytes` of stored files per run, one group's two pages held at a time; the
     // groups left wait, untouched, for the next job.
-    if (spent >= readBytes) {
+    const outcome = await carryGroup(db, bucket, artifact, versionId, contentDomain, group, budget);
+    if (outcome === null) {
       stopped = true;
       break;
     }
-    const carried = await carryGroup(db, bucket, artifact, versionId, contentDomain, group);
-    spent += carried.bytes;
-    const outcome = carried.outcome;
     for (const thread of group) {
       // Every thread of the group has an outcome.
       const result = outcome.get(thread.id) as ReturnType<typeof carriedProofs>;
@@ -350,19 +388,18 @@ export async function runChangeListCheck(
   // stored files read per run: the rest continues in the next job.
   let heldPath: string | null = null;
   let heldPage: ReturnType<typeof renderedPage> | null = null;
-  let spent = 0;
+  const budget = new ReadBudget(readBytes);
   let checked = 0;
   const closing: { id: string; revision: number }[] = [];
   for (const item of batch) {
     if (heldPath !== item.path) {
-      if (spent >= readBytes) break;
-      const read = await storedPage(db, bucket, {
-        artifact,
-        versionId,
-        path: item.path,
-        contentDomain,
-      });
-      spent += read.ok ? utf8Length(read.value.source) : 0;
+      const files = await storedFiles(db, { artifact, versionId, path: item.path, contentDomain });
+      if (!budget.admit(costOf(files))) break;
+      // Only the source: closure renders it itself and never reads the stored rendering.
+      const read = files.ok
+        ? await readStoredPage(bucket, files.value, { artifact }, false)
+        : files;
+      if (read.ok) budget.charge(read.value.read);
       heldPath = item.path;
       heldPage = read.ok ? closurePage(artifact, read.value) : null;
     }

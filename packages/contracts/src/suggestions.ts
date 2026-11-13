@@ -675,8 +675,9 @@ export const SUGGESTION_LIMITS = {
    */
   renderingReadBytes: 16 * 1024 * 1024,
   /**
-   * Stored bytes one run of a carry or closure job reads at most; the rest continues in the next
-   * job, so a run never holds more than this of files and their parsed pages.
+   * Stored bytes one run of a carry or closure job reads at most: each unit (a carry group's two
+   * pages, a closure's page; sources only) is admitted by its stored size before any read, the
+   * rest continues in the next job. Two pages at their largest fit, so a unit always does.
    */
   jobReadBytes: 8 * 1024 * 1024,
 } as const;

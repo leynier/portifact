@@ -535,7 +535,8 @@ function liveStanding(loaded: Authorized): SQL | null {
   const gm = schema.workspaceGroupMembers;
   const facts: SQL[] = [];
   if (isWorkspaceId(ownerId)) {
-    const roles = loaded.role === "owner" ? sql` and "standing"."role" in ('admin', 'editor')` : sql``;
+    const roles =
+      loaded.role === "owner" ? sql` and "standing"."role" in ('admin', 'editor')` : sql``;
     if (loaded.role === "owner" || loaded.artifact.accessMode === "workspace") {
       facts.push(
         sql`exists (select 1 from ${m} as "standing" where "standing"."workspace_id" = ${ownerId} and "standing"."user_id" = ${loaded.viewerId}${roles})`,

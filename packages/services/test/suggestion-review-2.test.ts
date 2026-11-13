@@ -353,6 +353,27 @@ it("A4: actual carry R2 reads stay within the documented per-run byte budget", a
     DOMAIN,
   );
   expect(bytes).toBeLessThanOrEqual(SUGGESTION_LIMITS.jobReadBytes);
+  // The jobs that follow, each within the budget, carry every suggestion exactly once.
+  const perJob = [bytes];
+  for (let round = 0; round < 6; round++) {
+    const waiting = await jobsOf("suggestion_carry", first.artifactId);
+    if (waiting.length === 0) break;
+    for (const job of waiting) {
+      bytes = 0;
+      await runJob(db(), bucket, { id: job.id, topic: "suggestion_carry" }, NOW + 3000, JOB_DEPS);
+      perJob.push(bytes);
+    }
+  }
+  expect(await jobsOf("suggestion_carry", first.artifactId)).toEqual([]);
+  expect(perJob.every((read) => read <= SUGGESTION_LIMITS.jobReadBytes)).toBe(true);
+  expect(perJob.filter((read) => read > 0).length).toBeGreaterThanOrEqual(2);
+  for (const path of Object.keys(files)) {
+    // No proofs were planned for these rows: each is outdated, once (one revision step).
+    expect(await thread(`cost-${path}-${first.artifactId}`)).toMatchObject({
+      suggestionState: "outdated",
+      suggestionRevision: 2,
+    });
+  }
 });
 it.each(["html", "markdown", "text"] as const)(
   "A5: BOM %s exact source and derived hashes",
@@ -1662,4 +1683,81 @@ describe("plan batches hold the live standing they were authorized on", () => {
     expect(await planSuggestion(h, env.ARTIFACTS, input)).toMatchObject({ ok: false });
     expect(await cached(doc.artifactId)).toEqual([]);
   });
+});
+
+it("A4b: closure jobs read within the default budget and each page once across the run", async () => {
+  const owner = await user("Owner");
+  // Nine pages of 1 MB on the new version (one stored object), more than a job's 8 MiB: bytes
+  // that are not UTF-8, so each is read and charged in full but proves nothing, cheaply.
+  const page = new Uint8Array(1_000_000).fill(0xff);
+  const paths = Array.from({ length: 9 }, (_, i) => `${i}.html`);
+  const site = await publishVersion(
+    owner.id,
+    Object.fromEntries(paths.map((path) => [path, `${PAGE}<!-- ${path} -->`])),
+    { entrypoint: "0.html" },
+  );
+  const proof = JSON.stringify({
+    unit: "utf16",
+    start: 0,
+    end: 1,
+    before: "x",
+    after: "y",
+    shownBefore: "x",
+    shownAfter: "y",
+    nodeLeft: "",
+    nodeRight: "",
+    identity: [],
+  });
+  for (const path of paths) {
+    await db()
+      .insert(schema.changeItems)
+      .values({
+        id: `close_${path}_${site.artifactId}`,
+        artifactId: site.artifactId,
+        ownerId: owner.id,
+        origin: "draft",
+        versionId: site.versionId,
+        path,
+        envelope: '{"format":1}',
+        proof,
+        bytes: 12 + proof.length,
+        reason: "not_eligible",
+      });
+  }
+  const next = await publishVersion(
+    owner.id,
+    Object.fromEntries(paths.map((path) => [path, { body: page }])),
+    { base: site, entrypoint: "0.html", now: NOW + 1000 },
+  );
+  expect(next.versionId).not.toBe(site.versionId);
+  let bytes = 0;
+  const keys: string[] = [];
+  const bucket = new Proxy(env.ARTIFACTS, {
+    get(target, key) {
+      if (key === "get")
+        return async (k: string) => {
+          const o = await target.get(k);
+          bytes += o?.size ?? 0;
+          keys.push(k);
+          return o;
+        };
+      const v = Reflect.get(target, key, target);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+  const perJob: number[] = [];
+  for (let round = 0; round < 6; round++) {
+    const waiting = await jobsOf("change_list_check", site.artifactId);
+    if (waiting.length === 0) break;
+    for (const job of waiting) {
+      bytes = 0;
+      await runJob(db(), bucket, { id: job.id, topic: "change_list_check" }, NOW + 3000, JOB_DEPS);
+      perJob.push(bytes);
+    }
+  }
+  expect(await jobsOf("change_list_check", site.artifactId)).toEqual([]);
+  expect(perJob.length).toBeGreaterThanOrEqual(2);
+  expect(perJob.every((read) => read <= SUGGESTION_LIMITS.jobReadBytes)).toBe(true);
+  // Every page of the new version read once, and nothing else (no stored rendering).
+  expect(keys).toHaveLength(paths.length);
 });
