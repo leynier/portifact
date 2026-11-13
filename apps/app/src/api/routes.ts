@@ -78,6 +78,7 @@ import { searchRoutes } from "./search.ts";
 import { shareLinkRoutes } from "./share-links.ts";
 import { statsRoutes } from "./stats.ts";
 import { suggestionPreviewRoutes } from "./suggestion-previews.ts";
+import { suggestionRoutes } from "./suggestions.ts";
 import { apiTermsOperation } from "./terms-operations.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
@@ -416,6 +417,7 @@ export function apiRoutes(deps: ApiDeps) {
   api.delete("/api/v1/artifacts/:artifactId", lifecycle(deleteArtifact, "artifacts:delete"));
 
   api.route("/", annotationRoutes(guarded, deps.now, deps.siteverify));
+  api.route("/", suggestionRoutes(guarded, deps.now, deps.siteverify));
   versionRoutes(api, guarded, deps);
   documentRoutes(api, guarded, deps.now);
   usageRoutes(api, guarded, deps.now);

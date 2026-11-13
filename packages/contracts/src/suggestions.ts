@@ -13,7 +13,9 @@ import {
   AnnotationPage,
   AnnotationThreadView,
 } from "./annotations.ts";
+import { ArtifactId } from "./core.ts";
 import { TurnstileToken } from "./human.ts";
+import { IdempotencyKey } from "./publishing.ts";
 
 /** The switch that turns suggestions on, on the app and jobs Workers only (never deployed yet). */
 export const SUGGESTIONS_SWITCH = "SUGGESTIONS_ENABLED";
@@ -871,3 +873,40 @@ export const ChangeItemListQuery = z.object({
     .default(CHANGE_LIST_LIMITS.pageDefault),
 });
 export type ChangeItemListQuery = z.infer<typeof ChangeItemListQuery>;
+
+// MCP tools of the change list (decision 0027, "What an agent is told")
+
+const toolArtifactId = ArtifactId.describe(
+  "The artifact ID, as list_artifacts or get_artifact return it, or as it appears in the artifact's URL.",
+);
+
+export const ListChangeItemsInput = z.object({
+  artifactId: toolArtifactId,
+  state: ChangeItemState.optional().describe(
+    'Only items in this state: "open" (the default to work on), "applied", "dismissed" or "closed_by_version". Omit it for every item.',
+  ),
+  cursor: z.string().max(128).optional().describe("nextCursor from the previous page."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(CHANGE_LIST_LIMITS.pageMax)
+    .default(CHANGE_LIST_LIMITS.pageDefault)
+    .describe("Items per page, 1 to 100."),
+});
+export type ListChangeItemsInput = z.infer<typeof ListChangeItemsInput>;
+
+export const MarkChangeItemInput = MarkChangeItem.extend({
+  artifactId: toolArtifactId,
+  itemId: z.string().min(1).max(64).describe("The item ID, as list_change_items returns it."),
+  state: MarkChangeItem.shape.state.describe(
+    '"applied" once the published page shows the change, "dismissed" when the user decided not to make it, or "open" to reopen an item.',
+  ),
+  baseRevision: MarkChangeItem.shape.baseRevision.describe(
+    "The item's revision as list_change_items returned it; a newer one means someone changed it meanwhile.",
+  ),
+  idempotencyKey: IdempotencyKey.describe(
+    "A unique string (8 to 128 letters, digits, '.', '_', ':' or '-') for this change. Retrying with the same key and arguments returns the first result.",
+  ),
+});
+export type MarkChangeItemInput = z.infer<typeof MarkChangeItemInput>;
