@@ -14,7 +14,7 @@ import { error, type Guarded, readJson } from "./http.ts";
 
 export interface SuggestionPreviewDeps {
   /** The dashboard session behind a request, with its own ID. */
-  accountSession?(env: Env): AccountSessionLookup;
+  accountSession(env: Env): AccountSessionLookup;
   now(): number;
 }
 
@@ -31,9 +31,10 @@ export function suggestionPreviewRoutes(
       return error(c, "forbidden", "Previews are part of the dashboard.");
     }
     return guarded("annotations:write", async (c, userId) => {
-      // `guarded` admitted the session from the app's own pages; the code is bound to its ID.
-      const session = await deps.accountSession?.(c.env)(c.req.raw);
-      if (!session || session.userId !== userId || !session.termsAccepted) {
+      // `guarded` admitted the session from the app's own pages (a session of an account without
+      // the current terms counts as none there); the code is bound to the session's own ID.
+      const session = await deps.accountSession(c.env)(c.req.raw);
+      if (session?.userId !== userId) {
         return error(c, "unauthenticated", "Sign in to preview suggestions.");
       }
       const artifactId = c.req.param("artifactId") as string;

@@ -100,7 +100,7 @@ export interface ApiDeps {
   /** Cloudflare's custom hostnames and DNS; null while custom domains are switched off. */
   domains(env: Env): DomainDeps | null;
   /** The dashboard session with its own ID, for the helpers that bind a code to it. */
-  accountSession?(env: Env): AccountSessionLookup;
+  accountSession(env: Env): AccountSessionLookup;
 }
 
 export function apiRoutes(deps: ApiDeps) {
@@ -425,10 +425,7 @@ export function apiRoutes(deps: ApiDeps) {
   shareLinkRoutes(api, guarded, deps.now);
   approvalReviewRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
-  suggestionPreviewRoutes(api, guarded, {
-    ...(deps.accountSession ? { accountSession: deps.accountSession } : {}),
-    now: deps.now,
-  });
+  suggestionPreviewRoutes(api, guarded, { accountSession: deps.accountSession, now: deps.now });
   searchRoutes(api, guarded, deps.now);
   feedbackRoutes(api, guarded, deps.now);
   webhookRoutes(api, guarded, accountGuarded, deps.now);

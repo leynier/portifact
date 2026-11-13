@@ -244,6 +244,9 @@ reason("readers, visitors and reviewers, not the owner side: the access log cove
   "declineInvitation",
   "issueReadHandoff",
   "issueReviewHandoff",
+  // Built previews of suggestions (decision 0027): a one-use code to read a thread's plan.
+  "issuePreviewCode",
+  "redeemPreviewCode",
 ]);
 reason("comments are not in the audit log's scope (T10); their text never is", [
   "createAnnotationThread",
@@ -451,6 +454,7 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "pruneEmailSuppressions",
   "pruneExpiredInvitations",
   "pruneOperations",
+  "prunePreviewCodes",
   "pruneReadSessions",
   "pruneReviewSessions",
   "pruneShareLinks",

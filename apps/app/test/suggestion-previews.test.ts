@@ -3,7 +3,7 @@
 // behind `SUGGESTIONS_ENABLED`, for the dashboard's session only. The service's rules are in
 // packages/services/test/suggestion-previews.test.ts; the host's in apps/content.
 import { env } from "cloudflare:workers";
-import { ANCHOR_SCHEMA_VERSION, PreviewResponse } from "@portifact/contracts";
+import { type EditOperation, PreviewResponse } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { buildPlan, planPageUrl } from "@portifact/domain/suggestions";
 import { DOCUMENT_RENDERER } from "@portifact/render";
@@ -32,13 +32,13 @@ async function seedPlan(owner: TokenClient, artifactId: string): Promise<string>
     .update(schema.artifacts)
     .set({ annotations: "open" })
     .where(eq(schema.artifacts.id, artifactId));
-  const operation = {
-    kind: "text" as const,
+  const operation: EditOperation & { kind: "text" } = {
+    kind: "text",
     target: {
-      schema: ANCHOR_SCHEMA_VERSION,
+      schema: 1,
       path: "index.html",
       anchor: {
-        kind: "text" as const,
+        kind: "text",
         quote: { exact: "draft", prefix: "", suffix: "" },
         position: { start: 5, end: 10 },
       },
@@ -186,5 +186,14 @@ describe("preview codes from the dashboard", () => {
     expect((await ask(h, "NOT-AN-ID", owner.cookie, { digest })).status).toBe(404);
     expect((await ask(h, artifactId, owner.cookie, { digest: "x" })).status).toBe(400);
     expect((await ask(h, artifactId, owner.cookie, { digest, extra: 1 })).status).toBe(400);
+  });
+
+  it("answers capacity_unavailable without the region's bucket, issuing nothing", async () => {
+    const unbound = createHarness({ env: { ...ON, ARTIFACTS: undefined } });
+    const response = await ask(unbound, artifactId, owner.cookie, { digest });
+    expect(response.status).toBe(503);
+    expect(
+      (await db().select().from(schema.previewCodes)).filter((r) => r.artifactId === artifactId),
+    ).toEqual([]);
   });
 });

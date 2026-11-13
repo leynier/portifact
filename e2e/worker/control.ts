@@ -3,6 +3,14 @@
 import { type JobMessage, type Region, TERMS_VERSION } from "@portifact/contracts";
 import { type RegionEnv, regionsFromEnv, schema } from "@portifact/db";
 import {
+  buildPlan,
+  buildPreview,
+  newWork,
+  planPageUrl,
+  renderedPage,
+} from "@portifact/domain/suggestions";
+import { DOCUMENT_RENDERER } from "@portifact/render";
+import {
   commitPublish,
   createAnnotationThread,
   createShareLink,
@@ -10,6 +18,7 @@ import {
   customDomainsServing,
   issueReviewHandoff,
   preparePublish,
+  previewKey,
   revokeShareLink,
   runJob,
   runMaintenance,
@@ -111,6 +120,28 @@ interface PublishInput {
   update?: { artifactId: string; baseVersionId: string };
   /** The owner's region (decision 0005); the default one without it. */
   region?: Region;
+}
+
+interface SuggestionPlanInput {
+  ownerId: string;
+  artifactId: string;
+  versionId: string;
+  kind: "html" | "markdown" | "text";
+  path: string;
+  /** The stored file and the artifact's name, which the stored rendering's title is. */
+  source: string;
+  title: string;
+  before: string;
+  after: string;
+}
+
+interface PreviewDocumentInput {
+  userId: string;
+  sessionId: string;
+  artifactId: string;
+  threadId: string;
+  kind: "html" | "markdown" | "text";
+  source: string;
 }
 
 interface ThreadInput {
@@ -392,6 +423,130 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
       },
     );
     return Response.json(result, { status: result.ok ? 200 : 400 });
+  }
+
+  // An edit suggestion and the owner's stored plan for it (decision 0027), as the suggestion
+  // services will write them: a pending thread holding a text edit placed on the page the way the
+  // bridge places it, and `buildPlan`'s plan from the stored files, cached for the owner.
+  if (path === "/suggestion-plan") {
+    const i = input as SuggestionPlanInput;
+    const pageUrl = planPageUrl(i.kind, i.artifactId, env.CONTENT_DOMAIN, i.path);
+    const raw = regionBindings(env);
+    const entry = async (kind: "rendered" | "block_map") => {
+      const row = await raw.db
+        .prepare(
+          "SELECT owner_id AS owner, sha256 FROM version_files WHERE version_id = ? AND kind = ? AND path = ?",
+        )
+        .bind(i.versionId, kind, i.path)
+        .first<{ owner: string; sha256: string }>();
+      return row
+        ? ((await raw.bucket.get(`objects/${row.owner}/${row.sha256}`))?.text() ?? null)
+        : null;
+    };
+    const page = renderedPage(i.kind, i.source, {
+      title: i.title,
+      pageUrl,
+      renderer: DOCUMENT_RENDERER,
+      work: newWork(),
+    });
+    const text = page.points.join("");
+    const start = Array.from(text.slice(0, text.indexOf(i.before))).length;
+    const operation = {
+      kind: "text" as const,
+      target: {
+        schema: 1 as const,
+        path: i.path,
+        anchor: {
+          kind: "text" as const,
+          quote: { exact: i.before, prefix: "", suffix: "" },
+          position: { start, end: start + Array.from(i.before).length },
+        },
+      },
+      after: i.after,
+    };
+    const threadId = `th_${crypto.randomUUID()}`;
+    const edit = JSON.stringify({ operations: [operation] });
+    const target = JSON.stringify(operation.target);
+    const encoder = new TextEncoder();
+    await db.insert(schema.annotationThreads).values({
+      id: threadId,
+      artifactId: i.artifactId,
+      versionId: i.versionId,
+      ownerId: i.ownerId,
+      authorId: i.ownerId,
+      target,
+      targetBytes: encoder.encode(target).length,
+      path: i.path,
+      updatedAt: now,
+      kind: "suggestion",
+      suggestionState: "pending",
+      suggestionRevision: 1,
+      edit,
+      editBytes: encoder.encode(edit).length,
+    });
+    const stored =
+      i.kind === "html"
+        ? undefined
+        : {
+            html: (await entry("rendered")) ?? "",
+            blockMap: i.kind === "markdown" ? await entry("block_map") : null,
+            options: { title: i.title },
+          };
+    const plan = await buildPlan({
+      binding: {
+        artifactId: i.artifactId,
+        versionId: i.versionId,
+        path: i.path,
+        fileSha256: await sha256(encoder.encode(i.source)),
+        renderer: DOCUMENT_RENDERER.label,
+        subject: threadId,
+        revision: 1,
+      },
+      people: { submitter: true, acceptor: true },
+      kind: i.kind,
+      source: i.source,
+      operations: [operation],
+      ...(stored ? { stored } : {}),
+      pageUrl,
+      renderer: DOCUMENT_RENDERER,
+    });
+    const { newSource: _n, proofs: _p, work: _w, ...exported } = plan;
+    await db.insert(schema.suggestionPlans).values({
+      userId: i.ownerId,
+      digest: plan.digest,
+      artifactId: i.artifactId,
+      threadId,
+      plan: JSON.stringify(exported),
+      createdAt: now,
+      expiresAt: now + 10 * 60_000,
+    });
+    return Response.json({ threadId, digest: plan.digest, applies: plan.output !== null });
+  }
+
+  // A preview code for a document the production builder made from any page, a hostile one
+  // included (one the subset refuses, so no plan applies to it), for an existing suggestion: the
+  // preview host redeems it exactly as it redeems a code the app issued.
+  if (path === "/preview-document") {
+    const i = input as PreviewDocumentInput;
+    const built = buildPreview(i.kind, i.source, DOCUMENT_RENDERER);
+    if (built.state !== "ready") return Response.json(built, { status: 400 });
+    const code = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const r2Key = previewKey(now);
+    await regionBindings(env).bucket.put(r2Key, built.document);
+    await db.insert(schema.previewCodes).values({
+      codeSha256: await sha256(new TextEncoder().encode(code)),
+      userId: i.userId,
+      sessionId: i.sessionId,
+      artifactId: i.artifactId,
+      threadId: i.threadId,
+      r2Key,
+      createdAt: now,
+      expiresAt: now + 60_000,
+    });
+    return Response.json({ url: `https://preview.${env.CONTENT_DOMAIN}/p/${code}` });
   }
 
   // A review code of another account, as the app's review route issues it: what an attacker
