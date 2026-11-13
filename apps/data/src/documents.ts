@@ -16,8 +16,8 @@ import {
   DataTime as Now,
   OperationId,
   QuarantineReason,
+  QuarantineResolutionRequest,
   RequiredErase,
-  QuarantineResolution as Resolution,
   type StorageReport,
   VisitorId,
 } from "@portifact/contracts/artifact-data";
@@ -184,15 +184,18 @@ export class ArtifactDocuments extends DurableObject<Env> {
     return this.store.quarantine(input.envelope, input.reason, input.now);
   }
 
-  /** The operator's resolution of a quarantine. */
-  lifecycleResolve(envelope: unknown, decision: unknown, now: unknown) {
+  /**
+   * The operator's resolution of one quarantine, with its ID, the state it was reviewed against
+   * and D1's hold (`QuarantineResolutionRequest`).
+   */
+  lifecycleResolve(envelope: unknown, request: unknown, now: unknown) {
     const input = this.#parsed(() => ({
       envelope: LifecycleEnvelope.parse(envelope),
-      decision: Resolution.parse(decision),
+      request: QuarantineResolutionRequest.parse(request),
       now: Now.parse(now),
     }));
     if ("refused" in input) return input.refused;
-    return this.store.resolveQuarantine(input.envelope, input.decision, input.now);
+    return this.store.resolveReviewed(input.envelope, input.request, input.now);
   }
 
   /** One page of the operator's export, allowed under a hold or a quarantine. */
@@ -221,13 +224,15 @@ export class ArtifactDocuments extends DurableObject<Env> {
     try {
       return parse();
     } catch {
+      // Answered from nothing stored: no read, not even of the control record, so an invalid
+      // command cannot fail on storage. Its report is the empty one, never newer than any other.
       return {
         refused: {
           ok: false,
           code: "invalid_input",
           message: "invalid lifecycle command",
           cost: { rowsRead: 0, rowsWritten: 0 },
-          storage: this.store.currentReport(),
+          storage: { generation: 0, seq: 0, bytes: 0 },
         },
       };
     }

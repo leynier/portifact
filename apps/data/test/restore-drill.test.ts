@@ -42,6 +42,7 @@ import {
   inside,
   jobsOf,
   journalOf,
+  reviewedOf,
   stubOf,
   visitorId,
   withData,
@@ -299,7 +300,7 @@ describe("the restore drill with the real object", () => {
       .update(schema.artifacts)
       .set({ ownerId: newOwner })
       .where(eq(schema.artifacts.id, id));
-    await queueDataResolve(db(), id, "adopt", DATA_NOW);
+    await queueDataResolve(db(), id, "adopt", await reviewedOf(id), DATA_NOW);
     await drain({ subject: id });
     // The export comes before the probe's own write.
     expect(await probe(id)).toEqual({ finding: "adopted", exported: "ok:1", owner: "ok" });
@@ -342,7 +343,7 @@ describe("the restore drill with the real object", () => {
     ).toBe(1);
   });
 
-  it("a purge after the point: re-applied by its tombstone, its erase already done", async () => {
+  it("a purge after the point: re-applied by its tombstone, nothing comes back", async () => {
     const { id } = await withData({ state: "purging", documents: 2 });
     const at = await point(id);
     await deleteArtifactData(db(), env.ARTIFACTS, id, D1_NOW);
@@ -351,7 +352,8 @@ describe("the restore drill with the real object", () => {
     await restore(id, at);
     await afterRestore(file, id);
     expect(await documentsOf(id)).toBe(0);
-    expect((await controlOf(id))?.generation).toBe(1);
+    // The re-applied purge proves the deletion, so it erases the object's own (empty) generation.
+    expect((await controlOf(id))?.generation).toBe(2);
     expect(await db().select().from(schema.artifacts).where(eq(schema.artifacts.id, id))).toEqual(
       [],
     );
@@ -369,7 +371,7 @@ describe("the restore drill with the real object", () => {
       exported: "ok:2",
       owner: "not_found",
     });
-    await queueDataResolve(db(), id, "erase", DATA_NOW);
+    await queueDataResolve(db(), id, "erase", await reviewedOf(id), DATA_NOW);
     await drain({ subject: id });
     expect(await probe(id)).toEqual({ finding: "erased", exported: "ok:0", owner: "not_found" });
     // The erased orphan's entry is retired: a second walk leaves it alone.
@@ -396,7 +398,7 @@ describe("the restore drill with the real object", () => {
     });
     await reconcileRegion();
     expect(await findingOf(id)).toBe("quarantined:orphan");
-    await queueDataResolve(db(), id, "erase", DATA_NOW);
+    await queueDataResolve(db(), id, "erase", await reviewedOf(id), DATA_NOW);
     await drain({ subject: id });
     expect(await findingOf(id)).toBe("refused:held");
     expect(await documentsOf(id)).toBe(1);

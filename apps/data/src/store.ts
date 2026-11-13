@@ -34,6 +34,7 @@ import {
   type ExportCursor,
   ArtifactDataLimits as LimitsSchema,
   type QuarantineReason,
+  type QuarantineResolutionRequest,
   type StorageReport,
 } from "@portifact/contracts/artifact-data";
 import { logEvent } from "@portifact/domain";
@@ -113,6 +114,7 @@ import {
   renewDecision,
   requestHash,
   resolveQuarantine,
+  resolveReviewed,
   type SettleDecision,
   sequenceAdvances,
   sequenceScope,
@@ -598,11 +600,6 @@ export class DocumentsStore {
   controlRecord(): DataControl | null {
     const [row] = this.inspect("pf_meta").filter((item) => item.key === "control");
     return row === undefined ? null : (JSON.parse(str(row.value)) as DataControl);
-  }
-
-  /** The storage report every answer carries, for an answer the store did not make itself. */
-  currentReport(): StorageReport {
-    return this.#storageReport();
   }
 
   #storageReport(): StorageReport {
@@ -2237,6 +2234,33 @@ export class DocumentsStore {
       }
       this.#setControl(decided.value.control);
       return { value: null, wrote: true };
+    });
+  }
+
+  /**
+   * The operator's resolution of one quarantine (`resolveReviewed`): looked up and recorded under
+   * its ID like an ended erase intent, so a retry finishes the same resolution and a later
+   * quarantine is never resolved by it.
+   */
+  resolveReviewed(
+    envelope: DataEnvelope,
+    request: QuarantineResolutionRequest,
+    now: number,
+  ): Answer<{ repeated: boolean }> {
+    return this.#controlCommand<{ repeated: boolean }>(now, "resolve_reviewed", () => {
+      const [found] = this.#read("SELECT outcome FROM pf_ended WHERE id = ?", request.id);
+      const ended = found === undefined ? null : (str(found.outcome) as "committed" | "cancelled");
+      const decided = resolveReviewed(this.#readControl(), envelope, request, ended);
+      if (!decided.ok) fail(decided);
+      if (decided.value.repeated) return { value: { repeated: true }, wrote: false };
+      if (decided.value.erasePayload) this.#erasePayload();
+      if (decided.value.endedErase !== null) {
+        this.#endIntent(decided.value.endedErase, "committed", now);
+      }
+      this.#endIntent(request.id, "committed", now);
+      this.#setControl(decided.value.control);
+      this.closeAll(4003);
+      return { value: { repeated: false }, wrote: true };
     });
   }
 

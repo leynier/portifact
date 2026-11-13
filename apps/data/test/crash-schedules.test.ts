@@ -39,6 +39,7 @@ import {
   inside,
   jobsOf,
   journalOf,
+  reviewedOf,
   visitorId,
   withData,
 } from "./lifecycle.ts";
@@ -99,7 +100,8 @@ const inventoryRetired = async (id: string) => {
 };
 
 schedule("a purge's whole erase (data_erase)", {
-  steps: ["object:lifecycleErase", "object:lifecycleErase", "r2:put", "d1:run"],
+  // The erase ID kept in the row, prepare, commit, the inventory retired, the acknowledgement.
+  steps: ["d1:run", "object:lifecycleErase", "object:lifecycleErase", "r2:put", "d1:run"],
   async setup() {
     const { id } = await withData({ state: "purging", documents: 2, visitors: [visitorId()] });
     await deleteArtifactData(db(), bucketOf(), id, D1_NOW);
@@ -182,7 +184,8 @@ schedule("an account's erasure in an artifact (data_author_erasure)", {
 });
 
 schedule("an account deletion's journal step (scheduleAuthorErasures)", {
-  steps: ["d1:run", "r2:put"],
+  // The job, the retirement, the scan's cursor.
+  steps: ["d1:run", "r2:put", "d1:run"],
   async setup() {
     const userId = `u_${crypto.randomUUID()}`;
     const visitor = visitorId();
@@ -305,7 +308,8 @@ schedule("reconciling a prepared erase (resumed under its ID, then D1)", {
 });
 
 schedule("reconciling an object D1 no longer names (quarantine)", {
-  steps: ["d1:run", "object:lifecycleQuarantine"],
+  // The finding, the quarantine, the finding's reviewed state.
+  steps: ["d1:run", "object:lifecycleQuarantine", "d1:run"],
   async setup() {
     const { id } = await withData();
     // A restore rewound the artifact's creation: its rows are gone, the object is not.
@@ -324,9 +328,9 @@ schedule("reconciling an object D1 no longer names (quarantine)", {
 });
 
 schedule("the operator adopting a quarantined object (data_resolve)", {
-  // D1 set to the object's numbers, the resolution, D1 following the object, the finding, the
-  // acknowledgement.
-  steps: ["d1:run", "object:lifecycleResolve", "d1:run", "d1:run", "d1:run"],
+  // D1 set to the object's numbers, the resolution, D1 following the object, the waiting jobs
+  // woken, the finding, the acknowledgement.
+  steps: ["d1:run", "object:lifecycleResolve", "d1:run", "d1:run", "d1:run", "d1:run"],
   async setup() {
     const { id } = await withData();
     // D1 lost the numbers the object raised (a restore), and reconciliation quarantined it.
@@ -340,7 +344,11 @@ schedule("the operator adopting a quarantined object (data_resolve)", {
       .insert(schema.outbox)
       .values({
         topic: "data_resolve",
-        payload: { decision: "adopt" },
+        payload: {
+          decision: "adopt",
+          resolutionId: `${DATA_NOW}.resolutionschedule`,
+          expected: await reviewedOf(id),
+        },
         availableAt: DATA_NOW,
         subject: id,
       });

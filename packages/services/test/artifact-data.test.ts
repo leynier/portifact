@@ -7,14 +7,16 @@ import { env } from "cloudflare:test";
 import type { DataEnvelope } from "@portifact/contracts/artifact-data";
 import { regionsFromEnv, schema } from "@portifact/db";
 import {
+  formatReviewed,
   INVENTORY_PREFIX,
   inventoryEntry,
   inventoryKey,
   journalKey,
   LIFECYCLE_LIMITS,
+  reviewedState,
 } from "@portifact/domain/artifact-data";
 import { MemoryObject } from "@portifact/domain/testing/artifact-data";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
   AUTHOR_CHUNKS_PER_RUN,
@@ -78,8 +80,8 @@ function memoryObjects(createsObjects = false) {
           }),
         lifecycleQuarantine: async (envelope, reason, now) =>
           memory.quarantine(envelope, reason, now) as never,
-        lifecycleResolve: async (envelope, decision, now) =>
-          memory.resolveQuarantine(envelope, decision, now) as never,
+        lifecycleResolve: async (envelope, request, now) =>
+          memory.resolveReviewed(envelope, request, now) as never,
         lifecycleExport: async (envelope, after, now) =>
           memory.exportPage(
             envelope,
@@ -242,15 +244,38 @@ describe("data_erase", () => {
     expect(((await entry?.json()) as { retiredAt?: number })?.retiredAt).toBe(NOW);
   });
 
-  it("commits a whole erase and is done again for a delivery after it", async () => {
+  it("commits a whole erase; a later delivery of a real purge is done again", async () => {
     const memory = memoryObjects();
     const { id, ownerId, object } = await seeded(memory, { documents: 3 });
     const payload = { ownerId, generation: 0, epoch: 0 };
     expect(await run(await job("data_erase", id, payload), memory.data)).toBe("done");
     expect(documents(object)).toBe(0);
     expect(object.durable.control?.generation).toBe(1);
+    // D1 proves the permanent deletion: the old job erases the object's own generation.
+    await regionsFromEnv(env)
+      .global.insert(schema.tombstones)
+      .values({ kind: "artifact", id, deletedAt: NOW });
+    await db().delete(schema.artifacts).where(eq(schema.artifacts.id, id));
     expect(await run(await job("data_erase", id, payload), memory.data)).toBe("done");
-    expect(object.durable.control?.generation).toBe(1);
+    expect(object.durable.control?.generation).toBe(2);
+  });
+
+  it("keeps a superseded purge, with its entry and a finding, without D1's proof", async () => {
+    const memory = memoryObjects();
+    const { id, ownerId, object } = await seeded(memory, { documents: 1 });
+    const eraseId = lifecycleId(NOW);
+    object.prepareErase(envelope(id, ownerId), eraseId, NOW);
+    object.commitErase(envelope(id, ownerId), eraseId, NOW);
+    const row = await job("data_erase", id, { ownerId, generation: 0, epoch: 0 });
+    expect(await run(row, memory.data)).toBe("kept");
+    expect((await rowOf(row.id))?.availableAt).toBe(NOW + 86_400_000);
+    const entry = (await (await env.ARTIFACTS.get(inventoryKey(id)))?.json()) as {
+      retiredAt?: number;
+    };
+    expect(entry.retiredAt).toBeUndefined();
+    expect((await listDataFindings(db(), 1000)).find((f) => f.artifactId === id)?.action).toBe(
+      "superseded",
+    );
   });
 
   it("waits a day while held, erasing nothing", async () => {
@@ -406,12 +431,23 @@ describe("the journal step of an account deletion", () => {
     const first = await scheduleAuthorErasures(db(), env.ARTIFACTS, userId, NOW);
     expect(first).toEqual({ more: true, scheduled: 100 });
     const second = await scheduleAuthorErasures(db(), env.ARTIFACTS, userId, NOW);
-    expect(second).toEqual({ more: false, scheduled: 1 });
-    // A malformed entry under the account is retired like any other, never left behind.
-    expect(await scheduleAuthorErasures(db(), env.ARTIFACTS, userId, NOW)).toEqual({
-      more: false,
-      scheduled: 0,
-    });
+    // The pass retired something, so another from the start must find nothing.
+    expect(second).toEqual({ more: true, scheduled: 1 });
+    // R2 may answer a listing with metadata in smaller pages; the scan follows them to the end.
+    let calls = 0;
+    let last = second;
+    while (last.more && calls < 5) {
+      last = await scheduleAuthorErasures(db(), env.ARTIFACTS, userId, NOW);
+      expect(last.scheduled).toBe(0);
+      calls += 1;
+    }
+    expect(last.more).toBe(false);
+    // A finished scan leaves no cursor behind.
+    const cursors = await db()
+      .select()
+      .from(schema.maintenanceCursors)
+      .where(eq(schema.maintenanceCursors.name, `data_journal:${userId}`));
+    expect(cursors).toEqual([]);
   });
 
   it("retires an entry a racing claim changed, from what it reads again", async () => {
@@ -550,29 +586,85 @@ describe("reconciliation", () => {
 });
 
 describe("data_resolve", () => {
-  it("refuses a resolution with nothing to resolve or an owner D1 does not name", async () => {
+  const reviewed = (object: MemoryObject) => {
+    const state = object.durable.control && reviewedState(object.durable.control);
+    if (!state) throw new Error("not quarantined");
+    return state;
+  };
+  const resolve = (
+    id: string,
+    decision: "adopt" | "erase",
+    expected: ReturnType<typeof reviewed>,
+  ) => job("data_resolve", id, { decision, resolutionId: lifecycleId(NOW), expected });
+  const findingOf = async (id: string) =>
+    (await listDataFindings(db(), 1000)).find((f) => f.artifactId === id);
+
+  it("refuses with nothing to resolve, or an owner D1 does not name", async () => {
     const memory = memoryObjects();
-    const nothing = await job("data_resolve", artifactId(), { decision: "adopt" });
-    expect(await run(nothing, memory.data)).toBe("stale");
+    const expected = { reason: "owner" as const, at: NOW, ownerId: "u_x", generation: 0, epoch: 0 };
+    expect(await run(await resolve(artifactId(), "adopt", expected), memory.data)).toBe("stale");
     const { id, object } = await seeded(memory);
-    expect(await run(await job("data_resolve", id, { decision: "adopt" }), memory.data)).toBe(
-      "stale",
-    );
+    expect(await run(await resolve(id, "adopt", expected), memory.data)).toBe("stale");
+    expect((await findingOf(id))?.reason).toBe("stale");
     object.quarantine(envelope(id, "u_x"), "owner", NOW);
-    expect(object.durable.control?.quarantine).not.toBeNull();
     await db()
       .update(schema.artifacts)
       .set({ ownerId: "u_someone_else" })
       .where(eq(schema.artifacts.id, id));
-    expect(await run(await job("data_resolve", id, { decision: "adopt" }), memory.data)).toBe(
-      "stale",
-    );
-    expect((await listDataFindings(db(), 1000)).find((f) => f.artifactId === id)?.reason).toBe(
-      "stale",
-    );
+    expect(await run(await resolve(id, "adopt", reviewed(object)), memory.data)).toBe("stale");
+    expect(object.durable.control?.quarantine).not.toBeNull();
   });
 
-  it("erases an orphan and retires its entry; refuses while it is held", async () => {
+  it("adopts the reviewed quarantine once, keeping D1's hold, and wakes waiting jobs", async () => {
+    const memory = memoryObjects();
+    const { id, ownerId, object } = await seeded(memory, { state: "suspended" });
+    object.quarantine(envelope(id, ownerId), "hold", NOW);
+    await db()
+      .insert(schema.legalHolds)
+      .values({
+        id: `hold_${"b".repeat(32)}`,
+        artifactId: id,
+        ownerId,
+        reason: "other",
+        ground: "Order",
+        createdAt: NOW,
+      });
+    const waiting = await job("data_erase", id, { ownerId, generation: 0, epoch: 0 });
+    await db()
+      .update(schema.outbox)
+      .set({ availableAt: NOW + 86_400_000 })
+      .where(eq(schema.outbox.id, waiting.id));
+    const row = await resolve(id, "adopt", reviewed(object));
+    expect(await run(row, memory.data)).toBe("done");
+    expect(object.durable.control?.quarantine).toBeNull();
+    expect(object.durable.control?.hold?.transition).toBe(`hold_${"b".repeat(32)}`);
+    expect((await rowOf(waiting.id))?.availableAt).toBe(NOW);
+    expect((await findingOf(id))?.action).toBe("adopted");
+    // The same resolution delivered again finishes the same way and changes nothing.
+    const again = await job("data_resolve", id, row.payload);
+    expect(await run(again, memory.data)).toBe("done");
+  });
+
+  it("refuses to erase while D1 holds, whatever the object says", async () => {
+    const memory = memoryObjects();
+    const { id, ownerId, object } = await seeded(memory, { state: "suspended" });
+    object.quarantine(envelope(id, ownerId), "hold", NOW);
+    await db()
+      .insert(schema.legalHolds)
+      .values({
+        id: `hold_${"c".repeat(32)}`,
+        artifactId: id,
+        ownerId,
+        reason: "other",
+        ground: "Order",
+        createdAt: NOW,
+      });
+    expect(await run(await resolve(id, "erase", reviewed(object)), memory.data)).toBe("stale");
+    expect((await findingOf(id))?.reason).toBe("held");
+    expect(documents(object)).toBe(1);
+  });
+
+  it("erases an orphan and retires its entry; refuses while the object holds", async () => {
     const memory = memoryObjects();
     const { id, ownerId, object } = await seeded(memory);
     object.fence(
@@ -582,19 +674,19 @@ describe("data_resolve", () => {
     );
     await db().delete(schema.artifacts).where(eq(schema.artifacts.id, id));
     await reconcileObject(db(), memory.data, inventoryEntry(id, "default", NOW), NOW);
-    expect(await run(await job("data_resolve", id, { decision: "erase" }), memory.data)).toBe(
-      "stale",
-    );
-    expect((await listDataFindings(db(), 1000)).find((f) => f.artifactId === id)?.reason).toBe(
-      "held",
-    );
+    expect((await findingOf(id))?.state).toBe(formatReviewed(reviewed(object)));
+    expect(await run(await resolve(id, "erase", reviewed(object)), memory.data)).toBe("stale");
+    expect((await findingOf(id))?.reason).toBe("held");
     object.fence(
       { ...envelope(id, ownerId, { generation: 0, epoch: 2 }) },
       { kind: "release", transition: "r3" },
       NOW,
     );
-    await queueDataResolve(db(), id, "erase", NOW);
-    const [row] = await db().select().from(schema.outbox).where(eq(schema.outbox.subject, id));
+    await queueDataResolve(db(), id, "erase", reviewed(object), NOW);
+    const [row] = await db()
+      .select()
+      .from(schema.outbox)
+      .where(and(eq(schema.outbox.subject, id), eq(schema.outbox.topic, "data_resolve")));
     if (!row) throw new Error("no job");
     expect(await run(row, memory.data)).toBe("done");
     expect(object.durable.control?.generation).toBe(1);

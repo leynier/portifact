@@ -49,6 +49,7 @@ import {
   PROTECTION_STEPS,
   shareLinkStatus,
 } from "@portifact/domain";
+import { formatReviewed, parseReviewed } from "@portifact/domain/artifact-data";
 import {
   accountSuspension,
   applyIntegrationTombstones,
@@ -153,8 +154,10 @@ Commands:
   data-reconcile [--region <region>]   (after a restore and apply-tombstones: the region's documents
                                objects against D1, then the author erasures from the journal)
   data-findings [--limit N] [--region <region>]
-  data-resolve <artifact-id> adopt|erase [--region <region>]   (ends a quarantine; adopt needs D1
-                               to name the owner the object recorded; erase is refused while held)
+  data-resolve <artifact-id> adopt|erase --state <state> [--region <region>]
+                               (ends the quarantine data-findings showed with that state; adopt
+                               needs D1 to name the owner the object recorded and keeps any hold;
+                               erase is refused while D1 or the object holds)
   data-export <artifact-id> [--region <region>]   (the object's documents to the region's bucket,
                                also under a hold or a quarantine)
   export-tombstones --out <file> [--region all|<region>]   (with more than one region: all, or a region with its own database)
@@ -1373,20 +1376,29 @@ export async function runOperator(
         output: findings
           .map(
             (f) =>
-              `${f.artifactId}  ${f.action}${f.reason ? ` (${f.reason})` : ""}  first ${new Date(f.firstSeenAt).toISOString()}  last ${new Date(f.lastSeenAt).toISOString()}`,
+              `${f.artifactId}  ${f.action}${f.reason ? ` (${f.reason})` : ""}${f.state ? `  state ${f.state}` : ""}  first ${new Date(f.firstSeenAt).toISOString()}  last ${new Date(f.lastSeenAt).toISOString()}`,
           )
           .join("\n"),
       };
     }
     case "data-resolve": {
       const [artifactId, decision] = args;
-      if (!artifactId || (decision !== "adopt" && decision !== "erase")) {
-        return usage("data-resolve needs an artifact ID and adopt or erase.");
+      const state = parseReviewed(options.get("state") ?? "");
+      if (!artifactId || (decision !== "adopt" && decision !== "erase") || state === null) {
+        return usage(
+          "data-resolve needs an artifact ID, adopt or erase, and --state as data-findings prints it.",
+        );
       }
-      await queueDataResolve(await artifactDb(artifactId), artifactId, decision, now);
+      const resolutionId = await queueDataResolve(
+        await artifactDb(artifactId),
+        artifactId,
+        decision,
+        state,
+        now,
+      );
       return {
         exitCode: 0,
-        output: `Resolution (${decision}) of ${artifactId} queued; read the outcome with data-findings.`,
+        output: `Resolution ${resolutionId} (${decision}) of ${artifactId} queued for the state ${formatReviewed(state)}; read the outcome with data-findings.`,
       };
     }
     case "data-export": {

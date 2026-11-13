@@ -305,6 +305,7 @@ reason(
     "registerDataObject",
     "recordStorageReport",
     "eraseReason",
+    "permanentlyDeleted",
     "retireJournalEntry",
     "scheduleAuthorErasures",
     "wakeDataJobs",

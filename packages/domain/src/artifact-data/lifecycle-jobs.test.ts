@@ -9,12 +9,14 @@ import {
   DataEnvelope as EnvelopeSchema,
 } from "@portifact/contracts/artifact-data";
 import { describe, expect, it } from "vitest";
-import { applyFence, newControl } from "./control.ts";
+import { applyFence, newControl, quarantine, resolveReviewed, reviewedState } from "./control.ts";
 import {
   controlEnvelope,
   erasureRefused,
   fenceRefused,
+  formatReviewed,
   INVENTORY_PREFIX,
+  identityDisagreement,
   inventoryArtifact,
   inventoryEntry,
   inventoryKey,
@@ -24,11 +26,16 @@ import {
   journalPrefixOf,
   journalSubject,
   LIFECYCLE_LIMITS,
+  nextJournalScan,
+  parseReviewed,
+  purgeAnswered,
   purgeEraseEpoch,
+  purgeEraseTarget,
   rowEnvelope,
 } from "./lifecycle-jobs.ts";
 
 const NOW = Date.UTC(2026, 10, 12);
+const ROW_KEPT = { dataRowGone: false };
 const base: DataEnvelope = {
   artifactId: "abcdefghij",
   region: "default",
@@ -131,23 +138,23 @@ describe("after the object refused a fence", () => {
   it("is done once the object is past it", () => {
     const control = fenced(newControl(base, NOW), 4, "hold_a");
     // Killed mutation: `>` for `>=` on the last transition's epoch.
-    expect(fenceRefused(control, { ...base, epoch: 4 }, "stale")).toBe("done");
-    expect(fenceRefused(control, { ...base, epoch: 2 }, "stale")).toBe("done");
+    expect(fenceRefused(control, { ...base, epoch: 4 }, "stale", ROW_KEPT)).toBe("done");
+    expect(fenceRefused(control, { ...base, epoch: 2 }, "stale", ROW_KEPT)).toBe("done");
   });
 
   it("retries while an earlier change has to land first", () => {
     const control = newControl(base, NOW);
-    expect(fenceRefused(control, { ...base, epoch: 3 }, "stale")).toBe("retry");
-    expect(fenceRefused(control, { ...base, epoch: 3 }, "held")).toBe("retry");
+    expect(fenceRefused(control, { ...base, epoch: 3 }, "stale", ROW_KEPT)).toBe("retry");
+    expect(fenceRefused(control, { ...base, epoch: 3 }, "held", ROW_KEPT)).toBe("retry");
   });
 
   it("is done for what can never apply", () => {
     // At an epoch the object is not past, so only the code can end it.
     const control = newControl(base, NOW);
     const ahead = { ...base, epoch: 5 };
-    expect(fenceRefused(control, ahead, "conflict")).toBe("done");
-    expect(fenceRefused(control, ahead, "forbidden")).toBe("done");
-    expect(fenceRefused(control, ahead, "invalid_input")).toBe("done");
+    expect(fenceRefused(control, ahead, "conflict", ROW_KEPT)).toBe("done");
+    expect(fenceRefused(control, ahead, "forbidden", ROW_KEPT)).toBe("done");
+    expect(fenceRefused(control, ahead, "invalid_input", ROW_KEPT)).toBe("done");
   });
 });
 
@@ -159,5 +166,230 @@ describe("after the object refused an erasure", () => {
     expect(erasureRefused("conflict")).toBe("retry");
     expect(erasureRefused("forbidden")).toBe("done");
     expect(erasureRefused("invalid_input")).toBe("done");
+  });
+});
+
+describe("a fence of a generation the object has left", () => {
+  it("ends once D1 no longer has the data row, and waits for D1 while it does", () => {
+    const control = { ...newControl(base, NOW), generation: 1 };
+    const old = { ...base, generation: 0, epoch: 3 };
+    // Killed mutations: dropping the generation comparison, or the row evidence.
+    expect(fenceRefused(control, old, "stale", { dataRowGone: true })).toBe("done");
+    expect(fenceRefused(control, old, "stale", { dataRowGone: false })).toBe("retry");
+    expect(fenceRefused(control, { ...old, generation: 1 }, "stale", { dataRowGone: true })).toBe(
+      "retry",
+    );
+  });
+});
+
+describe("a purge's target and answer", () => {
+  const job = { generation: 0, epoch: 2 };
+
+  it("erases the object's own generation only with D1's proof of permanent deletion", () => {
+    const control = { ...newControl(base, NOW), generation: 3, epoch: 4 };
+    expect(purgeEraseTarget(job, control, { permanentlyDeleted: true })).toEqual({
+      generation: 3,
+      epoch: 4,
+    });
+    expect(purgeEraseTarget(job, control, { permanentlyDeleted: false })).toEqual({
+      generation: 0,
+      epoch: 4,
+    });
+    expect(purgeEraseTarget(job, null, { permanentlyDeleted: true })).toEqual(job);
+  });
+
+  it("retires only on this erase's commit; superseded keeps the obligation", () => {
+    expect(purgeAnswered("committed")).toBe("retire");
+    expect(purgeAnswered("superseded")).toBe("superseded");
+    expect(purgeAnswered("cancelled")).toBe("retry");
+    expect(purgeAnswered("prepared")).toBe("retry");
+  });
+});
+
+describe("the artifact and region authority", () => {
+  const control = newControl(base, NOW);
+  const entry = inventoryEntry("abcdefghij", "default", NOW);
+  const agree = {
+    key: inventoryKey("abcdefghij"),
+    entry,
+    region: "default",
+    directoryRegion: "default",
+    control,
+  };
+
+  it("agrees only when the key, the entry, the directory and the control record agree", () => {
+    expect(identityDisagreement(agree)).toBeNull();
+    expect(identityDisagreement({ ...agree, directoryRegion: null })).toBeNull();
+    expect(identityDisagreement({ ...agree, key: inventoryKey("bcdefghijk") })).toBe("key");
+    expect(identityDisagreement({ ...agree, entry: { ...entry, region: "eu" } })).toBe(
+      "inventory_region",
+    );
+    expect(identityDisagreement({ ...agree, directoryRegion: "eu" })).toBe("directory_region");
+    expect(identityDisagreement({ ...agree, control: { ...control, region: "eu" } })).toBe(
+      "control",
+    );
+    expect(
+      identityDisagreement({ ...agree, control: { ...control, artifactId: "bcdefghijk" } }),
+    ).toBe("control");
+  });
+});
+
+describe("the reviewed state's printed form", () => {
+  it("round-trips, and refuses anything else", () => {
+    const state = { reason: "hold", at: NOW, ownerId: "ws_1", generation: 2, epoch: 3 } as const;
+    expect(formatReviewed(state)).toBe(`hold:${NOW}:ws_1:2:3`);
+    expect(parseReviewed(formatReviewed(state))).toEqual(state);
+    expect(parseReviewed(`hold:${NOW}:ws_1:2`)).toBeNull();
+    expect(parseReviewed(`hold:${NOW}:ws_1:2:3:4`)).toBeNull();
+    expect(parseReviewed(`bored:${NOW}:ws_1:2:3`)).toBeNull();
+    expect(parseReviewed(`hold:${NOW}:ws_1:2:x`)).toBeNull();
+    expect(parseReviewed(`hold:1e3:ws_1:2:3`)).toBeNull();
+    expect(parseReviewed(`hold:${NOW}::2:3`)).toBeNull();
+  });
+});
+
+describe("an account's journal scan", () => {
+  const fresh = { after: null, passStartedAt: NOW, sawLive: false };
+
+  it("walks on from the last key while the listing goes on", () => {
+    expect(nextJournalScan(fresh, { lastKey: "k9", truncated: true, live: 0 }, NOW + 1)).toEqual({
+      scan: { after: "k9", passStartedAt: NOW, sawLive: false },
+      complete: false,
+    });
+    // Killed mutation: a truncated page with no key cannot continue, so the pass ends.
+    expect(nextJournalScan(fresh, { lastKey: null, truncated: true, live: 0 }, NOW).complete).toBe(
+      true,
+    );
+  });
+
+  it("completes only after a whole pass that found nothing to retire", () => {
+    const end = { lastKey: "k1", truncated: false, live: 0 };
+    expect(nextJournalScan(fresh, end, NOW + 1)).toEqual({ scan: null, complete: true });
+    // A pass that retired something is followed by another from the start.
+    expect(nextJournalScan(fresh, { ...end, live: 1 }, NOW + 1)).toEqual({
+      scan: { after: null, passStartedAt: NOW + 1, sawLive: false },
+      complete: false,
+    });
+    expect(nextJournalScan({ ...fresh, sawLive: true }, end, NOW + 1).complete).toBe(false);
+    expect(
+      nextJournalScan(fresh, { lastKey: "k9", truncated: true, live: 2 }, NOW + 1).scan?.sawLive,
+    ).toBe(true);
+  });
+});
+
+describe("a reviewed resolution of a quarantine", () => {
+  function quarantined(control = newControl(base, NOW), reason: "owner" | "hold" = "hold") {
+    const decided = quarantine(control, base, reason, NOW + 5);
+    if (!decided.ok) throw new Error(decided.message);
+    return decided.value.control;
+  }
+  const request = (
+    control: DataControl,
+    decision: "adopt" | "erase",
+    hold: { transition: string } | null = null,
+  ) => {
+    const expected = reviewedState(control);
+    if (expected === null) throw new Error("not quarantined");
+    return { id: `${NOW}.resolution1`, decision, expected, hold };
+  };
+
+  it("reads the reviewed state from the quarantine and the identity numbers", () => {
+    const stored = { ...quarantined(), generation: 2, epoch: 3, ownerId: "ws_1" };
+    expect(reviewedState(stored)).toEqual({
+      reason: "hold",
+      at: NOW + 5,
+      ownerId: "ws_1",
+      generation: 2,
+      epoch: 3,
+    });
+    expect(reviewedState(newControl(base, NOW))).toBeNull();
+  });
+
+  it("applies only to the exact state reviewed", () => {
+    const stored = quarantined();
+    const asked = request(stored, "adopt");
+    for (const changed of [
+      { reason: "owner" as const },
+      { at: NOW + 6 },
+      { ownerId: "u_other" },
+      { generation: 1 },
+      { epoch: 1 },
+    ]) {
+      const stale = { ...asked, expected: { ...asked.expected, ...changed } };
+      const decided = resolveReviewed(stored, base, stale, null);
+      expect(decided.ok || decided.code, JSON.stringify(changed)).toBe("conflict");
+    }
+    const refusal = (decided: ReturnType<typeof resolveReviewed>) =>
+      decided.ok ? null : { code: decided.code, message: decided.message };
+    const nothing = { code: "conflict", message: "nothing to resolve" };
+    expect(refusal(resolveReviewed(newControl(base, NOW), base, asked, null))).toEqual(nothing);
+    expect(refusal(resolveReviewed(null, base, asked, null))).toEqual(nothing);
+    expect(
+      refusal(resolveReviewed(stored, { ...base, ownerId: "u_other" }, asked, null))?.code,
+    ).toBe("stale");
+    const stale = { ...asked, expected: { ...asked.expected, epoch: 1 } };
+    expect(refusal(resolveReviewed(stored, base, stale, null))?.message).toBe(
+      "the data changed since this resolution was reviewed",
+    );
+    const elsewhere = { ...base, artifactId: "bcdefghijk" };
+    expect(refusal(resolveReviewed(stored, elsewhere, asked, null))?.code).toBe("forbidden");
+    // Another artifact is refused even for a resolution that ended.
+    expect(refusal(resolveReviewed(stored, elsewhere, asked, "committed"))?.code).toBe("forbidden");
+  });
+
+  it("finishes the same resolution on a retry, changing nothing", () => {
+    const stored = newControl(base, NOW);
+    const repeated = resolveReviewed(stored, base, request(quarantined(), "erase"), "committed");
+    expect(repeated.ok && repeated.value.repeated).toBe(true);
+    expect(repeated.ok && repeated.value.erasePayload).toBe(false);
+    expect(resolveReviewed(null, base, request(quarantined(), "erase"), "committed").ok).toBe(
+      false,
+    );
+  });
+
+  it("refuses to erase while either side holds", () => {
+    const heldObject = quarantined(fenced(newControl(base, NOW), 1, "hold_1"));
+    const one = resolveReviewed(
+      heldObject,
+      { ...base, epoch: 1 },
+      request(heldObject, "erase"),
+      null,
+    );
+    expect(one.ok || one.code).toBe("held");
+    expect(one.ok || one.message).toBe("a release must be acknowledged before erasing held data");
+    const stored = quarantined();
+    const d1 = resolveReviewed(
+      stored,
+      base,
+      request(stored, "erase", { transition: "hold_d1" }),
+      null,
+    );
+    expect(d1.ok || d1.code).toBe("held");
+    expect(d1.ok || d1.message).toBe("a release must be acknowledged before erasing held data");
+    const free = resolveReviewed(stored, base, request(stored, "erase"), null);
+    expect(free.ok && free.value.erasePayload).toBe(true);
+  });
+
+  it("adopts keeping the object's hold or taking D1's, never dropping one", () => {
+    const stored = quarantined();
+    const taken = resolveReviewed(
+      stored,
+      base,
+      request(stored, "adopt", { transition: "hold_d1" }),
+      null,
+    );
+    expect(taken.ok && taken.value.control.hold).toEqual({ transition: "hold_d1", epoch: 0 });
+    expect(taken.ok && taken.value.control.quarantine).toBeNull();
+    const heldObject = quarantined(fenced(newControl(base, NOW), 1, "hold_1"));
+    const kept = resolveReviewed(
+      heldObject,
+      { ...base, epoch: 1 },
+      request(heldObject, "adopt"),
+      null,
+    );
+    expect(kept.ok && kept.value.control.hold).toEqual({ transition: "hold_1", epoch: 1 });
+    const open = resolveReviewed(stored, base, request(stored, "adopt"), null);
+    expect(open.ok && open.value.control.hold).toBeNull();
+    expect(open.ok && open.value.repeated).toBe(false);
   });
 });

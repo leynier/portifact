@@ -13,6 +13,7 @@ import {
   MAX_COLLECTIONS,
   MAX_DOCUMENT_BYTES,
   MAX_INDEXED_FIELDS,
+  ReviewedQuarantine,
 } from "@portifact/contracts/artifact-data";
 
 /** Where the region's bucket lists every object that may hold something. */
@@ -135,18 +136,21 @@ export type JobStep = "done" | "retry" | "wait";
 /**
  * After the object refused a `data_fence`: done when the object is already past this fence (a
  * later transition applied, or this transition ID applied with other contents, which only a
- * restore can cause and reconciliation repairs), retry while an earlier fence or an erase's D1
- * repair has yet to land, and done for a fence that can never apply (a transfer to its own
- * owner, another artifact).
+ * restore can cause and reconciliation repairs), or when the fence names a generation the object
+ * has left and D1 no longer has the artifact's data row (a purge's erase overtook the fence: it
+ * can never apply); retry while an earlier fence or D1's repair after an erase has yet to land;
+ * done for a fence that can never apply (a transfer to its own owner, another artifact).
  */
 export function fenceRefused(
   control: DataControl,
   envelope: DataEnvelope,
   code: DataRefusalCode,
+  evidence: { dataRowGone: boolean },
 ): JobStep {
   // `conflict` (this transition ID applied with other contents) ends like any code but these two.
   if (code === "held") return "retry";
   if (code !== "stale") return "done";
+  if (envelope.generation < control.generation && evidence.dataRowGone) return "done";
   // A repeat of the last transition is acknowledged, never stale, so only the epoch tells.
   return control.last.epoch >= envelope.epoch ? "done" : "retry";
 }
@@ -163,6 +167,39 @@ export function purgeEraseEpoch(jobEpoch: number, control: DataControl | null): 
 }
 
 /**
+ * The target of a purge's whole erase. The epoch is `purgeEraseEpoch`'s. The generation is the
+ * one the job read, unless D1 proves the artifact's permanent deletion (its tombstone, and no
+ * artifact row left but a purging one): then whatever generation the object is at is erased, as a
+ * required erase prepared at that generation, because nothing of a deleted artifact may survive.
+ * Without that proof an old generation stays old, and the object answers `superseded`.
+ */
+export function purgeEraseTarget(
+  job: { generation: number; epoch: number },
+  control: DataControl | null,
+  evidence: { permanentlyDeleted: boolean },
+): { generation: number; epoch: number } {
+  const epoch = purgeEraseEpoch(job.epoch, control);
+  if (control === null || !evidence.permanentlyDeleted)
+    return { generation: job.generation, epoch };
+  return { generation: control.generation, epoch };
+}
+
+/**
+ * What a purge's job does with the object's answer. Only a commit of this job's own erase (the
+ * commit answered `committed`, or the prepare found its ID already committed) lets the inventory
+ * entry be retired and the job end. `superseded` means this old intent cannot act, not that the
+ * data is gone: the job keeps its obligation and the operator gets a finding. `cancelled` comes
+ * back.
+ */
+export function purgeAnswered(
+  outcome: "prepared" | "committed" | "cancelled" | "superseded",
+): "retire" | "superseded" | "retry" {
+  if (outcome === "committed") return "retire";
+  if (outcome === "superseded") return "superseded";
+  return "retry";
+}
+
+/**
  * After the object refused a whole erase or an author erasure chunk: a hold or a quarantine waits,
  * a D1 row behind the object (`stale`) retries once the job that repairs it ran, and anything
  * else (another artifact) is a defect the job must not repeat forever.
@@ -171,4 +208,94 @@ export function erasureRefused(code: DataRefusalCode): JobStep {
   if (code === "held" || code === "quarantined") return "wait";
   if (code === "stale" || code === "conflict") return "retry";
   return "done";
+}
+
+/**
+ * The record's first row of the field authority table: an object is followed or resolved only
+ * when its inventory key names the artifact its entry names, the entry's region is the job's, the
+ * directory (when it has the artifact) puts it in the job's region, and the control record names
+ * the same artifact and region. Any disagreement goes to the operator; nothing is followed.
+ */
+export function identityDisagreement(input: {
+  key: string;
+  entry: InventoryEntry;
+  region: string;
+  directoryRegion: string | null;
+  control: DataControl;
+}): "key" | "inventory_region" | "directory_region" | "control" | null {
+  if (inventoryArtifact(input.key) !== input.entry.artifactId) return "key";
+  if (input.entry.region !== input.region) return "inventory_region";
+  if (input.directoryRegion !== null && input.directoryRegion !== input.region) {
+    return "directory_region";
+  }
+  if (
+    input.control.artifactId !== input.entry.artifactId ||
+    input.control.region !== input.region
+  ) {
+    return "control";
+  }
+  return null;
+}
+
+/** The reviewed state as `data-findings` prints it and `data-resolve --state` takes it back. */
+export function formatReviewed(state: ReviewedQuarantine): string {
+  return [state.reason, state.at, state.ownerId, state.generation, state.epoch].join(":");
+}
+
+/** The reviewed state from its printed form, or null when it is not one. */
+export function parseReviewed(text: string): ReviewedQuarantine | null {
+  const parts = text.split(":");
+  if (parts.length !== 5) return null;
+  const [reason, at, ownerId, generation, epoch] = parts as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
+  const parsed = ReviewedQuarantine.safeParse({
+    reason,
+    at: Number(at),
+    ownerId,
+    generation: Number(generation),
+    epoch: Number(epoch),
+  });
+  const numeric = [at, generation, epoch].every((part) => /^[0-9]{1,16}$/.test(part));
+  return parsed.success && numeric ? parsed.data : null;
+}
+
+/**
+ * Where an account's journal scan stands in one region, kept across capped runs: the last key
+ * it walked in the current pass, when that pass started, and whether the pass found an entry
+ * still to retire.
+ */
+export interface JournalScan {
+  after: string | null;
+  passStartedAt: number;
+  sawLive: boolean;
+}
+
+/**
+ * The scan after one listed page. A pass ends at the listing's end; the scan is complete only when
+ * a whole pass found nothing left to retire. A scan starts when the account deletion's first run
+ * reaches the region, so every pass begins after the deletion was requested. A pass that retired
+ * something is followed by another from the start, so an entry written while a pass ran behind
+ * its cursor is found by the next one. (Delivery 6's issuance refuses an account being deleted, so
+ * after a clean pass no entry appears but a claim already in flight before the deletion, which
+ * issuance must check again after its claim.)
+ */
+export function nextJournalScan(
+  scan: JournalScan,
+  page: { lastKey: string | null; truncated: boolean; live: number },
+  now: number,
+): { scan: JournalScan | null; complete: boolean } {
+  const sawLive = scan.sawLive || page.live > 0;
+  if (page.truncated && page.lastKey !== null) {
+    return {
+      scan: { after: page.lastKey, passStartedAt: scan.passStartedAt, sawLive },
+      complete: false,
+    };
+  }
+  if (!sawLive) return { scan: null, complete: true };
+  return { scan: { after: null, passStartedAt: now, sawLive: false }, complete: false };
 }

@@ -104,6 +104,34 @@ export const QUARANTINE_REASONS = ["owner", "hold", "orphan", "generation"] as c
 export const QuarantineReason = z.enum(QUARANTINE_REASONS);
 export type QuarantineReason = z.infer<typeof QuarantineReason>;
 
+/**
+ * The state of a quarantined object the operator reviewed (`data-findings`): the quarantine's
+ * reason and time and the identity numbers the object held then. A resolution applies only to
+ * exactly this state.
+ */
+export const ReviewedQuarantine = z.strictObject({
+  reason: QuarantineReason,
+  at: Time,
+  ownerId: DataOwnerId,
+  generation: Count,
+  epoch: Count,
+});
+export type ReviewedQuarantine = z.infer<typeof ReviewedQuarantine>;
+
+/**
+ * The operator's resolution of one quarantine, as an operation with an identity: its ID (the
+ * erase ID's form, recorded with its outcome like an ended erase intent, so a retry finishes the
+ * same resolution), the decision, the state it was reviewed against, and the hold D1 has, which
+ * an adoption makes the object keep.
+ */
+export const QuarantineResolutionRequest = z.strictObject({
+  id: OperationId,
+  decision: QuarantineResolution,
+  expected: ReviewedQuarantine,
+  hold: z.strictObject({ transition: TransitionId }).nullable(),
+});
+export type QuarantineResolutionRequest = z.infer<typeof QuarantineResolutionRequest>;
+
 export const ERASE_OUTCOMES = ["committed", "cancelled"] as const;
 export const EraseEnd = z.enum(ERASE_OUTCOMES);
 export type EraseEnd = z.infer<typeof EraseEnd>;

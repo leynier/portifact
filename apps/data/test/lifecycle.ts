@@ -16,7 +16,7 @@ import {
   OWNER_AUTHOR,
 } from "@portifact/contracts/artifact-data";
 import { aliasBinding, type RegionalDb, regionsFromEnv, schema } from "@portifact/db";
-import { journalKey, LIFECYCLE_LIMITS } from "@portifact/domain/artifact-data";
+import { journalKey, LIFECYCLE_LIMITS, parseReviewed } from "@portifact/domain/artifact-data";
 import {
   type DataObjectRpc,
   type DataObjects,
@@ -400,4 +400,15 @@ export async function drain(
     }
   }
   return outcomes;
+}
+
+/** The quarantined state reconciliation recorded for the operator, as `data-resolve` takes it. */
+export async function reviewedOf(id: string, region: "default" | "eu" = "default") {
+  const [finding] = await db(region)
+    .select({ state: schema.dataFindings.state })
+    .from(schema.dataFindings)
+    .where(eq(schema.dataFindings.artifactId, id));
+  const state = finding?.state ? parseReviewed(finding.state) : null;
+  if (state === null) throw new Error(`no reviewed state for ${id}`);
+  return state;
 }

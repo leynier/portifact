@@ -1119,6 +1119,8 @@ export const DATA_FINDING_ACTIONS = [
   "raised",
   "resumed_erase",
   "awaiting_operator",
+  "identity_mismatch",
+  "superseded",
   "adopted",
   "erased",
   "refused",
@@ -1134,6 +1136,11 @@ export const dataFindings = sqliteTable("data_findings", {
   action: text("action", { enum: DATA_FINDING_ACTIONS }).notNull(),
   /** The quarantine's reason, or the refusal's code. */
   reason: text("reason"),
+  /**
+   * The quarantined state the operator reviews and resolves against (`formatReviewed`), or null
+   * when the object is not quarantined.
+   */
+  state: text("state"),
   firstSeenAt: timestamp("first_seen_at").notNull(),
   lastSeenAt: timestamp("last_seen_at").notNull(),
 });

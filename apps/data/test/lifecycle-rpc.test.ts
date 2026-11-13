@@ -4,6 +4,7 @@
 // required erase is required only through `lifecycleErase`'s reason, and reading the control
 // record of an object nothing bound creates nothing.
 
+import { reviewedState } from "@portifact/domain/artifact-data";
 import type { DataObjectRpc } from "@portifact/services";
 import { lifecycleId } from "@portifact/services";
 import { describe, expect, it } from "vitest";
@@ -82,8 +83,15 @@ describe("the lifecycle interface", () => {
     expect(quarantined.ok && quarantined.value).toBe(true);
     const page = await rpc(id).lifecycleExport(base, null, DATA_NOW);
     expect(page.ok && page.value.rows.length).toBe(2);
-    const resolved = await rpc(id).lifecycleResolve(base, "adopt", DATA_NOW);
-    expect(resolved.ok).toBe(true);
+    const control = await rpc(id).lifecycleControl();
+    const expected = control && reviewedState(control);
+    if (!expected) throw new Error("not quarantined");
+    const request = { id: lifecycleId(DATA_NOW), decision: "adopt" as const, expected, hold: null };
+    const resolved = await rpc(id).lifecycleResolve(base, request, DATA_NOW);
+    expect(resolved.ok && resolved.value).toEqual({ repeated: false });
+    // The same resolution again finishes it again; it never resolves a later quarantine.
+    const again = await rpc(id).lifecycleResolve(base, request, DATA_NOW);
+    expect(again.ok && again.value).toEqual({ repeated: true });
     expect((await rpc(id).lifecycleControl())?.quarantine).toBeNull();
   });
 

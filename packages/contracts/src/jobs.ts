@@ -2,7 +2,15 @@
 // payloads of outbox rows, and the tombstone markers the operator exports before restoring a
 // backup and applies after it (docs/operations.md).
 import { z } from "zod";
-import { DataFence, DataOwnerId, ExportCursor, VisitorId } from "./artifact-data.ts";
+import {
+  DataFence,
+  DataOwnerId,
+  ExportCursor,
+  OperationId,
+  QuarantineResolution,
+  ReviewedQuarantine,
+  VisitorId,
+} from "./artifact-data.ts";
 import { Region } from "./workspaces.ts";
 
 export const OutboxTopic = z.enum([
@@ -258,6 +266,11 @@ export const DataErasePayload = z.strictObject({
   ownerId: DataOwnerId,
   generation: DataCount,
   epoch: DataCount,
+  /**
+   * The erase ID this job prepares, written into the row before its first prepare, so a retry
+   * after a crash finishes the same erase (and recognizes it committed) instead of starting another.
+   */
+  eraseId: OperationId.optional(),
 });
 export type DataErasePayload = z.infer<typeof DataErasePayload>;
 
@@ -282,8 +295,15 @@ export const DataReconcilePayload = z.strictObject({
 });
 export type DataReconcilePayload = z.infer<typeof DataReconcilePayload>;
 
-/** Payload of a `data_resolve` job: the operator's resolution of a quarantine. */
-export const DataResolvePayload = z.strictObject({ decision: z.enum(["adopt", "erase"]) });
+/**
+ * Payload of a `data_resolve` job: the operator's resolution of one quarantine, with its ID and
+ * the state the operator reviewed (`data-findings`), so a delayed row or a stale review conflicts.
+ */
+export const DataResolvePayload = z.strictObject({
+  decision: QuarantineResolution,
+  resolutionId: OperationId,
+  expected: ReviewedQuarantine,
+});
 export type DataResolvePayload = z.infer<typeof DataResolvePayload>;
 
 /**
