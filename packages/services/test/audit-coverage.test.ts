@@ -517,6 +517,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // Budget protection's data step (decision 0026): reads the platform's protection only.
+  "checkDataWriteCapacity",
   // D1's hold level for the data convergence rule (decision 0026): one read of `legal_holds`.
   "holdLevel",
   // The grace forecast's counts (decision 0022), shared by its route and the grace emails.
