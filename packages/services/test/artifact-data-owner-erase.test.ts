@@ -2,6 +2,7 @@
 // obligations left pending (decision 0026, the follow-up of delivery 5), against the in-memory
 // reference object.
 import { env } from "cloudflare:test";
+import { ARTIFACT_DATA } from "@portifact/contracts";
 import { schema } from "@portifact/db";
 import { HELD_MESSAGE } from "@portifact/domain";
 import { MemoryObject } from "@portifact/domain/testing/artifact-data";
@@ -18,6 +19,7 @@ import {
   type OwnerDataDeps,
   PENDING_AUDIT_AGE_MS,
   queryArtifactData,
+  registerDataObject,
   runDataAudit,
   runDataReset,
   sweepDataAudit,
@@ -292,6 +294,128 @@ describe("the owner's erase", () => {
   });
 });
 
+describe("the erase's bound target", () => {
+  it("answers a done erase's retry from its claim, without reaching the object", async () => {
+    let calls = 0;
+    const { deps, of } = harness(true, (rpc) => ({
+      ...rpc,
+      ownerCommand: async (envelope, actor, command, limits, now) => {
+        calls += 1;
+        return rpc.ownerCommand(envelope, actor, command, limits, now);
+      },
+    }));
+    const { artifactId, input } = await seeded(deps);
+    const idempotencyKey = key();
+    value(await eraseArtifactData(db(), deps, { ...input, idempotencyKey }));
+    const before = calls;
+    expect(value(await eraseArtifactData(db(), deps, { ...input, idempotencyKey }))).toEqual({
+      erased: true,
+      generation: 1,
+    });
+    expect(calls).toBe(before);
+    expect(of(artifactId).durable.documents.size).toBe(0);
+  });
+
+  it("switched off, erases nothing on an artifact whose object holds no record", async () => {
+    const { deps, objects, of } = harness(false);
+    const owner = await user("Owner");
+    const { artifactId } = await publishSite(owner.id);
+    await registerDataObject(db(), env.ARTIFACTS, "default", artifactId, NOW);
+    expect(
+      value(
+        await eraseArtifactData(db(), deps, {
+          userId: owner.id,
+          artifactId,
+          now: NOW,
+          idempotencyKey: key(),
+        }),
+      ),
+    ).toEqual({ erased: true, generation: 0 });
+    expect(of(artifactId).durable.control).toBeNull();
+    const job = {
+      id: 1,
+      topic: "data_reset",
+      payload: {
+        ownerId: owner.id,
+        generation: 0,
+        epoch: 0,
+        actor: owner.id,
+        eraseId: `${NOW}.abcdefgh`,
+      },
+      availableAt: NOW,
+      dispatchedAt: null,
+      attempts: 0,
+      createdAt: NOW,
+      subject: artifactId,
+      generation: null,
+    } as never;
+    expect(await runDataReset(db(), objects, job, NOW)).toBe("done");
+    expect(of(artifactId).durable.control).toBeNull();
+  });
+
+  it("ends a job whose target D1 no longer holds, and one the object moved past", async () => {
+    let crash = true;
+    const { deps, objects, of } = harness(true, (rpc) => ({
+      ...rpc,
+      ownerCommand: async (envelope, actor, command, limits, now) => {
+        if (crash && command.kind === "erase" && command.step === "prepare") {
+          throw new Error("the Worker went away");
+        }
+        return rpc.ownerCommand(envelope, actor, command, limits, now);
+      },
+    }));
+    const { artifactId, input } = await seeded(deps);
+    await expect(
+      eraseArtifactData(db(), deps, { ...input, idempotencyKey: key() }),
+    ).rejects.toThrow("went away");
+    const [job] = await jobs("data_reset", artifactId);
+    if (!job) throw new Error("no job");
+    crash = false;
+    // Another erase, confirmed after, finishes first: this one's intent never prepared.
+    value(await eraseArtifactData(db(), deps, { ...input, now: NOW + 1, idempotencyKey: key() }));
+    value(
+      await declareDataCollection(db(), deps, {
+        ...input,
+        now: NOW + 2,
+        idempotencyKey: key(),
+        declaration: { name: "later", mode: "shared" },
+      }),
+    );
+    value(
+      await createDataDocument(db(), deps, {
+        ...input,
+        now: NOW + 3,
+        idempotencyKey: key(),
+        collection: "later",
+        body: {},
+      }),
+    );
+    expect(await runDataReset(db(), objects, job, NOW + DATA_RESET_DELAY_MS)).toBe("stale");
+    expect(of(artifactId).durable.documents.size).toBe(1);
+    expect(await events(artifactId, "data.erased")).toHaveLength(1);
+    // A target whose owner D1 no longer names ends the same way, before any object step.
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: (await user("Other")).id })
+      .where(eq(schema.artifacts.id, artifactId));
+    expect(await runDataReset(db(), objects, job, NOW + DATA_RESET_DELAY_MS)).toBe("stale");
+    expect(of(artifactId).durable.documents.size).toBe(1);
+  });
+
+  it("answers unavailable without the binding, keeping the claim for a retry", async () => {
+    const { deps, of } = harness();
+    const { artifactId, input } = await seeded(deps);
+    expect(
+      await eraseArtifactData(
+        db(),
+        { ...deps, objects: null },
+        { ...input, idempotencyKey: key() },
+      ),
+    ).toMatchObject({ ok: false, code: "capacity_unavailable" });
+    expect(of(artifactId).durable.documents.size).toBe(2);
+  });
+});
+
 describe("deleting one author's documents", () => {
   it("deletes only that author's documents, in pages, and says when more are left", async () => {
     const { deps, of } = harness();
@@ -337,6 +461,28 @@ describe("deleting one author's documents", () => {
       await queryArtifactData(db(), deps, { ...input, query: { collection: "votes" } }),
     );
     expect(left.documents).toEqual([]);
+  });
+
+  it("refuses a key used for another request, and one past the horizon", async () => {
+    const { deps } = harness();
+    const { input } = await seeded(deps, 1);
+    const idempotencyKey = key();
+    value(await deleteAuthorData(db(), deps, { ...input, idempotencyKey, author: "owner" }));
+    expect(
+      await deleteAuthorData(db(), deps, {
+        ...input,
+        idempotencyKey,
+        author: "v_AAAAAAAAAAAAAAAA",
+      }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
+    expect(
+      await deleteAuthorData(db(), deps, {
+        ...input,
+        now: NOW + ARTIFACT_DATA.horizonMs + 1,
+        idempotencyKey,
+        author: "owner",
+      }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
   });
 
   it("refuses a stranger and answers not_found while artifact data is off", async () => {
