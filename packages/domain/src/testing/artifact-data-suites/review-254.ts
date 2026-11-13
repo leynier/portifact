@@ -121,7 +121,7 @@ export function review254Suite(make: MakeObject): void {
       const { o, e } = await fixture();
       const sent = op(e);
       value(await o.create(sent, visitor("a"), "items", {}, ctx));
-      for (let i = 0; i < 2600; i++) await o.create(sent, visitor("a"), "items", {}, ctx);
+      await o.createMany(sent, visitor("a"), "items", {}, ctx, 2600);
       expect((await o.view()).pending.rows).toBeLessThan(ARTIFACT_DATA.readFlush.rows);
     });
     it("R05a: the first pending read schedules the 30-second flush", async () => {
@@ -359,7 +359,7 @@ export function review254Suite(make: MakeObject): void {
       expect((await o.view()).durable.alarm).toBeNull();
       // Rows flush synchronously at the bound, so what an eviction can lose stays under it.
       const { o: busy, e: be } = await fixture("append");
-      for (let i = 0; i < 4_000; i++) await busy.get(be, OWNER, "items", "xxxxxxxxxxxxxxxx", ctx);
+      await busy.getMany(be, OWNER, "items", "xxxxxxxxxxxxxxxx", ctx, 4_000);
       expect((await busy.view()).pending.rows).toBeLessThan(ARTIFACT_DATA.readFlush.rows);
       expect((await busy.view()).pending.refused).toBeLessThan(ARTIFACT_DATA.readFlush.refusals);
     });

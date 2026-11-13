@@ -1603,6 +1603,36 @@ export class MemoryObject implements DataObject {
     );
   }
 
+  createMany(
+    envelope: DataEnvelope,
+    caller: Caller,
+    collection: string,
+    body: unknown,
+    context: Context,
+    times: number,
+  ): Answer<Record<string, unknown>> {
+    let last = this.create(envelope, caller, collection, body, context);
+    for (let done = 1; done < times; done++) {
+      last = this.create(envelope, caller, collection, body, context);
+    }
+    return last;
+  }
+
+  getMany(
+    envelope: DataEnvelope,
+    caller: Caller,
+    collection: string,
+    id: string,
+    context: Context,
+    times: number,
+  ): Answer<Record<string, unknown>> {
+    let last = this.get(envelope, caller, collection, id, context);
+    for (let done = 1; done < times; done++) {
+      last = this.get(envelope, caller, collection, id, context);
+    }
+    return last;
+  }
+
   get(
     envelope: DataEnvelope,
     caller: Caller,

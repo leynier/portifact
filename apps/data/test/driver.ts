@@ -281,6 +281,22 @@ export class RealObject implements DataObject {
   eraseAuthorChunk: DataObject["eraseAuthorChunk"] = (...args) =>
     this.run((s) => s.eraseAuthorChunk(...args));
   get: DataObject["get"] = (...args) => this.run((s) => s.get(...args));
+  createMany: DataObject["createMany"] = (envelope, caller, collection, body, context, times) =>
+    this.run((s) => {
+      let last = s.create(envelope, caller, collection, body, context);
+      for (let done = 1; done < times; done++) {
+        last = s.create(envelope, caller, collection, body, context);
+      }
+      return last;
+    });
+  getMany: DataObject["getMany"] = (envelope, caller, collection, id, context, times) =>
+    this.run((s) => {
+      let last = s.get(envelope, caller, collection, id, context);
+      for (let done = 1; done < times; done++) {
+        last = s.get(envelope, caller, collection, id, context);
+      }
+      return last;
+    });
   query: DataObject["query"] = (...args) => this.run((s) => s.query(...args));
   count: DataObject["count"] = (...args) => this.run((s) => s.count(...args));
   describe: DataObject["describe"] = (...args) => this.run((s) => s.describe(...args));
