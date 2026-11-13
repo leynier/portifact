@@ -575,6 +575,13 @@
       "when": 1794568096744,
       "tag": "0081_suggestion_scan_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1794572379002,
+      "tag": "0082_cli_data_scopes",
+      "breakpoints": true
     }
   ]
 }

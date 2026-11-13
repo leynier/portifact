@@ -6,9 +6,10 @@ import type { DataObjectRpc } from "../src/artifact-data.ts";
 
 export function ownerRpc(
   memory: MemoryObject,
-): Pick<DataObjectRpc, "ownerCommand" | "auditSettle" | "auditAcknowledge"> {
+): Pick<DataObjectRpc, "ownerCommand" | "auditSettle" | "auditAcknowledge" | "lifecycleControl"> {
   const name = (actor: string) => mutationActorName({ kind: "owner", actor });
   return {
+    lifecycleControl: async () => memory.durable.control,
     ownerCommand: async (envelope, actor, command, limits, now) =>
       runOwnerCommand(memory, envelope, actor, command, { now, limits }) as never,
     auditSettle: async (envelope, actor, opId, now) =>

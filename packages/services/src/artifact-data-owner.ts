@@ -625,7 +625,7 @@ async function dataAuditEventId(artifactId: string, payload: DataAuditPayload): 
  * ID is the operation's), then is acknowledged; an operation the object never committed is
  * recorded aborted there, so a late arrival cannot commit, and records nothing. Idempotent: a
  * repeated delivery finds the event and the acknowledgement already done. Throws without the
- * binding, so the row stays.
+ * binding, so the row stays. While artifact data is off it never binds an empty object.
  */
 export async function runDataAudit(
   db: RegionalDb,
@@ -646,6 +646,9 @@ export async function runDataAudit(
     epoch: payload.epoch,
   };
   const object = objects.object(artifactId);
+  // Settling an unknown operation records it aborted, which binds an empty object: never while
+  // artifact data is off (`createsObjects`). An object nothing bound committed nothing.
+  if (!objects.createsObjects && (await object.lifecycleControl()) === null) return "done";
   const answer = await object.auditSettle(envelope, payload.actor, payload.opId, now);
   if (answer.state === "aborted") return "done";
   if (answer.state === "refused") {

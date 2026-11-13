@@ -612,4 +612,23 @@ describe("the audit relay", () => {
     expect(await runDataAudit(db(), objects, { ...job, subject: null }, NOW)).toBe("stale");
     await expect(runDataAudit(db(), null, job, NOW)).rejects.toThrow("binding");
   });
+
+  it("binds no empty object while artifact data is off", async () => {
+    const { objects, of } = harness(false);
+    const { owner, artifactId } = await ownedArtifact();
+    const opId = await ownerOperationId(owner.id, "never", NOW);
+    const [job] = await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "data_audit",
+        payload: { ownerId: owner.id, generation: 0, epoch: 0, actor: owner.id, opId },
+        availableAt: NOW,
+        createdAt: NOW,
+        subject: artifactId,
+      })
+      .returning();
+    if (!job) throw new Error("no job");
+    expect(await runDataAudit(db(), objects, job, NOW)).toBe("done");
+    expect(of(artifactId).durable.control).toBeNull();
+  });
 });

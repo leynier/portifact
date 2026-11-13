@@ -112,6 +112,7 @@ function memoryObjects(createsObjects = false) {
     object(id): DataObjectRpc {
       const memory = of(id);
       return {
+        ...ownerRpc(memory),
         lifecycleControl: async () => memory.durable.control,
         // The reference's answers may also be replays; the lifecycle commands never are.
         lifecycleFence: async (envelope, fence, now) => memory.fence(envelope, fence, now) as never,
@@ -139,7 +140,6 @@ function memoryObjects(createsObjects = false) {
             { now, limits: LIFECYCLE_LIMITS },
             true,
           ) as never,
-        ...ownerRpc(memory),
       };
     },
   };
