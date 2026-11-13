@@ -20,7 +20,7 @@ import {
   PLAN_LIMITS,
   SUGGESTION_LIMITS,
 } from "@portifact/contracts";
-import { type Db, hitRateLimits, type RegionalDb, schema } from "@portifact/db";
+import { type Db, hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import {
   type BuiltPlan,
@@ -258,19 +258,19 @@ async function admitPlanning(
   now: number,
 ): Promise<Result<true>> {
   const limits = SUGGESTION_LIMITS;
-  const [person] = await hitRateLimits(
+  const [person] = (await hitRateLimits(
     db.global.$client,
     [`suggestion_plan:user:${userId}`],
     limits.plansPersonWindowMs,
     now,
-  );
-  const [artifact] = await hitRateLimits(
+  )) as [RateLimitHit];
+  const [artifact] = (await hitRateLimits(
     db.global.$client,
     [`suggestion_plan:artifact:${artifactId}`],
     limits.plansArtifactWindowMs,
     now,
-  );
-  if ((person?.count ?? 0) > limits.plansPerPerson || (artifact?.count ?? 0) > limits.plansPerArtifact) {
+  )) as [RateLimitHit];
+  if (person.count > limits.plansPerPerson || artifact.count > limits.plansPerArtifact) {
     return fail("rate_limited", "Too many plans in a short time. Try again in a few minutes.");
   }
   return ok(true);

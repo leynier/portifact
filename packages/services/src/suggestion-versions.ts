@@ -197,11 +197,11 @@ export async function runSuggestionCarry(
   row: OutboxRow,
   now: number,
   contentDomain: string,
+  limit: number = SUGGESTION_LIMITS.itemsPerCheck,
 ): Promise<JobOutcome> {
   const current = await currentArtifact(db, row);
   if (!current) return "stale";
   const { artifact, versionId } = current;
-  const limit = SUGGESTION_LIMITS.itemsPerCheck;
   const threads = await db
     .select()
     .from(th)
@@ -227,7 +227,8 @@ export async function runSuggestionCarry(
   for (const group of groups.values()) {
     const outcome = await carryGroup(db, bucket, artifact, versionId, contentDomain, group);
     for (const thread of group) {
-      const result = outcome.get(thread.id) ?? { outdated: "not_planned" };
+      // Every thread of the group has an outcome.
+      const result = outcome.get(thread.id) as ReturnType<typeof carriedProofs>;
       const same = and(
         eq(th.id, thread.id),
         eq(th.suggestionState, "pending"),
@@ -291,12 +292,12 @@ export async function runChangeListCheck(
   row: OutboxRow,
   now: number,
   contentDomain: string,
+  limit: number = SUGGESTION_LIMITS.itemsPerCheck,
 ): Promise<JobOutcome> {
   const current = await currentArtifact(db, row);
   if (!current) return "stale";
   const { artifact, versionId } = current;
   const after = VersionJobPayload.parse(row.payload).after;
-  const limit = SUGGESTION_LIMITS.itemsPerCheck;
   const items = await db
     .select({ id: ci.id, path: ci.path, proof: ci.proof, revision: ci.revision })
     .from(ci)

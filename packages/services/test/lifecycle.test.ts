@@ -482,6 +482,9 @@ describe("purging archives", () => {
       webhooks: { prunedDeliveries: 0, requeued: 0 },
       threadIssues: 0,
       pendingConnections: 0,
+      acceptAttempts: 0,
+      suggestionRecords: { plans: 0, attempts: 0, items: 0, drafts: 0 },
+      draftsWithoutRole: 0,
       workspacePolicies: { checked: 0, corrected: 0, failed: 0 },
       commentRetention: {
         checked: 0,

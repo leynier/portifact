@@ -165,6 +165,14 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   updateAuditStream: ["audit_stream.changed"],
   removeAuditStream: ["audit_stream.removed"],
   deliverAuditStream: ["audit_stream.paused"],
+  // Edit suggestions (decision 0027): a decision, a withdrawal (also when the author deletes the
+  // first message), an acceptance's completion with its publish, and a marked change item.
+  rejectSuggestion: ["suggestion.rejected"],
+  withdrawSuggestion: ["suggestion.withdrawn"],
+  deleteOwnAnnotationMessage: ["suggestion.withdrawn"],
+  runAcceptance: ["suggestion.accepted", "artifact.published"],
+  publishFromPlan: ["suggestion.accepted", "artifact.published"],
+  markChangeItem: ["change_item.marked"],
 };
 
 /** Changes that record no event, and why. */
@@ -249,12 +257,29 @@ reason("comments are not in the audit log's scope (T10); their text never is", [
   "createAnnotationThread",
   "replyToAnnotationThread",
   "editAnnotationMessage",
-  "deleteOwnAnnotationMessage",
   "deleteAnnotationThread",
   "moderateAnnotationMessage",
   "setAnnotationThreadState",
   "eraseAuthorFromThread",
 ]);
+reason("a suggestion is a comment: its creation is outside the T10 catalog like any comment", [
+  "submitSuggestion",
+]);
+reason(
+  "edit suggestions (decision 0027): starting an acceptance or a draft publish records nothing until the job completes it (suggestion.accepted); a dry run only caches a plan and the suggestion's proofs",
+  ["acceptSuggestion", "publishDraft", "planSuggestion", "planDraft"],
+);
+reason(
+  "edit suggestions (decision 0027): an attempt that ends, carries, closures by a new version and the scans change nothing an owner decided; the suggestion is pending again or the record expired",
+  [
+    "endAttempt",
+    "expireAcceptAttempts",
+    "runSuggestionCarry",
+    "runChangeListCheck",
+    "pruneSuggestionRecords",
+    "pruneDraftsWithoutRole",
+  ],
+);
 reason("whether an artifact takes comments is outside the T10 catalog for now", [
   "setAnnotationMode",
 ]);
@@ -507,6 +532,11 @@ const READ_NAMES = new Set([
   "searchContent",
   "signUnsubscribeToken",
   "signWebhook",
+  // Edit suggestions (decision 0027): building a plan and reading stored files and drafts.
+  "suggestionPlanOf",
+  "draftPlanOf",
+  "storedPage",
+  "ownDraft",
 ]);
 const READS =
   /^(get|list|read|find|load|export|show|count|view|preview|lookup|stats|current|personal|require|owner|actor|artifact|workspace|usage|account|managed|compare|diff|hash|sha|seal|verify(Share)?Password|email|invitation|annotation|noticeView|newArtifactDefaults|platformProtection|pendingBudgetAlerts|multipartStates|openMultipartUploads|revokedShareLinks|shareLinkLabels|soleAdminOf|windowSum|webhookKeys|authorizeOn|reviewSessionTag)(?=[A-Z]|$)/;

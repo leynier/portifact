@@ -168,7 +168,7 @@ export async function currentText(artifactId: string, path: string): Promise<str
     );
   const object = await env.ARTIFACTS.get(file?.r2Key ?? "");
   // The byte order mark kept as a character, so a test sees whether the file holds one.
-  return object ? new TextDecoder("utf-8", { ignoreBOM: true }).decode(await object.arrayBuffer()) : "";
+  return object ? new TextDecoder("utf-8", { fatal: false, ignoreBOM: true }).decode(await object.arrayBuffer()) : "";
 }
 
 export async function auditKinds(artifactId: string): Promise<string[]> {

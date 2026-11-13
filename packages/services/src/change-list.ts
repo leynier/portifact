@@ -156,7 +156,7 @@ export async function markChangeItem(
     loaded.value.role,
     item.state,
     input.state,
-    Number(row?.open ?? 0),
+    Number((row as { open: number }).open),
     CHANGE_LIST_LIMITS.openPerArtifact,
   );
   if (!allowed.ok) return allowed;

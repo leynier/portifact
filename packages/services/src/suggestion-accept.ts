@@ -28,7 +28,7 @@ import {
   SUGGESTION_LIMITS,
   utf8Length,
 } from "@portifact/contracts";
-import { hitRateLimits, type RegionalDb, schema } from "@portifact/db";
+import { hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
 import {
   actsForOwner,
   checkPublishCapacity,
@@ -49,7 +49,6 @@ import { actorOn } from "./actors.ts";
 import { type AnnotationActor, annotationParts } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
-import { isHeld } from "./legal-holds.ts";
 import type { JobOutcome } from "./outbox.ts";
 import {
   closeUploadSession,
@@ -114,17 +113,16 @@ async function admitAcceptance(
     const capacity = checkPublishCapacity((await platformProtection(db.global, input.now)).actions, false);
     if (!capacity.ok) return capacity;
   }
-  const [row] = await db.all<{ open: number }>(sql`select ${openItemsSql(input.artifactId)} as open`);
-  if (!admitItems(Number(row?.open ?? 0), plan.listed.length, CHANGE_LIST_CAP)) {
+  if (!admitItems(await openItems(db, input.artifactId), plan.listed.length, CHANGE_LIST_CAP)) {
     return fail("quota_exceeded", "The change list is full. Close some of its items first.");
   }
-  const [hit] = await hitRateLimits(
+  const [hit] = (await hitRateLimits(
     db.global.$client,
     [`suggestion_accept:owner:${input.ownerId}`],
     SUGGESTION_LIMITS.acceptsOwnerWindowMs,
     input.now,
-  );
-  if ((hit?.count ?? 0) > SUGGESTION_LIMITS.acceptsPerOwner) {
+  )) as [RateLimitHit];
+  if (hit.count > SUGGESTION_LIMITS.acceptsPerOwner) {
     return fail("rate_limited", "Too many acceptances today. Try again tomorrow.");
   }
   return ok(true);
@@ -390,6 +388,11 @@ function claimStatement(db: RegionalDb, c: Completion) {
     .returning({ id: cl.attemptId });
 }
 
+async function openItems(db: RegionalDb, artifactId: string): Promise<number> {
+  const [row] = await db.all<{ open: number }>(sql`select ${openItemsSql(artifactId)} as open`);
+  return Number((row as { open: number }).open);
+}
+
 const heldBy = (attemptId: string, token: string) =>
   sql`exists (select 1 from ${cl} where ${cl.attemptId} = ${attemptId} and ${cl.runToken} = ${token})`;
 
@@ -415,7 +418,7 @@ function itemStatements(
     return db
       .insert(ci)
       .select(
-        sql`select ${id}, ${attempt.artifactId}, ${attempt.ownerId}, ${attempt.origin}, ${attempt.origin === "suggestion" ? attempt.threadId : null}, ${attempt.id}, ${plan.binding.versionId}, ${plan.binding.path}, ${plan.binding.route}, ${envelopeText}, ${proofText}, ${bytes}, ${envelope.reason ?? "not_text"}, 'open', ${attempt.userId}, ${submittedBy}, ${c.now}, null, null, null, 1 where ${condition}`,
+        sql`select ${id}, ${attempt.artifactId}, ${attempt.ownerId}, ${attempt.origin}, ${attempt.origin === "suggestion" ? attempt.threadId : null}, ${attempt.id}, ${plan.binding.versionId}, ${plan.binding.path}, ${plan.binding.route}, ${envelopeText}, ${proofText}, ${bytes}, ${envelope.reason as string}, 'open', ${attempt.userId}, ${submittedBy}, ${c.now}, null, null, null, 1 where ${condition}`,
       );
   });
 }
@@ -499,10 +502,7 @@ async function lostClaim(
     .where(eq(cl.attemptId, c.attempt.id))
     .limit(1);
   if (held) return "duplicate";
-  const [row] = await db.all<{ open: number }>(
-    sql`select ${openItemsSql(c.attempt.artifactId)} as open`,
-  );
-  if (!admitItems(Number(row?.open ?? 0), c.built.plan.listed.length, CHANGE_LIST_CAP)) {
+  if (!admitItems(await openItems(db, c.attempt.artifactId), c.built.plan.listed.length, CHANGE_LIST_CAP)) {
     return "quota_exceeded";
   }
   return "version_conflict";
@@ -548,8 +548,14 @@ async function manifestOf(db: RegionalDb, versionId: string, path: string, sha25
     .from(schema.versions)
     .where(eq(schema.versions.id, versionId))
     .limit(1);
-  return { manifest, origin, entrypoint: version?.entrypoint ?? path };
+  return { manifest, origin, entrypoint: (version as { entrypoint: string }).entrypoint };
 }
+
+/** Why a commit that did not switch ends the attempt, besides a lost claim. */
+const COMMIT_REASONS: Partial<Record<string, AttemptEndReason>> = {
+  upload_incomplete: "failed",
+  quota_exceeded: "quota_exceeded",
+};
 
 const PREPARE_REASONS: Partial<Record<string, AttemptEndReason>> = {
   quota_exceeded: "quota_exceeded",
@@ -585,7 +591,7 @@ export async function publishFromPlan(
     .from(schema.uploadSessions)
     .where(eq(schema.uploadSessions.id, ids.sessionId))
     .limit(1);
-  if (existing && existing.state === "committed") return "done";
+  // A closed upload (expired or failed; a committed one completed the attempt in its batch).
   if (existing && existing.state !== "uploading" && existing.state !== "ready") {
     await endAttempt(db, attempt, "failed", now);
     return "done";
@@ -660,16 +666,12 @@ export async function publishFromPlan(
     },
   );
   if (committed.ok) return "done";
-  if (committed.code === "upload_incomplete") {
-    await endAttempt(db, attempt, "failed", now);
-    return "done";
-  }
-  if (committed.code === "quota_exceeded") {
-    await endAttempt(db, attempt, "quota_exceeded", now);
-    return "done";
-  }
-  if ("detail" in committed && committed.detail === "plan_changed") {
-    await endAttempt(db, attempt, "plan_changed", now);
+  const reason =
+    "detail" in committed && committed.detail === "plan_changed"
+      ? "plan_changed"
+      : COMMIT_REASONS[committed.code];
+  if (reason) {
+    await endAttempt(db, attempt, reason, now);
     return "done";
   }
   const lost = await lostClaim(db, c);
@@ -751,8 +753,8 @@ async function recheck(
   if (!artifact || artifact.ownerId !== attempt.ownerId || artifact.state !== "active") {
     return revoked;
   }
+  // A held artifact is always suspended (migration 0074), so it ended here already.
   if (attempt.userId === null) return revoked;
-  if (await isHeld(db, artifact.id)) return revoked;
   // The person still acts for the owner (a removal or a lower role meanwhile ends the attempt).
   const actor = await actorOn(db.global, attempt.userId, artifact.ownerId);
   if (!actor.ok || !actsForOwner(actor.value, artifact.ownerId)) return revoked;

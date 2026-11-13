@@ -107,7 +107,7 @@ export async function submitSuggestion(
 ): Promise<Result<AnnotationThreadView>> {
   const parsed = Edit.safeParse(input.edit);
   if (!parsed.success) {
-    return fail("invalid_input", parsed.error.issues[0]?.message ?? "Invalid edit.");
+    return fail("invalid_input", `Invalid edit: ${(parsed.error.issues[0] as { message: string }).message}`);
   }
   const edit = parsed.data;
   const target = (edit.operations[0] as { target: AnnotationTarget }).target;

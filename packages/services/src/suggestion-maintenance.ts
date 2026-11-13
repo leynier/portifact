@@ -19,9 +19,9 @@ import {
   SUGGESTION_LIMITS,
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
-import { and, asc, eq, gt, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { notHeldSql } from "./legal-holds.ts";
-import { cursorFor, resumeAt, type ScanCaps } from "./maintenance-cursors.ts";
+import { cursorRead, resumeAt, savedCursorSql, type ScanCaps } from "./maintenance-cursors.ts";
 import { endAttempt } from "./suggestion-accept.ts";
 
 const at = schema.acceptanceAttempts;
@@ -139,21 +139,18 @@ export async function pruneDraftsWithoutRole(
   now: number,
   caps: ScanCaps = DRAFT_CAPS,
 ): Promise<{ deleted: number }> {
-  const started = await cursorFor(db, DRAFT_SCAN);
-  const [afterArtifact, afterUser] = started === "" ? ["", ""] : started.split("|");
-  const rows = await db
-    .select({ artifactId: dr.artifactId, userId: dr.userId, ownerId: dr.ownerId })
-    .from(dr)
-    .where(
-      started === ""
-        ? undefined
-        : or(
-            gt(dr.artifactId, afterArtifact as string),
-            and(eq(dr.artifactId, afterArtifact as string), gt(dr.userId, afterUser as string)),
-          ),
-    )
-    .orderBy(asc(dr.artifactId), asc(dr.userId))
-    .limit(caps.pageSize);
+  // The cursor is read in the page's own batch: a pass that fits in one run costs one call.
+  const key = sql`${dr.artifactId} || '|' || ${dr.userId}`;
+  const [[cursor], rows] = await db.batch([
+    cursorRead(db, DRAFT_SCAN),
+    db
+      .select({ artifactId: dr.artifactId, userId: dr.userId, ownerId: dr.ownerId })
+      .from(dr)
+      .where(sql`${key} > ${savedCursorSql(DRAFT_SCAN)}`)
+      .orderBy(asc(dr.artifactId), asc(dr.userId))
+      .limit(caps.pageSize),
+  ]);
+  const started = cursor?.cursor ?? "";
   const lost = rows.filter((row) => !isWorkspaceId(row.ownerId) && row.ownerId !== row.userId);
   const workspace = rows.filter((row) => isWorkspaceId(row.ownerId));
   const acting = new Set<string>();
