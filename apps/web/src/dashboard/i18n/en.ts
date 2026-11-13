@@ -3081,6 +3081,9 @@ export const en = {
     "{count, plural, one {Replaced # data document} other {Replaced # data documents}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Deleted # data document} other {Deleted # data documents}}",
+  "audit.kind.dataErased": "Erased all of the artifact's data",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Erased # data document} other {Erased # data documents}} and {edits, plural, one {# edit} other {# edits}} of a deleted account",
   "detail.section.data": "Data",
   "artifactData.loading": "Loading the artifact's data",
   "artifactData.error.title": "The data could not be loaded",

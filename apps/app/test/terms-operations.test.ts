@@ -67,6 +67,8 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/artifacts/:artifactId/data/collections/:collection/documents/bulk-delete": "open",
   "PUT /api/v1/artifacts/:artifactId/data/collections/:collection/documents/:documentId": "refused",
   "DELETE /api/v1/artifacts/:artifactId/data/collections/:collection/documents/:documentId": "open",
+  "POST /api/v1/artifacts/:artifactId/data/erase": "open",
+  "POST /api/v1/artifacts/:artifactId/data/authors/:author/delete": "open",
   "POST /api/v1/artifacts/:artifactId/review/request": "refused",
   "PATCH /api/v1/artifacts/:artifactId/review/request": "refused",
   "DELETE /api/v1/artifacts/:artifactId/review/request": "open",
@@ -198,6 +200,8 @@ const TOOLS: Record<string, Class> = {
   create_data_documents: "refused",
   replace_data_documents: "refused",
   delete_data_documents: "open",
+  erase_artifact_data: "open",
+  delete_author_data: "open",
   mark_change_item: "refused",
 };
 

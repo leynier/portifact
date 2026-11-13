@@ -81,6 +81,9 @@ export interface OwnerCommandTarget {
     take: number,
     context: Context,
   ): unknown;
+  prepareErase(envelope: DataEnvelope, eraseId: string, now: number): unknown;
+  commitErase(envelope: DataEnvelope, eraseId: string, now: number): unknown;
+  cancelErase(envelope: DataEnvelope, eraseId: string, now: number): unknown;
 }
 
 /** The most documents one owner export page returns (the export cap). */
@@ -129,5 +132,14 @@ export function runOwnerCommand(
       return target.count(envelope, caller, command.count, context);
     case "export":
       return target.exportPage(envelope, caller, command.after, OWNER_EXPORT_TAKE, context);
+    // The owner's reset is an optional erase intent: never `requiredErase`, which only the
+    // lifecycle sets, so it counts against the day's intents and refuses while held.
+    case "erase": {
+      const { opId: _op, requiredErase: _required, ...plain } = envelope;
+      if (command.step === "prepare")
+        return target.prepareErase(plain, command.eraseId, context.now);
+      if (command.step === "commit") return target.commitErase(plain, command.eraseId, context.now);
+      return target.cancelErase(plain, command.eraseId, context.now);
+    }
   }
 }

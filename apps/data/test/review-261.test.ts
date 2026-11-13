@@ -274,6 +274,7 @@ it("RPC surface: only the lifecycle, owner and audit methods and the platform's 
     [
       "alarm",
       "auditAcknowledge",
+      "auditPending",
       "auditSettle",
       "constructor",
       "lifecycleControl",

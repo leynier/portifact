@@ -3133,6 +3133,9 @@ export const ptBR = {
     "{count, plural, one {Substituiu # documento de dados} other {Substituiu # documentos de dados}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Excluiu # documento de dados} other {Excluiu # documentos de dados}}",
+  "audit.kind.dataErased": "Apagou todos os dados do artefato",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Apagou # documento de dados} other {Apagou # documentos de dados}} e {edits, plural, one {# edição} other {# edições}} de uma conta excluída",
   "detail.section.data": "Dados",
   "artifactData.loading": "Carregando os dados do artifact",
   "artifactData.error.title": "Não foi possível carregar os dados",

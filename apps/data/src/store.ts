@@ -94,6 +94,7 @@ import {
   passLeftMore,
   payloadChanged,
   pendingDeadline,
+  pendingObligation,
   planConnect,
   planCount,
   planExport,
@@ -2399,6 +2400,37 @@ export class DocumentsStore {
       return { value: true, wrote: true };
     });
     return (answer as { value: boolean }).value;
+  }
+
+  /**
+   * The audit obligations still pending since before `before`, oldest first, at most `limit`
+   * (the daily sweep's read, through `pf_audit_state`). Maintenance admission; writes nothing.
+   */
+  pendingObligations(
+    envelope: DataEnvelope,
+    before: number,
+    limit: number,
+    now: number,
+  ): { actor: string; generation: number; opId: string; owner: string }[] {
+    const answer = this.#controlCommand(now, "audit_pending", () => {
+      const stored = this.#readControl();
+      if (stored === null || !admit(stored, envelope, { kind: "maintenance" }).ok) {
+        return { value: [], wrote: false };
+      }
+      const rows = this.#read(
+        "SELECT key, owner FROM pf_audit WHERE state = 'pending' AND at < ? ORDER BY at LIMIT ?",
+        before,
+        limit,
+      );
+      const found = rows
+        .map((row) => pendingObligation(str(row.key), str(row.owner)))
+        .filter((item) => item !== null);
+      return { value: found, wrote: false };
+    });
+    return (
+      (answer as { value?: { actor: string; generation: number; opId: string; owner: string }[] })
+        .value ?? []
+    );
   }
 
   // Housekeeping.

@@ -3108,6 +3108,9 @@ export const ja = {
     "{count, plural, one {データのドキュメントを # 件置換} other {データのドキュメントを # 件置換}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {データのドキュメントを # 件削除} other {データのドキュメントを # 件削除}}",
+  "audit.kind.dataErased": "アーティファクトのデータをすべて消去",
+  "audit.kind.dataAuthorErased":
+    "削除されたアカウントのデータのドキュメント {documents, plural, one {# 件} other {# 件}}と変更 {edits, plural, one {# 件} other {# 件}}を消去",
   "detail.section.data": "データ",
   "artifactData.loading": "artifactのデータを読み込んでいます",
   "artifactData.error.title": "データを読み込めませんでした",

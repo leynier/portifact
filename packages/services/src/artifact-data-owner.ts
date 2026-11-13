@@ -15,6 +15,7 @@
 import {
   ARTIFACT_DATA,
   type ArtifactDataLimits,
+  AUTHOR_DELETE_PAGES,
   type CollectionDeclaration,
   type CollectionInfo,
   type DataAuditPayload,
@@ -25,6 +26,10 @@ import {
   type DataExportDocument,
   type DataExportPageView,
   type DataQuery,
+  type DataResetPayload,
+  DataResetPayload as DataResetPayloadSchema,
+  ERASURE_ACTOR,
+  type ErrorCode,
   type ExportCursor,
   exportCursorText,
   type OwnerDataCommand,
@@ -36,13 +41,21 @@ import {
   dataAuditEvent,
   dataRefusalError,
   fail,
+  HELD_MESSAGE,
   ok,
   type Result,
 } from "@portifact/domain";
-import { dayOf, emptyDay } from "@portifact/domain/artifact-data";
+import {
+  dayOf,
+  emptyDay,
+  INVENTORY_PREFIX,
+  inventoryArtifact,
+  LIFECYCLE_LIMITS,
+} from "@portifact/domain/artifact-data";
 import { and, eq, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
 import {
+  DATA_JOB_WAIT_MS,
   type DataObjects,
   readDataRow,
   recordStorageReport,
@@ -100,7 +113,7 @@ async function target(
   db: RegionalDb,
   deps: OwnerDataDeps,
   input: OwnerDataInput,
-  intent: "read" | "write" | "export",
+  intent: "read" | "write" | "export" | "erase",
 ): Promise<Result<Target>> {
   const [artifact] = await db
     .select({
@@ -115,11 +128,14 @@ async function target(
   if (!artifact || artifact.state === "purging" || artifact.state === "deleted") return missing();
   const allowed = await authorizeOn(db, input.userId, artifact, "data", missing);
   if (!allowed.ok) return allowed;
-  if (!deps.enabled && intent !== "export") return unavailable();
+  if (!deps.enabled && intent !== "export" && intent !== "erase") return unavailable();
   // A held artifact's data is read by nobody but the operator (legal-holds.ts).
   if (artifact.state === "suspended" && (await isHeld(db, input.artifactId))) return heldRefusal();
   if (intent === "write" && artifact.state === "archived") {
     return fail("artifact_archived", "Restore the artifact to change its data.");
+  }
+  if (intent === "erase" && artifact.state !== "active" && artifact.state !== "archived") {
+    return fail("forbidden", "A suspended artifact's data cannot be changed.");
   }
   if (intent === "write" && artifact.state !== "active") {
     return fail("forbidden", "A suspended artifact's data cannot be changed.");
@@ -220,13 +236,23 @@ async function claimOperation(
   input: OwnerDataWrite,
   found: Target & { row: NonNullable<Target["row"]> },
   requestHash: string,
+  kind: "change" | "erase" = "change",
 ): Promise<Result<{ opId: string; fresh: boolean }>> {
   const proposed = newOperationId(input.now);
   const { row } = found;
   const a = schema.artifacts;
   const d = schema.artifactData;
-  const guard = sql`exists (select 1 from ${a} join ${d} on ${d.artifactId} = ${a.id} where ${a.id} = ${input.artifactId} and ${a.ownerId} = ${found.ownerId} and ${a.state} = 'active' and ${notHeldSql(sql`${a.id}`)} and ${d.generation} = ${row.generation} and ${d.epoch} = ${row.epoch})`;
-  const payload = sql`json_object('ownerId', ${row.ownerId}, 'generation', ${row.generation}, 'epoch', ${row.epoch}, 'actor', ${input.userId}, 'opId', ${proposed})`;
+  // A change needs an active artifact; the owner's erase also an archived one (its data stays
+  // while archived and the owner side may erase it).
+  const states = kind === "erase" ? sql`('active', 'archived')` : sql`('active')`;
+  const guard = sql`exists (select 1 from ${a} join ${d} on ${d.artifactId} = ${a.id} where ${a.id} = ${input.artifactId} and ${a.ownerId} = ${found.ownerId} and ${a.state} in ${states} and ${notHeldSql(sql`${a.id}`)} and ${d.generation} = ${row.generation} and ${d.epoch} = ${row.epoch})`;
+  const payload =
+    kind === "erase"
+      ? sql`json_object('ownerId', ${row.ownerId}, 'generation', ${row.generation}, 'epoch', ${row.epoch}, 'actor', ${input.userId}, 'eraseId', ${proposed})`
+      : sql`json_object('ownerId', ${row.ownerId}, 'generation', ${row.generation}, 'epoch', ${row.epoch}, 'actor', ${input.userId}, 'opId', ${proposed})`;
+  const topic = kind === "erase" ? "data_reset" : "data_audit";
+  const available =
+    kind === "erase" ? input.now + DATA_RESET_DELAY_MS : input.now + DATA_AUDIT_DELAY_MS;
   // Columns in schema order. The outbox's: id, topic, payload, available, dispatched, attempts,
   // created, subject, generation.
   const [claimed] = await db.batch([
@@ -244,7 +270,7 @@ async function claimOperation(
     db
       .insert(schema.outbox)
       .select(
-        sql`select null, 'data_audit', ${payload}, ${input.now + DATA_AUDIT_DELAY_MS}, null, 0, ${input.now}, ${input.artifactId}, null where exists (select 1 from ${ops} where ${ops.actorId} = ${input.userId} and ${ops.idempotencyKey} = ${input.idempotencyKey} and ${ops.opId} = ${proposed})`,
+        sql`select null, ${topic}, ${payload}, ${available}, null, 0, ${input.now}, ${input.artifactId}, null where exists (select 1 from ${ops} where ${ops.actorId} = ${input.userId} and ${ops.idempotencyKey} = ${input.idempotencyKey} and ${ops.opId} = ${proposed})`,
       ),
   ]);
   const opId = claimed[0]?.opId;
@@ -267,7 +293,7 @@ async function claimOperation(
     return fail("invalid_input", "This Idempotency-Key was used for a different request.");
   }
   // The artifact changed after authorization: answer what it is now.
-  const again = await target(db, deps, input, "write");
+  const again = await target(db, deps, input, kind === "erase" ? "erase" : "write");
   if (!again.ok) return again;
   return fail("version_conflict", "The artifact's data changed; try again.");
 }
@@ -723,7 +749,10 @@ type OutboxRow = typeof schema.outbox.$inferSelect;
 export const DATA_AUDIT_RETRY_MS = 5 * 60_000;
 
 /** The audit event's ID for an operation: one per operation, so a repeated delivery adds none. */
-async function dataAuditEventId(artifactId: string, payload: DataAuditPayload): Promise<string> {
+async function dataAuditEventId(
+  artifactId: string,
+  payload: Pick<DataAuditPayload, "actor" | "opId">,
+): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(`${artifactId}\u0000${payload.actor}\u0000${payload.opId}`),
@@ -787,7 +816,11 @@ export async function runDataAudit(
             id,
             ownerId: payload.ownerId,
             kind: event.kind,
-            actor: { type: "user", id: payload.actor },
+            // An author erasure chunk is the system's (decision 0026, "Author erasure").
+            actor:
+              payload.actor === ERASURE_ACTOR
+                ? { type: "system" }
+                : { type: "user", id: payload.actor },
             targetId: artifactId,
             artifactId,
             detail: event.detail as never,
@@ -800,4 +833,354 @@ export async function runDataAudit(
     await object.auditAcknowledge(envelope, payload.actor, payload.opId, now);
   }
   return "done";
+}
+
+// The owner's erase of all an artifact's data (decision 0026, "Interfaces, scopes and parity").
+
+/** How long a reset's job waits before it finishes what the request did not. */
+export const DATA_RESET_DELAY_MS = 60_000;
+
+/**
+ * Erases all an artifact's documents and collections, an owner's reset (an optional erase intent,
+ * at most `erase.intentsPerDay` a day, never `requiredErase`). Authorized like a change but also
+ * on an archived artifact, and while artifact data is switched off (decision 0026, "Switches":
+ * erasure works on objects that exist). Claimed in D1 with its `data_reset` job, so a crash
+ * between the object's two steps is finished by the job under the same erase ID; then D1 asks
+ * for an open hold before each step and follows the object's new generation, recording
+ * `data.erased` in that batch. An artifact that never stored data has nothing to erase.
+ */
+export async function eraseArtifactData(
+  db: RegionalDb,
+  deps: OwnerDataDeps,
+  input: OwnerDataWrite,
+): Promise<Result<{ erased: true; generation: number }>> {
+  const found = await target(db, deps, input, "erase");
+  if (!found.ok) return found;
+  const row = found.value.row;
+  if (row === null) return ok({ erased: true, generation: 0 });
+  const hit = await hitRateLimit(
+    db.global.$client,
+    `data_owner:${input.artifactId}`,
+    60_000,
+    input.now,
+  );
+  if (hit.count > DATA_OWNER_WRITES_PER_MINUTE) {
+    return fail("rate_limited", "Too many changes to this artifact's data. Try again in a minute.");
+  }
+  const requestHash = await hashRequest({ artifactId: input.artifactId, command: "erase" });
+  const claim = await claimOperation(
+    db,
+    deps,
+    input,
+    { ...found.value, row },
+    requestHash,
+    "erase",
+  );
+  if (!claim.ok) return claim;
+  const payload: DataResetPayload = {
+    ownerId: row.ownerId,
+    generation: row.generation,
+    epoch: row.epoch,
+    actor: input.userId,
+    eraseId: claim.value.opId,
+  };
+  const reset = await completeReset(db, deps.objects, input.artifactId, payload, input.now);
+  if (!reset.ok && claim.value.fresh && reset.definite) {
+    await retireReset(db, input, claim.value.opId);
+  }
+  return reset.ok ? ok({ erased: true, generation: reset.generation }) : reset;
+}
+
+type ResetOutcome =
+  | { ok: true; generation: number }
+  | { ok: false; code: ErrorCode; message: string; definite: boolean; wait?: boolean };
+
+/** Takes back a refused reset's claim and job: the object erased nothing. */
+async function retireReset(db: RegionalDb, input: OwnerDataWrite, eraseId: string) {
+  const o = schema.outbox;
+  await db.batch([
+    db
+      .delete(o)
+      .where(
+        and(
+          eq(o.topic, "data_reset"),
+          eq(o.subject, input.artifactId),
+          sql`json_extract(${o.payload}, '$.eraseId') = ${eraseId}`,
+        ),
+      ),
+    db
+      .delete(ops)
+      .where(
+        and(
+          eq(ops.actorId, input.userId),
+          eq(ops.idempotencyKey, input.idempotencyKey),
+          eq(ops.opId, eraseId),
+        ),
+      ),
+  ]);
+}
+
+/**
+ * The reset's two steps under its erase ID, then D1. Asks D1 for an open hold before each step
+ * (decision 0026, note 15: every job that erases payload does), never erasing held data; the
+ * object refuses a held one too. A step repeated after a crash answers how the intent ended.
+ */
+async function completeReset(
+  db: RegionalDb,
+  objects: DataObjects | null,
+  artifactId: string,
+  payload: DataResetPayload,
+  now: number,
+): Promise<ResetOutcome> {
+  if (objects === null) {
+    return {
+      ok: false,
+      code: "capacity_unavailable",
+      message: "Artifact data is unavailable. Try again later.",
+      definite: false,
+    };
+  }
+  const object = objects.object(artifactId);
+  const envelope = {
+    artifactId,
+    region: objects.region,
+    ownerId: payload.ownerId,
+    generation: payload.generation,
+    epoch: payload.epoch,
+  };
+  for (const step of ["prepare", "commit"] as const) {
+    if (await isHeld(db, artifactId)) {
+      return {
+        ok: false,
+        code: "forbidden",
+        message: HELD_MESSAGE,
+        definite: step === "prepare",
+        wait: true,
+      };
+    }
+    const answer = (await object.ownerCommand(
+      envelope,
+      payload.actor,
+      { kind: "erase", step, eraseId: payload.eraseId },
+      LIFECYCLE_LIMITS,
+      now,
+    )) as Answer & { value?: { outcome?: string } };
+    if (!answer.ok) {
+      const error = dataRefusalError(answer.code, answer.message);
+      return { ok: false, ...error, definite: step === "prepare", wait: answer.code === "held" };
+    }
+    const outcome = answer.value?.outcome;
+    if (outcome === "cancelled" || outcome === "superseded") {
+      return {
+        ok: false,
+        code: "version_conflict",
+        message: "The artifact's data changed; try again.",
+        definite: true,
+      };
+    }
+    if (step === "commit") {
+      const generation = answer.storage.generation;
+      await followReset(db, artifactId, payload, generation, now);
+      return { ok: true, generation };
+    }
+  }
+  /* c8 ignore next */
+  throw new Error("unreachable");
+}
+
+/** D1 follows the object's new generation, records `data.erased` and ends the reset's job. */
+async function followReset(
+  db: RegionalDb,
+  artifactId: string,
+  payload: DataResetPayload,
+  generation: number,
+  now: number,
+) {
+  const d = schema.artifactData;
+  const o = schema.outbox;
+  const id = await dataAuditEventId(artifactId, { actor: payload.actor, opId: payload.eraseId });
+  const ae = schema.auditEvents;
+  await db.batch([
+    db
+      .update(d)
+      .set({ generation, updatedAt: now })
+      .where(and(eq(d.artifactId, artifactId), sql`${d.generation} < ${generation}`)),
+    auditEvent(
+      db,
+      {
+        id,
+        ownerId: payload.ownerId,
+        kind: "data.erased",
+        actor: { type: "user", id: payload.actor },
+        targetId: artifactId,
+        artifactId,
+        detail: {},
+        now: Number(payload.eraseId.slice(0, 13)),
+      },
+      sql`not exists (select 1 from ${ae} where ${ae.id} = ${id})`,
+    ),
+    db
+      .delete(o)
+      .where(
+        and(
+          eq(o.topic, "data_reset"),
+          eq(o.subject, artifactId),
+          sql`json_extract(${o.payload}, '$.eraseId') = ${payload.eraseId}`,
+        ),
+      ),
+  ]);
+}
+
+/**
+ * The `data_reset` job: finishes a reset the request left (a crash between its steps). A held
+ * artifact keeps the job a day at a time, erasing nothing; a refusal ends it. Throws without the
+ * binding, so the row stays.
+ */
+export async function runDataReset(
+  db: RegionalDb,
+  objects: DataObjects | null | undefined,
+  row: OutboxRow,
+  now: number,
+): Promise<"done" | "stale" | "kept"> {
+  if (!objects) throw new Error("data_reset needs the documents binding");
+  const parsed = DataResetPayloadSchema.safeParse(row.payload);
+  if (!parsed.success || row.subject === null) return "stale";
+  const result = await completeReset(db, objects, row.subject, parsed.data, now);
+  if (result.ok) return "done";
+  if (result.wait) {
+    await db
+      .update(schema.outbox)
+      .set({ availableAt: now + DATA_JOB_WAIT_MS, dispatchedAt: null })
+      .where(eq(schema.outbox.id, row.id));
+    return "kept";
+  }
+  if (result.code === "capacity_unavailable")
+    throw new Error("data_reset could not reach the object");
+  return "stale";
+}
+
+// Deleting one author's documents (the owner side's moderation; decision 0026).
+
+/**
+ * Deletes the documents one author created, collection by collection, in bulk deletes of up to
+ * 100 through the same claimed path as any owner-side change (so each is audited and applied
+ * once), at most `AUTHOR_DELETE_PAGES` a call; `more` asks the caller to call again. It is not an
+ * author erasure: no barrier is set, the author's edits to others' documents stay, and the
+ * author may write again (the account deletion's erasure is the terminal one).
+ */
+export async function deleteAuthorData(
+  db: RegionalDb,
+  deps: OwnerDataDeps,
+  input: OwnerDataWrite & { author: string },
+): Promise<Result<{ removed: number; more: boolean }>> {
+  const described = await describeArtifactData(db, deps, input);
+  if (!described.ok) return described;
+  let removed = 0;
+  let pages = 0;
+  for (const collection of described.value.collections) {
+    while (true) {
+      if (pages >= AUTHOR_DELETE_PAGES) return ok({ removed, more: true });
+      const page = await queryArtifactData(db, deps, {
+        ...input,
+        query: {
+          collection: collection.name,
+          equals: { field: "_by", value: input.author },
+          limit: ARTIFACT_DATA.caps.bulkDocuments,
+        },
+      });
+      if (!page.ok) return page;
+      const ids = page.value.documents.map((doc) => doc._id);
+      if (ids.length === 0) break;
+      // One key per page of IDs, so a retried call names the same operation for the same page.
+      const pageKey = await hashRequest([input.idempotencyKey, collection.name, ids]);
+      const deleted = await deleteDataDocuments(db, deps, {
+        ...input,
+        idempotencyKey: `author-${pageKey.slice(0, 48)}`,
+        collection: collection.name,
+        ids,
+      });
+      if (!deleted.ok) return deleted;
+      removed += deleted.value.removed;
+      pages += 1;
+      if (ids.length < ARTIFACT_DATA.caps.bulkDocuments) break;
+    }
+  }
+  return ok({ removed, more: false });
+}
+
+// The daily sweep of audit obligations left pending (decision 0026, "Audit with durable states").
+
+/** An obligation pending this long without its event is relayed again. */
+export const PENDING_AUDIT_AGE_MS = 3_600_000;
+/** Inventory entries one run reads at most. */
+export const AUDIT_SWEEP_ENTRIES = 25;
+const SWEEP_CURSOR = "data_audit_sweep";
+
+/**
+ * Walks the region's inventory a page per run, from `maintenance_cursors`, and asks each object
+ * with a D1 row for its obligations pending longer than an hour: each gets its `data_audit` job
+ * again (unless one is waiting), so an obligation whose job a restore rewound is still recorded.
+ * A pass starts at most once a day (`passStartedAt`). Objects without a D1 row (purged, or never
+ * registered) are skipped: their obligations went with their data or never existed.
+ */
+export async function sweepDataAudit(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  objects: DataObjects | null,
+  now: number,
+): Promise<{ objects: number; relayed: number }> {
+  if (objects === null) return { objects: 0, relayed: 0 };
+  const c = schema.maintenanceCursors;
+  const [saved] = await db.select().from(c).where(eq(c.name, SWEEP_CURSOR)).limit(1);
+  const started = saved?.cursor ?? "";
+  if (saved && started === "" && now - saved.passStartedAt < 86_400_000) {
+    return { objects: 0, relayed: 0 };
+  }
+  const listed = await bucket.list({
+    prefix: INVENTORY_PREFIX,
+    limit: AUDIT_SWEEP_ENTRIES,
+    ...(started === "" ? {} : { startAfter: started }),
+  });
+  let visited = 0;
+  let relayed = 0;
+  for (const entry of listed.objects) {
+    const artifactId = inventoryArtifact(entry.key);
+    if (artifactId === null) continue;
+    const row = await readDataRow(db, objects.region, artifactId);
+    if (row === null) continue;
+    visited += 1;
+    const pending = await objects.object(artifactId).auditPending(
+      {
+        artifactId,
+        region: objects.region,
+        ownerId: row.ownerId,
+        generation: row.generation,
+        epoch: row.epoch,
+      },
+      now - PENDING_AUDIT_AGE_MS,
+      now,
+    );
+    for (const obligation of pending) {
+      const o = schema.outbox;
+      const payload = sql`json_object('ownerId', ${obligation.owner}, 'generation', ${obligation.generation}, 'epoch', ${row.epoch}, 'actor', ${obligation.actor}, 'opId', ${obligation.opId})`;
+      const written = await db
+        .insert(o)
+        .select(
+          sql`select null, 'data_audit', ${payload}, ${now}, null, 0, ${now}, ${artifactId}, null where not exists (select 1 from ${o} where ${o.topic} = 'data_audit' and ${o.subject} = ${artifactId} and json_extract(${o.payload}, '$.opId') = ${obligation.opId})`,
+        )
+        .returning({ id: o.id });
+      relayed += written.length;
+    }
+  }
+  const last = listed.objects.at(-1)?.key ?? null;
+  const next = listed.truncated && last !== null ? last : "";
+  await db
+    .insert(c)
+    .values({ name: SWEEP_CURSOR, cursor: next, passStartedAt: now, updatedAt: now })
+    .onConflictDoUpdate({
+      target: c.name,
+      // A new pass records when it started; a resumed one keeps its start.
+      set: { cursor: next, updatedAt: now, ...(started === "" ? { passStartedAt: now } : {}) },
+    });
+  return { objects: visited, relayed };
 }

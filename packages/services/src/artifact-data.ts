@@ -34,6 +34,7 @@ import {
   type LifecycleEnvelope,
   type OwnerDataCommand,
   type OwnerEnvelope,
+  type PendingObligation,
   type QuarantineReason,
   type QuarantineResolutionRequest,
   type RequiredErase,
@@ -155,6 +156,12 @@ export interface DataObjectRpc {
     opId: string,
     now: number,
   ): Promise<boolean>;
+  /** The daily sweep's read of obligations pending since before `before`. */
+  auditPending(
+    envelope: LifecycleEnvelope,
+    before: number,
+    now: number,
+  ): Promise<PendingObligation[]>;
 }
 
 /** The objects of one region, as a job reaches them. */

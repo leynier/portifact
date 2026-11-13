@@ -62,6 +62,8 @@ export const TERMS_OPEN_OPERATIONS = {
   delete_webhook: "removes",
   delete_data_document: "removes",
   delete_data_documents: "removes",
+  erase_artifact_data: "removes",
+  delete_author_data: "removes",
   set_access: "narrowing",
   set_comment_visibility: "narrowing",
   update_webhook: "narrowing",

@@ -55,6 +55,7 @@ export const DATA_AUDIT_EVENTS = {
   "data.documents_created": "data.documents_created",
   "data.documents_replaced": "data.documents_replaced",
   "data.documents_deleted": "data.documents_deleted",
+  "data.author_erased": "data.author_erased",
 } as const;
 export type DataAuditEventKind = (typeof DATA_AUDIT_EVENTS)[keyof typeof DATA_AUDIT_EVENTS];
 
@@ -66,30 +67,24 @@ const BULK_EVENTS = new Set<string>([
 
 /**
  * The audit event an obligation the object settled as committed becomes, with its detail, or
- * null when it records nothing (an index step, which only builds what a declaration recorded, or
+ * null when it records nothing (an index step , which only builds what a declaration recorded, or
  * a kind this code does not know). Bulk events carry their count, the others nothing.
  */
 export function dataAuditEvent(
   kind: string,
   detail: Record<string, number | boolean> | null,
-):
-  | { kind: Exclude<DataAuditEventKind, `data.documents_${string}`>; detail: Record<string, never> }
-  | { kind: Extract<DataAuditEventKind, `data.documents_${string}`>; detail: { documents: number } }
-  | null {
+): { kind: DataAuditEventKind; detail: Record<string, number> } | null {
   if (!Object.hasOwn(DATA_AUDIT_EVENTS, kind)) return null;
   const event = DATA_AUDIT_EVENTS[kind as keyof typeof DATA_AUDIT_EVENTS];
-  if (BULK_EVENTS.has(event)) {
-    const documents = detail?.documents;
-    const count = typeof documents === "number" && Number.isInteger(documents) ? documents : 0;
-    return {
-      kind: event as Extract<DataAuditEventKind, `data.documents_${string}`>,
-      detail: { documents: Math.max(0, count) },
-    };
-  }
-  return {
-    kind: event as Exclude<DataAuditEventKind, `data.documents_${string}`>,
-    detail: {},
+  const count = (field: string) => {
+    const value = detail?.[field];
+    return typeof value === "number" && Number.isInteger(value) ? Math.max(0, value) : 0;
   };
+  if (event === "data.author_erased") {
+    return { kind: event, detail: { documents: count("documents"), edits: count("edits") } };
+  }
+  if (BULK_EVENTS.has(event)) return { kind: event, detail: { documents: count("documents") } };
+  return { kind: event, detail: {} };
 }
 
 /**

@@ -52,6 +52,7 @@ export const OutboxTopic = z.enum([
   "data_resolve",
   "data_export",
   "data_audit",
+  "data_reset",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -363,8 +364,25 @@ export const DataAuditPayload = z.strictObject({
   ownerId: DataOwnerId,
   generation: DataCount,
   epoch: DataCount,
-  /** The acting user or service token, as the audit event names it. */
+  /**
+   * The acting user or service token, as the audit event names it, or `system:erasure` for an
+   * author erasure chunk (recorded with the system as actor).
+   */
   actor: z.string().min(1).max(128),
   opId: OperationId,
 });
 export type DataAuditPayload = z.infer<typeof DataAuditPayload>;
+
+/**
+ * Payload of a `data_reset` job: the owner's erase of all an artifact's data (decision 0026),
+ * written in the batch of its D1 claim and run by the request itself, the job finishing a reset a
+ * crash left prepared. The erase ID is the claim's operation ID.
+ */
+export const DataResetPayload = z.strictObject({
+  ownerId: DataOwnerId,
+  generation: DataCount,
+  epoch: DataCount,
+  actor: z.string().min(1).max(128),
+  eraseId: OperationId,
+});
+export type DataResetPayload = z.infer<typeof DataResetPayload>;

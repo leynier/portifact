@@ -86,6 +86,7 @@ import {
   passLeftMore,
   payloadChanged,
   pendingDeadline,
+  pendingObligation,
   planConnect,
   planCount,
   planExport,
@@ -2068,6 +2069,38 @@ export class MemoryObject implements DataObject {
       return { value: true, wrote: true };
     });
     return (answer as { value: boolean }).value;
+  }
+
+  /**
+   * The audit obligations still pending since before `before`, oldest first, at most `limit`
+   * (the daily sweep's read). Maintenance admission; writes nothing.
+   */
+  pendingObligations(
+    envelope: DataEnvelope,
+    before: number,
+    limit: number,
+    now: number,
+  ): { actor: string; generation: number; opId: string; owner: string }[] {
+    const answer = this.#control(now, "audit_pending", () => {
+      const stored = this.durable.control;
+      if (stored === null || !admit(stored, envelope, { kind: "maintenance" }).ok) {
+        return { value: [], wrote: false };
+      }
+      const rows = [...this.durable.audit.entries()]
+        .filter(([, row]) => row.state === "pending" && row.at < before)
+        .sort(([, a], [, b]) => a.at - b.at)
+        .slice(0, limit);
+      const found = rows
+        .map(([key, row]) => pendingObligation(key, row.owner))
+        .filter((item) => item !== null);
+      return { value: found, wrote: false };
+    });
+    return (answer as { value: ReturnType<typeof pendingObligation>[] }).value as {
+      actor: string;
+      generation: number;
+      opId: string;
+      owner: string;
+    }[];
   }
 
   // Housekeeping.

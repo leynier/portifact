@@ -643,6 +643,8 @@ export const OwnerDataCommand = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("query"), query: DataQuery }),
   z.strictObject({ kind: z.literal("count"), count: DataCount }),
   z.strictObject({ kind: z.literal("export"), after: ExportCursor.nullable() }),
+  /** A step of the owner's erase of all the artifact's data, under its erase ID (an option). */
+  z.strictObject({ kind: z.literal("erase"), step: EraseStepName, eraseId: OperationId }),
 ]);
 export type OwnerDataCommand = z.infer<typeof OwnerDataCommand>;
 
@@ -657,3 +659,18 @@ export const OWNER_MUTATIONS = [
   "bulk_replace",
   "bulk_remove",
 ] as const satisfies readonly OwnerDataCommand["kind"][];
+
+/**
+ * An audit obligation still pending, as the daily sweep reads it (`auditPending`): enough to
+ * write its `data_audit` job again. `actor` is the user's or token's ID, or `ERASURE_ACTOR`.
+ */
+export const PendingObligation = z.looseObject({
+  actor: z.string().min(1).max(128),
+  generation: Count,
+  opId: OperationId,
+  owner: DataOwnerId,
+});
+export type PendingObligation = z.infer<typeof PendingObligation>;
+
+/** Pending obligations one sweep call answers at most. */
+export const PENDING_OBLIGATIONS_PER_CALL = 100;
