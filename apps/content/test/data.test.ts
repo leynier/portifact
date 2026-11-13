@@ -565,7 +565,8 @@ describe("artifact data on the artifact origin", () => {
     const requests: { url: string; init: RequestInit }[] = [];
     const page: { portifact?: { data: { collection(name: string): { remove(id: string): Promise<unknown> } } } } =
       {};
-    const run = new Function("window", "fetch", "location", "crypto", CLIENT_SCRIPT);
+    // The script's own clock is the test's, as the Worker's is.
+    const run = new Function("window", "fetch", "location", "crypto", "Date", CLIENT_SCRIPT);
     run(
       page,
       async (url: string, init: RequestInit) => {
@@ -574,6 +575,7 @@ describe("artifact data on the artifact origin", () => {
       },
       { origin: `https://${id}.portifact.dev`, pathname: "/", search: "" },
       crypto,
+      { now: () => NOW },
     );
     await page.portifact?.data.collection("votes").remove(created._id);
     const sent = requests.at(-1);

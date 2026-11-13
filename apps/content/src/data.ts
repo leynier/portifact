@@ -587,7 +587,8 @@ export const CLIENT_SCRIPT = `(() => {
   const base = "/__portifact/data/";
   const call = async (method, path, body, key) => {
     const headers = { accept: "application/json" };
-    if (body !== undefined) headers["content-type"] = "application/json";
+    // Every write carries the JSON type the API gate requires, a body or not (a DELETE has none).
+    if (method !== "GET") headers["content-type"] = "application/json";
     if (key !== undefined) headers["idempotency-key"] = key;
     const response = await fetch(base + path, {
       method,
