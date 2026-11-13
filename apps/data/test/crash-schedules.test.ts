@@ -185,7 +185,7 @@ schedule("an account's erasure in an artifact (data_author_erasure)", {
 
 schedule("an account deletion's journal step (scheduleAuthorErasures)", {
   // The job, the retirement, the scan's cursor.
-  steps: ["d1:run", "r2:put", "d1:run"],
+  steps: ["d1:run", "r2:put", "d1:batch"],
   async setup() {
     const userId = `u_${crypto.randomUUID()}`;
     const visitor = visitorId();
@@ -330,7 +330,7 @@ schedule("reconciling an object D1 no longer names (quarantine)", {
 schedule("the operator adopting a quarantined object (data_resolve)", {
   // D1 set to the object's numbers, the resolution, D1 following the object, the waiting jobs
   // woken, the finding, the acknowledgement.
-  steps: ["d1:run", "object:lifecycleResolve", "d1:run", "d1:run", "d1:run", "d1:run"],
+  steps: ["object:lifecycleResolve", "d1:run", "d1:run", "d1:run", "d1:run"],
   async setup() {
     const { id } = await withData();
     // D1 lost the numbers the object raised (a restore), and reconciliation quarantined it.

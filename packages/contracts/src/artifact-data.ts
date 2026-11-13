@@ -110,8 +110,11 @@ export type QuarantineReason = z.infer<typeof QuarantineReason>;
  * exactly this state.
  */
 export const ReviewedQuarantine = z.strictObject({
+  artifactId: ArtifactId,
+  region: DataRegion,
+  /** The object's own count of quarantines when this one began: one quarantine of one object. */
+  incarnation: Count,
   reason: QuarantineReason,
-  at: Time,
   ownerId: DataOwnerId,
   generation: Count,
   epoch: Count,
@@ -150,7 +153,15 @@ export const DataControl = z.looseObject({
   /** The epoch of the last fence applied, or null before any: a fence at the bound epoch applies. */
   fencedEpoch: Count.nullable(),
   hold: z.looseObject({ transition: TransitionId, epoch: Count }).nullable(),
-  quarantine: z.looseObject({ reason: QuarantineReason, at: Time }).nullable(),
+  /**
+   * The open quarantine: its reason, when it began (for the operator, never compared) and its
+   * incarnation, the object's own quarantine count when it began (`quarantines`).
+   */
+  quarantine: z
+    .looseObject({ reason: QuarantineReason, at: Time, incarnation: Count.optional() })
+    .nullable(),
+  /** How many quarantines this object ever began: raised by each, never by a caller's time. */
+  quarantines: Count.optional(),
   /** A prepared erase: its ID and immutable target (generation and epoch). */
   erasing: z.looseObject({ id: EraseId, generation: Count, epoch: Count }).nullable(),
   lastErase: z.looseObject({ id: EraseId, outcome: EraseEnd }).nullable(),

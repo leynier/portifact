@@ -231,10 +231,12 @@ export function quarantine(
   if (stored === null) return refuse("not_found", "no data to quarantine");
   if (namesAnotherArtifact(stored, envelope)) return FORBIDDEN;
   if (stored.quarantine !== null) return accept({ control: stored, changed: false });
+  const incarnation = (stored.quarantines ?? 0) + 1;
   return accept({
     control: {
       ...stored,
-      quarantine: { reason, at: now },
+      quarantine: { reason, at: now, incarnation },
+      quarantines: incarnation,
       storageSeq: stored.storageSeq + 1,
       liveEpoch: stored.liveEpoch + 1,
     },
@@ -301,12 +303,18 @@ export function resolveQuarantine(
   });
 }
 
-/** What an operator reviewed: the quarantine and the identity numbers of the object then. */
+/**
+ * What an operator reviewed: one quarantine of one object, named by the artifact, the region and
+ * the quarantine's incarnation the object itself keeps, with the reason and the identity numbers
+ * the object held then. No time is part of it: a caller's clock never authorizes anything here.
+ */
 export function reviewedState(control: DataControl): ReviewedQuarantine | null {
   if (control.quarantine === null) return null;
   return {
+    artifactId: control.artifactId,
+    region: control.region,
+    incarnation: control.quarantine.incarnation ?? 0,
     reason: control.quarantine.reason,
-    at: control.quarantine.at,
     ownerId: control.ownerId,
     generation: control.generation,
     epoch: control.epoch,
@@ -315,8 +323,10 @@ export function reviewedState(control: DataControl): ReviewedQuarantine | null {
 
 function sameReview(a: ReviewedQuarantine, b: ReviewedQuarantine): boolean {
   return (
+    a.artifactId === b.artifactId &&
+    a.region === b.region &&
+    a.incarnation === b.incarnation &&
     a.reason === b.reason &&
-    a.at === b.at &&
     a.ownerId === b.ownerId &&
     a.generation === b.generation &&
     a.epoch === b.epoch

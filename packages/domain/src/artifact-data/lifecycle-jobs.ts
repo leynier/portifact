@@ -129,30 +129,36 @@ export function controlEnvelope(control: DataControl): DataEnvelope {
  * - `done`: the change holds in the object, or it can no longer apply and must not;
  * - `retry`: an earlier change has to land first (another fence, or D1 catching up with an erase
  *   that committed); the job runs again later;
- * - `wait`: the object is held or quarantined; the job waits for the release or the operator.
+ * - `wait`: the object is held or quarantined; the job waits for the release or the operator;
+ * - `reissue`: the fence's epoch was taken by another transition while D1 still wants its change
+ *   (a hold still open, a release of the hold the object still has, a transfer D1 still names);
+ *   the job takes a new epoch from D1 in a guarded update and applies the fence with it.
  */
-export type JobStep = "done" | "retry" | "wait";
+export type JobStep = "done" | "retry" | "wait" | "reissue";
 
 /**
  * After the object refused a `data_fence`: done when the object is already past this fence (a
  * later transition applied, or this transition ID applied with other contents, which only a
- * restore can cause and reconciliation repairs), or when the fence names a generation the object
- * has left and D1 no longer has the artifact's data row (a purge's erase overtook the fence: it
- * can never apply); retry while an earlier fence or D1's repair after an erase has yet to land;
- * done for a fence that can never apply (a transfer to its own owner, another artifact).
+ * restore can cause and reconciliation repairs) and D1 no longer wants its change, or when the
+ * fence names a generation the object has left and D1 no longer has the artifact's data row (a
+ * purge's erase overtook the fence: it can never apply); `reissue` when another transition took
+ * its epoch but D1 still wants its change (`stillWanted`), so a hold released in D1 always ends
+ * released in the object; retry while an earlier fence or D1's repair after an erase has yet to
+ * land; done for a fence that can never apply (a transfer to its own owner, another artifact).
  */
 export function fenceRefused(
   control: DataControl,
   envelope: DataEnvelope,
   code: DataRefusalCode,
-  evidence: { dataRowGone: boolean },
+  evidence: { dataRowGone: boolean; stillWanted: boolean },
 ): JobStep {
   // `conflict` (this transition ID applied with other contents) ends like any code but these two.
   if (code === "held") return "retry";
   if (code !== "stale") return "done";
   if (envelope.generation < control.generation && evidence.dataRowGone) return "done";
   // A repeat of the last transition is acknowledged, never stale, so only the epoch tells.
-  return control.last.epoch >= envelope.epoch ? "done" : "retry";
+  if (control.last.epoch < envelope.epoch) return "retry";
+  return evidence.stillWanted && !evidence.dataRowGone ? "reissue" : "done";
 }
 
 /**
@@ -188,14 +194,17 @@ export function purgeEraseTarget(
  * What a purge's job does with the object's answer. Only a commit of this job's own erase (the
  * commit answered `committed`, or the prepare found its ID already committed) lets the inventory
  * entry be retired and the job end. `superseded` means this old intent cannot act, not that the
- * data is gone: the job keeps its obligation and the operator gets a finding. `cancelled` comes
- * back.
+ * data is gone: the job keeps its obligation and the operator gets a finding. `cancelled` is
+ * terminal for that ID: once no other intent is prepared, the job stores a new ID and prepares
+ * it after `DATA_ERASE_FRESH_MS`.
  */
 export function purgeAnswered(
   outcome: "prepared" | "committed" | "cancelled" | "superseded",
-): "retire" | "superseded" | "retry" {
+): "retire" | "superseded" | "fresh" | "retry" {
   if (outcome === "committed") return "retire";
   if (outcome === "superseded") return "superseded";
+  // A cancelled intent is terminal for its ID: the purge goes on under a new one.
+  if (outcome === "cancelled") return "fresh";
   return "retry";
 }
 
@@ -237,30 +246,45 @@ export function identityDisagreement(input: {
   return null;
 }
 
-/** The reviewed state as `data-findings` prints it and `data-resolve --state` takes it back. */
+/**
+ * The reviewed state as `data-findings` prints it and `data-resolve --state` takes it back:
+ * `<artifact>:<region>:<incarnation>:<reason>:<owner>:<generation>:<epoch>`.
+ */
 export function formatReviewed(state: ReviewedQuarantine): string {
-  return [state.reason, state.at, state.ownerId, state.generation, state.epoch].join(":");
+  return [
+    state.artifactId,
+    state.region,
+    state.incarnation,
+    state.reason,
+    state.ownerId,
+    state.generation,
+    state.epoch,
+  ].join(":");
 }
 
 /** The reviewed state from its printed form, or null when it is not one. */
 export function parseReviewed(text: string): ReviewedQuarantine | null {
   const parts = text.split(":");
-  if (parts.length !== 5) return null;
-  const [reason, at, ownerId, generation, epoch] = parts as [
+  if (parts.length !== 7) return null;
+  const [artifactId, region, incarnation, reason, ownerId, generation, epoch] = parts as [
+    string,
+    string,
     string,
     string,
     string,
     string,
     string,
   ];
+  const numeric = [incarnation, generation, epoch].every((part) => /^[0-9]{1,16}$/.test(part));
   const parsed = ReviewedQuarantine.safeParse({
+    artifactId,
+    region,
+    incarnation: Number(incarnation),
     reason,
-    at: Number(at),
     ownerId,
     generation: Number(generation),
     epoch: Number(epoch),
   });
-  const numeric = [at, generation, epoch].every((part) => /^[0-9]{1,16}$/.test(part));
   return parsed.success && numeric ? parsed.data : null;
 }
 

@@ -35,7 +35,7 @@ import {
 } from "./lifecycle-jobs.ts";
 
 const NOW = Date.UTC(2026, 10, 12);
-const ROW_KEPT = { dataRowGone: false };
+const ROW_KEPT = { dataRowGone: false, stillWanted: false };
 const base: DataEnvelope = {
   artifactId: "abcdefghij",
   region: "default",
@@ -174,11 +174,18 @@ describe("a fence of a generation the object has left", () => {
     const control = { ...newControl(base, NOW), generation: 1 };
     const old = { ...base, generation: 0, epoch: 3 };
     // Killed mutations: dropping the generation comparison, or the row evidence.
-    expect(fenceRefused(control, old, "stale", { dataRowGone: true })).toBe("done");
-    expect(fenceRefused(control, old, "stale", { dataRowGone: false })).toBe("retry");
-    expect(fenceRefused(control, { ...old, generation: 1 }, "stale", { dataRowGone: true })).toBe(
+    expect(fenceRefused(control, old, "stale", { dataRowGone: true, stillWanted: false })).toBe(
+      "done",
+    );
+    expect(fenceRefused(control, old, "stale", { dataRowGone: false, stillWanted: false })).toBe(
       "retry",
     );
+    expect(
+      fenceRefused(control, { ...old, generation: 1 }, "stale", {
+        dataRowGone: true,
+        stillWanted: false,
+      }),
+    ).toBe("retry");
   });
 });
 
@@ -201,7 +208,8 @@ describe("a purge's target and answer", () => {
   it("retires only on this erase's commit; superseded keeps the obligation", () => {
     expect(purgeAnswered("committed")).toBe("retire");
     expect(purgeAnswered("superseded")).toBe("superseded");
-    expect(purgeAnswered("cancelled")).toBe("retry");
+    // A cancelled intent is terminal for its ID.
+    expect(purgeAnswered("cancelled")).toBe("fresh");
     expect(purgeAnswered("prepared")).toBe("retry");
   });
 });
@@ -236,15 +244,33 @@ describe("the artifact and region authority", () => {
 
 describe("the reviewed state's printed form", () => {
   it("round-trips, and refuses anything else", () => {
-    const state = { reason: "hold", at: NOW, ownerId: "ws_1", generation: 2, epoch: 3 } as const;
-    expect(formatReviewed(state)).toBe(`hold:${NOW}:ws_1:2:3`);
-    expect(parseReviewed(formatReviewed(state))).toEqual(state);
-    expect(parseReviewed(`hold:${NOW}:ws_1:2`)).toBeNull();
-    expect(parseReviewed(`hold:${NOW}:ws_1:2:3:4`)).toBeNull();
-    expect(parseReviewed(`bored:${NOW}:ws_1:2:3`)).toBeNull();
-    expect(parseReviewed(`hold:${NOW}:ws_1:2:x`)).toBeNull();
-    expect(parseReviewed(`hold:1e3:ws_1:2:3`)).toBeNull();
-    expect(parseReviewed(`hold:${NOW}::2:3`)).toBeNull();
+    const state = {
+      artifactId: "abcdefghij",
+      region: "eu",
+      incarnation: 2,
+      reason: "hold",
+      ownerId: "ws_1",
+      generation: 2,
+      epoch: 3,
+    } as const;
+    const text = "abcdefghij:eu:2:hold:ws_1:2:3";
+    expect(formatReviewed(state)).toBe(text);
+    expect(parseReviewed(text)).toEqual(state);
+    expect(parseReviewed("abcdefghij:eu:12:hold:ws_1:345:6789")).toEqual({
+      ...state,
+      incarnation: 12,
+      generation: 345,
+      epoch: 6789,
+    });
+    expect(parseReviewed(`abcdefghij:eu:${"1".repeat(17)}:hold:ws_1:2:3`)).toBeNull();
+    expect(parseReviewed("abcdefghij:eu:2:hold:ws_1:2")).toBeNull();
+    expect(parseReviewed(`${text}:4`)).toBeNull();
+    expect(parseReviewed("abcdefghij:eu:2:bored:ws_1:2:3")).toBeNull();
+    expect(parseReviewed("abcdefghij:eu:2:hold:ws_1:2:x")).toBeNull();
+    expect(parseReviewed("abcdefghij:eu:1e3:hold:ws_1:2:3")).toBeNull();
+    expect(parseReviewed("abcdefghij:eu:2:hold::2:3")).toBeNull();
+    expect(parseReviewed("ABCDEFGHIJ:eu:2:hold:ws_1:2:3")).toBeNull();
+    expect(parseReviewed("abcdefghij:EU:2:hold:ws_1:2:3")).toBeNull();
   });
 });
 
@@ -296,8 +322,10 @@ describe("a reviewed resolution of a quarantine", () => {
   it("reads the reviewed state from the quarantine and the identity numbers", () => {
     const stored = { ...quarantined(), generation: 2, epoch: 3, ownerId: "ws_1" };
     expect(reviewedState(stored)).toEqual({
+      artifactId: base.artifactId,
+      region: base.region,
+      incarnation: 1,
       reason: "hold",
-      at: NOW + 5,
       ownerId: "ws_1",
       generation: 2,
       epoch: 3,
@@ -309,8 +337,10 @@ describe("a reviewed resolution of a quarantine", () => {
     const stored = quarantined();
     const asked = request(stored, "adopt");
     for (const changed of [
+      { artifactId: "bcdefghijk" },
+      { region: "eu" },
+      { incarnation: 2 },
       { reason: "owner" as const },
-      { at: NOW + 6 },
       { ownerId: "u_other" },
       { generation: 1 },
       { epoch: 1 },
@@ -391,5 +421,48 @@ describe("a reviewed resolution of a quarantine", () => {
     const open = resolveReviewed(stored, base, request(stored, "adopt"), null);
     expect(open.ok && open.value.control.hold).toBeNull();
     expect(open.ok && open.value.repeated).toBe(false);
+  });
+});
+
+describe("a quarantine's incarnation", () => {
+  it("is the object's own count, raised by each quarantine and never by a caller's time", () => {
+    const first = quarantine(newControl(base, NOW), base, "orphan", NOW);
+    if (!first.ok) throw new Error(first.message);
+    expect(first.value.control.quarantine?.incarnation).toBe(1);
+    expect(first.value.control.quarantines).toBe(1);
+    // An open quarantine keeps its incarnation.
+    const again = quarantine(first.value.control, base, "orphan", NOW);
+    expect(again.ok && again.value.control.quarantine?.incarnation).toBe(1);
+    const cleared = { ...first.value.control, quarantine: null };
+    const second = quarantine(cleared, base, "orphan", NOW);
+    expect(second.ok && second.value.control.quarantine?.incarnation).toBe(2);
+    // The same reason at the same time is still another quarantine.
+    const a = first.value.control;
+    const b = second.ok ? second.value.control : a;
+    expect(reviewedState(a)).not.toEqual(reviewedState(b));
+  });
+});
+
+describe("a fence whose epoch another transition took", () => {
+  it("is reissued while D1 still wants it, and done otherwise", () => {
+    const control = fenced(newControl(base, NOW), 4, "hold_a");
+    const envelope = { ...base, epoch: 4 };
+    expect(
+      fenceRefused(control, envelope, "stale", { dataRowGone: false, stillWanted: true }),
+    ).toBe("reissue");
+    expect(
+      fenceRefused(control, envelope, "stale", { dataRowGone: false, stillWanted: false }),
+    ).toBe("done");
+    // Without D1's row there is no epoch to take from it.
+    expect(fenceRefused(control, envelope, "stale", { dataRowGone: true, stillWanted: true })).toBe(
+      "done",
+    );
+    // An epoch the object has not reached waits, wanted or not.
+    expect(
+      fenceRefused(control, { ...base, epoch: 9 }, "stale", {
+        dataRowGone: false,
+        stillWanted: true,
+      }),
+    ).toBe("retry");
   });
 });

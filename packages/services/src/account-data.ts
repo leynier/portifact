@@ -34,7 +34,7 @@ import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { eraseApprovalAuthor } from "./approval-reviews.ts";
-import { scheduleAuthorErasures } from "./artifact-data.ts";
+import { deleteJournalCursor, scheduleAuthorErasures } from "./artifact-data.ts";
 import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
 import { deleteOwnerAuditStreams, exportAuditStreams } from "./audit-streams.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
@@ -1054,6 +1054,8 @@ export async function advanceAccountDeletion(
             sql`not exists (select 1 from ${schema.objects} where ${schema.objects.ownerId} = ${userId})`,
           ),
         ),
+      // The account's journal scan position in this region (decision 0026).
+      deleteJournalCursor(db, userId, nothingLeft),
       // Erases the account's openings once more as it finishes: this also covers a deletion
       // that a restore re-applied (applyTombstones) and an opening recorded meanwhile.
       eraseAccessEventsJob(db, "user", userId, nothingLeft, now),

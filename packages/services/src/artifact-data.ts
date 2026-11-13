@@ -37,7 +37,7 @@ import {
   type ReviewedQuarantine,
   type StorageReport,
 } from "@portifact/contracts/artifact-data";
-import { type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import { logEvent } from "@portifact/domain";
 import {
   controlEnvelope,
@@ -67,7 +67,7 @@ import {
   reviewedState,
   rowEnvelope,
 } from "@portifact/domain/artifact-data";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { isHeld, openHold } from "./legal-holds.ts";
 
 /** What the object answers a lifecycle command (the store's `Answer`, as RPC carries it). */
@@ -469,16 +469,91 @@ export async function scheduleAuthorErasures(
   if (next.scan === null) {
     await db.delete(c).where(eq(c.name, name));
   } else {
-    const { passStartedAt, ...rest } = next.scan;
-    await db
-      .insert(c)
-      .values({ name, cursor: JSON.stringify(rest), passStartedAt, updatedAt: now })
-      .onConflictDoUpdate({
-        target: c.name,
-        set: { cursor: JSON.stringify(rest), passStartedAt, updatedAt: now },
-      });
+    await saveJournalScan(db, userId, next.scan, now);
   }
   return { more: !next.complete, scheduled };
+}
+
+/**
+ * Saves an account's scan position only while the account's deletion is still pending, so a
+ * stalled scan that returns after the deletion ended never leaves a row naming the account. With
+ * one database the condition is in the statements themselves (`bothSides`); with a separate one
+ * the deletion row is read globally first, and the maintenance prune (`pruneJournalCursors`)
+ * removes what a race between that read and the write leaves.
+ */
+async function saveJournalScan(db: RegionalDb, userId: string, scan: JournalScan, now: number) {
+  const c = schema.maintenanceCursors;
+  const ad = schema.accountDeletions;
+  const name = scanName(userId);
+  const { passStartedAt, ...rest } = scan;
+  const cursor = JSON.stringify(rest);
+  const both = bothSides(db);
+  if (both) {
+    const pending = sql`exists (select 1 from ${ad} where ${ad.userId} = ${userId})`;
+    await both.batch([
+      both
+        .update(c)
+        .set({ cursor, passStartedAt, updatedAt: now })
+        .where(and(eq(c.name, name), pending)),
+      // Columns in schema order: name, cursor, pass started at, updated at.
+      both
+        .insert(c)
+        .select(
+          sql`select ${name}, ${cursor}, ${passStartedAt}, ${now} where ${pending} and not exists (select 1 from ${c} where ${c.name} = ${name})`,
+        ),
+    ]);
+    return;
+  }
+  const [pending] = await db.global
+    .select({ userId: ad.userId })
+    .from(ad)
+    .where(eq(ad.userId, userId))
+    .limit(1);
+  if (!pending) return;
+  await db
+    .insert(c)
+    .values({ name, cursor, passStartedAt, updatedAt: now })
+    .onConflictDoUpdate({ target: c.name, set: { cursor, passStartedAt, updatedAt: now } });
+}
+
+/** Leftover scan positions one maintenance run looks at most, per region. */
+const JOURNAL_CURSOR_PRUNE = 50;
+
+/**
+ * Removes account scan positions whose account deletion is no longer pending (finished, or
+ * withdrawn by a restore): a scan resumes only while its deletion runs, so such a row is a
+ * leftover of a late scan and names an account that may be gone. Bounded per run.
+ */
+export async function pruneJournalCursors(db: RegionalDb): Promise<number> {
+  const c = schema.maintenanceCursors;
+  const ad = schema.accountDeletions;
+  const rows = await db
+    .select({ name: c.name })
+    .from(c)
+    .where(sql`${c.name} like 'data_journal:%'`)
+    .limit(JOURNAL_CURSOR_PRUNE);
+  if (rows.length === 0) return 0;
+  const users = rows.map((row) => row.name.slice("data_journal:".length));
+  const pending = new Set(
+    (await db.global.select({ userId: ad.userId }).from(ad).where(inArray(ad.userId, users))).map(
+      (row) => row.userId,
+    ),
+  );
+  const gone = rows.filter((row) => !pending.has(row.name.slice("data_journal:".length)));
+  if (gone.length === 0) return 0;
+  await db.delete(c).where(
+    inArray(
+      c.name,
+      gone.map((row) => row.name),
+    ),
+  );
+  return gone.length;
+}
+
+/** The statement that removes an account's scan positions, for the deletion's last batch. */
+export function deleteJournalCursor(db: Db, userId: string, condition: ReturnType<typeof sql>) {
+  const c = schema.maintenanceCursors;
+  return db.delete(c).where(and(eq(c.name, scanName(userId)), condition));
 }
 
 // The jobs.
@@ -488,6 +563,8 @@ export type DataJobOutcome = "done" | "stale" | "pending" | "kept";
 
 /** A held or quarantined object waits this long before the job is tried again. */
 export const DATA_JOB_WAIT_MS = 86_400_000;
+/** How long a purge waits before preparing a new erase ID after its intent was cancelled. */
+export const DATA_ERASE_FRESH_MS = 60_000;
 /** Author erasure chunks one job run sends at most before it gives the queue back. */
 export const AUTHOR_CHUNKS_PER_RUN = 8;
 
@@ -558,8 +635,70 @@ export async function runDataFence(
   const step =
     after === null
       ? "retry"
-      : fenceRefused(after, envelope, answer.code, { dataRowGone: current === null });
-  return afterRefusal(db, row, step, answer.code, now);
+      : fenceRefused(after, envelope, answer.code, {
+          dataRowGone: current === null,
+          stillWanted: await fenceStillWanted(db, artifactId, payload.fence, after),
+        });
+  if (step !== "reissue" || after === null || current === null) {
+    return afterRefusal(db, row, step, answer.code, now);
+  }
+  // Another transition took this fence's epoch while D1 still wants its change: a new epoch from
+  // D1, past both D1's and the object's, taken only from the epoch read, then the same fence.
+  const [raised] = await db
+    .update(d)
+    .set({ epoch: sql`max(${d.epoch}, ${after.epoch}) + 1`, updatedAt: now })
+    .where(and(eq(d.artifactId, artifactId), eq(d.epoch, current.epoch)))
+    .returning({ epoch: d.epoch });
+  if (!raised) return "pending";
+  await db
+    .update(schema.outbox)
+    .set({ payload: { ...payload, epoch: raised.epoch } })
+    .where(eq(schema.outbox.id, row.id));
+  const again = await object.lifecycleFence(
+    { ...envelope, epoch: raised.epoch },
+    payload.fence,
+    now,
+  );
+  return again.ok ? "done" : "pending";
+}
+
+/**
+ * Whether D1 still wants a refused fence's change, from D1's own rows and the object's state: a
+ * hold whose D1 row is still open and that the object lacks, a release of the hold the object
+ * still has and D1 closed, a transfer to the owner D1 names and the object does not.
+ */
+async function fenceStillWanted(
+  db: RegionalDb,
+  artifactId: string,
+  fence: DataFence,
+  control: DataControl,
+): Promise<boolean> {
+  const h = schema.legalHolds;
+  if (fence.kind === "hold") {
+    if (control.hold !== null) return false;
+    const open = await openHold(db, artifactId);
+    return open?.id === fence.transition;
+  }
+  if (fence.kind === "release") {
+    const holdId = fence.transition.replace(/:release$/, "");
+    if (control.hold?.transition !== holdId) return false;
+    const [closed] = await db
+      .select({ id: h.id })
+      .from(h)
+      .where(and(eq(h.id, holdId), sql`${h.releasedAt} is not null`))
+      .limit(1);
+    return closed !== undefined && (await openHold(db, artifactId)) === undefined;
+  }
+  if (fence.kind === "transfer") {
+    if (control.ownerId === fence.toOwner) return false;
+    const [artifact] = await db
+      .select({ ownerId: a.ownerId })
+      .from(a)
+      .where(eq(a.id, artifactId))
+      .limit(1);
+    return artifact?.ownerId === fence.toOwner;
+  }
+  return false;
 }
 
 /**
@@ -644,6 +783,13 @@ export async function runDataErase(
     outcome = committed.value.outcome;
   }
   const next = purgeAnswered(outcome);
+  if (next === "fresh") {
+    // This ID's intent was cancelled (a hold ended it): terminal for the ID. With no other intent
+    // prepared, the purge goes on under a new ID after a short wait; with one, it resumes that.
+    const latest = await object.lifecycleControl();
+    if (latest?.erasing) return "pending";
+    return keep(db, row, now + DATA_ERASE_FRESH_MS, { ...payload, eraseId: lifecycleId(now) });
+  }
   if (next === "retry") return "pending";
   if (next === "superseded") {
     await recordFinding(db, artifactId, "superseded", null, now);
@@ -939,12 +1085,18 @@ export async function runDataReconcile(
 
 /**
  * A `data_resolve` job, the operator's resolution of one quarantine (`resolveReviewed` in the
- * object): it carries a resolution ID and the state the operator reviewed, so a delayed row or a
- * stale review conflicts and a retry finishes the same resolution. `adopt` needs D1 to name the
- * owner the object recorded (the operator repairs ownership first); D1's numbers are set to the
- * object's before and after, and the object keeps D1's open hold if it lacks one. `erase` is
- * refused here while D1 holds and in the object while the object holds. The artifact's waiting
- * data jobs (an author erasure, a purge) are woken after.
+ * object). The reviewed state names one quarantine of one object (its artifact, region and
+ * incarnation, with the owner, generation and epoch), so a state of another artifact or region
+ * is refused before the object is read, and the object refuses any other quarantine atomically.
+ * Then the record's artifact and region authority (`identityDisagreement`) is checked as
+ * reconciliation checks it: a disagreement keeps its finding and nothing is resolved. `erase` is
+ * refused while D1 holds (and in the object while the object holds); `adopt` needs D1 to name
+ * the owner the object recorded and makes the object keep its hold or take D1's. The object
+ * resolves first; only then does D1 follow it, never moving its epoch backward (an epoch D1
+ * gave a pending fence stays that fence's). The artifact's waiting data jobs are woken after.
+ * Receipts are the object's ended-intent records, kept `ARTIFACT_DATA.replayMs` (24 hours): a
+ * retry within it finishes the same resolution; after it the retry is refused as a conflict
+ * (the quarantine it reviewed is gone), and D1 is repaired by the next reconciliation.
  */
 export async function runDataResolve(
   db: RegionalDb,
@@ -956,14 +1108,39 @@ export async function runDataResolve(
   const objects = needs(data, "data_resolve");
   const payload = DataResolvePayload.parse(row.payload);
   const artifactId = row.subject ?? "";
+  if (payload.expected.artifactId !== artifactId || payload.expected.region !== objects.region) {
+    return refuseResolution(db, artifactId, "forbidden", now);
+  }
   const object = objects.object(artifactId);
+  const control = await object.lifecycleControl();
+  if (control === null) return refuseResolution(db, artifactId, "not_found", now);
+  const key = inventoryKey(artifactId);
+  const entry = await readJson(bucket, key, (value) => InventoryEntry.parse(value));
+  const ad = schema.artifactDirectory;
+  const [directory] = await db.global
+    .select({ region: ad.region })
+    .from(ad)
+    .where(eq(ad.id, artifactId))
+    .limit(1);
+  const disagreement =
+    entry === null
+      ? "key"
+      : identityDisagreement({
+          key,
+          entry: entry.value,
+          region: objects.region,
+          directoryRegion: directory?.region ?? null,
+          control,
+        });
+  if (disagreement !== null) {
+    await recordFinding(db, artifactId, "identity_mismatch", disagreement, now);
+    return "stale";
+  }
   const [artifact] = await db
     .select({ ownerId: a.ownerId })
     .from(a)
     .where(eq(a.id, artifactId))
     .limit(1);
-  const control = await object.lifecycleControl();
-  if (control === null) return refuseResolution(db, artifactId, "not_found", now);
   const open = await openHold(db, artifactId);
   if (payload.decision === "erase" && open) return refuseResolution(db, artifactId, "held", now);
   if (
@@ -971,9 +1148,6 @@ export async function runDataResolve(
     (!artifact || artifact.ownerId !== payload.expected.ownerId)
   ) {
     return refuseResolution(db, artifactId, "stale", now);
-  }
-  if (payload.decision === "adopt" && control.quarantine !== null) {
-    await setRow(db, artifactId, control, now);
   }
   const answer = await object.lifecycleResolve(
     controlEnvelope(control),
@@ -986,10 +1160,9 @@ export async function runDataResolve(
     now,
   );
   if (!answer.ok) return refuseResolution(db, artifactId, answer.code, now);
-  // D1 follows the object as it now is, so a retry after a crash anywhere above ends the same.
   const after = await object.lifecycleControl();
   if (after !== null && artifact && artifact.ownerId === after.ownerId) {
-    await setRow(db, artifactId, after, now);
+    await followResolution(db, artifactId, after, now);
   }
   if (!artifact) await retireInventory(bucket, objects.region, artifactId, now);
   await wakeDataJobs(db, artifactId, now);
@@ -1014,15 +1187,43 @@ async function refuseResolution(
   return "stale";
 }
 
-/** Sets D1's numbers to the object's (the operator's resolution). */
-async function setRow(db: RegionalDb, artifactId: string, control: DataControl, now: number) {
+/**
+ * D1 follows a resolved object: the object's generation, and the larger of D1's and the object's
+ * epoch, written only from the row read (or inserted when there is none), so an epoch D1 already
+ * gave a pending fence is never taken back.
+ */
+async function followResolution(
+  db: RegionalDb,
+  artifactId: string,
+  control: DataControl,
+  now: number,
+): Promise<void> {
+  const [current] = await db
+    .select({ generation: d.generation, epoch: d.epoch })
+    .from(d)
+    .where(eq(d.artifactId, artifactId))
+    .limit(1);
+  if (!current) {
+    await db
+      .insert(d)
+      .values({ artifactId, generation: control.generation, epoch: control.epoch, updatedAt: now })
+      .onConflictDoNothing();
+    return;
+  }
   await db
-    .insert(d)
-    .values({ artifactId, generation: control.generation, epoch: control.epoch, updatedAt: now })
-    .onConflictDoUpdate({
-      target: d.artifactId,
-      set: { generation: control.generation, epoch: control.epoch, updatedAt: now },
-    });
+    .update(d)
+    .set({
+      generation: control.generation,
+      epoch: Math.max(current.epoch, control.epoch),
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(d.artifactId, artifactId),
+        eq(d.generation, current.generation),
+        eq(d.epoch, current.epoch),
+      ),
+    );
 }
 
 /**

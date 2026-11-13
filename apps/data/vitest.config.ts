@@ -32,6 +32,17 @@ export default defineConfig(async () => {
       testTimeout: 30_000,
       hookTimeout: 30_000,
       include: ["test/**/*.test.ts"],
+      // The RPC negative control calls methods the class does not expose: the runtime rejects the
+      // call (asserted) and also reports it from the object's side. Only those reports are
+      // ignored, never any other unhandled error.
+      onUnhandledError(error: { message?: string }) {
+        const message = String(error?.message ?? "");
+        return !(
+          message.includes('The RPC receiver does not implement "create"') ||
+          message.includes('The RPC receiver does not implement the method "create"') ||
+          message.includes('The RPC receiver\'s prototype does not implement "store"')
+        );
+      },
       setupFiles: ["./test/apply-migrations.ts"],
       coverage: {
         provider: "istanbul" as const,

@@ -83,7 +83,7 @@ describe("the operator's data commands", () => {
     const id = artifactId();
     const reconcile = await runOperator(regionsFromEnv(env), ["data-reconcile"], now);
     expect(reconcile.exitCode).toBe(0);
-    const state = `orphan:${now}:u_owner:0:0`;
+    const state = `${id}:default:1:orphan:u_owner:0:0`;
     const resolve = await runOperator(
       regionsFromEnv(env),
       ["data-resolve", id, "erase", "--state", state],
@@ -103,7 +103,15 @@ describe("the operator's data commands", () => {
           {
             decision: "erase",
             resolutionId: expect.stringMatching(/^[0-9]{13}\./),
-            expected: { reason: "orphan", at: now, ownerId: "u_owner", generation: 0, epoch: 0 },
+            expected: {
+              artifactId: id,
+              region: "default",
+              incarnation: 1,
+              reason: "orphan",
+              ownerId: "u_owner",
+              generation: 0,
+              epoch: 0,
+            },
           },
         ],
       ].sort(),
@@ -129,7 +137,7 @@ describe("the operator's data commands", () => {
       ["data-resolve", "abcdefghij", "keep"],
       // A resolution needs the state the operator reviewed.
       ["data-resolve", "abcdefghij", "erase"],
-      ["data-resolve", "abcdefghij", "erase", "--state", "orphan:1:u:0"],
+      ["data-resolve", "abcdefghij", "erase", "--state", "abcdefghij:default:1:orphan:u:0"],
       ["data-export"],
     ]) {
       expect((await runOperator(regionsFromEnv(env), argv, now)).exitCode).toBe(2);

@@ -3,8 +3,10 @@
 // lifecycle RPC methods, exactly as the jobs Worker reaches them (`env.DOCUMENTS` stands for its
 // `ARTIFACT_DOCUMENTS` binding: same class, same script); only seeding goes inside the object.
 //
-// Every command to an object carries `DATA_NOW`, a fixed instant years after the real clock, so
-// the alarms the object sets never fire while a test runs and nothing depends on today's date.
+// The scheduler is the test's, as in the first half's driver: before any command, each object's
+// `setAlarm` and `deleteAlarm` are replaced by a recorder (`quiet`), so no real alarm is ever set
+// and nothing a test does depends on today's date or a year; `afterEach` checks that every object
+// a test touched has no platform alarm. Commands carry the fixed `DATA_NOW`.
 // `Crash` injects one failure at a numbered external step (a D1 write, an R2 write, a lifecycle
 // command), before or after the step takes effect, for the crash schedules of obligation 9.
 
@@ -25,10 +27,50 @@ import {
   runJob,
 } from "@portifact/services";
 import { eq } from "drizzle-orm";
+import { afterEach, expect } from "vitest";
 import type { ArtifactDocuments } from "../src/documents.ts";
 
-/** Every command an object receives runs at this time (2031-01-01, after any real clock today). */
-export const DATA_NOW = Date.UTC(2031, 0, 1, 12);
+/** The alarm each object asked for, recorded instead of set. */
+export const recordedAlarms = new Map<string, number | null>();
+const quieted = new Map<string, Promise<void>>();
+const touched = new Set<string>();
+
+/** Replaces the object's alarm calls by the recorder, once per object, before any command. */
+export function quiet(id: string): Promise<void> {
+  touched.add(id);
+  let done = quieted.get(id);
+  if (done === undefined) {
+    done = runInDurableObject(
+      env.DOCUMENTS.get(env.DOCUMENTS.idFromName(id)),
+      async (_object: ArtifactDocuments, state: DurableObjectState) => {
+        const storage = state.storage as unknown as Record<string, unknown>;
+        storage.setAlarm = async (at: number | Date) => {
+          recordedAlarms.set(id, typeof at === "number" ? at : at.getTime());
+        };
+        storage.deleteAlarm = async () => {
+          recordedAlarms.set(id, null);
+        };
+      },
+    );
+    quieted.set(id, done);
+  }
+  return done;
+}
+
+afterEach(async () => {
+  // No object a test touched may hold a platform alarm: the recorder replaced every set.
+  for (const id of touched) {
+    const alarm = await runInDurableObject(
+      env.DOCUMENTS.get(env.DOCUMENTS.idFromName(id)),
+      (_object: ArtifactDocuments, state: DurableObjectState) => state.storage.getAlarm(),
+    );
+    expect(alarm, `platform alarm on ${id}`).toBeNull();
+  }
+  touched.clear();
+});
+
+/** Every command an object receives runs at this fixed time; no platform alarm is ever set. */
+export const DATA_NOW = Date.UTC(2026, 10, 9, 12);
 export const D1_NOW = Date.UTC(2026, 10, 8, 12);
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 
@@ -149,19 +191,17 @@ export function objectsFor(
     object(id) {
       const stub = env.DOCUMENTS.get(env.DOCUMENTS.idFromName(id)) as unknown as DataObjectRpc;
       const crash = options.crash;
-      if (crash === undefined) return stub;
       const methods = stub as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
       return new Proxy(stub, {
         get(target, property) {
-          if (typeof property === "string" && MUTATING.has(property)) {
-            // Called on the stub itself: an RPC stub's methods are not ordinary functions.
-            return (...args: unknown[]) =>
-              crash.step(
-                `object:${property}`,
-                () => methods[property]?.(...args) as Promise<unknown>,
-              );
+          if (typeof property !== "string" || !property.startsWith("lifecycle")) {
+            return Reflect.get(target, property);
           }
-          return Reflect.get(target, property);
+          // Called on the stub itself: an RPC stub's methods are not ordinary functions.
+          const call = (...args: unknown[]) =>
+            quiet(id).then(() => methods[property]?.(...args) as Promise<unknown>);
+          if (crash === undefined || !MUTATING.has(property)) return call;
+          return (...args: unknown[]) => crash.step(`object:${property}`, () => call(...args));
         },
       });
     },
@@ -202,11 +242,15 @@ export const bucketOf = (region: "default" | "eu" = "default") =>
 
 /** The object of an artifact, from the test's side. */
 export function stubOf(id: string): DurableObjectStub<ArtifactDocuments> {
+  // Direct calls go to the object as is; the afterEach check fails a test that reached an
+  // object before `quiet` and let it set a platform alarm.
+  touched.add(id);
   return env.DOCUMENTS.get(env.DOCUMENTS.idFromName(id));
 }
 
 /** Runs one store command inside the object, as its handlers do. */
-export function inside<T>(id: string, run: (object: ArtifactDocuments) => T): Promise<T> {
+export async function inside<T>(id: string, run: (object: ArtifactDocuments) => T): Promise<T> {
+  await quiet(id);
   return runInDurableObject(stubOf(id), (object: ArtifactDocuments) => run(object));
 }
 
@@ -345,7 +389,10 @@ export async function journalOf(
 
 /** The pending outbox rows of `topics`. */
 export async function jobsOf(dbHandle: RegionalDb, topics: readonly string[], subject?: string) {
-  const rows = await dbHandle.select().from(schema.outbox);
+  const rows =
+    subject === undefined
+      ? await dbHandle.select().from(schema.outbox)
+      : await dbHandle.select().from(schema.outbox).where(eq(schema.outbox.subject, subject));
   return rows.filter(
     (row) => topics.includes(row.topic) && (subject === undefined || row.subject === subject),
   );

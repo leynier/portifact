@@ -306,6 +306,7 @@ reason(
     "recordStorageReport",
     "eraseReason",
     "permanentlyDeleted",
+    "pruneJournalCursors",
     "retireJournalEntry",
     "scheduleAuthorErasures",
     "wakeDataJobs",

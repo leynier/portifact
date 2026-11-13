@@ -151,6 +151,8 @@ it("B3: account erasure scan progresses past ten pages of already retired entrie
       return { etag: "b" };
     },
   } as unknown as R2Bucket;
+  // The scan keeps its position only while the account's deletion is pending (round 2, F5).
+  await db().global.insert(schema.accountDeletions).values({ userId, requestedAt: NOW });
   for (let run = 0; run < 11; run += 1) await scheduleAuthorErasures(db(), bucket, userId, NOW);
   expect(foundLast).toBe(true);
   // One list per run.

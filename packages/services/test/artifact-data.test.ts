@@ -16,7 +16,7 @@ import {
   reviewedState,
 } from "@portifact/domain/artifact-data";
 import { MemoryObject } from "@portifact/domain/testing/artifact-data";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
   AUTHOR_CHUNKS_PER_RUN,
@@ -25,6 +25,7 @@ import {
   eraseReason,
   lifecycleId,
   listDataFindings,
+  pruneJournalCursors,
   queueDataExport,
   queueDataReconcile,
   queueDataResolve,
@@ -422,12 +423,19 @@ describe("data_author_erasure", () => {
 describe("the journal step of an account deletion", () => {
   it("walks one page of entries per call and asks for more past it", async () => {
     const userId = `u_${crypto.randomUUID()}`;
-    for (let n = 0; n < 101; n += 1) {
-      await env.ARTIFACTS.put(
-        journalKey(userId, `a${String(n).padStart(9, "a")}`),
-        JSON.stringify({ visitorId: visitorId(), firstGrantAt: NOW }),
-      );
-    }
+    // The scan keeps its position only while the account's deletion is pending.
+    await regionsFromEnv(env)
+      .global.insert(schema.accountDeletions)
+      .values({ userId, requestedAt: NOW });
+    // Written together: the entries' order does not matter to the listing.
+    await Promise.all(
+      Array.from({ length: 101 }, (_, n) =>
+        env.ARTIFACTS.put(
+          journalKey(userId, `a${String(n).padStart(9, "a")}`),
+          JSON.stringify({ visitorId: visitorId(), firstGrantAt: NOW }),
+        ),
+      ),
+    );
     const first = await scheduleAuthorErasures(db(), env.ARTIFACTS, userId, NOW);
     expect(first).toEqual({ more: true, scheduled: 100 });
     const second = await scheduleAuthorErasures(db(), env.ARTIFACTS, userId, NOW);
@@ -448,6 +456,36 @@ describe("the journal step of an account deletion", () => {
       .from(schema.maintenanceCursors)
       .where(eq(schema.maintenanceCursors.name, `data_journal:${userId}`));
     expect(cursors).toEqual([]);
+  });
+
+  it("keeps a scan's position only while the deletion is pending, and prunes leftovers", async () => {
+    const pending = `u_${crypto.randomUUID()}`;
+    const ended = `u_${crypto.randomUUID()}`;
+    const global = regionsFromEnv(env).global;
+    await global.insert(schema.accountDeletions).values({ userId: pending, requestedAt: NOW });
+    const c = schema.maintenanceCursors;
+    const listing = {
+      objects: [{ key: journalKey(pending, "aaaaaaaaaa"), customMetadata: { retired: "1" } }],
+      truncated: true,
+      delimitedPrefixes: [],
+    };
+    const bucket = { list: async () => listing } as unknown as R2Bucket;
+    await scheduleAuthorErasures(db(), bucket, pending, NOW);
+    // No pending deletion: the position is never written.
+    await scheduleAuthorErasures(db(), bucket, ended, NOW);
+    const names = async () =>
+      (await db().select({ name: c.name }).from(c).where(sql`${c.name} like 'data_journal:%'`)).map(
+        (row) => row.name,
+      );
+    expect(await names()).toContain(`data_journal:${pending}`);
+    expect(await names()).not.toContain(`data_journal:${ended}`);
+    // A leftover (a late write after the deletion ended) goes with the next maintenance run.
+    await db()
+      .insert(c)
+      .values({ name: `data_journal:${ended}`, cursor: "{}", passStartedAt: NOW, updatedAt: NOW });
+    expect(await pruneJournalCursors(db())).toBeGreaterThanOrEqual(1);
+    expect(await names()).toContain(`data_journal:${pending}`);
+    expect(await names()).not.toContain(`data_journal:${ended}`);
   });
 
   it("retires an entry a racing claim changed, from what it reads again", async () => {
@@ -601,10 +639,21 @@ describe("data_resolve", () => {
 
   it("refuses with nothing to resolve, or an owner D1 does not name", async () => {
     const memory = memoryObjects();
-    const expected = { reason: "owner" as const, at: NOW, ownerId: "u_x", generation: 0, epoch: 0 };
-    expect(await run(await resolve(artifactId(), "adopt", expected), memory.data)).toBe("stale");
+    const expected = (id: string) => ({
+      artifactId: id,
+      region: "default",
+      incarnation: 1,
+      reason: "owner" as const,
+      ownerId: "u_x",
+      generation: 0,
+      epoch: 0,
+    });
+    const missing = artifactId();
+    expect(await run(await resolve(missing, "adopt", expected(missing)), memory.data)).toBe(
+      "stale",
+    );
     const { id, object } = await seeded(memory);
-    expect(await run(await resolve(id, "adopt", expected), memory.data)).toBe("stale");
+    expect(await run(await resolve(id, "adopt", expected(id)), memory.data)).toBe("stale");
     expect((await findingOf(id))?.reason).toBe("stale");
     object.quarantine(envelope(id, "u_x"), "owner", NOW);
     await db()
@@ -613,6 +662,36 @@ describe("data_resolve", () => {
       .where(eq(schema.artifacts.id, id));
     expect(await run(await resolve(id, "adopt", reviewed(object)), memory.data)).toBe("stale");
     expect(object.durable.control?.quarantine).not.toBeNull();
+  });
+
+  it("refuses a state of another artifact or region before reading the object", async () => {
+    const memory = memoryObjects();
+    const { id, ownerId, object } = await seeded(memory);
+    object.quarantine(envelope(id, ownerId), "orphan", NOW);
+    const reads = { count: 0 };
+    const counted: DataObjects = {
+      ...memory.data,
+      object: (artifact) => {
+        const real = memory.data.object(artifact);
+        return {
+          ...real,
+          lifecycleControl: async () => {
+            reads.count += 1;
+            return real.lifecycleControl();
+          },
+        };
+      },
+    };
+    const state = reviewed(object);
+    expect(
+      await run(await resolve(id, "erase", { ...state, artifactId: artifactId() }), counted),
+    ).toBe("stale");
+    expect(await run(await resolve(id, "erase", { ...state, region: "eu" }), counted)).toBe(
+      "stale",
+    );
+    expect(reads.count).toBe(0);
+    expect((await findingOf(id))?.reason).toBe("forbidden");
+    expect(documents(object)).toBe(1);
   });
 
   it("adopts the reviewed quarantine once, keeping D1's hold, and wakes waiting jobs", async () => {
