@@ -23,7 +23,8 @@ export const DOC = "First paragraph.\n\nSecond paragraph here.\n\nA [linked](htt
 export const PAGE =
   '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Page</title></head><body><h1 id="t">Title</h1><p>Second paragraph here.</p><p>A <a href="/x">linked</a> word.</p></body></html>';
 
-export const humanCheck: HumanCheck = { token: undefined, verify: async () => "ok" };
+export const humanCheck: HumanCheck = { token: "test-token", verify: async () => "passed" };
+export const noHumanCheck: HumanCheck = { token: undefined, verify: async () => "passed" };
 
 export interface Doc extends Published {
   type: ArtifactType;
@@ -166,7 +167,8 @@ export async function currentText(artifactId: string, path: string): Promise<str
       ),
     );
   const object = await env.ARTIFACTS.get(file?.r2Key ?? "");
-  return object ? object.text() : "";
+  // The byte order mark kept as a character, so a test sees whether the file holds one.
+  return object ? new TextDecoder("utf-8", { ignoreBOM: true }).decode(await object.arrayBuffer()) : "";
 }
 
 export async function auditKinds(artifactId: string): Promise<string[]> {

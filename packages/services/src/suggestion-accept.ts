@@ -620,6 +620,8 @@ export async function publishFromPlan(
       now,
     });
     if (!prepared.ok) {
+      // Another delivery of this job prepared the same version meanwhile: it completes it.
+      if (await sessionExists(db, ids.sessionId)) return "pending";
       await endAttempt(db, attempt, PREPARE_REASONS[prepared.code] ?? "failed", now);
       return "done";
     }
@@ -673,6 +675,15 @@ export async function publishFromPlan(
   const lost = await lostClaim(db, c);
   if (lost !== "duplicate") await endAttempt(db, attempt, lost, now);
   return "done";
+}
+
+async function sessionExists(db: RegionalDb, sessionId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: schema.uploadSessions.id })
+    .from(schema.uploadSessions)
+    .where(eq(schema.uploadSessions.id, sessionId))
+    .limit(1);
+  return row !== undefined;
 }
 
 async function sha256Of(bytes: Uint8Array): Promise<string> {
