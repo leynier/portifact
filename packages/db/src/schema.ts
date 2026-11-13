@@ -1118,6 +1118,33 @@ export const artifactData = sqliteTable("artifact_data", {
   updatedAt: timestamp("updated_at").notNull(),
 });
 
+/**
+ * The owner side's data operations (decision 0026, delivery 5): one per caller and idempotency
+ * key, holding the operation ID the object records the change under (its issue time included),
+ * so a retry after a lost answer sends the same ID and the object applies the change once. It
+ * holds no body and no answer: a retry is authorized again and answered from the object. Written
+ * by one guarded statement on the artifact's owner, state, hold and data numbers, which is the
+ * D1 claim every owner-side change makes before it reaches the object; pruned after a day.
+ */
+export const dataOperations = sqliteTable(
+  "data_operations",
+  {
+    actorId: text("actor_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    opId: text("op_id").notNull(),
+    requestHash: text("request_hash").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.actorId, t.idempotencyKey] }),
+    index("data_operations_created_idx").on(t.createdAt),
+    index("data_operations_artifact_idx").on(t.artifactId),
+  ],
+);
+
 /** What the data reconciliation decided about an object, for the operator (`data-findings`). */
 export const DATA_FINDING_ACTIONS = [
   "quarantined",

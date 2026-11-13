@@ -366,7 +366,6 @@ reason(
     "createDataDocuments",
     "replaceDataDocuments",
     "deleteDataDocuments",
-    "ownerOperationId",
   ],
 );
 reason(

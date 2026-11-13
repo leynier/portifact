@@ -92,6 +92,7 @@ export const TABLE_HOMES = {
   legal_hold_identities: "regional",
   // Artifact data (decision 0026): with the artifact; the objects live in its region too.
   artifact_data: "regional",
+  data_operations: "regional",
   data_findings: "regional",
   annotation_threads: "regional",
   annotation_messages: "regional",
