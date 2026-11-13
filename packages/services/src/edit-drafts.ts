@@ -37,10 +37,20 @@ function draftView(row: DraftRow): DraftView {
     baseVersionId: row.baseVersionId,
     edit,
     revision: row.revision,
+    incarnation: row.incarnation,
     publishing: row.attemptId !== null,
     attemptReason: row.attemptReason,
     updatedAt: row.updatedAt,
   };
+}
+
+/** A new draft's incarnation: 16 random bytes in base64url, never reused. */
+function newIncarnation(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
 }
 
 const draftChanged = () =>
@@ -70,6 +80,7 @@ export async function saveDraft(
     baseVersionId: string;
     edit: DraftEdit;
     baseRevision: number | null;
+    baseIncarnation: string | null;
   },
 ): Promise<Result<DraftView>> {
   const authorized = await annotationParts.authorize(db, input, "moderate");
@@ -97,7 +108,14 @@ export async function saveDraft(
     .from(dr)
     .where(and(eq(dr.artifactId, artifact.id), eq(dr.userId, input.userId)))
     .limit(1);
-  if ((existing?.revision ?? null) !== input.baseRevision) return draftChanged();
+  // The revision and the incarnation the author holds: a replacement draft starts at revision 1
+  // again, so the revision alone does not tell it from the discarded one.
+  if (
+    (existing?.revision ?? null) !== input.baseRevision ||
+    (existing?.incarnation ?? null) !== input.baseIncarnation
+  ) {
+    return draftChanged();
+  }
   if (existing && existing.attemptId !== null) {
     return fail("version_conflict", "This draft is being published. Try again in a moment.");
   }
@@ -126,17 +144,18 @@ export async function saveDraft(
               eq(dr.artifactId, artifact.id),
               eq(dr.userId, input.userId),
               eq(dr.revision, existing.revision),
+              eq(dr.incarnation, existing.incarnation),
               sql`${dr.attemptId} is null`,
               guard,
             ),
           )
           .returning({ revision: dr.revision })
       : // Columns in schema order: artifact, user, owner, base version, edit, edit bytes,
-        // revision, attempt, attempt reason, created, updated.
+        // revision, attempt, attempt reason, created, updated, incarnation.
         await w
           .insert(dr)
           .select(
-            sql`select ${artifact.id}, ${input.userId}, ${artifact.ownerId}, ${input.baseVersionId}, ${editJson}, ${editBytes}, 1, null, null, ${input.now}, ${input.now} where ${guard} and not exists (select 1 from ${dr} where ${dr.artifactId} = ${artifact.id} and ${dr.userId} = ${input.userId})`,
+            sql`select ${artifact.id}, ${input.userId}, ${artifact.ownerId}, ${input.baseVersionId}, ${editJson}, ${editBytes}, 1, null, null, ${input.now}, ${input.now}, ${newIncarnation()} where ${guard} and not exists (select 1 from ${dr} where ${dr.artifactId} = ${artifact.id} and ${dr.userId} = ${input.userId})`,
           )
           .returning({ revision: dr.revision });
   } catch (error) {

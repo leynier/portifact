@@ -42,15 +42,18 @@ describe("saving one's own draft", () => {
         baseVersionId: doc.versionId,
         edit: edit("Second", "Next"),
         baseRevision: null,
+        baseIncarnation: null,
       }),
     );
     expect(first).toMatchObject({ revision: 1, publishing: false, baseVersionId: doc.versionId });
+    expect(first.incarnation).toMatch(/^[A-Za-z0-9_-]{22}$/);
     const second = value(
       await saveDraft(db(), {
         ...as(owner.id),
         baseVersionId: doc.versionId,
         edit: edit("Second", "Later"),
         baseRevision: 1,
+        baseIncarnation: first.incarnation,
       }),
     );
     expect(second.revision).toBe(2);
@@ -72,15 +75,17 @@ describe("saving one's own draft", () => {
   });
 
   it("refuses a stale revision, a new draft over an existing one and an old version", async () => {
+    let incarnation: string | null = null;
     const save = (baseRevision: number | null, baseVersionId = doc.versionId) =>
       saveDraft(db(), {
         ...as(owner.id),
         baseVersionId,
         edit: edit("Second", "Next"),
         baseRevision,
+        baseIncarnation: baseRevision === null ? null : (incarnation ?? "AAAAAAAAAAAAAAAAAAAAAA"),
       });
     expect(await save(1)).toMatchObject({ ok: false, code: "version_conflict" });
-    value(await save(null));
+    incarnation = value(await save(null)).incarnation;
     expect(await save(null)).toMatchObject({ ok: false, code: "version_conflict" });
     expect(await save(2)).toMatchObject({ ok: false, code: "version_conflict" });
     const old = doc.versionId;
@@ -97,6 +102,7 @@ describe("saving one's own draft", () => {
         baseVersionId: doc.versionId,
         edit: { operations: [elsewhere] },
         baseRevision: null,
+        baseIncarnation: null,
       }),
     ).toMatchObject({ ok: false, code: "invalid_input" });
     value(
@@ -105,6 +111,7 @@ describe("saving one's own draft", () => {
         baseVersionId: doc.versionId,
         edit: edit("Second", "Next"),
         baseRevision: null,
+        baseIncarnation: null,
       }),
     );
     await db()
@@ -117,6 +124,9 @@ describe("saving one's own draft", () => {
         baseVersionId: doc.versionId,
         edit: edit("Second", "Other"),
         baseRevision: 1,
+        baseIncarnation: (await getDraft(db(), as(owner.id))).ok
+          ? value(await getDraft(db(), as(owner.id))).incarnation
+          : null,
       }),
     ).toMatchObject({ ok: false, code: "version_conflict" });
     expect(await discardDraft(db(), as(owner.id))).toMatchObject({
@@ -137,6 +147,7 @@ describe("saving one's own draft", () => {
         baseVersionId: doc.versionId,
         edit: edit("Second", "Next"),
         baseRevision: null,
+        baseIncarnation: null,
       });
       expect(saved.ok, someone).toBe(false);
       expect(["not_found", "forbidden"]).toContain(saved.ok ? "" : saved.code);
@@ -158,6 +169,7 @@ describe("saving one's own draft", () => {
       baseVersionId: doc.versionId,
       edit: edit("Second", "Next"),
       baseRevision: null,
+      baseIncarnation: null,
     });
     expect(limited).toMatchObject({ ok: false, code: "rate_limited" });
     expect(
@@ -184,6 +196,7 @@ describe("saving one's own draft", () => {
         baseVersionId: doc.versionId,
         edit: edit("Second", "Next"),
         baseRevision: null,
+        baseIncarnation: null,
       }),
     ).toMatchObject({ ok: false, code: "quota_exceeded" });
   });
@@ -197,6 +210,7 @@ describe("discarding one's own draft", () => {
         baseVersionId: doc.versionId,
         edit: edit("Second", "Next"),
         baseRevision: null,
+        baseIncarnation: null,
       }),
     );
     expect(value(await discardDraft(db(), as(owner.id)))).toBe(true);

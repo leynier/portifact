@@ -835,16 +835,26 @@ export const SuggestionAnnotationPage = AnnotationPage.extend({
 });
 export type SuggestionAnnotationPage = z.infer<typeof SuggestionAnnotationPage>;
 
+/** A draft's incarnation token as it travels: 22 base64url characters. */
+export const DraftIncarnation = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
+
 /**
  * Saving one's own draft (session only): the whole edit, on the artifact's current version, at
  * the draft revision the caller holds (null for a new draft). The viewer coalesces repeated
  * edits of the same text into one operation before sending.
  */
-export const SaveDraftRequest = z.strictObject({
-  baseVersionId: AnnotationId,
-  edit: DraftEdit,
-  baseRevision: z.number().int().min(1).nullable(),
-});
+export const SaveDraftRequest = z
+  .strictObject({
+    baseVersionId: AnnotationId,
+    edit: DraftEdit,
+    baseRevision: z.number().int().min(1).nullable(),
+    /** The draft's `incarnation` the caller holds, null with `baseRevision` for a new draft. */
+    baseIncarnation: DraftIncarnation.nullable(),
+  })
+  .refine((body) => (body.baseRevision === null) === (body.baseIncarnation === null), {
+    message: "baseRevision and baseIncarnation are both null for a new draft, or both set",
+    path: ["baseIncarnation"],
+  });
 export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
 
 /** One's own draft on an artifact. Its edit is the author's own text. */
@@ -853,6 +863,11 @@ export const DraftView = z.object({
   baseVersionId: z.string(),
   edit: z.unknown(),
   revision: z.number().int().min(1),
+  /**
+   * This draft's incarnation: a token set when it was created and never reused, sent back with
+   * the revision on the next save, so a discarded draft's tab cannot overwrite its replacement.
+   */
+  incarnation: z.string(),
   /** Whether a publish of it is running (its job decides). */
   publishing: z.boolean(),
   /** Why the last publish ended without completing. */
