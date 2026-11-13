@@ -387,7 +387,14 @@ export function accountRoutes(deps: AccountDeps) {
     "/api/v1/account/export",
     sessionOnly(async (c, session) => {
       const now = deps.now();
-      const result = await exportAccount(defaultDb(c.env), { userId: session.userId, now });
+      const result = await exportAccount(defaultDb(c.env), {
+        userId: session.userId,
+        now,
+        // The account's drafts live in the region of each artifact (decision 0027).
+        regions: regionsOf(c.env)
+          .all()
+          .map((handles) => handles.db),
+      });
       if (!result.ok) return error(c, result.code, result.message);
       c.header("Content-Disposition", `attachment; filename="${accountExportFileName(now)}"`);
       return c.json(AccountExport.parse(result.value));

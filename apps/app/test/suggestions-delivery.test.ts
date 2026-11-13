@@ -10,6 +10,7 @@ import {
   RebasedDraft,
 } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
+import { commitPublish, createWorkspace, preparePublish, saveDraft } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { publishSite, type TokenClient, tokenClient } from "./api-client.ts";
@@ -172,5 +173,90 @@ describe("POST .../draft/rebase", () => {
       body: JSON.stringify({ baseRevision: 1, baseIncarnation: "AAAAAAAAAAAAAAAAAAAAAA" }),
     });
     expect(response.status).toBe(503);
+  });
+});
+
+describe("GET /api/v1/account/export", () => {
+  it("holds the account's drafts in every region", async () => {
+    const regions = regionsFromEnv(env);
+    const workspace = await createWorkspace(regions.global, {
+      slug: `delivery-eu-${crypto.randomUUID().slice(0, 8)}`,
+      name: "EU team",
+      adminUserId: owner.userId,
+      region: "eu",
+      now: Date.now(),
+    });
+    if (!workspace.ok) throw new Error(workspace.message);
+    const eu = regions.get("eu");
+    const body = "# Notes\n\nSecond paragraph here.\n";
+    const digest = [
+      ...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body))),
+    ]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const pending = await preparePublish(eu.db, {
+      userId: owner.userId,
+      targetOwnerId: workspace.value.id,
+      type: "markdown",
+      name: "EU notes",
+      entrypoint: "index.md",
+      baseVersionId: null,
+      files: [
+        {
+          path: "index.md",
+          kind: "published",
+          sha256: digest,
+          size: body.length,
+          contentType: "text/markdown",
+        },
+      ],
+      now: Date.now(),
+    });
+    if (!pending.ok) throw new Error(pending.message);
+    await env.ARTIFACTS_EU.put(`objects/${workspace.value.id}/${digest}`, body);
+    const published = await commitPublish(eu.db, env.ARTIFACTS_EU, {
+      userId: owner.userId,
+      sessionId: pending.value.sessionId,
+      now: Date.now(),
+    });
+    if (!published.ok) throw new Error(published.message);
+    await eu.db
+      .update(schema.artifacts)
+      .set({ annotations: "open" })
+      .where(eq(schema.artifacts.id, published.value.artifactId));
+    const page = "Notes Second paragraph here.";
+    const at = page.indexOf("Second");
+    const saved = await saveDraft(eu.db, {
+      userId: owner.userId,
+      artifactId: published.value.artifactId,
+      now: Date.now(),
+      baseVersionId: published.value.versionId,
+      baseRevision: null,
+      baseIncarnation: null,
+      edit: {
+        operations: [
+          {
+            kind: "text",
+            target: {
+              schema: 1,
+              path: "index.md",
+              anchor: {
+                kind: "text",
+                quote: { exact: "Second", prefix: "", suffix: "" },
+                position: { start: at, end: at + 6 },
+              },
+            },
+            after: "Next",
+          },
+        ],
+      },
+    });
+    if (!saved.ok) throw new Error(saved.message);
+    const exported = await session("/api/v1/account/export", undefined, "GET");
+    expect(exported.status).toBe(200);
+    const json = await exported.json<{ drafts: { artifactId: string }[] }>();
+    expect(json.drafts).toEqual([
+      expect.objectContaining({ artifactId: published.value.artifactId }),
+    ]);
   });
 });

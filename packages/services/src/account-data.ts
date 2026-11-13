@@ -94,7 +94,15 @@ type MessageRow = typeof schema.annotationMessages.$inferSelect;
  */
 export async function exportAccount(
   db: RegionalDb,
-  input: { userId: string; now: number },
+  input: {
+    userId: string;
+    now: number;
+    /**
+     * Every region's handle, for what the account keeps in any region (its drafts); only `db`
+     * when absent.
+     */
+    regions?: readonly RegionalDb[];
+  },
 ): Promise<Result<AccountExport>> {
   // The account, its sign-in methods and its history of accepted terms, in one round trip.
   const [[user], methods, acceptances] = await db.global.batch([
@@ -187,12 +195,27 @@ export async function exportAccount(
       changeItems.set(row.artifactId, [...(changeItems.get(row.artifactId) ?? []), row]);
     }
   }
-  // The account's own drafts, on any artifact (decision 0027): its own words.
-  const drafts = await db
-    .select()
-    .from(schema.editDrafts)
-    .where(eq(schema.editDrafts.userId, input.userId))
-    .orderBy(asc(schema.editDrafts.updatedAt), asc(schema.editDrafts.artifactId));
+  // The account's own drafts, on any artifact of any region (decision 0027): its own words. A
+  // held artifact's draft is kept for the hold and read by nobody but the operator, like its
+  // comments. Every region holding the account's drafts is read; a handle repeated over the
+  // same database is read twice and its rows kept once.
+  const drafts = new Map<string, typeof schema.editDrafts.$inferSelect>();
+  for (const handle of input.regions ?? [db]) {
+    for (const row of await handle
+      .select()
+      .from(schema.editDrafts)
+      .where(
+        and(
+          eq(schema.editDrafts.userId, input.userId),
+          notHeldSql(sql`${schema.editDrafts.artifactId}`),
+        ),
+      )) {
+      drafts.set(`${row.artifactId}:${row.userId}`, row);
+    }
+  }
+  const ownDrafts = [...drafts.values()].sort(
+    (a, b) => a.updatedAt - b.updatedAt || a.artifactId.localeCompare(b.artifactId),
+  );
 
   const customDomains = await exportOwnerDomains(db.global, input.userId, input.now);
 
@@ -399,7 +422,7 @@ export async function exportAccount(
       invitedBy: invitation.invitedBy,
       expiresAt: iso(invitation.expiresAt),
     })),
-    drafts: drafts.map((draft) => ({
+    drafts: ownDrafts.map((draft) => ({
       artifactId: draft.artifactId,
       baseVersionId: draft.baseVersionId,
       edit: safeJson(draft.edit),
