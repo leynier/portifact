@@ -23,7 +23,7 @@ const DAY = 86_400_000;
 const OWNER = "u_data_owner";
 const READER = "u_data_reader";
 const db = () => regionsFromEnv(env).get("default").db;
-const ON = { ...env, ARTIFACT_DATA_ENABLED: "true" };
+const ON = { ...env, ARTIFACT_DATA_ENABLED: "true", DATA_PAGE_WRITES_ENABLED: "true" };
 
 const NAVIGATE_TOP = {
   "Sec-Fetch-Site": "same-origin",
@@ -552,5 +552,174 @@ describe("artifact data on the artifact origin", () => {
       cookie: grant,
     });
     expect(huge.status).toBe(400);
+  });
+
+  // Review of #279, finding 6: the shipped client's DELETE, exactly as it sends it.
+  it("deletes a document with the request the shipped client script makes", async () => {
+    const id = await seed();
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const created = JSON.parse(
+      (await send(id, "c/votes", { method: "POST", cookie: grant, body: { choice: "a" } })).body,
+    ) as { _id: string };
+    // Run the client script against a stub window and capture the request it builds.
+    const requests: { url: string; init: RequestInit }[] = [];
+    const page: {
+      portifact?: { data: { collection(name: string): { remove(id: string): Promise<unknown> } } };
+    } = {};
+    // The script's own clock is the test's, as the Worker's is.
+    const run = new Function("window", "fetch", "location", "crypto", "Date", CLIENT_SCRIPT);
+    run(
+      page,
+      async (url: string, init: RequestInit) => {
+        requests.push({ url, init });
+        return new Response("{}", { status: 200 });
+      },
+      { origin: `https://${id}.portifact.dev`, pathname: "/", search: "" },
+      crypto,
+      { now: () => NOW },
+    );
+    await page.portifact?.data.collection("votes").remove(created._id);
+    const sent = requests.at(-1);
+    if (!sent) throw new Error("the client sent nothing");
+    const headers = new Headers(sent.init.headers);
+    headers.set("Cookie", grant);
+    headers.set("Origin", `https://${id}.portifact.dev`);
+    for (const [name, value] of Object.entries(FETCH)) headers.set(name, value);
+    const response = await handle(
+      new Request(`https://${id}.portifact.dev${sent.url}`, {
+        method: sent.init.method ?? "GET",
+        headers,
+      }),
+      ON,
+      NOW,
+    );
+    expect(response.status).toBe(200);
+    const listed = JSON.parse((await send(id, "c/votes", { cookie: grant })).body);
+    expect(listed.documents).toEqual([]);
+  });
+
+  // Review of #279, finding 4: the page-write switch.
+  it("refuses page creates and replacements while page writes are off, and keeps reads, deletes and the export", async () => {
+    const id = await seed();
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const created = JSON.parse(
+      (await send(id, "c/votes", { method: "POST", cookie: grant, body: { choice: "a" } })).body,
+    ) as { _id: string };
+    const off = { ...ON, DATA_PAGE_WRITES_ENABLED: "false" };
+    const request = (method: string, path: string, body?: unknown) =>
+      handle(
+        new Request(`https://${id}.portifact.dev/__portifact/data/${path}`, {
+          method,
+          headers: {
+            ...FETCH,
+            Origin: `https://${id}.portifact.dev`,
+            "Content-Type": "application/json",
+            Cookie: grant,
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        }),
+        off,
+        NOW,
+      );
+    const createOff = await request("POST", "c/votes", { choice: "after-pause" });
+    expect(createOff.status).toBe(503);
+    expect(await createOff.json()).toMatchObject({ error: { code: "capacity_unavailable" } });
+    expect((await request("PUT", `c/votes/${created._id}`, { choice: "b" })).status).toBe(503);
+    // Unset is off too: only exactly "true" lets the page write.
+    const { DATA_PAGE_WRITES_ENABLED: _, ...unset } = ON;
+    const unsetCreate = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/c/votes`, {
+        method: "POST",
+        headers: {
+          ...FETCH,
+          Origin: `https://${id}.portifact.dev`,
+          "Content-Type": "application/json",
+          Cookie: grant,
+        },
+        body: JSON.stringify({ choice: "c" }),
+      }),
+      unset,
+      NOW,
+    );
+    expect(unsetCreate.status).toBe(503);
+    expect((await request("GET", "c/votes")).status).toBe(200);
+    expect((await request("GET", "mine")).status).toBe(200);
+    expect((await request("DELETE", `c/votes/${created._id}`)).status).toBe(200);
+  });
+
+  // Review of #279, finding 5: the handoff routes act for an artifact.
+  it("refuses every grant handoff step once the owner's traffic is spent", async () => {
+    const id = await seed();
+    await db()
+      .insert(schema.trafficCounters)
+      .values({
+        ownerId: OWNER,
+        cycleStart: Date.UTC(2026, 10, 1),
+        requests: 10_000_000,
+        bytes: 0,
+        updatedAt: NOW,
+      });
+    resetDeliveryCaches();
+    expect((await send(id, "me")).status).toBe(429);
+    const begun = await send(id, "grant/begin?flow=top", { headers: NAVIGATE_TOP });
+    expect(begun.status).toBe(429);
+    expect(begun.cookies).toEqual([]);
+    const redeemed = await send(id, `grant?flow=top&code=${"c".repeat(43)}`, {
+      headers: FROM_APP_TOP,
+    });
+    expect(redeemed.status).toBe(429);
+    expect((await send(id, "grant/check?flow=top", { headers: NAVIGATE_TOP })).status).toBe(429);
+  });
+
+  it("charges each authorized grant handoff step to the owner's traffic", async () => {
+    const id = await seed();
+    const charged: unknown[] = [];
+    const count = (charge: unknown) => charged.push(charge);
+    const begun = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/grant/begin?flow=top`, {
+        headers: NAVIGATE_TOP,
+      }),
+      ON,
+      NOW,
+      count,
+    );
+    expect(begun.status).toBe(303);
+    expect(charged).toHaveLength(1);
+    const checked = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/grant/check?flow=top`, {
+        headers: NAVIGATE_TOP,
+      }),
+      ON,
+      NOW,
+      count,
+    );
+    expect(checked.status).toBe(403);
+    expect(charged).toHaveLength(2);
+    // A refusal at the gate, before authorization, charges nothing.
+    await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/grant/begin?flow=top`, {
+        headers: SIBLING_TOP,
+      }),
+      ON,
+      NOW,
+      count,
+    );
+    expect(charged).toHaveLength(2);
+  });
+
+  // Review of #279, finding 7: the page never chooses a document's author.
+  it("records the grant holder as the author whatever the page puts in the body", async () => {
+    const id = await seed();
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const me = JSON.parse((await send(id, "me", { cookie: grant })).body);
+    for (const field of ["author", "by", "visitor"]) {
+      const created = await send(id, "c/votes", {
+        method: "POST",
+        cookie: grant,
+        body: { choice: "injected", [field]: "v_BBBBBBBBBBBBBBBBBBBB" },
+      });
+      expect(created.status).toBe(201);
+      expect(JSON.parse(created.body)._by).toBe(me.visitor.id);
+    }
   });
 });

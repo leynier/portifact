@@ -70,7 +70,7 @@ describe("page data commands", () => {
     ) =>
       pageDataCommand(
         db(),
-        { objects },
+        { objects, pageWrites: true },
         {
           artifactId,
           region: "default",
@@ -121,7 +121,7 @@ describe("page data commands", () => {
     const create = (key: string | null, now: number) =>
       pageDataCommand(
         db(),
-        { objects },
+        { objects, pageWrites: true },
         {
           artifactId,
           region: "default",
@@ -139,7 +139,7 @@ describe("page data commands", () => {
     // Bob's same key is his own operation.
     const bob = await pageDataCommand(
       db(),
-      { objects },
+      { objects, pageWrites: true },
       {
         artifactId,
         region: "default",
@@ -167,7 +167,7 @@ describe("page data commands", () => {
     };
     const answer = await pageDataCommand(
       db(),
-      { objects },
+      { objects, pageWrites: true },
       {
         artifactId,
         region: "default",
@@ -191,7 +191,7 @@ describe("page data commands", () => {
     const run = (command: Parameters<typeof pageDataCommand>[2]["command"]) =>
       pageDataCommand(
         db(),
-        { objects },
+        { objects, pageWrites: true },
         {
           artifactId,
           region: "default",
@@ -247,7 +247,7 @@ describe("page data commands", () => {
     const { artifactId } = await artifactWithVotes(owner);
     const answer = await pageDataCommand(
       db(),
-      { objects: null },
+      { objects: null, pageWrites: true },
       {
         artifactId,
         region: "default",
@@ -259,5 +259,43 @@ describe("page data commands", () => {
       },
     );
     expect(answer.result).toMatchObject({ ok: false, code: "capacity_unavailable" });
+  });
+
+  it("refuses page creates and replacements while page writes are off, never reads or deletes", async () => {
+    const { objects, owner } = harness();
+    const { artifactId } = await artifactWithVotes(owner);
+    const run = (pageWrites: boolean, command: Parameters<typeof pageDataCommand>[2]["command"]) =>
+      pageDataCommand(
+        db(),
+        { objects, pageWrites },
+        {
+          artifactId,
+          region: "default",
+          limits: LIMITS,
+          caller: ALICE,
+          command,
+          idempotencyKey: null,
+          now: NOW,
+        },
+      );
+    const created = value(
+      (await run(true, { kind: "create", collection: "votes", body: { choice: "a" } })).result,
+    ).value as { _id: string };
+    for (const command of [
+      { kind: "create", collection: "votes", body: { choice: "b" } },
+      { kind: "replace", collection: "votes", id: created._id, body: { choice: "c" } },
+    ] as const) {
+      expect((await run(false, command)).result).toMatchObject({
+        ok: false,
+        code: "capacity_unavailable",
+      });
+    }
+    expect((await run(false, { kind: "query", query: { collection: "votes" } })).result.ok).toBe(
+      true,
+    );
+    expect((await run(false, { kind: "export_mine", after: null })).result.ok).toBe(true);
+    expect(
+      (await run(false, { kind: "remove", collection: "votes", id: created._id })).result.ok,
+    ).toBe(true);
   });
 });

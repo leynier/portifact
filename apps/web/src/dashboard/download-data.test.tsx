@@ -159,6 +159,24 @@ describe("the records downloads", () => {
       seq: 0,
       history: entries,
     };
+    // The change list, every item.
+    const items = ["chg_1", "chg_2", "chg_3"].map((id) => ({
+      id,
+      artifactId: ID,
+      origin: "suggestion",
+      threadId: null,
+      versionId: "v_current",
+      path: "index.html",
+      route: null,
+      envelope: { format: 2 },
+      reason: "spans_nodes",
+      state: "open",
+      createdAt: 1,
+      closedAt: null,
+      closedVersionId: null,
+      revision: 1,
+    }));
+    server.suggestions.changes[ID] = items;
     const { container, saved } = renderDashboard("/data", server);
     fireEvent.click(await screen.findByText(/^Launch plan: 2 retained versions$/));
     fireEvent.click(await screen.findByRole("button", { name: "Records (JSON) of Launch plan" }));
@@ -172,6 +190,7 @@ describe("the records downloads", () => {
       comments: { artifact: { id: ID }, threads: [] },
     });
     expect(records.commentHistory).toEqual(entries);
+    expect(records.changeList).toEqual(items);
     expect(
       server.requests.filter((r) =>
         r.path.startsWith(`/api/v1/artifacts/${ID}/annotations/history?`),
@@ -208,6 +227,7 @@ describe("the records downloads", () => {
   });
 
   it("records what may not be read instead of failing the download", async () => {
+    server.suggestions.off = true;
     const { saved } = renderDashboard("/data", server);
     fireEvent.click(await screen.findByText(/^Launch plan: 2 retained versions$/));
     fireEvent.click(await screen.findByRole("button", { name: "Records (JSON) of Launch plan" }));
@@ -216,6 +236,8 @@ describe("the records downloads", () => {
     // No annotations store in the fake: the comment routes answer like a missing artifact.
     expect(records.comments).toEqual({ skipped: "not_found" });
     expect(records.commentHistory).toEqual({ skipped: "not_found" });
+    // Edit suggestions switched off: the change list's route does not exist.
+    expect(records.changeList).toEqual({ skipped: "unavailable" });
   });
 
   it("saves a personal space's records with the brand and links its logo", async () => {

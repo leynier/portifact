@@ -24,6 +24,8 @@ import {
   IdempotencyKey,
   MarkChangeItem,
   Plan,
+  RebaseDraftRequest,
+  RebasedDraft,
   SaveDraftRequest,
   SubmitSuggestionRequest,
   SuggestionThreadView,
@@ -46,6 +48,7 @@ import {
   planDraft,
   planSuggestion,
   publishDraft,
+  rebaseDraft,
   rejectSuggestion,
   replayAcceptance,
   runIdempotent,
@@ -286,6 +289,24 @@ export function suggestionRoutes(
       });
       if (!result.ok) return refused(c, result);
       return c.json(Plan.parse(result.value));
+    }),
+  );
+
+  // Rebasing is held to the revision and incarnation the author holds: no idempotency key.
+  api.post(
+    `${BASE}/draft/rebase`,
+    session("annotations:write", async (c, userId) => {
+      const body = await readJson(c, RebaseDraftRequest, 1_024);
+      if (!body.ok) return body.response;
+      const { db, bucket } = await region(c);
+      if (!bucket) return error(c, "capacity_unavailable", "Rebasing is unavailable.");
+      const result = await rebaseDraft(db, bucket, {
+        ...actor(c, userId),
+        ...body.value,
+        contentDomain: c.env.CONTENT_DOMAIN,
+      });
+      if (!result.ok) return refused(c, result);
+      return c.json(RebasedDraft.parse(result.value));
     }),
   );
 

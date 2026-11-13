@@ -32,6 +32,8 @@ import {
   ArtifactStatsView,
   ArtifactSummary,
   AUDIT_EXPORT_CURSOR_HEADER,
+  CHANGE_LIST_LIMITS,
+  ChangeItemList,
   type DownloadKind,
   type DownloadLink,
   EXPORT_MANIFEST_FILE,
@@ -58,6 +60,7 @@ import {
   exportPathSegments,
   exportVersionFolder,
   isGitSegment,
+  isSkipped,
   type RecordPart,
   recordsRetryLater,
 } from "@portifact/domain";
@@ -731,6 +734,15 @@ async function recordPart<T>(read: () => Promise<T>): Promise<RecordPart<T>> {
   }
 }
 
+/**
+ * The change list's part: where edit suggestions are switched off the route does not exist, so
+ * its `not_found` (the artifact itself was just read) is recorded as `unavailable`.
+ */
+async function changeListPart<T>(read: () => Promise<T>): Promise<RecordPart<T>> {
+  const part = await recordPart(read);
+  return isSkipped(part) && part.skipped === "not_found" ? { skipped: "unavailable" } : part;
+}
+
 const DASHBOARD_ONLY = async (): Promise<SkippedRecord> => ({ skipped: "dashboard_only" });
 
 /**
@@ -784,6 +796,13 @@ async function exportArtifactRecords(
           get(
             `/annotations/history?${new URLSearchParams({ limit: String(ANNOTATION_HISTORY_PAGE.max), ...(cursor === undefined ? {} : { cursor }) })}`,
             AnnotationHistoryPage,
+          ),
+        ),
+      changeItems: (cursor) =>
+        changeListPart(() =>
+          get(
+            `/changes?${new URLSearchParams({ limit: String(CHANGE_LIST_LIMITS.pageMax), ...(cursor === undefined ? {} : { cursor }) })}`,
+            ChangeItemList,
           ),
         ),
     },

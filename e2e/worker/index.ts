@@ -106,7 +106,7 @@ function atEdge(request: Request): Request {
  * (scripts/durable-migrations.test.ts), the e2e one included.
  */
 function withData(env: E2eEnv): E2eEnv {
-  return { ...env, ARTIFACT_DATA_ENABLED: "true" };
+  return { ...env, ARTIFACT_DATA_ENABLED: "true", DATA_PAGE_WRITES_ENABLED: "true" };
 }
 
 export default {
