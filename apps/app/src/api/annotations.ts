@@ -20,7 +20,11 @@ import {
   EditMessageRequest,
   ModerateMessageRequest,
   ReplyRequest,
+  SuggestionAnnotationPage,
+  SuggestionFieldsQuery,
+  SuggestionThreadView,
 } from "@portifact/contracts";
+import { suggestionsEnabled } from "@portifact/domain";
 import {
   annotationsToMarkdown,
   createAnnotationThread,
@@ -53,6 +57,11 @@ export function annotationRoutes(
   const api = new Hono<{ Bindings: Env }>();
   const artifactId = (c: ApiContext) => c.req.param("artifactId") as string;
   const param = (c: ApiContext, name: string) => c.req.param(name) as string;
+  // `?fields=suggestion` (decision 0027, "API compatibility"): each thread's kind and suggestion
+  // block, only for a client that asks while suggestions are on; others get today's shape.
+  const suggestionFields = (c: ApiContext) =>
+    suggestionsEnabled(c.env) &&
+    SuggestionFieldsQuery.safeParse(c.req.query()).data?.fields === "suggestion";
 
   // Setting the same mode twice leaves the same state, so no idempotency key is needed.
   api.put(
@@ -77,14 +86,16 @@ export function annotationRoutes(
       const query = AnnotationListQuery.safeParse(c.req.query());
       if (!query.success)
         return error(c, "invalid_input", "Invalid cursor, limit, version or state.");
+      const fields = suggestionFields(c);
       const result = await listAnnotations(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         ...query.data,
+        suggestionFields: fields,
         now: now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
-      return c.json(AnnotationPage.parse(result.value));
+      return c.json((fields ? SuggestionAnnotationPage : AnnotationPage).parse(result.value));
     }),
   );
 
@@ -160,14 +171,16 @@ export function annotationRoutes(
   api.get(
     `${BASE}/threads/:threadId`,
     guarded("annotations:read", async (c, userId) => {
+      const fields = suggestionFields(c);
       const result = await getAnnotationThread(await artifactDb(c.env, artifactId(c)), {
         userId,
         artifactId: artifactId(c),
         threadId: param(c, "threadId"),
+        suggestionFields: fields,
         now: now(),
       });
       if (!result.ok) return error(c, result.code, result.message);
-      return c.json(AnnotationThreadView.parse(result.value));
+      return c.json((fields ? SuggestionThreadView : AnnotationThreadView).parse(result.value));
     }),
   );
 

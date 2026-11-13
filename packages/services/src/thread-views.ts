@@ -6,10 +6,12 @@ import type {
   AnnotationMessageView,
   AnnotationTarget,
   AnnotationThreadView,
+  SuggestionThreadView,
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
 import { type AnnotationRole, ERASED_ACCOUNT, messageBodyVisible } from "@portifact/domain";
 import { asc, inArray, sql } from "drizzle-orm";
+import { suggestionView } from "./suggestion-view.ts";
 import {
   type ThreadIssueRecord,
   threadIssueRecord,
@@ -27,6 +29,11 @@ export interface ThreadViewContext {
   role: AnnotationRole;
   ownerSide: readonly string[];
   currentVersionOf(artifactId: string): string | null;
+  /**
+   * Adds each thread's `kind` and, for a suggestion, its `suggestion` block: only when the client
+   * asked (`?fields=suggestion`), so released clients that validate strictly never see them.
+   */
+  suggestionFields?: boolean;
 }
 
 function chunks<T>(items: readonly T[]): T[][] {
@@ -44,7 +51,7 @@ export async function threadViews(
   context: ThreadViewContext,
   viewerId: string,
   threads: readonly ThreadRow[],
-): Promise<AnnotationThreadView[]> {
+): Promise<(AnnotationThreadView | SuggestionThreadView)[]> {
   if (threads.length === 0) return [];
   const m = schema.annotationMessages;
   const messages: MessageRow[] = [];
@@ -115,6 +122,12 @@ export async function threadViews(
             ...issue,
             createdAt: iso(issue.createdAt),
           })),
+        }
+      : {}),
+    ...(context.suggestionFields
+      ? {
+          kind: thread.kind,
+          suggestion: thread.kind === "suggestion" ? suggestionView(thread) : null,
         }
       : {}),
   }));

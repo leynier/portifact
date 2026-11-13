@@ -134,8 +134,7 @@ const modeSwitch = () => screen.findByRole("group", { name: "Review mode" });
 
 /** A floating control over the frame (not the mode switch's buttons), or null. */
 const floating = (name: string) =>
-  screen.queryAllByRole("button", { name }).find((button) => !button.closest("fieldset")) ??
-  null;
+  screen.queryAllByRole("button", { name }).find((button) => !button.closest("fieldset")) ?? null;
 
 /** Turns Suggest mode on and returns the epoch the viewer sent. */
 async function suggestMode() {
