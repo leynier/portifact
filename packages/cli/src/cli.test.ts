@@ -91,6 +91,14 @@ describe("portifact cli", () => {
     expect((await invoke("delete", "--help")).stdout).toContain("-y, --yes");
   });
 
+  it("lists the change list in the help with its subcommands", async () => {
+    expect((await invoke("--help")).stdout).toMatch(/^ {2}changes /m);
+    const changes = await invoke("changes", "--help");
+    for (const sub of ["list", "show", "mark"]) {
+      expect(changes.stdout).toMatch(new RegExp(`^  ${sub} `, "m"));
+    }
+  });
+
   it("lists tokens in the help and documents its subcommands and the revoke flag", async () => {
     expect((await invoke("--help")).stdout).toMatch(/^ {2}tokens /m);
     const tokens = await invoke("tokens", "--help");
