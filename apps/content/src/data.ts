@@ -40,6 +40,7 @@ import {
   type DataObjects,
   nonceDigest,
   pageDataCommand,
+  pageWritesEnabled,
   randomToken,
   redeemDataGrantCode,
   renewDataGrant,
@@ -63,6 +64,8 @@ export interface DataEnv {
   APP_ORIGIN: string;
   READ_SESSION_SECRET?: string | undefined;
   ARTIFACT_DATA_ENABLED?: string | undefined;
+  /** Exactly `"true"` lets pages create and replace documents; off, only reads and deletes. */
+  DATA_PAGE_WRITES_ENABLED?: string | undefined;
 }
 
 /** Whether a path is one of the data routes (routed before the `GET`/`HEAD` check). */
@@ -427,7 +430,7 @@ async function api(context: DataContext, secret: string, path: string): Promise<
   const key = request.headers.get("Idempotency-Key");
   const { result, storage } = await pageDataCommand(
     context.db,
-    { objects: context.objects },
+    { objects: context.objects, pageWrites: pageWritesEnabled(context.env) },
     {
       artifactId: context.artifactId,
       region: context.region,

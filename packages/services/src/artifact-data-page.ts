@@ -24,7 +24,21 @@ import { checkDataWriteCapacity } from "./budget.ts";
 export interface PageDataDeps {
   /** The artifact's region's objects; null without the binding. */
   objects: DataObjects | null;
+  /**
+   * `DATA_PAGE_WRITES_ENABLED` is exactly `"true"` (decision 0026, "Switches"): off, the page's
+   * creates and replacements answer `capacity_unavailable`, while reads, the visitor's own
+   * deletes and their export go on.
+   */
+  pageWrites: boolean;
 }
+
+/** Whether the page-write switch is on: only exactly `"true"`. */
+export function pageWritesEnabled(env: { DATA_PAGE_WRITES_ENABLED?: string | undefined }): boolean {
+  return env.DATA_PAGE_WRITES_ENABLED === "true";
+}
+
+/** The page commands the page-write switch stops. */
+const SWITCHED_WRITES = new Set<PageDataCommand["kind"]>(["create", "replace"]);
 
 export interface PageDataInput {
   artifactId: string;
@@ -107,6 +121,12 @@ export async function pageDataCommand(
   if (deps.objects === null) {
     return {
       result: fail("capacity_unavailable", "Artifact data is unavailable. Try again later."),
+      storage: null,
+    };
+  }
+  if (!deps.pageWrites && SWITCHED_WRITES.has(input.command.kind)) {
+    return {
+      result: fail("capacity_unavailable", "Saving from pages is paused. Try again later."),
       storage: null,
     };
   }
