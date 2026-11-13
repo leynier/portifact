@@ -1730,6 +1730,7 @@ export const ja = {
   "audit.group.all": "すべての変更",
   "audit.group.access": "アクセスと共有",
   "audit.group.lifecycle": "公開とライフサイクル",
+  "audit.group.suggestions": "提案と変更リスト",
   "audit.group.integrations": "ドメイン、Webhook、ブランド",
   "audit.group.members": "メンバー、トークン、プラン",
   "audit.actor.all": "全員",

@@ -1764,6 +1764,7 @@ export const es = {
   "audit.group.all": "Todos los cambios",
   "audit.group.access": "Acceso y compartir",
   "audit.group.lifecycle": "Publicación y ciclo de vida",
+  "audit.group.suggestions": "Sugerencias y lista de cambios",
   "audit.group.integrations": "Dominios, webhooks y marca",
   "audit.group.members": "Miembros, tokens y plan",
   "audit.actor.all": "Cualquiera",

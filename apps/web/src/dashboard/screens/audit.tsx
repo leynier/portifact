@@ -72,6 +72,8 @@ export const AUDIT_GROUPS = {
     "artifact.unpinned",
     "artifact.transferred_in",
     "artifact.transferred_out",
+  ],
+  suggestions: [
     "suggestion.accepted",
     "suggestion.rejected",
     "suggestion.withdrawn",
@@ -347,6 +349,7 @@ function AuditFilters(props: {
     { value: "all", label: t("audit.group.all") },
     { value: "access", label: t("audit.group.access") },
     { value: "lifecycle", label: t("audit.group.lifecycle") },
+    { value: "suggestions", label: t("audit.group.suggestions") },
     { value: "integrations", label: t("audit.group.integrations") },
     { value: "members", label: t("audit.group.members") },
     { value: "groups", label: t("audit.group.groups") },

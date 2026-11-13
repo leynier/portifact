@@ -1753,6 +1753,7 @@ export const ru = {
   "audit.group.all": "Все изменения",
   "audit.group.access": "Доступ и общий доступ",
   "audit.group.lifecycle": "Публикация и жизненный цикл",
+  "audit.group.suggestions": "Предложения и список изменений",
   "audit.group.integrations": "Домены, вебхуки и бренд",
   "audit.group.members": "Участники, токены и тариф",
   "audit.actor.all": "Кто угодно",

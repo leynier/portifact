@@ -39,7 +39,10 @@ describe("deciding and withdrawing suggestions", () => {
       );
       expect(code(checkSuggestionThreadState("suggestion", state, "open"))).toBe("ok");
     }
-    expect(checkSuggestionThreadState("comment", null, "resolved")).toEqual({ ok: true, value: true });
+    expect(checkSuggestionThreadState("comment", null, "resolved")).toEqual({
+      ok: true,
+      value: true,
+    });
     // Only a suggestion's state counts, whatever a comment row would hold.
     expect(checkSuggestionThreadState("comment", "pending", "resolved").ok).toBe(true);
   });

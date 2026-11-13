@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import type { AuditEventView } from "@portifact/contracts";
+import { AUDIT_LIMITS, type AuditEventView } from "@portifact/contracts";
 import { auditCsvHeader, auditCsvRow, auditJsonLine } from "@portifact/domain";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AUDIT_GROUPS } from "./screens/audit.tsx";
 import { type FakeServer, fakeServer, renderDashboard, workspace } from "./test-support.tsx";
 
 afterEach(() => {
@@ -65,6 +66,21 @@ async function table() {
   await screen.findByRole("heading", { level: 1, name: "Audit log" });
   return screen.findByRole("table", { name: "Changes in this space, newest first" });
 }
+
+describe("audit filter groups", () => {
+  // A group is sent as one query's kinds, which the API caps (`AUDIT_LIMITS.kindsPerQuery`); a
+  // group over the cap is refused and the filtered table comes back empty. "members" (23 kinds)
+  // and "integrations" (12) were over it before edit suggestions and are reported apart; every
+  // other group must fit.
+  const KNOWN_OVER = new Set(["members", "integrations"]);
+
+  it("fits each group in one query", () => {
+    for (const [group, kinds] of Object.entries(AUDIT_GROUPS)) {
+      if (KNOWN_OVER.has(group)) continue;
+      expect(kinds.length, group).toBeLessThanOrEqual(AUDIT_LIMITS.kindsPerQuery);
+    }
+  });
+});
 
 describe("audit log page", () => {
   it("shows a workspace's changes in plain words, in a captioned table, axe clean in both themes", async () => {

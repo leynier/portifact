@@ -1604,6 +1604,7 @@ export const zhCN = {
   "audit.group.all": "所有更改",
   "audit.group.access": "访问和共享",
   "audit.group.lifecycle": "发布和生命周期",
+  "audit.group.suggestions": "建议和变更列表",
   "audit.group.integrations": "域名、Webhook 和品牌",
   "audit.group.members": "成员、令牌和套餐",
   "audit.actor.all": "任何人",

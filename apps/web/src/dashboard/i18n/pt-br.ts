@@ -1746,6 +1746,7 @@ export const ptBR = {
   "audit.group.all": "Todas as mudanças",
   "audit.group.access": "Acesso e compartilhamento",
   "audit.group.lifecycle": "Publicação e ciclo de vida",
+  "audit.group.suggestions": "Sugestões e lista de alterações",
   "audit.group.integrations": "Domínios, webhooks e marca",
   "audit.group.members": "Membros, tokens e plano",
   "audit.actor.all": "Qualquer pessoa",

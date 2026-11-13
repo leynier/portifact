@@ -1711,6 +1711,7 @@ export const en = {
   "audit.group.all": "All changes",
   "audit.group.access": "Access and sharing",
   "audit.group.lifecycle": "Publishing and lifecycle",
+  "audit.group.suggestions": "Suggestions and change list",
   "audit.group.integrations": "Domains, webhooks and brand",
   "audit.group.members": "Members, tokens and plan",
   "audit.actor.all": "Anyone",
