@@ -189,7 +189,9 @@ describe("preview codes from the dashboard", () => {
   });
 
   it("answers capacity_unavailable without the region's bucket, issuing nothing", async () => {
-    const unbound = createHarness({ env: { ...ON, ARTIFACTS: undefined } });
+    const unbound = createHarness({
+      env: { ...ON, ARTIFACTS: undefined } as unknown as Partial<Cloudflare.Env>,
+    });
     const response = await ask(unbound, artifactId, owner.cookie, { digest });
     expect(response.status).toBe(503);
     expect(
