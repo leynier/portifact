@@ -1901,6 +1901,15 @@ export async function eraseAuthorFromThread(
       ]
     : [
         claim(x, writeId, event, guard),
+        // What keeps the erased thread gone through a restore of its region alone, which the
+        // account's own tombstone does not reach (it re-deletes only what the account owned).
+        deletionMarker(
+          x,
+          shared !== null,
+          writeId,
+          { kind: "thread", id: thread.id, artifactId: thread.artifactId },
+          input.now,
+        ),
         x.delete(th).where(and(eq(th.id, thread.id), claimed(writeId))),
       ];
   const outcome = await x.batch(statements);

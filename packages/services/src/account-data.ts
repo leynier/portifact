@@ -30,6 +30,7 @@ import {
 import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
+import { draftMarker } from "./suggestion-markers.ts";
 import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
@@ -550,14 +551,14 @@ async function deleteAccountNow(
       input,
       email,
       userExists,
-      both ? regionalDeletion(both, input.userId, input.now, true) : [],
+      both ? regionalDeletion(both, input.userId, input.now, true, true) : [],
     );
   } catch (error) {
     if (causeIncludes(error, "sole_workspace_admin")) return refuseSoleAdmin();
     throw error;
   }
   for (const { db } of separateRegions(regions)) {
-    await retried(() => db.batch(regionalDeletion(db, input.userId, input.now, true)));
+    await retried(() => db.batch(regionalDeletion(db, input.userId, input.now, true, false)));
   }
   return ok({ deleted: true });
 }
@@ -813,12 +814,22 @@ async function deletionBatch(
  * keyed by the account without a foreign key, and a job that erases its openings from the
  * region's access log. Idempotent, so the request and every run of the job repeat it.
  */
+/** An account's drafts its deletion removes: those on artifacts no hold keeps. */
+function ownDrafts(userId: string): SQL {
+  return and(
+    eq(schema.editDrafts.userId, userId),
+    notHeldSql(sql`${schema.editDrafts.artifactId}`),
+  ) as SQL;
+}
+
 function regionalDeletion(
   db: Db,
   userId: string,
   now: number,
   /** The request writes the job that erases its openings; the job's runs leave it to the finish. */
   eraseOpenings: boolean,
+  /** Whether `db` writes both databases: the drafts' restore markers go straight in. */
+  shared: boolean,
 ): [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] {
   return [
     ...claimArtifacts(db, userId, now),
@@ -861,14 +872,10 @@ function regionalDeletion(
     // Its edit drafts, cached plans and preview codes (decision 0027): keyed by user with no
     // foreign key. A draft on a held artifact stays until the hold's release erases it
     // (`eraseAccountTraces`); plans and codes are caches nobody but the account could use.
-    db
-      .delete(schema.editDrafts)
-      .where(
-        and(
-          eq(schema.editDrafts.userId, userId),
-          notHeldSql(sql`${schema.editDrafts.artifactId}`),
-        ) as SQL,
-      ),
+    // Each with the marker that keeps it gone through a restore of its region alone (decision
+    // 0027), which the account's own tombstone does not reach.
+    draftMarker(db, shared, ownDrafts(userId), now),
+    db.delete(schema.editDrafts).where(ownDrafts(userId)),
     db.delete(schema.suggestionPlans).where(eq(schema.suggestionPlans.userId, userId)),
     db.delete(schema.previewCodes).where(eq(schema.previewCodes.userId, userId)),
     // Its read and review codes and sessions: users are global, so no foreign key removes them.
@@ -1000,14 +1007,15 @@ export async function advanceAccountDeletion(
     // What the account wrote in other people's artifacts' data (decision 0026, "Author erasure"):
     // its journal entries in this region get their erasure jobs and are retired.
     if (bucket && (await scheduleAuthorErasures(db, bucket, userId, now)).more) pending = true;
-    await db.batch(regionalDeletion(db, userId, now, false));
+    const both = bothSides(db);
+    await (both ?? db).batch(regionalDeletion(both ?? db, userId, now, false, both !== null));
     const threads = await threadsToErase(db, userId, threadsPerAccount);
     for (const threadId of threads) {
       await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
     }
     if (threads.length > 0) pending = true;
     // Once its comments are erased, what stays with other people's artifacts forgets the account.
-    else if ((await eraseAccountTraces(db, userId)).more) pending = true;
+    else if ((await eraseAccountTraces(db, userId, now)).more) pending = true;
     const [left] = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.artifacts)

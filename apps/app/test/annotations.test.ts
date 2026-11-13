@@ -243,7 +243,7 @@ describe("annotations API", () => {
     await env.DB.prepare("DELETE FROM users WHERE id = ?").bind(s.reader.userId).run();
     expect((await read()).map((entry) => entry.actor)).toEqual([null]);
     // The account deletion then replaces its ID in the actions (`eraseAccountTraces`).
-    await eraseAccountTraces(regionsFromEnv(env).get("default").db, s.reader.userId);
+    await eraseAccountTraces(regionsFromEnv(env).get("default").db, s.reader.userId, Date.UTC(2026, 10, 12));
     const after = await read();
     expect(after.map((entry) => entry.actor)).toEqual([null]);
     expect(JSON.stringify(after)).not.toContain(ERASED_ACCOUNT);

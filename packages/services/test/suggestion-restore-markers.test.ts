@@ -483,4 +483,97 @@ describe("restore markers, review of #275", () => {
     await applyTombstones({ global: db().global, all: () => [{ db: eu }] }, exported, NOW + 100);
     expect(await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId))).toEqual([]);
   });
+  it("PF275 erased sole-author EU suggestion stays erased on a regional-only restore", async () => {
+    const ws = await team("eu");
+    const author = ws.editor;
+    const doc = await publishIn(ws.editor.id, ws.id, "eu");
+    const eu = regions().get("eu").db;
+    await eu
+      .update(schema.artifacts)
+      .set({ annotations: "open", expiresAt: NOW + DAY })
+      .where(eq(schema.artifacts.id, doc.artifactId));
+    await eu
+      .insert(schema.artifactReaders)
+      .values({ artifactId: doc.artifactId, email: author.email });
+    const [file] = await eu
+      .select()
+      .from(schema.versionFiles)
+      .where(
+        and(
+          eq(schema.versionFiles.versionId, doc.versionId),
+          eq(schema.versionFiles.path, "index.html"),
+        ),
+      );
+    const body = await (await env.ARTIFACTS_EU.get(`objects/${ws.id}/${file!.sha256}`))!.text();
+    const view = value(
+      await submitSuggestion(eu, {
+        userId: author.id,
+        artifactId: doc.artifactId,
+        now: NOW,
+        versionId: doc.versionId,
+        edit: {
+          operations: [
+            textOp({ type: "site", path: "index.html" }, body, body.slice(3, -4), "Changed"),
+          ],
+        },
+        body: "Typo",
+        humanCheck,
+      }),
+    );
+    const [before] = await eu.select().from(th).where(eq(th.id, view.id));
+    const messages = await eu.select().from(m).where(eq(m.threadId, view.id));
+    value(
+      await saveDraft(eu, {
+        userId: author.id,
+        artifactId: doc.artifactId,
+        now: NOW,
+        baseVersionId: doc.versionId,
+        baseRevision: null,
+        baseIncarnation: null,
+        edit: {
+          operations: [
+            textOp({ type: "site", path: "index.html" }, body, body.slice(3, -4), "Draft change"),
+          ],
+        },
+      }),
+    );
+    const [savedDraft] = await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId));
+    const sessionId = await session(author.id);
+    value(
+      await requestAccountDeletion(regions(), {
+        userId: author.id,
+        sessionId,
+        confirmEmail: author.email,
+        now: NOW + 10,
+      }),
+    );
+    let status: string = "pending";
+    for (let i = 0; i < 5 && status === "pending"; i++)
+      status = await advanceAccountDeletion(regions(), author.id, NOW + 20 + i);
+    expect(status).toBe("finished");
+    expect(await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId))).toEqual([]);
+    expect(await eu.select().from(th).where(eq(th.id, view.id))).toEqual([]);
+    // Drain any regional marker jobs, so this does not depend on the export gap in finding 1.
+    for (const job of await jobsOf("comment_tombstones", doc.artifactId, eu)) {
+      await writeCommentTombstones(eu, job);
+    }
+    const exported = await exportTombstones(regions());
+    await eu.insert(th).values(before!);
+    await eu.insert(m).values(messages);
+    await eu.insert(dr).values(savedDraft!);
+    await applyTombstones({ global: db().global, all: () => [{ db: eu }] }, exported, NOW + 30);
+    const [after] = await eu.select().from(th).where(eq(th.id, view.id));
+    const input = {
+      userId: ws.admin.id,
+      artifactId: doc.artifactId,
+      threadId: view.id,
+      contentDomain: DOMAIN,
+      now: NOW + 40,
+    };
+    // The erased thread is gone again, so it cannot even be planned, let alone accepted.
+    expect(after).toBeUndefined();
+    expect(await eu.select().from(m).where(eq(m.threadId, view.id))).toEqual([]);
+    expect((await planSuggestion(eu, env.ARTIFACTS_EU, input)).ok).toBe(false);
+    expect(await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId))).toEqual([]);
+  });
 });
