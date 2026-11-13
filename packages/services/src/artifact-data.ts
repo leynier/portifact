@@ -1096,6 +1096,8 @@ async function clearOwnerFinding(db: RegionalDb, artifactId: string): Promise<vo
     .from(f)
     .where(eq(f.artifactId, artifactId))
     .limit(1);
+  // Only saves the delete when there is nothing to clear: the delete repeats both predicates, so a
+  // finding changed after this read survives whatever this check says.
   if (finding?.action !== "refused" || finding.reason !== "owner") return;
   await db
     .delete(f)

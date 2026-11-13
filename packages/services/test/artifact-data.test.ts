@@ -584,6 +584,49 @@ describe("the jobs' owner finding", () => {
     expect((await findings(racing.id)).map((row) => row.lastSeenAt)).toEqual([NOW + 5]);
   });
 
+  // R6-2: one test per delete predicate. Killed mutations: the delete without the artifact ID,
+  // without the action, without the reason, or without the first time (the last time is the
+  // race above).
+  const changes = {
+    action: { action: "quarantined" as const },
+    reason: { reason: "held" },
+    "first time": { firstSeenAt: NOW - 5 },
+  };
+  for (const [name, change] of Object.entries(changes)) {
+    it(`keeps a finding whose ${name} changed between the read and the delete`, async () => {
+      const memory = memoryObjects();
+      const { id } = await seeded(memory);
+      await db()
+        .insert(schema.dataFindings)
+        .values({
+          artifactId: id,
+          action: "refused",
+          reason: "owner",
+          firstSeenAt: NOW - 10,
+          lastSeenAt: NOW,
+        });
+      const raced = raceBeforeStatement(/^delete from "data_findings"/, async () => {
+        await db()
+          .update(schema.dataFindings)
+          .set(change)
+          .where(eq(schema.dataFindings.artifactId, id));
+      });
+      expect(await reconcileObject(raced, memory.data, entry(id), NOW)).toBe("none");
+      expect(await findings(id)).toEqual([expect.objectContaining(change)]);
+    });
+  }
+
+  it("clears only its own artifact's finding, whatever another artifact's holds", async () => {
+    const memory = memoryObjects();
+    const left = await seeded(memory);
+    const right = await seeded(memory);
+    await finding(left.id, "refused", NOW);
+    await finding(right.id, "refused", NOW);
+    expect(await reconcileObject(db(), memory.data, entry(left.id), NOW)).toBe("none");
+    expect(await findings(left.id)).toEqual([]);
+    expect(await findings(right.id)).toHaveLength(1);
+  });
+
   it("stays while the owners disagree", async () => {
     // Killed mutation: clearing without the agreement. An object already quarantined keeps the
     // finding's action (reconciliation only marks it seen again), so the finding must survive.
