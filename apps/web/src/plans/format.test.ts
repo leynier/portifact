@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   fill,
   formatPlanBytes,
+  formatPlanData,
   formatPlanDays,
   formatPlanLimit,
   formatPlanPrice,
@@ -124,10 +125,22 @@ describe("planSummary", () => {
 describe("planComparison", () => {
   it("has one row per limit and one cell per plan", () => {
     const rows = planComparison("en", en);
-    expect(rows.map((row) => row.row)).toEqual([...PLAN_LIMIT_ROWS]);
+    expect(rows.map((row) => row.row)).toEqual([...PLAN_LIMIT_ROWS, "artifactData"]);
     for (const row of rows) {
       expect(row.cells.map((cell) => cell.plan)).toEqual(["free", "pro", "team", "enterprise"]);
     }
+  });
+
+  it("shows artifact data from PLANS as coming soon", () => {
+    const data = planComparison("en", en).at(-1);
+    expect(data?.label).toBe("Artifacts with app data (Coming soon)");
+    expect(data?.cells.map((cell) => cell.value)).toEqual([
+      "1 × 5 MB",
+      "10 × 25 MB",
+      "50 × 50 MB",
+      "50 × 50 MB",
+    ]);
+    expect(formatPlanData("pro", "de", PLAN_TEXT.de)).toBe("10 × 25 MB");
   });
 });
 

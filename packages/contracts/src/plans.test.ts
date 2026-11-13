@@ -4,6 +4,7 @@ import { ACCESS_LOG, ANNOTATION_LIMITS, LIMITS, TRAFFIC_LIMITS } from "./limits.
 import {
   AUDIT_RETENTION_BOUNDS,
   AVAILABLE_PLAN_FEATURES,
+  DataPlanLimits,
   GRACE_END_REASONS,
   GRACE_LIMITS,
   GRACE_NOTICE_LEAD_MS,
@@ -78,6 +79,49 @@ describe("PLANS", () => {
       PlanOverrides.safeParse({ limits: { artifactBytes: LIMITS.fileBytesCap + 1 } }).success,
     ).toBe(false);
     expect(PLANS.team.perSeat).toEqual(PLANS.enterprise.perSeat);
+  });
+});
+
+describe("artifact data in PLANS", () => {
+  it("holds limits every documents object accepts, growing from Free to Team", () => {
+    for (const plan of PLAN_NAMES) {
+      expect(DataPlanLimits.parse(PLANS[plan].data), plan).toEqual(PLANS[plan].data);
+    }
+    const sizes = PLAN_NAMES.map((plan) => PLANS[plan].data.perArtifact.bytesPerArtifact);
+    expect(sizes).toEqual([5_000_000, 25_000_000, 50_000_000, 50_000_000]);
+    expect(PLAN_NAMES.map((plan) => PLANS[plan].data.artifacts)).toEqual([1, 10, 50, 50]);
+    for (const plan of PLAN_NAMES) {
+      const limits = PLANS[plan].data.perArtifact;
+      // Decision 0026's arithmetic: cleanup equals growth, export is 40 times growth.
+      expect(limits.cleanupRowsPerDay, plan).toBe(limits.rowsWrittenPerDay);
+      expect(limits.exportRowsPerDay, plan).toBe(40 * limits.rowsWrittenPerDay);
+    }
+  });
+
+  it("is not a plan limit: the usage body released CLIs parse stays the same", () => {
+    expect(Object.keys(PlanLimits.shape)).not.toContain("data");
+    expect(
+      PlanView.safeParse({
+        name: "free",
+        validUntil: null,
+        seats: 1,
+        limits: PLANS.free.limits,
+        features: [],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("accepts data overrides only within what an object can hold", () => {
+    expect(PlanOverrides.safeParse({ data: { artifacts: 500 } }).success).toBe(true);
+    expect(
+      PlanOverrides.safeParse({ data: { perArtifact: { bytesPerArtifact: 1_000_000_000 } } })
+        .success,
+    ).toBe(true);
+    expect(
+      PlanOverrides.safeParse({ data: { perArtifact: { bytesPerArtifact: 1e12 } } }).success,
+    ).toBe(false);
+    expect(PlanOverrides.safeParse({ data: { artifacts: -1 } }).success).toBe(false);
+    expect(PlanOverrides.safeParse({ data: { rows: 1 } }).success).toBe(false);
   });
 });
 

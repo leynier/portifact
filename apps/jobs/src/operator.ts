@@ -47,6 +47,7 @@ import {
   decisionSource,
   emailHint,
   PROTECTION_STEPS,
+  projectSpend,
   shareLinkStatus,
 } from "@portifact/domain";
 import { formatReviewed, parseReviewed } from "@portifact/domain/artifact-data";
@@ -394,8 +395,19 @@ function budgetLines(state: BudgetState): string[] {
   const overridden = state.effective.overridden ? " (override)" : "";
   lines.push(`effective   ${state.effective.level}: ${list(state.effective.actions)}${overridden}`);
   if (state.metrics) {
+    if (state.measuredAt > 0) {
+      // Artifact data's share of the projection (decision 0026): the documents objects' items.
+      const { items } = projectSpend(state.metrics, state.measuredAt);
+      const data =
+        items.dataRequests +
+        items.dataDuration +
+        items.dataRowsRead +
+        items.dataRowsWritten +
+        items.dataStorage;
+      lines.push(`data        ${usd(data)} of the projection (Durable Objects of portifact-data)`);
+    }
     for (const [key, value] of Object.entries(state.metrics)) {
-      lines.push(`  ${key.padEnd(15)}${value === null ? "unmeasured" : value}`);
+      lines.push(`  ${key.padEnd(17)}${value === null ? "unmeasured" : value}`);
     }
   }
   return lines;
