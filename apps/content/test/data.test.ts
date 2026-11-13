@@ -585,7 +585,7 @@ describe("artifact data on the artifact origin", () => {
     headers.set("Origin", `https://${id}.portifact.dev`);
     for (const [name, value] of Object.entries(FETCH)) headers.set(name, value);
     const response = await handle(
-      new Request(`https://${id}.portifact.dev${sent.url}`, { method: sent.init.method, headers }),
+      new Request(`https://${id}.portifact.dev${sent.url}`, { method: sent.init.method ?? "GET", headers }),
       ON,
       NOW,
     );
