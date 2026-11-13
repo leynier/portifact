@@ -783,8 +783,28 @@ export const PreviewCode = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 /** The reserved preview host on a content domain: never an artifact ID (`ArtifactId`). */
 export const previewHost = (contentDomain: string) => `${PREVIEW_CODES.hostLabel}.${contentDomain}`;
 
-/** What the viewer asks for: a preview of the plan it holds by digest. */
-export const PreviewRequest = z.strictObject({ digest: Sha256 });
+/**
+ * An edit not saved yet, previewed as it would be planned (decision 0027, "Previews"): a
+ * suggestion's edit on the artifact's current version (`as: "suggestion"`, whoever may comment)
+ * or the owner's whole draft with the operation being typed (`as: "draft"`, the owner side).
+ * Nothing is stored: no thread, item, draft or plan. The edit is validated by `Edit` or
+ * `DraftEdit` in the service, so a refusal names the rule it broke.
+ */
+export const UnsavedEdit = z.strictObject({
+  versionId: AnnotationId,
+  as: z.enum(["suggestion", "draft"]),
+  edit: z.unknown(),
+});
+export type UnsavedEdit = z.infer<typeof UnsavedEdit>;
+
+/**
+ * What the viewer asks for: a preview of a plan it holds by digest (a suggestion's, or its own
+ * draft's), or of an edit it has not saved.
+ */
+export const PreviewRequest = z.union([
+  z.strictObject({ digest: Sha256 }),
+  z.strictObject({ unsaved: UnsavedEdit }),
+]);
 export type PreviewRequest = z.infer<typeof PreviewRequest>;
 
 /**
@@ -925,3 +945,21 @@ export const MarkChangeItemInput = MarkChangeItem.extend({
   ),
 });
 export type MarkChangeItemInput = z.infer<typeof MarkChangeItemInput>;
+
+/** Rebasing one's own draft onto the artifact's current version, at what the author holds. */
+export const RebaseDraftRequest = z.strictObject({
+  baseRevision: z.number().int().min(1),
+  baseIncarnation: DraftIncarnation,
+});
+export type RebaseDraftRequest = z.infer<typeof RebaseDraftRequest>;
+
+/**
+ * A rebased draft: the operations carried by the verified relocation, on the current version
+ * (null when none was carried and the draft was removed), and each operation that could not be
+ * carried with why, for the author to drop or make again. Untrusted text: the author's own.
+ */
+export const RebasedDraft = z.object({
+  draft: DraftView.nullable(),
+  conflicts: z.array(z.object({ operation: z.unknown(), reason: Token })),
+});
+export type RebasedDraft = z.infer<typeof RebasedDraft>;

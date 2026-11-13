@@ -3,7 +3,7 @@
 // traces a deleted account leaves on other people's artifacts, upload and usage history, and
 // stale storage findings. Every scan runs in each region on that region's database, bounded per
 // run. The rules are in packages/domain/src/history.ts.
-import { type Db, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import {
   CLOSED_UPLOAD_RETENTION_DAYS,
   daysBefore,
@@ -14,6 +14,7 @@ import {
 } from "@portifact/domain";
 import { type SQL, sql } from "drizzle-orm";
 import { cursorFor, resumeAt } from "./maintenance-cursors.ts";
+import { draftMarker } from "./suggestion-markers.ts";
 
 /** Rows each statement of these scans reads or changes at most per run. */
 export const HISTORY_CAPS = { artifacts: 90, rows: 500 } as const;
@@ -143,8 +144,10 @@ export function markAccountGone(db: Db, userId: string, condition: SQL, now: num
  * those others replied to. At most `limit` rows per statement; `more` while any statement was full.
  */
 export async function eraseAccountTraces(
-  db: Db,
+  regional: RegionalDb,
   userId: string,
+  /** When the drafts' restore markers say they went. */
+  now: number,
   limit: number = HISTORY_CAPS.rows,
 ): Promise<{ more: boolean }> {
   const le = schema.lifecycleEvents;
@@ -154,6 +157,10 @@ export async function eraseAccountTraces(
   const ci = schema.changeItems;
   const aa = schema.acceptanceAttempts;
   const ed = schema.editDrafts;
+  // With one database the batch runs on the handle that also writes the drafts' restore markers.
+  const shared = bothSides(regional);
+  const db: Db = shared ?? regional;
+  const drafts = sql`rowid in (select rowid from ${ed} where ${ed.userId} = ${userId} and not ${onHeld(sql`${ed.artifactId}`)} limit ${limit})`;
   const results = (await db.batch([
     db
       .update(le)
@@ -230,14 +237,13 @@ export async function eraseAccountTraces(
         sql`rowid in (select rowid from ${aa} where ${aa.userId} = ${userId} and not ${onHeld(sql`${aa.artifactId}`)} limit ${limit})`,
       )
       .returning({ id: aa.id }),
-    db
-      .delete(ed)
-      .where(
-        sql`rowid in (select rowid from ${ed} where ${ed.userId} = ${userId} and not ${onHeld(sql`${ed.artifactId}`)} limit ${limit})`,
-      )
-      .returning({ id: ed.userId }),
-  ])) as unknown[][];
-  return { more: results.some((rows) => rows.length >= limit) };
+    // Each draft with the marker that keeps it gone through a restore (decision 0027).
+    draftMarker(db, shared !== null, drafts, now),
+    db.delete(ed).where(drafts).returning({ id: ed.userId }),
+  ])) as unknown[];
+  return {
+    more: results.some((rows) => Array.isArray(rows) && rows.length >= limit),
+  };
 }
 
 /**

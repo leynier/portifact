@@ -6,6 +6,51 @@ import type { Catalog } from "./en.ts";
 export const de = {
   ...planTextDe,
   "app.title": "Portifact",
+  "dataGrant.pageTitle": "Speichern, was du eingibst",
+  "dataGrant.title": "{host} erlauben, zu speichern, was du eingibst?",
+  "dataGrant.ownerPerson": "Veröffentlicht von {name}",
+  "dataGrant.ownerWorkspace": "Veröffentlicht vom Workspace {name}",
+  "dataGrant.learns":
+    "Die Seite kennt dich als {name}, mit einer ID nur für dieses Artifact. Deine E-Mail-Adresse erfährt sie nie.",
+  "dataGrant.managers":
+    "Die Personen, die dieses Artifact verwalten, können alles lesen, was dort gespeichert wird.",
+  "dataGrant.moves": "Wechselt das Artifact den Eigentümer, wandert das Gespeicherte mit.",
+  "dataGrant.deletion":
+    "Löschst du dein Konto, wird gelöscht, was du dort erstellt hast, samt späterer Änderungen anderer. Deine Änderungen an Einträgen anderer bleiben, ohne deinen Namen.",
+  "dataGrant.lasts":
+    "Gilt {days} Tage in diesem Browser, bis du dich abmeldest oder es widerrufst.",
+  "dataGrant.rights": "Ansehen, was du geteilt hast, und widerrufen",
+  "dataGrant.allow": "Erlauben",
+  "dataGrant.notNow": "Nicht jetzt",
+  "dataGrant.loading": "Wird geladen",
+  "dataGrant.unavailable": "Diese Anfrage kann nicht verwendet werden",
+  "dataGrant.unavailableHint": "Öffne das Artifact erneut und wähle dort das Speichern.",
+  "dataGrant.failed": "Erlauben wurde nicht abgeschlossen",
+  "sharedData.title": "Geteilte Daten",
+  "sharedData.description":
+    "Artifact-Seiten, die dich kennen und speichern dürfen, was du eingibst. Ein Widerruf wirkt innerhalb einer Minute; Gespeichertes bleibt beim Artifact.",
+  "sharedData.listTitle": "Erlaubte Seiten",
+  "sharedData.loading": "Geteilte Daten werden geladen",
+  "sharedData.failed": "Deine geteilten Daten konnten nicht geladen werden",
+  "sharedData.empty": "Noch nichts geteilt",
+  "sharedData.emptyHint":
+    "Wenn die Seite eines Artifacts fragt, ob sie speichern darf, was du eingibst, und du es erlaubst, erscheint sie hier.",
+  "sharedData.artifact": "Artifact",
+  "sharedData.since": "Erlaubt seit",
+  "sharedData.status": "Status",
+  "sharedData.actions": "Aktionen",
+  "sharedData.gone": "Artifact nicht mehr verfügbar",
+  "sharedData.open": "Erlaubt bis {date}",
+  "sharedData.ended": "Beendet",
+  "sharedData.revoke": "Widerrufen",
+  "sharedData.revokeNamed": "{name} widerrufen",
+  "sharedData.revoked": "{name} kann nicht mehr in deinem Namen speichern",
+  "sharedData.confirmTitle": "{name} widerrufen?",
+  "sharedData.confirmBody":
+    "Die Seite kennt dich nicht mehr und speichert innerhalb einer Minute nicht mehr in deinem Namen, in allen Browsern. Gespeichertes bleibt beim Artifact.",
+  "sharedData.cancel": "Abbrechen",
+  "sharedData.revokeFailed": "Widerruf wurde nicht abgeschlossen",
+  "sharedData.more": "Mehr anzeigen",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Zum Inhalt springen",
   "shell.navigation": "Hauptnavigation",
@@ -1048,6 +1093,67 @@ export const de = {
   "suggest.changes.dismiss": "Verwerfen",
   "suggest.changes.reopen": "Wieder öffnen",
   "suggest.changes.marked": "Änderungsliste aktualisiert.",
+  "draft.mode.edit": "Bearbeiten",
+  "draft.mode.on":
+    "Der Bearbeitungsmodus ist aktiv. Markiere Text im Artifact, um ihn in deinem privaten Entwurf zu ändern.",
+  "draft.editor.title": "Text ändern",
+  "draft.add": "Zum Entwurf hinzufügen",
+  "draft.added": "Zu deinem Entwurf hinzugefügt.",
+  "draft.heading": "Dein Entwurf",
+  "draft.loading": "Dein Entwurf wird geladen",
+  "draft.empty":
+    "Wähle Bearbeiten und markiere Text im Artifact, um ihn zu ändern. Deine Änderungen bleiben privat, bis du sie veröffentlichst.",
+  "draft.count": "{count, plural, one {# Änderung} other {# Änderungen}}",
+  "draft.changes": "Änderungen in deinem Entwurf",
+  "draft.remove": "Änderung {number} entfernen",
+  "draft.removeShort": "Entfernen",
+  "draft.stale":
+    "Dieser Entwurf wurde auf einer früheren Version erstellt und kann nicht veröffentlicht werden. Verwirf ihn und bearbeite die aktuelle Version.",
+  "draft.attemptEnded": "Die letzte Veröffentlichung wurde nicht abgeschlossen: {reason}",
+  "draft.publishingBadge": "Wird veröffentlicht",
+  "draft.publishing":
+    "Dein Entwurf wird veröffentlicht. Die neue Version erscheint, sobald sie fertig ist.",
+  "draft.publish": "Veröffentlichen",
+  "draft.publish.title": "Diesen Entwurf veröffentlichen?",
+  "draft.publish.confirm": "Neue Version veröffentlichen",
+  "draft.discard": "Verwerfen",
+  "draft.discard.title": "Diesen Entwurf verwerfen?",
+  "draft.discard.body": "Alle Änderungen darin werden entfernt. Es wird nichts veröffentlicht.",
+  "draft.discarded": "Entwurf verworfen.",
+  "draft.conflict":
+    "Dein Entwurf wurde in einem anderen Tab oder Fenster geändert. Er zeigt jetzt den neuesten Stand; nimm deine Änderung erneut vor.",
+  "draft.refused.stale":
+    "Dein Entwurf wurde auf einer früheren Version erstellt. Verwirf ihn, bevor du die aktuelle Version bearbeitest.",
+  "draft.refused.other_page":
+    "Dein Entwurf enthält Änderungen an einer anderen Seite. Veröffentliche oder verwirf ihn, bevor du diese Seite bearbeitest.",
+  "draft.refused.full":
+    "Dein Entwurf enthält bereits die maximale Anzahl an Änderungen. Veröffentliche oder verwirf ihn zuerst.",
+  "draft.refused.invalid": "Diese Änderung kann nicht zum Entwurf hinzugefügt werden.",
+  "suggest.editor.tabs": "Deine Änderung",
+  "suggest.editor.tabs.change": "Änderung",
+  "draft.tabs": "Plan deines Entwurfs",
+  "draft.rebase": "Entwurf auf die aktuelle Version verschieben",
+  "draft.rebased":
+    "Entwurf auf die aktuelle Version verschoben: {carried, plural, one {# Änderung übernommen} other {# Änderungen übernommen}}, {left, plural, one {# erneut vorzunehmen} other {# erneut vorzunehmen}}.",
+  "draft.conflicts": "Änderungen, die nicht verschoben werden konnten und erneut vorzunehmen sind",
+  "draft.conflicts.dismiss": "Diese Liste ausblenden",
+  "suggest.search.heading": "Textänderung vorschlagen",
+  "suggest.search.hint":
+    "Suche den Text auf der Seite, statt ihn im Artifact zu markieren. Die Suche liest die veröffentlichte Seite, nicht das, was ihre Skripte anzeigen.",
+  "suggest.search.query": "Gesuchter Text",
+  "suggest.search.find": "Suchen",
+  "suggest.search.found":
+    "{count, plural, =0 {Keine Stellen gefunden.} one {# Stelle gefunden.} other {# Stellen gefunden.}}",
+  "suggest.search.none": "Der Text wurde auf dieser Seite nicht gefunden.",
+  "suggest.search.results": "Stellen mit dem Text",
+  "suggest.search.choose": "Text an Stelle {number} ändern",
+  "suggest.search.refused":
+    "Diese Stelle kann nicht geändert werden. Versuche einen kürzeren oder längeren Textabschnitt.",
+  "suggest.search.unavailable":
+    "Die Suche ist auf HTML-Seiten verfügbar. Markiere auf dieser Seite den Text im Artifact.",
+  "draft.conflictReason": "Der geänderte Text ist in der aktuellen Version anders oder fehlt.",
+  "suggest.search.ownerOnly":
+    "Die Suche im Text ist für Prüfende noch nicht verfügbar. Markiere den Text stattdessen im Artifact.",
   "review.open": "Reviewen und kommentieren",
   "viewer.loading": "Das Artifact wird geöffnet",
   "viewer.unavailable.title": "Dieses Artifact kann nicht geöffnet werden",

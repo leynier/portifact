@@ -185,7 +185,10 @@ export interface SentEmail {
  * The last email the app sent to `to`, waiting briefly for it to arrive. Reading it gives back the
  * per-IP sign-in code budget: every browser of the stack shares one address, and the code limit
  * per IP (`OTP_LIMITS.perIp`, 20 an hour) would otherwise run out across the projects of a run,
- * leaving the last one (WebKit in CI) refused with 429 and no email to read.
+ * leaving the last one (WebKit in CI) refused with 429 and no email to read. The other per-IP
+ * budgets a code spends (`ENDPOINT_LIMITS`: accepting the terms, the human check and entering
+ * the code, 30 in 10 minutes; and the account deletion code's sending and attempts) are given back
+ * with it, so repeating a spec never runs out.
  */
 export async function lastEmail(to: string): Promise<SentEmail> {
   const deadline = Date.now() + 10_000;
@@ -199,7 +202,11 @@ export async function lastEmail(to: string): Promise<SentEmail> {
       }
     }
   } finally {
-    await sql("delete from rate_limits where key like 'otp:ip:%'");
+    await sql(
+      `delete from rate_limits where key like 'otp:ip:%' or key like '/accept-terms:ip:%'
+        or key like '/verify-human:ip:%' or key like '/sign-in/email-otp:ip:%'
+        or key like 'delete-code:ip:%' or key like 'delete-code-attempt:ip:%'`,
+    );
   }
 }
 

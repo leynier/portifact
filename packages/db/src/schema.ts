@@ -872,7 +872,10 @@ export const tombstones = sqliteTable(
      * refresh token deleted or revoked and `oauth_grant` a consent deleted (an app disconnected):
      * these are pruned after the Time Travel window (`WINDOW_TOMBSTONE_KINDS`,
      * docs/operations.md, "Restoring a backup"). The directory's `workspace_member` and
-     * `workspace_invitation` tombstones are pruned with them (decision 0017).
+     * `workspace_invitation` tombstones are pruned with them (decision 0017). Edit suggestions
+     * (decision 0027) add `suggestion_withdrawn` and `suggestion_rejected` (a thread ID: a restore
+     * withdraws or rejects it again) and `edit_draft` (`<artifact>:<user>:<incarnation>`: a restore
+     * deletes that draft again, never one created after it), pruned with the same window.
      */
     kind: text("kind", {
       enum: [
@@ -901,6 +904,10 @@ export const tombstones = sqliteTable(
         "session",
         "oauth_token",
         "oauth_grant",
+        "suggestion_withdrawn",
+        "suggestion_rejected",
+        "edit_draft",
+        "data_grant",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1176,6 +1183,69 @@ export const dataFindings = sqliteTable("data_findings", {
   firstSeenAt: timestamp("first_seen_at").notNull(),
   lastSeenAt: timestamp("last_seen_at").notNull(),
 });
+
+/**
+ * Grants of artifact data (decision 0026, "The grant"): one person's consent, in one browser, that
+ * an artifact's page may know them by `visitor_id` (claimed in the author journal, the same for
+ * every grant of the person on the artifact) and their display name and write as them. The
+ * content Worker renews its cookie's claims against this row every 60 seconds, so revoking it,
+ * signing out of the app session that gave it (`auth_session_id`, global, no foreign key) or
+ * losing access ends it within that time. A revocation writes a `data_grant` window tombstone, so
+ * a restore never revives it. Rows go 30 days after they ended (`pruneDataGrants`).
+ */
+export const dataGrants = sqliteTable(
+  "data_grants",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** The account; no foreign key (users are global). Account deletion deletes the rows. */
+    userId: text("user_id").notNull(),
+    visitorId: text("visitor_id").notNull(),
+    authSessionId: text("auth_session_id").notNull(),
+    /** The host the grant was issued for: the `.dev` host or the active custom host. */
+    host: text("host").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    revokedAt: timestamp("revoked_at"),
+    /** Set once a code redeemed: a grant whose code never redeemed gives nothing. */
+    redeemedAt: timestamp("redeemed_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("data_grants_user_artifact_idx").on(t.userId, t.artifactId),
+    index("data_grants_artifact_idx").on(t.artifactId),
+    index("data_grants_expires_idx").on(t.expiresAt),
+    // The prune's other two selections (`pruneDataGrants`), each led by its own time.
+    index("data_grants_revoked_idx").on(t.revokedAt).where(sql`${t.revokedAt} is not null`),
+    index("data_grants_unredeemed_idx").on(t.createdAt).where(sql`${t.redeemedAt} is null`),
+  ],
+);
+
+/**
+ * One-use codes that carry a grant from the app's control to the artifact origin: only the
+ * SHA-256 of the code and of the beginning browser's nonce are stored, bound to the host. The
+ * guarded update that sets `used_at` is the redemption.
+ */
+export const dataGrantCodes = sqliteTable(
+  "data_grant_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    grantId: text("grant_id")
+      .notNull()
+      .references(() => dataGrants.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    host: text("host").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("data_grant_codes_expires_idx").on(t.expiresAt),
+    index("data_grant_codes_grant_idx").on(t.grantId),
+  ],
+);
 
 /**
  * Accounts being deleted. The request deletes the user (and with it every session, token and

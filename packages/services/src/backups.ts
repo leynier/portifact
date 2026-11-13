@@ -15,12 +15,15 @@ import {
 } from "@portifact/db";
 import { and, asc, eq, gt, inArray, lt, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import { WITHDRAWN } from "./annotations.ts";
 import { eraseAuditEventsOf } from "./audit.ts";
+import { commentTombstoneMarkers } from "./comment-retention.ts";
 import { notHeldSql } from "./legal-holds.ts";
 import { purgeJobs } from "./outbox.ts";
 import { recomputeDirectoryRoles } from "./scim-groups.ts";
 import { chunked, JSON_CHUNK } from "./shapes.ts";
 import { revokedShareLinks } from "./share-links.ts";
+import { endAttempt } from "./suggestion-accept.ts";
 import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
 const IN_CHUNK = 80;
@@ -241,6 +244,15 @@ export async function exportTombstones(regions: {
     }
     // A revocation is permanent too: a restore must not reopen a link (decision 0008).
     for (const marker of await revokedShareLinks(db)) add(marker);
+    // Markers a region with its own database has not delivered yet: its `comment_tombstones`
+    // jobs carry them to the global database, and a restore of the region would lose the job with
+    // the change (comment deletions, suggestion decisions and draft removals).
+    for (const job of await db
+      .select({ payload: schema.outbox.payload })
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, "comment_tombstones"))) {
+      for (const marker of commentTombstoneMarkers(job.payload) ?? []) add(marker);
+    }
   }
   return [...markers.values()].sort(
     (a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id),
@@ -298,6 +310,14 @@ export interface ApplyTombstonesResult {
   commentMessages: number;
   /** Email preferences turned off before the restore that it turned back on, off again. */
   noticeOptOuts: number;
+  /** Suggestions withdrawn before the restore that it brought back undecided, withdrawn again. */
+  withdrawnSuggestions: number;
+  /** Suggestions rejected before the restore that it brought back undecided, rejected again. */
+  rejectedSuggestions: number;
+  /** Drafts discarded, published or removed before the restore that it brought back, gone again. */
+  drafts: number;
+  /** Grants of artifact data revoked before the restore that it revived, revoked again. */
+  dataGrants: number;
   /** Per-artifact comment notice mutes set before the restore that it lost, set again. */
   noticeMutes: number;
   /** Browser sessions that ended before the restore (sign-outs), ended again. */
@@ -325,6 +345,10 @@ const REGIONAL_KINDS = [
   "comment_thread",
   "comment_message",
   "comment_notice_mute",
+  "suggestion_withdrawn",
+  "suggestion_rejected",
+  "edit_draft",
+  "data_grant",
 ] as const;
 type RegionalKind = (typeof REGIONAL_KINDS)[number];
 
@@ -391,8 +415,14 @@ interface Refs {
   auditStreams: SQL;
   commentThreads: SQL;
   commentMessages: SQL;
+  dataGrants: SQL;
   /** As rows with one column, `ref` (`<artifact>:<user>`), not only a list for `in`. */
   mutes: SQL;
+  /** Edit suggestions (decision 0027): withdrawn and rejected suggestions, removed drafts. */
+  withdrawnSuggestions: SQL;
+  rejectedSuggestions: SQL;
+  /** `<artifact>:<user>:<incarnation>`. */
+  drafts: SQL;
 }
 
 const t = schema.tombstones;
@@ -416,7 +446,11 @@ const SUBQUERIES: Refs = {
   auditStreams: sql`select ${t.id} from ${t} where ${t.kind} = 'audit_stream'`,
   commentThreads: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_thread'`,
   commentMessages: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_message'`,
+  dataGrants: sql`select ${t.id} from ${t} where ${t.kind} = 'data_grant'`,
   mutes: sql`select ${t.id} as ref from ${t} where ${t.kind} = 'comment_notice_mute'`,
+  withdrawnSuggestions: sql`select ${t.id} from ${t} where ${t.kind} = 'suggestion_withdrawn'`,
+  rejectedSuggestions: sql`select ${t.id} from ${t} where ${t.kind} = 'suggestion_rejected'`,
+  drafts: sql`select ${t.id} from ${t} where ${t.kind} = 'edit_draft'`,
 };
 
 /** A JSON list as the body of an `in (...)` subquery. */
@@ -478,6 +512,17 @@ function leftovers(kind: "account" | "workspace", oneDatabase: boolean, evidence
     : sql``;
   const elsewhere = evidence.length > 0 ? sql` or ${t.id} in (${listed(evidence)})` : sql``;
   return sql`(${global}${regional}${elsewhere})`;
+}
+
+/**
+ * The drafts the `edit_draft` markers name (`<artifact>:<user>:<incarnation>`, decision 0027), as
+ * `rid` and `attempt_id`: each marker is split and looked up by the draft's primary key, so the
+ * work follows the markers, never the table. Neither an artifact ID nor an account ID holds a
+ * colon, and an incarnation is base64url.
+ */
+function markedDrafts(refs: Refs): SQL {
+  const d = schema.editDrafts;
+  return sql`with mk(v) as (${refs.drafts}), parts(a, rest) as (select substr(v, 1, instr(v, ':') - 1), substr(v, instr(v, ':') + 1) from mk where instr(v, ':') > 0) select d.rowid as rid, d.attempt_id as attempt_id from parts cross join ${d} as d on d.artifact_id = parts.a and d.user_id = substr(parts.rest, 1, instr(parts.rest, ':') - 1) and d.incarnation = substr(parts.rest, instr(parts.rest, ':') + 1) where instr(parts.rest, ':') > 0`;
 }
 
 type Side = "global" | "regional" | "every";
@@ -602,6 +647,90 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
             sql`${schema.annotationMessages.state} <> 'deleted' and ${schema.annotationMessages.id} in (${refs.commentMessages})`,
           )
           .returning({ id: schema.annotationMessages.id }),
+    },
+    // Edit suggestions (decision 0027): a running acceptance of a suggestion withdrawn or
+    // rejected, or of a draft removed, before the restore is ended first (as an erasure ends one),
+    // so its job's claim loses and nothing publishes it; then the suggestion is withdrawn (its
+    // edit cleared, its bytes given back by the usage trigger) or rejected again, and the draft
+    // deleted again. Only an undecided suggestion changes (a decided one stays as it is, which the
+    // immutability trigger also holds), and only the draft of the marker's incarnation goes.
+    // Driven by the markers alone (the attempts' thread index, the drafts' primary key), never by
+    // every running attempt or draft. The ended attempts are returned so `applyTombstones` releases
+    // their uploads through `endAttempt`, the one way an attempt ends.
+    {
+      name: "suggestionAttempts",
+      side: "regional",
+      build: (db, refs) => {
+        const aa = schema.acceptanceAttempts;
+        return db
+          .update(aa)
+          .set({ state: "ended", reason: "revoked", updatedAt: now })
+          .where(
+            sql`${aa.state} = 'running' and ${aa.id} in (select ${aa.id} from ${aa} where ${aa.threadId} in (${refs.withdrawnSuggestions}) union all select ${aa.id} from ${aa} where ${aa.threadId} in (${refs.rejectedSuggestions}) union all select marked.attempt_id from (${markedDrafts(refs)}) as marked where marked.attempt_id is not null)`,
+          )
+          .returning({
+            id: aa.id,
+            artifactId: aa.artifactId,
+            ownerId: aa.ownerId,
+            origin: aa.origin,
+          });
+      },
+    },
+    {
+      name: "withdrawnSuggestions",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.annotationThreads)
+          .set({ ...WITHDRAWN, attemptId: null, updatedAt: now })
+          .where(
+            sql`${schema.annotationThreads.kind} = 'suggestion' and ${schema.annotationThreads.suggestionState} in ('pending', 'applying', 'outdated') and ${schema.annotationThreads.id} in (${refs.withdrawnSuggestions})`,
+          )
+          .returning({ id: schema.annotationThreads.id }),
+    },
+    {
+      name: "rejectedSuggestions",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.annotationThreads)
+          .set({
+            suggestionState: "rejected",
+            attemptId: null,
+            attemptReason: null,
+            // Who rejected it is not in the marker: the restore's own time stands for the decision.
+            decidedBy: null,
+            decidedAt: now,
+            suggestionRevision: sql`${schema.annotationThreads.suggestionRevision} + 1`,
+            updatedAt: now,
+          })
+          .where(
+            sql`${schema.annotationThreads.kind} = 'suggestion' and ${schema.annotationThreads.suggestionState} in ('pending', 'applying', 'outdated') and ${schema.annotationThreads.id} in (${refs.rejectedSuggestions})`,
+          )
+          .returning({ id: schema.annotationThreads.id }),
+    },
+    {
+      name: "drafts",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .delete(schema.editDrafts)
+          .where(sql`rowid in (select marked.rid from (${markedDrafts(refs)}) as marked)`)
+          .returning({ artifactId: schema.editDrafts.artifactId }),
+    },
+    // Grants of artifact data revoked before the restore (decision 0026, "The grant"): revoked
+    // again, so a revived grant never renews.
+    {
+      name: "dataGrants",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.dataGrants)
+          .set({ revokedAt: now })
+          .where(
+            sql`${schema.dataGrants.revokedAt} is null and ${schema.dataGrants.id} in (${refs.dataGrants})`,
+          )
+          .returning({ id: schema.dataGrants.id }),
     },
     // Per-artifact mutes the restore lost come back, on artifacts that are still there, for
     // accounts that are not deleted.
@@ -978,6 +1107,20 @@ function optOutStatement(db: Db, preference: "comment_notices" | "expiry_notices
     .returning({ userId: s.userId });
 }
 
+/**
+ * Releases the uploads of the acceptances the restore ended (`suggestionAttempts`) through
+ * `endAttempt`, the one way an attempt ends: idempotent, it finds them ended and releases the
+ * upload a job may have prepared before the restore point.
+ */
+async function releaseEndedAttempts(
+  db: RegionalDb,
+  results: Map<string, unknown[]>,
+  now: number,
+): Promise<void> {
+  const ended = (results.get("suggestionAttempts") ?? []) as Parameters<typeof endAttempt>[1][];
+  for (const attempt of ended) await endAttempt(db, attempt, "revoked", now);
+}
+
 async function runEntries(db: Db, entries: Entry[], refs: Refs): Promise<Map<string, unknown[]>> {
   const results = await db.batch(
     entries.map((entry) => entry.build(db, refs)) as [
@@ -1010,6 +1153,7 @@ async function applyRegionalTombstones(
   db: RegionalDb,
   lists: Record<RegionalKind, string[]>,
   entries: Entry[],
+  now: number,
 ) {
   const owners = [...lists.account, ...lists.workspace];
   // A mute of a deleted account never comes back. The statement's `not in` only sees one round's
@@ -1045,11 +1189,17 @@ async function applyRegionalTombstones(
       auditStreams: part(lists.audit_stream),
       commentThreads: part(lists.comment_thread),
       commentMessages: part(lists.comment_message),
+      dataGrants: part(lists.data_grant),
       mutes: listedRefs(mutes.slice(round * JSON_CHUNK, (round + 1) * JSON_CHUNK)),
+      withdrawnSuggestions: part(lists.suggestion_withdrawn),
+      rejectedSuggestions: part(lists.suggestion_rejected),
+      drafts: part(lists.edit_draft),
     };
-    for (const [name, rows] of await runEntries(db, regional, refs)) {
+    const results = await runEntries(db, regional, refs);
+    for (const [name, rows] of results) {
       counts.set(name, (counts.get(name) ?? 0) + rows.length);
     }
+    await releaseEndedAttempts(db, results, now);
   }
   return { evidence: [...evidence], counts };
 }
@@ -1108,14 +1258,17 @@ export async function applyTombstones(
     const lists = await regionalTombstones(global);
     const entries = restoreEntries(now, false, []);
     for (const { db } of separate) {
-      const done = await applyRegionalTombstones(db, lists, entries);
+      const done = await applyRegionalTombstones(db, lists, entries, now);
       for (const owner of done.evidence) evidence.add(owner);
       add(done.counts);
     }
   }
   if (shared) {
     // The one batch of the default region, whose database is the global one.
-    add(await runEntries(shared, restoreEntries(now, true, [...evidence]), SUBQUERIES));
+    const results = await runEntries(shared, restoreEntries(now, true, [...evidence]), SUBQUERIES);
+    add(results);
+    const home = target.all().find(({ db }) => bothSides(db) !== null);
+    if (home) await releaseEndedAttempts(home.db, results, now);
   } else {
     const entries = restoreEntries(now, false, [...evidence]).filter(
       (entry) => entry.side !== "regional",
@@ -1146,8 +1299,12 @@ export async function applyTombstones(
     members: count("members"),
     commentThreads: count("commentThreads"),
     commentMessages: count("commentMessages"),
+    withdrawnSuggestions: count("withdrawnSuggestions"),
+    rejectedSuggestions: count("rejectedSuggestions"),
+    drafts: count("drafts"),
     noticeOptOuts: count("noticeOptOuts:comment_notices") + count("noticeOptOuts:expiry_notices"),
     noticeMutes: count("noticeMutes"),
+    dataGrants: count("dataGrants"),
     sessions: count("sessions"),
     oauthTokens: count("oauthAccessTokens") + count("oauthRefreshTokens"),
     oauthGrants: count("oauthGrants"),

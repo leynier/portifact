@@ -7,6 +7,51 @@ import type { Catalog } from "./en.ts";
 export const fr = {
   ...planTextFr,
   "app.title": "Portifact",
+  "dataGrant.pageTitle": "Enregistrer ce que vous saisissez",
+  "dataGrant.title": "Autoriser {host} à enregistrer ce que vous saisissez ?",
+  "dataGrant.ownerPerson": "Publié par {name}",
+  "dataGrant.ownerWorkspace": "Publié par l'espace de travail {name}",
+  "dataGrant.learns":
+    "La page vous connaîtra sous le nom {name}, avec un identifiant propre à cet artifact. Elle ne connaît jamais votre e-mail.",
+  "dataGrant.managers":
+    "Les personnes qui gèrent cet artifact peuvent lire tout ce qui y est enregistré.",
+  "dataGrant.moves": "Si l'artifact change de propriétaire, ce que vous avez enregistré le suit.",
+  "dataGrant.deletion":
+    "Si vous supprimez votre compte, ce que vous y avez créé est supprimé, avec les modifications faites ensuite par d'autres. Vos modifications des entrées d'autres personnes restent, sans votre nom.",
+  "dataGrant.lasts":
+    "Valable {days} jours dans ce navigateur, jusqu'à votre déconnexion ou révocation.",
+  "dataGrant.rights": "Voir ce que vous avez partagé et le révoquer",
+  "dataGrant.allow": "Autoriser",
+  "dataGrant.notNow": "Pas maintenant",
+  "dataGrant.loading": "Chargement",
+  "dataGrant.unavailable": "Cette demande ne peut pas être utilisée",
+  "dataGrant.unavailableHint": "Rouvrez l'artifact et choisissez d'enregistrer depuis celui-ci.",
+  "dataGrant.failed": "L'autorisation n'a pas abouti",
+  "sharedData.title": "Données partagées",
+  "sharedData.description":
+    "Pages d'artifacts qui peuvent vous connaître et enregistrer ce que vous saisissez. La révocation prend effet en une minute ; ce que vous avez enregistré reste avec l'artifact.",
+  "sharedData.listTitle": "Pages autorisées",
+  "sharedData.loading": "Chargement de vos données partagées",
+  "sharedData.failed": "Vos données partagées n'ont pas pu être chargées",
+  "sharedData.empty": "Rien de partagé pour l'instant",
+  "sharedData.emptyHint":
+    "Quand la page d'un artifact demande à enregistrer ce que vous saisissez et que vous l'autorisez, elle apparaît ici.",
+  "sharedData.artifact": "Artifact",
+  "sharedData.since": "Autorisé depuis",
+  "sharedData.status": "État",
+  "sharedData.actions": "Actions",
+  "sharedData.gone": "Artifact plus disponible",
+  "sharedData.open": "Autorisé jusqu'au {date}",
+  "sharedData.ended": "Terminé",
+  "sharedData.revoke": "Révoquer",
+  "sharedData.revokeNamed": "Révoquer {name}",
+  "sharedData.revoked": "{name} ne peut plus enregistrer en votre nom",
+  "sharedData.confirmTitle": "Révoquer {name} ?",
+  "sharedData.confirmBody":
+    "La page cesse de vous connaître et d'enregistrer en votre nom en une minute, dans tous les navigateurs. Ce que vous avez enregistré reste avec l'artifact.",
+  "sharedData.cancel": "Annuler",
+  "sharedData.revokeFailed": "La révocation n'a pas abouti",
+  "sharedData.more": "Afficher plus",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Aller au contenu",
   "shell.navigation": "Principale",
@@ -1051,6 +1096,68 @@ export const fr = {
   "suggest.changes.dismiss": "Écarter",
   "suggest.changes.reopen": "Rouvrir",
   "suggest.changes.marked": "Liste des modifications mise à jour.",
+  "draft.mode.edit": "Modifier",
+  "draft.mode.on":
+    "Le mode modification est activé. Sélectionnez du texte dans l’artifact pour le modifier dans votre brouillon privé.",
+  "draft.editor.title": "Modifier le texte",
+  "draft.add": "Ajouter au brouillon",
+  "draft.added": "Ajouté à votre brouillon.",
+  "draft.heading": "Votre brouillon",
+  "draft.loading": "Chargement de votre brouillon",
+  "draft.empty":
+    "Choisissez Modifier et sélectionnez du texte dans l’artifact pour le modifier. Vos modifications restent privées jusqu’à leur publication.",
+  "draft.count": "{count, plural, one {# modification} other {# modifications}}",
+  "draft.changes": "Modifications de votre brouillon",
+  "draft.remove": "Retirer la modification {number}",
+  "draft.removeShort": "Retirer",
+  "draft.stale":
+    "Ce brouillon a été créé sur une version antérieure et ne peut pas être publié. Abandonnez-le et modifiez la version actuelle.",
+  "draft.attemptEnded": "La dernière publication ne s’est pas terminée : {reason}",
+  "draft.publishingBadge": "Publication",
+  "draft.publishing":
+    "Publication de votre brouillon. La nouvelle version apparaîtra dès qu’elle sera prête.",
+  "draft.publish": "Publier",
+  "draft.publish.title": "Publier ce brouillon ?",
+  "draft.publish.confirm": "Publier une nouvelle version",
+  "draft.discard": "Abandonner",
+  "draft.discard.title": "Abandonner ce brouillon ?",
+  "draft.discard.body":
+    "Toutes les modifications qu’il contient sont supprimées. Rien n’est publié.",
+  "draft.discarded": "Brouillon abandonné.",
+  "draft.conflict":
+    "Votre brouillon a changé dans un autre onglet ou une autre fenêtre. Il affiche maintenant son dernier état ; refaites votre modification.",
+  "draft.refused.stale":
+    "Votre brouillon a été créé sur une version antérieure. Abandonnez-le avant de modifier la version actuelle.",
+  "draft.refused.other_page":
+    "Votre brouillon contient des modifications d’une autre page. Publiez-le ou abandonnez-le avant de modifier cette page.",
+  "draft.refused.full":
+    "Votre brouillon contient déjà le maximum de modifications. Publiez-le ou abandonnez-le d’abord.",
+  "draft.refused.invalid": "Cette modification ne peut pas être ajoutée au brouillon.",
+  "suggest.editor.tabs": "Votre modification",
+  "suggest.editor.tabs.change": "Modification",
+  "draft.tabs": "Plan de votre brouillon",
+  "draft.rebase": "Déplacer le brouillon vers la version actuelle",
+  "draft.rebased":
+    "Brouillon déplacé vers la version actuelle : {carried, plural, one {# modification reportée} other {# modifications reportées}}, {left, plural, one {# à refaire} other {# à refaire}}.",
+  "draft.conflicts": "Modifications qui n’ont pas pu être déplacées, à refaire",
+  "draft.conflicts.dismiss": "Masquer cette liste",
+  "suggest.search.heading": "Suggérer une modification de texte",
+  "suggest.search.hint":
+    "Trouvez le texte dans la page au lieu de le sélectionner dans l’artifact. La recherche lit la page publiée, pas ce que ses scripts affichent.",
+  "suggest.search.query": "Texte à trouver",
+  "suggest.search.find": "Rechercher",
+  "suggest.search.found":
+    "{count, plural, =0 {Aucun emplacement trouvé.} one {# emplacement trouvé.} other {# emplacements trouvés.}}",
+  "suggest.search.none": "Le texte n’a pas été trouvé sur cette page.",
+  "suggest.search.results": "Emplacements contenant le texte",
+  "suggest.search.choose": "Modifier le texte à l’emplacement {number}",
+  "suggest.search.refused":
+    "Cet emplacement ne peut pas être modifié. Essayez un morceau de texte plus court ou plus long.",
+  "suggest.search.unavailable":
+    "La recherche est disponible sur les pages HTML. Sur cette page, sélectionnez le texte dans l’artifact.",
+  "draft.conflictReason": "Le texte modifié est différent ou absent dans la version actuelle.",
+  "suggest.search.ownerOnly":
+    "La recherche dans la page n'est pas encore disponible pour les relecteurs. Sélectionnez plutôt le texte dans l'artifact.",
   "review.open": "Relire et commenter",
   "viewer.loading": "Ouverture de l’artifact",
   "viewer.unavailable.title": "Cet artifact ne peut pas être ouvert",

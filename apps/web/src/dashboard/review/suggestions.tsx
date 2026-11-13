@@ -7,14 +7,17 @@ import {
   type AnnotationThreadView,
   CHANGE_ITEM_STATES,
   type ChangeItemView,
+  type DraftEdit,
   Edit,
   type Plan,
+  type PreviewRequest,
   type PreviewResponse,
   REFUSAL_REASONS,
   type RefusalReason,
   type ReviewStart,
   ShownEnvelope,
   type SuggestionView,
+  type TextOperation,
 } from "@portifact/contracts";
 import { tokens } from "@portifact/domain/suggestion-display";
 import {
@@ -56,7 +59,7 @@ export const undecided = (suggestion: SuggestionView | null): boolean =>
 
 export const changesQuery = (artifactId: string) => ["suggestion-changes", artifactId] as const;
 
-function useDiffLabels() {
+export function useDiffLabels() {
   const t = useT();
   return {
     removed: t("suggest.diff.removed"),
@@ -101,11 +104,23 @@ export function SuggestEditor({
   dispatch,
   humanNeeded,
   onClose,
+  draft,
 }: {
   start: ReviewStart;
   state: Extract<SuggestState, { mode: "editing" }>;
   dispatch: Dispatch<SuggestAction>;
   humanNeeded: boolean;
+  /**
+   * The owner side editing directly (Edit mode): Save adds the change to their private draft
+   * instead of starting a suggestion, and no note is asked.
+   */
+  draft?:
+    | {
+        add(operation: TextOperation): Promise<boolean>;
+        /** The whole draft with `operation` added, as a preview of it would plan it. */
+        editWith(operation: TextOperation): DraftEdit | null;
+      }
+    | undefined;
   /** The editor closed: saved (with the new thread's ID) or cancelled. */
   onClose(threadId: string | null): void;
 }) {
@@ -121,6 +136,18 @@ export function SuggestEditor({
   const before = state.target.anchor.quote.exact;
   const unchanged = state.after === before;
 
+  const toDraft = useMutation({
+    mutationFn: (value: Edit) => {
+      const [operation] = value.operations;
+      if (!draft || operation?.kind !== "text") return Promise.resolve(false);
+      return draft.add(operation);
+    },
+    onSuccess: (added) => {
+      if (!added) return;
+      dispatch({ type: "saved" });
+      onClose(null);
+    },
+  });
   const save = useMutation({
     mutationFn: (value: Edit) =>
       human.post((key, token) =>
@@ -163,7 +190,12 @@ export function SuggestEditor({
     dispatch({ type: "cancel" });
     onClose(null);
   };
+  const commit = (value: Edit) => (draft ? toDraft.mutate(value) : save.mutate(value));
   const review = () => {
+    if (draft) {
+      dispatch({ type: "review" });
+      return;
+    }
     const error = bodyError(t, state.note)?.fields.body;
     setNoteError(error);
     if (!error) dispatch({ type: "review" });
@@ -180,7 +212,7 @@ export function SuggestEditor({
       !event.nativeEvent.isComposing
     ) {
       event.preventDefault();
-      if (state.reviewing && edit) save.mutate(edit);
+      if (state.reviewing && edit) commit(edit);
       else review();
     }
   };
@@ -190,7 +222,11 @@ export function SuggestEditor({
     // biome-ignore lint/a11y/noStaticElementInteractions: Escape and Enter work from every control inside
     <div ref={panel} className="flex flex-col gap-3" onKeyDown={onKeyDown}>
       <h2 className="text-base font-semibold">
-        {state.reviewing ? t("suggest.editor.reviewTitle") : t("suggest.editor.title")}
+        {state.reviewing
+          ? t("suggest.editor.reviewTitle")
+          : draft
+            ? t("draft.editor.title")
+            : t("suggest.editor.title")}
       </h2>
       {/* Which page the edit addresses: two targets can hold the same text. */}
       <p className="text-sm text-text-muted">
@@ -207,23 +243,44 @@ export function SuggestEditor({
       {state.reviewing && edit ? (
         <>
           <p className="text-sm text-text-muted">{t("suggest.editor.reviewHint")}</p>
-          <EditDiff before={tokens(before)} after={tokens(state.after)} labels={labels} />
-          <Disclosure appearance="inline" summary={t("suggest.inspect")}>
-            <CodePointList
-              label={t("suggest.inspect.after")}
-              codePoints={Array.from(state.after, (char) => char.codePointAt(0) as number)}
-            />
-          </Disclosure>
+          <Tabs
+            label={t("suggest.editor.tabs")}
+            tabs={[
+              {
+                id: "change",
+                label: t("suggest.editor.tabs.change"),
+                panel: (
+                  <div className="flex flex-col gap-2">
+                    <EditDiff before={tokens(before)} after={tokens(state.after)} labels={labels} />
+                    <Disclosure appearance="inline" summary={t("suggest.inspect")}>
+                      <CodePointList
+                        label={t("suggest.inspect.after")}
+                        codePoints={Array.from(
+                          state.after,
+                          (char) => char.codePointAt(0) as number,
+                        )}
+                      />
+                    </Disclosure>
+                  </div>
+                ),
+              },
+              {
+                id: "preview",
+                label: t("suggest.tabs.preview"),
+                panel: <UnsavedPreview start={start} edit={edit} draft={draft} />,
+              },
+            ]}
+          />
           {human.field}
           <div className="flex flex-wrap justify-end gap-2">
             <Button onClick={() => dispatch({ type: "back" })}>{t("suggest.editor.back")}</Button>
             <Button
               intent="primary"
               icon={<Check className="size-4" />}
-              busy={save.isPending}
-              onClick={() => save.mutate(edit)}
+              busy={save.isPending || toDraft.isPending}
+              onClick={() => commit(edit)}
             >
-              {t("suggest.editor.save")}
+              {draft ? t("draft.add") : t("suggest.editor.save")}
             </Button>
           </div>
         </>
@@ -241,18 +298,20 @@ export function SuggestEditor({
           {unchanged ? (
             <p className="text-sm text-text-muted">{t("suggest.editor.unchanged")}</p>
           ) : null}
-          <TextArea
-            label={t("suggest.editor.note")}
-            description={t("suggest.editor.noteHint")}
-            value={state.note}
-            onChange={(event) => {
-              dispatch({ type: "note", note: event.target.value });
-              setNoteError(undefined);
-            }}
-            error={noteError}
-            rows={2}
-            compact
-          />
+          {draft ? null : (
+            <TextArea
+              label={t("suggest.editor.note")}
+              description={t("suggest.editor.noteHint")}
+              value={state.note}
+              onChange={(event) => {
+                dispatch({ type: "note", note: event.target.value });
+                setNoteError(undefined);
+              }}
+              error={noteError}
+              rows={2}
+              compact
+            />
+          )}
           <div className="flex flex-wrap justify-end gap-2">
             <Button onClick={cancel}>{t("suggest.editor.cancel")}</Button>
             <Button intent="primary" disabled={edit === null} onClick={review}>
@@ -262,6 +321,39 @@ export function SuggestEditor({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * The built preview of an edit not saved yet (decision 0027, "Previews"): a suggestion's edit, or
+ * the owner's whole draft with this change. Nothing is stored; a new code each time it is shown.
+ */
+function UnsavedPreview({
+  start,
+  edit,
+  draft,
+}: {
+  start: ReviewStart;
+  edit: Edit;
+  draft?: { editWith(operation: TextOperation): DraftEdit | null } | undefined;
+}) {
+  const t = useT();
+  const [operation] = edit.operations;
+  const draftEdit = draft && operation?.kind === "text" ? draft.editWith(operation) : null;
+  if (draft && !draftEdit) {
+    return <p className="text-sm">{t("draft.refused.invalid")}</p>;
+  }
+  return (
+    <PreviewPanel
+      artifactId={start.artifactId}
+      request={{
+        unsaved: {
+          versionId: start.versionId,
+          as: draft ? "draft" : "suggestion",
+          edit: draftEdit ?? edit,
+        },
+      }}
+    />
   );
 }
 
@@ -292,7 +384,7 @@ function EditSummary({ edit }: { edit: unknown }) {
 }
 
 /** How many operations apply and are listed, and why the listed ones are. */
-function PlanSummary({ plan }: { plan: Plan }) {
+export function PlanSummary({ plan }: { plan: Plan }) {
   const t = useT();
   const reasons = [
     ...new Set(plan.listed.map((envelope) => envelope.reason).filter((r) => r !== null)),
@@ -314,13 +406,22 @@ function PlanSummary({ plan }: { plan: Plan }) {
   );
 }
 
-/** A new one-use preview each time the tab is shown: no preview URL is reused. */
-function PreviewPanel({ artifactId, plan }: { artifactId: string; plan: Plan }) {
+/**
+ * A new one-use preview each time the tab is shown: no preview URL is reused. `request` names a
+ * plan the person holds by digest (a suggestion's or their draft's) or an edit not saved yet.
+ */
+export function PreviewPanel({
+  artifactId,
+  request,
+}: {
+  artifactId: string;
+  request: PreviewRequest;
+}) {
   const t = useT();
   const { api } = useDashboard();
   const preview = useQuery({
-    queryKey: ["suggestion-preview", artifactId, plan.digest],
-    queryFn: () => api.suggestions.preview(artifactId, plan.digest),
+    queryKey: ["suggestion-preview", artifactId, JSON.stringify(request)],
+    queryFn: () => api.suggestions.preview(artifactId, request),
     gcTime: 0,
     staleTime: 0,
     retry: false,
@@ -456,7 +557,7 @@ export function SuggestionBlock({
             {
               id: "preview",
               label: t("suggest.tabs.preview"),
-              panel: <PreviewPanel artifactId={artifactId} plan={shown} />,
+              panel: <PreviewPanel artifactId={artifactId} request={{ digest: shown.digest }} />,
             },
           ]}
         />
@@ -553,7 +654,7 @@ export function SuggestionBlock({
   );
 }
 
-function attemptMessage(t: T, reason: string): string {
+export function attemptMessage(t: T, reason: string): string {
   switch (reason) {
     case "failed":
     case "version_conflict":

@@ -185,6 +185,8 @@ describe("portifact export", () => {
       approvalReview: { artifactId: doc.id, role: "owner" },
       comments: { artifact: { id: doc.id }, threads: [] },
       commentHistory: [],
+      // Edit suggestions switched off on the server: the change list's route does not exist.
+      changeList: { skipped: "unavailable" },
     });
     expect(manifest.artifacts.find((a) => a.id === doc.id)?.records).toEqual({
       file: `artifacts/${doc.id}/records.json`,
@@ -508,6 +510,44 @@ describe("portifact export", () => {
       JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
     );
     expect(reader.commentHistory).toEqual({ skipped: "forbidden" });
+  });
+
+  it("writes every page of an artifact's change list into its records, or why it is missing", async () => {
+    h.signIn();
+    const { doc } = space();
+    const items = Array.from({ length: 150 }, (_, i) => ({
+      id: `chg_${i}`,
+      artifactId: doc.id,
+      origin: "suggestion",
+      threadId: null,
+      versionId: "ver_1",
+      path: "index.md",
+      route: null,
+      envelope: { format: 2 },
+      reason: "spans_nodes",
+      state: i % 2 === 0 ? "open" : "applied",
+      createdAt: i,
+      closedAt: null,
+      closedVersionId: null,
+      revision: 1,
+    }));
+    server.changes.items.set(doc.id, items);
+    const out = join(h.workspace, "export");
+    expect((await h.invoke("export", out)).code).toBe(0);
+    const records = ArtifactRecords.parse(
+      JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
+    );
+    expect(records.changeList).toEqual(items);
+    const pages = server.requests.filter((r) => r.path === `/api/v1/artifacts/${doc.id}/changes`);
+    expect(pages).toHaveLength(2);
+
+    // A reader: the list is the owner side's.
+    server.changes.forbidden.add(doc.id);
+    expect((await h.invoke("export", out)).code).toBe(0);
+    const reader = ArtifactRecords.parse(
+      JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
+    );
+    expect(reader.changeList).toEqual({ skipped: "forbidden" });
   });
 
   it("exports a workspace's records that bearer routes read and names the dashboard for the rest", async () => {
