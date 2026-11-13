@@ -41,16 +41,19 @@ const EXPIRE_BATCH = 50;
  * (migration 0079), named with `indexed by` so the planner never walks `(state, updated_at)`.
  */
 export function overdueAttemptQueries(now: number, limit: number): SQL[] {
-  const columns = sql.raw(
-    `"id", "artifact_id" as "artifactId", "owner_id" as "ownerId", "origin"`,
-  );
+  const columns = sql.raw(`"id", "artifact_id" as "artifactId", "owner_id" as "ownerId", "origin"`);
   return [
     sql`select ${columns} from "acceptance_attempts" indexed by "acceptance_attempts_running_deliveries_idx" where "state" = 'running' and "deliveries" >= ${SUGGESTION_LIMITS.attemptDeliveries} order by "deliveries" limit ${limit}`,
     sql`select ${columns} from "acceptance_attempts" indexed by "acceptance_attempts_running_created_idx" where "state" = 'running' and "created_at" <= ${now - SUGGESTION_LIMITS.attemptMs} order by "created_at" limit ${limit}`,
   ];
 }
 
-type OverdueAttempt = { id: string; artifactId: string; ownerId: string; origin: "suggestion" | "draft" };
+type OverdueAttempt = {
+  id: string;
+  artifactId: string;
+  ownerId: string;
+  origin: "suggestion" | "draft";
+};
 
 /** Ends attempts still running after their deliveries or their time. */
 export async function expireAcceptAttempts(
@@ -59,7 +62,8 @@ export async function expireAcceptAttempts(
   limit = EXPIRE_BATCH,
 ): Promise<{ ended: number }> {
   const found: OverdueAttempt[] = [];
-  for (const query of overdueAttemptQueries(now, limit)) found.push(...(await db.all<OverdueAttempt>(query)));
+  for (const query of overdueAttemptQueries(now, limit))
+    found.push(...(await db.all<OverdueAttempt>(query)));
   const overdue = [...new Map(found.map((row) => [row.id, row])).values()].slice(0, limit);
   for (const attempt of overdue) await endAttempt(db, attempt, "failed", now);
   return { ended: overdue.length };

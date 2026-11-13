@@ -54,7 +54,9 @@ async function prefix(state: "running" | "ended") {
     updatedAt: NOW,
   }));
   for (let i = 0; i < rows.length; i += 6) {
-    await db().insert(schema.acceptanceAttempts).values(rows.slice(i, i + 6));
+    await db()
+      .insert(schema.acceptanceAttempts)
+      .values(rows.slice(i, i + 6));
   }
   return { owner, doc };
 }

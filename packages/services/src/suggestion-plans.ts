@@ -443,7 +443,13 @@ export async function planSuggestion(
   const [cached] = await db.batch([
     cachePlan(
       db,
-      { userId: input.userId, artifactId: artifact.id, threadId: thread.id, plan: view, now: input.now },
+      {
+        userId: input.userId,
+        artifactId: artifact.id,
+        threadId: thread.id,
+        plan: view,
+        now: input.now,
+      },
       guard,
     ),
     db
@@ -502,7 +508,13 @@ export async function planDraft(
   const [cached] = await db.batch([
     cachePlan(
       db,
-      { userId: input.userId, artifactId: loaded.artifact.id, threadId: null, plan: view, now: input.now },
+      {
+        userId: input.userId,
+        artifactId: loaded.artifact.id,
+        threadId: null,
+        plan: view,
+        now: input.now,
+      },
       draftPlanGuard(loaded, draft, input.now),
     ),
   ]);

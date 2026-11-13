@@ -20,9 +20,9 @@
 import {
   CHANGE_LIST_LIMITS,
   type FileKind,
-  utf8Length,
   type Proof,
   SUGGESTION_LIMITS,
+  utf8Length,
   VersionJobPayload,
 } from "@portifact/contracts";
 import { type Db, type RegionalDb, schema } from "@portifact/db";

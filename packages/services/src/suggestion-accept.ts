@@ -56,12 +56,21 @@ import {
   ok,
   type Result,
 } from "@portifact/domain";
-import { admitItems, attemptOverdue, checkDecide, confirmPlan } from "@portifact/domain/suggestions";
+import {
+  admitItems,
+  attemptOverdue,
+  checkDecide,
+  confirmPlan,
+} from "@portifact/domain/suggestions";
 import { DOCUMENT_RENDERER } from "@portifact/render";
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actorOn } from "./actors.ts";
-import { type AnnotationActor, type AuthorizedAnnotations, annotationParts } from "./annotations.ts";
+import {
+  type AnnotationActor,
+  type AuthorizedAnnotations,
+  annotationParts,
+} from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import type { JobOutcome } from "./outbox.ts";
@@ -196,7 +205,9 @@ async function admitPlan(
   if (!(await confirmed(built, input.digest))) return planChanged();
   const capacity = await capacityFor(db, built, input.now);
   if (!capacity.ok) return capacity;
-  if (!admitItems(await openItems(db, input.artifactId), built.plan.listed.length, CHANGE_LIST_CAP)) {
+  if (
+    !admitItems(await openItems(db, input.artifactId), built.plan.listed.length, CHANGE_LIST_CAP)
+  ) {
     return fail("quota_exceeded", "The change list is full. Close some of its items first.");
   }
   return ok(true);

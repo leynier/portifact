@@ -364,7 +364,13 @@ export async function confirmPlan(input: {
   if ((output === null) !== (newSource === undefined)) return "plan_changed";
   if ((await planDigest(contents)) !== confirmedDigest) return "plan_changed";
   if (output === null || newSource === undefined) return "confirmed";
-  const derived = await outputOf(kind, newSource, output.options, input.renderer, input.bom === true);
+  const derived = await outputOf(
+    kind,
+    newSource,
+    output.options,
+    input.renderer,
+    input.bom === true,
+  );
   return canonicalJson(derived) === canonicalJson(output) ? "confirmed" : "plan_changed";
 }
 
