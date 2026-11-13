@@ -1,12 +1,15 @@
 // `ArtifactDocuments`, the documents Durable Object of decision 0026: one per artifact, named by the
 // artifact ID, on SQLite storage, in the jurisdiction of the owner's region. It holds the store
 // (store.ts) and adapts the platform to it: the alarm, hibernatable WebSockets and the wake after
-// hibernation or eviction. It has no fetch handler. Its only RPC methods are the lifecycle
-// interface below (delivery 4), which the jobs Worker calls through its binding to this script;
-// document commands get theirs with the owner API (delivery 5) and the page (delivery 6).
+// hibernation or eviction. It has no fetch handler. Its RPC methods are the lifecycle interface
+// below (delivery 4), which the jobs Worker calls through its binding to this script, the owner
+// side's commands (`ownerCommand`, delivery 5), which the app Worker calls, and the audit relay's
+// settlement (`auditSettle`, `auditAcknowledge`), which the jobs Worker calls; the page's commands
+// get theirs with delivery 6.
 
 import { DurableObject } from "cloudflare:workers";
 import {
+  ArtifactDataLimits,
   type DataControl,
   type DataEnvelope,
   DataFence,
@@ -15,13 +18,21 @@ import {
   LifecycleEnvelope,
   DataTime as Now,
   OperationId,
+  OwnerActor,
+  OwnerDataCommand,
+  OwnerEnvelope,
   QuarantineReason,
   QuarantineResolutionRequest,
   RequiredErase,
   type StorageReport,
   VisitorId,
 } from "@portifact/contracts/artifact-data";
-import { LIFECYCLE_LIMITS, type LiveAttachment } from "@portifact/domain/artifact-data";
+import {
+  LIFECYCLE_LIMITS,
+  type LiveAttachment,
+  mutationActorName,
+  runOwnerCommand,
+} from "@portifact/domain/artifact-data";
 import { DocumentsStore, type Instrument, type SocketPort, type WokenSocket } from "./store.ts";
 
 /** What an invalid lifecycle command is answered. */
@@ -214,6 +225,52 @@ export class ArtifactDocuments extends DurableObject<Env> {
       { now: input.now, limits: LIFECYCLE_LIMITS },
       true,
     );
+  }
+
+  // The owner side (decision 0026, delivery 5). The app Worker calls this for the artifact's
+  // admins and editors (and service tokens with the data scopes) after its own authorization,
+  // with the envelope from D1, the plan's limits and an operation ID on every mutation; the
+  // object then admits, authorizes and charges every command by the domain's rules, exactly as a
+  // page command. Every argument is parsed here; an invalid one is answered, never thrown.
+
+  /** One owner-side command: a description, a read, a query, a count, a mutation or an export page. */
+  ownerCommand(envelope: unknown, actor: unknown, command: unknown, limits: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: OwnerEnvelope.parse(envelope) satisfies DataEnvelope,
+      actor: OwnerActor.parse(actor),
+      command: OwnerDataCommand.parse(command),
+      context: { now: Now.parse(now), limits: ArtifactDataLimits.parse(limits) },
+    }));
+    if ("refused" in input) return input.refused;
+    return runOwnerCommand(this.store, input.envelope, input.actor, input.command, input.context);
+  }
+
+  /**
+   * The audit relay's question about one owner-side operation (decision 0026, "Audit with
+   * durable states"): its committed obligation, or the operation recorded aborted so a late
+   * arrival cannot commit. Maintenance admission; an invalid argument is answered `refused`.
+   */
+  auditSettle(envelope: unknown, actor: unknown, opId: unknown, now: unknown) {
+    const input = this.#settlement(envelope, actor, opId, now);
+    if (input === null) return { state: "refused" as const, code: "invalid_input" };
+    return this.store.settle(input.envelope, input.actor, input.opId, input.now);
+  }
+
+  /** Marks a settled obligation delivered once its audit event is recorded. */
+  auditAcknowledge(envelope: unknown, actor: unknown, opId: unknown, now: unknown): boolean {
+    const input = this.#settlement(envelope, actor, opId, now);
+    if (input === null) return false;
+    return this.store.acknowledge(input.envelope, input.actor, input.opId, input.now);
+  }
+
+  #settlement(envelope: unknown, actor: unknown, opId: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope) satisfies DataEnvelope,
+      actor: mutationActorName({ kind: "owner", actor: OwnerActor.parse(actor) }),
+      opId: OperationId.parse(opId),
+      now: Now.parse(now),
+    }));
+    return "refused" in input ? null : input;
   }
 
   /**

@@ -27,10 +27,15 @@ export function needsTermsAcceptance(
  * Every operation of the read scopes stays open: reading and downloading is how a person takes
  * their data out (`portifact export`, `pull`, `annotations export`). It has no time limit and
  * covers everything those scopes reach, access logs and other people's comments on the account's
- * artifacts included; this is deliberate. Every operation of these two scopes only reads; a new
+ * artifacts included; this is deliberate. Every operation of these scopes only reads (`data:read`
+ * reads and exports an artifact's documents, decision 0026); a new
  * operation that changes anything must not take one of them.
  */
-export const TERMS_EXEMPT_SCOPES: readonly OAuthScope[] = ["artifacts:read", "annotations:read"];
+export const TERMS_EXEMPT_SCOPES: readonly OAuthScope[] = [
+  "artifacts:read",
+  "annotations:read",
+  "data:read",
+];
 
 /**
  * The operations of other scopes that stay open, by name (the MCP tool's name; API routes are
@@ -55,6 +60,8 @@ export const TERMS_OPEN_OPERATIONS = {
   cancel_review: "removes",
   cancel_upload: "removes",
   delete_webhook: "removes",
+  delete_data_document: "removes",
+  delete_data_documents: "removes",
   set_access: "narrowing",
   set_comment_visibility: "narrowing",
   update_webhook: "narrowing",

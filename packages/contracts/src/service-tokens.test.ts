@@ -58,6 +58,8 @@ describe("creating a token", () => {
       "artifacts:write",
       "artifacts:share",
       "artifacts:delete",
+      "data:read",
+      "data:write",
     ]);
     for (const role of ["admin", "owner"]) {
       expect(ServiceTokenCreate.safeParse({ ...base, role }).success).toBe(false);

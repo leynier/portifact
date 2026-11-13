@@ -59,6 +59,7 @@ import type { AccountSessionLookup } from "./account.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { approvalReviewRoutes } from "./approval-reviews.ts";
 import { auditRoutes } from "./audit.ts";
+import { dataRoutes } from "./data.ts";
 import { documentRoutes } from "./documents.ts";
 import { domainRoutes } from "./domains.ts";
 import { feedbackRoutes } from "./feedback.ts";
@@ -78,6 +79,7 @@ import { searchRoutes } from "./search.ts";
 import { shareLinkRoutes } from "./share-links.ts";
 import { statsRoutes } from "./stats.ts";
 import { suggestionPreviewRoutes } from "./suggestion-previews.ts";
+import { suggestionRoutes } from "./suggestions.ts";
 import { apiTermsOperation } from "./terms-operations.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
@@ -416,6 +418,7 @@ export function apiRoutes(deps: ApiDeps) {
   api.delete("/api/v1/artifacts/:artifactId", lifecycle(deleteArtifact, "artifacts:delete"));
 
   api.route("/", annotationRoutes(guarded, deps.now, deps.siteverify));
+  api.route("/", suggestionRoutes(guarded, deps.now, deps.siteverify));
   versionRoutes(api, guarded, deps);
   documentRoutes(api, guarded, deps.now);
   usageRoutes(api, guarded, deps.now);
@@ -425,6 +428,7 @@ export function apiRoutes(deps: ApiDeps) {
   shareLinkRoutes(api, guarded, deps.now);
   approvalReviewRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
+  dataRoutes(api, guarded, deps.now);
   suggestionPreviewRoutes(api, guarded, { accountSession: deps.accountSession, now: deps.now });
   searchRoutes(api, guarded, deps.now);
   feedbackRoutes(api, guarded, deps.now);

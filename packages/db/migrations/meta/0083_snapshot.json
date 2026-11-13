@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "15ba48cc-38af-4ffe-ba8a-128a3419d69b",
+  "id": "bb5556ef-5ee5-41eb-aa6c-bebb377fc192",
   "prevId": "c2654d7f-bfeb-4012-a004-4774972d63d3",
   "tables": {
     "abuse_reports": {
@@ -2891,213 +2891,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "data_grant_codes": {
-      "name": "data_grant_codes",
-      "columns": {
-        "code_hash": {
-          "name": "code_hash",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "grant_id": {
-          "name": "grant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "nonce_hash": {
-          "name": "nonce_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "host": {
-          "name": "host",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
-        }
-      },
-      "indexes": {
-        "data_grant_codes_expires_idx": {
-          "name": "data_grant_codes_expires_idx",
-          "columns": ["expires_at"],
-          "isUnique": false
-        },
-        "data_grant_codes_grant_idx": {
-          "name": "data_grant_codes_grant_idx",
-          "columns": ["grant_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "data_grant_codes_grant_id_data_grants_id_fk": {
-          "name": "data_grant_codes_grant_id_data_grants_id_fk",
-          "tableFrom": "data_grant_codes",
-          "tableTo": "data_grants",
-          "columnsFrom": ["grant_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "data_grants": {
-      "name": "data_grants",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "visitor_id": {
-          "name": "visitor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "auth_session_id": {
-          "name": "auth_session_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "host": {
-          "name": "host",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "redeemed_at": {
-          "name": "redeemed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
-        }
-      },
-      "indexes": {
-        "data_grants_user_artifact_idx": {
-          "name": "data_grants_user_artifact_idx",
-          "columns": ["user_id", "artifact_id"],
-          "isUnique": false
-        },
-        "data_grants_artifact_idx": {
-          "name": "data_grants_artifact_idx",
-          "columns": ["artifact_id"],
-          "isUnique": false
-        },
-        "data_grants_expires_idx": {
-          "name": "data_grants_expires_idx",
-          "columns": ["expires_at"],
-          "isUnique": false
-        },
-        "data_grants_revoked_idx": {
-          "name": "data_grants_revoked_idx",
-          "columns": ["revoked_at"],
-          "isUnique": false,
-          "where": "\"data_grants\".\"revoked_at\" is not null"
-        },
-        "data_grants_unredeemed_idx": {
-          "name": "data_grants_unredeemed_idx",
-          "columns": ["created_at"],
-          "isUnique": false,
-          "where": "\"data_grants\".\"redeemed_at\" is null"
-        }
-      },
-      "foreignKeys": {
-        "data_grants_artifact_id_artifacts_id_fk": {
-          "name": "data_grants_artifact_id_artifacts_id_fk",
-          "tableFrom": "data_grants",
-          "tableTo": "artifacts",
-          "columnsFrom": ["artifact_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "domain_claims": {
       "name": "domain_claims",
       "columns": {
@@ -3260,6 +3053,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "incarnation": {
+          "name": "incarnation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         }
       },
       "indexes": {

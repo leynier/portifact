@@ -42,6 +42,8 @@ describe("identity schema and seeded OAuth data", () => {
       "annotations:read",
       "annotations:write",
       "annotations:moderate",
+      "data:read",
+      "data:write",
       "credentials:manage",
       "offline_access",
     ]);

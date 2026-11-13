@@ -408,6 +408,45 @@ export async function publishDraft(
   return ok({ attemptId, state: "applying" });
 }
 
+/**
+ * What a replayed acceptance or draft publish answers (decision 0027, "Cross-cutting rules":
+ * idempotent replays are rebuilt under current authorization). The stored answer is only the
+ * attempt's ID; the caller must still act for the owner as a person, see the suggestion (for a
+ * draft, the attempt must be theirs), and the attempt must be theirs on this artifact. Nothing is
+ * started again.
+ */
+export async function replayAcceptance(
+  db: RegionalDb,
+  input: AnnotationActor & { attemptId: string; threadId: string | null },
+): Promise<Result<AcceptanceStarted>> {
+  const loaded = await annotationParts.authorize(db, input, "moderate");
+  if (!loaded.ok) return loaded;
+  if (input.threadId === null) {
+    if (loaded.value.role !== "owner") return fail("not_found", "Draft not found.");
+  } else {
+    const thread = await annotationParts.findThread(db, loaded.value, input.threadId);
+    if (!thread || thread.kind !== "suggestion") return fail("not_found", "Suggestion not found.");
+    if (loaded.value.role !== "owner") {
+      const decision = checkDecide(loaded.value.role, "pending");
+      if (!decision.ok) return decision;
+    }
+  }
+  const [attempt] = await db
+    .select({ id: at.id })
+    .from(at)
+    .where(
+      and(
+        eq(at.id, input.attemptId),
+        eq(at.artifactId, input.artifactId),
+        eq(at.userId, input.userId),
+        input.threadId === null ? eq(at.origin, "draft") : eq(at.threadId, input.threadId),
+      ),
+    )
+    .limit(1);
+  if (!attempt) return fail("not_found", "Artifact not found.");
+  return ok({ attemptId: attempt.id, state: "applying" });
+}
+
 // Ending an attempt
 
 /**
