@@ -26,6 +26,7 @@ import { transferArtifact } from "../src/transfer.ts";
 import { createWorkspace } from "../src/workspaces.ts";
 import { publishIn, team } from "./comment-retention-fixtures.ts";
 import { DAY, db, grantPlan, NOW, session, user, value } from "./fixtures.ts";
+import { raceBeforeBatchWith } from "./race.ts";
 import {
   currentText,
   DOC,
@@ -651,5 +652,95 @@ describe("restore markers, review of #275", () => {
       .from(schema.uploadSessions)
       .where(eq(schema.uploadSessions.id, `upl_${started.attemptId.slice(4)}`));
     expect(upload?.state).toBe("failed");
+  });
+  it("writes no rejection marker when a withdrawal wins the race", async () => {
+    const s = await setup();
+    const raced = raceBeforeBatchWith(/^insert into "tombstones"/i, async () => {
+      value(
+        await withdrawSuggestion(db(), { ...s.as(s.reader.id), threadId: s.threadId, revision: 1 }),
+      );
+    });
+    expect(
+      await rejectSuggestion(raced, { ...s.as(s.owner.id), threadId: s.threadId, revision: 1 }),
+    ).toMatchObject({ ok: false });
+    expect(await marker("suggestion_rejected", s.threadId)).toBeUndefined();
+    expect(await marker("suggestion_withdrawn", s.threadId)).toBeDefined();
+  });
+
+  it("leaves an acceptance that already finished as it is", async () => {
+    const s = await setup();
+    const params = { ...s.as(s.owner.id), threadId: s.threadId, contentDomain: DOMAIN };
+    const plan = value(await planSuggestion(db(), env.ARTIFACTS, params));
+    value(await acceptSuggestion(db(), env.ARTIFACTS, { ...params, digest: plan.digest }));
+    await runJobs("suggestion_accept", s.doc.artifactId);
+    const attempt = () =>
+      db()
+        .select()
+        .from(schema.acceptanceAttempts)
+        .where(eq(schema.acceptanceAttempts.threadId, s.threadId));
+    const finished = await attempt();
+    expect(finished).toMatchObject([{ state: "done" }]);
+    await db()
+      .global.insert(t)
+      .values({ kind: "suggestion_withdrawn", id: s.threadId, deletedAt: NOW });
+    await restore();
+    expect(await attempt()).toEqual(finished);
+    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "accepted" });
+  });
+
+  it("ends a marked draft's running publish at once, before any job runs", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    await save(doc, owner.id);
+    const input = {
+      userId: owner.id,
+      artifactId: doc.artifactId,
+      now: NOW + 20,
+      contentDomain: DOMAIN,
+    };
+    const plan = value(await planDraft(db(), env.ARTIFACTS, input));
+    value(await publishDraft(db(), env.ARTIFACTS, { ...input, digest: plan.digest }));
+    const draft = present(await draftRow(doc, owner.id));
+    expect(draft.attemptId).not.toBeNull();
+    await db()
+      .global.insert(t)
+      .values({
+        kind: "edit_draft",
+        id: draftMarkerId(doc.artifactId, owner.id, draft.incarnation),
+        deletedAt: NOW,
+      });
+    await restore();
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    expect(
+      await db()
+        .select({
+          state: schema.acceptanceAttempts.state,
+          reason: schema.acceptanceAttempts.reason,
+        })
+        .from(schema.acceptanceAttempts)
+        .where(eq(schema.acceptanceAttempts.id, draft.attemptId as string)),
+    ).toEqual([{ state: "ended", reason: "revoked" }]);
+  });
+
+  it("never removes or marks a replacement draft that won the race with a discard", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    await save(doc, owner.id);
+    const replacement = `inc-${crypto.randomUUID()}`;
+    const raced = raceBeforeBatchWith(/^delete from "edit_drafts"/i, async () => {
+      // Another tab discarded the draft and started a new one: the same revision, another
+      // incarnation.
+      await db()
+        .update(dr)
+        .set({ incarnation: replacement })
+        .where(and(eq(dr.artifactId, doc.artifactId), eq(dr.userId, owner.id)));
+    });
+    expect(
+      await discardDraft(raced, { userId: owner.id, artifactId: doc.artifactId, now: NOW + 20 }),
+    ).toMatchObject({ ok: false });
+    expect(await draftRow(doc, owner.id)).toMatchObject({ incarnation: replacement, revision: 1 });
+    expect(
+      await marker("edit_draft", draftMarkerId(doc.artifactId, owner.id, replacement)),
+    ).toBeUndefined();
   });
 });
