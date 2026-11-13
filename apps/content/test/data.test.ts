@@ -563,8 +563,9 @@ describe("artifact data on the artifact origin", () => {
     ) as { _id: string };
     // Run the client script against a stub window and capture the request it builds.
     const requests: { url: string; init: RequestInit }[] = [];
-    const page: { portifact?: { data: { collection(name: string): { remove(id: string): Promise<unknown> } } } } =
-      {};
+    const page: {
+      portifact?: { data: { collection(name: string): { remove(id: string): Promise<unknown> } } };
+    } = {};
     // The script's own clock is the test's, as the Worker's is.
     const run = new Function("window", "fetch", "location", "crypto", "Date", CLIENT_SCRIPT);
     run(
@@ -585,7 +586,10 @@ describe("artifact data on the artifact origin", () => {
     headers.set("Origin", `https://${id}.portifact.dev`);
     for (const [name, value] of Object.entries(FETCH)) headers.set(name, value);
     const response = await handle(
-      new Request(`https://${id}.portifact.dev${sent.url}`, { method: sent.init.method ?? "GET", headers }),
+      new Request(`https://${id}.portifact.dev${sent.url}`, {
+        method: sent.init.method ?? "GET",
+        headers,
+      }),
       ON,
       NOW,
     );
