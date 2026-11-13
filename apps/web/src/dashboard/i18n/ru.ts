@@ -7,6 +7,51 @@ import type { Catalog } from "./en.ts";
 export const ru = {
   ...planTextRu,
   "app.title": "Portifact",
+  "dataGrant.pageTitle": "Сохранение введённого",
+  "dataGrant.title": "Разрешить {host} сохранять то, что вы вводите?",
+  "dataGrant.ownerPerson": "Опубликовал(а) {name}",
+  "dataGrant.ownerWorkspace": "Опубликовано рабочим пространством {name}",
+  "dataGrant.learns":
+    "Страница будет знать вас как {name}, с идентификатором только для этого artifact. Ваш адрес почты она не узнает.",
+  "dataGrant.managers":
+    "Люди, которые управляют этим artifact, могут читать всё, что там сохранено.",
+  "dataGrant.moves":
+    "Если artifact перейдёт к другому владельцу, сохранённое перейдёт вместе с ним.",
+  "dataGrant.deletion":
+    "Если вы удалите аккаунт, созданное вами там будет удалено вместе с последующими правками других. Ваши правки в записях других людей останутся, без вашего имени.",
+  "dataGrant.lasts":
+    "Действует {days} дней в этом браузере, пока вы не выйдете или не отзовёте разрешение.",
+  "dataGrant.rights": "Посмотреть, чем вы поделились, и отозвать",
+  "dataGrant.allow": "Разрешить",
+  "dataGrant.notNow": "Не сейчас",
+  "dataGrant.loading": "Загрузка",
+  "dataGrant.unavailable": "Этот запрос нельзя использовать",
+  "dataGrant.unavailableHint": "Откройте artifact снова и выберите сохранение оттуда.",
+  "dataGrant.failed": "Разрешение не завершено",
+  "sharedData.title": "Ваши общие данные",
+  "sharedData.description":
+    "Страницы artifact, которые могут знать вас и сохранять то, что вы вводите. Отзыв действует в течение минуты; сохранённое остаётся в artifact.",
+  "sharedData.listTitle": "Разрешённые страницы",
+  "sharedData.loading": "Загрузка общих данных",
+  "sharedData.failed": "Не удалось загрузить общие данные",
+  "sharedData.empty": "Вы пока ничем не поделились",
+  "sharedData.emptyHint":
+    "Когда страница artifact попросит сохранять то, что вы вводите, и вы разрешите, она появится здесь.",
+  "sharedData.artifact": "Artifact",
+  "sharedData.since": "Разрешено с",
+  "sharedData.status": "Статус",
+  "sharedData.actions": "Действия",
+  "sharedData.gone": "Artifact больше недоступен",
+  "sharedData.open": "Разрешено до {date}",
+  "sharedData.ended": "Завершено",
+  "sharedData.revoke": "Отозвать",
+  "sharedData.revokeNamed": "Отозвать {name}",
+  "sharedData.revoked": "{name} больше не может сохранять от вашего имени",
+  "sharedData.confirmTitle": "Отозвать {name}?",
+  "sharedData.confirmBody":
+    "В течение минуты, во всех браузерах, страница перестанет знать вас и сохранять от вашего имени. Сохранённое остаётся в artifact.",
+  "sharedData.cancel": "Отмена",
+  "sharedData.revokeFailed": "Отзыв не завершён",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Перейти к содержимому",
   "shell.navigation": "Основное",

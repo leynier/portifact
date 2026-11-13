@@ -185,4 +185,41 @@ describe("data grants on the app", () => {
       (await h.request(`/api/v1/account/data-grants/${id}`, dashboard(cookie, "DELETE"))).status,
     ).toBe(200);
   });
+
+  it("treats the artifact's own .dev host as no custom host, and refuses malformed IDs", async () => {
+    const h = on();
+    const id = await artifactWithData(
+      h,
+      "grants-owner5@example.test",
+      "grants-reader5@example.test",
+    );
+    const cookie = await h.signIn("grants-reader5@example.test");
+    const dev = `${id}.${env.CONTENT_DOMAIN}`;
+    const control = await h.request(
+      `/api/v1/account/data-grants/${id}/control?host=${dev}`,
+      dashboard(cookie),
+    );
+    expect(control.status).toBe(200);
+    const foreignControl = await h.request(
+      `/api/v1/account/data-grants/${id}/control?host=evil.example`,
+      dashboard(cookie),
+    );
+    expect(foreignControl.status).toBe(404);
+    const issued = await h.request(
+      "/api/v1/account/data-grants",
+      dashboard(cookie, "POST", { artifactId: id, nonceHash: NONCE_HASH, flow: "top", host: dev }),
+    );
+    expect(new URL((await issued.json<{ redeemUrl: string }>()).redeemUrl).host).toBe(dev);
+    for (const [path, method] of [
+      ["/api/v1/account/data-grants/NOT-AN-ID/control", "GET"],
+      ["/api/v1/account/data-grants/NOT-AN-ID", "DELETE"],
+    ] as const) {
+      expect((await h.request(path, dashboard(cookie, method))).status).toBe(404);
+    }
+    const bad = await h.request(
+      "/api/v1/account/data-grants",
+      dashboard(cookie, "POST", { artifactId: id, nonceHash: "short", flow: "top" }),
+    );
+    expect(bad.status).toBe(400);
+  });
 });

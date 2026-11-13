@@ -33,6 +33,7 @@ import { scheduleCommentNotices } from "./comment-notices.ts";
 import { enforceCommentRetention } from "./comment-retention.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "./content-search.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
+import { pruneDataGrants } from "./data-grants.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
@@ -65,7 +66,6 @@ import {
   unpinLapsedPlans,
 } from "./plans.ts";
 import { closeUploadSession } from "./publish.ts";
-import { pruneDataGrants } from "./data-grants.ts";
 import { pruneReadSessions } from "./read-access.ts";
 import { previousPrunableSql } from "./retention.ts";
 import { pruneReviewSessions } from "./review-access.ts";

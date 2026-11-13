@@ -77,6 +77,9 @@ export const DASHBOARD_ROUTES = [
   "/usage",
   "/plan",
   "/data",
+  // Artifact data (decision 0026): "Data you shared" and the consent control's page.
+  "/shared-data",
+  "/data/grant",
   "/webhooks",
   "/integrations",
   "/branding",
