@@ -12,6 +12,7 @@ import {
   revokeDataGrants,
 } from "@portifact/services";
 import { describe, expect, it } from "vitest";
+import { READ_COOKIE, seal } from "../src/cookies.ts";
 import { CLIENT_SCRIPT, GRANT_COOKIE, GRANT_TX_COOKIE } from "../src/data.ts";
 import { resetDeliveryCaches } from "../src/directory.ts";
 import { handle } from "../src/index.ts";
@@ -476,5 +477,80 @@ describe("artifact data on the artifact origin", () => {
     );
     expect(head.status).toBe(200);
     expect(await head.text()).toBe("");
+  });
+
+  it("lets a restricted artifact's reader in through their read session, and nobody else", async () => {
+    const id = await seed("restricted");
+    await db()
+      .insert(schema.artifactReaders)
+      .values({ artifactId: id, email: `${READER}@example.com` });
+    const value = await seal(env.READ_SESSION_SECRET, "pf_read", {
+      v: 1,
+      sid: "s".repeat(43),
+      aid: id,
+      uid: READER,
+      gen: 1,
+      exp: NOW + 10 * 60_000,
+      sexp: NOW + DAY,
+    });
+    const read = `${READ_COOKIE}=${value}`;
+    const me = await send(id, "me", { cookie: read });
+    expect(me.status).toBe(200);
+    expect(JSON.parse(me.body)).toEqual({ granted: false });
+    // An artifact that does not exist answers like a refused one.
+    expect((await send("zzzzzzzzzz", "me", { cookie: read })).status).toBe(404);
+  });
+
+  it("refuses data requests once the owner's traffic for the month is spent", async () => {
+    const id = await seed();
+    const start = Date.UTC(2026, 10, 1);
+    await db().insert(schema.trafficCounters).values({
+      ownerId: OWNER,
+      cycleStart: start,
+      requests: 10_000_000,
+      bytes: 0,
+      updatedAt: NOW,
+    });
+    resetDeliveryCaches();
+    const answered = await send(id, "me");
+    expect(answered.status).toBe(429);
+  });
+
+  it("refuses a late transaction, one of the other flow, a repeated code and a body over the limit", async () => {
+    const id = await seed();
+    const begun = await send(id, "grant/begin?flow=top&to=%2F%2Fevil.example", {
+      headers: NAVIGATE_TOP,
+    });
+    const tx = cookieOf(begun, GRANT_TX_COOKIE);
+    const code = "c".repeat(43);
+    const late = await send(id, `grant?flow=top&code=${code}`, {
+      headers: FROM_APP_TOP,
+      cookie: tx,
+      now: NOW + 6 * 60_000,
+    });
+    expect(late.status).toBe(403);
+    const otherFlow = await send(id, `grant?flow=frame&code=${code}`, {
+      headers: FROM_APP_FRAME,
+      cookie: tx,
+    });
+    expect(otherFlow.body).toContain("portifact:data-grant-unavailable");
+    const twice = await send(id, `grant?flow=top&code=${code}&code=${code}`, {
+      headers: FROM_APP_TOP,
+      cookie: tx,
+    });
+    expect(twice.status).toBe(403);
+    const garbled = await send(id, `grant?flow=top&code=${code}`, {
+      headers: FROM_APP_TOP,
+      cookie: `${GRANT_TX_COOKIE}=e1.not.sealed`,
+    });
+    expect(garbled.status).toBe(403);
+
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const huge = await send(id, "c/votes", {
+      method: "POST",
+      body: { text: "x".repeat(90 * 1024) },
+      cookie: grant,
+    });
+    expect(huge.status).toBe(400);
   });
 });

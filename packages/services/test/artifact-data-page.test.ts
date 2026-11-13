@@ -119,29 +119,37 @@ describe("page data commands", () => {
     const { objects, owner } = harness();
     const { artifactId } = await artifactWithVotes(owner);
     const create = (key: string | null, now: number) =>
-      pageDataCommand(db(), { objects }, {
-        artifactId,
-        region: "default",
-        limits: LIMITS,
-        caller: ALICE,
-        command: { kind: "create", collection: "votes", body: { choice: "z" } },
-        idempotencyKey: key,
-        now,
-      });
+      pageDataCommand(
+        db(),
+        { objects },
+        {
+          artifactId,
+          region: "default",
+          limits: LIMITS,
+          caller: ALICE,
+          command: { kind: "create", collection: "votes", body: { choice: "z" } },
+          idempotencyKey: key,
+          now,
+        },
+      );
     expect(value((await create(KEY, NOW)).result).replayed).toBe(false);
     expect(value((await create(KEY, NOW + 90_000)).result).replayed).toBe(true);
     expect(value((await create("not-a-keyed-key", NOW)).result).replayed).toBe(false);
     expect(value((await create("not-a-keyed-key", NOW)).result).replayed).toBe(false);
     // Bob's same key is his own operation.
-    const bob = await pageDataCommand(db(), { objects }, {
-      artifactId,
-      region: "default",
-      limits: LIMITS,
-      caller: BOB,
-      command: { kind: "create", collection: "votes", body: { choice: "z" } },
-      idempotencyKey: KEY,
-      now: NOW,
-    });
+    const bob = await pageDataCommand(
+      db(),
+      { objects },
+      {
+        artifactId,
+        region: "default",
+        limits: LIMITS,
+        caller: BOB,
+        command: { kind: "create", collection: "votes", body: { choice: "z" } },
+        idempotencyKey: KEY,
+        now: NOW,
+      },
+    );
     expect(value(bob.result).replayed).toBe(false);
   });
 
