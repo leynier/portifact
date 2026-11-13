@@ -1043,6 +1043,41 @@ export const es = {
   "suggest.changes.dismiss": "Descartar",
   "suggest.changes.reopen": "Reabrir",
   "suggest.changes.marked": "Lista de cambios actualizada.",
+  "draft.mode.edit": "Editar",
+  "draft.mode.on":
+    "El modo de edición está activado. Selecciona texto en el artifact para cambiarlo en tu borrador privado.",
+  "draft.editor.title": "Cambiar el texto",
+  "draft.add": "Añadir al borrador",
+  "draft.added": "Añadido a tu borrador.",
+  "draft.heading": "Tu borrador",
+  "draft.loading": "Cargando tu borrador",
+  "draft.empty":
+    "Elige Editar y selecciona texto en el artifact para cambiarlo. Tus cambios son privados hasta que los publiques.",
+  "draft.count": "{count, plural, one {# cambio} other {# cambios}}",
+  "draft.changes": "Cambios en tu borrador",
+  "draft.remove": "Quitar el cambio {number}",
+  "draft.removeShort": "Quitar",
+  "draft.stale":
+    "Este borrador se hizo sobre una versión anterior, así que no se puede publicar. Descártalo y edita la versión actual.",
+  "draft.attemptEnded": "La última publicación no terminó: {reason}",
+  "draft.publishingBadge": "Publicando",
+  "draft.publishing": "Publicando tu borrador. La nueva versión aparecerá cuando esté lista.",
+  "draft.publish": "Publicar",
+  "draft.publish.title": "¿Publicar este borrador?",
+  "draft.publish.confirm": "Publicar una versión nueva",
+  "draft.discard": "Descartar",
+  "draft.discard.title": "¿Descartar este borrador?",
+  "draft.discard.body": "Se eliminan todos sus cambios. No se publica nada.",
+  "draft.discarded": "Borrador descartado.",
+  "draft.conflict":
+    "Tu borrador cambió en otra pestaña o ventana. Ahora muestra su estado más reciente; vuelve a hacer tu cambio.",
+  "draft.refused.stale":
+    "Tu borrador se hizo sobre una versión anterior. Descártalo antes de editar la versión actual.",
+  "draft.refused.other_page":
+    "Tu borrador contiene cambios de otra página. Publícalo o descártalo antes de editar esta página.",
+  "draft.refused.full":
+    "Tu borrador ya tiene el máximo de cambios. Publícalo o descártalo primero.",
+  "draft.refused.invalid": "Este cambio no se puede añadir al borrador.",
   "review.open": "Revisar y comentar",
   "viewer.loading": "Abriendo el artifact",
   "viewer.unavailable.title": "No se puede abrir este artifact",

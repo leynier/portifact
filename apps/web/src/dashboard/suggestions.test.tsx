@@ -19,6 +19,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   artifact,
+  type FakeAnnotations,
   type FakeServer,
   fakeMessage,
   fakeServer,
@@ -817,3 +818,194 @@ async function connectAgain() {
     .at(-1);
   return { nonce: init?.nonce as string };
 }
+
+describe("the owner's draft (decision 0027)", () => {
+  const editMode = async () => {
+    fireEvent.click(within(await modeSwitch()).getByRole("button", { name: "Edit mode" }));
+    await waitFor(() =>
+      expect(
+        sent()
+          .filter((m) => m.type === "edit-mode")
+          .at(-1),
+      ).toMatchObject({ active: true }),
+    );
+    const mode = sent()
+      .filter((m) => m.type === "edit-mode")
+      .at(-1);
+    return mode?.type === "edit-mode" ? mode.epoch : 0;
+  };
+  const draftPanel = () => screen.getByRole("region", { name: "Your draft" });
+
+  async function addToDraft(nonce: string, epoch: number, after: string) {
+    const editor = await openEditor(nonce, epoch);
+    expect(within(editor).getByRole("heading", { name: "Change the text" })).toBeTruthy();
+    expect(within(editor).queryByRole("textbox", { name: "Note" })).toBeNull();
+    const field = within(editor).getByRole("textbox", { name: "New text" });
+    fireEvent.change(field, { target: { value: after } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    await within(editor).findByRole("heading", { name: "Check your suggestion" });
+    fireEvent.click(within(editor).getByRole("button", { name: "Add to draft" }));
+    await screen.findByText("Added to your draft.");
+  }
+
+  it("is offered to the owner side only", async () => {
+    server.annotations[ID] = {
+      ...(server.annotations[ID] as FakeAnnotations),
+      role: "participant",
+    };
+    await open();
+    await connect();
+    const group = await modeSwitch();
+    expect(within(group).queryByRole("button", { name: "Edit mode" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Your draft" })).toBeNull();
+  });
+
+  it("adds an edit to a private draft, never posting it to the frame, and coalesces edits of the same text", async () => {
+    const { container } = await open();
+    const { nonce } = await connect();
+    let epoch = await editMode();
+    expect(within(draftPanel()).getByText(/Your changes stay private/)).toBeTruthy();
+    await addToDraft(nonce, epoch, TYPED);
+    expect(server.bodies).toContainEqual({
+      baseVersionId: "v1",
+      edit: { operations: [{ kind: "text", target: TEXT_TARGET, after: TYPED }] },
+      baseRevision: null,
+      baseIncarnation: null,
+    });
+    expect(JSON.stringify(sent())).not.toContain(TYPED);
+    expect(within(draftPanel()).getByText("1 change")).toBeTruthy();
+    // No suggestion was started.
+    expect(server.requests.some((r) => r.path.endsWith("/suggestions"))).toBe(false);
+
+    epoch = (
+      sent()
+        .filter((m) => m.type === "edit-mode")
+        .at(-1) as { epoch: number }
+    ).epoch;
+    await addToDraft(nonce, epoch, "the bravest world");
+    expect(server.bodies.at(-1)).toEqual({
+      baseVersionId: "v1",
+      edit: { operations: [{ kind: "text", target: TEXT_TARGET, after: "the bravest world" }] },
+      baseRevision: 1,
+      baseIncarnation: "i".repeat(22),
+    });
+    expect(within(draftPanel()).getByText("1 change")).toBeTruthy();
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(container)).toEqual([]);
+  });
+
+  it("checks what applies and publishes the confirmed plan once", async () => {
+    server.suggestions.drafts[ID] = {
+      artifactId: ID,
+      baseVersionId: "v1",
+      edit: { operations: [{ kind: "text", target: TEXT_TARGET, after: TYPED }] },
+      revision: 2,
+      incarnation: "i".repeat(22),
+      publishing: false,
+      attemptReason: null,
+      updatedAt: 0,
+    };
+    server.suggestions.draftPlans[ID] = plan();
+    await open();
+    const panel = await screen.findByRole("region", { name: "Your draft" });
+    fireEvent.click(await within(panel).findByRole("button", { name: "Check what applies" }));
+    await within(panel).findByRole("list", { name: "What accepting does, line by line" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Publish" }));
+    const dialog = await screen.findByRole("dialog", { name: "Publish this draft?" });
+    const confirm = within(dialog).getByRole("button", { name: "Publish a new version" });
+    act(() => {
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+    });
+    await screen.findByText("Publishing your draft. The new version appears when it is ready.");
+    expect(server.requests.filter((r) => r.path.endsWith("/draft/publish"))).toHaveLength(1);
+    expect(server.bodies).toContainEqual({ digest: DIGEST });
+    await within(panel).findByText("Publishing");
+  });
+
+  it("removes a change, discards the draft, and says when it was made on an earlier version", async () => {
+    server.suggestions.drafts[ID] = {
+      artifactId: ID,
+      baseVersionId: "v0",
+      edit: { operations: [{ kind: "text", target: TEXT_TARGET, after: TYPED }] },
+      revision: 1,
+      incarnation: "i".repeat(22),
+      publishing: false,
+      attemptReason: "plan_changed",
+      updatedAt: 0,
+    };
+    await open();
+    const panel = await screen.findByRole("region", { name: "Your draft" });
+    await within(panel).findByText(/made on an earlier version/);
+    expect(within(panel).getByText(/The last publish did not finish/)).toBeTruthy();
+    // A stale draft is not published and takes no new change.
+    expect(within(panel).queryByRole("button", { name: "Check what applies" })).toBeNull();
+    const { nonce } = await connect();
+    const epoch = await editMode();
+    const editor = await openEditor(nonce, epoch);
+    const field = within(editor).getByRole("textbox", { name: "New text" });
+    fireEvent.change(field, { target: { value: "other" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.click(await within(editor).findByRole("button", { name: "Add to draft" }));
+    await screen.findByText(/Discard it before editing the current version/);
+    expect(server.requests.some((r) => r.method === "PUT")).toBe(false);
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Discard" }));
+    const dialog = await screen.findByRole("dialog", { name: "Discard this draft?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Discard" }));
+    await screen.findByText("Draft discarded.");
+    expect(server.suggestions.drafts[ID]).toBeUndefined();
+    await within(panel).findByText(/Your changes stay private/);
+  });
+
+  it("removes one change at the revision held, and reloads a draft changed elsewhere", async () => {
+    const second = {
+      ...TEXT_TARGET,
+      anchor: {
+        ...TEXT_TARGET.anchor,
+        quote: { exact: "Hello", prefix: "", suffix: " " },
+        position: { start: 0, end: 5 },
+      },
+    };
+    server.suggestions.drafts[ID] = {
+      artifactId: ID,
+      baseVersionId: "v1",
+      edit: {
+        operations: [
+          { kind: "text", target: TEXT_TARGET, after: TYPED },
+          { kind: "text", target: second, after: "Hi" },
+          {
+            kind: "text",
+            target: {
+              ...TEXT_TARGET,
+              anchor: { ...TEXT_TARGET.anchor, position: { start: 30, end: 45 } },
+            },
+            after: "Third",
+          },
+        ],
+      },
+      revision: 3,
+      incarnation: "i".repeat(22),
+      publishing: false,
+      attemptReason: null,
+      updatedAt: 0,
+    };
+    await open();
+    const panel = await screen.findByRole("region", { name: "Your draft" });
+    await within(panel).findByText("3 changes");
+    fireEvent.click(within(panel).getByRole("button", { name: "Remove change 1" }));
+    await within(panel).findByText("2 changes");
+    const saved = server.bodies.at(-1) as {
+      baseRevision: number;
+      edit: { operations: { after: string }[] };
+    };
+    expect(saved.baseRevision).toBe(3);
+    expect(saved.edit.operations.map((o) => o.after)).toEqual(["Hi", "Third"]);
+
+    // Another tab saved meanwhile: the save is refused and the panel shows the draft as it is.
+    const stored = server.suggestions.drafts[ID];
+    if (stored) stored.revision = 9;
+    fireEvent.click(within(panel).getByRole("button", { name: "Remove change 1" }));
+    await screen.findByText(/Your draft changed in another tab or window/);
+  });
+});
