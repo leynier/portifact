@@ -35,7 +35,12 @@ describe("upgrading a populated database", () => {
     const all = env.TEST_MIGRATIONS;
     const at = all.findIndex((migration) => migration.name.startsWith("0077_"));
     expect(at).toBeGreaterThan(0);
-    expect(all.slice(at).map((migration) => migration.name.slice(0, 4))).toEqual(["0077", "0078"]);
+    // The two migrations of the suggestion storage, first after 0076; later ones (0079: indexes
+    // only) add no trigger and touch no thread.
+    expect(all.slice(at, at + 2).map((migration) => migration.name.slice(0, 4))).toEqual([
+      "0077",
+      "0078",
+    ]);
     await applyD1Migrations(db, all.slice(0, at));
     const before = await triggers(db);
     await db.batch([
