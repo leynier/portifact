@@ -95,6 +95,7 @@ import { DraftPanel, useDraft } from "../review/draft.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
 import { SUGGEST_OFF, type SuggestOffer, suggestReducer } from "../review/suggest-session.ts";
 import { ChangeList, SuggestEditor } from "../review/suggestions.tsx";
+import { TextSearchPanel } from "../review/text-search-panel.tsx";
 import { ActionError, bodyError, humanRefusal, ThreadCard } from "../review/thread-card.tsx";
 import { TargetSummary } from "../review/thread-parts.tsx";
 import { type BridgeState, useBridge } from "../review/use-bridge.ts";
@@ -1276,6 +1277,15 @@ function ReviewSession({
               </Button>
             ) : null}
           </div>
+        ) : null}
+        {suggest.mode !== "off" ? (
+          <TextSearchPanel
+            start={start}
+            path={path}
+            // Reading a site's stored files is the owner side's: reviewers select in the frame.
+            available={ownerSide}
+            onChoose={(found) => dispatchSuggest({ type: "open-target", target: found })}
+          />
         ) : null}
         {canComment && draft && !draft.inline ? (
           <Composer

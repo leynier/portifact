@@ -17,7 +17,7 @@ import {
   type SuggestionView,
   utf8Length,
 } from "@portifact/contracts";
-import { type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
 import { checkDecide, checkWithdraw, plannableKind } from "@portifact/domain/suggestions";
 import { and, eq, sql } from "drizzle-orm";
@@ -29,6 +29,7 @@ import {
   WITHDRAWN,
 } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
+import { decisionMarker } from "./suggestion-markers.ts";
 import { suggestionView as view } from "./suggestion-view.ts";
 
 export { storedEdit, storedProofs } from "./suggestion-view.ts";
@@ -256,9 +257,15 @@ export async function rejectSuggestion(
     (loaded, thread) => checkDecide(loaded.role, thread.suggestionState),
     "moderate",
     async (loaded, guard) => {
-      const [, updated] = await db.batch([
+      // With one database the whole batch runs on the handle that also writes the tombstone.
+      const shared = bothSides(db);
+      const x: Db = shared ?? db;
+      const thread = { id: input.threadId, artifactId: loaded.artifact.id };
+      const [, , updated] = await x.batch([
+        // What keeps it rejected through a restore (decision 0027), on the decision's guard.
+        decisionMarker(x, shared !== null, "suggestion_rejected", thread, guard, input.now),
         auditEvent(
-          db,
+          x,
           {
             ownerId: loaded.artifact.ownerId,
             kind: "suggestion.rejected",
@@ -270,7 +277,7 @@ export async function rejectSuggestion(
           },
           guard,
         ),
-        db
+        x
           .update(th)
           .set({
             suggestionState: "rejected",
@@ -303,9 +310,14 @@ export async function withdrawSuggestion(
     "delete_own",
     async (loaded, guard) => {
       const owned = sql`${guard} and exists (select 1 from ${th} where ${th.id} = ${input.threadId} and ${th.authorId} = ${input.userId})`;
-      const [, updated] = await db.batch([
+      const shared = bothSides(db);
+      const x: Db = shared ?? db;
+      const thread = { id: input.threadId, artifactId: loaded.artifact.id };
+      const [, , updated] = await x.batch([
+        // What keeps it withdrawn through a restore (decision 0027), on the withdrawal's guard.
+        decisionMarker(x, shared !== null, "suggestion_withdrawn", thread, owned, input.now),
         auditEvent(
-          db,
+          x,
           {
             ownerId: loaded.artifact.ownerId,
             kind: "suggestion.withdrawn",
@@ -317,7 +329,7 @@ export async function withdrawSuggestion(
           },
           owned,
         ),
-        db
+        x
           .update(th)
           .set({ ...WITHDRAWN, updatedAt: input.now })
           .where(and(eq(th.id, input.threadId), owned))
