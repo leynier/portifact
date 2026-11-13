@@ -35,8 +35,10 @@ import {
   type EmailDomainDeps,
   heldArtifactIds,
   maintainAuditStreams,
+  PREVIEW_PRUNE,
   personalHandles,
   pruneAccessEvents,
+  prunePreviewCodes,
   recheckEmailDomains,
   reconcileStorage,
   recordEmailEvent,
@@ -130,6 +132,37 @@ export async function runRelay(env: Env, now: number): Promise<number | "failed"
     }
   }
   return failed ? "failed" : relayed;
+}
+
+/**
+ * The every-minute prune of preview codes and their cached documents (decision 0027), in every
+ * region, only while suggestions are switched on. It runs on the relay's schedule but in its own
+ * `waitUntil`, so a failure of one never stops the other; a region that fails is logged and the
+ * others go on.
+ */
+export async function runPreviewPrune(env: Env, now: number): Promise<number | "off" | "failed"> {
+  if (!suggestionsEnabled(env)) return "off";
+  let pruned = 0;
+  let failed = false;
+  for (const handles of regionsFromEnv(env).all()) {
+    try {
+      const done = await prunePreviewCodes(
+        handles.db,
+        bucketOf(handles),
+        now,
+        PREVIEW_PRUNE,
+        handles.region,
+      );
+      pruned += done.documents + done.rows;
+    } catch (error) {
+      failed = true;
+      logEvent("error", "preview_prune_failed", {
+        region: handles.region,
+        error: errorLabel(error),
+      });
+    }
+  }
+  return failed ? "failed" : pruned;
 }
 
 /** The bucket of a region, which every Worker that runs its jobs is bound to. */
@@ -413,6 +446,7 @@ export default {
     const env = background(workerEnv);
     if (controller.cron === RELAY_CRON) {
       ctx.waitUntil(runRelay(env, controller.scheduledTime));
+      ctx.waitUntil(runPreviewPrune(env, controller.scheduledTime));
       return;
     }
     ctx.waitUntil(

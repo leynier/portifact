@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { deleteOwnAnnotationMessage, replyToAnnotationThread } from "../src/annotations.ts";
 import { markChangeItem } from "../src/change-list.ts";
 import { placeLegalHold } from "../src/legal-holds.ts";
@@ -553,7 +553,7 @@ it("R5c: starting an acceptance must recheck role in its batch, for both kinds",
 
 it("R4b: every acceptance counts in the planning windows, a draft's too, before any file is read", async () => {
   const s = await setup();
-  const key = `suggestion_plan:user:${s.owner.id}`;
+  const key = `suggestion-plan:user:${s.owner.id}`;
   const count = async () =>
     (await db().select().from(schema.rateLimits).where(eq(schema.rateLimits.key, key)))[0]?.count ??
     0;
@@ -750,3 +750,60 @@ async function grantPlanFor(ownerId: string) {
   const { grantPlan } = await import("./fixtures.ts");
   await grantPlan(ownerId, "team", { seats: 10 });
 }
+
+describe("previews and the suggestion services", () => {
+  async function previewed() {
+    const { issuePreviewCode } = await import("../src/suggestion-previews.ts");
+    const { session } = await import("./fixtures.ts");
+    const { TERMS_VERSION } = await import("@portifact/contracts");
+    const s = await setup();
+    await db()
+      .global.update(schema.users)
+      .set({ termsVersion: TERMS_VERSION })
+      .where(eq(schema.users.id, s.owner.id));
+    const sessionId = await session(s.owner.id);
+    const issued = value(
+      await issuePreviewCode(db(), env.ARTIFACTS, {
+        userId: s.owner.id,
+        sessionId,
+        artifactId: s.doc.artifactId,
+        digest: s.plan.digest,
+        now: NOW + 100,
+        contentDomain: DOMAIN,
+      }),
+    );
+    if (issued.state !== "ready") throw new Error("no preview");
+    return { s, code: issued.url.slice(issued.url.lastIndexOf("/") + 1) };
+  }
+  const redeem = async (code: string, now: number) => {
+    const { redeemPreviewCode } = await import("../src/suggestion-previews.ts");
+    const { regionsFromEnv } = await import("@portifact/db");
+    return redeemPreviewCode(regionsFromEnv(env), code, now);
+  };
+
+  it("a plan the services build is the plan a preview rebuilds", async () => {
+    const { code } = await previewed();
+    expect(await redeem(code, NOW + 110)).toBeDefined();
+  });
+
+  it("refuses a preview issued before an acceptance once it started", async () => {
+    const { s, code } = await previewed();
+    value(await s.accept());
+    expect((await thread(s.view.id))?.suggestionState).toBe("applying");
+    expect(await redeem(code, NOW + 110)).toBeUndefined();
+  });
+
+  it("refuses a preview issued before a carry moved the suggestion", async () => {
+    const { s, code } = await previewed();
+    const { republish } = await import("./suggestion-support.ts");
+    await republish(
+      s.owner.id,
+      s.doc,
+      DOC.replace("First paragraph.", "First paragraph, longer."),
+      NOW + 101,
+    );
+    await runJobs("suggestion_carry", s.doc.artifactId, NOW + 102);
+    expect((await thread(s.view.id))?.suggestionRevision).toBe(2);
+    expect(await redeem(code, NOW + 110)).toBeUndefined();
+  });
+});

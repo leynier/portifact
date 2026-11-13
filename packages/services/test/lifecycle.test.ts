@@ -485,6 +485,7 @@ describe("purging archives", () => {
       acceptAttempts: 0,
       suggestionRecords: { plans: 0, attempts: 0, items: 0, drafts: 0 },
       draftsWithoutRole: 0,
+      previewCodes: { documents: 0, rows: 0, behind: false },
       workspacePolicies: { checked: 0, corrected: 0, failed: 0 },
       commentRetention: {
         checked: 0,

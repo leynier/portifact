@@ -76,6 +76,7 @@ import {
   pruneDraftsWithoutRole,
   pruneSuggestionRecords,
 } from "./suggestion-maintenance.ts";
+import { PREVIEW_PRUNE, prunePreviewCodes } from "./suggestion-previews.ts";
 import { requeueThreadIssues } from "./thread-issues.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
@@ -974,6 +975,8 @@ export async function runRegionalMaintenance(
     acceptAttempts: (await expireAcceptAttempts(db, now)).ended,
     suggestionRecords: await pruneSuggestionRecords(db, now),
     draftsWithoutRole: (await pruneDraftsWithoutRole(db, now)).deleted,
+    // Preview codes of edit suggestions and their cached documents (decision 0027).
+    previewCodes: await prunePreviewCodes(db, bucket, now, PREVIEW_PRUNE, region),
     workspacePolicies: await enforceWorkspacePolicies(db, now),
     // Comment retention (decision 0023): deletes for good, bounded, held to the rule in force.
     commentRetention: await enforceCommentRetention(db, bucket, now, region),
@@ -1055,6 +1058,8 @@ export async function runMaintenance(
     // Slack connections started and never completed, after 24 hours (decision 0025): one delete
     // of at most a few rows per owner, with no tombstone (they hold no credential).
     pendingConnections: await prunePendingConnections(db, now),
+    // Preview codes of edit suggestions and their cached documents (decision 0027).
+    previewCodes: await prunePreviewCodes(db, bucket, now),
     // Workspace policies (decision 0015): brings back in line what a request that read a policy
     // before it tightened let through after the policy's job ran.
     // Edit suggestions (decision 0027): overdue acceptances end, records past their time go, and

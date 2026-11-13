@@ -452,3 +452,40 @@ describe("shapes released clients parse", () => {
     }
   });
 });
+
+describe("the preview origin", () => {
+  it("names a host no artifact ID can be, and codes of one shape", async () => {
+    const { ArtifactId } = await import("./core.ts");
+    const { PREVIEW_CODES, PreviewCode, planningRateKeys, previewHost } = await import(
+      "./suggestions.ts"
+    );
+    expect(previewHost("portifact.dev")).toBe("preview.portifact.dev");
+    expect(ArtifactId.safeParse(PREVIEW_CODES.hostLabel).success).toBe(false);
+    expect(PreviewCode.safeParse("A".repeat(43)).success).toBe(true);
+    for (const bad of [
+      "A".repeat(42),
+      "A".repeat(44),
+      `${"A".repeat(42)}=`,
+      `${"A".repeat(42)}/`,
+    ]) {
+      expect(PreviewCode.safeParse(bad).success, bad).toBe(false);
+    }
+    expect(planningRateKeys("u_1", "a1")).toEqual({
+      user: "suggestion-plan:user:u_1",
+      artifact: "suggestion-plan:artifact:a1",
+    });
+  });
+
+  it("answers ready or unavailable with tolerant reasons", async () => {
+    const { PreviewRequest, PreviewResponse } = await import("./suggestions.ts");
+    expect(PreviewRequest.safeParse({ digest: "a".repeat(64) }).success).toBe(true);
+    expect(PreviewRequest.safeParse({ digest: "a".repeat(64), extra: 1 }).success).toBe(false);
+    expect(PreviewResponse.parse({ state: "unavailable", reasons: ["a_later_reason"] })).toEqual({
+      state: "unavailable",
+      reasons: ["a_later_reason"],
+    });
+    expect(
+      PreviewResponse.safeParse({ state: "ready", url: "not a url", expiresAt: "x" }).success,
+    ).toBe(false);
+  });
+});

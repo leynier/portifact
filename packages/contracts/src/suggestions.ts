@@ -654,15 +654,11 @@ export const ConfirmPlan = z.strictObject({ digest: Sha256 });
 export type ConfirmPlan = z.infer<typeof ConfirmPlan>;
 
 /**
- * Bounds of the suggestion services (decision 0027, "Costs and limits"): planning and acceptance
- * rate limits, the acceptance attempt's lifetime and how long records are kept.
+ * Bounds of the suggestion services (decision 0027, "Costs and limits"): the acceptance rate limit,
+ * the acceptance attempt's lifetime, how long records are kept and how much a run reads.
  */
 export const SUGGESTION_LIMITS = {
-  /** Plans (dry runs) one person builds per 10 minutes, and one artifact gets per minute. */
-  plansPerPerson: 30,
-  plansPersonWindowMs: 10 * 60_000,
-  plansPerArtifact: 10,
-  plansArtifactWindowMs: 60_000,
+  // Planning windows (dry runs, previews, acceptances) are `PLANNING_RATE_LIMITS` below.
   /** Acceptances and draft publishes started per owner per day (a version or not). */
   acceptsPerOwner: 100,
   acceptsOwnerWindowMs: 24 * 60 * 60_000,
@@ -734,3 +730,54 @@ export const AcceptanceStarted = z.object({
   state: z.literal("applying"),
 });
 export type AcceptanceStarted = z.infer<typeof AcceptanceStarted>;
+
+/**
+ * Planning work a person may cause (decision 0027, "Costs and limits"): dry runs and previews
+ * share these windows in `rate_limits`, per person and per artifact.
+ */
+export const PLANNING_RATE_LIMITS = {
+  perUser: { requests: 30, windowMs: 10 * 60_000 },
+  perArtifact: { requests: 10, windowMs: 60_000 },
+} as const;
+
+/** The `rate_limits` keys of planning work, shared by dry runs and previews. */
+export const planningRateKeys = (userId: string, artifactId: string) => ({
+  user: `suggestion-plan:user:${userId}`,
+  artifact: `suggestion-plan:artifact:${artifactId}`,
+});
+
+/**
+ * Built previews on the preview origin (decision 0027, "Previews"): the reserved host's label on
+ * the content domain, the one path a code is redeemed at, how long a code lives, the age at which
+ * the every-minute scan deletes a built document nobody redeemed (nothing can use it after the
+ * code's minute), and how many codes one person holds open in each region (the regional
+ * `preview_codes_limit` trigger).
+ */
+export const PREVIEW_CODES = {
+  hostLabel: "preview",
+  pathPrefix: "/p/",
+  ttlMs: 60_000,
+  documentTtlMs: 2 * 60_000,
+  openPerUser: 10,
+} as const;
+
+/** A preview code as it travels: 32 random bytes in base64url, nothing else. */
+export const PreviewCode = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
+/** The reserved preview host on a content domain: never an artifact ID (`ArtifactId`). */
+export const previewHost = (contentDomain: string) => `${PREVIEW_CODES.hostLabel}.${contentDomain}`;
+
+/** What the viewer asks for: a preview of the plan it holds by digest. */
+export const PreviewRequest = z.strictObject({ digest: Sha256 });
+export type PreviewRequest = z.infer<typeof PreviewRequest>;
+
+/**
+ * A preview: a one-use URL on the preview host, or why there is none. `reasons` are refusal
+ * reasons and preview reasons (`css_too_complex`), as tokens, so a later reason never breaks a
+ * released client.
+ */
+export const PreviewResponse = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("ready"), url: z.string().url(), expiresAt: z.string() }),
+  z.object({ state: z.literal("unavailable"), reasons: z.array(Token) }),
+]);
+export type PreviewResponse = z.infer<typeof PreviewResponse>;

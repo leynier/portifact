@@ -71,6 +71,7 @@ const ROUTES: Record<string, Class> = {
   // The dashboard session only.
   "POST /api/v1/artifacts/:artifactId/review": "no_person_token",
   "POST /api/v1/artifacts/:artifactId/review/tab": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/previews": "no_person_token",
   "PATCH /api/v1/account/settings": "no_person_token",
   "POST /api/v1/account/delete": "no_person_token",
   "POST /api/v1/account/deletion-code": "no_person_token",

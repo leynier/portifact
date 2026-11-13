@@ -17,7 +17,9 @@ import {
   type EditOperation,
   type FileKind,
   PLAN_LIMITS,
+  PLANNING_RATE_LIMITS,
   type Plan,
+  planningRateKeys,
   SUGGESTION_LIMITS,
 } from "@portifact/contracts";
 import { type Db, hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
@@ -29,6 +31,7 @@ import {
   operationsOn,
   PlanTooLargeError,
   plannableKind,
+  planPageUrl,
   proofsOfPlan,
 } from "@portifact/domain/suggestions";
 import { DOCUMENT_RENDERER } from "@portifact/render";
@@ -38,6 +41,7 @@ import {
   type AuthorizedAnnotations,
   annotationParts,
 } from "./annotations.ts";
+import { previewSubject } from "./suggestion-previews.ts";
 import { storedEdit, storedProofs } from "./suggestions.ts";
 
 type ArtifactRow = typeof schema.artifacts.$inferSelect;
@@ -65,13 +69,6 @@ export interface StoredPage {
   entrypoint: string;
   stored?: { html: string; blockMap: string | null; options: { title: string } };
   pageUrl: string;
-}
-
-/** The URL a page is served at on the artifact's origin, for link destinations. */
-export function pageUrlOf(artifactId: string, kind: FileKind, path: string, domain: string) {
-  return kind === "html"
-    ? `https://${artifactId}.${domain}/${path.split("/").map(encodeURIComponent).join("/")}`
-    : `https://${artifactId}.${domain}/`;
 }
 
 /** The largest stored file a plan reads, by kind (the planners refuse anything larger). */
@@ -156,7 +153,7 @@ export async function storedPage(
     sha256: file.sha256,
     contentType: file.contentType,
     entrypoint: file.entrypoint,
-    pageUrl: pageUrlOf(input.artifact.id, kind, file.path, input.contentDomain),
+    pageUrl: planPageUrl(kind, input.artifact.id, input.contentDomain, file.path),
   };
   // Over the limit by its stored size (a mark included): listed without reading a byte.
   const limit = fileLimit(kind) + UTF8_BOM.length;
@@ -327,20 +324,23 @@ export async function admitPlanning(
   artifactId: string,
   now: number,
 ): Promise<Result<true>> {
-  const limits = SUGGESTION_LIMITS;
+  const keys = planningRateKeys(userId, artifactId);
   const [person] = (await hitRateLimits(
     db.global.$client,
-    [`suggestion_plan:user:${userId}`],
-    limits.plansPersonWindowMs,
+    [keys.user],
+    PLANNING_RATE_LIMITS.perUser.windowMs,
     now,
   )) as [RateLimitHit];
   const [artifact] = (await hitRateLimits(
     db.global.$client,
-    [`suggestion_plan:artifact:${artifactId}`],
-    limits.plansArtifactWindowMs,
+    [keys.artifact],
+    PLANNING_RATE_LIMITS.perArtifact.windowMs,
     now,
   )) as [RateLimitHit];
-  if (person.count > limits.plansPerPerson || artifact.count > limits.plansPerArtifact) {
+  if (
+    person.count > PLANNING_RATE_LIMITS.perUser.requests ||
+    artifact.count > PLANNING_RATE_LIMITS.perArtifact.requests
+  ) {
     return fail("rate_limited", "Too many plans in a short time. Try again in a few minutes.");
   }
   return ok(true);
@@ -384,22 +384,22 @@ function suggestionPlanGuard(loaded: AuthorizedAnnotations, thread: ThreadRow, n
   return sql`${annotationParts.artifactGuard(loaded, "read", now)} and exists (select 1 from ${t} where ${t.id} = ${loaded.artifact.id} and ${t.currentVersionId} = ${thread.versionId}) and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.suggestionState} = 'pending' and ${th.versionId} = ${thread.versionId} and ${th.suggestionRevision} = ${thread.suggestionRevision}) and ${annotationParts.scopeGuard(loaded, thread.id)}`;
 }
 
-/** A pending suggestion the caller sees on the artifact's current version. */
+/**
+ * A pending suggestion the caller may see a plan of (`previewSubject`, the one rule for plans
+ * and previews), on the artifact's current version.
+ */
 async function plannableSuggestion(
   db: RegionalDb,
   input: AnnotationActor & { threadId: string },
 ): Promise<Result<{ loaded: AuthorizedAnnotations; thread: ThreadRow }>> {
-  const loaded = await annotationParts.authorize(db, input, "read");
-  if (!loaded.ok) return loaded;
-  const thread = await annotationParts.findThread(db, loaded.value, input.threadId);
-  if (!thread || thread.kind !== "suggestion") return fail("not_found", "Suggestion not found.");
-  if (thread.suggestionState !== "pending") {
-    return fail("invalid_input", "Only a pending suggestion is planned.");
-  }
-  if (thread.versionId !== loaded.value.artifact.currentVersionId) {
+  const subject = await previewSubject(db, input, { threadId: input.threadId, revision: null });
+  if (!subject.ok) return subject;
+  const { standing, thread } = subject.value;
+  if (thread.versionId !== standing.artifact.currentVersionId) {
     return fail("version_conflict", "This suggestion was made on an earlier version.");
   }
-  return ok({ loaded: loaded.value, thread });
+  // `readableThread` authorized the caller to read: a role is set.
+  return ok({ loaded: standing as AuthorizedAnnotations, thread });
 }
 
 /** What a request whose guarded write lost answers: a fresh refusal, never the plan. */

@@ -55,6 +55,7 @@ export {
   type SuggestionRole,
 } from "./lifecycle.ts";
 export { planMarkdown } from "./markdown-planner.ts";
+export { planPageUrl } from "./page-url.ts";
 export {
   admitItems,
   type BuiltPlan,

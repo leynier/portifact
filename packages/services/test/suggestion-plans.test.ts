@@ -2,7 +2,7 @@
 // rate limited and cached, with the suggestion's proofs persisted; a draft published like an
 // acceptance; and the scans that end overdue attempts and delete what has a lifetime.
 import { env } from "cloudflare:test";
-import { DRAFT_LIMITS, SUGGESTION_LIMITS } from "@portifact/contracts";
+import { DRAFT_LIMITS, PLANNING_RATE_LIMITS, SUGGESTION_LIMITS } from "@portifact/contracts";
 import { schema } from "@portifact/db";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -128,7 +128,7 @@ describe("planning a suggestion", () => {
         artifactId: other.artifactId,
         threadId: decided,
       }),
-    ).toMatchObject({ ok: false, code: "invalid_input" });
+    ).toMatchObject({ ok: false, code: "version_conflict" });
   });
 
   it("limits plans per person and per artifact", async () => {
@@ -145,9 +145,9 @@ describe("planning a suggestion", () => {
     await db()
       .insert(schema.rateLimits)
       .values({
-        key: `suggestion_plan:user:${owner.id}`,
+        key: `suggestion-plan:user:${owner.id}`,
         windowStart: NOW,
-        count: SUGGESTION_LIMITS.plansPerPerson,
+        count: PLANNING_RATE_LIMITS.perUser.requests,
       });
     expect(await planSuggestion(db(), env.ARTIFACTS, input)).toMatchObject({
       ok: false,
@@ -159,9 +159,9 @@ describe("planning a suggestion", () => {
     await db()
       .insert(schema.rateLimits)
       .values({
-        key: `suggestion_plan:artifact:${second.artifactId}`,
+        key: `suggestion-plan:artifact:${second.artifactId}`,
         windowStart: NOW,
-        count: SUGGESTION_LIMITS.plansPerArtifact,
+        count: PLANNING_RATE_LIMITS.perArtifact.requests,
       });
     expect(
       await planSuggestion(db(), env.ARTIFACTS, {
