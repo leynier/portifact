@@ -301,6 +301,8 @@ function permissionSummary(t: ReturnType<typeof useT>, scopes: readonly string[]
 function scopeLabel(t: ReturnType<typeof useT>, name: string): string {
   return name.startsWith("artifacts:") ||
     name.startsWith("annotations:") ||
+    name === "data:read" ||
+    name === "data:write" ||
     name === CREDENTIALS_SCOPE ||
     name === "offline_access"
     ? t(`scope.${name}` as Parameters<typeof t>[0])

@@ -73,7 +73,7 @@ function entryPoints(config: string): string[] {
   const source = main ? read(`${dir}/${main}`) : "";
   const handlers = handlersIn(source);
   // A class this Worker exports; a binding with `script_name` is another Worker's class (the
-  // jobs Worker's `ARTIFACT_DOCUMENTS`, decision 0026), classified with that Worker.
+  // jobs and app Workers' `ARTIFACT_DOCUMENTS`, decision 0026), classified with that Worker.
   const classes = [...text.matchAll(/\{[^{}]*"class_name"\s*:\s*"([^"]+)"[^{}]*\}/g)]
     .filter((match) => !match[0].includes('"script_name"'))
     .map((match) => match[1] as string);

@@ -52,6 +52,9 @@ import {
   CustomDomainList,
   CustomDomainRemoved,
   CustomDomainView,
+  DataDescriptionView,
+  DataExportPageView,
+  DataQueryPage,
   DisconnectResult,
   DocumentPreview,
   type DocumentPreviewRequest,
@@ -409,6 +412,17 @@ export interface DashboardApi {
   ): Promise<{ text: string; nextCursor: string | null }>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
   stats(artifactId: string, from?: string, to?: string): Promise<ArtifactStatsView>;
+  /** The artifact's data (decision 0026): its collections, today's counters and the plan's limits. */
+  artifactData(artifactId: string): Promise<DataDescriptionView>;
+  /** A page of a collection's documents, oldest first, after the cursor `after`. */
+  dataDocuments(
+    artifactId: string,
+    collection: string,
+    after?: string,
+    limit?: number,
+  ): Promise<DataQueryPage>;
+  /** One page of the data export, after the cursor `after` (`collection/id`). */
+  dataExportPage(artifactId: string, after?: string): Promise<DataExportPageView>;
   /**
    * Starts a publish; retrying with the same key returns the same upload. A new artifact goes to
    * `workspace`, or the personal space without it; a new version stays where its artifact is.
@@ -1175,6 +1189,26 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       return call(
         `/api/v1/artifacts/${encodeURIComponent(artifactId)}/stats${query}`,
         ArtifactStatsView,
+      );
+    },
+    artifactData(artifactId) {
+      return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/data`, DataDescriptionView);
+    },
+    dataDocuments(artifactId, collection, after, limit) {
+      const params = new URLSearchParams();
+      if (limit !== undefined) params.set("limit", String(limit));
+      if (after) params.set("after", after);
+      const query = params.size > 0 ? `?${params}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/data/collections/${encodeURIComponent(collection)}/documents${query}`,
+        DataQueryPage,
+      );
+    },
+    dataExportPage(artifactId, after) {
+      const query = after ? `?${new URLSearchParams({ after })}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/data/export${query}`,
+        DataExportPageView,
       );
     },
     preparePublish(request, idempotencyKey, workspace) {

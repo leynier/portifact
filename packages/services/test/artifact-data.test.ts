@@ -40,6 +40,7 @@ import {
 } from "../src/artifact-data.ts";
 import { placeLegalHold, releaseLegalHold } from "../src/legal-holds.ts";
 import { runJob } from "../src/outbox.ts";
+import { ownerRpc } from "./data-owner-rpc.ts";
 import { db, NOW } from "./fixtures.ts";
 import { raceBeforeBatchWith, raceBeforeStatement } from "./race.ts";
 import { recording } from "./recording.ts";
@@ -111,6 +112,7 @@ function memoryObjects(createsObjects = false) {
     object(id): DataObjectRpc {
       const memory = of(id);
       return {
+        ...ownerRpc(memory),
         lifecycleControl: async () => memory.durable.control,
         // The reference's answers may also be replays; the lifecycle commands never are.
         lifecycleFence: async (envelope, fence, now) => memory.fence(envelope, fence, now) as never,

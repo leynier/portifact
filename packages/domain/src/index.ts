@@ -6,6 +6,7 @@ export * from "./actor.ts";
 export * from "./analytics.ts";
 export * from "./annotations.ts";
 export * from "./approval-reviews.ts";
+export * from "./artifact-data-owner.ts";
 export * from "./audit.ts";
 export * from "./audit-export.ts";
 export * from "./audit-streams.ts";

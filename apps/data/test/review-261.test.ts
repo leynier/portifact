@@ -267,12 +267,14 @@ it("B5: author erasure stays pending for an orphan that the operator may adopt",
   expect(await documentsOf(id, visitor)).toBe(0);
 });
 
-it("RPC surface: only the lifecycle methods and the platform's handlers are callable", () => {
+it("RPC surface: only the lifecycle, owner and audit methods and the platform's handlers are callable", () => {
   // Methods on the class's prototype are what RPC exposes; instance fields (the store) are not.
   const methods = Object.getOwnPropertyNames(ArtifactDocuments.prototype).sort();
   expect(methods).toEqual(
     [
       "alarm",
+      "auditAcknowledge",
+      "auditSettle",
       "constructor",
       "lifecycleControl",
       "lifecycleErase",
@@ -281,6 +283,7 @@ it("RPC surface: only the lifecycle methods and the platform's handlers are call
       "lifecycleFence",
       "lifecycleQuarantine",
       "lifecycleResolve",
+      "ownerCommand",
       "webSocketClose",
       "webSocketMessage",
     ].sort(),

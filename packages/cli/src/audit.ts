@@ -288,6 +288,20 @@ export function auditSummary(event: AuditEventView): string {
       return `Removed the audit stream to ${d.host}`;
     case "audit_stream.paused":
       return `Paused the audit stream to ${d.host} (${STREAM_PAUSE[d.reason as keyof typeof STREAM_PAUSE]})`;
+    case "data.collection_set":
+      return "Declared a data collection";
+    case "data.document_created":
+      return "Created a data document";
+    case "data.document_replaced":
+      return "Replaced a data document";
+    case "data.document_deleted":
+      return "Deleted a data document";
+    case "data.documents_created":
+      return `Created ${d.documents} data document(s)`;
+    case "data.documents_replaced":
+      return `Replaced ${d.documents} data document(s)`;
+    case "data.documents_deleted":
+      return `Deleted ${d.documents} data document(s)`;
   }
 }
 
