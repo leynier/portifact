@@ -46,8 +46,8 @@ export const AUDIT_LIMITS = {
   pageSize: 100,
   /** Email domains one access change lists at most; the counts always cover every address. */
   readerDomains: 10,
-  /** Kinds one query can filter on at once. */
-  kindsPerQuery: 10,
+  /** Kinds one query can filter on at once; the dashboard's largest filter group must fit. */
+  kindsPerQuery: 30,
   /** Rows the retention scan deletes per statement. */
   pruneBatch: 1000,
   /**

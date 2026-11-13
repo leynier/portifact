@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-import type { AuditEventView } from "@portifact/contracts";
+import { type AuditEventView, AuditFilters } from "@portifact/contracts";
 import { auditCsvHeader, auditCsvRow, auditJsonLine } from "@portifact/domain";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AUDIT_GROUPS } from "./screens/audit.tsx";
 import { type FakeServer, fakeServer, renderDashboard, workspace } from "./test-support.tsx";
 
 afterEach(() => {
@@ -444,6 +445,19 @@ describe("exporting the audit log", () => {
     expect(
       screen.getByText("Who changed what in this space. Changes are kept 2557 days."),
     ).toBeTruthy();
+  });
+});
+
+describe("the kinds filter's groups", () => {
+  it("are all filters the API accepts, so no choice empties the table with an error", () => {
+    for (const [group, kinds] of Object.entries(AUDIT_GROUPS)) {
+      expect(AuditFilters.safeParse({ kinds }).success, group).toBe(true);
+    }
+  });
+
+  it("list each kind once", () => {
+    const listed = Object.values(AUDIT_GROUPS).flat();
+    expect(new Set(listed).size).toBe(listed.length);
   });
 });
 
