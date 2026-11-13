@@ -6,19 +6,41 @@ import {
   type DraftEdit,
   DraftEdit as DraftEditSchema,
   type DraftView,
+  REFUSAL_REASONS,
   type ReviewStart,
-  type TextOperation,
+  TextOperation,
 } from "@portifact/contracts";
 import { tokens } from "@portifact/domain/suggestion-display";
-import { Badge, Button, ConfirmDialog, EditDiff, LoadingState, PlanLines } from "@portifact/ui";
+import {
+  Badge,
+  Button,
+  ConfirmDialog,
+  EditDiff,
+  LoadingState,
+  PlanLines,
+  Tabs,
+} from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { addToDraft, removeFromDraft } from "./draft-edit.ts";
-import { attemptMessage, PlanSummary, useDiffLabels } from "./suggestions.tsx";
+import {
+  attemptMessage,
+  PlanSummary,
+  PreviewPanel,
+  reasonMessage,
+  useDiffLabels,
+} from "./suggestions.tsx";
 import { ActionError } from "./thread-card.tsx";
+
+/** Why a change could not be moved: a refusal of the planners, or the relocation's own reason. */
+function conflictMessage(t: ReturnType<typeof useT>, reason: string): string {
+  return isRefusalReason(reason) ? reasonMessage(t, reason) : t("draft.conflictReason");
+}
+
+const isRefusalReason = (reason: string) => (REFUSAL_REASONS as readonly string[]).includes(reason);
 
 export const draftQuery = (artifactId: string) => ["suggestion-draft", artifactId] as const;
 
@@ -36,6 +58,8 @@ export interface DraftState {
    * false and announces why when it is refused.
    */
   add(operation: TextOperation): Promise<boolean>;
+  /** The whole draft with `operation` added, or null when it could not take it. */
+  editWith(operation: TextOperation): DraftEdit | null;
 }
 
 /** The caller's draft on the artifact, and saving it at the revision and incarnation held. */
@@ -96,6 +120,10 @@ export function useDraft(
     loading: query.isPending && enabled,
     error: mutation.error ?? query.error,
     save,
+    editWith(operation) {
+      const next = addToDraft(editOf(draft), operation);
+      return next.ok ? next.edit : null;
+    },
     async add(operation) {
       if (draft && draft.baseVersionId !== start.versionId) {
         announce(t("draft.refused.stale"));
@@ -138,6 +166,33 @@ export function DraftPanel({
   const stale = draft !== null && draft.baseVersionId !== start.versionId;
 
   const plan = useMutation({ mutationFn: () => api.suggestions.planDraft(start.artifactId) });
+  /** What the last rebase could not carry: shown until the next one, for the author to redo. */
+  const [conflicts, setConflicts] = useState<{ operation: unknown; reason: string }[]>([]);
+  const rebase = useMutation({
+    mutationFn: () => {
+      if (!draft) throw new Error("no draft");
+      return api.suggestions.rebaseDraft(start.artifactId, {
+        baseRevision: draft.revision,
+        baseIncarnation: draft.incarnation,
+      });
+    },
+    onSuccess: (rebased) => {
+      queryClient.setQueryData(draftQuery(start.artifactId), rebased.draft);
+      setConflicts(rebased.conflicts);
+      plan.reset();
+      announce(
+        t("draft.rebased", {
+          carried: editOf(rebased.draft)?.operations.length ?? 0,
+          left: rebased.conflicts.length,
+        }),
+      );
+    },
+    onError: async (error) => {
+      if (error instanceof ApiFailure && error.code === "version_conflict") {
+        await queryClient.invalidateQueries({ queryKey: draftQuery(start.artifactId) });
+      }
+    },
+  });
   const publish = useMutation({
     mutationFn: (digest: string) =>
       api.suggestions.publishDraft(start.artifactId, { digest }, publishKey.current),
@@ -171,7 +226,19 @@ export function DraftPanel({
               <Badge emphasis="strong">{t("draft.publishingBadge")}</Badge>
             ) : null}
           </div>
-          {stale ? <p className="text-sm">{t("draft.stale")}</p> : null}
+          {stale ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm">{t("draft.stale")}</p>
+              {rebase.isError ? <ActionError error={rebase.error} /> : null}
+              {draft.publishing ? null : (
+                <div>
+                  <Button size="sm" busy={rebase.isPending} onClick={() => rebase.mutate()}>
+                    {t("draft.rebase")}
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : null}
           {draft.attemptReason && !draft.publishing ? (
             <p className="text-sm">
               {t("draft.attemptEnded", { reason: attemptMessage(t, draft.attemptReason) })}
@@ -209,7 +276,24 @@ export function DraftPanel({
           </ol>
           {plan.isError ? <ActionError error={plan.error} /> : null}
           {publish.isError ? <ActionError error={publish.error} /> : null}
-          {shown && !draft.publishing ? <PlanSummary plan={shown} /> : null}
+          {shown && !draft.publishing ? (
+            <Tabs
+              label={t("draft.tabs")}
+              tabs={[
+                { id: "plan", label: t("suggest.tabs.plan"), panel: <PlanSummary plan={shown} /> },
+                {
+                  id: "preview",
+                  label: t("suggest.tabs.preview"),
+                  panel: (
+                    <PreviewPanel
+                      artifactId={start.artifactId}
+                      request={{ digest: shown.digest }}
+                    />
+                  ),
+                },
+              ]}
+            />
+          ) : null}
           {draft.publishing ? null : (
             <div className="flex flex-wrap gap-2">
               {stale ? null : shown ? (
@@ -241,6 +325,34 @@ export function DraftPanel({
           )}
         </>
       )}
+      {conflicts.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium">{t("draft.conflicts")}</p>
+          <ul aria-label={t("draft.conflicts")} className="flex flex-col gap-2">
+            {conflicts.map((conflict, index) => {
+              const parsed = TextOperation.safeParse(conflict.operation);
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: conflicts keep their order
+                <li key={index} className="flex flex-col gap-1 text-sm">
+                  {parsed.success && parsed.data.target.anchor.kind === "text" ? (
+                    <EditDiff
+                      before={tokens(parsed.data.target.anchor.quote.exact)}
+                      after={tokens(parsed.data.after)}
+                      labels={labels}
+                    />
+                  ) : null}
+                  <span>{conflictMessage(t, conflict.reason)}</span>
+                </li>
+              );
+            })}
+          </ul>
+          <div>
+            <Button size="sm" intent="ghost" onClick={() => setConflicts([])}>
+              {t("draft.conflicts.dismiss")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <ConfirmDialog
         open={confirming === "publish" && shown !== undefined}
         title={t("draft.publish.title")}

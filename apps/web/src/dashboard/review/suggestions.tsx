@@ -7,8 +7,10 @@ import {
   type AnnotationThreadView,
   CHANGE_ITEM_STATES,
   type ChangeItemView,
+  type DraftEdit,
   Edit,
   type Plan,
+  type PreviewRequest,
   type PreviewResponse,
   REFUSAL_REASONS,
   type RefusalReason,
@@ -112,7 +114,13 @@ export function SuggestEditor({
    * The owner side editing directly (Edit mode): Save adds the change to their private draft
    * instead of starting a suggestion, and no note is asked.
    */
-  draft?: { add(operation: TextOperation): Promise<boolean> } | undefined;
+  draft?:
+    | {
+        add(operation: TextOperation): Promise<boolean>;
+        /** The whole draft with `operation` added, as a preview of it would plan it. */
+        editWith(operation: TextOperation): DraftEdit | null;
+      }
+    | undefined;
   /** The editor closed: saved (with the new thread's ID) or cancelled. */
   onClose(threadId: string | null): void;
 }) {
@@ -235,13 +243,34 @@ export function SuggestEditor({
       {state.reviewing && edit ? (
         <>
           <p className="text-sm text-text-muted">{t("suggest.editor.reviewHint")}</p>
-          <EditDiff before={tokens(before)} after={tokens(state.after)} labels={labels} />
-          <Disclosure appearance="inline" summary={t("suggest.inspect")}>
-            <CodePointList
-              label={t("suggest.inspect.after")}
-              codePoints={Array.from(state.after, (char) => char.codePointAt(0) as number)}
-            />
-          </Disclosure>
+          <Tabs
+            label={t("suggest.editor.tabs")}
+            tabs={[
+              {
+                id: "change",
+                label: t("suggest.editor.tabs.change"),
+                panel: (
+                  <div className="flex flex-col gap-2">
+                    <EditDiff before={tokens(before)} after={tokens(state.after)} labels={labels} />
+                    <Disclosure appearance="inline" summary={t("suggest.inspect")}>
+                      <CodePointList
+                        label={t("suggest.inspect.after")}
+                        codePoints={Array.from(
+                          state.after,
+                          (char) => char.codePointAt(0) as number,
+                        )}
+                      />
+                    </Disclosure>
+                  </div>
+                ),
+              },
+              {
+                id: "preview",
+                label: t("suggest.tabs.preview"),
+                panel: <UnsavedPreview start={start} edit={edit} draft={draft} />,
+              },
+            ]}
+          />
           {human.field}
           <div className="flex flex-wrap justify-end gap-2">
             <Button onClick={() => dispatch({ type: "back" })}>{t("suggest.editor.back")}</Button>
@@ -295,6 +324,39 @@ export function SuggestEditor({
   );
 }
 
+/**
+ * The built preview of an edit not saved yet (decision 0027, "Previews"): a suggestion's edit, or
+ * the owner's whole draft with this change. Nothing is stored; a new code each time it is shown.
+ */
+function UnsavedPreview({
+  start,
+  edit,
+  draft,
+}: {
+  start: ReviewStart;
+  edit: Edit;
+  draft?: { editWith(operation: TextOperation): DraftEdit | null } | undefined;
+}) {
+  const t = useT();
+  const [operation] = edit.operations;
+  const draftEdit = draft && operation?.kind === "text" ? draft.editWith(operation) : null;
+  if (draft && !draftEdit) {
+    return <p className="text-sm">{t("draft.refused.invalid")}</p>;
+  }
+  return (
+    <PreviewPanel
+      artifactId={start.artifactId}
+      request={{
+        unsaved: {
+          versionId: start.versionId,
+          as: draft ? "draft" : "suggestion",
+          edit: draftEdit ?? edit,
+        },
+      }}
+    />
+  );
+}
+
 /** What one operation of a saved edit changes, from its untrusted JSON. */
 function EditSummary({ edit }: { edit: unknown }) {
   const t = useT();
@@ -344,13 +406,22 @@ export function PlanSummary({ plan }: { plan: Plan }) {
   );
 }
 
-/** A new one-use preview each time the tab is shown: no preview URL is reused. */
-function PreviewPanel({ artifactId, plan }: { artifactId: string; plan: Plan }) {
+/**
+ * A new one-use preview each time the tab is shown: no preview URL is reused. `request` names a
+ * plan the person holds by digest (a suggestion's or their draft's) or an edit not saved yet.
+ */
+export function PreviewPanel({
+  artifactId,
+  request,
+}: {
+  artifactId: string;
+  request: PreviewRequest;
+}) {
   const t = useT();
   const { api } = useDashboard();
   const preview = useQuery({
-    queryKey: ["suggestion-preview", artifactId, plan.digest],
-    queryFn: () => api.suggestions.preview(artifactId, plan.digest),
+    queryKey: ["suggestion-preview", artifactId, JSON.stringify(request)],
+    queryFn: () => api.suggestions.preview(artifactId, request),
     gcTime: 0,
     staleTime: 0,
     retry: false,
@@ -486,7 +557,7 @@ export function SuggestionBlock({
             {
               id: "preview",
               label: t("suggest.tabs.preview"),
-              panel: <PreviewPanel artifactId={artifactId} plan={shown} />,
+              panel: <PreviewPanel artifactId={artifactId} request={{ digest: shown.digest }} />,
             },
           ]}
         />

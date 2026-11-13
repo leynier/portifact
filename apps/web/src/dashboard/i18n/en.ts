@@ -1080,6 +1080,30 @@ export const en = {
     "Your draft holds changes to another page. Publish or discard it before editing this page.",
   "draft.refused.full": "Your draft holds as many changes as it can. Publish or discard it first.",
   "draft.refused.invalid": "This change cannot be added to the draft.",
+  "suggest.editor.tabs": "Your change",
+  "suggest.editor.tabs.change": "Change",
+  "draft.tabs": "Your draft's plan",
+  "draft.rebase": "Move the draft to the current version",
+  "draft.rebased":
+    "Draft moved to the current version: {carried, plural, one {# change carried} other {# changes carried}}, {left, plural, one {# to make again} other {# to make again}}.",
+  "draft.conflicts": "Changes that could not be moved, to make again",
+  "draft.conflicts.dismiss": "Dismiss this list",
+  "suggest.search.heading": "Suggest a text change",
+  "suggest.search.hint":
+    "Find the text in the page instead of selecting it in the artifact. The search reads the published page, not what its scripts show.",
+  "suggest.search.query": "Text to find",
+  "suggest.search.find": "Find",
+  "suggest.search.found":
+    "{count, plural, =0 {No places found.} one {# place found.} other {# places found.}}",
+  "suggest.search.none": "The text was not found on this page.",
+  "suggest.search.results": "Places with the text",
+  "suggest.search.choose": "Change the text at place {number}",
+  "suggest.search.refused": "This place cannot be changed. Try a shorter or longer piece of text.",
+  "suggest.search.unavailable":
+    "Search is available on HTML pages. On this page, select the text in the artifact.",
+  "draft.conflictReason": "The text it changed is different or gone on the current version.",
+  "suggest.search.ownerOnly":
+    "Searching the page is not available to reviewers yet. Select the text in the artifact instead.",
   "review.open": "Review and comment",
   "viewer.loading": "Opening the artifact",
   "viewer.unavailable.title": "This artifact cannot be opened",
