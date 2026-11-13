@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { DATA_GRANT, TERMS_VERSION } from "@portifact/contracts";
-import { regionsFromEnv, schema } from "@portifact/db";
+import { aliasBinding, globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { journalKey } from "@portifact/domain/artifact-data";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -18,6 +18,7 @@ import {
   retireJournalEntry,
   revokeDataGrants,
 } from "../src/index.ts";
+import { recording } from "./recording.ts";
 
 const ID = "k7d2qm4xab";
 const NO_DATA = "p3n5wq7yzc";
@@ -327,5 +328,180 @@ describe("data grants", () => {
     expect(await db().select().from(schema.dataGrants)).toHaveLength(1);
     await pruneDataGrants(db(), NOW + 2000 + DATA_GRANT.endedKeepMs);
     expect(await db().select().from(schema.dataGrants)).toHaveLength(0);
+  });
+});
+
+/** Inserts `count` redeemed, open grants of the reader on the artifact, newest first. */
+async function manyGrants(count: number) {
+  await env.DB.prepare(
+    `with recursive n(x) as (values(1) union all select x + 1 from n where x < ?)
+     insert into data_grants
+       (id, artifact_id, user_id, visitor_id, auth_session_id, host, expires_at, redeemed_at, created_at)
+     select 'dg_' || printf('%022d', x), ?, ?, 'v_123456789012345678901234', ?, ?, ? - x * 60000, ?,
+       ? - x * 60000 from n`,
+  )
+    .bind(count, ID, READER, appSession(READER), HOST, NOW + 30 * DAY, NOW, NOW)
+    .run();
+}
+
+describe("review of #271: revocation capacity", () => {
+  beforeEach(() => seed());
+
+  it("revokes 34 open grants, more than one statement may bind", async () => {
+    await manyGrants(34);
+    expect(await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 1000 })).toEqual({
+      revoked: 34,
+    });
+    const markers = await db().global.select().from(schema.tombstones);
+    expect(markers.filter((marker) => marker.kind === "data_grant")).toHaveLength(34);
+    expect(await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 2000 })).toEqual({
+      revoked: 0,
+    });
+  });
+
+  it("revokes 250 open grants in one call", async () => {
+    await manyGrants(250);
+    expect(await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 1000 })).toEqual({
+      revoked: 250,
+    });
+  });
+});
+
+describe("review of #271: grant prune read bound", () => {
+  beforeEach(() => seed());
+
+  it("does not scan fresh grants to prune nothing", async () => {
+    await manyGrants(2000);
+    let reads = 0;
+    const measured = aliasBinding(
+      new Proxy(env.DB, {
+        get(target, key) {
+          if (key === "batch") {
+            return async (statements: D1PreparedStatement[]) => {
+              const result = await target.batch(statements);
+              reads += result.reduce((n, row) => n + row.meta.rows_read, 0);
+              return result;
+            };
+          }
+          const value = Reflect.get(target, key, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      env.DB,
+    );
+    const database = regionalDb(measured, globalDb(measured));
+    expect(await pruneDataGrants(database, NOW + 1000, 20)).toEqual({ processed: 0 });
+    expect(reads).toBeLessThanOrEqual(40);
+  });
+});
+
+describe("review of #271: shared-data completeness", () => {
+  beforeEach(() => seed());
+
+  it("keeps the oldest of 201 artifacts reachable through the pages", async () => {
+    const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+    for (let n = 0; n < 201; n++) {
+      const id = `aaaaaaa${alphabet[(n >> 10) & 31]}${alphabet[(n >> 5) & 31]}${alphabet[n & 31]}`;
+      await db().insert(schema.artifacts).values({
+        id,
+        ownerId: `owner-${n}`,
+        type: "site",
+        name: `Board ${n}`,
+        state: "active",
+        accessMode: "public",
+        currentVersionId: "v1",
+        expiresAt: NOW + 60 * DAY,
+      });
+      await db()
+        .insert(schema.dataGrants)
+        .values({
+          id: `dg_${String(n).padStart(22, "0")}`,
+          artifactId: id,
+          userId: READER,
+          visitorId: "v_123456789012345678901234",
+          authSessionId: appSession(READER),
+          host: `${id}.portifact.dev`,
+          expiresAt: NOW + 30 * DAY,
+          redeemedAt: NOW,
+          createdAt: NOW + n,
+        });
+    }
+    const seen: string[] = [];
+    let after: string | null = null;
+    for (let page = 0; page < 10; page++) {
+      const result = await listDataGrants(db(), {
+        userId: READER,
+        contentDomain: "portifact.dev",
+        now: NOW + 1000,
+        after,
+      });
+      seen.push(...result.items.map((row) => row.artifactId));
+      after = result.next;
+      if (after === null) break;
+    }
+    expect(seen).toContain("aaaaaaaaaa");
+    expect(new Set(seen).size).toBe(201);
+  });
+});
+
+describe("review of #271: refusal read shape", () => {
+  beforeEach(() => seed());
+
+  it("uses the same reads for every unavailable target, for the control and for issuing", async () => {
+    const inputs = [
+      target(STRANGER, "aaaaaaaaaa"),
+      target(STRANGER),
+      target(OWNER, NO_DATA),
+      target(READER, ID, "evil.example"),
+    ];
+    const controls: number[] = [];
+    const issues: number[] = [];
+    for (const input of inputs) {
+      const observed = recording();
+      expect(await dataGrantControl(observed.database, input)).toMatchObject({
+        ok: false,
+        code: "not_found",
+      });
+      controls.push(observed.count());
+      const issuing = recording();
+      expect(
+        await issueDataGrantCode(issuing.database, env.ARTIFACTS, {
+          ...input,
+          authSessionId: appSession(input.userId),
+          nonceHash: await nonceDigest("n".repeat(43)),
+        }),
+      ).toMatchObject({ ok: false, code: "not_found" });
+      issues.push(issuing.count());
+    }
+    expect(controls).toEqual(controls.map(() => controls[0]));
+    expect(issues).toEqual(issues.map(() => issues[0]));
+  });
+});
+
+describe("review of #271: renewal guards", () => {
+  beforeEach(() => seed());
+
+  it("refuses an expired grant even while the app session remains live", async () => {
+    const granted = await redeem(await issued());
+    if (!granted.ok) throw new Error(granted.code);
+    await db()
+      .global.update(schema.sessions)
+      .set({ expiresAt: new Date(NOW + 90 * DAY) })
+      .where(eq(schema.sessions.id, appSession(READER)));
+    expect(
+      await renewDataGrant(db(), {
+        grantId: granted.value.grantId,
+        artifactId: ID,
+        now: NOW + 30 * DAY,
+      }),
+    ).toMatchObject({ ok: false });
+  });
+
+  it("does not renew an unredeemed grant", async () => {
+    await issued();
+    const [grant] = await db().select().from(schema.dataGrants);
+    expect(
+      await renewDataGrant(db(), { grantId: grant?.id ?? "", artifactId: ID, now: NOW + 1000 }),
+    ).toMatchObject({ ok: false });
   });
 });
