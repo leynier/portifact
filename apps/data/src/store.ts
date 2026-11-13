@@ -71,6 +71,7 @@ import {
   inbound,
   indexEntries,
   type LiveAttachment,
+  liveCaller,
   liveCheck,
   liveReservation,
   type MutationActor,
@@ -2510,6 +2511,7 @@ export class DocumentsStore {
     principal: string,
     deadline: number,
     context: Context,
+    modes: readonly CollectionMode[] | null = null,
   ): Answer<string> {
     return this.#running(context.now, () => {
       const now = context.now;
@@ -2555,6 +2557,7 @@ export class DocumentsStore {
             deadline,
             now,
             limits: context.limits,
+            modes,
           });
           charged = true;
           this.#charge("connect", "growth", now, false);
@@ -2710,10 +2713,7 @@ export class DocumentsStore {
       name = "";
     }
     const [row] = this.#read("SELECT mode FROM pf_collections WHERE name = ?", name);
-    const caller: Caller =
-      current.author === null
-        ? { kind: "reader" }
-        : { kind: "visitor", author: current.author, canWrite: false };
+    const caller = liveCaller(current);
     if (row === undefined || readScope(str(row.mode) as CollectionMode, caller) === "none") {
       this.#send(socket, received.attachment, JSON.stringify({ error: "not_found" }), now);
       return;

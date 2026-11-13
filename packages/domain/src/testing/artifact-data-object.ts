@@ -63,6 +63,7 @@ import {
   indexEntries,
   keyBefore,
   type LiveAttachment,
+  liveCaller,
   liveCheck,
   liveReservation,
   type MutationActor,
@@ -2185,6 +2186,7 @@ export class MemoryObject implements DataObject {
     principal: string,
     deadline: number,
     context: Context,
+    modes: readonly CollectionMode[] | null = null,
   ): Answer<string> {
     return this.#running(() => {
       const now = context.now;
@@ -2222,6 +2224,7 @@ export class MemoryObject implements DataObject {
               deadline,
               now,
               limits: context.limits,
+              modes,
             }),
             received: [],
             closed: null,
@@ -2365,10 +2368,7 @@ export class MemoryObject implements DataObject {
         name = "";
       }
       const collection = this.durable.collections.get(name);
-      const caller: Caller =
-        current.author === null
-          ? { kind: "reader" }
-          : { kind: "visitor", author: current.author, canWrite: false };
+      const caller = liveCaller(current);
       if (collection === undefined || readScope(collection.mode, caller) === "none") {
         this.#send(socket, received.attachment, JSON.stringify({ error: "not_found" }), now);
         return;

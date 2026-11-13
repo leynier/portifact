@@ -11,6 +11,7 @@ import {
 } from "@portifact/contracts/artifact-data";
 import { dayOf, minuteOf } from "./charging.ts";
 import { accept, type Decision, refuse } from "./decision.ts";
+import type { Caller } from "./documents.ts";
 
 /** What a connection holds in its attachment, so it survives hibernation. */
 export interface LiveAttachment {
@@ -32,6 +33,12 @@ export interface LiveAttachment {
   /** The UTC day they were reserved in: they expire when it ends. */
   reservedDay: number;
   liveMessagesPerDay: number;
+  /**
+   * The collection modes the connection reaches: a page's (`PAGE_MODES`) until delivery 9, or
+   * null for the object's own callers (every mode). Kept in the attachment, so it survives
+   * hibernation.
+   */
+  modes: CollectionMode[] | null;
 }
 
 /**
@@ -70,6 +77,7 @@ export function newAttachment(input: {
   deadline: number;
   now: number;
   limits: ArtifactDataLimits;
+  modes?: readonly CollectionMode[] | null;
 }): LiveAttachment {
   return {
     socketId: input.socketId,
@@ -85,6 +93,7 @@ export function newAttachment(input: {
     reserved: 0,
     reservedDay: dayOf(input.now),
     liveMessagesPerDay: input.limits.liveMessagesPerDay,
+    modes: input.modes ? [...input.modes] : null,
   };
 }
 
@@ -212,7 +221,16 @@ export function receives(
   creator: string,
 ): boolean {
   if (!attachment.subscriptions.includes(collection)) return false;
+  if (attachment.modes !== null && !attachment.modes.includes(mode)) return false;
   return mode !== "own" || attachment.author === creator;
+}
+
+/** Who a connection subscribes as: its author or a reader, held to the modes it may reach. */
+export function liveCaller(attachment: LiveAttachment): Caller {
+  const modes = attachment.modes === null ? {} : { modes: attachment.modes };
+  return attachment.author === null
+    ? { kind: "reader", ...modes }
+    : { kind: "visitor", author: attachment.author, canWrite: false, ...modes };
 }
 
 /**

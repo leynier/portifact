@@ -2,6 +2,7 @@
 // reference object, as apps/data's `ArtifactDocuments` serves them over the store: a connect
 // answers `101` with a client end, after the hello message the reference records.
 import { LIVE_CONNECT_HEADER, LiveConnectRequest } from "@portifact/contracts";
+import { PAGE_MODES } from "@portifact/domain/artifact-data";
 import type { MemoryObject } from "@portifact/domain/testing/artifact-data";
 import type { DataObjectRpc } from "../src/artifact-data.ts";
 
@@ -14,10 +15,14 @@ export function liveRpc(memory: MemoryObject): Pick<DataObjectRpc, "fetch" | "li
       if (!parsed.success)
         return Response.json({ ok: false, code: "invalid_input" }, { status: 400 });
       const input = parsed.data;
-      const answer = memory.connect(input.envelope, input.author, input.principal, input.deadline, {
-        now: input.now,
-        limits: input.limits,
-      });
+      const answer = memory.connect(
+        input.envelope,
+        input.author,
+        input.principal,
+        input.deadline,
+        { now: input.now, limits: input.limits },
+        PAGE_MODES,
+      );
       if (!answer.ok) return Response.json(answer, { status: 409 });
       const socketId = "value" in answer ? answer.value : "";
       memory.hello(socketId, input.now);

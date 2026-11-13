@@ -36,7 +36,7 @@ async function withData(id: string) {
   const declared = (await object.ownerCommand(
     { ...envelope(id), opId: lifecycleId(DATA_NOW) },
     "u_owner",
-    { kind: "declare", declaration: { name: "votes", mode: "shared" } },
+    { kind: "declare", declaration: { name: "votes", mode: "append" } },
     LIMITS,
     DATA_NOW,
   )) as { ok: boolean };
