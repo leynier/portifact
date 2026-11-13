@@ -296,6 +296,30 @@ reason(
   ],
 );
 reason(
+  "artifact data lifecycle (decision 0026): fences and whole erases follow a change that records its own event or is operator-only (a hold, a transfer, a purge); author erasure chunks keep their audit obligation in the object, which the audit relay of delivery 5 writes to D1; reconciliation, its resolutions and the export are operator-only after a restore",
+  [
+    "runDataFence",
+    "convergeHold",
+    "runDataErase",
+    "runDataAuthorErasure",
+    "runDataReconcile",
+    "runDataResolve",
+    "runDataExport",
+    "reconcileObject",
+    "registerDataObject",
+    "recordStorageReport",
+    "eraseReason",
+    "permanentlyDeleted",
+    "pruneJournalCursors",
+    "retireJournalEntry",
+    "scheduleAuthorErasures",
+    "wakeDataJobs",
+    "queueDataReconcile",
+    "queueDataResolve",
+    "queueDataExport",
+  ],
+);
+reason(
   "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",
   [
     "sendModerationNotice",
@@ -468,6 +492,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // D1's hold level for the data convergence rule (decision 0026): one read of `legal_holds`.
+  "holdLevel",
   // The grace forecast's counts (decision 0022), shared by its route and the grace emails.
   "graceForecastKinds",
   // The thread a caller may read now (decision 0018): a read like every annotation read.

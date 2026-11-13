@@ -14,15 +14,24 @@ import {
 import { expect } from "vitest";
 import { RealObject } from "./driver.ts";
 
+/** JSON with object keys sorted: where a key was added is not a fact either side states. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, inner: unknown) =>
+    inner !== null && typeof inner === "object" && !Array.isArray(inner)
+      ? Object.fromEntries(Object.entries(inner).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : inner,
+  );
+}
+
 /** Equal, or a failure naming each part that differs with both sides, compactly. */
 function same(real: unknown, reference: unknown, label: string): void {
-  if (JSON.stringify(real) === JSON.stringify(reference)) return;
+  if (canonical(real) === canonical(reference)) return;
   const parts =
     real !== null && typeof real === "object" && reference !== null && typeof reference === "object"
       ? Object.keys(reference as object).filter(
           (key) =>
-            JSON.stringify((real as Record<string, unknown>)[key]) !==
-            JSON.stringify((reference as Record<string, unknown>)[key]),
+            canonical((real as Record<string, unknown>)[key]) !==
+            canonical((reference as Record<string, unknown>)[key]),
         )
       : ["value"];
   const detail = parts

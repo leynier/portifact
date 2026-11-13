@@ -758,6 +758,12 @@ export const OUTBOX_TOPICS = [
   "moderation_notice",
   "report_outcome",
   "legal_hold_release",
+  "data_fence",
+  "data_erase",
+  "data_author_erasure",
+  "data_reconcile",
+  "data_resolve",
+  "data_export",
 ] as const;
 
 /**
@@ -1085,6 +1091,59 @@ export const legalHoldIdentities = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.holdId, t.role, t.versionId, t.actorId] })],
 );
+
+/**
+ * An artifact's document database (decision 0026): the numbers every envelope to its object
+ * carries, and the newest storage report a caller received (`newerReport`). The object is the
+ * authority on the data; this row is what D1 knows, raised by fences (`epoch`) and committed
+ * erases (`generation`), and reconciled from the object after a restore. A row exists only for an
+ * artifact whose object may hold something, and goes with the artifact (its purge writes the
+ * `data_erase` job from it in the same batch).
+ */
+export const artifactData = sqliteTable("artifact_data", {
+  artifactId: text("artifact_id")
+    .primaryKey()
+    .references(() => artifacts.id, { onDelete: "cascade" }),
+  generation: integer("generation").notNull().default(0),
+  epoch: integer("epoch").notNull().default(0),
+  documentsBytes: integer("documents_bytes").notNull().default(0),
+  reportGeneration: integer("report_generation").notNull().default(0),
+  reportSeq: integer("report_seq").notNull().default(0),
+  createdAt: createdAt(),
+  updatedAt: timestamp("updated_at").notNull(),
+});
+
+/** What the data reconciliation decided about an object, for the operator (`data-findings`). */
+export const DATA_FINDING_ACTIONS = [
+  "quarantined",
+  "raised",
+  "resumed_erase",
+  "awaiting_operator",
+  "identity_mismatch",
+  "superseded",
+  "adopted",
+  "erased",
+  "refused",
+] as const;
+
+/**
+ * Reconciliation's findings after a restore and the operator's resolutions (decision 0026,
+ * "Restore"): one row per artifact the walk of the inventory found something to say about. No
+ * foreign key: an object without a D1 row is exactly what it reports.
+ */
+export const dataFindings = sqliteTable("data_findings", {
+  artifactId: text("artifact_id").primaryKey(),
+  action: text("action", { enum: DATA_FINDING_ACTIONS }).notNull(),
+  /** The quarantine's reason, or the refusal's code. */
+  reason: text("reason"),
+  /**
+   * The quarantined state the operator reviews and resolves against (`formatReviewed`), or null
+   * when the object is not quarantined.
+   */
+  state: text("state"),
+  firstSeenAt: timestamp("first_seen_at").notNull(),
+  lastSeenAt: timestamp("last_seen_at").notNull(),
+});
 
 /**
  * Accounts being deleted. The request deletes the user (and with it every session, token and

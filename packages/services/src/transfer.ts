@@ -9,6 +9,7 @@
 // at the same R2 key (no bytes are copied), counted in the target's storage. The source keeps its
 // rows while other artifacts reference them; rows nothing references any more are released after
 // the batch (`releaseOrphans`), and an R2 key is deleted only once no row of any owner has it.
+
 import { isWorkspaceId, type WorkspacePolicy } from "@portifact/contracts";
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import {
@@ -27,6 +28,7 @@ import { and, eq, gt, inArray, isNull, or, type SQL, sql } from "drizzle-orm";
 import { actorOn, authorizeOn } from "./actors.ts";
 import { accessHistoryMoveJob } from "./analytics.ts";
 import { cancelApprovalReviewOnTransfer } from "./approval-reviews.ts";
+import { dataFenceStatements } from "./artifact-data.ts";
 import type { ArtifactRow } from "./artifacts.ts";
 import { auditEvent } from "./audit.ts";
 import { searchIndexJob } from "./content-search.ts";
@@ -346,6 +348,14 @@ export async function transferArtifact(
             ),
           ]
         : []),
+      // Its document database moves with it (decision 0026): the epoch raised and the transfer's
+      // fence, told under the owner the object knows, on the same conditions.
+      ...dataFenceStatements(w, {
+        which: sql`d.artifact_id = ${artifact.id} and ${unchanged}`,
+        fence: sql`json_object('kind', 'transfer', 'transition', ${transferTransition()}, 'toOwner', ${to})`,
+        owner: sql`${from}`,
+        now: input.now,
+      }),
       // One event for each side, on the same conditions.
       ...transferEvents(
         w,
@@ -472,4 +482,11 @@ function transferEvents(
       condition,
     ),
   ];
+}
+
+/** A transfer's transition ID for the object's fence: unique per move. */
+function transferTransition(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `transfer_${[...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }

@@ -1,13 +1,42 @@
 // `ArtifactDocuments`, the documents Durable Object of decision 0026: one per artifact, named by the
 // artifact ID, on SQLite storage, in the jurisdiction of the owner's region. It holds the store
 // (store.ts) and adapts the platform to it: the alarm, hibernatable WebSockets and the wake after
-// hibernation or eviction. It exposes no fetch handler and no RPC method: nothing reaches it until
-// a later delivery adds its callers (the jobs Worker's lifecycle and erasure paths, then the owner
-// API and the page), and no deployed Worker binds it yet.
+// hibernation or eviction. It has no fetch handler. Its only RPC methods are the lifecycle
+// interface below (delivery 4), which the jobs Worker calls through its binding to this script;
+// document commands get theirs with the owner API (delivery 5) and the page (delivery 6).
 
 import { DurableObject } from "cloudflare:workers";
-import type { LiveAttachment } from "@portifact/domain/artifact-data";
+import {
+  type DataControl,
+  type DataEnvelope,
+  DataFence,
+  EraseStepName as EraseStep,
+  ExportCursor,
+  LifecycleEnvelope,
+  DataTime as Now,
+  OperationId,
+  QuarantineReason,
+  QuarantineResolutionRequest,
+  RequiredErase,
+  type StorageReport,
+  VisitorId,
+} from "@portifact/contracts/artifact-data";
+import { LIFECYCLE_LIMITS, type LiveAttachment } from "@portifact/domain/artifact-data";
 import { DocumentsStore, type Instrument, type SocketPort, type WokenSocket } from "./store.ts";
+
+/** What an invalid lifecycle command is answered. */
+interface InvalidInput {
+  ok: false;
+  code: "invalid_input";
+  message: string;
+  cost: { rowsRead: number; rowsWritten: number };
+  storage: StorageReport;
+}
+
+/** The most documents an export page of the operator's returns (the export cap). */
+const EXPORT_TAKE = 500;
+/** The most of the author's documents one lifecycle chunk deletes (the chunk cap). */
+const CHUNK_TAKE = 500;
 
 /** What a test may change when it rebuilds the store over the same storage. */
 export interface StoreSetup {
@@ -76,6 +105,137 @@ export class ArtifactDocuments extends DurableObject<Env> {
     void ctx.blockConcurrencyWhile(async () => {
       this.store.knownAlarm(await ctx.storage.getAlarm());
     });
+  }
+
+  // The lifecycle interface (decision 0026, delivery 4). The binding is the credential: only a
+  // Worker whose deployed configuration binds this class by `script_name` reaches these methods
+  // (today the jobs Worker; there is no route and no fetch handler). Every argument is parsed at
+  // this boundary, and every command is then admitted by the store through the domain's envelope
+  // rules (`admit`, `applyFence`, the erase steps), which decide; nothing here does.
+
+  /** The control record, or null when no durable write ever bound the object. Writes nothing. */
+  lifecycleControl(): DataControl | null {
+    return this.store.controlRecord();
+  }
+
+  /** A hold, a release, a transfer or an epoch raise. */
+  lifecycleFence(envelope: unknown, fence: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope),
+      fence: DataFence.parse(fence),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.fence(input.envelope, input.fence, input.now);
+  }
+
+  /**
+   * A step of a whole erase the lifecycle requires (`reason`: a purge, an account's or a
+   * workspace's deletion): only these paths set `requiredErase`, never a document command.
+   */
+  lifecycleErase(
+    step: unknown,
+    envelope: unknown,
+    eraseId: unknown,
+    reason: unknown,
+    now: unknown,
+  ) {
+    const input = this.#parsed(() => ({
+      step: EraseStep.parse(step),
+      envelope: {
+        ...LifecycleEnvelope.parse(envelope),
+        requiredErase: RequiredErase.parse(reason),
+      } satisfies DataEnvelope,
+      eraseId: OperationId.parse(eraseId),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    const { envelope: parsed, eraseId: id, now: at } = input;
+    if (input.step === "prepare") return this.store.prepareErase(parsed, id, at);
+    if (input.step === "commit") return this.store.commitErase(parsed, id, at);
+    return this.store.cancelErase(parsed, id, at);
+  }
+
+  /** One bounded chunk of a deleted account's erasure, under its own operation ID. */
+  lifecycleEraseAuthor(envelope: unknown, visitorId: unknown, opId: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: {
+        ...LifecycleEnvelope.parse(envelope),
+        opId: OperationId.parse(opId),
+      } satisfies DataEnvelope,
+      visitorId: VisitorId.parse(visitorId),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.eraseAuthorChunk(input.envelope, input.visitorId, CHUNK_TAKE, {
+      now: input.now,
+      limits: LIFECYCLE_LIMITS,
+    });
+  }
+
+  /** Reconciliation's quarantine. */
+  lifecycleQuarantine(envelope: unknown, reason: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope),
+      reason: QuarantineReason.parse(reason),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.quarantine(input.envelope, input.reason, input.now);
+  }
+
+  /**
+   * The operator's resolution of one quarantine, with its ID, the state it was reviewed against
+   * and D1's hold (`QuarantineResolutionRequest`).
+   */
+  lifecycleResolve(envelope: unknown, request: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope),
+      request: QuarantineResolutionRequest.parse(request),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.resolveReviewed(input.envelope, input.request, input.now);
+  }
+
+  /** One page of the operator's export, allowed under a hold or a quarantine. */
+  lifecycleExport(envelope: unknown, after: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope),
+      after: ExportCursor.nullable().parse(after),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.exportPage(
+      input.envelope,
+      { kind: "owner", actor: "operator" },
+      input.after,
+      EXPORT_TAKE,
+      { now: input.now, limits: LIFECYCLE_LIMITS },
+      true,
+    );
+  }
+
+  /**
+   * The arguments as parsed, or the refusal an invalid one gets: answered as a value, never
+   * thrown across the RPC boundary, and before anything reads or writes storage.
+   */
+  #parsed<T extends object>(parse: () => T): T | { refused: InvalidInput } {
+    try {
+      return parse();
+    } catch {
+      // Answered from nothing stored: no read, not even of the control record, so an invalid
+      // command cannot fail on storage. Its report is the empty one, never newer than any other.
+      return {
+        refused: {
+          ok: false,
+          code: "invalid_input",
+          message: "invalid lifecycle command",
+          cost: { rowsRead: 0, rowsWritten: 0 },
+          storage: { generation: 0, seq: 0, bytes: 0 },
+        },
+      };
+    }
   }
 
   override async alarm(): Promise<void> {

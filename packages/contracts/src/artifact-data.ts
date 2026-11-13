@@ -67,6 +67,24 @@ export const DataEnvelope = z.strictObject({
 });
 export type DataEnvelope = z.infer<typeof DataEnvelope>;
 
+/**
+ * A lifecycle command's envelope as another Worker sends it (delivery 4): no operation ID and no
+ * erase reason, which the object's lifecycle methods set themselves from their own arguments.
+ */
+export const LifecycleEnvelope = DataEnvelope.omit({ opId: true, requiredErase: true });
+export type LifecycleEnvelope = z.infer<typeof LifecycleEnvelope>;
+
+/** A command's time as the calling Worker passes it, in milliseconds since the epoch. */
+export const DataTime = Time;
+
+/** The steps of a whole erase. */
+export const EraseStepName = z.enum(["prepare", "commit", "cancel"]);
+export type EraseStepName = z.infer<typeof EraseStepName>;
+
+/** The operator's two ways out of a quarantine. */
+export const QuarantineResolution = z.enum(["adopt", "erase"]);
+export type QuarantineResolution = z.infer<typeof QuarantineResolution>;
+
 export const TRANSITION_KINDS = ["created", "transfer", "hold", "release", "epoch"] as const;
 export const TransitionKind = z.enum(TRANSITION_KINDS);
 export type TransitionKind = z.infer<typeof TransitionKind>;
@@ -86,6 +104,37 @@ export const QUARANTINE_REASONS = ["owner", "hold", "orphan", "generation"] as c
 export const QuarantineReason = z.enum(QUARANTINE_REASONS);
 export type QuarantineReason = z.infer<typeof QuarantineReason>;
 
+/**
+ * The state of a quarantined object the operator reviewed (`data-findings`): the quarantine's
+ * reason and time and the identity numbers the object held then. A resolution applies only to
+ * exactly this state.
+ */
+export const ReviewedQuarantine = z.strictObject({
+  artifactId: ArtifactId,
+  region: DataRegion,
+  /** The object's own count of quarantines when this one began: one quarantine of one object. */
+  incarnation: Count,
+  reason: QuarantineReason,
+  ownerId: DataOwnerId,
+  generation: Count,
+  epoch: Count,
+});
+export type ReviewedQuarantine = z.infer<typeof ReviewedQuarantine>;
+
+/**
+ * The operator's resolution of one quarantine, as an operation with an identity: its ID (the
+ * erase ID's form, recorded with its outcome like an ended erase intent, so a retry finishes the
+ * same resolution), the decision, the state it was reviewed against, and the hold D1 has, which
+ * an adoption makes the object keep.
+ */
+export const QuarantineResolutionRequest = z.strictObject({
+  id: OperationId,
+  decision: QuarantineResolution,
+  expected: ReviewedQuarantine,
+  hold: z.strictObject({ transition: TransitionId }).nullable(),
+});
+export type QuarantineResolutionRequest = z.infer<typeof QuarantineResolutionRequest>;
+
 export const ERASE_OUTCOMES = ["committed", "cancelled"] as const;
 export const EraseEnd = z.enum(ERASE_OUTCOMES);
 export type EraseEnd = z.infer<typeof EraseEnd>;
@@ -104,7 +153,15 @@ export const DataControl = z.looseObject({
   /** The epoch of the last fence applied, or null before any: a fence at the bound epoch applies. */
   fencedEpoch: Count.nullable(),
   hold: z.looseObject({ transition: TransitionId, epoch: Count }).nullable(),
-  quarantine: z.looseObject({ reason: QuarantineReason, at: Time }).nullable(),
+  /**
+   * The open quarantine: its reason, when it began (for the operator, never compared) and its
+   * incarnation, the object's own quarantine count when it began (`quarantines`).
+   */
+  quarantine: z
+    .looseObject({ reason: QuarantineReason, at: Time, incarnation: Count.optional() })
+    .nullable(),
+  /** How many quarantines this object ever began: raised by each, never by a caller's time. */
+  quarantines: Count.optional(),
   /** A prepared erase: its ID and immutable target (generation and epoch). */
   erasing: z.looseObject({ id: EraseId, generation: Count, epoch: Count }).nullable(),
   lastErase: z.looseObject({ id: EraseId, outcome: EraseEnd }).nullable(),
@@ -296,6 +353,11 @@ export const ARTIFACT_DATA = {
   maxDepth: 16,
   /** A retired journal entry is kept this long: longer than any grant or code can live. */
   journalRetiredMs: 31 * 86_400_000,
+  /**
+   * A retired inventory entry is kept this long: longer than D1 Time Travel's 30-day window, so
+   * any restore that could bring the artifact's row back still finds its object.
+   */
+  inventoryRetiredMs: 31 * 86_400_000,
   live: {
     messageBytes: 1024,
     messagesInPerMinute: 4,
@@ -450,6 +512,18 @@ export const JournalEntry = z.looseObject({
   retiredAt: Time.optional(),
 });
 export type JournalEntry = z.infer<typeof JournalEntry>;
+
+/**
+ * The object inventory's entry in the region's bucket (decision 0026, "Restore"): written before
+ * an object can hold anything, retired once a whole erase that ends the artifact committed.
+ */
+export const InventoryEntry = z.looseObject({
+  artifactId: ArtifactId,
+  region: DataRegion,
+  createdAt: Time,
+  retiredAt: Time.optional(),
+});
+export type InventoryEntry = z.infer<typeof InventoryEntry>;
 
 /** The export file (decision 0026, "Export"): JSON Lines, versioned, never reordered. */
 export const DATA_EXPORT_FORMAT = "portifact-data";

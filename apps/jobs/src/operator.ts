@@ -49,6 +49,7 @@ import {
   PROTECTION_STEPS,
   shareLinkStatus,
 } from "@portifact/domain";
+import { formatReviewed, parseReviewed } from "@portifact/domain/artifact-data";
 import {
   accountSuspension,
   applyIntegrationTombstones,
@@ -83,6 +84,7 @@ import {
   listAllWorkspaces,
   listBlockedHostnames,
   listBudgetAlerts,
+  listDataFindings,
   listDecisions,
   listEmailSuppressions,
   listLegalHolds,
@@ -93,6 +95,9 @@ import {
   operatorRevokeServiceToken,
   ownerRegion,
   placeLegalHold,
+  queueDataExport,
+  queueDataReconcile,
+  queueDataResolve,
   rebuildArtifactDirectory,
   reconcileCustomDomains,
   reinstateAccount,
@@ -146,6 +151,15 @@ Commands:
   holds [--all] [--limit N]
   hold <artifact-id>           (an open hold's ground and the people it keeps, with their emails)
   storage-report [--limit N]
+  data-reconcile [--region <region>]   (after a restore and apply-tombstones: the region's documents
+                               objects against D1, then the author erasures from the journal)
+  data-findings [--limit N] [--region <region>]
+  data-resolve <artifact-id> adopt|erase --state <state> [--region <region>]
+                               (ends the quarantine data-findings showed with that state; adopt
+                               needs D1 to name the owner the object recorded and keeps any hold;
+                               erase is refused while D1 or the object holds)
+  data-export <artifact-id> [--region <region>]   (the object's documents to the region's bucket,
+                               also under a hold or a quarantine)
   export-tombstones --out <file> [--region all|<region>]   (with more than one region: all, or a region with its own database)
   apply-tombstones [--file <file>] [--region all|<region>]
   budget
@@ -1342,6 +1356,59 @@ export async function runOperator(
           `${f.kind}  ${f.r2Key}  first ${new Date(f.firstSeenAt).toISOString()}  last ${new Date(f.lastSeenAt).toISOString()}${f.detail ? `  ${f.detail}` : ""}`,
       );
       return { exitCode: 0, output: lines.join("\n") };
+    }
+    case "data-reconcile": {
+      await queueDataReconcile(db, now);
+      return {
+        exitCode: 0,
+        output: `Reconciliation of region ${regionName} queued; read the outcome with data-findings.`,
+      };
+    }
+    case "data-findings": {
+      const limit = Number(options.get("limit") ?? 100);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 1000) {
+        return usage("--limit must be 1 to 1000.");
+      }
+      const findings = await listDataFindings(db, limit);
+      if (findings.length === 0) return { exitCode: 0, output: "No artifact data findings." };
+      return {
+        exitCode: 0,
+        output: findings
+          .map(
+            (f) =>
+              `${f.artifactId}  ${f.action}${f.reason ? ` (${f.reason})` : ""}${f.state ? `  state ${f.state}` : ""}  first ${new Date(f.firstSeenAt).toISOString()}  last ${new Date(f.lastSeenAt).toISOString()}`,
+          )
+          .join("\n"),
+      };
+    }
+    case "data-resolve": {
+      const [artifactId, decision] = args;
+      const state = parseReviewed(options.get("state") ?? "");
+      if (!artifactId || (decision !== "adopt" && decision !== "erase") || state === null) {
+        return usage(
+          "data-resolve needs an artifact ID, adopt or erase, and --state as data-findings prints it.",
+        );
+      }
+      const resolutionId = await queueDataResolve(
+        await artifactDb(artifactId),
+        artifactId,
+        decision,
+        state,
+        now,
+      );
+      return {
+        exitCode: 0,
+        output: `Resolution ${resolutionId} (${decision}) of ${artifactId} queued for the state ${formatReviewed(state)}; read the outcome with data-findings.`,
+      };
+    }
+    case "data-export": {
+      const [artifactId] = args;
+      if (!artifactId) return usage("data-export needs an artifact ID.");
+      const key = await queueDataExport(await artifactDb(artifactId), artifactId, now);
+      return {
+        exitCode: 0,
+        output: `Export of ${artifactId} queued; its pages land under ${key}/ in the region's bucket.`,
+      };
     }
     case "export-tombstones": {
       const out = options.get("out");

@@ -7,7 +7,10 @@ import type {
   DataControl,
   DataEnvelope,
   DataFence,
+  EraseEnd,
   QuarantineReason,
+  QuarantineResolutionRequest,
+  ReviewedQuarantine,
   TransitionKind,
 } from "@portifact/contracts/artifact-data";
 import { accept, type Decision, type Refusal, refuse } from "./decision.ts";
@@ -228,10 +231,12 @@ export function quarantine(
   if (stored === null) return refuse("not_found", "no data to quarantine");
   if (namesAnotherArtifact(stored, envelope)) return FORBIDDEN;
   if (stored.quarantine !== null) return accept({ control: stored, changed: false });
+  const incarnation = (stored.quarantines ?? 0) + 1;
   return accept({
     control: {
       ...stored,
-      quarantine: { reason, at: now },
+      quarantine: { reason, at: now, incarnation },
+      quarantines: incarnation,
       storageSeq: stored.storageSeq + 1,
       liveEpoch: stored.liveEpoch + 1,
     },
@@ -295,6 +300,87 @@ export function resolveQuarantine(
     },
     erasePayload: true,
     endedErase: stored.erasing?.id ?? null,
+  });
+}
+
+/**
+ * What an operator reviewed: one quarantine of one object, named by the artifact, the region and
+ * the quarantine's incarnation the object itself keeps, with the reason and the identity numbers
+ * the object held then. No time is part of it: a caller's clock never authorizes anything here.
+ */
+export function reviewedState(control: DataControl): ReviewedQuarantine | null {
+  if (control.quarantine === null) return null;
+  return {
+    artifactId: control.artifactId,
+    region: control.region,
+    incarnation: control.quarantine.incarnation ?? 0,
+    reason: control.quarantine.reason,
+    ownerId: control.ownerId,
+    generation: control.generation,
+    epoch: control.epoch,
+  };
+}
+
+function sameReview(a: ReviewedQuarantine, b: ReviewedQuarantine): boolean {
+  return (
+    a.artifactId === b.artifactId &&
+    a.region === b.region &&
+    a.incarnation === b.incarnation &&
+    a.reason === b.reason &&
+    a.ownerId === b.ownerId &&
+    a.generation === b.generation &&
+    a.epoch === b.epoch
+  );
+}
+
+export interface ReviewedResolution extends QuarantineResolved {
+  /** The same resolution delivered again after it ended: nothing changes. */
+  repeated: boolean;
+}
+
+/**
+ * The operator's resolution of one quarantine, an operation with an identity like an erase
+ * intent. A resolution whose ID ended (`ended`, looked up like an ended erase intent) answers that
+ * it ended and changes nothing, so a retry finishes the same resolution. Otherwise it applies only
+ * to exactly the state it was reviewed against (the artifact, region and the quarantine's
+ * incarnation, its reason, the owner, generation and epoch): any other state, a later quarantine
+ * included, is a conflict. It never
+ * lets the less restrictive side of a hold disagreement win: `erase` is refused while the object
+ * or D1 (`request.hold`) holds, and `adopt` keeps the object's hold or takes D1's, in the same
+ * transaction that clears the quarantine, so adoption never drops a hold. Erasing held data needs
+ * the hold's own release, acknowledged by the object, and nothing else.
+ */
+export function resolveReviewed(
+  stored: DataControl | null,
+  envelope: DataEnvelope,
+  request: QuarantineResolutionRequest,
+  ended: EraseEnd | null,
+): Decision<ReviewedResolution> {
+  if (stored === null) return refuse("conflict", "nothing to resolve");
+  if (namesAnotherArtifact(stored, envelope)) return FORBIDDEN;
+  if (ended !== null) {
+    return accept({ control: stored, erasePayload: false, endedErase: null, repeated: true });
+  }
+  const reviewed = reviewedState(stored);
+  if (reviewed === null) return refuse("conflict", "nothing to resolve");
+  if (!sameReview(reviewed, request.expected)) {
+    return refuse("conflict", "the data changed since this resolution was reviewed");
+  }
+  // The object's own hold refuses an erase in `resolveQuarantine`; D1's is checked here.
+  if (request.decision === "erase" && request.hold !== null) {
+    return refuse("held", "a release must be acknowledged before erasing held data");
+  }
+  const resolved = resolveQuarantine(stored, envelope, request.decision);
+  if (!resolved.ok) return resolved;
+  // An erase reaches here only with no hold on either side, so this keeps or takes one only
+  // for an adoption.
+  const hold =
+    stored.hold ??
+    (request.hold === null ? null : { transition: request.hold.transition, epoch: stored.epoch });
+  return accept({
+    ...resolved.value,
+    control: { ...resolved.value.control, hold },
+    repeated: false,
   });
 }
 

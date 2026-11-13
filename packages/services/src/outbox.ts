@@ -16,6 +16,15 @@ import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-o
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
 import { applyOwnerRetention, moveAccessHistory } from "./analytics.ts";
+import {
+  type DataObjects,
+  runDataAuthorErasure,
+  runDataErase,
+  runDataExport,
+  runDataFence,
+  runDataReconcile,
+  runDataResolve,
+} from "./artifact-data.ts";
 import { type AuditStreamDeps, deliverAuditStream } from "./audit-streams.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
@@ -191,6 +200,8 @@ export interface JobDeps {
   reportOutcomeNotifier?: ReportOutcomeNotifier | undefined;
   /** Every region, for the deletions that reach all of them; only the job's own without it. */
   regions?: DeletionRegions | undefined;
+  /** The job's region's documents objects (decision 0026), for the `data_*` jobs. */
+  data?: DataObjects | null | undefined;
 }
 
 /** Runs one queued job. Safe to run again or concurrently with the same message. */
@@ -233,6 +244,7 @@ async function runRow(
     moderationNotifier,
     reportOutcomeNotifier,
     regions = singleRegion(db, bucket),
+    data,
   }: JobDeps,
 ): Promise<JobOutcome> {
   switch (row.topic) {
@@ -342,6 +354,19 @@ async function runRow(
     case "report_outcome":
       if (!reportOutcomeNotifier) throw new Error("report_outcome needs the report notifier");
       return sendReportOutcome(db, row, now, reportOutcomeNotifier);
+    // Artifact data (decision 0026): each throws without the binding, so the row stays.
+    case "data_fence":
+      return runDataFence(db, data, row, now);
+    case "data_erase":
+      return runDataErase(db, bucket, data, row, now);
+    case "data_author_erasure":
+      return runDataAuthorErasure(db, bucket, data, row, now);
+    case "data_reconcile":
+      return runDataReconcile(db, bucket, data, row, now);
+    case "data_resolve":
+      return runDataResolve(db, bucket, data, row, now);
+    case "data_export":
+      return runDataExport(db, bucket, data, row, now);
   }
 }
 

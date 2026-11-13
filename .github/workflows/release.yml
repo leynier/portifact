@@ -101,6 +101,14 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # The data Worker first (decision 0026): the jobs Worker binds its documents class by
+      # `script_name`, and a binding to a class that is not deployed is refused.
+      - name: Deploy the data Worker
+        working-directory: apps/data
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy the content Worker
         working-directory: apps/content
         run: npx wrangler deploy

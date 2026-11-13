@@ -13,6 +13,7 @@ declare global {
       DB_EU: D1Database;
       ACCESS_DB_EU: D1Database;
       ARTIFACTS_EU: R2Bucket;
+      ARTIFACT_DOCUMENTS: DurableObjectNamespace;
       REGION_GUARD: string;
       TEST_MIGRATIONS: D1Migration[];
       TEST_ACCESS_MIGRATIONS: D1Migration[];

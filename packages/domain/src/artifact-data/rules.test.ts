@@ -426,7 +426,8 @@ describe("quarantine and reconciliation", () => {
       value: {
         control: {
           ...stored,
-          quarantine: { reason: "hold", at: NOW },
+          quarantine: { reason: "hold", at: NOW, incarnation: 1 },
+          quarantines: 1,
           storageSeq: 1,
           liveEpoch: 1,
         },

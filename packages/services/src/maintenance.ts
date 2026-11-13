@@ -26,6 +26,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
+import { dataEraseJob, pruneJournalCursors } from "./artifact-data.ts";
 import { auditEvent, pruneAuditEvents } from "./audit.ts";
 import { pruneAuthRecords } from "./auth-records.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
@@ -689,6 +690,14 @@ export async function deleteArtifactData(
       sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifactId} and ${schema.artifacts.state} = 'purging')`,
       now,
     ),
+    // Its document database (decision 0026): the whole erase the purge requires, written from the
+    // `artifact_data` row the delete below takes with it. An artifact without data gets none.
+    dataEraseJob(
+      db,
+      artifactId,
+      sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifactId} and ${schema.artifacts.state} = 'purging')`,
+      now,
+    ),
     // Cascades to readers, versions and manifest entries.
     db
       .delete(schema.artifacts)
@@ -950,6 +959,8 @@ export async function runRegionalMaintenance(
     goneHistory: await pruneGoneHistory(db, now),
     uploadHistory: await pruneUploadHistory(db, now),
     staleFindings: await pruneStaleFindings(db, now),
+    // Account journal scan positions left after their deletion ended (decision 0026).
+    journalCursors: await pruneJournalCursors(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
@@ -1001,6 +1012,8 @@ export async function runMaintenance(
     goneHistory: await pruneGoneHistory(db, now),
     uploadHistory: await pruneUploadHistory(db, now),
     staleFindings: await pruneStaleFindings(db, now),
+    // Account journal scan positions left after their deletion ended (decision 0026).
+    journalCursors: await pruneJournalCursors(db, now),
     // Expired sign-in records and unused app registrations (global; docs/operations.md).
     authRecords: await pruneAuthRecords(db.global, now),
     readSessions: (await pruneReadSessions(db, now)).processed,

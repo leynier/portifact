@@ -32,7 +32,12 @@ export const PORTIFACT_RESOURCES = {
    * (`eu_`). Checked on 2026-11-11 against real operations (docs/releasing.md, "EU region").
    */
   buckets: ["portifact-artifacts", "eu_portifact-artifacts-eu"],
-  scripts: ["portifact-app", "portifact-content", "portifact-jobs"],
+  /**
+   * The Workers. `portifact-data` (decision 0026) exports the documents objects; their own
+   * requests, duration and rows are Durable Object metrics, which the data step of budget
+   * protection adds to this collector (delivery 8).
+   */
+  scripts: ["portifact-app", "portifact-content", "portifact-jobs", "portifact-data"],
   /**
    * Each region's control database and access database (`portifact-access`, the access log and
    * the analytics view counters, decision 0007): rows read and written in all of them are billed
