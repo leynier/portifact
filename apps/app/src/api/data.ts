@@ -16,6 +16,7 @@ import {
   dataCountOf,
   dataQueryOf,
   type ErrorCode,
+  IdempotencyKey,
   MAX_DOCUMENT_BYTES,
   parseExportCursor,
 } from "@portifact/contracts";
@@ -40,7 +41,7 @@ import {
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
 import { artifactRegion, bucketOf } from "../regions.ts";
-import { type ApiContext, error, failure, type Guarded, idempotent, readJson } from "./http.ts";
+import { type ApiContext, error, failure, type Guarded, readJson } from "./http.ts";
 
 /** The largest body a data change may send: a bulk write of 100 documents at the plan's size. */
 export const DATA_BODY_MAX = 8 * 1024 * 1024;
@@ -62,7 +63,24 @@ function answer<T>(c: ApiContext, result: Result<T>, status: 200 | 201 = 200) {
   return c.json(result.value as object, status);
 }
 
-/** A stored response for `idempotent`: the body, or the error. */
+/**
+ * A change: it needs an Idempotency-Key, which names its operation in the documents object
+ * (decision 0026, delivery 5). Nothing here stores an answer: the service authorizes every
+ * request, a retry included, and the object answers a retry from its own record, so a retry is
+ * never answered from a stored body or to someone who lost access.
+ */
+async function change(
+  c: ApiContext,
+  run: () => Promise<{ status: number; body: unknown }>,
+): Promise<Response> {
+  if (!IdempotencyKey.safeParse(c.req.header("idempotency-key")).success) {
+    return error(c, "invalid_input", "Send an Idempotency-Key header (8 to 128 characters).");
+  }
+  const { status, body } = await run();
+  return c.json(body as object, status as 200);
+}
+
+/** A change's answer: the body, or the error. */
 function stored<T>(result: Result<T>, status = 200) {
   return result.ok ? { status, body: result.value } : failure(result.code, result.message);
 }
@@ -91,7 +109,7 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
     const region = await artifactRegion(c.env, artifactId);
     return { artifactId, region, deps: ownerDataDeps(c.env, region) };
   };
-  // `idempotent` refused a request without a valid key before any handler reads it.
+  // `change` refused a request without a valid key before any handler reads it.
   const key = (c: ApiContext) => c.req.header("idempotency-key") as string;
 
   api.get(
@@ -112,26 +130,17 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
       if (!body.ok) return body.response;
       const { artifactId, region, deps } = await at(c);
       const at0 = now();
-      return idempotent(
-        c,
-        {
-          db: region.db,
-          userId,
-          operation: "data.declare",
-          request: { artifactId, ...body.value },
-          now: at0,
-        },
-        async () =>
-          stored(
-            await declareDataCollection(region.db, deps, {
-              userId,
-              artifactId,
-              now: at0,
-              idempotencyKey: key(c),
-              declaration: body.value,
-            }),
-            201,
-          ),
+      return change(c, async () =>
+        stored(
+          await declareDataCollection(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+            declaration: body.value,
+          }),
+          201,
+        ),
       );
     }),
   );
@@ -141,24 +150,15 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
     guarded("data:write", async (c, userId) => {
       const { artifactId, region, deps } = await at(c);
       const at0 = now();
-      return idempotent(
-        c,
-        {
-          db: region.db,
-          userId,
-          operation: "data.build_indexes",
-          request: { artifactId },
-          now: at0,
-        },
-        async () =>
-          stored(
-            await buildDataIndexes(region.db, deps, {
-              userId,
-              artifactId,
-              now: at0,
-              idempotencyKey: key(c),
-            }),
-          ),
+      return change(c, async () =>
+        stored(
+          await buildDataIndexes(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+          }),
+        ),
       );
     }),
   );
@@ -233,27 +233,18 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
       const { artifactId, region, deps } = await at(c);
       const collection = collectionOf(c);
       const at0 = now();
-      return idempotent(
-        c,
-        {
-          db: region.db,
-          userId,
-          operation: "data.create",
-          request: { artifactId, collection, body: body.value },
-          now: at0,
-        },
-        async () =>
-          stored(
-            await createDataDocument(region.db, deps, {
-              userId,
-              artifactId,
-              now: at0,
-              idempotencyKey: key(c),
-              collection,
-              body: body.value,
-            }),
-            201,
-          ),
+      return change(c, async () =>
+        stored(
+          await createDataDocument(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+            collection,
+            body: body.value,
+          }),
+          201,
+        ),
       );
     }),
   );
@@ -266,27 +257,18 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
       const { artifactId, region, deps } = await at(c);
       const collection = collectionOf(c);
       const at0 = now();
-      return idempotent(
-        c,
-        {
-          db: region.db,
-          userId,
-          operation: "data.bulk_create",
-          request: { artifactId, collection, ...body.value },
-          now: at0,
-        },
-        async () =>
-          stored(
-            await createDataDocuments(region.db, deps, {
-              userId,
-              artifactId,
-              now: at0,
-              idempotencyKey: key(c),
-              collection,
-              documents: body.value.documents,
-            }),
-            201,
-          ),
+      return change(c, async () =>
+        stored(
+          await createDataDocuments(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+            collection,
+            documents: body.value.documents,
+          }),
+          201,
+        ),
       );
     }),
   );
@@ -299,26 +281,17 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
       const { artifactId, region, deps } = await at(c);
       const collection = collectionOf(c);
       const at0 = now();
-      return idempotent(
-        c,
-        {
-          db: region.db,
-          userId,
-          operation: "data.bulk_replace",
-          request: { artifactId, collection, ...body.value },
-          now: at0,
-        },
-        async () =>
-          stored(
-            await replaceDataDocuments(region.db, deps, {
-              userId,
-              artifactId,
-              now: at0,
-              idempotencyKey: key(c),
-              collection,
-              documents: body.value.documents,
-            }),
-          ),
+      return change(c, async () =>
+        stored(
+          await replaceDataDocuments(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+            collection,
+            documents: body.value.documents,
+          }),
+        ),
       );
     }),
   );
@@ -331,26 +304,17 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
       const { artifactId, region, deps } = await at(c);
       const collection = collectionOf(c);
       const at0 = now();
-      return idempotent(
-        c,
-        {
-          db: region.db,
-          userId,
-          operation: "data.bulk_delete",
-          request: { artifactId, collection, ...body.value },
-          now: at0,
-        },
-        async () =>
-          stored(
-            await deleteDataDocuments(region.db, deps, {
-              userId,
-              artifactId,
-              now: at0,
-              idempotencyKey: key(c),
-              collection,
-              ids: body.value.ids,
-            }),
-          ),
+      return change(c, async () =>
+        stored(
+          await deleteDataDocuments(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+            collection,
+            ids: body.value.ids,
+          }),
+        ),
       );
     }),
   );
@@ -384,27 +348,18 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
       const collection = collectionOf(c);
       const id = documentOf(c);
       const at0 = now();
-      return idempotent(
-        c,
-        {
-          db: region.db,
-          userId,
-          operation: "data.replace",
-          request: { artifactId, collection, id, body: body.value },
-          now: at0,
-        },
-        async () =>
-          stored(
-            await replaceDataDocument(region.db, deps, {
-              userId,
-              artifactId,
-              now: at0,
-              idempotencyKey: key(c),
-              collection,
-              id,
-              body: body.value,
-            }),
-          ),
+      return change(c, async () =>
+        stored(
+          await replaceDataDocument(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+            collection,
+            id,
+            body: body.value,
+          }),
+        ),
       );
     }),
   );
@@ -416,26 +371,17 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
       const collection = collectionOf(c);
       const id = documentOf(c);
       const at0 = now();
-      return idempotent(
-        c,
-        {
-          db: region.db,
-          userId,
-          operation: "data.delete",
-          request: { artifactId, collection, id },
-          now: at0,
-        },
-        async () =>
-          stored(
-            await deleteDataDocument(region.db, deps, {
-              userId,
-              artifactId,
-              now: at0,
-              idempotencyKey: key(c),
-              collection,
-              id,
-            }),
-          ),
+      return change(c, async () =>
+        stored(
+          await deleteDataDocument(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+            collection,
+            id,
+          }),
+        ),
       );
     }),
   );

@@ -35,7 +35,6 @@ import {
   ReplaceDataDocumentInput,
   ReplaceDataDocumentsInput,
 } from "@portifact/contracts";
-import type { RegionalDb } from "@portifact/db";
 import {
   buildDataIndexes,
   countArtifactData,
@@ -47,11 +46,9 @@ import {
   describeArtifactData,
   exportArtifactData,
   getDataDocument,
-  hashRequest,
   queryArtifactData,
   replaceDataDocument,
   replaceDataDocuments,
-  runIdempotent,
   type StoredResponse,
 } from "@portifact/services";
 import { z } from "zod";
@@ -101,44 +98,17 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
   };
 
   /**
-   * Runs a change once per idempotency key, in the artifact's region, under the API's operation
-   * name and request, and answers its body or its error.
+   * Runs a change under its idempotency key (a new one when the agent sent none), which names its
+   * operation in the documents object: the service authorizes every call, a retry included, and
+   * the object answers a retry from its own record, exactly as the API does. Nothing stores an
+   * answer.
    */
   async function change(
-    db: RegionalDb,
-    operation: string,
-    request: object,
     idempotencyKey: string | undefined,
     work: (key: string, now: number) => Promise<StoredResponse>,
   ): Promise<{ ok: true; body: unknown } | { ok: false; code: ErrorCode; message: string }> {
-    const now = context.now();
-    const key = idempotencyKey ?? crypto.randomUUID();
-    const outcome = await runIdempotent(
-      db,
-      {
-        actorId: context.userId,
-        key,
-        operation,
-        requestHash: await hashRequest(request),
-        now,
-      },
-      () => work(key, now),
-    );
-    if (outcome.kind === "mismatch") {
-      return {
-        ok: false,
-        code: "invalid_input",
-        message: "This idempotency key was used for a different request.",
-      };
-    }
-    if (outcome.kind === "in_progress") {
-      return {
-        ok: false,
-        code: "version_conflict",
-        message: "A request with this idempotency key is still running.",
-      };
-    }
-    const body = outcome.response.body as { error?: { code: ErrorCode; message: string } };
+    const response = await work(idempotencyKey ?? crypto.randomUUID(), context.now());
+    const body = response.body as { error?: { code: ErrorCode; message: string } };
     if (body.error) return { ok: false, ...body.error };
     return { ok: true, body };
   }
@@ -190,21 +160,16 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     async (args: DeclareDataCollectionInput) => {
       const { artifactId, idempotencyKey, ...declaration } = args;
       const { db, deps } = await at(artifactId);
-      const result = await change(
-        db,
-        "data.declare",
-        { artifactId, ...declaration },
-        idempotencyKey,
-        async (key, now) =>
-          stored(
-            await declareDataCollection(db, deps, {
-              ...input(artifactId),
-              now,
-              idempotencyKey: key,
-              declaration,
-            }),
-            201,
-          ),
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await declareDataCollection(db, deps, {
+            ...input(artifactId),
+            now,
+            idempotencyKey: key,
+            declaration,
+          }),
+          201,
+        ),
       );
       if (!result.ok) return failure(result.code, result.message);
       const body = DataCollectionView.parse(result.body);
@@ -232,15 +197,10 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     async (args: BuildDataIndexesInput) => {
       const { artifactId, idempotencyKey } = args;
       const { db, deps } = await at(artifactId);
-      const result = await change(
-        db,
-        "data.build_indexes",
-        { artifactId },
-        idempotencyKey,
-        async (key, now) =>
-          stored(
-            await buildDataIndexes(db, deps, { ...input(artifactId), now, idempotencyKey: key }),
-          ),
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await buildDataIndexes(db, deps, { ...input(artifactId), now, idempotencyKey: key }),
+        ),
       );
       if (!result.ok) return failure(result.code, result.message);
       const body = BuildIndexesView.parse(result.body);
@@ -364,22 +324,17 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     async (args: CreateDataDocumentInput) => {
       const { artifactId, collection, body: document, idempotencyKey } = args;
       const { db, deps } = await at(artifactId);
-      const result = await change(
-        db,
-        "data.create",
-        { artifactId, collection, body: document },
-        idempotencyKey,
-        async (key, now) =>
-          stored(
-            await createDataDocument(db, deps, {
-              ...input(artifactId),
-              now,
-              idempotencyKey: key,
-              collection,
-              body: document,
-            }),
-            201,
-          ),
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await createDataDocument(db, deps, {
+            ...input(artifactId),
+            now,
+            idempotencyKey: key,
+            collection,
+            body: document,
+          }),
+          201,
+        ),
       );
       if (!result.ok) return failure(result.code, result.message);
       const body = DataDocumentView.parse(result.body);
@@ -404,22 +359,17 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     async (args: ReplaceDataDocumentInput) => {
       const { artifactId, collection, id, body: document, idempotencyKey } = args;
       const { db, deps } = await at(artifactId);
-      const result = await change(
-        db,
-        "data.replace",
-        { artifactId, collection, id, body: document },
-        idempotencyKey,
-        async (key, now) =>
-          stored(
-            await replaceDataDocument(db, deps, {
-              ...input(artifactId),
-              now,
-              idempotencyKey: key,
-              collection,
-              id,
-              body: document,
-            }),
-          ),
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await replaceDataDocument(db, deps, {
+            ...input(artifactId),
+            now,
+            idempotencyKey: key,
+            collection,
+            id,
+            body: document,
+          }),
+        ),
       );
       if (!result.ok) return failure(result.code, result.message);
       const body = DataDocumentView.parse(result.body);
@@ -444,21 +394,16 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     async (args: DeleteDataDocumentInput) => {
       const { artifactId, collection, id, idempotencyKey } = args;
       const { db, deps } = await at(artifactId);
-      const result = await change(
-        db,
-        "data.delete",
-        { artifactId, collection, id },
-        idempotencyKey,
-        async (key, now) =>
-          stored(
-            await deleteDataDocument(db, deps, {
-              ...input(artifactId),
-              now,
-              idempotencyKey: key,
-              collection,
-              id,
-            }),
-          ),
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await deleteDataDocument(db, deps, {
+            ...input(artifactId),
+            now,
+            idempotencyKey: key,
+            collection,
+            id,
+          }),
+        ),
       );
       if (!result.ok) return failure(result.code, result.message);
       return success(`Deleted ${id} from ${collection}.`, DataDocumentRemoved.parse(result.body));
@@ -477,22 +422,17 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     async (args: CreateDataDocumentsInput) => {
       const { artifactId, collection, documents, idempotencyKey } = args;
       const { db, deps } = await at(artifactId);
-      const result = await change(
-        db,
-        "data.bulk_create",
-        { artifactId, collection, documents },
-        idempotencyKey,
-        async (key, now) =>
-          stored(
-            await createDataDocuments(db, deps, {
-              ...input(artifactId),
-              now,
-              idempotencyKey: key,
-              collection,
-              documents,
-            }),
-            201,
-          ),
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await createDataDocuments(db, deps, {
+            ...input(artifactId),
+            now,
+            idempotencyKey: key,
+            collection,
+            documents,
+          }),
+          201,
+        ),
       );
       if (!result.ok) return failure(result.code, result.message);
       const body = DataBulkCreated.parse(result.body);
@@ -517,21 +457,16 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     async (args: ReplaceDataDocumentsInput) => {
       const { artifactId, collection, documents, idempotencyKey } = args;
       const { db, deps } = await at(artifactId);
-      const result = await change(
-        db,
-        "data.bulk_replace",
-        { artifactId, collection, documents },
-        idempotencyKey,
-        async (key, now) =>
-          stored(
-            await replaceDataDocuments(db, deps, {
-              ...input(artifactId),
-              now,
-              idempotencyKey: key,
-              collection,
-              documents,
-            }),
-          ),
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await replaceDataDocuments(db, deps, {
+            ...input(artifactId),
+            now,
+            idempotencyKey: key,
+            collection,
+            documents,
+          }),
+        ),
       );
       if (!result.ok) return failure(result.code, result.message);
       const body = DataBulkReplaced.parse(result.body);
@@ -556,21 +491,16 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
     async (args: DeleteDataDocumentsInput) => {
       const { artifactId, collection, ids, idempotencyKey } = args;
       const { db, deps } = await at(artifactId);
-      const result = await change(
-        db,
-        "data.bulk_delete",
-        { artifactId, collection, ids },
-        idempotencyKey,
-        async (key, now) =>
-          stored(
-            await deleteDataDocuments(db, deps, {
-              ...input(artifactId),
-              now,
-              idempotencyKey: key,
-              collection,
-              ids,
-            }),
-          ),
+      const result = await change(idempotencyKey, async (key, now) =>
+        stored(
+          await deleteDataDocuments(db, deps, {
+            ...input(artifactId),
+            now,
+            idempotencyKey: key,
+            collection,
+            ids,
+          }),
+        ),
       );
       if (!result.ok) return failure(result.code, result.message);
       const body = DataBulkRemoved.parse(result.body);
