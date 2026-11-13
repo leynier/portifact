@@ -46,6 +46,11 @@ export interface BridgeConfig {
   renderer?: string | undefined;
   /** Tag of the review session this page was served in, echoed in `ready`. */
   sessionTag: string;
+  /**
+   * Whether edit suggestions are switched on (the content Worker's `SUGGESTIONS_ENABLED`). Off,
+   * the bridge announces and speaks only protocol 2, exactly as before protocol 3 existed.
+   */
+  edit?: boolean | undefined;
 }
 
 export interface BridgeTarget {
@@ -90,6 +95,11 @@ export function startBridge(
   let version: ReviewProtocol = REVIEW_PROTOCOL;
   /** Edit mode (protocol 3): the epoch to echo and what the person chooses, while it is on. */
   let editing: { epoch: number; kind: EditKind } | null = null;
+  /**
+   * Counts selection and pick work: clearing the selection, a change of edit mode and stopping
+   * start a new generation, so work begun before one is dropped when it finishes.
+   */
+  let generation = 0;
   let highlights: Highlight[] = [];
   let selected: string[] = [];
   /** What is drawn now, for hit-testing clicks. */
@@ -110,8 +120,11 @@ export function startBridge(
   const send = (body: BridgeBody) => {
     if (nonce !== null) parent.postMessage(bridgeEnvelope(nonce, body, version), config.appOrigin);
   };
-  /** The edit epoch an offer was made in, echoed only on a protocol 3 handshake. */
-  const epoch = () =>
+  /**
+   * The edit epoch of now, echoed only on a protocol 3 handshake. Work that awaits captures it
+   * before it starts, so its result never carries a later period's epoch.
+   */
+  const epoch = (): { epoch?: number } =>
     version === REVIEW_PROTOCOL_EDIT && editing !== null ? { epoch: editing.epoch } : {};
 
   const overlay = createOverlay(document);
@@ -154,7 +167,7 @@ export function startBridge(
   const reportSelection = async () => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-      if (reportedSelection) send({ type: "selection", target: null });
+      if (reportedSelection) send({ type: "selection", target: null, ...epoch() });
       reportedSelection = false;
       if (!(offered instanceof window.Element)) offered = null;
       return;
@@ -167,12 +180,15 @@ export function startBridge(
       if (created.reason !== "empty_selection") refuse(created.reason);
       return;
     }
+    const asked = { generation, epoch: epoch() };
     const target = await targetFor(doc, created.value);
+    // The selection was cleared, or edit mode changed, while its target was being made.
+    if (asked.generation !== generation) return;
     if (!target) return refuse("too_large");
     reportedSelection = true;
     offered = range.cloneRange();
     const rect = frameRect(range.getBoundingClientRect());
-    send({ type: "selection", target, ...(rect ? { rect } : {}), ...epoch() });
+    send({ type: "selection", target, ...(rect ? { rect } : {}), ...asked.epoch });
   };
 
   // Where the offered selection or element is drawn, so the viewer's "Comment" control follows
@@ -226,15 +242,17 @@ export function startBridge(
       height: box.height,
     });
     endPick();
+    const asked = { generation, epoch: epoch() };
     // The element (or the refusal) goes first: the viewer accepts an element only while it
     // waits for a pick, and `pick-ended` ends that wait.
     if (!created.ok) refuse(created.reason);
     else {
       const target = await targetFor(doc, created.value);
+      if (asked.generation !== generation) return;
       if (target) {
         offered = element;
         const rect = frameRect(element.getBoundingClientRect());
-        send({ type: "element", target, ...(rect ? { rect } : {}), ...epoch() });
+        send({ type: "element", target, ...(rect ? { rect } : {}), ...asked.epoch });
       } else refuse("too_large");
     }
     send({ type: "pick-ended" });
@@ -348,6 +366,8 @@ export function startBridge(
       nonce,
     });
     if (!message) return;
+    // Switched off, protocol 3 does not exist for this bridge.
+    if (message.v === REVIEW_PROTOCOL_EDIT && !config.edit) return;
     // After the handshake only messages of its version count.
     if (message.type !== "init" && message.v !== version) return;
     switch (message.type) {
@@ -376,6 +396,7 @@ export function startBridge(
         focus(message.id);
         return;
       case "clear-selection":
+        generation += 1;
         window.getSelection()?.removeAllRanges();
         reportedSelection = false;
         offered = null;
@@ -393,6 +414,7 @@ export function startBridge(
   // reports; choosing an element for style or structure is element mode. It never receives what
   // the person types.
   const setEditMode = (next: { epoch: number; kind: EditKind; hint: string } | null) => {
+    generation += 1;
     editing = next ? { epoch: next.epoch, kind: next.kind } : null;
     if (next && next.kind !== "text") {
       picking = { hint: next.hint };
@@ -424,7 +446,7 @@ export function startBridge(
 
   // Both versions are announced, the newer first: a viewer that reads protocol 3 answers the
   // first and ignores the second; an older viewer drops the first and answers the second.
-  for (const v of [REVIEW_PROTOCOL_EDIT, REVIEW_PROTOCOL]) {
+  for (const v of config.edit ? [REVIEW_PROTOCOL_EDIT, REVIEW_PROTOCOL] : [REVIEW_PROTOCOL]) {
     parent.postMessage(
       {
         channel: REVIEW_CHANNEL,
@@ -441,6 +463,7 @@ export function startBridge(
   return {
     overlay: overlay.root,
     stop() {
+      generation += 1;
       clearTimeout(selectionTimer);
       clearTimeout(redrawTimer);
       clearTimeout(rectTimer);

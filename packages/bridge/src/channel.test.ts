@@ -303,3 +303,53 @@ describe("protocol 3 (edit suggestions)", () => {
     expect(readViewerMessage(fromViewer(v3), bridgeExpects(null))).toBeNull();
   });
 });
+
+describe("protocol 3 is held to the same checks as version 2 (pf268)", () => {
+  const ready3 = {
+    channel: REVIEW_CHANNEL,
+    v: REVIEW_PROTOCOL_EDIT,
+    type: "ready",
+    page: { path: "index.html" },
+    sessionTag: "Ses5ionTag_0123456789-",
+    capabilities: ["edit"],
+  };
+  const selection3 = bridgeEnvelope(
+    NONCE,
+    { type: "selection", target, epoch: 1 },
+    REVIEW_PROTOCOL_EDIT,
+  );
+
+  it("refuses wrong origins, windows and nonces", () => {
+    expect(
+      readBridgeMessage(
+        fromFrame(ready3, { origin: "https://p3n5wq7yzc.portifact.dev" }),
+        viewerExpects(null),
+      ),
+    ).toBeNull();
+    expect(readBridgeMessage(fromFrame(ready3, { source: {} }), viewerExpects(null))).toBeNull();
+    expect(readBridgeMessage(fromFrame(selection3), viewerExpects("x".repeat(22)))).toBeNull();
+    expect(readBridgeMessage(fromFrame(selection3), viewerExpects(null))).toBeNull();
+    expect(readBridgeMessage(fromFrame(selection3), viewerExpects())).not.toBeNull();
+  });
+
+  it("refuses unknown fields, oversized messages and edit mode from the bridge", () => {
+    expect(readBridgeMessage(fromFrame({ ...ready3, extra: 1 }), viewerExpects(null))).toBeNull();
+    expect(
+      readBridgeMessage(fromFrame({ ...selection3, after: "typed" }), viewerExpects()),
+    ).toBeNull();
+    const big = {
+      ...selection3,
+      target: { ...target, path: "a".repeat(BRIDGE_LIMITS.bridgeMessageMaxBytes) },
+    };
+    expect(readBridgeMessage(fromFrame(big), viewerExpects())).toBeNull();
+    const forged = {
+      ...selection3,
+      type: "edit-mode",
+      epoch: 1,
+      active: true,
+      kind: "text",
+      hint: "x",
+    };
+    expect(readBridgeMessage(fromFrame(forged), viewerExpects())).toBeNull();
+  });
+});

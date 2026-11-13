@@ -52,12 +52,13 @@ function deliver(data: unknown, origin = VIEWER, source: unknown = parent) {
 const fromViewer = (body: ViewerBody, nonce = NONCE, version: ReviewProtocol = REVIEW_PROTOCOL) =>
   deliver(viewerEnvelope(nonce, body, version));
 
-function start(html: string, path = "index.html") {
+function start(html: string, path = "index.html", edit = false) {
   document.body.innerHTML = html;
   bridge = startBridge(window as unknown as BridgeWindow, parent, {
     appOrigin: VIEWER,
     path,
     sessionTag: SESSION_TAG,
+    ...(edit ? { edit: true } : {}),
   });
   return bridge;
 }
@@ -139,8 +140,27 @@ afterEach(() => {
 });
 
 describe("handshake", () => {
-  it("announces itself in both protocol versions, the newer first, and waits for a nonce", () => {
+  it("announces only version 2 while edit suggestions are off, exactly as before", () => {
     start("<p>Hello</p>");
+    expect(parent.sent).toEqual([
+      {
+        origin: VIEWER,
+        message: {
+          channel: "portifact-review",
+          v: REVIEW_PROTOCOL,
+          type: "ready",
+          page: { path: "index.html", route: "/" },
+          sessionTag: SESSION_TAG,
+        },
+      },
+    ]);
+    // A version 3 init is not answered either: the switch is off.
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    expect(parent.sent).toHaveLength(1);
+  });
+
+  it("announces itself in both protocol versions, the newer first, while edits are on", () => {
+    start("<p>Hello</p>", "index.html", true);
     const ready = {
       channel: "portifact-review",
       type: "ready",
@@ -173,7 +193,7 @@ describe("handshake", () => {
     fromViewer({ type: "focus", id: "t1" });
     deliver(viewerEnvelope(NONCE, { type: "init" }), "https://k7d2qm4xab.portifact.dev");
     deliver(viewerEnvelope(NONCE, { type: "init" }), VIEWER, window);
-    expect(parent.sent).toHaveLength(2);
+    expect(parent.sent).toHaveLength(1);
     fromViewer({ type: "init" });
     expect(sentOf("location")).toEqual([
       {
@@ -198,7 +218,7 @@ describe("handshake", () => {
     expect(parent.sent.every((entry) => entry.origin === VIEWER)).toBe(true);
     expect(
       parent.sent
-        .slice(2)
+        .slice(1)
         .every((entry) => "nonce" in entry.message && entry.message.nonce === NONCE),
     ).toBe(true);
   });
@@ -244,7 +264,7 @@ describe("selection", () => {
     start("<p>Hello world</p>");
     select(textOf("p"), 0, textOf("p"), 5);
     await settle(SELECTION_SETTLE_MS);
-    expect(parent.sent).toHaveLength(2);
+    expect(parent.sent).toHaveLength(1);
   });
 
   it("refuses a quote over the limit instead of truncating it", async () => {
@@ -746,7 +766,7 @@ describe("lifecycle", () => {
     expect(document.querySelector("portifact-review")).toBeNull();
     fromViewer({ type: "init" });
     window.dispatchEvent(new Event("scroll"));
-    expect(parent.sent).toHaveLength(2);
+    expect(parent.sent).toHaveLength(1);
   });
 
   it("keeps the overlay out of the text that anchors see", () => {
@@ -775,7 +795,7 @@ describe("protocol 3 (edit suggestions)", () => {
     );
 
   it("speaks the version the viewer's init used, and ignores the other one after it", async () => {
-    start("<p>Hello world</p>");
+    start("<p>Hello world</p>", "index.html", true);
     fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
     fromViewer({ type: "ping" });
     fromViewer({ type: "ping" }, NONCE, REVIEW_PROTOCOL_EDIT);
@@ -784,7 +804,7 @@ describe("protocol 3 (edit suggestions)", () => {
   });
 
   it("keeps speaking version 2 to a viewer that started with it, and ignores edit mode", async () => {
-    start("<p>Hello world</p>");
+    start("<p>Hello world</p>", "index.html", true);
     fromViewer({ type: "init" });
     editMode(true);
     select(textOf("p"), 0, textOf("p"), 5);
@@ -796,7 +816,7 @@ describe("protocol 3 (edit suggestions)", () => {
   });
 
   it("echoes the edit epoch on selections while edit mode is on, and not after", async () => {
-    start("<p>Hello world</p>");
+    start("<p>Hello world</p>", "index.html", true);
     fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
     select(textOf("p"), 0, textOf("p"), 5);
     await settle(SELECTION_SETTLE_MS);
@@ -818,7 +838,7 @@ describe("protocol 3 (edit suggestions)", () => {
   });
 
   it("picks an element for a style edit and echoes the epoch on it", async () => {
-    start('<main><button id="buy" type="button">Buy now</button></main>');
+    start('<main><button id="buy" type="button">Buy now</button></main>', "index.html", true);
     fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
     editMode(true, "style");
     document
@@ -827,5 +847,56 @@ describe("protocol 3 (edit suggestions)", () => {
     await settle(0);
     const [element] = sentOf("element");
     expect(element).toMatchObject({ v: REVIEW_PROTOCOL_EDIT, epoch: EPOCH });
+  });
+});
+
+describe("edit epochs (pf268)", () => {
+  const mode = (epoch: number, active = true) =>
+    fromViewer(
+      { type: "edit-mode", epoch, active, kind: "text", hint: "Select text" },
+      NONCE,
+      REVIEW_PROTOCOL_EDIT,
+    );
+
+  it("does not relabel an in-flight old selection with the new epoch", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    mode(1);
+    const original = digestSpy.getMockImplementation();
+    if (!original) throw new Error("missing digest implementation");
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    digestSpy.mockImplementationOnce(async (...args) => {
+      await held;
+      return original(...args);
+    });
+    select(textOf("p"), 0, textOf("p"), 5);
+    await vi.advanceTimersByTimeAsync(SELECTION_SETTLE_MS);
+    // Leave that choosing period, then make a different selection in the new one.
+    fromViewer({ type: "clear-selection" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    mode(1, false);
+    mode(2);
+    select(textOf("p"), 6, textOf("p"), 11);
+    await settle(SELECTION_SETTLE_MS);
+    release();
+    await settle(0);
+    const current = sentOf("selection").filter((m) => "epoch" in m && m.epoch === 2);
+    expect(
+      current.map((m) => (m.target?.anchor.kind === "text" ? m.target.anchor.quote.exact : null)),
+    ).toEqual(["world"]);
+  });
+
+  it("labels a cleared selection with its epoch so the viewer can withdraw it", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    mode(1);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    window.getSelection()?.removeAllRanges();
+    document.dispatchEvent(new Event("selectionchange"));
+    await settle(SELECTION_SETTLE_MS);
+    expect(sentOf("selection").at(-1)).toMatchObject({ target: null, epoch: 1 });
   });
 });
