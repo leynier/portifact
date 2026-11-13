@@ -78,6 +78,7 @@ type Message =
 
 /** D1's rows about the artifact at a point: the restore message brings them back. */
 interface Snapshot {
+  artifact: { ownerId: string; state: (typeof schema.artifacts.$inferSelect)["state"] } | null;
   outbox: (typeof schema.outbox.$inferSelect)[];
   holds: (typeof schema.legalHolds.$inferSelect)[];
   data: { generation: number; epoch: number } | null;
@@ -103,6 +104,11 @@ interface Family {
   before: [Message, Message][];
   /** Orders per test, so each test stays near half a second locally. */
   slice: number;
+  /**
+   * Ordinary operation (no restore, no rewind): it must end in agreement with no finding, as it did
+   * before the lifecycle's repairs, never with an owner disagreement a finding explains.
+   */
+  ordinary?: boolean;
   setup(): Promise<State>;
 }
 
@@ -237,6 +243,27 @@ async function landedSetup(holds: number, leaveOpen: boolean): Promise<State> {
   };
 }
 
+/** H1 placed in D1, its fence queued: the start of the ordinary sequences (no rewind). */
+async function pendingHoldSetup(): Promise<State> {
+  const { id } = await withData({ state: "suspended" });
+  await place(id, D1_NOW);
+  return {
+    id,
+    holdFence: 0,
+    releaseFences: [],
+    resolves: { adopt: 0, erase: 0 },
+    reviewed: null,
+    releaseDelivers: false,
+    owners: [`ws_${crypto.randomUUID().replaceAll("-", "")}`],
+    mark: null,
+  };
+}
+
+/** H1 delivered to the object, nothing queued (the restore variant's start, no rewind). */
+async function heldSetup(): Promise<State> {
+  return { ...(await landedSetup(1, true)), releaseDelivers: false };
+}
+
 /** R4-A's start: the object holds H1 at epoch 1 and D1's epoch is rewound under it. */
 async function restoreSetup(): Promise<State> {
   const state = { ...(await landedSetup(1, true)), releaseDelivers: false };
@@ -252,7 +279,12 @@ async function snapshot(id: string): Promise<Snapshot> {
     .select({ generation: schema.artifactData.generation, epoch: schema.artifactData.epoch })
     .from(schema.artifactData)
     .where(eq(schema.artifactData.artifactId, id));
+  const [artifact] = await db()
+    .select({ ownerId: schema.artifacts.ownerId, state: schema.artifacts.state })
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, id));
   return {
+    artifact: artifact ?? null,
     outbox: await db().select().from(schema.outbox).where(eq(schema.outbox.subject, id)),
     holds: await db().select().from(schema.legalHolds).where(eq(schema.legalHolds.artifactId, id)),
     data: row ?? null,
@@ -279,6 +311,10 @@ async function restoreTo(id: string, point: Snapshot) {
       .delete(schema.legalHoldIdentities)
       .where(eq(schema.legalHoldIdentities.holdId, hold.id));
     await db().delete(schema.legalHolds).where(eq(schema.legalHolds.id, hold.id));
+  }
+  // The artifact first: a held artifact's owner cannot change (the hold triggers).
+  if (point.artifact !== null) {
+    await db().update(schema.artifacts).set(point.artifact).where(eq(schema.artifacts.id, id));
   }
   for (const hold of point.holds) {
     await db()
@@ -348,6 +384,44 @@ const FAMILIES: Family[] = [
     ],
     slice: 2,
     setup: restoreSetup,
+  },
+  {
+    // R5-A's shape, ordinary operation: H1, its release, a transfer and a new hold, with the
+    // deliveries anywhere among them.
+    name: "a hold left open after a transfer while an earlier release waits",
+    messages: ["deliver", "release", "transfer", "hold", "deliver", "deliver"],
+    before: [
+      ["release", "transfer"],
+      ["transfer", "hold"],
+    ],
+    slice: 2,
+    ordinary: true,
+    setup: pendingHoldSetup,
+  },
+  {
+    name: "the same with the new hold released",
+    messages: ["deliver", "release", "transfer", "hold", "release2", "deliver", "deliver"],
+    before: [
+      ["release", "transfer"],
+      ["transfer", "hold"],
+      ["hold", "release2"],
+    ],
+    slice: 2,
+    ordinary: true,
+    setup: pendingHoldSetup,
+  },
+  {
+    // The restore variant: a point marked anywhere, the new hold, then a restore to the point
+    // (`applyLegalHolds` re-opens the new hold without a fence, then reconciliation).
+    name: "a restore around a transfer and a new hold",
+    messages: ["release", "transfer", "mark", "hold", "restore", "deliver", "deliver"],
+    before: [
+      ["release", "transfer"],
+      ["transfer", "hold"],
+      ["mark", "restore"],
+    ],
+    slice: 2,
+    setup: heldSetup,
   },
   {
     name: "two transfers around a D1 rewind",
@@ -497,11 +571,33 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
   // it shows now. Reconciliation is not run: an owner disagreement must leave the job's own
   // finding, and every job must end within the bounded drains.
   let now = DATA_NOW + 60_000;
-  const waiting = () => jobsOf(db(), ["data_fence", "data_erase", "data_resolve"], id);
+  // Every lifecycle job must end: progress, not only agreement.
+  const waiting = () =>
+    jobsOf(
+      db(),
+      [
+        "data_fence",
+        "data_erase",
+        "data_resolve",
+        "data_author_erasure",
+        "data_reconcile",
+        "data_export",
+      ],
+      id,
+    );
   for (let round = 0; round < 6; round += 1) {
     await step(`drain ${round}`, () => drain({ subject: id, now }));
     const control = await controlOf(id);
-    if (control?.quarantine && control.quarantine.reason !== "owner") {
+    const [owned] = await db()
+      .select({ ownerId: schema.artifacts.ownerId })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.id, id));
+    // An owner quarantine is the operator's once D1 names the object's owner (a transfer that
+    // was queued during the reconciliation landed); before, its repair is outside the model.
+    const answerable =
+      control?.quarantine &&
+      (control.quarantine.reason !== "owner" || owned?.ownerId === control.ownerId);
+    if (control?.quarantine && answerable) {
       const reviewed = reviewedState(control);
       if (reviewed === null) throw new Error("quarantined without a state");
       const [artifact] = await db()
@@ -533,8 +629,9 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
     ((await openHold(id)) !== null) === (control.hold !== null) &&
     artifact.ownerId === control.ownerId;
   const ownersDisagree = artifact.ownerId !== control.ownerId;
+  if (family.ordinary) expect(finding, "ordinary operation left a finding").toBeUndefined();
   expect(
-    agree || (ownersDisagree && finding !== undefined),
+    agree || (!family.ordinary && ownersDisagree && finding !== undefined),
     `D1 and the object disagree (D1 hold ${await openHold(id)}, object ${control.hold?.transition ?? null}; owner ${artifact.ownerId} and ${control.ownerId}) with no finding`,
   ).toBe(true);
 }

@@ -12,6 +12,7 @@ import type { JournalEntry } from "@portifact/contracts/artifact-data";
 import { schema } from "@portifact/db";
 import { inventoryKey, journalKey } from "@portifact/domain/artifact-data";
 import {
+  dataFenceStatements,
   deleteArtifactData,
   placeLegalHold,
   reconcileObject,
@@ -19,7 +20,7 @@ import {
   releaseLegalHold,
   scheduleAuthorErasures,
 } from "@portifact/services";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { value } from "../../../packages/services/test/fixtures.ts";
 import {
@@ -393,6 +394,80 @@ schedule("reconciling an object D1 no longer names (quarantine)", {
     await reconcileObject(handle, objects, await entryOf(id), DATA_NOW);
   },
   observe: reconciled,
+});
+
+const ownerFindings = async (id: string) =>
+  (
+    await db()
+      .select({ action: schema.dataFindings.action, reason: schema.dataFindings.reason })
+      .from(schema.dataFindings)
+      .where(eq(schema.dataFindings.artifactId, id))
+  ).map((row) => `${row.action} ${row.reason}`);
+
+schedule("reconciliation clearing the jobs' owner finding (fifth review)", {
+  // D1 and the object agree on the owner: the finding read, then its conditioned delete.
+  steps: ["d1:run"],
+  async setup() {
+    const { id } = await withData();
+    await db().insert(schema.dataFindings).values({
+      artifactId: id,
+      action: "refused",
+      reason: "owner",
+      firstSeenAt: D1_NOW,
+      lastSeenAt: D1_NOW,
+    });
+    return id;
+  },
+  async act(crash, id) {
+    const { db: handle, objects } = handles("default", crash);
+    return reconcileObject(handle, objects, await entryOf(id), DATA_NOW);
+  },
+  async settle(id) {
+    const { db: handle, objects } = handles("default");
+    await reconcileObject(handle, objects, await entryOf(id), DATA_NOW);
+  },
+  observe: ownerFindings,
+});
+
+schedule("a transfer refused as held with no release to wait on (fifth review)", {
+  // The refusal, the owner finding (the owners differ and nothing waiting can fix it), the
+  // acknowledgement.
+  steps: ["object:lifecycleFence", "d1:run", "d1:run"],
+  async setup() {
+    const { id } = await withData({ state: "suspended" });
+    value(
+      await placeLegalHold(db(), { artifactId: id, ground: "Order", releaseAt: null, now: D1_NOW }),
+    );
+    await drain({ subject: id });
+    // A restore lost the release's fence; D1 released the hold and moved the artifact.
+    await releaseLegalHold(db(), { artifactId: id, now: D1_NOW + 1 });
+    for (const job of await jobsOf(db(), ["data_fence"], id)) {
+      await db().delete(schema.outbox).where(eq(schema.outbox.id, job.id));
+    }
+    const to = `ws_${crypto.randomUUID().replaceAll("-", "")}`;
+    const [raise, job] = dataFenceStatements(db(), {
+      which: sql`d.artifact_id = ${id}`,
+      fence: sql`json_object('kind', 'transfer', 'transition', 'transfer_held', 'toOwner', ${to})`,
+      owner: sql`(select owner_id from artifacts where id = ${id})`,
+      now: D1_NOW + 2,
+    });
+    if (raise === undefined || job === undefined) throw new Error("no statements");
+    await db().batch([
+      raise,
+      job,
+      db().update(schema.artifacts).set({ ownerId: to }).where(eq(schema.artifacts.id, id)),
+    ]);
+    return id;
+  },
+  act: (crash, id) => drain({ subject: id, crash }),
+  settle: (id) => drain({ subject: id }),
+  async observe(id) {
+    return {
+      held: (await controlOf(id))?.hold !== null,
+      jobs: (await jobsOf(db(), ["data_fence"], id)).length,
+      findings: await ownerFindings(id),
+    };
+  },
 });
 
 schedule("the operator adopting a quarantined object (data_resolve)", {

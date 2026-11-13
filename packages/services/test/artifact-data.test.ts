@@ -573,15 +573,20 @@ describe("the jobs' owner finding", () => {
   });
 
   it("stays while the owners disagree", async () => {
+    // Killed mutation: clearing without the agreement. An object already quarantined keeps the
+    // finding's action (reconciliation only marks it seen again), so the finding must survive.
     const memory = memoryObjects();
-    const { id } = await seeded(memory);
+    const { id, ownerId, object } = await seeded(memory);
+    object.quarantine(envelope(id, ownerId), "orphan", NOW);
     await finding(id, "refused", NOW);
     await db()
       .update(schema.artifacts)
       .set({ ownerId: "u_elsewhere" })
       .where(eq(schema.artifacts.id, id));
-    await reconcileObject(db(), memory.data, entry(id), NOW);
-    expect((await findings(id)).map((row) => row.action)).not.toEqual([]);
+    expect(await reconcileObject(db(), memory.data, entry(id), NOW)).toBe("operator");
+    expect((await findings(id)).map((row) => [row.action, row.reason])).toEqual([
+      ["refused", "owner"],
+    ]);
   });
 });
 
