@@ -32,6 +32,29 @@ export const ABUSE_REASONS = [
   "other",
 ] as const;
 
+/** Edit suggestions (decision 0027), as in @portifact/contracts. */
+export const SUGGESTION_THREAD_KINDS = ["comment", "suggestion"] as const;
+export const SUGGESTION_STATES = [
+  "pending",
+  "applying",
+  "accepted",
+  "rejected",
+  "withdrawn",
+  "outdated",
+] as const;
+/** Why an acceptance or draft publish ended without completing (the recovery table). */
+export const ACCEPTANCE_END_REASONS = [
+  "failed",
+  "version_conflict",
+  "quota_exceeded",
+  "capacity_unavailable",
+  "plan_changed",
+  "revoked",
+] as const;
+export const CHANGE_ITEM_STATES = ["open", "applied", "dismissed", "closed_by_version"] as const;
+/** Open change-list items an artifact holds at most (the acceptance claim reserves room). */
+export const CHANGE_ITEMS_OPEN_MAX = 1_000;
+
 const timestamp = (name: string) => integer(name, { mode: "number" });
 const createdAt = () => timestamp("created_at").notNull().default(sql`(unixepoch() * 1000)`);
 
@@ -1143,6 +1166,35 @@ export const annotationThreads = sqliteTable(
     resolvedBy: text("resolved_by"),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at").notNull(),
+    // Edit suggestions (decision 0027), added with `alter table add column`, so their rules are
+    // triggers (`0078_edit_suggestions_triggers.sql`), not CHECK constraints: a comment carries
+    // none of them, a suggestion always has a state, its edit never changes once submitted (only
+    // a withdrawal clears it) and `edit_bytes` is the edit's UTF-8 size, counted in the owner's
+    // annotation bytes like the target.
+    kind: text("kind", { enum: SUGGESTION_THREAD_KINDS }).notNull().default("comment"),
+    suggestionState: text("suggestion_state", { enum: SUGGESTION_STATES }),
+    /** The submitted `Edit` JSON, validated at the boundary. Untrusted data. */
+    edit: text("edit"),
+    editBytes: integer("edit_bytes").notNull().default(0),
+    /**
+     * The proof data of each planned operation (`Proof[]` JSON, decision 0027, "Suggestions and
+     * new versions"), in UTF-16 units of the stored file; never exported or shown.
+     */
+    editProofs: text("edit_proofs"),
+    /** Bumped on every change of the suggestion, apart from the thread's own `revision`. */
+    suggestionRevision: integer("suggestion_revision").notNull().default(0),
+    /** The running acceptance (`acceptance_attempts.id`) while `applying`. */
+    attemptId: text("attempt_id"),
+    /** Why the last attempt ended without accepting, shown when the suggestion is back to pending. */
+    attemptReason: text("attempt_reason", { enum: ACCEPTANCE_END_REASONS }),
+    /** Who accepted or rejected it; no foreign key, cleared when the account is deleted. */
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at"),
+    /** The version an acceptance produced; null for an acceptance that applied nothing. */
+    resultVersionId: text("result_version_id"),
+    /** Where a carried suggestion was made: its first version and target, kept on every carry. */
+    originVersionId: text("origin_version_id"),
+    originTarget: text("origin_target"),
   },
   (t) => [
     index("annotation_threads_artifact_version_state_idx").on(
@@ -1159,6 +1211,14 @@ export const annotationThreads = sqliteTable(
       .where(sql`${t.resolvedBy} is not null`),
     // A space's open feedback: an owner's open threads, newest activity first.
     index("annotation_threads_owner_state_updated_idx").on(t.ownerId, t.state, t.updatedAt, t.id),
+    // Undecided suggestions of an artifact, for the carry job a publish writes (decision 0027).
+    index("annotation_threads_artifact_suggestion_idx")
+      .on(t.artifactId, t.suggestionState)
+      .where(sql`${t.kind} = 'suggestion'`),
+    // Who decided a suggestion, forgotten when the account is deleted (`eraseAccountTraces`).
+    index("annotation_threads_decided_by_idx")
+      .on(t.decidedBy)
+      .where(sql`${t.decidedBy} is not null`),
     check("annotation_threads_target_bytes", sql`${t.targetBytes} between 1 and 8192`),
     check(
       "annotation_threads_counters",
@@ -1661,6 +1721,256 @@ export const commentNoticeMutes = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.artifactId, t.userId] }),
     index("comment_notice_mutes_user_idx").on(t.userId),
+  ],
+);
+
+/**
+ * The change list (decision 0027, "The change list"): accepted operations Portifact did not apply,
+ * each the canonical envelope the owner side saw and confirmed, for the owner's agent and people.
+ * Items are the owner side's work once accepted: they go with the artifact, not with the thread
+ * (comment retention clears `thread_id`). `bytes` is the envelope's and the proof's UTF-8 size,
+ * counted in the owner's annotation bytes by triggers; envelope and proof never change. At most
+ * `CHANGE_ITEMS_OPEN_MAX` are open per artifact: the acceptance claim reserves room for a whole
+ * listed set, and a trigger refuses any insert or reopening past it as the database's backstop.
+ */
+export const changeItems = sqliteTable(
+  "change_items",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** The artifact's owner, whose annotation bytes the item uses; moved by a transfer. */
+    ownerId: text("owner_id").notNull(),
+    origin: text("origin", { enum: ["suggestion", "draft"] }).notNull(),
+    threadId: text("thread_id").references(() => annotationThreads.id, { onDelete: "set null" }),
+    /** The acceptance that listed it; no foreign key, attempts are pruned before items. */
+    attemptId: text("attempt_id"),
+    /** The version the plan was built on; no foreign key, versions expire and items stay. */
+    versionId: text("version_id").notNull(),
+    path: text("path").notNull(),
+    route: text("route"),
+    /** The canonical envelope (`Envelope` JSON), at most 16 KiB. Untrusted reviewer text inside. */
+    envelope: text("envelope").notNull(),
+    /** The persisted proof data, null when the operation was never located (manual closure only). */
+    proof: text("proof"),
+    bytes: integer("bytes").notNull(),
+    /** Why it was listed (a refusal reason, a lowercase token). */
+    reason: text("reason").notNull(),
+    state: text("state", { enum: CHANGE_ITEM_STATES }).notNull().default("open"),
+    /**
+     * The person who accepted it (the envelope's acceptor) and the one who suggested it: account
+     * references kept beside the immutable envelope, which holds no names. Shown as their current
+     * display names; account erasure clears them, and the envelope then shows "a deleted account".
+     * No foreign keys (users are global).
+     */
+    createdBy: text("created_by"),
+    submittedBy: text("submitted_by"),
+    createdAt: createdAt(),
+    closedAt: timestamp("closed_at"),
+    closedBy: text("closed_by"),
+    /** The version whose rendered page proved the item, for `closed_by_version`. */
+    closedVersionId: text("closed_version_id"),
+    revision: integer("revision").notNull().default(1),
+  },
+  (t) => [
+    index("change_items_artifact_state_idx").on(t.artifactId, t.state, t.createdAt),
+    index("change_items_thread_idx").on(t.threadId).where(sql`${t.threadId} is not null`),
+    index("change_items_closed_idx").on(t.closedAt).where(sql`${t.closedAt} is not null`),
+    index("change_items_created_by_idx").on(t.createdBy).where(sql`${t.createdBy} is not null`),
+    index("change_items_closed_by_idx").on(t.closedBy).where(sql`${t.closedBy} is not null`),
+    index("change_items_submitted_by_idx")
+      .on(t.submittedBy)
+      .where(sql`${t.submittedBy} is not null`),
+    check("change_items_origin", sql`${t.origin} in ('suggestion', 'draft')`),
+    check(
+      "change_items_state",
+      sql`${t.state} in ('open', 'applied', 'dismissed', 'closed_by_version')`,
+    ),
+    check(
+      "change_items_bytes",
+      sql`${t.bytes} = length(cast(${t.envelope} as blob)) + coalesce(length(cast(${t.proof} as blob)), 0) and length(cast(${t.envelope} as blob)) between 2 and 16384 and coalesce(length(cast(${t.proof} as blob)), 0) <= 16384`,
+    ),
+    check(
+      "change_items_reason",
+      sql`length(${t.reason}) between 1 and 64 and ${t.reason} not glob '*[^a-z0-9_]*'`,
+    ),
+    check("change_items_draft_thread", sql`${t.origin} = 'suggestion' or ${t.threadId} is null`),
+    check(
+      "change_items_closing",
+      sql`case ${t.state}
+        when 'open' then ${t.closedAt} is null and ${t.closedBy} is null and ${t.closedVersionId} is null
+        when 'closed_by_version' then ${t.closedAt} is not null and ${t.closedBy} is null and ${t.closedVersionId} is not null
+        else ${t.closedAt} is not null and ${t.closedVersionId} is null end`,
+    ),
+    check("change_items_revision", sql`${t.revision} >= 1`),
+  ],
+);
+
+/**
+ * The owner side's draft of edits (decision 0027, "The owner's draft"): one per person and
+ * artifact, read and changed only by its author, in base coordinates of `base_version_id`. At most
+ * 20 per person (a trigger). `attempt_id` is set while a publish of it runs.
+ */
+export const editDrafts = sqliteTable(
+  "edit_drafts",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** The author; no foreign key (users are global), deleted with the account. */
+    userId: text("user_id").notNull(),
+    ownerId: text("owner_id").notNull(),
+    baseVersionId: text("base_version_id").notNull(),
+    /** The `Edit` JSON of at most 100 operations, validated at the boundary. */
+    edit: text("edit").notNull(),
+    editBytes: integer("edit_bytes").notNull(),
+    revision: integer("revision").notNull().default(1),
+    attemptId: text("attempt_id"),
+    attemptReason: text("attempt_reason", { enum: ACCEPTANCE_END_REASONS }),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.userId] }),
+    index("edit_drafts_user_idx").on(t.userId),
+    index("edit_drafts_updated_idx").on(t.updatedAt),
+    check(
+      "edit_drafts_bytes",
+      sql`${t.editBytes} = length(cast(${t.edit} as blob)) and ${t.editBytes} between 2 and 131072`,
+    ),
+    check("edit_drafts_revision", sql`${t.revision} >= 1`),
+  ],
+);
+
+/**
+ * Patch plans cached by digest for 10 minutes (decision 0027, "Binding and confirmation"), per
+ * person: a cached plan is re-verified by its contents before anything uses it. It is a cache:
+ * deleting a row only costs a new plan.
+ */
+export const suggestionPlans = sqliteTable(
+  "suggestion_plans",
+  {
+    userId: text("user_id").notNull(),
+    digest: text("digest").notNull(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** The suggestion it plans, or null for a draft or an unsaved edit. */
+    threadId: text("thread_id").references(() => annotationThreads.id, { onDelete: "cascade" }),
+    /** The plan JSON, at most 512 KiB. */
+    plan: text("plan").notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.digest] }),
+    index("suggestion_plans_expires_idx").on(t.expiresAt),
+    index("suggestion_plans_artifact_idx").on(t.artifactId),
+    index("suggestion_plans_thread_idx").on(t.threadId).where(sql`${t.threadId} is not null`),
+    check(
+      "suggestion_plans_digest",
+      sql`length(${t.digest}) = 64 and ${t.digest} not glob '*[^0-9a-f]*'`,
+    ),
+    check("suggestion_plans_bytes", sql`length(cast(${t.plan} as blob)) <= 524288`),
+  ],
+);
+
+/**
+ * One acceptance of a suggestion or publish of a draft (decision 0027, "Producing the new
+ * version"): the route writes it with the outbox job, the job keys the pending version by it, and
+ * the scan ends it after 3 deliveries or 30 minutes. Kept 30 days with its claim.
+ */
+export const acceptanceAttempts = sqliteTable(
+  "acceptance_attempts",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id").notNull(),
+    origin: text("origin", { enum: ["suggestion", "draft"] }).notNull(),
+    threadId: text("thread_id").references(() => annotationThreads.id, { onDelete: "set null" }),
+    /** The accepting person (the draft's author for a draft); cleared when the account goes. */
+    userId: text("user_id"),
+    /** The plan's digest the person confirmed. */
+    digest: text("digest").notNull(),
+    baseVersionId: text("base_version_id").notNull(),
+    /** The pending version the job created for this attempt, once it did. */
+    versionId: text("version_id"),
+    state: text("state", { enum: ["running", "done", "ended"] })
+      .notNull()
+      .default("running"),
+    reason: text("reason", { enum: ACCEPTANCE_END_REASONS }),
+    deliveries: integer("deliveries").notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (t) => [
+    index("acceptance_attempts_state_updated_idx").on(t.state, t.updatedAt),
+    index("acceptance_attempts_artifact_idx").on(t.artifactId),
+    index("acceptance_attempts_thread_idx").on(t.threadId).where(sql`${t.threadId} is not null`),
+    index("acceptance_attempts_user_idx").on(t.userId).where(sql`${t.userId} is not null`),
+    check(
+      "acceptance_attempts_digest",
+      sql`length(${t.digest}) = 64 and ${t.digest} not glob '*[^0-9a-f]*'`,
+    ),
+    check("acceptance_attempts_reason", sql`(${t.state} = 'ended') = (${t.reason} is not null)`),
+    check("acceptance_attempts_deliveries", sql`${t.deliveries} >= 0`),
+  ],
+);
+
+/**
+ * The acceptance claim (decision 0027, "The acceptance claim"): the first statement of the commit
+ * batch inserts it, with a token unique to that run, only when the change list has room and the
+ * suggestion or draft and the base version are as confirmed; every later statement is conditioned
+ * on a claim with that token, so a competing insertion or a duplicate delivery changes nothing.
+ */
+export const acceptanceClaims = sqliteTable(
+  "acceptance_claims",
+  {
+    attemptId: text("attempt_id")
+      .primaryKey()
+      .references(() => acceptanceAttempts.id, { onDelete: "cascade" }),
+    runToken: text("run_token").notNull(),
+    artifactId: text("artifact_id").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("acceptance_claims_created_idx").on(t.createdAt)],
+);
+
+/**
+ * One-use codes for built previews on `preview.portifact.dev` (decision 0027, "Previews"): only
+ * the code's SHA-256 is stored, with who it was minted for, their dashboard session (no foreign
+ * key: sessions are global) and the built document's key in the internal cache. Redeemed once by a
+ * guarded update; at most 10 open per person (a trigger).
+ */
+export const previewCodes = sqliteTable(
+  "preview_codes",
+  {
+    codeSha256: text("code_sha256").primaryKey(),
+    userId: text("user_id").notNull(),
+    sessionId: text("session_id").notNull(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    threadId: text("thread_id").references(() => annotationThreads.id, { onDelete: "cascade" }),
+    /** The built document in R2, under `previews/`. */
+    r2Key: text("r2_key").notNull(),
+    createdAt: createdAt(),
+    expiresAt: timestamp("expires_at").notNull(),
+    redeemedAt: timestamp("redeemed_at"),
+  },
+  (t) => [
+    index("preview_codes_user_idx").on(t.userId, t.expiresAt),
+    index("preview_codes_expires_idx").on(t.expiresAt),
+    index("preview_codes_artifact_idx").on(t.artifactId),
+    check(
+      "preview_codes_code",
+      sql`length(${t.codeSha256}) = 64 and ${t.codeSha256} not glob '*[^0-9a-f]*'`,
+    ),
+    check("preview_codes_key", sql`${t.r2Key} like 'previews/%'`),
+    check("preview_codes_expiry", sql`${t.expiresAt} > ${t.createdAt}`),
   ],
 );
 

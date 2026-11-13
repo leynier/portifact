@@ -22,3 +22,15 @@ describe("the e2e matrix in ci.yml", () => {
     expect(matrixProjects(read(".github/workflows/ci.yml")).sort()).toEqual([...projects].sort());
   });
 });
+
+describe("the artifact data grant experiment in the e2e jobs", () => {
+  it("has the same Playwright projects as the e2e suite, so each job's --project exists", () => {
+    const projects = playwrightProjects(read("e2e/playwright.config.ts"));
+    expect(
+      playwrightProjects(read("spikes/artifact-data-grant/playwright.config.ts")).sort(),
+    ).toEqual([...projects].sort());
+    expect(read(".github/workflows/ci.yml")).toContain(
+      "bun run --cwd spikes/artifact-data-grant spike -- --project=${{ matrix.project }}",
+    );
+  });
+});

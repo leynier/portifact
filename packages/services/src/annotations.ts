@@ -876,11 +876,14 @@ export async function createAnnotationThread(
           guard,
         ),
         // Columns in schema order: id, artifact, version, owner, author, target, target bytes,
-        // path, state, messages, revision, change_seq, resolved_at, resolved_by, created, updated.
+        // path, state, messages, revision, change_seq, resolved_at, resolved_by, created, updated,
+        // then the suggestion columns (decision 0027), empty for a comment: kind, suggestion
+        // state, edit, edit bytes, edit proofs, suggestion revision, attempt, attempt reason,
+        // decided by, decided at, result version, origin version, origin target.
         db
           .insert(th)
           .select(
-            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${input.target.path}, 'open', 1, 1, ${claimedEventId(writeId)}, null, null, ${input.now}, ${input.now} where ${claimed(writeId)}`,
+            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${input.target.path}, 'open', 1, 1, ${claimedEventId(writeId)}, null, null, ${input.now}, ${input.now}, 'comment', null, null, 0, null, 0, null, null, null, null, null, null, null where ${claimed(writeId)}`,
           ),
         insertMessage(db, {
           id: messageId,
@@ -1668,6 +1671,27 @@ export async function eraseAuthorFromThread(
             .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
             .where(and(inArray(m.id, ids), claimed(writeId))),
         ),
+        // The author's words go, so does their pending suggestion (decision 0027, "Withdrawal,
+        // deletion and retention"): withdrawn, its edit cleared, the thread kept as a conversation.
+        db
+          .update(th)
+          .set({
+            suggestionState: "withdrawn",
+            edit: null,
+            editBytes: 0,
+            editProofs: null,
+            attemptReason: null,
+            suggestionRevision: sql`${th.suggestionRevision} + 1`,
+          })
+          .where(
+            and(
+              eq(th.id, thread.id),
+              eq(th.kind, "suggestion"),
+              eq(th.suggestionState, "pending"),
+              eq(th.authorId, input.authorId),
+              claimed(writeId),
+            ),
+          ),
         touchThread(db, thread.id, writeId, input.now, {
           messageCount: sql`(select count(*) from ${m} where ${m.threadId} = ${thread.id})`,
         }),

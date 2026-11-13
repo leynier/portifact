@@ -99,6 +99,8 @@ export default defineConfig(async () => {
       // The SSO plugin's `import ... from "samlify"` must go through the alias above.
       server: { deps: { inline: ["@better-auth/sso"] } },
       testTimeout: 30_000,
+      // Hooks start the Worker and its databases; the 10 second default fails on a slow runner.
+      hookTimeout: 30_000,
       include: ["src/**/*.test.ts"],
       setupFiles: ["./src/test/apply-migrations.ts"],
       coverage: {

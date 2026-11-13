@@ -17,6 +17,7 @@ import {
   regionsFromEnv,
   withRequestContext,
 } from "@portifact/db";
+import type { SuggestionsEnv } from "@portifact/domain";
 import { CodedError, errorLabel, logEvent, logSummary } from "@portifact/domain";
 import {
   checkCustomDomains,
@@ -73,7 +74,8 @@ export interface Env
     NoticeEnv,
     DomainEnv,
     WebhookEnv,
-    IntegrationEnv {
+    IntegrationEnv,
+    SuggestionsEnv {
   DB: D1Database;
   /** The access log database (`portifact-access`): pruned here and erased by outbox jobs. */
   ACCESS_DB: D1Database;

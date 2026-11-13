@@ -856,6 +856,19 @@ function regionalDeletion(
       .update(schema.shareLinks)
       .set({ createdBy: null })
       .where(eq(schema.shareLinks.createdBy, userId)),
+    // Its edit drafts, cached plans and preview codes (decision 0027): keyed by user with no
+    // foreign key. A draft on a held artifact stays until the hold's release erases it
+    // (`eraseAccountTraces`); plans and codes are caches nobody but the account could use.
+    db
+      .delete(schema.editDrafts)
+      .where(
+        and(
+          eq(schema.editDrafts.userId, userId),
+          notHeldSql(sql`${schema.editDrafts.artifactId}`),
+        ) as SQL,
+      ),
+    db.delete(schema.suggestionPlans).where(eq(schema.suggestionPlans.userId, userId)),
+    db.delete(schema.previewCodes).where(eq(schema.previewCodes.userId, userId)),
     // Its read and review codes and sessions: users are global, so no foreign key removes them.
     db.delete(schema.readHandoffs).where(eq(schema.readHandoffs.userId, userId)),
     db.delete(schema.readSessions).where(eq(schema.readSessions.userId, userId)),

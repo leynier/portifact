@@ -1,0 +1,33 @@
+{
+  "name": "@portifact/spike-edit-suggestions",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Spike for decision 0027: suggestions by editing the artifact. Patch plans from stored files, the HTML subset on parse5, inert previews, closure and relocation, and the viewer's edit session against a hostile page. Never deployed.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.workers.json",
+    "test": "vitest run --coverage && vitest run -c vitest.workers.config.ts --coverage",
+    "browser": "playwright test",
+    "bench": "vitest run -c vitest.bench.config.ts"
+  },
+  "dependencies": {
+    "@portifact/anchors": "workspace:*",
+    "@portifact/bridge": "workspace:*",
+    "@portifact/contracts": "workspace:*",
+    "@portifact/domain": "workspace:*",
+    "@portifact/render": "workspace:*",
+    "parse5": "8.1.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/coverage-istanbul": "catalog:",
+    "happy-dom": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "@playwright/test": "~1.64.1",
+    "@cloudflare/vitest-plugin": "^1.6.0",
+    "@cloudflare/workers-types": "^5.0.0"
+  }
+}

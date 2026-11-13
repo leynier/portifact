@@ -110,6 +110,12 @@ export interface Env extends DomainEnv {
    * before the checks in docs/releasing.md ("Slack") pass.
    */
   SLACK_ENABLED?: string | undefined;
+  /**
+   * Exactly `"true"` turns edit suggestions on (decision 0027, `suggestionsEnabled` in the domain),
+   * with the same value on the jobs Worker. Nothing reads it before the text delivery's routes;
+   * never in a `wrangler.jsonc` before the checks in docs/releasing.md ("Suggestions") pass.
+   */
+  SUGGESTIONS_ENABLED?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

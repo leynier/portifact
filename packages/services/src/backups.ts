@@ -680,6 +680,34 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
           .delete(ws)
           .where(sql`${ws.id} in (select ${t.id} from ${t} where ${t.kind} = 'workspace')`),
     },
+    // Edit suggestions (decision 0027): a restore brings back the references account erasure
+    // cleared, so they are cleared again; a held artifact's stay until its release.
+    {
+      name: "changeItemPeople",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.changeItems)
+          .set({
+            createdBy: sql`case when ${schema.changeItems.createdBy} in (${refs.accounts}) then null else ${schema.changeItems.createdBy} end`,
+            submittedBy: sql`case when ${schema.changeItems.submittedBy} in (${refs.accounts}) then null else ${schema.changeItems.submittedBy} end`,
+            closedBy: sql`case when ${schema.changeItems.closedBy} in (${refs.accounts}) then null else ${schema.changeItems.closedBy} end`,
+          })
+          .where(
+            sql`(${schema.changeItems.createdBy} in (${refs.accounts}) or ${schema.changeItems.submittedBy} in (${refs.accounts}) or ${schema.changeItems.closedBy} in (${refs.accounts})) and ${notHeldSql(sql`${schema.changeItems.artifactId}`)}`,
+          ),
+    },
+    {
+      name: "suggestionDeciders",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.annotationThreads)
+          .set({ decidedBy: null })
+          .where(
+            sql`${schema.annotationThreads.decidedBy} in (${refs.accounts}) and ${notHeldSql(sql`${schema.annotationThreads.artifactId}`)}`,
+          ),
+    },
     {
       name: "linkAuthors",
       side: "regional",
