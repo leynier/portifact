@@ -524,6 +524,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
 const READ_NAMES = new Set([
   // Edit suggestions (decision 0027): rebuilds a replayed acceptance's answer, writes nothing.
   "replayAcceptance",
+  // Budget protection's data step (decision 0026): reads the platform's protection only.
+  "checkDataWriteCapacity",
   // D1's hold level for the data convergence rule (decision 0026): one read of `legal_holds`.
   "holdLevel",
   // The grace forecast's counts (decision 0022), shared by its route and the grace emails.

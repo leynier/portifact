@@ -1897,7 +1897,7 @@ export const editDrafts = sqliteTable(
     /**
      * A random token of this draft's incarnation, set when the row is created and never reused:
      * a save names it with the revision, so a tab holding a discarded draft never overwrites the
-     * one that replaced it, whose revision starts at 1 again (migration 0082).
+     * one that replaced it, whose revision starts at 1 again (migration 0083).
      */
     incarnation: text("incarnation").notNull().default(""),
   },
@@ -2126,7 +2126,7 @@ export const platformBudget = sqliteTable(
     check("platform_budget_single_row", sql`${t.id} = 'global'`),
     check(
       "platform_budget_override_steps",
-      sql`${t.overrideSteps} is null or ${t.overrideSteps} between 1 and 4`,
+      sql`${t.overrideSteps} is null or ${t.overrideSteps} between 1 and 5`,
     ),
   ],
 );

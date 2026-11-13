@@ -2,6 +2,7 @@
 // with seats multiplying the per-seat limits and overrides applied on top. No row, an expired
 // row or an unknown plan name all read as `free`, so nothing ever grants more than the row says.
 import {
+  type DataPlanLimits,
   GRACE_LIMITS,
   type GraceLimits,
   type GraceSlot,
@@ -66,6 +67,11 @@ export interface Entitlements {
   limits: PlanLimits;
   /** The paid features the plan grants now: what new work may use. */
   features: PlanFeature[];
+  /**
+   * Artifact data (decision 0026): the plan's own values with overrides, never held by a grace
+   * (a lower plan only refuses new work, from the next command).
+   */
+  data: DataPlanLimits;
   /** The running grace, or null (absent on values built before graces existed). */
   grace?: Grace | null;
   /** The plan's own access log retention, before any grace (`retentionExpiry`). */
@@ -86,7 +92,12 @@ function free(): Entitlements {
     validUntil: null,
     limits: { ...PLANS.free.limits },
     features: [...PLANS.free.features],
+    data: dataOf(PLANS.free.data),
   };
+}
+
+function dataOf(data: DataPlanLimits): DataPlanLimits {
+  return { artifacts: data.artifacts, perArtifact: { ...data.perArtifact } };
 }
 
 /** What the row grants while it applies, ignoring its end and its grace; free when unreadable. */
@@ -98,9 +109,13 @@ function granted(record: OwnerPlanRecord): Entitlements {
   const limits = { ...definition.limits };
   for (const key of definition.perSeat) limits[key] = definition.limits[key] * seats;
   const enabled = new Set<PlanFeature>(definition.features);
+  const data = dataOf(definition.data);
   const overrides = PlanOverrides.safeParse(record.overrides ?? {});
   if (overrides.success) {
     Object.assign(limits, overrides.data.limits);
+    if (overrides.data.data?.artifacts !== undefined)
+      data.artifacts = overrides.data.data.artifacts;
+    Object.assign(data.perArtifact, overrides.data.data?.perArtifact);
     for (const [feature, on] of Object.entries(overrides.data.features ?? {})) {
       if (on) enabled.add(feature as PlanFeature);
       else enabled.delete(feature as PlanFeature);
@@ -112,6 +127,7 @@ function granted(record: OwnerPlanRecord): Entitlements {
     validUntil: record.validUntil,
     limits,
     features: PLAN_FEATURES.filter((feature) => enabled.has(feature)),
+    data,
   };
 }
 

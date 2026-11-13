@@ -174,19 +174,45 @@ export function planSummary(plan: PlanName, locale: string, text: PlanText): Pla
   };
 }
 
+/**
+ * A plan's artifact data (decision 0026): how many artifacts may hold data and the size of each.
+ * Not a paid feature and not available yet, so its row says it is coming soon.
+ */
+export function formatPlanData(plan: PlanName, locale: string, text: PlanText): string {
+  const { artifacts, perArtifact } = PLANS[plan].data;
+  return fill(text["plans.value.artifactData"], {
+    count: new Intl.NumberFormat(locale).format(artifacts),
+    size: formatPlanBytes(perArtifact.bytesPerArtifact, locale),
+  });
+}
+
 /** The comparison of every plan's limits: one row per limit, one cell per plan. */
 export function planComparison(
   locale: string,
   text: PlanText,
-): { row: PlanLimitRow; label: string; cells: { plan: PlanName; value: string }[] }[] {
-  return PLAN_LIMIT_ROWS.map((row) => ({
-    row,
-    label: text[`plans.limit.${row}`],
-    cells: PLAN_NAMES.map((plan) => ({
-      plan,
-      value: formatPlanLimit(row, PLANS[plan].limits, PLANS[plan].perSeat, locale, text),
+): {
+  row: PlanLimitRow | "artifactData";
+  label: string;
+  cells: { plan: PlanName; value: string }[];
+}[] {
+  return [
+    ...PLAN_LIMIT_ROWS.map((row) => ({
+      row,
+      label: text[`plans.limit.${row}`],
+      cells: PLAN_NAMES.map((plan) => ({
+        plan,
+        value: formatPlanLimit(row, PLANS[plan].limits, PLANS[plan].perSeat, locale, text),
+      })),
     })),
-  }));
+    {
+      row: "artifactData" as const,
+      label: fill(text["plans.limit.withSoon"], {
+        label: text["plans.limit.artifactData"],
+        soon: text["plans.comingSoon"],
+      }),
+      cells: PLAN_NAMES.map((plan) => ({ plan, value: formatPlanData(plan, locale, text) })),
+    },
+  ];
 }
 
 /** The call to action of a paid plan: the request email, named for the plan. */
