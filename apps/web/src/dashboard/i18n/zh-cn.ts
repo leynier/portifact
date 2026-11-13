@@ -1604,6 +1604,7 @@ export const zhCN = {
   "audit.group.all": "所有更改",
   "audit.group.access": "访问和共享",
   "audit.group.lifecycle": "发布和生命周期",
+  "audit.group.suggestions": "建议和变更列表",
   "audit.group.integrations": "域名、Webhook 和品牌",
   "audit.group.members": "成员、令牌和套餐",
   "audit.actor.all": "任何人",
@@ -1709,6 +1710,17 @@ export const zhCN = {
   "audit.kind.reviewRequested": "{reviewers, plural, one {请 # 人审阅} other {请 # 人审阅}}",
   "audit.kind.reviewChanged": "更改了审阅请求",
   "audit.kind.reviewCancelled": "取消了审阅请求",
+  "audit.kind.suggestionAccepted":
+    "将建议接受为版本 {version}：已应用 {applied} 项，{listed} 项进入变更列表",
+  "audit.kind.suggestionAcceptedNothing": "接受了建议但未应用任何内容：{listed} 项进入变更列表",
+  "audit.kind.draftPublished":
+    "将草稿发布为版本 {version}：已应用 {applied} 项，{listed} 项进入变更列表",
+  "audit.kind.draftPublishedNothing": "发布了草稿但未应用任何内容：{listed} 项进入变更列表",
+  "audit.kind.suggestionRejected": "拒绝了一条建议",
+  "audit.kind.suggestionWithdrawn": "撤回了一条建议",
+  "audit.kind.changeItemApplied": "将变更列表中的一项标记为已应用",
+  "audit.kind.changeItemDismissed": "忽略了变更列表中的一项",
+  "audit.kind.changeItemReopened": "重新打开了变更列表中的一项",
   "audit.kind.reviewVerdict":
     "{verdict, select, approve {批准了版本 {version}} other {要求修改版本 {version}}}",
   "audit.kind.domainAttached": "连接了域名 {hostname}",

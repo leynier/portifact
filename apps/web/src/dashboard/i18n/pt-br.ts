@@ -1746,6 +1746,7 @@ export const ptBR = {
   "audit.group.all": "Todas as mudanças",
   "audit.group.access": "Acesso e compartilhamento",
   "audit.group.lifecycle": "Publicação e ciclo de vida",
+  "audit.group.suggestions": "Sugestões e lista de alterações",
   "audit.group.integrations": "Domínios, webhooks e marca",
   "audit.group.members": "Membros, tokens e plano",
   "audit.actor.all": "Qualquer pessoa",
@@ -1863,6 +1864,19 @@ export const ptBR = {
     "{reviewers, plural, one {Pediu a # pessoa que revisasse} other {Pediu a # pessoas que revisassem}}",
   "audit.kind.reviewChanged": "Alterou um pedido de revisão",
   "audit.kind.reviewCancelled": "Cancelou um pedido de revisão",
+  "audit.kind.suggestionAccepted":
+    "Aceitou uma sugestão como versão {version}: {applied} aplicados, {listed} para a lista de alterações",
+  "audit.kind.suggestionAcceptedNothing":
+    "Aceitou uma sugestão sem aplicar nada: {listed} para a lista de alterações",
+  "audit.kind.draftPublished":
+    "Publicou um rascunho como versão {version}: {applied} aplicados, {listed} para a lista de alterações",
+  "audit.kind.draftPublishedNothing":
+    "Publicou um rascunho sem aplicar nada: {listed} para a lista de alterações",
+  "audit.kind.suggestionRejected": "Recusou uma sugestão",
+  "audit.kind.suggestionWithdrawn": "Retirou uma sugestão",
+  "audit.kind.changeItemApplied": "Marcou um item da lista de alterações como aplicado",
+  "audit.kind.changeItemDismissed": "Dispensou um item da lista de alterações",
+  "audit.kind.changeItemReopened": "Reabriu um item da lista de alterações",
   "audit.kind.reviewVerdict":
     "{verdict, select, approve {Aprovou a versão {version}} other {Pediu alterações na versão {version}}}",
   "audit.kind.domainAttached": "Conectou o domínio {hostname}",

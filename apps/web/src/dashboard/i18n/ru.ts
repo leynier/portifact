@@ -1753,6 +1753,7 @@ export const ru = {
   "audit.group.all": "Все изменения",
   "audit.group.access": "Доступ и общий доступ",
   "audit.group.lifecycle": "Публикация и жизненный цикл",
+  "audit.group.suggestions": "Предложения и список изменений",
   "audit.group.integrations": "Домены, вебхуки и бренд",
   "audit.group.members": "Участники, токены и тариф",
   "audit.actor.all": "Кто угодно",
@@ -1872,6 +1873,19 @@ export const ru = {
     "{reviewers, plural, one {Попросил(а) # человека проверить} few {Попросил(а) # человек проверить} many {Попросил(а) # человек проверить} other {Попросил(а) # человека проверить}}",
   "audit.kind.reviewChanged": "Изменил(а) запрос на проверку",
   "audit.kind.reviewCancelled": "Отменил(а) запрос на проверку",
+  "audit.kind.suggestionAccepted":
+    "Принял(а) предложение как версию {version}: применено {applied}, в список изменений {listed}",
+  "audit.kind.suggestionAcceptedNothing":
+    "Принял(а) предложение, ничего не применив: в список изменений {listed}",
+  "audit.kind.draftPublished":
+    "Опубликовал(а) черновик как версию {version}: применено {applied}, в список изменений {listed}",
+  "audit.kind.draftPublishedNothing":
+    "Опубликовал(а) черновик, ничего не применив: в список изменений {listed}",
+  "audit.kind.suggestionRejected": "Отклонил(а) предложение",
+  "audit.kind.suggestionWithdrawn": "Отозвал(а) предложение",
+  "audit.kind.changeItemApplied": "Отметил(а) пункт списка изменений как применённый",
+  "audit.kind.changeItemDismissed": "Отклонил(а) пункт списка изменений",
+  "audit.kind.changeItemReopened": "Снова открыл(а) пункт списка изменений",
   "audit.kind.reviewVerdict":
     "{verdict, select, approve {Одобрил(а) версию {version}} other {Запросил(а) изменения в версии {version}}}",
   "audit.kind.domainAttached": "Подключил(а) домен {hostname}",

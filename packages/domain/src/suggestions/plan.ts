@@ -72,6 +72,16 @@ export interface PlanInput {
   pageUrl: string;
   /** The installed renderer; a document plan accepts only its label as the binding's renderer. */
   renderer: DocumentRenderer;
+  /**
+   * Lists every operation with this reason without reading the file: the service passes it when
+   * the stored bytes cannot be decoded as UTF-8, so nothing is parsed, mapped or applied.
+   */
+  refuse?: "not_eligible" | "too_large";
+  /**
+   * Whether the stored file starts with a UTF-8 byte order mark (dropped when decoding). The new
+   * file keeps it, so the output's size and SHA-256 are those of the bytes with the mark.
+   */
+  bom?: boolean;
   work?: Work;
 }
 
@@ -84,6 +94,8 @@ export interface BuiltPlan extends Plan {
    * when its proof would be over `PLAN_LIMITS.proofBytes` (the item is then closed by hand).
    */
   proofs: (Proof | null)[];
+  /** The index in the edit of each envelope's operation, applied then listed, like `proofs`. */
+  operations: number[];
   work: Work;
 }
 
@@ -98,13 +110,17 @@ export class PlanTooLargeError extends Error {
 const limitOf = (kind: FileKind) =>
   kind === "html" ? PLAN_LIMITS.htmlBytes : PLAN_LIMITS.documentBytes;
 
+/** The UTF-8 byte order mark's size: a new file keeps the stored file's mark. */
+const BOM_BYTES = 3;
+
 /** The output of a new file, its hashes still pending: sizes can be checked before hashing. */
 function pendingOutput(
   kind: FileKind,
   source: string,
   options: StoredRenderOptions | null,
+  bom: boolean,
 ): PlanOutput {
-  const size = utf8Length(source);
+  const size = utf8Length(source) + (bom ? BOM_BYTES : 0);
   if (kind === "html" || options === null) {
     return {
       sha256: PENDING_SHA256,
@@ -133,10 +149,12 @@ async function outputOf(
   source: string,
   options: StoredRenderOptions | null,
   renderer: DocumentRenderer,
+  bom: boolean,
   rendered?: readonly { kind: string; text: string }[],
 ): Promise<PlanOutput> {
-  const output = pendingOutput(kind, source, options);
-  const sha256 = await sha256Hex(source);
+  const output = pendingOutput(kind, source, options, bom);
+  // The hash of the exact bytes stored: a file that had a byte order mark keeps it.
+  const sha256 = await sha256Hex(bom ? `\uFEFF${source}` : source);
   if (output.options === null || kind === "html") return { ...output, sha256 };
   const pending = `"sourceSha256":"${PENDING_SHA256}"`;
   const files =
@@ -191,6 +209,7 @@ function planFile(input: PlanInput, work: Work): PlannedFile {
     work,
     settle: settled,
   });
+  if (input.refuse) return all(input.refuse);
   if (utf8Length(input.source) > limitOf(input.kind)) return all("too_large");
   if (input.kind === "html") {
     return planHtml({ html: input.source, edits, pageUrl: input.pageUrl, work });
@@ -281,7 +300,9 @@ export async function buildPlan(input: PlanInput): Promise<BuiltPlan> {
     applied,
     listed,
     output:
-      planned.source === undefined ? null : pendingOutput(input.kind, planned.source, options),
+      planned.source === undefined
+        ? null
+        : pendingOutput(input.kind, planned.source, options, input.bom === true),
     lines: [...applied, ...listed].flatMap(renderEnvelope),
   };
   // Every hash is 64 characters, so the pending output has the size the real one will have.
@@ -291,7 +312,14 @@ export async function buildPlan(input: PlanInput): Promise<BuiltPlan> {
   const output =
     planned.source === undefined
       ? null
-      : await outputOf(input.kind, planned.source, options, input.renderer, planned.rendered);
+      : await outputOf(
+          input.kind,
+          planned.source,
+          options,
+          input.renderer,
+          input.bom === true,
+          planned.rendered,
+        );
   const contents: PlanContents = { ...pending, output };
   return {
     ...contents,
@@ -299,6 +327,10 @@ export async function buildPlan(input: PlanInput): Promise<BuiltPlan> {
     proofs: [
       ...planned.applied.map((item) => storable(item.proof)),
       ...planned.listed.map((item) => storable(item.proof)),
+    ],
+    operations: [
+      ...planned.applied.map((item) => item.operation),
+      ...planned.listed.map((item) => item.operation),
     ],
     work,
     ...(planned.source === undefined ? {} : { newSource: planned.source }),
@@ -319,6 +351,8 @@ export async function confirmPlan(input: {
   current: PlanBinding;
   newSource: string | undefined;
   renderer: DocumentRenderer;
+  /** As at `buildPlan`: the stored file's byte order mark, kept by the new file. */
+  bom?: boolean;
 }): Promise<Confirmation> {
   const { plan, confirmedDigest, newSource } = input;
   const { format, binding, kind, applied, listed, output, lines } = plan;
@@ -330,7 +364,13 @@ export async function confirmPlan(input: {
   if ((output === null) !== (newSource === undefined)) return "plan_changed";
   if ((await planDigest(contents)) !== confirmedDigest) return "plan_changed";
   if (output === null || newSource === undefined) return "confirmed";
-  const derived = await outputOf(kind, newSource, output.options, input.renderer);
+  const derived = await outputOf(
+    kind,
+    newSource,
+    output.options,
+    input.renderer,
+    input.bom === true,
+  );
   return canonicalJson(derived) === canonicalJson(output) ? "confirmed" : "plan_changed";
 }
 

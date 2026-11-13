@@ -11,6 +11,7 @@ export * from "./grant.ts";
 export * from "./housekeeping.ts";
 export * from "./index-build.ts";
 export * from "./journal.ts";
+export * from "./lifecycle-jobs.ts";
 export * from "./live.ts";
 export * from "./metering.ts";
 export * from "./mutation.ts";

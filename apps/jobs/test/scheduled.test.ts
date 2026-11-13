@@ -1,7 +1,7 @@
 import { createScheduledController, env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { describe, expect, it, vi } from "vitest";
-import worker, { runScheduled } from "../src/index.ts";
+import worker, { RELAY_CRON, runPreviewPrune, runScheduled } from "../src/index.ts";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 8);
@@ -76,5 +76,68 @@ describe("access log retention", () => {
       }),
     );
     error.mockRestore();
+  });
+});
+
+describe("the preview prune on the one-minute schedule (decision 0027)", () => {
+  const minute = (workerEnv: typeof env) => {
+    const waits: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (p: Promise<unknown>) => waits.push(p),
+      passThroughOnException: () => {},
+      props: {},
+    };
+    worker.scheduled(
+      createScheduledController({ scheduledTime: NOW, cron: RELAY_CRON }),
+      workerEnv,
+      ctx as unknown as ExecutionContext,
+    );
+    return waits;
+  };
+  const oldKey = () => `previews/${NOW - 3 * 60_000}/${crypto.randomUUID()}`;
+
+  it("does nothing while suggestions are switched off", async () => {
+    const key = oldKey();
+    await env.ARTIFACTS.put(key, "<p>old</p>");
+    expect(await runPreviewPrune(env, NOW)).toBe("off");
+    await Promise.all(minute(env));
+    expect(await env.ARTIFACTS.head(key)).not.toBeNull();
+    await env.ARTIFACTS.delete(key);
+  });
+
+  it("prunes every region beside the relay, each in its own waitUntil, once switched on", async () => {
+    const on = { ...env, SUGGESTIONS_ENABLED: "true" };
+    const key = oldKey();
+    const euKey = oldKey();
+    await env.ARTIFACTS.put(key, "<p>old</p>");
+    await env.ARTIFACTS_EU.put(euKey, "<p>old</p>");
+    const waits = minute(on);
+    // The relay and the prune never share a promise: one failing cannot stop the other.
+    expect(waits).toHaveLength(2);
+    await Promise.all(waits);
+    expect(await env.ARTIFACTS.head(key)).toBeNull();
+    expect(await env.ARTIFACTS_EU.head(euKey)).toBeNull();
+  });
+
+  it("logs a region whose prune fails and goes on with the others", async () => {
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      errors.push(String(line));
+    });
+    const broken = {
+      ...env,
+      SUGGESTIONS_ENABLED: "true",
+      ARTIFACTS: {
+        list: async () => {
+          throw new Error("down");
+        },
+      } as unknown as R2Bucket,
+    };
+    const euKey = oldKey();
+    await env.ARTIFACTS_EU.put(euKey, "<p>old</p>");
+    expect(await runPreviewPrune(broken, NOW)).toBe("failed");
+    expect(errors.map((line) => JSON.parse(line).event)).toEqual(["preview_prune_failed"]);
+    expect(await env.ARTIFACTS_EU.head(euKey)).toBeNull();
+    vi.restoreAllMocks();
   });
 });

@@ -38,6 +38,9 @@
     // Single sign-on against the fake identity provider of worker/sso.ts; the deployed app
     // Worker leaves it unset (decision 0016).
     "SSO_ENABLED": "true",
+    // Edit suggestions (decision 0027) for the preview origin's tests; the deployed Workers leave
+    // it unset until the text delivery's release checks pass (docs/releasing.md, "Suggestions").
+    "SUGGESTIONS_ENABLED": "true",
     "SSO_KEY": "e2e-only-sso-sealing-key-0123456789abcdef",
     // SCIM provisioning, driven by the test as the directory; the deployed app Worker leaves it
     // unset (decision 0017).

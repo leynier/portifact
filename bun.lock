@@ -76,7 +76,10 @@
       "devDependencies": {
         "@cloudflare/vitest-plugin": "^1.6.0",
         "@cloudflare/workers-types": "^5.0.0",
+        "@portifact/db": "workspace:*",
+        "@portifact/services": "workspace:*",
         "@vitest/coverage-istanbul": "catalog:",
+        "drizzle-orm": "^0.45.0",
         "fast-check": "^4.0.0",
         "typescript": "catalog:",
         "vitest": "catalog:",
@@ -149,6 +152,7 @@
         "@portifact/contracts": "workspace:*",
         "@portifact/db": "workspace:*",
         "@portifact/domain": "workspace:*",
+        "@portifact/render": "workspace:*",
         "@portifact/services": "workspace:*",
         "@types/node": "catalog:",
         "axe-core": "catalog:",

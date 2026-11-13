@@ -89,6 +89,8 @@ export const ALLOWED_FIELDS: Record<string, { holds: string; value: RegExp }> = 
     holds: "a count: a Slack event's links sent with a preview",
     value: re(`${PATH}\\.unfurled`),
   },
+  documents: { holds: "a count: cached preview documents a prune deleted", value: re("documents") },
+  rows: { holds: "a count: preview code rows a prune deleted", value: re("rows") },
 };
 
 /** Where `logSummary` may be called, by file: each summary holds only counts and enum values. */

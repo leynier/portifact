@@ -15,7 +15,7 @@ It runs in Node with happy-dom, parse5 (the production parser for HTML) and the 
 - `bench/`: the timings at the size limits (`limits.bench.ts`, which also prints the machine) and the full corpora (`corpus.bench.ts`).
 - `src/style.ts`, `src/operations.ts`, `src/edit-session.ts`: the style allowlist, the edit model and the viewer's edit session.
 - `test/corpus.ts`: the seeded corpus of Markdown documents and edits.
-- `browser/differential.spec.ts`: parse5 against Chromium and Firefox for the raw-text, template, foreign-content and recovery contexts, and built previews loading nothing.
+- `browser/differential.spec.ts`: parse5 against Chromium and Firefox for the raw-text, template, foreign-content and recovery contexts. That built previews load nothing is proven on the real preview host in every e2e project (`e2e/tests/suggestion-previews.spec.ts`).
 
 Run from the repository root:
 

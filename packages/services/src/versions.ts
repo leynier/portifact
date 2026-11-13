@@ -33,6 +33,7 @@ import { ownerEntitlements } from "./plans.ts";
 import { objectKey, windowSum } from "./publish.ts";
 import { checkReadAccess } from "./read-access.ts";
 import { retainedVersionSql } from "./retention.ts";
+import { suggestionVersionJobs } from "./suggestion-versions.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -674,6 +675,13 @@ export async function rollbackArtifact(
     // The restored text becomes the searchable one (decision 0012).
     ...searchIndexJob(db, {
       entitlements: owner,
+      artifactId: artifact.id,
+      versionId,
+      condition: switched,
+      now: input.now,
+    }),
+    // Pending suggestions are carried and open items checked against it (decision 0027).
+    ...suggestionVersionJobs(db, {
       artifactId: artifact.id,
       versionId,
       condition: switched,

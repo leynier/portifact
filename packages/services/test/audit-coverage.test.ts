@@ -165,6 +165,14 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   updateAuditStream: ["audit_stream.changed"],
   removeAuditStream: ["audit_stream.removed"],
   deliverAuditStream: ["audit_stream.paused"],
+  // Edit suggestions (decision 0027): a decision, a withdrawal (also when the author deletes the
+  // first message), an acceptance's completion with its publish, and a marked change item.
+  rejectSuggestion: ["suggestion.rejected"],
+  withdrawSuggestion: ["suggestion.withdrawn"],
+  deleteOwnAnnotationMessage: ["suggestion.withdrawn"],
+  runAcceptance: ["suggestion.accepted", "artifact.published"],
+  publishFromPlan: ["suggestion.accepted", "artifact.published"],
+  markChangeItem: ["change_item.marked"],
 };
 
 /** Changes that record no event, and why. */
@@ -244,17 +252,37 @@ reason("readers, visitors and reviewers, not the owner side: the access log cove
   "declineInvitation",
   "issueReadHandoff",
   "issueReviewHandoff",
+  // Built previews of suggestions (decision 0027): a one-use code to read a thread's plan.
+  "issuePreviewCode",
+  "redeemPreviewCode",
 ]);
 reason("comments are not in the audit log's scope (T10); their text never is", [
   "createAnnotationThread",
   "replyToAnnotationThread",
   "editAnnotationMessage",
-  "deleteOwnAnnotationMessage",
   "deleteAnnotationThread",
   "moderateAnnotationMessage",
   "setAnnotationThreadState",
   "eraseAuthorFromThread",
 ]);
+reason("a suggestion is a comment: its creation is outside the T10 catalog like any comment", [
+  "submitSuggestion",
+]);
+reason(
+  "edit suggestions (decision 0027): starting an acceptance or a draft publish records nothing until the job completes it (suggestion.accepted); a dry run only caches a plan and the suggestion's proofs",
+  ["acceptSuggestion", "publishDraft", "planSuggestion", "planDraft"],
+);
+reason(
+  "edit suggestions (decision 0027): an attempt that ends, carries, closures by a new version and the scans change nothing an owner decided; the suggestion is pending again or the record expired",
+  [
+    "endAttempt",
+    "expireAcceptAttempts",
+    "runSuggestionCarry",
+    "runChangeListCheck",
+    "pruneSuggestionRecords",
+    "pruneDraftsWithoutRole",
+  ],
+);
 reason("whether an artifact takes comments is outside the T10 catalog for now", [
   "setAnnotationMode",
 ]);
@@ -290,6 +318,30 @@ reason(
     "heldArtifactIds",
     "holdIdentities",
     "runHoldRelease",
+  ],
+);
+reason(
+  "artifact data lifecycle (decision 0026): fences and whole erases follow a change that records its own event or is operator-only (a hold, a transfer, a purge); author erasure chunks keep their audit obligation in the object, which the audit relay of delivery 5 writes to D1; reconciliation, its resolutions and the export are operator-only after a restore",
+  [
+    "runDataFence",
+    "convergeHold",
+    "runDataErase",
+    "runDataAuthorErasure",
+    "runDataReconcile",
+    "runDataResolve",
+    "runDataExport",
+    "reconcileObject",
+    "registerDataObject",
+    "recordStorageReport",
+    "eraseReason",
+    "permanentlyDeleted",
+    "pruneJournalCursors",
+    "retireJournalEntry",
+    "scheduleAuthorErasures",
+    "wakeDataJobs",
+    "queueDataReconcile",
+    "queueDataResolve",
+    "queueDataExport",
   ],
 );
 reason(
@@ -451,6 +503,7 @@ reason("scheduled jobs and their consequences of changes already recorded", [
   "pruneEmailSuppressions",
   "pruneExpiredInvitations",
   "pruneOperations",
+  "prunePreviewCodes",
   "pruneReadSessions",
   "pruneReviewSessions",
   "pruneShareLinks",
@@ -464,6 +517,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // D1's hold level for the data convergence rule (decision 0026): one read of `legal_holds`.
+  "holdLevel",
   // The grace forecast's counts (decision 0022), shared by its route and the grace emails.
   "graceForecastKinds",
   // The thread a caller may read now (decision 0018): a read like every annotation read.
@@ -507,6 +562,11 @@ const READ_NAMES = new Set([
   "searchContent",
   "signUnsubscribeToken",
   "signWebhook",
+  // Edit suggestions (decision 0027): building a plan and reading stored files and drafts.
+  "suggestionPlanOf",
+  "draftPlanOf",
+  "storedPage",
+  "ownDraft",
 ]);
 const READS =
   /^(get|list|read|find|load|export|show|count|view|preview|lookup|stats|current|personal|require|owner|actor|artifact|workspace|usage|account|managed|compare|diff|hash|sha|seal|verify(Share)?Password|email|invitation|annotation|noticeView|newArtifactDefaults|platformProtection|pendingBudgetAlerts|multipartStates|openMultipartUploads|revokedShareLinks|shareLinkLabels|soleAdminOf|windowSum|webhookKeys|authorizeOn|reviewSessionTag)(?=[A-Z]|$)/;

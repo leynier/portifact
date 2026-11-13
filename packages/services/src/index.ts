@@ -8,6 +8,7 @@ export * from "./analytics.ts";
 export * from "./annotations.ts";
 export * from "./annotations-markdown.ts";
 export * from "./approval-reviews.ts";
+export * from "./artifact-data.ts";
 export * from "./artifacts.ts";
 export * from "./audit.ts";
 export * from "./audit-streams.ts";
@@ -15,6 +16,7 @@ export * from "./auth-records.ts";
 export * from "./backups.ts";
 export * from "./branding.ts";
 export * from "./budget.ts";
+export * from "./change-list.ts";
 export * from "./cloudflare-hostnames.ts";
 export * from "./comment-notices.ts";
 export * from "./comment-retention.ts";
@@ -77,6 +79,35 @@ export * from "./slack-events.ts";
 export * from "./sso.ts";
 export * from "./sso-keys.ts";
 export * from "./sso-required.ts";
+export * from "./suggestion-accept.ts";
+export * from "./suggestion-maintenance.ts";
+export {
+  draftPlanOf,
+  draftSubject,
+  newFileBytes,
+  ownDraft,
+  planDraft,
+  planSuggestion,
+  type StoredPage,
+  type SubjectPlan,
+  storedPage,
+  suggestionPlanOf,
+  suggestionPlanView,
+} from "./suggestion-plans.ts";
+export * from "./suggestion-previews.ts";
+export {
+  runChangeListCheck,
+  runSuggestionCarry,
+  suggestionVersionJobs,
+} from "./suggestion-versions.ts";
+export {
+  getSuggestion,
+  rejectSuggestion,
+  storedEdit,
+  storedProofs,
+  submitSuggestion,
+  withdrawSuggestion,
+} from "./suggestions.ts";
 export * from "./thread-idempotency.ts";
 export * from "./thread-issue-views.ts";
 export * from "./thread-issues.ts";

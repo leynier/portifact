@@ -52,3 +52,41 @@ describe("Durable Object migrations", () => {
     );
   });
 });
+
+/** Artifact data's switches (decision 0026, "Switches"): never in a deployed configuration. */
+const DATA_SWITCHES = [
+  "ARTIFACT_DATA_ENABLED",
+  "DATA_PAGE_WRITES_ENABLED",
+  "DATA_LIVE_ENABLED",
+  "DATA_ANONYMOUS_ENABLED",
+];
+
+export function dataSwitchesIn(text: string): string[] {
+  return DATA_SWITCHES.filter((name) => text.includes(`"${name}"`));
+}
+
+describe("the documents class's callers", () => {
+  it("bind it by script_name to portifact-data, and no configuration switches artifact data on", () => {
+    const jobs = readFileSync(join(ROOT, "apps/jobs/wrangler.jsonc"), "utf8");
+    expect(jobs).toMatch(
+      /"name": "ARTIFACT_DOCUMENTS",\s*"class_name": "ArtifactDocuments",\s*"script_name": "portifact-data"/,
+    );
+    for (const config of configs()) {
+      expect(dataSwitchesIn(readFileSync(join(ROOT, config), "utf8")), config).toEqual([]);
+    }
+    expect(dataSwitchesIn(`{"vars":{"ARTIFACT_DATA_ENABLED":"true"}}`)).toEqual([
+      "ARTIFACT_DATA_ENABLED",
+    ]);
+  });
+
+  it("deploy the data Worker before every Worker that binds it", () => {
+    const release = readFileSync(join(ROOT, ".github/workflows/release.yml"), "utf8");
+    const data = release.indexOf("working-directory: apps/data");
+    expect(data).toBeGreaterThan(0);
+    for (const caller of ["apps/jobs", "apps/content", "apps/app"]) {
+      expect(
+        release.indexOf(`working-directory: ${caller}\n        run: npx wrangler deploy\n`),
+      ).toBeGreaterThan(data);
+    }
+  });
+});

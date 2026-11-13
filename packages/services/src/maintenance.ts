@@ -26,6 +26,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
+import { dataEraseJob, pruneJournalCursors } from "./artifact-data.ts";
 import { auditEvent, pruneAuditEvents } from "./audit.ts";
 import { pruneAuthRecords } from "./auth-records.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
@@ -71,6 +72,12 @@ import { pruneDirectoryUsers } from "./scim.ts";
 import { jsonValues, ownerOfRegion } from "./shapes.ts";
 import { pruneShareLinks } from "./share-links.ts";
 import { syncSsoRequirementStates } from "./sso-required.ts";
+import {
+  expireAcceptAttempts,
+  pruneDraftsWithoutRole,
+  pruneSuggestionRecords,
+} from "./suggestion-maintenance.ts";
+import { PREVIEW_PRUNE, prunePreviewCodes } from "./suggestion-previews.ts";
 import { requeueThreadIssues } from "./thread-issues.ts";
 import { pruneTrafficCounters } from "./traffic.ts";
 import { maintainWebhooks } from "./webhooks.ts";
@@ -688,6 +695,14 @@ export async function deleteArtifactData(
       sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifactId} and ${schema.artifacts.state} = 'purging')`,
       now,
     ),
+    // Its document database (decision 0026): the whole erase the purge requires, written from the
+    // `artifact_data` row the delete below takes with it. An artifact without data gets none.
+    dataEraseJob(
+      db,
+      artifactId,
+      sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifactId} and ${schema.artifacts.state} = 'purging')`,
+      now,
+    ),
     // Cascades to readers, versions and manifest entries.
     db
       .delete(schema.artifacts)
@@ -949,6 +964,8 @@ export async function runRegionalMaintenance(
     goneHistory: await pruneGoneHistory(db, now),
     uploadHistory: await pruneUploadHistory(db, now),
     staleFindings: await pruneStaleFindings(db, now),
+    // Account journal scan positions left after their deletion ended (decision 0026).
+    journalCursors: await pruneJournalCursors(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
@@ -964,6 +981,13 @@ export async function runRegionalMaintenance(
     threadIssues: await requeueThreadIssues(db, now),
     // Slack connections started and never completed (decision 0025): one delete.
     pendingConnections: await prunePendingConnections(db, now),
+    // Edit suggestions (decision 0027): overdue acceptances end, records past their time go, and
+    // drafts of people who no longer act for the owner are deleted.
+    acceptAttempts: (await expireAcceptAttempts(db, now)).ended,
+    suggestionRecords: await pruneSuggestionRecords(db, now),
+    draftsWithoutRole: (await pruneDraftsWithoutRole(db, now)).deleted,
+    // Preview codes of edit suggestions and their cached documents (decision 0027).
+    previewCodes: await prunePreviewCodes(db, bucket, now, PREVIEW_PRUNE, region),
     workspacePolicies: await enforceWorkspacePolicies(db, now),
     // Comment retention (decision 0023): deletes for good, bounded, held to the rule in force.
     commentRetention: await enforceCommentRetention(db, bucket, now, region),
@@ -998,6 +1022,8 @@ export async function runMaintenance(
     goneHistory: await pruneGoneHistory(db, now),
     uploadHistory: await pruneUploadHistory(db, now),
     staleFindings: await pruneStaleFindings(db, now),
+    // Account journal scan positions left after their deletion ended (decision 0026).
+    journalCursors: await pruneJournalCursors(db, now),
     // Expired sign-in records and unused app registrations (global; docs/operations.md).
     authRecords: await pruneAuthRecords(db.global, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
@@ -1045,8 +1071,15 @@ export async function runMaintenance(
     // Slack connections started and never completed, after 24 hours (decision 0025): one delete
     // of at most a few rows per owner, with no tombstone (they hold no credential).
     pendingConnections: await prunePendingConnections(db, now),
+    // Preview codes of edit suggestions and their cached documents (decision 0027).
+    previewCodes: await prunePreviewCodes(db, bucket, now),
     // Workspace policies (decision 0015): brings back in line what a request that read a policy
     // before it tightened let through after the policy's job ran.
+    // Edit suggestions (decision 0027): overdue acceptances end, records past their time go, and
+    // drafts of people who no longer act for the owner are deleted.
+    acceptAttempts: (await expireAcceptAttempts(db, now)).ended,
+    suggestionRecords: await pruneSuggestionRecords(db, now),
+    draftsWithoutRole: (await pruneDraftsWithoutRole(db, now)).deleted,
     workspacePolicies: await enforceWorkspacePolicies(db, now),
     // Comment retention (decision 0023): deletes for good, bounded, held to the rule in force and
     // paused after a restore of the global database until the policies are applied again. One

@@ -46,8 +46,8 @@ export const AUDIT_LIMITS = {
   pageSize: 100,
   /** Email domains one access change lists at most; the counts always cover every address. */
   readerDomains: 10,
-  /** Kinds one query can filter on at once. */
-  kindsPerQuery: 10,
+  /** Kinds one query can filter on at once; the dashboard's largest filter group must fit. */
+  kindsPerQuery: 30,
   /** Rows the retention scan deletes per statement. */
   pruneBatch: 1000,
   /**
@@ -150,7 +150,12 @@ const githubTrustDetail = z.strictObject({
 });
 
 export const AUDIT_DETAILS = {
-  "artifact.published": z.strictObject({ version, first: z.boolean() }),
+  /** `via` when a server publish made the version: an accepted suggestion or a draft (0027). */
+  "artifact.published": z.strictObject({
+    version,
+    first: z.boolean(),
+    via: z.enum(["suggestion", "draft"]).optional(),
+  }),
   "artifact.rolled_back": z.strictObject({ version, from: version }),
   "artifact.renewed": empty,
   /**
@@ -207,6 +212,20 @@ export const AUDIT_DETAILS = {
   "review.cancelled": empty,
   /** A reviewer's verdict on a version, by its number; never the note. */
   "review.verdict": z.strictObject({ verdict: z.enum(["approve", "changes"]), version }),
+  /**
+   * Edit suggestions (decision 0027): counts and the version only, never the edit's text. An
+   * acceptance that applied nothing has no version; a draft publish records it too.
+   */
+  "suggestion.accepted": z.strictObject({
+    origin: z.enum(["suggestion", "draft"]),
+    applied: z.number().int().min(0).max(1_000),
+    listed: z.number().int().min(0).max(1_000),
+    version: version.nullable(),
+  }),
+  "suggestion.rejected": empty,
+  "suggestion.withdrawn": empty,
+  /** A change-list item marked by a person or their agent. */
+  "change_item.marked": z.strictObject({ state: z.enum(["applied", "dismissed", "open"]) }),
   "domain.attached": z.strictObject({ hostname: DnsName }),
   "domain.removed": z.strictObject({ hostname: DnsName, reason: DomainDetachReason }),
   "webhook.created": z.strictObject({
@@ -531,6 +550,10 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "review.changed": "review",
   "review.cancelled": "review",
   "review.verdict": "review",
+  "suggestion.accepted": "artifact",
+  "suggestion.rejected": "artifact",
+  "suggestion.withdrawn": "artifact",
+  "change_item.marked": "artifact",
   "domain.attached": "artifact",
   "domain.removed": "artifact",
   "webhook.created": "webhook",

@@ -72,9 +72,11 @@ function entryPoints(config: string): string[] {
   const dir = config.slice(0, config.lastIndexOf("/"));
   const source = main ? read(`${dir}/${main}`) : "";
   const handlers = handlersIn(source);
-  const classes = [...text.matchAll(/"class_name"\s*:\s*"([^"]+)"/g)].map(
-    (match) => match[1] as string,
-  );
+  // A class this Worker exports; a binding with `script_name` is another Worker's class (the
+  // jobs Worker's `ARTIFACT_DOCUMENTS`, decision 0026), classified with that Worker.
+  const classes = [...text.matchAll(/\{[^{}]*"class_name"\s*:\s*"([^"]+)"[^{}]*\}/g)]
+    .filter((match) => !match[0].includes('"script_name"'))
+    .map((match) => match[1] as string);
   return [...new Set([...handlers, ...classes])].map((name) => `${config}#${name}`);
 }
 
@@ -210,6 +212,14 @@ describe("the credential on the request context", () => {
         /recordSessionRenewal\(db, session\.userId, signIn\);\s+const access = await checkReadAccess\(/,
       );
     }
+  });
+
+  it("is recorded by a preview redemption before the thread check decides the role", () => {
+    // The preview origin (decision 0027) authenticates the person by the dashboard session the
+    // code was issued to, read with its sign-in time and method in the same statement.
+    expect(read("packages/services/src/suggestion-previews.ts")).toMatch(
+      /recordSessionRenewal\(handles\.db, row\.userId, \{[\s\S]{0,160}?\}\);\s+const subject = await previewSubject\(/,
+    );
   });
 
   it("is the approving session's for a device login, at approval and at the exchange", () => {

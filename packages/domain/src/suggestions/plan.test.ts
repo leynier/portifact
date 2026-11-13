@@ -35,7 +35,13 @@ function strings(value: unknown): string[] {
   return [];
 }
 
-const contentsOf = ({ newSource: _n, proofs: _p, work: _w, ...contents }: BuiltPlan) => contents;
+const contentsOf = ({
+  newSource: _n,
+  proofs: _p,
+  operations: _o,
+  work: _w,
+  ...contents
+}: BuiltPlan) => contents;
 
 describe("display tokens", () => {
   it("cannot be confused with literal text, and inspection lists code points", () => {

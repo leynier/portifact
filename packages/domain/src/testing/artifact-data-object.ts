@@ -25,6 +25,7 @@ import {
   ERASED_EDITOR,
   type ExportCursor,
   type QuarantineReason,
+  type QuarantineResolutionRequest,
   type StorageReport,
 } from "@portifact/contracts/artifact-data";
 import {
@@ -105,6 +106,7 @@ import {
   renewDecision,
   requestHash,
   resolveQuarantine,
+  resolveReviewed,
   type SettleDecision,
   sequenceAdvances,
   sequenceScope,
@@ -1911,6 +1913,28 @@ export class MemoryObject implements DataObject {
       }
       this.#setControl(decided.value.control);
       return { value: null, wrote: true };
+    });
+  }
+
+  /** The operator's reviewed resolution, recorded under its ID like an ended erase intent. */
+  resolveReviewed(
+    envelope: DataEnvelope,
+    request: QuarantineResolutionRequest,
+    now: number,
+  ): Answer<{ repeated: boolean }> {
+    return this.#control<{ repeated: boolean }>(now, "resolve_reviewed", () => {
+      const ended = this.durable.ended.get(request.id)?.outcome ?? null;
+      const decided = resolveReviewed(this.durable.control, envelope, request, ended);
+      if (!decided.ok) fail(decided);
+      if (decided.value.repeated) return { value: { repeated: true }, wrote: false };
+      if (decided.value.erasePayload) this.#erasePayload();
+      if (decided.value.endedErase !== null) {
+        this.durable.ended.set(decided.value.endedErase, { outcome: "committed", at: now });
+      }
+      this.durable.ended.set(request.id, { outcome: "committed", at: now });
+      this.#setControl(decided.value.control);
+      this.closeAll(4003);
+      return { value: { repeated: false }, wrote: true };
     });
   }
 

@@ -1,6 +1,13 @@
 // Edit suggestions (decision 0027): the pure planners and everything they need. Imported through
 // `@portifact/domain/suggestions` so the dashboard's bundle, which imports `@portifact/domain`,
 // never pulls parse5 or the renderer in for them.
+export {
+  carriedProofs,
+  carryRequest,
+  operationsOn,
+  plannedOn,
+  proofsOfPlan,
+} from "./carried.ts";
 export { type Closure, type ClosureProof, closure } from "./closure.ts";
 export { canonicalJson, sha256Hex } from "./digest.ts";
 export {
@@ -36,7 +43,19 @@ export {
   linksAroundAll,
   sameIdentity,
 } from "./identity.ts";
+export {
+  attemptOverdue,
+  checkDecide,
+  checkMark,
+  checkSuggestionThreadState,
+  checkWithdraw,
+  firstMessageDeletion,
+  type MarkTarget,
+  plannableKind,
+  type SuggestionRole,
+} from "./lifecycle.ts";
 export { planMarkdown } from "./markdown-planner.ts";
+export { planPageUrl } from "./page-url.ts";
 export {
   admitItems,
   type BuiltPlan,
