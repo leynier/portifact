@@ -85,6 +85,7 @@ import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
 import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerPlanRecord } from "./plans.ts";
+import { endAttempt } from "./suggestion-accept.ts";
 import { type ThreadViewContext, threadViews } from "./thread-views.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { policyDomains } from "./workspace-domains.ts";
@@ -1773,7 +1774,13 @@ export async function eraseAuthorFromThread(
               sql`exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.authorId} = ${input.authorId} and ${th.suggestionState} = 'applying')`,
               claimed(writeId),
             ),
-          ),
+          )
+          .returning({
+            id: schema.acceptanceAttempts.id,
+            artifactId: schema.acceptanceAttempts.artifactId,
+            ownerId: schema.acceptanceAttempts.ownerId,
+            origin: schema.acceptanceAttempts.origin,
+          }),
         db
           .update(th)
           .set({ ...WITHDRAWN, attemptId: null })
@@ -1794,9 +1801,22 @@ export async function eraseAuthorFromThread(
         claim(db, writeId, event, guard),
         db.delete(th).where(and(eq(th.id, thread.id), claimed(writeId))),
       ];
-  const [first] = (await db.batch(statements)) as [{ id: number }[]];
+  const outcome = await db.batch(statements);
+  const [first] = outcome as [{ id: number }[]];
+  if (visibleLeft) {
+    // The ended acceptance's upload is released at once, through the ending path every attempt
+    // takes (`endAttempt`, idempotent: its writes need a running attempt, so the withdrawn
+    // thread is left as it is).
+    const ended = outcome[1 + chunks(remove).length + chunks(mark).length] as EndedAttempt[];
+    for (const attempt of ended) await endAttempt(db, attempt, "revoked", input.now);
+  }
   return first.length === 1;
 }
+
+type EndedAttempt = Pick<
+  typeof schema.acceptanceAttempts.$inferSelect,
+  "id" | "artifactId" | "ownerId" | "origin"
+>;
 
 // Comment notices
 
