@@ -36,9 +36,13 @@ async function challenge(page: Page, mode: "interactive" | "fail") {
     .addCookies([{ name: TURNSTILE_MODE_COOKIE, value: mode, domain: APP_HOST, path: "/" }]);
 }
 
-/** Types the address, asks for a code and waits for the code step, from the keyboard alone. */
+/** Types the address and asks for a code, from the keyboard alone. */
 async function requestCode(page: Page, email: string) {
-  await page.getByLabel("Email address").focus();
+  // The methods stay hidden until the page has asked for the session, and focus() does not wait
+  // for that: typing into a hidden field would go nowhere and no code would be sent.
+  const field = page.getByLabel("Email address");
+  await expect(field).toBeVisible();
+  await field.focus();
   await page.keyboard.type(email);
   await page.keyboard.press("Enter");
 }
