@@ -307,6 +307,14 @@ async function cancelledPurge() {
   return { id, job: fresh };
 }
 
+it("R3-H: a redelivery respects the fresh intent's one-minute wait", async () => {
+  const { id, job } = await cancelledPurge();
+  expect(await deliver(job, NOW + 1)).toBe("kept");
+  expect(await documentsOf(id)).toBe(1);
+  await deliver(job, NOW + DATA_ERASE_FRESH_MS);
+  expect(await documentsOf(id)).toBe(0);
+});
+
 it("R3-I: a crash before the fresh prepare keeps its ID, and duplicate purge jobs finish", async () => {
   const { id, job } = await cancelledPurge();
   const real = objectsFor();
@@ -366,6 +374,8 @@ it("R3-J: a held object keeps its payload through two purge jobs, then erases af
   );
   expect(released.ok).toBe(true);
   await drain({ subject: id, now: NOW + 86_500_001 });
+  // The ID's horizon passed while it waited: a fresh one, a wait later (the job's own `notBefore`).
+  await drain({ subject: id, now: NOW + 86_500_001 + DATA_ERASE_FRESH_MS });
   expect(await documentsOf(id)).toBe(0);
 });
 

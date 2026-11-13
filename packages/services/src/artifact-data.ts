@@ -811,6 +811,11 @@ export async function runDataErase(
 ): Promise<DataJobOutcome> {
   const objects = needs(data, "data_erase");
   const payload = DataErasePayload.parse(row.payload);
+  // A new erase ID waits its turn whatever delivered the job (the relay's schedule alone does not
+  // hold back a message already in the queue).
+  if (payload.notBefore !== undefined && now < payload.notBefore) {
+    return keep(db, row, payload.notBefore);
+  }
   const artifactId = row.subject ?? "";
   const object = objects.object(artifactId);
   const control = await object.lifecycleControl();
@@ -838,13 +843,9 @@ export async function runDataErase(
   }
   const prepared = await object.lifecycleErase("prepare", envelope, eraseId, reason, now);
   if (!prepared.ok && prepared.code === "conflict" && control?.erasing === null) {
-    // This job's ID can no longer start an intent (past the horizon, its record pruned): the next
-    // run starts a fresh one.
-    await db
-      .update(schema.outbox)
-      .set({ payload: { ...payload, eraseId: lifecycleId(now) } })
-      .where(eq(schema.outbox.id, row.id));
-    return "pending";
+    // This job's ID can no longer start an intent (past the horizon, its record pruned): a fresh
+    // one, after the same wait as a cancelled one.
+    return freshErase(db, row, payload, now);
   }
   if (!prepared.ok) return afterRefusal(db, row, erasureRefused(prepared.code), prepared.code, now);
   let outcome = prepared.value.outcome;
@@ -861,7 +862,7 @@ export async function runDataErase(
     // prepared, the purge goes on under a new ID after a short wait; with one, it resumes that.
     const latest = await object.lifecycleControl();
     if (latest?.erasing) return "pending";
-    return keep(db, row, now + DATA_ERASE_FRESH_MS, { ...payload, eraseId: lifecycleId(now) });
+    return freshErase(db, row, payload, now);
   }
   if (next === "retry") return "pending";
   if (next === "superseded") {
@@ -870,6 +871,17 @@ export async function runDataErase(
   }
   await retireInventory(bucket, objects.region, artifactId, now);
   return "done";
+}
+
+/** Stores a new erase ID with the time before which the job does not prepare it. */
+function freshErase(
+  db: Db,
+  row: OutboxRow,
+  payload: DataErasePayload,
+  now: number,
+): Promise<"kept"> {
+  const notBefore = now + DATA_ERASE_FRESH_MS;
+  return keep(db, row, notBefore, { ...payload, eraseId: lifecycleId(now), notBefore });
 }
 
 /**

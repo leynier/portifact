@@ -21,6 +21,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUTHOR_CHUNKS_PER_RUN,
   convergeHold,
+  DATA_ERASE_FRESH_MS,
   type DataObjectRpc,
   type DataObjects,
   eraseReason,
@@ -456,6 +457,35 @@ describe("data_erase", () => {
     expect(await run(await job("data_erase", id, { ownerId, generation: 0, epoch: 0 }), data)).toBe(
       "pending",
     );
+  });
+
+  it("prepares a fresh ID only after its wait, whatever delivers the job", async () => {
+    const memory = memoryObjects();
+    const { id, ownerId, object } = await seeded(memory, { state: "purging" });
+    const row = await job("data_erase", id, {
+      ownerId,
+      generation: 0,
+      epoch: 0,
+      eraseId: lifecycleId(NOW),
+      notBefore: NOW + DATA_ERASE_FRESH_MS,
+    });
+    expect(await run(row, memory.data, NOW + 1)).toBe("kept");
+    expect(documents(object)).toBe(1);
+    expect((await rowOf(row.id))?.availableAt).toBe(NOW + DATA_ERASE_FRESH_MS);
+    expect(await run(row, memory.data, NOW + DATA_ERASE_FRESH_MS)).toBe("done");
+    expect(documents(object)).toBe(0);
+  });
+
+  it("replaces an ID past its horizon with a fresh one that waits the same", async () => {
+    const memory = memoryObjects();
+    const { id, ownerId, object } = await seeded(memory, { state: "purging" });
+    const old = lifecycleId(NOW - 2 * 86_400_000);
+    const row = await job("data_erase", id, { ownerId, generation: 0, epoch: 0, eraseId: old });
+    expect(await run(row, memory.data)).toBe("kept");
+    const kept = await rowOf(row.id);
+    expect(kept?.payload).toMatchObject({ notBefore: NOW + DATA_ERASE_FRESH_MS });
+    expect((kept?.payload as { eraseId: string }).eraseId).not.toBe(old);
+    expect(documents(object)).toBe(1);
   });
 });
 

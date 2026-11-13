@@ -9,6 +9,7 @@ import {
 } from "@portifact/domain/artifact-data";
 import type { DataObjectRpc } from "@portifact/services";
 import {
+  DATA_ERASE_FRESH_MS,
   deleteArtifactData,
   lifecycleId,
   placeLegalHold,
@@ -138,9 +139,10 @@ it("R4: a cancelled purge intent starts a fresh intent after release", async () 
       data: objectsFor(),
     });
   // The cancelled ID is terminal: the purge stores a new one (after a short wait) and finishes.
+  // Third review: the job itself enforces the wait, so each retry comes a wait later.
   for (let retry = 0; retry < 3; retry++) {
     if ((await jobsOf(db(), ["data_erase"], id)).length === 0) break;
-    await one(id, "data_erase");
+    await one(id, "data_erase", NOW + retry * DATA_ERASE_FRESH_MS);
   }
   expect(await documentsOf(id)).toBe(0);
   expect(await jobsOf(db(), ["data_erase"], id)).toHaveLength(0);

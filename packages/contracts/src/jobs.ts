@@ -276,6 +276,11 @@ export const DataErasePayload = z.strictObject({
    * after a crash finishes the same erase (and recognizes it committed) instead of starting another.
    */
   eraseId: OperationId.optional(),
+  /**
+   * The wait after a cancelled or refused erase ID: the job prepares its new ID only from this
+   * time on, whenever it is delivered (a queued redelivery included), and keeps itself until then.
+   */
+  notBefore: DataCount.optional(),
 });
 export type DataErasePayload = z.infer<typeof DataErasePayload>;
 
