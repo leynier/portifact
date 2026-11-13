@@ -198,7 +198,22 @@ async function grantOf(
   return { claims: next, setCookies: [await sealClaims(secret, next)] };
 }
 
-// The three grant steps.
+// The three grant steps. Each acts for the artifact, so after its own gate it is authorized like
+// any request for it (a reader of the artifact), passes the delivery gates (the network policy,
+// the traffic quota, budget protection) before any state or cryptography, and is charged to the
+// owner's traffic. Refusals before authorization charge nothing.
+
+/** A reader admitted through the delivery gates, or the answer that refuses the request. */
+async function admitted(
+  context: DataContext,
+  refused: () => Response,
+): Promise<{ reader: DataReader } | { refusal: Response }> {
+  const reader = await context.read();
+  if (reader === null) return { refusal: refused() };
+  const gated = await context.gate(reader);
+  if (gated !== null) return { refusal: withCookies(gated, reader.setCookies) };
+  return { reader };
+}
 
 /**
  * `grant/begin?flow=frame|top`: only the artifact's own top-level page or the viewer's frame
@@ -208,8 +223,9 @@ async function grantOf(
 async function begin(context: DataContext, secret: string): Promise<Response> {
   const { request, env, artifactId, now } = context;
   if (beginGate(request.method, request.headers) === "refused") return refusedPage();
-  const reader = await context.read();
-  if (reader === null) return refusedPage();
+  const admission = await admitted(context, refusedPage);
+  if ("refusal" in admission) return admission.refusal;
+  const { reader } = admission;
   const url = new URL(request.url);
   const flow = flowOf(url);
   const nonce = randomToken();
@@ -230,7 +246,9 @@ async function begin(context: DataContext, secret: string): Promise<Response> {
   );
   const nonceHash = await nonceDigest(nonce);
   if (flow === "frame") {
-    return withCookies(
+    return answered(
+      context,
+      reader,
       messagePage({ type: "portifact:data-grant-begin", nonceHash }, "parent", env.APP_ORIGIN),
       [...reader.setCookies, txCookie],
     );
@@ -239,7 +257,7 @@ async function begin(context: DataContext, secret: string): Promise<Response> {
   control.searchParams.set("artifact", artifactId);
   control.searchParams.set("nonce", nonceHash);
   if (context.customHost !== null) control.searchParams.set("host", context.customHost);
-  return withCookies(redirect(control.toString()), [...reader.setCookies, txCookie]);
+  return answered(context, reader, redirect(control.toString()), [...reader.setCookies, txCookie]);
 }
 
 /**
@@ -255,10 +273,15 @@ async function redeem(context: DataContext, secret: string): Promise<Response> {
       ? messagePage({ type: "portifact:data-grant-unavailable" }, "parent", env.APP_ORIGIN)
       : refusedPage();
   if (redeemGate(request.method, request.headers, flow) === "refused") return refusedPage();
+  const admission = await admitted(context, unavailable);
+  if ("refusal" in admission) return admission.refusal;
+  const { reader } = admission;
   const codes = url.searchParams.getAll("code");
   const code = codes.length === 1 ? OpaqueToken.safeParse(codes[0]) : null;
   const tx = await transaction(request, secret, artifactId, now);
-  if (!code?.success || tx === null || tx.flow !== flow) return unavailable();
+  if (!code?.success || tx === null || tx.flow !== flow) {
+    return answered(context, reader, unavailable(), reader.setCookies);
+  }
   const redeemed = await redeemDataGrantCode(context.db, {
     code: code.data,
     artifactId,
@@ -266,7 +289,9 @@ async function redeem(context: DataContext, secret: string): Promise<Response> {
     host: context.host,
     now,
   });
-  if (!redeemed.ok) return withCookies(unavailable(), [clearTransaction(flow)]);
+  if (!redeemed.ok) {
+    return answered(context, reader, unavailable(), [...reader.setCookies, clearTransaction(flow)]);
+  }
   const grant = redeemed.value;
   const claims: DataGrantClaims = {
     v: 1,
@@ -280,7 +305,8 @@ async function redeem(context: DataContext, secret: string): Promise<Response> {
     part: flow === "frame",
   };
   const checkUrl = `${DATA_PREFIX}grant/check?${new URLSearchParams({ flow, to: tx.path })}`;
-  return withCookies(redirect(checkUrl), [
+  return answered(context, reader, redirect(checkUrl), [
+    ...reader.setCookies,
     clearTransaction(flow),
     await sealClaims(secret, claims),
   ]);
@@ -297,17 +323,31 @@ async function check(context: DataContext, secret: string): Promise<Response> {
   const flow = flowOf(url);
   const to = url.searchParams.get("to") ?? "/";
   const back = to.startsWith("/") && !to.startsWith("//") ? to : "/";
+  const unavailable = () =>
+    flow === "frame"
+      ? messagePage(
+          { type: "portifact:data-grant-unavailable", to: back },
+          "parent",
+          env.APP_ORIGIN,
+        )
+      : refusedPage();
+  const admission = await admitted(context, unavailable);
+  if ("refusal" in admission) return admission.refusal;
+  const { reader } = admission;
   const held = await grantOf(context, secret);
+  const cookies = [...reader.setCookies, ...held.setCookies];
   if (flow === "frame") {
     const type =
       held.claims === null ? "portifact:data-grant-unavailable" : "portifact:data-granted";
-    return withCookies(
+    return answered(
+      context,
+      reader,
       messagePage({ type, to: back }, "parent", env.APP_ORIGIN, back),
-      held.setCookies,
+      cookies,
     );
   }
-  if (held.claims === null) return withCookies(refusedPage(), held.setCookies);
-  return withCookies(openerPage(back), held.setCookies);
+  if (held.claims === null) return answered(context, reader, refusedPage(), cookies);
+  return answered(context, reader, openerPage(back), cookies);
 }
 
 // The API.
@@ -522,6 +562,7 @@ function page(body: string, nonce: string, frameAncestors: string): Response {
   return new Response(html, {
     status: 200,
     headers: {
+      "Content-Length": String(new TextEncoder().encode(html).length),
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
