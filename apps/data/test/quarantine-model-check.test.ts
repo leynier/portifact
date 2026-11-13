@@ -1,6 +1,6 @@
 // A model check of the artifact data lifecycle around holds and quarantines (decision 0026): short
 // sets of messages delivered in every order against the real object and the real services, in
-// four families chosen so each order stays cheap.
+// families chosen so each order stays cheap (`FAMILIES`; the first four described here).
 //
 // - Quarantine: a hold's fence, its release and the release's fence, an adopt and an erase of the
 //   reviewed quarantine, and a second quarantine (360 orders; the release's fence after the release).
@@ -12,16 +12,19 @@
 // - Transfer: an object at epoch 2 after a hold and its release, then a D1 transfer, a rewind, a hold and its
 //   release, and two delivery rounds (60 orders; the transfer before the hold before its release,
 //   since D1 never moves a held artifact).
+// - Author erasure (sixth review): an account deletion's erasure job anywhere among a release and a
+//   new hold, with or without a transfer, fences delivered one at a time (60 and 140 orders).
 //
 // Left out: orders D1 itself refuses (those constraints), the identical orders of the two
 // delivery rounds, every interleaving inside one message (the crash schedules and the race tests
-// pin those boundaries), account deletion, author erasure and the export.
+// pin those boundaries) and the export.
 //
-// After each message: the payload is unchanged while the object holds, a resolution changes only
+// After each message: the payload is unchanged while D1 has an open hold or the object holds, a
+// resolution changes only
 // the quarantine it reviewed, and D1's epoch never decreases except at the rewind. At quiescence
 // (every message delivered, the queue drained, reconciliation run and the operator answering any
 // quarantine but an owner disagreement, which needs a repair outside the model): no data job is
-// left, and D1 and the object agree by level (D1 has an open hold exactly when the object holds
+// left but an erasing job D1's open hold keeps, and D1 and the object agree by level (D1 has an open hold exactly when the object holds
 // one) and on owner, or a finding exists for the operator.
 import { env } from "cloudflare:test";
 import type { ReviewedQuarantine } from "@portifact/contracts/artifact-data";
@@ -29,6 +32,7 @@ import { InventoryEntry } from "@portifact/contracts/artifact-data";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { controlEnvelope, inventoryKey, reviewedState } from "@portifact/domain/artifact-data";
 import {
+  advanceAccountDeletion,
   applyLegalHolds,
   type DataObjectRpc,
   dataFenceStatements,
@@ -38,12 +42,15 @@ import {
   queueDataResolve,
   reconcileObject,
   releaseLegalHold,
+  requestAccountDeletion,
   runJob,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { session, user, value } from "../../../packages/services/test/fixtures.ts";
 import {
   bucketOf,
+  claimJournal,
   controlOf,
   D1_NOW,
   DATA_NOW,
@@ -54,6 +61,7 @@ import {
   jobsOf,
   objectsFor,
   stubOf,
+  visitorId,
   withData,
 } from "./lifecycle.ts";
 
@@ -74,7 +82,9 @@ type Message =
   | "holdRelease"
   | "mark"
   | "restore"
-  | "deliver";
+  | "deliver"
+  | "deliverOne"
+  | "author";
 
 /** D1's rows about the artifact at a point: the restore message brings them back. */
 interface Snapshot {
@@ -95,6 +105,8 @@ interface State {
   /** The owners the transfers go to, in order (the third goes back to the first). */
   owners: string[];
   mark: Snapshot | null;
+  /** The visitor whose account the `author` message deletes (its document and journal entry). */
+  author?: { id: string; email: string; visitor: string };
 }
 
 interface Family {
@@ -259,6 +271,26 @@ async function pendingHoldSetup(): Promise<State> {
   };
 }
 
+/** The same with a visitor's document and journal entry, for the `author` message. */
+async function pendingAuthorSetup(): Promise<State> {
+  const visitor = visitorId();
+  const { id } = await withData({ state: "suspended", visitors: [visitor] });
+  const author = await user("Model author");
+  await claimJournal(author.id, id, visitor);
+  await place(id, D1_NOW);
+  return {
+    id,
+    holdFence: 0,
+    releaseFences: [],
+    resolves: { adopt: 0, erase: 0 },
+    reviewed: null,
+    releaseDelivers: false,
+    owners: [`ws_${crypto.randomUUID().replaceAll("-", "")}`],
+    mark: null,
+    author: { id: author.id, email: author.email, visitor },
+  };
+}
+
 /** H1 delivered to the object, nothing queued (the restore variant's start, no rewind). */
 async function heldSetup(): Promise<State> {
   return { ...(await landedSetup(1, true)), releaseDelivers: false };
@@ -411,6 +443,28 @@ const FAMILIES: Family[] = [
     setup: pendingHoldSetup,
   },
   {
+    // R6-1's shape: an account deletion's author erasure anywhere among H1's release and a new
+    // hold, with fences delivered one at a time, so it can run between the old release and the
+    // new hold's fence (the object free while D1 holds).
+    name: "an author erasure among a release and a new hold, fences one at a time",
+    messages: ["deliverOne", "release", "hold", "deliverOne", "deliverOne", "author"],
+    before: [["release", "hold"]],
+    slice: 2,
+    ordinary: true,
+    setup: pendingAuthorSetup,
+  },
+  {
+    name: "the same with a transfer before the new hold",
+    messages: ["deliverOne", "release", "transfer", "hold", "deliverOne", "deliverOne", "author"],
+    before: [
+      ["release", "transfer"],
+      ["transfer", "hold"],
+    ],
+    slice: 2,
+    ordinary: true,
+    setup: pendingAuthorSetup,
+  },
+  {
     // The restore variant: a point marked anywhere, the new hold, then a restore to the point
     // (`applyLegalHolds` re-opens the new hold without a fence, then reconciliation).
     name: "a restore around a transfer and a new hold",
@@ -507,6 +561,26 @@ async function send(state: State, message: Message): Promise<void> {
     case "deliver":
       for (const job of await fenceIds(id)) await runById(job);
       return;
+    case "deliverOne": {
+      const [oldest] = await fenceIds(id);
+      if (oldest !== undefined) await runById(oldest);
+      return;
+    }
+    case "author": {
+      const author = state.author;
+      if (author === undefined) throw new Error("no author in this family");
+      value(
+        await requestAccountDeletion(regionsFromEnv(env), {
+          userId: author.id,
+          sessionId: await session(author.id, DATA_NOW),
+          confirmEmail: author.email,
+          now: DATA_NOW,
+        }),
+      );
+      await advanceAccountDeletion(regionsFromEnv(env), author.id, DATA_NOW);
+      for (const job of await jobsOf(db(), ["data_author_erasure"], id)) await runById(job.id);
+      return;
+    }
   }
 }
 
@@ -522,7 +596,7 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
         expect(row.epoch, `${step}: D1's epoch went back`).toBeGreaterThanOrEqual(epoch);
       epoch = row.epoch;
     }
-    // The payload is kept for as long as the object holds, whatever D1 says.
+    // The payload is kept while D1 has an open hold or the object holds (sixth review).
     if (held) expect(await documentsOf(id), `${step}: held data erased`).toBe(documents);
     // The object is never free while D1 has an open hold whose fence was delivered or made
     // obsolete (R4-A's state), unless the owners disagree (the operator's, with its finding).
@@ -545,8 +619,9 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
   const step = async (label: string, act: () => Promise<unknown>, rewound = false) => {
     const before = await controlOf(id);
     const documents = await documentsOf(id);
+    const heldInD1 = (await openHold(id)) !== null;
     await act();
-    await observe(label, rewound, before?.hold != null, documents);
+    await observe(label, rewound, before?.hold != null || heldInD1, documents);
     return { before, documents };
   };
 
@@ -571,8 +646,15 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
   // it shows now. Reconciliation is not run: an owner disagreement must leave the job's own
   // finding, and every job must end within the bounded drains.
   let now = DATA_NOW + 60_000;
-  // Every lifecycle job must end: progress, not only agreement.
-  const waiting = () =>
+  // Every lifecycle job must end: progress, not only agreement. An erasing job D1's open hold
+  // keeps is expected to wait (for the release, outside the model).
+  const waiting = async () => {
+    const heldInD1 = (await openHold(id)) !== null;
+    return (await allWaiting()).filter(
+      (job) => !(heldInD1 && (job.topic === "data_author_erasure" || job.topic === "data_erase")),
+    );
+  };
+  const allWaiting = () =>
     jobsOf(
       db(),
       [
@@ -611,6 +693,9 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
   }
 
   expect(await waiting(), "a data job waits forever").toEqual([]);
+  if (state.author && (await jobsOf(db(), ["data_author_erasure"], id)).length > 0) {
+    expect(await documentsOf(id, state.author.visitor), "a waiting erasure erased").toBe(1);
+  }
   const control = await controlOf(id);
   const [artifact] = await db()
     .select({ ownerId: schema.artifacts.ownerId })
