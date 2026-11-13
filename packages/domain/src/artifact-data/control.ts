@@ -342,8 +342,9 @@ export interface ReviewedResolution extends QuarantineResolved {
  * The operator's resolution of one quarantine, an operation with an identity like an erase
  * intent. A resolution whose ID ended (`ended`, looked up like an ended erase intent) answers that
  * it ended and changes nothing, so a retry finishes the same resolution. Otherwise it applies only
- * to exactly the state it was reviewed against (the quarantine's reason and time, the owner,
- * generation and epoch): any other state, a later quarantine included, is a conflict. It never
+ * to exactly the state it was reviewed against (the artifact, region and the quarantine's
+ * incarnation, its reason, the owner, generation and epoch): any other state, a later quarantine
+ * included, is a conflict. It never
  * lets the less restrictive side of a hold disagreement win: `erase` is refused while the object
  * or D1 (`request.hold`) holds, and `adopt` keeps the object's hold or takes D1's, in the same
  * transaction that clears the quarantine, so adoption never drops a hold. Erasing held data needs

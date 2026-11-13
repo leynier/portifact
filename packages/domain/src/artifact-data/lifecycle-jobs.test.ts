@@ -504,6 +504,10 @@ describe("the hold convergence rule", () => {
       holdCorrective(held, { ...row, epoch: 0 }, { open: "hold_b", objectHoldReleased: true }),
     ).toBeNull();
     expect(holdCorrective(free, { ...row, epoch: 0 }, none)).toBeNull();
+    // Killed mutation: releasing an object that holds nothing.
+    expect(
+      holdCorrective(free, { ...row, epoch: 0 }, { open: null, objectHoldReleased: true }),
+    ).toBeNull();
   });
 
   it("gives nothing for a quarantine, a prepared erase, another owner or generation", () => {

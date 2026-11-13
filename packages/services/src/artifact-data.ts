@@ -1208,9 +1208,12 @@ export async function runDataReconcile(
  * the owner the object recorded and makes the object keep its hold or take D1's. The object
  * resolves first; only then does D1 follow it, never moving its epoch backward (an epoch D1
  * gave a pending fence stays that fence's). The artifact's waiting data jobs are woken after.
- * Receipts are the object's ended-intent records, kept `ARTIFACT_DATA.replayMs` (24 hours): a
- * retry within it finishes the same resolution; after it the retry is refused as a conflict
- * (the quarantine it reviewed is gone), and D1 is repaired by the next reconciliation.
+ * Receipts are the object's ended-intent records, eligible for pruning once `ARTIFACT_DATA.replayMs`
+ * (24 hours) has passed: a retry while the receipt exists finishes the same resolution; one after
+ * it was pruned is checked as a new resolution and refused as a conflict when the quarantine it
+ * reviewed is gone. D1 behind the object is raised by the next reconciliation when D1 has the
+ * row; an adopted orphan whose row was never inserted is quarantined again as an orphan and needs
+ * a fresh reviewed resolution.
  */
 export async function runDataResolve(
   db: RegionalDb,

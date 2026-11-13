@@ -388,7 +388,7 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
 }
 
 /** Orders per test: each stays near a second locally (CI is about twenty times slower). */
-const SLICE = 3;
+const SLICE = 2;
 
 for (const family of FAMILIES) {
   const all = orders(family.messages, family.before);
