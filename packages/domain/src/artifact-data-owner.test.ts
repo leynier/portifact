@@ -1,40 +1,20 @@
 import {
-  ARTIFACT_DATA_PLANS,
-  ArtifactDataLimits,
   AUDIT_DETAILS,
   DATA_REFUSAL_CODES,
   dataCountOf,
   dataQueryOf,
   exportCursorText,
-  PLAN_NAMES,
   parseExportCursor,
   queryValue,
 } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
-  artifactDataPlan,
   DATA_AUDIT_EVENTS,
   dataAuditEvent,
   dataRefusalError,
   exportConsistent,
 } from "./artifact-data-owner.ts";
 import { HELD_MESSAGE } from "./moderation.ts";
-
-describe("artifact data plans", () => {
-  it.each(PLAN_NAMES)("%s carries limits the object accepts", (plan) => {
-    const { limits, dataArtifacts } = artifactDataPlan(plan);
-    expect(ArtifactDataLimits.safeParse(limits).success).toBe(true);
-    expect(dataArtifacts).toBeGreaterThan(0);
-  });
-
-  it("gives Free one data artifact and more to every paid plan (option B)", () => {
-    expect(ARTIFACT_DATA_PLANS.free.dataArtifacts).toBe(1);
-    expect(ARTIFACT_DATA_PLANS.free.limits.bytesPerArtifact).toBe(5_000_000);
-    expect(ARTIFACT_DATA_PLANS.pro.dataArtifacts).toBe(10);
-    expect(ARTIFACT_DATA_PLANS.team.dataArtifacts).toBe(50);
-    expect(ARTIFACT_DATA_PLANS.enterprise).toEqual(ARTIFACT_DATA_PLANS.team);
-  });
-});
 
 describe("dataRefusalError", () => {
   it("maps every refusal code the object produces", () => {

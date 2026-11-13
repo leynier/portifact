@@ -31,7 +31,7 @@ import {
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
 import {
-  artifactDataPlan,
+  type DataWork,
   dataAuditEvent,
   dataRefusalError,
   fail,
@@ -49,6 +49,7 @@ import {
   registerDataObject,
 } from "./artifact-data.ts";
 import { auditEvent } from "./audit.ts";
+import { checkDataWriteCapacity } from "./budget.ts";
 import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerEntitlements } from "./plans.ts";
 
@@ -122,16 +123,15 @@ async function target(
   if (intent === "write" && artifact.state !== "active") {
     return fail("forbidden", "A suspended artifact's data cannot be changed.");
   }
-  const plan = artifactDataPlan(
-    (await ownerEntitlements(db.global, artifact.ownerId, input.now)).plan,
-  );
+  // The owner's plan (decision 0026, "The plan limits"), never the caller's.
+  const plan = (await ownerEntitlements(db.global, artifact.ownerId, input.now)).data;
   const region = allowed.value.region;
   return ok({
     ownerId: artifact.ownerId,
     state: artifact.state,
     region,
-    limits: plan.limits,
-    dataArtifacts: plan.dataArtifacts,
+    limits: plan.perArtifact,
+    dataArtifacts: plan.artifacts,
     row: await readDataRow(db, region, input.artifactId),
   });
 }
@@ -241,6 +241,10 @@ async function mutate(
 ): Promise<Result<{ value: unknown; replayed: boolean }>> {
   const found = await target(db, deps, input, "write");
   if (!found.ok) return found;
+  // Budget protection's data step stops new and growing work only (`DATA_WORK_PAUSED`): deletes
+  // always pass, and reads and exports never come here.
+  const capacity = await checkDataWriteCapacity(db.global, command.kind as DataWork, input.now);
+  if (!capacity.ok) return capacity;
   let row = found.value.row;
   if (row === null) {
     if (!register) return noCollection();

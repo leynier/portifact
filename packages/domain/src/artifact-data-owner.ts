@@ -1,25 +1,8 @@
-// The owner document API's rules (decision 0026, delivery 5): which limits an owner's commands
-// carry, how the object's refusals read as the API's errors, which audit event an obligation
-// becomes and whether an export file is a consistent snapshot. Pure.
-import {
-  ARTIFACT_DATA_PLANS,
-  type ArtifactDataLimits,
-  type DataRefusalCode,
-  type ErrorCode,
-  type PlanName,
-} from "@portifact/contracts";
+// The owner document API's rules (decision 0026, delivery 5): how the object's refusals read
+// as the API's errors, which audit event an obligation becomes and whether an export file is a
+// consistent snapshot. Pure.
+import type { DataRefusalCode, ErrorCode } from "@portifact/contracts";
 import { HELD_MESSAGE } from "./moderation.ts";
-
-/**
- * The per-artifact limits and the data artifact count of an owner's plan, from its entitlements'
- * plan name (`entitlements` in ../plans.ts is what turns the plan row into that name).
- */
-export function artifactDataPlan(plan: PlanName): {
-  dataArtifacts: number;
-  limits: ArtifactDataLimits;
-} {
-  return ARTIFACT_DATA_PLANS[plan];
-}
 
 /**
  * The API's error for a refusal of the object: the same code where the API has it; `stale` and

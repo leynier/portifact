@@ -8,6 +8,7 @@ import { HELD_MESSAGE } from "@portifact/domain";
 import { MemoryObject } from "@portifact/domain/testing/artifact-data";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { clearBudgetOverride, setBudgetOverride } from "../src/budget.ts";
 import {
   buildDataIndexes,
   countArtifactData,
@@ -506,6 +507,77 @@ describe("owner document API refusals", () => {
     expect(
       await describeArtifactData(db(), deps, { userId: owner.id, artifactId, now: NOW }),
     ).toMatchObject({ ok: false, code: "capacity_unavailable" });
+  });
+});
+
+describe("budget protection's data step", () => {
+  it("stops declarations, creates and replacements, never reads, exports or deletes", async () => {
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    const input = { userId: owner.id, artifactId, now: NOW };
+    await declared(deps, owner.id, artifactId);
+    const doc = value(
+      await createDataDocument(db(), deps, {
+        ...input,
+        idempotencyKey: key(),
+        collection: "votes",
+        body: { choice: "a" },
+      }),
+    );
+    const jobsBefore = (await auditJobs(artifactId)).length;
+    await setBudgetOverride(db().global, {
+      level: "protect100",
+      steps: 2,
+      until: null,
+      note: null,
+      now: NOW,
+    });
+    try {
+      const paused = { ok: false, code: "capacity_unavailable" };
+      expect(
+        await declareDataCollection(db(), deps, {
+          ...input,
+          idempotencyKey: key(),
+          declaration: { name: "more", mode: "own" },
+        }),
+      ).toMatchObject(paused);
+      expect(
+        await createDataDocument(db(), deps, {
+          ...input,
+          idempotencyKey: key(),
+          collection: "votes",
+          body: { choice: "b" },
+        }),
+      ).toMatchObject(paused);
+      expect(
+        await replaceDataDocument(db(), deps, {
+          ...input,
+          idempotencyKey: key(),
+          collection: "votes",
+          id: doc._id,
+          body: { choice: "c" },
+        }),
+      ).toMatchObject(paused);
+      expect(await buildDataIndexes(db(), deps, { ...input, idempotencyKey: key() })).toMatchObject(
+        paused,
+      );
+      // A refusal writes no audit job: nothing reached the object.
+      expect(await auditJobs(artifactId)).toHaveLength(jobsBefore);
+      expect((await describeArtifactData(db(), deps, input)).ok).toBe(true);
+      expect((await exportArtifactData(db(), deps, { ...input, after: null })).ok).toBe(true);
+      expect(
+        value(
+          await deleteDataDocument(db(), deps, {
+            ...input,
+            idempotencyKey: key(),
+            collection: "votes",
+            id: doc._id,
+          }),
+        ),
+      ).toEqual({ id: doc._id });
+    } finally {
+      await clearBudgetOverride(db().global, NOW);
+    }
   });
 });
 

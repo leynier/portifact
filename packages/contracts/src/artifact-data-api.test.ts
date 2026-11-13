@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ArtifactDataLimits } from "./artifact-data.ts";
 import {
-  ARTIFACT_DATA_PLANS,
   DataBulkRemove,
   DataBulkReplace,
   DataExportPageView,
@@ -12,15 +10,8 @@ import {
   parseExportCursor,
   queryValue,
 } from "./artifact-data-api.ts";
-import { PLAN_NAMES } from "./plans.ts";
 
 const ID = "AAAAAAAAAAAAAAAA";
-
-describe("artifact data plans", () => {
-  it.each(PLAN_NAMES)("%s stays within the platform's caps", (plan) => {
-    expect(ArtifactDataLimits.safeParse(ARTIFACT_DATA_PLANS[plan].limits).success).toBe(true);
-  });
-});
 
 describe("query parameters", () => {
   it("reads numbers and booleans, keeps other text", () => {

@@ -2,14 +2,14 @@
 // parses every argument at the boundary and runs the store's command as the owner side, and the
 // audit relay's `auditSettle` and `auditAcknowledge` settle an owner operation's obligation. An
 // invalid argument is answered as a value and never touches storage.
-import { ARTIFACT_DATA_PLANS } from "@portifact/contracts";
+import { PLANS } from "@portifact/contracts";
 import type { DataObjectRpc } from "@portifact/services";
 import { lifecycleId } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { artifactId, DATA_NOW, inside, quiet, stubOf } from "./lifecycle.ts";
 
 const rpc = (id: string) => stubOf(id) as unknown as DataObjectRpc;
-const LIMITS = ARTIFACT_DATA_PLANS.free.limits;
+const LIMITS = PLANS.free.data.perArtifact;
 
 function envelope(id: string, opId?: string) {
   return {

@@ -4,7 +4,6 @@
 import { z } from "zod";
 import {
   ARTIFACT_DATA,
-  type ArtifactDataLimits,
   BulkCreate,
   BulkReplace,
   CollectionDeclaration,
@@ -21,77 +20,7 @@ import {
   StoredDocument,
 } from "./artifact-data.ts";
 import { ArtifactId } from "./core.ts";
-import type { PlanName } from "./plans.ts";
 import { IdempotencyKey } from "./publishing.ts";
-
-/** One plan's artifact data: how many artifacts may hold data, and the limits each carries. */
-export interface ArtifactDataPlan {
-  /** Artifacts of one owner that may hold data (an `artifact_data` row each). */
-  dataArtifacts: number;
-  limits: ArtifactDataLimits;
-}
-
-const FREE_DATA: ArtifactDataLimits = {
-  bytesPerArtifact: 5_000_000,
-  documentBytes: 16 * 1024,
-  documentsPerCollection: 1_000,
-  collections: 10,
-  indexedFields: 3,
-  writesPerAuthorPerMinute: 30,
-  deletesPerAuthorPerMinute: 60,
-  readsPerCallerPerMinute: 300,
-  rowsReadPerDay: 500_000,
-  rowsWrittenPerDay: 5_000,
-  cleanupRowsPerDay: 5_000,
-  exportRowsPerDay: 200_000,
-  rightsRowsPerDay: 500,
-  liveMessagesPerDay: 2_000,
-  connectionsPerArtifact: 10,
-  connectionsPerAuthor: 4,
-  connectsPerAuthorPerMinute: 6,
-};
-
-const TEAM_DATA: ArtifactDataLimits = {
-  ...FREE_DATA,
-  bytesPerArtifact: 50_000_000,
-  documentBytes: 64 * 1024,
-  documentsPerCollection: 100_000,
-  collections: 32,
-  indexedFields: 8,
-  rowsReadPerDay: 1_000_000,
-  rowsWrittenPerDay: 2_000,
-  cleanupRowsPerDay: 2_000,
-  exportRowsPerDay: 80_000,
-  liveMessagesPerDay: 10_000,
-  connectionsPerArtifact: 25,
-};
-
-/**
- * The per-plan numbers, option B of decision 0026 ("What the limits imply", the smallest
- * exposure), provisional: delivery 8 fixes them from staging's measurements ("The plan limits
- * (open)"). Every plan has artifact data; only the numbers differ. Team and Enterprise are per
- * workspace, not per seat. Every value stays within the platform's caps (`ArtifactDataLimits`).
- */
-export const ARTIFACT_DATA_PLANS: Readonly<Record<PlanName, ArtifactDataPlan>> = {
-  free: { dataArtifacts: 1, limits: FREE_DATA },
-  pro: {
-    dataArtifacts: 10,
-    limits: {
-      ...FREE_DATA,
-      bytesPerArtifact: 25_000_000,
-      documentBytes: 64 * 1024,
-      documentsPerCollection: 25_000,
-      collections: 20,
-      indexedFields: 5,
-      rowsWrittenPerDay: 2_000,
-      cleanupRowsPerDay: 2_000,
-      exportRowsPerDay: 80_000,
-      liveMessagesPerDay: 5_000,
-    },
-  },
-  team: { dataArtifacts: 50, limits: TEAM_DATA },
-  enterprise: { dataArtifacts: 50, limits: TEAM_DATA },
-};
 
 /** `POST /api/v1/artifacts/:id/data/collections`: declares a collection or adds indexed fields. */
 export const DataCollectionDeclare = CollectionDeclaration;
