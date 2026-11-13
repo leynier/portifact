@@ -3101,6 +3101,9 @@ export const zhCN = {
     "{count, plural, one {替换了 # 个数据文档} other {替换了 # 个数据文档}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {删除了 # 个数据文档} other {删除了 # 个数据文档}}",
+  "audit.kind.dataErased": "清除了该制品的全部数据",
+  "audit.kind.dataAuthorErased":
+    "清除了一个已删除账户的 {documents, plural, one {# 个数据文档} other {# 个数据文档}}和 {edits, plural, one {# 次编辑} other {# 次编辑}}",
   "detail.section.data": "数据",
   "artifactData.loading": "正在加载 artifact 的数据",
   "artifactData.error.title": "无法加载数据",

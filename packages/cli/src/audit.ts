@@ -302,6 +302,10 @@ export function auditSummary(event: AuditEventView): string {
       return `Replaced ${d.documents} data document(s)`;
     case "data.documents_deleted":
       return `Deleted ${d.documents} data document(s)`;
+    case "data.erased":
+      return "Erased all the artifact's data";
+    case "data.author_erased":
+      return `Erased a deleted account's ${d.documents} data document(s) and ${d.edits} edit(s)`;
   }
 }
 

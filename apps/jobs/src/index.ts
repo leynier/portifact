@@ -52,6 +52,7 @@ import {
   runMaintenance,
   runRegionalMaintenance,
   stopWebhooksWhileOff,
+  sweepDataAudit,
   webhookKeys,
 } from "@portifact/services";
 import { type AnalyticsEnv, analyticsFromEnv, type Fetcher } from "./analytics.ts";
@@ -277,6 +278,25 @@ export async function runScheduled(
       });
     }
   }
+  // Artifact data's audit obligations left pending (decision 0026): once a day per region, a
+  // page of the inventory per run; a failure must not hide the rest of the run.
+  const dataAuditSweep: Record<string, Awaited<ReturnType<typeof sweepDataAudit>> | "failed"> = {};
+  for (const handles of regions.all()) {
+    try {
+      dataAuditSweep[handles.region] = await sweepDataAudit(
+        handles.db,
+        bucketOf(handles),
+        dataNamespaces(env, handles.region),
+        now,
+      );
+    } catch (error) {
+      dataAuditSweep[handles.region] = "failed";
+      logEvent("error", "data_audit_sweep_failed", {
+        region: handles.region,
+        error: errorLabel(error),
+      });
+    }
+  }
   const result = {
     ...maintenance,
     ...(Object.keys(otherRegions).length > 0 ? { regions: otherRegions } : {}),
@@ -291,6 +311,7 @@ export async function runScheduled(
     integrationKeysLeft: integrationKeyRotation.left,
     customDomains,
     emailDomains,
+    dataAuditSweep,
   };
   logSummary("log", "maintenance", result);
   return result;

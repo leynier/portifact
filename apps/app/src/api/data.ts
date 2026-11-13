@@ -5,12 +5,15 @@
 // the services in packages/services/src/artifact-data-owner.ts, which the MCP tools and the CLI
 // share. Changes take an Idempotency-Key, which also names the operation in the object.
 import {
+  DataAuthor,
+  DataAuthorDeleteRequest,
   DataBulkCreate,
   DataBulkRemove,
   DataBulkReplace,
   DataCollectionDeclare,
   DataCountParams,
   DataDocumentBody,
+  DataEraseRequest,
   DataQueryParams,
   type DataQueryParams as DataQueryParamsType,
   dataCountOf,
@@ -28,9 +31,11 @@ import {
   createDataDocuments,
   dataNamespaces,
   declareDataCollection,
+  deleteAuthorData,
   deleteDataDocument,
   deleteDataDocuments,
   describeArtifactData,
+  eraseArtifactData,
   exportArtifactData,
   getDataDocument,
   type OwnerDataDeps,
@@ -199,6 +204,49 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
       return answer(
         c,
         await exportArtifactData(region.db, deps, { userId, artifactId, now: now(), after }),
+      );
+    }),
+  );
+
+  api.post(
+    `${base}/erase`,
+    guarded("data:write", async (c, userId) => {
+      const body = await readJson(c, DataEraseRequest);
+      if (!body.ok) return body.response;
+      const { artifactId, region, deps } = await at(c);
+      const at0 = now();
+      return change(c, async () =>
+        stored(
+          await eraseArtifactData(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+          }),
+        ),
+      );
+    }),
+  );
+
+  api.post(
+    `${base}/authors/:author/delete`,
+    guarded("data:write", async (c, userId) => {
+      const body = await readJson(c, DataAuthorDeleteRequest);
+      if (!body.ok) return body.response;
+      const author = DataAuthor.safeParse(c.req.param("author"));
+      if (!author.success) return error(c, "invalid_input", "Invalid author.");
+      const { artifactId, region, deps } = await at(c);
+      const at0 = now();
+      return change(c, async () =>
+        stored(
+          await deleteAuthorData(region.db, deps, {
+            userId,
+            artifactId,
+            now: at0,
+            idempotencyKey: key(c),
+            author: author.data,
+          }),
+        ),
       );
     }),
   );

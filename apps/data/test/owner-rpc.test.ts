@@ -115,4 +115,47 @@ describe("ownerCommand", () => {
     expect(await object.auditAcknowledge(envelope(id), "u_owner", "nope", DATA_NOW)).toBe(false);
     expect(await inside(id, (o) => o.store.inspect("pf_meta"))).toEqual([]);
   });
+
+  it("lists pending obligations for the sweep, and erases as the owner's optional intent", async () => {
+    const id = artifactId();
+    await quiet(id);
+    const object = rpc(id);
+    const declareId = lifecycleId(DATA_NOW);
+    await object.ownerCommand(
+      envelope(id, declareId),
+      "u_owner",
+      { kind: "declare", declaration: { name: "notes", mode: "shared" } },
+      LIMITS,
+      DATA_NOW,
+    );
+    const createId = lifecycleId(DATA_NOW + 1);
+    await object.ownerCommand(
+      envelope(id, createId),
+      "u_owner",
+      { kind: "create", collection: "notes", body: { text: "hi" } },
+      LIMITS,
+      DATA_NOW + 1,
+    );
+    const pending = await object.auditPending(envelope(id), DATA_NOW + 10, DATA_NOW + 10);
+    expect(pending).toEqual([
+      { actor: "u_owner", generation: 0, opId: declareId, owner: "u_owner" },
+      { actor: "u_owner", generation: 0, opId: createId, owner: "u_owner" },
+    ]);
+    expect(await object.auditPending(envelope(id), DATA_NOW, DATA_NOW + 10)).toEqual([]);
+    expect(await object.auditPending({ nope: 1 } as never, DATA_NOW, DATA_NOW)).toEqual([]);
+
+    const eraseId = lifecycleId(DATA_NOW + 2);
+    const step = (name: "prepare" | "commit") =>
+      object.ownerCommand(
+        envelope(id),
+        "u_owner",
+        { kind: "erase", step: name, eraseId },
+        LIMITS,
+        DATA_NOW + 2,
+      ) as Promise<Answer & { storage?: { generation: number } }>;
+    expect(await step("prepare")).toMatchObject({ ok: true, value: { outcome: "prepared" } });
+    const committed = await step("commit");
+    expect(committed).toMatchObject({ ok: true, storage: { generation: 1 } });
+    expect(await inside(id, (o) => o.store.inspect("pf_documents"))).toEqual([]);
+  });
 });

@@ -431,6 +431,8 @@ describe("plain words for every kind", () => {
     "data.documents_created": { documents: 3 },
     "data.documents_replaced": { documents: 2 },
     "data.documents_deleted": { documents: 100 },
+    "data.erased": {},
+    "data.author_erased": { documents: 4, edits: 2 },
   };
   const expected: Record<AuditKind, string> = {
     "artifact.published": "Published version 3",
@@ -524,6 +526,8 @@ describe("plain words for every kind", () => {
     "data.documents_created": "Created 3 data document(s)",
     "data.documents_replaced": "Replaced 2 data document(s)",
     "data.documents_deleted": "Deleted 100 data document(s)",
+    "data.erased": "Erased all the artifact's data",
+    "data.author_erased": "Erased a deleted account's 4 data document(s) and 2 edit(s)",
   };
 
   it.each(AUDIT_KINDS)("%s", (kind) => {

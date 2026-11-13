@@ -274,6 +274,7 @@ it("RPC surface: only the lifecycle, owner, page and audit methods and the platf
     [
       "alarm",
       "auditAcknowledge",
+      "auditPending",
       "auditSettle",
       "constructor",
       "lifecycleControl",

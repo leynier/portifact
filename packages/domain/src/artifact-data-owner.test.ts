@@ -78,7 +78,10 @@ describe("dataAuditEvent", () => {
 
   it("records nothing for an index step or an unknown kind", () => {
     expect(dataAuditEvent("data.index_step", { building: 1 })).toBeNull();
-    expect(dataAuditEvent("data.author_erased", { documents: 1 })).toBeNull();
+    expect(dataAuditEvent("data.author_erased", { documents: 2, edits: 1 })).toEqual({
+      kind: "data.author_erased",
+      detail: { documents: 2, edits: 1 },
+    });
     expect(dataAuditEvent("toString", null)).toBeNull();
   });
 

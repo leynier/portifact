@@ -3480,6 +3480,9 @@ export const fr = {
     "{count, plural, one {A remplacé # document de données} other {A remplacé # documents de données}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {A supprimé # document de données} other {A supprimé # documents de données}}",
+  "audit.kind.dataErased": "A effacé toutes les données de l'artefact",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {A effacé # document de données} other {A effacé # documents de données}} et {edits, plural, one {# modification} other {# modifications}} d'un compte supprimé",
   "detail.section.data": "Données",
   "artifactData.loading": "Chargement des données de l'artifact",
   "artifactData.error.title": "Les données n'ont pas pu être chargées",
