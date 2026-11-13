@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "a9b6e654-0221-4ba4-a77f-8f42c5a590d3",
+  "id": "bb5556ef-5ee5-41eb-aa6c-bebb377fc192",
   "prevId": "c2654d7f-bfeb-4012-a004-4774972d63d3",
   "tables": {
     "abuse_reports": {
@@ -2891,85 +2891,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "data_operations": {
-      "name": "data_operations",
-      "columns": {
-        "actor_id": {
-          "name": "actor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "artifact_id": {
-          "name": "artifact_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "op_id": {
-          "name": "op_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "request_hash": {
-          "name": "request_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch() * 1000)"
-        }
-      },
-      "indexes": {
-        "data_operations_created_idx": {
-          "name": "data_operations_created_idx",
-          "columns": ["created_at"],
-          "isUnique": false
-        },
-        "data_operations_artifact_idx": {
-          "name": "data_operations_artifact_idx",
-          "columns": ["artifact_id"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "data_operations_artifact_id_artifacts_id_fk": {
-          "name": "data_operations_artifact_id_artifacts_id_fk",
-          "tableFrom": "data_operations",
-          "tableTo": "artifacts",
-          "columnsFrom": ["artifact_id"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "data_operations_actor_id_idempotency_key_pk": {
-          "columns": ["actor_id", "idempotency_key"],
-          "name": "data_operations_actor_id_idempotency_key_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "domain_claims": {
       "name": "domain_claims",
       "columns": {
@@ -3132,6 +3053,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "incarnation": {
+          "name": "incarnation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         }
       },
       "indexes": {

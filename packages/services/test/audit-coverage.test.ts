@@ -184,6 +184,7 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
     "data.documents_replaced",
     "data.documents_deleted",
   ],
+  markChangeItemOnce: ["change_item.marked"],
 };
 
 /** Changes that record no event, and why. */
@@ -276,6 +277,10 @@ reason("comments are not in the audit log's scope (T10); their text never is", [
   "setAnnotationThreadState",
   "eraseAuthorFromThread",
 ]);
+reason(
+  "edit suggestions (decision 0027): the owner's draft is private to its author until published, and publishing it records suggestion.accepted",
+  ["saveDraft", "discardDraft"],
+);
 reason("a suggestion is a comment: its creation is outside the T10 catalog like any comment", [
   "submitSuggestion",
 ]);
@@ -541,6 +546,8 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // Edit suggestions (decision 0027): rebuilds a replayed acceptance's answer, writes nothing.
+  "replayAcceptance",
   // Budget protection's data step (decision 0026): reads the platform's protection only.
   "checkDataWriteCapacity",
   // D1's hold level for the data convergence rule (decision 0026): one read of `legal_holds`.

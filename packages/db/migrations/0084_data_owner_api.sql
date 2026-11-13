@@ -10,7 +10,8 @@ CREATE TABLE `data_operations` (
 );
 --> statement-breakpoint
 CREATE INDEX `data_operations_created_idx` ON `data_operations` (`created_at`);--> statement-breakpoint
-CREATE INDEX `data_operations_artifact_idx` ON `data_operations` (`artifact_id`);--> statement-breakpoint
+CREATE INDEX `data_operations_artifact_idx` ON `data_operations` (`artifact_id`);
+--> statement-breakpoint
 -- The first-party CLI may also request `data:read` and `data:write` (decision 0026, delivery 5).
 -- Registered MCP clients ask for them through REGISTRATION_SCOPES like any product scope;
 -- existing tokens gain nothing until a new sign-in.

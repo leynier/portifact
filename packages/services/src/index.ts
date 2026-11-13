@@ -28,6 +28,7 @@ export * from "./directory.ts";
 export * from "./directory-notices.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";
 export * from "./domain-notices.ts";
+export * from "./edit-drafts.ts";
 export * from "./email.ts";
 export * from "./expiry-notices.ts";
 export * from "./feedback.ts";
