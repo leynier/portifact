@@ -100,3 +100,20 @@ export function dataAuditEvent(
 export function exportConsistent(revisions: readonly number[]): boolean {
   return revisions.every((revision) => revision === revisions[0]);
 }
+
+/**
+ * C1 controls and the format characters that reorder or hide text (bidirectional marks and
+ * overrides, the line and paragraph separators): visitors write documents, and a terminal reads
+ * U+009B as CSI. They only ever appear inside JSON strings in what these commands print and write,
+ * so a JSON escape keeps every value as stored. The CLI escapes its output and
+ * both export writers (CLI and dashboard) escape the file.
+ */
+const TERMINAL_UNSAFE = /[\u0080-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/gu;
+
+/** The text with every terminal-unsafe character as its JSON escape. */
+export function escapeControls(text: string): string {
+  return text.replace(
+    TERMINAL_UNSAFE,
+    (char) => `\\u${(char.codePointAt(0) ?? 0).toString(16).padStart(4, "0")}`,
+  );
+}

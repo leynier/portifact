@@ -275,4 +275,34 @@ describe("dataQueryString", () => {
     expect(() => dataQueryString({ json: false, by: "a", where: "x=1" })).toThrow();
     expect(() => dataQueryString({ json: false, order: "name" })).toThrow();
   });
+
+  it("escapes C1 terminal controls in document output and the export file", async () => {
+    const id = await declared();
+    const text = "\u009b2J\u009d52;c;SGVsbG8=\u009c";
+    const one = await h.invoke(
+      "data",
+      "create",
+      id,
+      "votes",
+      "--body",
+      JSON.stringify({ text, choice: "c1", key: "c1" }),
+      "--json",
+    );
+    expect(one.code, one.stderr).toBe(0);
+    expect(one.stdout).not.toMatch(/[\u0080-\u009f]/u);
+    const { _id } = JSON.parse(one.stdout) as { _id: string; text: string };
+    expect((JSON.parse(one.stdout) as { text: string }).text).toBe(text);
+    const got = await h.invoke("data", "get", id, "votes", _id);
+    expect(got.stdout).not.toMatch(/[\u0080-\u009f]/u);
+    const listed = await h.invoke("data", "query", id, "votes");
+    expect(listed.stdout).not.toMatch(/[\u0080-\u009f]/u);
+    const out = join(await h.files("out-c1", {}), "c1-export.jsonl");
+    const exported = await h.invoke("data", "export", id, "--out", out);
+    expect(exported.code, exported.stderr).toBe(0);
+    const file = await readFile(out, "utf8");
+    expect(file).not.toMatch(/[\u0080-\u009f]/u);
+    // Escaped, not dropped: the file still loads with the stored value.
+    const parsed = parseExportFile(file);
+    expect(parsed.ok && parsed.value.rows.find((row) => row.id === _id)?.body.text).toBe(text);
+  });
 });

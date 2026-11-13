@@ -1474,7 +1474,9 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { json?: boolean }, id: string) =>
-        dataCommands.dataDescribe(io, runtime, id, { json: options.json === true }),
+        dataCommands.dataDescribe(dataCommands.terminalSafe(io), runtime, id, {
+          json: options.json === true,
+        }),
       ),
     );
   data
@@ -1495,7 +1497,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           id: string,
           collection: string,
         ) =>
-          dataCommands.dataDeclare(io, runtime, id, collection, {
+          dataCommands.dataDeclare(dataCommands.terminalSafe(io), runtime, id, collection, {
             mode: options.mode,
             unique: options.unique,
             index: options.index,
@@ -1510,7 +1512,9 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { json?: boolean }, id: string) =>
-        dataCommands.dataBuildIndexes(io, runtime, id, { json: options.json === true }),
+        dataCommands.dataBuildIndexes(dataCommands.terminalSafe(io), runtime, id, {
+          json: options.json === true,
+        }),
       ),
     );
   data
@@ -1534,7 +1538,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           id: string,
           collection: string,
         ) =>
-          dataCommands.dataQuery(io, runtime, id, collection, {
+          dataCommands.dataQuery(dataCommands.terminalSafe(io), runtime, id, collection, {
             ...options,
             json: options.json === true,
           }),
@@ -1550,7 +1554,9 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .action(
       execute(
         (io, runtime, options: { json?: boolean }, id: string, collection: string, doc: string) =>
-          dataCommands.dataGet(io, runtime, id, collection, doc, { json: options.json === true }),
+          dataCommands.dataGet(dataCommands.terminalSafe(io), runtime, id, collection, doc, {
+            json: options.json === true,
+          }),
       ),
     );
   data
@@ -1570,7 +1576,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           id: string,
           collection: string,
         ) =>
-          dataCommands.dataCount(io, runtime, id, collection, {
+          dataCommands.dataCount(dataCommands.terminalSafe(io), runtime, id, collection, {
             by: options.by,
             where: options.where,
             json: options.json === true,
@@ -1594,7 +1600,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           id: string,
           collection: string,
         ) =>
-          dataCommands.dataCreate(io, runtime, id, collection, {
+          dataCommands.dataCreate(dataCommands.terminalSafe(io), runtime, id, collection, {
             body: options.body,
             file: options.file,
             json: options.json === true,
@@ -1622,7 +1628,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           collection: string,
           doc: string | undefined,
         ) =>
-          dataCommands.dataReplace(io, runtime, id, collection, doc, {
+          dataCommands.dataReplace(dataCommands.terminalSafe(io), runtime, id, collection, doc, {
             body: options.body,
             file: options.file,
             json: options.json === true,
@@ -1647,10 +1653,17 @@ An artifact shared with its workspace or an email domain becomes restricted when
           collection: string,
           documents: string[],
         ) =>
-          dataCommands.dataDelete(io, runtime, id, collection, documents, {
-            yes: options.yes === true,
-            json: options.json === true,
-          }),
+          dataCommands.dataDelete(
+            dataCommands.terminalSafe(io),
+            runtime,
+            id,
+            collection,
+            documents,
+            {
+              yes: options.yes === true,
+              json: options.json === true,
+            },
+          ),
       ),
     );
   data
@@ -1661,7 +1674,10 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { out?: string; json?: boolean }, id: string) =>
-        dataCommands.dataExport(io, runtime, id, { out: options.out, json: options.json === true }),
+        dataCommands.dataExport(dataCommands.terminalSafe(io), runtime, id, {
+          out: options.out,
+          json: options.json === true,
+        }),
       ),
     );
 

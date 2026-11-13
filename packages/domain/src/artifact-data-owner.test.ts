@@ -12,6 +12,7 @@ import {
   DATA_AUDIT_EVENTS,
   dataAuditEvent,
   dataRefusalError,
+  escapeControls,
   exportConsistent,
 } from "./artifact-data-owner.ts";
 import { HELD_MESSAGE } from "./moderation.ts";
@@ -145,5 +146,20 @@ describe("export helpers", () => {
       collection: "votes",
       equals: { field: "n", value: 2 },
     });
+  });
+});
+
+describe("escapeControls", () => {
+  it("escapes C1 and reordering characters as JSON escapes, keeping the decoded value", () => {
+    const csi = String.fromCharCode(0x9b);
+    const override = String.fromCharCode(0x202e);
+    const separator = String.fromCharCode(0x2028);
+    const value = { text: `a${csi}2J${override}b${separator}c` };
+    const escaped = escapeControls(JSON.stringify(value));
+    for (const char of [csi, override, separator]) expect(escaped.includes(char)).toBe(false);
+    expect(escaped).toContain("\\u009b");
+    expect(escaped).toContain("\\u202e");
+    expect(JSON.parse(escaped)).toEqual(value);
+    expect(escapeControls("plain text")).toBe("plain text");
   });
 });

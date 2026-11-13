@@ -154,7 +154,10 @@ describe("the artifact's data section", () => {
   it("downloads the export as JSON Lines with the stored bodies", async () => {
     server.data[ID] = {
       description: description(),
-      documents: { votes: [doc(1, { choice: "a" }), doc(2, { choice: "b" })], notes: [] },
+      documents: {
+        votes: [doc(1, { choice: "a" }), doc(2, { choice: `b${String.fromCharCode(0x9b)}2J` })],
+        notes: [],
+      },
     };
     const { saved } = renderDashboard(PATH, server);
     const region = await section();
@@ -163,10 +166,16 @@ describe("the artifact's data section", () => {
     const file = saved[0];
     if (!file) throw new Error("nothing saved");
     expect(file.fileName).toBe("Launch plan-data.jsonl");
-    const parsed = parseExportFile(await file.blob.text());
+    const text = await file.blob.text();
+    // A visitor's C1 control is written as its JSON escape, never as the raw character.
+    expect(text.includes(String.fromCharCode(0x9b))).toBe(false);
+    const parsed = parseExportFile(text);
     if (!parsed.ok) throw new Error(parsed.message);
     expect(parsed.value.header.collections.map((item) => item.name)).toEqual(["votes", "notes"]);
-    expect(parsed.value.rows.map((row) => row.body)).toEqual([{ choice: "a" }, { choice: "b" }]);
+    expect(parsed.value.rows.map((row) => row.body)).toEqual([
+      { choice: "a" },
+      { choice: `b${String.fromCharCode(0x9b)}2J` },
+    ]);
     expect(parsed.value.footer).toMatchObject({ consistent: true, documents: 2 });
   });
 });
