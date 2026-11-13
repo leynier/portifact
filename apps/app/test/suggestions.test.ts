@@ -373,3 +373,165 @@ describe("the change list, through the API and MCP alike", () => {
     expect(offNames).not.toContain("list_change_items");
   });
 });
+
+describe("refusals each route passes on", () => {
+  it("answers a missing suggestion, item or draft, and a wrong digest, with the service's code", async () => {
+    const threadId = await submit();
+    expect((await owner.call(`${base()}/suggestions/th_missing`)).status).toBe(404);
+    for (const action of ["reject", "withdraw"]) {
+      const response = await session(`${base()}/suggestions/th_missing/${action}`, owner.cookie, {
+        method: "POST",
+        body: { revision: 1 },
+      });
+      expect(response.status, action).toBe(404);
+    }
+    expect(
+      (await session(`${base()}/suggestions/th_missing/plan`, owner.cookie, { method: "POST" }))
+        .status,
+    ).toBe(404);
+    expect((await owner.call(`${base()}/changes/chg_missing`)).status).toBe(404);
+    expect((await session(`${base()}/draft/plan`, owner.cookie, { method: "POST" })).status).toBe(
+      404,
+    );
+    expect((await session(`${base()}/draft`, owner.cookie, { method: "DELETE" })).status).toBe(404);
+    const stranger = await h.signIn(`sugg-s2-${crypto.randomUUID()}@example.test`);
+    const saved = await session(`${base()}/draft`, stranger, {
+      method: "PUT",
+      body: { baseVersionId: versionId, edit: { operations: [OPERATION] }, baseRevision: null },
+    });
+    expect(saved.status).toBe(404);
+    const noDraft = await session(`${base()}/draft/publish`, owner.cookie, {
+      method: "POST",
+      key: crypto.randomUUID(),
+      body: { digest: "0".repeat(64) },
+    });
+    expect(noDraft.status).toBe(404);
+    expect(threadId).toBeTruthy();
+  });
+
+  it("publishes a draft by its digest once per key", async () => {
+    await session(`${base()}/draft`, owner.cookie, {
+      method: "PUT",
+      body: { baseVersionId: versionId, edit: { operations: [OPERATION] }, baseRevision: null },
+    });
+    const plan = Plan.parse(
+      await (await session(`${base()}/draft/plan`, owner.cookie, { method: "POST" })).json(),
+    );
+    const key = crypto.randomUUID();
+    const publish = () =>
+      session(`${base()}/draft/publish`, owner.cookie, {
+        method: "POST",
+        key,
+        body: { digest: plan.digest },
+      });
+    const first = await publish();
+    expect(first.status).toBe(202);
+    const started = AcceptanceStarted.parse(await first.json());
+    expect(AcceptanceStarted.parse(await (await publish()).json())).toEqual(started);
+    const draft = DraftView.parse(await (await session(`${base()}/draft`, owner.cookie)).json());
+    expect(draft.publishing).toBe(true);
+  });
+
+  it("answers capacity_unavailable without the region's bucket", async () => {
+    const threadId = await submit();
+    const unbound = createHarness({
+      env: { ...ON, ARTIFACTS: undefined } as unknown as Partial<Cloudflare.Env>,
+    });
+    const ask = (path: string, body?: unknown) =>
+      unbound.request(path, {
+        method: "POST",
+        headers: {
+          cookie: owner.cookie,
+          "sec-fetch-site": "same-origin",
+          origin: ORIGIN,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID(),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+    const digest = { digest: "0".repeat(64) };
+    expect((await ask(`${base()}/suggestions/${threadId}/plan`)).status).toBe(503);
+    expect((await ask(`${base()}/suggestions/${threadId}/accept`, digest)).status).toBe(503);
+    expect((await ask(`${base()}/draft/plan`)).status).toBe(503);
+    expect((await ask(`${base()}/draft/publish`, digest)).status).toBe(503);
+  });
+
+  it("marks with a stale revision as a conflict, and lists threads with their kind on request", async () => {
+    const itemId = await seedItem();
+    const stale = await owner.call(`${base()}/changes/${itemId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "idempotency-key": "stale-key-1" },
+      body: JSON.stringify({ state: "applied", baseRevision: 9 }),
+    });
+    expect(stale.status).toBe(409);
+    await submit();
+    const page = await (
+      await session(`${base()}/annotations?fields=suggestion`, owner.cookie)
+    ).json<{ threads: Record<string, unknown>[] }>();
+    expect(page.threads[0]).toMatchObject({ kind: "suggestion" });
+    const off = createHarness();
+    const plain = await (
+      await off.request(`${base()}/annotations?fields=suggestion`, {
+        headers: { cookie: owner.cookie, "sec-fetch-site": "same-origin" },
+      })
+    ).json<{ threads: Record<string, unknown>[] }>();
+    expect(plain.threads[0]).not.toHaveProperty("kind");
+  });
+
+  it("gives the tools' empty list, refusals and key reuse the API's answers", async () => {
+    const client = await connect(h, await mcpToken(h, ownerEmail, SCOPES));
+    const empty = await callTool(client, "list_change_items", { artifactId });
+    expect(empty.structuredContent).toEqual(
+      await (await owner.call(`${base()}/changes?state=open`)).json(),
+    );
+    expect(
+      (await callTool(client, "list_change_items", { artifactId, state: "applied" })).content[0]
+        ?.text,
+    ).toContain("applied");
+    const itemId = await seedItem();
+    const args = {
+      artifactId,
+      itemId,
+      state: "applied",
+      baseRevision: 1,
+      idempotencyKey: "tool-k-1",
+    };
+    expect((await callTool(client, "mark_change_item", args)).isError).not.toBe(true);
+    const reused = await callTool(client, "mark_change_item", { ...args, state: "dismissed" });
+    expect(reused.structuredContent).toMatchObject({ error: { code: "invalid_input" } });
+    const missing = await callTool(client, "mark_change_item", {
+      ...args,
+      itemId: "chg_missing",
+      idempotencyKey: "tool-k-2",
+    });
+    expect(missing.structuredContent).toMatchObject({ error: { code: "not_found" } });
+  });
+});
+
+describe("request bodies", () => {
+  it("refuses a malformed body on every route that reads one", async () => {
+    const threadId = await submit();
+    const bad = { unexpected: true };
+    for (const path of [
+      `${base()}/suggestions`,
+      `${base()}/suggestions/${threadId}/accept`,
+      `${base()}/suggestions/${threadId}/reject`,
+      `${base()}/suggestions/${threadId}/withdraw`,
+      `${base()}/draft/publish`,
+    ]) {
+      const response = await session(path, owner.cookie, {
+        method: "POST",
+        key: crypto.randomUUID(),
+        body: bad,
+      });
+      expect(response.status, path).toBe(400);
+    }
+    const itemId = await seedItem();
+    const mark = await owner.call(`${base()}/changes/${itemId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", "idempotency-key": "bad-body-1" },
+      body: JSON.stringify(bad),
+    });
+    expect(mark.status).toBe(400);
+  });
+});
