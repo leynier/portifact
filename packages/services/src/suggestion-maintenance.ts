@@ -22,11 +22,12 @@ import {
   isWorkspaceId,
   SUGGESTION_LIMITS,
 } from "@portifact/contracts";
-import { type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import { notHeldSql } from "./legal-holds.ts";
 import { type ScanCaps, saveCursor } from "./maintenance-cursors.ts";
 import { endAttempt } from "./suggestion-accept.ts";
+import { draftMarker } from "./suggestion-markers.ts";
 
 const at = schema.acceptanceAttempts;
 const dr = schema.editDrafts;
@@ -177,7 +178,10 @@ export async function pruneSuggestionRecords(
       await db.all<SweepRow>(sweepPage(sweep, parseCursor(sweep, saved.get(sweep.name)), limit)),
     );
   }
-  const deletes = list.map((sweep, index) => {
+  // With one database the batch runs on the handle that also writes the drafts' restore markers.
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const conditions = list.map((sweep, index) => {
     const free = (pages[index] ?? []).filter((row) => Number(row.free) === 1);
     const rowids =
       free.length === 0
@@ -187,13 +191,20 @@ export async function pruneSuggestionRecords(
             sql`, `,
           )})`;
     // Deleted only while still due and not held, by the rows the page read.
-    return db
-      .delete(sweep.table)
-      .where(sql`rowid in ${rowids} and ${sweep.due} and ${notHeldSql(sweep.artifactId)}`)
-      .returning({ one: sql<number>`1` });
+    return sql`rowid in ${rowids} and ${sweep.due} and ${notHeldSql(sweep.artifactId)}`;
   });
-  const [plans, attempts, items, drafts] = await db.batch([
-    db
+  const deletes = list.map((sweep, index) =>
+    x
+      .delete(sweep.table)
+      .where(conditions[index] as SQL)
+      .returning({ one: sql<number>`1` }),
+  );
+  const draftSweep = list.findIndex((sweep) => sweep.table === dr);
+  const [, plans, attempts, items, drafts] = await x.batch([
+    // An unused draft the prune removes stays gone through a restore (decision 0027): a restored
+    // one could be published before the next prune. Its marker, on the deletion's own condition.
+    draftMarker(x, shared !== null, conditions[draftSweep] as SQL, now),
+    x
       .delete(sp)
       .where(
         sql`(${sp.userId}, ${sp.digest}) in (select ${sp.userId}, ${sp.digest} from ${sp} where ${sp.expiresAt} <= ${now} order by ${sp.expiresAt} limit ${limit})`,
@@ -265,23 +276,29 @@ export async function pruneDraftsWithoutRole(
   for (const row of workspace) {
     if (!acting.has(`${row.ownerId}|${row.userId}`)) lost.push(row);
   }
-  const deletes = lost.map((row) =>
-    db
-      .delete(dr)
-      .where(
-        and(
-          eq(dr.artifactId, row.artifactId),
-          eq(dr.userId, row.userId),
-          eq(dr.ownerId, row.ownerId),
-          isNull(dr.attemptId),
-          notHeldSql(sql`${dr.artifactId}`),
-        ),
-      )
-      .returning({ id: dr.userId }),
-  );
-  const [first, ...rest] = deletes;
-  const results = first ? await db.batch([first, ...rest]) : [];
-  const deleted = results.reduce((sum, gone) => sum + gone.length, 0);
+  // Each draft with the marker that keeps it gone through a restore (decision 0027), on the same
+  // condition and before it; with one database the batch runs on the handle that writes both.
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
+  const statements = lost.flatMap((row) => {
+    const where = and(
+      eq(dr.artifactId, row.artifactId),
+      eq(dr.userId, row.userId),
+      eq(dr.ownerId, row.ownerId),
+      isNull(dr.attemptId),
+      notHeldSql(sql`${dr.artifactId}`),
+    ) as SQL;
+    return [
+      draftMarker(x, shared !== null, where, now),
+      x.delete(dr).where(where).returning({ id: dr.userId }),
+    ];
+  });
+  const [first, ...rest] = statements;
+  const results = (first ? await x.batch([first, ...rest]) : []) as unknown[];
+  // The deletions are every second statement.
+  const deleted = results
+    .filter((_, i) => i % 2 === 1)
+    .reduce((sum: number, gone) => sum + (gone as unknown[]).length, 0);
   const last = rows.at(-1);
   const next = rows.length === caps.pageSize && last ? `${last.artifactId}|${last.userId}` : "";
   if (next !== started) await saveCursor(db, DRAFT_SCAN, next, now);
