@@ -250,9 +250,9 @@ describe("data grants on the app", () => {
         .set({ redeemedAt: at, createdAt: at })
         .where(eq(schema.dataGrants.artifactId, id));
     }
-    const listed = await (
-      await h.request("/api/v1/account/data-grants", dashboard(cookie))
-    ).json<{ items: { artifactId: string }[] }>();
+    const listed = await (await h.request("/api/v1/account/data-grants", dashboard(cookie))).json<{
+      items: { artifactId: string }[];
+    }>();
     expect(listed.items.map((item) => item.artifactId)).toEqual([newer, older]);
 
     let last = 0;
