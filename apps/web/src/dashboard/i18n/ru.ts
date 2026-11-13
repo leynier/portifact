@@ -7,6 +7,52 @@ import type { Catalog } from "./en.ts";
 export const ru = {
   ...planTextRu,
   "app.title": "Portifact",
+  "dataGrant.pageTitle": "Сохранение введённого",
+  "dataGrant.title": "Разрешить {host} сохранять то, что вы вводите?",
+  "dataGrant.ownerPerson": "Опубликовал(а) {name}",
+  "dataGrant.ownerWorkspace": "Опубликовано рабочим пространством {name}",
+  "dataGrant.learns":
+    "Страница будет знать вас как {name}, с идентификатором только для этого artifact. Ваш адрес почты она не узнает.",
+  "dataGrant.managers":
+    "Люди, которые управляют этим artifact, могут читать всё, что там сохранено.",
+  "dataGrant.moves":
+    "Если artifact перейдёт к другому владельцу, сохранённое перейдёт вместе с ним.",
+  "dataGrant.deletion":
+    "Если вы удалите аккаунт, созданное вами там будет удалено вместе с последующими правками других. Ваши правки в записях других людей останутся, без вашего имени.",
+  "dataGrant.lasts":
+    "Действует {days} дней в этом браузере, пока вы не выйдете или не отзовёте разрешение.",
+  "dataGrant.rights": "Посмотреть, чем вы поделились, и отозвать",
+  "dataGrant.allow": "Разрешить",
+  "dataGrant.notNow": "Не сейчас",
+  "dataGrant.loading": "Загрузка",
+  "dataGrant.unavailable": "Этот запрос нельзя использовать",
+  "dataGrant.unavailableHint": "Откройте artifact снова и выберите сохранение оттуда.",
+  "dataGrant.failed": "Разрешение не завершено",
+  "sharedData.title": "Ваши общие данные",
+  "sharedData.description":
+    "Страницы artifact, которые могут знать вас и сохранять то, что вы вводите. Отзыв действует в течение минуты; сохранённое остаётся в artifact.",
+  "sharedData.listTitle": "Разрешённые страницы",
+  "sharedData.loading": "Загрузка общих данных",
+  "sharedData.failed": "Не удалось загрузить общие данные",
+  "sharedData.empty": "Вы пока ничем не поделились",
+  "sharedData.emptyHint":
+    "Когда страница artifact попросит сохранять то, что вы вводите, и вы разрешите, она появится здесь.",
+  "sharedData.artifact": "Artifact",
+  "sharedData.since": "Разрешено с",
+  "sharedData.status": "Статус",
+  "sharedData.actions": "Действия",
+  "sharedData.gone": "Artifact больше недоступен",
+  "sharedData.open": "Разрешено до {date}",
+  "sharedData.ended": "Завершено",
+  "sharedData.revoke": "Отозвать",
+  "sharedData.revokeNamed": "Отозвать {name}",
+  "sharedData.revoked": "{name} больше не может сохранять от вашего имени",
+  "sharedData.confirmTitle": "Отозвать {name}?",
+  "sharedData.confirmBody":
+    "В течение минуты, во всех браузерах, страница перестанет знать вас и сохранять от вашего имени. Сохранённое остаётся в artifact.",
+  "sharedData.cancel": "Отмена",
+  "sharedData.revokeFailed": "Отзыв не завершён",
+  "sharedData.more": "Показать ещё",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Перейти к содержимому",
   "shell.navigation": "Основное",
@@ -1033,6 +1079,42 @@ export const ru = {
   "suggest.changes.dismiss": "Пропустить",
   "suggest.changes.reopen": "Открыть снова",
   "suggest.changes.marked": "Список изменений обновлён.",
+  "draft.mode.edit": "Редактирование",
+  "draft.mode.on":
+    "Режим редактирования включён. Выделите текст в artifact, чтобы изменить его в своём личном черновике.",
+  "draft.editor.title": "Изменить текст",
+  "draft.add": "Добавить в черновик",
+  "draft.added": "Добавлено в ваш черновик.",
+  "draft.heading": "Ваш черновик",
+  "draft.loading": "Загрузка вашего черновика",
+  "draft.empty":
+    "Выберите «Редактирование» и выделите текст в artifact, чтобы изменить его. Ваши изменения остаются личными, пока вы их не опубликуете.",
+  "draft.count":
+    "{count, plural, one {# изменение} few {# изменения} many {# изменений} other {# изменения}}",
+  "draft.changes": "Изменения в вашем черновике",
+  "draft.remove": "Удалить изменение {number}",
+  "draft.removeShort": "Удалить",
+  "draft.stale":
+    "Этот черновик создан на более ранней версии, поэтому его нельзя опубликовать. Отмените его и отредактируйте текущую версию.",
+  "draft.attemptEnded": "Последняя публикация не завершилась: {reason}",
+  "draft.publishingBadge": "Публикуется",
+  "draft.publishing": "Ваш черновик публикуется. Новая версия появится, когда будет готова.",
+  "draft.publish": "Опубликовать",
+  "draft.publish.title": "Опубликовать этот черновик?",
+  "draft.publish.confirm": "Опубликовать новую версию",
+  "draft.discard": "Отменить",
+  "draft.discard.title": "Отменить этот черновик?",
+  "draft.discard.body": "Все изменения в нём будут удалены. Ничего не будет опубликовано.",
+  "draft.discarded": "Черновик отменён.",
+  "draft.conflict":
+    "Ваш черновик изменился в другой вкладке или окне. Теперь он показывает последнее состояние; внесите изменение снова.",
+  "draft.refused.stale":
+    "Ваш черновик создан на более ранней версии. Отмените его, прежде чем редактировать текущую версию.",
+  "draft.refused.other_page":
+    "В вашем черновике есть изменения другой страницы. Опубликуйте или отмените его, прежде чем редактировать эту страницу.",
+  "draft.refused.full":
+    "В вашем черновике уже максимальное число изменений. Сначала опубликуйте или отмените его.",
+  "draft.refused.invalid": "Это изменение нельзя добавить в черновик.",
   "review.open": "Проверить и прокомментировать",
   "viewer.loading": "Открытие artifact",
   "viewer.unavailable.title": "Этот artifact нельзя открыть",

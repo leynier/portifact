@@ -45,6 +45,8 @@ import {
   BrandSettings,
   type BrandUpdate,
   BrowserSessionList,
+  CHANGE_LIST_LIMITS,
+  ChangeItemList,
   CommentNoticeMute,
   CommittedPublish,
   ConnectedAppList,
@@ -54,6 +56,11 @@ import {
   CustomDomainView,
   DataDescriptionView,
   DataExportPageView,
+  DataGrantCode,
+  type DataGrantCodeRequest,
+  DataGrantControl,
+  DataGrantList,
+  DataGrantRevocation,
   DataQueryPage,
   DisconnectResult,
   DocumentPreview,
@@ -225,6 +232,14 @@ export interface DashboardApi {
   commentNoticeMute(artifactId: string): Promise<CommentNoticeMute>;
   /** Mutes or unmutes the artifact's comment notices for the caller. */
   setCommentNoticeMute(artifactId: string, muted: boolean): Promise<CommentNoticeMute>;
+  /** What the consent control of artifact data shows (decision 0026, "The grant"). */
+  dataGrantControl(artifactId: string, host: string | null): Promise<DataGrantControl>;
+  /** The person allowed: a one-use code bound to the beginning browser's nonce. */
+  issueDataGrant(input: DataGrantCodeRequest): Promise<DataGrantCode>;
+  /** "Data you shared": the artifacts the person granted. */
+  dataGrants(after?: string | null): Promise<DataGrantList>;
+  /** Revokes the person's grants on an artifact. */
+  revokeDataGrants(artifactId: string): Promise<DataGrantRevocation>;
   /** Deletes the account; the email typed again confirms it. */
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
   /** A space's quotas, this month's traffic and what blocks it now. */
@@ -490,6 +505,8 @@ export interface DashboardApi {
   annotationExport(artifactId: string, version: "all" | "current"): Promise<AnnotationExport>;
   /** A page of the comment action history (owner side only). */
   annotationHistory(artifactId: string, cursor?: string): Promise<AnnotationHistoryPage>;
+  /** A page of the artifact's change list, every state (decision 0027). */
+  changeItems(artifactId: string, cursor?: string): Promise<ChangeItemList>;
   /** The threads as the file `portifact annotations export` writes, JSON or Markdown. */
   exportAnnotations(
     artifactId: string,
@@ -837,6 +854,27 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       return call(
         inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}/deliveries`, workspace),
         WebhookDeliveries,
+      );
+    },
+    dataGrantControl(artifactId, host) {
+      const query = host === null ? "" : `?${new URLSearchParams({ host })}`;
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/control${query}`,
+        DataGrantControl,
+      );
+    },
+    issueDataGrant(input) {
+      return call("/api/v1/account/data-grants", DataGrantCode, "POST", input);
+    },
+    dataGrants(after) {
+      const query = after ? `?${new URLSearchParams({ after })}` : "";
+      return call(`/api/v1/account/data-grants${query}`, DataGrantList);
+    },
+    revokeDataGrants(artifactId) {
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}`,
+        DataGrantRevocation,
+        "DELETE",
       );
     },
     commentNoticeMute(artifactId) {
@@ -1306,6 +1344,11 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       const params = new URLSearchParams({ limit: String(ANNOTATION_HISTORY_PAGE.max) });
       if (cursor) params.set("cursor", cursor);
       return call(`${annotationsPath(artifactId)}/history?${params}`, AnnotationHistoryPage);
+    },
+    changeItems(artifactId, cursor) {
+      const params = new URLSearchParams({ limit: String(CHANGE_LIST_LIMITS.pageMax) });
+      if (cursor) params.set("cursor", cursor);
+      return call(`${artifactPath(artifactId)}/changes?${params}`, ChangeItemList);
     },
     async exportAnnotations(artifactId, { format, version, state }) {
       const params = new URLSearchParams({ format, version, ...(state ? { state } : {}) });

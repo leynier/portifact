@@ -35,8 +35,11 @@ import {
   type CustomDomainView,
   type DataDescriptionView,
   type DataDocumentView,
+  type DataGrantControl,
+  type DataGrantView,
   DEFAULT_POLICY,
   DocumentPreviewRequest,
+  type DraftView,
   type ErrorCode,
   type FileChange,
   GitHubTrustRuleCreate,
@@ -364,6 +367,12 @@ export interface FakeSuggestions {
   changes: Record<string, ChangeItemView[]>;
   /** Previews issued so far. */
   previews: number;
+  /** Edit suggestions switched off on the server: every suggestion route answers 404. */
+  off?: boolean;
+  /** The caller's draft, by artifact ID (decision 0027, "The owner's draft"). */
+  drafts: Record<string, DraftView>;
+  /** POST .../draft/plan, by artifact ID; missing ones answer 404. */
+  draftPlans: Record<string, Plan>;
 }
 
 export function fakeMessage(overrides: Partial<AnnotationMessageView> = {}): AnnotationMessageView {
@@ -607,6 +616,9 @@ export interface FakeServer {
   accountSuspension: AccountSuspensionView;
   /** Comment notices by artifact: whether the owner's plan has them and the caller's mute. */
   commentNotices: Record<string, CommentNoticeMute>;
+  /** Artifact data (decision 0026): controls by artifact ID (missing ones answer 404) and grants. */
+  dataGrantControls: Record<string, DataGrantControl>;
+  dataGrants: DataGrantView[];
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** The body of GET /api/v1/grace-forecast (decision 0022), for every space. */
@@ -726,7 +738,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     viewers: {},
     reviews: {},
     reviewTabs: 0,
-    suggestions: { plans: {}, preview: null, changes: {}, previews: 0 },
+    suggestions: { plans: {}, preview: null, changes: {}, previews: 0, drafts: {}, draftPlans: {} },
     annotations: {},
     versions: {},
     uploads: [],
@@ -786,6 +798,8 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     branding: { available: true, lowestPlan: "pro", suspended: false, brand: null },
     logoUploads: [],
     commentNotices: {},
+    dataGrantControls: {},
+    dataGrants: [],
     bodies: [],
     pageSize: 50,
     texts: new Map(),
@@ -1551,9 +1565,8 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   const integrations = integrationRoute(server, method, path, headers);
   if (integrations) return integrations;
-  const suggested = /^\/api\/v1\/artifacts\/([^/]+)\/(suggestions|previews|changes)(\/.*)?$/.exec(
-    path,
-  );
+  const suggested =
+    /^\/api\/v1\/artifacts\/([^/]+)\/(suggestions|previews|changes|draft)(\/.*)?$/.exec(path);
   if (suggested) {
     return suggestionRoute(server, method, url, suggested[1] ?? "", suggested[2], suggested[3]);
   }
@@ -1577,6 +1590,40 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     const before = server.sessions.length;
     server.sessions = server.sessions.filter((s) => s.current);
     return Response.json({ signedOut: before - server.sessions.length });
+  }
+  if (path === "/api/v1/account/data-grants" && method === "GET") {
+    // Pages of two, so the screen's "Show more" is exercised.
+    const after = url.searchParams.get("after");
+    const from = after === null ? 0 : Number(after);
+    const next = from + 2 < server.dataGrants.length ? String(from + 2) : null;
+    return Response.json({ items: server.dataGrants.slice(from, from + 2), next });
+  }
+  if (path === "/api/v1/account/data-grants" && method === "POST") {
+    const input = server.bodies.at(-1) as { artifactId: string; flow: string };
+    const control = server.dataGrantControls[input.artifactId];
+    if (!control) return apiError("not_found", 404);
+    const code = "c".repeat(43);
+    return Response.json({
+      code,
+      redeemUrl: `https://${control.host}/__portifact/data/grant?flow=${input.flow}&code=${code}`,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+  }
+  const grantControl = /^\/api\/v1\/account\/data-grants\/([^/]+)\/control$/.exec(path);
+  if (grantControl && method === "GET") {
+    const control = server.dataGrantControls[decodeURIComponent(grantControl[1] as string)];
+    return control ? Response.json(control) : apiError("not_found", 404);
+  }
+  const grantRevoke = /^\/api\/v1\/account\/data-grants\/([^/]+)$/.exec(path);
+  if (grantRevoke && method === "DELETE") {
+    const id = decodeURIComponent(grantRevoke[1] as string);
+    let revoked = 0;
+    server.dataGrants = server.dataGrants.map((item) => {
+      if (item.artifactId !== id) return item;
+      revoked += item.openGrants;
+      return { ...item, openGrants: 0, expiresAt: null };
+    });
+    return Response.json({ artifactId: id, revoked });
   }
   const mute = /^\/api\/v1\/account\/comment-notices\/([^/]+)$/.exec(path);
   if (mute) {
@@ -3209,6 +3256,7 @@ function suggestionRoute(
 ): Response {
   const store = server.annotations[id];
   const fake = server.suggestions;
+  if (fake.off) return apiError("not_found", 404);
   const body = server.bodies.at(-1) as Record<string, unknown> | undefined;
   if (kind === "previews" && method === "POST") {
     fake.previews += 1;
@@ -3219,6 +3267,47 @@ function suggestionRoute(
         expiresAt: NOW,
       },
     );
+  }
+  if (kind === "draft") {
+    const draft = fake.drafts[id];
+    if (rest === "" && method === "GET") return draft ? Response.json(draft) : missing();
+    if (rest === "" && method === "DELETE") {
+      delete fake.drafts[id];
+      return new Response(null, { status: 204 });
+    }
+    if (rest === "" && method === "PUT") {
+      // Like the Worker: a save names the revision and incarnation it was made on.
+      if ((body?.baseRevision ?? null) !== (draft?.revision ?? null)) {
+        return apiError("version_conflict", 409);
+      }
+      if ((body?.baseIncarnation ?? null) !== (draft?.incarnation ?? null)) {
+        return apiError("version_conflict", 409);
+      }
+      const saved: DraftView = {
+        artifactId: id,
+        baseVersionId: String(body?.baseVersionId),
+        edit: body?.edit,
+        revision: (draft?.revision ?? 0) + 1,
+        incarnation: draft?.incarnation ?? "i".repeat(22),
+        publishing: false,
+        attemptReason: null,
+        updatedAt: 0,
+      };
+      fake.drafts[id] = saved;
+      return Response.json(saved);
+    }
+    if (rest === "/plan" && method === "POST") {
+      const plan = fake.draftPlans[id];
+      return plan && draft ? Response.json(plan) : missing();
+    }
+    if (rest === "/publish" && method === "POST") {
+      if (!draft || body?.digest !== fake.draftPlans[id]?.digest) {
+        return apiError("invalid_input", 400);
+      }
+      draft.publishing = true;
+      return Response.json({ attemptId: "att_d", state: "applying" }, { status: 202 });
+    }
+    return missing();
   }
   if (kind === "changes") {
     const items = fake.changes[id] ?? [];

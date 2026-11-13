@@ -3,6 +3,7 @@ import type {
   AnnotationHistoryEntry,
   ArtifactStatsView,
   ArtifactSummary,
+  ChangeItemView,
   IntegrationConnectionList,
   WorkspaceGroupDetail,
   WorkspaceGroupList,
@@ -54,6 +55,25 @@ function entry(seq: number): AnnotationHistoryEntry {
   };
 }
 
+function item(id: string): ChangeItemView {
+  return {
+    id,
+    artifactId: "abcdefghij",
+    origin: "suggestion",
+    threadId: null,
+    versionId: "ver_1",
+    path: "index.md",
+    route: null,
+    envelope: { format: 2 },
+    reason: "spans_nodes",
+    state: "open",
+    createdAt: 1,
+    closedAt: null,
+    closedVersionId: null,
+    revision: 1,
+  };
+}
+
 function reads(overrides: Partial<ArtifactRecordReads> = {}) {
   const calls: string[] = [];
   const base: ArtifactRecordReads = {
@@ -73,6 +93,12 @@ function reads(overrides: Partial<ArtifactRecordReads> = {}) {
       return cursor === undefined
         ? { artifactId: "abcdefghij", entries: [entry(1), entry(2)], nextCursor: "c2" }
         : { artifactId: "abcdefghij", entries: [entry(3)], nextCursor: null };
+    },
+    changeItems: async (cursor) => {
+      calls.push(`changes:${cursor ?? "start"}`);
+      return cursor === undefined
+        ? { items: [item("chg_1"), item("chg_2")], nextCursor: "n2" }
+        : { items: [item("chg_3")], nextCursor: null };
     },
   };
   return { reads: { ...base, ...overrides }, calls };
@@ -99,6 +125,35 @@ describe("statsWindows", () => {
 });
 
 describe("collectArtifactRecords", () => {
+  it("records why the change list is missing, and stops at an empty page", async () => {
+    const off = reads({ changeItems: async () => ({ skipped: "unavailable" }) });
+    expect((await collectArtifactRecords(artifact, off.reads, NOW)).changeList).toEqual({
+      skipped: "unavailable",
+    });
+    let pages = 0;
+    const stuck = reads({
+      changeItems: async (cursor) => {
+        pages++;
+        return cursor === undefined
+          ? { items: [item("chg_1")], nextCursor: "again" }
+          : { items: [], nextCursor: "again" };
+      },
+    });
+    expect((await collectArtifactRecords(artifact, stuck.reads, NOW)).changeList).toEqual([
+      item("chg_1"),
+    ]);
+    expect(pages).toBe(2);
+    const refused = reads({
+      changeItems: async (cursor) =>
+        cursor === undefined
+          ? { items: [item("chg_1")], nextCursor: "n2" }
+          : { skipped: "rate_limited" },
+    });
+    expect((await collectArtifactRecords(artifact, refused.reads, NOW)).changeList).toEqual({
+      skipped: "rate_limited",
+    });
+  });
+
   it("reads every part, every retained day and every history page", async () => {
     const { reads: r, calls } = reads();
     const records = await collectArtifactRecords(artifact, r, NOW);
@@ -126,7 +181,10 @@ describe("collectArtifactRecords", () => {
       "comments:all",
       "history:start",
       "history:c2",
+      "changes:start",
+      "changes:n2",
     ]);
+    expect(records.changeList).toEqual([item("chg_1"), item("chg_2"), item("chg_3")]);
   });
 
   it("merges overlapping days once, oldest first", async () => {

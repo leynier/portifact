@@ -29,6 +29,11 @@ import {
   CommentNoticeMuteUpdate,
   type ConnectedApp,
   ConnectedAppList,
+  DataGrantCode,
+  DataGrantCodeRequest,
+  DataGrantControl,
+  DataGrantList,
+  DataGrantRevocation,
   DisconnectResult,
   ERROR_STATUS,
   type ErrorCode,
@@ -39,7 +44,10 @@ import {
 import { accountSessionUsableWithoutCurrentTerms } from "@portifact/domain";
 import {
   accountSuspensionView,
+  artifactDataEnabled,
   type ConnectedAppRow,
+  customDomainsServing,
+  dataGrantControl,
   deleteAccountWithCode,
   deleteBrand,
   disconnectApp,
@@ -48,12 +56,15 @@ import {
   getBrandSettings,
   getCommentNoticeMute,
   issueAccountDeletionCode,
+  issueDataGrantCode,
   listBrowserSessions,
   listConnectedApps,
+  listDataGrants,
   RecipientSuppressedError,
   readBrandLogo,
   removeBrandLogo,
   requestAccountDeletion,
+  revokeDataGrants,
   setBrandLogo,
   setCommentNoticeMute,
   updateAccountSettings,
@@ -65,7 +76,14 @@ import { authUrls, CLI_CLIENT_ID } from "../auth/config.ts";
 import { deliverAccountDeletionCode, type EmailSender, emailLocale } from "../auth/email.ts";
 import { checkLimits, deletionCodeAttemptChecks, deletionCodeSendChecks } from "../auth/limits.ts";
 import type { Env } from "../env.ts";
-import { artifactDb, bucketOf, defaultDb, ownerScope, regionsOf } from "../regions.ts";
+import {
+  artifactDb,
+  artifactStorage,
+  bucketOf,
+  defaultDb,
+  ownerScope,
+  regionsOf,
+} from "../regions.ts";
 import { fromAppOrigin, hasSessionCookie, SESSION_COOKIE } from "./access.ts";
 import { readJson } from "./http.ts";
 import { accountRouteOperation } from "./terms-operations.ts";
@@ -387,7 +405,14 @@ export function accountRoutes(deps: AccountDeps) {
     "/api/v1/account/export",
     sessionOnly(async (c, session) => {
       const now = deps.now();
-      const result = await exportAccount(defaultDb(c.env), { userId: session.userId, now });
+      const result = await exportAccount(defaultDb(c.env), {
+        userId: session.userId,
+        now,
+        // The account's drafts live in the region of each artifact (decision 0027).
+        regions: regionsOf(c.env)
+          .all()
+          .map((handles) => handles.db),
+      });
       if (!result.ok) return error(c, result.code, result.message);
       c.header("Content-Disposition", `attachment; filename="${accountExportFileName(now)}"`);
       return c.json(AccountExport.parse(result.value));
@@ -488,6 +513,118 @@ export function accountRoutes(deps: AccountDeps) {
         `${SESSION_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`,
       );
       return c.json(AccountDeletionResult.parse({ deleted: true }));
+    }),
+  );
+
+  // Grants of artifact data (decision 0026, "The grant"): the consent control the viewer and the
+  // grant page draw, the code a person's Allow issues, and "Data you shared". Session only, never a
+  // bearer token, MCP tool or CLI command: a grant is a person's consent in their browser. Off,
+  // they answer 404 like any unknown route.
+  const dataGrantsOn = (c: AccountContext) => artifactDataEnabled(c.env);
+  const grantHost = (c: AccountContext, host: string | null | undefined) =>
+    host === undefined ||
+    host === null ||
+    host === `${c.req.param("artifactId")}.${c.env.CONTENT_DOMAIN}`
+      ? null
+      : host;
+
+  routes.get(
+    "/api/v1/account/data-grants",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      // The cursor is `<region>:<artifact>`: pages follow the regions in order, then the IDs.
+      const regions = regionsOf(c.env).all();
+      const raw = c.req.query("after") ?? "";
+      const at = raw.indexOf(":");
+      const from = at > 0 ? regions.findIndex((handles) => handles.region === raw.slice(0, at)) : 0;
+      if (raw !== "" && (at <= 0 || from < 0)) return error(c, "invalid_input", "Invalid cursor.");
+      const now = deps.now();
+      for (let index = from; index < regions.length; index++) {
+        const handles = regions[index] as (typeof regions)[number];
+        const page = await listDataGrants(handles.db, {
+          userId: session.userId,
+          contentDomain: c.env.CONTENT_DOMAIN,
+          now,
+          after: index === from && raw !== "" ? raw.slice(at + 1) : null,
+        });
+        const last = index === regions.length - 1;
+        if (page.items.length === 0 && page.next === null && !last) continue;
+        const next =
+          page.next !== null
+            ? `${handles.region}:${page.next}`
+            : last
+              ? null
+              : `${(regions[index + 1] as (typeof regions)[number]).region}:`;
+        return c.json(DataGrantList.parse({ items: page.items, next }));
+      }
+      return c.json(DataGrantList.parse({ items: [], next: null }));
+    }),
+  );
+
+  routes.get(
+    "/api/v1/account/data-grants/:artifactId/control",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+      if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
+      const result = await dataGrantControl(await artifactDb(c.env, artifactId.data), {
+        artifactId: artifactId.data,
+        userId: session.userId,
+        requestedHost: grantHost(c, c.req.query("host")),
+        contentDomain: c.env.CONTENT_DOMAIN,
+        customDomains: customDomainsServing(c.env),
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(DataGrantControl.parse(result.value));
+    }),
+  );
+
+  routes.post(
+    "/api/v1/account/data-grants",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      const body = await readJson(c, DataGrantCodeRequest, 1024);
+      if (!body.ok) return body.response;
+      const input = body.value;
+      const [db, bucket] = await artifactStorage(c.env, input.artifactId);
+      const host = input.host === `${input.artifactId}.${c.env.CONTENT_DOMAIN}` ? null : input.host;
+      const result = await issueDataGrantCode(db, bucket, {
+        artifactId: input.artifactId,
+        userId: session.userId,
+        authSessionId: session.sessionId,
+        nonceHash: input.nonceHash,
+        requestedHost: host ?? null,
+        contentDomain: c.env.CONTENT_DOMAIN,
+        customDomains: customDomainsServing(c.env),
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      const redeem = new URL(`https://${result.value.host}/__portifact/data/grant`);
+      redeem.searchParams.set("flow", input.flow);
+      redeem.searchParams.set("code", result.value.code);
+      return c.json(
+        DataGrantCode.parse({
+          code: result.value.code,
+          redeemUrl: redeem.toString(),
+          expiresAt: iso(result.value.expiresAt),
+        }),
+      );
+    }),
+  );
+
+  routes.delete(
+    "/api/v1/account/data-grants/:artifactId",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+      if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
+      const result = await revokeDataGrants(await artifactDb(c.env, artifactId.data), {
+        userId: session.userId,
+        artifactId: artifactId.data,
+        now: deps.now(),
+      });
+      return c.json(DataGrantRevocation.parse({ artifactId: artifactId.data, ...result }));
     }),
   );
 
