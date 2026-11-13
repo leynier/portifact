@@ -1009,3 +1009,203 @@ describe("the owner's draft (decision 0027)", () => {
     await screen.findByText(/Your draft changed in another tab or window/);
   });
 });
+
+describe("previews of unsaved edits, rebasing and the text search (decision 0027)", () => {
+  const draftOf = (baseVersionId: string, after = TYPED) => ({
+    artifactId: ID,
+    baseVersionId,
+    edit: { operations: [{ kind: "text" as const, target: TEXT_TARGET, after }] },
+    revision: 2,
+    incarnation: "i".repeat(22),
+    publishing: false,
+    attemptReason: null,
+    updatedAt: 0,
+  });
+
+  it("previews a suggestion before it is saved, from the edit itself", async () => {
+    await open();
+    const { nonce } = await connect();
+    const epoch = await suggestMode();
+    const editor = await openEditor(nonce, epoch);
+    const field = within(editor).getByRole("textbox", { name: "New text" });
+    fireEvent.change(field, { target: { value: TYPED } });
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Shorter" },
+    });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.click(await within(editor).findByRole("tab", { name: "Preview" }));
+    const frame = (await within(editor).findByTitle(
+      "Preview of the suggested edit",
+    )) as HTMLIFrameElement;
+    expect(frame.getAttribute("sandbox")).toBe("");
+    expect(server.suggestions.previewRequests).toEqual([
+      {
+        unsaved: {
+          versionId: "v1",
+          as: "suggestion",
+          edit: { operations: [{ kind: "text", target: TEXT_TARGET, after: TYPED }] },
+        },
+      },
+    ]);
+    // Nothing was saved, and the frame never got the text.
+    expect(server.requests.some((r) => r.path.endsWith("/suggestions"))).toBe(false);
+    expect(JSON.stringify(sent())).not.toContain(TYPED);
+  });
+
+  it("previews the whole draft with the change being made, and a saved draft by its plan", async () => {
+    const other = {
+      ...TEXT_TARGET,
+      anchor: { ...TEXT_TARGET.anchor, position: { start: 40, end: 55 } },
+    };
+    server.suggestions.drafts[ID] = {
+      ...draftOf("v1"),
+      edit: { operations: [{ kind: "text", target: other, after: "kept" }] },
+    };
+    server.suggestions.draftPlans[ID] = plan();
+    await open();
+    const { nonce } = await connect();
+    fireEvent.click(within(await modeSwitch()).getByRole("button", { name: "Edit mode" }));
+    await waitFor(() =>
+      expect(
+        sent()
+          .filter((m) => m.type === "edit-mode")
+          .at(-1),
+      ).toMatchObject({ active: true }),
+    );
+    const epoch = (
+      sent()
+        .filter((m) => m.type === "edit-mode")
+        .at(-1) as { epoch: number }
+    ).epoch;
+    const editor = await openEditor(nonce, epoch);
+    const field = within(editor).getByRole("textbox", { name: "New text" });
+    fireEvent.change(field, { target: { value: TYPED } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.click(await within(editor).findByRole("tab", { name: "Preview" }));
+    await within(editor).findByTitle("Preview of the suggested edit");
+    expect(server.suggestions.previewRequests.at(-1)).toEqual({
+      unsaved: {
+        versionId: "v1",
+        as: "draft",
+        edit: {
+          operations: [
+            { kind: "text", target: other, after: "kept" },
+            { kind: "text", target: TEXT_TARGET, after: TYPED },
+          ],
+        },
+      },
+    });
+    fireEvent.keyDown(field, { key: "Escape" });
+
+    const panel = screen.getByRole("region", { name: "Your draft" });
+    fireEvent.click(within(panel).getByRole("button", { name: "Check what applies" }));
+    fireEvent.click(await within(panel).findByRole("tab", { name: "Preview" }));
+    await within(panel).findByTitle("Preview of the suggested edit");
+    expect(server.suggestions.previewRequests.at(-1)).toEqual({ digest: DIGEST });
+  });
+
+  it("moves a draft made on an earlier version and lists what it could not carry", async () => {
+    server.suggestions.drafts[ID] = draftOf("v0");
+    const lost = { kind: "text", target: TEXT_TARGET, after: "lost‮" };
+    server.suggestions.rebased = {
+      draft: { ...draftOf("v1"), revision: 3 },
+      conflicts: [{ operation: lost, reason: "target_changed" }],
+    };
+    await open();
+    const panel = await screen.findByRole("region", { name: "Your draft" });
+    fireEvent.click(
+      await within(panel).findByRole("button", { name: "Move the draft to the current version" }),
+    );
+    await screen.findByText(/1 change carried, 1 to make again/);
+    expect(server.bodies.at(-1)).toEqual({ baseRevision: 2, baseIncarnation: "i".repeat(22) });
+    // On the current version now: it can be checked and published again.
+    await within(panel).findByRole("button", { name: "Check what applies" });
+    expect(within(panel).queryByText(/made on an earlier version/)).toBeNull();
+    const list = within(panel).getByRole("list", {
+      name: "Changes that could not be moved, to make again",
+    });
+    // The author's own text, still typed: the bidirectional character is a chip.
+    expect(list.textContent).toContain("U+202E");
+    expect(list.textContent).not.toContain("\u202e");
+    expect(list.textContent).toContain(
+      "The text it changed is different or gone on the current version.",
+    );
+  });
+
+  it("finds text in the stored page and opens the editor there, never reading the frame", async () => {
+    server.suggestions.pages[`${ID}:index.html`] = {
+      contentType: "text/html; charset=utf-8",
+      content: `<!doctype html><html><head><script>x()</script></head><body><h1>Launch plan</h1><p>Hello brave new world. Say brave words.</p></body></html>`,
+    };
+    const { container } = await open();
+    const { nonce } = await connect();
+    await suggestMode();
+    const search = screen.getByRole("region", { name: "Suggest a text change" });
+    fireEvent.change(within(search).getByRole("textbox", { name: "Text to find" }), {
+      target: { value: "brave" },
+    });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    await within(search).findByText("2 places found.");
+    // The page was read in two parts through the API.
+    expect(
+      server.requests.filter((r) => r.path.includes("/versions/current/content")),
+    ).toHaveLength(3);
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(container)).toEqual([]);
+    Object.defineProperty(HTMLIFrameElement.prototype, "contentWindow", {
+      configurable: true,
+      get: () => frameWindow,
+    });
+    fireEvent.click(within(search).getByRole("button", { name: "Change the text at place 2" }));
+    const editor = await screen.findByRole("region", { name: "Suggest an edit to the selection" });
+    const field = within(editor).getByRole("textbox", { name: "New text" }) as HTMLInputElement;
+    expect(field.value).toBe("brave");
+    fireEvent.change(field, { target: { value: "bold" } });
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Bolder" },
+    });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.click(await within(editor).findByRole("button", { name: "Save suggestion" }));
+    await screen.findByText("Suggestion saved.");
+    const posted = server.bodies.find(
+      (b) => typeof b === "object" && b !== null && "edit" in b && "body" in b,
+    ) as {
+      edit: { operations: { target: { path: string; anchor: { quote: { exact: string } } } }[] };
+    };
+    expect(posted.edit.operations[0]?.target).toMatchObject({
+      path: "index.html",
+      anchor: { kind: "text", quote: { exact: "brave", suffix: " words." } },
+    });
+    expect(JSON.stringify(sent())).not.toContain("bold");
+    expect(nonce).toBeTruthy();
+  });
+
+  it("tells reviewers to select in the frame, since they may not read the page's file", async () => {
+    server.annotations[ID] = {
+      ...(server.annotations[ID] as FakeAnnotations),
+      role: "participant",
+    };
+    await open();
+    await connect();
+    await suggestMode();
+    const search = screen.getByRole("region", { name: "Suggest a text change" });
+    expect(within(search).getByText(/not available to reviewers yet/)).toBeTruthy();
+    expect(within(search).queryByRole("search")).toBeNull();
+  });
+
+  it("says when the page cannot be searched", async () => {
+    server.suggestions.pages[`${ID}:index.html`] = { contentType: "text/markdown", content: "# x" };
+    await open();
+    await connect();
+    await suggestMode();
+    const search = screen.getByRole("region", { name: "Suggest a text change" });
+    fireEvent.change(within(search).getByRole("textbox", { name: "Text to find" }), {
+      target: { value: "x" },
+    });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    expect(
+      await within(search).findAllByText(/Search is available on HTML pages/),
+    ).not.toHaveLength(0);
+    expect(within(search).queryByRole("list", { name: "Places with the text" })).toBeNull();
+  });
+});

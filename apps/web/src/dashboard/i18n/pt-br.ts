@@ -1106,6 +1106,31 @@ export const ptBR = {
   "draft.refused.full":
     "Seu rascunho já tem o máximo de alterações. Publique ou descarte-o primeiro.",
   "draft.refused.invalid": "Esta alteração não pode ser adicionada ao rascunho.",
+  "suggest.editor.tabs": "Sua alteração",
+  "suggest.editor.tabs.change": "Alteração",
+  "draft.tabs": "Plano do seu rascunho",
+  "draft.rebase": "Mover o rascunho para a versão atual",
+  "draft.rebased":
+    "Rascunho movido para a versão atual: {carried, plural, one {# alteração transferida} other {# alterações transferidas}}, {left, plural, one {# para refazer} other {# para refazer}}.",
+  "draft.conflicts": "Alterações que não puderam ser movidas, para refazer",
+  "draft.conflicts.dismiss": "Dispensar esta lista",
+  "suggest.search.heading": "Sugerir uma alteração de texto",
+  "suggest.search.hint":
+    "Encontre o texto na página em vez de selecioná-lo no artifact. A busca lê a página publicada, não o que seus scripts mostram.",
+  "suggest.search.query": "Texto a encontrar",
+  "suggest.search.find": "Buscar",
+  "suggest.search.found":
+    "{count, plural, =0 {Nenhum lugar encontrado.} one {# lugar encontrado.} other {# lugares encontrados.}}",
+  "suggest.search.none": "O texto não foi encontrado nesta página.",
+  "suggest.search.results": "Lugares com o texto",
+  "suggest.search.choose": "Alterar o texto no lugar {number}",
+  "suggest.search.refused":
+    "Este lugar não pode ser alterado. Tente um trecho de texto mais curto ou mais longo.",
+  "suggest.search.unavailable":
+    "A busca está disponível em páginas HTML. Nesta página, selecione o texto no artifact.",
+  "draft.conflictReason": "O texto alterado está diferente ou não existe na versão atual.",
+  "suggest.search.ownerOnly":
+    "A busca na página ainda não está disponível para revisores. Selecione o texto no artifact.",
   "review.open": "Revisar e comentar",
   "viewer.loading": "Abrindo o artifact",
   "viewer.unavailable.title": "Este artifact não pode ser aberto",

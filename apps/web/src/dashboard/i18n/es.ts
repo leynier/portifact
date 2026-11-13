@@ -1122,6 +1122,31 @@ export const es = {
   "draft.refused.full":
     "Tu borrador ya tiene el máximo de cambios. Publícalo o descártalo primero.",
   "draft.refused.invalid": "Este cambio no se puede añadir al borrador.",
+  "suggest.editor.tabs": "Tu cambio",
+  "suggest.editor.tabs.change": "Cambio",
+  "draft.tabs": "Plan de tu borrador",
+  "draft.rebase": "Mover el borrador a la versión actual",
+  "draft.rebased":
+    "Borrador movido a la versión actual: {carried, plural, one {# cambio trasladado} other {# cambios trasladados}}, {left, plural, one {# por rehacer} other {# por rehacer}}.",
+  "draft.conflicts": "Cambios que no se pudieron mover, para rehacer",
+  "draft.conflicts.dismiss": "Descartar esta lista",
+  "suggest.search.heading": "Sugerir un cambio de texto",
+  "suggest.search.hint":
+    "Busca el texto en la página en lugar de seleccionarlo en el artifact. La búsqueda lee la página publicada, no lo que muestran sus scripts.",
+  "suggest.search.query": "Texto que buscar",
+  "suggest.search.find": "Buscar",
+  "suggest.search.found":
+    "{count, plural, =0 {No se encontró ningún lugar.} one {# lugar encontrado.} other {# lugares encontrados.}}",
+  "suggest.search.none": "No se encontró el texto en esta página.",
+  "suggest.search.results": "Lugares con el texto",
+  "suggest.search.choose": "Cambiar el texto en el lugar {number}",
+  "suggest.search.refused":
+    "Este lugar no se puede cambiar. Prueba con un fragmento de texto más corto o más largo.",
+  "suggest.search.unavailable":
+    "La búsqueda está disponible en páginas HTML. En esta página, selecciona el texto en el artifact.",
+  "draft.conflictReason": "El texto que cambiaba es distinto o ya no está en la versión actual.",
+  "suggest.search.ownerOnly":
+    "La búsqueda en la página aún no está disponible para revisores. Selecciona el texto en el artifact.",
   "review.open": "Revisar y comentar",
   "viewer.loading": "Abriendo el artifact",
   "viewer.unavailable.title": "No se puede abrir este artifact",
