@@ -659,7 +659,8 @@ function needs(objects: DataObjects | null | undefined, topic: string): DataObje
  * (`fenceRefused`); retried while an earlier change has to land first. A fence never takes a new
  * epoch and never rewrites its own row: an obsolete or stale hold or release ends after one
  * comparison of the levels (`convergeHold`), which may write a corrective job of its own; one
- * that ends because the object's owner is not D1's records the owner finding.
+ * that ends while the object's owner is not D1's, with no transfer to D1's owner still waiting
+ * above the object's epoch, records the owner finding.
  */
 export async function runDataFence(
   db: RegionalDb,
@@ -678,6 +679,7 @@ export async function runDataFence(
   const level = byLevel ? await holdLevel(db, artifactId, control?.hold?.transition ?? null) : null;
   if (level !== null && fenceObsolete(payload.fence, level)) {
     await convergeHold(db, artifactId, control, current, now, row.id, level);
+    await recordOwnerDisagreement(db, artifactId, control, current, now, row.id);
     logEvent("log", "data_job_refused", { id: row.id, topic: row.topic, reason: "obsolete" });
     return "stale";
   }
@@ -700,6 +702,7 @@ export async function runDataFence(
           artifactId,
           envelope.ownerId,
           awaitedTransferWindow(after, envelope),
+          row.id,
         )
       : false;
   const step =
@@ -709,10 +712,8 @@ export async function runDataFence(
           dataRowGone: current === null,
           ownerAwaited,
         });
-  if (step === "done" && otherOwner) {
-    // The disagreement is visible without an operator's reconciliation; reconciliation's own
-    // owner quarantine overwrites it if the operator runs one.
-    await recordFinding(db, artifactId, "refused", "owner", now);
+  if (step === "done" && answer.code === "stale") {
+    await recordOwnerDisagreement(db, artifactId, after, current, now, row.id);
   }
   if (step === "done" && answer.code === "stale" && byLevel) {
     // The level read before the call still holds when the object's hold is the one it read with.
@@ -731,21 +732,43 @@ export async function runDataFence(
 }
 
 /**
+ * When a fence ends while the object's owner is not D1's and no transfer that could still bring it
+ * there is waiting (above the object's epoch, the ending job left out), records the owner
+ * finding: the disagreement is visible without an operator's reconciliation, whose owner
+ * quarantine overwrites it if the operator runs one. One read, then one statement.
+ */
+async function recordOwnerDisagreement(
+  db: RegionalDb,
+  artifactId: string,
+  control: DataControl | null,
+  current: { ownerId: string } | null,
+  now: number,
+  exclude: number,
+): Promise<void> {
+  if (control === null || current === null || control.ownerId === current.ownerId) return;
+  const window = { above: control.epoch, below: Number.MAX_SAFE_INTEGER };
+  if (await transferWaiting(db, artifactId, current.ownerId, window, exclude)) return;
+  await recordFinding(db, artifactId, "refused", "owner", now);
+}
+
+/**
  * Whether D1 has a transfer of the artifact to `owner` waiting in its outbox at an epoch strictly
- * inside `window` (`awaitedTransferWindow`): a predecessor that can still apply. One read.
+ * inside `window` (`awaitedTransferWindow`), other than the job `exclude`: a predecessor that can
+ * still apply. One read.
  */
 async function transferWaiting(
   db: RegionalDb,
   artifactId: string,
   owner: string,
   window: { above: number; below: number },
+  exclude = 0,
 ) {
   const o = schema.outbox;
   const [waiting] = await db
     .select({ id: o.id })
     .from(o)
     .where(
-      sql`${o.topic} = 'data_fence' and ${o.subject} = ${artifactId} and json_extract(${o.payload}, '$.fence.kind') = 'transfer' and json_extract(${o.payload}, '$.fence.toOwner') = ${owner} and json_extract(${o.payload}, '$.epoch') > ${window.above} and json_extract(${o.payload}, '$.epoch') < ${window.below}`,
+      sql`${o.topic} = 'data_fence' and ${o.subject} = ${artifactId} and ${o.id} <> ${exclude} and json_extract(${o.payload}, '$.fence.kind') = 'transfer' and json_extract(${o.payload}, '$.fence.toOwner') = ${owner} and json_extract(${o.payload}, '$.epoch') > ${window.above} and json_extract(${o.payload}, '$.epoch') < ${window.below}`,
     )
     .limit(1);
   return waiting !== undefined;

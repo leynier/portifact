@@ -365,7 +365,19 @@ describe("a fence under an owner the object does not have", () => {
     await db().delete(schema.outbox).where(eq(schema.outbox.id, later.id));
     await transferAt(5);
     expect(await run(await under(6), memory.data)).toBe("pending");
-    // A fence that ends under another owner records the owner finding, once.
+    expect(
+      await db().select().from(schema.dataFindings).where(eq(schema.dataFindings.artifactId, id)),
+    ).toEqual([]);
+    // D1 moved the artifact to that owner, and the transfer is lost: the fence ends, and the
+    // job records that the object's owner is not D1's.
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: "u_next" })
+      .where(eq(schema.artifacts.id, id));
+    await db()
+      .delete(schema.outbox)
+      .where(sql`${schema.outbox.subject} = ${id} and ${schema.outbox.topic} = 'data_fence'`);
+    expect(await run(await under(6), memory.data)).toBe("stale");
     const [finding] = await db()
       .select()
       .from(schema.dataFindings)
