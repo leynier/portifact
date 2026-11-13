@@ -268,6 +268,16 @@ export async function transferArtifact(
         .update(schema.annotationMessages)
         .set({ ownerId: to })
         .where(guarded(eq(schema.annotationMessages.artifactId, artifact.id))),
+      // Edit suggestions (decision 0027): change-list items move with the artifact (their bytes
+      // follow by trigger); drafts and cached plans were made under the old owner and go.
+      w
+        .update(schema.changeItems)
+        .set({ ownerId: to })
+        .where(guarded(eq(schema.changeItems.artifactId, artifact.id))),
+      w.delete(schema.editDrafts).where(guarded(eq(schema.editDrafts.artifactId, artifact.id))),
+      w
+        .delete(schema.suggestionPlans)
+        .where(guarded(eq(schema.suggestionPlans.artifactId, artifact.id))),
       // Events still waiting for the source's webhooks: a delivery only builds events for
       // artifacts its webhook's owner still owns, so they would be dropped later and linger here.
       // Activity after the move goes to the target's webhooks, which key on the current owner.

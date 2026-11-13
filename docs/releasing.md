@@ -412,6 +412,10 @@ Question 2 of decision 0025 (may an EU owner's preview name the artifact) is ass
 
 Released CLIs: Slack connections never appear in the owner side's listing, so no CLI release has to come first.
 
+### Suggestions
+
+Edit suggestions ship switched off ([decision 0027](decisions/0027-edit-suggestions.md)). The text delivery is built as stacked pull requests; `SUGGESTIONS_ENABLED="true"` goes on `portifact-app` and `portifact-jobs` (never in a `wrangler.jsonc`) only when the whole delivery works and its release checks pass: the decision's "Deliveries" lists them (the e2e suite in every project, the browser differential with WebKit, crash tests for every recovery row and a screen reader pass). The legal pages and `TERMS_VERSION` change in the delivery's last pull request. A test in `packages/domain` fails when the variable appears in a Worker's `wrangler.jsonc`.
+
 ### Artifact data Worker (not deployed)
 
 `apps/data` is the data Worker of [decision 0026](decisions/0026-artifact-data.md) (`portifact-data`): it exports the documents Durable Object `ArtifactDocuments` and answers `404` to everything, with no route, binding to D1, R2 or a queue, or secret. Its `wrangler.jsonc` declares the class with the legacy migration `v1` (`new_sqlite_classes`) so its tests run it as configured, but no workflow deploys it and no other Worker binds it: a release from this change creates nothing on Cloudflare. It stays undeployed until the delivery that adds its first caller (the jobs Worker's fences, erasure and reconciliation), because a deployed class can only be removed with a `deleted_classes` migration, which deletes every object of the class and which `scripts/durable-migrations.test.ts` refuses in every configuration; an unreachable class buys nothing until then.

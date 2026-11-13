@@ -15,9 +15,10 @@
     "@portifact/anchors": "workspace:*",
     "@portifact/bridge": "workspace:*",
     "@portifact/contracts": "workspace:*",
+    "@portifact/domain": "workspace:*",
     "@portifact/render": "workspace:*",
-    "zod": "^4.6.7",
-    "parse5": "8.1.0"
+    "parse5": "8.1.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "catalog:",

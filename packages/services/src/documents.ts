@@ -10,6 +10,7 @@ import {
   RENDERER_VERSION,
   RenderError,
   renderMarkdownDocument,
+  renderStoredDocument,
   renderTextDocument,
 } from "@portifact/render";
 import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
@@ -40,9 +41,6 @@ export interface RenderInput {
   sourceSha256: string;
 }
 
-const HTML = "text/html; charset=utf-8";
-const JSON_TYPE = "application/json";
-
 /**
  * Reads a document's source from R2 and renders it. Fails with `invalid_input` when the source
  * is not a valid document (binary, invalid UTF-8 or over the size limit).
@@ -61,29 +59,11 @@ export async function renderDocument(
     throw error;
   }
   const encoder = new TextEncoder();
-  const outputs: { kind: Rendering["kind"]; contentType: string; text: string }[] = [];
-  if (input.type === "markdown") {
-    // Published pages draw their Mermaid blocks in the browser; the preview below does not.
-    const document = renderMarkdownDocument(source, {
-      title: input.name,
-      reportLink: true,
-      liveDiagrams: true,
-    });
-    outputs.push({ kind: "rendered", contentType: HTML, text: document.html });
-    outputs.push({
-      kind: "block_map",
-      contentType: JSON_TYPE,
-      text: JSON.stringify({
-        rendererVersion: document.rendererVersion,
-        sourceSha256: input.sourceSha256,
-        blocks: document.blocks,
-        headings: document.headings,
-      }),
-    });
-  } else {
-    const document = renderTextDocument(source, { title: input.name, reportLink: true });
-    outputs.push({ kind: "rendered", contentType: HTML, text: document.html });
-  }
+  // The same function the suggestion planners use to reproduce and derive stored renderings.
+  const outputs = renderStoredDocument(input.type, source, {
+    title: input.name,
+    sourceSha256: input.sourceSha256,
+  });
   const files: Rendering[] = [];
   for (const output of outputs) {
     const bytes = encoder.encode(output.text);

@@ -18,6 +18,7 @@ import {
   renderPlainText,
   repositoryUrl,
   resolvePackage,
+  stringLiteral,
 } from "./notices.ts";
 
 /** An in-memory tree: paths to file contents; directories are implied, symlinks map to targets. */
@@ -382,8 +383,26 @@ describe("rendering", () => {
   it("embeds the text in a module that round-trips", () => {
     const module = renderCliModule('quote " and\nnewline');
     expect(module).toContain("export const THIRD_PARTY_NOTICES =\n");
-    const literal = module.slice(module.indexOf('  "') + 2, module.lastIndexOf(";"));
-    expect(JSON.parse(literal)).toBe('quote " and\nnewline');
+    const literal = module.slice(module.indexOf("=\n  ") + 4, module.lastIndexOf(";"));
+    expect(new Function(`return ${literal};`)()).toBe('quote " and\nnewline');
+  });
+
+  it("quotes as Biome does: single quotes only when the text holds more double quotes", () => {
+    const read = (literal: string) => new Function(`return ${literal};`)() as string;
+    for (const text of [
+      'a "b" c',
+      `it's "x" and "y"`,
+      "plain",
+      "it's",
+      'a \\ "b" \\" \n',
+      '""\'',
+    ]) {
+      const literal = stringLiteral(text);
+      expect(read(literal), text).toBe(text);
+      const doubles = text.split('"').length - 1;
+      const singles = text.split("'").length - 1;
+      expect(literal.startsWith("'"), text).toBe(doubles > singles);
+    }
   });
 });
 

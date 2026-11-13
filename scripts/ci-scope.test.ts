@@ -36,6 +36,8 @@ describe("CI scope", () => {
       "e2e/playwright.config.ts",
       "spikes/artifact-data-grant/tests/grant.spec.ts",
       "spikes/artifact-data/src/grants.ts",
+      "spikes/edit-suggestions/browser/preview-motion.spec.ts",
+      "spikes/edit-suggestions/playwright.config.ts",
       "turbo.json",
       "bun.lock",
       ".github/workflows/ci.yml",

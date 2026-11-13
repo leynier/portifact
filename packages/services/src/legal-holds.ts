@@ -366,6 +366,9 @@ export async function runHoldRelease(
       .selectDistinct({ id: rq.requestedBy })
       .from(rq)
       .where(eq(rq.artifactId, artifactId))),
+    // Edit suggestions (decision 0027): the people beside change items, who decided a suggestion,
+    // who ran an acceptance and whose drafts the hold kept.
+    ...(await suggestionPeople(db, artifactId)),
   ]
     .map((row) => row.id)
     .filter((id): id is string => typeof id === "string");
@@ -424,6 +427,34 @@ export async function runHoldRelease(
     if ((await eraseAccountTraces(db, userId)).more) return "pending";
   }
   return "done";
+}
+
+/** Everyone edit suggestions name on an artifact, for the release to erase deleted accounts. */
+async function suggestionPeople(
+  db: RegionalDb,
+  artifactId: string,
+): Promise<{ id: string | null }[]> {
+  const ci = schema.changeItems;
+  const th = schema.annotationThreads;
+  const aa = schema.acceptanceAttempts;
+  const ed = schema.editDrafts;
+  return [
+    ...(await db
+      .selectDistinct({ id: ci.createdBy })
+      .from(ci)
+      .where(eq(ci.artifactId, artifactId))),
+    ...(await db
+      .selectDistinct({ id: ci.submittedBy })
+      .from(ci)
+      .where(eq(ci.artifactId, artifactId))),
+    ...(await db.selectDistinct({ id: ci.closedBy }).from(ci).where(eq(ci.artifactId, artifactId))),
+    ...(await db
+      .selectDistinct({ id: th.decidedBy })
+      .from(th)
+      .where(eq(th.artifactId, artifactId))),
+    ...(await db.selectDistinct({ id: aa.userId }).from(aa).where(eq(aa.artifactId, artifactId))),
+    ...(await db.selectDistinct({ id: ed.userId }).from(ed).where(eq(ed.artifactId, artifactId))),
+  ];
 }
 
 /** Deletes the identities of every hold that is no longer open: idempotent, one statement. */

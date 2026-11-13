@@ -129,6 +129,13 @@ jobs:
       - name: Artifact data grant experiment
         if: ${{ success() || failure() }}
         run: bun run --cwd spikes/artifact-data-grant spike -- --project=${{ matrix.project }}
+      # Decision 0027's browser checks (spikes/edit-suggestions): parse5 against the engine for
+      # the contexts the HTML subset refuses, and the production preview builder's output, framed
+      # with an empty sandbox, never animating. About 5 seconds in Chromium and 8 in Firefox; run
+      # once per engine, in the jobs whose browser is Chromium or the first Firefox one.
+      - name: Edit suggestion browser checks
+        if: ${{ (success() || failure()) && (matrix.project == 'chromium-3pc-blocked' || matrix.project == 'firefox-chips') }}
+        run: bun run --cwd spikes/edit-suggestions browser -- --project=${{ matrix.browser }}
       - name: Keep traces of failed tests
         if: failure()
         uses: actions/upload-artifact@v7
@@ -137,6 +144,7 @@ jobs:
           path: |
             e2e/test-results/
             spikes/artifact-data-grant/test-results/
+            spikes/edit-suggestions/test-results/
           retention-days: 7
           if-no-files-found: ignore
 
