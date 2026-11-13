@@ -3433,6 +3433,9 @@ export const de = {
     "{count, plural, one {Hat # Datendokument ersetzt} other {Hat # Datendokumente ersetzt}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Hat # Datendokument gelöscht} other {Hat # Datendokumente gelöscht}}",
+  "audit.kind.dataErased": "Hat alle Daten des Artefakts gelöscht",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Hat # Datendokument} other {Hat # Datendokumente}} und {edits, plural, one {# Änderung} other {# Änderungen}} eines gelöschten Kontos gelöscht",
   "detail.section.data": "Daten",
   "artifactData.loading": "Daten des Artifacts werden geladen",
   "artifactData.error.title": "Die Daten konnten nicht geladen werden",

@@ -36,6 +36,7 @@ import {
   type OwnerEnvelope,
   type PageCaller,
   type PageDataCommand,
+  type PendingObligation,
   type QuarantineReason,
   type QuarantineResolutionRequest,
   type RequiredErase,
@@ -43,6 +44,7 @@ import {
   type SettleAnswer,
   type StorageReport,
 } from "@portifact/contracts/artifact-data";
+
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import { logEvent } from "@portifact/domain";
 import {
@@ -179,6 +181,12 @@ export interface DataObjectRpc {
     limits: ArtifactDataLimits,
     now: number,
   ): Promise<boolean>;
+  /** The daily sweep's read of obligations pending since before `before`. */
+  auditPending(
+    envelope: LifecycleEnvelope,
+    before: number,
+    now: number,
+  ): Promise<PendingObligation[]>;
 }
 
 /** The objects of one region, as a job reaches them. */

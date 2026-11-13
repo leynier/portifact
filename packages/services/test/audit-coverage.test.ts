@@ -183,7 +183,11 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
     "data.documents_created",
     "data.documents_replaced",
     "data.documents_deleted",
+    "data.author_erased",
   ],
+  // The owner's reset: the D1 batch that follows the object's committed erase records it.
+  eraseArtifactData: ["data.erased"],
+  runDataReset: ["data.erased"],
   markChangeItemOnce: ["change_item.marked"],
 };
 
@@ -303,6 +307,10 @@ reason(
   ["acceptSuggestion", "publishDraft", "planSuggestion", "planDraft"],
 );
 reason(
+  "edit suggestions (decision 0027): the page text for a text change only counts in the planning windows and reads the served page",
+  ["suggestionPageText"],
+);
+reason(
   "edit suggestions (decision 0027): an attempt that ends, carries, closures by a new version and the scans change nothing an owner decided; the suggestion is pending again or the record expired",
   [
     "endAttempt",
@@ -385,11 +393,16 @@ reason(
     "createDataDocuments",
     "replaceDataDocuments",
     "deleteDataDocuments",
+    "deleteAuthorData",
   ],
 );
 reason(
   "artifact data's live updates (decision 0026, delivery 7): a connection and its renewal change no document; what a connection receives is already audited where it was written",
   ["openLiveConnection", "renewLiveConnection"],
+);
+reason(
+  "artifact data's audit sweep only relays obligations the object already holds to data_audit jobs; runDataAudit records them",
+  ["sweepDataAudit"],
 );
 reason(
   "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",

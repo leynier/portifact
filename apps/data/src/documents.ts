@@ -13,6 +13,7 @@ import {
   type DataControl,
   type DataEnvelope,
   DataFence,
+  ERASURE_ACTOR,
   EraseStepName as EraseStep,
   ExportCursor,
   LIVE_CONNECT_HEADER,
@@ -27,12 +28,14 @@ import {
   OwnerEnvelope,
   PageCaller,
   PageDataCommand,
+  PENDING_OBLIGATIONS_PER_CALL,
   QuarantineReason,
   QuarantineResolutionRequest,
   RequiredErase,
   type StorageReport,
   VisitorId,
 } from "@portifact/contracts/artifact-data";
+
 import {
   LIFECYCLE_LIMITS,
   type LiveAttachment,
@@ -289,10 +292,33 @@ export class ArtifactDocuments extends DurableObject<Env> {
     return this.store.acknowledge(input.envelope, input.actor, input.opId, input.now);
   }
 
+  /**
+   * The daily sweep's read of the audit obligations still pending since before `before`
+   * (`PendingObligation`, at most `PENDING_OBLIGATIONS_PER_CALL`): writes nothing.
+   */
+  auditPending(envelope: unknown, before: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope) satisfies DataEnvelope,
+      before: Now.parse(before),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return [];
+    return this.store.pendingObligations(
+      input.envelope,
+      input.before,
+      PENDING_OBLIGATIONS_PER_CALL,
+      input.now,
+    );
+  }
+
   #settlement(envelope: unknown, actor: unknown, opId: unknown, now: unknown) {
     const input = this.#parsed(() => ({
       envelope: LifecycleEnvelope.parse(envelope) satisfies DataEnvelope,
-      actor: mutationActorName({ kind: "owner", actor: OwnerActor.parse(actor) }),
+      // An owner-side operation's actor, or an author erasure chunk's.
+      actor:
+        actor === ERASURE_ACTOR
+          ? ERASURE_ACTOR
+          : mutationActorName({ kind: "owner", actor: OwnerActor.parse(actor) }),
       opId: OperationId.parse(opId),
       now: Now.parse(now),
     }));

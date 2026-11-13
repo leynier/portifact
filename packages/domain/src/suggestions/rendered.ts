@@ -59,6 +59,19 @@ export function renderedPage(kind: FileKind, source: string, options: PageOption
   };
 }
 
+/**
+ * The text of a served page as the anchors read it (decision 0027, "Suggesting"): the normalized
+ * text a selection in the frame is counted in, so a place found in it is the same text target a
+ * selection gives. Only what the page shows: hidden subtrees, scripts, styles and Portifact's own
+ * chrome are not part of it (`isSkipped`). `html` is the page as served: an HTML file itself, or
+ * a document's stored rendering.
+ */
+export function servedPageText(html: string, work: Work): string {
+  const parsed = parseHtml(html, work);
+  const body = find(parsed.document, "body") as P5Element;
+  return new PageIndex(body, work).points.join("");
+}
+
 /** The node-local context window the planners keep on each side. */
 export const CONTEXT_WINDOW = PLAN_LIMITS.proofContextUnits;
 

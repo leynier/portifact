@@ -769,6 +769,7 @@ export const OUTBOX_TOPICS = [
   "data_resolve",
   "data_export",
   "data_audit",
+  "data_reset",
 ] as const;
 
 /**
@@ -1144,6 +1145,12 @@ export const dataOperations = sqliteTable(
     opId: text("op_id").notNull(),
     requestHash: text("request_hash").notNull(),
     createdAt: createdAt(),
+    /**
+     * An owner's erase only: the target its confirmation authorized (`{ ownerId, generation,
+     * epoch }`, JSON), bound once at the claim so every retry and the `data_reset` job act on it
+     * alone, and `done` (the generation the erase reached) once D1 followed it.
+     */
+    target: text("target"),
   },
   (t) => [
     primaryKey({ columns: [t.actorId, t.idempotencyKey] }),

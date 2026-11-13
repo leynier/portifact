@@ -23,6 +23,8 @@ import {
   EDIT_LIMITS,
   IdempotencyKey,
   MarkChangeItem,
+  PageText,
+  PageTextQuery,
   Plan,
   RebaseDraftRequest,
   RebasedDraft,
@@ -54,6 +56,7 @@ import {
   runIdempotent,
   saveDraft,
   submitSuggestion,
+  suggestionPageText,
   withdrawSuggestion,
 } from "@portifact/services";
 import { Hono } from "hono";
@@ -241,6 +244,24 @@ export function suggestionRoutes(
       }),
     );
   }
+
+  // The text of a page for "Suggest a text change": whoever may suggest, from the viewer.
+  api.get(
+    `${BASE}/page-text`,
+    session("annotations:read", async (c, userId) => {
+      const query = PageTextQuery.safeParse(c.req.query());
+      if (!query.success) return error(c, "invalid_input", "Name the page with ?path=.");
+      const { db, bucket } = await region(c);
+      if (!bucket) return error(c, "capacity_unavailable", "Page text is unavailable.");
+      const result = await suggestionPageText(db, bucket, {
+        ...actor(c, userId),
+        path: query.data.path,
+        contentDomain: c.env.CONTENT_DOMAIN,
+      });
+      if (!result.ok) return refused(c, result);
+      return c.json(PageText.parse(result.value));
+    }),
+  );
 
   // The owner's draft: its author's only
 

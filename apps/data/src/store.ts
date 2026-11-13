@@ -64,6 +64,7 @@ import {
   type ExportPage,
   editorAfter,
   emptyDay,
+  erasedObligation,
   flushPending,
   growthRefusal,
   helloMessage,
@@ -96,6 +97,7 @@ import {
   passLeftMore,
   payloadChanged,
   pendingDeadline,
+  pendingObligation,
   planConnect,
   planCount,
   planExport,
@@ -2294,6 +2296,7 @@ export class DocumentsStore {
     envelope: DataEnvelope,
     eraseId: string,
     now: number,
+    audit: string | null = null,
   ) {
     return this.#controlCommand(now, `erase_${step}`, () => {
       const [found] = this.#read("SELECT outcome FROM pf_ended WHERE id = ?", eraseId);
@@ -2308,6 +2311,19 @@ export class DocumentsStore {
       if (!decided.ok) fail(decided);
       const result = decided.value;
       if (result.erasePayload) this.#erasePayload();
+      if (audit !== null && result.erasePayload) {
+        // An owner's reset: its audit obligation commits with it (control data, kept by the erase).
+        const obligation = erasedObligation(envelope, eraseId, audit);
+        this.#exec(
+          `INSERT INTO pf_audit (key, kind, detail, owner, state, at) VALUES (?, ?, ?, ?, 'pending', ?)
+           ON CONFLICT(key) DO NOTHING`,
+          obligation.key,
+          obligation.kind,
+          JSON.stringify(obligation.detail),
+          envelope.ownerId,
+          now,
+        );
+      }
       if (result.ended !== null) this.#endIntent(result.ended.id, result.ended.outcome, now);
       if (result.control !== null) this.#setControl(result.control);
       if (result.startsIntent) {
@@ -2323,8 +2339,8 @@ export class DocumentsStore {
     return this.#eraseStep("prepare", envelope, eraseId, now);
   }
 
-  commitErase(envelope: DataEnvelope, eraseId: string, now: number) {
-    return this.#eraseStep("commit", envelope, eraseId, now);
+  commitErase(envelope: DataEnvelope, eraseId: string, now: number, audit?: string) {
+    return this.#eraseStep("commit", envelope, eraseId, now, audit ?? null);
   }
 
   cancelErase(envelope: DataEnvelope, eraseId: string, now: number) {
@@ -2403,6 +2419,37 @@ export class DocumentsStore {
       return { value: true, wrote: true };
     });
     return (answer as { value: boolean }).value;
+  }
+
+  /**
+   * The audit obligations still pending since before `before`, oldest first, at most `limit`
+   * (the daily sweep's read, through `pf_audit_state`). Maintenance admission; writes nothing.
+   */
+  pendingObligations(
+    envelope: DataEnvelope,
+    before: number,
+    limit: number,
+    now: number,
+  ): { actor: string; generation: number; opId: string; owner: string }[] {
+    const answer = this.#controlCommand(now, "audit_pending", () => {
+      const stored = this.#readControl();
+      if (stored === null || !admit(stored, envelope, { kind: "maintenance" }).ok) {
+        return { value: [], wrote: false };
+      }
+      const rows = this.#read(
+        "SELECT key, owner FROM pf_audit WHERE state = 'pending' AND at < ? ORDER BY at LIMIT ?",
+        before,
+        limit,
+      );
+      const found = rows
+        .map((row) => pendingObligation(str(row.key), str(row.owner)))
+        .filter((item) => item !== null);
+      return { value: found, wrote: false };
+    });
+    return (
+      (answer as { value?: { actor: string; generation: number; opId: string; owner: string }[] })
+        .value ?? []
+    );
   }
 
   // Housekeeping.

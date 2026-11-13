@@ -85,6 +85,6 @@ export {
   carryAll,
   MARKER_BATCH_MAX,
 } from "./relocate.ts";
-export { type RenderedPage, renderedPage } from "./rendered.ts";
+export { pageHtml, type RenderedPage, renderedPage, servedPageText } from "./rendered.ts";
 export { planText, TEXT_IDENTITY } from "./text-planner.ts";
 export { newWork, type Work } from "./work.ts";

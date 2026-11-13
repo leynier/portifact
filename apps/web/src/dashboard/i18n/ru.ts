@@ -3402,6 +3402,9 @@ export const ru = {
     "{count, plural, one {Заменил # документ данных} few {Заменил # документа данных} many {Заменил # документов данных} other {Заменил # документа данных}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Удалил # документ данных} few {Удалил # документа данных} many {Удалил # документов данных} other {Удалил # документа данных}}",
+  "audit.kind.dataErased": "Стёр все данные артефакта",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Стёр # документ данных} few {Стёр # документа данных} many {Стёр # документов данных} other {Стёр # документа данных}} и {edits, plural, one {# правку} few {# правки} many {# правок} other {# правки}} удалённой учётной записи",
   "detail.section.data": "Данные",
   "artifactData.loading": "Загрузка данных artifact",
   "artifactData.error.title": "Не удалось загрузить данные",

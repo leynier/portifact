@@ -285,3 +285,39 @@ export const ExportDataInput = z.object({
   after: z.string().min(1).max(80).optional(),
 });
 export type ExportDataInput = z.infer<typeof ExportDataInput>;
+
+/** `POST /api/v1/artifacts/:id/data/erase`: the owner's erase of all the artifact's data. */
+export const DataEraseRequest = z.strictObject({ confirm: z.literal(true) });
+export const DataErased = z.object({
+  erased: z.literal(true),
+  generation: z.number().int().min(0),
+});
+export type DataErased = z.infer<typeof DataErased>;
+
+/** An author as the owner side names one: the opaque per-artifact visitor ID in `_by`. */
+export const DataAuthor = z.string().regex(/^v_[A-Za-z0-9_-]{16,64}$/, "Invalid author");
+
+/**
+ * `POST /api/v1/artifacts/:id/data/authors/:author/delete`: deletes the documents one author
+ * created, up to `AUTHOR_DELETE_PAGES` bulk deletes a call; `more` asks for another call.
+ */
+export const DataAuthorDeleteRequest = z.strictObject({ confirm: z.literal(true) });
+export const DataAuthorDeleted = z.object({ removed: z.number().int().min(0), more: z.boolean() });
+export type DataAuthorDeleted = z.infer<typeof DataAuthorDeleted>;
+
+/** Bulk deletes of one author's documents one call makes at most (100 documents each). */
+export const AUTHOR_DELETE_PAGES = 5;
+
+export const EraseArtifactDataInput = z.object({
+  ...OnArtifact,
+  confirm: z.literal(true),
+  ...Retry,
+});
+export type EraseArtifactDataInput = z.infer<typeof EraseArtifactDataInput>;
+export const DeleteAuthorDataInput = z.object({
+  ...OnArtifact,
+  author: DataAuthor,
+  confirm: z.literal(true),
+  ...Retry,
+});
+export type DeleteAuthorDataInput = z.infer<typeof DeleteAuthorDataInput>;
