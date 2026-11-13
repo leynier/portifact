@@ -277,7 +277,13 @@ describe("refusals at the route", () => {
     const n = await setup(() => [CROSSING()]);
     const m = await setup(() => [CROSSING()]);
     const override = (steps: number) =>
-      setBudgetOverride(db().global, { level: "protect100", steps, until: null, note: null, now: NOW });
+      setBudgetOverride(db().global, {
+        level: "protect100",
+        steps,
+        until: null,
+        note: null,
+        now: NOW,
+      });
     try {
       // Uploads blocked, annotation writes allowed.
       await override(1);
@@ -405,6 +411,42 @@ describe("races", () => {
     expect((await items(s.doc.artifactId)).filter((item) => item.threadId === s.threadId)).toEqual(
       [],
     );
+    expect(await versionCount(s.doc.artifactId)).toBe(1);
+  });
+
+  it("makes a version acceptance a no-op when a competing insertion fills the list", async () => {
+    const s = await setup(() => [SECOND(), CROSSING()]);
+    await fillChangeList(s.doc, s.owner.id, CHANGE_LIST_LIMITS.openPerArtifact - 1);
+    value(await s.accept());
+    const raced = raceBeforeBatchWith(/acceptance_claims/, async () => {
+      await db()
+        .insert(schema.changeItems)
+        .values({
+          id: `late_${s.doc.artifactId}`,
+          artifactId: s.doc.artifactId,
+          ownerId: s.owner.id,
+          origin: "draft",
+          versionId: s.doc.versionId,
+          path: "index.md",
+          envelope: '{"format":1}',
+          bytes: 12,
+          reason: "spans_nodes",
+        });
+    });
+    const [job] = await jobsOf("suggestion_accept", s.doc.artifactId);
+    expect(
+      await runJob(
+        raced,
+        env.ARTIFACTS,
+        { id: job?.id ?? 0, topic: "suggestion_accept" },
+        NOW + 2_000,
+        JOB_DEPS,
+      ),
+    ).toBe("done");
+    expect(await thread(s.threadId)).toMatchObject({
+      suggestionState: "pending",
+      attemptReason: "quota_exceeded",
+    });
     expect(await versionCount(s.doc.artifactId)).toBe(1);
   });
 
