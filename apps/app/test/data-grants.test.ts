@@ -353,7 +353,7 @@ describe("data grants on the app", () => {
     if (!claimed.ok) throw new Error("claim failed");
     const created = await pageDataCommand(
       db,
-      { objects },
+      { objects, pageWrites: true },
       {
         artifactId: id,
         region: "default",

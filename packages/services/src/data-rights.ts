@@ -76,7 +76,8 @@ async function asVisitor(
   const limits = (await ownerEntitlements(db.global, row.ownerId, input.now)).data.perArtifact;
   const { result } = await pageDataCommand(
     db,
-    { objects: deps.objects },
+    // Exports and deletes are never paused with page writes.
+    { objects: deps.objects, pageWrites: false },
     {
       artifactId: input.artifactId,
       region: input.region,

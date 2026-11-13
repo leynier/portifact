@@ -61,7 +61,7 @@ async function setup() {
     const visitor = value(await claimVisitorId(env.ARTIFACTS, userId, artifactId, NOW));
     const { result } = await pageDataCommand(
       db(),
-      { objects },
+      { objects, pageWrites: true },
       {
         artifactId,
         region: "default",
