@@ -162,7 +162,9 @@ describe("htmlText", () => {
       const html = unit.repeat(Math.floor((2 * 1024 * 1024) / unit.length));
       const started = performance.now();
       htmlText(html, 512 * 1024);
-      expect(performance.now() - started).toBeLessThan(2_000);
+      // A linear scan of two megabytes takes a fraction of a second and a quadratic one hours,
+      // so the bound only has to sit between them: two seconds failed on a loaded machine.
+      expect(performance.now() - started).toBeLessThan(10_000);
     }
   });
 });

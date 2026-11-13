@@ -163,18 +163,33 @@ describe("size limits at the edges", () => {
   });
 
   it("lists a Markdown edit whose result would pass the document limit, and previews nothing", async () => {
-    const source = `${"a".repeat(PLAN_LIMITS.documentBytes - 3)} x`;
-    expect(new TextEncoder().encode(source).length).toBe(PLAN_LIMITS.documentBytes - 1);
-    const built = await plan("markdown", source, [editAt(bodyText(source), "x", "longer")]);
-    expect(built.applied).toEqual([]);
-    expect(built.listed.map((item) => item.reason)).toEqual(["too_large"]);
-    expect(built.newSource).toBeUndefined();
-    expect(previewOfPlan(built, RENDERER)).toEqual({
-      state: "unavailable",
-      reasons: ["too_large"],
-    });
-    // One byte of room: the same edit to one letter fits.
-    const fits = await plan("markdown", source, [editAt(bodyText(source), "x", "y")]);
-    expect(fits.applied).toHaveLength(1);
+    // The limit is lowered for this test: the rule is the same at any size, and rendering two
+    // megabytes of Markdown three times took over thirty seconds on the CI runner. The real
+    // limit is exercised at full size for text and HTML by the second review's R5.
+    const limit = 4_000;
+    const limits = PLAN_LIMITS as { documentBytes: number };
+    const real = limits.documentBytes;
+    limits.documentBytes = limit;
+    try {
+      const source = `${"a".repeat(limit - 3)} x`;
+      expect(new TextEncoder().encode(source).length).toBe(limit - 1);
+      const over = await plan("markdown", source, [editAt(bodyText(source), "x", "longer")]);
+      expect(over.applied).toEqual([]);
+      expect(over.listed.map((item) => item.reason)).toEqual(["too_large"]);
+      expect(over.newSource).toBeUndefined();
+      expect(previewOfPlan(over, RENDERER)).toEqual({
+        state: "unavailable",
+        reasons: ["too_large"],
+      });
+      // The result may be exactly the limit: one more byte fits, two do not.
+      const exact = await plan("markdown", source, [editAt(bodyText(source), "x", "yz")]);
+      expect(new TextEncoder().encode(exact.newSource ?? "").length).toBe(limit);
+      expect(exact.applied).toHaveLength(1);
+      const past = await plan("markdown", source, [editAt(bodyText(source), "x", "xyz")]);
+      expect(past.listed.map((item) => item.reason)).toEqual(["too_large"]);
+    } finally {
+      limits.documentBytes = real;
+    }
+    expect(PLAN_LIMITS.documentBytes).toBe(2_000_000);
   });
 });
