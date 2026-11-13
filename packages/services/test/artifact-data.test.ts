@@ -283,7 +283,12 @@ describe("a fence under an owner the object does not have", () => {
   it("waits while D1 has the transfer to that owner waiting, and ends without one", async () => {
     const memory = memoryObjects();
     const { id, ownerId } = await seeded(memory);
-    const fence = { ownerId: "u_next", generation: 0, epoch: 3, fence: { kind: "release", transition: "r_next" } };
+    const fence = {
+      ownerId: "u_next",
+      generation: 0,
+      epoch: 3,
+      fence: { kind: "release", transition: "r_next" },
+    };
     const waiting = await job("data_fence", id, {
       ownerId,
       generation: 0,
@@ -544,7 +549,7 @@ describe("data_erase", () => {
     expect(await run(row, memory.data)).toBe("kept");
     const kept = await rowOf(row.id);
     expect(kept?.payload).toMatchObject({ notBefore: NOW + DATA_ERASE_FRESH_MS });
-    expect((kept?.payload as { eraseId: string }).eraseId).not.toBe(old);
+    expect((kept?.payload as { eraseId: string } | undefined)?.eraseId).not.toBe(old);
     expect(documents(object)).toBe(1);
   });
 });
