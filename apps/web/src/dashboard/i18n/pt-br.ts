@@ -1027,6 +1027,41 @@ export const ptBR = {
   "suggest.changes.dismiss": "Descartar",
   "suggest.changes.reopen": "Reabrir",
   "suggest.changes.marked": "Lista de alterações atualizada.",
+  "draft.mode.edit": "Editar",
+  "draft.mode.on":
+    "O modo de edição está ativado. Selecione texto no artifact para alterá-lo no seu rascunho privado.",
+  "draft.editor.title": "Alterar o texto",
+  "draft.add": "Adicionar ao rascunho",
+  "draft.added": "Adicionado ao seu rascunho.",
+  "draft.heading": "Seu rascunho",
+  "draft.loading": "Carregando seu rascunho",
+  "draft.empty":
+    "Escolha Editar e selecione texto no artifact para alterá-lo. Suas alterações ficam privadas até você publicá-las.",
+  "draft.count": "{count, plural, one {# alteração} other {# alterações}}",
+  "draft.changes": "Alterações no seu rascunho",
+  "draft.remove": "Remover a alteração {number}",
+  "draft.removeShort": "Remover",
+  "draft.stale":
+    "Este rascunho foi feito em uma versão anterior, então não pode ser publicado. Descarte-o e edite a versão atual.",
+  "draft.attemptEnded": "A última publicação não foi concluída: {reason}",
+  "draft.publishingBadge": "Publicando",
+  "draft.publishing": "Publicando seu rascunho. A nova versão aparece quando estiver pronta.",
+  "draft.publish": "Publicar",
+  "draft.publish.title": "Publicar este rascunho?",
+  "draft.publish.confirm": "Publicar uma nova versão",
+  "draft.discard": "Descartar",
+  "draft.discard.title": "Descartar este rascunho?",
+  "draft.discard.body": "Todas as alterações nele são removidas. Nada é publicado.",
+  "draft.discarded": "Rascunho descartado.",
+  "draft.conflict":
+    "Seu rascunho mudou em outra aba ou janela. Ele agora mostra o estado mais recente; faça sua alteração de novo.",
+  "draft.refused.stale":
+    "Seu rascunho foi feito em uma versão anterior. Descarte-o antes de editar a versão atual.",
+  "draft.refused.other_page":
+    "Seu rascunho tem alterações de outra página. Publique ou descarte-o antes de editar esta página.",
+  "draft.refused.full":
+    "Seu rascunho já tem o máximo de alterações. Publique ou descarte-o primeiro.",
+  "draft.refused.invalid": "Esta alteração não pode ser adicionada ao rascunho.",
   "review.open": "Revisar e comentar",
   "viewer.loading": "Abrindo o artifact",
   "viewer.unavailable.title": "Este artifact não pode ser aberto",
