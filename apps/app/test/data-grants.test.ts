@@ -98,11 +98,15 @@ describe("data grants on the app", () => {
     }>();
     expect(listed.items).toEqual([expect.objectContaining({ artifactId: id, openGrants: 1 })]);
 
+    const status = async () =>
+      (await h.request(`/api/v1/account/data-grants/${id}`, dashboard(cookie))).json();
+    expect(await status()).toEqual({ artifactId: id, openGrants: 1 });
     const revoked = await h.request(
       `/api/v1/account/data-grants/${id}`,
       dashboard(cookie, "DELETE"),
     );
     expect(await revoked.json()).toEqual({ artifactId: id, revoked: 1 });
+    expect(await status()).toEqual({ artifactId: id, openGrants: 0 });
   });
 
   it("answers a stranger like a missing artifact and never names the reader's email", async () => {
