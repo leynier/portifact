@@ -586,8 +586,15 @@
     {
       "idx": 83,
       "version": "6",
-      "when": 1794574466941,
-      "tag": "0083_data_grants",
+      "when": 1794574462014,
+      "tag": "0083_cli_data_scopes",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "6",
+      "when": 1794576158110,
+      "tag": "0084_data_grants",
       "breakpoints": true
     }
   ]

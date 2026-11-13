@@ -51,6 +51,7 @@ export const OutboxTopic = z.enum([
   "data_reconcile",
   "data_resolve",
   "data_export",
+  "data_audit",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -352,3 +353,19 @@ export const DataExportPayload = z.strictObject({
   page: DataCount,
 });
 export type DataExportPayload = z.infer<typeof DataExportPayload>;
+
+/**
+ * Payload of a `data_audit` job (decision 0026, "Audit with durable states"), written before an
+ * owner-side mutation reaches the object: the envelope the mutation carried, who made it and its
+ * operation ID. The job settles the operation with the object and records its audit event, or
+ * records it aborted so a late arrival cannot commit. `subject` is the artifact.
+ */
+export const DataAuditPayload = z.strictObject({
+  ownerId: DataOwnerId,
+  generation: DataCount,
+  epoch: DataCount,
+  /** The acting user or service token, as the audit event names it. */
+  actor: z.string().min(1).max(128),
+  opId: OperationId,
+});
+export type DataAuditPayload = z.infer<typeof DataAuditPayload>;

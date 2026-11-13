@@ -117,8 +117,14 @@ export interface Env extends DomainEnv {
    */
   SUGGESTIONS_ENABLED?: string | undefined;
   /**
-   * Exactly `"true"` turns artifact data on (decision 0026, "Switches"): without it the grant
-   * routes answer 404 and nothing creates an object. Never in a deployed `wrangler.jsonc`.
+   * The documents objects of artifact data (decision 0026), exported by `portifact-data`. The
+   * owner document API reaches them only through `dataNamespaces` in packages/services.
+   */
+  ARTIFACT_DOCUMENTS?: DurableObjectNamespace | undefined;
+  /**
+   * Exactly `"true"` turns the owner document API on (decision 0026, "Switches"); off, every data
+   * route but the export answers 404 and nothing creates an object. Never in a `wrangler.jsonc`
+   * before delivery 8's release checks (a scripts test refuses it).
    */
   ARTIFACT_DATA_ENABLED?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
