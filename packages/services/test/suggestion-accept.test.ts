@@ -272,19 +272,20 @@ describe("refusals at the route", () => {
     expect(await w.accept()).toMatchObject({ ok: false, code: "invalid_input" });
   });
 
-  it("refuses when budget protection blocks uploads, and lets a no-version acceptance through", async () => {
+  it("gates a version as a publish and a list of items as annotation work", async () => {
     const s = await setup();
     const n = await setup(() => [CROSSING()]);
-    await setBudgetOverride(db().global, {
-      level: "protect100",
-      steps: 2,
-      until: null,
-      note: null,
-      now: NOW,
-    });
+    const m = await setup(() => [CROSSING()]);
+    const override = (steps: number) =>
+      setBudgetOverride(db().global, { level: "protect100", steps, until: null, note: null, now: NOW });
     try {
+      // Uploads blocked, annotation writes allowed.
+      await override(1);
       expect(await s.accept()).toMatchObject({ ok: false, code: "capacity_unavailable" });
       expect((await n.accept()).ok).toBe(true);
+      // Annotation writes paused as well.
+      await override(2);
+      expect(await m.accept()).toMatchObject({ ok: false, code: "capacity_unavailable" });
     } finally {
       await clearBudgetOverride(db().global, NOW);
     }

@@ -636,12 +636,18 @@ async function authorizeUpload(
  * switch like every other write of the batch.
  */
 export interface ServerCommit {
+  /**
+   * The handle the commit batch runs on: `bothSides` when the region's database is the global
+   * one, so the claim can name the accepting person's membership; the regional handle otherwise.
+   */
+  handle: Db;
   claim: BatchItem<"sqlite">;
   held: SQL;
   completion: (switched: SQL) => BatchItem<"sqlite">[];
   via: "suggestion" | "draft";
-  /** The SHA-256 the plan committed to for a document's new rendering; null for a page. */
+  /** The SHA-256s the plan committed to for a document's rendering and block map; null else. */
   renderedSha256: string | null;
+  blockMapSha256: string | null;
 }
 
 export interface CommittedPublish {
@@ -827,7 +833,12 @@ export async function commitPublish(
     }
     rendering = rendered.value;
     // A server publish writes exactly the rendering its plan committed to (decision 0027).
-    if (server && rendering.files[0]?.sha256 !== server.renderedSha256) {
+    const blockMap = rendering.files.find((file) => file.kind === "block_map");
+    if (
+      server &&
+      (rendering.files[0]?.sha256 !== server.renderedSha256 ||
+        (blockMap?.sha256 ?? null) !== server.blockMapSha256)
+    ) {
       await closeUploadSession(db, { ownerId, sessionId: session.id, now: input.now }, "failed");
       return {
         ok: false,
@@ -849,9 +860,11 @@ export async function commitPublish(
   const switched = sql`(exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${session.artifactId} and ${schema.artifacts.currentVersionId} = ${session.versionId}) and ${sessionOpen})`;
   const verified = pending.map((object) => object.sha256);
 
+  // A server publish runs its batch on the handle its claim was built on.
+  const w: Db = server?.handle ?? db;
   const statements: BatchItem<"sqlite">[] = [
     ...(server ? [server.claim] : []),
-    db
+    w
       .update(schema.artifacts)
       .set({
         currentVersionId: session.versionId,
@@ -876,7 +889,7 @@ export async function commitPublish(
         ),
       )
       .returning({ pinned: schema.artifacts.pinned }),
-    db
+    w
       .update(schema.versions)
       .set({
         state: "committed",
@@ -886,7 +899,7 @@ export async function commitPublish(
       .where(and(eq(schema.versions.id, session.versionId), switched)),
     ...(session.baseVersionId
       ? [
-          db
+          w
             .update(schema.versions)
             // A previous version from now on, kept by the owner's plan (`retainedVersionSql`).
             .set({ supersededAt: input.now })
@@ -895,7 +908,7 @@ export async function commitPublish(
       : []),
     ...(verified.length > 0
       ? [
-          db
+          w
             .update(schema.objects)
             .set({ state: "verified" })
             .where(
@@ -911,13 +924,13 @@ export async function commitPublish(
     // their object becomes verified; the CHECK constraint refuses them past the account limit.
     ...(renderedHashes.length > 0
       ? [
-          db
+          w
             .update(schema.accountUsage)
             .set({
               storedBytes: sql`${schema.accountUsage.storedBytes} + (select coalesce(sum(${schema.objects.size}), 0) from ${schema.objects} where ${schema.objects.ownerId} = ${ownerId} and ${inArray(schema.objects.sha256, renderedHashes)} and ${schema.objects.state} = 'pending')`,
             })
             .where(and(eq(schema.accountUsage.ownerId, ownerId), switched)),
-          db
+          w
             .update(schema.objects)
             .set({ state: "verified" })
             .where(
@@ -929,7 +942,7 @@ export async function commitPublish(
             ),
         ]
       : []),
-    db
+    w
       .update(schema.accountUsage)
       .set({
         reservedBytes: sql`${schema.accountUsage.reservedBytes} - ${session.reservedBytes}`,
@@ -939,10 +952,10 @@ export async function commitPublish(
         updatedAt: input.now,
       })
       .where(and(eq(schema.accountUsage.ownerId, ownerId), switched)),
-    db
+    w
       .insert(schema.usageEvents)
       .select(sql`select null, ${ownerId}, 'publish', 1, ${input.now} where ${switched}`),
-    ...markWebhookEvent(db, {
+    ...markWebhookEvent(w, {
       entitlements: owner,
       ownerId,
       artifactId: session.artifactId,
@@ -953,23 +966,23 @@ export async function commitPublish(
       now: input.now,
       condition: switched,
     }),
-    db
+    w
       .insert(schema.usageEvents)
       .select(
         sql`select null, ${ownerId}, 'new_files', ${session.reservedFiles}, ${input.now} where ${switched}`,
       ),
-    db
+    w
       .insert(schema.usageEvents)
       .select(
         sql`select null, ${ownerId}, 'new_bytes', ${session.reservedBytes}, ${input.now} where ${switched}`,
       ),
-    db
+    w
       .insert(schema.lifecycleEvents)
       .select(
         sql`select null, ${session.artifactId}, ${input.userId}, 'system', 'published', null, ${input.now} where ${switched}`,
       ),
     auditEvent(
-      db,
+      w,
       {
         ownerId,
         kind: "artifact.published",
@@ -986,15 +999,15 @@ export async function commitPublish(
       switched,
     ),
     // An open approval review follows the new version with no verdicts (decision 0013).
-    moveApprovalReview(db, {
+    moveApprovalReview(w, {
       artifactId: session.artifactId,
       versionId: session.versionId,
       switched,
       now: input.now,
     }),
-    abortMultipartJob(db, session.id, switched, input.now),
+    abortMultipartJob(w, session.id, switched, input.now),
     // The new version's text, for content search (decision 0012), read from R2 by a job.
-    ...searchIndexJob(db, {
+    ...searchIndexJob(w, {
       entitlements: owner,
       artifactId: session.artifactId,
       versionId: session.versionId,
@@ -1002,19 +1015,19 @@ export async function commitPublish(
       now: input.now,
     }),
     // Pending suggestions are carried and open items checked against the new version (0027).
-    ...suggestionVersionJobs(db, {
+    ...suggestionVersionJobs(w, {
       artifactId: session.artifactId,
       versionId: session.versionId,
       condition: switched,
       now: input.now,
     }),
     ...(server ? server.completion(switched) : []),
-    db
+    w
       .update(schema.uploadSessions)
       .set({ state: "committed" })
       .where(and(eq(schema.uploadSessions.id, session.id), switched)),
   ];
-  const batch = db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  const batch = w.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
   // A CHECK failure means the renderings do not fit the account; anything else is unexpected.
   const outcome = await batch.catch((error: unknown) => {
     if (constraintFailed(error, "CHECK")) return null;

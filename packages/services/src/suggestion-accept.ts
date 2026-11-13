@@ -2,20 +2,31 @@
 // acceptance claim"). Two steps:
 //
 // 1. The person confirms a plan by its digest (`acceptSuggestion`, `publishDraft`, session-only
-//    routes in the adapters). The server rebuilds the plan from the stored files, compares the
-//    digest, checks budget protection and the change list's room, and in one batch starts an
-//    acceptance attempt, marks the suggestion `applying` (or the draft as publishing) and writes
-//    the `suggestion_accept` or `draft_publish` job, all on the attempt row the batch inserted
-//    first under the state the person saw.
-// 2. The job (`runAcceptance`) checks everything again (the attempt still current, the person
-//    still acting for the owner, the artifact servable, not held, at the base version, the same
-//    digest) and completes the attempt with one claim (`acceptance_claims`): the claim is the
-//    first statement of the completing batch, inserted only when the change list has room for
-//    every listed item and the suggestion or draft and the base version are as confirmed, and
+//    routes in the adapters). After authorization the request is counted (the person's and the
+//    artifact's planning windows, shared with dry runs, and the owner's acceptance window) before
+//    any file is read, so a refused or wrong confirmation costs the same budget as a plan. Then the
+//    server rebuilds the plan from the stored files, compares the digest, applies budget
+//    protection (a version-producing acceptance as a publish, `checkPublishCapacity`; one that
+//    only lists items as annotation work, `checkAnnotationCapacity`) and the change list's room,
+//    and in one batch starts an acceptance attempt, marks the suggestion `applying` (or the draft
+//    as publishing) and writes the `suggestion_accept` or `draft_publish` job, all on the attempt
+//    row the batch inserted first under the state the person saw, their role included.
+// 2. The job (`runAcceptance`) authorizes the person again as an annotation write on the owner
+//    side at the job's own time (effective state and expiry, annotation mode, hold), rebuilds and
+//    confirms the plan, and completes the attempt with one claim (`acceptance_claims`): the claim
+//    is the first statement of the completing batch, inserted only when the change list has room
+//    for every listed item, the artifact is as authorized (owner, active, unexpired, mode, base
+//    version), the person still acts for the owner and the suggestion or draft is as confirmed;
 //    every later statement is conditioned on the claim with this run's token. When something
 //    applies, the batch is the publish's own commit (`publishFromPlan` through `preparePublish`
-//    and `commitPublish`, never a second path); when nothing does, it lists the items and
-//    completes the suggestion or draft without a version.
+//    and `commitPublish`, never a second path), after checking that the bytes and renderings it
+//    stores are exactly the plan's output; when nothing does, it lists the items and completes
+//    the suggestion or draft without a version.
+//
+// The person's role is a global row and the attempt regional (decision 0005). With one database
+// both batches name the membership through `bothSides`, as `stillAdmin` does; with a separate
+// regional database the role is read again right before each batch and the batch fails closed
+// on a refusal, so a removal landing between that read and the batch is the one window.
 //
 // Every failure point ends in a state the job or the scan (`expireAcceptAttempts`) recovers: see
 // the recovery table in the record and in docs/operations.md, "Edit suggestions".
@@ -24,23 +35,33 @@ import {
   type AcceptanceStarted,
   CHANGE_LIST_LIMITS,
   type Envelope,
+  isWorkspaceId,
   type Proof,
   SUGGESTION_LIMITS,
   utf8Length,
 } from "@portifact/contracts";
-import { hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
-import { actsForOwner, checkPublishCapacity, fail, ok, type Result } from "@portifact/domain";
 import {
-  admitItems,
-  attemptOverdue,
-  checkDecide,
-  confirmPlan,
-} from "@portifact/domain/suggestions";
+  bothSides,
+  type Db,
+  hitRateLimits,
+  type RateLimitHit,
+  type RegionalDb,
+  schema,
+} from "@portifact/db";
+import {
+  actsForOwner,
+  checkAnnotationCapacity,
+  checkPublishCapacity,
+  fail,
+  ok,
+  type Result,
+} from "@portifact/domain";
+import { admitItems, attemptOverdue, checkDecide, confirmPlan } from "@portifact/domain/suggestions";
 import { DOCUMENT_RENDERER } from "@portifact/render";
 import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actorOn } from "./actors.ts";
-import { type AnnotationActor, annotationParts } from "./annotations.ts";
+import { type AnnotationActor, type AuthorizedAnnotations, annotationParts } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import type { JobOutcome } from "./outbox.ts";
@@ -51,6 +72,7 @@ import {
   preparePublish,
 } from "./publish.ts";
 import {
+  admitPlanning,
   draftPlanOf,
   newFileBytes,
   ownDraft,
@@ -83,36 +105,50 @@ const serverIdsOf = (attemptId: string) => {
   return { versionId: `ver_${key}`, sessionId: `upl_${key}` };
 };
 
+// The accepting person's role, inside the batches
+
 /**
- * What both routes check before starting an attempt: the confirmed digest is the digest of the
- * plan the server builds now from the stored files, budget protection allows a publish when one
- * would happen, the change list has room for every listed item, and the owner's daily count of
- * acceptances is not spent.
+ * The handle a batch runs on and the condition that the person still acts for the owner: in a
+ * personal space only its own account does (the artifact's owner predicate already says so); in
+ * a workspace an admin or editor, named inside the batch when the region's database is the global
+ * one. With a separate regional database the condition is empty and `stillActs` is read right
+ * before the batch instead.
  */
-async function admitAcceptance(
+function acceptorScope(db: RegionalDb, ownerId: string, userId: string): { w: Db; holds: SQL } {
+  const both = bothSides(db);
+  if (!isWorkspaceId(ownerId)) return { w: both ?? db, holds: sql`${ownerId} = ${userId}` };
+  if (!both) return { w: db, holds: sql`1` };
+  const m = schema.workspaceMembers;
+  return {
+    w: both,
+    holds: sql`exists (select 1 from ${m} as "acceptor" where "acceptor"."workspace_id" = ${ownerId} and "acceptor"."user_id" = ${userId} and "acceptor"."role" in ('admin', 'editor'))`,
+  };
+}
+
+/** Whether the person acts for the owner now, read from the global database. */
+async function stillActs(db: RegionalDb, ownerId: string, userId: string): Promise<boolean> {
+  const actor = await actorOn(db.global, userId, ownerId);
+  return actor.ok && actsForOwner(actor.value, ownerId);
+}
+
+/** The artifact as the person was authorized on it, at the base version, inside a batch. */
+function artifactAt(loaded: AuthorizedAnnotations, baseVersionId: string, now: number): SQL {
+  return sql`${annotationParts.artifactGuard(loaded, "moderate", now)} and exists (select 1 from ${t} where ${t.id} = ${loaded.artifact.id} and ${t.currentVersionId} = ${baseVersionId})`;
+}
+
+// Admission at the route
+
+/**
+ * Counts one acceptance for the person, the artifact and the owner, after authorization and
+ * before any file is read: in the planning windows dry runs use, and in the owner's acceptance
+ * window. A wrong digest, an exhausted budget and a retry all count.
+ */
+async function countAcceptance(
   db: RegionalDb,
-  built: SubjectPlan,
-  input: { digest: string; ownerId: string; artifactId: string; now: number },
+  input: { userId: string; artifactId: string; ownerId: string; now: number },
 ): Promise<Result<true>> {
-  const { plan } = built;
-  const confirmed = await confirmPlan({
-    plan,
-    confirmedDigest: input.digest,
-    current: plan.binding,
-    newSource: plan.newSource,
-    renderer: DOCUMENT_RENDERER,
-  });
-  if (confirmed !== "confirmed") return planChanged();
-  if (plan.output !== null) {
-    const capacity = checkPublishCapacity(
-      (await platformProtection(db.global, input.now)).actions,
-      false,
-    );
-    if (!capacity.ok) return capacity;
-  }
-  if (!admitItems(await openItems(db, input.artifactId), plan.listed.length, CHANGE_LIST_CAP)) {
-    return fail("quota_exceeded", "The change list is full. Close some of its items first.");
-  }
+  const planning = await admitPlanning(db, input.userId, input.artifactId, input.now);
+  if (!planning.ok) return planning;
   const [hit] = (await hitRateLimits(
     db.global.$client,
     [`suggestion_accept:owner:${input.ownerId}`],
@@ -125,9 +161,50 @@ async function admitAcceptance(
   return ok(true);
 }
 
+/** Budget protection for an acceptance: a publish when it makes a version, annotation work else. */
+async function capacityFor(db: RegionalDb, built: SubjectPlan, now: number): Promise<Result<true>> {
+  const actions = (await platformProtection(db.global, now)).actions;
+  return built.plan.output === null
+    ? checkAnnotationCapacity(actions)
+    : checkPublishCapacity(actions, false);
+}
+
+/** The confirmed digest is this plan's, its bytes included (a stored byte order mark too). */
+async function confirmed(built: SubjectPlan, digest: string): Promise<boolean> {
+  const { plan, page } = built;
+  return (
+    (await confirmPlan({
+      plan,
+      confirmedDigest: digest,
+      current: plan.binding,
+      newSource: plan.newSource,
+      renderer: DOCUMENT_RENDERER,
+      bom: page.bom,
+    })) === "confirmed"
+  );
+}
+
+/**
+ * What both routes check once the request is counted and the plan rebuilt: the digest, budget
+ * protection and the change list's room.
+ */
+async function admitPlan(
+  db: RegionalDb,
+  built: SubjectPlan,
+  input: { digest: string; artifactId: string; now: number },
+): Promise<Result<true>> {
+  if (!(await confirmed(built, input.digest))) return planChanged();
+  const capacity = await capacityFor(db, built, input.now);
+  if (!capacity.ok) return capacity;
+  if (!admitItems(await openItems(db, input.artifactId), built.plan.listed.length, CHANGE_LIST_CAP)) {
+    return fail("quota_exceeded", "The change list is full. Close some of its items first.");
+  }
+  return ok(true);
+}
+
 /** The attempt row's insert, under `guard`. Columns in schema order. */
 function attemptInsert(
-  db: RegionalDb,
+  w: Db,
   attempt: {
     id: string;
     artifactId: string;
@@ -143,7 +220,7 @@ function attemptInsert(
 ) {
   // id, artifact, owner, origin, thread, user, digest, base version, version, state, reason,
   // deliveries, created, updated.
-  return db
+  return w
     .insert(at)
     .select(
       sql`select ${attempt.id}, ${attempt.artifactId}, ${attempt.ownerId}, ${attempt.origin}, ${attempt.threadId}, ${attempt.userId}, ${attempt.digest}, ${attempt.baseVersionId}, null, 'running', null, 0, ${attempt.now}, ${attempt.now} where ${guard}`,
@@ -156,7 +233,7 @@ const attemptExists = (attemptId: string) =>
 
 /** The attempt's job, written on the attempt row. Columns in schema order. */
 function acceptanceJob(
-  db: RegionalDb,
+  w: Db,
   topic: "suggestion_accept" | "draft_publish",
   input: { attemptId: string; artifactId: string; contentDomain: string; now: number },
 ) {
@@ -164,16 +241,12 @@ function acceptanceJob(
     attemptId: input.attemptId,
     contentDomain: input.contentDomain,
   });
-  return db
+  return w
     .insert(schema.outbox)
     .select(
       sql`select null, ${topic}, ${payload}, ${input.now}, null, 0, ${input.now}, ${input.artifactId}, null where ${attemptExists(input.attemptId)}`,
     );
 }
-
-/** The artifact as the person authorized it: same owner, active, at the base version. */
-const artifactAt = (artifact: ArtifactRow, baseVersionId: string) =>
-  sql`exists (select 1 from ${t} where ${t.id} = ${artifact.id} and ${t.ownerId} = ${artifact.ownerId} and ${t.state} = 'active' and ${t.currentVersionId} = ${baseVersionId})`;
 
 /**
  * Starts accepting a pending suggestion whose plan the person confirmed by `digest`: the owner
@@ -194,6 +267,8 @@ export async function acceptSuggestion(
   if (thread.versionId !== artifact.currentVersionId) {
     return fail("version_conflict", "This suggestion was made on an earlier version.");
   }
+  const counted = await countAcceptance(db, { ...input, ownerId: artifact.ownerId });
+  if (!counted.ok) return counted;
   const built = await suggestionPlanOf(db, bucket, {
     artifact,
     thread,
@@ -201,18 +276,17 @@ export async function acceptSuggestion(
     contentDomain: input.contentDomain,
   });
   if (!built.ok) return built;
-  const admitted = await admitAcceptance(db, built.value, {
-    digest: input.digest,
-    ownerId: artifact.ownerId,
-    artifactId: artifact.id,
-    now: input.now,
-  });
+  const admitted = await admitPlan(db, built.value, { ...input, artifactId: artifact.id });
   if (!admitted.ok) return admitted;
+  const { w, holds } = acceptorScope(db, artifact.ownerId, input.userId);
+  if (!bothSides(db) && !(await stillActs(db, artifact.ownerId, input.userId))) {
+    return fail("not_found", "Artifact not found.");
+  }
   const attemptId = newAttemptId();
-  const guard = sql`${artifactAt(artifact, thread.versionId)} and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.suggestionState} = 'pending' and ${th.suggestionRevision} = ${thread.suggestionRevision})`;
-  const [inserted] = await db.batch([
+  const guard = sql`${artifactAt(loaded.value, thread.versionId, input.now)} and ${holds} and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.suggestionState} = 'pending' and ${th.suggestionRevision} = ${thread.suggestionRevision})`;
+  const [inserted] = await w.batch([
     attemptInsert(
-      db,
+      w,
       {
         id: attemptId,
         artifactId: artifact.id,
@@ -226,13 +300,13 @@ export async function acceptSuggestion(
       },
       guard,
     ),
-    db
+    w
       .update(th)
       .set({ suggestionState: "applying", attemptId, attemptReason: null, updatedAt: input.now })
       .where(
         and(eq(th.id, thread.id), eq(th.suggestionState, "pending"), attemptExists(attemptId)),
       ),
-    acceptanceJob(db, "suggestion_accept", {
+    acceptanceJob(w, "suggestion_accept", {
       attemptId,
       artifactId: artifact.id,
       contentDomain: input.contentDomain,
@@ -264,19 +338,24 @@ export async function publishDraft(
   if (draft.baseVersionId !== artifact.currentVersionId) {
     return fail("version_conflict", "A newer version was published since this draft began.");
   }
+  const counted = await countAcceptance(db, {
+    ...input,
+    artifactId: artifact.id,
+    ownerId: artifact.ownerId,
+  });
+  if (!counted.ok) return counted;
   const built = await draftPlanOf(db, bucket, {
     artifact,
     draft,
     contentDomain: input.contentDomain,
   });
   if (!built.ok) return built;
-  const admitted = await admitAcceptance(db, built.value, {
-    digest: input.digest,
-    ownerId: artifact.ownerId,
-    artifactId: artifact.id,
-    now: input.now,
-  });
+  const admitted = await admitPlan(db, built.value, { ...input, artifactId: artifact.id });
   if (!admitted.ok) return admitted;
+  const { w, holds } = acceptorScope(db, artifact.ownerId, input.userId);
+  if (!bothSides(db) && !(await stillActs(db, artifact.ownerId, input.userId))) {
+    return fail("not_found", "Draft not found.");
+  }
   const attemptId = newAttemptId();
   const ownDraftAt = and(
     eq(dr.artifactId, artifact.id),
@@ -284,10 +363,10 @@ export async function publishDraft(
     eq(dr.revision, draft.revision),
     sql`${dr.attemptId} is null`,
   );
-  const guard = sql`${artifactAt(artifact, draft.baseVersionId)} and exists (select 1 from ${dr} where ${ownDraftAt})`;
-  const [inserted] = await db.batch([
+  const guard = sql`${artifactAt(loaded, draft.baseVersionId, input.now)} and ${holds} and exists (select 1 from ${dr} where ${ownDraftAt})`;
+  const [inserted] = await w.batch([
     attemptInsert(
-      db,
+      w,
       {
         id: attemptId,
         artifactId: artifact.id,
@@ -301,11 +380,11 @@ export async function publishDraft(
       },
       guard,
     ),
-    db
+    w
       .update(dr)
       .set({ attemptId, attemptReason: null })
       .where(and(ownDraftAt, attemptExists(attemptId))),
-    acceptanceJob(db, "draft_publish", {
+    acceptanceJob(w, "draft_publish", {
       attemptId,
       artifactId: artifact.id,
       contentDomain: input.contentDomain,
@@ -324,7 +403,8 @@ export async function publishDraft(
  * Ends a running attempt that did not complete: the suggestion goes back to `pending` (or the
  * draft is free again) with the reason, its pending upload is released at once (so it holds no
  * open upload slot until it expires), and a suggestion that lost its version to a publish is
- * offered to the carry job. Conditioned on the attempt still running, so it happens once.
+ * offered to the carry job. Conditioned on the attempt still running, so it happens once; an
+ * attempt an erasure ended already leaves the suggestion withdrawn.
  */
 export async function endAttempt(
   db: RegionalDb,
@@ -354,8 +434,18 @@ export async function endAttempt(
       .set({ state: "ended", reason, updatedAt: now })
       .where(and(eq(at.id, attempt.id), eq(at.state, "running"))),
   ]);
-  // Keyed by the attempt, so an upload prepared before a crash that kept `version_id` from being
-  // recorded is released too; with none, there is nothing to close.
+  await releaseUpload(db, attempt, now);
+}
+
+/**
+ * Closes the upload keyed by the attempt, when there is one: an upload prepared before a crash
+ * that kept `version_id` from being recorded is released too.
+ */
+async function releaseUpload(
+  db: RegionalDb,
+  attempt: Pick<AttemptRow, "id" | "ownerId">,
+  now: number,
+): Promise<void> {
   const { sessionId } = serverIdsOf(attempt.id);
   await closeUploadSession(db, { ownerId: attempt.ownerId, sessionId, now }, "failed");
 }
@@ -364,24 +454,32 @@ export async function endAttempt(
 
 interface Completion {
   attempt: AttemptRow;
+  loaded: AuthorizedAnnotations;
   built: SubjectPlan;
   token: string;
   now: number;
+  /** The handle the completing batch runs on, and the person's role condition. */
+  w: Db;
+  holds: SQL;
 }
 
-/** The claim: inserted only with room for every listed item and the subject as confirmed. */
-function claimStatement(db: RegionalDb, c: Completion) {
-  const { attempt } = c;
+/**
+ * The claim: inserted only with room for every listed item, the attempt running, the subject as
+ * confirmed, the person still acting for the owner and the artifact as authorized at the job's
+ * time (owner, active, unexpired, annotation mode) on the base version.
+ */
+function claimStatement(c: Completion) {
+  const { attempt, w } = c;
   const listed = c.built.plan.listed.length;
   const subject =
     attempt.origin === "suggestion"
       ? sql`exists (select 1 from ${th} where ${th.id} = ${attempt.threadId} and ${th.suggestionState} = 'applying' and ${th.attemptId} = ${attempt.id})`
       : sql`exists (select 1 from ${dr} where ${dr.artifactId} = ${attempt.artifactId} and ${dr.userId} = ${attempt.userId} and ${dr.attemptId} = ${attempt.id})`;
   // Columns in schema order: attempt, run token, artifact, created.
-  return db
+  return w
     .insert(cl)
     .select(
-      sql`select ${attempt.id}, ${c.token}, ${attempt.artifactId}, ${c.now} where ${openItemsSql(attempt.artifactId)} + ${listed} <= ${CHANGE_LIST_LIMITS.openPerArtifact} and exists (select 1 from ${at} where ${at.id} = ${attempt.id} and ${at.state} = 'running') and ${subject} and exists (select 1 from ${t} where ${t.id} = ${attempt.artifactId} and ${t.ownerId} = ${attempt.ownerId} and ${t.state} = 'active' and ${t.currentVersionId} = ${attempt.baseVersionId})`,
+      sql`select ${attempt.id}, ${c.token}, ${attempt.artifactId}, ${c.now} where ${openItemsSql(attempt.artifactId)} + ${listed} <= ${CHANGE_LIST_LIMITS.openPerArtifact} and exists (select 1 from ${at} where ${at.id} = ${attempt.id} and ${at.state} = 'running') and ${subject} and ${c.holds} and ${artifactAt(c.loaded, attempt.baseVersionId, c.now)}`,
     )
     .onConflictDoNothing()
     .returning({ id: cl.attemptId });
@@ -392,17 +490,13 @@ async function openItems(db: RegionalDb, artifactId: string): Promise<number> {
   return Number((row as { open: number }).open);
 }
 
+/** True only for the run whose token the claim holds: another run's claim grants nothing. */
 const heldBy = (attemptId: string, token: string) =>
   sql`exists (select 1 from ${cl} where ${cl.attemptId} = ${attemptId} and ${cl.runToken} = ${token})`;
 
 /** One change-list item per listed operation, with the people beside the envelope. */
-function itemStatements(
-  db: RegionalDb,
-  c: Completion,
-  condition: SQL,
-  submittedBy: SQL,
-): BatchItem<"sqlite">[] {
-  const { attempt, built } = c;
+function itemStatements(c: Completion, condition: SQL, submittedBy: SQL): BatchItem<"sqlite">[] {
+  const { attempt, built, w } = c;
   const { plan } = built;
   const applied = plan.applied.length;
   return plan.listed.map((envelope: Envelope, index) => {
@@ -414,7 +508,7 @@ function itemStatements(
     // Columns in schema order: id, artifact, owner, origin, thread, attempt, version, path,
     // route, envelope, proof, bytes, reason, state, created by, submitted by, created, closed
     // at, closed by, closed version, revision.
-    return db
+    return w
       .insert(ci)
       .select(
         sql`select ${id}, ${attempt.artifactId}, ${attempt.ownerId}, ${attempt.origin}, ${attempt.origin === "suggestion" ? attempt.threadId : null}, ${attempt.id}, ${plan.binding.versionId}, ${plan.binding.path}, ${plan.binding.route}, ${envelopeText}, ${proofText}, ${bytes}, ${envelope.reason as string}, 'open', ${attempt.userId}, ${submittedBy}, ${c.now}, null, null, null, 1 where ${condition}`,
@@ -424,21 +518,20 @@ function itemStatements(
 
 /** Completes the suggestion or draft and the attempt, and records the acceptance. */
 function completionStatements(
-  db: RegionalDb,
   c: Completion,
   condition: SQL,
   version: { id: string; number: SQL } | null,
 ): BatchItem<"sqlite">[] {
-  const { attempt, built, now } = c;
+  const { attempt, built, now, w } = c;
   // The suggester, beside each item's envelope (account erasure clears it).
   const submittedBy =
     attempt.origin === "suggestion"
       ? sql`(select ${th.authorId} from ${th} where ${th.id} = ${attempt.threadId})`
       : sql`${attempt.userId}`;
   return [
-    ...itemStatements(db, c, condition, submittedBy),
+    ...itemStatements(c, condition, submittedBy),
     attempt.origin === "suggestion"
-      ? db
+      ? w
           .update(th)
           .set({
             suggestionState: "accepted",
@@ -456,7 +549,7 @@ function completionStatements(
           .where(
             and(eq(th.id, attempt.threadId as string), eq(th.attemptId, attempt.id), condition),
           )
-      : db
+      : w
           .delete(dr)
           .where(
             and(
@@ -467,7 +560,7 @@ function completionStatements(
             ),
           ),
     auditEvent(
-      db,
+      w,
       {
         ownerId: attempt.ownerId,
         kind: "suggestion.accepted",
@@ -485,14 +578,17 @@ function completionStatements(
       },
       condition,
     ),
-    db
+    w
       .update(at)
       .set({ state: "done", versionId: version?.id ?? null, updatedAt: now })
       .where(and(eq(at.id, attempt.id), eq(at.state, "running"), condition)),
   ];
 }
 
-/** Why a claim was not taken: a duplicate run holds it, the list is full, or the state moved. */
+/**
+ * Why a claim was not taken: a duplicate run holds it, the list is full, the person no longer
+ * acts for the owner, the artifact is no longer as authorized, or the version moved.
+ */
 async function lostClaim(db: RegionalDb, c: Completion): Promise<"duplicate" | AttemptEndReason> {
   const [held] = await db
     .select({ token: cl.runToken })
@@ -509,17 +605,35 @@ async function lostClaim(db: RegionalDb, c: Completion): Promise<"duplicate" | A
   ) {
     return "quota_exceeded";
   }
+  const again = await authorizedAt(db, c.attempt, c.now);
+  if (!again) return "revoked";
   return "version_conflict";
 }
 
-/** Completes an attempt whose plan applies nothing: items and completion, no version. */
+/** Whether a failed batch broke the owner's annotation quota or the open-item backstop. */
+function annotationQuotaFailure(error: unknown): boolean {
+  for (let e: unknown = error; e instanceof Error; e = e.cause) {
+    if (/annotation_usage|change_items_open_limit/.test(e.message)) return true;
+  }
+  return false;
+}
+
+/**
+ * Completes an attempt whose plan applies nothing: items and completion, no version. The owner's
+ * annotation quota (the items' bytes) refusing the batch ends the attempt as `quota_exceeded`, as
+ * a publish's own quota does.
+ */
 async function completeWithoutVersion(db: RegionalDb, c: Completion): Promise<JobOutcome> {
   const held = heldBy(c.attempt.id, c.token);
-  const [claimRows] = await db.batch([
-    claimStatement(db, c),
-    ...completionStatements(db, c, held, null),
-  ]);
-  if ((claimRows as unknown[]).length === 1) return "done";
+  let claimRows: unknown[];
+  try {
+    [claimRows] = await c.w.batch([claimStatement(c), ...completionStatements(c, held, null)]);
+  } catch (error) {
+    if (!annotationQuotaFailure(error)) throw error;
+    await endAttempt(db, c.attempt, "quota_exceeded", c.now);
+    return "done";
+  }
+  if (claimRows.length === 1) return "done";
   const lost = await lostClaim(db, c);
   if (lost !== "duplicate") await endAttempt(db, c.attempt, lost, c.now);
   return "done";
@@ -578,11 +692,12 @@ const PREPARE_REASONS: Partial<Record<string, AttemptEndReason>> = {
 
 /**
  * Publishes the plan's new file as a new version through the publish path (decision 0027,
- * "Producing the new version"): `preparePublish` opens a server upload for the base version's
- * files with the planned one replaced, as the accepting person (keyed by the attempt, so a retry
- * finds it), the bytes go to R2 under their content address, and `commitPublish` commits with the
- * claim first and the completion on its switch. Every quota, rendering, audit, webhook, search,
- * approval and expiry rule of a publish applies unchanged.
+ * "Producing the new version"): the bytes are checked against the plan's output (size and
+ * SHA-256), `preparePublish` opens a server upload for the base version's files with the planned
+ * one replaced, as the accepting person (keyed by the attempt, so a retry finds it), the bytes go
+ * to R2 under their content address, and `commitPublish` commits with the claim first, the
+ * completion on its switch, and its rendering and block map held to the plan's hashes. Every
+ * quota, rendering, audit, webhook, search, approval and expiry rule of a publish applies.
  */
 export async function publishFromPlan(
   db: RegionalDb,
@@ -595,6 +710,11 @@ export async function publishFromPlan(
   const output = plan.output as NonNullable<typeof plan.output>;
   const bytes = newFileBytes(page, plan.newSource as string);
   const fileSha = await sha256Of(bytes);
+  // The bytes stored are exactly the plan's output, or nothing is published.
+  if (fileSha !== output.sha256 || bytes.byteLength !== output.size) {
+    await endAttempt(db, attempt, "plan_changed", now);
+    return "done";
+  }
   const ids = serverIdsOf(attempt.id);
   const [existing] = await db
     .select({ state: schema.uploadSessions.state })
@@ -653,9 +773,12 @@ export async function publishFromPlan(
     .where(and(eq(schema.objects.ownerId, attempt.ownerId), eq(schema.objects.sha256, fileSha)))
     .limit(1);
   if (object?.state === "pending") {
-    await bucket.put(object.r2Key, bytes, {
-      sha256: fileSha,
-    });
+    await bucket.put(object.r2Key, bytes, { sha256: fileSha });
+  }
+  // With a separate regional database the role is read again right before the commit.
+  if (!bothSides(db) && !(await stillActs(db, attempt.ownerId, userId))) {
+    await endAttempt(db, attempt, "revoked", now);
+    return "done";
   }
   const held = heldBy(attempt.id, c.token);
   const versionNumber = sql`(select ${schema.versions.number} from ${schema.versions} where ${schema.versions.id} = ${ids.versionId})`;
@@ -664,15 +787,17 @@ export async function publishFromPlan(
     bucket,
     { userId, sessionId: ids.sessionId, now },
     {
-      claim: claimStatement(db, c),
+      handle: c.w,
+      claim: claimStatement(c),
       held,
       completion: (switched) =>
-        completionStatements(db, c, sql`${switched} and ${held}`, {
+        completionStatements(c, sql`${switched} and ${held}`, {
           id: ids.versionId,
           number: versionNumber,
         }),
       via: attempt.origin,
       renderedSha256: output.renderedSha256,
+      blockMapSha256: output.blockMapSha256,
     },
   );
   if (committed.ok) return "done";
@@ -706,10 +831,10 @@ async function sha256Of(bytes: Uint8Array): Promise<string> {
 // The job
 
 /**
- * Runs a `suggestion_accept` or `draft_publish` job: re-checks the attempt, rebuilds and confirms
- * the plan, and completes it with a version or without one. Every outcome either completes the
- * attempt or ends it with a reason; a thrown error leaves the job for the queue to retry, and the
- * scan ends an attempt still running after its deliveries or its time.
+ * Runs a `suggestion_accept` or `draft_publish` job: re-authorizes the person, rebuilds and
+ * confirms the plan, and completes it with a version or without one. Every outcome either
+ * completes the attempt or ends it with a reason; a thrown error leaves the job for the queue to
+ * retry, and the scan ends an attempt still running after its deliveries or its time.
  */
 export async function runAcceptance(
   db: RegionalDb,
@@ -726,48 +851,76 @@ export async function runAcceptance(
     .set({ deliveries: sql`${at.deliveries} + 1`, updatedAt: now })
     .where(and(eq(at.id, attemptId), eq(at.state, "running")))
     .returning();
-  if (!attempt) return "done";
+  if (!attempt) {
+    // Ended elsewhere (an account erasure, the scan): its upload, if any, goes now.
+    const [ended] = await db.select().from(at).where(eq(at.id, attemptId)).limit(1);
+    if (ended?.state === "ended") await releaseUpload(db, ended, now);
+    return "done";
+  }
   // Three deliveries already ran, or it started too long ago: it ends (the scan does the same).
   if (attemptOverdue({ deliveries: attempt.deliveries - 1, createdAt: attempt.createdAt }, now)) {
     await endAttempt(db, attempt, "failed", now);
     return "done";
   }
-  const checked = await recheck(db, bucket, attempt, contentDomain);
+  const checked = await recheck(db, bucket, attempt, contentDomain, now);
   if (!checked.ok) {
     await endAttempt(db, attempt, checked.reason, now);
     return "done";
   }
+  const scope = acceptorScope(db, attempt.ownerId, attempt.userId as string);
   const completion: Completion = {
     attempt,
+    loaded: checked.loaded,
     built: checked.built,
     token: crypto.randomUUID(),
     now,
+    ...scope,
   };
-  if (checked.built.plan.output === null) return completeWithoutVersion(db, completion);
-  return publishFromPlan(db, bucket, { ...completion, artifact: checked.artifact });
+  if (checked.built.plan.output === null) {
+    if (!bothSides(db) && !(await stillActs(db, attempt.ownerId, attempt.userId as string))) {
+      await endAttempt(db, attempt, "revoked", now);
+      return "done";
+    }
+    return completeWithoutVersion(db, completion);
+  }
+  return publishFromPlan(db, bucket, { ...completion, artifact: checked.loaded.artifact });
 }
 
 type Recheck =
-  | { ok: true; artifact: ArtifactRow; built: SubjectPlan }
+  | { ok: true; loaded: AuthorizedAnnotations; built: SubjectPlan }
   | { ok: false; reason: AttemptEndReason };
 
-/** Everything the route checked, again, from the current state. */
+/**
+ * The person's authorization at the job's time: an annotation write on the owner side (effective
+ * state and expiry, annotation mode, hold), on the attempt's owner.
+ */
+async function authorizedAt(
+  db: RegionalDb,
+  attempt: AttemptRow,
+  now: number,
+): Promise<AuthorizedAnnotations | null> {
+  if (attempt.userId === null) return null;
+  const loaded = await annotationParts.authorize(
+    db,
+    { userId: attempt.userId, artifactId: attempt.artifactId, now },
+    "moderate",
+  );
+  if (!loaded.ok || loaded.value.role !== "owner") return null;
+  return loaded.value.artifact.ownerId === attempt.ownerId ? loaded.value : null;
+}
+
+/** Everything the route checked, again, from the current state at the job's time. */
 async function recheck(
   db: RegionalDb,
   bucket: R2Bucket,
   attempt: AttemptRow,
   contentDomain: string,
+  now: number,
 ): Promise<Recheck> {
   const revoked = { ok: false, reason: "revoked" } as const;
-  const [artifact] = await db.select().from(t).where(eq(t.id, attempt.artifactId)).limit(1);
-  if (!artifact || artifact.ownerId !== attempt.ownerId || artifact.state !== "active") {
-    return revoked;
-  }
-  // A held artifact is always suspended (migration 0074), so it ended here already.
-  if (attempt.userId === null) return revoked;
-  // The person still acts for the owner (a removal or a lower role meanwhile ends the attempt).
-  const actor = await actorOn(db.global, attempt.userId, artifact.ownerId);
-  if (!actor.ok || !actsForOwner(actor.value, artifact.ownerId)) return revoked;
+  const loaded = await authorizedAt(db, attempt, now);
+  if (!loaded) return revoked;
+  const { artifact } = loaded;
   if (artifact.currentVersionId !== attempt.baseVersionId) {
     return { ok: false, reason: "version_conflict" };
   }
@@ -784,19 +937,18 @@ async function recheck(
     const [draft] = await db
       .select()
       .from(dr)
-      .where(and(eq(dr.artifactId, artifact.id), eq(dr.userId, attempt.userId)))
+      .where(and(eq(dr.artifactId, artifact.id), eq(dr.userId, attempt.userId as string)))
       .limit(1);
     if (!draft || draft.attemptId !== attempt.id) return revoked;
     built = await draftPlanOf(db, bucket, { artifact, draft, contentDomain });
   }
-  if (!built.ok) return { ok: false, reason: "plan_changed" };
-  const confirmed = await confirmPlan({
-    plan: built.value.plan,
-    confirmedDigest: attempt.digest,
-    current: built.value.plan.binding,
-    newSource: built.value.plan.newSource,
-    renderer: DOCUMENT_RENDERER,
-  });
-  if (confirmed !== "confirmed") return { ok: false, reason: "plan_changed" };
-  return { ok: true, artifact, built: built.value };
+  if (!built.ok || !(await confirmed(built.value, attempt.digest))) {
+    return { ok: false, reason: "plan_changed" };
+  }
+  // A version is admitted again by `preparePublish`; listing items is annotation work.
+  if (built.value.plan.output === null) {
+    const capacity = await capacityFor(db, built.value, now);
+    if (!capacity.ok) return { ok: false, reason: "capacity_unavailable" };
+  }
+  return { ok: true, loaded, built: built.value };
 }
