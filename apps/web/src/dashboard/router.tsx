@@ -16,6 +16,7 @@ import { ArtifactDetailScreen } from "./screens/artifact-detail.tsx";
 import { ArtifactListScreen, parseListSearch } from "./screens/artifact-list.tsx";
 import { AuditScreen } from "./screens/audit.tsx";
 import { BrandingScreen } from "./screens/branding.tsx";
+import { DataGrantScreen, parseDataGrantSearch } from "./screens/data-grant.tsx";
 import { DocumentEditorScreen } from "./screens/document-editor.tsx";
 import { DownloadDataScreen } from "./screens/download-data.tsx";
 import { GroupsScreen } from "./screens/groups.tsx";
@@ -30,6 +31,7 @@ import { ProfileScreen } from "./screens/profile.tsx";
 import { PublishScreen, PublishVersionScreen } from "./screens/publish.tsx";
 import { ServiceTokensScreen } from "./screens/service-tokens.tsx";
 import { SettingsScreen } from "./screens/settings.tsx";
+import { SharedDataScreen } from "./screens/shared-data.tsx";
 import { Shell } from "./screens/shell.tsx";
 import { UsageScreen } from "./screens/usage.tsx";
 import { parseViewerSearch, ViewerScreen } from "./screens/viewer.tsx";
@@ -44,7 +46,9 @@ import { parseSpaceSearch } from "./space.tsx";
 function Frame() {
   const viewer = useMatch({ from: "/view/$artifactId", shouldThrow: false });
   const invitation = useMatch({ from: "/invitations", shouldThrow: false });
-  if (viewer) return <Outlet />;
+  // The consent control of artifact data draws its own frame: it may run in a popup.
+  const grant = useMatch({ from: "/data/grant", shouldThrow: false });
+  if (viewer || grant) return <Outlet />;
   if (invitation) return <InvitationFrame />;
   return <Shell />;
 }
@@ -132,6 +136,17 @@ export function createDashboardRouter(history?: RouterHistory) {
     path: "/data",
     component: DownloadDataScreen,
   });
+  const sharedData = createRoute({
+    getParentRoute: () => root,
+    path: "/shared-data",
+    component: SharedDataScreen,
+  });
+  const dataGrant = createRoute({
+    getParentRoute: () => root,
+    path: "/data/grant",
+    component: DataGrantScreen,
+    validateSearch: parseDataGrantSearch,
+  });
   const webhooks = createRoute({
     getParentRoute: () => root,
     path: "/webhooks",
@@ -209,6 +224,8 @@ export function createDashboardRouter(history?: RouterHistory) {
       usage,
       plan,
       data,
+      sharedData,
+      dataGrant,
       webhooks,
       integrations,
       branding,

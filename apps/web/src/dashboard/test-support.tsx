@@ -35,6 +35,8 @@ import {
   type CustomDomainView,
   type DataDescriptionView,
   type DataDocumentView,
+  type DataGrantControl,
+  type DataGrantView,
   DEFAULT_POLICY,
   DocumentPreviewRequest,
   type DraftView,
@@ -612,6 +614,9 @@ export interface FakeServer {
   accountSuspension: AccountSuspensionView;
   /** Comment notices by artifact: whether the owner's plan has them and the caller's mute. */
   commentNotices: Record<string, CommentNoticeMute>;
+  /** Artifact data (decision 0026): controls by artifact ID (missing ones answer 404) and grants. */
+  dataGrantControls: Record<string, DataGrantControl>;
+  dataGrants: DataGrantView[];
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** The body of GET /api/v1/grace-forecast (decision 0022), for every space. */
@@ -791,6 +796,8 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     branding: { available: true, lowestPlan: "pro", suspended: false, brand: null },
     logoUploads: [],
     commentNotices: {},
+    dataGrantControls: {},
+    dataGrants: [],
     bodies: [],
     pageSize: 50,
     texts: new Map(),
@@ -1581,6 +1588,40 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     const before = server.sessions.length;
     server.sessions = server.sessions.filter((s) => s.current);
     return Response.json({ signedOut: before - server.sessions.length });
+  }
+  if (path === "/api/v1/account/data-grants" && method === "GET") {
+    // Pages of two, so the screen's "Show more" is exercised.
+    const after = url.searchParams.get("after");
+    const from = after === null ? 0 : Number(after);
+    const next = from + 2 < server.dataGrants.length ? String(from + 2) : null;
+    return Response.json({ items: server.dataGrants.slice(from, from + 2), next });
+  }
+  if (path === "/api/v1/account/data-grants" && method === "POST") {
+    const input = server.bodies.at(-1) as { artifactId: string; flow: string };
+    const control = server.dataGrantControls[input.artifactId];
+    if (!control) return apiError("not_found", 404);
+    const code = "c".repeat(43);
+    return Response.json({
+      code,
+      redeemUrl: `https://${control.host}/__portifact/data/grant?flow=${input.flow}&code=${code}`,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+  }
+  const grantControl = /^\/api\/v1\/account\/data-grants\/([^/]+)\/control$/.exec(path);
+  if (grantControl && method === "GET") {
+    const control = server.dataGrantControls[decodeURIComponent(grantControl[1] as string)];
+    return control ? Response.json(control) : apiError("not_found", 404);
+  }
+  const grantRevoke = /^\/api\/v1\/account\/data-grants\/([^/]+)$/.exec(path);
+  if (grantRevoke && method === "DELETE") {
+    const id = decodeURIComponent(grantRevoke[1] as string);
+    let revoked = 0;
+    server.dataGrants = server.dataGrants.map((item) => {
+      if (item.artifactId !== id) return item;
+      revoked += item.openGrants;
+      return { ...item, openGrants: 0, expiresAt: null };
+    });
+    return Response.json({ artifactId: id, revoked });
   }
   const mute = /^\/api\/v1\/account\/comment-notices\/([^/]+)$/.exec(path);
   if (mute) {

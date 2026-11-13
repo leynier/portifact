@@ -121,3 +121,14 @@ describe("hostile return paths of the single sign-on round trip", () => {
     expect(safeNext(url.search, ORIGIN)).toBeUndefined();
   });
 });
+
+describe("returning to artifact data pages after signing in", () => {
+  it("returns from login to the consent control with its request, and to shared data", () => {
+    for (const next of [
+      `/data/grant?artifact=k7d2qm4xab&nonce=${"n".repeat(43)}`,
+      "/shared-data",
+    ]) {
+      expect(safeNext(`?${new URLSearchParams({ next })}`, ORIGIN)).toBe(next);
+    }
+  });
+});
