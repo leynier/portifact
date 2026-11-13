@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CommentRetentionNoticePayload,
+  CommentTombstonesPayload,
   DEFAULT_POLICY,
   PolicyImpact,
   PolicyPreview,
@@ -211,5 +212,25 @@ describe("comment retention (decision 0023)", () => {
       false,
     );
     expect(CommentRetentionNoticePayload.safeParse({ ...notice, name: "x" }).success).toBe(false);
+  });
+});
+
+describe("comment_tombstones payload", () => {
+  it("carries an edit suggestion's restore marker, one at a time, of the three kinds only", () => {
+    const marker = { kind: "edit_draft", id: "abcdefgh23:u_1:inc" };
+    expect(CommentTombstonesPayload.safeParse({ ids: [], markers: [marker], at: 1 }).success).toBe(
+      true,
+    );
+    expect(CommentTombstonesPayload.safeParse({ ids: [], markers: [], at: 1 }).success).toBe(false);
+    expect(
+      CommentTombstonesPayload.safeParse({ ids: [], markers: [marker, marker], at: 1 }).success,
+    ).toBe(false);
+    expect(
+      CommentTombstonesPayload.safeParse({
+        ids: [],
+        markers: [{ kind: "account", id: "u_1" }],
+        at: 1,
+      }).success,
+    ).toBe(false);
   });
 });

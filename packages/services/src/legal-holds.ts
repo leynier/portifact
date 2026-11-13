@@ -445,7 +445,7 @@ export async function runHoldRelease(
   // Their traces in the history the hold kept (who acted, the deleted markers), as their
   // account's deletion would have done.
   for (const userId of gone) {
-    if ((await eraseAccountTraces(db, userId)).more) return "pending";
+    if ((await eraseAccountTraces(db, userId, now)).more) return "pending";
   }
   return "done";
 }

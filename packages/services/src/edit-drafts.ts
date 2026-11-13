@@ -11,11 +11,19 @@
 // artifact's current version: a draft whose base is no longer current is replaced only by a save
 // that names the current version. Rebasing by relocation is left to a later pull request.
 import { DRAFT_LIMITS, type DraftEdit, type DraftView, utf8Length } from "@portifact/contracts";
-import { hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@portifact/db";
+import {
+  bothSides,
+  type Db,
+  hitRateLimits,
+  type RateLimitHit,
+  type RegionalDb,
+  schema,
+} from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import { type AnnotationActor, annotationParts } from "./annotations.ts";
 import { notHeldSql } from "./legal-holds.ts";
+import { draftMarker } from "./suggestion-markers.ts";
 import { ownDraft, planBatchOn } from "./suggestion-plans.ts";
 import { checkEditablePage } from "./suggestions.ts";
 
@@ -198,23 +206,40 @@ export async function discardDraft(db: RegionalDb, input: AnnotationActor): Prom
   const on = await planBatchOn(db, loaded);
   if (!on) return fail("not_found", "Draft not found.");
   const t = schema.artifacts;
-  const deleted = await on.w
-    .delete(dr)
-    .where(
-      and(
-        eq(dr.artifactId, draft.artifactId),
-        eq(dr.userId, input.userId),
-        eq(dr.revision, draft.revision),
-        sql`${dr.attemptId} is null`,
-        sql`exists (select 1 from ${t} where ${t.id} = ${draft.artifactId} and ${t.ownerId} = ${loaded.artifact.ownerId})`,
-        notHeldSql(sql`${dr.artifactId}`),
-        on.standing,
-      ),
-    )
-    .returning({ revision: dr.revision });
+  const asRead = and(
+    eq(dr.artifactId, draft.artifactId),
+    eq(dr.userId, input.userId),
+    eq(dr.revision, draft.revision),
+    eq(dr.incarnation, draft.incarnation),
+    sql`${dr.attemptId} is null`,
+    sql`exists (select 1 from ${t} where ${t.id} = ${draft.artifactId} and ${t.ownerId} = ${loaded.artifact.ownerId})`,
+    notHeldSql(sql`${dr.artifactId}`),
+    on.standing,
+  ) as SQL;
+  const [, deleted] = await removeDraftBatch(db, on.w, asRead, input.now);
   if (deleted.length === 1) return ok(true);
   // Answer what a fresh request would: the refusal that now applies (a hold's message among
   // them), else a conflict.
   const again = await ownDraft(db, input, "read");
   return again.ok ? draftChanged() : again;
+}
+
+/**
+ * Removes the drafts `where` selects, each with the marker that keeps it gone through a restore
+ * (`edit_draft`, decision 0027), the marker first and on the same condition, so a draft is never
+ * removed without one and a refused removal writes none. `w` is the handle the caller's guard was
+ * built for (`planBatchOn`); with one database the batch runs on the handle that writes both.
+ */
+export async function removeDraftBatch(
+  db: RegionalDb,
+  w: Db,
+  where: SQL,
+  now: number,
+): Promise<[unknown, { revision: number }[]]> {
+  const shared = bothSides(db);
+  const x: Db = shared ?? w;
+  return (await x.batch([
+    draftMarker(x, shared !== null, where, now),
+    x.delete(dr).where(where).returning({ revision: dr.revision }),
+  ])) as [unknown, { revision: number }[]];
 }
