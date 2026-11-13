@@ -25,7 +25,7 @@ type DraftRow = typeof dr.$inferSelect;
 /** The `rate_limits` key of a person's draft saves. */
 export const draftSaveKey = (userId: string) => `suggestion-draft:user:${userId}`;
 
-function draftView(row: DraftRow): DraftView {
+export function draftView(row: DraftRow): DraftView {
   let edit: unknown = null;
   try {
     edit = JSON.parse(row.edit);
