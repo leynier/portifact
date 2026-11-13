@@ -604,7 +604,8 @@ export const CLIENT_SCRIPT = `(() => {
     }
     return value;
   };
-  const key = () => crypto.randomUUID();
+  // An idempotency key carries its issue time, so a retry of the same call is the same operation.
+  const key = () => String(Date.now()).padStart(13, "0") + "." + crypto.randomUUID().replaceAll("-", "");
   const collection = (name) => {
     const at = "c/" + encodeURIComponent(name);
     return {

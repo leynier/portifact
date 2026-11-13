@@ -19,7 +19,6 @@ import type {
 import type { RegionalDb } from "@portifact/db";
 import { type DataWork, dataRefusalError, fail, ok, type Result } from "@portifact/domain";
 import { type DataObjects, readDataRow } from "./artifact-data.ts";
-import { ownerOperationId } from "./artifact-data-owner.ts";
 import { checkDataWriteCapacity } from "./budget.ts";
 
 export interface PageDataDeps {
@@ -36,8 +35,9 @@ export interface PageDataInput {
   caller: PageCaller;
   command: PageDataCommand;
   /**
-   * The page's idempotency key on a mutation (`Idempotency-Key`), or null: the Worker then makes
-   * one, so a retry the page did not key is a new operation.
+   * The page's idempotency key on a mutation (`Idempotency-Key`), or null. A key of the form
+   * `<issue time in ms, 13 digits>.<random>` (the client script's) names one operation however
+   * late it is retried; any other is a new operation each time.
    */
   idempotencyKey: string | null;
   now: number;
@@ -59,6 +59,33 @@ const PAGE_WORK: Record<PageDataCommand["kind"], DataWork> = {
 };
 
 const MUTATIONS = new Set<PageDataCommand["kind"]>(["create", "replace", "remove"]);
+
+const KEYED = /^([0-9]{13})\.[A-Za-z0-9_-]{8,64}$/;
+
+/**
+ * A page mutation's operation ID, without a D1 write: the issue time the page's key carries (or
+ * now, for a key of another form or none) and a hash of the caller and the key, so the object's
+ * own record applies a retried change once. The object refuses an issue time older than its
+ * horizon or ahead of its clock by more than the skew, so the page cannot pick a time to dodge it.
+ */
+export async function pageOperationId(
+  author: string,
+  key: string | null,
+  now: number,
+): Promise<string> {
+  const keyed = key === null ? null : KEYED.exec(key);
+  const material = keyed ? key : `${key ?? ""}\u0000${crypto.randomUUID()}`;
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`${author}\u0000${material}`),
+  );
+  const hex = [...new Uint8Array(digest)]
+    .slice(0, 16)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  const issued = keyed ? (keyed[1] as string) : String(Math.floor(now)).padStart(13, "0");
+  return `${issued}.${hex}`;
+}
 
 const noData = () => fail<never>("not_found", "This artifact has no data.");
 
@@ -92,7 +119,7 @@ export async function pageDataCommand(
   const mutation = MUTATIONS.has(input.command.kind);
   const author = input.caller.kind === "visitor" ? input.caller.author : "reader";
   const opId = mutation
-    ? await ownerOperationId(author, input.idempotencyKey ?? crypto.randomUUID(), input.now)
+    ? await pageOperationId(author, input.idempotencyKey, input.now)
     : undefined;
   const envelope = {
     artifactId: input.artifactId,

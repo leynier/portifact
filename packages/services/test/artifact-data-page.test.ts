@@ -20,6 +20,8 @@ import { ownerRpc } from "./data-owner-rpc.ts";
 import { db, NOW, publishSite, user, value } from "./fixtures.ts";
 
 const LIMITS = PLANS.free.data.perArtifact;
+/** A page key as the client script makes it: its issue time, then a random part. */
+const KEY = `${NOW}.vote0000one`;
 const ALICE: PageCaller = { kind: "visitor", author: "v_alice0000000000000", canWrite: true };
 const BOB: PageCaller = { kind: "visitor", author: "v_bob00000000000000", canWrite: true };
 
@@ -83,7 +85,7 @@ describe("page data commands", () => {
     const created = await run(
       ALICE,
       { kind: "create", collection: "votes", body: { choice: "a" } },
-      "k1",
+      KEY,
     );
     expect(created.result.ok).toBe(true);
     expect(created.storage?.seq).toBeGreaterThan(0);
@@ -93,7 +95,7 @@ describe("page data commands", () => {
     const again = await run(
       ALICE,
       { kind: "create", collection: "votes", body: { choice: "a" } },
-      "k1",
+      KEY,
     );
     expect(value(again.result).replayed).toBe(true);
 
@@ -111,6 +113,36 @@ describe("page data commands", () => {
       rows: unknown[];
     };
     expect(mine.rows).toHaveLength(1);
+  });
+
+  it("applies a keyed write once however late it is retried, and an unkeyed one each time", async () => {
+    const { objects, owner } = harness();
+    const { artifactId } = await artifactWithVotes(owner);
+    const create = (key: string | null, now: number) =>
+      pageDataCommand(db(), { objects }, {
+        artifactId,
+        region: "default",
+        limits: LIMITS,
+        caller: ALICE,
+        command: { kind: "create", collection: "votes", body: { choice: "z" } },
+        idempotencyKey: key,
+        now,
+      });
+    expect(value((await create(KEY, NOW)).result).replayed).toBe(false);
+    expect(value((await create(KEY, NOW + 90_000)).result).replayed).toBe(true);
+    expect(value((await create("not-a-keyed-key", NOW)).result).replayed).toBe(false);
+    expect(value((await create("not-a-keyed-key", NOW)).result).replayed).toBe(false);
+    // Bob's same key is his own operation.
+    const bob = await pageDataCommand(db(), { objects }, {
+      artifactId,
+      region: "default",
+      limits: LIMITS,
+      caller: BOB,
+      command: { kind: "create", collection: "votes", body: { choice: "z" } },
+      idempotencyKey: KEY,
+      now: NOW,
+    });
+    expect(value(bob.result).replayed).toBe(false);
   });
 
   it("answers not_found for an artifact without data and never reaches an object", async () => {

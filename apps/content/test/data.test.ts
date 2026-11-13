@@ -111,7 +111,7 @@ async function seed(accessMode: "public" | "restricted" = "public") {
       state: "active",
       accessMode,
       currentVersionId: `${id}-v1`,
-      expiresAt: NOW + 10 * DAY,
+      expiresAt: NOW + 60 * DAY,
     });
   const declared = await declareDataCollection(
     db(),
@@ -249,7 +249,7 @@ describe("artifact data on the artifact origin", () => {
       method: "POST",
       body: { choice: "a" },
       cookie: grant,
-      headers: { ...FETCH, "Idempotency-Key": "vote-1" },
+      headers: { ...FETCH, "Idempotency-Key": `${NOW}.vote0000one` },
     });
     expect(created.status).toBe(201);
     const doc = JSON.parse(created.body);
@@ -260,7 +260,7 @@ describe("artifact data on the artifact origin", () => {
       method: "POST",
       body: { choice: "a" },
       cookie: grant,
-      headers: { ...FETCH, "Idempotency-Key": "vote-1" },
+      headers: { ...FETCH, "Idempotency-Key": `${NOW}.vote0000one` },
     });
     expect(again.status).toBe(200);
     expect(JSON.parse(again.body)).toMatchObject({ replayed: true });
@@ -385,5 +385,96 @@ describe("artifact data on the artifact origin", () => {
     expect(later.cookies.some((c) => c.startsWith(`${GRANT_COOKIE}=;`))).toBe(true);
     const me = JSON.parse((await send(id, "me", { cookie: grant, now: NOW + 61_000 })).body);
     expect(me).toEqual({ granted: false });
+  });
+
+  it("answers malformed requests to the API without reaching the object's rules", async () => {
+    const id = await seed();
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const bad = async (path: string, options: Parameters<typeof send>[2] = {}) =>
+      send(id, path, { cookie: grant, ...options });
+    expect((await bad("c/Bad-Name")).status).toBe(400);
+    expect((await bad("c/votes?q=%7Bnope")).status).toBe(400);
+    expect((await bad("c/votes?q=%7B%22limit%22%3A0%7D")).status).toBe(400);
+    expect((await bad("c/votes/not-an-id")).status).toBe(404);
+    expect((await bad("elsewhere")).status).toBe(404);
+    expect((await bad("c/votes/a/b/c")).status).toBe(404);
+    expect((await bad("mine?after=nocolon")).status).toBe(400);
+    expect((await bad("c/votes", { method: "PATCH", body: {} })).status).toBe(405);
+    const created = JSON.parse(
+      (await bad("c/votes", { method: "POST", body: { choice: "a" } })).body,
+    ) as { _id: string };
+    expect((await bad(`c/votes/${created._id}`, { method: "PATCH", body: {} })).status).toBe(405);
+    // A body that is not one JSON object is refused before the object.
+    const array = await send(id, "c/votes", { method: "POST", body: [1], cookie: grant });
+    expect(array.status).toBe(400);
+    const replaced = await bad(`c/votes/${created._id}`, { method: "PUT", body: { choice: "b" } });
+    expect(replaced.status).toBe(200);
+    expect(JSON.parse(replaced.body)).toMatchObject({ choice: "b" });
+    const page = JSON.parse((await bad(`mine?after=votes:${created._id}`)).body);
+    expect(page.rows).toEqual([]);
+  });
+
+  it("renews the grant's claims after a minute and ends the cookie at the grant's end", async () => {
+    const id = await seed();
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const renewed = await send(id, "me", { cookie: grant, now: NOW + 61_000 });
+    expect(JSON.parse(renewed.body)).toMatchObject({ granted: true });
+    expect(renewed.cookies.some((c) => c.startsWith(`${GRANT_COOKIE}=e1.`))).toBe(true);
+    const ended = await send(id, "me", { cookie: grant, now: NOW + 31 * DAY });
+    expect(JSON.parse(ended.body)).toEqual({ granted: false });
+  });
+
+  it("ignores another artifact's grant and a frame grant on a top-level document", async () => {
+    const id = await seed();
+    const frameGrant = (await granted(id, "frame")).redeemed;
+    const cookie = cookieOf(frameGrant, GRANT_COOKIE);
+    const other = await seed();
+    expect(JSON.parse((await send(other, "me", { cookie })).body)).toEqual({ granted: false });
+    // A top-level document carrying a frame grant: the check page says nothing was kept.
+    const top = await send(id, "grant/check?flow=top", { headers: NAVIGATE_TOP, cookie });
+    expect(top.status).toBe(403);
+  });
+
+  it("ends the top-level flow on the page, or in the popup's opener", async () => {
+    const id = await seed();
+    const { redeemed } = await granted(id);
+    const cookie = cookieOf(redeemed, GRANT_COOKIE);
+    const checked = await send(id, "grant/check?flow=top&to=%2Fboard", {
+      headers: NAVIGATE_TOP,
+      cookie,
+    });
+    expect(checked.status).toBe(200);
+    expect(checked.body).toContain("window.opener");
+    expect(checked.body).toContain('"/board"');
+    const outside = await send(id, "grant/check?flow=top&to=%2F%2Fevil.example", {
+      headers: NAVIGATE_TOP,
+      cookie,
+    });
+    expect(outside.body).not.toContain("evil.example");
+  });
+
+  it("refuses a frame redemption without its transaction by telling the viewer", async () => {
+    const id = await seed();
+    const answered = await send(id, `grant?flow=frame&code=${"c".repeat(43)}`, {
+      headers: FROM_APP_FRAME,
+    });
+    expect(answered.status).toBe(200);
+    expect(answered.body).toContain("portifact:data-grant-unavailable");
+  });
+
+  it("answers 503 without the cookie secret, and serves the script to HEAD with no body", async () => {
+    const id = await seed();
+    const request = new Request(`https://${id}.portifact.dev/__portifact/data/me`, {
+      headers: FETCH,
+    });
+    const response = await handle(request, { ...ON, READ_SESSION_SECRET: "short" }, NOW);
+    expect(response.status).toBe(503);
+    const head = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/data.js`, { method: "HEAD" }),
+      ON,
+      NOW,
+    );
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
   });
 });
