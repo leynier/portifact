@@ -177,8 +177,10 @@ export const MAX_COLLECTIONS = 32;
  */
 export const MAX_DOCUMENT_BYTES = 1024 * 1024;
 /**
- * The largest artifact data any plan may allow: the growth check refuses once the file passes this
- * plus the control reserve, so the file stays under the platform's 10 GB per object.
+ * The largest artifact data any plan may allow: growth is refused once the file passes this plus
+ * the control reserve, which leaves a gigabyte under the platform's 10 GB per object for the work
+ * the size check never judges (cleanup, rights and protected work, which can still add index
+ * entries and control records).
  */
 export const MAX_ARTIFACT_BYTES = 9_000_000_000;
 

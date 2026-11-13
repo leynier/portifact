@@ -292,37 +292,90 @@ describe("review 257 invariant reproductions", () => {
 
   it("B2: the check reads the file after the charge's own writes", async () => {
     const object = await fixture();
+    // The file as the store measures it, fixed until the charge's day row is written and one
+    // page larger after: the measurement under test is the one that includes the charge's own
+    // writes, whatever the real file's pages do. The documents are far below their allowance, so
+    // nothing but that page can refuse the create.
+    const size = ARTIFACT_DATA.controlReserveBytes + 10_000_000;
+    const limits = { ...ROOMY, bytesPerArtifact: 10_000_000 };
+    const mock = (on: boolean) =>
+      object.run((store) => {
+        let charged = false;
+        store.faults = {
+          statement: (sql) => {
+            if (sql.startsWith("INSERT INTO pf_days")) charged = true;
+            return false;
+          },
+        };
+        store.fileBytes = () => size + (on && charged ? 4096 : 0);
+      });
+    await mock(false);
+    // With the file not growing, the same create fits.
+    value(await object.create(op(base), OWNER, "items", {}, context({ limits })));
+    await mock(true);
+    const refused = await object.create(op(base), OWNER, "items", {}, context({ limits }));
+    expect(refused).toMatchObject({ ok: false, code: "quota_exceeded" });
+    expect((await object.view()).durable.documents.size).toBe(1);
+  });
+
+  it("B2: a connect is growth and is refused when it would grow the file past the cap", async () => {
+    const object = new RealObject();
+    const fields = ["a", "b", "c"];
+    value(
+      await object.declare(
+        op(base),
+        OWNER,
+        { name: "items", mode: "append", indexed: fields },
+        ctx,
+      ),
+    );
     value(
       await object.bulkCreate(
         op(base),
         OWNER,
         {
           collection: "items",
-          documents: Array.from({ length: 100 }, () => ({ text: "x".repeat(12_000) })),
+          documents: Array.from({ length: 100 }, (_, i) =>
+            Object.fromEntries(fields.map((field) => [field, `${i}-${"x".repeat(230)}`])),
+          ),
         },
         ctx,
       ),
     );
-    const documents = (await object.view()).durable.documents.size;
-    const before = (await object.view()).fileBytes();
-    const limits = { ...ROOMY, bytesPerArtifact: before - ARTIFACT_DATA.controlReserveBytes };
-    // The file as the store measures it, grown by a page once the charge's day row is written:
-    // a deterministic stand-in for the charge crossing a page boundary, which the real file
-    // does only at particular row counts.
-    await object.run((store) => {
-      const measure = store.fileBytes.bind(store);
-      let charged = false;
-      store.faults = {
-        statement: (sql) => {
-          if (sql.startsWith("INSERT INTO pf_days")) charged = true;
-          return false;
-        },
-      };
-      store.fileBytes = () => measure() + (charged ? 4096 : 0);
-    });
-    const answer = await object.create(op(base), OWNER, "items", {}, context({ limits }));
-    expect(answer).toMatchObject({ ok: false, code: "quota_exceeded" });
-    expect((await object.view()).durable.documents.size).toBe(documents);
+    const before = await object.view();
+    const cap = before.fileBytes();
+    const bytesPerArtifact = cap - ARTIFACT_DATA.controlReserveBytes;
+    // The documents fit their allowance: only the file's size can refuse.
+    expect(before.durable.collections.get("items")?.bytes).toBeLessThan(bytesPerArtifact);
+    const growth = async () =>
+      [...(await object.view()).durable.days.values()].reduce((sum, day) => sum + day.growth, 0);
+    let refusedAt = -1;
+    // One reader reconnecting each minute: every connect adds a rate row, until one needs a page.
+    for (let minute = 0; minute < 600 && refusedAt < 0; minute++) {
+      const now = NOW + minute * 60_000;
+      const used = await growth();
+      const answer = await object.connect(
+        base,
+        null,
+        "reader",
+        now + 60_000,
+        context({ now, limits: { ...ROOMY, bytesPerArtifact } }),
+      );
+      if (answer.ok) {
+        const socketId = value<string>(answer);
+        await object.run((store) => store.closed(socketId, 1000));
+        expect((await object.view()).fileBytes(), `minute ${minute}`).toBeLessThanOrEqual(cap);
+        continue;
+      }
+      refusedAt = minute;
+      expect(answer.code).toBe("quota_exceeded");
+      const after = await object.view();
+      // Rolled back whole (no socket was accepted), and its work charged to growth.
+      expect([...after.sockets.values()].filter((socket) => socket.closed === null)).toEqual([]);
+      expect(await growth()).toBeGreaterThan(used);
+    }
+    expect(refusedAt).toBeGreaterThan(0);
+    await assertAccounted(object);
   });
 
   it("B2: work that does not grow its documents is never refused for size", async () => {
@@ -467,8 +520,10 @@ describe("review 257 invariant reproductions", () => {
       object.create(op(base), OWNER, "items", { n: 1 }, ctx),
       object.create(op(base), OWNER, "items", { n: 2 }, ctx),
     ]);
+    // The cached view is read first: any other call into the object would replace it.
+    const cached = (await object.view()).durable.documents.size;
     const stored = await object.run((store) => store.inspect("pf_documents").length);
     expect(stored).toBe(2);
-    expect((await object.view()).durable.documents.size).toBe(2);
+    expect(cached).toBe(stored);
   });
 });

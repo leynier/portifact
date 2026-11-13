@@ -528,9 +528,10 @@ export class DocumentsStore {
   }
 
   /**
-   * One storage transaction. A throw rolls the storage back (a nested one to its savepoint) and
-   * drops what the object cached from storage, which is read again. Memory (pending usage,
-   * attempts, sockets) is not storage and is not rolled back.
+   * One storage transaction. A throw rolls the storage back (a nested one to its savepoint),
+   * drops what the object cached from storage, which is read again, and puts what the object
+   * keeps in memory about storage back as it was (`#memory`). Attempts and sockets are not storage
+   * and are not rolled back.
    */
   #transaction<T>(work: () => T): T {
     const memo = this.#memory();
@@ -546,8 +547,9 @@ export class DocumentsStore {
 
   /**
    * What the object keeps in memory about storage: pending usage and the meters. It follows the
-   * transaction, so a rollback leaves it as storage is (the oracle's `accesses` stays: those rows
-   * were read and written, and the entry point holds them as unpaid work).
+   * transaction, so a rollback leaves it as storage is. The oracle's `accesses` stays: those rows
+   * were read and written, and the entry point charges them in a later transaction or, when a
+   * storage fault ends it, counts them as lost (`#lose`).
    */
   #memory(): Memory {
     const m = this.meters;
@@ -2480,13 +2482,15 @@ export class DocumentsStore {
     return this.#running(context.now, () => {
       const now = context.now;
       let charged = false;
+      let full = false;
+      const rate = { subject: author ?? "readers", kind: "connects", window: minuteOf(now) };
       const answer = this.#answer(() =>
         this.#transaction(() => {
           const limits = this.#limitsRefusal(context.limits);
           if (limits !== null) fail(limits);
+          const fileBefore = this.fileBytes();
           const stored = this.#readControl();
           const open = [...this.sockets.values()].filter((socket) => socket.closed === null);
-          const rate = { subject: author ?? "readers", kind: "connects", window: minuteOf(now) };
           const [connects] = this.#read(
             "SELECT count FROM pf_rates WHERE subject = ? AND kind = ? AND window = ?",
             rate.subject,
@@ -2522,13 +2526,33 @@ export class DocumentsStore {
           });
           charged = true;
           this.#charge("connect", "growth", now, false);
+          // A connect is growth: its rate row and counters are judged against the measured file
+          // like any growing mutation, after the charge and before the socket is accepted.
+          const refusal = growthRefusal(
+            { dataBytes: 0, fileBefore, fileAfter: this.fileBytes(), grew: 0 },
+            context.limits,
+          );
+          if (refusal !== null) {
+            full = true;
+            fail(refusal);
+          }
           const socket: LiveSocket = { port: this.#accept(socketId), attachment, closed: null };
           this.#attach(socket, attachment);
           this.sockets.set(socketId, socket);
           return socketId;
         }),
       );
-      if (!charged || !answer.ok) this.#meterUncharged(true, now, null);
+      if (full) {
+        // Rolled back whole; the work it did is charged to growth with its attempt, as a
+        // mutation's failed work is.
+        this.#transaction(() => {
+          this.#countRate(rate);
+          this.#setControl(touched(this.#readControl() as DataControl, false));
+          this.#charge("connect", "growth", now, true);
+        });
+      } else if (!charged || !answer.ok) {
+        this.#meterUncharged(true, now, null);
+      }
       return answer;
     });
   }
