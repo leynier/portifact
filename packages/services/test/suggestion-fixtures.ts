@@ -3,7 +3,14 @@
 // `suggestion` holding an edit, and the plan `buildPlan` makes for it from the stored files, in
 // `suggestion_plans` for the person who will ask for the preview.
 import { env } from "cloudflare:test";
-import { ANCHOR_SCHEMA_VERSION, type EditOperation, type FileKind } from "@portifact/contracts";
+import {
+  ANCHOR_SCHEMA_VERSION,
+  type EditOperation,
+  type FileKind,
+  PREVIEW_CODES,
+  previewHost,
+  TERMS_VERSION,
+} from "@portifact/contracts";
 import { schema } from "@portifact/db";
 import {
   type BuiltPlan,
@@ -15,8 +22,10 @@ import {
 } from "@portifact/domain/suggestions";
 import { DOCUMENT_RENDERER } from "@portifact/render";
 import { and, eq } from "drizzle-orm";
+import { expect } from "vitest";
 import { commitPublish, preparePublish } from "../src/publish.ts";
-import { db, NOW, sha256 } from "./fixtures.ts";
+import { issuePreviewCode } from "../src/suggestion-previews.ts";
+import { db, NOW, session, sha256, user } from "./fixtures.ts";
 
 export const CONTENT_DOMAIN = "portifact.dev";
 export const TITLE = "Plan";
@@ -211,4 +220,74 @@ export async function storePlan(
       createdAt: now,
       expiresAt: now + 10 * 60_000,
     });
+}
+
+/** A person whose account accepted the current terms, as every signed-in session needs. */
+export async function person(name = "Someone") {
+  const created = await user(name);
+  await db()
+    .global.update(schema.users)
+    .set({ termsVersion: TERMS_VERSION })
+    .where(eq(schema.users.id, created.id));
+  return created;
+}
+export const MARKDOWN = "# Notes\n\nThe quick brown cat jumps.\n";
+
+export async function openArtifact(
+  artifactId: string,
+  values: Partial<typeof schema.artifacts.$inferInsert> = {},
+) {
+  await db()
+    .update(schema.artifacts)
+    .set({ annotations: "open", ...values })
+    .where(eq(schema.artifacts.id, artifactId));
+}
+
+/** An owner's Markdown artifact with a suggestion and the owner's stored plan for it. */
+export async function ownerSuggestion(source = MARKDOWN, after = "dog") {
+  const owner = await person("Owner");
+  const sessionId = await session(owner.id);
+  const { artifactId, versionId } = await publishFile(owner.id, "markdown", source);
+  await openArtifact(artifactId);
+  const { threadId, plan } = await suggestionWithPlan({
+    kind: "markdown",
+    source,
+    artifactId,
+    versionId,
+    ownerId: owner.id,
+    authorId: owner.id,
+    viewerId: owner.id,
+    operations: [textOperation("markdown", source, artifactId, "cat", after)],
+  });
+  return { owner, sessionId, artifactId, versionId, threadId, plan };
+}
+
+export const issue = (
+  s: { owner: { id: string }; sessionId: string; artifactId: string; plan: { digest: string } },
+  overrides: { userId?: string; sessionId?: string; now?: number; digest?: string } = {},
+) =>
+  issuePreviewCode(db(), env.ARTIFACTS, {
+    userId: overrides.userId ?? s.owner.id,
+    sessionId: overrides.sessionId ?? s.sessionId,
+    artifactId: s.artifactId,
+    digest: overrides.digest ?? s.plan.digest,
+    now: overrides.now ?? NOW,
+    contentDomain: CONTENT_DOMAIN,
+  });
+
+export function codeOf(result: Awaited<ReturnType<typeof issue>>): string {
+  if (!result.ok || result.value.state !== "ready") {
+    throw new Error(`no code: ${JSON.stringify(result)}`);
+  }
+  const url = new URL(result.value.url);
+  expect(url.origin).toBe(`https://${previewHost(CONTENT_DOMAIN)}`);
+  expect(url.pathname.startsWith(PREVIEW_CODES.pathPrefix)).toBe(true);
+  return url.pathname.slice(PREVIEW_CODES.pathPrefix.length);
+}
+
+export async function codeRows(artifactId: string) {
+  return db()
+    .select()
+    .from(schema.previewCodes)
+    .where(eq(schema.previewCodes.artifactId, artifactId));
 }

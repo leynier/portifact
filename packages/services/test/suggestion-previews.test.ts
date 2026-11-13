@@ -12,75 +12,22 @@ import {
   prunePreviewCodes,
   redeemPreviewCode,
 } from "../src/suggestion-previews.ts";
-import { db, NOW, session, user } from "./fixtures.ts";
+import { db, NOW, session } from "./fixtures.ts";
 import {
   CONTENT_DOMAIN,
+  codeOf,
+  codeRows,
+  issue,
+  MARKDOWN,
+  openArtifact,
+  ownerSuggestion,
+  person,
   publishFile,
   suggestionWithPlan,
   textOperation,
 } from "./suggestion-fixtures.ts";
 
 const regions = () => regionsFromEnv(env);
-const MARKDOWN = "# Notes\n\nThe quick brown cat jumps.\n";
-
-async function openArtifact(
-  artifactId: string,
-  values: Partial<typeof schema.artifacts.$inferInsert> = {},
-) {
-  await db()
-    .update(schema.artifacts)
-    .set({ annotations: "open", ...values })
-    .where(eq(schema.artifacts.id, artifactId));
-}
-
-/** An owner's Markdown artifact with a suggestion and the owner's stored plan for it. */
-async function ownerSuggestion(source = MARKDOWN, after = "dog") {
-  const owner = await user("Owner");
-  const sessionId = await session(owner.id);
-  const { artifactId, versionId } = await publishFile(owner.id, "markdown", source);
-  await openArtifact(artifactId);
-  const { threadId, plan } = await suggestionWithPlan({
-    kind: "markdown",
-    source,
-    artifactId,
-    versionId,
-    ownerId: owner.id,
-    authorId: owner.id,
-    viewerId: owner.id,
-    operations: [textOperation("markdown", source, artifactId, "cat", after)],
-  });
-  return { owner, sessionId, artifactId, versionId, threadId, plan };
-}
-
-const issue = (
-  s: { owner: { id: string }; sessionId: string; artifactId: string; plan: { digest: string } },
-  overrides: { userId?: string; sessionId?: string; now?: number; digest?: string } = {},
-) =>
-  issuePreviewCode(db(), env.ARTIFACTS, {
-    userId: overrides.userId ?? s.owner.id,
-    sessionId: overrides.sessionId ?? s.sessionId,
-    artifactId: s.artifactId,
-    digest: overrides.digest ?? s.plan.digest,
-    now: overrides.now ?? NOW,
-    contentDomain: CONTENT_DOMAIN,
-  });
-
-function codeOf(result: Awaited<ReturnType<typeof issue>>): string {
-  if (!result.ok || result.value.state !== "ready") {
-    throw new Error(`no code: ${JSON.stringify(result)}`);
-  }
-  const url = new URL(result.value.url);
-  expect(url.origin).toBe(`https://${previewHost(CONTENT_DOMAIN)}`);
-  expect(url.pathname.startsWith(PREVIEW_CODES.pathPrefix)).toBe(true);
-  return url.pathname.slice(PREVIEW_CODES.pathPrefix.length);
-}
-
-async function codeRows(artifactId: string) {
-  return db()
-    .select()
-    .from(schema.previewCodes)
-    .where(eq(schema.previewCodes.artifactId, artifactId));
-}
 
 describe("issuing a preview code", () => {
   it("builds the changed page, stores only the code's hash and redeems it once", async () => {
@@ -105,7 +52,7 @@ describe("issuing a preview code", () => {
   });
 
   it("previews a subset HTML page and a text document", async () => {
-    const owner = await user("Owner");
+    const owner = await person("Owner");
     const sessionId = await session(owner.id);
     for (const [kind, source, before] of [
       [
@@ -135,7 +82,7 @@ describe("issuing a preview code", () => {
   });
 
   it("answers unavailable with the reasons, and issues nothing, when nothing applies", async () => {
-    const owner = await user("Owner");
+    const owner = await person("Owner");
     const sessionId = await session(owner.id);
     const source = "Some **bold** words here.\n";
     const { artifactId, versionId } = await publishFile(owner.id, "markdown", source);
@@ -161,7 +108,7 @@ describe("issuing a preview code", () => {
   });
 
   it("answers unavailable when the builder refuses the page's CSS, never the CSS as it came", async () => {
-    const owner = await user("Owner");
+    const owner = await person("Owner");
     const sessionId = await session(owner.id);
     const deep = `${"@media screen{".repeat(40)}p{color:red}${"}".repeat(40)}`;
     const source = `<!doctype html><html><head><title>T</title><style>${deep}</style></head><body><p>Hello there world</p></body></html>`;
@@ -187,7 +134,7 @@ describe("issuing a preview code", () => {
 
   it("refuses another person's plan, an expired plan and an unknown digest like a missing one", async () => {
     const s = await ownerSuggestion();
-    const other = await user("Other");
+    const other = await person("Other");
     const otherSession = await session(other.id);
     expect(await issue(s, { userId: other.id, sessionId: otherSession })).toMatchObject({
       ok: false,
@@ -210,9 +157,9 @@ describe("issuing a preview code", () => {
 
     // A reader whose scope is the owner's threads and their own does not see another reader's
     // suggestion; the plan they hold for it does not help.
-    const owner = await user("Owner");
-    const author = await user("Author");
-    const reader = await user("Reader");
+    const owner = await person("Owner");
+    const author = await person("Author");
+    const reader = await person("Reader");
     const readerSession = await session(reader.id);
     const { artifactId, versionId } = await publishFile(owner.id, "markdown", MARKDOWN);
     await openArtifact(artifactId, { commentVisibility: "owner" });
@@ -495,8 +442,8 @@ describe("redeeming a preview code", () => {
     expect(await redeemPreviewCode(regions(), first, NOW)).toBeUndefined();
 
     // A reader removed from the list between issue and redemption.
-    const owner = await user("Owner");
-    const reader = await user("Reader");
+    const owner = await person("Owner");
+    const reader = await person("Reader");
     const readerSession = await session(reader.id);
     const { artifactId, versionId } = await publishFile(owner.id, "markdown", MARKDOWN);
     await openArtifact(artifactId, { commentVisibility: "everyone" });
