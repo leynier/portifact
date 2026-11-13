@@ -7,6 +7,7 @@ import { env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { and, asc, eq, type SQL } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { advanceAccountDeletion, requestAccountDeletion } from "../src/account-data.ts";
 import {
   deleteOwnAnnotationMessage,
   eraseAuthorFromThread,
@@ -15,20 +16,24 @@ import {
 import { applyTombstones, exportTombstones } from "../src/backups.ts";
 import { writeCommentTombstones } from "../src/comment-retention.ts";
 import { discardDraft, removeDraftBatch, saveDraft } from "../src/edit-drafts.ts";
+import { runJob } from "../src/outbox.ts";
 import { acceptSuggestion, publishDraft } from "../src/suggestion-accept.ts";
-import { pruneDraftsWithoutRole } from "../src/suggestion-maintenance.ts";
+import { pruneDraftsWithoutRole, pruneSuggestionRecords } from "../src/suggestion-maintenance.ts";
 import { draftMarkerId } from "../src/suggestion-markers.ts";
 import { planDraft, planSuggestion } from "../src/suggestion-plans.ts";
 import { rejectSuggestion, submitSuggestion, withdrawSuggestion } from "../src/suggestions.ts";
 import { transferArtifact } from "../src/transfer.ts";
 import { createWorkspace } from "../src/workspaces.ts";
 import { publishIn, team } from "./comment-retention-fixtures.ts";
-import { DAY, db, grantPlan, NOW, user, value } from "./fixtures.ts";
+import { DAY, db, grantPlan, NOW, session, user, value } from "./fixtures.ts";
 import {
+  currentText,
   DOC,
   DOMAIN,
   type Doc,
   humanCheck,
+  JOB_DEPS,
+  jobsOf,
   publishDoc,
   runJobs,
   textOp,
@@ -424,5 +429,58 @@ describe("restore markers in a region with its own database", () => {
     );
     expect(applied.drafts).toBe(1);
     expect(await eu.select().from(dr).where(eq(dr.artifactId, published.artifactId))).toEqual([]);
+  });
+});
+
+// Reproductions of the review of #275: each failed before its fix.
+describe("restore markers, review of #275", () => {
+  it("PF275 pending regional markers survive export and a regional rewind", async () => {
+    const ws = await team("eu");
+    const doc = await publishIn(ws.editor.id, ws.id, "eu");
+    const eu = regions().get("eu").db;
+    await eu
+      .update(schema.artifacts)
+      .set({ annotations: "open", expiresAt: NOW + DAY })
+      .where(eq(schema.artifacts.id, doc.artifactId));
+    const [file] = await eu
+      .select()
+      .from(schema.versionFiles)
+      .where(
+        and(
+          eq(schema.versionFiles.versionId, doc.versionId),
+          eq(schema.versionFiles.path, "index.html"),
+        ),
+      );
+    const body = await (await env.ARTIFACTS_EU.get(`objects/${ws.id}/${file!.sha256}`))!.text();
+    const input = { userId: ws.editor.id, artifactId: doc.artifactId, now: NOW };
+    value(
+      await saveDraft(eu, {
+        ...input,
+        baseVersionId: doc.versionId,
+        baseRevision: null,
+        baseIncarnation: null,
+        edit: {
+          operations: [
+            textOp({ type: "site", path: "index.html" }, body, body.slice(3, -4), "Changed"),
+          ],
+        },
+      }),
+    );
+    const [row] = await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId));
+    if (!row) throw new Error("no draft");
+    value(await discardDraft(eu, { ...input, now: NOW + 5 }));
+    const exported = await exportTombstones(regions());
+    // Restore the region to before removal: draft is back, removal's outbox job is lost.
+    await eu
+      .delete(schema.outbox)
+      .where(
+        and(
+          eq(schema.outbox.topic, "comment_tombstones"),
+          eq(schema.outbox.subject, doc.artifactId),
+        ),
+      );
+    await eu.insert(dr).values(row);
+    await applyTombstones({ global: db().global, all: () => [{ db: eu }] }, exported, NOW + 100);
+    expect(await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId))).toEqual([]);
   });
 });

@@ -17,6 +17,7 @@ import { and, asc, eq, gt, inArray, lt, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { WITHDRAWN } from "./annotations.ts";
 import { eraseAuditEventsOf } from "./audit.ts";
+import { commentTombstoneMarkers } from "./comment-retention.ts";
 import { notHeldSql } from "./legal-holds.ts";
 import { purgeJobs } from "./outbox.ts";
 import { recomputeDirectoryRoles } from "./scim-groups.ts";
@@ -243,6 +244,15 @@ export async function exportTombstones(regions: {
     }
     // A revocation is permanent too: a restore must not reopen a link (decision 0008).
     for (const marker of await revokedShareLinks(db)) add(marker);
+    // Markers a region with its own database has not delivered yet: its `comment_tombstones`
+    // jobs carry them to the global database, and a restore of the region would lose the job with
+    // the change (comment deletions, suggestion decisions and draft removals).
+    for (const job of await db
+      .select({ payload: schema.outbox.payload })
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, "comment_tombstones"))) {
+      for (const marker of commentTombstoneMarkers(job.payload) ?? []) add(marker);
+    }
   }
   return [...markers.values()].sort(
     (a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id),
