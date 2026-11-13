@@ -930,16 +930,23 @@ export function acceptanceSuite(make: MakeObject, options: { loadExport: LoadExp
       expect((await object.view()).pending.rows).toBeLessThan(ARTIFACT_DATA.readFlush.rows);
       await object.evict();
       expect((await object.view()).pending.rows).toBe(0);
+      // Reads in batches, each one call into the object, until one of them reached the bound
+      // and wrote the pending rows into the day's counter.
+      const batch = 100;
+      const readBefore = durable.days.get(protocols.dayOf(NOW))?.read ?? 0;
+      const readNow = async () =>
+        (await object.view()).durable.days.get(protocols.dayOf(NOW))?.read ?? 0;
       let reads = 0;
-      while (
-        (await object.view()).durable.days.get(protocols.dayOf(NOW))?.read ===
-        durable.days.get(protocols.dayOf(NOW))?.read
-      ) {
-        value(await object.get(base, alice, "items", doc._id, ctx));
-        reads += 1;
+      while ((await readNow()) === readBefore) {
+        value(await object.getMany(base, alice, "items", doc._id, ctx, batch));
+        reads += batch;
+        expect(reads).toBeLessThanOrEqual(ARTIFACT_DATA.readFlush.rows + batch);
       }
+      // The flush wrote at least the bound; what is pending again is only the rest of that batch.
+      expect((await readNow()) - readBefore).toBeGreaterThanOrEqual(ARTIFACT_DATA.readFlush.rows);
+      expect((await object.view()).pending.rows).toBeLessThan(ARTIFACT_DATA.readFlush.rows);
+      await object.flushReads(NOW);
       expect((await object.view()).pending.rows).toBe(0);
-      expect(reads).toBeLessThanOrEqual(ARTIFACT_DATA.readFlush.rows);
       value(await object.get(base, alice, "items", doc._id, ctx));
       const flushedAt = (await object.view()).durable.days.get(protocols.dayOf(NOW))?.read;
       value(
