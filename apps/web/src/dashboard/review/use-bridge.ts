@@ -101,6 +101,12 @@ export function useBridge(
   const nonce = useRef<string | null>(null);
   /** The protocol of the current handshake. */
   const protocol = useRef<ReviewProtocol>(REVIEW_PROTOCOL);
+  /**
+   * Set by a version 3 handshake until the version 2 announcement the same bridge sends right
+   * after it arrives: only that one is skipped, so a later page with a version 2 bridge still
+   * negotiates.
+   */
+  const pairedV2 = useRef(false);
   const [capabilities, setCapabilities] = useState<readonly BridgeCapability[]>([]);
   const handlers = useRef(events);
   handlers.current = events;
@@ -134,11 +140,8 @@ export function useBridge(
           if (message.v === REVIEW_PROTOCOL_EDIT && !edit) return;
           // A bridge of protocol 3 announces itself in both versions, the newer first: the
           // version 2 announcement that follows a version 3 handshake is the same page's.
-          if (
-            message.v === REVIEW_PROTOCOL &&
-            protocol.current === REVIEW_PROTOCOL_EDIT &&
-            nonce.current !== null
-          ) {
+          if (message.v === REVIEW_PROTOCOL && pairedV2.current) {
+            pairedV2.current = false;
             return;
           }
           clearTimeout(timer.current);
@@ -152,6 +155,7 @@ export function useBridge(
           const fresh = newInstanceNonce();
           nonce.current = fresh;
           protocol.current = message.v;
+          pairedV2.current = message.v === REVIEW_PROTOCOL_EDIT;
           marked.current = new Set();
           source?.postMessage(viewerEnvelope(fresh, { type: "init" }, message.v), origin);
           setCapabilities("capabilities" in message ? message.capabilities : []);
@@ -163,6 +167,7 @@ export function useBridge(
         case "status":
           nonce.current = null;
           protocol.current = REVIEW_PROTOCOL;
+          pairedV2.current = false;
           clearTimeout(timer.current);
           setState(message.status);
           handlers.current.onPageChange?.();

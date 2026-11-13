@@ -895,6 +895,7 @@ export const ja = {
   "suggest.selection.action": "編集を提案",
   "suggest.discarded": "ページが変更されたため、保存されていない編集は破棄されました。",
   "suggest.editor.label": "選択範囲への編集を提案",
+  "suggest.editor.page": "{page} 上",
   "suggest.editor.title": "編集を提案",
   "suggest.editor.reviewTitle": "提案内容を確認",
   "suggest.editor.reviewHint":

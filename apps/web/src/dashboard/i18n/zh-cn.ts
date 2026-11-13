@@ -840,6 +840,7 @@ export const zhCN = {
   "suggest.selection.action": "建议修改",
   "suggest.discarded": "页面已更改，因此未保存的修改已被丢弃。",
   "suggest.editor.label": "为所选内容建议修改",
+  "suggest.editor.page": "位于 {page}",
   "suggest.editor.title": "建议修改",
   "suggest.editor.reviewTitle": "检查你的建议",
   "suggest.editor.reviewHint": "这就是将要保存的内容。按 Enter 保存，按 Esc 取消。",

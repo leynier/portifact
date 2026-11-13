@@ -192,6 +192,17 @@ export function SuggestEditor({
       <h2 className="text-base font-semibold">
         {state.reviewing ? t("suggest.editor.reviewTitle") : t("suggest.editor.title")}
       </h2>
+      {/* Which page the edit addresses: two targets can hold the same text. */}
+      <p className="text-sm text-text-muted">
+        <TypedSentence
+          message={(fields) => t("suggest.editor.page", fields)}
+          fields={{
+            page: state.target.route
+              ? `${state.target.path} ${state.target.route}`
+              : state.target.path,
+          }}
+        />
+      </p>
       {save.isError && !humanRefusal(save.error) ? <ActionError error={save.error} /> : null}
       {state.reviewing && edit ? (
         <>
@@ -366,6 +377,22 @@ export function SuggestionBlock({
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const [confirming, setConfirming] = useState<"accept" | "reject" | "withdraw" | null>(null);
+  /** The suggestion's revision when its dialog opened: a decision applies to what was shown. */
+  const shownRevision = useRef(suggestion.revision);
+  /** One key per opened dialog, so a retry of the same decision is the same request. */
+  const decisionKey = useRef("");
+  /** Set from the first confirmation until it settles: a second one in the same turn is dropped. */
+  const deciding = useRef(false);
+  const confirm = (action: "accept" | "reject" | "withdraw") => {
+    shownRevision.current = suggestion.revision;
+    decisionKey.current = crypto.randomUUID();
+    setConfirming(action);
+  };
+  const once = (run: () => void) => {
+    if (deciding.current) return;
+    deciding.current = true;
+    run();
+  };
   const pending = suggestion.state === "pending";
 
   const refresh = async () => {
@@ -377,7 +404,7 @@ export function SuggestionBlock({
   const plan = useMutation({ mutationFn: () => api.suggestions.plan(artifactId, threadId) });
   const accept = useMutation({
     mutationFn: (digest: string) =>
-      api.suggestions.accept(artifactId, threadId, { digest }, crypto.randomUUID()),
+      api.suggestions.accept(artifactId, threadId, { digest }, decisionKey.current),
     onSuccess: async () => {
       setConfirming(null);
       applySuggestion(queryClient, artifactId, threadId, { state: "applying" });
@@ -388,7 +415,7 @@ export function SuggestionBlock({
   });
   const decide = useMutation({
     mutationFn: (action: "reject" | "withdraw") =>
-      api.suggestions[action](artifactId, threadId, { revision: suggestion.revision }),
+      api.suggestions[action](artifactId, threadId, { revision: shownRevision.current }),
     onSuccess: async (view, action) => {
       setConfirming(null);
       applySuggestion(queryClient, artifactId, threadId, view);
@@ -446,7 +473,7 @@ export function SuggestionBlock({
               size="sm"
               intent="primary"
               icon={<CircleCheck className="size-4" />}
-              onClick={() => setConfirming("accept")}
+              onClick={() => confirm("accept")}
             >
               {t("suggest.accept")}
             </Button>
@@ -456,7 +483,7 @@ export function SuggestionBlock({
               size="sm"
               intent="danger"
               icon={<X className="size-4" />}
-              onClick={() => setConfirming("reject")}
+              onClick={() => confirm("reject")}
             >
               {t("suggest.reject")}
             </Button>
@@ -466,7 +493,7 @@ export function SuggestionBlock({
               size="sm"
               intent="danger"
               icon={<Undo2 className="size-4" />}
-              onClick={() => setConfirming("withdraw")}
+              onClick={() => confirm("withdraw")}
             >
               {t("suggest.withdraw")}
             </Button>
@@ -479,7 +506,16 @@ export function SuggestionBlock({
         confirmLabel={t("suggest.accept.confirm")}
         cancelLabel={t("suggest.editor.cancel")}
         busy={accept.isPending}
-        onConfirm={() => shown && accept.mutate(shown.digest)}
+        onConfirm={() =>
+          shown &&
+          once(() =>
+            accept.mutate(shown.digest, {
+              onSettled: () => {
+                deciding.current = false;
+              },
+            }),
+          )
+        }
         onCancel={() => setConfirming(null)}
       >
         <p>
@@ -497,7 +533,18 @@ export function SuggestionBlock({
         cancelLabel={t("suggest.editor.cancel")}
         tone="danger"
         busy={decide.isPending}
-        onConfirm={() => confirming && confirming !== "accept" && decide.mutate(confirming)}
+        onConfirm={() => {
+          const action = confirming;
+          if (action === "reject" || action === "withdraw") {
+            once(() =>
+              decide.mutate(action, {
+                onSettled: () => {
+                  deciding.current = false;
+                },
+              }),
+            );
+          }
+        }}
         onCancel={() => setConfirming(null)}
       >
         <p>{t(confirming === "withdraw" ? "suggest.withdraw.body" : "suggest.reject.body")}</p>
@@ -518,6 +565,50 @@ function attemptMessage(t: T, reason: string): string {
     default:
       return t("suggest.attempt.unknown");
   }
+}
+
+/** Marks where each untrusted field goes in a translated sentence: private-use characters. */
+const FIELD_MARKS = ["\uE000", "\uE001", "\uE002"] as const;
+
+/**
+ * A translated sentence around untrusted fields (people's names): the catalog decides the words
+ * and their order, and each field is drawn as its own typed, direction-isolated text, so a
+ * hidden or bidirectional character in a name never acts on the sentence.
+ */
+function TypedSentence<K extends string>({
+  message,
+  fields,
+}: {
+  message(marks: Record<K, string>): string;
+  fields: Record<K, string>;
+}) {
+  const labels = useDiffLabels();
+  const keys = Object.keys(fields) as K[];
+  const marks = Object.fromEntries(keys.map((key, i) => [key, FIELD_MARKS[i]])) as Record<
+    K,
+    string
+  >;
+  const byMark = new Map(keys.map((key, i) => [FIELD_MARKS[i] as string, fields[key]]));
+  const parts = message(marks).split(/([\uE000-\uE002])/u);
+  return (
+    <>
+      {parts.map((part, index) => {
+        const value = byMark.get(part);
+        return value === undefined ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: the sentence's parts keep their order
+          <span key={index}>{part}</span>
+        ) : (
+          <TypedText
+            // biome-ignore lint/suspicious/noArrayIndexKey: the sentence's parts keep their order
+            key={index}
+            tokens={tokens(value)}
+            characterLabel={labels.character}
+            empty={labels.empty}
+          />
+        );
+      })}
+    </>
+  );
 }
 
 /** One change-list item: what the owner side saw and accepted, and its state. */
@@ -549,7 +640,11 @@ function ChangeItem({ artifactId, item }: { artifactId: string; item: ChangeItem
           {known ? t(`suggest.changes.state.${item.state as "open"}`) : t("suggest.state.unknown")}
         </Badge>
         <span className="text-sm">
-          <bdi>{item.path}</bdi>
+          <TypedText
+            tokens={tokens(item.path)}
+            characterLabel={labels.character}
+            empty={labels.empty}
+          />
         </span>
       </div>
       {item.reason ? <p className="text-sm">{reasonMessage(t, item.reason)}</p> : null}
@@ -565,10 +660,13 @@ function ChangeItem({ artifactId, item }: { artifactId: string; item: ChangeItem
             <p className="text-sm">{t("suggest.edit.notText")}</p>
           )}
           <p className="text-sm text-text-muted">
-            {t("suggest.changes.provenance", {
-              submitter: envelope.data.provenance.submittedBy,
-              acceptor: envelope.data.provenance.acceptedBy,
-            })}
+            <TypedSentence
+              message={(fields) => t("suggest.changes.provenance", fields)}
+              fields={{
+                submitter: envelope.data.provenance.submittedBy,
+                acceptor: envelope.data.provenance.acceptedBy,
+              }}
+            />
           </p>
           {envelope.data.destinations.length > 0 ? (
             <ul aria-label={t("suggest.changes.links")} className="flex flex-col gap-1 text-sm">

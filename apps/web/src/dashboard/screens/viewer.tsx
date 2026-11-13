@@ -1087,7 +1087,7 @@ function ReviewSession({
         intent="floating"
         size="sm"
         icon={<PencilLine className="size-4" />}
-        onClick={() => dispatchSuggest({ type: "open" })}
+        onClick={() => dispatchSuggest({ type: "open", offer: suggestOffer })}
       >
         {t("suggest.selection.action")}
       </Button>

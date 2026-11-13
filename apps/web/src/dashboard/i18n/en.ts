@@ -883,6 +883,7 @@ export const en = {
   "suggest.selection.action": "Suggest edit",
   "suggest.discarded": "The page changed, so the unsaved edit was discarded.",
   "suggest.editor.label": "Suggest an edit to the selection",
+  "suggest.editor.page": "On {page}",
   "suggest.editor.title": "Suggest an edit",
   "suggest.editor.reviewTitle": "Check your suggestion",
   "suggest.editor.reviewHint": "This is exactly what will be saved. Enter saves, Escape cancels.",

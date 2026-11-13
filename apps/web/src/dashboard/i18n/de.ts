@@ -921,6 +921,7 @@ export const de = {
   "suggest.discarded":
     "Die Seite hat sich geändert, deshalb wurde die nicht gespeicherte Änderung verworfen.",
   "suggest.editor.label": "Eine Änderung an der Auswahl vorschlagen",
+  "suggest.editor.page": "Auf {page}",
   "suggest.editor.title": "Änderung vorschlagen",
   "suggest.editor.reviewTitle": "Vorschlag prüfen",
   "suggest.editor.reviewHint": "Genau das wird gespeichert. Enter speichert, Escape bricht ab.",

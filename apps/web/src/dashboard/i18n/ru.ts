@@ -909,6 +909,7 @@ export const ru = {
   "suggest.selection.action": "Предложить правку",
   "suggest.discarded": "Страница изменилась, поэтому несохранённая правка отменена.",
   "suggest.editor.label": "Предложить правку для выделенного текста",
+  "suggest.editor.page": "На странице {page}",
   "suggest.editor.title": "Предложить правку",
   "suggest.editor.reviewTitle": "Проверьте своё предложение",
   "suggest.editor.reviewHint": "Именно это и будет сохранено. Enter сохраняет, Escape отменяет.",

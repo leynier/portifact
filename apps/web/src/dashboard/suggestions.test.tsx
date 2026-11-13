@@ -556,7 +556,9 @@ describe("the change list", () => {
     await open();
     const list = screen.getByText("Change list");
     fireEvent.click(list);
-    const card = (await screen.findByText("Suggested by Bea, accepted by Ada")).closest("li");
+    const sentence = (await screen.findByText("Suggested by", { exact: false })).closest("p");
+    expect(sentence?.textContent).toBe("Suggested by Bea, accepted by Ada");
+    const card = sentence?.closest("li");
     if (!card) throw new Error("no item");
     expect(within(card).getByText("Open")).toBeTruthy();
     // Only open items at first.
@@ -581,3 +583,237 @@ describe("the change list", () => {
     expect(screen.queryByText("Change list")).toBeNull();
   });
 });
+
+describe("review findings (pf268)", () => {
+  it("withdraws an offer when the real v3 bridge sends its null selection", async () => {
+    await open();
+    const { nonce } = await connect();
+    const epoch = await suggestMode();
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT, epoch });
+    expect(floating("Suggest edit")).not.toBeNull();
+    // bridge.ts reportSelection's no-range branch emits exactly this (without epoch).
+    fromBridge(nonce, { type: "selection", target: null });
+    expect(floating("Suggest edit")).toBeNull();
+  });
+
+  it("renegotiates when a later page has the previous release's bridge", async () => {
+    await open();
+    await connect();
+    // The same frame navigates and loads a cached v2-only bridge.
+    fireEvent.load(screen.getByTitle("Launch plan, published with Portifact"));
+    deliver(ready(REVIEW_PROTOCOL));
+    const inits = sent().filter((m) => m.type === "init");
+    expect(inits).toHaveLength(2);
+    expect(inits.at(-1)?.v).toBe(REVIEW_PROTOCOL);
+  });
+
+  it("does not upgrade a pending rejection to a revision refreshed behind its dialog", async () => {
+    withSuggestion(false);
+    const { queryClient } = await open();
+    const block = await screen.findByRole("region", { name: "Suggested edit" });
+    fireEvent.click(within(block).getByRole("button", { name: "Reject" }));
+    const dialog = await screen.findByRole("dialog", { name: "Reject this suggestion?" });
+    const store = server.annotations[ID];
+    const thread = store?.threads[0];
+    if (!store || !thread?.suggestion) throw new Error("missing suggestion");
+    // A carry updates suggestion_revision while the confirmation is open.
+    thread.suggestion.revision = 4;
+    store.seq += 1;
+    thread.seq = store.seq;
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["annotations", ID] });
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reject" }));
+    await waitFor(() =>
+      expect(server.requests.some((r) => r.path.endsWith("/t1/reject"))).toBe(true),
+    );
+    expect(server.bodies.at(-1)).toEqual({ revision: 3 });
+  });
+
+  it("renders provenance's hidden characters through the typed display", async () => {
+    const change = item("open");
+    change.envelope = {
+      ...(change.envelope as ShownEnvelope),
+      provenance: {
+        submittedBy: "Bea\u202e",
+        acceptedBy: "Ada\u200b",
+      },
+    };
+    server.suggestions.changes[ID] = [change];
+    await open();
+    fireEvent.click(screen.getByText("Change list"));
+    // The sentence holds each name as its own typed field.
+    const label = await screen.findByText("Suggested by", { exact: false });
+    const provenance = label.closest("p") as HTMLElement;
+    expect(provenance.textContent).not.toMatch(/[\u202e\u200b]/u);
+    expect(provenance.textContent).toContain("U+202E");
+    expect(provenance.textContent).toContain("U+200B");
+  });
+
+  it("keeps acceptance bound to the displayed digest after the server replaces the plan", async () => {
+    withSuggestion(false);
+    await open();
+    const block = await screen.findByRole("region", { name: "Suggested edit" });
+    fireEvent.click(within(block).getByRole("button", { name: "Check what applies" }));
+    await within(block).findByRole("tab", { name: "What applies" });
+    fireEvent.click(within(block).getByRole("button", { name: "Accept" }));
+    const dialog = await screen.findByRole("dialog", { name: "Accept this suggestion?" });
+    server.suggestions.plans.t1 = { ...plan(), digest: "e".repeat(64), lines: ["REPLACED"] };
+    fireEvent.click(within(dialog).getByRole("button", { name: "Accept and publish" }));
+    await waitFor(() =>
+      expect(server.requests.some((r) => r.path.endsWith("/t1/accept"))).toBe(true),
+    );
+    expect(server.bodies.at(-1)).toEqual({ digest: DIGEST });
+    expect(server.annotations[ID]?.threads[0]?.suggestion?.state).toBe("pending");
+  });
+});
+
+describe("the opener (pf268)", () => {
+  it("never submits a different same-text target introduced at the opener click", async () => {
+    await open();
+    const { nonce } = await connect();
+    const epoch = await suggestMode();
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT, epoch });
+    const opener = await screen.findByRole("button", { name: "Suggest edit" });
+    // The user has chosen the visible offer. A queued artifact message precedes the click's
+    // reducer action; both are processed before React commits another visible frame.
+    const replacement = { ...TEXT_TARGET, path: "other.html" };
+    act(() => {
+      fromBridge(nonce, { type: "selection", target: replacement, rect: RECT, epoch });
+      fireEvent.click(opener);
+    });
+    const editor = await screen.findByRole("region", { name: "Suggest an edit to the selection" });
+    // Both targets have the same quote; the editor and its confirmation reveal no path/context.
+    expect(
+      (within(editor).getByRole("textbox", { name: "New text" }) as HTMLInputElement).value,
+    ).toBe(TEXT_TARGET.anchor.quote.exact);
+    fireEvent.change(within(editor).getByRole("textbox", { name: "New text" }), {
+      target: { value: TYPED },
+    });
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Shorter" },
+    });
+    fireEvent.click(within(editor).getByRole("button", { name: "Review" }));
+    fireEvent.click(await within(editor).findByRole("button", { name: "Save suggestion" }));
+    await waitFor(() =>
+      expect(
+        server.requests.some(
+          (r) => r.method === "POST" && r.path === `/api/v1/artifacts/${ID}/suggestions`,
+        ),
+      ).toBe(true),
+    );
+    expect(server.bodies).toContainEqual({
+      versionId: "v1",
+      body: "Shorter",
+      edit: { operations: [{ kind: "text", target: TEXT_TARGET, after: TYPED }] },
+    });
+  });
+});
+
+describe("what the editor addresses (pf268)", () => {
+  it("names the page and route of the target, typed, while editing and when reviewing", async () => {
+    await open();
+    const { nonce } = await connect();
+    const epoch = await suggestMode();
+    const routed = { ...TEXT_TARGET, path: "docs\u202e.html", route: "/guide" };
+    fromBridge(nonce, { type: "selection", target: routed, rect: RECT, epoch });
+    fireEvent.click(await screen.findByRole("button", { name: "Suggest edit" }));
+    const editor = await screen.findByRole("region", { name: "Suggest an edit to the selection" });
+    const where = () => within(editor).getByText("On").closest("p");
+    expect(where()?.textContent).toBe("On docscharacter U+202E.html /guide");
+    fireEvent.change(within(editor).getByRole("textbox", { name: "New text" }), {
+      target: { value: TYPED },
+    });
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Shorter" },
+    });
+    fireEvent.click(within(editor).getByRole("button", { name: "Review" }));
+    await within(editor).findByRole("heading", { name: "Check your suggestion" });
+    expect(where()?.textContent).toBe("On docscharacter U+202E.html /guide");
+  });
+});
+
+describe("races at the frame and the decisions (pf268)", () => {
+  it("discards an open edit on a new ready or a status, and ignores element picks in Suggest mode", async () => {
+    await open();
+    let { nonce } = await connect();
+    let epoch = await suggestMode();
+    fromBridge(nonce, {
+      type: "element",
+      target: {
+        schema: 1,
+        path: "index.html",
+        anchor: { kind: "element", selectors: ["#b"], tagName: "b", fingerprint: "x" },
+      },
+      rect: RECT,
+      epoch,
+    });
+    expect(floating("Suggest edit")).toBeNull();
+    expect(floating("Comment")).toBeNull();
+    await openEditor(nonce, epoch);
+    // A new page announces itself: the edit is gone, and Suggest mode starts a new period.
+    ({ nonce } = await connectAgain());
+    expect(screen.queryByRole("region", { name: "Suggest an edit to the selection" })).toBeNull();
+    epoch = (
+      sent()
+        .filter((m) => m.type === "edit-mode")
+        .at(-1) as { epoch: number }
+    ).epoch;
+    await openEditor(nonce, epoch);
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL_EDIT, type: "status", status: "ended" });
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Suggest an edit to the selection" })).toBeNull(),
+    );
+  });
+
+  it("opens one editor for a double activation in one turn", async () => {
+    await open();
+    const { nonce } = await connect();
+    const epoch = await suggestMode();
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT, epoch });
+    const opener = await screen.findByRole("button", { name: "Suggest edit" });
+    act(() => {
+      fireEvent.click(opener);
+      fireEvent.click(opener);
+    });
+    expect(
+      await screen.findAllByRole("region", { name: "Suggest an edit to the selection" }),
+    ).toHaveLength(1);
+  });
+
+  it("sends one acceptance for a double confirmation, and keeps its state through a refresh", async () => {
+    withSuggestion(false);
+    const { queryClient } = await open();
+    const block = await screen.findByRole("region", { name: "Suggested edit" });
+    fireEvent.click(within(block).getByRole("button", { name: "Check what applies" }));
+    await within(block).findByRole("tab", { name: "What applies" });
+    fireEvent.click(within(block).getByRole("button", { name: "Accept" }));
+    const dialog = await screen.findByRole("dialog", { name: "Accept this suggestion?" });
+    const confirm = within(dialog).getByRole("button", { name: "Accept and publish" });
+    act(() => {
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+    });
+    await within(block).findByText("Being applied");
+    expect(server.requests.filter((r) => r.path.endsWith("/t1/accept"))).toHaveLength(1);
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["annotations", ID] });
+    });
+    expect(
+      within(await screen.findByRole("region", { name: "Suggested edit" })).getByText(
+        "Being applied",
+      ),
+    ).toBeTruthy();
+  });
+});
+
+/** A new page of the same frame announces itself (protocol 3 bridge), and the viewer answers. */
+async function connectAgain() {
+  const before = sent().filter((m) => m.type === "init").length;
+  for (const v of [REVIEW_PROTOCOL_EDIT, REVIEW_PROTOCOL]) deliver(ready(v));
+  await waitFor(() => expect(sent().filter((m) => m.type === "init").length).toBe(before + 1));
+  const init = sent()
+    .filter((m) => m.type === "init")
+    .at(-1);
+  return { nonce: init?.nonce as string };
+}

@@ -917,6 +917,7 @@ export const es = {
   "suggest.selection.action": "Sugerir edición",
   "suggest.discarded": "La página cambió, por lo que se descartó la edición sin guardar.",
   "suggest.editor.label": "Sugerir una edición para la selección",
+  "suggest.editor.page": "En {page}",
   "suggest.editor.title": "Sugerir una edición",
   "suggest.editor.reviewTitle": "Revisa tu sugerencia",
   "suggest.editor.reviewHint":

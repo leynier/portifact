@@ -922,6 +922,7 @@ export const fr = {
   "suggest.selection.action": "Suggérer une modification",
   "suggest.discarded": "La page a changé, la modification non enregistrée a donc été abandonnée.",
   "suggest.editor.label": "Suggérer une modification de la sélection",
+  "suggest.editor.page": "Sur {page}",
   "suggest.editor.title": "Suggérer une modification",
   "suggest.editor.reviewTitle": "Vérifiez votre suggestion",
   "suggest.editor.reviewHint":

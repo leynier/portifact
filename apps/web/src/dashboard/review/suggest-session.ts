@@ -13,6 +13,8 @@ export type TextTarget = AnnotationTarget & {
 };
 
 export interface SuggestOffer {
+  /** The choosing period the offer was made in. */
+  epoch: number;
   target: TextTarget;
   /** Where the bridge said it is drawn in the frame: a placement hint only. */
   rect: FrameRect | null;
@@ -44,7 +46,11 @@ export type SuggestAction =
       epoch: number | null;
     }
   | { type: "selection-rect"; rect: FrameRect | null }
-  | { type: "open" }
+  /**
+   * The person activated the control drawn for `offer`: the editor opens on that offer, the one
+   * they saw, never on whatever the frame offered since (a page can replace it at the click).
+   */
+  | { type: "open"; offer: SuggestOffer }
   /** Opens the editor on a target found without the frame (the sidebar's text search). */
   | { type: "open-target"; target: TextTarget }
   | { type: "type"; after: string }
@@ -75,9 +81,14 @@ export function suggestReducer(state: SuggestState, action: SuggestAction): Sugg
       return { mode: "off", epoch: state.epoch };
     case "selection":
       if (state.mode !== "choosing") return state;
+      // Withdrawing an offer is always safe, whoever asks; offering needs the current epoch.
+      if (action.target === null) return { ...state, offer: null };
       if (action.epoch !== state.epoch) return state;
       if (!isText(action.target)) return { ...state, offer: null };
-      return { ...state, offer: { target: action.target, rect: action.rect, drawn: true } };
+      return {
+        ...state,
+        offer: { epoch: state.epoch, target: action.target, rect: action.rect, drawn: true },
+      };
     case "selection-rect":
       if (state.mode !== "choosing" || !state.offer) return state;
       return {
@@ -89,8 +100,8 @@ export function suggestReducer(state: SuggestState, action: SuggestAction): Sugg
         },
       };
     case "open":
-      if (state.mode !== "choosing" || !state.offer) return state;
-      return editing(state, state.offer.target, state.offer.drawn ? state.offer.rect : null);
+      if (state.mode !== "choosing" || action.offer.epoch !== state.epoch) return state;
+      return editing(state, action.offer.target, action.offer.drawn ? action.offer.rect : null);
     case "open-target":
       if (state.mode === "off") return state;
       return editing(state, action.target, null);

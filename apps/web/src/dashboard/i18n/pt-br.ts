@@ -904,6 +904,7 @@ export const ptBR = {
   "suggest.selection.action": "Sugerir edição",
   "suggest.discarded": "A página mudou, então a edição não salva foi descartada.",
   "suggest.editor.label": "Sugerir uma edição para a seleção",
+  "suggest.editor.page": "Em {page}",
   "suggest.editor.title": "Sugerir uma edição",
   "suggest.editor.reviewTitle": "Confira sua sugestão",
   "suggest.editor.reviewHint": "Isto é exatamente o que será salvo. Enter salva, Escape cancela.",
