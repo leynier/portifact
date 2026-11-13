@@ -55,6 +55,7 @@ import {
 } from "../regions.ts";
 import { authorizeAccountRequest, authorizeApiRequest, type SessionLookup } from "./access.ts";
 import { accessLogRoutes } from "./access-log.ts";
+import type { AccountSessionLookup } from "./account.ts";
 import { annotationRoutes } from "./annotations.ts";
 import { approvalReviewRoutes } from "./approval-reviews.ts";
 import { auditRoutes } from "./audit.ts";
@@ -76,6 +77,7 @@ import type { Presigner } from "./presign.ts";
 import { searchRoutes } from "./search.ts";
 import { shareLinkRoutes } from "./share-links.ts";
 import { statsRoutes } from "./stats.ts";
+import { suggestionPreviewRoutes } from "./suggestion-previews.ts";
 import { apiTermsOperation } from "./terms-operations.ts";
 import { preparedPublish, prepareUpload } from "./uploads.ts";
 import { usageRoutes } from "./usage.ts";
@@ -97,6 +99,8 @@ export interface ApiDeps {
   multipart?(env: Env): MultipartConfig | undefined;
   /** Cloudflare's custom hostnames and DNS; null while custom domains are switched off. */
   domains(env: Env): DomainDeps | null;
+  /** The dashboard session with its own ID, for the helpers that bind a code to it. */
+  accountSession(env: Env): AccountSessionLookup;
 }
 
 export function apiRoutes(deps: ApiDeps) {
@@ -421,6 +425,7 @@ export function apiRoutes(deps: ApiDeps) {
   shareLinkRoutes(api, guarded, deps.now);
   approvalReviewRoutes(api, guarded, deps.now);
   statsRoutes(api, guarded, deps.now);
+  suggestionPreviewRoutes(api, guarded, { accountSession: deps.accountSession, now: deps.now });
   searchRoutes(api, guarded, deps.now);
   feedbackRoutes(api, guarded, deps.now);
   webhookRoutes(api, guarded, accountGuarded, deps.now);

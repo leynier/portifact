@@ -155,6 +155,10 @@ export interface LogFields {
   candidates?: number;
   /** Links of a Slack event sent with a preview: a count. */
   unfurled?: number;
+  /** Cached preview documents a prune run deleted (decision 0027): a count. */
+  documents?: number;
+  /** Preview code rows a prune run deleted (decision 0027): a count. */
+  rows?: number;
 }
 
 type EnumField = "reason" | "outcome" | "type" | "topic" | "moment";

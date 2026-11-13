@@ -37,6 +37,7 @@ export {
   sameIdentity,
 } from "./identity.ts";
 export { planMarkdown } from "./markdown-planner.ts";
+export { planPageUrl } from "./page-url.ts";
 export {
   admitItems,
   type BuiltPlan,

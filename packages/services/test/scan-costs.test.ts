@@ -75,7 +75,9 @@ const DEVELOP = {
   // cursor, page and one batch, one batch of upload and usage history and one delete of stale
   // findings; and the cleanup of expired sign-in records, one batch.
   // And the legal holds whose release date came (`releaseDueHolds`), one batch.
-  runMaintenance: 72,
+  // Plus the prune of preview codes (decision 0027): one read of due rows (its R2 listing adds
+  // no D1 call; the delete runs only when a row is due).
+  runMaintenance: 73,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads
