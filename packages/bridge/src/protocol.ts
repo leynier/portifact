@@ -12,6 +12,15 @@ import { z } from "zod";
 export const REVIEW_CHANNEL = "portifact-review";
 /** 2: threads are highlights without numbered markers, and a click reports every thread under it. */
 export const REVIEW_PROTOCOL = 2;
+/**
+ * 3: edit suggestions (decision 0027, "Protocol and rollout"). The viewer may switch edit mode on
+ * with an epoch (`edit-mode`), the bridge echoes that epoch on the selections and elements it
+ * reports meanwhile, and `ready` announces `capabilities`. Version 2 is unchanged and stays in the
+ * bundle: a bridge announces both versions and speaks the one the viewer's `init` used.
+ */
+export const REVIEW_PROTOCOL_EDIT = 3;
+export const REVIEW_PROTOCOLS = [REVIEW_PROTOCOL, REVIEW_PROTOCOL_EDIT] as const;
+export type ReviewProtocol = (typeof REVIEW_PROTOCOLS)[number];
 
 export const BRIDGE_LIMITS = {
   /** A bridge message holds at most one target (8 KiB) plus its envelope. */
@@ -23,6 +32,8 @@ export const BRIDGE_LIMITS = {
   labelMaxLength: 128,
   /** Largest coordinate or size a frame rectangle may hold, in CSS pixels. */
   rectMaxPixels: 1_000_000,
+  /** Largest edit epoch: the viewer counts them from 1 per page of the viewer. */
+  epochMax: 2 ** 31 - 1,
 } as const;
 
 /** A random per-instance value the viewer hands to one bridge instance (one page load). */
@@ -189,7 +200,114 @@ export const ViewerMessage = z.discriminatedUnion("type", [
 ]);
 export type ViewerMessage = z.infer<typeof ViewerMessage>;
 
+// Protocol 3 (edit suggestions). Every message of version 2 exists with `v: 3`, plus what edit mode
+// needs. Nothing here carries text the person typed, a preview, a computed style or a find query:
+// the after of an edit is typed and shown only in the viewer (decision 0027, rule 1).
+
+/** What a bridge of protocol 3 can do besides commenting. */
+export const BRIDGE_CAPABILITIES = ["edit"] as const;
+export const BridgeCapability = z.enum(BRIDGE_CAPABILITIES);
+export type BridgeCapability = z.infer<typeof BridgeCapability>;
+
+/**
+ * One period of choosing in edit mode. The viewer starts a new epoch each time it starts choosing
+ * and drops an offer that does not echo the current one, so a selection made before, or a message
+ * the page replays, never fills in an edit.
+ */
+export const EditEpoch = z.number().int().min(1).max(BRIDGE_LIMITS.epochMax);
+
+/** What the person is choosing for: text to edit, or an element (style and structure). */
+export const EditKind = z.enum(["text", "style", "structure"]);
+export type EditKind = z.infer<typeof EditKind>;
+
+const envelope3 = { channel: z.literal(REVIEW_CHANNEL), v: z.literal(REVIEW_PROTOCOL_EDIT) };
+const bound3 = { ...envelope3, nonce: InstanceNonce };
+
+/** Bridge to viewer, protocol 3. Everything here is untrusted. */
+export const BridgeMessageV3 = z.discriminatedUnion("type", [
+  z.strictObject({
+    ...envelope3,
+    type: z.literal("ready"),
+    page: BridgePage,
+    sessionTag: SessionTag,
+    capabilities: z.array(BridgeCapability).max(BRIDGE_CAPABILITIES.length),
+  }),
+  z.strictObject({
+    ...envelope3,
+    type: z.literal("status"),
+    status: z.enum(["unavailable", "ended", "failed"]),
+  }),
+  z.strictObject({ ...bound3, type: z.literal("location"), page: BridgePage }),
+  /** As in version 2; `epoch` echoes the edit epoch the selection was made in, if any. */
+  z.strictObject({
+    ...bound3,
+    type: z.literal("selection"),
+    target: AnnotationTarget.nullable(),
+    rect: FrameRect.optional(),
+    epoch: EditEpoch.optional(),
+  }),
+  z.strictObject({
+    ...bound3,
+    type: z.literal("element"),
+    target: AnnotationTarget,
+    rect: FrameRect.optional(),
+    epoch: EditEpoch.optional(),
+  }),
+  z.strictObject({ ...bound3, type: z.literal("selection-rect"), rect: FrameRect.nullable() }),
+  z.strictObject({ ...bound3, type: z.literal("refused"), reason: RefusalReason }),
+  z.strictObject({ ...bound3, type: z.literal("pick-ended") }),
+  z.strictObject({
+    ...bound3,
+    type: z.literal("resolved"),
+    results: z.array(HighlightResolution).max(BRIDGE_LIMITS.highlightsMax),
+  }),
+  z.strictObject({
+    ...bound3,
+    type: z.literal("select"),
+    ids: z.array(HighlightId).max(BRIDGE_LIMITS.highlightsMax),
+  }),
+  z.strictObject({ ...bound3, type: z.literal("pong") }),
+]);
+export type BridgeMessageV3 = z.infer<typeof BridgeMessageV3>;
+
+/** Viewer to bridge, protocol 3. */
+export const ViewerMessageV3 = z.discriminatedUnion("type", [
+  z.strictObject({ ...bound3, type: z.literal("init") }),
+  z.strictObject({
+    ...bound3,
+    type: z.literal("highlights"),
+    highlights: z.array(Highlight).max(BRIDGE_LIMITS.highlightsMax),
+    selected: z.array(HighlightId).max(BRIDGE_LIMITS.highlightsMax),
+  }),
+  z.strictObject({ ...bound3, type: z.literal("hover"), id: HighlightId.nullable() }),
+  z.strictObject({ ...bound3, type: z.literal("pick"), active: z.boolean(), hint: Label }),
+  z.strictObject({ ...bound3, type: z.literal("focus"), id: HighlightId }),
+  z.strictObject({ ...bound3, type: z.literal("clear-selection") }),
+  z.strictObject({ ...bound3, type: z.literal("ping") }),
+  /**
+   * Starts (`active`) or ends edit mode. While it is on, the bridge shows `hint` and echoes
+   * `epoch` on what it reports; for `style` and `structure` it also picks an element, as `pick`.
+   * It carries the mode only: never what the person types.
+   */
+  z.strictObject({
+    ...bound3,
+    type: z.literal("edit-mode"),
+    epoch: EditEpoch,
+    active: z.boolean(),
+    kind: EditKind,
+    hint: Label,
+  }),
+]);
+export type ViewerMessageV3 = z.infer<typeof ViewerMessageV3>;
+
+/** A bridge message of either version. */
+export type AnyBridgeMessage = BridgeMessage | BridgeMessageV3;
+/** A viewer message of either version. */
+export type AnyViewerMessage = ViewerMessage | ViewerMessageV3;
+
 type Bound<T> = T extends { nonce: string } ? Omit<T, "channel" | "v" | "nonce"> : never;
-/** A message body before the envelope and nonce are added. */
-export type BridgeBody = Bound<BridgeMessage>;
-export type ViewerBody = Bound<ViewerMessage>;
+/** A message body before the envelope and nonce are added (protocol 3 bodies included). */
+export type BridgeBody = Bound<AnyBridgeMessage>;
+export type ViewerBody = Bound<AnyViewerMessage>;
+/** The bodies protocol 2 can carry. */
+export type ViewerBodyV2 = Bound<ViewerMessage>;

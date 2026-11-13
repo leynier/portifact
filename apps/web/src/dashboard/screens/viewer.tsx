@@ -42,6 +42,7 @@ import {
   LoadingState,
   Menu,
   type MenuItem,
+  ModeSwitch,
   type OverlayPoint,
   type OverlaySize,
   PageHeader,
@@ -60,6 +61,7 @@ import {
   Crosshair,
   Download,
   ExternalLink,
+  FilePen,
   Flag,
   Info,
   LayoutGrid,
@@ -67,6 +69,7 @@ import {
   LogIn,
   MessageSquare,
   MessageSquarePlus,
+  PencilLine,
   RefreshCw,
   Send,
   Settings,
@@ -77,6 +80,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -87,7 +91,10 @@ import { ApiFailure } from "../api.ts";
 import { AnnounceContext, useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useIssueChoices } from "../review/create-issue.tsx";
 import { DataGrantPanel, useDataGrant } from "../review/data-grant.tsx";
+import { DraftPanel, useDraft } from "../review/draft.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
+import { SUGGEST_OFF, type SuggestOffer, suggestReducer } from "../review/suggest-session.ts";
+import { ChangeList, SuggestEditor } from "../review/suggestions.tsx";
 import { ActionError, bodyError, humanRefusal, ThreadCard } from "../review/thread-card.tsx";
 import { TargetSummary } from "../review/thread-parts.tsx";
 import { type BridgeState, useBridge } from "../review/use-bridge.ts";
@@ -631,7 +638,13 @@ function SignedInViewer({ info, target }: { info: ViewerInfo; target: Target }) 
   });
   // Readers have no threads while comments are off; the owner keeps the switch to turn them on.
   const comments = info.annotations !== "off" || info.role === "owner";
-  const threads = useThreads(info.artifactId, version, comments);
+  // With suggestions on, threads say their kind; they load once the review session says so.
+  const threads = useThreads(
+    info.artifactId,
+    version,
+    comments && !start.isPending,
+    start.data?.suggestions === true,
+  );
 
   if (start.isPending) {
     return (
@@ -755,6 +768,9 @@ function pillPlacement(offer: Offer, size: OverlaySize, area: OverlaySize): Over
   return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
 }
 
+/** The "Suggest edit" control is placed exactly like the "Comment" one. */
+const suggestPill = (offer: SuggestOffer): Offer => offer;
+
 /** Which threads the panel shows, besides the version: by status and by author. */
 interface ThreadFilter {
   status: "all" | "open" | "resolved";
@@ -811,6 +827,11 @@ function ReviewSession({
   const [unplaced, setUnplaced] = useState(false);
   const [picking, setPicking] = useState(false);
   const [selection, setSelection] = useState<ThreadSelection>(NO_SELECTION);
+  // Suggest mode (decision 0027): its own state, apart from comments. The frame only offers a
+  // selection while the person is choosing, for the current edit epoch.
+  const [suggest, dispatchSuggest] = useReducer(suggestReducer, SUGGEST_OFF);
+  /** What an edit made in the frame becomes: a suggestion, or (the owner side) a draft change. */
+  const [purpose, setPurpose] = useState<"suggest" | "edit">("suggest");
   const items = useRef(new Map<string, HTMLElement>());
   // The page shares the bridge's window and can post what the bridge posts, so these refs, not
   // the page, decide when its selection or element may fill in a comment: an element only
@@ -850,68 +871,102 @@ function ReviewSession({
   const outdated = data !== undefined && data.currentVersionId !== start.versionId;
   const mode = data?.annotations;
   const canComment = mode === "open" && !outdated;
+  const ownerSide = data?.role === "owner";
+  // The owner side's private draft (decision 0027), loaded only while suggestions are on.
+  const ownerDraft = useDraft(start, start.suggestions === true && ownerSide);
 
-  const bridge = useBridge(frame, start.origin, start.sessionTag, {
-    // The page can forge any of these: a selection only offers a comment the reader still writes
-    // and saves here, and nothing the frame sends counts while a comment is open.
-    onSelection(selected, rect) {
-      if (drafting.current) return;
-      if (!selected || !canComment) {
-        setOffer(null);
-        return;
-      }
-      // Focus stays in the artifact; the "Comment" control follows the frame in the tab order.
-      if (!offered.current) setHint(t("review.selection.received"));
-      setOffer({ target: selected, rect, drawn: true });
+  const bridge = useBridge(
+    frame,
+    start.origin,
+    start.sessionTag,
+    {
+      // The page can forge any of these: a selection only offers a comment the reader still writes
+      // and saves here, and nothing the frame sends counts while a comment is open.
+      onSelection(selected, rect, epoch) {
+        if (suggest.mode !== "off") {
+          if (
+            suggest.mode === "choosing" &&
+            epoch === suggest.epoch &&
+            selected &&
+            !suggest.offer
+          ) {
+            setHint(t("suggest.selection.received"));
+          }
+          dispatchSuggest({ type: "selection", target: selected, rect, epoch });
+          return;
+        }
+        if (drafting.current) return;
+        if (!selected || !canComment) {
+          setOffer(null);
+          return;
+        }
+        // Focus stays in the artifact; the "Comment" control follows the frame in the tab order.
+        if (!offered.current) setHint(t("review.selection.received"));
+        setOffer({ target: selected, rect, drawn: true });
+      },
+      onElement(picked, rect) {
+        if (suggest.mode !== "off") return;
+        if (!awaitingPick.current || drafting.current) return;
+        stopPicking();
+        if (!canComment) return;
+        setHint(t("review.element.received"));
+        setOffer({ target: picked, rect, drawn: true });
+      },
+      onSelectionRect(rect) {
+        if (suggest.mode !== "off") {
+          // Moves only the "Suggest edit" control while choosing; never an open editor.
+          dispatchSuggest({ type: "selection-rect", rect });
+          return;
+        }
+        // Only moves the control of what is offered; never a target, and never an open comment.
+        if (drafting.current || !offered.current) return;
+        setOfferState((current) =>
+          current ? { ...current, rect: rect ?? current.rect, drawn: rect !== null } : current,
+        );
+      },
+      onRefused(reason: RefusalReason) {
+        announce(refusalMessage(t, reason));
+      },
+      onPickEnded() {
+        stopPicking();
+      },
+      onPageChange() {
+        // A new page, a route change or the session's end: an open edit is gone, unsaved.
+        if (suggest.mode === "editing") announce(t("suggest.discarded"));
+        dispatchSuggest({ type: "page-change" });
+      },
+      onStatus() {
+        // The page can forge a status: the API says what really holds for comments.
+        void threads.refetch();
+      },
+      onSelect(ids) {
+        // Only threads this panel shows count; the hook already dropped IDs never sent to the page.
+        const known = ids.filter(
+          (id) => numbers.has(id) && shown.some((thread) => thread.id === id),
+        );
+        if (known.length === 0) {
+          setSelection((current) => (current.fromFrame ? NO_SELECTION : current));
+          return;
+        }
+        setSelection({ ids: known, fromFrame: true });
+        setSidebarOpen(true);
+        const list = known.map((id) => numbers.get(id)).join(", ");
+        // A polite announcement, not the toast: a click in the artifact must not cover the threads.
+        setHint(
+          known.length === 1
+            ? t("review.thread.activated", { number: list })
+            : t("review.thread.activatedMany", { numbers: list }),
+        );
+        // Scrolled into view after the sidebar renders; focus stays in the artifact.
+        setTimeout(() => {
+          const first = known[0];
+          const card = first ? items.current.get(first) : undefined;
+          card?.scrollIntoView?.({ block: "nearest" });
+        }, 0);
+      },
     },
-    onElement(picked, rect) {
-      if (!awaitingPick.current || drafting.current) return;
-      stopPicking();
-      if (!canComment) return;
-      setHint(t("review.element.received"));
-      setOffer({ target: picked, rect, drawn: true });
-    },
-    onSelectionRect(rect) {
-      // Only moves the control of what is offered; never a target, and never an open comment.
-      if (drafting.current || !offered.current) return;
-      setOfferState((current) =>
-        current ? { ...current, rect: rect ?? current.rect, drawn: rect !== null } : current,
-      );
-    },
-    onRefused(reason: RefusalReason) {
-      announce(refusalMessage(t, reason));
-    },
-    onPickEnded() {
-      stopPicking();
-    },
-    onStatus() {
-      // The page can forge a status: the API says what really holds for comments.
-      void threads.refetch();
-    },
-    onSelect(ids) {
-      // Only threads this panel shows count; the hook already dropped IDs never sent to the page.
-      const known = ids.filter((id) => numbers.has(id) && shown.some((thread) => thread.id === id));
-      if (known.length === 0) {
-        setSelection((current) => (current.fromFrame ? NO_SELECTION : current));
-        return;
-      }
-      setSelection({ ids: known, fromFrame: true });
-      setSidebarOpen(true);
-      const list = known.map((id) => numbers.get(id)).join(", ");
-      // A polite announcement, not the toast: a click in the artifact must not cover the threads.
-      setHint(
-        known.length === 1
-          ? t("review.thread.activated", { number: list })
-          : t("review.thread.activatedMany", { numbers: list }),
-      );
-      // Scrolled into view after the sidebar renders; focus stays in the artifact.
-      setTimeout(() => {
-        const first = known[0];
-        const card = first ? items.current.get(first) : undefined;
-        card?.scrollIntoView?.({ block: "nearest" });
-      }, 0);
-    },
-  });
+    start.suggestions === true,
+  );
 
   // The frame only gets the targets of the threads of the page it shows, never bodies or names.
   const { send, state, page } = bridge;
@@ -948,7 +1003,63 @@ function ReviewSession({
     if (state === "connected") return;
     stopPicking();
     setOffer(null);
+    dispatchSuggest({ type: "page-change" });
   }, [state]);
+
+  // Suggesting is offered only when the API switched it on, comments are open, and the bridge
+  // in the frame announced it can (protocol 3). The page can forge that announcement: it only
+  // decides what this screen offers, never what is saved.
+  const canSuggest =
+    start.suggestions === true &&
+    canComment &&
+    state === "connected" &&
+    bridge.capabilities.includes("edit");
+  useEffect(() => {
+    if (!canSuggest) dispatchSuggest({ type: "toggle", on: false });
+  }, [canSuggest]);
+  // The frame learns only the mode and the epoch: never what is typed.
+  const suggestKey = `${suggest.mode}:${suggest.epoch}:${state}`;
+  // suggestKey summarizes what the effect sends, so it runs only when that changes.
+  useEffect(() => {
+    if (state !== "connected" || suggest.epoch === 0) return;
+    send({
+      type: "edit-mode",
+      epoch: suggest.epoch,
+      active: suggest.mode === "choosing",
+      kind: "text",
+      hint: t("suggest.hint"),
+    });
+  }, [suggestKey]);
+  const setMode = (mode: "comment" | "suggest" | "edit") => {
+    const on = mode !== "comment";
+    if (on && suggest.mode !== "off") {
+      // Between Suggest and Edit: an open editor ends unsaved, the selection mode stays.
+      if (mode === purpose) return;
+      setPurpose(mode);
+      dispatchSuggest({ type: "cancel" });
+      announce(t(mode === "edit" ? "draft.mode.on" : "suggest.mode.on"));
+      return;
+    }
+    if (on === (suggest.mode !== "off")) return;
+    if (on) setPurpose(mode);
+    if (on) {
+      setDraft(null);
+      setOffer(null);
+      if (picking) {
+        stopPicking();
+        send({ type: "pick", active: false, hint: t("review.pick.hint") });
+      }
+    }
+    send({ type: "clear-selection" });
+    dispatchSuggest({ type: "toggle", on });
+    announce(t(!on ? "suggest.mode.off" : mode === "edit" ? "draft.mode.on" : "suggest.mode.on"));
+  };
+  const closeEditor = (threadId: string | null) => {
+    send({ type: "clear-selection" });
+    if (threadId) setSelection({ ids: [threadId], fromFrame: false });
+    // Back to the artifact the person was in.
+    else frame.current?.focus();
+  };
 
   const startGeneral = () => {
     setOffer(null);
@@ -988,50 +1099,87 @@ function ReviewSession({
   const sheet = narrow || unplaced;
   // Drawn by this page over the frame, never inside the artifact's document, and clipped to the
   // frame's box: what the frame reports can move these controls but never out of the frame.
-  const layer =
-    canComment && (offer || draft?.inline) ? (
-      <>
-        {offer && !draft ? (
-          <Floating place={(size, area) => pillPlacement(offer, size, area)}>
-            <Button
-              intent="floating"
-              size="sm"
-              icon={<MessageSquarePlus className="size-4" />}
-              onClick={startInline}
-            >
-              {t("review.selection.comment")}
-            </Button>
-          </Floating>
-        ) : null}
-        {draft?.inline ? (
-          <Floating
-            key={draft.id}
-            sheet={sheet}
-            place={(size, area) => {
-              const rect = draft.inline?.rect;
-              const anchor = rect ? visibleRect(rect, area) : null;
-              return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
-            }}
-            onPlaced={(placed) => {
-              if (!placed) setUnplaced(true);
-            }}
+  const suggestOffer = suggest.mode === "choosing" ? suggest.offer : null;
+  const suggestLayer = suggestOffer ? (
+    <Floating place={(size, area) => pillPlacement(suggestPill(suggestOffer), size, area)}>
+      <Button
+        intent="floating"
+        size="sm"
+        icon={<PencilLine className="size-4" />}
+        onClick={() => dispatchSuggest({ type: "open", offer: suggestOffer })}
+      >
+        {t("suggest.selection.action")}
+      </Button>
+    </Floating>
+  ) : suggest.mode === "editing" ? (
+    <Floating
+      key={`${suggest.epoch}`}
+      sheet={sheet}
+      place={(size, area) => {
+        const anchor = suggest.rect ? visibleRect(suggest.rect, area) : null;
+        return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+      }}
+      onPlaced={(placed) => {
+        if (!placed) setUnplaced(true);
+      }}
+    >
+      <FloatingPanel label={t("suggest.editor.label")} sheet={sheet}>
+        <SuggestEditor
+          start={start}
+          state={suggest}
+          dispatch={dispatchSuggest}
+          humanNeeded={humanNeeded}
+          onClose={closeEditor}
+          draft={purpose === "edit" && ownerSide ? ownerDraft : undefined}
+        />
+      </FloatingPanel>
+    </Floating>
+  ) : null;
+  const layer = suggestLayer ? (
+    suggestLayer
+  ) : canComment && (offer || draft?.inline) ? (
+    <>
+      {offer && !draft ? (
+        <Floating place={(size, area) => pillPlacement(offer, size, area)}>
+          <Button
+            intent="floating"
+            size="sm"
+            icon={<MessageSquarePlus className="size-4" />}
+            onClick={startInline}
           >
-            <FloatingPanel label={t("review.inline.label")} sheet={sheet}>
-              <InlineComposer
-                start={start}
-                owner={data?.role === "owner"}
-                target={draft.target}
-                humanNeeded={humanNeeded}
-                onDone={(thread) => {
-                  closeDraft();
-                  if (thread) setSelection({ ids: [thread.id], fromFrame: false });
-                }}
-              />
-            </FloatingPanel>
-          </Floating>
-        ) : null}
-      </>
-    ) : null;
+            {t("review.selection.comment")}
+          </Button>
+        </Floating>
+      ) : null}
+      {draft?.inline ? (
+        <Floating
+          key={draft.id}
+          sheet={sheet}
+          place={(size, area) => {
+            const rect = draft.inline?.rect;
+            const anchor = rect ? visibleRect(rect, area) : null;
+            return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+          }}
+          onPlaced={(placed) => {
+            if (!placed) setUnplaced(true);
+          }}
+        >
+          <FloatingPanel label={t("review.inline.label")} sheet={sheet}>
+            <InlineComposer
+              start={start}
+              owner={data?.role === "owner"}
+              target={draft.target}
+              humanNeeded={humanNeeded}
+              onDone={(thread) => {
+                closeDraft();
+                if (thread) setSelection({ ids: [thread.id], fromFrame: false });
+              }}
+            />
+          </FloatingPanel>
+        </Floating>
+      ) : null}
+    </>
+  ) : null;
 
   const frameArea = (
     <>
@@ -1078,6 +1226,38 @@ function ReviewSession({
             aria-label={t("review.toolbar.label")}
             className="flex flex-wrap gap-2"
           >
+            {canSuggest ? (
+              <ModeSwitch
+                label={t("suggest.mode.label")}
+                value={suggest.mode === "off" ? "comment" : purpose}
+                onChange={setMode}
+                options={[
+                  {
+                    value: "comment",
+                    label: t("suggest.mode.comment"),
+                    name: t("suggest.mode.name", { mode: t("suggest.mode.comment") }),
+                    icon: <MessageSquare className="size-4" />,
+                  },
+                  {
+                    value: "suggest",
+                    label: t("suggest.mode.suggest"),
+                    name: t("suggest.mode.name", { mode: t("suggest.mode.suggest") }),
+                    icon: <PencilLine className="size-4" />,
+                  },
+                  // The owner side may also edit directly, into a private draft.
+                  ...(ownerSide
+                    ? [
+                        {
+                          value: "edit" as const,
+                          label: t("draft.mode.edit"),
+                          name: t("suggest.mode.name", { mode: t("draft.mode.edit") }),
+                          icon: <FilePen className="size-4" />,
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            ) : null}
             <Button
               size="sm"
               icon={<MessageSquarePlus className="size-4" />}
@@ -1140,6 +1320,12 @@ function ReviewSession({
             onFilter={setFilter}
             authors={authors}
           />
+        ) : null}
+        {ownerSide && start.suggestions === true ? (
+          <>
+            <DraftPanel start={start} state={ownerDraft} />
+            <ChangeList artifactId={start.artifactId} />
+          </>
         ) : null}
         {data ? <CommentNoticeToggle artifactId={start.artifactId} explainPlan={false} /> : null}
       </>

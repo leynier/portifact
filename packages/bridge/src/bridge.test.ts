@@ -12,7 +12,13 @@ import {
   startBridge,
 } from "./bridge.ts";
 import { viewerEnvelope } from "./channel.ts";
-import { type BridgeMessage, REVIEW_PROTOCOL, type ViewerBody } from "./protocol.ts";
+import {
+  type AnyBridgeMessage as BridgeMessage,
+  REVIEW_PROTOCOL,
+  REVIEW_PROTOCOL_EDIT,
+  type ReviewProtocol,
+  type ViewerBody,
+} from "./protocol.ts";
 
 const VIEWER = "https://app.portifact.com";
 const NONCE = "abcdefghijklmnopqrstuv";
@@ -43,14 +49,16 @@ function deliver(data: unknown, origin = VIEWER, source: unknown = parent) {
   window.dispatchEvent(event);
 }
 
-const fromViewer = (body: ViewerBody, nonce = NONCE) => deliver(viewerEnvelope(nonce, body));
+const fromViewer = (body: ViewerBody, nonce = NONCE, version: ReviewProtocol = REVIEW_PROTOCOL) =>
+  deliver(viewerEnvelope(nonce, body, version));
 
-function start(html: string, path = "index.html") {
+function start(html: string, path = "index.html", edit = false) {
   document.body.innerHTML = html;
   bridge = startBridge(window as unknown as BridgeWindow, parent, {
     appOrigin: VIEWER,
     path,
     sessionTag: SESSION_TAG,
+    ...(edit ? { edit: true } : {}),
   });
   return bridge;
 }
@@ -132,7 +140,7 @@ afterEach(() => {
 });
 
 describe("handshake", () => {
-  it("announces itself to the viewer's exact origin and waits for a nonce", () => {
+  it("announces only version 2 while edit suggestions are off, exactly as before", () => {
     start("<p>Hello</p>");
     expect(parent.sent).toEqual([
       {
@@ -145,6 +153,26 @@ describe("handshake", () => {
           sessionTag: SESSION_TAG,
         },
       },
+    ]);
+    // A version 3 init is not answered either: the switch is off.
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    expect(parent.sent).toHaveLength(1);
+  });
+
+  it("announces itself in both protocol versions, the newer first, while edits are on", () => {
+    start("<p>Hello</p>", "index.html", true);
+    const ready = {
+      channel: "portifact-review",
+      type: "ready",
+      page: { path: "index.html", route: "/" },
+      sessionTag: SESSION_TAG,
+    };
+    expect(parent.sent).toEqual([
+      {
+        origin: VIEWER,
+        message: { ...ready, v: REVIEW_PROTOCOL_EDIT, capabilities: ["edit"] },
+      },
+      { origin: VIEWER, message: { ...ready, v: REVIEW_PROTOCOL } },
     ]);
   });
 
@@ -754,5 +782,121 @@ describe("routes", () => {
     expect(currentRoute({ pathname: "/a/b", hash: "#c" })).toBe("/a/b#c");
     expect(currentRoute({ pathname: "/a b", hash: "" })).toBeUndefined();
     expect(currentRoute({ pathname: `/${"a".repeat(3000)}`, hash: "" })).toBeUndefined();
+  });
+});
+
+describe("protocol 3 (edit suggestions)", () => {
+  const EPOCH = 7;
+  const editMode = (active: boolean, kind: "text" | "style" = "text", epoch = EPOCH) =>
+    fromViewer(
+      { type: "edit-mode", epoch, active, kind, hint: "Select the text to change" },
+      NONCE,
+      REVIEW_PROTOCOL_EDIT,
+    );
+
+  it("speaks the version the viewer's init used, and ignores the other one after it", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    fromViewer({ type: "ping" });
+    fromViewer({ type: "ping" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    expect(sentOf("location").map((m) => m.v)).toEqual([REVIEW_PROTOCOL_EDIT]);
+    expect(sentOf("pong").map((m) => m.v)).toEqual([REVIEW_PROTOCOL_EDIT]);
+  });
+
+  it("keeps speaking version 2 to a viewer that started with it, and ignores edit mode", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" });
+    editMode(true);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    const [selection] = sentOf("selection");
+    expect(selection?.v).toBe(REVIEW_PROTOCOL);
+    expect(selection).not.toHaveProperty("epoch");
+    expect(bridge?.overlay.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("echoes the edit epoch on selections while edit mode is on, and not after", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    editMode(true);
+    expect(bridge?.overlay.querySelector('[role="status"]')?.textContent).toBe(
+      "Select the text to change",
+    );
+    select(textOf("p"), 6, textOf("p"), 11);
+    await settle(SELECTION_SETTLE_MS);
+    editMode(false);
+    expect(bridge?.overlay.querySelector('[role="status"]')).toBeNull();
+    select(textOf("p"), 0, textOf("p"), 11);
+    await settle(SELECTION_SETTLE_MS);
+    expect(sentOf("selection").map((m) => ("epoch" in m ? m.epoch : null))).toEqual([
+      null,
+      EPOCH,
+      null,
+    ]);
+  });
+
+  it("picks an element for a style edit and echoes the epoch on it", async () => {
+    start('<main><button id="buy" type="button">Buy now</button></main>', "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    editMode(true, "style");
+    document
+      .querySelector("#buy")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await settle(0);
+    const [element] = sentOf("element");
+    expect(element).toMatchObject({ v: REVIEW_PROTOCOL_EDIT, epoch: EPOCH });
+  });
+});
+
+describe("edit epochs (pf268)", () => {
+  const mode = (epoch: number, active = true) =>
+    fromViewer(
+      { type: "edit-mode", epoch, active, kind: "text", hint: "Select text" },
+      NONCE,
+      REVIEW_PROTOCOL_EDIT,
+    );
+
+  it("does not relabel an in-flight old selection with the new epoch", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    mode(1);
+    const original = digestSpy.getMockImplementation();
+    if (!original) throw new Error("missing digest implementation");
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    digestSpy.mockImplementationOnce(async (...args) => {
+      await held;
+      return original(...args);
+    });
+    select(textOf("p"), 0, textOf("p"), 5);
+    await vi.advanceTimersByTimeAsync(SELECTION_SETTLE_MS);
+    // Leave that choosing period, then make a different selection in the new one.
+    fromViewer({ type: "clear-selection" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    mode(1, false);
+    mode(2);
+    select(textOf("p"), 6, textOf("p"), 11);
+    await settle(SELECTION_SETTLE_MS);
+    release();
+    await settle(0);
+    const current = sentOf("selection").filter((m) => "epoch" in m && m.epoch === 2);
+    expect(
+      current.map((m) => (m.target?.anchor.kind === "text" ? m.target.anchor.quote.exact : null)),
+    ).toEqual(["world"]);
+  });
+
+  it("labels a cleared selection with its epoch so the viewer can withdraw it", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    mode(1);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    window.getSelection()?.removeAllRanges();
+    document.dispatchEvent(new Event("selectionchange"));
+    await settle(SELECTION_SETTLE_MS);
+    expect(sentOf("selection").at(-1)).toMatchObject({ target: null, epoch: 1 });
   });
 });

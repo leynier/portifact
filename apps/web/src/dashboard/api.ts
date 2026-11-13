@@ -137,6 +137,7 @@ import {
 } from "@portifact/contracts";
 import { z } from "zod";
 import type { SavedFile } from "./publish/download.ts";
+import { type SuggestionsApi, suggestionsApi } from "./suggestions-api.ts";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -188,6 +189,8 @@ export interface SignInMethod {
 }
 
 export interface DashboardApi {
+  /** Edit suggestions and the change list (decision 0027), in their own client module. */
+  suggestions: SuggestionsApi;
   /** The signed-in account, or null without a session. */
   account(): Promise<Account | null>;
   signOut(): Promise<void>;
@@ -620,6 +623,7 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
   };
 
   return {
+    suggestions: suggestionsApi(call),
     async account() {
       const session = await call("/api/auth/get-session", SessionBody.nullable());
       return session

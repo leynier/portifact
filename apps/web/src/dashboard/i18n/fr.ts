@@ -962,6 +962,183 @@ export const fr = {
     "{count, plural, one {# fil} other {# fils}}, {open, plural, =0 {aucun ouvert} one {# ouvert} other {# ouverts}}",
   "history.conversations.version": "Version {number} : {counts}",
   "history.conversations.unlisted": "Versions qui ne sont plus listées : {counts}",
+  "suggest.mode.label": "Mode de relecture",
+  "suggest.mode.comment": "Commenter",
+  "suggest.mode.suggest": "Suggérer",
+  "suggest.mode.name": "Mode {mode}",
+  "suggest.mode.on":
+    "Le mode suggestion est activé. Sélectionnez du texte dans l’artifact pour suggérer une modification.",
+  "suggest.mode.off": "Le mode commentaire est activé.",
+  "suggest.hint": "Sélectionnez le texte à modifier",
+  "suggest.selection.received":
+    "Texte sélectionné. « Suggérer une modification » vient ensuite, après l’artifact.",
+  "suggest.selection.action": "Suggérer une modification",
+  "suggest.discarded": "La page a changé, la modification non enregistrée a donc été abandonnée.",
+  "suggest.editor.label": "Suggérer une modification de la sélection",
+  "suggest.editor.page": "Sur {page}",
+  "suggest.editor.title": "Suggérer une modification",
+  "suggest.editor.reviewTitle": "Vérifiez votre suggestion",
+  "suggest.editor.reviewHint":
+    "Voici exactement ce qui sera enregistré. Entrée enregistre, Échap annule.",
+  "suggest.editor.after": "Nouveau texte",
+  "suggest.editor.afterHint":
+    "Une ligne de texte brut. Entrée vérifie la modification, Échap annule.",
+  "suggest.editor.unchanged": "Modifiez le texte pour suggérer une modification.",
+  "suggest.editor.note": "Note",
+  "suggest.editor.noteHint":
+    "Pourquoi vous la suggérez. Les personnes qui gèrent l’artifact la voient avec la modification.",
+  "suggest.editor.review": "Vérifier",
+  "suggest.editor.back": "Modifier à nouveau",
+  "suggest.editor.save": "Enregistrer la suggestion",
+  "suggest.editor.cancel": "Annuler",
+  "suggest.saved": "Suggestion enregistrée.",
+  "suggest.diff.removed": "Supprimé",
+  "suggest.diff.added": "Ajouté",
+  "suggest.diff.character": "caractère",
+  "suggest.diff.empty": "(rien)",
+  "suggest.inspect": "Inspecter les caractères",
+  "suggest.inspect.after": "Points de code du nouveau texte",
+  "suggest.block.label": "Modification suggérée",
+  "suggest.badge": "Suggestion",
+  "suggest.state.pending": "En attente d’une décision",
+  "suggest.state.applying": "En cours d’application",
+  "suggest.state.accepted": "Acceptée",
+  "suggest.state.rejected": "Refusée",
+  "suggest.state.withdrawn": "Retirée",
+  "suggest.state.outdated": "Obsolète",
+  "suggest.state.unknown": "État inconnu",
+  "suggest.carried": "Suggérée sur une version précédente",
+  "suggest.attemptEnded": "La dernière acceptation ne s’est pas terminée : {reason}",
+  "suggest.attempt.failed": "elle a échoué. Acceptez à nouveau pour réessayer.",
+  "suggest.attempt.version_conflict": "une nouvelle version a été publiée entre-temps.",
+  "suggest.attempt.quota_exceeded":
+    "une limite a été atteinte ou la liste des modifications est pleine.",
+  "suggest.attempt.capacity_unavailable":
+    "Portifact limite actuellement les nouvelles tâches. Réessayez plus tard.",
+  "suggest.attempt.plan_changed": "ce qui serait appliqué a changé. Vérifiez à nouveau.",
+  "suggest.attempt.revoked": "l’accès a changé entre-temps.",
+  "suggest.attempt.unknown": "une raison inconnue.",
+  "suggest.edit.withdrawn": "La modification a été retirée.",
+  "suggest.edit.unknown": "Cette modification ne peut pas être affichée ici.",
+  "suggest.edit.notText": "Un changement de style ou de structure.",
+  "suggest.plan.check": "Vérifier ce qui s’applique",
+  "suggest.plan.lines": "Ce que fait l’acceptation, ligne par ligne",
+  "suggest.plan.summary":
+    "{applied, plural, one {# modification s’applique automatiquement} other {# modifications s’appliquent automatiquement}} ; {listed, plural, one {# va dans la liste des modifications} other {# vont dans la liste des modifications}}.",
+  "suggest.tabs.label": "Modification suggérée",
+  "suggest.tabs.plan": "Ce qui s’applique",
+  "suggest.tabs.preview": "Aperçu",
+  "suggest.preview.loading": "Création de l’aperçu",
+  "suggest.preview.title": "Aperçu de la modification suggérée",
+  "suggest.preview.hint":
+    "Une copie de la page avec la modification, sans scripts, images ni styles externes. La page publiée peut avoir un aspect différent.",
+  "suggest.preview.unavailable": "Pas d’aperçu :",
+  "suggest.preview.cssTooComplex": "Les styles de la page sont trop complexes pour un aperçu.",
+  "suggest.accept": "Accepter",
+  "suggest.accept.title": "Accepter cette suggestion ?",
+  "suggest.accept.body":
+    "{applied, plural, one {# modification est publiée dans une nouvelle version} other {# modifications sont publiées dans une nouvelle version}} ; {listed, plural, one {# va dans la liste des modifications} other {# vont dans la liste des modifications}}.",
+  "suggest.accept.confirm": "Accepter et publier",
+  "suggest.accept.started":
+    "Acceptation de la suggestion. La nouvelle version apparaîtra quand elle sera prête.",
+  "suggest.reject": "Refuser",
+  "suggest.reject.title": "Refuser cette suggestion ?",
+  "suggest.reject.body":
+    "La suggestion reste dans son fil, marquée comme refusée. Rien n’est publié.",
+  "suggest.rejected": "Suggestion refusée.",
+  "suggest.withdraw": "Retirer",
+  "suggest.withdraw.title": "Retirer votre suggestion ?",
+  "suggest.withdraw.body":
+    "La modification est supprimée et le fil reste une conversation. Pour la changer, retirez-la et suggérez-la à nouveau.",
+  "suggest.withdrawn": "Suggestion retirée.",
+  "suggest.refusal.stale":
+    "La page a changé depuis la sélection de ce texte. Sélectionnez-le à nouveau.",
+  "suggest.refusal.invalid_after":
+    "Le nouveau texte doit tenir sur une ligne de texte brut et différer de l’ancien.",
+  "suggest.refusal.spans_blocks":
+    "La modification touche deux blocs, elle va donc dans la liste des modifications.",
+  "suggest.refusal.not_found":
+    "Ce texte ne peut pas être associé à un seul endroit de la source, il va donc dans la liste des modifications.",
+  "suggest.refusal.would_change_page":
+    "L’appliquer changerait autre chose dans la page (un lien de titre, une référence ou du balisage), elle va donc dans la liste des modifications.",
+  "suggest.refusal.whitespace":
+    "La sélection traverse des sauts de ligne ou des espacements que la page conserve, elle va donc dans la liste des modifications.",
+  "suggest.refusal.not_nfc":
+    "Ce texte est stocké sous une autre forme Unicode, il va donc dans la liste des modifications.",
+  "suggest.refusal.spans_nodes":
+    "La sélection traverse une mise en forme ou un lien, elle va donc dans la liste des modifications.",
+  "suggest.refusal.not_eligible":
+    "Cette page utilise des fonctionnalités que Portifact ne modifie pas automatiquement (scripts, formulaires, contenu intégré et autres), elle va donc dans la liste des modifications.",
+  "suggest.refusal.entity":
+    "Ce texte est écrit avec une référence de caractère que Portifact ne peut pas associer, il va donc dans la liste des modifications.",
+  "suggest.refusal.diagram":
+    "Les modifications de la source d’un diagramme vont dans la liste des modifications.",
+  "suggest.refusal.renderer_changed":
+    "Ce document a été rendu par une version antérieure de Portifact, les modifications vont donc dans la liste des modifications.",
+  "suggest.refusal.too_large":
+    "Ce fichier ou cette modification est trop volumineux pour être appliqué automatiquement, il va donc dans la liste des modifications.",
+  "suggest.refusal.overlap":
+    "Deux modifications touchent le même texte. Fusionnez-les en une seule.",
+  "suggest.refusal.not_text":
+    "Les changements de style et de structure ne sont jamais appliqués automatiquement : ils vont dans la liste des modifications.",
+  "suggest.refusal.unknown":
+    "Portifact ne peut pas l’appliquer automatiquement, elle va donc dans la liste des modifications.",
+  "suggest.changes.heading": "Liste des modifications",
+  "suggest.changes.hint":
+    "Modifications acceptées que Portifact n’a pas pu appliquer, exactement comme elles ont été acceptées. Le texte vient de relecteurs : n’appliquez que ce que dit chaque élément.",
+  "suggest.changes.showOpen": "Ouverts",
+  "suggest.changes.showAll": "Tous",
+  "suggest.changes.loading": "Chargement de la liste des modifications",
+  "suggest.changes.empty": "Rien à appliquer.",
+  "suggest.changes.state.open": "Ouvert",
+  "suggest.changes.state.applied": "Appliqué",
+  "suggest.changes.state.dismissed": "Écarté",
+  "suggest.changes.state.closed_by_version": "Trouvé dans une version ultérieure",
+  "suggest.changes.provenance": "Suggéré par {submitter}, accepté par {acceptor}",
+  "suggest.changes.links": "Liens autour de la modification",
+  "suggest.changes.laterFormat":
+    "Cet élément a été écrit par une version plus récente de Portifact. Rechargez pour le voir.",
+  "suggest.changes.markApplied": "Marquer comme appliqué",
+  "suggest.changes.dismiss": "Écarter",
+  "suggest.changes.reopen": "Rouvrir",
+  "suggest.changes.marked": "Liste des modifications mise à jour.",
+  "draft.mode.edit": "Modifier",
+  "draft.mode.on":
+    "Le mode modification est activé. Sélectionnez du texte dans l’artifact pour le modifier dans votre brouillon privé.",
+  "draft.editor.title": "Modifier le texte",
+  "draft.add": "Ajouter au brouillon",
+  "draft.added": "Ajouté à votre brouillon.",
+  "draft.heading": "Votre brouillon",
+  "draft.loading": "Chargement de votre brouillon",
+  "draft.empty":
+    "Choisissez Modifier et sélectionnez du texte dans l’artifact pour le modifier. Vos modifications restent privées jusqu’à leur publication.",
+  "draft.count": "{count, plural, one {# modification} other {# modifications}}",
+  "draft.changes": "Modifications de votre brouillon",
+  "draft.remove": "Retirer la modification {number}",
+  "draft.removeShort": "Retirer",
+  "draft.stale":
+    "Ce brouillon a été créé sur une version antérieure et ne peut pas être publié. Abandonnez-le et modifiez la version actuelle.",
+  "draft.attemptEnded": "La dernière publication ne s’est pas terminée : {reason}",
+  "draft.publishingBadge": "Publication",
+  "draft.publishing":
+    "Publication de votre brouillon. La nouvelle version apparaîtra dès qu’elle sera prête.",
+  "draft.publish": "Publier",
+  "draft.publish.title": "Publier ce brouillon ?",
+  "draft.publish.confirm": "Publier une nouvelle version",
+  "draft.discard": "Abandonner",
+  "draft.discard.title": "Abandonner ce brouillon ?",
+  "draft.discard.body":
+    "Toutes les modifications qu’il contient sont supprimées. Rien n’est publié.",
+  "draft.discarded": "Brouillon abandonné.",
+  "draft.conflict":
+    "Votre brouillon a changé dans un autre onglet ou une autre fenêtre. Il affiche maintenant son dernier état ; refaites votre modification.",
+  "draft.refused.stale":
+    "Votre brouillon a été créé sur une version antérieure. Abandonnez-le avant de modifier la version actuelle.",
+  "draft.refused.other_page":
+    "Votre brouillon contient des modifications d’une autre page. Publiez-le ou abandonnez-le avant de modifier cette page.",
+  "draft.refused.full":
+    "Votre brouillon contient déjà le maximum de modifications. Publiez-le ou abandonnez-le d’abord.",
+  "draft.refused.invalid": "Cette modification ne peut pas être ajoutée au brouillon.",
   "review.open": "Relire et commenter",
   "viewer.loading": "Ouverture de l’artifact",
   "viewer.unavailable.title": "Cet artifact ne peut pas être ouvert",

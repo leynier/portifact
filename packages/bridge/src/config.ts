@@ -7,7 +7,7 @@ const RENDERER = /^[a-z0-9][a-z0-9.@/+_-]{0,63}$/;
 
 /** Validated settings, or null when any is missing or malformed. */
 export function readConfig(data: Record<string, string | undefined>): BridgeConfig | null {
-  const { appOrigin, path, renderer, sessionTag } = data;
+  const { appOrigin, path, renderer, sessionTag, edit } = data;
   if (!appOrigin || !path || !SessionTag.safeParse(sessionTag).success) return null;
   let origin: string;
   try {
@@ -22,5 +22,7 @@ export function readConfig(data: Record<string, string | undefined>): BridgeConf
     path,
     sessionTag: sessionTag as string,
     ...(renderer === undefined ? {} : { renderer }),
+    // Only the exact value turns protocol 3 on; anything else leaves the bridge on protocol 2.
+    ...(edit === "true" ? { edit: true } : {}),
   };
 }

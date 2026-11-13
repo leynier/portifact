@@ -104,6 +104,14 @@ describe("review codes", () => {
     expect(await forbidden.json()).toEqual(await missing.json());
   });
 
+  it("tells the viewer whether edit suggestions are switched on", async () => {
+    const off = ReviewStart.parse(await (await start(h, artifactId, owner.cookie)).json());
+    expect(off.suggestions).toBe(false);
+    const on = createHarness({ env: { SUGGESTIONS_ENABLED: "true" } });
+    const started = ReviewStart.parse(await (await start(on, artifactId, owner.cookie)).json());
+    expect(started.suggestions).toBe(true);
+  });
+
   it("refuses bearer tokens, cross-origin requests and requests without a session", async () => {
     const bearer = await owner.call(`/api/v1/artifacts/${artifactId}/review`, { method: "POST" });
     expect(bearer.status).toBe(403);
