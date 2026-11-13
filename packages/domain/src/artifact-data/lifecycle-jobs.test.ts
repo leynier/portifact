@@ -11,7 +11,6 @@ import {
 import { describe, expect, it } from "vitest";
 import { applyFence, newControl, quarantine, resolveReviewed, reviewedState } from "./control.ts";
 import {
-  awaitedTransferWindow,
   controlEnvelope,
   erasureRefused,
   fenceObsolete,
@@ -31,6 +30,7 @@ import {
   LIFECYCLE_LIMITS,
   nextJournalScan,
   parseReviewed,
+  predecessorWindow,
   purgeAnswered,
   purgeEraseEpoch,
   purgeEraseTarget,
@@ -38,7 +38,7 @@ import {
 } from "./lifecycle-jobs.ts";
 
 const NOW = Date.UTC(2026, 10, 12);
-const ROW_KEPT = { dataRowGone: false, ownerAwaited: false };
+const ROW_KEPT = { dataRowGone: false, ownerAwaited: false, releaseAwaited: false };
 const base: DataEnvelope = {
   artifactId: "abcdefghij",
   region: "default",
@@ -148,7 +148,9 @@ describe("after the object refused a fence", () => {
   it("retries while an earlier change has to land first", () => {
     const control = newControl(base, NOW);
     expect(fenceRefused(control, { ...base, epoch: 3 }, "stale", ROW_KEPT)).toBe("retry");
-    expect(fenceRefused(control, { ...base, epoch: 3 }, "held", ROW_KEPT)).toBe("retry");
+    expect(
+      fenceRefused(control, { ...base, epoch: 3 }, "held", { ...ROW_KEPT, releaseAwaited: true }),
+    ).toBe("retry");
   });
 
   it("is done for what can never apply", () => {
@@ -177,16 +179,25 @@ describe("a fence of a generation the object has left", () => {
     const control = { ...newControl(base, NOW), generation: 1 };
     const old = { ...base, generation: 0, epoch: 3 };
     // Killed mutations: dropping the generation comparison, or the row evidence.
-    expect(fenceRefused(control, old, "stale", { dataRowGone: true, ownerAwaited: false })).toBe(
-      "done",
-    );
-    expect(fenceRefused(control, old, "stale", { dataRowGone: false, ownerAwaited: false })).toBe(
-      "retry",
-    );
+    expect(
+      fenceRefused(control, old, "stale", {
+        dataRowGone: true,
+        ownerAwaited: false,
+        releaseAwaited: false,
+      }),
+    ).toBe("done");
+    expect(
+      fenceRefused(control, old, "stale", {
+        dataRowGone: false,
+        ownerAwaited: false,
+        releaseAwaited: false,
+      }),
+    ).toBe("retry");
     expect(
       fenceRefused(control, { ...old, generation: 1 }, "stale", {
         dataRowGone: true,
         ownerAwaited: false,
+        releaseAwaited: false,
       }),
     ).toBe("retry");
   });
@@ -454,6 +465,7 @@ describe("a fence whose epoch another transition took", () => {
       fenceRefused(control, { ...base, epoch: 4 }, "stale", {
         dataRowGone: true,
         ownerAwaited: false,
+        releaseAwaited: false,
       }),
     ).toBe("done");
     expect(fenceRefused(control, { ...base, epoch: 9 }, "stale", ROW_KEPT)).toBe("retry");
@@ -465,9 +477,13 @@ describe("a fence under an owner the object does not have", () => {
     const control = fenced(newControl(base, NOW), 2, "hold_a");
     const other = { ...base, ownerId: "u_other", epoch: 5 };
     // Killed mutations: dropping the owner comparison or the waiting transfer.
-    expect(fenceRefused(control, other, "stale", { dataRowGone: false, ownerAwaited: true })).toBe(
-      "retry",
-    );
+    expect(
+      fenceRefused(control, other, "stale", {
+        dataRowGone: false,
+        ownerAwaited: true,
+        releaseAwaited: false,
+      }),
+    ).toBe("retry");
     expect(fenceRefused(control, other, "stale", ROW_KEPT)).toBe("done");
     // The object's own owner is unaffected by the evidence.
     expect(fenceRefused(control, { ...base, epoch: 5 }, "stale", ROW_KEPT)).toBe("retry");
@@ -479,17 +495,33 @@ describe("a hold or release fence at delivery", () => {
     const open = { open: "h", objectHoldReleased: false };
     const free = { open: null, objectHoldReleased: false };
     // Killed mutations: either direction of the level check, or the kind comparison.
-    expect(fenceObsolete({ kind: "release" }, open)).toBe(true);
-    expect(fenceObsolete({ kind: "release" }, free)).toBe(false);
-    expect(fenceObsolete({ kind: "hold" }, free)).toBe(true);
-    expect(fenceObsolete({ kind: "hold" }, open)).toBe(false);
-    expect(fenceObsolete({ kind: "transfer" }, open)).toBe(false);
-    expect(fenceObsolete({ kind: "transfer" }, free)).toBe(false);
+    expect(fenceObsolete({ kind: "release" }, open, false)).toBe(true);
+    // A hold fence naming the open hold waits: the release goes in order (fifth review).
+    expect(fenceObsolete({ kind: "release" }, open, true)).toBe(false);
+    expect(fenceObsolete({ kind: "release" }, free, false)).toBe(false);
+    expect(fenceObsolete({ kind: "release" }, free, true)).toBe(false);
+    expect(fenceObsolete({ kind: "hold" }, free, false)).toBe(true);
+    expect(fenceObsolete({ kind: "hold" }, free, true)).toBe(true);
+    expect(fenceObsolete({ kind: "hold" }, open, false)).toBe(false);
+    expect(fenceObsolete({ kind: "transfer" }, open, false)).toBe(false);
+    expect(fenceObsolete({ kind: "transfer" }, free, false)).toBe(false);
   });
 
   it("waits under another owner only on a transfer between the object's epoch and its own", () => {
     const control = fenced(newControl(base, NOW), 2, "hold_a");
-    expect(awaitedTransferWindow(control, { ...base, epoch: 5 })).toEqual({ above: 2, below: 5 });
+    expect(predecessorWindow(control, { ...base, epoch: 5 })).toEqual({ above: 2, below: 5 });
+  });
+});
+
+describe("a transfer the object refuses because it holds", () => {
+  it("waits only while a release between the object's epoch and its own is waiting", () => {
+    const control = fenced(newControl(base, NOW), 2, "hold_a");
+    const transfer = { ...base, epoch: 5 };
+    // Killed mutations: retrying regardless of the evidence, or ending regardless of it.
+    expect(fenceRefused(control, transfer, "held", { ...ROW_KEPT, releaseAwaited: true })).toBe(
+      "retry",
+    );
+    expect(fenceRefused(control, transfer, "held", ROW_KEPT)).toBe("done");
   });
 });
 

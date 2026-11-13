@@ -275,15 +275,38 @@ describe("data_fence", () => {
   it("applies a fence, retries one that must wait, and ends one the object is past", async () => {
     const memory = memoryObjects();
     const { id, ownerId, object } = await seeded(memory);
-    // A transfer to another owner of a held object waits for the release.
+    // A transfer to another owner of a held object waits for a release that can still free it,
+    // and ends without one (fifth review).
     object.fence(envelope(id, ownerId, { generation: 0, epoch: 1 }), hold, NOW);
-    const transfer = await job("data_fence", id, {
+    const transferAt = (epoch: number) =>
+      job("data_fence", id, {
+        ownerId,
+        generation: 0,
+        epoch,
+        fence: { kind: "transfer", transition: `transfer_svc_${epoch}`, toOwner: "u_new" },
+      });
+    const waitingRelease = await job("data_fence", id, {
       ownerId,
       generation: 0,
       epoch: 2,
-      fence: { kind: "transfer", transition: "transfer_svc", toOwner: "u_new" },
+      fence: { kind: "release", transition: "release_waiting" },
     });
-    expect(await run(transfer, memory.data)).toBe("pending");
+    expect(await run(await transferAt(3), memory.data)).toBe("pending");
+    await db().delete(schema.outbox).where(eq(schema.outbox.id, waitingRelease.id));
+    // Killed mutations: the window's bounds (a release at or under the object's epoch, or at or
+    // after the transfer's own, cannot free it first).
+    for (const epoch of [1, 3, 4]) {
+      const release = await job("data_fence", id, {
+        ownerId,
+        generation: 0,
+        epoch,
+        fence: { kind: "release", transition: `release_at_${epoch}` },
+      });
+      expect(await run(await transferAt(3), memory.data)).toBe("stale");
+      await db().delete(schema.outbox).where(eq(schema.outbox.id, release.id));
+    }
+    const transfer = await transferAt(3);
+    expect(await run(transfer, memory.data)).toBe("stale");
     const old = await job("data_fence", id, {
       ownerId,
       generation: 0,

@@ -40,7 +40,6 @@ import {
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import { logEvent } from "@portifact/domain";
 import {
-  awaitedTransferWindow,
   controlEnvelope,
   erasureRefused,
   fenceObsolete,
@@ -63,6 +62,7 @@ import {
   journalPrunable,
   journalSubject,
   nextJournalScan,
+  predecessorWindow,
   purgeAnswered,
   purgeEraseEpoch,
   purgeEraseTarget,
@@ -677,7 +677,18 @@ export async function runDataFence(
   const current = await readDataRow(db, objects.region, artifactId);
   const byLevel = payload.fence.kind !== "transfer";
   const level = byLevel ? await holdLevel(db, artifactId, control?.hold?.transition ?? null) : null;
-  if (level !== null && fenceObsolete(payload.fence, level)) {
+  // A release with D1 holding again goes in order only while that hold's own fence waits.
+  const openHoldFenceWaiting =
+    payload.fence.kind === "release" && level !== null && level.open !== null
+      ? await fenceWaiting(
+          db,
+          artifactId,
+          { kind: "hold", key: "transition", value: level.open },
+          { above: control?.epoch ?? -1, below: Number.MAX_SAFE_INTEGER },
+          row.id,
+        )
+      : false;
+  if (level !== null && fenceObsolete(payload.fence, level, openHoldFenceWaiting)) {
     await convergeHold(db, artifactId, control, current, now, row.id, level);
     await recordOwnerDisagreement(db, artifactId, control, current, now, row.id);
     logEvent("log", "data_job_refused", { id: row.id, topic: row.topic, reason: "obsolete" });
@@ -693,17 +704,23 @@ export async function runDataFence(
   const answer = await object.lifecycleFence(envelope, payload.fence, now);
   if (answer.ok) return "done";
   const after = await object.lifecycleControl();
+  const window = after === null ? null : predecessorWindow(after, envelope);
   const otherOwner =
     answer.code === "stale" && after !== null && after.ownerId !== envelope.ownerId;
   const ownerAwaited =
-    otherOwner && after !== null
-      ? await transferWaiting(
+    otherOwner && window !== null
+      ? await fenceWaiting(
           db,
           artifactId,
-          envelope.ownerId,
-          awaitedTransferWindow(after, envelope),
+          { kind: "transfer", key: "toOwner", value: envelope.ownerId },
+          window,
           row.id,
         )
+      : false;
+  // A transfer refused because the object holds waits only on a release that can still free it.
+  const releaseAwaited =
+    answer.code === "held" && window !== null
+      ? await fenceWaiting(db, artifactId, { kind: "release" }, window, row.id)
       : false;
   const step =
     after === null
@@ -711,8 +728,9 @@ export async function runDataFence(
       : fenceRefused(after, envelope, answer.code, {
           dataRowGone: current === null,
           ownerAwaited,
+          releaseAwaited,
         });
-  if (step === "done" && answer.code === "stale") {
+  if (step === "done" && (answer.code === "stale" || answer.code === "held")) {
     await recordOwnerDisagreement(db, artifactId, after, current, now, row.id);
   }
   if (step === "done" && answer.code === "stale" && byLevel) {
@@ -747,28 +765,34 @@ async function recordOwnerDisagreement(
 ): Promise<void> {
   if (control === null || current === null || control.ownerId === current.ownerId) return;
   const window = { above: control.epoch, below: Number.MAX_SAFE_INTEGER };
-  if (await transferWaiting(db, artifactId, current.ownerId, window, exclude)) return;
+  const waiting = { kind: "transfer" as const, key: "toOwner" as const, value: current.ownerId };
+  if (await fenceWaiting(db, artifactId, waiting, window, exclude)) return;
   await recordFinding(db, artifactId, "refused", "owner", now);
 }
 
 /**
- * Whether D1 has a transfer of the artifact to `owner` waiting in its outbox at an epoch strictly
- * inside `window` (`awaitedTransferWindow`), other than the job `exclude`: a predecessor that can
- * still apply. One read.
+ * Whether D1 has a fence of `fence.kind` for the artifact waiting in its outbox at an epoch
+ * strictly inside `window`, other than the job `exclude`, optionally naming `fence.value` in its
+ * fence's `key` (a transfer's `toOwner`, a hold's `transition`): a predecessor that can still
+ * apply. One read.
  */
-async function transferWaiting(
+async function fenceWaiting(
   db: RegionalDb,
   artifactId: string,
-  owner: string,
+  fence: { kind: "hold" | "release" | "transfer"; key?: "toOwner" | "transition"; value?: string },
   window: { above: number; below: number },
   exclude = 0,
 ) {
   const o = schema.outbox;
+  const named =
+    fence.key === undefined
+      ? sql``
+      : sql` and json_extract(${o.payload}, ${`$.fence.${fence.key}`}) = ${fence.value ?? ""}`;
   const [waiting] = await db
     .select({ id: o.id })
     .from(o)
     .where(
-      sql`${o.topic} = 'data_fence' and ${o.subject} = ${artifactId} and ${o.id} <> ${exclude} and json_extract(${o.payload}, '$.fence.kind') = 'transfer' and json_extract(${o.payload}, '$.fence.toOwner') = ${owner} and json_extract(${o.payload}, '$.epoch') > ${window.above} and json_extract(${o.payload}, '$.epoch') < ${window.below}`,
+      sql`${o.topic} = 'data_fence' and ${o.subject} = ${artifactId} and ${o.id} <> ${exclude} and json_extract(${o.payload}, '$.fence.kind') = ${fence.kind}${named} and json_extract(${o.payload}, '$.epoch') > ${window.above} and json_extract(${o.payload}, '$.epoch') < ${window.below}`,
     )
     .limit(1);
   return waiting !== undefined;
