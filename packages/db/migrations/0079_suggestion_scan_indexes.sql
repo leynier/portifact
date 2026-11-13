@@ -1,0 +1,3 @@
+CREATE INDEX `acceptance_attempts_running_created_idx` ON `acceptance_attempts` (`created_at`) WHERE "acceptance_attempts"."state" = 'running';--> statement-breakpoint
+CREATE INDEX `acceptance_attempts_running_deliveries_idx` ON `acceptance_attempts` (`deliveries`) WHERE "acceptance_attempts"."state" = 'running';--> statement-breakpoint
+CREATE INDEX `acceptance_attempts_finished_created_idx` ON `acceptance_attempts` (`created_at`) WHERE "acceptance_attempts"."state" <> 'running';

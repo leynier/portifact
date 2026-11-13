@@ -554,6 +554,13 @@
       "when": 1794516115900,
       "tag": "0078_edit_suggestions_triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "6",
+      "when": 1794550192869,
+      "tag": "0079_suggestion_scan_indexes",
+      "breakpoints": true
     }
   ]
 }

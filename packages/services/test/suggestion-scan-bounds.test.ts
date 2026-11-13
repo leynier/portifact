@@ -1,26 +1,91 @@
+// The suggestion scans read only what they return (review of pull request #262, finding 8): with a
+// large prefix of rows they skip, each selection's `meta.rows_read` stays near its limit and its
+// query plan seeks an index instead of scanning the table.
 import { env } from "cloudflare:test";
 import { schema } from "@portifact/db";
-import { expect, it } from "vitest";
-import { db, NOW, user } from "./fixtures.ts";
+import type { SQL } from "drizzle-orm";
+import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
+import { describe, expect, it } from "vitest";
+import {
+  draftPage,
+  expireAcceptAttempts,
+  overdueAttemptQueries,
+  retentionSweeps,
+  sweepPage,
+} from "../src/suggestion-maintenance.ts";
+import { DAY, db, NOW, user } from "./fixtures.ts";
 import { publishDoc } from "./suggestion-support.ts";
 
-it("R8: an empty expiry scan must not read every live attempt", async () => {
+const dialect = new SQLiteAsyncDialect();
+const PREFIX = 300;
+const LIMIT = 20;
+
+async function run(query: { sql: string; params: unknown[] }) {
+  return env.DB.prepare(query.sql)
+    .bind(...query.params)
+    .all<Record<string, unknown>>();
+}
+
+async function plan(query: { sql: string; params: unknown[] }): Promise<string> {
+  const rows = await env.DB.prepare(`explain query plan ${query.sql}`)
+    .bind(...query.params)
+    .all<{ detail: string }>();
+  return rows.results.map((row) => row.detail).join("\n");
+}
+
+const raw = (query: SQL) => dialect.sqlToQuery(query);
+
+async function prefix(state: "running" | "ended") {
   const owner = await user("Owner");
   const doc = await publishDoc(owner.id);
-  for (let i = 0; i < 300; i++) {
-    await db().insert(schema.acceptanceAttempts).values({id: `scan-${i}`, artifactId: doc.artifactId, ownerId: owner.id, origin: "draft", userId: owner.id, digest: "a".repeat(64), baseVersionId: doc.versionId, state: "running", deliveries: 0, createdAt: NOW, updatedAt: NOW});
+  const rows = Array.from({ length: PREFIX }, (_, i) => ({
+    id: `scan_${state}_${doc.artifactId}_${i}`,
+    artifactId: doc.artifactId,
+    ownerId: owner.id,
+    origin: "draft" as const,
+    userId: owner.id,
+    digest: "a".repeat(64),
+    baseVersionId: doc.versionId,
+    state,
+    ...(state === "ended" ? { reason: "failed" as const } : {}),
+    deliveries: 0,
+    // Fresh: neither overdue nor past retention.
+    createdAt: NOW,
+    updatedAt: NOW,
+  }));
+  for (let i = 0; i < rows.length; i += 6) {
+    await db().insert(schema.acceptanceAttempts).values(rows.slice(i, i + 6));
   }
-  const result = await env.DB.prepare("select * from acceptance_attempts where state = 'running' and (deliveries >= 3 or created_at <= ?) order by updated_at asc limit 50").bind(NOW - 1_800_000).all();
-  expect(result.results).toEqual([]);
-  expect(result.meta.rows_read).toBeLessThanOrEqual(50);
-});
+  return { owner, doc };
+}
 
-it("R8b: a draft cursor page must seek rather than scan the prefix", async () => {
-  const result = await env.DB.prepare("explain query plan select artifact_id, user_id, owner_id from edit_drafts where artifact_id || '|' || user_id > ? order by artifact_id, user_id limit 200").bind("zz|zz").all<{detail: string}>();
-  expect(result.results.map(row => row.detail).join("\n")).not.toMatch(/SCAN edit_drafts/);
-});
+describe("the suggestion scans' reads", () => {
+  it("reads no fresh running attempt when nothing is overdue", async () => {
+    await prefix("running");
+    for (const query of overdueAttemptQueries(NOW + 1_000, LIMIT).map(raw)) {
+      const result = await run(query);
+      expect(result.results).toEqual([]);
+      expect(result.meta.rows_read, await plan(query)).toBeLessThanOrEqual(LIMIT);
+      expect(await plan(query)).not.toMatch(/SCAN acceptance_attempts/);
+    }
+    expect((await expireAcceptAttempts(db(), NOW + 1_000)).ended).toBe(0);
+  });
 
-it("R8c: attempt retention must use an expiry index", async () => {
-  const result = await env.DB.prepare("explain query plan select id from acceptance_attempts where state <> 'running' and created_at <= ? limit 500").bind(NOW - 30 * 86_400_000).all<{detail: string}>();
-  expect(result.results.map(row => row.detail).join("\n")).not.toMatch(/SCAN acceptance_attempts/);
+  it("reads no fresh finished attempt, closed item or draft past a retention cursor", async () => {
+    await prefix("ended");
+    for (const sweep of retentionSweeps(NOW + DAY)) {
+      const query = raw(sweepPage(db(), sweep, [-1, -1], LIMIT));
+      const result = await run(query);
+      expect(result.results).toEqual([]);
+      expect(result.meta.rows_read, sweep.name).toBeLessThanOrEqual(LIMIT);
+      expect(await plan(query), sweep.name).not.toMatch(
+        /SCAN (acceptance_attempts|change_items|edit_drafts)$/m,
+      );
+    }
+  });
+
+  it("seeks the drafts from the cursor instead of scanning the prefix", async () => {
+    const query = draftPage(db(), ["zzzzzzzzzz", "zz"], 200).toSQL();
+    expect(await plan(query)).toMatch(/SEARCH edit_drafts/);
+  });
 });

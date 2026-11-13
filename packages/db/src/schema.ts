@@ -1912,6 +1912,17 @@ export const acceptanceAttempts = sqliteTable(
   },
   (t) => [
     index("acceptance_attempts_state_updated_idx").on(t.state, t.updatedAt),
+    // The scans read only what they return (decision 0027): attempts running too long, running
+    // too often, and finished ones past their retention, each by its own index.
+    index("acceptance_attempts_running_created_idx")
+      .on(t.createdAt)
+      .where(sql`${t.state} = 'running'`),
+    index("acceptance_attempts_running_deliveries_idx")
+      .on(t.deliveries)
+      .where(sql`${t.state} = 'running'`),
+    index("acceptance_attempts_finished_created_idx")
+      .on(t.createdAt)
+      .where(sql`${t.state} <> 'running'`),
     index("acceptance_attempts_artifact_idx").on(t.artifactId),
     index("acceptance_attempts_thread_idx").on(t.threadId).where(sql`${t.threadId} is not null`),
     index("acceptance_attempts_user_idx").on(t.userId).where(sql`${t.userId} is not null`),
