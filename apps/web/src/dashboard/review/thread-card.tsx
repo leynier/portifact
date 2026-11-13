@@ -55,6 +55,7 @@ import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { errorMessage } from "../screens/artifact-list.tsx";
 import { CreateIssueDialog, usableConnections } from "./create-issue.tsx";
 import { useHumanCheck } from "./human-check.tsx";
+import { SuggestionBlock, suggestionOf, undecided } from "./suggestions.tsx";
 import { MessageContent, TargetSummary } from "./thread-parts.tsx";
 import { applyThread, dropThread, type ThreadsState, threadsQuery } from "./use-threads.ts";
 
@@ -182,8 +183,11 @@ export function ThreadCard({
   });
 
   const owner = state.role === "owner";
+  const suggestion = suggestionOf(thread);
   const writable = state.annotations === "open" && thread.current;
-  const canResolve = owner ? state.annotations !== "off" : thread.own && writable;
+  // An undecided suggestion is accepted, rejected or withdrawn, never resolved.
+  const canResolve =
+    !undecided(suggestion) && (owner ? state.annotations !== "off" : thread.own && writable);
   const kind = thread.target.anchor.kind;
   const elsewhere = kind !== "document" && thread.target.path !== path;
   const orphaned = !elsewhere && resolution?.confidence === "orphaned";
@@ -324,6 +328,15 @@ export function ThreadCard({
           </div>
         </div>
         <div className="flex flex-col gap-3 px-3 pt-3 pb-3">
+          {suggestion && !folded ? (
+            <SuggestionBlock
+              artifactId={artifactId}
+              threadId={thread.id}
+              suggestion={suggestion}
+              owner={owner}
+              own={thread.own && thread.current}
+            />
+          ) : null}
           {toggle.isError ? <ActionError error={toggle.error} /> : null}
           {remove.isError ? <ActionError error={remove.error} /> : null}
           {resolved && selection === null ? (

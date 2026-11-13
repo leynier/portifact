@@ -80,6 +80,23 @@ export {
 export { Sheet, type SheetProps } from "./components/sheet.tsx";
 export { type Step, Steps, type StepsProps } from "./components/steps.tsx";
 export {
+  CodePointList,
+  type CodePointListProps,
+  codePointName,
+  EditDiff,
+  type EditDiffProps,
+  ModeSwitch,
+  type ModeSwitchOption,
+  type ModeSwitchProps,
+  PlanLines,
+  type PlanLinesProps,
+  SuggestionPreview,
+  type SuggestionPreviewProps,
+  TypedText,
+  type TypedTextProps,
+  type TypedToken,
+} from "./components/suggestion.tsx";
+export {
   rowControlClasses,
   rowLinkClasses,
   Table,
@@ -93,6 +110,7 @@ export {
   TableRowHeader,
   type TableRowProps,
 } from "./components/table.tsx";
+export { type TabItem, Tabs, type TabsProps } from "./components/tabs.tsx";
 export {
   ThemedImage,
   type ThemedImageProps,
