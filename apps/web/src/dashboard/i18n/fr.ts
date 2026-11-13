@@ -1154,10 +1154,10 @@ export const fr = {
   "suggest.search.refused":
     "Cet emplacement ne peut pas être modifié. Essayez un morceau de texte plus court ou plus long.",
   "suggest.search.unavailable":
-    "La recherche est disponible sur les pages HTML. Sur cette page, sélectionnez le texte dans l’artifact.",
+    "Impossible de rechercher dans cette page. Sélectionnez plutôt le texte dans l’artifact.",
+  "suggest.search.stale":
+    "L’artifact a une version plus récente. Rechargez la page pour y rechercher.",
   "draft.conflictReason": "Le texte modifié est différent ou absent dans la version actuelle.",
-  "suggest.search.ownerOnly":
-    "La recherche dans la page n'est pas encore disponible pour les relecteurs. Sélectionnez plutôt le texte dans l'artifact.",
   "review.open": "Relire et commenter",
   "viewer.loading": "Ouverture de l’artifact",
   "viewer.unavailable.title": "Cet artifact ne peut pas être ouvert",

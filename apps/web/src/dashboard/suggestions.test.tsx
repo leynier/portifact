@@ -2,6 +2,8 @@
 // @vitest-environment-options {"settings":{"enableIframePageLoading":false,"navigation":{"disableChildFrameNavigation":true}}}
 // Suggest mode in the viewer (decision 0027). The bridge is played by messages from a stand-in
 // window; the frame's own page load and the built preview are covered by the end-to-end tests.
+
+import { AnchorDocument, type AnchorElement, createTextAnchor } from "@portifact/anchors";
 import {
   type AnyViewerMessage,
   REVIEW_CHANNEL,
@@ -10,13 +12,16 @@ import {
 } from "@portifact/bridge";
 import {
   type ChangeItemView,
+  type PageText,
   Plan,
   type ReviewStart,
   type ShownEnvelope,
 } from "@portifact/contracts";
+import { newWork, servedPageText } from "@portifact/domain/suggestions";
 import { axeViolations } from "@portifact/ui/testing";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { findMatches, pageText, targetOf } from "./review/text-search.ts";
 import {
   artifact,
   type FakeAnnotations,
@@ -1132,24 +1137,38 @@ describe("previews of unsaved edits, rebasing and the text search (decision 0027
     );
   });
 
-  it("finds text in the stored page and opens the editor there, never reading the frame", async () => {
-    server.suggestions.pages[`${ID}:index.html`] = {
-      contentType: "text/html; charset=utf-8",
-      content: `<!doctype html><html><head><script>x()</script></head><body><h1>Launch plan</h1><p>Hello brave new world. Say brave words.</p></body></html>`,
-    };
+  /** The page text the server gives for a page: its shown text as the anchors read it. */
+  const pageTextOf = (html: string, versionId = "v1"): PageText => ({
+    state: "ready",
+    versionId,
+    path: "index.html",
+    text: servedPageText(html, newWork()),
+  });
+  const PAGE = `<!doctype html><html><head><script>x()</script></head><body><h1>Launch plan</h1><p>Hello brave new world. Say brave words.</p></body></html>`;
+
+  /** Searches the sidebar for `query` and waits for the answer to be announced or shown. */
+  async function searchFor(query: string) {
+    const search = screen.getByRole("region", { name: "Suggest a text change" });
+    fireEvent.change(within(search).getByRole("textbox", { name: "Text to find" }), {
+      target: { value: query },
+    });
+    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    return search;
+  }
+
+  it("finds text in the page's text and opens the editor there, never reading the frame", async () => {
+    server.suggestions.pageTexts[`${ID}:index.html`] = pageTextOf(PAGE);
     const { container } = await open();
     const { nonce } = await connect();
     await suggestMode();
-    const search = screen.getByRole("region", { name: "Suggest a text change" });
-    fireEvent.change(within(search).getByRole("textbox", { name: "Text to find" }), {
-      target: { value: "brave" },
-    });
+    const search = await searchFor("brave");
+    await within(search).findByText("2 places found.");
+    // A second search reads nothing more: each read counts in the planning windows.
     fireEvent.click(within(search).getByRole("button", { name: "Find" }));
     await within(search).findByText("2 places found.");
-    // The page was read in two parts through the API.
-    expect(
-      server.requests.filter((r) => r.path.includes("/versions/current/content")),
-    ).toHaveLength(3);
+    expect(server.requests.filter((r) => r.path.includes("/page-text"))).toEqual([
+      { method: "GET", path: `/api/v1/artifacts/${ID}/page-text?path=index.html` },
+    ]);
     Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
     expect(await axeViolations(container)).toEqual([]);
     Object.defineProperty(HTMLIFrameElement.prototype, "contentWindow", {
@@ -1180,31 +1199,76 @@ describe("previews of unsaved edits, rebasing and the text search (decision 0027
     expect(nonce).toBeTruthy();
   });
 
-  it("tells reviewers to select in the frame, since they may not read the page's file", async () => {
+  it("lets a reviewer who may suggest search the page and save a suggestion there", async () => {
     server.annotations[ID] = {
       ...(server.annotations[ID] as FakeAnnotations),
       role: "participant",
     };
+    server.suggestions.pageTexts[`${ID}:index.html`] = pageTextOf(PAGE);
     await open();
-    await connect();
+    const { nonce } = await connect();
     await suggestMode();
-    const search = screen.getByRole("region", { name: "Suggest a text change" });
-    expect(within(search).getByText(/not available to reviewers yet/)).toBeTruthy();
-    expect(within(search).queryByRole("search")).toBeNull();
+    const search = await searchFor("new world");
+    await within(search).findByText("1 place found.");
+    fireEvent.click(within(search).getByRole("button", { name: "Change the text at place 1" }));
+    const editor = await screen.findByRole("region", { name: "Suggest an edit to the selection" });
+    const field = within(editor).getByRole("textbox", { name: "New text" }) as HTMLInputElement;
+    expect(field.value).toBe("new world");
+    fireEvent.change(field, { target: { value: "new day" } });
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Brighter" },
+    });
+    fireEvent.keyDown(field, { key: "Enter" });
+    fireEvent.click(await within(editor).findByRole("button", { name: "Save suggestion" }));
+    await screen.findByText("Suggestion saved.");
+    const posted = server.bodies.find(
+      (b) => typeof b === "object" && b !== null && "edit" in b && "body" in b,
+    ) as { edit: { operations: { target: { anchor: { quote: { exact: string } } } }[] } };
+    expect(posted.edit.operations[0]?.target.anchor.quote.exact).toBe("new world");
+    expect(nonce).toBeTruthy();
   });
 
-  it("says when the page cannot be searched", async () => {
-    server.suggestions.pages[`${ID}:index.html`] = { contentType: "text/markdown", content: "# x" };
+  it("makes the target a selection of the same text in the frame would", async () => {
+    // The anchors over the live page and over the server's text agree on text and positions.
+    document.body.innerHTML = "<h1>Launch plan</h1><p>Hello brave new world. Say brave words.</p>";
+    const live = new AnchorDocument(document.body as unknown as AnchorElement);
+    const fromServer = pageText(servedPageText(PAGE, newWork()));
+    expect(fromServer.value).toBe(live.text.value);
+    const [match] = findMatches(fromServer, "brave words");
+    if (!match) throw new Error("no match");
+    const target = await targetOf(fromServer, match, "index.html");
+    const created = createTextAnchor(live.text, match.start, match.end);
+    expect(created.ok && target?.anchor).toEqual(created.ok ? created.value : null);
+    document.body.innerHTML = "";
+  });
+
+  it("says when the server has no text for the page", async () => {
+    server.suggestions.pageTexts[`${ID}:index.html`] = {
+      state: "unavailable",
+      reason: "too_large",
+    };
     await open();
     await connect();
     await suggestMode();
-    const search = screen.getByRole("region", { name: "Suggest a text change" });
-    fireEvent.change(within(search).getByRole("textbox", { name: "Text to find" }), {
-      target: { value: "x" },
-    });
-    fireEvent.click(within(search).getByRole("button", { name: "Find" }));
+    const search = await searchFor("x");
     expect(
-      await within(search).findAllByText(/Search is available on HTML pages/),
+      await within(search).findAllByText(
+        "This page cannot be searched. Select the text in the artifact instead.",
+      ),
+    ).not.toHaveLength(0);
+    expect(within(search).queryByRole("list", { name: "Places with the text" })).toBeNull();
+  });
+
+  it("never searches a newer version than the frame shows", async () => {
+    server.suggestions.pageTexts[`${ID}:index.html`] = pageTextOf(PAGE, "v2");
+    await open();
+    await connect();
+    await suggestMode();
+    const search = await searchFor("brave");
+    expect(
+      await within(search).findAllByText(
+        "The artifact has a newer version. Reload the page to search it.",
+      ),
     ).not.toHaveLength(0);
     expect(within(search).queryByRole("list", { name: "Places with the text" })).toBeNull();
   });
