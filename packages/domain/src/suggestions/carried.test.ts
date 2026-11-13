@@ -69,6 +69,28 @@ describe("a suggestion's proofs", () => {
     expect(operationsOn(submitted, null, "ver_1")).toBe(submitted.operations);
   });
 
+  it("keeps no proof for a text operation the plan could not place", async () => {
+    const placed = textOperation(await edit("markdown", OLD, "Second", "Next"));
+    const lost = textOperation({ start: 2, end: 8, before: "absent", after: "there" });
+    const built = await plan("markdown", OLD, [lost, placed]);
+    const proofs = proofsOfPlan(built, [lost, placed], "ver_1");
+    expect(proofs.operations[0]).toBeNull();
+    expect(proofs.operations[1]?.proof.before).toBe("Second");
+  });
+
+  it("moves only text operations that have an entry", async () => {
+    const text = textOperation(await edit("markdown", OLD, "Second", "Next"));
+    const structure = elementOperation("remove");
+    const entry = { start: 40, end: 46, proof: proof(3) };
+    const moved = operationsOn(
+      { operations: [text, structure] },
+      { format: 1, versionId: "v", operations: [null, entry] },
+      "v",
+    );
+    expect(moved[0]).toBe(text);
+    expect(moved[1]).toBe(structure);
+  });
+
   it("carries a planned suggestion and outdates one never planned or not all text", async () => {
     const change = await edit("markdown", OLD, "Second", "Next");
     const operation = textOperation(change);

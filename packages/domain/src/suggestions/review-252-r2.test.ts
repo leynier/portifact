@@ -279,6 +279,7 @@ describe("the digest covers every field (second review, mutant 16)", () => {
       digest: _digest,
       newSource: _source,
       proofs: _proofs,
+      operations: _operations,
       work: _work,
       ...contents
     } = built;

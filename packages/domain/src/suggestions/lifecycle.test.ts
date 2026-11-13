@@ -14,7 +14,7 @@ const code = (result: { ok: boolean; code?: string }) => (result.ok ? "ok" : res
 
 describe("deciding and withdrawing suggestions", () => {
   it("lets only the owner side decide, and only a pending suggestion", () => {
-    expect(code(checkDecide("owner", "pending"))).toBe("ok");
+    expect(checkDecide("owner", "pending")).toEqual({ ok: true, value: true });
     expect(code(checkDecide("participant", "pending"))).toBe("forbidden");
     expect(code(checkDecide(null, "pending"))).toBe("forbidden");
     expect(code(checkDecide("owner", "applying"))).toBe("version_conflict");
@@ -24,7 +24,7 @@ describe("deciding and withdrawing suggestions", () => {
   });
 
   it("lets only the author withdraw, and only a pending suggestion", () => {
-    expect(code(checkWithdraw("u1", "u1", "pending"))).toBe("ok");
+    expect(checkWithdraw("u1", "u1", "pending")).toEqual({ ok: true, value: true });
     expect(code(checkWithdraw("u2", "u1", "pending"))).toBe("forbidden");
     expect(code(checkWithdraw("u1", "u1", "applying"))).toBe("version_conflict");
     expect(code(checkWithdraw("u1", "u1", "accepted"))).toBe("invalid_input");
@@ -39,7 +39,9 @@ describe("deciding and withdrawing suggestions", () => {
       );
       expect(code(checkSuggestionThreadState("suggestion", state, "open"))).toBe("ok");
     }
-    expect(code(checkSuggestionThreadState("comment", null, "resolved"))).toBe("ok");
+    expect(checkSuggestionThreadState("comment", null, "resolved")).toEqual({ ok: true, value: true });
+    // Only a suggestion's state counts, whatever a comment row would hold.
+    expect(checkSuggestionThreadState("comment", "pending", "resolved").ok).toBe(true);
   });
 
   it("withdraws a pending suggestion when its first message goes, and waits while applying", () => {
@@ -48,6 +50,7 @@ describe("deciding and withdrawing suggestions", () => {
     expect(firstMessageDeletion("suggestion", "pending", false)).toEqual(withdraws(false));
     expect(firstMessageDeletion("suggestion", "accepted", true)).toEqual(withdraws(false));
     expect(firstMessageDeletion("comment", null, true)).toEqual(withdraws(false));
+    expect(firstMessageDeletion("comment", "pending", true)).toEqual(withdraws(false));
     expect(code(firstMessageDeletion("suggestion", "applying", true))).toBe("version_conflict");
     expect(code(firstMessageDeletion("suggestion", "applying", false))).toBe("ok");
   });
@@ -88,5 +91,6 @@ describe("acceptance attempts and plannable files", () => {
     ).toBe("html");
     expect(plannableKind("site", { path: "a.css", contentType: "text/css" }, "a.css")).toBeNull();
     expect(plannableKind("site", { path: "a", contentType: "" }, "a")).toBeNull();
+    expect(plannableKind("site", { path: "a", contentType: " text/html ;x" }, "a")).toBe("html");
   });
 });
