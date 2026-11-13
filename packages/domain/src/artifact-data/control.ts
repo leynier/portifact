@@ -92,6 +92,7 @@ export function newControl(envelope: DataEnvelope, now: number): DataControl {
     },
     storageSeq: 0,
     payloadRevision: 0,
+    liveEpoch: 0,
   };
 }
 
@@ -199,6 +200,7 @@ export function applyFence(
         at: now,
       },
       storageSeq: base.storageSeq + 1,
+      liveEpoch: base.liveEpoch + 1,
     },
     repeated: false,
     cancelledErase: ended?.id ?? null,
@@ -227,7 +229,12 @@ export function quarantine(
   if (namesAnotherArtifact(stored, envelope)) return FORBIDDEN;
   if (stored.quarantine !== null) return accept({ control: stored, changed: false });
   return accept({
-    control: { ...stored, quarantine: { reason, at: now }, storageSeq: stored.storageSeq + 1 },
+    control: {
+      ...stored,
+      quarantine: { reason, at: now },
+      storageSeq: stored.storageSeq + 1,
+      liveEpoch: stored.liveEpoch + 1,
+    },
     changed: true,
   });
 }
@@ -259,7 +266,12 @@ export function resolveQuarantine(
   if ("done" in verdict) return refuse("stale", "the data was erased since this request began");
   if (decision === "adopt") {
     return accept({
-      control: { ...stored, quarantine: null, storageSeq: stored.storageSeq + 1 },
+      control: {
+        ...stored,
+        quarantine: null,
+        storageSeq: stored.storageSeq + 1,
+        liveEpoch: stored.liveEpoch + 1,
+      },
       erasePayload: false,
       endedErase: null,
     });
@@ -279,6 +291,7 @@ export function resolveQuarantine(
           : { id: stored.erasing.id, outcome: "committed" },
       storageSeq: stored.storageSeq + 1,
       payloadRevision: stored.payloadRevision + 1,
+      liveEpoch: stored.liveEpoch + 1,
     },
     erasePayload: true,
     endedErase: stored.erasing?.id ?? null,

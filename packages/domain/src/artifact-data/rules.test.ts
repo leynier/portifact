@@ -43,6 +43,7 @@ import {
   counted,
   createRefusal,
   cutPage,
+  DELETED_ROW_ROWS,
   DOCUMENT_ROWS,
   dayOf,
   declareCollection,
@@ -50,6 +51,8 @@ import {
   decodeCursor,
   deleteScope,
   documentBody,
+  EDIT_ROWS,
+  ERASED_ROW_ROWS,
   type ExportDocument,
   editorAfter,
   emptyDay,
@@ -223,6 +226,7 @@ describe("admit", () => {
       },
       storageSeq: 0,
       payloadRevision: 0,
+      liveEpoch: 0,
     });
     expect(touched(stored, false)).toMatchObject({ storageSeq: 1, payloadRevision: 0 });
     expect(touched(stored, true)).toMatchObject({ storageSeq: 1, payloadRevision: 1 });
@@ -250,6 +254,7 @@ describe("fences", () => {
             at: NOW + 1,
           },
           storageSeq: 1,
+          liveEpoch: 1,
         },
         repeated: false,
         cancelledErase: null,
@@ -419,7 +424,12 @@ describe("quarantine and reconciliation", () => {
     expect(first).toEqual({
       ok: true,
       value: {
-        control: { ...stored, quarantine: { reason: "hold", at: NOW }, storageSeq: 1 },
+        control: {
+          ...stored,
+          quarantine: { reason: "hold", at: NOW },
+          storageSeq: 1,
+          liveEpoch: 1,
+        },
         changed: true,
       },
     });
@@ -445,7 +455,7 @@ describe("quarantine and reconciliation", () => {
     expect(resolveQuarantine(q, base, "adopt")).toEqual({
       ok: true,
       value: {
-        control: { ...q, quarantine: null, storageSeq: 1 },
+        control: { ...q, quarantine: null, storageSeq: 1, liveEpoch: q.liveEpoch + 1 },
         erasePayload: false,
         endedErase: null,
       },
@@ -463,6 +473,7 @@ describe("quarantine and reconciliation", () => {
           erasing: null,
           storageSeq: 1,
           payloadRevision: 1,
+          liveEpoch: q.liveEpoch + 1,
         },
         erasePayload: true,
         endedErase: null,
@@ -556,6 +567,7 @@ describe("erase steps", () => {
           ...newControl(e, NOW),
           erasing: { id: id(), generation: 0, epoch: 0 },
           storageSeq: 1,
+          liveEpoch: 1,
         },
         erasePayload: false,
         ended: null,
@@ -660,6 +672,7 @@ describe("erase steps", () => {
           lastErase: { id: id(), outcome: "committed" },
           storageSeq: 2,
           payloadRevision: 1,
+          liveEpoch: control.liveEpoch + 1,
         },
         erasePayload: true,
         ended: { id: id(), outcome: "committed" },
@@ -947,7 +960,15 @@ describe("charging", () => {
     expect(withinBound("get", { rowsRead: get, rowsWritten: 1 })).toBe(false);
     // Derived from the constants the work uses, so they cannot drift from it.
     expect(OPERATION_ROW_BOUNDS.prune).toBe(
-      COMMAND_ROWS + RETAINED_CLASSES.length * (2 * ARTIFACT_DATA.caps.pruneRows + 1),
+      COMMAND_ROWS +
+        RETAINED_CLASSES.length * (DELETED_ROW_ROWS * ARTIFACT_DATA.caps.pruneRows + 1),
+    );
+    // Real SQLite measures three rows per row deleted by key after its seek (delivery 4).
+    expect(DELETED_ROW_ROWS).toBe(3);
+    expect(ERASED_ROW_ROWS).toBe(DELETED_ROW_ROWS);
+    expect(OPERATION_ROW_BOUNDS.erase_author_chunk).toBe(
+      COMMAND_ROWS +
+        ARTIFACT_DATA.caps.eraseChunkDocuments * (DOCUMENT_ROWS + EDIT_ROWS + 3 * DELETED_ROW_ROWS),
     );
     expect(RETAINED_CLASSES).toHaveLength(6);
     expect(OPERATION_ROW_BOUNDS.declare).toBeGreaterThan(
@@ -1381,15 +1402,17 @@ describe("author erasure rules", () => {
 });
 
 describe("live", () => {
-  const attachment: LiveAttachment = newAttachment({
+  const attachmentInput = {
     socketId: "s",
     author: "v",
     principal: "p",
     generation: 2,
+    liveEpoch: 0,
     deadline: NOW + 60_000,
     now: NOW,
     limits: ROOMY,
-  });
+  };
+  const attachment: LiveAttachment = newAttachment(attachmentInput);
   it("admits connections within their bounds", () => {
     const input = {
       hasData: true,
@@ -1426,6 +1449,7 @@ describe("live", () => {
       author: "v",
       principal: "p",
       generation: 2,
+      liveEpoch: 0,
       subscriptions: [],
       deadline: NOW + 60_000,
       window: minuteOf(NOW),
@@ -1465,6 +1489,51 @@ describe("live", () => {
     expect(liveCheck(control, busy, false, NOW + 60_000)).toEqual({
       attachment: { ...busy, window: minuteOf(NOW) + 1, messagesIn: 0, bytesOut: 0 },
     });
+  });
+
+  it("closes a connection opened before any later closing transition, so a lost close never outlives it", () => {
+    const base = envelope({ generation: 2 });
+    const control = newControl(base, NOW);
+    expect(liveCheck(control, attachment, false, NOW)).toEqual({ attachment });
+    // Every transition that closes connections raises the live epoch, even when it leaves no
+    // other trace the check could see (a release after a hold, a transfer, an adopted quarantine).
+    const fenced = applyFence(control, base, { kind: "epoch", transition: "e1" }, NOW);
+    const transferred = applyFence(
+      control,
+      base,
+      { kind: "transfer", toOwner: "owner_b", transition: "m1" },
+      NOW,
+    );
+    const quarantined = quarantine(control, base, "owner", NOW);
+    expect(fenced.ok && transferred.ok && quarantined.ok).toBe(true);
+    const adopted = resolveQuarantine(
+      (quarantined as { value: { control: typeof control } }).value.control,
+      base,
+      "adopt",
+    );
+    const prepared = prepareErase(control, base, id(), null, NOW);
+    for (const next of [fenced, transferred, quarantined, adopted, prepared]) {
+      const after = (next as { ok: true; value: { control: typeof control } }).value.control;
+      expect(after.liveEpoch).toBe(control.liveEpoch + (next === adopted ? 2 : 1));
+      expect(
+        liveCheck({ ...after, quarantine: null, erasing: null }, attachment, false, NOW),
+      ).toEqual({
+        close: 4003,
+      });
+    }
+    const prepare = (prepared as { ok: true; value: { control: typeof control } }).value.control;
+    const erasing = prepare.erasing as { id: string };
+    const committed = commitErase(prepare, base, erasing.id, null);
+    const cancelled = cancelErase(prepare, base, erasing.id, null);
+    expect(committed.ok && committed.value.control?.liveEpoch).toBe(prepare.liveEpoch + 1);
+    expect(cancelled.ok && cancelled.value.control?.liveEpoch).toBe(prepare.liveEpoch);
+    // A repeated fence and a refused one leave it.
+    const once = (fenced as { ok: true; value: { control: typeof control } }).value.control;
+    const repeat = applyFence(once, base, { kind: "epoch", transition: "e1" }, NOW);
+    expect(repeat.ok && repeat.value.control.liveEpoch).toBe(once.liveEpoch);
+    expect(newAttachment({ ...attachmentInput, liveEpoch: once.liveEpoch }).liveEpoch).toBe(
+      once.liveEpoch,
+    );
   });
 
   it("renews only for the same principal, up to the longest deadline", () => {

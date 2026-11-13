@@ -251,8 +251,15 @@ export const DOCUMENT_ROWS = DOCUMENT_BASE_ROWS + VALUE_ROWS * MAX_INDEXED_FIELD
 export const INDEX_STEP_ROWS = 6;
 /** One edit an erasure chunk re-attributes: its seek, the copy written, the collection, the sequence. */
 export const EDIT_ROWS = 6;
-/** One operation, rate or rights row an erasure chunk deletes: its seek and its delete. */
-export const ERASED_ROW_ROWS = 2;
+/**
+ * One control row a statement deletes by age or author (an erasure chunk's operation, rate and
+ * rights rows, a pruning pass's retained rows): its seek through the index, its lookup by key and
+ * its delete. Measured on real SQLite (decision 0026, delivery 4): selecting the keys and deleting
+ * each by key costs three rows a row; a `DELETE ... WHERE key IN (SELECT ...)` costs six.
+ */
+export const DELETED_ROW_ROWS = 3;
+/** One operation, rate or rights row an erasure chunk deletes. */
+export const ERASED_ROW_ROWS = DELETED_ROW_ROWS;
 
 /**
  * Upper bounds of the rows one operation measures, derived from the per-operation caps, the
@@ -282,7 +289,8 @@ export const OPERATION_ROW_BOUNDS = {
   count: COMMAND_ROWS,
   describe: COMMAND_ROWS + MAX_COLLECTIONS * (2 + MAX_INDEXED_FIELDS),
   export_page: COMMAND_ROWS + ARTIFACT_DATA.caps.exportRows + 1,
-  prune: COMMAND_ROWS + RETAINED_CLASSES.length * (2 * ARTIFACT_DATA.caps.pruneRows + 1),
+  prune:
+    COMMAND_ROWS + RETAINED_CLASSES.length * (DELETED_ROW_ROWS * ARTIFACT_DATA.caps.pruneRows + 1),
 } as const;
 export type OperationKind = keyof typeof OPERATION_ROW_BOUNDS;
 

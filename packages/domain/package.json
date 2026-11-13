@@ -9,7 +9,8 @@
     ".": "./src/index.ts",
     "./locale": "./src/locale.ts",
     "./artifact-data": "./src/artifact-data/index.ts",
-    "./testing/images": "./src/testing/images.ts"
+    "./testing/images": "./src/testing/images.ts",
+    "./testing/artifact-data": "./src/testing/artifact-data.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
