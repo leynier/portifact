@@ -31,7 +31,7 @@
 
     <main id="main" class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
       <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Terms of Service</h1>
-      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-11-13</span>. Effective <time datetime="2026-11-13">November 13, 2026</time>.</p>
+      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-11-20</span>. Effective <time datetime="2026-11-20">November 20, 2026</time>.</p>
       <p class="mt-6 leading-7">These terms are an agreement between you and the operator of Portifact. They cover the hosted service at portifact.com and portifact.dev: the website, the dashboard, the command-line tool (CLI), the remote MCP server and the API. Please read them together with the <a href="/privacy">Privacy Policy</a>, which explains what data we keep, the <a href="/acceptable-use">Acceptable Use Policy</a>, which lists what you may not publish, and the <a href="/dpa">Data Processing Addendum</a> when we process personal data on your behalf, including in a personal space used for work, whether the plan is free or paid.</p>
 
       <nav aria-labelledby="toc-heading" class="mt-10 rounded-md border border-border p-5">
@@ -44,6 +44,7 @@
           <li><a href="#account">Your account and credentials</a></li>
           <li><a href="#service">What Portifact provides</a></li>
           <li><a href="#content">Your content</a></li>
+          <li><a href="#suggestions">Edit suggestions</a></li>
           <li><a href="#confidentiality">Confidentiality</a></li>
           <li><a href="#plans">Paid plans</a></li>
           <li><a href="#lifecycle">How long artifacts stay online</a></li>
@@ -73,19 +74,13 @@
 
       <section id="what-changed" aria-labelledby="what-changed-heading" class="mt-12 scroll-mt-8">
         <h2 id="what-changed-heading" class="text-xl font-semibold tracking-tight">What changed in this version</h2>
-        <p class="mt-4 leading-7">This version replaces the version of November 8, 2026, and takes effect on the date above. In short:</p>
+        <p class="mt-4 leading-7">This version replaces the version of November 13, 2026, and takes effect on the date above. It adds edit suggestions and changes nothing else. In short:</p>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-        <li>Paid plans: how you get one, what the written confirmation states, seats, refunds, billing errors, and what happens when a plan ends or is lowered (60 days during which the earlier plan's retention keeps applying).</li>
-        <li>Workspaces: roles, members, groups, verified email domains, service tokens, workspace policies (including the maximum life of artifacts and comment retention), approval reviews, content search and the audit log, and what the customer that holds a workspace is responsible for.</li>
-        <li>Share links, branding and publish keys.</li>
-        <li>A new <a href="/dpa">Data Processing Addendum</a>, which applies when we process personal data for a customer, in a workspace or in a personal space used for work.</li>
-        <li>A narrower content licence and a confidentiality commitment.</li>
-        <li>Liability: the cap is the greater of US$50 and what you paid us in the 12 months before the event that gave rise to the claim, subject to the exclusions from the cap described below. The indemnity now applies only to business customers.</li>
-        <li>Notices of illegal content, the reasons we give when we restrict something, copyright notices and counter-notices, repeat infringers and trademark complaints.</li>
-        <li>Consumers keep their own law's mandatory protections and courts.</li>
-        <li>Materially adverse changes get at least 30 days' notice by email and on this page, with the limited urgent security and legal exceptions described under "Changes to these terms".</li>
-        <li>Taking your data out, and help when you move to another provider.</li>
-        <li>A list of features that are built but not available yet.</li>
+        <li>Edit suggestions: people who can comment on an artifact can suggest an edit to it, as a comment that holds the change. Only the people who manage the artifact can accept it, and accepting publishes it in a new version. See <a href="#suggestions">Edit suggestions</a>.</li>
+        <li>By suggesting an edit, you let the people who manage the artifact publish your suggested text as part of it. Text already published stays part of the artifact if you later delete your comment or your account.</li>
+        <li>Changes Portifact cannot apply by itself go to the artifact's change list, which the people who manage it and their agents read and mark.</li>
+        <li>The people who manage an artifact can edit it in the viewer and publish the result.</li>
+        <li>The export register lists suggestions, change lists and drafts.</li>
         </ul>
       </section>
 
@@ -138,6 +133,18 @@
         <li>You confirm that you have the rights needed to publish your content and to grant these rights, and that publishing it does not break the law or these terms.</li>
         <li>When you make an artifact public, anyone with the link can open it, and it may be copied by people we do not control.</li>
         <li>Comments belong to the people who write them. By commenting on someone's artifact, you give the people who manage it, and the people with access they let see it, the right to read your comment, and you give us the same rights to provide the service. The people who manage an artifact are the account whose personal space holds it, or the admins and editors of the workspace that owns it. They, and the agents they use, may read and act on comments.</li>
+        </ul>
+      </section>
+
+      <section id="suggestions" aria-labelledby="suggestions-heading" class="mt-12 scroll-mt-8">
+        <h2 id="suggestions-heading" class="text-xl font-semibold tracking-tight">Edit suggestions</h2>
+        <p class="mt-4 leading-7">Anyone who can comment on an artifact can also suggest an edit to it, by changing its text in Portifact's viewer. A suggestion is a comment thread that holds the change: the same people see it, and the same rules, limits and checks apply. Edit suggestions are part of every plan, including the free one.</p>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+        <li><strong>Nothing changes until someone accepts.</strong> A suggestion is not part of the artifact. Only a person who manages the artifact (the account whose personal space holds it, or an admin or editor of the workspace that owns it) can accept or reject it, in the viewer. Agents, service tokens, the CLI and the MCP server cannot accept, reject or publish suggestions.</li>
+        <li><strong>Accepting publishes a new version.</strong> Before accepting, the person sees exactly what Portifact will change and what it will not. Portifact changes the artifact's files only where it can show that the result is exactly the approved change, and publishes a new version, which counts toward the space's quotas like any publication. It promises the approved change to the files, not that a page looks or behaves the same, for example where the page's own scripts or external styles act on the text.</li>
+        <li><strong>The change list.</strong> Accepted changes Portifact does not apply by itself go to the artifact's change list, exactly as the person who accepted them saw them. The people who manage the artifact, and the agents they authorize, read the list and mark items applied or dismissed. The text in a suggestion is written by a reviewer: you are responsible for what you, and the agents you use, do with it.</li>
+        <li><strong>Your licence for suggested text.</strong> You confirm that you may share the text you suggest. By suggesting an edit, you give the people who manage the artifact the right to publish your suggested text as part of the artifact, in the version that accepts it and in later versions, and to change, copy and share it as part of their content; and you give us the same rights to provide the service. Once a version holding your text is published, deleting your comment or your account does not remove it from that version or from later ones. Until then, you can withdraw your suggestion.</li>
+        <li><strong>Editing your own artifact.</strong> The people who manage an artifact can also edit it in the viewer. Their changes stay in a draft that only they can see until they publish it, in the same way as an accepted suggestion, or discard it.</li>
         </ul>
       </section>
 
@@ -375,6 +382,9 @@
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Audit log</th><td class="border-b border-border py-2 pr-4 align-top">The Audit page's export, or <code>portifact export</code></td><td class="border-b border-border py-2 pr-4 align-top">CSV or JSON Lines</td><td class="border-b border-border py-2 pr-4 align-top">Only events retained, and only with the plan's audit export or audit features</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Branding (name, color, link, logo)</th><td class="border-b border-border py-2 pr-4 align-top">The space records and the logo link on the "Download your data" page; for a personal space, also the account export</td><td class="border-b border-border py-2 pr-4 align-top">JSON, and the logo as an image</td><td class="border-b border-border py-2 pr-4 align-top">Only from the dashboard, by the space's admins</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Share link settings (label, dates, whether a password is set)</th><td class="border-b border-border py-2 pr-4 align-top">Each artifact's records on the "Download your data" page, or in <code>portifact export</code>; for a personal space, also the account export</td><td class="border-b border-border py-2 pr-4 align-top">JSON</td><td class="border-b border-border py-2 pr-4 align-top">Never the link's secret or its password, which we do not keep. Reading them needs the share permission</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Edit suggestions (the suggested change, its state and who decided it)</th><td class="border-b border-border py-2 pr-4 align-top">As comment threads, with the comments: each artifact's records, <code>portifact annotations export</code> and, for your own comments, the account export</td><td class="border-b border-border py-2 pr-4 align-top">JSON or Markdown, as for comments</td><td class="border-b border-border py-2 pr-4 align-top">These show a suggestion's note, not the change it holds; the change is shown in the viewer, and we return it on request</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Change lists (accepted changes Portifact did not apply)</th><td class="border-b border-border py-2 pr-4 align-top"><code>portifact changes list --json</code> for each artifact, or the MCP tool <code>list_change_items</code></td><td class="border-b border-border py-2 pr-4 align-top">JSON</td><td class="border-b border-border py-2 pr-4 align-top">For the people who manage the artifact. Items closed more than 90 days ago are deleted</td></tr>
+            <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Drafts of your own edits</th><td class="border-b border-border py-2 pr-4 align-top">Shown to their author in the viewer</td><td class="border-b border-border py-2 pr-4 align-top">No export tool</td><td class="border-b border-border py-2 pr-4 align-top">A draft is private to its author; we return it to its author on request</td></tr>
             <tr><th scope="row" class="border-b border-border py-2 pr-4 align-top font-medium">Account, plan and usage records, and the history of the terms versions you accepted</th><td class="border-b border-border py-2 pr-4 align-top">The account export, and <code>portifact usage --json</code></td><td class="border-b border-border py-2 pr-4 align-top">JSON</td><td class="border-b border-border py-2 pr-4 align-top">The account export covers the signed-in account and its personal space. Usage events are kept 7 days and finished uploads 30 days, so the export holds only those</td></tr>
           </tbody>
         </table>

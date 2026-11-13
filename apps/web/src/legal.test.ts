@@ -96,6 +96,9 @@ describe("legal pages", () => {
       "rights needed to host",
       "30 days",
       "six months",
+      'id="suggestions"',
+      "publish your suggested text as part of the artifact",
+      "Agents, service tokens, the CLI and the MCP server cannot accept",
     ]) {
       expect(terms, text).toContain(text);
     }
@@ -109,6 +112,10 @@ describe("legal pages", () => {
       "Access logs (who opened an artifact and when)",
       "__Host-pf.session_token",
       "__Host-pf_terms",
+      "<strong>Edit suggestions.</strong>",
+      "<strong>Change lists.</strong>",
+      "preview.portifact.dev",
+      "Change list items",
     ]) {
       expect(privacy, text).toContain(text);
     }
@@ -140,6 +147,7 @@ describe("legal pages", () => {
       'id="annex-i"',
       'id="annex-ii"',
       'id="subprocessors"',
+      "change lists and drafts of edits",
     ]) {
       expect(dpa, text).toContain(text);
     }
