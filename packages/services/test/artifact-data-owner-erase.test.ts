@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   createDataDocument,
   createDataDocuments,
+  DATA_OWNER_WRITES_PER_MINUTE,
   DATA_RESET_DELAY_MS,
   type DataObjects,
   declareDataCollection,
@@ -504,6 +505,89 @@ describe("deleting one author's documents", () => {
         { ...input, idempotencyKey: key(), author: "owner" },
       ),
     ).toMatchObject({ ok: false, code: "not_found" });
+  });
+});
+
+describe("erase and author deletion refusals", () => {
+  it("limits erases per artifact and minute, and refuses a key used for another request", async () => {
+    const { deps } = harness();
+    const { input } = await seeded(deps, 0);
+    const later = NOW + 30 * 60_000;
+    const shared = key();
+    value(
+      await deleteAuthorData(db(), deps, {
+        ...input,
+        now: later,
+        idempotencyKey: shared,
+        author: "owner",
+      }),
+    );
+    expect(
+      await eraseArtifactData(db(), deps, { ...input, now: later, idempotencyKey: shared }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
+    let refused: unknown = null;
+    for (let n = 0; n < DATA_OWNER_WRITES_PER_MINUTE + 1 && refused === null; n += 1) {
+      const answer = await eraseArtifactData(db(), deps, {
+        ...input,
+        now: later + 1,
+        idempotencyKey: key(),
+      });
+      if (!answer.ok && answer.code === "rate_limited") refused = answer;
+    }
+    expect(refused).toMatchObject({ ok: false, code: "rate_limited" });
+  });
+
+  it("keeps a job's row when the object cannot answer", async () => {
+    const { objects } = harness(true, (rpc) => ({
+      ...rpc,
+      ownerCommand: async () =>
+        ({
+          ok: false,
+          code: "something_new",
+          message: "unavailable",
+          storage: { generation: 0, seq: 0, bytes: 0 },
+        }) as never,
+    }));
+    const owner = await user("Owner");
+    const { artifactId } = await publishSite(owner.id);
+    await registerDataObject(db(), env.ARTIFACTS, "default", artifactId, NOW);
+    const job = {
+      id: 1,
+      topic: "data_reset",
+      payload: {
+        ownerId: owner.id,
+        generation: 0,
+        epoch: 0,
+        actor: owner.id,
+        eraseId: `${NOW}.abcdefgh`,
+      },
+      availableAt: NOW,
+      dispatchedAt: null,
+      attempts: 0,
+      createdAt: NOW,
+      subject: artifactId,
+      generation: null,
+    } as never;
+    await expect(runDataReset(db(), objects, job, NOW)).rejects.toThrow("could not reach");
+  });
+
+  it("stops an author deletion the object refuses", async () => {
+    const { deps } = harness(true, (rpc) => ({
+      ...rpc,
+      ownerCommand: async (envelope, actor, command, limits, now) =>
+        command.kind === "query"
+          ? ({
+              ok: false,
+              code: "rate_limited",
+              message: "slow down",
+              storage: { generation: 0, seq: 0, bytes: 0 },
+            } as never)
+          : rpc.ownerCommand(envelope, actor, command, limits, now),
+    }));
+    const { input } = await seeded(deps, 1);
+    expect(
+      await deleteAuthorData(db(), deps, { ...input, idempotencyKey: key(), author: "owner" }),
+    ).toMatchObject({ ok: false, code: "rate_limited" });
   });
 });
 
