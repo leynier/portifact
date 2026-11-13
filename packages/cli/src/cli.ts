@@ -24,6 +24,7 @@ import {
   showAccess,
 } from "./artifacts.ts";
 import { audit, auditExport } from "./audit.ts";
+import { listChanges, markChange, showChange } from "./changes.ts";
 import { login, logout, whoami, writeJson } from "./commands.ts";
 import * as dataCommands from "./data.ts";
 import { diff } from "./diff.ts";
@@ -1189,6 +1190,74 @@ An artifact shared with its workspace or an email domain becomes restricted when
       ),
     );
 
+  // Edit suggestions are switched off on the server until their release (decision 0027): the
+  // command is hidden from the help until then, and the server answers not_found.
+  const changes = program
+    .command("changes", { hidden: true })
+    .description(
+      "Read and mark an artifact's change list: accepted edits Portifact could not apply",
+    )
+    .enablePositionalOptions();
+  changes
+    .command("list")
+    .description("List the change items of an artifact, open ones by default")
+    .argument("<id>", "artifact ID")
+    .option("--state <state>", "open, applied, dismissed, closed_by_version or all", "open")
+    .option("--limit <n>", "items per page, 1 to 100 (default: 50)", Number)
+    .option("--cursor <cursor>", "continue from where the previous page ended")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { state?: string; limit?: number; cursor?: string; json?: boolean },
+          id: string,
+        ) =>
+          listChanges(io, runtime, id, {
+            state: options.state,
+            limit: options.limit,
+            cursor: options.cursor,
+            json: options.json === true,
+          }),
+      ),
+    );
+  changes
+    .command("show")
+    .description("Show one change item as the people who accepted it saw it")
+    .argument("<id>", "artifact ID")
+    .argument("<item>", "the item's ID from `portifact changes list`")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, item: string) =>
+        showChange(io, runtime, id, item, { json: options.json === true }),
+      ),
+    );
+  changes
+    .command("mark")
+    .description("Mark a change item applied, dismissed or open again")
+    .argument("<id>", "artifact ID")
+    .argument("<item>", "the item's ID from `portifact changes list`")
+    .argument("<state>", "applied, dismissed or open")
+    .option("--revision <n>", "the item's revision you read; refused if it changed since", Number)
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { revision?: number; json?: boolean },
+          id: string,
+          item: string,
+          state: string,
+        ) =>
+          markChange(io, runtime, id, item, state, {
+            revision: options.revision,
+            json: options.json === true,
+          }),
+      ),
+    );
+
   const domains = program
     .command("domains")
     .description("Serve an artifact from your own domain: add, verify, list, info or remove")
@@ -1474,7 +1543,9 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { json?: boolean }, id: string) =>
-        dataCommands.dataDescribe(io, runtime, id, { json: options.json === true }),
+        dataCommands.dataDescribe(dataCommands.terminalSafe(io), runtime, id, {
+          json: options.json === true,
+        }),
       ),
     );
   data
@@ -1495,7 +1566,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           id: string,
           collection: string,
         ) =>
-          dataCommands.dataDeclare(io, runtime, id, collection, {
+          dataCommands.dataDeclare(dataCommands.terminalSafe(io), runtime, id, collection, {
             mode: options.mode,
             unique: options.unique,
             index: options.index,
@@ -1510,7 +1581,9 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { json?: boolean }, id: string) =>
-        dataCommands.dataBuildIndexes(io, runtime, id, { json: options.json === true }),
+        dataCommands.dataBuildIndexes(dataCommands.terminalSafe(io), runtime, id, {
+          json: options.json === true,
+        }),
       ),
     );
   data
@@ -1534,7 +1607,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           id: string,
           collection: string,
         ) =>
-          dataCommands.dataQuery(io, runtime, id, collection, {
+          dataCommands.dataQuery(dataCommands.terminalSafe(io), runtime, id, collection, {
             ...options,
             json: options.json === true,
           }),
@@ -1550,7 +1623,9 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .action(
       execute(
         (io, runtime, options: { json?: boolean }, id: string, collection: string, doc: string) =>
-          dataCommands.dataGet(io, runtime, id, collection, doc, { json: options.json === true }),
+          dataCommands.dataGet(dataCommands.terminalSafe(io), runtime, id, collection, doc, {
+            json: options.json === true,
+          }),
       ),
     );
   data
@@ -1570,7 +1645,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           id: string,
           collection: string,
         ) =>
-          dataCommands.dataCount(io, runtime, id, collection, {
+          dataCommands.dataCount(dataCommands.terminalSafe(io), runtime, id, collection, {
             by: options.by,
             where: options.where,
             json: options.json === true,
@@ -1594,7 +1669,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           id: string,
           collection: string,
         ) =>
-          dataCommands.dataCreate(io, runtime, id, collection, {
+          dataCommands.dataCreate(dataCommands.terminalSafe(io), runtime, id, collection, {
             body: options.body,
             file: options.file,
             json: options.json === true,
@@ -1622,7 +1697,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           collection: string,
           doc: string | undefined,
         ) =>
-          dataCommands.dataReplace(io, runtime, id, collection, doc, {
+          dataCommands.dataReplace(dataCommands.terminalSafe(io), runtime, id, collection, doc, {
             body: options.body,
             file: options.file,
             json: options.json === true,
@@ -1647,10 +1722,17 @@ An artifact shared with its workspace or an email domain becomes restricted when
           collection: string,
           documents: string[],
         ) =>
-          dataCommands.dataDelete(io, runtime, id, collection, documents, {
-            yes: options.yes === true,
-            json: options.json === true,
-          }),
+          dataCommands.dataDelete(
+            dataCommands.terminalSafe(io),
+            runtime,
+            id,
+            collection,
+            documents,
+            {
+              yes: options.yes === true,
+              json: options.json === true,
+            },
+          ),
       ),
     );
   data
@@ -1661,7 +1743,10 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .option("--json", "Print the result as JSON")
     .action(
       execute((io, runtime, options: { out?: string; json?: boolean }, id: string) =>
-        dataCommands.dataExport(io, runtime, id, { out: options.out, json: options.json === true }),
+        dataCommands.dataExport(dataCommands.terminalSafe(io), runtime, id, {
+          out: options.out,
+          json: options.json === true,
+        }),
       ),
     );
 

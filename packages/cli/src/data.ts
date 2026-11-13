@@ -26,12 +26,18 @@ import {
   DocumentId,
   FieldName,
 } from "@portifact/contracts";
-import { exportConsistent } from "@portifact/domain";
+import { escapeControls, exportConsistent } from "@portifact/domain";
 import { exportFooter, exportHeader, exportLine } from "@portifact/domain/artifact-data";
 import { z } from "zod";
 import { callApi, withRetries } from "./api.ts";
 import { parseArtifactId, table } from "./artifacts.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
+
+/** The data commands' output, escaped at the boundary (documents are visitors' text). */
+export function terminalSafe(io: Io): Io {
+  return { ...io, stdout: (text) => io.stdout(escapeControls(text)) };
+}
+
 import { CliError } from "./errors.ts";
 import type { Io, Runtime } from "./runtime.ts";
 import type { Session } from "./session.ts";
@@ -583,8 +589,9 @@ export async function dataExport(
       throw new CliError("invalid_input", text.errors.cannotWrite(out));
     }
   }
+  // The file too: someone will `cat` it, and an escape keeps every value as stored.
   const write = async (line: string) => {
-    if (file) await file.write(line);
+    if (file) await file.write(escapeControls(line));
     else io.stdout(line);
   };
   let documents = 0;

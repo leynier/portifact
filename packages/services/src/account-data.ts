@@ -1041,6 +1041,9 @@ export async function advanceAccountDeletion(
         .where(and(eq(schema.trafficCounters.ownerId, userId), nothingLeft)),
       db.delete(schema.operations).where(and(eq(schema.operations.actorId, userId), nothingLeft)),
       db
+        .delete(schema.dataOperations)
+        .where(and(eq(schema.dataOperations.actorId, userId), nothingLeft)),
+      db
         .delete(schema.annotationUsage)
         .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),
       // The audit log goes with its owner (the global copy, the plan's events, above).

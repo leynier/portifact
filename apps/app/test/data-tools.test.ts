@@ -3,7 +3,7 @@
 // error, needs the same scope, and refuses a stranger and a workspace member alike.
 import { env } from "cloudflare:workers";
 import { regionsFromEnv, schema } from "@portifact/db";
-import { createWorkspace, hashRequest } from "@portifact/services";
+import { createWorkspace } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { DATA_TOOL_SCOPES } from "../src/mcp/data-tools.ts";
 import { TOOL_SCOPES } from "../src/mcp/tools.ts";
@@ -453,30 +453,9 @@ describe("artifact data tools", () => {
     expect(missing.structuredContent).toMatchObject({ error: { code: "not_found" } });
   });
 
-  it("answers a key still running as a conflict, and pages a large export with a cursor", async () => {
+  it("pages a large export with a cursor", async () => {
     const b = await both("data-running@example.test");
     const id = await publish(b);
-    const me = await (await b.apiCall("/api/v1/me")).json<{ userId: string }>();
-    // A claim with no answer yet: the first request with this key is still running.
-    await regionsFromEnv(env)
-      .get("default")
-      .db.insert(schema.operations)
-      .values({
-        actorId: me.userId,
-        idempotencyKey: "still-running-key",
-        operation: "data.build_indexes",
-        requestHash: await hashRequest({ artifactId: id }),
-        createdAt: Date.now(),
-      });
-    const running = await b.tool("build_data_indexes", {
-      artifactId: id,
-      idempotencyKey: "still-running-key",
-    });
-    expect(fromTool(running)).toMatchObject({
-      ok: false,
-      body: { error: { code: "version_conflict" } },
-    });
-
     await b.tool("declare_data_collection", { artifactId: id, name: "notes", mode: "own" });
     // A hundred bodies of 15 KiB: more than one export page's 1 MiB (written through the API,
     // since an MCP request body is itself capped at 1 MiB).

@@ -3,6 +3,7 @@
 // artifact count, every command's success and refusal, and the audit relay. The same services
 // against the real Durable Object run in apps/app's tests through the API.
 import { env } from "cloudflare:test";
+import { PLANS } from "@portifact/contracts";
 import { schema } from "@portifact/db";
 import { HELD_MESSAGE } from "@portifact/domain";
 import { MemoryObject } from "@portifact/domain/testing/artifact-data";
@@ -22,8 +23,8 @@ import {
   describeArtifactData,
   exportArtifactData,
   getDataDocument,
+  lifecycleId,
   type OwnerDataDeps,
-  ownerOperationId,
   queryArtifactData,
   replaceDataDocument,
   replaceDataDocuments,
@@ -617,7 +618,7 @@ describe("the audit relay", () => {
     const { deps, objects, of } = harness();
     const { owner, artifactId } = await ownedArtifact();
     await declared(deps, owner.id, artifactId);
-    const opId = await ownerOperationId(owner.id, "lost", NOW);
+    const opId = lifecycleId(NOW);
     const [row] = await db()
       .select()
       .from(schema.artifactData)
@@ -651,22 +652,23 @@ describe("the audit relay", () => {
       );
     expect(events).toEqual([]);
     // The late arrival of that operation cannot commit.
-    expect(of(artifactId)).toBeDefined();
-    const retried = await createDataDocument(db(), deps, {
-      userId: owner.id,
-      artifactId,
-      now: NOW,
-      idempotencyKey: "lost",
-      collection: "votes",
-      body: { choice: "a" },
-    });
-    expect(retried.ok).toBe(false);
+    const late = (await objects
+      .object(artifactId)
+      .ownerCommand(
+        { artifactId, region: "default", ownerId: owner.id, generation: 0, epoch: 0, opId },
+        owner.id,
+        { kind: "create", collection: "votes", body: { choice: "a" } },
+        PLANS.free.data.perArtifact,
+        NOW + 2_000,
+      )) as { ok: boolean };
+    expect(late.ok).toBe(false);
+    expect(of(artifactId).durable.documents.size).toBe(0);
   });
 
   it("waits on an ID from the future and ends on a malformed payload or another artifact", async () => {
     const { objects } = harness();
     const { owner, artifactId } = await ownedArtifact();
-    const future = await ownerOperationId(owner.id, "future", NOW + 3_600_000);
+    const future = lifecycleId(NOW + 3_600_000);
     const [job] = await db()
       .insert(schema.outbox)
       .values({
@@ -687,7 +689,7 @@ describe("the audit relay", () => {
   it("binds no empty object while artifact data is off", async () => {
     const { objects, of } = harness(false);
     const { owner, artifactId } = await ownedArtifact();
-    const opId = await ownerOperationId(owner.id, "never", NOW);
+    const opId = lifecycleId(NOW);
     const [job] = await db()
       .insert(schema.outbox)
       .values({
@@ -701,5 +703,288 @@ describe("the audit relay", () => {
     if (!job) throw new Error("no job");
     expect(await runDataAudit(db(), objects, job, NOW)).toBe("done");
     expect(of(artifactId).durable.control).toBeNull();
+  });
+});
+
+// The review of PR #270, its reproductions.
+describe("PR #270 review", () => {
+  it("does not delete payload after D1 holds it, before the object's fence arrives", async () => {
+    const { raceBeforeFirstWrite } = await import("./race.ts");
+    const { deps, of } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    await declared(deps, owner.id, artifactId);
+    const input = { userId: owner.id, artifactId, now: NOW };
+    const doc = value(
+      await createDataDocument(db(), deps, {
+        ...input,
+        idempotencyKey: key(),
+        collection: "votes",
+        body: { evidence: "preserve" },
+      }),
+    );
+    const raced = raceBeforeFirstWrite(async () => {
+      await db()
+        .update(schema.artifacts)
+        .set({ state: "suspended" })
+        .where(eq(schema.artifacts.id, artifactId));
+      value(
+        await placeLegalHold(db(), { artifactId, ground: "case-270", releaseAt: null, now: NOW }),
+      );
+    });
+    const result = await deleteDataDocument(raced, deps, {
+      ...input,
+      idempotencyKey: key(),
+      collection: "votes",
+      id: doc._id,
+    });
+    expect(of(artifactId).durable.control?.hold).toBeNull();
+    expect(result).toMatchObject({ ok: false, message: HELD_MESSAGE });
+    expect(of(artifactId).durable.documents.size).toBe(1);
+  });
+
+  it("does not write as the former workspace after a concurrent transfer", async () => {
+    const { raceBeforeFirstWrite } = await import("./race.ts");
+    const { transferArtifact } = await import("../src/transfer.ts");
+    const { deps } = harness();
+    const admin = await user("Admin");
+    const editor = await user("Editor");
+    const source = await workspace([
+      [admin.id, "admin"],
+      [editor.id, "editor"],
+    ]);
+    const destination = await workspace([[admin.id, "admin"]]);
+    await grantPlan(source.id, "team");
+    await grantPlan(destination.id, "team");
+    const { artifactId } = await publishSite(admin.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: source.id })
+      .where(eq(schema.artifacts.id, artifactId));
+    await declared(deps, admin.id, artifactId);
+    const raced = raceBeforeFirstWrite(async () => {
+      value(
+        await transferArtifact(db(), env.ARTIFACTS, {
+          userId: admin.id,
+          artifactId,
+          workspace: destination.slug,
+          now: NOW,
+        }),
+      );
+    });
+    const result = await createDataDocument(raced, deps, {
+      userId: editor.id,
+      artifactId,
+      now: NOW,
+      idempotencyKey: key(),
+      collection: "votes",
+      body: { injected: true },
+    });
+    expect(
+      await describeArtifactData(db(), deps, { userId: editor.id, artifactId, now: NOW }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("retries a post-commit D1 failure exactly once", async () => {
+    const { raceBeforeStatement } = await import("./race.ts");
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    await declared(deps, owner.id, artifactId);
+    const input = {
+      userId: owner.id,
+      artifactId,
+      collection: "votes",
+      body: { choice: "a" },
+      idempotencyKey: "pf270-real-crash",
+    };
+    const raced = raceBeforeStatement(/^update "artifact_data"/, async () => {
+      throw new Error("lost D1 storage report after object commit");
+    });
+    await expect(createDataDocument(raced, deps, { ...input, now: NOW })).rejects.toThrow();
+    const count = (now: number) =>
+      countArtifactData(db(), deps, {
+        userId: owner.id,
+        artifactId,
+        now,
+        count: { collection: "votes" },
+      });
+    expect(value(await count(NOW))).toEqual({ documents: 1 });
+    const retried = value(await createDataDocument(db(), deps, { ...input, now: NOW + 1_000 }));
+    expect(retried.choice).toBe("a");
+    expect(value(await count(NOW + 1_000))).toEqual({ documents: 1 });
+    // The same key for another request is refused, not applied.
+    expect(
+      await createDataDocument(db(), deps, { ...input, body: { choice: "b" }, now: NOW + 2_000 }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+
+  it("bounds audit work after the mutation class is exhausted", async () => {
+    const { dayOf, emptyDay } = await import("@portifact/domain/artifact-data");
+    const { PLANS } = await import("@portifact/contracts");
+    const { deps, objects, of } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    await declared(deps, owner.id, artifactId);
+    const object = of(artifactId);
+    object.durable.days.set(dayOf(NOW), {
+      ...emptyDay(dayOf(NOW)),
+      growth: PLANS.free.data.perArtifact.rowsWrittenPerDay,
+    });
+    const before = object.durable.ops.size;
+    const jobsBefore = (await auditJobs(artifactId)).length;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      expect(
+        await createDataDocument(db(), deps, {
+          userId: owner.id,
+          artifactId,
+          now: NOW,
+          idempotencyKey: key(),
+          collection: "votes",
+          body: { rejected: true },
+        }),
+      ).toMatchObject({ ok: false, code: "quota_exceeded" });
+    }
+    // A definitive refusal leaves no job behind.
+    const jobs = await auditJobs(artifactId);
+    expect(jobs).toHaveLength(jobsBefore);
+    for (const job of jobs) await runDataAudit(db(), objects, job, NOW + DATA_AUDIT_DELAY_MS);
+    expect(object.durable.ops.size).toBe(before);
+  });
+
+  it("limits owner-side attempts per artifact and minute, failed ones included", async () => {
+    const { DATA_OWNER_WRITES_PER_MINUTE } = await import("../src/index.ts");
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    await declared(deps, owner.id, artifactId);
+    const later = NOW + 10 * 60_000;
+    const attempt = () =>
+      deleteDataDocument(db(), deps, {
+        userId: owner.id,
+        artifactId,
+        now: later,
+        idempotencyKey: key(),
+        collection: "votes",
+        id: "AAAAAAAAAAAAAAAA",
+      });
+    for (let n = 0; n < DATA_OWNER_WRITES_PER_MINUTE; n += 1) {
+      expect(await attempt()).toMatchObject({ ok: false, code: "not_found" });
+    }
+    expect(await attempt()).toMatchObject({ ok: false, code: "rate_limited" });
+  });
+
+  it("hides purging and deleted artifacts' data", async () => {
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    await declared(deps, owner.id, artifactId);
+    const input = { userId: owner.id, artifactId, now: NOW };
+    for (const state of ["purging", "deleted"] as const) {
+      await db().update(schema.artifacts).set({ state }).where(eq(schema.artifacts.id, artifactId));
+      for (const result of [
+        await describeArtifactData(db(), deps, input),
+        await exportArtifactData(db(), deps, { ...input, after: null }),
+        await queryArtifactData(db(), deps, { ...input, query: { collection: "votes" } }),
+      ]) {
+        expect(result, state).toMatchObject({
+          ok: false,
+          code: "not_found",
+          message: "Artifact not found.",
+        });
+      }
+    }
+  });
+
+  it("keeps a service token to the artifacts its restriction reaches", async () => {
+    const { deps } = harness();
+    const admin = await user("Admin");
+    const space = await workspace([[admin.id, "admin"]]);
+    await grantPlan(space.id, "team");
+    const { artifactId } = await publishSite(admin.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: space.id })
+      .where(eq(schema.artifacts.id, artifactId));
+    await declared(deps, admin.id, artifactId);
+    const token = value(
+      await createServiceToken(db().global, {
+        userId: admin.id,
+        slug: space.slug,
+        body: {
+          label: "Own only",
+          role: "editor",
+          scopes: ["data:read", "data:write"],
+          expiresInDays: 30,
+          restriction: { kind: "own" },
+        },
+        now: NOW,
+      }),
+    ).token.id;
+    expect(
+      await describeArtifactData(db(), deps, { userId: token, artifactId, now: NOW }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(
+      await createDataDocument(db(), deps, {
+        userId: token,
+        artifactId,
+        now: NOW,
+        idempotencyKey: key(),
+        collection: "votes",
+        body: {},
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+  });
+});
+
+describe("owner-side claims", () => {
+  it("keep only an operation ID, and go after the object's replay window", async () => {
+    const { pruneOperations } = await import("../src/idempotency.ts");
+    const { ARTIFACT_DATA } = await import("@portifact/contracts");
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    await declared(deps, owner.id, artifactId);
+    await createDataDocument(db(), deps, {
+      userId: owner.id,
+      artifactId,
+      now: NOW,
+      idempotencyKey: "claim-kept",
+      collection: "votes",
+      body: { secret: "not-stored" },
+    });
+    const claims = () =>
+      db()
+        .select()
+        .from(schema.dataOperations)
+        .where(
+          and(
+            eq(schema.dataOperations.actorId, owner.id),
+            eq(schema.dataOperations.idempotencyKey, "claim-kept"),
+          ),
+        );
+    const [claim] = await claims();
+    expect(claim?.opId).toMatch(/^[0-9]{13}\./);
+    expect(JSON.stringify(claim)).not.toContain("not-stored");
+    await pruneOperations(db(), NOW + ARTIFACT_DATA.replayMs - 1);
+    expect(await claims()).toHaveLength(1);
+    await pruneOperations(db(), NOW + ARTIFACT_DATA.replayMs + 1);
+    expect(await claims()).toEqual([]);
+  });
+
+  it("refuse a kept key past the object's horizon", async () => {
+    const { ARTIFACT_DATA } = await import("@portifact/contracts");
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    await declared(deps, owner.id, artifactId);
+    const write = {
+      userId: owner.id,
+      artifactId,
+      idempotencyKey: "claim-expiring",
+      collection: "votes",
+      body: { n: 1 },
+    };
+    value(await createDataDocument(db(), deps, { ...write, now: NOW }));
+    expect(
+      await createDataDocument(db(), deps, {
+        ...write,
+        now: NOW + ARTIFACT_DATA.horizonMs + 1,
+      }),
+    ).toMatchObject({ ok: false, code: "invalid_input" });
   });
 });

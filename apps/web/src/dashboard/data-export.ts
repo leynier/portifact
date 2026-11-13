@@ -3,7 +3,7 @@
 // collections, one JSON line per document with its body spliced in exactly as stored, and a
 // footer that says whether every page saw the same revision. Nothing is archived on the server.
 import type { DataExportPageView } from "@portifact/contracts";
-import { exportConsistent } from "@portifact/domain";
+import { escapeControls, exportConsistent } from "@portifact/domain";
 import { exportFooter, exportHeader, exportLine } from "@portifact/domain/artifact-data";
 
 /** The most pages one export reads: far above any plan's data, so a loop always ends. */
@@ -26,7 +26,7 @@ export async function buildDataExport(
   const lines: string[] = [];
   let page = first;
   for (let count = 1; ; count += 1) {
-    for (const row of page.rows) lines.push(exportLine(row));
+    for (const row of page.rows) lines.push(escapeControls(exportLine(row)));
     if (page.next === null) break;
     if (count >= DATA_EXPORT_MAX_PAGES) throw new Error("The export did not end");
     page = await read(page.next);

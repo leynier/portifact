@@ -12,7 +12,8 @@
     "./testing/images": "./src/testing/images.ts",
     "./testing/artifact-data": "./src/testing/artifact-data.ts",
     "./suggestions": "./src/suggestions/index.ts",
-    "./suggestion-display": "./src/suggestions/display.ts"
+    "./suggestion-display": "./src/suggestions/display.ts",
+    "./suggestion-envelope": "./src/suggestions/envelope.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

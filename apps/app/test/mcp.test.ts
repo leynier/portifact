@@ -3,6 +3,7 @@ import { LIMITS } from "@portifact/contracts";
 import { regionsFromEnv } from "@portifact/db";
 import { commitPublish, hashRequest, preparePublish } from "@portifact/services";
 import { describe, expect, it } from "vitest";
+import { CHANGE_TOOL_SCOPES } from "../src/mcp/change-tools.ts";
 import { DATA_TOOL_SCOPES } from "../src/mcp/data-tools.ts";
 import { publishInline } from "../src/mcp/inline.ts";
 import { MAX_REQUEST_BYTES, requiredScopes } from "../src/mcp/routes.ts";
@@ -389,8 +390,10 @@ describe("step-up authorization", () => {
     expect(requiredScopes(JSON.stringify({ method: "tools/call", params: "x" }))).toEqual([
       "artifacts:read",
     ]);
-    // Every advertised tool has a scope, so none falls back to the baseline by mistake.
-    expect([...TOOL_SCOPES.keys()].sort()).toEqual(TOOLS);
+    // Every advertised tool has a scope, so none falls back to the baseline by mistake. The
+    // change list's tools are advertised only while suggestions are on (test/suggestions.test.ts).
+    const switchedOff = new Set(CHANGE_TOOL_SCOPES.map(([name]) => name));
+    expect([...TOOL_SCOPES.keys()].filter((name) => !switchedOff.has(name)).sort()).toEqual(TOOLS);
   });
 });
 

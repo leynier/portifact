@@ -71,6 +71,8 @@ const ROUTES: Record<string, Class> = {
   "PATCH /api/v1/artifacts/:artifactId/review/request": "refused",
   "DELETE /api/v1/artifacts/:artifactId/review/request": "open",
   "POST /api/v1/artifacts/:artifactId/review/verdict": "refused",
+  // Edit suggestions (decision 0027): marking a change item acts anew; the rest is the viewer's.
+  "PATCH /api/v1/artifacts/:artifactId/changes/:itemId": "refused",
   // Channels out of the account (the CLI's credentials:manage token).
   "POST /api/v1/webhooks": "refused",
   "PATCH /api/v1/webhooks/:webhookId": "narrowing",
@@ -81,6 +83,15 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/artifacts/:artifactId/review": "no_person_token",
   "POST /api/v1/artifacts/:artifactId/review/tab": "no_person_token",
   "POST /api/v1/artifacts/:artifactId/previews": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions/:threadId/plan": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions/:threadId/accept": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions/:threadId/reject": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions/:threadId/withdraw": "no_person_token",
+  "PUT /api/v1/artifacts/:artifactId/draft": "no_person_token",
+  "DELETE /api/v1/artifacts/:artifactId/draft": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/draft/plan": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/draft/publish": "no_person_token",
   "PATCH /api/v1/account/settings": "no_person_token",
   "POST /api/v1/account/delete": "no_person_token",
   "POST /api/v1/account/deletion-code": "no_person_token",
@@ -189,6 +200,7 @@ const TOOLS: Record<string, Class> = {
   create_data_documents: "refused",
   replace_data_documents: "refused",
   delete_data_documents: "open",
+  mark_change_item: "refused",
 };
 
 const KIND_OF: Record<"read" | "removes" | "narrowing", Class> = {

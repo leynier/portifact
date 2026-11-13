@@ -18,6 +18,7 @@ import {
   type FakeAnnotationState,
 } from "./fake-annotations.ts";
 import { createFakeApi, type FakeApiState, type Reply, scopeFor } from "./fake-api.ts";
+import { changeScope, createFakeChanges, type FakeChangeState } from "./fake-changes.ts";
 
 export type PollOutcome =
   | "pending"
@@ -87,6 +88,8 @@ export interface FakeServer {
   api: FakeApiState;
   /** The annotations API's data: modes, threads and the caller's role. */
   annotations: FakeAnnotationState;
+  /** The change lists of edit suggestions (decision 0027). */
+  changes: FakeChangeState;
   faults: Fault[];
   /** The time the server sees; the harness points it at the CLI's controlled clock. */
   clock: () => number;
@@ -133,9 +136,11 @@ export async function startFakeServer(): Promise<FakeServer> {
     () => fake.userId,
     () => fake.clock(),
   );
+  const fakeChanges = createFakeChanges(() => fake.clock());
   const fake: Omit<FakeServer, "origin" | "close"> = {
     api: fakeApi.state,
     annotations: fakeAnnotations.state,
+    changes: fakeChanges.state,
     faults: [],
     clock: () => Date.now(),
     requests: [],
@@ -272,7 +277,10 @@ export async function startFakeServer(): Promise<FakeServer> {
     if (bearer.startsWith("pfst_")) return serviceTokenApi(bearer, method, url, headers, body);
     const access = accessFor(headers.authorization);
     if (!access) return { status: 401, body: { error: "invalid_token" } };
-    const scope = annotationScope(method, url.pathname) ?? scopeFor(method, url.pathname);
+    const scope =
+      annotationScope(method, url.pathname) ??
+      changeScope(method, url.pathname) ??
+      scopeFor(method, url.pathname);
     if (!access.scopes.includes(scope)) {
       return { status: 403, body: { error: "insufficient_scope" } };
     }
@@ -280,6 +288,7 @@ export async function startFakeServer(): Promise<FakeServer> {
       typeof headers["idempotency-key"] === "string" ? headers["idempotency-key"] : undefined;
     return (
       fakeAnnotations.api(method, url, key, body) ??
+      fakeChanges.api(method, url, key, body) ??
       fakeApi.api(method, url, access.userId, key, body) ?? {
         status: 404,
         body: { error: { code: "not_found", message: "Not found." } },
@@ -310,7 +319,11 @@ export async function startFakeServer(): Promise<FakeServer> {
     }
     if (token.refusal) return token.refusal;
     const scope = scopeFor(method, url.pathname);
-    if (!token.scopes.includes(scope) || annotationScope(method, url.pathname)) {
+    if (
+      !token.scopes.includes(scope) ||
+      annotationScope(method, url.pathname) ||
+      changeScope(method, url.pathname)
+    ) {
       return {
         status: 403,
         body: {

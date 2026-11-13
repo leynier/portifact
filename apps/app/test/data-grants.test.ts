@@ -35,7 +35,8 @@ async function artifactWithData(h: Harness, owner: string, readerEmail: string) 
 
 describe("data grants on the app", () => {
   it("answers 404 while artifact data is off", async () => {
-    const h = createHarness();
+    // The suite's configuration turns artifact data on; this test turns it off.
+    const h = createHarness({ env: { ARTIFACT_DATA_ENABLED: "false" } });
     const cookie = await h.signIn("grants-off@example.test");
     for (const [path, method] of [
       ["/api/v1/account/data-grants", "GET"],

@@ -313,3 +313,56 @@ describe("more routes", () => {
     }
   });
 });
+
+describe("PR #270 review: retries answer under current authorization", () => {
+  it("refuses a cached document after the writer loses access", async () => {
+    const o = await owner("pf270-former@example.test");
+    const other = await owner("pf270-new@example.test");
+    await declare(o);
+    const init = json("POST", { secret: "retained-payload" }, "pf270-replay-key");
+    const first = await (await o.call(docs(o), init)).json<{ _id: string }>();
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: other.userId })
+      .where(eq(schema.artifacts.id, o.artifactId));
+    expect((await o.call(`${docs(o)}/${first._id}`)).status).toBe(404);
+    const replay = await o.call(docs(o), init);
+    expect({ status: replay.status, body: await replay.json() }).toMatchObject({
+      status: 404,
+      body: { error: { code: "not_found" } },
+    });
+  });
+
+  it("keeps document bodies out of D1 operation records", async () => {
+    const o = await owner("pf270-record@example.test");
+    // Built at run time: a literal next to `idempotencyKey` reads as a credential to the scanner.
+    const recordKey = `record-${crypto.randomUUID()}`;
+    await declare(o);
+    const response = await o.call(docs(o), json("POST", { secret: "retained-payload" }, recordKey));
+    expect(response.status).toBe(201);
+    const stored = [
+      ...(await db()
+        .select()
+        .from(schema.operations)
+        .where(eq(schema.operations.idempotencyKey, recordKey))),
+      ...(await db()
+        .select()
+        .from(schema.dataOperations)
+        .where(eq(schema.dataOperations.idempotencyKey, recordKey))),
+    ];
+    expect(JSON.stringify(stored)).not.toContain("retained-payload");
+  });
+
+  it("answers a retry with the document as it is now, never a stale copy", async () => {
+    const o = await owner("pf270-current@example.test");
+    await declare(o);
+    const init = json("POST", { choice: "first" }, "pf270-current-key");
+    const created = await (await o.call(docs(o), init)).json<{ _id: string }>();
+    await o.call(`${docs(o)}/${created._id}`, json("PUT", { choice: "edited" }));
+    const replay = await o.call(docs(o), init);
+    expect(replay.status).toBe(201);
+    expect(await replay.json()).toMatchObject({ _id: created._id, choice: "edited" });
+    await o.call(`${docs(o)}/${created._id}`, json("DELETE"));
+    expect((await o.call(docs(o), init)).status).toBe(404);
+  });
+});

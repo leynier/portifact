@@ -13,6 +13,7 @@
 // Nothing here creates an object while artifact data is switched off: every command but the
 // export answers `not_found`, and an export of an artifact that never stored data answers empty.
 import {
+  ARTIFACT_DATA,
   type ArtifactDataLimits,
   type CollectionDeclaration,
   type CollectionInfo,
@@ -29,7 +30,7 @@ import {
   type OwnerDataCommand,
   type StoredDocument,
 } from "@portifact/contracts";
-import { type RegionalDb, schema } from "@portifact/db";
+import { hitRateLimit, type RegionalDb, schema } from "@portifact/db";
 import {
   type DataWork,
   dataAuditEvent,
@@ -39,18 +40,18 @@ import {
   type Result,
 } from "@portifact/domain";
 import { dayOf, emptyDay } from "@portifact/domain/artifact-data";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { authorizeOn } from "./actors.ts";
 import {
   type DataObjects,
-  lifecycleId,
   readDataRow,
   recordStorageReport,
   registerDataObject,
 } from "./artifact-data.ts";
 import { auditEvent } from "./audit.ts";
 import { checkDataWriteCapacity } from "./budget.ts";
-import { heldRefusal, isHeld } from "./legal-holds.ts";
+import { hashRequest } from "./idempotency.ts";
+import { heldRefusal, isHeld, notHeldSql } from "./legal-holds.ts";
 import { ownerEntitlements } from "./plans.ts";
 
 /** What the owner side's services need besides the artifact's regional database. */
@@ -187,28 +188,119 @@ async function send(
 }
 
 /**
- * An operation ID from the caller's idempotency key (the object's `<issue time>.<random>` form):
- * the issue time is the request's, which the idempotency record that answers a retry keeps, and
- * the random part is a hash of who sent the key and the key, so the object's own record refuses
- * the same operation twice.
+ * Owner-side changes one artifact admits per minute, refused ones included: every attempt costs
+ * a claim and a call to the object, so a caller whose changes the object keeps refusing (a spent
+ * day, a full collection) still has a bound.
  */
-export async function ownerOperationId(
-  userId: string,
-  idempotencyKey: string,
-  now: number,
-): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(`${userId}\u0000${idempotencyKey}`),
-  );
-  const hex = [...new Uint8Array(digest)]
-    .slice(0, 16)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-  return `${String(Math.floor(now)).padStart(13, "0")}.${hex}`;
+export const DATA_OWNER_WRITES_PER_MINUTE = 60;
+
+/** A new operation ID: the issue time the object's horizon reads, and a random part. */
+function newOperationId(now: number): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  const random = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${String(Math.floor(now)).padStart(13, "0")}.${random}`;
 }
 
-/** The `data_audit` job, written before the object is called. */
+const ops = schema.dataOperations;
+
+/**
+ * The D1 claim of an owner-side change, the one guarded write between authorization and the
+ * object (decision 0026, delivery 5). One statement inserts the caller's operation for this
+ * idempotency key, or keeps the one a lost answer left, only while the artifact is still the
+ * authorized owner's, active, not held and at the generation and epoch the envelope carries: a
+ * transfer, a hold, a suspension or a fence that landed after authorization refuses it. A new
+ * claim writes the `data_audit` job in the same batch; a kept one sends the object the same
+ * operation ID, issue time included, so the object applies the change once and answers a retry
+ * from its own record. A key sent with another request is refused.
+ */
+async function claimOperation(
+  db: RegionalDb,
+  deps: OwnerDataDeps,
+  input: OwnerDataWrite,
+  found: Target & { row: NonNullable<Target["row"]> },
+  requestHash: string,
+): Promise<Result<{ opId: string; fresh: boolean }>> {
+  const proposed = newOperationId(input.now);
+  const { row } = found;
+  const a = schema.artifacts;
+  const d = schema.artifactData;
+  const guard = sql`exists (select 1 from ${a} join ${d} on ${d.artifactId} = ${a.id} where ${a.id} = ${input.artifactId} and ${a.ownerId} = ${found.ownerId} and ${a.state} = 'active' and ${notHeldSql(sql`${a.id}`)} and ${d.generation} = ${row.generation} and ${d.epoch} = ${row.epoch})`;
+  const payload = sql`json_object('ownerId', ${row.ownerId}, 'generation', ${row.generation}, 'epoch', ${row.epoch}, 'actor', ${input.userId}, 'opId', ${proposed})`;
+  // Columns in schema order. The outbox's: id, topic, payload, available, dispatched, attempts,
+  // created, subject, generation.
+  const [claimed] = await db.batch([
+    db
+      .insert(ops)
+      .select(
+        sql`select ${input.userId}, ${input.idempotencyKey}, ${input.artifactId}, ${proposed}, ${requestHash}, ${input.now} where ${guard}`,
+      )
+      .onConflictDoUpdate({
+        target: [ops.actorId, ops.idempotencyKey],
+        set: { artifactId: sql`${ops.artifactId}` },
+        setWhere: sql`${ops.requestHash} = excluded.request_hash and ${ops.artifactId} = excluded.artifact_id`,
+      })
+      .returning({ opId: ops.opId }),
+    db
+      .insert(schema.outbox)
+      .select(
+        sql`select null, 'data_audit', ${payload}, ${input.now + DATA_AUDIT_DELAY_MS}, null, 0, ${input.now}, ${input.artifactId}, null where exists (select 1 from ${ops} where ${ops.actorId} = ${input.userId} and ${ops.idempotencyKey} = ${input.idempotencyKey} and ${ops.opId} = ${proposed})`,
+      ),
+  ]);
+  const opId = claimed[0]?.opId;
+  if (opId !== undefined) {
+    // A kept claim past the object's horizon would be refused there: the key has expired.
+    if (input.now - Number(opId.slice(0, 13)) > ARTIFACT_DATA.horizonMs) {
+      return fail(
+        "invalid_input",
+        "This Idempotency-Key has expired. Send the change with a new one.",
+      );
+    }
+    return ok({ opId, fresh: opId === proposed });
+  }
+  const [kept] = await db
+    .select({ hash: ops.requestHash, artifactId: ops.artifactId })
+    .from(ops)
+    .where(and(eq(ops.actorId, input.userId), eq(ops.idempotencyKey, input.idempotencyKey)))
+    .limit(1);
+  if (kept && (kept.hash !== requestHash || kept.artifactId !== input.artifactId)) {
+    return fail("invalid_input", "This Idempotency-Key was used for a different request.");
+  }
+  // The artifact changed after authorization: answer what it is now.
+  const again = await target(db, deps, input, "write");
+  if (!again.ok) return again;
+  return fail("version_conflict", "The artifact's data changed; try again.");
+}
+
+/**
+ * Takes back a new claim and its audit job once the object refused the change: a refusal commits
+ * nothing, so nothing is left to settle, and a refused caller leaves no durable work behind.
+ */
+async function retireOperation(db: RegionalDb, input: OwnerDataWrite, opId: string) {
+  const o = schema.outbox;
+  await db.batch([
+    db
+      .delete(o)
+      .where(
+        and(
+          eq(o.topic, "data_audit"),
+          eq(o.subject, input.artifactId),
+          sql`json_extract(${o.payload}, '$.opId') = ${opId}`,
+        ),
+      ),
+    db
+      .delete(ops)
+      .where(
+        and(
+          eq(ops.actorId, input.userId),
+          eq(ops.idempotencyKey, input.idempotencyKey),
+          eq(ops.opId, opId),
+        ),
+      ),
+  ]);
+}
+
+/** The `data_audit` job of a kept claim whose change committed now (a concurrent retry's). */
 async function auditJob(
   db: RegionalDb,
   input: OwnerDataWrite,
@@ -231,7 +323,12 @@ async function auditJob(
   });
 }
 
-/** A mutation: authorized, its audit job written, then the object. */
+/**
+ * A change: authorized on the artifact's owner, within the owner's rate, the data step and the
+ * plan's data artifacts, claimed in D1 by one guarded statement with its audit job, then sent to
+ * the object under the claim's operation ID. Every request does all of it, a retry included, so a
+ * retry is answered under the caller's current authorization and never from a stored answer.
+ */
 async function mutate(
   db: RegionalDb,
   deps: OwnerDataDeps,
@@ -241,6 +338,15 @@ async function mutate(
 ): Promise<Result<{ value: unknown; replayed: boolean }>> {
   const found = await target(db, deps, input, "write");
   if (!found.ok) return found;
+  const hit = await hitRateLimit(
+    db.global.$client,
+    `data_owner:${input.artifactId}`,
+    60_000,
+    input.now,
+  );
+  if (hit.count > DATA_OWNER_WRITES_PER_MINUTE) {
+    return fail("rate_limited", "Too many changes to this artifact's data. Try again in a minute.");
+  }
   // Budget protection's data step stops new and growing work only (`DATA_WORK_PAUSED`): deletes
   // always pass, and reads and exports never come here.
   const capacity = await checkDataWriteCapacity(db.global, command.kind as DataWork, input.now);
@@ -265,9 +371,19 @@ async function mutate(
     row = await readDataRow(db, found.value.region, input.artifactId);
     if (row === null) return missing();
   }
-  const opId = await ownerOperationId(input.userId, input.idempotencyKey, input.now);
-  await auditJob(db, input, row, opId);
-  return send(db, deps, input, { ...found.value, row }, command, opId);
+  const admitted = { ...found.value, row };
+  const requestHash = await hashRequest({ artifactId: input.artifactId, command });
+  const claim = await claimOperation(db, deps, input, admitted, requestHash);
+  if (!claim.ok) return claim;
+  const sent = await send(db, deps, input, admitted, command, claim.value.opId);
+  if (!sent.ok) {
+    if (claim.value.fresh) await retireOperation(db, input, claim.value.opId);
+    return sent;
+  }
+  if (!sent.value.replayed && !claim.value.fresh) {
+    await auditJob(db, input, row, claim.value.opId);
+  }
+  return sent;
 }
 
 /** A read: authorized, then the object, or the empty answer when nothing was ever stored. */
@@ -597,11 +713,6 @@ export async function deleteDataDocuments(
     ids: input.ids,
   });
   return result.ok ? ok({ removed: bulkCount(result.value, "removed") }) : result;
-}
-
-/** A new idempotency key for a caller that sent none (an MCP tool call without one). */
-export function freshDataKey(now: number): string {
-  return `auto-${lifecycleId(now)}`;
 }
 
 // The audit relay.
