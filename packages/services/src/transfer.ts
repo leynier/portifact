@@ -35,6 +35,7 @@ import { searchIndexJob } from "./content-search.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { draftMarker } from "./suggestion-markers.ts";
 import { OPEN_UPLOAD_STATES } from "./usage.ts";
 import { readerDomainSql } from "./workspace-policies.ts";
 import { missingWorkspace, workspaceBySlug } from "./workspaces.ts";
@@ -276,6 +277,13 @@ export async function transferArtifact(
         .update(schema.changeItems)
         .set({ ownerId: to })
         .where(guarded(eq(schema.changeItems.artifactId, artifact.id))),
+      // Each with the marker that keeps it gone through a restore, on the same condition.
+      draftMarker(
+        w,
+        both !== null,
+        guarded(eq(schema.editDrafts.artifactId, artifact.id)),
+        input.now,
+      ),
       w.delete(schema.editDrafts).where(guarded(eq(schema.editDrafts.artifactId, artifact.id))),
       w
         .delete(schema.suggestionPlans)

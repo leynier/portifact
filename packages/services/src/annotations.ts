@@ -86,6 +86,7 @@ import { markCommentActivity } from "./comment-activity.ts";
 import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerPlanRecord } from "./plans.ts";
 import { endAttempt } from "./suggestion-accept.ts";
+import { decisionMarker } from "./suggestion-markers.ts";
 import { type ThreadViewContext, threadViews } from "./thread-views.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { policyDomains } from "./workspace-domains.ts";
@@ -1226,6 +1227,7 @@ async function firstMessageId(db: RegionalDb, threadId: string): Promise<string 
  */
 function withdrawalStatements(
   x: Db,
+  shared: boolean,
   loaded: Authorized,
   threadId: string,
   writeId: string,
@@ -1234,6 +1236,15 @@ function withdrawalStatements(
   const th = schema.annotationThreads;
   const pending = sql`exists (select 1 from ${th} where ${th.id} = ${threadId} and ${th.suggestionState} = 'pending')`;
   return [
+    // What keeps it withdrawn through a restore (decision 0027).
+    decisionMarker(
+      x,
+      shared,
+      "suggestion_withdrawn",
+      { id: threadId, artifactId: loaded.artifact.id },
+      sql`${claimed(writeId)} and ${pending}`,
+      input.now,
+    ),
     auditEvent(
       x,
       {
@@ -1367,7 +1378,9 @@ async function removeMessage(
           .update(m)
           .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
           .where(and(eq(m.id, input.messageId), claimed(writeId))),
-        ...(withdraws ? withdrawalStatements(x, loaded, found.thread.id, writeId, input) : []),
+        ...(withdraws
+          ? withdrawalStatements(x, shared !== null, loaded, found.thread.id, writeId, input)
+          : []),
         touchThread(x, found.thread.id, writeId, input.now),
       ]);
     },
@@ -1815,6 +1828,9 @@ export async function eraseAuthorFromThread(
   );
 
   const writeId = crypto.randomUUID();
+  // With one database the whole batch runs on the handle that also writes the tombstone.
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
   const guard = sql`exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.revision} = ${thread.revision})`;
   const event: Claim = {
     artifactId: thread.artifactId,
@@ -1826,12 +1842,12 @@ export async function eraseAuthorFromThread(
   };
   const statements: Batch = visibleLeft
     ? [
-        claim(db, writeId, event, guard),
+        claim(x, writeId, event, guard),
         ...chunks(remove).map((ids) =>
-          db.delete(m).where(and(inArray(m.id, ids), claimed(writeId))),
+          x.delete(m).where(and(inArray(m.id, ids), claimed(writeId))),
         ),
         ...chunks(mark).map((ids) =>
-          db
+          x
             .update(m)
             .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
             .where(and(inArray(m.id, ids), claimed(writeId))),
@@ -1840,7 +1856,7 @@ export async function eraseAuthorFromThread(
         // deletion and retention"): withdrawn, its edit cleared, the thread kept as a conversation.
         // An acceptance still running for it is ended first, so its job's claim loses and
         // nothing returns the edit to pending; an acceptance whose commit already won stays.
-        db
+        x
           .update(schema.acceptanceAttempts)
           .set({ state: "ended", reason: "revoked", updatedAt: input.now })
           .where(
@@ -1857,7 +1873,17 @@ export async function eraseAuthorFromThread(
             ownerId: schema.acceptanceAttempts.ownerId,
             origin: schema.acceptanceAttempts.origin,
           }),
-        db
+        // What keeps it withdrawn through a restore (decision 0027); after the attempt's end,
+        // whose result is read by position below.
+        decisionMarker(
+          x,
+          shared !== null,
+          "suggestion_withdrawn",
+          thread,
+          sql`${claimed(writeId)} and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.kind} = 'suggestion' and ${th.suggestionState} in ('pending', 'applying') and ${th.authorId} = ${input.authorId})`,
+          input.now,
+        ),
+        x
           .update(th)
           .set({ ...WITHDRAWN, attemptId: null })
           .where(
@@ -1869,15 +1895,24 @@ export async function eraseAuthorFromThread(
               claimed(writeId),
             ),
           ),
-        touchThread(db, thread.id, writeId, input.now, {
+        touchThread(x, thread.id, writeId, input.now, {
           messageCount: sql`(select count(*) from ${m} where ${m.threadId} = ${thread.id})`,
         }),
       ]
     : [
-        claim(db, writeId, event, guard),
-        db.delete(th).where(and(eq(th.id, thread.id), claimed(writeId))),
+        claim(x, writeId, event, guard),
+        // What keeps the erased thread gone through a restore of its region alone, which the
+        // account's own tombstone does not reach (it re-deletes only what the account owned).
+        deletionMarker(
+          x,
+          shared !== null,
+          writeId,
+          { kind: "thread", id: thread.id, artifactId: thread.artifactId },
+          input.now,
+        ),
+        x.delete(th).where(and(eq(th.id, thread.id), claimed(writeId))),
       ];
-  const outcome = await db.batch(statements);
+  const outcome = await x.batch(statements);
   const [first] = outcome as [{ id: number }[]];
   if (visibleLeft) {
     // The ended acceptance's upload is released at once, through the ending path every attempt

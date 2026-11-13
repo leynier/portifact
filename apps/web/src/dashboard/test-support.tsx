@@ -61,6 +61,7 @@ import {
   type PreviewResponse,
   PublishRequest,
   planRequiredMessage,
+  type RebasedDraft,
   type ReviewStart,
   RollbackRequest,
   type ScimOverview,
@@ -373,6 +374,12 @@ export interface FakeSuggestions {
   drafts: Record<string, DraftView>;
   /** POST .../draft/plan, by artifact ID; missing ones answer 404. */
   draftPlans: Record<string, Plan>;
+  /** POST .../draft/rebase answers this (and stores its draft); missing answers 404. */
+  rebased?: RebasedDraft;
+  /** The current version's files as GET .../versions/current/content reads them, by `id:path`. */
+  pages: Record<string, { contentType: string; content: string }>;
+  /** Every preview request body, in order. */
+  previewRequests: unknown[];
 }
 
 export function fakeMessage(overrides: Partial<AnnotationMessageView> = {}): AnnotationMessageView {
@@ -740,7 +747,16 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     viewers: {},
     reviews: {},
     reviewTabs: 0,
-    suggestions: { plans: {}, preview: null, changes: {}, previews: 0, drafts: {}, draftPlans: {} },
+    suggestions: {
+      plans: {},
+      preview: null,
+      changes: {},
+      previews: 0,
+      drafts: {},
+      draftPlans: {},
+      pages: {},
+      previewRequests: [],
+    },
     annotations: {},
     versions: {},
     uploads: [],
@@ -1568,6 +1584,29 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   const integrations = integrationRoute(server, method, path, headers);
   if (integrations) return integrations;
+  const content = /^\/api\/v1\/artifacts\/([^/]+)\/versions\/current\/content$/.exec(path);
+  if (content && method === "GET") {
+    const file = server.suggestions.pages[`${content[1]}:${url.searchParams.get("path")}`];
+    if (!file) return apiError("not_found", 404);
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    // Two pages of at most 64 characters each are enough to prove the paging.
+    const chunk = file.content.slice(offset, offset + 64);
+    const next = offset + 64 < file.content.length ? offset + 64 : null;
+    return json({
+      artifactId: content[1],
+      versionId: "v1",
+      versionNumber: 1,
+      kind: "published",
+      path: url.searchParams.get("path"),
+      contentType: file.contentType,
+      size: file.content.length,
+      sha256: "a".repeat(64),
+      offset,
+      length: chunk.length,
+      nextOffset: next,
+      content: chunk,
+    });
+  }
   const suggested =
     /^\/api\/v1\/artifacts\/([^/]+)\/(suggestions|previews|changes|draft)(\/.*)?$/.exec(path);
   if (suggested) {
@@ -3285,6 +3324,7 @@ function suggestionRoute(
   const body = server.bodies.at(-1) as Record<string, unknown> | undefined;
   if (kind === "previews" && method === "POST") {
     fake.previews += 1;
+    fake.previewRequests.push(body);
     return Response.json(
       fake.preview ?? {
         state: "ready",
@@ -3320,6 +3360,13 @@ function suggestionRoute(
       };
       fake.drafts[id] = saved;
       return Response.json(saved);
+    }
+    if (rest === "/rebase" && method === "POST") {
+      if (!draft || !fake.rebased) return missing();
+      if (body?.baseRevision !== draft.revision) return apiError("version_conflict", 409);
+      if (fake.rebased.draft) fake.drafts[id] = fake.rebased.draft;
+      else delete fake.drafts[id];
+      return Response.json(fake.rebased);
     }
     if (rest === "/plan" && method === "POST") {
       const plan = fake.draftPlans[id];

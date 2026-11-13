@@ -10,7 +10,7 @@ import { placeLegalHold } from "../src/legal-holds.ts";
 import { commitPublish, preparePublish } from "../src/publish.ts";
 import { createWorkspace } from "../src/workspaces.ts";
 import { db, NOW, sha256, user, value } from "./fixtures.ts";
-import { raceBeforeStatement } from "./race.ts";
+import { raceBeforeBatchWith, raceBeforeStatement } from "./race.ts";
 import { DOC, publishDoc, republish, textOp } from "./suggestion-support.ts";
 
 describe("discarding a draft (finding 1)", () => {
@@ -28,7 +28,8 @@ describe("discarding a draft (finding 1)", () => {
       }),
     );
     let held = false;
-    const raced = raceBeforeStatement(/^delete from "edit_drafts"/i, async () => {
+    // The discard is one batch with its restore marker: the race lands right before it.
+    const raced = raceBeforeBatchWith(/^delete from "edit_drafts"/i, async () => {
       await db()
         .update(schema.artifacts)
         .set({ state: "suspended" })
@@ -311,7 +312,7 @@ describe("the guards of a draft save (finding 7)", () => {
       .global.insert(schema.workspaceMembers)
       .values({ workspaceId: t.workspace.id, userId: t.editor.id, role: "editor", updatedAt: NOW });
     value(await saveDraft(db(), draft));
-    const discarding = raceBeforeStatement(/^delete from "edit_drafts"/i, removeEditor);
+    const discarding = raceBeforeBatchWith(/^delete from "edit_drafts"/i, removeEditor);
     expect((await discardDraft(discarding, draft)).ok).toBe(false);
     expect(await drafts()).toHaveLength(1);
   });
