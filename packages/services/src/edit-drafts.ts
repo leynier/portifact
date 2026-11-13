@@ -15,6 +15,7 @@ import { hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@port
 import { fail, ok, type Result } from "@portifact/domain";
 import { and, eq, sql } from "drizzle-orm";
 import { type AnnotationActor, annotationParts } from "./annotations.ts";
+import { notHeldSql } from "./legal-holds.ts";
 import { ownDraft, planBatchOn } from "./suggestion-plans.ts";
 import { checkEditablePage } from "./suggestions.ts";
 
@@ -169,15 +170,31 @@ export async function discardDraft(db: RegionalDb, input: AnnotationActor): Prom
   if (draft.attemptId !== null) {
     return fail("version_conflict", "This draft is being published. Try again in a moment.");
   }
-  const deleted = await db
+  // A discard is a deletion: held to no open legal hold, the owner it was authorized on and the
+  // author's live role, inside the statement (decision 0027, "Withdrawal, deletion and
+  // retention"), so a hold or a role loss landing after the read wins. An unheld archived or
+  // suspended artifact's draft can still be discarded.
+  const { loaded } = found.value;
+  const on = await planBatchOn(db, loaded);
+  if (!on) return fail("not_found", "Draft not found.");
+  const t = schema.artifacts;
+  const deleted = await on.w
     .delete(dr)
     .where(
       and(
         eq(dr.artifactId, draft.artifactId),
         eq(dr.userId, input.userId),
+        eq(dr.revision, draft.revision),
         sql`${dr.attemptId} is null`,
+        sql`exists (select 1 from ${t} where ${t.id} = ${draft.artifactId} and ${t.ownerId} = ${loaded.artifact.ownerId})`,
+        notHeldSql(sql`${dr.artifactId}`),
+        on.standing,
       ),
     )
     .returning({ revision: dr.revision });
-  return deleted.length === 1 ? ok(true) : draftChanged();
+  if (deleted.length === 1) return ok(true);
+  // Answer what a fresh request would: the refusal that now applies (a hold's message among
+  // them), else a conflict.
+  const again = await ownDraft(db, input, "read");
+  return again.ok ? draftChanged() : again;
 }
