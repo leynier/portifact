@@ -213,7 +213,20 @@ describe("finding 2: issuing writes only while what it authorized still holds", 
     const raced = raceBeforeStatement(/insert into "preview_codes"/i, async () => {
       await change(s);
     });
-    const result = await issuePreviewCode(raced, env.ARTIFACTS, {
+    // Counts the writes to the bucket: a refused issue must leave no document behind, and the
+    // key is a time and a random part, so it cannot be found by the artifact's ID.
+    const puts: unknown[] = [];
+    const bucket = new Proxy(env.ARTIFACTS, {
+      get(target, property) {
+        const value = Reflect.get(target, property, target);
+        if (typeof value !== "function") return value;
+        return (...args: unknown[]) => {
+          if (property === "put") puts.push(args[0]);
+          return value.apply(target, args);
+        };
+      },
+    });
+    const result = await issuePreviewCode(raced, bucket, {
       userId: s.owner.id,
       sessionId: s.sessionId,
       artifactId: s.artifactId,
@@ -221,12 +234,12 @@ describe("finding 2: issuing writes only while what it authorized still holds", 
       now: NOW,
       contentDomain: CONTENT_DOMAIN,
     });
-    return { s, result };
+    return { s, result, puts };
   };
 
   it("conditions code issuance on the owner it authorized", async () => {
     const other = await person("Other owner");
-    const { s, result } = await racedIssue((s) =>
+    const { s, result, puts } = await racedIssue((s) =>
       db()
         .update(schema.artifacts)
         .set({ ownerId: other.id })
@@ -234,8 +247,7 @@ describe("finding 2: issuing writes only while what it authorized still holds", 
     );
     expect(result).toMatchObject({ ok: false, code: "version_conflict" });
     expect(await codeRows(s.artifactId)).toEqual([]);
-    const listed = await env.ARTIFACTS.list({ prefix: `previews/${NOW}/` });
-    expect(listed.objects.filter((o) => o.key.includes(s.artifactId))).toEqual([]);
+    expect(puts).toEqual([]);
   });
 
   it("conditions it on the version planned and the suggestion's revision and state", async () => {
@@ -260,11 +272,24 @@ describe("finding 2: issuing writes only while what it authorized still holds", 
           .update(schema.artifacts)
           .set({ state: "archived", archivedAt: NOW, expiresAt: null })
           .where(eq(schema.artifacts.id, s.artifactId)),
+      // Still `active` in its row, but expired by now: the archive scan has not run yet.
+      (s: Awaited<ReturnType<typeof ownerSuggestion>>) =>
+        db()
+          .update(schema.artifacts)
+          .set({ expiresAt: NOW })
+          .where(eq(schema.artifacts.id, s.artifactId)),
     ]) {
-      const { s, result } = await racedIssue(change);
+      const { s, result, puts } = await racedIssue(change);
       expect(result).toMatchObject({ ok: false, code: "version_conflict" });
       expect(await codeRows(s.artifactId)).toEqual([]);
+      expect(puts).toEqual([]);
     }
+  });
+
+  it("writes the document once when nothing changed", async () => {
+    const { result, puts } = await racedIssue(async () => {});
+    expect(result.ok).toBe(true);
+    expect(puts).toHaveLength(1);
   });
 });
 

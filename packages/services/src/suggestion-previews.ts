@@ -382,7 +382,8 @@ export async function redeemPreviewCode(
  * What one prune run may do per region (`pageSize` objects or rows per call, `pages` calls of
  * each): R2 lists and deletes at most 1,000 keys a call, and a D1 delete of 1,000 rows by key is
  * one short statement with two bound values. Five pages are 5,000 documents and 5,000 rows a
- * minute per region, far above what the planning rate limits let people issue.
+ * minute per region. The planning rate limits are per person, so they do not bound a region's
+ * total: a run that reaches the cap says so, and the operator investigates if it keeps happening.
  */
 export const PREVIEW_PRUNE = { pageSize: 1_000, pages: 5 } as const;
 
@@ -391,7 +392,7 @@ export function previewKey(now: number): string {
   return `previews/${now}/${crypto.randomUUID()}`;
 }
 
-/** What one prune run did in one region; `behind` when it stopped at its cap with more due. */
+/** What one prune run did in one region; `behind` when it reached its cap, so more may remain. */
 export interface PreviewPrune {
   documents: number;
   rows: number;
@@ -410,7 +411,7 @@ const keyTime = (key: string) => Number(key.slice("previews/".length).split("/")
  * expiry is always its creation plus `PREVIEW_CODES.ttlMs`, so a row created at or before the
  * cutoff expires at or before `cutoff + ttlMs`, and each statement reads only the rows it
  * deletes. A run keeps going while its last page was full, up to its cap, and says so once when
- * it stops there with more due.
+ * it reaches it: more may remain, or the cap was exactly enough.
  */
 export async function prunePreviewCodes(
   db: RegionalDb,
