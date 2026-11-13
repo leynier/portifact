@@ -456,6 +456,7 @@ describe("purging archives", () => {
         deletionCodes: 0,
       },
       readSessions: 0,
+      dataGrants: 0,
       artifactGroups: 0,
       groupTombstones: 0,
       journalCursors: 0,

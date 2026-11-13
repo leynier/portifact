@@ -24,6 +24,7 @@ export * from "./comment-retention.ts";
 export * from "./comment-retention-notices.ts";
 export * from "./content-search.ts";
 export * from "./custom-domains.ts";
+export * from "./data-grants.ts";
 export * from "./directory.ts";
 export * from "./directory-notices.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";

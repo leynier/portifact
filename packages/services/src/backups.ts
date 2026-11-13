@@ -298,6 +298,8 @@ export interface ApplyTombstonesResult {
   commentMessages: number;
   /** Email preferences turned off before the restore that it turned back on, off again. */
   noticeOptOuts: number;
+  /** Grants of artifact data revoked before the restore that it revived, revoked again. */
+  dataGrants: number;
   /** Per-artifact comment notice mutes set before the restore that it lost, set again. */
   noticeMutes: number;
   /** Browser sessions that ended before the restore (sign-outs), ended again. */
@@ -325,6 +327,7 @@ const REGIONAL_KINDS = [
   "comment_thread",
   "comment_message",
   "comment_notice_mute",
+  "data_grant",
 ] as const;
 type RegionalKind = (typeof REGIONAL_KINDS)[number];
 
@@ -391,6 +394,7 @@ interface Refs {
   auditStreams: SQL;
   commentThreads: SQL;
   commentMessages: SQL;
+  dataGrants: SQL;
   /** As rows with one column, `ref` (`<artifact>:<user>`), not only a list for `in`. */
   mutes: SQL;
 }
@@ -416,6 +420,7 @@ const SUBQUERIES: Refs = {
   auditStreams: sql`select ${t.id} from ${t} where ${t.kind} = 'audit_stream'`,
   commentThreads: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_thread'`,
   commentMessages: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_message'`,
+  dataGrants: sql`select ${t.id} from ${t} where ${t.kind} = 'data_grant'`,
   mutes: sql`select ${t.id} as ref from ${t} where ${t.kind} = 'comment_notice_mute'`,
 };
 
@@ -602,6 +607,20 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
             sql`${schema.annotationMessages.state} <> 'deleted' and ${schema.annotationMessages.id} in (${refs.commentMessages})`,
           )
           .returning({ id: schema.annotationMessages.id }),
+    },
+    // Grants of artifact data revoked before the restore (decision 0026, "The grant"): revoked
+    // again, so a revived grant never renews.
+    {
+      name: "dataGrants",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .update(schema.dataGrants)
+          .set({ revokedAt: now })
+          .where(
+            sql`${schema.dataGrants.revokedAt} is null and ${schema.dataGrants.id} in (${refs.dataGrants})`,
+          )
+          .returning({ id: schema.dataGrants.id }),
     },
     // Per-artifact mutes the restore lost come back, on artifacts that are still there, for
     // accounts that are not deleted.
@@ -1045,6 +1064,7 @@ async function applyRegionalTombstones(
       auditStreams: part(lists.audit_stream),
       commentThreads: part(lists.comment_thread),
       commentMessages: part(lists.comment_message),
+      dataGrants: part(lists.data_grant),
       mutes: listedRefs(mutes.slice(round * JSON_CHUNK, (round + 1) * JSON_CHUNK)),
     };
     for (const [name, rows] of await runEntries(db, regional, refs)) {
@@ -1148,6 +1168,7 @@ export async function applyTombstones(
     commentMessages: count("commentMessages"),
     noticeOptOuts: count("noticeOptOuts:comment_notices") + count("noticeOptOuts:expiry_notices"),
     noticeMutes: count("noticeMutes"),
+    dataGrants: count("dataGrants"),
     sessions: count("sessions"),
     oauthTokens: count("oauthAccessTokens") + count("oauthRefreshTokens"),
     oauthGrants: count("oauthGrants"),
