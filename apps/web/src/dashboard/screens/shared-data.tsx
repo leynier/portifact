@@ -138,7 +138,7 @@ async function ownRows(
     if (answer.next === null) return rows;
     after = answer.next;
   }
-  return rows;
+  throw new Error("Own data pagination did not finish");
 }
 
 /**

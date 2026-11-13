@@ -159,6 +159,58 @@ describe("Data you shared", () => {
     expect(screen.queryByRole("button", { name: "Revoke Board" })).toBeNull();
   });
 
+  it.each(["download", "delete"] as const)(
+    "refuses an incomplete %s when more pages remain",
+    async (action) => {
+      const server = fakeServer();
+      server.dataGrants = [
+        {
+          artifactId: ID,
+          artifactName: "Board",
+          host: HOST,
+          openGrants: 0,
+          firstGrantedAt: "2026-11-01T10:00:00.000Z",
+          lastGrantedAt: "2026-11-01T10:00:00.000Z",
+          expiresAt: null,
+        },
+      ];
+      const fetch = server.fetch.bind(server);
+      let pages = 0;
+      let deletes = 0;
+      server.fetch = async (input, init) => {
+        if (input.includes(`/data-grants/${ID}/mine`)) {
+          pages += 1;
+          return Response.json({
+            rows: [{ collection: "votes", id: "a".repeat(16), body: '{"choice":"a"}' }],
+            next: `votes:${String(pages).padStart(16, "0")}`,
+            revision: 1,
+          });
+        }
+        if (init?.method === "DELETE") deletes += 1;
+        return fetch(input, init);
+      };
+      const view = renderDashboard("/shared-data", server);
+      if (action === "download") {
+        fireEvent.click(
+          await screen.findByRole("button", { name: "Download what you saved in Board" }),
+        );
+        expect(await screen.findByText("The download did not finish")).toBeTruthy();
+      } else {
+        fireEvent.click(
+          await screen.findByRole("button", { name: "Delete what you saved in Board" }),
+        );
+        const dialog = await screen.findByRole("dialog", {
+          name: "Delete what you saved in Board?",
+        });
+        fireEvent.click(within(dialog).getByRole("button", { name: "Delete what I saved" }));
+        expect(await screen.findByText("Deleting did not finish")).toBeTruthy();
+      }
+      expect(pages).toBe(200);
+      expect(view.saved).toEqual([]);
+      expect(deletes).toBe(0);
+    },
+  );
+
   it("sends a request to the people who manage the artifact", async () => {
     const server = fakeServer();
     server.dataGrants = [
