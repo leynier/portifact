@@ -4,6 +4,8 @@
 import { env } from "cloudflare:test";
 import { PLANS } from "@portifact/contracts";
 import { schema } from "@portifact/db";
+import { NOTICE_EMAILS_PER_CYCLE } from "@portifact/domain";
+import { journalKey } from "@portifact/domain/artifact-data";
 import { MemoryObject } from "@portifact/domain/testing/artifact-data";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -13,12 +15,17 @@ import {
   type DataRightsNotifier,
   declareDataCollection,
   deleteOwnDocument,
+  emailsSentInCycle,
   exportOwnData,
+  isEmailSuppressed,
   journalVisitorId,
   pageDataCommand,
+  RecipientSuppressedError,
+  recordEmailsSent,
   requestDataRights,
   retireJournalEntry,
   sendDataRightsNotice,
+  suppressEmail,
 } from "../src/index.ts";
 import { ownerRpc } from "./data-owner-rpc.ts";
 import { db, NOW, publishSite, user, value } from "./fixtures.ts";
@@ -74,7 +81,7 @@ async function setup() {
     );
     return (value(result).value as { _id: string })._id;
   };
-  return { deps, artifactId, write };
+  return { deps, artifactId, write, owner };
 }
 
 const input = (userId: string, artifactId: string) => ({
@@ -85,6 +92,29 @@ const input = (userId: string, artifactId: string) => ({
 });
 
 describe("a person's own data", () => {
+  it("refuses a malformed journal entry and data whose D1 registration is gone", async () => {
+    const { deps, artifactId, write } = await setup();
+    const visitor = await user("Visitor");
+    const id = await write(visitor.id, "a");
+    await db().delete(schema.artifactData).where(eq(schema.artifactData.artifactId, artifactId));
+    expect(
+      await exportOwnData(db(), deps, { ...input(visitor.id, artifactId), after: null }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(
+      await deleteOwnDocument(db(), deps, {
+        ...input(visitor.id, artifactId),
+        collection: "votes",
+        id,
+        idempotencyKey: null,
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    await deps.bucket.put(
+      journalKey(visitor.id, artifactId),
+      JSON.stringify({ visitorId: "invalid" }),
+    );
+    expect(await journalVisitorId(deps.bucket, visitor.id, artifactId)).toBeNull();
+  });
+
   it("exports only the person's own documents and deletes one of them", async () => {
     const { deps, artifactId, write } = await setup();
     const alice = await user("Alice");
@@ -183,6 +213,125 @@ function recordingNotifier(fail: (to: string) => boolean = () => false) {
 }
 
 describe("rights requests", () => {
+  it("sends a personal-space request without a workspace and counts only its delivered email", async () => {
+    const { deps, artifactId, write, owner } = await setup();
+    const visitor = await user("Visitor");
+    await write(visitor.id, "a");
+    value(
+      await requestDataRights(db(), deps.bucket, {
+        ...input(visitor.id, artifactId),
+        kind: "access",
+      }),
+    );
+    const [job] = await rightsJobs(artifactId);
+    if (!job) throw new Error("no job");
+    const before = await emailsSentInCycle(db().global, NOW);
+    const { sent, notifier } = recordingNotifier();
+    expect(
+      await sendDataRightsNotice(
+        db(),
+        { ...job, payload: JSON.stringify(job.payload) },
+        NOW + 2000,
+        notifier,
+      ),
+    ).toBe("done");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ to: owner.email, workspaceSlug: null, kind: "access" });
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(before + 1);
+    expect(await rightsJobs(artifactId)).toEqual([]);
+  });
+
+  it("skips suppressed admins and remembers a provider suppression without counting a send", async () => {
+    const { deps, artifactId, write } = await setup();
+    const visitor = await user("Visitor");
+    await write(visitor.id, "a");
+    const admins = await workspaceOwner(artifactId);
+    await suppressEmail(db().global, { email: admins.first.email, reason: "complaint", now: NOW });
+    value(
+      await requestDataRights(db(), deps.bucket, {
+        ...input(visitor.id, artifactId),
+        kind: "access",
+      }),
+    );
+    const [job] = await rightsJobs(artifactId);
+    if (!job) throw new Error("no job");
+    const attempted: string[] = [];
+    const before = await emailsSentInCycle(db().global, NOW);
+    expect(
+      await sendDataRightsNotice(db(), job, NOW + 2000, {
+        async send(notice) {
+          attempted.push(notice.to);
+          throw new RecipientSuppressedError();
+        },
+      }),
+    ).toBe("done");
+    expect(attempted).toEqual([admins.second.email]);
+    expect(await isEmailSuppressed(db().global, admins.second.email, NOW + 2000)).toBe(true);
+    expect(await emailsSentInCycle(db().global, NOW)).toBe(before);
+    expect(await rightsJobs(artifactId)).toEqual([]);
+  });
+
+  it("refuses a request once the artifact is purging, even when its journal remains", async () => {
+    const { deps, artifactId, write } = await setup();
+    const visitor = await user("Visitor");
+    await write(visitor.id, "a");
+    await db()
+      .update(schema.artifacts)
+      .set({ state: "purging" })
+      .where(eq(schema.artifacts.id, artifactId));
+    expect(
+      await requestDataRights(db(), deps.bucket, {
+        ...input(visitor.id, artifactId),
+        kind: "access",
+      }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(await rightsJobs(artifactId)).toEqual([]);
+  });
+
+  it.each([
+    null,
+    { visitorId: 12, kind: "access" },
+    { visitorId: "v_1234567890123456", kind: "unknown" },
+  ])("discards an invalid rights-request payload %j without sending email", async (payload) => {
+    const { artifactId } = await setup();
+    const [job] = await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "data_rights_request",
+        payload: payload === null ? "null" : payload,
+        subject: artifactId,
+        availableAt: NOW,
+        createdAt: NOW,
+      })
+      .returning();
+    if (!job) throw new Error("no job");
+    const { sent, notifier } = recordingNotifier();
+    expect(await sendDataRightsNotice(db(), job, NOW, notifier)).toBe("stale");
+    expect(sent).toEqual([]);
+    expect(await rightsJobs(artifactId)).toEqual([]);
+  });
+
+  it("stops before delivery when the service notice capacity is exhausted", async () => {
+    const { deps, artifactId, write } = await setup();
+    const visitor = await user("Visitor");
+    await write(visitor.id, "a");
+    value(
+      await requestDataRights(db(), deps.bucket, {
+        ...input(visitor.id, artifactId),
+        kind: "access",
+      }),
+    );
+    const [job] = await rightsJobs(artifactId);
+    if (!job) throw new Error("no job");
+    const laterCycle = Date.UTC(2040, 0, 1);
+    await recordEmailsSent(db().global, laterCycle, NOTICE_EMAILS_PER_CYCLE);
+    const { sent, notifier } = recordingNotifier();
+    expect(await sendDataRightsNotice(db(), job, laterCycle, notifier)).toBe("done");
+    expect(sent).toEqual([]);
+    expect(await emailsSentInCycle(db().global, laterCycle)).toBe(NOTICE_EMAILS_PER_CYCLE);
+    expect(await rightsJobs(artifactId)).toEqual([]);
+  });
+
   it("emails each admin of the artifact's owner, naming the person only by their visitor ID", async () => {
     const { deps, artifactId, write } = await setup();
     const visitor = await user("Visitor");
