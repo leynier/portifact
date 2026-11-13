@@ -60,6 +60,10 @@ export const ACCOUNT_ROUTE_OPERATIONS: Readonly<Record<string, AccountSessionOpe
   "POST /api/v1/account/delete": "delete_account",
   "POST /api/v1/account/deletion-code": "request_account_deletion_code",
   "POST /api/v1/account/delete-with-code": "delete_account_with_code",
+  "GET /api/v1/account/data-grants": "list_data_grants",
+  "GET /api/v1/account/data-grants/:artifactId/control": "read_data_grant_control",
+  "POST /api/v1/account/data-grants": "issue_data_grant",
+  "DELETE /api/v1/account/data-grants/:artifactId": "revoke_data_grants",
 };
 
 /** The operation a matched account route performs, or null when it has no name. */

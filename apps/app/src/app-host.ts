@@ -3,6 +3,7 @@
 import {
   ArtifactId,
   DEFAULT_REGION,
+  previewHost,
   type Region,
   requestContextOf,
   SHARE_ENTRY_PATH,
@@ -13,7 +14,7 @@ import {
 import { isLocale } from "@portifact/contracts/locales";
 import { THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { baseEnv, withRequestContext } from "@portifact/db";
-import { needsTermsAcceptance, viewerFrameOrigin } from "@portifact/domain";
+import { needsTermsAcceptance, suggestionsEnabled, viewerFrameOrigin } from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { customDomainsServing, getViewerArtifact } from "@portifact/services";
 import { Hono } from "hono";
@@ -77,6 +78,9 @@ export const DASHBOARD_ROUTES = [
   "/usage",
   "/plan",
   "/data",
+  // Artifact data (decision 0026): "Data you shared" and the consent control's page.
+  "/shared-data",
+  "/data/grant",
   "/webhooks",
   "/integrations",
   "/branding",
@@ -210,18 +214,25 @@ export async function dashboardCsp(
  * may read it; the logo comes from the same origin.
  */
 export async function viewerCsp(
-  env: Pick<Env, "R2_ACCOUNT_ID" | "R2_BUCKET_EU" | "CONTENT_DOMAIN">,
+  env: Pick<Env, "R2_ACCOUNT_ID" | "R2_BUCKET_EU" | "CONTENT_DOMAIN" | "SUGGESTIONS_ENABLED">,
   artifactId: string,
   frameOrigin = `https://${artifactId}.${env.CONTENT_DOMAIN}`,
 ): Promise<string> {
   // The owner's logo on a branded bar comes from that same artifact origin
   // (`/__portifact/brand/<sha256>`), so `img-src` adds exactly it and no host an owner chose.
-  return dashboardPolicy(
+  const policy = dashboardPolicy(
     storageOrigins(env),
     await documentStylesheetSource(),
     env.CONTENT_DOMAIN,
     frameOrigin,
   ).replace("img-src 'self'", `img-src 'self' ${frameOrigin}`);
+  // While edit suggestions are on, the viewer also frames their built previews (decision 0027,
+  // "Previews"), always with an empty sandbox; the reserved preview host only, never an artifact.
+  if (!suggestionsEnabled(env)) return policy;
+  return policy.replace(
+    `frame-src ${frameOrigin}`,
+    `frame-src ${frameOrigin} https://${previewHost(env.CONTENT_DOMAIN)}`,
+  );
 }
 
 /**

@@ -17,6 +17,7 @@ export * from "./branding.ts";
 export * from "./core.ts";
 export * from "./custom-domains.ts";
 export * from "./data-export.ts";
+export * from "./data-grants.ts";
 export * from "./documents.ts";
 export * from "./email.ts";
 export * from "./email-domains.ts";

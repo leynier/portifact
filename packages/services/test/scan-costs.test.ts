@@ -82,7 +82,8 @@ const DEVELOP = {
   // one batch of deletes, and the drafts scan's cursor and its page.
   // Plus the prune of preview codes (decision 0027): one read of due rows (its R2 listing adds
   // no D1 call; the delete runs only when a row is due).
-  runMaintenance: 83,
+  // Plus the prune of artifact data grants (decision 0026): one batch of two deletes.
+  runMaintenance: 84,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads
