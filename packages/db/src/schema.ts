@@ -758,6 +758,10 @@ export const OUTBOX_TOPICS = [
   "moderation_notice",
   "report_outcome",
   "legal_hold_release",
+  "suggestion_accept",
+  "draft_publish",
+  "suggestion_carry",
+  "change_list_check",
 ] as const;
 
 /**

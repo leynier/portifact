@@ -18,7 +18,13 @@ import {
   withRequestContext,
 } from "@portifact/db";
 import type { SuggestionsEnv } from "@portifact/domain";
-import { CodedError, errorLabel, logEvent, logSummary } from "@portifact/domain";
+import {
+  CodedError,
+  errorLabel,
+  logEvent,
+  logSummary,
+  suggestionsEnabled,
+} from "@portifact/domain";
 import {
   checkCustomDomains,
   type DomainDeps,
@@ -360,6 +366,8 @@ export async function runQueue(
         commentRetentionNotifier,
         reportOutcomeNotifier,
         regions,
+        // Edit suggestions (decision 0027): their jobs wait while the switch is off.
+        suggestions: { enabled: suggestionsEnabled(env), contentDomain: env.CONTENT_DOMAIN },
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });

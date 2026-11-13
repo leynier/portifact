@@ -72,6 +72,10 @@ export const AUDIT_GROUPS = {
     "artifact.unpinned",
     "artifact.transferred_in",
     "artifact.transferred_out",
+    "suggestion.accepted",
+    "suggestion.rejected",
+    "suggestion.withdrawn",
+    "change_item.marked",
   ],
   integrations: [
     "domain.attached",
@@ -528,6 +532,8 @@ export function describeAuditEvent(
     "plan.removed": "audit.kind.planRemoved",
     "service_token.revoked": "audit.kind.tokenRevoked",
     "scim_token.revoked": "audit.kind.scimTokenRevoked",
+    "suggestion.rejected": "audit.kind.suggestionRejected",
+    "suggestion.withdrawn": "audit.kind.suggestionWithdrawn",
   };
   const message = simple[event.kind];
   if (message) return t(message);
@@ -551,6 +557,28 @@ export function describeAuditEvent(
       });
     case "review.requested":
       return t("audit.kind.reviewRequested", { reviewers: Number(d.reviewers) });
+    case "suggestion.accepted": {
+      const counts = { applied: Number(d.applied), listed: Number(d.listed) };
+      const draft = d.origin === "draft";
+      if (d.version === null) {
+        return t(
+          draft ? "audit.kind.draftPublishedNothing" : "audit.kind.suggestionAcceptedNothing",
+          counts,
+        );
+      }
+      return t(draft ? "audit.kind.draftPublished" : "audit.kind.suggestionAccepted", {
+        ...counts,
+        version: Number(d.version),
+      });
+    }
+    case "change_item.marked":
+      return t(
+        d.state === "applied"
+          ? "audit.kind.changeItemApplied"
+          : d.state === "dismissed"
+            ? "audit.kind.changeItemDismissed"
+            : "audit.kind.changeItemReopened",
+      );
     case "review.verdict":
       return t("audit.kind.reviewVerdict", {
         verdict: String(d.verdict),

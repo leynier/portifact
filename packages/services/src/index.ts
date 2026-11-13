@@ -105,3 +105,33 @@ export * from "./workspace-domains.ts";
 export * from "./workspace-groups.ts";
 export * from "./workspace-policies.ts";
 export * from "./workspaces.ts";
+export * from "./change-list.ts";
+export * from "./suggestion-accept.ts";
+export * from "./suggestion-maintenance.ts";
+export {
+  draftPlanOf,
+  draftSubject,
+  newFileBytes,
+  ownDraft,
+  pageUrlOf,
+  planDraft,
+  planSuggestion,
+  planView,
+  type StoredPage,
+  type SubjectPlan,
+  storedPage,
+  suggestionPlanOf,
+} from "./suggestion-plans.ts";
+export {
+  runChangeListCheck,
+  runSuggestionCarry,
+  suggestionVersionJobs,
+} from "./suggestion-versions.ts";
+export {
+  getSuggestion,
+  rejectSuggestion,
+  storedEdit,
+  storedProofs,
+  submitSuggestion,
+  withdrawSuggestion,
+} from "./suggestions.ts";

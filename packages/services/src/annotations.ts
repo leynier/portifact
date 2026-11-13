@@ -76,9 +76,14 @@ import {
   threadInScope,
   threadVisible,
 } from "@portifact/domain";
+import {
+  checkSuggestionThreadState,
+  firstMessageDeletion,
+} from "@portifact/domain/suggestions";
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actorAndPlanOn, actorOn, ownerSide } from "./actors.ts";
+import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
 import { heldRefusal, isHeld } from "./legal-holds.ts";
@@ -1135,6 +1140,63 @@ export async function moderateAnnotationMessage(
   );
 }
 
+/** The first message of a thread: the one its author started it with. */
+async function firstMessageId(db: RegionalDb, threadId: string): Promise<string | null> {
+  const m = schema.annotationMessages;
+  const [row] = await db
+    .select({ id: m.id })
+    .from(m)
+    .where(eq(m.threadId, threadId))
+    .orderBy(asc(m.createdAt), sql`${m}.rowid`)
+    .limit(1);
+  return row?.id ?? null;
+}
+
+/**
+ * Withdraws a pending suggestion in a claimed batch, with its audit event: the edit is cleared
+ * (its bytes given back by the usage trigger) and the thread stays as a conversation. Only while
+ * it is still pending, so an acceptance that started first wins.
+ */
+function withdrawalStatements(
+  x: Db,
+  loaded: Authorized,
+  threadId: string,
+  writeId: string,
+  input: AnnotationActor,
+): BatchItem<"sqlite">[] {
+  const th = schema.annotationThreads;
+  const pending = sql`exists (select 1 from ${th} where ${th.id} = ${threadId} and ${th.suggestionState} = 'pending')`;
+  return [
+    auditEvent(
+      x,
+      {
+        ownerId: loaded.artifact.ownerId,
+        kind: "suggestion.withdrawn",
+        actor: { type: "user", id: input.userId },
+        targetId: loaded.artifact.id,
+        artifactId: loaded.artifact.id,
+        detail: {},
+        now: input.now,
+      },
+      sql`${claimed(writeId)} and ${pending}`,
+    ),
+    x
+      .update(th)
+      .set(WITHDRAWN)
+      .where(and(eq(th.id, threadId), eq(th.suggestionState, "pending"), claimed(writeId))),
+  ];
+}
+
+/** What a withdrawal writes on the thread. */
+export const WITHDRAWN = {
+  suggestionState: "withdrawn",
+  edit: null,
+  editBytes: 0,
+  editProofs: null,
+  attemptReason: null,
+  suggestionRevision: sql`${schema.annotationThreads.suggestionRevision} + 1`,
+} as const;
+
 /**
  * Deletes a message, keeping a marker so replies keep their place. When no other message of
  * the thread is left, the thread is removed. Deleting a deleted message changes nothing.
@@ -1170,9 +1232,26 @@ async function removeMessage(
           ),
         );
       const remaining = Number((others as { count: number }).count);
-      return ok({ loaded: loaded.value, found, removesThread: remaining === 0 });
+      // Deleting one's own first message of a pending suggestion withdraws it (decision 0027,
+      // "Withdrawal, deletion and retention"); the author's words and their edit go together.
+      const first =
+        found.thread.kind === "suggestion" && action === "delete_own"
+          ? await firstMessageId(db, found.thread.id)
+          : null;
+      const deletion = firstMessageDeletion(
+        found.thread.kind,
+        found.thread.suggestionState,
+        first === input.messageId && found.thread.authorId === input.userId,
+      );
+      if (!deletion.ok) return deletion;
+      return ok({
+        loaded: loaded.value,
+        found,
+        removesThread: remaining === 0,
+        withdraws: deletion.value.withdraws,
+      });
     },
-    async ({ loaded, found, removesThread }) => {
+    async ({ loaded, found, removesThread, withdraws }) => {
       if (found.message.state === "deleted") return ok(true);
       const th = schema.annotationThreads;
       const others = sql`exists (select 1 from ${m} where ${m.threadId} = ${found.thread.id} and ${m.id} <> ${input.messageId} and ${m.state} <> 'deleted')`;
@@ -1213,6 +1292,7 @@ async function removeMessage(
           .update(m)
           .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
           .where(and(eq(m.id, input.messageId), claimed(writeId))),
+        ...(withdraws ? withdrawalStatements(x, loaded, found.thread.id, writeId, input) : []),
         touchThread(x, found.thread.id, writeId, input.now),
       ]);
     },
@@ -1239,12 +1319,15 @@ export async function setAnnotationThreadState(
       if (!thread) return missingThread();
       const allowed = checkResolve(loaded.value.role, input.userId, thread.authorId);
       if (!allowed.ok) return allowed;
+      // An undecided suggestion is accepted, rejected or withdrawn, never resolved (decision 0027).
+      const decided = checkSuggestionThreadState(thread.kind, thread.suggestionState, input.state);
+      if (!decided.ok) return decided;
       return ok({ loaded: loaded.value, thread });
     },
     async ({ loaded, thread }) => {
       if (thread.state === input.state) return ok(true);
       const th = schema.annotationThreads;
-      const guard = sql`${artifactGuard(loaded, "resolve", input.now)} and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.state} = ${thread.state})${
+      const guard = sql`${artifactGuard(loaded, "resolve", input.now)} and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.state} = ${thread.state} and (${th.kind} = 'comment' or ${th.suggestionState} not in ('pending', 'applying') or ${input.state} = 'open'))${
         loaded.role === "participant" ? sql` and ${currentThreadGuard(thread.id)}` : sql``
       }`;
       const resolved = input.state === "resolved";
@@ -1675,14 +1758,7 @@ export async function eraseAuthorFromThread(
         // deletion and retention"): withdrawn, its edit cleared, the thread kept as a conversation.
         db
           .update(th)
-          .set({
-            suggestionState: "withdrawn",
-            edit: null,
-            editBytes: 0,
-            editProofs: null,
-            attemptReason: null,
-            suggestionRevision: sql`${th.suggestionRevision} + 1`,
-          })
+          .set(WITHDRAWN)
           .where(
             and(
               eq(th.id, thread.id),
@@ -1938,3 +2014,26 @@ export async function participation(
   }
   return result;
 }
+
+/**
+ * The annotation paths' loading, guards and claimed writes, for the suggestion services (decision
+ * 0027), which are comment threads under exactly these rules. Not a use case.
+ */
+export const annotationParts = {
+  authorize,
+  findThread,
+  artifactGuard,
+  currentThreadGuard,
+  rateGuard,
+  claim,
+  claimed,
+  claimedEventId,
+  runClaimed,
+  guardedWrite,
+  checkLimits,
+  humanGate,
+  noticeMark,
+  insertMessage,
+  threadResult,
+} as const;
+export type { Authorized as AuthorizedAnnotations };

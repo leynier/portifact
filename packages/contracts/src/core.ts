@@ -103,6 +103,11 @@ export const ERROR_DETAILS = [
   "comment_retention_guard",
   /** Mail to the account's address bounced or was reported (the account deletion code). */
   "email_suppressed",
+  /**
+   * A suggestion's or draft's plan is no longer the one the person confirmed (decision 0027):
+   * review it again.
+   */
+  "plan_changed",
 ] as const;
 export const ErrorDetail = z.enum(ERROR_DETAILS);
 export type ErrorDetail = z.infer<typeof ErrorDetail>;

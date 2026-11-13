@@ -132,6 +132,22 @@ export function auditSummary(event: AuditEventView): string {
       ].join("")}`;
     case "review.cancelled":
       return "Cancelled a review request";
+    case "suggestion.accepted": {
+      const what = d.origin === "draft" ? "Published a draft" : "Accepted a suggestion";
+      return d.version === null
+        ? `${what} with nothing applied: ${d.listed} to the change list`
+        : `${what} as version ${d.version}: ${d.applied} applied, ${d.listed} to the change list`;
+    }
+    case "suggestion.rejected":
+      return "Rejected a suggestion";
+    case "suggestion.withdrawn":
+      return "Withdrew a suggestion";
+    case "change_item.marked":
+      return d.state === "open"
+        ? "Reopened a change-list item"
+        : d.state === "applied"
+          ? "Marked a change-list item as applied"
+          : "Dismissed a change-list item";
     case "review.verdict":
       return d.verdict === "approve"
         ? `Approved version ${d.version}`

@@ -77,6 +77,11 @@ import { maintainWebhooks } from "./webhooks.ts";
 import { pruneArtifactGroups, pruneGroupTombstones } from "./workspace-groups.ts";
 import { enforceWorkspacePolicies, ownerEntitlementsAndPolicy } from "./workspace-policies.ts";
 import { type DeletionRegions, processWorkspaceDeletions, singleRegion } from "./workspaces.ts";
+import {
+  expireAcceptAttempts,
+  pruneDraftsWithoutRole,
+  pruneSuggestionRecords,
+} from "./suggestion-maintenance.ts";
 
 const DEFAULT_BATCH = 50;
 const RELEASE_CHUNK = 40;
@@ -964,6 +969,11 @@ export async function runRegionalMaintenance(
     threadIssues: await requeueThreadIssues(db, now),
     // Slack connections started and never completed (decision 0025): one delete.
     pendingConnections: await prunePendingConnections(db, now),
+    // Edit suggestions (decision 0027): overdue acceptances end, records past their time go, and
+    // drafts of people who no longer act for the owner are deleted.
+    acceptAttempts: (await expireAcceptAttempts(db, now)).ended,
+    suggestionRecords: await pruneSuggestionRecords(db, now),
+    draftsWithoutRole: (await pruneDraftsWithoutRole(db, now)).deleted,
     workspacePolicies: await enforceWorkspacePolicies(db, now),
     // Comment retention (decision 0023): deletes for good, bounded, held to the rule in force.
     commentRetention: await enforceCommentRetention(db, bucket, now, region),
@@ -1047,6 +1057,11 @@ export async function runMaintenance(
     pendingConnections: await prunePendingConnections(db, now),
     // Workspace policies (decision 0015): brings back in line what a request that read a policy
     // before it tightened let through after the policy's job ran.
+    // Edit suggestions (decision 0027): overdue acceptances end, records past their time go, and
+    // drafts of people who no longer act for the owner are deleted.
+    acceptAttempts: (await expireAcceptAttempts(db, now)).ended,
+    suggestionRecords: await pruneSuggestionRecords(db, now),
+    draftsWithoutRole: (await pruneDraftsWithoutRole(db, now)).deleted,
     workspacePolicies: await enforceWorkspacePolicies(db, now),
     // Comment retention (decision 0023): deletes for good, bounded, held to the rule in force and
     // paused after a restore of the global database until the policies are applied again. One

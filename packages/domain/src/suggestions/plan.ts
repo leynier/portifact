@@ -72,6 +72,11 @@ export interface PlanInput {
   pageUrl: string;
   /** The installed renderer; a document plan accepts only its label as the binding's renderer. */
   renderer: DocumentRenderer;
+  /**
+   * Lists every operation with this reason without reading the file: the service passes it when
+   * the stored bytes cannot be decoded as UTF-8, so nothing is parsed, mapped or applied.
+   */
+  refuse?: "not_eligible";
   work?: Work;
 }
 
@@ -84,6 +89,8 @@ export interface BuiltPlan extends Plan {
    * when its proof would be over `PLAN_LIMITS.proofBytes` (the item is then closed by hand).
    */
   proofs: (Proof | null)[];
+  /** The index in the edit of each envelope's operation, applied then listed, like `proofs`. */
+  operations: number[];
   work: Work;
 }
 
@@ -191,6 +198,7 @@ function planFile(input: PlanInput, work: Work): PlannedFile {
     work,
     settle: settled,
   });
+  if (input.refuse) return all(input.refuse);
   if (utf8Length(input.source) > limitOf(input.kind)) return all("too_large");
   if (input.kind === "html") {
     return planHtml({ html: input.source, edits, pageUrl: input.pageUrl, work });
@@ -299,6 +307,10 @@ export async function buildPlan(input: PlanInput): Promise<BuiltPlan> {
     proofs: [
       ...planned.applied.map((item) => storable(item.proof)),
       ...planned.listed.map((item) => storable(item.proof)),
+    ],
+    operations: [
+      ...planned.applied.map((item) => item.operation),
+      ...planned.listed.map((item) => item.operation),
     ],
     work,
     ...(planned.source === undefined ? {} : { newSource: planned.source }),

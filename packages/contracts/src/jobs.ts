@@ -32,6 +32,10 @@ export const OutboxTopic = z.enum([
   "moderation_notice",
   "report_outcome",
   "legal_hold_release",
+  "suggestion_accept",
+  "draft_publish",
+  "suggestion_carry",
+  "change_list_check",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -223,3 +227,25 @@ export const LegalHoldLine = z.strictObject({
   }),
 });
 export type LegalHoldLine = z.infer<typeof LegalHoldLine>;
+
+/**
+ * Payload of a `suggestion_accept` or `draft_publish` job (decision 0027, "Producing the new
+ * version"): the attempt it runs and the content domain the plan resolved link destinations
+ * against, so the job rebuilds the plan the person confirmed. Its subject is the artifact.
+ */
+export const AcceptancePayload = z.strictObject({
+  attemptId: z.string().min(1).max(64),
+  contentDomain: z.string().min(1).max(253),
+});
+export type AcceptancePayload = z.infer<typeof AcceptancePayload>;
+
+/**
+ * Payload of a `suggestion_carry` or `change_list_check` job: the version that became current
+ * (the job does nothing once another one is), and for a check, the item it resumes after. Its
+ * subject is the artifact.
+ */
+export const VersionJobPayload = z.strictObject({
+  versionId: z.string().min(1).max(64),
+  after: z.string().max(64).optional(),
+});
+export type VersionJobPayload = z.infer<typeof VersionJobPayload>;
