@@ -2,7 +2,7 @@
 // page shows, as the anchors read it, for whoever may suggest; nothing of the file beyond it.
 import { env } from "cloudflare:test";
 import { schema } from "@portifact/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { placeLegalHold } from "../src/legal-holds.ts";
 import { suspendArtifact } from "../src/moderation.ts";
@@ -30,6 +30,23 @@ async function setup(options: { type?: "markdown" | "site"; body?: string } = {}
       contentDomain: DOMAIN,
     });
   return { owner, reader, doc, ask };
+}
+
+/** The R2 key of a stored file of the version, by its kind. */
+async function keyOf(versionId: string, kind: "published" | "rendered") {
+  const [row] = await db()
+    .select({ key: schema.objects.r2Key })
+    .from(schema.versionFiles)
+    .innerJoin(
+      schema.objects,
+      and(
+        eq(schema.objects.ownerId, schema.versionFiles.ownerId),
+        eq(schema.objects.sha256, schema.versionFiles.sha256),
+      ),
+    )
+    .where(and(eq(schema.versionFiles.versionId, versionId), eq(schema.versionFiles.kind, kind)));
+  if (!row) throw new Error(`no ${kind} file`);
+  return row.key;
 }
 
 describe("the text of a page", () => {
@@ -116,6 +133,31 @@ describe("the text of a page", () => {
     expect(value(await big.ask(big.reader.id, "index.html"))).toEqual({
       state: "unavailable",
       reason: "too_large",
+    });
+  });
+
+  it("says when the page is missing from storage, is not text, or has no stored rendering", async () => {
+    const missing = await setup({ type: "site" });
+    await env.ARTIFACTS.delete(await keyOf(missing.doc.versionId, "published"));
+    expect(await missing.ask(missing.reader.id, "index.html")).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+
+    const binary = await setup({ type: "site" });
+    const key = await keyOf(binary.doc.versionId, "published");
+    const size = (await env.ARTIFACTS.head(key))?.size ?? 0;
+    await env.ARTIFACTS.put(key, new Uint8Array(size).fill(0xff));
+    expect(value(await binary.ask(binary.reader.id, "index.html"))).toEqual({
+      state: "unavailable",
+      reason: "not_eligible",
+    });
+
+    const unrendered = await setup();
+    await env.ARTIFACTS.delete(await keyOf(unrendered.doc.versionId, "rendered"));
+    expect(value(await unrendered.ask(unrendered.reader.id))).toEqual({
+      state: "unavailable",
+      reason: "renderer_changed",
     });
   });
 });
