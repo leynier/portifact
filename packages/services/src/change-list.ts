@@ -15,7 +15,7 @@ import {
   type MarkChangeItem,
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
-import { fail, ok, type Result } from "@portifact/domain";
+import { checkAnnotationAction, fail, ok, type Result } from "@portifact/domain";
 import { checkMark, presentEnvelope } from "@portifact/domain/suggestions";
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import {
@@ -156,8 +156,16 @@ export async function markChangeItem(
   db: RegionalDb,
   input: AnnotationActor & MarkChangeItem & { itemId: string },
 ): Promise<Result<ChangeItemView>> {
+  // A write on the owner side: the same refusals as other annotation writes (suspended,
+  // archived or expired artifacts, annotations off), and a held artifact's hold message for those
+  // who manage it, checked after authorization.
   const loaded = await ownerSide(db, input);
   if (!loaded.ok) return loaded;
+  const writable = checkAnnotationAction(
+    { role: loaded.value.role, state: loaded.value.state, mode: loaded.value.artifact.annotations },
+    "moderate",
+  );
+  if (!writable.ok) return writable;
   const artifact = loaded.value.artifact;
   const [item] = await db
     .select()
@@ -177,10 +185,11 @@ export async function markChangeItem(
   if (item.revision !== input.baseRevision) {
     return fail("version_conflict", "The item changed meanwhile. Reload and try again.");
   }
-  if (allowed.value === "unchanged")
+  if (allowed.value === "unchanged") {
     return ok(itemView(item, await names(db, [item.submittedBy, item.createdBy])));
-  const t = schema.artifacts;
-  const guard = sql`exists (select 1 from ${ci} where ${ci.id} = ${item.id} and ${ci.state} = ${item.state} and ${ci.revision} = ${item.revision}) and exists (select 1 from ${t} where ${t.id} = ${artifact.id} and ${t.ownerId} = ${artifact.ownerId})${
+  }
+  // The artifact as authorized (owner, active, unexpired, mode), the item as read.
+  const guard = sql`${annotationParts.artifactGuard(loaded.value, "moderate", input.now)} and exists (select 1 from ${ci} where ${ci.id} = ${item.id} and ${ci.state} = ${item.state} and ${ci.revision} = ${item.revision})${
     input.state === "open"
       ? sql` and ${openItemsSql(artifact.id)} < ${CHANGE_LIST_LIMITS.openPerArtifact}`
       : sql``
@@ -214,6 +223,14 @@ export async function markChangeItem(
   ]);
   const changed = updated[0];
   if (!changed) {
+    // Answer what a fresh request would: the refusal that now applies, else a conflict.
+    const again = await ownerSide(db, input);
+    if (!again.ok) return again;
+    const still = checkAnnotationAction(
+      { role: again.value.role, state: again.value.state, mode: again.value.artifact.annotations },
+      "moderate",
+    );
+    if (!still.ok) return still;
     return fail("version_conflict", "The item changed meanwhile. Reload and try again.");
   }
   return ok(itemView(changed, await names(db, [changed.submittedBy, changed.createdBy])));
