@@ -1761,3 +1761,89 @@ it("A4b: closure jobs read within the default budget and each page once across t
   // Every page of the new version read once, and nothing else (no stored rendering).
   expect(keys).toHaveLength(paths.length);
 });
+
+it("readCapped never reads the body of an object stored over its cap", async () => {
+  let pulled = false;
+  let cancelled = false;
+  const bucket = {
+    get: async () => ({
+      size: 17,
+      body: new ReadableStream(
+        {
+          pull(controller) {
+            pulled = true;
+            controller.enqueue(new Uint8Array(17));
+            controller.close();
+          },
+          cancel() {
+            cancelled = true;
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+    }),
+  } as unknown as R2Bucket;
+  expect(await readCapped(bucket, "x", 16)).toBe("too_large");
+  expect(pulled).toBe(false);
+  expect(cancelled).toBe(true);
+});
+
+it("a document's closure reads only its source, never the stored rendering", async () => {
+  const owner = await user("Owner");
+  const doc = await publishDoc(owner.id);
+  const proof = JSON.stringify({
+    unit: "utf16",
+    start: 0,
+    end: 1,
+    before: "x",
+    after: "y",
+    shownBefore: "x",
+    shownAfter: "y",
+    nodeLeft: "",
+    nodeRight: "",
+    identity: [],
+  });
+  await db()
+    .insert(schema.changeItems)
+    .values({
+      id: `doc_close_${doc.artifactId}`,
+      artifactId: doc.artifactId,
+      ownerId: owner.id,
+      origin: "draft",
+      versionId: doc.versionId,
+      path: doc.path,
+      envelope: '{"format":1}',
+      proof,
+      bytes: 12 + proof.length,
+      reason: "not_eligible",
+    });
+  await republish(owner.id, doc, `${DOC}\nMore.`);
+  const [job] = await jobsOf("change_list_check", doc.artifactId);
+  const keys: string[] = [];
+  const bucket = new Proxy(env.ARTIFACTS, {
+    get(target, key) {
+      if (key === "get")
+        return (k: string) => {
+          keys.push(k);
+          return target.get(k);
+        };
+      const v = Reflect.get(target, key, target);
+      return typeof v === "function" ? v.bind(target) : v;
+    },
+  });
+  await runJob(db(), bucket, { id: the(job).id, topic: "change_list_check" }, NOW + 3000, JOB_DEPS);
+  const [current] = await db()
+    .select()
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, doc.artifactId));
+  const [source] = await db()
+    .select()
+    .from(schema.versionFiles)
+    .where(
+      and(
+        eq(schema.versionFiles.versionId, the(the(current).currentVersionId)),
+        eq(schema.versionFiles.kind, "published"),
+      ),
+    );
+  expect(keys).toEqual([`objects/${owner.id}/${the(source).sha256}`]);
+});
