@@ -45,7 +45,12 @@ function fenced(control: DataControl, epoch: number, transition: string): DataCo
 
 describe("the inventory and the journal's keys", () => {
   it("names an object by its artifact, and reads only its own keys back", () => {
-    expect(inventoryKey("abcdefghij")).toBe(`${INVENTORY_PREFIX}abcdefghij`);
+    expect(INVENTORY_PREFIX).toBe("system/data-objects/");
+    expect(JOURNAL_PREFIX).toBe("system/data-authors/");
+    expect(inventoryKey("abcdefghij")).toBe("system/data-objects/abcdefghij");
+    // Killed mutation: dropping the prefix check (a key of the same length elsewhere).
+    expect(inventoryArtifact(`${"x".repeat(INVENTORY_PREFIX.length)}abcdefghij`)).toBeNull();
+    expect(journalSubject(`${"x".repeat(JOURNAL_PREFIX.length)}u_1/abcdefghij`)).toBeNull();
     expect(inventoryArtifact(inventoryKey("abcdefghij"))).toBe("abcdefghij");
     // Killed mutations: dropping the prefix check, the empty check, or the nested-key check.
     expect(inventoryArtifact("system/data-authors/u/abcdefghij")).toBeNull();
@@ -123,26 +128,26 @@ describe("what lifecycle commands carry", () => {
 });
 
 describe("after the object refused a fence", () => {
-  const fence = { kind: "hold", transition: "hold_b" } as const;
-
   it("is done once the object is past it", () => {
     const control = fenced(newControl(base, NOW), 4, "hold_a");
     // Killed mutation: `>` for `>=` on the last transition's epoch.
-    expect(fenceRefused(control, { ...base, epoch: 4 }, fence, "stale")).toBe("done");
-    expect(fenceRefused(control, { ...base, epoch: 2 }, fence, "stale")).toBe("done");
+    expect(fenceRefused(control, { ...base, epoch: 4 }, "stale")).toBe("done");
+    expect(fenceRefused(control, { ...base, epoch: 2 }, "stale")).toBe("done");
   });
 
   it("retries while an earlier change has to land first", () => {
     const control = newControl(base, NOW);
-    expect(fenceRefused(control, { ...base, epoch: 3 }, fence, "stale")).toBe("retry");
-    expect(fenceRefused(control, { ...base, epoch: 3 }, fence, "held")).toBe("retry");
+    expect(fenceRefused(control, { ...base, epoch: 3 }, "stale")).toBe("retry");
+    expect(fenceRefused(control, { ...base, epoch: 3 }, "held")).toBe("retry");
   });
 
   it("is done for what can never apply", () => {
+    // At an epoch the object is not past, so only the code can end it.
     const control = newControl(base, NOW);
-    expect(fenceRefused(control, base, fence, "conflict")).toBe("done");
-    expect(fenceRefused(control, base, fence, "forbidden")).toBe("done");
-    expect(fenceRefused(control, base, fence, "invalid_input")).toBe("done");
+    const ahead = { ...base, epoch: 5 };
+    expect(fenceRefused(control, ahead, "conflict")).toBe("done");
+    expect(fenceRefused(control, ahead, "forbidden")).toBe("done");
+    expect(fenceRefused(control, ahead, "invalid_input")).toBe("done");
   });
 });
 

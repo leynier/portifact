@@ -98,15 +98,13 @@ describe("the operator's data commands", () => {
     expect((await runOperator(regionsFromEnv(env), ["data-findings"], now)).output).toBe(
       "No artifact data findings.",
     );
-    await db()
-      .insert(schema.dataFindings)
-      .values({
-        artifactId: id,
-        action: "quarantined",
-        reason: "orphan",
-        firstSeenAt: now,
-        lastSeenAt: now,
-      });
+    await db().insert(schema.dataFindings).values({
+      artifactId: id,
+      action: "quarantined",
+      reason: "orphan",
+      firstSeenAt: now,
+      lastSeenAt: now,
+    });
     expect((await runOperator(regionsFromEnv(env), ["data-findings"], now)).output).toContain(
       `${id}  quarantined (orphan)`,
     );

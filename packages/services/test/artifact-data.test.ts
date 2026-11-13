@@ -63,12 +63,13 @@ function memoryObjects(createsObjects = false) {
       const memory = of(id);
       return {
         lifecycleControl: async () => memory.durable.control,
-        lifecycleFence: async (envelope, fence, now) => memory.fence(envelope, fence, now),
+        // The reference's answers may also be replays; the lifecycle commands never are.
+        lifecycleFence: async (envelope, fence, now) => memory.fence(envelope, fence, now) as never,
         lifecycleErase: async (step, envelope, eraseId, reason, now) => {
           const required: DataEnvelope = { ...envelope, requiredErase: reason };
-          if (step === "prepare") return memory.prepareErase(required, eraseId, now);
-          if (step === "commit") return memory.commitErase(required, eraseId, now);
-          return memory.cancelErase(required, eraseId, now);
+          if (step === "prepare") return memory.prepareErase(required, eraseId, now) as never;
+          if (step === "commit") return memory.commitErase(required, eraseId, now) as never;
+          return memory.cancelErase(required, eraseId, now) as never;
         },
         lifecycleEraseAuthor: async (envelope, visitor, opId, now) =>
           memory.eraseAuthorChunk({ ...envelope, opId }, visitor, 500, {
@@ -76,9 +77,9 @@ function memoryObjects(createsObjects = false) {
             limits: LIFECYCLE_LIMITS,
           }),
         lifecycleQuarantine: async (envelope, reason, now) =>
-          memory.quarantine(envelope, reason, now),
+          memory.quarantine(envelope, reason, now) as never,
         lifecycleResolve: async (envelope, decision, now) =>
-          memory.resolveQuarantine(envelope, decision, now),
+          memory.resolveQuarantine(envelope, decision, now) as never,
         lifecycleExport: async (envelope, after, now) =>
           memory.exportPage(
             envelope,

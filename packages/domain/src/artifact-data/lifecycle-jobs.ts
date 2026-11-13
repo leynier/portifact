@@ -7,7 +7,6 @@ import {
   type ArtifactDataLimits,
   type DataControl,
   type DataEnvelope,
-  type DataFence,
   type DataRefusalCode,
   type InventoryEntry,
   MAX_ARTIFACT_BYTES,
@@ -143,14 +142,13 @@ export type JobStep = "done" | "retry" | "wait";
 export function fenceRefused(
   control: DataControl,
   envelope: DataEnvelope,
-  fence: DataFence,
   code: DataRefusalCode,
 ): JobStep {
-  if (code === "conflict") return "done";
+  // `conflict` (this transition ID applied with other contents) ends like any code but these two.
   if (code === "held") return "retry";
   if (code !== "stale") return "done";
-  if (control.last.id === fence.transition || control.last.epoch >= envelope.epoch) return "done";
-  return "retry";
+  // A repeat of the last transition is acknowledged, never stale, so only the epoch tells.
+  return control.last.epoch >= envelope.epoch ? "done" : "retry";
 }
 
 /**

@@ -509,7 +509,7 @@ export async function runDataFence(
   const answer = await object.lifecycleFence(envelope, payload.fence, now);
   if (answer.ok) return "done";
   const after = await object.lifecycleControl();
-  const step = after === null ? "retry" : fenceRefused(after, envelope, payload.fence, answer.code);
+  const step = after === null ? "retry" : fenceRefused(after, envelope, answer.code);
   return afterRefusal(db, row, step, answer.code, now);
 }
 

@@ -72,9 +72,11 @@ function entryPoints(config: string): string[] {
   const dir = config.slice(0, config.lastIndexOf("/"));
   const source = main ? read(`${dir}/${main}`) : "";
   const handlers = handlersIn(source);
-  const classes = [...text.matchAll(/"class_name"\s*:\s*"([^"]+)"/g)].map(
-    (match) => match[1] as string,
-  );
+  // A class this Worker exports; a binding with `script_name` is another Worker's class (the
+  // jobs Worker's `ARTIFACT_DOCUMENTS`, decision 0026), classified with that Worker.
+  const classes = [...text.matchAll(/\{[^{}]*"class_name"\s*:\s*"([^"]+)"[^{}]*\}/g)]
+    .filter((match) => !match[0].includes('"script_name"'))
+    .map((match) => match[1] as string);
   return [...new Set([...handlers, ...classes])].map((name) => `${config}#${name}`);
 }
 
