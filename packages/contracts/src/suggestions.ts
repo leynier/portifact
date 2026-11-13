@@ -7,6 +7,13 @@
 // change to what a format-1 envelope or plan means bumps its `format`.
 import { z } from "zod";
 import { AnnotationTarget, codePointLength } from "./anchors.ts";
+import {
+  AnnotationBody,
+  AnnotationId,
+  AnnotationPage,
+  AnnotationThreadView,
+} from "./annotations.ts";
+import { TurnstileToken } from "./human.ts";
 
 /** The switch that turns suggestions on, on the app and jobs Workers only (never deployed yet). */
 export const SUGGESTIONS_SWITCH = "SUGGESTIONS_ENABLED";
@@ -29,6 +36,9 @@ export const DRAFT_LIMITS = {
   perUser: 20,
   /** A draft nobody saved for this long is deleted. */
   unusedDays: 30,
+  /** Saves one person makes in a window (decision 0027, "Costs and limits"). */
+  savesPerUser: 120,
+  savesWindowMs: 10 * 60_000,
 } as const;
 
 /** Bounds of a patch plan, enforced inside the planners (decision 0027, "Budget"). */
@@ -68,6 +78,9 @@ export const CHANGE_LIST_LIMITS = {
   closedRetentionDays: 90,
   /** Node-local context the two sides of a closure proof need together, in UTF-16 units. */
   closureMinContextUnits: 8,
+  /** Items one page of the list returns by default and at most. */
+  pageDefault: 50,
+  pageMax: 100,
 } as const;
 
 /** Suggestions carried in one run of the carry job; the rest continue in the next. */
@@ -782,3 +795,79 @@ export const PreviewResponse = z.discriminatedUnion("state", [
   z.object({ state: z.literal("unavailable"), reasons: z.array(Token) }),
 ]);
 export type PreviewResponse = z.infer<typeof PreviewResponse>;
+
+// Route bodies (decision 0027, the adapters). Requests are strict; answers stay tolerant.
+
+/**
+ * Submitting a suggestion on the artifact's current version (session only): the edit, and the
+ * reviewer's note as the thread's first message. The edit is validated by `Edit` in the service,
+ * so a refusal names the rule it broke.
+ */
+export const SubmitSuggestionRequest = z.strictObject({
+  versionId: AnnotationId,
+  edit: z.unknown(),
+  body: AnnotationBody,
+  turnstileToken: TurnstileToken.optional(),
+});
+export type SubmitSuggestionRequest = z.infer<typeof SubmitSuggestionRequest>;
+
+/** Rejecting or withdrawing a suggestion, at the suggestion revision the caller saw. */
+export const DecideSuggestionRequest = z.strictObject({
+  revision: z.number().int().nonnegative(),
+});
+export type DecideSuggestionRequest = z.infer<typeof DecideSuggestionRequest>;
+
+/** `?fields=suggestion` on the annotation thread routes adds `kind` and `suggestion`. */
+export const SuggestionFieldsQuery = z.object({ fields: z.literal("suggestion").optional() });
+
+/** A thread view with its kind and, for a suggestion, the suggestion (`?fields=suggestion`). */
+export const SuggestionThreadView = AnnotationThreadView.extend({
+  kind: Token,
+  suggestion: SuggestionView.nullable(),
+});
+export type SuggestionThreadView = z.infer<typeof SuggestionThreadView>;
+
+/** The annotation list with `?fields=suggestion`. */
+export const SuggestionAnnotationPage = AnnotationPage.extend({
+  threads: z.array(SuggestionThreadView),
+});
+export type SuggestionAnnotationPage = z.infer<typeof SuggestionAnnotationPage>;
+
+/**
+ * Saving one's own draft (session only): the whole edit, on the artifact's current version, at
+ * the draft revision the caller holds (null for a new draft). The viewer coalesces repeated
+ * edits of the same text into one operation before sending.
+ */
+export const SaveDraftRequest = z.strictObject({
+  baseVersionId: AnnotationId,
+  edit: DraftEdit,
+  baseRevision: z.number().int().min(1).nullable(),
+});
+export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
+
+/** One's own draft on an artifact. Its edit is the author's own text. */
+export const DraftView = z.object({
+  artifactId: z.string(),
+  baseVersionId: z.string(),
+  edit: z.unknown(),
+  revision: z.number().int().min(1),
+  /** Whether a publish of it is running (its job decides). */
+  publishing: z.boolean(),
+  /** Why the last publish ended without completing. */
+  attemptReason: Token.nullable(),
+  updatedAt: z.number().int(),
+});
+export type DraftView = z.infer<typeof DraftView>;
+
+/** Listing the change list: one state or all, oldest first, paged by cursor. */
+export const ChangeItemListQuery = z.object({
+  state: ChangeItemState.optional(),
+  cursor: z.string().max(128).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(CHANGE_LIST_LIMITS.pageMax)
+    .default(CHANGE_LIST_LIMITS.pageDefault),
+});
+export type ChangeItemListQuery = z.infer<typeof ChangeItemListQuery>;
