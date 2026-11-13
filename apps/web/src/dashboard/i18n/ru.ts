@@ -1069,6 +1069,31 @@ export const ru = {
   "draft.refused.full":
     "В вашем черновике уже максимальное число изменений. Сначала опубликуйте или отмените его.",
   "draft.refused.invalid": "Это изменение нельзя добавить в черновик.",
+  "suggest.editor.tabs": "Ваше изменение",
+  "suggest.editor.tabs.change": "Изменение",
+  "draft.tabs": "План вашего черновика",
+  "draft.rebase": "Перенести черновик на текущую версию",
+  "draft.rebased":
+    "Черновик перенесён на текущую версию: {carried, plural, one {# изменение перенесено} few {# изменения перенесены} many {# изменений перенесено} other {# изменения перенесено}}, {left, plural, one {# нужно внести заново} few {# нужно внести заново} many {# нужно внести заново} other {# нужно внести заново}}.",
+  "draft.conflicts": "Изменения, которые не удалось перенести, нужно внести заново",
+  "draft.conflicts.dismiss": "Скрыть этот список",
+  "suggest.search.heading": "Предложить изменение текста",
+  "suggest.search.hint":
+    "Найдите текст на странице, а не выделяйте его в artifact. Поиск читает опубликованную страницу, а не то, что показывают её скрипты.",
+  "suggest.search.query": "Искомый текст",
+  "suggest.search.find": "Найти",
+  "suggest.search.found":
+    "{count, plural, =0 {Мест не найдено.} one {Найдено # место.} few {Найдено # места.} many {Найдено # мест.} other {Найдено # места.}}",
+  "suggest.search.none": "Текст не найден на этой странице.",
+  "suggest.search.results": "Места с этим текстом",
+  "suggest.search.choose": "Изменить текст в месте {number}",
+  "suggest.search.refused":
+    "Это место нельзя изменить. Попробуйте более короткий или более длинный фрагмент текста.",
+  "suggest.search.unavailable":
+    "Поиск доступен на HTML-страницах. На этой странице выделите текст в artifact.",
+  "draft.conflictReason": "Изменённый текст в текущей версии другой или отсутствует.",
+  "suggest.search.ownerOnly":
+    "Поиск по странице пока недоступен рецензентам. Выделите текст в artifact.",
   "review.open": "Проверить и прокомментировать",
   "viewer.loading": "Открытие artifact",
   "viewer.unavailable.title": "Этот artifact нельзя открыть",

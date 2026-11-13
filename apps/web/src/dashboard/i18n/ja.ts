@@ -1049,6 +1049,30 @@ export const ja = {
     "下書きに別のページへの変更が含まれています。このページを編集する前に、公開または破棄してください。",
   "draft.refused.full": "下書きの変更数が上限に達しています。先に公開または破棄してください。",
   "draft.refused.invalid": "この変更は下書きに追加できません。",
+  "suggest.editor.tabs": "あなたの変更",
+  "suggest.editor.tabs.change": "変更",
+  "draft.tabs": "下書きのプラン",
+  "draft.rebase": "下書きを現在のバージョンに移す",
+  "draft.rebased":
+    "下書きを現在のバージョンに移しました：{carried, plural, one {#件の変更を引き継ぎ} other {#件の変更を引き継ぎ}}、{left, plural, one {#件はやり直しが必要です} other {#件はやり直しが必要です}}。",
+  "draft.conflicts": "移せなかった変更（やり直しが必要）",
+  "draft.conflicts.dismiss": "この一覧を閉じる",
+  "suggest.search.heading": "テキストの変更を提案",
+  "suggest.search.hint":
+    "artifact内で選択する代わりに、ページ内のテキストを検索します。検索は公開済みのページを読み取り、スクリプトが表示する内容は対象外です。",
+  "suggest.search.query": "検索するテキスト",
+  "suggest.search.find": "検索",
+  "suggest.search.found":
+    "{count, plural, =0 {該当する箇所は見つかりませんでした。} one {#か所見つかりました。} other {#か所見つかりました。}}",
+  "suggest.search.none": "このページでテキストが見つかりませんでした。",
+  "suggest.search.results": "テキストを含む箇所",
+  "suggest.search.choose": "{number}番目の箇所のテキストを変更",
+  "suggest.search.refused": "この箇所は変更できません。もっと短いか長いテキストで試してください。",
+  "suggest.search.unavailable":
+    "検索はHTMLページで利用できます。このページでは、artifact内のテキストを選択してください。",
+  "draft.conflictReason": "変更したテキストは、現在のバージョンでは異なるか存在しません。",
+  "suggest.search.ownerOnly":
+    "ページ内の検索はまだレビュアーには利用できません。代わりに artifact でテキストを選択してください。",
   "review.open": "レビューしてコメント",
   "viewer.loading": "artifactを開いています",
   "viewer.unavailable.title": "このartifactは開けません",

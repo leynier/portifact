@@ -1084,6 +1084,31 @@ export const de = {
   "draft.refused.full":
     "Dein Entwurf enthält bereits die maximale Anzahl an Änderungen. Veröffentliche oder verwirf ihn zuerst.",
   "draft.refused.invalid": "Diese Änderung kann nicht zum Entwurf hinzugefügt werden.",
+  "suggest.editor.tabs": "Deine Änderung",
+  "suggest.editor.tabs.change": "Änderung",
+  "draft.tabs": "Plan deines Entwurfs",
+  "draft.rebase": "Entwurf auf die aktuelle Version verschieben",
+  "draft.rebased":
+    "Entwurf auf die aktuelle Version verschoben: {carried, plural, one {# Änderung übernommen} other {# Änderungen übernommen}}, {left, plural, one {# erneut vorzunehmen} other {# erneut vorzunehmen}}.",
+  "draft.conflicts": "Änderungen, die nicht verschoben werden konnten und erneut vorzunehmen sind",
+  "draft.conflicts.dismiss": "Diese Liste ausblenden",
+  "suggest.search.heading": "Textänderung vorschlagen",
+  "suggest.search.hint":
+    "Suche den Text auf der Seite, statt ihn im Artifact zu markieren. Die Suche liest die veröffentlichte Seite, nicht das, was ihre Skripte anzeigen.",
+  "suggest.search.query": "Gesuchter Text",
+  "suggest.search.find": "Suchen",
+  "suggest.search.found":
+    "{count, plural, =0 {Keine Stellen gefunden.} one {# Stelle gefunden.} other {# Stellen gefunden.}}",
+  "suggest.search.none": "Der Text wurde auf dieser Seite nicht gefunden.",
+  "suggest.search.results": "Stellen mit dem Text",
+  "suggest.search.choose": "Text an Stelle {number} ändern",
+  "suggest.search.refused":
+    "Diese Stelle kann nicht geändert werden. Versuche einen kürzeren oder längeren Textabschnitt.",
+  "suggest.search.unavailable":
+    "Die Suche ist auf HTML-Seiten verfügbar. Markiere auf dieser Seite den Text im Artifact.",
+  "draft.conflictReason": "Der geänderte Text ist in der aktuellen Version anders oder fehlt.",
+  "suggest.search.ownerOnly":
+    "Die Suche im Text ist für Prüfende noch nicht verfügbar. Markiere den Text stattdessen im Artifact.",
   "review.open": "Reviewen und kommentieren",
   "viewer.loading": "Das Artifact wird geöffnet",
   "viewer.unavailable.title": "Dieses Artifact kann nicht geöffnet werden",
