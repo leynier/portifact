@@ -10,8 +10,9 @@ import {
   ChangeItemList,
   ChangeItemState,
   ChangeItemView,
-  type ShownEnvelope,
+  ShownEnvelope,
 } from "@portifact/contracts";
+import { renderEnvelope } from "@portifact/domain/suggestion-envelope";
 import { callApi, withRetries } from "./api.ts";
 import { parseArtifactId, table } from "./artifacts.ts";
 import { type OutputOptions, openSession, writeJson } from "./commands.ts";
@@ -36,72 +37,26 @@ function parseItemId(value: string): string {
   return id;
 }
 
-/**
- * Reviewer text as the person saw it in the viewer: every control, format, non-space whitespace
- * and bracket character the display uses becomes a `⟦U+XXXX⟧` token, so nothing is hidden and a
- * literal token cannot pass for the real character.
- */
-export function shown(text: string): string {
-  return text.replace(/[\p{Cc}\p{Cf}\p{Z}⟦⟧]/gu, (character) =>
-    character === " "
-      ? character
-      : `⟦U+${(character.codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}⟧`,
-  );
-}
-
 function isShown(envelope: ChangeItemView["envelope"]): envelope is ShownEnvelope {
-  return envelope.format === 1 && "operation" in envelope;
+  return ShownEnvelope.safeParse(envelope).success;
 }
 
-/** One line per fact of the item, as the confirmation listed it. */
+/**
+ * The item's heading, then its envelope's lines exactly as the confirmation showed them
+ * (`renderEnvelope`: invisible and default-ignorable characters as `⟦U+XXXX⟧` tokens, omission
+ * markers, shortened links with where to read them whole). One renderer for the viewer, the
+ * agent's notice and the CLI.
+ */
 function itemLines(item: ChangeItemView): string[] {
-  const lines = [
-    `Item: ${item.id} (${item.state}, revision ${item.revision})`,
-    `File: ${oneLine(item.path)}${item.route === null ? "" : ` route ${oneLine(item.route)}`} on version ${item.versionId}`,
-  ];
-  if (item.reason !== null) lines.push(`Not applied because: ${item.reason}`);
+  const heading = `item: ${item.id} (${item.state}, revision ${item.revision})`;
   const envelope = item.envelope;
   if (!isShown(envelope)) {
-    lines.push(`Envelope format ${envelope.format}: update the CLI to read it; --json shows it.`);
-    return lines;
+    return [
+      heading,
+      `envelope format ${envelope.format}: update the CLI to read it; --json shows it as it came.`,
+    ];
   }
-  const op = envelope.operation;
-  if (op.kind === "text") {
-    lines.push(`Before: ${shown(op.before)}`, `After: ${shown(op.after)}`);
-  } else if (op.kind === "style") {
-    lines.push(`Style of <${oneLine(op.element.tag)}> ${shown(op.element.label)}:`);
-    for (const change of op.changes) {
-      lines.push(
-        `  ${oneLine(change.property)}: ${change.before === null ? "(unset)" : shown(change.before)} -> ${shown(change.after)}`,
-      );
-    }
-  } else {
-    lines.push(
-      `${op.action} <${oneLine(op.element.tag)}> ${shown(op.element.label)}${op.destination ? ` ${op.destination.place} <${oneLine(op.destination.element.tag)}> ${shown(op.destination.element.label)}` : ""}`,
-    );
-  }
-  const at = envelope.location;
-  lines.push(
-    "unresolved" in at
-      ? "Location: not proven on the page"
-      : `Location: line ${at.line}, column ${at.column} (UTF-16 ${at.start} to ${at.end})`,
-  );
-  if (envelope.context) {
-    const c = envelope.context;
-    lines.push(
-      `Context: ${c.omittedBefore > 0 ? `[${c.omittedBefore} omitted]` : ""}${shown(c.before)}[change]${shown(c.after)}${c.omittedAfter > 0 ? `[${c.omittedAfter} omitted]` : ""}`,
-    );
-  }
-  if (!envelope.destinationsKnown) lines.push("Links around it: not known");
-  for (const link of envelope.destinations) {
-    lines.push(
-      `Link: ${shown(link.origin)} ${shown(link.effective)} (written ${shown(link.authored)})`,
-    );
-  }
-  lines.push(
-    `Suggested by: ${oneLine(envelope.provenance.submittedBy ?? "unknown")}; accepted by: ${oneLine(envelope.provenance.acceptedBy ?? "unknown")}`,
-  );
-  return lines;
+  return [heading, ...renderEnvelope(envelope)];
 }
 
 export interface ListChangesOptions extends OutputOptions {
