@@ -232,7 +232,7 @@ describe("suggestion routes", () => {
       const response = await owner.call(path, {
         method,
         headers: { "content-type": "application/json" },
-        body: method === "GET" || method === "DELETE" ? undefined : "{}",
+        ...(method === "GET" || method === "DELETE" ? {} : { body: "{}" }),
       });
       expect(response.status, `${method} ${path}`).toBe(403);
     }
