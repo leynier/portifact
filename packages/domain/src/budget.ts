@@ -1,6 +1,7 @@
 // Budget alerts and automatic protection (plan section 12, "Presupuesto y protección"). Cloudflare's
 // budget alerts only inform, so Portifact projects the cycle's spend from its own metrics and
 // protects itself. These rules are pure: the jobs Worker measures, services persist and enforce.
+import type { OperationKind } from "./artifact-data/charging.ts";
 import { fail, ok, type Result } from "./result.ts";
 import type { Block } from "./usage.ts";
 
@@ -13,12 +14,14 @@ export type BudgetLevel = (typeof BUDGET_LEVELS)[number];
 
 /**
  * What protection does, in the order it escalates. `stop_new_artifacts` is the brake at US$75;
- * the other four are the plan's ordered steps at US$100. Reads, exports, deletion, access
+ * the other five are the plan's ordered steps from US$100, `pause_data_writes` being artifact
+ * data's (decision 0026, "The data step of budget protection"). Reads, exports, deletion, access
  * reduction and renewal are never on this list, and nothing here deletes data.
  */
 export const PROTECTION_ACTIONS = [
   "stop_new_artifacts",
   "block_uploads",
+  "pause_data_writes",
   "pause_annotation_writes",
   "tighten_public_traffic",
   "limit_protected_traffic",
@@ -41,6 +44,7 @@ export const BUDGET_THRESHOLDS: readonly { level: Exclude<BudgetLevel, "none">; 
  */
 export const PROTECTION_STEPS: readonly { action: ProtectionAction; fromUsd: number }[] = [
   { action: "block_uploads", fromUsd: 100 },
+  { action: "pause_data_writes", fromUsd: 105 },
   { action: "pause_annotation_writes", fromUsd: 110 },
   { action: "tighten_public_traffic", fromUsd: 125 },
   { action: "limit_protected_traffic", fromUsd: 150 },
@@ -49,14 +53,29 @@ export const PROTECTION_STEPS: readonly { action: ProtectionAction; fromUsd: num
 /**
  * Global admission limits per cycle (plan section 12). Reaching one stops admitting new content
  * whatever the projected spend: serving what is published takes priority over new content.
+ * `dataRowsWritten` is artifact data's (decision 0026): the rows the documents objects wrote.
  */
 export const ADMISSION_LIMITS = {
   storedBytes: 800 * GB,
   r2ClassA: 2 * MILLION,
   workerRequests: 20 * MILLION,
   emails: 20_000,
+  dataRowsWritten: 100 * MILLION,
 } as const;
 export type AdmissionMetric = keyof typeof ADMISSION_LIMITS;
+
+/**
+ * What reaching each admission limit stops: new artifacts and uploads for the platform's own,
+ * new artifact data writes for the documents objects' rows (decision 0026), so a burst of data
+ * writes never stops publishing and a full bucket never stops data.
+ */
+export const ADMISSION_ACTIONS: Readonly<Record<AdmissionMetric, readonly ProtectionAction[]>> = {
+  storedBytes: ["stop_new_artifacts", "block_uploads"],
+  r2ClassA: ["stop_new_artifacts", "block_uploads"],
+  workerRequests: ["stop_new_artifacts", "block_uploads"],
+  emails: ["stop_new_artifacts", "block_uploads"],
+  dataRowsWritten: ["pause_data_writes"],
+};
 
 /**
  * Reference prices of the Workers Paid plan (plan section 12; Cloudflare's published pricing for
@@ -81,12 +100,27 @@ export const REFERENCE_PRICES = {
   d1RowsWrittenIncluded: 50 * MILLION,
   emailsPerThousandUsd: 0.35,
   emailsIncluded: 3_000,
+  // Durable Objects (decision 0026, "Facts checked"): requests and duration are billed in whole
+  // blocks of a million past what is included, rows and storage fractionally.
+  doRequestsPerMillionUsd: 0.15,
+  doRequestsIncluded: 1 * MILLION,
+  doDurationPerMillionGbsUsd: 12.5,
+  doDurationIncludedGbs: 400_000,
+  doRowsReadPerMillionUsd: 0.001,
+  doRowsReadIncluded: 25_000 * MILLION,
+  doRowsWrittenPerMillionUsd: 1,
+  doRowsWrittenIncluded: 50 * MILLION,
+  doStorageGbMonthUsd: 0.2,
+  doStorageIncludedGb: 5,
 } as const;
 export type ReferencePrices = { readonly [K in keyof typeof REFERENCE_PRICES]: number };
 
 /**
- * What the platform used in the current cycle. `storedBytes` is a gauge (bytes stored now); the
- * rest are counters since the cycle started, `null` when no source measured them.
+ * What the platform used in the current cycle. `storedBytes` and `dataStoredBytes` are gauges
+ * (bytes stored now); the rest are counters since the cycle started, `null` when no source
+ * measured them. The `data` metrics are the data Worker's Durable Objects (decision 0026): their
+ * billable requests (incoming WebSocket messages count 1 in 20), active duration in GB-seconds,
+ * SQLite rows and stored bytes. Only Cloudflare's analytics measure them.
  */
 export interface PlatformMetrics {
   storedBytes: number;
@@ -96,6 +130,11 @@ export interface PlatformMetrics {
   d1RowsRead: number | null;
   d1RowsWritten: number | null;
   emails: number | null;
+  dataRequests: number | null;
+  dataGbSeconds: number | null;
+  dataRowsRead: number | null;
+  dataRowsWritten: number | null;
+  dataStoredBytes: number | null;
 }
 
 export const METRIC_COUNTERS = [
@@ -105,7 +144,49 @@ export const METRIC_COUNTERS = [
   "d1RowsRead",
   "d1RowsWritten",
   "emails",
+  "dataRequests",
+  "dataGbSeconds",
+  "dataRowsRead",
+  "dataRowsWritten",
 ] as const satisfies readonly (keyof PlatformMetrics)[];
+
+/** The metrics a missed measurement keeps from the cycle's last one: counters and the data gauge. */
+export const CARRIED_METRICS = [
+  ...METRIC_COUNTERS,
+  "dataStoredBytes",
+] as const satisfies readonly (keyof PlatformMetrics)[];
+
+/** No measurement: nothing stored, every other metric unmeasured. */
+export const EMPTY_METRICS: PlatformMetrics = {
+  storedBytes: 0,
+  r2ClassA: null,
+  r2ClassB: null,
+  workerRequests: null,
+  d1RowsRead: null,
+  d1RowsWritten: null,
+  emails: null,
+  dataRequests: null,
+  dataGbSeconds: null,
+  dataRowsRead: null,
+  dataRowsWritten: null,
+  dataStoredBytes: null,
+};
+
+/**
+ * Metrics stored before a metric existed read it as unmeasured; anything else that is not a
+ * finite number does too. Null when there is no stored gauge to start from.
+ */
+export function readMetrics(value: unknown): PlatformMetrics | null {
+  if (typeof value !== "object" || value === null) return null;
+  const stored = value as Record<string, unknown>;
+  if (typeof stored.storedBytes !== "number" || !Number.isFinite(stored.storedBytes)) return null;
+  const metrics: PlatformMetrics = { ...EMPTY_METRICS, storedBytes: stored.storedBytes };
+  for (const key of CARRIED_METRICS) {
+    const field = stored[key];
+    metrics[key] = typeof field === "number" && Number.isFinite(field) ? field : null;
+  }
+  return metrics;
+}
 
 /** The billing cycle used for projections: the calendar month in UTC. */
 export function budgetCycle(now: number): { start: number; end: number } {
@@ -127,6 +208,8 @@ export function projectionFactor(now: number): number {
 }
 
 const overage = (used: number, included: number) => Math.max(0, used - included);
+/** Overage billed in whole blocks of a million units (Durable Object requests and duration). */
+const blocks = (used: number, included: number) => Math.ceil(overage(used, included) / MILLION);
 const cents = (usd: number) => Math.round(usd * 100) / 100;
 
 export type SpendItem =
@@ -138,7 +221,12 @@ export type SpendItem =
   | "workerRequests"
   | "d1RowsRead"
   | "d1RowsWritten"
-  | "emails";
+  | "emails"
+  | "dataRequests"
+  | "dataDuration"
+  | "dataRowsRead"
+  | "dataRowsWritten"
+  | "dataStorage";
 
 /** Projected spend of the cycle, in total and per item, rounded to cents. */
 export function projectSpend(
@@ -147,7 +235,7 @@ export function projectSpend(
   prices: ReferencePrices = REFERENCE_PRICES,
 ): { totalUsd: number; items: Record<SpendItem, number> } {
   const factor = projectionFactor(now);
-  const projected = (value: number | null) => (value === null ? 0 : value * factor);
+  const projected = (value: number | null | undefined) => (value == null ? 0 : value * factor);
   const items: Record<SpendItem, number> = {
     workersBase: prices.workersBaseUsd,
     domains: prices.domainsUsd,
@@ -172,6 +260,21 @@ export function projectSpend(
     emails:
       (overage(projected(metrics.emails), prices.emailsIncluded) / 1_000) *
       prices.emailsPerThousandUsd,
+    dataRequests:
+      blocks(projected(metrics.dataRequests), prices.doRequestsIncluded) *
+      prices.doRequestsPerMillionUsd,
+    dataDuration:
+      blocks(projected(metrics.dataGbSeconds), prices.doDurationIncludedGbs) *
+      prices.doDurationPerMillionGbsUsd,
+    dataRowsRead:
+      (overage(projected(metrics.dataRowsRead), prices.doRowsReadIncluded) / MILLION) *
+      prices.doRowsReadPerMillionUsd,
+    dataRowsWritten:
+      (overage(projected(metrics.dataRowsWritten), prices.doRowsWrittenIncluded) / MILLION) *
+      prices.doRowsWrittenPerMillionUsd,
+    dataStorage:
+      overage((metrics.dataStoredBytes ?? 0) / GB, prices.doStorageIncludedGb) *
+      prices.doStorageGbMonthUsd,
   };
   for (const key of Object.keys(items) as SpendItem[]) items[key] = cents(items[key]);
   const totalUsd = cents(Object.values(items).reduce((sum, value) => sum + value, 0));
@@ -240,7 +343,7 @@ export function assessBudget(
   const level = budgetLevel(totalUsd);
   const admission = admissionReached(metrics);
   const actions = levelActions(level, totalUsd);
-  if (admission.length > 0) actions.push("stop_new_artifacts", "block_uploads");
+  for (const metric of admission) actions.push(...ADMISSION_ACTIONS[metric]);
   const alerts: BudgetAlertKind[] = [
     ...BUDGET_THRESHOLDS.filter((t) => totalUsd >= t.usd).map(
       (t) => `spend_${t.usd}` as BudgetAlertKind,
@@ -269,13 +372,13 @@ export function carryForward(
 ): PlatformMetrics {
   if (!previous) return current;
   const merged = { ...current };
-  for (const key of METRIC_COUNTERS) merged[key] = current[key] ?? previous[key];
+  for (const key of CARRIED_METRICS) merged[key] = current[key] ?? previous[key] ?? null;
   return merged;
 }
 
 export interface BudgetOverride {
   level: BudgetLevel;
-  /** Steps of `PROTECTION_STEPS` applied at `protect100`, 1 to 4. */
+  /** Steps of `PROTECTION_STEPS` applied at `protect100`, 1 to 5. */
   steps: number;
   /** When the override ends by itself; null until the operator clears it. */
   until: number | null;
@@ -377,6 +480,52 @@ export function checkAnnotationCapacity(actions: readonly ProtectionAction[]): R
     ? fail(
         "capacity_unavailable",
         "New comments are paused for now while Portifact protects its capacity. Try again later.",
+      )
+    : ok(true);
+}
+
+/**
+ * Artifact data work as the data step of budget protection sees it (decision 0026): the documents
+ * object's operation kinds, a live connect and a renewal of an open connection.
+ */
+export type DataWork = OperationKind | "connect" | "renew";
+
+/**
+ * What `pause_data_writes` stops: new work only, work that creates data or makes it grow
+ * (declarations, which create an object's data, index steps, creates and replacements, single or
+ * bulk) and new live connections. Reads, counts, describe, exports, deletes, author erasure,
+ * pruning and renewals of open connections always go on, like every other step's exceptions;
+ * lifecycle work (fences, erase steps, reconciliation) never passes through here.
+ */
+export const DATA_WORK_PAUSED: Readonly<Record<DataWork, boolean>> = {
+  declare: true,
+  index_step: true,
+  create: true,
+  replace: true,
+  bulk_create: true,
+  bulk_replace: true,
+  connect: true,
+  remove: false,
+  bulk_remove: false,
+  erase_author_chunk: false,
+  get: false,
+  query: false,
+  count: false,
+  describe: false,
+  export_page: false,
+  prune: false,
+  renew: false,
+};
+
+/** Whether protection lets a piece of artifact data work start (`pause_data_writes`). */
+export function checkDataCapacity(
+  actions: readonly ProtectionAction[],
+  work: DataWork,
+): Result<true> {
+  return actions.includes("pause_data_writes") && DATA_WORK_PAUSED[work]
+    ? fail(
+        "capacity_unavailable",
+        "New writes to artifact data are paused for now while Portifact protects its capacity. Reading, exporting and deleting data still work; try again later.",
       )
     : ok(true);
 }

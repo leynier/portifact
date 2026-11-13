@@ -392,7 +392,7 @@ describe("the acceptance job at its own time", () => {
     const uploads = await listingAcceptance();
     await setBudgetOverride(db().global, {
       level: "protect100",
-      steps: 2,
+      steps: 3,
       until: null,
       note: null,
       now: NOW,

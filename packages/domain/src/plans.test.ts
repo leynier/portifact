@@ -131,6 +131,7 @@ describe("entitlements", () => {
       validUntil: null,
       limits: FREE,
       features: [],
+      data: PLANS.free.data,
     });
   });
 
@@ -145,7 +146,85 @@ describe("entitlements", () => {
       validUntil: null,
       limits,
       features,
+      data: PLANS[plan].data,
     });
+  });
+
+  it("grants artifact data per plan: decision 0026's option B, Enterprise as Team", () => {
+    const data = (plan: PlanName) => {
+      const { artifacts, perArtifact } = entitlements(row({ plan }), NOW).data;
+      return [
+        artifacts,
+        perArtifact.bytesPerArtifact,
+        perArtifact.rowsWrittenPerDay,
+        perArtifact.rowsReadPerDay,
+        perArtifact.liveMessagesPerDay,
+      ];
+    };
+    expect(entitlements(null, NOW).data.artifacts).toBe(1);
+    expect(data("free")).toEqual([1, 5_000_000, 5_000, 500_000, 2_000]);
+    expect(data("pro")).toEqual([10, 25_000_000, 2_000, 500_000, 5_000]);
+    expect(data("team")).toEqual([50, 50_000_000, 2_000, 1_000_000, 10_000]);
+    expect(data("enterprise")).toEqual(data("team"));
+    // Not per seat: a larger team gets no more data artifacts.
+    expect(entitlements(row({ plan: "team", seats: 9 }), NOW).data).toEqual(PLANS.team.data);
+    // The rates and the rights class are the record's on every plan.
+    for (const plan of PLAN_NAMES) {
+      expect(PLANS[plan].data.perArtifact).toMatchObject({
+        writesPerAuthorPerMinute: 30,
+        deletesPerAuthorPerMinute: 60,
+        readsPerCallerPerMinute: 300,
+        rightsRowsPerDay: 500,
+      });
+    }
+  });
+
+  it("applies data overrides within the platform's bounds and never shares the plan's values", () => {
+    const raised = entitlements(
+      row({
+        plan: "enterprise",
+        overrides: { data: { artifacts: 200, perArtifact: { bytesPerArtifact: 500_000_000 } } },
+      }),
+      NOW,
+    );
+    expect(raised.data).toEqual({
+      artifacts: 200,
+      perArtifact: { ...PLANS.team.data.perArtifact, bytesPerArtifact: 500_000_000 },
+    });
+    expect(PLANS.team.data.perArtifact.bytesPerArtifact).toBe(50_000_000);
+    // Beyond what an object can hold, the overrides are not valid and none of them applies.
+    const invalid = entitlements(
+      row({ plan: "pro", overrides: { data: { perArtifact: { bytesPerArtifact: 1e12 } } } }),
+      NOW,
+    );
+    expect(invalid.data).toEqual(PLANS.pro.data);
+  });
+
+  it("holds no data limit in a grace: a lowered plan's data limits apply at once", () => {
+    const lowered = entitlements(
+      row({
+        plan: "free",
+        grace: [
+          {
+            plan: "team",
+            reason: "lowered",
+            from: NOW - 1,
+            until: NOW + 86_400_000,
+            limits: {
+              archiveMonths: 12,
+              retainedPreviousVersions: 100,
+              previousVersionRetentionDays: 365,
+              accessLogRetentionDays: 365,
+              auditRetentionDays: 90,
+            },
+            features: [],
+          },
+        ],
+      }),
+      NOW,
+    );
+    expect(lowered.grace).not.toBeNull();
+    expect(lowered.data).toEqual(PLANS.free.data);
   });
 
   it("multiplies the per-seat team values and pools them", () => {
