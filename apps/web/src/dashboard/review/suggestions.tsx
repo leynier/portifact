@@ -15,6 +15,7 @@ import {
   type ReviewStart,
   ShownEnvelope,
   type SuggestionView,
+  type TextOperation,
 } from "@portifact/contracts";
 import { tokens } from "@portifact/domain/suggestion-display";
 import {
@@ -56,7 +57,7 @@ export const undecided = (suggestion: SuggestionView | null): boolean =>
 
 export const changesQuery = (artifactId: string) => ["suggestion-changes", artifactId] as const;
 
-function useDiffLabels() {
+export function useDiffLabels() {
   const t = useT();
   return {
     removed: t("suggest.diff.removed"),
@@ -101,11 +102,17 @@ export function SuggestEditor({
   dispatch,
   humanNeeded,
   onClose,
+  draft,
 }: {
   start: ReviewStart;
   state: Extract<SuggestState, { mode: "editing" }>;
   dispatch: Dispatch<SuggestAction>;
   humanNeeded: boolean;
+  /**
+   * The owner side editing directly (Edit mode): Save adds the change to their private draft
+   * instead of starting a suggestion, and no note is asked.
+   */
+  draft?: { add(operation: TextOperation): Promise<boolean> } | undefined;
   /** The editor closed: saved (with the new thread's ID) or cancelled. */
   onClose(threadId: string | null): void;
 }) {
@@ -121,6 +128,18 @@ export function SuggestEditor({
   const before = state.target.anchor.quote.exact;
   const unchanged = state.after === before;
 
+  const toDraft = useMutation({
+    mutationFn: (value: Edit) => {
+      const [operation] = value.operations;
+      if (!draft || operation?.kind !== "text") return Promise.resolve(false);
+      return draft.add(operation);
+    },
+    onSuccess: (added) => {
+      if (!added) return;
+      dispatch({ type: "saved" });
+      onClose(null);
+    },
+  });
   const save = useMutation({
     mutationFn: (value: Edit) =>
       human.post((key, token) =>
@@ -163,7 +182,12 @@ export function SuggestEditor({
     dispatch({ type: "cancel" });
     onClose(null);
   };
+  const commit = (value: Edit) => (draft ? toDraft.mutate(value) : save.mutate(value));
   const review = () => {
+    if (draft) {
+      dispatch({ type: "review" });
+      return;
+    }
     const error = bodyError(t, state.note)?.fields.body;
     setNoteError(error);
     if (!error) dispatch({ type: "review" });
@@ -180,7 +204,7 @@ export function SuggestEditor({
       !event.nativeEvent.isComposing
     ) {
       event.preventDefault();
-      if (state.reviewing && edit) save.mutate(edit);
+      if (state.reviewing && edit) commit(edit);
       else review();
     }
   };
@@ -190,7 +214,11 @@ export function SuggestEditor({
     // biome-ignore lint/a11y/noStaticElementInteractions: Escape and Enter work from every control inside
     <div ref={panel} className="flex flex-col gap-3" onKeyDown={onKeyDown}>
       <h2 className="text-base font-semibold">
-        {state.reviewing ? t("suggest.editor.reviewTitle") : t("suggest.editor.title")}
+        {state.reviewing
+          ? t("suggest.editor.reviewTitle")
+          : draft
+            ? t("draft.editor.title")
+            : t("suggest.editor.title")}
       </h2>
       {/* Which page the edit addresses: two targets can hold the same text. */}
       <p className="text-sm text-text-muted">
@@ -220,10 +248,10 @@ export function SuggestEditor({
             <Button
               intent="primary"
               icon={<Check className="size-4" />}
-              busy={save.isPending}
-              onClick={() => save.mutate(edit)}
+              busy={save.isPending || toDraft.isPending}
+              onClick={() => commit(edit)}
             >
-              {t("suggest.editor.save")}
+              {draft ? t("draft.add") : t("suggest.editor.save")}
             </Button>
           </div>
         </>
@@ -241,18 +269,20 @@ export function SuggestEditor({
           {unchanged ? (
             <p className="text-sm text-text-muted">{t("suggest.editor.unchanged")}</p>
           ) : null}
-          <TextArea
-            label={t("suggest.editor.note")}
-            description={t("suggest.editor.noteHint")}
-            value={state.note}
-            onChange={(event) => {
-              dispatch({ type: "note", note: event.target.value });
-              setNoteError(undefined);
-            }}
-            error={noteError}
-            rows={2}
-            compact
-          />
+          {draft ? null : (
+            <TextArea
+              label={t("suggest.editor.note")}
+              description={t("suggest.editor.noteHint")}
+              value={state.note}
+              onChange={(event) => {
+                dispatch({ type: "note", note: event.target.value });
+                setNoteError(undefined);
+              }}
+              error={noteError}
+              rows={2}
+              compact
+            />
+          )}
           <div className="flex flex-wrap justify-end gap-2">
             <Button onClick={cancel}>{t("suggest.editor.cancel")}</Button>
             <Button intent="primary" disabled={edit === null} onClick={review}>
@@ -292,7 +322,7 @@ function EditSummary({ edit }: { edit: unknown }) {
 }
 
 /** How many operations apply and are listed, and why the listed ones are. */
-function PlanSummary({ plan }: { plan: Plan }) {
+export function PlanSummary({ plan }: { plan: Plan }) {
   const t = useT();
   const reasons = [
     ...new Set(plan.listed.map((envelope) => envelope.reason).filter((r) => r !== null)),
@@ -553,7 +583,7 @@ export function SuggestionBlock({
   );
 }
 
-function attemptMessage(t: T, reason: string): string {
+export function attemptMessage(t: T, reason: string): string {
   switch (reason) {
     case "failed":
     case "version_conflict":

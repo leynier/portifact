@@ -176,3 +176,56 @@ test("an edit that cannot be applied goes to the change list, where the owner ma
   );
   expect(state?.state).toBe("applied");
 });
+
+test("the owner edits directly into a private draft and publishes it as a new version", async ({
+  page,
+  context,
+  engine,
+}) => {
+  test.skip(!engine.reviewWorks, "editing needs the bridge in the frame");
+  const owner = await createUser("Owner");
+  const { artifactId, versionId } = await publish({
+    ownerId: owner.userId,
+    type: "markdown",
+    name: NAME,
+    files: { "index.md": `# Notes\n\nThe quick brown cat jumps.\n` },
+  });
+  await signIn(context, owner);
+  await openReview(page, artifactId, NAME);
+  const mode = page.getByRole("button", { name: "Edit mode" });
+  await mode.click();
+  await expect(mode).toHaveAttribute("aria-pressed", "true");
+  const frame = await artifactFrame(page, artifactId);
+  await frame.getByText("The quick brown cat jumps.").selectText();
+  await page.getByRole("button", { name: "Suggest edit" }).click();
+  const editor = page.getByRole("region", { name: "Suggest an edit to the selection" });
+  const field = editor.getByRole("textbox", { name: "New text" });
+  await field.fill(TYPED);
+  await field.press("Enter");
+  await editor.getByRole("button", { name: "Add to draft" }).click();
+  await expect(page.getByText("Added to your draft.")).toBeVisible();
+  // A draft is private: no suggestion thread was started.
+  expect(
+    await sql("select id from annotation_threads where artifact_id = ?", [artifactId]),
+  ).toHaveLength(0);
+
+  const panel = page.getByRole("region", { name: "Your draft" });
+  await expect(panel.getByText("1 change")).toBeVisible();
+  await panel.getByRole("button", { name: "Check what applies" }).click();
+  await expect(panel.getByText(/^1 change applies automatically/)).toBeVisible();
+  await panel.getByRole("button", { name: "Publish" }).click();
+  await page
+    .getByRole("dialog", { name: "Publish this draft?" })
+    .getByRole("button", { name: "Publish a new version" })
+    .click();
+  await expect(page.getByText(/Publishing your draft/)).toBeVisible();
+  await runJobs(["draft_publish"]);
+  const [after] = await sql<{ current: string }>(
+    "select current_version_id as current from artifacts where id = ?",
+    [artifactId],
+  );
+  expect(after?.current).not.toBe(versionId);
+  expect(
+    await sql("select user_id from edit_drafts where artifact_id = ?", [artifactId]),
+  ).toHaveLength(0);
+});
