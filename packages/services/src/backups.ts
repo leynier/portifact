@@ -23,6 +23,7 @@ import { purgeJobs } from "./outbox.ts";
 import { recomputeDirectoryRoles } from "./scim-groups.ts";
 import { chunked, JSON_CHUNK } from "./shapes.ts";
 import { revokedShareLinks } from "./share-links.ts";
+import { endAttempt } from "./suggestion-accept.ts";
 import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
 const IN_CHUNK = 80;
@@ -1106,6 +1107,20 @@ function optOutStatement(db: Db, preference: "comment_notices" | "expiry_notices
     .returning({ userId: s.userId });
 }
 
+/**
+ * Releases the uploads of the acceptances the restore ended (`suggestionAttempts`) through
+ * `endAttempt`, the one way an attempt ends: idempotent, it finds them ended and releases the
+ * upload a job may have prepared before the restore point.
+ */
+async function releaseEndedAttempts(
+  db: RegionalDb,
+  results: Map<string, unknown[]>,
+  now: number,
+): Promise<void> {
+  const ended = (results.get("suggestionAttempts") ?? []) as Parameters<typeof endAttempt>[1][];
+  for (const attempt of ended) await endAttempt(db, attempt, "revoked", now);
+}
+
 async function runEntries(db: Db, entries: Entry[], refs: Refs): Promise<Map<string, unknown[]>> {
   const results = await db.batch(
     entries.map((entry) => entry.build(db, refs)) as [
@@ -1138,6 +1153,7 @@ async function applyRegionalTombstones(
   db: RegionalDb,
   lists: Record<RegionalKind, string[]>,
   entries: Entry[],
+  now: number,
 ) {
   const owners = [...lists.account, ...lists.workspace];
   // A mute of a deleted account never comes back. The statement's `not in` only sees one round's
@@ -1183,6 +1199,7 @@ async function applyRegionalTombstones(
     for (const [name, rows] of results) {
       counts.set(name, (counts.get(name) ?? 0) + rows.length);
     }
+    await releaseEndedAttempts(db, results, now);
   }
   return { evidence: [...evidence], counts };
 }
@@ -1241,7 +1258,7 @@ export async function applyTombstones(
     const lists = await regionalTombstones(global);
     const entries = restoreEntries(now, false, []);
     for (const { db } of separate) {
-      const done = await applyRegionalTombstones(db, lists, entries);
+      const done = await applyRegionalTombstones(db, lists, entries, now);
       for (const owner of done.evidence) evidence.add(owner);
       add(done.counts);
     }
@@ -1250,6 +1267,8 @@ export async function applyTombstones(
     // The one batch of the default region, whose database is the global one.
     const results = await runEntries(shared, restoreEntries(now, true, [...evidence]), SUBQUERIES);
     add(results);
+    const home = target.all().find(({ db }) => bothSides(db) !== null);
+    if (home) await releaseEndedAttempts(home.db, results, now);
   } else {
     const entries = restoreEntries(now, false, [...evidence]).filter(
       (entry) => entry.side !== "regional",

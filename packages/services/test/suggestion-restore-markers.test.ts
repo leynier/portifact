@@ -614,4 +614,42 @@ describe("restore markers, review of #275", () => {
     expect(await planDraft(db(), env.ARTIFACTS, input)).toMatchObject({ ok: false });
     expect(await currentText(doc.artifactId, doc.path)).toBe(DOC);
   });
+  it("PF275 restoring a revoked acceptance closes its prepared upload immediately", async () => {
+    const s = await setup();
+    const params = { ...s.as(s.owner.id), threadId: s.threadId, contentDomain: DOMAIN };
+    const plan = value(await planSuggestion(db(), env.ARTIFACTS, params));
+    const started = value(
+      await acceptSuggestion(db(), env.ARTIFACTS, { ...params, digest: plan.digest }),
+    );
+    const [job] = await jobsOf("suggestion_accept", s.doc.artifactId);
+    const broken = new Proxy(env.ARTIFACTS, {
+      get(target, prop) {
+        if (prop === "put")
+          return async () => {
+            throw new Error("crash before R2 write");
+          };
+        const v = Reflect.get(target, prop, target);
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    await expect(
+      runJob(
+        db(),
+        broken,
+        { id: present(job).id, topic: "suggestion_accept" },
+        NOW + 100,
+        JOB_DEPS,
+      ),
+    ).rejects.toThrow();
+    await applyTombstones(
+      regions(),
+      [{ kind: "suggestion_withdrawn", id: s.threadId, deletedAt: NOW + 200 }],
+      NOW + 300,
+    );
+    const [upload] = await db()
+      .select()
+      .from(schema.uploadSessions)
+      .where(eq(schema.uploadSessions.id, `upl_${started.attemptId.slice(4)}`));
+    expect(upload?.state).toBe("failed");
+  });
 });
