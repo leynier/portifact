@@ -241,7 +241,7 @@ describe("the catalog's exact shapes", () => {
     ).toBe(true);
     for (const bad of [
       { format: "xlsx", kinds: 0 },
-      { format: "csv", kinds: 11 },
+      { format: "csv", kinds: AUDIT_LIMITS.kindsPerQuery + 1 },
       { format: "csv", kinds: 0, from: "2026-01-01T00:00:00Z" },
       { format: "csv", kinds: 0, actor: "u_ada" },
       { format: "csv", kinds: 0, rows: 10 },

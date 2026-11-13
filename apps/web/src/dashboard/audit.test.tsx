@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { AUDIT_LIMITS, type AuditEventView } from "@portifact/contracts";
+import { type AuditEventView, AuditFilters } from "@portifact/contracts";
 import { auditCsvHeader, auditCsvRow, auditJsonLine } from "@portifact/domain";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -66,21 +66,6 @@ async function table() {
   await screen.findByRole("heading", { level: 1, name: "Audit log" });
   return screen.findByRole("table", { name: "Changes in this space, newest first" });
 }
-
-describe("audit filter groups", () => {
-  // A group is sent as one query's kinds, which the API caps (`AUDIT_LIMITS.kindsPerQuery`); a
-  // group over the cap is refused and the filtered table comes back empty. "members" (23 kinds)
-  // and "integrations" (12) were over it before edit suggestions and are reported apart; every
-  // other group must fit.
-  const KNOWN_OVER = new Set(["members", "integrations"]);
-
-  it("fits each group in one query", () => {
-    for (const [group, kinds] of Object.entries(AUDIT_GROUPS)) {
-      if (KNOWN_OVER.has(group)) continue;
-      expect(kinds.length, group).toBeLessThanOrEqual(AUDIT_LIMITS.kindsPerQuery);
-    }
-  });
-});
 
 describe("audit log page", () => {
   it("shows a workspace's changes in plain words, in a captioned table, axe clean in both themes", async () => {
@@ -460,6 +445,19 @@ describe("exporting the audit log", () => {
     expect(
       screen.getByText("Who changed what in this space. Changes are kept 2557 days."),
     ).toBeTruthy();
+  });
+});
+
+describe("the kinds filter's groups", () => {
+  it("are all filters the API accepts, so no choice empties the table with an error", () => {
+    for (const [group, kinds] of Object.entries(AUDIT_GROUPS)) {
+      expect(AuditFilters.safeParse({ kinds }).success, group).toBe(true);
+    }
+  });
+
+  it("list each kind once", () => {
+    const listed = Object.values(AUDIT_GROUPS).flat();
+    expect(new Set(listed).size).toBe(listed.length);
   });
 });
 
