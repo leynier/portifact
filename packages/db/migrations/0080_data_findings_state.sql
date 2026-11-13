@@ -1,0 +1,1 @@
+ALTER TABLE `data_findings` ADD `state` text;

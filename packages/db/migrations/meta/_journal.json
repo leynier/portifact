@@ -558,8 +558,22 @@
     {
       "idx": 79,
       "version": "6",
-      "when": 1794558614860,
-      "tag": "0079_suggestion_scan_indexes",
+      "when": 1794539290393,
+      "tag": "0079_artifact_data",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "6",
+      "when": 1794543556488,
+      "tag": "0080_data_findings_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "6",
+      "when": 1794568096744,
+      "tag": "0081_suggestion_scan_indexes",
       "breakpoints": true
     }
   ]

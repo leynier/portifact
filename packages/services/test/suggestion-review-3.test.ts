@@ -1,7 +1,8 @@
 // The third adversarial review of the suggestion services (decision 0027), probes B1 to B7, D1 to
-// D7 and E1: identity of the live standing check (another workspace, group or person keeps a
-// qualifying fact while the relevant one goes), per-object stored-size caps, the finished-attempt
-// partial index and the ordinary publish's call counts, plus the domain reader's identity.
+// D6 and E1 (D7, the upgrade, is packages/db/test/suggestion-scan-indexes-0081.test.ts): identity
+// of the live standing check (another workspace, group or person keeps a qualifying fact while the
+// relevant one goes), per-object stored-size caps, the finished-attempt partial index and the
+// ordinary publish's call counts, plus the domain reader's identity.
 import { env } from "cloudflare:test";
 import { aliasBinding, globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { and, eq, sql } from "drizzle-orm";
@@ -978,90 +979,6 @@ it("D6: two nested deliveries cannot publish two accepted versions", async () =>
         .where(eq(schema.accountUsage.ownerId, s.owner.id))
     )[0]?.openUploads,
   ).toBe(0);
-});
-it("D7: 0079 upgrade preserves populated attempts, items and drafts and every trigger", async () => {
-  const owner = await user("Owner"),
-    doc = await publishDoc(owner.id),
-    id = `upgrade-${doc.artifactId}`;
-  await db()
-    .insert(schema.acceptanceAttempts)
-    .values({
-      id,
-      artifactId: doc.artifactId,
-      ownerId: owner.id,
-      origin: "draft",
-      userId: owner.id,
-      digest: "a".repeat(64),
-      baseVersionId: doc.versionId,
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-  await db().insert(schema.changeItems).values({
-    id,
-    artifactId: doc.artifactId,
-    ownerId: owner.id,
-    origin: "draft",
-    versionId: doc.versionId,
-    path: doc.path,
-    envelope: '{"format":1}',
-    bytes: 12,
-    reason: "not_eligible",
-  });
-  await db().insert(schema.editDrafts).values({
-    artifactId: doc.artifactId,
-    userId: owner.id,
-    ownerId: owner.id,
-    baseVersionId: doc.versionId,
-    edit: "{}",
-    editBytes: 2,
-    updatedAt: NOW,
-  });
-  const tables = ["acceptance_attempts", "change_items", "edit_drafts"],
-    before = [];
-  for (const table of tables)
-    before.push(
-      (
-        await env.DB.prepare(`select * from ${table} where artifact_id=?`)
-          .bind(doc.artifactId)
-          .all()
-      ).results,
-    );
-  const triggers = (
-    await env.DB.prepare(
-      "select name,sql from sqlite_master where type='trigger' order by name",
-    ).all()
-  ).results;
-  for (const name of [
-    "change_items_closed_key_idx",
-    "edit_drafts_unused_idx",
-    "acceptance_attempts_running_created_idx",
-    "acceptance_attempts_running_deliveries_idx",
-    "acceptance_attempts_finished_created_idx",
-  ])
-    await env.DB.prepare(`drop index ${name}`).run();
-  await env.DB.prepare(
-    "create index change_items_closed_idx on change_items(closed_at) where closed_at is not null",
-  ).run();
-  await env.DB.prepare("create index edit_drafts_updated_idx on edit_drafts(updated_at)").run();
-  const migration = the(
-    env.TEST_MIGRATIONS.find((m: { name: string }) => m.name.startsWith("0079_")),
-  );
-  for (const q of migration.queries) await env.DB.prepare(q).run();
-  for (let i = 0; i < tables.length; i++)
-    expect(
-      (
-        await env.DB.prepare(`select * from ${tables[i]} where artifact_id=?`)
-          .bind(doc.artifactId)
-          .all()
-      ).results,
-    ).toEqual(before[i]);
-  expect(
-    (
-      await env.DB.prepare(
-        "select name,sql from sqlite_master where type='trigger' order by name",
-      ).all()
-    ).results,
-  ).toEqual(triggers);
 });
 
 it("E1: normal publish and rollback D1 call counts", async () => {

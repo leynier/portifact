@@ -1402,6 +1402,44 @@ describe("a restore", () => {
     expect(await artifactRow(released.artifactId)).toMatchObject({ state: "purging" });
   });
 
+  it("re-applies a later hold even when the file lists it before the release of the one the restore left open", async () => {
+    // Found by the artifact data model check (fourth review of PR 261): the file holds H1
+    // released and H2 open, the restored D1 still has H1 open, and H2 came first in the file. H2
+    // was skipped while H1 was still open, and nothing reported it.
+    const owner = await user();
+    const held = await heldArtifact(owner.id);
+    const first = held.hold.id;
+    await releaseLegalHold(db(), { artifactId: held.artifactId, now: NOW + 1 });
+    const second = value(
+      await placeLegalHold(db(), {
+        artifactId: held.artifactId,
+        ground: "A second order",
+        releaseAt: null,
+        now: NOW + 2,
+      }),
+    ).hold.id;
+    const lines = (await exportLegalHolds(regions())).filter(
+      (l) => l.legalHold.artifactId === held.artifactId,
+    );
+    // The restore: H1 open again, H2 gone.
+    const h = schema.legalHolds;
+    await db()
+      .delete(schema.legalHoldIdentities)
+      .where(eq(schema.legalHoldIdentities.holdId, second));
+    await db().delete(h).where(eq(h.id, second));
+    await db().update(h).set({ releasedAt: null }).where(eq(h.id, first));
+    // The open hold first, then the release, whatever order the file has.
+    const reordered = [...lines].sort((a, b) =>
+      a.legalHold.releasedAt === null ? -1 : b.legalHold.releasedAt === null ? 1 : 0,
+    );
+    expect(await applyLegalHolds(regions(), reordered, NOW + 3)).toMatchObject({ restored: 2 });
+    const open = await db()
+      .select({ id: h.id })
+      .from(h)
+      .where(sql`${h.artifactId} = ${held.artifactId} and ${h.releasedAt} is null`);
+    expect(open.map((row) => row.id)).toEqual([second]);
+  });
+
   it("reopens a hold the file has open, and reports one whose artifact is being purged", async () => {
     const owner = await user();
     const held = await heldArtifact(owner.id);

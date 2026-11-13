@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "29a6f166-6886-49b7-a22a-7c280f42665f",
+  "id": "6e5e4f9a-78f3-4232-92d5-2178d2e61f5d",
   "prevId": "0c05735d-3536-4701-abdd-555fd8f33ae8",
   "tables": {
     "abuse_reports": {
@@ -243,24 +243,6 @@
           "name": "acceptance_attempts_state_updated_idx",
           "columns": ["state", "updated_at"],
           "isUnique": false
-        },
-        "acceptance_attempts_running_created_idx": {
-          "name": "acceptance_attempts_running_created_idx",
-          "columns": ["created_at"],
-          "isUnique": false,
-          "where": "\"acceptance_attempts\".\"state\" = 'running'"
-        },
-        "acceptance_attempts_running_deliveries_idx": {
-          "name": "acceptance_attempts_running_deliveries_idx",
-          "columns": ["deliveries"],
-          "isUnique": false,
-          "where": "\"acceptance_attempts\".\"state\" = 'running'"
-        },
-        "acceptance_attempts_finished_created_idx": {
-          "name": "acceptance_attempts_finished_created_idx",
-          "columns": ["created_at", "id"],
-          "isUnique": false,
-          "where": "\"acceptance_attempts\".\"state\" <> 'running'"
         },
         "acceptance_attempts_artifact_idx": {
           "name": "acceptance_attempts_artifact_idx",
@@ -1266,6 +1248,88 @@
           "value": "\"annotation_usage\".\"bytes\" <= \"annotation_usage\".\"bytes_limit\""
         }
       }
+    },
+    "artifact_data": {
+      "name": "artifact_data",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generation": {
+          "name": "generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "epoch": {
+          "name": "epoch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "documents_bytes": {
+          "name": "documents_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "report_generation": {
+          "name": "report_generation",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "report_seq": {
+          "name": "report_seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch() * 1000)"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "artifact_data_artifact_id_artifacts_id_fk": {
+          "name": "artifact_data_artifact_id_artifacts_id_fk",
+          "tableFrom": "artifact_data",
+          "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "artifact_directory": {
       "name": "artifact_directory",
@@ -2385,9 +2449,9 @@
           "isUnique": false,
           "where": "\"change_items\".\"thread_id\" is not null"
         },
-        "change_items_closed_key_idx": {
-          "name": "change_items_closed_key_idx",
-          "columns": ["closed_at", "id"],
+        "change_items_closed_idx": {
+          "name": "change_items_closed_idx",
+          "columns": ["closed_at"],
           "isUnique": false,
           "where": "\"change_items\".\"closed_at\" is not null"
         },
@@ -2757,6 +2821,51 @@
         }
       }
     },
+    "data_findings": {
+      "name": "data_findings",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "domain_claims": {
       "name": "domain_claims",
       "columns": {
@@ -2927,11 +3036,10 @@
           "columns": ["user_id"],
           "isUnique": false
         },
-        "edit_drafts_unused_idx": {
-          "name": "edit_drafts_unused_idx",
-          "columns": ["updated_at", "artifact_id", "user_id"],
-          "isUnique": false,
-          "where": "\"edit_drafts\".\"attempt_id\" is null"
+        "edit_drafts_updated_idx": {
+          "name": "edit_drafts_updated_idx",
+          "columns": ["updated_at"],
+          "isUnique": false
         }
       },
       "foreignKeys": {

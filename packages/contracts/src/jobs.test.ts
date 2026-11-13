@@ -3,6 +3,12 @@ import {
   AcceptancePayload,
   COMMENT_NOTICE_THREADS_MAX,
   CommentNoticePayload,
+  DataAuthorErasurePayload,
+  DataErasePayload,
+  DataExportPayload,
+  DataFencePayload,
+  DataReconcilePayload,
+  DataResolvePayload,
   DeleteObjectsPayload,
   DomainNoticePayload,
   EXPIRY_NOTICE_ARTIFACTS_MAX,
@@ -59,6 +65,40 @@ describe("job contracts", () => {
     );
   });
 
+  it("parses the artifact data jobs' payloads strictly (decision 0026)", () => {
+    const fence = { kind: "transfer", transition: "transfer_1", toOwner: "ws_1" };
+    expect(
+      DataFencePayload.parse({ ownerId: "u_1", generation: 0, epoch: 2, fence }).fence,
+    ).toEqual(fence);
+    expect(
+      DataFencePayload.safeParse({ ownerId: "u_1", generation: 0, epoch: 2, fence, extra: 1 })
+        .success,
+    ).toBe(false);
+    expect(DataErasePayload.safeParse({ ownerId: "u_1", generation: -1, epoch: 0 }).success).toBe(
+      false,
+    );
+    const visitor = `v_${"a".repeat(16)}`;
+    expect(DataAuthorErasurePayload.parse({ userId: "u_1", visitorId: visitor }).visitorId).toBe(
+      visitor,
+    );
+    expect(DataAuthorErasurePayload.safeParse({ userId: "u_1", visitorId: "owner" }).success).toBe(
+      false,
+    );
+    expect(DataReconcilePayload.safeParse({ phase: "grants", cursor: null }).success).toBe(false);
+    expect(DataResolvePayload.safeParse({ decision: "keep" }).success).toBe(false);
+    expect(
+      DataExportPayload.parse({ key: "system/data-exports/abc.1", after: null, page: 0 }).key,
+    ).toBe("system/data-exports/abc.1");
+    // The export writes only under its own prefix in the region's bucket.
+    expect(
+      DataExportPayload.safeParse({ key: "objects/u/abc", after: null, page: 0 }).success,
+    ).toBe(false);
+    expect(
+      DataExportPayload.safeParse({ key: "system/data-exports/../x", after: null, page: 0 })
+        .success,
+    ).toBe(false);
+  });
+
   it("accepts only artifact and account tombstone markers", () => {
     const marker = { kind: "artifact", id: "k7d2qm4xab", deletedAt: 1 };
     expect(TombstoneMarker.parse(marker)).toEqual(marker);
@@ -96,6 +136,12 @@ describe("job contracts", () => {
       "draft_publish",
       "suggestion_carry",
       "change_list_check",
+      "data_fence",
+      "data_erase",
+      "data_author_erasure",
+      "data_reconcile",
+      "data_resolve",
+      "data_export",
     ]);
     for (const kind of [
       "artifact",

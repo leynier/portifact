@@ -27,8 +27,10 @@ import {
 } from "@portifact/domain";
 import {
   checkCustomDomains,
+  type DataEnv,
   type DomainDeps,
   type DomainEnv,
+  dataNamespaces,
   dohTxt,
   domainDbs,
   domainDepsFromEnv,
@@ -83,7 +85,8 @@ export interface Env
     DomainEnv,
     WebhookEnv,
     IntegrationEnv,
-    SuggestionsEnv {
+    SuggestionsEnv,
+    DataEnv {
   DB: D1Database;
   /** The access log database (`portifact-access`): pruned here and erased by outbox jobs. */
   ACCESS_DB: D1Database;
@@ -401,6 +404,8 @@ export async function runQueue(
         regions,
         // Edit suggestions (decision 0027): their jobs wait while the switch is off.
         suggestions: { enabled: suggestionsEnabled(env), contentDomain: env.CONTENT_DOMAIN },
+        // The region's documents objects (decision 0026), in its jurisdiction.
+        data: dataNamespaces(env, handles.region),
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });

@@ -1,6 +1,6 @@
 // The maintenance scans of edit suggestions (decision 0027, "Costs and limits", "Withdrawal,
 // deletion and retention"), run in every region. Each reads only rows it can return, through its
-// own index (migration 0079 and the indexes of 0077), never a prefix of rows it skips:
+// own index (migration 0081 and the indexes of 0077), never a prefix of rows it skips:
 //
 // - `expireAcceptAttempts` ends acceptance attempts still running after 3 deliveries or 30
 //   minutes (`failed`): the suggestion is pending again, its upload released. Two indexed
@@ -38,7 +38,7 @@ const EXPIRE_BATCH = 50;
 
 /**
  * The running attempts each reason makes overdue, each read through its own partial index
- * (migration 0079), named with `indexed by` so the planner never walks `(state, updated_at)`.
+ * (migration 0081), named with `indexed by` so the planner never walks `(state, updated_at)`.
  */
 export function overdueAttemptQueries(now: number, limit: number): SQL[] {
   const columns = sql.raw(`"id", "artifact_id" as "artifactId", "owner_id" as "ownerId", "origin"`);
@@ -70,7 +70,7 @@ export async function expireAcceptAttempts(
 }
 
 /**
- * A retention sweep: due rows walked in the order of its own partial index (migration 0079) from
+ * A retention sweep: due rows walked in the order of its own partial index (migration 0081) from
  * a saved cursor on the index's full key (the time, then the row's key columns), so a page seeks
  * past every row an earlier page read, an equal-time run included.
  */

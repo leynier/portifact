@@ -658,65 +658,6 @@ it("A10: readCapped stops a mismatched stream at the cap and accepts the boundar
     expect(result).toEqual(length > 16 ? "too_large" : new Uint8Array(length));
   }
 });
-it("A11: 0079 indexes can be applied over populated suggestion storage with triggers intact", async () => {
-  const owner = await user("Owner"),
-    s = await draft(owner);
-  await db()
-    .insert(schema.acceptanceAttempts)
-    .values({
-      id: `att_upgrade_${s.doc.artifactId}`,
-      artifactId: s.doc.artifactId,
-      ownerId: owner.id,
-      origin: "draft",
-      userId: owner.id,
-      digest: "a".repeat(64),
-      baseVersionId: s.doc.versionId,
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-  const names = [
-    "change_items_closed_key_idx",
-    "edit_drafts_unused_idx",
-    "acceptance_attempts_running_created_idx",
-    "acceptance_attempts_running_deliveries_idx",
-    "acceptance_attempts_finished_created_idx",
-  ];
-  const before = await env.DB.prepare(
-    "select name,sql from sqlite_master where type='trigger' order by name",
-  ).all();
-  // Back to the indexes of 0077 and 0078, then 0079 as the upgrade runs it.
-  for (const name of names) await env.DB.prepare(`drop index ${name}`).run();
-  await env.DB.prepare(
-    `create index "change_items_closed_idx" on "change_items" ("closed_at") where "change_items"."closed_at" is not null`,
-  ).run();
-  await env.DB.prepare(
-    `create index "edit_drafts_updated_idx" on "edit_drafts" ("updated_at")`,
-  ).run();
-  const migration = the(
-    env.TEST_MIGRATIONS.find((m: { name: string }) => m.name.startsWith("0079_")),
-  );
-  for (const q of migration.queries) await env.DB.prepare(q).run();
-  expect(
-    (
-      await env.DB.prepare(
-        "select name,sql from sqlite_master where type='trigger' order by name",
-      ).all()
-    ).results,
-  ).toEqual(before.results);
-  const rows = await env.DB.prepare(
-    "select name from sqlite_master where type='index' and name in (?,?,?,?,?)",
-  )
-    .bind(...names)
-    .all();
-  expect(rows.results).toHaveLength(5);
-  expect(
-    await db()
-      .select()
-      .from(schema.editDrafts)
-      .where(eq(schema.editDrafts.artifactId, s.doc.artifactId)),
-  ).toHaveLength(1);
-  expect(await attempts(s.doc.artifactId)).toHaveLength(1);
-});
 async function authorApplying() {
   const owner = await user("Owner"),
     author = await user("Author"),

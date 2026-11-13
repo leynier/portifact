@@ -55,6 +55,10 @@
     "@portifact/e2e#typecheck": {
       "dependsOn": ["^typecheck", "@portifact/bridge#build", "@portifact/render#build"]
     },
+    "@portifact/jobs#test": {
+      "dependsOn": ["^typecheck", "@portifact/data#build"],
+      "outputs": ["coverage/**"]
+    },
     "@portifact/content#dev": {
       "dependsOn": ["@portifact/bridge#build", "@portifact/render#build"],
       "cache": false,

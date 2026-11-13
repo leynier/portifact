@@ -35,8 +35,7 @@ describe("upgrading a populated database", () => {
     const all = env.TEST_MIGRATIONS;
     const at = all.findIndex((migration) => migration.name.startsWith("0077_"));
     expect(at).toBeGreaterThan(0);
-    // The two migrations of the suggestion storage, first after 0076; later ones (0079: indexes
-    // only) add no trigger and touch no thread.
+    // The two suggestion migrations, in order; later migrations apply after them like any other.
     expect(all.slice(at, at + 2).map((migration) => migration.name.slice(0, 4))).toEqual([
       "0077",
       "0078",

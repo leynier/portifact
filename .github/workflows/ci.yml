@@ -68,6 +68,9 @@ jobs:
       - name: Validate the jobs Worker bundle
         working-directory: apps/jobs
         run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/jobs-worker"
+      - name: Validate the data Worker bundle
+        working-directory: apps/data
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/data-worker"
 
   # Playwright end to end in Chromium, Firefox and WebKit (e2e/, docs/testing.md), with the
   # browsers' system libraries installed, so WebKit runs here even though it needs libraries

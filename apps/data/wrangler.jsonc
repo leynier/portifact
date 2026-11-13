@@ -1,9 +1,27 @@
 {
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  // The data Worker of decision 0026: it exports the documents Durable Object and answers `404`
+  // to everything. No route, no D1, R2 or queue binding and no secret. Deployed first in a
+  // release (docs/releasing.md, "Artifact data Worker"), because the jobs Worker binds its class
+  // by `script_name`; only the jobs Worker binds it until the owner API (delivery 5).
   "name": "portifact-data",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  // Stops runaway work; it does not bound billed wall time (decision 0026, "Engineering choices").
+  "limits": { "cpu_ms": 200 },
   "durable_objects": {
     "bindings": [{ "name": "DOCUMENTS", "class_name": "ArtifactDocuments" }]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArtifactDocuments"] }]
+  // Legacy SQLite class migration; never `deleted_classes`, `renamed_classes` or
+  // `transferred_classes` (scripts/durable-migrations.test.ts).
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArtifactDocuments"] }],
+  // Portifact's own log lines (`logEvent`) only: invocation logs stay off, as in the app and
+  // content Workers (decision 0005, "What leaves the EU").
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": { "enabled": true, "head_sampling_rate": 1, "invocation_logs": false }
+  }
 }
