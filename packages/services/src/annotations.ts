@@ -1235,10 +1235,11 @@ async function removeMessage(
         found.thread.kind === "suggestion" && action === "delete_own"
           ? await firstMessageId(db, found.thread.id)
           : null;
+      const isFirst = first === input.messageId && found.thread.authorId === input.userId;
       const deletion = firstMessageDeletion(
         found.thread.kind,
         found.thread.suggestionState,
-        first === input.messageId && found.thread.authorId === input.userId,
+        isFirst,
       );
       if (!deletion.ok) return deletion;
       return ok({
@@ -1246,9 +1247,12 @@ async function removeMessage(
         found,
         removesThread: remaining === 0,
         withdraws: deletion.value.withdraws,
+        // The author's first words of a suggestion go only with the suggestion as read: an
+        // acceptance that started meanwhile wins, and the deletion is refused as it would be now.
+        bindsSuggestion: found.thread.kind === "suggestion" && isFirst,
       });
     },
-    async ({ loaded, found, removesThread, withdraws }) => {
+    async ({ loaded, found, removesThread, withdraws, bindsSuggestion }) => {
       if (found.message.state === "deleted") return ok(true);
       const th = schema.annotationThreads;
       const others = sql`exists (select 1 from ${m} where ${m.threadId} = ${found.thread.id} and ${m.id} <> ${input.messageId} and ${m.state} <> 'deleted')`;
@@ -1256,6 +1260,10 @@ async function removeMessage(
         // A participant only deletes their own message (checked above, and authors never
         // change), so the thread's scope does not matter here.
         loaded.role === "participant" ? sql` and ${currentThreadGuard(found.thread.id)}` : sql``
+      }${
+        bindsSuggestion
+          ? sql` and exists (select 1 from ${th} where ${th.id} = ${found.thread.id} and ${th.suggestionState} is ${found.thread.suggestionState} and ${th.suggestionRevision} = ${found.thread.suggestionRevision})`
+          : sql``
       }`;
       const event: Claim = {
         artifactId: loaded.artifact.id,
@@ -1753,14 +1761,27 @@ export async function eraseAuthorFromThread(
         ),
         // The author's words go, so does their pending suggestion (decision 0027, "Withdrawal,
         // deletion and retention"): withdrawn, its edit cleared, the thread kept as a conversation.
+        // An acceptance still running for it is ended first, so its job's claim loses and
+        // nothing returns the edit to pending; an acceptance whose commit already won stays.
+        db
+          .update(schema.acceptanceAttempts)
+          .set({ state: "ended", reason: "revoked", updatedAt: input.now })
+          .where(
+            and(
+              eq(schema.acceptanceAttempts.threadId, thread.id),
+              eq(schema.acceptanceAttempts.state, "running"),
+              sql`exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.authorId} = ${input.authorId} and ${th.suggestionState} = 'applying')`,
+              claimed(writeId),
+            ),
+          ),
         db
           .update(th)
-          .set(WITHDRAWN)
+          .set({ ...WITHDRAWN, attemptId: null })
           .where(
             and(
               eq(th.id, thread.id),
               eq(th.kind, "suggestion"),
-              eq(th.suggestionState, "pending"),
+              inArray(th.suggestionState, ["pending", "applying"]),
               eq(th.authorId, input.authorId),
               claimed(writeId),
             ),
