@@ -52,6 +52,47 @@ function artifactId(): string {
 const visitorId = () => `v_${crypto.randomUUID().replaceAll("-", "")}`;
 const CONTEXT = { now: NOW, limits: LIFECYCLE_LIMITS };
 
+/**
+ * A bucket in memory with what the journal scan uses of R2: listing in key order after
+ * `startAfter` with custom metadata, and puts conditioned on an entity tag or on absence.
+ */
+function memoryBucket() {
+  const objects = new Map<string, { body: string; etag: string; meta: Record<string, string> }>();
+  let tag = 0;
+  return {
+    async list(options: R2ListOptions) {
+      const keys = [...objects.keys()]
+        .filter((key) => key.startsWith(options.prefix ?? ""))
+        .filter((key) => options.startAfter === undefined || key > options.startAfter)
+        .sort();
+      const page = keys.slice(0, options.limit ?? 1000);
+      return {
+        objects: page.map((key) => ({ key, customMetadata: objects.get(key)?.meta ?? {} })),
+        truncated: keys.length > page.length,
+        delimitedPrefixes: [],
+      };
+    },
+    async get(key: string) {
+      const found = objects.get(key);
+      return found === undefined
+        ? null
+        : { etag: found.etag, json: async () => JSON.parse(found.body) as unknown };
+    },
+    async put(key: string, body: string, options: R2PutOptions = {}) {
+      const found = objects.get(key);
+      const only = options.onlyIf as
+        | { etagMatches?: string; etagDoesNotMatch?: string }
+        | undefined;
+      if (only?.etagDoesNotMatch === "*" && found !== undefined) return null;
+      if (only?.etagMatches !== undefined && found?.etag !== only.etagMatches) return null;
+      tag += 1;
+      const etag = `e${tag}`;
+      objects.set(key, { body, etag, meta: options.customMetadata ?? {} });
+      return { etag };
+    },
+  } as unknown as R2Bucket;
+}
+
 /** The reference objects behind the lifecycle interface, one per artifact. */
 function memoryObjects(createsObjects = false) {
   const objects = new Map<string, MemoryObject>();
@@ -235,6 +276,25 @@ describe("data_fence", () => {
     });
     expect(await run(release, memory.data)).toBe("done");
     expect(object.durable.control?.hold).toBeNull();
+  });
+});
+
+describe("a fence under an owner the object does not have", () => {
+  it("waits while D1 has the transfer to that owner waiting, and ends without one", async () => {
+    const memory = memoryObjects();
+    const { id, ownerId } = await seeded(memory);
+    const fence = { ownerId: "u_next", generation: 0, epoch: 3, fence: { kind: "release", transition: "r_next" } };
+    const waiting = await job("data_fence", id, {
+      ownerId,
+      generation: 0,
+      epoch: 2,
+      fence: { kind: "transfer", transition: "transfer_next", toOwner: "u_next" },
+    });
+    // The transfer is still to come: the later fence waits for it.
+    expect(await run(await job("data_fence", id, fence), memory.data)).toBe("pending");
+    await db().delete(schema.outbox).where(eq(schema.outbox.id, waiting.id));
+    // No transfer to that owner is waiting: it can never apply.
+    expect(await run(await job("data_fence", id, fence), memory.data)).toBe("stale");
   });
 });
 
@@ -590,25 +650,25 @@ describe("the journal step of an account deletion", () => {
     await regionsFromEnv(env)
       .global.insert(schema.accountDeletions)
       .values({ userId, requestedAt: NOW });
-    // Written together: the entries' order does not matter to the listing.
-    await Promise.all(
-      Array.from({ length: 101 }, (_, n) =>
-        env.ARTIFACTS.put(
-          journalKey(userId, `a${String(n).padStart(9, "a")}`),
-          JSON.stringify({ visitorId: visitorId(), firstGrantAt: NOW }),
-        ),
-      ),
-    );
-    const first = await scheduleAuthorErasures(db(), env.ARTIFACTS, userId, NOW);
+    // An in-memory bucket with R2's listing order and conditional puts: the page logic is what is
+    // tested, not R2, and 101 real objects cost a second of fixture I/O.
+    const bucket = memoryBucket();
+    for (let n = 0; n < 101; n += 1) {
+      await bucket.put(
+        journalKey(userId, `a${String(n).padStart(9, "a")}`),
+        JSON.stringify({ visitorId: visitorId(), firstGrantAt: NOW }),
+      );
+    }
+    const first = await scheduleAuthorErasures(db(), bucket, userId, NOW);
     expect(first).toEqual({ more: true, scheduled: 100 });
-    const second = await scheduleAuthorErasures(db(), env.ARTIFACTS, userId, NOW);
+    const second = await scheduleAuthorErasures(db(), bucket, userId, NOW);
     // The pass retired something, so another from the start must find nothing.
     expect(second).toEqual({ more: true, scheduled: 1 });
     // R2 may answer a listing with metadata in smaller pages; the scan follows them to the end.
     let calls = 0;
     let last = second;
     while (last.more && calls < 5) {
-      last = await scheduleAuthorErasures(db(), env.ARTIFACTS, userId, NOW);
+      last = await scheduleAuthorErasures(db(), bucket, userId, NOW);
       expect(last.scheduled).toBe(0);
       calls += 1;
     }
