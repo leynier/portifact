@@ -673,6 +673,16 @@ export const SUGGESTION_LIMITS = {
   attemptRetentionMs: 30 * 24 * 60 * 60_000,
   /** Change items checked for closure, and suggestions carried, in one run of their job. */
   itemsPerCheck: 200,
+  /**
+   * A document's stored rendering or block map a plan reads at most, in bytes, checked by its
+   * stored size before reading; a larger one is no baseline (everything is listed).
+   */
+  renderingReadBytes: 16 * 1024 * 1024,
+  /**
+   * Stored bytes one run of a carry or closure job reads at most; the rest continues in the next
+   * job, so a run never holds more than this of files and their parsed pages.
+   */
+  jobReadBytes: 8 * 1024 * 1024,
 } as const;
 
 /**

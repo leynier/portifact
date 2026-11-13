@@ -7,11 +7,12 @@ import {
   pageTextOf,
   plan,
   RENDERER,
+  sha256,
   TITLE,
   textOperation,
 } from "../testing/suggestions/harness.ts";
 import { carriedProofs, carryRequest, operationsOn, plannedOn, proofsOfPlan } from "./carried.ts";
-import { buildPlan } from "./plan.ts";
+import { buildPlan, confirmPlan } from "./plan.ts";
 import { carryAll } from "./relocate.ts";
 
 const OLD = "First paragraph.\n\nSecond paragraph here.\n\nA [linked](https://x.test) word.";
@@ -179,5 +180,84 @@ describe("a file that cannot be read", () => {
     expect(refused.listed[0]?.location).toEqual({ unresolved: true });
     expect(refused.output).toBeNull();
     expect(refused.work.parses + refused.work.renders + refused.work.indexes).toBe(0);
+  });
+});
+
+/** A document's stored rendering as a commit writes it for bytes with the given hash. */
+async function storedWithHash(source: string, sourceSha256: string) {
+  const files = RENDERER.stored("markdown", source, { title: TITLE, sourceSha256 });
+  return {
+    html: (files[0] as { text: string }).text,
+    blockMap: (files[1] as { text: string }).text,
+    options: { title: TITLE },
+  };
+}
+
+describe("the output of a file with a byte order mark", () => {
+  it("is the bytes stored, mark included, and confirms only with the mark", async () => {
+    const change = await edit("markdown", OLD, "Second", "Next");
+    const base = await plan("markdown", OLD, [textOperation(change)]);
+    const marked = await buildPlan({
+      binding: {
+        artifactId: "k7d2qm4xab",
+        versionId: "ver_1",
+        path: "index.md",
+        fileSha256: await sha256(`\uFEFF${OLD}`),
+        renderer: RENDERER.label,
+        subject: "th_1",
+        revision: 1,
+      },
+      people: { submitter: true, acceptor: true },
+      kind: "markdown",
+      source: OLD,
+      operations: [textOperation(change)],
+      stored: await storedWithHash(OLD, await sha256(`\uFEFF${OLD}`)),
+      pageUrl: DOC_URL,
+      renderer: RENDERER,
+      bom: true,
+    });
+    const newSource = marked.newSource as string;
+    expect(marked.output?.size).toBe((base.output?.size ?? 0) + 3);
+    expect(marked.output?.sha256).toBe(await sha256(`\uFEFF${newSource}`));
+    const files = RENDERER.stored("markdown", newSource, {
+      title: TITLE,
+      sourceSha256: marked.output?.sha256 as string,
+    });
+    expect(marked.output?.blockMapSha256).toBe(await sha256((files[1] as { text: string }).text));
+    const confirm = (bom: boolean) =>
+      confirmPlan({
+        plan: marked,
+        confirmedDigest: marked.digest,
+        current: marked.binding,
+        newSource,
+        renderer: RENDERER,
+        bom,
+      });
+    expect(await confirm(true)).toBe("confirmed");
+    expect(await confirm(false)).toBe("plan_changed");
+  });
+
+  it("lists everything as too large when the service refuses a file by its size", async () => {
+    const change = await edit("markdown", OLD, "Second", "Next");
+    const built = await buildPlan({
+      binding: {
+        artifactId: "k7d2qm4xab",
+        versionId: "ver_1",
+        path: "index.md",
+        fileSha256: "0".repeat(64),
+        renderer: RENDERER.label,
+        subject: "th_1",
+        revision: 1,
+      },
+      people: { submitter: true, acceptor: true },
+      kind: "markdown",
+      source: "",
+      operations: [textOperation(change)],
+      pageUrl: DOC_URL,
+      renderer: RENDERER,
+      refuse: "too_large",
+    });
+    expect(built.listed.map((item) => item.reason)).toEqual(["too_large"]);
+    expect(built.work.renders).toBe(0);
   });
 });
