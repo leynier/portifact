@@ -307,6 +307,10 @@ reason(
   ["acceptSuggestion", "publishDraft", "planSuggestion", "planDraft"],
 );
 reason(
+  "edit suggestions (decision 0027): the page text for a text change only counts in the planning windows and reads the served page",
+  ["suggestionPageText"],
+);
+reason(
   "edit suggestions (decision 0027): an attempt that ends, carries, closures by a new version and the scans change nothing an owner decided; the suggestion is pending again or the record expired",
   [
     "endAttempt",
