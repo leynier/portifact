@@ -6,6 +6,7 @@
 // and a restore's re-applied deletions leave it out and wait, and triggers in the
 // `legal_hold_triggers` migration back every one of those. Releasing the hold (by hand, or by the
 // maintenance scan at its release date) lets a deferred deletion go on at its next run.
+
 import { type AbuseReason, isWorkspaceId, type LegalHoldLine } from "@portifact/contracts";
 import {
   type AccessDb,
@@ -19,6 +20,7 @@ import { checkHoldPlacement, fail, HELD_MESSAGE, ok, type Result } from "@portif
 import { and, asc, eq, inArray, isNotNull, isNull, lte, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAuthorFromThread } from "./annotations.ts";
+import { dataFenceStatements, wakeDataJobs } from "./artifact-data.ts";
 import { eraseAccountTraces } from "./history-retention.ts";
 import { suspendArtifact } from "./moderation.ts";
 
@@ -197,6 +199,14 @@ export async function placeLegalHold(
     await db.batch([
       db.insert(h).values(row),
       ...identityStatements(db, row.id, identities),
+      // The object's hold (decision 0026): the epoch raised and the fence's job, after the hold
+      // the trigger may refuse, so a refused hold fences nothing.
+      ...dataFenceStatements(db, {
+        which: sql`d.artifact_id = ${row.artifactId}`,
+        fence: sql`json_object('kind', 'hold', 'transition', ${row.id})`,
+        owner: sql`da.owner_id`,
+        now: input.now,
+      }),
     ] as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
   } catch (error) {
     // A concurrent hold won the open slot, or the artifact was reinstated in between.
@@ -285,11 +295,20 @@ export async function releaseDueHolds(db: Db, now: number): Promise<number> {
  */
 async function release(db: Db, which: SQL, releasedAt: number, now = releasedAt): Promise<number> {
   const open = sql`${which} and ${h.releasedAt} is null`;
-  const [, rows] = (await db.batch([
+  const [, , , rows] = (await db.batch([
     releaseJobs(db, open, now),
+    // The objects' releases (decision 0026), on the holds still being open, before the release:
+    // the epoch raised and one `data_fence` job per hold whose artifact has data.
+    ...dataFenceStatements(db, {
+      which: open,
+      from: sql`join ${h} on ${h.artifactId} = d.artifact_id`,
+      fence: sql`json_object('kind', 'release', 'transition', ${h.id} || ':release')`,
+      owner: sql`da.owner_id`,
+      now,
+    }),
     db.update(h).set({ releasedAt, ownerEmail: null }).where(open).returning({ id: h.id }),
     forgetReleasedIdentities(db),
-  ])) as unknown as [unknown, { id: string }[]];
+  ])) as unknown as [unknown, unknown, unknown, { id: string }[]];
   return rows.length;
 }
 
@@ -335,6 +354,8 @@ export async function runHoldRelease(
   now: number,
 ): Promise<"done" | "pending"> {
   if (await isHeld(db, artifactId)) return "done";
+  // The artifact data jobs the hold kept waiting (decision 0026) go now.
+  await wakeDataJobs(db, artifactId, now);
   const th = schema.annotationThreads;
   const m = schema.annotationMessages;
   const authors = await db

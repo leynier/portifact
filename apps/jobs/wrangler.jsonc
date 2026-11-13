@@ -63,6 +63,27 @@
       "migrations_dir": "../../packages/db/access-migrations"
     }
   ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ARTIFACT_DOCUMENTS",
+        "class_name": "ArtifactDocuments",
+        "script_name": "portifact-data"
+      }
+    ]
+  },
+  // The documents objects of decision 0026, exported by `portifact-data` (deployed before this
+  // Worker). Only the lifecycle jobs call them: fences, whole erases, author erasure,
+  // reconciliation, the operator's resolution and export.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ARTIFACT_DOCUMENTS",
+        "class_name": "ArtifactDocuments",
+        "script_name": "portifact-data"
+      }
+    ]
+  },
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts" },
     { "binding": "ARTIFACTS_EU", "bucket_name": "portifact-artifacts-eu", "jurisdiction": "eu" }

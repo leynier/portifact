@@ -4,6 +4,7 @@
 // and claims every artifact for purging in one transaction, so nothing is served or usable
 // after it returns; the maintenance job then purges the artifacts, erases the account's
 // comments on other people's artifacts in small batches and leaves an `account` tombstone.
+
 import {
   ACCOUNT_DELETION_CODE,
   type AccountExport,
@@ -33,6 +34,7 @@ import { loadSettings } from "./account-settings.ts";
 import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { eraseApprovalAuthor } from "./approval-reviews.ts";
+import { scheduleAuthorErasures } from "./artifact-data.ts";
 import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
 import { deleteOwnerAuditStreams, exportAuditStreams } from "./audit-streams.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
@@ -989,10 +991,13 @@ export async function advanceAccountDeletion(
     .where(eq(schema.accountDeletions.userId, userId));
   if (!deletion) return "absent";
   let pending = false;
-  for (const { db } of regions.all()) {
+  for (const { db, bucket } of regions.all()) {
     // The account's custom domains and claims go first: they are global, and its artifacts are
     // being purged (each purge also releases its own).
     await releaseOwnerDomains(domainDbsOf(db), userId, "account_deleted", now);
+    // What the account wrote in other people's artifacts' data (decision 0026, "Author erasure"):
+    // its journal entries in this region get their erasure jobs and are retired.
+    if (bucket && (await scheduleAuthorErasures(db, bucket, userId, now)).more) pending = true;
     await db.batch(regionalDeletion(db, userId, now, false));
     const threads = await threadsToErase(db, userId, threadsPerAccount);
     for (const threadId of threads) {

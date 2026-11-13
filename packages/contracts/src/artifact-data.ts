@@ -67,6 +67,24 @@ export const DataEnvelope = z.strictObject({
 });
 export type DataEnvelope = z.infer<typeof DataEnvelope>;
 
+/**
+ * A lifecycle command's envelope as another Worker sends it (delivery 4): no operation ID and no
+ * erase reason, which the object's lifecycle methods set themselves from their own arguments.
+ */
+export const LifecycleEnvelope = DataEnvelope.omit({ opId: true, requiredErase: true });
+export type LifecycleEnvelope = z.infer<typeof LifecycleEnvelope>;
+
+/** A command's time as the calling Worker passes it, in milliseconds since the epoch. */
+export const DataTime = Time;
+
+/** The steps of a whole erase. */
+export const EraseStepName = z.enum(["prepare", "commit", "cancel"]);
+export type EraseStepName = z.infer<typeof EraseStepName>;
+
+/** The operator's two ways out of a quarantine. */
+export const QuarantineResolution = z.enum(["adopt", "erase"]);
+export type QuarantineResolution = z.infer<typeof QuarantineResolution>;
+
 export const TRANSITION_KINDS = ["created", "transfer", "hold", "release", "epoch"] as const;
 export const TransitionKind = z.enum(TRANSITION_KINDS);
 export type TransitionKind = z.infer<typeof TransitionKind>;
@@ -296,6 +314,11 @@ export const ARTIFACT_DATA = {
   maxDepth: 16,
   /** A retired journal entry is kept this long: longer than any grant or code can live. */
   journalRetiredMs: 31 * 86_400_000,
+  /**
+   * A retired inventory entry is kept this long: longer than D1 Time Travel's 30-day window, so
+   * any restore that could bring the artifact's row back still finds its object.
+   */
+  inventoryRetiredMs: 31 * 86_400_000,
   live: {
     messageBytes: 1024,
     messagesInPerMinute: 4,
@@ -450,6 +473,18 @@ export const JournalEntry = z.looseObject({
   retiredAt: Time.optional(),
 });
 export type JournalEntry = z.infer<typeof JournalEntry>;
+
+/**
+ * The object inventory's entry in the region's bucket (decision 0026, "Restore"): written before
+ * an object can hold anything, retired once a whole erase that ends the artifact committed.
+ */
+export const InventoryEntry = z.looseObject({
+  artifactId: ArtifactId,
+  region: DataRegion,
+  createdAt: Time,
+  retiredAt: Time.optional(),
+});
+export type InventoryEntry = z.infer<typeof InventoryEntry>;
 
 /** The export file (decision 0026, "Export"): JSON Lines, versioned, never reordered. */
 export const DATA_EXPORT_FORMAT = "portifact-data";

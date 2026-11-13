@@ -26,6 +26,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
+import { dataEraseJob } from "./artifact-data.ts";
 import { auditEvent, pruneAuditEvents } from "./audit.ts";
 import { pruneAuthRecords } from "./auth-records.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
@@ -684,6 +685,14 @@ export async function deleteArtifactData(
     eraseAccessEventsJob(
       db,
       "artifact",
+      artifactId,
+      sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifactId} and ${schema.artifacts.state} = 'purging')`,
+      now,
+    ),
+    // Its document database (decision 0026): the whole erase the purge requires, written from the
+    // `artifact_data` row the delete below takes with it. An artifact without data gets none.
+    dataEraseJob(
+      db,
       artifactId,
       sql`exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${artifactId} and ${schema.artifacts.state} = 'purging')`,
       now,

@@ -21,8 +21,10 @@ import type { SuggestionsEnv } from "@portifact/domain";
 import { CodedError, errorLabel, logEvent, logSummary } from "@portifact/domain";
 import {
   checkCustomDomains,
+  type DataEnv,
   type DomainDeps,
   type DomainEnv,
+  dataNamespaces,
   dohTxt,
   domainDbs,
   domainDepsFromEnv,
@@ -75,7 +77,8 @@ export interface Env
     DomainEnv,
     WebhookEnv,
     IntegrationEnv,
-    SuggestionsEnv {
+    SuggestionsEnv,
+    DataEnv {
   DB: D1Database;
   /** The access log database (`portifact-access`): pruned here and erased by outbox jobs. */
   ACCESS_DB: D1Database;
@@ -360,6 +363,8 @@ export async function runQueue(
         commentRetentionNotifier,
         reportOutcomeNotifier,
         regions,
+        // The region's documents objects (decision 0026), in its jurisdiction.
+        data: dataNamespaces(env, handles.region),
       });
       if (outcome === "pending") {
         message.retry({ delaySeconds: PENDING_RETRY_SECONDS });

@@ -2,6 +2,7 @@
 // payloads of outbox rows, and the tombstone markers the operator exports before restoring a
 // backup and applies after it (docs/operations.md).
 import { z } from "zod";
+import { DataFence, DataOwnerId, ExportCursor, VisitorId } from "./artifact-data.ts";
 import { Region } from "./workspaces.ts";
 
 export const OutboxTopic = z.enum([
@@ -32,6 +33,12 @@ export const OutboxTopic = z.enum([
   "moderation_notice",
   "report_outcome",
   "legal_hold_release",
+  "data_fence",
+  "data_erase",
+  "data_author_erasure",
+  "data_reconcile",
+  "data_resolve",
+  "data_export",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -223,3 +230,69 @@ export const LegalHoldLine = z.strictObject({
   }),
 });
 export type LegalHoldLine = z.infer<typeof LegalHoldLine>;
+
+// Artifact data jobs (decision 0026, delivery 4). Each carries what its envelope needs from the
+// batch that wrote it (`artifact_data` and the artifact's owner), because that batch may also
+// delete the rows it read (a purge). The subject is the artifact.
+
+const DataCount = z.number().int().nonnegative();
+
+/**
+ * Payload of a `data_fence` job: a hold, its release or a transfer, told to the artifact's object
+ * under the owner the object knows (the old one for a transfer) and the epoch the batch raised.
+ */
+export const DataFencePayload = z.strictObject({
+  ownerId: DataOwnerId,
+  generation: DataCount,
+  epoch: DataCount,
+  fence: DataFence,
+});
+export type DataFencePayload = z.infer<typeof DataFencePayload>;
+
+/**
+ * Payload of a `data_erase` job: the whole erase a purge requires (an account's or workspace's
+ * deletion purges its artifacts the same way). Why the artifact went (`RequiredErase`) is read
+ * when the job runs, from the owner's deletion row or tombstone.
+ */
+export const DataErasePayload = z.strictObject({
+  ownerId: DataOwnerId,
+  generation: DataCount,
+  epoch: DataCount,
+});
+export type DataErasePayload = z.infer<typeof DataErasePayload>;
+
+/**
+ * Payload of a `data_author_erasure` job: a deleted account's documents in one artifact, by the
+ * visitor ID its retired journal entry holds. The envelope is read from `artifact_data` when the
+ * job runs: the artifact outlives the account.
+ */
+export const DataAuthorErasurePayload = z.strictObject({
+  userId: z.string().min(1).max(200),
+  visitorId: VisitorId,
+});
+export type DataAuthorErasurePayload = z.infer<typeof DataAuthorErasurePayload>;
+
+/**
+ * Payload of a `data_reconcile` job (one per region, written by the operator after a restore):
+ * where the walk of the region's inventory and then of its journal resumes.
+ */
+export const DataReconcilePayload = z.strictObject({
+  phase: z.enum(["inventory", "journal"]),
+  cursor: z.string().max(1024).nullable(),
+});
+export type DataReconcilePayload = z.infer<typeof DataReconcilePayload>;
+
+/** Payload of a `data_resolve` job: the operator's resolution of a quarantine. */
+export const DataResolvePayload = z.strictObject({ decision: z.enum(["adopt", "erase"]) });
+export type DataResolvePayload = z.infer<typeof DataResolvePayload>;
+
+/**
+ * Payload of a `data_export` job: the operator's export of an artifact's data to the region's
+ * bucket, one page per run, under `key` with the page number appended.
+ */
+export const DataExportPayload = z.strictObject({
+  key: z.string().regex(/^system\/data-exports\/[A-Za-z0-9_.:-]{1,200}$/),
+  after: ExportCursor.nullable(),
+  page: DataCount,
+});
+export type DataExportPayload = z.infer<typeof DataExportPayload>;

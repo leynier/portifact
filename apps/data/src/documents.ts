@@ -1,13 +1,32 @@
 // `ArtifactDocuments`, the documents Durable Object of decision 0026: one per artifact, named by the
 // artifact ID, on SQLite storage, in the jurisdiction of the owner's region. It holds the store
 // (store.ts) and adapts the platform to it: the alarm, hibernatable WebSockets and the wake after
-// hibernation or eviction. It exposes no fetch handler and no RPC method: nothing reaches it until
-// a later delivery adds its callers (the jobs Worker's lifecycle and erasure paths, then the owner
-// API and the page), and no deployed Worker binds it yet.
+// hibernation or eviction. It has no fetch handler. Its only RPC methods are the lifecycle
+// interface below (delivery 4), which the jobs Worker calls through its binding to this script;
+// document commands get theirs with the owner API (delivery 5) and the page (delivery 6).
 
 import { DurableObject } from "cloudflare:workers";
-import type { LiveAttachment } from "@portifact/domain/artifact-data";
+import {
+  type DataControl,
+  type DataEnvelope,
+  DataFence,
+  EraseStepName as EraseStep,
+  ExportCursor,
+  LifecycleEnvelope,
+  DataTime as Now,
+  OperationId,
+  QuarantineReason,
+  RequiredErase,
+  QuarantineResolution as Resolution,
+  VisitorId,
+} from "@portifact/contracts/artifact-data";
+import { LIFECYCLE_LIMITS, type LiveAttachment } from "@portifact/domain/artifact-data";
 import { DocumentsStore, type Instrument, type SocketPort, type WokenSocket } from "./store.ts";
+
+/** The most documents an export page of the operator's returns (the export cap). */
+const EXPORT_TAKE = 500;
+/** The most of the author's documents one lifecycle chunk deletes (the chunk cap). */
+const CHUNK_TAKE = 500;
 
 /** What a test may change when it rebuilds the store over the same storage. */
 export interface StoreSetup {
@@ -76,6 +95,95 @@ export class ArtifactDocuments extends DurableObject<Env> {
     void ctx.blockConcurrencyWhile(async () => {
       this.store.knownAlarm(await ctx.storage.getAlarm());
     });
+  }
+
+  // The lifecycle interface (decision 0026, delivery 4). The binding is the credential: only a
+  // Worker whose deployed configuration binds this class by `script_name` reaches these methods
+  // (today the jobs Worker; there is no route and no fetch handler). Every argument is parsed at
+  // this boundary, and every command is then admitted by the store through the domain's envelope
+  // rules (`admit`, `applyFence`, the erase steps), which decide; nothing here does.
+
+  /** The control record, or null when no durable write ever bound the object. Writes nothing. */
+  lifecycleControl(): DataControl | null {
+    return this.store.controlRecord();
+  }
+
+  /** A hold, a release, a transfer or an epoch raise. */
+  lifecycleFence(envelope: unknown, fence: unknown, now: unknown) {
+    return this.store.fence(
+      LifecycleEnvelope.parse(envelope),
+      DataFence.parse(fence),
+      Now.parse(now),
+    );
+  }
+
+  /**
+   * A step of a whole erase the lifecycle requires (`reason`: a purge, an account's or a
+   * workspace's deletion): only these paths set `requiredErase`, never a document command.
+   */
+  lifecycleErase(
+    step: unknown,
+    envelope: unknown,
+    eraseId: unknown,
+    reason: unknown,
+    now: unknown,
+  ) {
+    const parsed: DataEnvelope = {
+      ...LifecycleEnvelope.parse(envelope),
+      requiredErase: RequiredErase.parse(reason),
+    };
+    const id = OperationId.parse(eraseId);
+    const at = Now.parse(now);
+    switch (EraseStep.parse(step)) {
+      case "prepare":
+        return this.store.prepareErase(parsed, id, at);
+      case "commit":
+        return this.store.commitErase(parsed, id, at);
+      case "cancel":
+        return this.store.cancelErase(parsed, id, at);
+    }
+  }
+
+  /** One bounded chunk of a deleted account's erasure, under its own operation ID. */
+  lifecycleEraseAuthor(envelope: unknown, visitorId: unknown, opId: unknown, now: unknown) {
+    const parsed: DataEnvelope = {
+      ...LifecycleEnvelope.parse(envelope),
+      opId: OperationId.parse(opId),
+    };
+    return this.store.eraseAuthorChunk(parsed, VisitorId.parse(visitorId), CHUNK_TAKE, {
+      now: Now.parse(now),
+      limits: LIFECYCLE_LIMITS,
+    });
+  }
+
+  /** Reconciliation's quarantine. */
+  lifecycleQuarantine(envelope: unknown, reason: unknown, now: unknown) {
+    return this.store.quarantine(
+      LifecycleEnvelope.parse(envelope),
+      QuarantineReason.parse(reason),
+      Now.parse(now),
+    );
+  }
+
+  /** The operator's resolution of a quarantine. */
+  lifecycleResolve(envelope: unknown, decision: unknown, now: unknown) {
+    return this.store.resolveQuarantine(
+      LifecycleEnvelope.parse(envelope),
+      Resolution.parse(decision),
+      Now.parse(now),
+    );
+  }
+
+  /** One page of the operator's export, allowed under a hold or a quarantine. */
+  lifecycleExport(envelope: unknown, after: unknown, now: unknown) {
+    return this.store.exportPage(
+      LifecycleEnvelope.parse(envelope),
+      { kind: "owner", actor: "operator" },
+      ExportCursor.nullable().parse(after),
+      EXPORT_TAKE,
+      { now: Now.parse(now), limits: LIFECYCLE_LIMITS },
+      true,
+    );
   }
 
   override async alarm(): Promise<void> {

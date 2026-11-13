@@ -293,6 +293,27 @@ reason(
   ],
 );
 reason(
+  "artifact data lifecycle (decision 0026): fences and whole erases follow a change that records its own event or is operator-only (a hold, a transfer, a purge); author erasure chunks keep their audit obligation in the object, which the audit relay of delivery 5 writes to D1; reconciliation, its resolutions and the export are operator-only after a restore",
+  [
+    "runDataFence",
+    "runDataErase",
+    "runDataAuthorErasure",
+    "runDataReconcile",
+    "runDataResolve",
+    "runDataExport",
+    "reconcileObject",
+    "registerDataObject",
+    "recordStorageReport",
+    "eraseReason",
+    "retireJournalEntry",
+    "scheduleAuthorErasures",
+    "wakeDataJobs",
+    "queueDataReconcile",
+    "queueDataResolve",
+    "queueDataExport",
+  ],
+);
+reason(
   "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",
   [
     "sendModerationNotice",
