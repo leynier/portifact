@@ -34,6 +34,8 @@ import {
   type LifecycleEnvelope,
   type OwnerDataCommand,
   type OwnerEnvelope,
+  type PageCaller,
+  type PageDataCommand,
   type QuarantineReason,
   type QuarantineResolutionRequest,
   type RequiredErase,
@@ -139,6 +141,14 @@ export interface DataObjectRpc {
     envelope: OwnerEnvelope,
     actor: string,
     command: OwnerDataCommand,
+    limits: ArtifactDataLimits,
+    now: number,
+  ): Promise<DataReplayable<unknown>>;
+  /** One page command (delivery 6, `artifact-data-page.ts`); the answer as RPC carries it. */
+  pageCommand(
+    envelope: OwnerEnvelope,
+    caller: PageCaller,
+    command: PageDataCommand,
     limits: ArtifactDataLimits,
     now: number,
   ): Promise<DataReplayable<unknown>>;

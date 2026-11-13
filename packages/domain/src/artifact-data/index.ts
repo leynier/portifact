@@ -18,6 +18,7 @@ export * from "./mutation.ts";
 export * from "./operations.ts";
 export * from "./owner-commands.ts";
 export * from "./owner-reads.ts";
+export * from "./page-commands.ts";
 export * from "./queries.ts";
 export * from "./sha256.ts";
 export * from "./storage.ts";
