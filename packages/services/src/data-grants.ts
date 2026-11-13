@@ -380,10 +380,19 @@ export async function renewDataGrant(
 }
 
 /**
- * Revokes every open grant of the person on an artifact (from "Data you shared" or the viewer).
- * The `data_grant` window tombstones are written first, in the global database, so a restore
- * never revives a revoked grant; then the regional rows, conditioned on being still open. With
- * one database both are one batch.
+ * Grants one revocation step handles: three bound parameters per tombstone, so a step stays well
+ * under D1's 100 bound parameters a statement.
+ */
+const REVOKE_STEP = 30;
+/** Steps one revocation takes at most: far above what the issue rate lets a person open. */
+const REVOKE_STEPS = 200;
+
+/**
+ * Revokes every open grant of the person on an artifact (from "Data you shared" or the viewer),
+ * in steps of `REVOKE_STEP`, until none is open. Each step writes its `data_grant` window
+ * tombstones first, in the global database, so a restore never revives a revoked grant, then
+ * revokes those rows, conditioned on being still open; with one database both are one batch.
+ * Answers only once no open grant is left.
  */
 export async function revokeDataGrants(
   db: RegionalDb,
@@ -395,29 +404,34 @@ export async function revokeDataGrants(
     isNull(g.revokedAt),
     gt(g.expiresAt, input.now),
   );
-  const rows = await db.select({ id: g.id }).from(g).where(open);
-  if (rows.length === 0) return { revoked: 0 };
-  const ids = rows.map((row) => row.id);
-  const markers = ids.map((id) => ({ kind: "data_grant" as const, id, deletedAt: input.now }));
   const both = bothSides(db);
-  if (both) {
-    const [, revoked] = await both.batch([
-      both.insert(schema.tombstones).values(markers).onConflictDoNothing(),
-      both
-        .update(g)
-        .set({ revokedAt: input.now })
-        .where(and(open, inArray(g.id, ids)))
-        .returning({ id: g.id }),
-    ]);
-    return { revoked: revoked.length };
+  let revoked = 0;
+  for (let step = 0; step < REVOKE_STEPS; step++) {
+    const rows = await db.select({ id: g.id }).from(g).where(open).limit(REVOKE_STEP);
+    if (rows.length === 0) return { revoked };
+    const ids = rows.map((row) => row.id);
+    const markers = ids.map((id) => ({ kind: "data_grant" as const, id, deletedAt: input.now }));
+    if (both) {
+      const [, done] = await both.batch([
+        both.insert(schema.tombstones).values(markers).onConflictDoNothing(),
+        both
+          .update(g)
+          .set({ revokedAt: input.now })
+          .where(and(open, inArray(g.id, ids)))
+          .returning({ id: g.id }),
+      ]);
+      revoked += done.length;
+      continue;
+    }
+    await db.global.insert(schema.tombstones).values(markers).onConflictDoNothing();
+    const done = await db
+      .update(g)
+      .set({ revokedAt: input.now })
+      .where(and(open, inArray(g.id, ids)))
+      .returning({ id: g.id });
+    revoked += done.length;
   }
-  await db.global.insert(schema.tombstones).values(markers).onConflictDoNothing();
-  const revoked = await db
-    .update(g)
-    .set({ revokedAt: input.now })
-    .where(and(open, inArray(g.id, ids)))
-    .returning({ id: g.id });
-  return { revoked: revoked.length };
+  throw new Error("grants kept opening while they were revoked");
 }
 
 /**
@@ -438,6 +452,9 @@ export async function listDataGrants(
       first: sql<number>`min(${g.createdAt})`,
       last: sql<number>`max(${g.createdAt})`,
       expiresAt: sql<
+/** Artifacts one page of "Data you shared" lists, per region. */
+export const DATA_GRANT_PAGE = 50;
+
         number | null
       >`max(case when ${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now} then ${g.expiresAt} end)`,
     })
