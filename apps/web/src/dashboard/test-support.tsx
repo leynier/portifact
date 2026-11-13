@@ -1545,7 +1545,11 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     return Response.json({ signedOut: before - server.sessions.length });
   }
   if (path === "/api/v1/account/data-grants" && method === "GET") {
-    return Response.json({ items: server.dataGrants });
+    // Pages of two, so the screen's "Show more" is exercised.
+    const after = url.searchParams.get("after");
+    const from = after === null ? 0 : Number(after);
+    const next = from + 2 < server.dataGrants.length ? String(from + 2) : null;
+    return Response.json({ items: server.dataGrants.slice(from, from + 2), next });
   }
   if (path === "/api/v1/account/data-grants" && method === "POST") {
     const input = server.bodies.at(-1) as { artifactId: string; flow: string };

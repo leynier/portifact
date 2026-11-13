@@ -48,6 +48,7 @@ export const ja = {
     "1 分以内に、すべてのブラウザーで、ページはあなたを認識せず、あなたとして保存しなくなります。保存した内容は artifact に残ります。",
   "sharedData.cancel": "キャンセル",
   "sharedData.revokeFailed": "取り消しを完了できませんでした",
+  "sharedData.more": "さらに表示",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "コンテンツへスキップ",
   "shell.navigation": "メイン",

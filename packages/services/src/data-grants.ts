@@ -434,45 +434,62 @@ export async function revokeDataGrants(
   throw new Error("grants kept opening while they were revoked");
 }
 
-/**
- * The artifacts the person shared data with in one region, newest first: one row per artifact,
- * with the grants still open, for "Data you shared".
- */
-export async function listDataGrants(
-  db: RegionalDb,
-  input: { userId: string; contentDomain: string; now: number },
-): Promise<DataGrantView[]> {
-  const open = sql<number>`sum(case when ${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now} then 1 else 0 end)`;
-  const rows = await db
-    .select({
-      artifactId: g.artifactId,
-      name: schema.artifacts.name,
-      host: sql<string>`max(${g.host})`,
-      open,
-      first: sql<number>`min(${g.createdAt})`,
-      last: sql<number>`max(${g.createdAt})`,
-      expiresAt: sql<
 /** Artifacts one page of "Data you shared" lists, per region. */
 export const DATA_GRANT_PAGE = 50;
 
-        number | null
-      >`max(case when ${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now} then ${g.expiresAt} end)`,
+/**
+ * One page of the artifacts the person shared data with in one region, by artifact ID after
+ * `after`, through the `(user_id, artifact_id)` index: one row per artifact with the grants
+ * still open. `next` names the last artifact when more may follow.
+ */
+export async function listDataGrants(
+  db: RegionalDb,
+  input: {
+    userId: string;
+    contentDomain: string;
+    now: number;
+    after?: string | null;
+    limit?: number;
+  },
+): Promise<{ items: DataGrantView[]; next: string | null }> {
+  const limit = Math.min(Math.max(1, input.limit ?? DATA_GRANT_PAGE), DATA_GRANT_PAGE);
+  const live = sql`${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now}`;
+  const rows = await db
+    .select({
+      artifactId: g.artifactId,
+      name: sql<
+        string | null
+      >`(select ${schema.artifacts.name} from ${schema.artifacts} where ${schema.artifacts.id} = "data_grants"."artifact_id")`,
+      host: sql<string>`max(${g.host})`,
+      open: sql<number>`sum(case when ${live} then 1 else 0 end)`,
+      first: sql<number>`min(${g.createdAt})`,
+      last: sql<number>`max(${g.createdAt})`,
+      expiresAt: sql<number | null>`max(case when ${live} then ${g.expiresAt} end)`,
     })
     .from(g)
-    .leftJoin(schema.artifacts, eq(schema.artifacts.id, g.artifactId))
-    .where(and(eq(g.userId, input.userId), isNotNull(g.redeemedAt)))
+    .where(
+      and(
+        eq(g.userId, input.userId),
+        isNotNull(g.redeemedAt),
+        input.after ? gt(g.artifactId, input.after) : undefined,
+      ),
+    )
     .groupBy(g.artifactId)
-    .orderBy(desc(sql`max(${g.createdAt})`))
-    .limit(200);
-  return rows.map((row) => ({
-    artifactId: row.artifactId,
-    artifactName: row.name ?? null,
-    host: row.host ?? devHost(row.artifactId, input.contentDomain),
-    openGrants: Number(row.open),
-    firstGrantedAt: new Date(Number(row.first)).toISOString(),
-    lastGrantedAt: new Date(Number(row.last)).toISOString(),
-    expiresAt: row.expiresAt === null ? null : new Date(Number(row.expiresAt)).toISOString(),
-  }));
+    .orderBy(g.artifactId)
+    .limit(limit + 1);
+  const page = rows.slice(0, limit);
+  return {
+    items: page.map((row) => ({
+      artifactId: row.artifactId,
+      artifactName: row.name ?? null,
+      host: row.host ?? devHost(row.artifactId, input.contentDomain),
+      openGrants: Number(row.open),
+      firstGrantedAt: new Date(Number(row.first)).toISOString(),
+      lastGrantedAt: new Date(Number(row.last)).toISOString(),
+      expiresAt: row.expiresAt === null ? null : new Date(Number(row.expiresAt)).toISOString(),
+    })),
+    next: rows.length > limit ? (page.at(-1)?.artifactId ?? null) : null,
+  };
 }
 
 /**

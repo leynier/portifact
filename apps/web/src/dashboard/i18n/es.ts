@@ -49,6 +49,7 @@ export const es = {
     "La página deja de conocerte y de guardar en tu nombre en un minuto, en todos los navegadores. Lo que guardaste se queda con el artifact.",
   "sharedData.cancel": "Cancelar",
   "sharedData.revokeFailed": "No se pudo revocar",
+  "sharedData.more": "Mostrar más",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Saltar al contenido",
   "shell.navigation": "Principal",

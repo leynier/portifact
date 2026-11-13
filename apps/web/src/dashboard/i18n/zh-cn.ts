@@ -47,6 +47,7 @@ export const zhCN = {
     "一分钟内，在所有浏览器中，该页面将不再识别你，也不再以你的身份保存。你保存的内容仍留在 artifact 中。",
   "sharedData.cancel": "取消",
   "sharedData.revokeFailed": "未能完成撤销",
+  "sharedData.more": "显示更多",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "跳到内容",
   "shell.navigation": "主导航",

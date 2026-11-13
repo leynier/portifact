@@ -49,6 +49,7 @@ export const ptBR = {
     "A página deixa de conhecer você e de salvar em seu nome em até um minuto, em todos os navegadores. O que você salvou fica com o artifact.",
   "sharedData.cancel": "Cancelar",
   "sharedData.revokeFailed": "A revogação não foi concluída",
+  "sharedData.more": "Mostrar mais",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Pular para o conteúdo",
   "shell.navigation": "Principal",

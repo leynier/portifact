@@ -51,6 +51,7 @@ export const fr = {
     "La page cesse de vous connaître et d'enregistrer en votre nom en une minute, dans tous les navigateurs. Ce que vous avez enregistré reste avec l'artifact.",
   "sharedData.cancel": "Annuler",
   "sharedData.revokeFailed": "La révocation n'a pas abouti",
+  "sharedData.more": "Afficher plus",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Aller au contenu",
   "shell.navigation": "Principale",

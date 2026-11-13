@@ -298,11 +298,12 @@ describe("data grants", () => {
     await redeem(await issued());
     // A code that never redeemed is not a grant.
     await issued(READER, "o".repeat(43));
-    const items = await listDataGrants(db(), {
+    const { items, next } = await listDataGrants(db(), {
       userId: READER,
       contentDomain: "portifact.dev",
       now: NOW + 2000,
     });
+    expect(next).toBeNull();
     expect(items).toEqual([
       {
         artifactId: ID,
@@ -316,7 +317,7 @@ describe("data grants", () => {
     ]);
     expect(
       await listDataGrants(db(), { userId: STRANGER, contentDomain: "portifact.dev", now: NOW }),
-    ).toEqual([]);
+    ).toEqual({ items: [], next: null });
   });
 
   it("prunes spent codes, unredeemed grants and grants 30 days after they ended", async () => {
@@ -349,19 +350,25 @@ describe("review of #271: revocation capacity", () => {
 
   it("revokes 34 open grants, more than one statement may bind", async () => {
     await manyGrants(34);
-    expect(await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 1000 })).toEqual({
+    expect(
+      await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 1000 }),
+    ).toEqual({
       revoked: 34,
     });
     const markers = await db().global.select().from(schema.tombstones);
     expect(markers.filter((marker) => marker.kind === "data_grant")).toHaveLength(34);
-    expect(await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 2000 })).toEqual({
+    expect(
+      await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 2000 }),
+    ).toEqual({
       revoked: 0,
     });
   });
 
   it("revokes 250 open grants in one call", async () => {
     await manyGrants(250);
-    expect(await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 1000 })).toEqual({
+    expect(
+      await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 1000 }),
+    ).toEqual({
       revoked: 250,
     });
   });
@@ -402,16 +409,18 @@ describe("review of #271: shared-data completeness", () => {
     const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
     for (let n = 0; n < 201; n++) {
       const id = `aaaaaaa${alphabet[(n >> 10) & 31]}${alphabet[(n >> 5) & 31]}${alphabet[n & 31]}`;
-      await db().insert(schema.artifacts).values({
-        id,
-        ownerId: `owner-${n}`,
-        type: "site",
-        name: `Board ${n}`,
-        state: "active",
-        accessMode: "public",
-        currentVersionId: "v1",
-        expiresAt: NOW + 60 * DAY,
-      });
+      await db()
+        .insert(schema.artifacts)
+        .values({
+          id,
+          ownerId: `owner-${n}`,
+          type: "site",
+          name: `Board ${n}`,
+          state: "active",
+          accessMode: "public",
+          currentVersionId: "v1",
+          expiresAt: NOW + 60 * DAY,
+        });
       await db()
         .insert(schema.dataGrants)
         .values({
