@@ -27,6 +27,7 @@ import {
   type BrandSettings,
   type BrandUpdate,
   type BrowserSession,
+  type ChangeItemView,
   type CommentNoticeMute,
   type CommentScope,
   type ConnectedApp,
@@ -38,6 +39,7 @@ import {
   type DataGrantView,
   DEFAULT_POLICY,
   DocumentPreviewRequest,
+  type DraftView,
   type ErrorCode,
   type FileChange,
   GitHubTrustRuleCreate,
@@ -53,8 +55,10 @@ import {
   NO_APPROVAL_REVIEW,
   type OwnerView,
   PLANS,
+  type Plan,
   type PolicyImpact,
   type PreparedPublish,
+  type PreviewResponse,
   PublishRequest,
   planRequiredMessage,
   type ReviewStart,
@@ -70,6 +74,7 @@ import {
   type SingleFamilyLists,
   type SsoProviderView,
   type SsoSettings,
+  type SuggestionView,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   type UploadTarget,
   type UsageBlock,
@@ -335,7 +340,12 @@ export interface FakeAnnotations {
   /** Threads the caller no longer sees: an edit of their own message there answers no thread. */
   outOfScope?: string[];
   currentVersionId: string;
-  threads: (AnnotationThreadView & { seq: number })[];
+  threads: (AnnotationThreadView & {
+    seq: number;
+    /** A suggestion thread's kind and suggestion (decision 0027), listed with `?fields`. */
+    kind?: string;
+    suggestion?: SuggestionView | null;
+  })[];
   deleted: { id: string; seq: number }[];
   seq: number;
   /**
@@ -345,6 +355,22 @@ export interface FakeAnnotations {
   humanChecks?: number;
   /** The comment action history, oldest first, as GET .../history pages it (owner only). */
   history?: AnnotationHistoryEntry[];
+}
+
+/** What the fake suggestion routes answer. */
+export interface FakeSuggestions {
+  /** POST .../suggestions/:threadId/plan, by thread ID; missing ones answer 404. */
+  plans: Record<string, Plan>;
+  /** POST .../previews; null answers a ready preview with a new code each time. */
+  preview: PreviewResponse | null;
+  /** The change list, by artifact ID. */
+  changes: Record<string, ChangeItemView[]>;
+  /** Previews issued so far. */
+  previews: number;
+  /** The caller's draft, by artifact ID (decision 0027, "The owner's draft"). */
+  drafts: Record<string, DraftView>;
+  /** POST .../draft/plan, by artifact ID; missing ones answer 404. */
+  draftPlans: Record<string, Plan>;
 }
 
 export function fakeMessage(overrides: Partial<AnnotationMessageView> = {}): AnnotationMessageView {
@@ -562,6 +588,8 @@ export interface FakeServer {
   reviews: Record<string, ReviewStart>;
   /** Review tab codes issued so far (POST /review/tab answers with the review's origin). */
   reviewTabs: number;
+  /** The suggestion routes (decision 0027): plans by thread, previews, change lists. */
+  suggestions: FakeSuggestions;
   annotations: Record<string, FakeAnnotations>;
   /** Committed versions by artifact ID, newest first. */
   versions: Record<string, FakeVersion[]>;
@@ -708,6 +736,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     viewers: {},
     reviews: {},
     reviewTabs: 0,
+    suggestions: { plans: {}, preview: null, changes: {}, previews: 0, drafts: {}, draftPlans: {} },
     annotations: {},
     versions: {},
     uploads: [],
@@ -1534,6 +1563,11 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   const integrations = integrationRoute(server, method, path, headers);
   if (integrations) return integrations;
+  const suggested =
+    /^\/api\/v1\/artifacts\/([^/]+)\/(suggestions|previews|changes|draft)(\/.*)?$/.exec(path);
+  if (suggested) {
+    return suggestionRoute(server, method, url, suggested[1] ?? "", suggested[2], suggested[3]);
+  }
   const reviewed = /^\/api\/v1\/artifacts\/([^/]+)\/(review|annotations)(\/.*)?$/.exec(path);
   if (reviewed)
     return reviewRoute(server, method, url, reviewed[1] ?? "", reviewed[2], reviewed[3]);
@@ -2488,7 +2522,10 @@ function reviewRoute(
     thread.seq = store.seq;
     thread.revision += 1;
   };
-  const view = ({ seq: _seq, ...thread }: FakeAnnotations["threads"][number]) => thread;
+  // Threads say their kind only when asked (`?fields=suggestion`), like the Worker.
+  const fields = url.searchParams.get("fields") === "suggestion";
+  const view = ({ seq: _seq, kind, suggestion, ...thread }: FakeAnnotations["threads"][number]) =>
+    fields ? { ...thread, kind: kind ?? "comment", suggestion: suggestion ?? null } : thread;
   const posting =
     method === "POST" && (rest === "/threads" || /^\/threads\/[^/]+\/messages$/.test(rest));
   if (posting && (store.humanChecks ?? 0) > 0) {
@@ -3204,4 +3241,163 @@ function auditStreamRoute(server: FakeServer, url: URL, method: string): Respons
     stream: next,
     secret: change.rotateSecret ? "whsec_rotated-stream-secret-for-tests" : null,
   });
+}
+
+/** The suggestion and change list routes, with the rules the viewer depends on. */
+function suggestionRoute(
+  server: FakeServer,
+  method: string,
+  url: URL,
+  id: string,
+  kind: string | undefined,
+  rest = "",
+): Response {
+  const store = server.annotations[id];
+  const fake = server.suggestions;
+  const body = server.bodies.at(-1) as Record<string, unknown> | undefined;
+  if (kind === "previews" && method === "POST") {
+    fake.previews += 1;
+    return Response.json(
+      fake.preview ?? {
+        state: "ready",
+        url: `https://preview.portifact.dev/p/${String(fake.previews).padStart(43, "p")}`,
+        expiresAt: NOW,
+      },
+    );
+  }
+  if (kind === "draft") {
+    const draft = fake.drafts[id];
+    if (rest === "" && method === "GET") return draft ? Response.json(draft) : missing();
+    if (rest === "" && method === "DELETE") {
+      delete fake.drafts[id];
+      return new Response(null, { status: 204 });
+    }
+    if (rest === "" && method === "PUT") {
+      // Like the Worker: a save names the revision and incarnation it was made on.
+      if ((body?.baseRevision ?? null) !== (draft?.revision ?? null)) {
+        return apiError("version_conflict", 409);
+      }
+      if ((body?.baseIncarnation ?? null) !== (draft?.incarnation ?? null)) {
+        return apiError("version_conflict", 409);
+      }
+      const saved: DraftView = {
+        artifactId: id,
+        baseVersionId: String(body?.baseVersionId),
+        edit: body?.edit,
+        revision: (draft?.revision ?? 0) + 1,
+        incarnation: draft?.incarnation ?? "i".repeat(22),
+        publishing: false,
+        attemptReason: null,
+        updatedAt: 0,
+      };
+      fake.drafts[id] = saved;
+      return Response.json(saved);
+    }
+    if (rest === "/plan" && method === "POST") {
+      const plan = fake.draftPlans[id];
+      return plan && draft ? Response.json(plan) : missing();
+    }
+    if (rest === "/publish" && method === "POST") {
+      if (!draft || body?.digest !== fake.draftPlans[id]?.digest) {
+        return apiError("invalid_input", 400);
+      }
+      draft.publishing = true;
+      return Response.json({ attemptId: "att_d", state: "applying" }, { status: 202 });
+    }
+    return missing();
+  }
+  if (kind === "changes") {
+    const items = fake.changes[id] ?? [];
+    if (method === "GET" && rest === "") {
+      const state = url.searchParams.get("state");
+      return Response.json({
+        items: items.filter((item) => state === null || item.state === state),
+        nextCursor: null,
+      });
+    }
+    const item = items.find((i) => i.id === rest.slice(1));
+    if (method === "PATCH" && item) {
+      if (body?.baseRevision !== item.revision) return apiError("version_conflict", 409);
+      item.state = String(body?.state);
+      item.revision += 1;
+      return Response.json(item);
+    }
+    return missing();
+  }
+  if (!store) return missing();
+  if (rest === "" && method === "POST") {
+    store.seq += 1;
+    const edit = body?.edit as { operations: { target: AnnotationThreadView["target"] }[] };
+    const target = edit.operations[0]?.target as AnnotationThreadView["target"];
+    const thread = {
+      ...fakeThread(`t${store.seq}`, {
+        own: true,
+        author: { id: "u-ada", name: "Ada", image: null },
+        target,
+        path: target.path,
+        versionId: body?.versionId as string,
+        messages: [
+          fakeMessage({
+            own: true,
+            author: { id: "u-ada", name: "Ada", image: null },
+            body: String(body?.body),
+          }),
+        ],
+      }),
+      seq: store.seq,
+      kind: "suggestion",
+      suggestion: fakeSuggestion(`t${store.seq}`, { edit, versionId: body?.versionId as string }),
+    };
+    store.threads.push(thread);
+    // Like the Worker: the thread view with its kind and suggestion.
+    const { seq: _seq, ...view } = thread;
+    return Response.json(view, { status: 201 });
+  }
+  const match = /^\/([^/]+)(?:\/(plan|accept|reject|withdraw))?$/.exec(rest);
+  const thread = match && store.threads.find((t) => t.id === match[1] && t.kind === "suggestion");
+  const suggestion = thread?.suggestion;
+  if (!match || !thread || !suggestion) return missing();
+  const action = match[2];
+  if (action === "plan" && method === "POST") {
+    const plan = fake.plans[thread.id];
+    return plan ? Response.json(plan) : missing();
+  }
+  if (action === "accept" && method === "POST") {
+    if (body?.digest !== fake.plans[thread.id]?.digest) return apiError("invalid_input", 400);
+    // Like the Worker: entering `applying` changes no thread revision, so the list's cursor
+    // does not move and the viewer shows the new state from the answer.
+    suggestion.state = "applying";
+    return Response.json({ attemptId: "att_1", state: "applying" }, { status: 202 });
+  }
+  if ((action === "reject" || action === "withdraw") && method === "POST") {
+    if (body?.revision !== suggestion.revision) return apiError("version_conflict", 409);
+    suggestion.state = action === "reject" ? "rejected" : "withdrawn";
+    if (action === "withdraw") suggestion.edit = null;
+    suggestion.revision += 1;
+    store.seq += 1;
+    thread.seq = store.seq;
+    return Response.json(suggestion);
+  }
+  if (!action && method === "GET") return Response.json(suggestion);
+  return missing();
+}
+
+export function fakeSuggestion(
+  threadId: string,
+  overrides: Partial<SuggestionView> = {},
+): SuggestionView {
+  return {
+    threadId,
+    artifactId: "a",
+    versionId: "v1",
+    state: "pending",
+    edit: null,
+    revision: 0,
+    attemptReason: null,
+    decidedAt: null,
+    resultVersionId: null,
+    originVersionId: null,
+    planned: false,
+    ...overrides,
+  };
 }

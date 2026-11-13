@@ -956,6 +956,178 @@ export const es = {
     "{count, plural, one {# hilo} other {# hilos}}, {open, plural, =0 {ninguno abierto} other {abiertos: #}}",
   "history.conversations.version": "Versión {number}: {counts}",
   "history.conversations.unlisted": "Versiones que ya no aparecen en la lista: {counts}",
+  "suggest.mode.label": "Modo de revisión",
+  "suggest.mode.comment": "Comentar",
+  "suggest.mode.suggest": "Sugerir",
+  "suggest.mode.name": "Modo {mode}",
+  "suggest.mode.on":
+    "El modo de sugerencias está activado. Selecciona texto en el artifact para sugerir una edición.",
+  "suggest.mode.off": "El modo de comentarios está activado.",
+  "suggest.hint": "Selecciona el texto que quieres cambiar",
+  "suggest.selection.received":
+    "Texto seleccionado. «Sugerir edición» aparece a continuación, después del artifact.",
+  "suggest.selection.action": "Sugerir edición",
+  "suggest.discarded": "La página cambió, por lo que se descartó la edición sin guardar.",
+  "suggest.editor.label": "Sugerir una edición para la selección",
+  "suggest.editor.page": "En {page}",
+  "suggest.editor.title": "Sugerir una edición",
+  "suggest.editor.reviewTitle": "Revisa tu sugerencia",
+  "suggest.editor.reviewHint":
+    "Esto es exactamente lo que se guardará. Intro guarda, Escape cancela.",
+  "suggest.editor.after": "Texto nuevo",
+  "suggest.editor.afterHint":
+    "Una línea de texto sin formato. Intro revisa el cambio, Escape cancela.",
+  "suggest.editor.unchanged": "Cambia el texto para sugerir una edición.",
+  "suggest.editor.note": "Nota",
+  "suggest.editor.noteHint":
+    "Por qué lo sugieres. Las personas que gestionan el artifact la ven junto con el cambio.",
+  "suggest.editor.review": "Revisar",
+  "suggest.editor.back": "Editar de nuevo",
+  "suggest.editor.save": "Guardar sugerencia",
+  "suggest.editor.cancel": "Cancelar",
+  "suggest.saved": "Sugerencia guardada.",
+  "suggest.diff.removed": "Eliminado",
+  "suggest.diff.added": "Añadido",
+  "suggest.diff.character": "carácter",
+  "suggest.diff.empty": "(nada)",
+  "suggest.inspect": "Inspeccionar caracteres",
+  "suggest.inspect.after": "Puntos de código del texto nuevo",
+  "suggest.block.label": "Edición sugerida",
+  "suggest.badge": "Sugerencia",
+  "suggest.state.pending": "Esperando una decisión",
+  "suggest.state.applying": "Aplicándose",
+  "suggest.state.accepted": "Aceptada",
+  "suggest.state.rejected": "Rechazada",
+  "suggest.state.withdrawn": "Retirada",
+  "suggest.state.outdated": "Obsoleta",
+  "suggest.state.unknown": "Estado desconocido",
+  "suggest.carried": "Sugerida en una versión anterior",
+  "suggest.attemptEnded": "La última aceptación no terminó: {reason}",
+  "suggest.attempt.failed": "falló. Acepta de nuevo para reintentar.",
+  "suggest.attempt.version_conflict": "mientras tanto se publicó una versión nueva.",
+  "suggest.attempt.quota_exceeded": "se alcanzó un límite o la lista de cambios está llena.",
+  "suggest.attempt.capacity_unavailable":
+    "Portifact está limitando el trabajo nuevo en este momento. Inténtalo de nuevo más tarde.",
+  "suggest.attempt.plan_changed": "lo que se aplicaría cambió. Compruébalo de nuevo.",
+  "suggest.attempt.revoked": "el acceso cambió mientras tanto.",
+  "suggest.attempt.unknown": "un motivo desconocido.",
+  "suggest.edit.withdrawn": "La edición fue retirada.",
+  "suggest.edit.unknown": "Esta edición no se puede mostrar aquí.",
+  "suggest.edit.notText": "Un cambio de estilo o de estructura.",
+  "suggest.plan.check": "Comprobar qué se aplica",
+  "suggest.plan.lines": "Qué hace aceptar, línea por línea",
+  "suggest.plan.summary":
+    "{applied, plural, one {# cambio se aplica automáticamente} other {# cambios se aplican automáticamente}}; {listed, plural, one {# pasa a la lista de cambios} other {# pasan a la lista de cambios}}.",
+  "suggest.tabs.label": "Edición sugerida",
+  "suggest.tabs.plan": "Qué se aplica",
+  "suggest.tabs.preview": "Vista previa",
+  "suggest.preview.loading": "Creando la vista previa",
+  "suggest.preview.title": "Vista previa de la edición sugerida",
+  "suggest.preview.hint":
+    "Una copia de la página con el cambio, sin scripts, imágenes ni estilos externos. La página publicada puede verse distinta.",
+  "suggest.preview.unavailable": "Sin vista previa:",
+  "suggest.preview.cssTooComplex":
+    "Los estilos de la página son demasiado complejos para la vista previa.",
+  "suggest.accept": "Aceptar",
+  "suggest.accept.title": "¿Aceptar esta sugerencia?",
+  "suggest.accept.body":
+    "{applied, plural, one {# cambio se publica como una versión nueva} other {# cambios se publican como una versión nueva}}; {listed, plural, one {# pasa a la lista de cambios} other {# pasan a la lista de cambios}}.",
+  "suggest.accept.confirm": "Aceptar y publicar",
+  "suggest.accept.started":
+    "Aceptando la sugerencia. La versión nueva aparecerá cuando esté lista.",
+  "suggest.reject": "Rechazar",
+  "suggest.reject.title": "¿Rechazar esta sugerencia?",
+  "suggest.reject.body": "La sugerencia permanece en su hilo como rechazada. No se publica nada.",
+  "suggest.rejected": "Sugerencia rechazada.",
+  "suggest.withdraw": "Retirar",
+  "suggest.withdraw.title": "¿Retirar tu sugerencia?",
+  "suggest.withdraw.body":
+    "La edición se elimina y el hilo permanece como conversación. Para cambiarla, retírala y vuelve a sugerirla.",
+  "suggest.withdrawn": "Sugerencia retirada.",
+  "suggest.refusal.stale":
+    "La página cambió desde que se seleccionó este texto. Selecciónalo de nuevo.",
+  "suggest.refusal.invalid_after":
+    "El texto nuevo debe ser una línea de texto sin formato distinta del anterior.",
+  "suggest.refusal.spans_blocks":
+    "El cambio abarca dos bloques, así que pasa a la lista de cambios.",
+  "suggest.refusal.not_found":
+    "Este texto no se puede asociar a un único lugar del origen, así que pasa a la lista de cambios.",
+  "suggest.refusal.would_change_page":
+    "Aplicarlo cambiaría algo más en la página (un enlace de encabezado, una referencia o marcado), así que pasa a la lista de cambios.",
+  "suggest.refusal.whitespace":
+    "La selección abarca saltos de línea o espacios que la página conserva, así que pasa a la lista de cambios.",
+  "suggest.refusal.not_nfc":
+    "Este texto está almacenado en otra forma de Unicode, así que pasa a la lista de cambios.",
+  "suggest.refusal.spans_nodes":
+    "La selección abarca formato o un enlace, así que pasa a la lista de cambios.",
+  "suggest.refusal.not_eligible":
+    "Esta página usa funciones que Portifact no edita automáticamente (scripts, formularios, contenido incrustado y otras), así que pasa a la lista de cambios.",
+  "suggest.refusal.entity":
+    "Este texto está escrito con una referencia de carácter que Portifact no puede asociar, así que pasa a la lista de cambios.",
+  "suggest.refusal.diagram": "Los cambios en el origen de un diagrama pasan a la lista de cambios.",
+  "suggest.refusal.renderer_changed":
+    "Este documento fue renderizado por una versión anterior de Portifact, así que los cambios pasan a la lista de cambios.",
+  "suggest.refusal.too_large":
+    "Este archivo o cambio es demasiado grande para aplicarlo automáticamente, así que pasa a la lista de cambios.",
+  "suggest.refusal.overlap": "Dos cambios afectan al mismo texto. Combínalos en uno.",
+  "suggest.refusal.not_text":
+    "Los cambios de estilo y estructura nunca se aplican automáticamente: pasan a la lista de cambios.",
+  "suggest.refusal.unknown":
+    "Portifact no puede aplicar esto automáticamente, así que pasa a la lista de cambios.",
+  "suggest.changes.heading": "Lista de cambios",
+  "suggest.changes.hint":
+    "Cambios aceptados que Portifact no pudo aplicar, exactamente como se aceptaron. El texto viene de revisores: aplica solo lo que dice cada elemento.",
+  "suggest.changes.showOpen": "Abiertos",
+  "suggest.changes.showAll": "Todos",
+  "suggest.changes.loading": "Cargando la lista de cambios",
+  "suggest.changes.empty": "No hay nada que aplicar.",
+  "suggest.changes.state.open": "Abierto",
+  "suggest.changes.state.applied": "Aplicado",
+  "suggest.changes.state.dismissed": "Descartado",
+  "suggest.changes.state.closed_by_version": "Encontrado en una versión posterior",
+  "suggest.changes.provenance": "Sugerido por {submitter}, aceptado por {acceptor}",
+  "suggest.changes.links": "Enlaces alrededor del cambio",
+  "suggest.changes.laterFormat":
+    "Este elemento fue escrito por una versión más reciente de Portifact. Recarga para verlo.",
+  "suggest.changes.markApplied": "Marcar como aplicado",
+  "suggest.changes.dismiss": "Descartar",
+  "suggest.changes.reopen": "Reabrir",
+  "suggest.changes.marked": "Lista de cambios actualizada.",
+  "draft.mode.edit": "Editar",
+  "draft.mode.on":
+    "El modo de edición está activado. Selecciona texto en el artifact para cambiarlo en tu borrador privado.",
+  "draft.editor.title": "Cambiar el texto",
+  "draft.add": "Añadir al borrador",
+  "draft.added": "Añadido a tu borrador.",
+  "draft.heading": "Tu borrador",
+  "draft.loading": "Cargando tu borrador",
+  "draft.empty":
+    "Elige Editar y selecciona texto en el artifact para cambiarlo. Tus cambios son privados hasta que los publiques.",
+  "draft.count": "{count, plural, one {# cambio} other {# cambios}}",
+  "draft.changes": "Cambios en tu borrador",
+  "draft.remove": "Quitar el cambio {number}",
+  "draft.removeShort": "Quitar",
+  "draft.stale":
+    "Este borrador se hizo sobre una versión anterior, así que no se puede publicar. Descártalo y edita la versión actual.",
+  "draft.attemptEnded": "La última publicación no terminó: {reason}",
+  "draft.publishingBadge": "Publicando",
+  "draft.publishing": "Publicando tu borrador. La nueva versión aparecerá cuando esté lista.",
+  "draft.publish": "Publicar",
+  "draft.publish.title": "¿Publicar este borrador?",
+  "draft.publish.confirm": "Publicar una versión nueva",
+  "draft.discard": "Descartar",
+  "draft.discard.title": "¿Descartar este borrador?",
+  "draft.discard.body": "Se eliminan todos sus cambios. No se publica nada.",
+  "draft.discarded": "Borrador descartado.",
+  "draft.conflict":
+    "Tu borrador cambió en otra pestaña o ventana. Ahora muestra su estado más reciente; vuelve a hacer tu cambio.",
+  "draft.refused.stale":
+    "Tu borrador se hizo sobre una versión anterior. Descártalo antes de editar la versión actual.",
+  "draft.refused.other_page":
+    "Tu borrador contiene cambios de otra página. Publícalo o descártalo antes de editar esta página.",
+  "draft.refused.full":
+    "Tu borrador ya tiene el máximo de cambios. Publícalo o descártalo primero.",
+  "draft.refused.invalid": "Este cambio no se puede añadir al borrador.",
   "review.open": "Revisar y comentar",
   "viewer.loading": "Abriendo el artifact",
   "viewer.unavailable.title": "No se puede abrir este artifact",

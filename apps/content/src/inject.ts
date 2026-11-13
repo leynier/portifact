@@ -39,6 +39,8 @@ export interface InjectOptions {
    * page's own CSP `<meta>` is dropped, because the header carries the same policy plus the nonce.
    */
   nonce?: string | undefined;
+  /** Edit suggestions are switched on: the bridge also speaks protocol 3 (decision 0027). */
+  edit?: boolean | undefined;
 }
 
 /**
@@ -80,6 +82,8 @@ export function injectBridge(response: Response, options: InjectOptions): Respon
         `data-path="${escapeAttribute(options.path)}"`,
         `data-session-tag="${escapeAttribute(options.sessionTag)}"`,
         ...(renderer ? [`data-renderer="${escapeAttribute(renderer)}"`] : []),
+        // Absent while switched off, so the tag is exactly the one before edit suggestions.
+        ...(options.edit ? ['data-edit="true"'] : []),
         ...(options.nonce !== undefined ? [`nonce="${escapeAttribute(options.nonce)}"`] : []),
       ];
       end.append(`<script ${attributes.join(" ")}></script>`, { html: true });

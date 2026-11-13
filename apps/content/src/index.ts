@@ -39,6 +39,7 @@ import {
   networkDecision,
   normalizePath,
   pageView,
+  suggestionsEnabled,
   type TrafficCycle,
   trafficCycle,
   trafficExhausted,
@@ -137,6 +138,11 @@ export interface Env extends BudgetEnv {
   /** Exactly `"true"` turns the page's data routes on; anything else answers them 404. */
   ARTIFACT_DATA_ENABLED?: string | undefined;
   DATA_LIVE_ENABLED?: string | undefined;
+  /**
+   * Exactly `"true"` tells the review bridge that edit suggestions are on (decision 0027), so it
+   * also speaks protocol 3; anything else injects the bridge exactly as before.
+   */
+  SUGGESTIONS_ENABLED?: string | undefined;
 }
 
 /** Whether this deployment serves custom hosts: the same condition the app decides with. */
@@ -945,6 +951,7 @@ async function serveWithBridge(
     path: file.path,
     nonce,
     sessionTag: session.sessionTag,
+    edit: suggestionsEnabled(env),
   });
 }
 
