@@ -925,3 +925,24 @@ export const MarkChangeItemInput = MarkChangeItem.extend({
   ),
 });
 export type MarkChangeItemInput = z.infer<typeof MarkChangeItemInput>;
+
+/**
+ * The text of a page of the artifact's current version, for "Suggest a text change" (decision
+ * 0027, "Suggesting"): the normalized text the anchors read on the served page, in which the
+ * viewer finds a place and builds the same text target a selection gives. Only what the page
+ * shows, never the file. `unavailable` when the page is over the planning limits or cannot be
+ * read as a page.
+ */
+export const PageTextQuery = z.object({ path: z.string().min(1).max(1_024) });
+export type PageTextQuery = z.infer<typeof PageTextQuery>;
+
+export const PageText = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("ready"),
+    versionId: z.string(),
+    path: z.string(),
+    text: z.string(),
+  }),
+  z.object({ state: z.literal("unavailable"), reason: Token }),
+]);
+export type PageText = z.infer<typeof PageText>;
