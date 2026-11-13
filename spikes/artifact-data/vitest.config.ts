@@ -47,6 +47,8 @@ export default defineConfig({
     testTimeout: 60_000,
     hookTimeout: 60_000,
     include: ["test/**/*.test.ts"],
+    // Pins the date the object's own clock reads (test/clock.ts).
+    setupFiles: ["./test/clock.ts"],
     coverage: {
       provider: "istanbul",
       reporter: ["text", "json-summary"],
