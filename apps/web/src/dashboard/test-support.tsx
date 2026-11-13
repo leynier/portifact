@@ -3185,8 +3185,8 @@ function suggestionRoute(
       suggestion: fakeSuggestion(`t${store.seq}`, { edit, versionId: body?.versionId as string }),
     };
     store.threads.push(thread);
-    // Like the Worker, the plain thread view: kind and suggestion come with the next listing.
-    const { seq: _seq, kind: _kind, suggestion: _suggestion, ...view } = thread;
+    // Like the Worker: the thread view with its kind and suggestion.
+    const { seq: _seq, ...view } = thread;
     return Response.json(view, { status: 201 });
   }
   const match = /^\/([^/]+)(?:\/(plan|accept|reject|withdraw))?$/.exec(rest);

@@ -15,6 +15,7 @@ import { hitRateLimits, type RateLimitHit, type RegionalDb, schema } from "@port
 import { fail, ok, type Result } from "@portifact/domain";
 import { and, eq, sql } from "drizzle-orm";
 import { type AnnotationActor, annotationParts } from "./annotations.ts";
+import { notHeldSql } from "./legal-holds.ts";
 import { ownDraft, planBatchOn } from "./suggestion-plans.ts";
 import { checkEditablePage } from "./suggestions.ts";
 
@@ -36,10 +37,20 @@ function draftView(row: DraftRow): DraftView {
     baseVersionId: row.baseVersionId,
     edit,
     revision: row.revision,
+    incarnation: row.incarnation,
     publishing: row.attemptId !== null,
     attemptReason: row.attemptReason,
     updatedAt: row.updatedAt,
   };
+}
+
+/** A new draft's incarnation: 16 random bytes in base64url, never reused. */
+function newIncarnation(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...bytes))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
 }
 
 const draftChanged = () =>
@@ -61,7 +72,8 @@ function causeIncludes(error: unknown, text: string): boolean {
 /**
  * Saves one's own draft: the whole edit, on the artifact's current version, at the revision the
  * author holds (null for a new draft). Counted in the person's save window first, after
- * authorization. At most `DRAFT_LIMITS.perUser` drafts per person (a trigger).
+ * authorization. At most `DRAFT_LIMITS.perUser` drafts per person in each region: the cap is the regional
+ * `edit_drafts_limit` trigger, as preview codes' is (decision 0027, implementation notes).
  */
 export async function saveDraft(
   db: RegionalDb,
@@ -69,6 +81,7 @@ export async function saveDraft(
     baseVersionId: string;
     edit: DraftEdit;
     baseRevision: number | null;
+    baseIncarnation: string | null;
   },
 ): Promise<Result<DraftView>> {
   const authorized = await annotationParts.authorize(db, input, "moderate");
@@ -96,7 +109,14 @@ export async function saveDraft(
     .from(dr)
     .where(and(eq(dr.artifactId, artifact.id), eq(dr.userId, input.userId)))
     .limit(1);
-  if ((existing?.revision ?? null) !== input.baseRevision) return draftChanged();
+  // The revision and the incarnation the author holds: a replacement draft starts at revision 1
+  // again, so the revision alone does not tell it from the discarded one.
+  if (
+    (existing?.revision ?? null) !== input.baseRevision ||
+    (existing?.incarnation ?? null) !== input.baseIncarnation
+  ) {
+    return draftChanged();
+  }
   if (existing && existing.attemptId !== null) {
     return fail("version_conflict", "This draft is being published. Try again in a moment.");
   }
@@ -125,24 +145,25 @@ export async function saveDraft(
               eq(dr.artifactId, artifact.id),
               eq(dr.userId, input.userId),
               eq(dr.revision, existing.revision),
+              eq(dr.incarnation, existing.incarnation),
               sql`${dr.attemptId} is null`,
               guard,
             ),
           )
           .returning({ revision: dr.revision })
       : // Columns in schema order: artifact, user, owner, base version, edit, edit bytes,
-        // revision, attempt, attempt reason, created, updated.
+        // revision, attempt, attempt reason, created, updated, incarnation.
         await w
           .insert(dr)
           .select(
-            sql`select ${artifact.id}, ${input.userId}, ${artifact.ownerId}, ${input.baseVersionId}, ${editJson}, ${editBytes}, 1, null, null, ${input.now}, ${input.now} where ${guard} and not exists (select 1 from ${dr} where ${dr.artifactId} = ${artifact.id} and ${dr.userId} = ${input.userId})`,
+            sql`select ${artifact.id}, ${input.userId}, ${artifact.ownerId}, ${input.baseVersionId}, ${editJson}, ${editBytes}, 1, null, null, ${input.now}, ${input.now}, ${newIncarnation()} where ${guard} and not exists (select 1 from ${dr} where ${dr.artifactId} = ${artifact.id} and ${dr.userId} = ${input.userId})`,
           )
           .returning({ revision: dr.revision });
   } catch (error) {
     if (causeIncludes(error, "edit_drafts_limit")) {
       return fail(
         "quota_exceeded",
-        `You can keep at most ${DRAFT_LIMITS.perUser} drafts. Publish or discard one first.`,
+        `You can keep at most ${DRAFT_LIMITS.perUser} drafts in this region. Publish or discard one first.`,
       );
     }
     throw error;
@@ -169,15 +190,31 @@ export async function discardDraft(db: RegionalDb, input: AnnotationActor): Prom
   if (draft.attemptId !== null) {
     return fail("version_conflict", "This draft is being published. Try again in a moment.");
   }
-  const deleted = await db
+  // A discard is a deletion: held to no open legal hold, the owner it was authorized on and the
+  // author's live role, inside the statement (decision 0027, "Withdrawal, deletion and
+  // retention"), so a hold or a role loss landing after the read wins. An unheld archived or
+  // suspended artifact's draft can still be discarded.
+  const { loaded } = found.value;
+  const on = await planBatchOn(db, loaded);
+  if (!on) return fail("not_found", "Draft not found.");
+  const t = schema.artifacts;
+  const deleted = await on.w
     .delete(dr)
     .where(
       and(
         eq(dr.artifactId, draft.artifactId),
         eq(dr.userId, input.userId),
+        eq(dr.revision, draft.revision),
         sql`${dr.attemptId} is null`,
+        sql`exists (select 1 from ${t} where ${t.id} = ${draft.artifactId} and ${t.ownerId} = ${loaded.artifact.ownerId})`,
+        notHeldSql(sql`${dr.artifactId}`),
+        on.standing,
       ),
     )
     .returning({ revision: dr.revision });
-  return deleted.length === 1 ? ok(true) : draftChanged();
+  if (deleted.length === 1) return ok(true);
+  // Answer what a fresh request would: the refusal that now applies (a hold's message among
+  // them), else a conflict.
+  const again = await ownDraft(db, input, "read");
+  return again.ok ? draftChanged() : again;
 }

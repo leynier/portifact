@@ -1,9 +1,8 @@
 // portifact changes (decision 0027): the change list read and marked as the API answers it, with
 // the API's errors and exit codes, reviewer text shown with invisible characters as tokens, and
 // one idempotency key per mark.
-import type { ChangeItemView } from "@portifact/contracts";
+import type { ChangeItemView, ShownEnvelope } from "@portifact/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { shown } from "./changes.ts";
 import { EXIT } from "./errors.ts";
 import { type FakeServer, startFakeServer } from "./testing/fake-server.ts";
 import { createHarness, type Harness } from "./testing/harness.ts";
@@ -36,7 +35,7 @@ function item(id: string, overrides: Partial<ChangeItemView> = {}): ChangeItemVi
       format: 1,
       status: "listed",
       reason: "spans_nodes",
-      operation: { kind: "text", before: "A linked", after: "One‮ linked" },
+      operation: { kind: "text", before: "A linked", after: "One\u202e linked" },
       binding: {
         artifactId: ARTIFACT,
         versionId: "ver_1",
@@ -94,12 +93,13 @@ describe("portifact changes list and show", () => {
     server.changes.items.set(ARTIFACT, [item("chg_1")]);
     const result = await h.invoke("changes", "show", ARTIFACT, "chg_1");
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain("After: One⟦U+202E⟧ linked");
-    expect(result.stdout).not.toContain("‮");
-    expect(result.stdout).toContain("Location: line 5, column 1");
-    expect(result.stdout).toContain("[3 omitted]word [change] here");
-    expect(result.stdout).toContain("Link: https://x.test https://x.test/");
-    expect(result.stdout).toContain("Suggested by: Rae Reviewer; accepted by: Owen Owner");
+    expect(result.stdout).toContain("item: chg_1 (open, revision 1)");
+    expect(result.stdout).toContain("after: One⟦U+202E⟧ linked");
+    expect(result.stdout).not.toContain("\u202e");
+    expect(result.stdout).toContain("location: utf16 40 to 48, line 5, column 1");
+    expect(result.stdout).toContain("word ⟦change here⟧ here");
+    expect(result.stdout).toContain("link to origin https://x.test: https://x.test/");
+    expect(result.stdout).toContain("suggested by Rae Reviewer, accepted by Owen Owner");
   });
 
   it("keeps the API's errors and exit codes", async () => {
@@ -153,11 +153,34 @@ describe("portifact changes mark", () => {
   });
 });
 
-describe("the display of reviewer text", () => {
-  it("turns hidden characters and the token brackets into tokens", () => {
-    expect(shown("a​b")).toBe("a⟦U+200B⟧b");
-    expect(shown("⟦U+202E⟧")).toBe("⟦U+27E6⟧U+202E⟦U+27E7⟧");
-    expect(shown("tab\there")).toBe("tab⟦U+0009⟧here");
-    expect(shown("plain words")).toBe("plain words");
+describe("the display of an item (review finding 4)", () => {
+  it("shows default-ignorable text exactly as the confirmation does", async () => {
+    h.signIn();
+    const change = item("chg_1");
+    const envelope = change.envelope as ShownEnvelope;
+    if (envelope.operation.kind !== "text") throw new Error("Expected a text envelope");
+    envelope.operation.after = "safe\u034ftext";
+    server.changes.items.set(ARTIFACT, [change]);
+    const result = await h.invoke("changes", "show", ARTIFACT, "chg_1");
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("after: safe⟦U+034F⟧text");
+    expect(result.stdout).not.toContain("\u034f");
+  });
+
+  it("marks shortened link destinations as incomplete", async () => {
+    h.signIn();
+    const change = item("chg_1");
+    const link = (change.envelope as ShownEnvelope).destinations[0];
+    if (!link) throw new Error("Expected a link");
+    link.authored = `https://x.test/${"a".repeat(1010)}`;
+    link.effective = link.authored;
+    link.authoredOmitted = 100;
+    link.effectiveOmitted = 100;
+    link.at = { file: "source", start: 10, end: 1134 };
+    server.changes.items.set(ARTIFACT, [change]);
+    const result = await h.invoke("changes", "show", ARTIFACT, "chg_1");
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("shortened");
+    expect(result.stdout).toContain("at source 10 to 1134");
   });
 });

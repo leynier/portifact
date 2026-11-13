@@ -265,13 +265,23 @@ describe("the owner's draft routes", () => {
   it("save, read, plan and discard one's own draft", async () => {
     const saved = await session(`${base()}/draft`, owner.cookie, {
       method: "PUT",
-      body: { baseVersionId: versionId, edit: { operations: [OPERATION] }, baseRevision: null },
+      body: {
+        baseVersionId: versionId,
+        edit: { operations: [OPERATION] },
+        baseRevision: null,
+        baseIncarnation: null,
+      },
     });
     expect(saved.status).toBe(200);
     expect(DraftView.parse(await saved.json())).toMatchObject({ revision: 1, publishing: false });
     const conflict = await session(`${base()}/draft`, owner.cookie, {
       method: "PUT",
-      body: { baseVersionId: versionId, edit: { operations: [OPERATION] }, baseRevision: null },
+      body: {
+        baseVersionId: versionId,
+        edit: { operations: [OPERATION] },
+        baseRevision: null,
+        baseIncarnation: null,
+      },
     });
     expect(conflict.status).toBe(409);
     expect((await session(`${base()}/draft`, owner.cookie)).status).toBe(200);
@@ -282,7 +292,12 @@ describe("the owner's draft routes", () => {
     expect((await session(`${base()}/draft`, owner.cookie)).status).toBe(404);
     const invalid = await session(`${base()}/draft`, owner.cookie, {
       method: "PUT",
-      body: { baseVersionId: versionId, edit: { operations: [] }, baseRevision: null },
+      body: {
+        baseVersionId: versionId,
+        edit: { operations: [] },
+        baseRevision: null,
+        baseIncarnation: null,
+      },
     });
     expect(invalid.status).toBe(400);
   });
@@ -397,7 +412,12 @@ describe("refusals each route passes on", () => {
     const stranger = await h.signIn(`sugg-s2-${crypto.randomUUID()}@example.test`);
     const saved = await session(`${base()}/draft`, stranger, {
       method: "PUT",
-      body: { baseVersionId: versionId, edit: { operations: [OPERATION] }, baseRevision: null },
+      body: {
+        baseVersionId: versionId,
+        edit: { operations: [OPERATION] },
+        baseRevision: null,
+        baseIncarnation: null,
+      },
     });
     expect(saved.status).toBe(404);
     const noDraft = await session(`${base()}/draft/publish`, owner.cookie, {
@@ -412,7 +432,12 @@ describe("refusals each route passes on", () => {
   it("publishes a draft by its digest once per key", async () => {
     await session(`${base()}/draft`, owner.cookie, {
       method: "PUT",
-      body: { baseVersionId: versionId, edit: { operations: [OPERATION] }, baseRevision: null },
+      body: {
+        baseVersionId: versionId,
+        edit: { operations: [OPERATION] },
+        baseRevision: null,
+        baseIncarnation: null,
+      },
     });
     const plan = Plan.parse(
       await (await session(`${base()}/draft/plan`, owner.cookie, { method: "POST" })).json(),
