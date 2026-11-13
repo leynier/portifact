@@ -616,9 +616,48 @@ describe("the journal step of an account deletion", () => {
     await db()
       .insert(c)
       .values({ name: `data_journal:${ended}`, cursor: "{}", passStartedAt: NOW, updatedAt: NOW });
-    expect(await pruneJournalCursors(db())).toBeGreaterThanOrEqual(1);
+    expect(await pruneJournalCursors(db(), NOW)).toBeGreaterThanOrEqual(1);
     expect(await names()).toContain(`data_journal:${pending}`);
     expect(await names()).not.toContain(`data_journal:${ended}`);
+  });
+
+  it("prunes past any number of pending accounts in a region with its own database", async () => {
+    const eu = regionsFromEnv(env).get("eu").db;
+    const c = schema.maintenanceCursors;
+    const tag = crypto.randomUUID().slice(0, 8);
+    // More pending accounts than a page, all sorting before the leftover.
+    const pending = Array.from({ length: 60 }, (_, n) => `u_${tag}_${String(n).padStart(3, "0")}`);
+    // In chunks: D1 binds at most 100 parameters per statement.
+    for (let at = 0; at < pending.length; at += 20) {
+      await eu.global
+        .insert(schema.accountDeletions)
+        .values(pending.slice(at, at + 20).map((userId) => ({ userId, requestedAt: NOW })));
+    }
+    const leftover = `u_${tag}_zzz`;
+    const users = [...pending, leftover];
+    for (let at = 0; at < users.length; at += 20) {
+      await eu.insert(c).values(
+        users.slice(at, at + 20).map((user) => ({
+          name: `data_journal:${user}`,
+          cursor: "{}",
+          passStartedAt: NOW,
+          updatedAt: NOW,
+        })),
+      );
+    }
+    const mine = async () =>
+      (
+        await eu
+          .select({ name: c.name })
+          .from(c)
+          .where(sql`${c.name} like ${`data_journal:u_${tag}_%`}`)
+      ).length;
+    // Each run reads one page from where the last stopped; a pass reaches every row.
+    for (let run = 0; run < 4 && (await mine()) > 60; run += 1) await pruneJournalCursors(eu, NOW);
+    expect(await mine()).toBe(60);
+    // A pass that reached the end starts the next from the beginning.
+    const [saved] = await eu.select().from(c).where(eq(c.name, "data_journal_prune"));
+    expect(saved?.cursor ?? "").toBe("");
   });
 
   it("retires an entry a racing claim changed, from what it reads again", async () => {

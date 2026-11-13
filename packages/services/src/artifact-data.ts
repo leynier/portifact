@@ -71,6 +71,7 @@ import {
 } from "@portifact/domain/artifact-data";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { isHeld, openHold } from "./legal-holds.ts";
+import { cursorRead, resumeAt, savedCursorSql } from "./maintenance-cursors.ts";
 
 /** What the object answers a lifecycle command (the store's `Answer`, as RPC carries it). */
 export type DataAnswer<T> =
@@ -518,41 +519,81 @@ async function saveJournalScan(db: RegionalDb, userId: string, scan: JournalScan
     .onConflictDoUpdate({ target: c.name, set: { cursor, passStartedAt, updatedAt: now } });
 }
 
-/** Leftover scan positions one maintenance run looks at most, per region. */
+/** Leftover scan positions one maintenance run removes (one database) or looks at (separate). */
 const JOURNAL_CURSOR_PRUNE = 50;
+/** Where the separate-database janitor resumes (its name has no `:`, so it never prunes itself). */
+const JOURNAL_PRUNE_CURSOR = "data_journal_prune";
+const SCAN_PREFIX = "data_journal:";
 
 /**
  * Removes account scan positions whose account deletion is no longer pending (finished, or
  * withdrawn by a restore): a scan resumes only while its deletion runs, so such a row is a
- * leftover of a late scan and names an account that may be gone. Bounded per run.
+ * leftover of a late scan and names an account that may be gone. With one database, one
+ * statement selects only those rows in SQL and applies the cap after the filter, so pending
+ * accounts never take the run's place. With a separate database the rows are walked in key order
+ * a page per run from where the last run stopped (`maintenance_cursors`, read in the page's own
+ * batch), the pending ones read globally, so every row is reached however many are pending.
  */
-export async function pruneJournalCursors(db: RegionalDb): Promise<number> {
+export async function pruneJournalCursors(db: RegionalDb, now: number): Promise<number> {
   const c = schema.maintenanceCursors;
   const ad = schema.accountDeletions;
-  const rows = await db
-    .select({ name: c.name })
-    .from(c)
-    .where(sql`${c.name} like 'data_journal:%'`)
-    .limit(JOURNAL_CURSOR_PRUNE);
-  if (rows.length === 0) return 0;
-  const users = rows.map((row) => row.name.slice("data_journal:".length));
-  const pending = new Set(
-    (await db.global.select({ userId: ad.userId }).from(ad).where(inArray(ad.userId, users))).map(
-      (row) => row.userId,
-    ),
-  );
-  const gone = rows.filter((row) => !pending.has(row.name.slice("data_journal:".length)));
-  if (gone.length === 0) return 0;
-  await db.delete(c).where(
-    inArray(
-      c.name,
-      gone.map((row) => row.name),
-    ),
+  const userOf = sql`substr(${c.name}, ${SCAN_PREFIX.length + 1})`;
+  const both = bothSides(db);
+  if (both) {
+    const removed = await both
+      .delete(c)
+      .where(
+        sql`${c.name} in (select ${c.name} from ${c} where ${c.name} like ${`${SCAN_PREFIX}%`} and not exists (select 1 from ${ad} where ${ad.userId} = ${userOf}) order by ${c.name} limit ${JOURNAL_CURSOR_PRUNE})`,
+      )
+      .returning({ name: c.name });
+    return removed.length;
+  }
+  const [saved, rows] = await db.batch([
+    cursorRead(db, JOURNAL_PRUNE_CURSOR),
+    db
+      .select({ name: c.name })
+      .from(c)
+      .where(
+        sql`${c.name} like ${`${SCAN_PREFIX}%`} and ${c.name} > ${savedCursorSql(JOURNAL_PRUNE_CURSOR)}`,
+      )
+      .orderBy(c.name)
+      .limit(JOURNAL_CURSOR_PRUNE),
+  ]);
+  const started = saved[0]?.cursor ?? "";
+  const users = rows.map((row) => row.name.slice(SCAN_PREFIX.length));
+  const pending =
+    users.length === 0
+      ? new Set<string>()
+      : new Set(
+          (
+            await db.global.select({ userId: ad.userId }).from(ad).where(inArray(ad.userId, users))
+          ).map((row) => row.userId),
+        );
+  const gone = rows.filter((row) => !pending.has(row.name.slice(SCAN_PREFIX.length)));
+  if (gone.length > 0) {
+    await db.delete(c).where(
+      inArray(
+        c.name,
+        gone.map((row) => row.name),
+      ),
+    );
+  }
+  const last = rows.at(-1)?.name ?? null;
+  await resumeAt(
+    db,
+    JOURNAL_PRUNE_CURSOR,
+    started,
+    rows.length < JOURNAL_CURSOR_PRUNE ? null : last,
+    now,
   );
   return gone.length;
 }
 
-/** The statement that removes an account's scan positions, for the deletion's last batch. */
+/**
+ * The statement that removes an account's scan position, in the regional batch that ends the
+ * account's data in a region. That batch runs before the one that ends the deletion, so a late
+ * scan in between can still save a position; the maintenance janitor removes it after.
+ */
 export function deleteJournalCursor(db: Db, userId: string, condition: ReturnType<typeof sql>) {
   const c = schema.maintenanceCursors;
   return db.delete(c).where(and(eq(c.name, scanName(userId)), condition));

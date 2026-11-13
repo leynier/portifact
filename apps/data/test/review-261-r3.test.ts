@@ -1,5 +1,11 @@
+// The third review of PR #261 (at bea116d9): its counterexamples R3-A to R3-L, each a failing
+// test before its fix. Where the maintainer's decisions changed what the end state must be, the
+// test asserts the decided one: R3-B's obsolete transfer ends after one delivery (the ownership
+// disagreement is reconciliation's finding), and R3-D, R3-E and R3-L race the corrective's one
+// batch that replaced the in-job reissue (decision 0026, note 15).
+import { env } from "cloudflare:test";
 import type { JobMessage } from "@portifact/contracts";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { controlEnvelope, inventoryEntry, reviewedState } from "@portifact/domain/artifact-data";
 import {
   DATA_ERASE_FRESH_MS,
@@ -7,6 +13,7 @@ import {
   deleteArtifactData,
   lifecycleId,
   placeLegalHold,
+  pruneJournalCursors,
   queueDataResolve,
   reconcileObject,
   releaseLegalHold,
@@ -139,6 +146,46 @@ it("R3-B: an obsolete transfer from another source owner ends after one delivery
   await drain({ subject: id });
   expect(await jobsOf(db(), ["data_fence", "data_resolve"], id)).toEqual([]);
   expect((await control(id)).ownerId).toBe(c);
+});
+
+it("R3-C: journal cursor cleanup reaches beyond a page of pending accounts", async () => {
+  const g = regionsFromEnv(env).global;
+  const tag = crypto.randomUUID().slice(0, 8);
+  const active = Array.from({ length: 60 }, (_, i) => `u_${tag}_${String(i).padStart(3, "0")}`);
+  // In chunks: D1 binds at most 100 parameters per statement.
+  for (let at = 0; at < active.length; at += 20) {
+    await g
+      .insert(schema.accountDeletions)
+      .values(active.slice(at, at + 20).map((userId) => ({ userId, requestedAt: NOW })));
+  }
+  const gone = `u_${tag}_zzz_deleted`;
+  const c = schema.maintenanceCursors;
+  const users = [...active, gone];
+  for (let at = 0; at < users.length; at += 20) {
+    await db()
+      .insert(c)
+      .values(
+        users.slice(at, at + 20).map((user) => ({
+          name: `data_journal:${user}`,
+          cursor: "{}",
+          passStartedAt: NOW,
+          updatedAt: NOW,
+        })),
+      );
+  }
+  for (let run = 0; run < 4; run++) await pruneJournalCursors(db(), NOW);
+  expect(
+    await db()
+      .select()
+      .from(c)
+      .where(eq(c.name, `data_journal:${gone}`)),
+  ).toEqual([]);
+  // The pending accounts keep theirs.
+  const kept = await db()
+    .select({ name: c.name })
+    .from(c)
+    .where(sql`${c.name} like ${`data_journal:u_${tag}_%`}`);
+  expect(kept).toHaveLength(60);
 });
 
 it("R3-D: a new hold placed before the corrective's batch is kept", async () => {

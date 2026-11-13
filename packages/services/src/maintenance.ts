@@ -959,7 +959,7 @@ export async function runRegionalMaintenance(
     uploadHistory: await pruneUploadHistory(db, now),
     staleFindings: await pruneStaleFindings(db, now),
     // Account journal scan positions left after their deletion ended (decision 0026).
-    journalCursors: await pruneJournalCursors(db),
+    journalCursors: await pruneJournalCursors(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
@@ -1010,7 +1010,7 @@ export async function runMaintenance(
     uploadHistory: await pruneUploadHistory(db, now),
     staleFindings: await pruneStaleFindings(db, now),
     // Account journal scan positions left after their deletion ended (decision 0026).
-    journalCursors: await pruneJournalCursors(db),
+    journalCursors: await pruneJournalCursors(db, now),
     // Expired sign-in records and unused app registrations (global; docs/operations.md).
     authRecords: await pruneAuthRecords(db.global, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
