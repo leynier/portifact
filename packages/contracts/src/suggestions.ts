@@ -34,7 +34,7 @@ export const EDIT_LIMITS = {
 export const DRAFT_LIMITS = {
   operationsMax: 100,
   editMaxBytes: 128 * 1024,
-  /** Drafts one person keeps at once, across artifacts. */
+  /** Drafts one person keeps at once in each region (the regional trigger), across artifacts. */
   perUser: 20,
   /** A draft nobody saved for this long is deleted. */
   unusedDays: 30,

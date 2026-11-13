@@ -72,7 +72,8 @@ function causeIncludes(error: unknown, text: string): boolean {
 /**
  * Saves one's own draft: the whole edit, on the artifact's current version, at the revision the
  * author holds (null for a new draft). Counted in the person's save window first, after
- * authorization. At most `DRAFT_LIMITS.perUser` drafts per person (a trigger).
+ * authorization. At most `DRAFT_LIMITS.perUser` drafts per person in each region: the cap is the regional
+ * `edit_drafts_limit` trigger, as preview codes' is (decision 0027, implementation notes).
  */
 export async function saveDraft(
   db: RegionalDb,
@@ -162,7 +163,7 @@ export async function saveDraft(
     if (causeIncludes(error, "edit_drafts_limit")) {
       return fail(
         "quota_exceeded",
-        `You can keep at most ${DRAFT_LIMITS.perUser} drafts. Publish or discard one first.`,
+        `You can keep at most ${DRAFT_LIMITS.perUser} drafts in this region. Publish or discard one first.`,
       );
     }
     throw error;
