@@ -490,7 +490,7 @@ describe("review 257 invariant reproductions", () => {
     await object.get(base, OWNER, "items", doc._id, ctx);
     const seq = (await object.view()).durable.control?.storageSeq ?? 0;
     const days = (await object.view()).counterWrites;
-    for (let i = 0; i < 4000; i++) await object.get(base, OWNER, "items", doc._id, ctx);
+    await object.getMany(base, OWNER, "items", doc._id, ctx, 4000);
     const after = await object.view();
     expect(after.counterWrites).toBeGreaterThan(days);
     expect(after.durable.control?.storageSeq).toBeGreaterThan(seq);

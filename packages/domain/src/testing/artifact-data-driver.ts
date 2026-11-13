@@ -221,6 +221,27 @@ export interface DataObject {
   ): MaybePromise<boolean>;
   alarm(now: number): MaybePromise<{ pruned: number }>;
   flushReads(now: number): MaybePromise<void>;
+  /**
+   * The same `get` `times` times, answering the last: one call into the object, so a test that
+   * needs thousands of reads does not pay a request for each.
+   */
+  getMany(
+    envelope: DataEnvelope,
+    caller: Caller,
+    collection: string,
+    id: string,
+    context: Context,
+    times: number,
+  ): MaybePromise<Answer<Record<string, unknown>>>;
+  /** The same `create` `times` times, answering the last: with one operation ID, replays. */
+  createMany(
+    envelope: DataEnvelope,
+    caller: Caller,
+    collection: string,
+    body: unknown,
+    context: Context,
+    times: number,
+  ): MaybePromise<Answer<Record<string, unknown>>>;
   connect(
     envelope: DataEnvelope,
     author: string | null,
