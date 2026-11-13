@@ -289,7 +289,7 @@ reason("comments are not in the audit log's scope (T10); their text never is", [
 ]);
 reason(
   "edit suggestions (decision 0027): the owner's draft is private to its author until published, and publishing it records suggestion.accepted",
-  ["saveDraft", "discardDraft", "removeDraftBatch"],
+  ["saveDraft", "discardDraft", "rebaseDraft", "removeDraftBatch"],
 );
 reason("a suggestion is a comment: its creation is outside the T10 catalog like any comment", [
   "submitSuggestion",

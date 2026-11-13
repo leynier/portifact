@@ -18,6 +18,7 @@ import { ScimOverview } from "./scim.ts";
 import { ServiceTokenList } from "./service-tokens.ts";
 import { ShareLinkList } from "./share-links.ts";
 import { SsoSettings } from "./sso.ts";
+import { ChangeItemView } from "./suggestions.ts";
 import { DownloadKind } from "./versions.ts";
 import { WebhookList } from "./webhooks.ts";
 import { InvitationList, WorkspaceMemberList, WorkspaceView } from "./workspaces.ts";
@@ -141,6 +142,11 @@ export const ArtifactRecords = z.strictObject({
   comments: part(AnnotationExport),
   /** `GET /api/v1/artifacts/:id/annotations/history`, every page. */
   commentHistory: part(z.array(AnnotationHistoryEntry)),
+  /**
+   * `GET /api/v1/artifacts/:id/changes`, every item in every state, every page: the owner
+   * side's change list (decision 0027); `unavailable` where edit suggestions are switched off.
+   */
+  changeList: part(z.array(ChangeItemView)),
 });
 export type ArtifactRecords = z.infer<typeof ArtifactRecords>;
 

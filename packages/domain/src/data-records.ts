@@ -18,6 +18,8 @@ import {
   type ArtifactSummary,
   type AuditStreamList,
   type BrandSettings,
+  type ChangeItemList,
+  type ChangeItemView,
   type ExportedIntegrationConnectionList,
   type GitHubTrustRuleList,
   type IntegrationConnectionList,
@@ -55,6 +57,11 @@ export interface ArtifactRecordReads {
   stats(range?: { from: string; to: string }): Promise<RecordPart<ArtifactStatsView>>;
   comments(version: "all" | "current"): Promise<RecordPart<AnnotationExport>>;
   commentHistory(cursor: string | undefined): Promise<RecordPart<AnnotationHistoryPage>>;
+  /**
+   * A page of the change list, every state (`GET /api/v1/artifacts/:id/changes`). Where edit
+   * suggestions are switched off the route does not exist: the reads answer `unavailable`.
+   */
+  changeItems(cursor: string | undefined): Promise<RecordPart<ChangeItemList>>;
 }
 
 /**
@@ -133,7 +140,21 @@ export async function collectArtifactRecords(
     analytics: await analyticsRecord(reads),
     comments: await commentsRecord(reads),
     commentHistory: await historyRecord(reads),
+    changeList: await changeListRecord(reads),
   };
+}
+
+/** Every item of the change list, every state, page after page (decision 0027). */
+async function changeListRecord(reads: ArtifactRecordReads): Promise<RecordPart<ChangeItemView[]>> {
+  const items: ChangeItemView[] = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await reads.changeItems(cursor);
+    if (isSkipped(page)) return page;
+    items.push(...page.items);
+    if (page.nextCursor === null || page.items.length === 0) return items;
+    cursor = page.nextCursor;
+  }
 }
 
 /**
