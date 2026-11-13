@@ -1046,6 +1046,42 @@ export const de = {
   "suggest.changes.dismiss": "Verwerfen",
   "suggest.changes.reopen": "Wieder öffnen",
   "suggest.changes.marked": "Änderungsliste aktualisiert.",
+  "draft.mode.edit": "Bearbeiten",
+  "draft.mode.on":
+    "Der Bearbeitungsmodus ist aktiv. Markiere Text im Artifact, um ihn in deinem privaten Entwurf zu ändern.",
+  "draft.editor.title": "Text ändern",
+  "draft.add": "Zum Entwurf hinzufügen",
+  "draft.added": "Zu deinem Entwurf hinzugefügt.",
+  "draft.heading": "Dein Entwurf",
+  "draft.loading": "Dein Entwurf wird geladen",
+  "draft.empty":
+    "Wähle Bearbeiten und markiere Text im Artifact, um ihn zu ändern. Deine Änderungen bleiben privat, bis du sie veröffentlichst.",
+  "draft.count": "{count, plural, one {# Änderung} other {# Änderungen}}",
+  "draft.changes": "Änderungen in deinem Entwurf",
+  "draft.remove": "Änderung {number} entfernen",
+  "draft.removeShort": "Entfernen",
+  "draft.stale":
+    "Dieser Entwurf wurde auf einer früheren Version erstellt und kann nicht veröffentlicht werden. Verwirf ihn und bearbeite die aktuelle Version.",
+  "draft.attemptEnded": "Die letzte Veröffentlichung wurde nicht abgeschlossen: {reason}",
+  "draft.publishingBadge": "Wird veröffentlicht",
+  "draft.publishing":
+    "Dein Entwurf wird veröffentlicht. Die neue Version erscheint, sobald sie fertig ist.",
+  "draft.publish": "Veröffentlichen",
+  "draft.publish.title": "Diesen Entwurf veröffentlichen?",
+  "draft.publish.confirm": "Neue Version veröffentlichen",
+  "draft.discard": "Verwerfen",
+  "draft.discard.title": "Diesen Entwurf verwerfen?",
+  "draft.discard.body": "Alle Änderungen darin werden entfernt. Es wird nichts veröffentlicht.",
+  "draft.discarded": "Entwurf verworfen.",
+  "draft.conflict":
+    "Dein Entwurf wurde in einem anderen Tab oder Fenster geändert. Er zeigt jetzt den neuesten Stand; nimm deine Änderung erneut vor.",
+  "draft.refused.stale":
+    "Dein Entwurf wurde auf einer früheren Version erstellt. Verwirf ihn, bevor du die aktuelle Version bearbeitest.",
+  "draft.refused.other_page":
+    "Dein Entwurf enthält Änderungen an einer anderen Seite. Veröffentliche oder verwirf ihn, bevor du diese Seite bearbeitest.",
+  "draft.refused.full":
+    "Dein Entwurf enthält bereits die maximale Anzahl an Änderungen. Veröffentliche oder verwirf ihn zuerst.",
+  "draft.refused.invalid": "Diese Änderung kann nicht zum Entwurf hinzugefügt werden.",
   "review.open": "Reviewen und kommentieren",
   "viewer.loading": "Das Artifact wird geöffnet",
   "viewer.unavailable.title": "Dieses Artifact kann nicht geöffnet werden",

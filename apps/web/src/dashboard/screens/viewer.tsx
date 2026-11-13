@@ -61,6 +61,7 @@ import {
   Crosshair,
   Download,
   ExternalLink,
+  FilePen,
   Flag,
   Info,
   LayoutGrid,
@@ -89,6 +90,7 @@ import { loginUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
 import { AnnounceContext, useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useIssueChoices } from "../review/create-issue.tsx";
+import { DraftPanel, useDraft } from "../review/draft.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
 import { SUGGEST_OFF, type SuggestOffer, suggestReducer } from "../review/suggest-session.ts";
 import { ChangeList, SuggestEditor } from "../review/suggestions.tsx";
@@ -825,6 +827,8 @@ function ReviewSession({
   // Suggest mode (decision 0027): its own state, apart from comments. The frame only offers a
   // selection while the person is choosing, for the current edit epoch.
   const [suggest, dispatchSuggest] = useReducer(suggestReducer, SUGGEST_OFF);
+  /** What an edit made in the frame becomes: a suggestion, or (the owner side) a draft change. */
+  const [purpose, setPurpose] = useState<"suggest" | "edit">("suggest");
   const items = useRef(new Map<string, HTMLElement>());
   // The page shares the bridge's window and can post what the bridge posts, so these refs, not
   // the page, decide when its selection or element may fill in a comment: an element only
@@ -864,6 +868,9 @@ function ReviewSession({
   const outdated = data !== undefined && data.currentVersionId !== start.versionId;
   const mode = data?.annotations;
   const canComment = mode === "open" && !outdated;
+  const ownerSide = data?.role === "owner";
+  // The owner side's private draft (decision 0027), loaded only while suggestions are on.
+  const ownerDraft = useDraft(start, start.suggestions === true && ownerSide);
 
   const bridge = useBridge(
     frame,
@@ -1020,9 +1027,18 @@ function ReviewSession({
       hint: t("suggest.hint"),
     });
   }, [suggestKey]);
-  const setMode = (mode: "comment" | "suggest") => {
-    const on = mode === "suggest";
+  const setMode = (mode: "comment" | "suggest" | "edit") => {
+    const on = mode !== "comment";
+    if (on && suggest.mode !== "off") {
+      // Between Suggest and Edit: an open editor ends unsaved, the selection mode stays.
+      if (mode === purpose) return;
+      setPurpose(mode);
+      dispatchSuggest({ type: "cancel" });
+      announce(t(mode === "edit" ? "draft.mode.on" : "suggest.mode.on"));
+      return;
+    }
     if (on === (suggest.mode !== "off")) return;
+    if (on) setPurpose(mode);
     if (on) {
       setDraft(null);
       setOffer(null);
@@ -1033,7 +1049,7 @@ function ReviewSession({
     }
     send({ type: "clear-selection" });
     dispatchSuggest({ type: "toggle", on });
-    announce(t(on ? "suggest.mode.on" : "suggest.mode.off"));
+    announce(t(!on ? "suggest.mode.off" : mode === "edit" ? "draft.mode.on" : "suggest.mode.on"));
   };
   const closeEditor = (threadId: string | null) => {
     send({ type: "clear-selection" });
@@ -1111,6 +1127,7 @@ function ReviewSession({
           dispatch={dispatchSuggest}
           humanNeeded={humanNeeded}
           onClose={closeEditor}
+          draft={purpose === "edit" && ownerSide ? ownerDraft : undefined}
         />
       </FloatingPanel>
     </Floating>
@@ -1208,7 +1225,7 @@ function ReviewSession({
             {canSuggest ? (
               <ModeSwitch
                 label={t("suggest.mode.label")}
-                value={suggest.mode === "off" ? "comment" : "suggest"}
+                value={suggest.mode === "off" ? "comment" : purpose}
                 onChange={setMode}
                 options={[
                   {
@@ -1223,6 +1240,17 @@ function ReviewSession({
                     name: t("suggest.mode.name", { mode: t("suggest.mode.suggest") }),
                     icon: <PencilLine className="size-4" />,
                   },
+                  // The owner side may also edit directly, into a private draft.
+                  ...(ownerSide
+                    ? [
+                        {
+                          value: "edit" as const,
+                          label: t("draft.mode.edit"),
+                          name: t("suggest.mode.name", { mode: t("draft.mode.edit") }),
+                          icon: <FilePen className="size-4" />,
+                        },
+                      ]
+                    : []),
                 ]}
               />
             ) : null}
@@ -1289,8 +1317,11 @@ function ReviewSession({
             authors={authors}
           />
         ) : null}
-        {data?.role === "owner" && start.suggestions === true ? (
-          <ChangeList artifactId={start.artifactId} />
+        {ownerSide && start.suggestions === true ? (
+          <>
+            <DraftPanel start={start} state={ownerDraft} />
+            <ChangeList artifactId={start.artifactId} />
+          </>
         ) : null}
         {data ? <CommentNoticeToggle artifactId={start.artifactId} explainPlan={false} /> : null}
       </>

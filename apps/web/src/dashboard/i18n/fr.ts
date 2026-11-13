@@ -1049,6 +1049,43 @@ export const fr = {
   "suggest.changes.dismiss": "Écarter",
   "suggest.changes.reopen": "Rouvrir",
   "suggest.changes.marked": "Liste des modifications mise à jour.",
+  "draft.mode.edit": "Modifier",
+  "draft.mode.on":
+    "Le mode modification est activé. Sélectionnez du texte dans l’artifact pour le modifier dans votre brouillon privé.",
+  "draft.editor.title": "Modifier le texte",
+  "draft.add": "Ajouter au brouillon",
+  "draft.added": "Ajouté à votre brouillon.",
+  "draft.heading": "Votre brouillon",
+  "draft.loading": "Chargement de votre brouillon",
+  "draft.empty":
+    "Choisissez Modifier et sélectionnez du texte dans l’artifact pour le modifier. Vos modifications restent privées jusqu’à leur publication.",
+  "draft.count": "{count, plural, one {# modification} other {# modifications}}",
+  "draft.changes": "Modifications de votre brouillon",
+  "draft.remove": "Retirer la modification {number}",
+  "draft.removeShort": "Retirer",
+  "draft.stale":
+    "Ce brouillon a été créé sur une version antérieure et ne peut pas être publié. Abandonnez-le et modifiez la version actuelle.",
+  "draft.attemptEnded": "La dernière publication ne s’est pas terminée : {reason}",
+  "draft.publishingBadge": "Publication",
+  "draft.publishing":
+    "Publication de votre brouillon. La nouvelle version apparaîtra dès qu’elle sera prête.",
+  "draft.publish": "Publier",
+  "draft.publish.title": "Publier ce brouillon ?",
+  "draft.publish.confirm": "Publier une nouvelle version",
+  "draft.discard": "Abandonner",
+  "draft.discard.title": "Abandonner ce brouillon ?",
+  "draft.discard.body":
+    "Toutes les modifications qu’il contient sont supprimées. Rien n’est publié.",
+  "draft.discarded": "Brouillon abandonné.",
+  "draft.conflict":
+    "Votre brouillon a changé dans un autre onglet ou une autre fenêtre. Il affiche maintenant son dernier état ; refaites votre modification.",
+  "draft.refused.stale":
+    "Votre brouillon a été créé sur une version antérieure. Abandonnez-le avant de modifier la version actuelle.",
+  "draft.refused.other_page":
+    "Votre brouillon contient des modifications d’une autre page. Publiez-le ou abandonnez-le avant de modifier cette page.",
+  "draft.refused.full":
+    "Votre brouillon contient déjà le maximum de modifications. Publiez-le ou abandonnez-le d’abord.",
+  "draft.refused.invalid": "Cette modification ne peut pas être ajoutée au brouillon.",
   "review.open": "Relire et commenter",
   "viewer.loading": "Ouverture de l’artifact",
   "viewer.unavailable.title": "Cet artifact ne peut pas être ouvert",
