@@ -12,9 +12,10 @@
 // the domain (`previewOfPlan`), one conditioned insert of the code row and the document written
 // with the version and revision it shows. The cost is the plan's, bounded inside the planners by `PLAN_LIMITS`, and counted with
 // dry runs in `PLANNING_RATE_LIMITS`. At redemption, 4 D1 calls with one region (one spend per
-// region), 1 R2 read and 1 delete: the spend, the session with its account, the thread's read
-// authorization again, and the document compared with the current version and revision: no
-// plan, no parse, no render.
+// region), 1 R2 read and 1 delete: the spend, the session with its account, the document (its
+// metadata names what it shows), the thread's read authorization again (or for a draft or an
+// unsaved edit, `previewOwnWork`), and the document compared with the current version and the
+// revision it showed: no plan, no parse, no render.
 //
 // Only the code's SHA-256 is stored. A code is never logged, audited or written anywhere else.
 import {

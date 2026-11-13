@@ -214,11 +214,14 @@ describe("the credential on the request context", () => {
     }
   });
 
-  it("is recorded by a preview redemption before the thread check decides the role", () => {
+  it("is recorded by a preview redemption before the check that decides the role", () => {
     // The preview origin (decision 0027) authenticates the person by the dashboard session the
-    // code was issued to, read with its sign-in time and method in the same statement.
-    expect(read("packages/services/src/suggestion-previews.ts")).toMatch(
-      /recordSessionRenewal\(handles\.db, row\.userId, \{[\s\S]{0,160}?\}\);\s+const subject = await previewSubject\(/,
+    // code was issued to, read with its sign-in time and method in the same statement, and
+    // records it before `stillShown` asks the thread or own-work rule (which decides the role);
+    // only the cached document's read (its metadata names the subject) comes between.
+    const source = read("packages/services/src/suggestion-previews.ts");
+    expect(source).toMatch(
+      /recordSessionRenewal\(handles\.db, row\.userId, \{[\s\S]{0,160}?\}\);\s+const object = await bucket\.get\(row\.r2Key\);[\s\S]{0,400}?await stillShown\(handles\.db,/,
     );
   });
 
