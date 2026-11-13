@@ -649,7 +649,9 @@ async function afterRefusal(
  * quarantine refusals stay the second guard; this one covers the interval in which D1 holds and
  * the hold's fence has not landed yet (an ordinary release delivered before the next hold's fence,
  * or a restore that re-opened a hold). A hold placed after this read is the cross-system boundary:
- * its fence then holds the object, which refuses the erase. One read, no write.
+ * its fence then holds the object, which refuses the erase; an author erasure asks once per
+ * delivery, so that window spans the delivery's chunks. One read of the hold, then the usual keep
+ * update when it holds: nothing written to a hold or an epoch.
  */
 async function waitsForD1Hold(db: Db, row: OutboxRow, now: number): Promise<"kept" | null> {
   if (!(await isHeld(db, row.subject ?? ""))) return null;
