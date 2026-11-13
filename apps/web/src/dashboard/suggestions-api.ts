@@ -7,7 +7,6 @@
 import {
   AcceptanceStarted,
   type AnnotationVersionFilter,
-  ArtifactContent,
   ChangeItemList,
   type ChangeItemState,
   ChangeItemView,
@@ -15,6 +14,7 @@ import {
   type DecideSuggestionRequest,
   DraftView,
   type MarkChangeItem,
+  PageText,
   Plan,
   type PreviewRequest,
   PreviewResponse,
@@ -74,10 +74,10 @@ export interface SuggestionsApi {
   /** Rebases the caller's draft onto the current version, at the revision and incarnation held. */
   rebaseDraft(artifactId: string, request: RebaseDraftRequest): Promise<RebasedDraft>;
   /**
-   * A page of a file of the current version, as text (whoever may read the artifact): the
-   * stored page the sidebar's text search reads, never the frame.
+   * The shown text of a page of the current version, as the anchors read it (whoever may
+   * suggest): what the sidebar's text search reads, never the frame.
    */
-  pageContent(artifactId: string, path: string, offset: number): Promise<ArtifactContent>;
+  pageText(artifactId: string, path: string): Promise<PageText>;
   /** Accepts the plan the person confirmed by its digest; the jobs Worker applies it. */
   accept(
     artifactId: string,
@@ -159,12 +159,9 @@ export function suggestionsApi(call: ApiCall): SuggestionsApi {
     rebaseDraft(artifactId, request) {
       return call(`${draftPath(artifactId)}/rebase`, RebasedDraft, "POST", request);
     },
-    pageContent(artifactId, path, offset) {
-      const params = new URLSearchParams({ kind: "published", path, offset: String(offset) });
-      return call(
-        `${artifactPath(artifactId)}/versions/current/content?${params}`,
-        ArtifactContent,
-      );
+    pageText(artifactId, path) {
+      const params = new URLSearchParams({ path });
+      return call(`${artifactPath(artifactId)}/page-text?${params}`, PageText);
     },
     accept(artifactId, threadId, request, idempotencyKey) {
       return call(

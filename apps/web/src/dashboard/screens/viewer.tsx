@@ -1282,8 +1282,6 @@ function ReviewSession({
           <TextSearchPanel
             start={start}
             path={path}
-            // Reading a site's stored files is the owner side's: reviewers select in the frame.
-            available={ownerSide}
             onChoose={(found) => dispatchSuggest({ type: "open-target", target: found })}
           />
         ) : null}
