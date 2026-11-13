@@ -17,6 +17,13 @@ export {
   commentRetentionNoticeEmail,
 } from "./comment-retention-notice.ts";
 export {
+  DATA_RIGHTS_NOTICE_TEXT,
+  type DataRightsKind,
+  type DataRightsNoticeInput,
+  type DataRightsNoticeText,
+  dataRightsNoticeEmail,
+} from "./data-rights-notice.ts";
+export {
   DIRECTORY_NOTICE_TEXT,
   type DirectoryNoticeInput,
   type DirectoryNoticeText,

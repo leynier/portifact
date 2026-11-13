@@ -52,6 +52,7 @@ export const OutboxTopic = z.enum([
   "data_resolve",
   "data_export",
   "data_audit",
+  "data_rights_request",
   "data_reset",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;

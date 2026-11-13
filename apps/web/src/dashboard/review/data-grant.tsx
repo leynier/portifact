@@ -7,8 +7,8 @@
 // where the page starts the grant itself. Messages count only from the frame's own window and the
 // artifact's exact origin, and each only in the step that expects it.
 import { Button, buttonClasses, Callout, LoadingState } from "@portifact/ui";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { CircleAlert, ExternalLink } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CircleAlert, ExternalLink, Unplug } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { ConsentControl, dataGrantControlQuery } from "../screens/data-grant.tsx";
@@ -42,6 +42,7 @@ export function useDataGrant({
   const { api } = useDashboard();
   const announce = useAnnounce();
   const t = useT();
+  const queryClient = useQueryClient();
   const issue = useMutation({
     mutationFn: (nonceHash: string) =>
       api.issueDataGrant({ artifactId, nonceHash, host: null, flow: "frame" }),
@@ -76,6 +77,7 @@ export function useDataGrant({
           if (current.kind === "redeeming") {
             setPhase({ kind: "idle" });
             announce(t("dataGrant.frame.granted"));
+            void queryClient.invalidateQueries({ queryKey: dataGrantStatusQuery(artifactId) });
           }
           return;
         case "portifact:data-grant-unavailable":
@@ -87,7 +89,7 @@ export function useDataGrant({
     };
     window.addEventListener("message", listener);
     return () => window.removeEventListener("message", listener);
-  }, [origin, frame, issue, announce, t]);
+  }, [origin, frame, issue, announce, t, queryClient, artifactId]);
 
   const allow = () => {
     if (phase.kind !== "asking") return;
@@ -100,6 +102,52 @@ export function useDataGrant({
     }
   };
   return { phase, allow, decline: () => setPhase({ kind: "idle" }), failed: issue.isError };
+}
+
+export const dataGrantStatusQuery = (artifactId: string) =>
+  ["data-grant-status", artifactId] as const;
+
+/**
+ * While the person's grant on the artifact is open: a note that the page saves as them, and a
+ * way to stop it here (decision 0026, "Revocation from the dashboard, the viewer or sign-out").
+ * Off, or on an error, nothing is shown.
+ */
+function OpenGrantNotice({ artifactId }: { artifactId: string }) {
+  const t = useT();
+  const announce = useAnnounce();
+  const { api } = useDashboard();
+  const queryClient = useQueryClient();
+  const status = useQuery({
+    queryKey: dataGrantStatusQuery(artifactId),
+    queryFn: () => api.dataGrantStatus(artifactId),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const revoke = useMutation({
+    mutationFn: () => api.revokeDataGrants(artifactId),
+    onSuccess: () => {
+      announce(t("dataGrant.viewer.stopped"));
+      void queryClient.invalidateQueries({ queryKey: dataGrantStatusQuery(artifactId) });
+    },
+  });
+  if (!status.data || status.data.openGrants === 0) return null;
+  return (
+    <Callout
+      title={t("dataGrant.viewer.saving")}
+      action={
+        <Button
+          intent="danger"
+          icon={<Unplug className="size-4" />}
+          busy={revoke.isPending}
+          onClick={() => revoke.mutate()}
+        >
+          {t("dataGrant.viewer.stop")}
+        </Button>
+      }
+    >
+      {t("dataGrant.viewer.savingHint")}
+    </Callout>
+  );
 }
 
 /** What the viewer draws above its frame for the grant: the control, progress or the fallback. */
@@ -127,7 +175,9 @@ export function DataGrantPanel({
       <Callout tone="error" title={t("dataGrant.failed")} icon={<CircleAlert className="size-5" />}>
         {t("dataGrant.unavailableHint")}
       </Callout>
-    ) : null;
+    ) : (
+      <OpenGrantNotice artifactId={artifactId} />
+    );
   }
   if (phase.kind === "beginning" || phase.kind === "redeeming") {
     return <LoadingState label={t("dataGrant.frame.saving")} />;

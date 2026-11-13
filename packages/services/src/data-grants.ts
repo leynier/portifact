@@ -452,6 +452,29 @@ export async function revokeDataGrants(
   throw new Error("grants kept opening while they were revoked");
 }
 
+/**
+ * How many grants of the person on one artifact are open now, for the viewer's "stop saving as
+ * me": one read through the `(user_id, artifact_id)` index.
+ */
+export async function openDataGrants(
+  db: RegionalDb,
+  input: { userId: string; artifactId: string; now: number },
+): Promise<number> {
+  const [row] = await db
+    .select({ open: sql<number>`count(*)` })
+    .from(g)
+    .where(
+      and(
+        eq(g.userId, input.userId),
+        eq(g.artifactId, input.artifactId),
+        isNull(g.revokedAt),
+        isNotNull(g.redeemedAt),
+        gt(g.expiresAt, input.now),
+      ),
+    );
+  return Number(row?.open ?? 0);
+}
+
 /** Artifacts one page of "Data you shared" lists, per region. */
 export const DATA_GRANT_PAGE = 50;
 

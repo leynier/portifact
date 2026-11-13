@@ -20,6 +20,8 @@ describe("BrandMark", () => {
       />,
     );
     const link = screen.getByRole("link", { name: "Acme (opens in a new tab)" });
+    // Keep a literal word boundary too: Chromium can join adjacent inline text without one.
+    expect(link.textContent).toBe("Acme (opens in a new tab)");
     expect(link.getAttribute("href")).toBe("https://acme.example.com/");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");

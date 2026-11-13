@@ -627,6 +627,8 @@ export interface FakeServer {
   /** Artifact data (decision 0026): controls by artifact ID (missing ones answer 404) and grants. */
   dataGrantControls: Record<string, DataGrantControl>;
   dataGrants: DataGrantView[];
+  /** The person's own documents by artifact ID (`/data-grants/:id/mine`). */
+  ownData: Record<string, { collection: string; id: string; body?: string }[]>;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** The body of GET /api/v1/grace-forecast (decision 0022), for every space. */
@@ -817,6 +819,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     commentNotices: {},
     dataGrantControls: {},
     dataGrants: [],
+    ownData: {},
     bodies: [],
     pageSize: 50,
     texts: new Map(),
@@ -1636,6 +1639,28 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   if (grantControl && method === "GET") {
     const control = server.dataGrantControls[decodeURIComponent(grantControl[1] as string)];
     return control ? Response.json(control) : apiError("not_found", 404);
+  }
+  const status = /^\/api\/v1\/account\/data-grants\/([^/]+)$/.exec(path);
+  if (status && method === "GET") {
+    const artifactId = decodeURIComponent(status[1] as string);
+    const item = server.dataGrants.find((grant) => grant.artifactId === artifactId);
+    return Response.json({ artifactId, openGrants: item?.openGrants ?? 0 });
+  }
+  const ask = /^\/api\/v1\/account\/data-grants\/([^/]+)\/rights-request$/.exec(path);
+  if (ask && method === "POST") return Response.json({ requested: true }, { status: 202 });
+  const own = /^\/api\/v1\/account\/data-grants\/([^/]+)\/mine$/.exec(path);
+  if (own && method === "GET") {
+    const rows = server.ownData[decodeURIComponent(own[1] as string)] ?? [];
+    return Response.json({ rows, next: null, revision: 1 });
+  }
+  const ownDoc = /^\/api\/v1\/account\/data-grants\/([^/]+)\/documents\/([^/]+)\/([^/]+)$/.exec(
+    path,
+  );
+  if (ownDoc && method === "DELETE") {
+    const artifactId = decodeURIComponent(ownDoc[1] as string);
+    const id = decodeURIComponent(ownDoc[3] as string);
+    server.ownData[artifactId] = (server.ownData[artifactId] ?? []).filter((row) => row.id !== id);
+    return Response.json({ deleted: true });
   }
   const grantRevoke = /^\/api\/v1\/account\/data-grants\/([^/]+)$/.exec(path);
   if (grantRevoke && method === "DELETE") {
