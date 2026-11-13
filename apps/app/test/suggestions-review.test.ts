@@ -113,3 +113,44 @@ it("returns the declared SuggestionThreadView from submitting", async () => {
   expect(replayed.status).toBe(201);
   expect(SuggestionThreadView.parse(await replayed.json())).toEqual(view);
 });
+
+it("refuses a missing or reused idempotency key and a stale version on the viewer's writes", async () => {
+  const send = (path: string, body: unknown, key: string | null) =>
+    h.request(path, {
+      method: "POST",
+      headers: {
+        cookie: owner.cookie,
+        "sec-fetch-site": "same-origin",
+        origin: ORIGIN,
+        "content-type": "application/json",
+        ...(key === null ? {} : { "idempotency-key": key }),
+      },
+      body: JSON.stringify(body),
+    });
+  const suggestion = { versionId, edit: { operations: [op] }, body: "Better word" };
+  expect((await send(`${base()}/suggestions`, suggestion, null)).status).toBe(400);
+  const key = crypto.randomUUID();
+  const created = await send(`${base()}/suggestions`, suggestion, key);
+  expect(created.status).toBe(201);
+  const threadId = (await created.json<{ id: string }>()).id;
+  expect((await send(`${base()}/suggestions`, { ...suggestion, body: "Other" }, key)).status).toBe(
+    400,
+  );
+  const stale = await send(
+    `${base()}/suggestions`,
+    { ...suggestion, versionId: "ver_old" },
+    crypto.randomUUID(),
+  );
+  expect(stale.status).toBe(409);
+  const digest = { digest: "0".repeat(64) };
+  for (const path of [`${base()}/suggestions/${threadId}/accept`, `${base()}/draft/publish`]) {
+    expect((await send(path, digest, null)).status, path).toBe(400);
+    const once = crypto.randomUUID();
+    const refused = await send(path, digest, once);
+    expect(refused.status, path).toBeGreaterThanOrEqual(400);
+    // A stored refusal replays as it was; another body under the same key is refused.
+    const again = await send(path, digest, once);
+    expect(again.status, path).toBe(refused.status);
+    expect((await send(path, { digest: "1".repeat(64) }, once)).status, path).toBe(400);
+  }
+});
