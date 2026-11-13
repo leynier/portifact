@@ -418,7 +418,14 @@ describe("PR 276 adversarial review on real D1 and SQLite objects", () => {
     await hold(id);
     const [job] = await jobsOf(db(), ["data_reset"], id);
     if (!job) throw new Error("no recovery job");
-    expect(await runDataReset(db(), objectsFor(), job, NOW + 60_000)).toBe("kept");
+    let steps = 0;
+    const counted = wrapped(objectsFor(), async (_command, run) => {
+      steps += 1;
+      return run();
+    });
+    expect(await runDataReset(db(), counted, job, NOW + 60_000)).toBe("kept");
+    // D1 answered first: no object step ran while held.
+    expect(steps).toBe(0);
     expect((await controlOf(id))?.hold).toBeNull();
     expect(await documentsOf(id)).toBe(1);
   });
@@ -468,5 +475,86 @@ describe("PR 276 adversarial review on real D1 and SQLite objects", () => {
     expect(await runDataReset(db(), objectsFor(), oldJob, NOW + 60_000)).toBe("done");
     expect(await documentsOf(id)).toBe(1);
     expect(await erasedEvents(id)).toHaveLength(1);
+  });
+
+  it("G1: the claim refuses an owner the request did not authorize, whatever the epoch", async () => {
+    const adminId = `u_${crypto.randomUUID()}`;
+    const editorId = `u_${crypto.randomUUID()}`;
+    for (const userId of [adminId, editorId]) {
+      await db()
+        .global.insert(schema.users)
+        .values({
+          id: userId,
+          name: "Reviewer fixture",
+          email: `${userId}@example.test`,
+          emailVerified: true,
+          createdAt: new Date(NOW),
+          updatedAt: new Date(NOW),
+        });
+    }
+    const slug = () => crypto.randomUUID().replaceAll("-", "").slice(0, 20);
+    const source = value(
+      await createWorkspace(db().global, {
+        slug: `s${slug()}`,
+        name: "Source",
+        adminUserId: adminId,
+        now: NOW,
+      }),
+    );
+    const destination = value(
+      await createWorkspace(db().global, {
+        slug: `d${slug()}`,
+        name: "Destination",
+        adminUserId: adminId,
+        now: NOW,
+      }),
+    );
+    await db()
+      .global.insert(schema.workspaceMembers)
+      .values({ workspaceId: source.id, userId: editorId, role: "editor", updatedAt: NOW });
+    const { id } = await withData({ ownerId: source.id });
+    // The transfer lands between authorization (the source's owner) and the read of the data
+    // envelope (the destination's epoch): only the claim's owner condition can refuse it.
+    let selects = 0;
+    const racing = new Proxy(db(), {
+      get(target, property) {
+        if (property !== "select") return Reflect.get(target, property);
+        return (...args: Parameters<ReturnType<typeof db>["select"]>) => {
+          selects += 1;
+          const builder = target.select(...args);
+          if (selects !== 2) return builder;
+          const from = builder.from.bind(builder);
+          return Object.assign(builder, {
+            from: (...source: Parameters<typeof from>) => {
+              const query = from(...source);
+              const run = query.then.bind(query);
+              return Object.assign(query, {
+                // biome-ignore lint/suspicious/noThenProperty: delays the second read past the transfer
+                then: async (...handlers: Parameters<typeof run>) => {
+                  value(
+                    await transferArtifact(db(), bucketOf(), {
+                      userId: adminId,
+                      artifactId: id,
+                      workspace: destination.slug,
+                      now: NOW + 1,
+                    }),
+                  );
+                  return run(...handlers);
+                },
+              });
+            },
+          });
+        };
+      },
+    });
+    const answer = await eraseArtifactData(racing, deps(), {
+      userId: editorId,
+      artifactId: id,
+      now: NOW + 2,
+      idempotencyKey: key(),
+    });
+    expect(answer.ok).toBe(false);
+    expect(await jobsOf(db(), ["data_reset"], id)).toHaveLength(0);
+    expect(await documentsOf(id)).toBe(1);
   });
 });
