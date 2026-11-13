@@ -133,11 +133,21 @@ it("R4: a cancelled purge intent starts a fresh intent after release", async () 
   await expect(runDataErase(db(), bucketOf(), crash, row!, NOW)).rejects.toThrow(
     "crash after prepare",
   );
-  // The already queued hold/release arrive after prepare and cancel the first intent.
+  // A hold arrives after the prepare and cancels the first intent. Fourth review: D1 released its
+  // hold before the purge, so the queued hold fence is obsolete at delivery; the hold and its
+  // release reach the object directly, as a restore's fences would.
+  const held = (await controlOf(id))!;
+  const fenced = (epoch: number, fence: Parameters<DataObjectRpc["lifecycleFence"]>[1]) =>
+    rpc(id).lifecycleFence({ ...controlEnvelope(held), epoch }, fence, NOW);
+  expect((await fenced(held.epoch + 1, { kind: "hold", transition: "h_cancel" })).ok).toBe(true);
+  expect(
+    (await fenced(held.epoch + 2, { kind: "release", transition: "h_cancel:release" })).ok,
+  ).toBe(true);
   for (const fence of await jobsOf(db(), ["data_fence"], id))
     await runJob(db(), bucketOf(), { id: fence.id, topic: fence.topic }, NOW, {
       data: objectsFor(),
     });
+  expect((await controlOf(id))?.lastErase?.outcome).toBe("cancelled");
   // The cancelled ID is terminal: the purge stores a new one (after a short wait) and finishes.
   // Third review: the job itself enforces the wait, so each retry comes a wait later.
   for (let retry = 0; retry < 3; retry++) {

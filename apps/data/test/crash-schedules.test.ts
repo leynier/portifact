@@ -179,6 +179,40 @@ schedule("a stale release and its corrective (data_fence, third review)", {
   },
 });
 
+schedule("an obsolete release at delivery and its corrective (data_fence, fourth review)", {
+  // The release reaches no object (D1 holds again), the convergence's one batch writes a corrective
+  // hold, the release's acknowledgement; then the corrective's fence and its acknowledgement.
+  steps: ["d1:batch", "d1:run", "object:lifecycleFence", "d1:run"],
+  async setup() {
+    const { id } = await withData({ state: "suspended" });
+    for (const at of [D1_NOW, D1_NOW + 2]) {
+      value(
+        await placeLegalHold(db(), { artifactId: id, ground: "Order", releaseAt: null, now: at }),
+      );
+      if (at === D1_NOW) await releaseLegalHold(db(), { artifactId: id, now: D1_NOW + 1 });
+    }
+    // A restore lost both holds' fences: only H1's release is queued, while D1 holds H2.
+    const jobs = await jobsOf(db(), ["data_fence"], id);
+    for (const job of jobs) {
+      if ((job.payload as { fence: { kind: string } }).fence.kind === "hold") {
+        await db().delete(schema.outbox).where(eq(schema.outbox.id, job.id));
+      }
+    }
+    return id;
+  },
+  act: (crash, id) => drain({ subject: id, crash }),
+  settle: (id) => drain({ subject: id }),
+  async observe(id) {
+    const control = await controlOf(id);
+    return {
+      held: control?.hold !== null,
+      epoch: control?.epoch,
+      d1: (await dataRowOf(id))?.epoch,
+      jobs: (await jobsOf(db(), ["data_fence"], id)).length,
+    };
+  },
+});
+
 interface Author {
   id: string;
   userId: string;

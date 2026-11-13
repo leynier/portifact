@@ -237,14 +237,39 @@ describe("data_fence", () => {
 
   it("binds an empty object when artifact data is on, so the hold precedes any data", async () => {
     const memory = memoryObjects(true);
-    const row = await job("data_fence", artifactId(), {
+    const id = artifactId();
+    // D1 holds it: a hold fence is sent only while D1 has an open hold (fourth review).
+    await db()
+      .insert(schema.artifacts)
+      .values({ id, ownerId: "u_x", type: "site", name: "Plan", state: "suspended" });
+    await db()
+      .insert(schema.legalHolds)
+      .values({
+        id: `${hold.transition}_${id}`,
+        artifactId: id,
+        ownerId: "u_x",
+        reason: "phishing",
+        ground: "Order",
+      });
+    const row = await job("data_fence", id, {
+      ownerId: "u_x",
+      generation: 0,
+      epoch: 1,
+      fence: { kind: "hold", transition: `${hold.transition}_${id}` },
+    });
+    expect(await run(row, memory.data)).toBe("done");
+    expect(memory.of(id).durable.control?.hold).not.toBeNull();
+    // Without the open hold the same fence is obsolete and never reaches the object.
+    const other = memoryObjects(true);
+    const free = artifactId();
+    const obsolete = await job("data_fence", free, {
       ownerId: "u_x",
       generation: 0,
       epoch: 1,
       fence: hold,
     });
-    expect(await run(row, memory.data)).toBe("done");
-    expect(memory.of(row.subject ?? "").durable.control?.hold).not.toBeNull();
+    expect(await run(obsolete, other.data)).toBe("stale");
+    expect(other.of(free).durable.control).toBeNull();
   });
 
   it("applies a fence, retries one that must wait, and ends one the object is past", async () => {
@@ -300,6 +325,52 @@ describe("a fence under an owner the object does not have", () => {
     await db().delete(schema.outbox).where(eq(schema.outbox.id, waiting.id));
     // No transfer to that owner is waiting: it can never apply.
     expect(await run(await job("data_fence", id, fence), memory.data)).toBe("stale");
+  });
+
+  it("never waits on a transfer the object is already past, nor on one at or after its own epoch", async () => {
+    const memory = memoryObjects();
+    const { id, ownerId, object } = await seeded(memory);
+    // The object at epoch 4.
+    object.fence(
+      envelope(id, ownerId, { generation: 0, epoch: 3 }),
+      { kind: "hold", transition: "h" },
+      NOW,
+    );
+    object.fence(
+      envelope(id, ownerId, { generation: 0, epoch: 4 }),
+      { kind: "release", transition: "h:release" },
+      NOW,
+    );
+    const transferAt = (epoch: number) =>
+      job("data_fence", id, {
+        ownerId,
+        generation: 0,
+        epoch,
+        fence: { kind: "transfer", transition: `transfer_${epoch}`, toOwner: "u_next" },
+      });
+    const under = (epoch: number) =>
+      job("data_fence", id, {
+        ownerId: "u_next",
+        generation: 0,
+        epoch,
+        fence: { kind: "release", transition: `r_${epoch}` },
+      });
+    // Killed mutations: the window's lower bound (a transfer at the object's epoch can never
+    // apply) and its upper bound (a transfer at the fence's own epoch or later is no predecessor).
+    const past = await transferAt(4);
+    expect(await run(await under(6), memory.data)).toBe("stale");
+    await db().delete(schema.outbox).where(eq(schema.outbox.id, past.id));
+    const later = await transferAt(7);
+    expect(await run(await under(6), memory.data)).toBe("stale");
+    await db().delete(schema.outbox).where(eq(schema.outbox.id, later.id));
+    await transferAt(5);
+    expect(await run(await under(6), memory.data)).toBe("pending");
+    // A fence that ends under another owner records the owner finding, once.
+    const [finding] = await db()
+      .select()
+      .from(schema.dataFindings)
+      .where(eq(schema.dataFindings.artifactId, id));
+    expect([finding?.action, finding?.reason]).toEqual(["refused", "owner"]);
   });
 });
 

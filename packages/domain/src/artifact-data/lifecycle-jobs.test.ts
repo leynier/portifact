@@ -11,8 +11,10 @@ import {
 import { describe, expect, it } from "vitest";
 import { applyFence, newControl, quarantine, resolveReviewed, reviewedState } from "./control.ts";
 import {
+  awaitedTransferWindow,
   controlEnvelope,
   erasureRefused,
+  fenceObsolete,
   fenceRefused,
   formatReviewed,
   holdCorrective,
@@ -469,6 +471,25 @@ describe("a fence under an owner the object does not have", () => {
     expect(fenceRefused(control, other, "stale", ROW_KEPT)).toBe("done");
     // The object's own owner is unaffected by the evidence.
     expect(fenceRefused(control, { ...base, epoch: 5 }, "stale", ROW_KEPT)).toBe("retry");
+  });
+});
+
+describe("a hold or release fence at delivery", () => {
+  it("is obsolete when D1's level no longer wants it, and a transfer never is", () => {
+    const open = { open: "h", objectHoldReleased: false };
+    const free = { open: null, objectHoldReleased: false };
+    // Killed mutations: either direction of the level check, or the kind comparison.
+    expect(fenceObsolete({ kind: "release" }, open)).toBe(true);
+    expect(fenceObsolete({ kind: "release" }, free)).toBe(false);
+    expect(fenceObsolete({ kind: "hold" }, free)).toBe(true);
+    expect(fenceObsolete({ kind: "hold" }, open)).toBe(false);
+    expect(fenceObsolete({ kind: "transfer" }, open)).toBe(false);
+    expect(fenceObsolete({ kind: "transfer" }, free)).toBe(false);
+  });
+
+  it("waits under another owner only on a transfer between the object's epoch and its own", () => {
+    const control = fenced(newControl(base, NOW), 2, "hold_a");
+    expect(awaitedTransferWindow(control, { ...base, epoch: 5 })).toEqual({ above: 2, below: 5 });
   });
 });
 

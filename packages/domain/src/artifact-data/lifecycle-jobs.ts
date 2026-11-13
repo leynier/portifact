@@ -151,7 +151,10 @@ export function fenceRefused(
   code: DataRefusalCode,
   evidence: {
     dataRowGone: boolean;
-    /** Whether D1 still has a transfer to the envelope's owner waiting for this artifact. */
+    /**
+     * Whether D1 has a transfer to the envelope's owner waiting for this artifact within
+     * `awaitedTransferWindow`: a predecessor that can still bring the object to that owner.
+     */
     ownerAwaited: boolean;
   },
 ): JobStep {
@@ -174,6 +177,31 @@ export interface HoldLevel {
   open: string | null;
   /** Whether D1 records the hold the object holds as a hold that was released. */
   objectHoldReleased: boolean;
+}
+
+/**
+ * Whether a hold or release fence is obsolete at delivery, by D1's level read right before the
+ * object call: a release is sent only while D1 has no open hold on the artifact, a hold only while
+ * D1 has one. An obsolete fence ends without reaching the object, and the job compares the levels
+ * once (`holdCorrective`). A transfer is never obsolete by level.
+ */
+export function fenceObsolete(fence: { kind: string }, level: HoldLevel): boolean {
+  if (fence.kind === "release") return level.open !== null;
+  if (fence.kind === "hold") return level.open === null;
+  return false;
+}
+
+/**
+ * The epochs a transfer must lie strictly between for a fence under an owner the object does not
+ * have to wait on it: above the object's epoch (it can still apply) and below the fence's own (it
+ * precedes it). A same or later epoch never justifies waiting, so the waits go strictly down in
+ * epoch and cannot cycle.
+ */
+export function awaitedTransferWindow(
+  control: DataControl,
+  envelope: DataEnvelope,
+): { above: number; below: number } {
+  return { above: control.epoch, below: envelope.epoch };
 }
 
 /** A corrective fence: the change that brings the object to D1's level, at a new epoch. */

@@ -297,6 +297,29 @@ async function cancelledPurge() {
     },
   };
   await expect(runDataErase(db(), bucketOf(), crash, row, NOW)).rejects.toThrow("after prepare");
+  // A hold reaches the object after the prepare and cancels the intent. D1 released its hold
+  // before the purge, so its queued fence is obsolete at delivery (fourth review): the hold and
+  // its release are sent to the object directly, as a restore's fences would arrive.
+  const held = await control(id);
+  const envelope = controlEnvelope(held);
+  expect(
+    (
+      await rpc(id).lifecycleFence(
+        { ...envelope, epoch: held.epoch + 1 },
+        { kind: "hold", transition: "hold_cancels" },
+        NOW,
+      )
+    ).ok,
+  ).toBe(true);
+  expect(
+    (
+      await rpc(id).lifecycleFence(
+        { ...envelope, epoch: held.epoch + 2 },
+        { kind: "release", transition: "hold_cancels:release" },
+        NOW,
+      )
+    ).ok,
+  ).toBe(true);
   await fences(id);
   const [job] = await jobsOf(db(), ["data_erase"], id);
   if (job === undefined) throw new Error("no job");

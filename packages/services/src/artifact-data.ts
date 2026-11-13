@@ -40,8 +40,10 @@ import {
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import { logEvent } from "@portifact/domain";
 import {
+  awaitedTransferWindow,
   controlEnvelope,
   erasureRefused,
+  fenceObsolete,
   fenceRefused,
   formatReviewed,
   type HoldLevel,
@@ -649,10 +651,15 @@ function needs(objects: DataObjects | null | undefined, topic: string): DataObje
 
 /**
  * A `data_fence` job: tells the object about a hold, a release or a transfer, under the owner it
- * knows and the epoch D1 raised, at D1's current generation. Done once the object acknowledged it
- * or is already past it (`fenceRefused`); retried while an earlier change has to land first. A
- * fence never takes a new epoch and never rewrites its own row: a stale hold or release ends after
- * one comparison of the levels (`convergeHold`), which may write a corrective job of its own.
+ * knows and the epoch D1 raised, at D1's current generation. A hold or release is sent only while
+ * D1's level still wants it (`fenceObsolete`, from the one `legal_holds` read the convergence
+ * reuses); an obsolete one ends without reaching the object. A hold placed after that read writes
+ * its own fence at a higher epoch, which this same rule delivers, so a release sent in that window
+ * is followed by the new hold. Done once the object acknowledged the fence or is already past it
+ * (`fenceRefused`); retried while an earlier change has to land first. A fence never takes a new
+ * epoch and never rewrites its own row: an obsolete or stale hold or release ends after one
+ * comparison of the levels (`convergeHold`), which may write a corrective job of its own; one
+ * that ends because the object's owner is not D1's records the owner finding.
  */
 export async function runDataFence(
   db: RegionalDb,
@@ -667,6 +674,13 @@ export async function runDataFence(
   const control = await object.lifecycleControl();
   if (control === null && !objects.createsObjects) return "done";
   const current = await readDataRow(db, objects.region, artifactId);
+  const byLevel = payload.fence.kind !== "transfer";
+  const level = byLevel ? await holdLevel(db, artifactId, control?.hold?.transition ?? null) : null;
+  if (level !== null && fenceObsolete(payload.fence, level)) {
+    await convergeHold(db, artifactId, control, current, now, row.id, level);
+    logEvent("log", "data_job_refused", { id: row.id, topic: row.topic, reason: "obsolete" });
+    return "stale";
+  }
   const envelope: DataEnvelope = {
     artifactId,
     region: objects.region,
@@ -677,30 +691,61 @@ export async function runDataFence(
   const answer = await object.lifecycleFence(envelope, payload.fence, now);
   if (answer.ok) return "done";
   const after = await object.lifecycleControl();
+  const otherOwner =
+    answer.code === "stale" && after !== null && after.ownerId !== envelope.ownerId;
+  const ownerAwaited =
+    otherOwner && after !== null
+      ? await transferWaiting(
+          db,
+          artifactId,
+          envelope.ownerId,
+          awaitedTransferWindow(after, envelope),
+        )
+      : false;
   const step =
     after === null
       ? "retry"
       : fenceRefused(after, envelope, answer.code, {
           dataRowGone: current === null,
-          ownerAwaited:
-            answer.code === "stale" &&
-            after.ownerId !== envelope.ownerId &&
-            (await transferWaiting(db, artifactId, envelope.ownerId)),
+          ownerAwaited,
         });
-  if (step === "done" && answer.code === "stale" && payload.fence.kind !== "transfer") {
-    await convergeHold(db, artifactId, after, current, now, row.id);
+  if (step === "done" && otherOwner) {
+    // The disagreement is visible without an operator's reconciliation; reconciliation's own
+    // owner quarantine overwrites it if the operator runs one.
+    await recordFinding(db, artifactId, "refused", "owner", now);
+  }
+  if (step === "done" && answer.code === "stale" && byLevel) {
+    // The level read before the call still holds when the object's hold is the one it read with.
+    const same = (after?.hold?.transition ?? null) === (control?.hold?.transition ?? null);
+    await convergeHold(
+      db,
+      artifactId,
+      after,
+      current,
+      now,
+      row.id,
+      same ? (level ?? undefined) : undefined,
+    );
   }
   return afterRefusal(db, row, step, answer.code, now);
 }
 
-/** Whether D1 has a transfer of the artifact to `owner` waiting in its outbox (one read). */
-async function transferWaiting(db: RegionalDb, artifactId: string, owner: string) {
+/**
+ * Whether D1 has a transfer of the artifact to `owner` waiting in its outbox at an epoch strictly
+ * inside `window` (`awaitedTransferWindow`): a predecessor that can still apply. One read.
+ */
+async function transferWaiting(
+  db: RegionalDb,
+  artifactId: string,
+  owner: string,
+  window: { above: number; below: number },
+) {
   const o = schema.outbox;
   const [waiting] = await db
     .select({ id: o.id })
     .from(o)
     .where(
-      sql`${o.topic} = 'data_fence' and ${o.subject} = ${artifactId} and json_extract(${o.payload}, '$.fence.kind') = 'transfer' and json_extract(${o.payload}, '$.fence.toOwner') = ${owner}`,
+      sql`${o.topic} = 'data_fence' and ${o.subject} = ${artifactId} and json_extract(${o.payload}, '$.fence.kind') = 'transfer' and json_extract(${o.payload}, '$.fence.toOwner') = ${owner} and json_extract(${o.payload}, '$.epoch') > ${window.above} and json_extract(${o.payload}, '$.epoch') < ${window.below}`,
     )
     .limit(1);
   return waiting !== undefined;
