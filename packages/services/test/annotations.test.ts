@@ -2375,7 +2375,7 @@ describe("the comment action history", () => {
     const w = await world();
     await started(w, w.reader);
     await db().global.delete(schema.users).where(eq(schema.users.id, w.reader));
-    expect(await eraseAccountTraces(db(), w.reader)).toEqual({ more: false });
+    expect(await eraseAccountTraces(db(), w.reader, NOW)).toEqual({ more: false });
     const page = await history(w, w.owner);
     if (!page.ok) throw new Error(page.code);
     expect(page.value.entries.map((e) => e.actor)).toEqual([null]);

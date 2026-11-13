@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
@@ -28,6 +29,26 @@ export default defineConfig(async () => {
           // own bucket. The configuration binds the real ones; tests use these local ones.
           d1Databases: ["DB_EU", "ACCESS_DB_EU"],
           r2Buckets: ["ARTIFACTS_EU"],
+          // The data Worker the configuration binds by `script_name` (decision 0026), from its
+          // bundle (`bun run --cwd apps/data build`; turbo builds it before these tests): the
+          // page's data routes reach the real documents object, on real SQLite storage.
+          workers: [
+            {
+              name: "portifact-data",
+              modules: [
+                {
+                  type: "ESModule",
+                  path: "index.js",
+                  contents: readFileSync(
+                    fileURLToPath(new URL("../data/dist/index.js", import.meta.url).href),
+                    "utf8",
+                  ),
+                },
+              ],
+              compatibilityDate: "2026-08-01",
+              durableObjects: { DOCUMENTS: { className: "ArtifactDocuments", useSQLite: true } },
+            },
+          ],
           bindings: {
             // Every handle refuses the other side's tables (packages/db/src/region-guard.ts).
             REGION_GUARD: process.env.REGION_GUARD ?? "strict",

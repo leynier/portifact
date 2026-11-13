@@ -7,6 +7,12 @@ import type { Catalog } from "./en.ts";
 export const ru = {
   ...planTextRu,
   "app.title": "Portifact",
+  "dataGrant.frame.granted": "Теперь эта страница может сохранять то, что вы вводите",
+  "dataGrant.frame.saving": "Сохраняем ваш выбор",
+  "dataGrant.frame.unavailable": "Сохранение недоступно в этой рамке",
+  "dataGrant.frame.unavailableHint":
+    "Этот браузер не даёт рамке запомнить ваш выбор. Откройте artifact в отдельной вкладке и разрешите там.",
+  "dataGrant.frame.openTab": "Открыть в новой вкладке",
   "dataGrant.pageTitle": "Сохранение введённого",
   "dataGrant.title": "Разрешить {host} сохранять то, что вы вводите?",
   "dataGrant.ownerPerson": "Опубликовал(а) {name}",

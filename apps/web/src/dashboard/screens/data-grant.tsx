@@ -14,7 +14,7 @@ import {
   ThemedImage,
 } from "@portifact/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useSearch } from "@tanstack/react-router";
+import { useSearch } from "@tanstack/react-router";
 import { CircleAlert, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import wordmark from "../../../../../assets/brand/wordmark.svg";
@@ -80,9 +80,15 @@ export function ConsentControl({
         <li>{t("dataGrant.lasts", { days: control.grantDays })}</li>
       </ul>
       <p className="text-sm">
-        <Link to="/shared-data" className={buttonClasses({ intent: "link" })}>
+        {/* A full page load in a new tab: the viewer and the popup keep their place. */}
+        <a
+          href="/shared-data"
+          target="_blank"
+          rel="noopener"
+          className={buttonClasses({ intent: "link" })}
+        >
           {t("dataGrant.rights")}
-        </Link>
+        </a>
       </p>
       <div className="flex flex-wrap gap-3">
         <Button

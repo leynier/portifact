@@ -460,11 +460,26 @@ export const CommentTombstonesPayload = z
     ids: z.array(z.string().min(1).max(64)).max(WORKSPACE_POLICIES.commentDeleteBatch),
     /** Messages deleted while their thread stays (the "message deleted" marker). */
     messages: z.array(z.string().min(1).max(64)).max(1).optional(),
+    /**
+     * Edit suggestions' restore markers (decision 0027): a withdrawn or rejected suggestion by its
+     * thread ID, a removed draft as `<artifact>:<user>:<incarnation>`.
+     */
+    markers: z
+      .array(
+        z.strictObject({
+          kind: z.enum(["suggestion_withdrawn", "suggestion_rejected", "edit_draft"]),
+          id: z.string().min(1).max(200),
+        }),
+      )
+      .max(1)
+      .optional(),
     at: z.int().min(0),
   })
-  .refine((payload) => payload.ids.length + (payload.messages?.length ?? 0) > 0, {
-    message: "A comment_tombstones job names at least one thread or message.",
-  });
+  .refine(
+    (payload) =>
+      payload.ids.length + (payload.messages?.length ?? 0) + (payload.markers?.length ?? 0) > 0,
+    { message: "A comment_tombstones job names at least one thread, message or marker." },
+  );
 export type CommentTombstonesPayload = z.infer<typeof CommentTombstonesPayload>;
 
 /**

@@ -19,9 +19,21 @@ import { accept, type Decision, refuse } from "./decision.ts";
  * share link); the owner side is the API, MCP and CLI of the artifact's admins and editors.
  */
 export type Caller =
-  | { kind: "visitor"; author: string; canWrite: boolean }
-  | { kind: "reader" }
+  | { kind: "visitor"; author: string; canWrite: boolean; modes?: readonly CollectionMode[] }
+  | { kind: "reader"; modes?: readonly CollectionMode[] }
   | { kind: "owner"; actor?: string };
+
+/**
+ * The collection modes a page reaches in delivery 6 (decision 0026, "Deliveries"): `read` and
+ * `shared` from the page come with delivery 9, so a page caller carries these and every other
+ * mode answers as if the caller had no access to it.
+ */
+export const PAGE_MODES: readonly CollectionMode[] = ["own", "append"];
+
+/** Whether a page caller may reach a collection of this mode at all; the owner side always may. */
+function modeReached(mode: CollectionMode, caller: Caller): boolean {
+  return caller.kind === "owner" || caller.modes === undefined || caller.modes.includes(mode);
+}
 
 export type Scope = "all" | "own" | "none";
 
@@ -39,11 +51,13 @@ export function authorOf(caller: Caller): string | null {
 }
 
 export function readScope(mode: CollectionMode, caller: Caller): Scope {
+  if (!modeReached(mode, caller)) return "none";
   if (caller.kind === "owner" || mode !== "own") return "all";
   return caller.kind === "visitor" ? "own" : "none";
 }
 
 export function writeScope(mode: CollectionMode, caller: Caller): Scope {
+  if (!modeReached(mode, caller)) return "none";
   if (caller.kind === "owner") return "all";
   if (caller.kind !== "visitor" || !caller.canWrite || mode === "read") return "none";
   return mode === "shared" ? "all" : "own";
@@ -54,6 +68,7 @@ export function writeScope(mode: CollectionMode, caller: Caller): Scope {
  * permission or the current terms; in `shared` mode any writer.
  */
 export function deleteScope(mode: CollectionMode, caller: Caller): Scope {
+  if (!modeReached(mode, caller)) return "none";
   if (caller.kind === "owner") return "all";
   if (caller.kind !== "visitor") return "none";
   return mode === "shared" && caller.canWrite ? "all" : "own";

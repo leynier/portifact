@@ -657,3 +657,37 @@ export const OWNER_MUTATIONS = [
   "bulk_replace",
   "bulk_remove",
 ] as const satisfies readonly OwnerDataCommand["kind"][];
+
+/**
+ * Who calls from the page (decision 0026, delivery 6), as the content Worker decided it: a grant
+ * holder by their opaque visitor ID, whether they may write now (the current terms accepted), or
+ * a reader without a grant. Never what the page says.
+ */
+export const PageCaller = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("visitor"), author: VisitorId, canWrite: z.boolean() }),
+  z.strictObject({ kind: z.literal("reader") }),
+]);
+export type PageCaller = z.infer<typeof PageCaller>;
+
+/** One command from the page (`pageCommand` on the documents object), parsed at the boundary. */
+export const PageDataCommand = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("get"), collection: CollectionName, id: DocumentId }),
+  z.strictObject({ kind: z.literal("query"), query: DataQuery }),
+  z.strictObject({ kind: z.literal("create"), collection: CollectionName, body: DocumentBody }),
+  z.strictObject({
+    kind: z.literal("replace"),
+    collection: CollectionName,
+    id: DocumentId,
+    body: DocumentBody,
+  }),
+  z.strictObject({ kind: z.literal("remove"), collection: CollectionName, id: DocumentId }),
+  z.strictObject({ kind: z.literal("export_mine"), after: ExportCursor.nullable() }),
+]);
+export type PageDataCommand = z.infer<typeof PageDataCommand>;
+
+/** Page commands that change data, and so carry an operation ID. */
+export const PAGE_MUTATIONS = [
+  "create",
+  "replace",
+  "remove",
+] as const satisfies readonly PageDataCommand["kind"][];

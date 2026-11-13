@@ -20,6 +20,7 @@
 import {
   type CommentRetentionNoticePayload,
   CommentTombstonesPayload,
+  type TombstoneMarker,
   WORKSPACE_POLICIES,
   WorkspaceId,
   type WorkspacePolicy,
@@ -264,36 +265,48 @@ export async function deleteDueThreads(
 }
 
 /**
- * Runs a `comment_tombstones` job: the `comment_thread` tombstones of threads a regional batch
- * deleted, in the global database. Idempotent (`on conflict do nothing`); the outbox runs it again
- * until it is done, so a crash after the deletion never leaves a thread a restore could bring back.
+ * The markers a `comment_tombstones` job's payload stands for: its deleted threads and messages
+ * and edit suggestions' restore markers, at the job's time; null when the payload cannot be read.
+ * One reading for the job and for `exportTombstones`, which carries the markers of jobs that have
+ * not run yet (a restore of the region would lose them with the job).
+ */
+export function commentTombstoneMarkers(payload: unknown): TombstoneMarker[] | null {
+  let value = payload;
+  try {
+    if (typeof value === "string") value = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  const parsed = CommentTombstonesPayload.safeParse(value);
+  if (!parsed.success) return null;
+  const { ids, messages = [], markers = [], at } = parsed.data;
+  return [
+    ...ids.map((id) => ({ kind: "comment_thread" as const, id, deletedAt: at })),
+    ...messages.map((id) => ({ kind: "comment_message" as const, id, deletedAt: at })),
+    ...markers.map(({ kind, id }) => ({ kind, id, deletedAt: at })),
+  ];
+}
+
+/**
+ * Runs a `comment_tombstones` job: the tombstones of what a regional batch deleted or decided, in
+ * the global database. Idempotent (`on conflict do nothing`); the outbox runs it again until it is
+ * done, so a crash after the change never leaves something a restore could bring back.
  */
 export async function writeCommentTombstones(
   db: RegionalDb,
   row: typeof schema.outbox.$inferSelect,
 ): Promise<"done" | "stale"> {
-  let payload: unknown = row.payload;
-  try {
-    if (typeof payload === "string") payload = JSON.parse(payload);
-  } catch {
-    payload = null;
-  }
-  const parsed = CommentTombstonesPayload.safeParse(payload);
-  if (!parsed.success) {
+  const markers = commentTombstoneMarkers(row.payload);
+  if (markers === null) {
     logEvent("error", "comment_tombstones_unreadable");
     return "stale";
   }
-  const marker = (kind: "comment_thread" | "comment_message", ids: readonly string[]) =>
-    db.global
+  for (let i = 0; i < markers.length; i += 25) {
+    await db.global
       .insert(schema.tombstones)
-      .select(
-        // `where 1`: SQLite reads `on conflict` after a bare `from` as part of the join.
-        sql`select ${kind}, value, ${parsed.data.at} from json_each(${JSON.stringify(ids)}) where 1`,
-      )
+      .values(markers.slice(i, i + 25))
       .onConflictDoNothing();
-  if (parsed.data.ids.length > 0) await marker("comment_thread", parsed.data.ids);
-  const messages = parsed.data.messages ?? [];
-  if (messages.length > 0) await marker("comment_message", messages);
+  }
   return "done";
 }
 

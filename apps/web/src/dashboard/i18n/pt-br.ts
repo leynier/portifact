@@ -6,6 +6,12 @@ import type { Catalog } from "./en.ts";
 export const ptBR = {
   ...planTextPtBR,
   "app.title": "Portifact",
+  "dataGrant.frame.granted": "Esta página já pode salvar o que você digita",
+  "dataGrant.frame.saving": "Salvando sua escolha",
+  "dataGrant.frame.unavailable": "Salvar não está disponível neste quadro",
+  "dataGrant.frame.unavailableHint":
+    "Este navegador impede que o quadro lembre sua escolha. Abra o artifact em uma aba própria e permita por lá.",
+  "dataGrant.frame.openTab": "Abrir em uma nova aba",
   "dataGrant.pageTitle": "Salvar o que você digita",
   "dataGrant.title": "Permitir que {host} salve o que você digita?",
   "dataGrant.ownerPerson": "Publicado por {name}",

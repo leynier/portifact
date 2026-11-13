@@ -872,7 +872,10 @@ export const tombstones = sqliteTable(
      * refresh token deleted or revoked and `oauth_grant` a consent deleted (an app disconnected):
      * these are pruned after the Time Travel window (`WINDOW_TOMBSTONE_KINDS`,
      * docs/operations.md, "Restoring a backup"). The directory's `workspace_member` and
-     * `workspace_invitation` tombstones are pruned with them (decision 0017).
+     * `workspace_invitation` tombstones are pruned with them (decision 0017). Edit suggestions
+     * (decision 0027) add `suggestion_withdrawn` and `suggestion_rejected` (a thread ID: a restore
+     * withdraws or rejects it again) and `edit_draft` (`<artifact>:<user>:<incarnation>`: a restore
+     * deletes that draft again, never one created after it), pruned with the same window.
      */
     kind: text("kind", {
       enum: [
@@ -901,6 +904,9 @@ export const tombstones = sqliteTable(
         "session",
         "oauth_token",
         "oauth_grant",
+        "suggestion_withdrawn",
+        "suggestion_rejected",
+        "edit_draft",
         "data_grant",
       ],
     }).notNull(),
