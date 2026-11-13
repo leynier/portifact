@@ -525,8 +525,8 @@ export interface ApplyLegalHoldsResult {
 /**
  * Puts the exported holds back after a restore, before any tombstone is re-applied: a hold the
  * restore lost is inserted again (its artifact suspended again first if the restore brought it
- * back served), and one released after the restore point is released again. Running it again
- * changes nothing.
+ * back served), and one released after the restore point is released again, the releases first.
+ * Running it again changes nothing.
  */
 export async function applyLegalHolds(
   regions: { all(): readonly { db: RegionalDb }[] },
@@ -534,7 +534,13 @@ export async function applyLegalHolds(
   now: number,
 ): Promise<ApplyLegalHoldsResult> {
   const result: ApplyLegalHoldsResult = { restored: 0, suspended: 0, missing: [] };
-  for (const { legalHold: line } of lines) {
+  // Releases first: an artifact has at most one open hold, so a hold the file has open could not
+  // be put back while an earlier one the restore left open is still open.
+  const ordered = [
+    ...lines.filter((line) => line.legalHold.releasedAt !== null),
+    ...lines.filter((line) => line.legalHold.releasedAt === null),
+  ];
+  for (const { legalHold: line } of ordered) {
     let found = false;
     for (const { db } of regions.all()) {
       const [artifact] = await db
