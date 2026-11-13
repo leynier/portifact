@@ -133,6 +133,10 @@ export const OAuthScope = z.enum([
   "annotations:read",
   "annotations:write",
   "annotations:moderate",
+  /** Artifact data (decision 0026): describe, read, query, count and export an artifact's documents. */
+  "data:read",
+  /** Artifact data: declare collections and create, replace and delete documents. */
+  "data:write",
 ]);
 export type OAuthScope = z.infer<typeof OAuthScope>;
 

@@ -424,6 +424,13 @@ describe("plain words for every kind", () => {
     "audit_stream.changed": { host: "siem.example.com", url: true, secret: true, revoked: true },
     "audit_stream.removed": { host: "siem.example.com" },
     "audit_stream.paused": { host: "siem.example.com", reason: "failures" },
+    "data.collection_set": {},
+    "data.document_created": {},
+    "data.document_replaced": {},
+    "data.document_deleted": {},
+    "data.documents_created": { documents: 3 },
+    "data.documents_replaced": { documents: 2 },
+    "data.documents_deleted": { documents: 100 },
   };
   const expected: Record<AuditKind, string> = {
     "artifact.published": "Published version 3",
@@ -510,6 +517,13 @@ describe("plain words for every kind", () => {
     "audit_stream.removed": "Removed the audit stream to siem.example.com",
     "audit_stream.paused":
       "Paused the audit stream to siem.example.com (the endpoint kept failing)",
+    "data.collection_set": "Declared a data collection",
+    "data.document_created": "Created a data document",
+    "data.document_replaced": "Replaced a data document",
+    "data.document_deleted": "Deleted a data document",
+    "data.documents_created": "Created 3 data document(s)",
+    "data.documents_replaced": "Replaced 2 data document(s)",
+    "data.documents_deleted": "Deleted 100 data document(s)",
   };
 
   it.each(AUDIT_KINDS)("%s", (kind) => {

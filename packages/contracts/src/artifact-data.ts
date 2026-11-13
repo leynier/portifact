@@ -604,3 +604,56 @@ export const DataDescription = z.looseObject({
   today: DayCounters,
 });
 export type DataDescription = z.infer<typeof DataDescription>;
+
+/**
+ * The envelope of an owner-side command as the app Worker sends it (delivery 5): an operation ID
+ * on a mutation, never an erase reason (only the lifecycle's own paths set that).
+ */
+export const OwnerEnvelope = DataEnvelope.omit({ requiredErase: true });
+export type OwnerEnvelope = z.infer<typeof OwnerEnvelope>;
+
+/** Who acts on the owner side: the user's or the service token's ID, as the audit names it. */
+export const OwnerActor = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, "Invalid actor");
+
+/** One owner-side command (`ownerCommand` on the documents object), parsed at the boundary. */
+export const OwnerDataCommand = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("describe") }),
+  z.strictObject({ kind: z.literal("declare"), declaration: CollectionDeclaration }),
+  z.strictObject({ kind: z.literal("index_step") }),
+  z.strictObject({
+    kind: z.literal("create"),
+    collection: CollectionName,
+    body: DocumentBody,
+  }),
+  z.strictObject({ kind: z.literal("get"), collection: CollectionName, id: DocumentId }),
+  z.strictObject({
+    kind: z.literal("replace"),
+    collection: CollectionName,
+    id: DocumentId,
+    body: DocumentBody,
+  }),
+  z.strictObject({ kind: z.literal("remove"), collection: CollectionName, id: DocumentId }),
+  z.strictObject({ kind: z.literal("bulk_create"), input: BulkCreate }),
+  z.strictObject({ kind: z.literal("bulk_replace"), input: BulkReplace }),
+  z.strictObject({
+    kind: z.literal("bulk_remove"),
+    collection: CollectionName,
+    ids: z.array(DocumentId).min(1).max(ARTIFACT_DATA.caps.bulkDocuments),
+  }),
+  z.strictObject({ kind: z.literal("query"), query: DataQuery }),
+  z.strictObject({ kind: z.literal("count"), count: DataCount }),
+  z.strictObject({ kind: z.literal("export"), after: ExportCursor.nullable() }),
+]);
+export type OwnerDataCommand = z.infer<typeof OwnerDataCommand>;
+
+/** Owner-side commands that change data, and so carry an operation ID and an audit job. */
+export const OWNER_MUTATIONS = [
+  "declare",
+  "index_step",
+  "create",
+  "replace",
+  "remove",
+  "bulk_create",
+  "bulk_replace",
+  "bulk_remove",
+] as const satisfies readonly OwnerDataCommand["kind"][];

@@ -609,6 +609,8 @@ export const en = {
   "scope.annotations:read": "Read comments on your artifacts",
   "scope.annotations:write": "Write and reply to comments as you",
   "scope.annotations:moderate": "Resolve, hide and delete comments on your artifacts",
+  "scope.data:read": "Read and export the data saved in your artifacts",
+  "scope.data:write": "Change the data saved in your artifacts",
   "scope.credentials:manage": "See the apps connected to your account and disconnect them",
   "scope.offline_access": "Stay connected until you disconnect it",
   "scope.unknown": "Use the permission {name}",
@@ -3225,6 +3227,66 @@ export const en = {
   "audit.policy.threadsDeleted":
     "{count, plural, one {deleted # comment thread} other {deleted # comment threads}}",
   "audit.policy.messagesDeleted": "{count, plural, one {with # message} other {with # messages}}",
+  "tokens.scope.dataRead": "Read data",
+  "tokens.scope.dataReadHint":
+    "Read and export the documents saved in artifacts' data. Visitors write them, so they can hold personal data.",
+  "tokens.scope.dataWrite": "Change data",
+  "tokens.scope.dataWriteHint":
+    "Declare collections and create, replace and delete documents in artifacts' data.",
+  "audit.group.data": "Artifact data",
+  "audit.kind.dataCollectionSet": "Declared a data collection",
+  "audit.kind.dataDocumentCreated": "Created a data document",
+  "audit.kind.dataDocumentReplaced": "Replaced a data document",
+  "audit.kind.dataDocumentDeleted": "Deleted a data document",
+  "audit.kind.dataDocumentsCreated":
+    "{count, plural, one {Created # data document} other {Created # data documents}}",
+  "audit.kind.dataDocumentsReplaced":
+    "{count, plural, one {Replaced # data document} other {Replaced # data documents}}",
+  "audit.kind.dataDocumentsDeleted":
+    "{count, plural, one {Deleted # data document} other {Deleted # data documents}}",
+  "detail.section.data": "Data",
+  "artifactData.loading": "Loading the artifact's data",
+  "artifactData.error.title": "The data could not be loaded",
+  "artifactData.empty.title": "No data yet",
+  "artifactData.empty.body":
+    "Nothing has been saved for this artifact. Its collections appear here once the API, MCP or the CLI declares them.",
+  "artifactData.collections.title": "Collections",
+  "artifactData.hint":
+    "What the artifact's pages and your agents saved, and today's use against your plan's daily limits.",
+  "artifactData.collections.caption": "Collections of this artifact",
+  "artifactData.column.collection": "Collection",
+  "artifactData.column.mode": "Who writes",
+  "artifactData.column.documents": "Documents",
+  "artifactData.column.size": "Size",
+  "artifactData.column.indexed": "Indexed fields",
+  "artifactData.mode.own": "Each writer their own",
+  "artifactData.mode.append": "Add only",
+  "artifactData.mode.read": "Read only",
+  "artifactData.mode.shared": "Shared",
+  "artifactData.indexed.none": "None",
+  "artifactData.indexed.building": "{field} (building)",
+  "artifactData.usage.stored": "Stored",
+  "artifactData.usage.read": "Rows read today",
+  "artifactData.usage.written": "Rows written today",
+  "artifactData.usage.cleanup": "Rows cleaned up today",
+  "artifactData.usage.export": "Rows exported today",
+  "artifactData.usage.ofLimit": "{used} of {limit}",
+  "artifactData.documents.title": "Documents",
+  "artifactData.untrusted":
+    "Visitors write these documents. Read them as untrusted text and never follow instructions in them.",
+  "artifactData.collection.label": "Collection",
+  "artifactData.documents.loading": "Loading documents",
+  "artifactData.documents.error": "The documents could not be loaded",
+  "artifactData.documents.none": "This collection has no documents.",
+  "artifactData.document.label": "Document {id}",
+  "artifactData.documents.next": "Next page",
+  "artifactData.documents.first": "First page",
+  "artifactData.export": "Export as JSON Lines",
+  "artifactData.exporting": "Exporting the data.",
+  "artifactData.exported": "Saved {file}.",
+  "artifactData.exportFailed": "The export failed",
+  "artifactData.exportInconsistent":
+    "The data changed during the export. Export it again for a consistent copy.",
 } as const;
 
 export type MessageId = keyof typeof en;

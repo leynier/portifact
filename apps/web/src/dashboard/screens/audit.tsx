@@ -127,6 +127,15 @@ export const AUDIT_GROUPS = {
     "group.member_added",
     "group.member_removed",
   ],
+  data: [
+    "data.collection_set",
+    "data.document_created",
+    "data.document_replaced",
+    "data.document_deleted",
+    "data.documents_created",
+    "data.documents_replaced",
+    "data.documents_deleted",
+  ],
   exports: [
     "audit.exported",
     "audit_stream.created",
@@ -354,6 +363,7 @@ function AuditFilters(props: {
     { value: "members", label: t("audit.group.members") },
     { value: "groups", label: t("audit.group.groups") },
     { value: "policies", label: t("audit.group.policies") },
+    { value: "data", label: t("audit.group.data") },
     { value: "exports", label: t("audit.group.exports") },
   ];
   const periods: SelectOption<Period>[] = [
@@ -537,6 +547,10 @@ export function describeAuditEvent(
     "scim_token.revoked": "audit.kind.scimTokenRevoked",
     "suggestion.rejected": "audit.kind.suggestionRejected",
     "suggestion.withdrawn": "audit.kind.suggestionWithdrawn",
+    "data.collection_set": "audit.kind.dataCollectionSet",
+    "data.document_created": "audit.kind.dataDocumentCreated",
+    "data.document_replaced": "audit.kind.dataDocumentReplaced",
+    "data.document_deleted": "audit.kind.dataDocumentDeleted",
   };
   const message = simple[event.kind];
   if (message) return t(message);
@@ -733,6 +747,12 @@ export function describeAuditEvent(
         reason: t(`audit.graceEnd.${d.reason as GraceEndReason}`),
         plan: PLAN_LABELS[d.plan as PlanName],
       });
+    case "data.documents_created":
+      return t("audit.kind.dataDocumentsCreated", { count: Number(d.documents) });
+    case "data.documents_replaced":
+      return t("audit.kind.dataDocumentsReplaced", { count: Number(d.documents) });
+    case "data.documents_deleted":
+      return t("audit.kind.dataDocumentsDeleted", { count: Number(d.documents) });
     case "plan.granted": {
       const values = { plan: PLAN_LABELS[d.plan as PlanName], seats: Number(d.seats) };
       return typeof d.validUntil === "string"

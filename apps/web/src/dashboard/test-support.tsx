@@ -33,6 +33,8 @@ import {
   type ConnectedApp,
   type CustomDomainList,
   type CustomDomainView,
+  type DataDescriptionView,
+  type DataDocumentView,
   DEFAULT_POLICY,
   DocumentPreviewRequest,
   type DraftView,
@@ -670,6 +672,14 @@ export interface FakeServer {
    */
   stats: Record<string, ArtifactStatsView>;
   /**
+   * Artifact data by artifact ID (decision 0026): its description, and each collection's documents
+   * in order. An artifact without an entry answers `not_found`, like artifact data switched off.
+   */
+  data: Record<
+    string,
+    { description: DataDescriptionView; documents: Record<string, DataDocumentView[]> }
+  >;
+  /**
    * Content search hits by space (`""` for the personal space): GET /api/v1/search returns the
    * hits whose snippet contains the query, in this order, after the role and plan checks.
    */
@@ -770,6 +780,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       tests: [],
     },
     stats: {},
+    data: {},
     shareLinks: {},
     approvals: {},
     approvalReply: null,
@@ -1659,6 +1670,73 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       server.shareLinks[artifact.id] = links.filter((link) => link.id !== id);
       return json({ id, revoked: true });
     }
+  }
+  const data = /^\/api\/v1\/artifacts\/([^/]+)\/data(\/.*)?$/.exec(path);
+  if (data && method === "GET") {
+    const entry = server.data[data[1] ?? ""];
+    if (!entry) {
+      return Response.json(
+        { error: { code: "not_found", message: "Artifact data is not available." } },
+        { status: 404 },
+      );
+    }
+    const rest = data[2] ?? "";
+    if (rest === "") return json(entry.description);
+    const listing = /^\/collections\/([^/]+)\/documents$/.exec(rest);
+    if (listing) {
+      const all = entry.documents[decodeURIComponent(listing[1] ?? "")];
+      if (!all) return apiError("not_found", 404);
+      const limit = Number(url.searchParams.get("limit") ?? "100");
+      const after = url.searchParams.get("after");
+      const start = after === null ? 0 : all.findIndex((doc) => doc._id === after) + 1;
+      const documents = all.slice(start, start + limit);
+      const last = documents.at(-1);
+      return json({
+        documents,
+        next: start + limit < all.length && last ? last._id : null,
+      });
+    }
+    if (rest === "/export") {
+      const after = url.searchParams.get("after");
+      const rows = Object.entries(entry.documents)
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .flatMap(([collection, docs]) =>
+          docs.map(({ _id, _by, _editedBy, _created, _updated, _seq: _, ...body }) => ({
+            collection,
+            id: _id,
+            by: _by,
+            editedBy: _editedBy,
+            created: _created,
+            updated: _updated,
+            body: JSON.stringify(body),
+          })),
+        );
+      // One document per page, so the export reads several.
+      const start =
+        after === null ? 0 : rows.findIndex((row) => `${row.collection}/${row.id}` === after) + 1;
+      const page = rows.slice(start, start + 1);
+      const last = page.at(-1);
+      return json({
+        artifactId: data[1],
+        revision: entry.description.revision,
+        rows: page,
+        next: start + 1 < rows.length && last ? `${last.collection}/${last.id}` : null,
+        header:
+          after === null
+            ? {
+                generation: entry.description.generation,
+                revision: entry.description.revision,
+                collections: entry.description.collections.map((item) => ({
+                  name: item.name,
+                  mode: item.mode,
+                  uniqueKey: item.uniqueKey,
+                  indexed: item.indexed.map((field) => field.field),
+                })),
+              }
+            : null,
+      });
+    }
+    return apiError("not_found", 404);
   }
   const stats = /^\/api\/v1\/artifacts\/([^/]+)\/stats$/.exec(path);
   if (stats && method === "GET") {
