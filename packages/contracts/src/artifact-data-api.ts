@@ -53,6 +53,13 @@ export const DataDescriptionView = z.object({
     rowsWrittenPerDay: z.number().int(),
     cleanupRowsPerDay: z.number().int(),
     exportRowsPerDay: z.number().int(),
+    liveMessagesPerDay: z.number().int(),
+    connectionsPerArtifact: z.number().int(),
+  }),
+  /** Live updates: connections open now and messages sent today (delivery 7). */
+  live: z.object({
+    connections: z.number().int().min(0),
+    messagesToday: z.number().int().min(0),
   }),
   /** The bytes the object last reported (documents and control records). */
   storedBytes: z.number().int().min(0),

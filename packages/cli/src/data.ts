@@ -172,6 +172,9 @@ export async function dataDescribe(
   io.stdout(
     `Revision ${body.revision}. Today: ${body.today.read} of ${body.limits.rowsReadPerDay} rows read, ${body.today.growth} of ${body.limits.rowsWrittenPerDay} rows written.\n`,
   );
+  io.stdout(
+    `Live: ${body.live.connections} of ${body.limits.connectionsPerArtifact} connection(s) open, ${body.live.messagesToday} of ${body.limits.liveMessagesPerDay} message(s) today.\n`,
+  );
 }
 
 export interface DataQueryOptions extends OutputOptions {

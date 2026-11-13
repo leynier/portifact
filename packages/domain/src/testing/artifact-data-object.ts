@@ -57,6 +57,7 @@ import {
   emptyDay,
   flushPending,
   growthRefusal,
+  helloMessage,
   type IndexField,
   inbound,
   indexEntries,
@@ -1736,6 +1737,7 @@ export class MemoryObject implements DataObject {
       revision: 0,
       collections: [],
       today: emptyDay(dayOf(context.now)),
+      connections: 0,
     });
     return this.#readCommand(envelope, caller, context, "describe", emptyDescription, () => {
       const fields = this.durable.fields;
@@ -1748,6 +1750,7 @@ export class MemoryObject implements DataObject {
         revision: control.payloadRevision,
         collections,
         today: this.#dayRow(dayOf(context.now)),
+        connections: [...this.sockets.values()].filter((socket) => socket.closed === null).length,
       });
       if (!decided.ok) fail(decided);
       return decided.value;
@@ -2324,6 +2327,19 @@ export class MemoryObject implements DataObject {
     if ("reserve" in decided) return;
     socket.attachment = decided.attachment;
     socket.received.push(text);
+  }
+
+  /** Sends a new connection its hello message (`helloMessage`), after it was accepted. */
+  hello(socketId: string, now: number): void {
+    this.#running(() =>
+      this.#uncharged(now, () => {
+        const socket = this.sockets.get(socketId);
+        if (socket === undefined) return;
+        const current = this.#live(socket, now);
+        if (current === null) return;
+        this.#send(socket, current, helloMessage(current), now);
+      }),
+    );
   }
 
   message(socketId: string, text: string, now: number): void {

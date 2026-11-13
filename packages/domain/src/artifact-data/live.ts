@@ -214,3 +214,11 @@ export function receives(
   if (!attachment.subscriptions.includes(collection)) return false;
   return mode !== "own" || attachment.author === creator;
 }
+
+/**
+ * The first message a new connection receives (`LiveHello`): its ID, which the page sends back to
+ * renew it, and its deadline. Sent like any message, against the artifact's reserved messages.
+ */
+export function helloMessage(attachment: LiveAttachment): string {
+  return JSON.stringify({ connected: attachment.socketId, deadline: attachment.deadline });
+}

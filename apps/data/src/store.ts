@@ -66,6 +66,7 @@ import {
   emptyDay,
   flushPending,
   growthRefusal,
+  helloMessage,
   type IndexField,
   inbound,
   indexEntries,
@@ -2030,6 +2031,7 @@ export class DocumentsStore {
       revision: 0,
       collections: [],
       today: emptyDay(dayOf(context.now)),
+      connections: 0,
     });
     return this.#readCommand(envelope, caller, context, "describe", emptyDescription, () => {
       // Declaration order, sorted here: a sort in SQL reads every row twice.
@@ -2056,6 +2058,7 @@ export class DocumentsStore {
         revision: control.payloadRevision,
         collections,
         today: this.#dayRow(dayOf(context.now)),
+        connections: [...this.sockets.values()].filter((socket) => socket.closed === null).length,
       });
       if (!decided.ok) fail(decided);
       return decided.value;
@@ -2670,6 +2673,19 @@ export class DocumentsStore {
     if ("reserve" in decided) return;
     this.#attach(socket, decided.attachment);
     socket.port.send(text);
+  }
+
+  /** Sends a new connection its hello message (`helloMessage`), after it was accepted. */
+  hello(socketId: string, now: number): void {
+    this.#running(now, () =>
+      this.#uncharged(now, () => {
+        const socket = this.sockets.get(socketId);
+        if (socket === undefined) return;
+        const current = this.#live(socket, now);
+        if (current === null) return;
+        this.#send(socket, current, helloMessage(current), now);
+      }),
+    );
   }
 
   message(socketId: string, text: string, now: number): void {

@@ -48,6 +48,7 @@ describe("portifact data", () => {
     const described = (await h.invoke("data", "describe", id)).stdout.split("\n");
     expect(described[0]).toMatch(/^COLLECTION\s+MODE\s+DOCUMENTS\s+BYTES\s+UNIQUE\s+INDEXED$/);
     expect(described[1]).toMatch(/^votes\s+append\s+0\s+0\s+key\s+choice$/);
+    expect(described).toContain("Live: 2 of 10 connection(s) open, 40 of 2000 message(s) today.");
 
     const one = await h.invoke("data", "create", id, "votes", "--body", '{"choice":"a"}', "--json");
     expect(one.code, one.stderr).toBe(0);
