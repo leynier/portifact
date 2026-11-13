@@ -212,7 +212,7 @@ describe("rebasing a draft", () => {
     });
     // The carried operation is where the text now is on the new page.
     const moved = textOp(next, `Intro added.\n\n${DOC}`, "Second", "Next");
-    expect((rebased.draft?.edit as { operations: unknown[] }).operations[0]).toEqual(moved);
+    expect(rebased.draft?.edit).toEqual({ operations: [moved] });
 
     // The target's own text changes: nothing carries and the draft goes.
     const later = await republish(
