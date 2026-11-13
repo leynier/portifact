@@ -5,6 +5,7 @@
 // version, rate windows) stay constants there. The effective values for one owner come from
 // `entitlements` in @portifact/domain.
 import { z } from "zod";
+import { ArtifactDataLimits } from "./artifact-data.ts";
 import { ACCESS_LOG, ANNOTATION_LIMITS, LIMITS, TRAFFIC_LIMITS } from "./limits.ts";
 
 export const PLAN_NAMES = ["free", "pro", "team", "enterprise"] as const;
@@ -93,12 +94,96 @@ export const PlanLimits = z
 export type PlanLimits = z.infer<typeof PlanLimits>;
 export type PlanLimit = keyof PlanLimits;
 
+/**
+ * Artifact data (decision 0026): how many of an owner's artifacts may hold data and the limits
+ * each one gets, sent with every command to its documents object (decision 45). Not a paid
+ * feature: every plan has it. Kept out of `PlanLimits` (and so out of `PlanView` and the usage
+ * body) because released CLIs parse those strictly. Not per seat and not held by a grace: a lower
+ * plan only refuses new work, from the next command.
+ */
+export const DataPlanLimits = z.strictObject({
+  /** Artifacts that may hold data at once. */
+  artifacts: count,
+  perArtifact: ArtifactDataLimits,
+});
+export type DataPlanLimits = z.infer<typeof DataPlanLimits>;
+
 export interface PlanDefinition {
   limits: PlanLimits;
   /** Limits given per seat and pooled across the owner: the effective value is limit × seats. */
   perSeat: readonly PlanLimit[];
   features: readonly PlanFeature[];
+  data: DataPlanLimits;
 }
+
+/**
+ * The starting values of artifact data, option B of decision 0026 ("The plan limits"), confirmed
+ * by the maintainer as the starting point; delivery 8 fixes the final numbers from staging. Every
+ * plan keeps the record's per-author rates, the per-caller read rate and the rights class.
+ * Cleanup equals growth and export is 40 times growth, as in the record's arithmetic.
+ */
+const DATA_RATES = {
+  writesPerAuthorPerMinute: 30,
+  deletesPerAuthorPerMinute: 60,
+  readsPerCallerPerMinute: 300,
+  rightsRowsPerDay: 500,
+  connectionsPerAuthor: 4,
+  connectsPerAuthorPerMinute: 6,
+} as const;
+
+const FREE_DATA: DataPlanLimits = {
+  artifacts: 1,
+  perArtifact: {
+    ...DATA_RATES,
+    bytesPerArtifact: 5_000_000,
+    documentBytes: 16 * 1024,
+    documentsPerCollection: 1_000,
+    collections: 10,
+    indexedFields: 3,
+    rowsReadPerDay: 500_000,
+    rowsWrittenPerDay: 5_000,
+    cleanupRowsPerDay: 5_000,
+    exportRowsPerDay: 200_000,
+    liveMessagesPerDay: 2_000,
+    connectionsPerArtifact: 10,
+  },
+};
+
+const PRO_DATA: DataPlanLimits = {
+  artifacts: 10,
+  perArtifact: {
+    ...DATA_RATES,
+    bytesPerArtifact: 25_000_000,
+    documentBytes: 32 * 1024,
+    documentsPerCollection: 5_000,
+    collections: 20,
+    indexedFields: 5,
+    rowsReadPerDay: 500_000,
+    rowsWrittenPerDay: 2_000,
+    cleanupRowsPerDay: 2_000,
+    exportRowsPerDay: 80_000,
+    liveMessagesPerDay: 5_000,
+    connectionsPerArtifact: 10,
+  },
+};
+
+const TEAM_DATA: DataPlanLimits = {
+  artifacts: 50,
+  perArtifact: {
+    ...DATA_RATES,
+    bytesPerArtifact: 50_000_000,
+    documentBytes: 64 * 1024,
+    documentsPerCollection: 10_000,
+    collections: 32,
+    indexedFields: 8,
+    rowsReadPerDay: 1_000_000,
+    rowsWrittenPerDay: 2_000,
+    cleanupRowsPerDay: 2_000,
+    exportRowsPerDay: 80_000,
+    liveMessagesPerDay: 10_000,
+    connectionsPerArtifact: 25,
+  },
+};
 
 const PRO_FEATURES = PLAN_FEATURES.slice(0, 8);
 const TEAM_FEATURES = PLAN_FEATURES.slice(0, 14);
@@ -144,6 +229,7 @@ export const PLANS: Readonly<Record<PlanName, PlanDefinition>> = {
     },
     perSeat: [],
     features: [],
+    data: FREE_DATA,
   },
   pro: {
     limits: {
@@ -163,10 +249,17 @@ export const PLANS: Readonly<Record<PlanName, PlanDefinition>> = {
     },
     perSeat: [],
     features: PRO_FEATURES,
+    data: PRO_DATA,
   },
-  team: { limits: TEAM_LIMITS, perSeat: TEAM_PER_SEAT, features: TEAM_FEATURES },
-  // Enterprise starts from Team's values; a contract changes them through overrides.
-  enterprise: { limits: TEAM_LIMITS, perSeat: TEAM_PER_SEAT, features: PLAN_FEATURES },
+  team: { limits: TEAM_LIMITS, perSeat: TEAM_PER_SEAT, features: TEAM_FEATURES, data: TEAM_DATA },
+  // Enterprise starts from Team's values (artifact data included, decision 0026 names no other);
+  // a contract changes them through overrides.
+  enterprise: {
+    limits: TEAM_LIMITS,
+    perSeat: TEAM_PER_SEAT,
+    features: PLAN_FEATURES,
+    data: TEAM_DATA,
+  },
 };
 
 /** Plan names as messages and pages show them. */
@@ -305,6 +398,13 @@ export const PlanOverrides = z
       .strict()
       .optional(),
     features: z.partialRecord(PlanFeature, z.boolean()).optional(),
+    /** Artifact data: the count and any per-artifact limit, within the platform's bounds. */
+    data: z
+      .strictObject({
+        artifacts: count.optional(),
+        perArtifact: ArtifactDataLimits.partial().optional(),
+      })
+      .optional(),
   })
   .strict();
 export type PlanOverrides = z.infer<typeof PlanOverrides>;
