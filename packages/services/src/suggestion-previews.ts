@@ -33,6 +33,7 @@ import {
 import { DOCUMENT_RENDERER } from "@portifact/render";
 import { and, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import { type CommentStanding, readableThread } from "./annotations.ts";
+import { recordSessionRenewal } from "./read-access.ts";
 
 type ThreadRow = typeof schema.annotationThreads.$inferSelect;
 
@@ -336,12 +337,18 @@ export async function redeemPreviewCode(
     const s = schema.sessions;
     const u = schema.users;
     const [session] = await regions.global
-      .select({ termsVersion: u.termsVersion })
+      .select({ termsVersion: u.termsVersion, createdAt: s.createdAt, method: s.signInMethod })
       .from(s)
       .innerJoin(u, eq(u.id, s.userId))
       .where(and(eq(s.id, row.sessionId), eq(s.userId, row.userId), gt(s.expiresAt, new Date(now))))
       .limit(1);
     if (!session || needsTermsAcceptance(session.termsVersion)) return undefined;
+    // That session is how this request authenticates the person (decision 0021): its sign-in,
+    // from the row just read and never from input, binds a workspace's sign-in policies.
+    recordSessionRenewal(handles.db, row.userId, {
+      signedInAt: session.createdAt.getTime(),
+      method: session.method,
+    });
     const subject = await previewSubject(
       handles.db,
       { userId: row.userId, artifactId: row.artifactId, now },
