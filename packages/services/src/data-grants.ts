@@ -91,23 +91,42 @@ interface GrantTarget {
  * Anything else answers like a missing artifact.
  */
 async function grantTarget(db: RegionalDb, input: GrantTargetInput): Promise<Result<GrantTarget>> {
-  const access = await checkReadAccess(db, input);
-  if (!access.ok) return unavailable();
+  // A fixed plan, whatever the answer (decision 0026: a refusal reads like a missing artifact):
+  // one regional read of the artifact's data row and custom host, the custom host's global row
+  // when one was asked for, then the read access check, which takes the same reads for a missing
+  // artifact as for a refused one. Only then is anything decided.
   const [row] = await db
-    .select({ name: schema.artifacts.name, ownerId: schema.artifacts.ownerId })
+    .select({
+      name: schema.artifacts.name,
+      ownerId: schema.artifacts.ownerId,
+      customHost: schema.artifacts.customHost,
+      hasData: sql<number>`${schema.artifactData.artifactId} is not null`,
+    })
     .from(schema.artifacts)
-    .innerJoin(schema.artifactData, eq(schema.artifactData.artifactId, schema.artifacts.id))
+    .leftJoin(schema.artifactData, eq(schema.artifactData.artifactId, schema.artifacts.id))
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
-  if (!row) return unavailable();
+  const askedHost = input.customDomains && input.requestedHost !== null;
+  const [active] = askedHost
+    ? await db.global
+        .select({ hostname: schema.customDomains.hostname })
+        .from(schema.customDomains)
+        .where(
+          and(
+            eq(schema.customDomains.hostname, row?.customHost ?? input.requestedHost ?? ""),
+            eq(schema.customDomains.state, "active"),
+            eq(schema.customDomains.artifactId, input.artifactId),
+          ),
+        )
+        .limit(1)
+    : [];
+  const access = await checkReadAccess(db, input);
+  if (!access.ok || !row || !row.hasData) return unavailable();
   const host = handoffHost({
     artifactId: input.artifactId,
     contentDomain: input.contentDomain,
     requested: input.requestedHost,
-    activeHost:
-      input.requestedHost === null
-        ? null
-        : await activeCustomHost(db, input.artifactId, input.customDomains),
+    activeHost: active !== undefined && row.customHost !== null ? row.customHost : null,
   });
   if (host === null) return unavailable();
   return ok({ host, artifactName: row.name, ownerId: row.ownerId });
