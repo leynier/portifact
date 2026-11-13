@@ -132,7 +132,10 @@ export function dataRoute(
         rowsWrittenPerDay: 5_000,
         cleanupRowsPerDay: 5_000,
         exportRowsPerDay: 200_000,
+        liveMessagesPerDay: 2_000,
+        connectionsPerArtifact: 10,
       },
+      live: { connections: 2, messagesToday: 40 },
       storedBytes: 0,
     };
     return { status: 200, body: described };

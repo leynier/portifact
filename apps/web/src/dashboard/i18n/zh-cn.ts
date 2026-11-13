@@ -3102,6 +3102,8 @@ export const zhCN = {
   "artifactData.usage.written": "今天写入的行",
   "artifactData.usage.cleanup": "今天清理的行",
   "artifactData.usage.export": "今天导出的行",
+  "artifactData.usage.connections": "打开的实时连接",
+  "artifactData.usage.live": "今天的实时消息",
   "artifactData.usage.ofLimit": "{used} / {limit}",
   "artifactData.documents.title": "文档",
   "artifactData.untrusted":

@@ -58,11 +58,13 @@ import {
   erasedObligation,
   flushPending,
   growthRefusal,
+  helloMessage,
   type IndexField,
   inbound,
   indexEntries,
   keyBefore,
   type LiveAttachment,
+  liveCaller,
   liveCheck,
   liveReservation,
   type MutationActor,
@@ -1738,6 +1740,7 @@ export class MemoryObject implements DataObject {
       revision: 0,
       collections: [],
       today: emptyDay(dayOf(context.now)),
+      connections: 0,
     });
     return this.#readCommand(envelope, caller, context, "describe", emptyDescription, () => {
       const fields = this.durable.fields;
@@ -1750,6 +1753,7 @@ export class MemoryObject implements DataObject {
         revision: control.payloadRevision,
         collections,
         today: this.#dayRow(dayOf(context.now)),
+        connections: [...this.sockets.values()].filter((socket) => socket.closed === null).length,
       });
       if (!decided.ok) fail(decided);
       return decided.value;
@@ -2228,6 +2232,7 @@ export class MemoryObject implements DataObject {
     principal: string,
     deadline: number,
     context: Context,
+    modes: readonly CollectionMode[] | null = null,
   ): Answer<string> {
     return this.#running(() => {
       const now = context.now;
@@ -2265,6 +2270,7 @@ export class MemoryObject implements DataObject {
               deadline,
               now,
               limits: context.limits,
+              modes,
             }),
             received: [],
             closed: null,
@@ -2372,6 +2378,19 @@ export class MemoryObject implements DataObject {
     socket.received.push(text);
   }
 
+  /** Sends a new connection its hello message (`helloMessage`), after it was accepted. */
+  hello(socketId: string, now: number): void {
+    this.#running(() =>
+      this.#uncharged(now, () => {
+        const socket = this.sockets.get(socketId);
+        if (socket === undefined) return;
+        const current = this.#live(socket, now);
+        if (current === null) return;
+        this.#send(socket, current, helloMessage(current), now);
+      }),
+    );
+  }
+
   message(socketId: string, text: string, now: number): void {
     this.#running(() => this.#uncharged(now, () => this.#message(socketId, text, now)));
   }
@@ -2395,10 +2414,7 @@ export class MemoryObject implements DataObject {
         name = "";
       }
       const collection = this.durable.collections.get(name);
-      const caller: Caller =
-        current.author === null
-          ? { kind: "reader" }
-          : { kind: "visitor", author: current.author, canWrite: false };
+      const caller = liveCaller(current);
       if (collection === undefined || readScope(collection.mode, caller) === "none") {
         this.#send(socket, received.attachment, JSON.stringify({ error: "not_found" }), now);
         return;

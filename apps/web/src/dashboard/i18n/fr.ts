@@ -3480,6 +3480,8 @@ export const fr = {
   "artifactData.usage.written": "Lignes écrites aujourd'hui",
   "artifactData.usage.cleanup": "Lignes nettoyées aujourd'hui",
   "artifactData.usage.export": "Lignes exportées aujourd'hui",
+  "artifactData.usage.connections": "Connexions en direct ouvertes",
+  "artifactData.usage.live": "Messages en direct aujourd'hui",
   "artifactData.usage.ofLimit": "{used} sur {limit}",
   "artifactData.documents.title": "Documents",
   "artifactData.untrusted":

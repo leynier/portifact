@@ -3442,6 +3442,8 @@ export const es = {
   "artifactData.usage.written": "Filas escritas hoy",
   "artifactData.usage.cleanup": "Filas limpiadas hoy",
   "artifactData.usage.export": "Filas exportadas hoy",
+  "artifactData.usage.connections": "Conexiones en vivo abiertas",
+  "artifactData.usage.live": "Mensajes en vivo hoy",
   "artifactData.usage.ofLimit": "{used} de {limit}",
   "artifactData.documents.title": "Documentos",
   "artifactData.untrusted":

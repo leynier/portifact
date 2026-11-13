@@ -167,6 +167,20 @@ export interface DataObjectRpc {
     opId: string,
     now: number,
   ): Promise<boolean>;
+  /**
+   * A live connect (delivery 7): a WebSocket upgrade carrying `LIVE_CONNECT_HEADER`, answered
+   * `101` with the client end, or the object's refusal as JSON.
+   */
+  fetch(request: Request): Promise<Response>;
+  /** Renews a live connection for the principal that opened it. */
+  liveRenew(
+    envelope: LifecycleEnvelope,
+    socketId: string,
+    principal: string,
+    deadline: number,
+    limits: ArtifactDataLimits,
+    now: number,
+  ): Promise<boolean>;
   /** The daily sweep's read of obligations pending since before `before`. */
   auditPending(
     envelope: LifecycleEnvelope,

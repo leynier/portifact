@@ -476,6 +476,13 @@ export async function describeArtifactData(
       rowsWrittenPerDay: limits.rowsWrittenPerDay,
       cleanupRowsPerDay: limits.cleanupRowsPerDay,
       exportRowsPerDay: limits.exportRowsPerDay,
+      liveMessagesPerDay: limits.liveMessagesPerDay,
+      connectionsPerArtifact: limits.connectionsPerArtifact,
+    },
+    // Live counters (delivery 7): open connections now, messages sent today (`today.live`).
+    live: {
+      connections: value?.connections ?? 0,
+      messagesToday: value?.today.live ?? 0,
     },
     storedBytes: stored?.bytes ?? 0,
   });

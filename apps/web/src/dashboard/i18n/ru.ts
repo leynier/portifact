@@ -3431,6 +3431,8 @@ export const ru = {
   "artifactData.usage.written": "Строк записано сегодня",
   "artifactData.usage.cleanup": "Строк очищено сегодня",
   "artifactData.usage.export": "Строк экспортировано сегодня",
+  "artifactData.usage.connections": "Открытые живые подключения",
+  "artifactData.usage.live": "Живые сообщения за сегодня",
   "artifactData.usage.ofLimit": "{used} из {limit}",
   "artifactData.documents.title": "Документы",
   "artifactData.untrusted":

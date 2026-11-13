@@ -723,3 +723,95 @@ describe("artifact data on the artifact origin", () => {
     }
   });
 });
+
+describe("live updates on the artifact origin", () => {
+  const LIVE_ON = { ...ON, DATA_LIVE_ENABLED: "true" };
+
+  async function upgrade(id: string, options: { cookie?: string; origin?: string; env?: object }) {
+    const headers = new Headers({
+      ...FETCH,
+      Upgrade: "websocket",
+      Origin: options.origin ?? `https://${id}.portifact.dev`,
+    });
+    if (options.cookie) headers.set("Cookie", options.cookie);
+    return handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/live`, { headers }),
+      (options.env ?? LIVE_ON) as typeof env,
+      NOW,
+    );
+  }
+
+  async function hello(response: Response) {
+    const socket = response.webSocket;
+    if (socket === null) throw new Error("no client end");
+    const received: string[] = [];
+    socket.accept();
+    socket.addEventListener("message", (event) => received.push(String(event.data)));
+    for (let tries = 0; tries < 50 && received.length === 0; tries += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    return {
+      socket,
+      hello: JSON.parse(received[0] ?? "null") as { connected: string; deadline: number },
+    };
+  }
+
+  it("is not there unless both switches are on", async () => {
+    const id = await seed();
+    expect((await upgrade(id, { env: ON })).status).toBe(404);
+    expect((await upgrade(id, { env: env })).status).toBe(404);
+  });
+
+  it("connects a grant holder, says hello, and refuses a renewal without the grant or a socket", async () => {
+    const id = await seed();
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const opened = await upgrade(id, { cookie: grant });
+    expect(opened.status).toBe(101);
+    const { socket, hello: greeted } = await hello(opened);
+    expect(greeted.deadline).toBe(NOW + 60_000);
+
+    const later = NOW + 30_000;
+    const renew = (cookie?: string, body: unknown = { socket: greeted.connected }) =>
+      handle(
+        new Request(`https://${id}.portifact.dev/__portifact/data/live/renew`, {
+          method: "POST",
+          headers: {
+            ...FETCH,
+            Origin: `https://${id}.portifact.dev`,
+            "Content-Type": "application/json",
+            ...(cookie ? { Cookie: cookie } : {}),
+          },
+          body: JSON.stringify(body),
+        }),
+        LIVE_ON as typeof env,
+        later,
+      );
+    // The object's alarm runs on the real clock, which these tests cannot hold, so a renewal that
+    // succeeds is covered against the object itself (apps/data's live-rpc test) and the services;
+    // here, what the route refuses before or at the object.
+    expect((await renew()).status).toBe(404);
+    expect((await renew(grant, { socket: "nope" })).status).toBe(400);
+    socket.close(1000);
+  });
+
+  it("connects a reader without a grant, and refuses another origin or a plain request", async () => {
+    const id = await seed();
+    const opened = await upgrade(id, {});
+    expect(opened.status).toBe(101);
+    const { socket } = await hello(opened);
+    socket.close(1000);
+    expect((await upgrade(id, { origin: "https://evil.example" })).status).toBe(403);
+    const plain = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/live`, { headers: FETCH }),
+      LIVE_ON as typeof env,
+      NOW,
+    );
+    expect(plain.status).toBe(426);
+    expect(CLIENT_SCRIPT).toContain("live/renew");
+  });
+
+  it("answers a protected artifact's live path like a missing one without a reading session", async () => {
+    const id = await seed("restricted");
+    expect((await upgrade(id, {})).status).toBe(404);
+  });
+});
