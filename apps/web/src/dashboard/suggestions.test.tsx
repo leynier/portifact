@@ -179,12 +179,47 @@ describe("Suggest mode's protocol", () => {
     expect(screen.queryByText("The frame stopped answering from the artifact")).toBeNull();
   });
 
+  it("draws the mode switch before the page connects, so the thread list never moves under the pointer", async () => {
+    // A document: nothing else in the toolbar depends on the connection (a site's element pick
+    // does, and is offered only while connected).
+    server.reviews[ID] = { ...START, type: "markdown" };
+    await open();
+    // Before the bridge answers, the switch is already there with only Comment choosable.
+    const group = await modeSwitch();
+    const suggest = within(group).getByRole("button", { name: "Suggest mode" });
+    expect(suggest).toHaveProperty("disabled", true);
+    expect(within(group).getByRole("button", { name: "Comment mode" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+    // Everything drawn above the first thread, in order: connecting changes none of it.
+    const thread = screen.getByRole("article", { name: "Thread 1" });
+    const above = () =>
+      Array.from(document.querySelectorAll("button, [role='group'], fieldset")).filter(
+        (element) =>
+          element.compareDocumentPosition(thread) & Node.DOCUMENT_POSITION_FOLLOWING &&
+          !thread.contains(element),
+      );
+    const before = above();
+    const resolve = within(thread).getByRole("button", { name: "Resolve" });
+    await connect();
+    await waitFor(() => expect(suggest).toHaveProperty("disabled", false));
+    expect(above()).toEqual(before);
+    expect(screen.getByRole("article", { name: "Thread 1" })).toBe(thread);
+    expect(within(thread).getByRole("button", { name: "Resolve" })).toBe(resolve);
+  });
+
   it("speaks version 2 to an older bridge and offers no Suggest mode", async () => {
     await open();
     const { v, nonce } = await connect([REVIEW_PROTOCOL]);
     expect(v).toBe(REVIEW_PROTOCOL);
     await waitFor(() => expect(sent().some((m) => m.type === "highlights")).toBe(true));
-    expect(screen.queryByRole("group", { name: "Review mode" })).toBeNull();
+    // The switch stays where it was, with Suggest not choosable.
+    const group = await modeSwitch();
+    expect(within(group).getByRole("button", { name: "Suggest mode" })).toHaveProperty(
+      "disabled",
+      true,
+    );
     // Comments still work as before.
     fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT }, REVIEW_PROTOCOL);
     await screen.findByRole("button", { name: "Comment" });

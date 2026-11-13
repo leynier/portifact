@@ -857,42 +857,49 @@ describe("artifacts that come under a maximum late (review of PR 214, finding 2)
 });
 
 describe("the SQL twin (review of PR 214, P1)", () => {
-  it("cappedExpirySql equals policyExpiry on the row's life start, 400 cases on D1", async () => {
-    const t = await team();
-    const p = await publishIn(t.editor.id, t.id, NOW);
-    const art = await row(p.artifactId);
-    let seed = 42;
-    const rnd = (n: number) => {
-      seed = (seed * 1103515245 + 12345) % 2147483648;
-      return seed % n;
-    };
-    const pick = (max: number) => [0, 1, DAY, max, rnd(max), rnd(max) * 1000][rnd(6)] as number;
-    const mismatches: unknown[] = [];
-    for (let i = 0; i < 400; i++) {
-      const commit = NOW - pick(4000) * DAY + pick(DAY);
-      const restored = rnd(3) === 0 ? null : NOW - pick(4000) * DAY;
-      const days = rnd(4) === 0 ? null : 7 + rnd(3644);
-      const from = rnd(3) === 0 ? null : NOW + (rnd(2) ? 1 : -1) * pick(4000) * DAY;
-      const plan = NOW + pick(4000) * DAY;
-      const now = NOW + (rnd(2) ? 1 : -1) * pick(400) * DAY;
-      const committedNull = rnd(4) === 0;
-      await db()
-        .update(schema.versions)
-        .set({ committedAt: committedNull ? null : commit, createdAt: commit })
-        .where(eq(schema.versions.id, art.currentVersionId as string));
-      await db()
-        .update(schema.artifacts)
-        .set({ lifeStartedAt: restored })
-        .where(eq(schema.artifacts.id, art.id));
-      const policy = { ...maxLife(days), artifactMaxDaysFrom: days === null ? null : from };
-      const [r] = await db().all<{ v: number }>(
-        sql`select ${cappedExpirySql(policy, plan, now)} as v from ${schema.artifacts} where ${schema.artifacts.id} = ${art.id}`,
-      );
-      const js = policyExpiry(policy, plan, Math.max(commit, restored ?? 0), now);
-      if (Number(r?.v) !== js) mismatches.push({ commit, restored, days, from, plan, now, js });
-    }
-    expect(mismatches.slice(0, 3)).toEqual([]);
-  });
+  // Keep the same seeded 400 cases, with at most 50 D1 comparisons in a test. The whole loop
+  // exceeded the 30-second timeout while CI ran the other Workers suites with coverage.
+  it.each(Array.from({ length: 8 }, (_, group) => group))(
+    "cappedExpirySql equals policyExpiry on the row's life start, D1 group %i (50 cases)",
+    async (group) => {
+      const t = await team();
+      const p = await publishIn(t.editor.id, t.id, NOW);
+      const art = await row(p.artifactId);
+      let seed = 42;
+      const rnd = (n: number) => {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed % n;
+      };
+      const pick = (max: number) => [0, 1, DAY, max, rnd(max), rnd(max) * 1000][rnd(6)] as number;
+      const mismatches: unknown[] = [];
+      for (let i = 0; i < 400; i++) {
+        const commit = NOW - pick(4000) * DAY + pick(DAY);
+        const restored = rnd(3) === 0 ? null : NOW - pick(4000) * DAY;
+        const days = rnd(4) === 0 ? null : 7 + rnd(3644);
+        const from = rnd(3) === 0 ? null : NOW + (rnd(2) ? 1 : -1) * pick(4000) * DAY;
+        const plan = NOW + pick(4000) * DAY;
+        const now = NOW + (rnd(2) ? 1 : -1) * pick(400) * DAY;
+        const committedNull = rnd(4) === 0;
+        // Generate every case so each group's random inputs match the original sequence exactly.
+        if (Math.floor(i / 50) !== group) continue;
+        await db()
+          .update(schema.versions)
+          .set({ committedAt: committedNull ? null : commit, createdAt: commit })
+          .where(eq(schema.versions.id, art.currentVersionId as string));
+        await db()
+          .update(schema.artifacts)
+          .set({ lifeStartedAt: restored })
+          .where(eq(schema.artifacts.id, art.id));
+        const policy = { ...maxLife(days), artifactMaxDaysFrom: days === null ? null : from };
+        const [r] = await db().all<{ v: number }>(
+          sql`select ${cappedExpirySql(policy, plan, now)} as v from ${schema.artifacts} where ${schema.artifacts.id} = ${art.id}`,
+        );
+        const js = policyExpiry(policy, plan, Math.max(commit, restored ?? 0), now);
+        if (Number(r?.v) !== js) mismatches.push({ commit, restored, days, from, plan, now, js });
+      }
+      expect(mismatches.slice(0, 3)).toEqual([]);
+    },
+  );
 });
 
 describe("stale caps after a removal or a racing write (review of PR 214, second pass)", () => {
