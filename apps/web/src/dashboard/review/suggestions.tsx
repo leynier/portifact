@@ -39,7 +39,7 @@ import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useHumanCheck } from "./human-check.tsx";
 import { editOf, type SuggestAction, type SuggestState } from "./suggest-session.ts";
 import { ActionError, bodyError, humanRefusal } from "./thread-card.tsx";
-import { applyThread, threadsQuery } from "./use-threads.ts";
+import { applySuggestion, applyThread, threadsQuery } from "./use-threads.ts";
 
 type T = ReturnType<typeof useT>;
 
@@ -380,6 +380,7 @@ export function SuggestionBlock({
       api.suggestions.accept(artifactId, threadId, { digest }, crypto.randomUUID()),
     onSuccess: async () => {
       setConfirming(null);
+      applySuggestion(queryClient, artifactId, threadId, { state: "applying" });
       announce(t("suggest.accept.started"));
       await refresh();
     },
@@ -388,8 +389,9 @@ export function SuggestionBlock({
   const decide = useMutation({
     mutationFn: (action: "reject" | "withdraw") =>
       api.suggestions[action](artifactId, threadId, { revision: suggestion.revision }),
-    onSuccess: async (_view, action) => {
+    onSuccess: async (view, action) => {
       setConfirming(null);
+      applySuggestion(queryClient, artifactId, threadId, view);
       announce(t(action === "reject" ? "suggest.rejected" : "suggest.withdrawn"));
       await refresh();
     },

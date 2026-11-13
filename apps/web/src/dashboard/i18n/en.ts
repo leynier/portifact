@@ -875,6 +875,7 @@ export const en = {
   "suggest.mode.label": "Review mode",
   "suggest.mode.comment": "Comment",
   "suggest.mode.suggest": "Suggest",
+  "suggest.mode.name": "{mode} mode",
   "suggest.mode.on": "Suggest mode is on. Select text in the artifact to suggest an edit.",
   "suggest.mode.off": "Comment mode is on.",
   "suggest.hint": "Select the text you want to change",

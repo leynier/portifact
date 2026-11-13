@@ -899,6 +899,7 @@ export const ru = {
   "suggest.mode.label": "Режим рецензирования",
   "suggest.mode.comment": "Комментарий",
   "suggest.mode.suggest": "Предложение",
+  "suggest.mode.name": "Режим «{mode}»",
   "suggest.mode.on":
     "Режим предложений включён. Выделите текст в artifact, чтобы предложить правку.",
   "suggest.mode.off": "Режим комментариев включён.",

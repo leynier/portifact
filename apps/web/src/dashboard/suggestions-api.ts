@@ -6,6 +6,7 @@
 // text, through the typed display.
 import {
   AcceptanceStarted,
+  AnnotationThreadView,
   type AnnotationVersionFilter,
   ChangeItemList,
   type ChangeItemState,
@@ -17,7 +18,6 @@ import {
   PreviewResponse,
   type SubmitSuggestionRequest,
   SuggestionAnnotationPage,
-  SuggestionThreadView,
   SuggestionView,
 } from "@portifact/contracts";
 import type { z } from "zod";
@@ -38,12 +38,16 @@ export interface SuggestionsApi {
     cursor: string | undefined,
     version: AnnotationVersionFilter,
   ): Promise<SuggestionAnnotationPage>;
-  /** Starts a suggestion on the version the viewer shows: the edit and the reviewer's note. */
+  /**
+   * Starts a suggestion on the version the viewer shows: the edit and the reviewer's note. The
+   * route answers the plain thread view (a replay rebuilds it like a comment's); its kind and
+   * suggestion come with the next listing.
+   */
   submit(
     artifactId: string,
     request: SubmitSuggestionRequest,
     idempotencyKey: string,
-  ): Promise<SuggestionThreadView>;
+  ): Promise<AnnotationThreadView>;
   get(artifactId: string, threadId: string): Promise<SuggestionView>;
   /** Builds the plan of a pending suggestion on the current version (a dry run). */
   plan(artifactId: string, threadId: string): Promise<Plan>;
@@ -94,7 +98,7 @@ export function suggestionsApi(call: ApiCall): SuggestionsApi {
     submit(artifactId, request, idempotencyKey) {
       return call(
         `${artifactPath(artifactId)}/suggestions`,
-        SuggestionThreadView,
+        AnnotationThreadView,
         "POST",
         request,
         { "idempotency-key": idempotencyKey },

@@ -109,14 +109,16 @@ describe("ModeSwitch", () => {
         label="Review mode"
         options={[
           { value: "comment", label: "Comment" },
-          { value: "suggest", label: "Suggest" },
+          { value: "suggest", label: "Suggest", name: "Suggest mode" },
         ]}
         value="comment"
         onChange={onChange}
       />,
     );
     const group = screen.getByRole("group", { name: "Review mode" });
-    const suggest = within(group).getByRole("button", { name: "Suggest" });
+    // The accessible name may add to the visible label, never replace it.
+    const suggest = within(group).getByRole("button", { name: "Suggest mode" });
+    expect(suggest.textContent).toBe("Suggest");
     expect(suggest.getAttribute("aria-pressed")).toBe("false");
     expect(
       within(group).getByRole("button", { name: "Comment" }).getAttribute("aria-pressed"),

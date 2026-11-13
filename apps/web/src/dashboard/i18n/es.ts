@@ -907,6 +907,7 @@ export const es = {
   "suggest.mode.label": "Modo de revisión",
   "suggest.mode.comment": "Comentar",
   "suggest.mode.suggest": "Sugerir",
+  "suggest.mode.name": "Modo {mode}",
   "suggest.mode.on":
     "El modo de sugerencias está activado. Selecciona texto en el artifact para sugerir una edición.",
   "suggest.mode.off": "El modo de comentarios está activado.",

@@ -226,7 +226,7 @@ export function useBridge(
     answered.current = false;
     const target = frame.current?.contentWindow;
     if (origin && target && nonce.current !== null) {
-      target.postMessage(viewerEnvelope(nonce.current, { type: "ping" }), origin);
+      target.postMessage(viewerEnvelope(nonce.current, { type: "ping" }, protocol.current), origin);
     }
     timer.current = setTimeout(() => {
       if (answered.current) return;

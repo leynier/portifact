@@ -3185,7 +3185,8 @@ function suggestionRoute(
       suggestion: fakeSuggestion(`t${store.seq}`, { edit, versionId: body?.versionId as string }),
     };
     store.threads.push(thread);
-    const { seq: _seq, ...view } = thread;
+    // Like the Worker, the plain thread view: kind and suggestion come with the next listing.
+    const { seq: _seq, kind: _kind, suggestion: _suggestion, ...view } = thread;
     return Response.json(view, { status: 201 });
   }
   const match = /^\/([^/]+)(?:\/(plan|accept|reject|withdraw))?$/.exec(rest);
@@ -3199,9 +3200,9 @@ function suggestionRoute(
   }
   if (action === "accept" && method === "POST") {
     if (body?.digest !== fake.plans[thread.id]?.digest) return apiError("invalid_input", 400);
+    // Like the Worker: entering `applying` changes no thread revision, so the list's cursor
+    // does not move and the viewer shows the new state from the answer.
     suggestion.state = "applying";
-    store.seq += 1;
-    thread.seq = store.seq;
     return Response.json({ attemptId: "att_1", state: "applying" }, { status: 202 });
   }
   if ((action === "reject" || action === "withdraw") && method === "POST") {

@@ -912,6 +912,7 @@ export const fr = {
   "suggest.mode.label": "Mode de relecture",
   "suggest.mode.comment": "Commenter",
   "suggest.mode.suggest": "Suggérer",
+  "suggest.mode.name": "Mode {mode}",
   "suggest.mode.on":
     "Le mode suggestion est activé. Sélectionnez du texte dans l’artifact pour suggérer une modification.",
   "suggest.mode.off": "Le mode commentaire est activé.",

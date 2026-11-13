@@ -146,6 +146,30 @@ export function applyThread(
   });
 }
 
+/**
+ * Puts a suggestion's new state on its thread in every list (decision 0027): entering `applying`
+ * changes no thread revision, so an incremental refresh would not bring it.
+ */
+export function applySuggestion(
+  queryClient: QueryClient,
+  artifactId: string,
+  threadId: string,
+  change: Record<string, unknown>,
+): void {
+  queryClient.setQueriesData<ThreadsState>({ queryKey: threadsQuery(artifactId) }, (state) => {
+    if (!state) return state;
+    return {
+      ...state,
+      threads: state.threads.map((thread) => {
+        const suggestion = (thread as { suggestion?: Record<string, unknown> | null }).suggestion;
+        return thread.id === threadId && suggestion
+          ? ({ ...thread, suggestion: { ...suggestion, ...change } } as AnnotationThreadView)
+          : thread;
+      }),
+    };
+  });
+}
+
 /** Drops a thread that was deleted. */
 export function dropThread(queryClient: QueryClient, artifactId: string, threadId: string): void {
   queryClient.setQueriesData<ThreadsState>({ queryKey: threadsQuery(artifactId) }, (state) =>

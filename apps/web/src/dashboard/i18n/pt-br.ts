@@ -894,6 +894,7 @@ export const ptBR = {
   "suggest.mode.label": "Modo de revisão",
   "suggest.mode.comment": "Comentar",
   "suggest.mode.suggest": "Sugerir",
+  "suggest.mode.name": "Modo {mode}",
   "suggest.mode.on":
     "O modo de sugestão está ativado. Selecione texto no artifact para sugerir uma edição.",
   "suggest.mode.off": "O modo de comentário está ativado.",

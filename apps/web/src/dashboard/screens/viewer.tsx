@@ -1201,11 +1201,13 @@ function ReviewSession({
                   {
                     value: "comment",
                     label: t("suggest.mode.comment"),
+                    name: t("suggest.mode.name", { mode: t("suggest.mode.comment") }),
                     icon: <MessageSquare className="size-4" />,
                   },
                   {
                     value: "suggest",
                     label: t("suggest.mode.suggest"),
+                    name: t("suggest.mode.name", { mode: t("suggest.mode.suggest") }),
                     icon: <PencilLine className="size-4" />,
                   },
                 ]}

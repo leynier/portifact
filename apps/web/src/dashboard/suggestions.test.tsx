@@ -138,7 +138,7 @@ const floating = (name: string) =>
 
 /** Turns Suggest mode on and returns the epoch the viewer sent. */
 async function suggestMode() {
-  fireEvent.click(within(await modeSwitch()).getByRole("button", { name: "Suggest" }));
+  fireEvent.click(within(await modeSwitch()).getByRole("button", { name: "Suggest mode" }));
   await waitFor(() => expect(sent().some((m) => m.type === "edit-mode")).toBe(true));
   const mode = sent()
     .filter((m) => m.type === "edit-mode")
@@ -159,6 +159,18 @@ describe("Suggest mode's protocol", () => {
     expect(v).toBe(REVIEW_PROTOCOL_EDIT);
     expect(sent().filter((m) => m.type === "init")).toHaveLength(1);
     await modeSwitch();
+  });
+
+  it("checks each new page load in the handshake's version, so the frame stays connected", async () => {
+    await open();
+    const { nonce } = await connect();
+    fireEvent.load(screen.getByTitle("Launch plan, published with Portifact"));
+    const ping = sent().find((m) => m.type === "ping");
+    expect(ping).toMatchObject({ v: REVIEW_PROTOCOL_EDIT, nonce });
+    fromBridge(nonce, { type: "pong" });
+    // Still connected: Suggest mode stays offered and no notice says the frame is lost.
+    await modeSwitch();
+    expect(screen.queryByText("The frame stopped answering from the artifact")).toBeNull();
   });
 
   it("speaks version 2 to an older bridge and offers no Suggest mode", async () => {
@@ -311,7 +323,7 @@ describe("suggesting an edit", () => {
     await open();
     const { nonce } = await connect();
     const epoch = await suggestMode();
-    fireEvent.click(within(await modeSwitch()).getByRole("button", { name: "Comment" }));
+    fireEvent.click(within(await modeSwitch()).getByRole("button", { name: "Comment mode" }));
     expect(
       sent()
         .filter((m) => m.type === "edit-mode")

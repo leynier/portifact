@@ -886,6 +886,7 @@ export const ja = {
   "suggest.mode.label": "レビューモード",
   "suggest.mode.comment": "コメント",
   "suggest.mode.suggest": "提案",
+  "suggest.mode.name": "{mode}モード",
   "suggest.mode.on": "提案モードがオンです。artifact内のテキストを選択して編集を提案できます。",
   "suggest.mode.off": "コメントモードがオンです。",
   "suggest.hint": "変更したいテキストを選択してください",

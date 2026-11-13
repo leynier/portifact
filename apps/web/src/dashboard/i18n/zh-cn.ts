@@ -832,6 +832,7 @@ export const zhCN = {
   "suggest.mode.label": "审阅模式",
   "suggest.mode.comment": "评论",
   "suggest.mode.suggest": "建议",
+  "suggest.mode.name": "{mode}模式",
   "suggest.mode.on": "建议模式已开启。在 artifact 中选择文本即可建议修改。",
   "suggest.mode.off": "评论模式已开启。",
   "suggest.hint": "选择你想修改的文本",

@@ -910,6 +910,7 @@ export const de = {
   "suggest.mode.label": "Prüfmodus",
   "suggest.mode.comment": "Kommentieren",
   "suggest.mode.suggest": "Vorschlagen",
+  "suggest.mode.name": "Modus {mode}",
   "suggest.mode.on":
     "Der Vorschlagsmodus ist aktiv. Markiere Text im Artifact, um eine Änderung vorzuschlagen.",
   "suggest.mode.off": "Der Kommentarmodus ist aktiv.",

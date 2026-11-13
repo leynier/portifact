@@ -154,6 +154,11 @@ export function SuggestionPreview({ title, url }: SuggestionPreviewProps) {
 export interface ModeSwitchOption<T extends string> {
   value: T;
   label: string;
+  /**
+   * The button's accessible name when the visible label alone would repeat another control's,
+   * such as "Comment mode" next to a "Comment" button. It must contain the visible label.
+   */
+  name?: string;
   icon?: ReactNode;
 }
 
@@ -185,6 +190,7 @@ export function ModeSwitch<T extends string>({
           key={option.value}
           type="button"
           aria-pressed={option.value === value}
+          aria-label={option.name}
           onClick={() => onChange(option.value)}
           className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xs px-3 text-sm font-medium text-text hover:bg-surface-hover aria-pressed:bg-surface-inverse aria-pressed:text-text-inverse"
         >
