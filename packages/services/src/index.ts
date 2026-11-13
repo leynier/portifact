@@ -10,6 +10,7 @@ export * from "./annotations-markdown.ts";
 export * from "./approval-reviews.ts";
 export * from "./artifact-data.ts";
 export * from "./artifact-data-owner.ts";
+export * from "./artifact-data-page.ts";
 export * from "./artifacts.ts";
 export * from "./audit.ts";
 export * from "./audit-streams.ts";

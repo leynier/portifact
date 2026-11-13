@@ -255,6 +255,10 @@ reason(
   ],
 );
 reason(
+  "a visitor's own documents from the page (decision 0026, delivery 6): what visitors write is not an owner's change; the object keeps its own records",
+  ["pageDataCommand", "pageOperationId"],
+);
+reason(
   "what a directory said about people who never got an account, once it lapsed (decision 0017)",
   ["pruneDirectoryUsers"],
 );

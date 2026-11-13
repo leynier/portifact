@@ -6,6 +6,12 @@ import type { Catalog } from "./en.ts";
 export const ja = {
   ...planTextJa,
   "app.title": "Portifact",
+  "dataGrant.frame.granted": "このページで入力内容を保存できるようになりました",
+  "dataGrant.frame.saving": "選択を保存しています",
+  "dataGrant.frame.unavailable": "このフレームでは保存できません",
+  "dataGrant.frame.unavailableHint":
+    "このブラウザーではフレームが選択を記憶できません。artifact を別のタブで開き、そこで許可してください。",
+  "dataGrant.frame.openTab": "新しいタブで開く",
   "dataGrant.pageTitle": "入力内容の保存",
   "dataGrant.title": "{host} に入力内容の保存を許可しますか？",
   "dataGrant.ownerPerson": "{name} が公開",

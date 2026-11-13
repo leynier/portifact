@@ -90,6 +90,7 @@ import { loginUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
 import { AnnounceContext, useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useIssueChoices } from "../review/create-issue.tsx";
+import { DataGrantPanel, useDataGrant } from "../review/data-grant.tsx";
 import { DraftPanel, useDraft } from "../review/draft.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
 import { SUGGEST_OFF, type SuggestOffer, suggestReducer } from "../review/suggest-session.ts";
@@ -815,6 +816,8 @@ function ReviewSession({
   // The owner side may create issues from threads (decision 0018).
   const issueChoices = useIssueChoices(info.artifactId, info.role === "owner");
   const frame = useRef<HTMLIFrameElement>(null);
+  // Artifact data (decision 0026): the page in the frame may ask to save as the visitor.
+  const dataGrant = useDataGrant({ artifactId: info.artifactId, origin: info.origin, frame });
   const [sidebarOpen, setSidebarOpen] = useState(startsOpen);
   const [offer, setOfferState] = useState<Offer | null>(null);
   const [draft, setDraftState] = useState<Draft>(null);
@@ -1182,6 +1185,7 @@ function ReviewSession({
   const frameArea = (
     <>
       <div className="flex flex-col gap-3 p-3 empty:hidden">
+        <DataGrantPanel artifactId={info.artifactId} origin={info.origin} grant={dataGrant} />
         <BridgeNotice state={state} info={info} target={target} onRestart={onRestart} />
         {outdated ? (
           <Callout
