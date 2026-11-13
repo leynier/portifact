@@ -129,28 +129,26 @@ export function controlEnvelope(control: DataControl): DataEnvelope {
  * - `done`: the change holds in the object, or it can no longer apply and must not;
  * - `retry`: an earlier change has to land first (another fence, or D1 catching up with an erase
  *   that committed); the job runs again later;
- * - `wait`: the object is held or quarantined; the job waits for the release or the operator;
- * - `reissue`: the fence's epoch was taken by another transition while D1 still wants its change
- *   (a hold still open, a release of the hold the object still has, a transfer D1 still names);
- *   the job takes a new epoch from D1 in a guarded update and applies the fence with it.
+ * - `wait`: the object is held or quarantined; the job waits for the release or the operator.
  */
-export type JobStep = "done" | "retry" | "wait" | "reissue";
+export type JobStep = "done" | "retry" | "wait";
 
 /**
  * After the object refused a `data_fence`: done when the object is already past this fence (a
  * later transition applied, or this transition ID applied with other contents, which only a
- * restore can cause and reconciliation repairs) and D1 no longer wants its change, or when the
- * fence names a generation the object has left and D1 no longer has the artifact's data row (a
- * purge's erase overtook the fence: it can never apply); `reissue` when another transition took
- * its epoch but D1 still wants its change (`stillWanted`), so a hold released in D1 always ends
- * released in the object; retry while an earlier fence or D1's repair after an erase has yet to
- * land; done for a fence that can never apply (a transfer to its own owner, another artifact).
+ * restore can cause and reconciliation repairs), or when the fence names a generation the object
+ * has left and D1 no longer has the artifact's data row (a purge's erase overtook the fence: it can
+ * never apply); retry while an earlier fence or D1's repair after an erase has yet to land; done
+ * for a fence that can never apply (a transfer to its own owner, another artifact). A fence never
+ * takes a new epoch: when a stale hold or release ends, the job compares the levels once
+ * (`holdCorrective`), and a transfer from an owner the object no longer has ends for good, its
+ * disagreement left to reconciliation's owner finding.
  */
 export function fenceRefused(
   control: DataControl,
   envelope: DataEnvelope,
   code: DataRefusalCode,
-  evidence: { dataRowGone: boolean; stillWanted: boolean },
+  evidence: { dataRowGone: boolean },
 ): JobStep {
   // `conflict` (this transition ID applied with other contents) ends like any code but these two.
   if (code === "held") return "retry";
@@ -158,7 +156,54 @@ export function fenceRefused(
   if (envelope.generation < control.generation && evidence.dataRowGone) return "done";
   // A repeat of the last transition is acknowledged, never stale, so only the epoch tells.
   if (control.last.epoch < envelope.epoch) return "retry";
-  return evidence.stillWanted && !evidence.dataRowGone ? "reissue" : "done";
+  return "done";
+}
+
+/** What D1 says about the holds on an artifact, for `holdCorrective`. */
+export interface HoldLevel {
+  /** The ID of D1's open hold on the artifact, or null when none is open. */
+  open: string | null;
+  /** Whether D1 records the hold the object holds as a hold that was released. */
+  objectHoldReleased: boolean;
+}
+
+/** A corrective fence: the change that brings the object to D1's level, at a new epoch. */
+export interface HoldCorrective {
+  fence: { kind: "hold"; transition: string } | { kind: "release"; transition: string };
+  envelope: DataEnvelope;
+}
+
+/**
+ * The one convergence rule for holds, by level and never by transition: D1 with an open hold and
+ * an object holding none gets a corrective hold naming the open one; D1 with no open hold and an
+ * object holding a hold D1 records as released gets a corrective release naming the hold the
+ * object holds; anything else is no corrective (both held whatever the identities, both free, or
+ * an object holding a hold D1 does not know, which only a restore can lose and reconciliation
+ * quarantines for the operator, since releasing it could end a legal hold D1 forgot). None for an
+ * object quarantined or with an erase prepared (the operator's or the purge's), or whose owner or
+ * generation D1 does not share (reconciliation's findings come first). The corrective's epoch is
+ * past both D1's and the object's, so the object admits it unless something newer arrived, after
+ * which the levels are compared again; the services claim it in one batch with its job.
+ */
+export function holdCorrective(
+  control: DataControl | null,
+  row: DataRow | null,
+  level: HoldLevel,
+): HoldCorrective | null {
+  if (control === null || row === null) return null;
+  if (control.quarantine !== null || control.erasing !== null) return null;
+  if (control.ownerId !== row.ownerId || control.generation !== row.generation) return null;
+  const envelope = { ...rowEnvelope(row), epoch: Math.max(row.epoch, control.epoch) + 1 };
+  if (level.open !== null && control.hold === null) {
+    return { fence: { kind: "hold", transition: level.open }, envelope };
+  }
+  if (level.open === null && control.hold !== null && level.objectHoldReleased) {
+    return {
+      fence: { kind: "release", transition: `${control.hold.transition}:release` },
+      envelope,
+    };
+  }
+  return null;
 }
 
 /**

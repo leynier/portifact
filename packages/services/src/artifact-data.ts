@@ -44,6 +44,8 @@ import {
   erasureRefused,
   fenceRefused,
   formatReviewed,
+  type HoldLevel,
+  holdCorrective,
   INVENTORY_PREFIX,
   identityDisagreement,
   inventoryArtifact,
@@ -607,7 +609,9 @@ function needs(objects: DataObjects | null | undefined, topic: string): DataObje
 /**
  * A `data_fence` job: tells the object about a hold, a release or a transfer, under the owner it
  * knows and the epoch D1 raised, at D1's current generation. Done once the object acknowledged it
- * or is already past it (`fenceRefused`); retried while an earlier change has to land first.
+ * or is already past it (`fenceRefused`); retried while an earlier change has to land first. A
+ * fence never takes a new epoch and never rewrites its own row: a stale hold or release ends after
+ * one comparison of the levels (`convergeHold`), which may write a corrective job of its own.
  */
 export async function runDataFence(
   db: RegionalDb,
@@ -635,70 +639,98 @@ export async function runDataFence(
   const step =
     after === null
       ? "retry"
-      : fenceRefused(after, envelope, answer.code, {
-          dataRowGone: current === null,
-          stillWanted: await fenceStillWanted(db, artifactId, payload.fence, after),
-        });
-  if (step !== "reissue" || after === null || current === null) {
-    return afterRefusal(db, row, step, answer.code, now);
+      : fenceRefused(after, envelope, answer.code, { dataRowGone: current === null });
+  if (step === "done" && answer.code === "stale" && payload.fence.kind !== "transfer") {
+    await convergeHold(db, artifactId, after, current, now, row.id);
   }
-  // Another transition took this fence's epoch while D1 still wants its change: a new epoch from
-  // D1, past both D1's and the object's, taken only from the epoch read, then the same fence.
-  const [raised] = await db
-    .update(d)
-    .set({ epoch: sql`max(${d.epoch}, ${after.epoch}) + 1`, updatedAt: now })
-    .where(and(eq(d.artifactId, artifactId), eq(d.epoch, current.epoch)))
-    .returning({ epoch: d.epoch });
-  if (!raised) return "pending";
-  await db
-    .update(schema.outbox)
-    .set({ payload: { ...payload, epoch: raised.epoch } })
-    .where(eq(schema.outbox.id, row.id));
-  const again = await object.lifecycleFence(
-    { ...envelope, epoch: raised.epoch },
-    payload.fence,
-    now,
-  );
-  return again.ok ? "done" : "pending";
+  return afterRefusal(db, row, step, answer.code, now);
 }
 
+/** What `convergeHold` did: a corrective written, none needed, or a claim another run won. */
+export type HoldConvergence = "corrective" | "none" | "lost";
+
 /**
- * Whether D1 still wants a refused fence's change, from D1's own rows and the object's state: a
- * hold whose D1 row is still open and that the object lacks, a release of the hold the object
- * still has and D1 closed, a transfer to the owner D1 names and the object does not.
+ * The hold convergence rule (`holdCorrective`) applied once: what D1 wants now against what the
+ * object has now. A corrective is a new `data_fence` row written in one batch with its epoch
+ * claim (`max(D1, object) + 1`), both on D1's row as read (epoch, generation, owner) and on the
+ * level still being what was read (no open hold and the object's hold released, for a release;
+ * the named hold still open, for a hold); the row first, carrying a unique claim, then the raise
+ * conditioned on that row, checked with `returning`. A lost claim writes nothing. No second
+ * corrective of the same change is written while a fence of it the object can still admit is
+ * waiting (`exclude` is the running job).
  */
-async function fenceStillWanted(
+export async function convergeHold(
   db: RegionalDb,
   artifactId: string,
-  fence: DataFence,
-  control: DataControl,
-): Promise<boolean> {
+  control: DataControl | null,
+  current: { ownerId: string; generation: number; epoch: number; region: string } | null,
+  now: number,
+  exclude = 0,
+  read?: HoldLevel,
+): Promise<HoldConvergence> {
+  if (control === null || current === null) return "none";
+  const level = read ?? (await holdLevel(db, artifactId, control.hold?.transition ?? null));
+  const corrective = holdCorrective(control, { artifactId, ...current }, level);
+  if (corrective === null) return "none";
   const h = schema.legalHolds;
-  if (fence.kind === "hold") {
-    if (control.hold !== null) return false;
-    const open = await openHold(db, artifactId);
-    return open?.id === fence.transition;
-  }
-  if (fence.kind === "release") {
-    const holdId = fence.transition.replace(/:release$/, "");
-    if (control.hold?.transition !== holdId) return false;
-    const [closed] = await db
-      .select({ id: h.id })
-      .from(h)
-      .where(and(eq(h.id, holdId), sql`${h.releasedAt} is not null`))
-      .limit(1);
-    return closed !== undefined && (await openHold(db, artifactId)) === undefined;
-  }
-  if (fence.kind === "transfer") {
-    if (control.ownerId === fence.toOwner) return false;
-    const [artifact] = await db
-      .select({ ownerId: a.ownerId })
-      .from(a)
-      .where(eq(a.id, artifactId))
-      .limit(1);
-    return artifact?.ownerId === fence.toOwner;
-  }
-  return false;
+  const o = schema.outbox;
+  const { fence, envelope } = corrective;
+  const claim = lifecycleId(now);
+  const levelHolds =
+    fence.kind === "release"
+      ? sql`not exists (select 1 from ${h} where ${h.artifactId} = ${artifactId} and ${h.releasedAt} is null) and exists (select 1 from ${h} where ${h.id} = ${control.hold?.transition ?? ""} and ${h.releasedAt} is not null)`
+      : sql`exists (select 1 from ${h} where ${h.id} = ${fence.transition} and ${h.artifactId} = ${artifactId} and ${h.releasedAt} is null)`;
+  const asRead = sql`exists (select 1 from ${d} join ${a} on ${a.id} = ${d.artifactId} where ${d.artifactId} = ${artifactId} and ${d.epoch} = ${current.epoch} and ${d.generation} = ${current.generation} and ${a.ownerId} = ${current.ownerId})`;
+  // A waiting fence of the same change that the object can still admit carries it; stale ones
+  // (at or under the object's epoch, the running job among them) do not and are left out, so
+  // concurrent stale deliveries never block each other.
+  const notWaiting = sql`not exists (select 1 from ${o} where ${o.topic} = 'data_fence' and ${o.subject} = ${artifactId} and ${o.id} <> ${exclude} and json_extract(${o.payload}, '$.fence.kind') = ${fence.kind} and json_extract(${o.payload}, '$.fence.transition') = ${fence.transition} and json_extract(${o.payload}, '$.epoch') > ${control.epoch})`;
+  const [, raised] = await db.batch([
+    // Columns in schema order: id, topic, payload, available, dispatched, attempts, created,
+    // subject, generation.
+    db
+      .insert(o)
+      .select(
+        sql`select null, 'data_fence', json_object('ownerId', ${envelope.ownerId}, 'generation', ${envelope.generation}, 'epoch', ${envelope.epoch}, 'fence', json_object('kind', ${fence.kind}, 'transition', ${fence.transition}), 'claim', ${claim}), ${now}, null, 0, ${now}, ${artifactId}, null where ${asRead} and ${levelHolds} and ${notWaiting}`,
+      ),
+    db
+      .update(d)
+      .set({ epoch: envelope.epoch, updatedAt: now })
+      .where(
+        and(
+          eq(d.artifactId, artifactId),
+          eq(d.epoch, current.epoch),
+          eq(d.generation, current.generation),
+          sql`exists (select 1 from ${o} where ${o.topic} = 'data_fence' and ${o.subject} = ${artifactId} and json_extract(${o.payload}, '$.claim') = ${claim})`,
+        ),
+      )
+      .returning({ epoch: d.epoch }),
+  ]);
+  return raised.length === 1 ? "corrective" : "lost";
+}
+
+/** D1's hold level for `holdCorrective`, in one read: the open hold, and the object's hold. */
+export async function holdLevel(
+  db: RegionalDb,
+  artifactId: string,
+  objectHold: string | null,
+): Promise<HoldLevel> {
+  const h = schema.legalHolds;
+  const rows = await db
+    .select({ id: h.id, releasedAt: h.releasedAt })
+    .from(h)
+    .where(
+      and(
+        eq(h.artifactId, artifactId),
+        objectHold === null
+          ? sql`${h.releasedAt} is null`
+          : sql`(${h.releasedAt} is null or ${h.id} = ${objectHold})`,
+      ),
+    );
+  return {
+    open: rows.find((row) => row.releasedAt === null)?.id ?? null,
+    objectHoldReleased: rows.some((row) => row.id === objectHold && row.releasedAt !== null),
+  };
 }
 
 /**
@@ -908,6 +940,16 @@ export async function reconcileObject(
   const current = await readDataRow(db, objects.region, artifactId);
   // A purged artifact's object: its own erase committed before the entry was retired.
   if (current === null && entry.retiredAt !== undefined) return "none";
+  const level =
+    current === null ? null : await holdLevel(db, artifactId, control.hold?.transition ?? null);
+  if (level !== null) {
+    // Holds converge by level first (the fence job's rule); only a disagreement the rule cannot
+    // settle (a hold D1 does not know, a prepared erase, another owner or generation) is left to
+    // `reconcile` below, which quarantines it. A lost claim leaves the change to the job waiting.
+    const converged = await convergeHold(db, artifactId, control, current, now, 0, level);
+    if (converged === "corrective") return "converge";
+    if (converged === "lost") return "converging";
+  }
   const decision = reconcile(
     current === null
       ? null
@@ -915,7 +957,7 @@ export async function reconcileObject(
           ownerId: current.ownerId,
           generation: current.generation,
           epoch: current.epoch,
-          held: await isHeld(db, artifactId),
+          held: (level?.open ?? null) !== null,
         },
     control,
   );

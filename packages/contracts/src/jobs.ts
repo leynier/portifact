@@ -254,6 +254,11 @@ export const DataFencePayload = z.strictObject({
   generation: DataCount,
   epoch: DataCount,
   fence: DataFence,
+  /**
+   * A corrective's claim (`holdCorrective`): the batch that writes the job raises D1's epoch only
+   * when this row, with this unique value, was written in it.
+   */
+  claim: OperationId.optional(),
 });
 export type DataFencePayload = z.infer<typeof DataFencePayload>;
 

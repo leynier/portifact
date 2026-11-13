@@ -1,6 +1,7 @@
 // The decisions on the second review of PR 261 that the review's own reproductions (in
 // review-261-r2.test.ts, R1 and R2 for F1) do not already state: F2's sequence in both delivery
-// orders, and the fence a rewound D1 can no longer apply, which the job takes a new epoch for.
+// orders, and the release a rewound D1 numbered at the object's epoch, which ends and leaves a
+// corrective release (the third review replaced the in-job reissue with that rule).
 
 import { schema } from "@portifact/db";
 import { controlEnvelope, reviewedState } from "@portifact/domain/artifact-data";
@@ -66,7 +67,7 @@ describe("F2: a hold released in D1 ends released in the object", () => {
     });
   }
 
-  it("takes a new epoch for a release a rewound D1 numbered at the object's epoch", async () => {
+  it("ends a release a rewound D1 numbered at the object's epoch, with a corrective release", async () => {
     const { id } = await withData({ state: "suspended" });
     await placeLegalHold(db(), { artifactId: id, ground: "Order", releaseAt: null, now: D1_NOW });
     for (const job of await fences(id)) await deliver(job);
@@ -79,9 +80,13 @@ describe("F2: a hold released in D1 ends released in the object", () => {
       .where(eq(schema.artifactData.artifactId, id));
     await releaseLegalHold(db(), { artifactId: id, now: D1_NOW + 1 });
     const [release] = await fences(id);
-    expect(await deliver(release ?? 0)).toBe("done");
-    expect((await controlOf(id))?.hold).toBeNull();
+    expect(await deliver(release ?? 0)).toBe("stale");
+    // Its own row is gone; the corrective is a new row, its epoch claimed in the same batch.
+    const [corrective] = await fences(id);
+    expect(corrective).not.toBe(release);
     expect((await dataRowOf(id))?.epoch).toBe(2);
+    expect(await deliver(corrective ?? 0)).toBe("done");
+    expect((await controlOf(id))?.hold).toBeNull();
     expect(await fences(id)).toEqual([]);
   });
 

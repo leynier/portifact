@@ -15,6 +15,7 @@ import {
   erasureRefused,
   fenceRefused,
   formatReviewed,
+  holdCorrective,
   INVENTORY_PREFIX,
   identityDisagreement,
   inventoryArtifact,
@@ -35,7 +36,7 @@ import {
 } from "./lifecycle-jobs.ts";
 
 const NOW = Date.UTC(2026, 10, 12);
-const ROW_KEPT = { dataRowGone: false, stillWanted: false };
+const ROW_KEPT = { dataRowGone: false };
 const base: DataEnvelope = {
   artifactId: "abcdefghij",
   region: "default",
@@ -174,18 +175,11 @@ describe("a fence of a generation the object has left", () => {
     const control = { ...newControl(base, NOW), generation: 1 };
     const old = { ...base, generation: 0, epoch: 3 };
     // Killed mutations: dropping the generation comparison, or the row evidence.
-    expect(fenceRefused(control, old, "stale", { dataRowGone: true, stillWanted: false })).toBe(
-      "done",
-    );
-    expect(fenceRefused(control, old, "stale", { dataRowGone: false, stillWanted: false })).toBe(
+    expect(fenceRefused(control, old, "stale", { dataRowGone: true })).toBe("done");
+    expect(fenceRefused(control, old, "stale", { dataRowGone: false })).toBe("retry");
+    expect(fenceRefused(control, { ...old, generation: 1 }, "stale", { dataRowGone: true })).toBe(
       "retry",
     );
-    expect(
-      fenceRefused(control, { ...old, generation: 1 }, "stale", {
-        dataRowGone: true,
-        stillWanted: false,
-      }),
-    ).toBe("retry");
   });
 });
 
@@ -444,25 +438,62 @@ describe("a quarantine's incarnation", () => {
 });
 
 describe("a fence whose epoch another transition took", () => {
-  it("is reissued while D1 still wants it, and done otherwise", () => {
+  it("ends, never takes a new epoch, and waits only for an epoch the object has not reached", () => {
     const control = fenced(newControl(base, NOW), 4, "hold_a");
-    const envelope = { ...base, epoch: 4 };
-    expect(
-      fenceRefused(control, envelope, "stale", { dataRowGone: false, stillWanted: true }),
-    ).toBe("reissue");
-    expect(
-      fenceRefused(control, envelope, "stale", { dataRowGone: false, stillWanted: false }),
-    ).toBe("done");
-    // Without D1's row there is no epoch to take from it.
-    expect(fenceRefused(control, envelope, "stale", { dataRowGone: true, stillWanted: true })).toBe(
+    expect(fenceRefused(control, { ...base, epoch: 4 }, "stale", ROW_KEPT)).toBe("done");
+    expect(fenceRefused(control, { ...base, epoch: 4 }, "stale", { dataRowGone: true })).toBe(
       "done",
     );
-    // An epoch the object has not reached waits, wanted or not.
+    expect(fenceRefused(control, { ...base, epoch: 9 }, "stale", ROW_KEPT)).toBe("retry");
+  });
+});
+
+describe("the hold convergence rule", () => {
+  const row = { artifactId: "abcdefghij", region: "default", ownerId: "u_owner", generation: 0 };
+  const free = newControl(base, NOW);
+  const held = fenced(free, 5, "hold_a");
+  const none = { open: null, objectHoldReleased: false };
+
+  it("holds an object D1 holds, naming D1's open hold, past both epochs", () => {
+    // Killed mutations: the epoch's `max` (D1 behind or ahead), the `+ 1`, the hold's identity.
+    expect(holdCorrective(free, { ...row, epoch: 2 }, { ...none, open: "hold_b" })).toEqual({
+      fence: { kind: "hold", transition: "hold_b" },
+      envelope: { ...base, epoch: 3 },
+    });
+    const ahead = { ...free, epoch: 7 };
     expect(
-      fenceRefused(control, { ...base, epoch: 9 }, "stale", {
-        dataRowGone: false,
-        stillWanted: true,
-      }),
-    ).toBe("retry");
+      holdCorrective(ahead, { ...row, epoch: 2 }, { ...none, open: "h" })?.envelope.epoch,
+    ).toBe(8);
+  });
+
+  it("releases only a hold D1 records as released, while D1 holds nothing", () => {
+    expect(
+      holdCorrective(held, { ...row, epoch: 0 }, { open: null, objectHoldReleased: true }),
+    ).toEqual({
+      fence: { kind: "release", transition: "hold_a:release" },
+      envelope: { ...base, epoch: 6 },
+    });
+    // A hold D1 does not know is the operator's: a restore may have lost it.
+    expect(holdCorrective(held, { ...row, epoch: 0 }, none)).toBeNull();
+    // Never while D1 holds anything, whatever the identities.
+    expect(
+      holdCorrective(held, { ...row, epoch: 0 }, { open: "hold_b", objectHoldReleased: true }),
+    ).toBeNull();
+    expect(holdCorrective(free, { ...row, epoch: 0 }, none)).toBeNull();
+  });
+
+  it("gives nothing for a quarantine, a prepared erase, another owner or generation", () => {
+    const wants = { open: "hold_b", objectHoldReleased: false };
+    const r = { ...row, epoch: 0 };
+    expect(holdCorrective(null, r, wants)).toBeNull();
+    expect(holdCorrective(free, null, wants)).toBeNull();
+    expect(
+      holdCorrective({ ...free, quarantine: { reason: "owner", at: NOW } }, r, wants),
+    ).toBeNull();
+    const erasing = { id: "e", generation: 0, epoch: 0 };
+    expect(holdCorrective({ ...free, erasing }, r, wants)).toBeNull();
+    expect(holdCorrective(free, { ...r, ownerId: "u_other" }, wants)).toBeNull();
+    expect(holdCorrective(free, { ...r, generation: 1 }, wants)).toBeNull();
+    expect(holdCorrective(free, r, wants)).not.toBeNull();
   });
 });

@@ -20,6 +20,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
   AUTHOR_CHUNKS_PER_RUN,
+  convergeHold,
   type DataObjectRpc,
   type DataObjects,
   eraseReason,
@@ -36,8 +37,10 @@ import {
   scheduleAuthorErasures,
   wakeDataJobs,
 } from "../src/artifact-data.ts";
+import { placeLegalHold, releaseLegalHold } from "../src/legal-holds.ts";
 import { runJob } from "../src/outbox.ts";
 import { db, NOW } from "./fixtures.ts";
+import { raceBeforeBatchWith } from "./race.ts";
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 function artifactId(): string {
@@ -231,6 +234,136 @@ describe("data_fence", () => {
     });
     expect(await run(release, memory.data)).toBe("done");
     expect(object.durable.control?.hold).toBeNull();
+  });
+});
+
+describe("the hold convergence rule", () => {
+  const fences = async (id: string) =>
+    (await db().select().from(schema.outbox).where(eq(schema.outbox.subject, id))).filter(
+      (row) => row.topic === "data_fence",
+    );
+  const place = (id: string, at = NOW) =>
+    placeLegalHold(db(), { artifactId: id, ground: "Order", releaseAt: null, now: at });
+  const rewind = (id: string) =>
+    db()
+      .update(schema.artifactData)
+      .set({ epoch: 0 })
+      .where(eq(schema.artifactData.artifactId, id));
+  const entry = (id: string) => inventoryEntry(id, "default", NOW);
+
+  /** A held object whose hold D1 released at an epoch the object had already passed. */
+  async function staleRelease(memory: ReturnType<typeof memoryObjects>) {
+    const seed = await seeded(memory, { state: "suspended" });
+    await place(seed.id);
+    for (const row of await fences(seed.id)) await run(row, memory.data);
+    await rewind(seed.id);
+    await releaseLegalHold(db(), { artifactId: seed.id, now: NOW + 1 });
+    const [release] = await fences(seed.id);
+    if (!release) throw new Error("no release");
+    return { ...seed, release };
+  }
+
+  it("ends a stale release with one corrective, however often it is delivered", async () => {
+    const memory = memoryObjects();
+    const { id, object, release } = await staleRelease(memory);
+    // A duplicate of the stale job, as a redelivery after a crash before its acknowledgement.
+    const duplicate = await job("data_fence", id, release.payload);
+    expect(await run(release, memory.data)).toBe("stale");
+    expect(await run(duplicate, memory.data)).toBe("stale");
+    const [corrective, ...more] = await fences(id);
+    expect(more).toEqual([]);
+    expect(corrective?.payload).toMatchObject({
+      epoch: 2,
+      fence: { kind: "release", transition: `${object.durable.control?.hold?.transition}:release` },
+    });
+    const [row] = await db()
+      .select()
+      .from(schema.artifactData)
+      .where(eq(schema.artifactData.artifactId, id));
+    expect(row?.epoch).toBe(2);
+    // Reconciliation finds the change waiting and adds nothing.
+    expect(await reconcileObject(db(), memory.data, entry(id), NOW)).toBe("converging");
+    expect(await fences(id)).toHaveLength(1);
+    if (!corrective) throw new Error("no corrective");
+    expect(await run(corrective, memory.data)).toBe("done");
+    expect(object.durable.control?.hold).toBeNull();
+    expect(await reconcileObject(db(), memory.data, entry(id), NOW)).toBe("none");
+  });
+
+  it("writes nothing when the level changed before its batch", async () => {
+    const memory = memoryObjects();
+    const { id, object, release } = await staleRelease(memory);
+    const raced = raceBeforeBatchWith(/^insert into "outbox"/, async () => {
+      await place(id, NOW + 2);
+    });
+    const [current] = await db()
+      .select({ ownerId: schema.artifacts.ownerId })
+      .from(schema.artifacts)
+      .where(eq(schema.artifacts.id, id));
+    expect(
+      await convergeHold(
+        raced,
+        id,
+        object.durable.control,
+        { region: "default", ownerId: current?.ownerId ?? "", generation: 0, epoch: 1 },
+        NOW,
+        release.id,
+      ),
+    ).toBe("lost");
+    // Only the new hold's own fence: no corrective release while D1 holds.
+    expect(
+      (await fences(id)).map((row) => (row.payload as { fence: { kind: string } }).fence.kind),
+    ).toEqual(["release", "hold"]);
+  });
+
+  it("writes nothing when D1's row or the level moved alone before its batch", async () => {
+    for (const change of ["epoch", "level"] as const) {
+      const memory = memoryObjects();
+      const { id, object, release } = await staleRelease(memory);
+      const [read] = await db()
+        .select({ ownerId: schema.artifacts.ownerId })
+        .from(schema.artifacts)
+        .where(eq(schema.artifacts.id, id));
+      const raced = raceBeforeBatchWith(/^insert into "outbox"/, async () => {
+        if (change === "epoch") {
+          // Another raise of D1's row (a reconciliation), the holds untouched.
+          await db()
+            .update(schema.artifactData)
+            .set({ epoch: 6 })
+            .where(eq(schema.artifactData.artifactId, id));
+        } else {
+          // A restore re-opens the released hold, D1's row untouched.
+          await db()
+            .update(schema.legalHolds)
+            .set({ releasedAt: null })
+            .where(eq(schema.legalHolds.artifactId, id));
+        }
+      });
+      const current = { region: "default", ownerId: read?.ownerId ?? "", generation: 0, epoch: 1 };
+      expect(await convergeHold(raced, id, object.durable.control, current, NOW, release.id)).toBe(
+        "lost",
+      );
+      expect((await fences(id)).map((row) => row.id)).toEqual([release.id]);
+    }
+  });
+
+  it("holds an object D1 holds, and leaves a hold D1 does not know to the operator", async () => {
+    const memory = memoryObjects();
+    const { id, object } = await seeded(memory, { state: "suspended" });
+    await place(id);
+    // A restore lost the hold's fence.
+    await db().delete(schema.outbox).where(eq(schema.outbox.subject, id));
+    expect(await reconcileObject(db(), memory.data, entry(id), NOW)).toBe("converge");
+    for (const row of await fences(id)) expect(await run(row, memory.data)).toBe("done");
+    expect(object.durable.control?.hold).not.toBeNull();
+    // Another object holds a hold D1 has no record of: never released automatically.
+    const other = await seeded(memory, { state: "suspended" });
+    other.object.fence(
+      envelope(other.id, other.ownerId, { generation: 0, epoch: 1 }),
+      { kind: "hold", transition: "hold_lost" },
+      NOW,
+    );
+    expect(await reconcileObject(db(), memory.data, entry(other.id), NOW)).toBe("quarantine:hold");
   });
 });
 

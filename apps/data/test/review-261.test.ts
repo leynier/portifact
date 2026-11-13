@@ -61,18 +61,16 @@ it("B1: a re-applied D1 hold cannot be erased through mismatch quarantine", asyn
   await placeLegalHold(db(), { artifactId: id, ground: "Order", releaseAt: null, now: D1_NOW });
   // A restore lost the undelivered fence. The exported hold was re-applied in D1.
   await db().delete(schema.outbox).where(eq(schema.outbox.subject, id));
+  // Third review: reconciliation converges holds by level, so the more restrictive side wins with
+  // a corrective hold instead of a quarantine an operator could resolve by erasing.
   expect(await reconcileObject(db(), objectsFor(), inventoryEntry(id, "default", NOW), NOW)).toBe(
-    "quarantine:hold",
+    "converge",
   );
-  await queueDataResolve(db(), id, "erase", await reviewedOf(id), NOW);
-  await one(id, "data_resolve");
-  expect(await documentsOf(id)).toBe(1);
-  // Adopting instead keeps the hold D1 has: the object holds durably once the quarantine is gone.
-  await queueDataResolve(db(), id, "adopt", await reviewedOf(id), NOW);
-  await one(id, "data_resolve");
+  await drain({ subject: id });
   const control = await controlOf(id);
   expect(control?.quarantine).toBeNull();
   expect(control?.hold).not.toBeNull();
+  expect(await documentsOf(id)).toBe(1);
 });
 
 it("B2: a delayed resolution is tied to the quarantine reviewed by the operator", async () => {

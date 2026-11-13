@@ -149,10 +149,11 @@ it("R4: a cancelled purge intent starts a fresh intent after release", async () 
 it("R6: adopting a D1 hold cannot rewind epochs and consume its later release", async () => {
   const { id } = await withData({ state: "suspended" });
   await placeLegalHold(db(), { artifactId: id, ground: "Order", releaseAt: null, now: D1_NOW });
+  // Third review: the waiting hold fence carries D1's level, so reconciliation leaves it to that
+  // job instead of quarantining (no second corrective of the same change).
   expect(await reconcileObject(db(), objectsFor(), inventoryEntry(id, "default", NOW), NOW)).toBe(
-    "quarantine:hold",
+    "converging",
   );
-  await resolve(id, "adopt");
   await releaseLegalHold(db(), { artifactId: id, now: D1_NOW + 1 });
   const fences = await jobsOf(db(), ["data_fence"], id);
   for (const row of fences)

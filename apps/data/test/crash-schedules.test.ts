@@ -16,6 +16,7 @@ import {
   placeLegalHold,
   reconcileObject,
   registerDataObject,
+  releaseLegalHold,
   scheduleAuthorErasures,
 } from "@portifact/services";
 import { eq } from "drizzle-orm";
@@ -129,6 +130,39 @@ schedule("a hold's fence (data_fence)", {
     value(
       await placeLegalHold(db(), { artifactId: id, ground: "Order", releaseAt: null, now: D1_NOW }),
     );
+    return id;
+  },
+  act: (crash, id) => drain({ subject: id, crash }),
+  settle: (id) => drain({ subject: id }),
+  async observe(id) {
+    const control = await controlOf(id);
+    return {
+      held: control?.hold !== null,
+      epoch: control?.epoch,
+      fenced: control?.fencedEpoch,
+      d1: (await dataRowOf(id))?.epoch,
+      jobs: (await jobsOf(db(), ["data_fence"], id)).length,
+    };
+  },
+});
+
+schedule("a stale release and its corrective (data_fence, third review)", {
+  // The stale release's refusal, the corrective's one batch, the stale job's acknowledgement, then
+  // the corrective's fence and its acknowledgement. A crash after the batch and before the
+  // acknowledgement delivers the stale job again, which writes no second corrective.
+  steps: ["object:lifecycleFence", "d1:batch", "d1:run", "object:lifecycleFence", "d1:run"],
+  async setup() {
+    const { id } = await withData({ state: "suspended" });
+    value(
+      await placeLegalHold(db(), { artifactId: id, ground: "Order", releaseAt: null, now: D1_NOW }),
+    );
+    await drain({ subject: id });
+    // A restore rewound D1's epoch under the object's; the release is then stale.
+    await db()
+      .update(schema.artifactData)
+      .set({ epoch: 0 })
+      .where(eq(schema.artifactData.artifactId, id));
+    await releaseLegalHold(db(), { artifactId: id, now: D1_NOW + 1 });
     return id;
   },
   act: (crash, id) => drain({ subject: id, crash }),
