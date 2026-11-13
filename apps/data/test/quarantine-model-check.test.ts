@@ -23,14 +23,17 @@
 // quarantine but an owner disagreement, which needs a repair outside the model): no data job is
 // left, and D1 and the object agree by level (D1 has an open hold exactly when the object holds
 // one) and on owner, or a finding exists for the operator.
+import { env } from "cloudflare:test";
 import type { ReviewedQuarantine } from "@portifact/contracts/artifact-data";
 import { InventoryEntry } from "@portifact/contracts/artifact-data";
-import { schema } from "@portifact/db";
+import { regionsFromEnv, schema } from "@portifact/db";
 import { controlEnvelope, inventoryKey, reviewedState } from "@portifact/domain/artifact-data";
 import {
+  applyLegalHolds,
   type DataObjectRpc,
   dataFenceStatements,
   deleteArtifactData,
+  exportLegalHolds,
   placeLegalHold,
   queueDataResolve,
   reconcileObject,
@@ -66,7 +69,19 @@ type Message =
   | "hold"
   | "release2"
   | "transfer"
+  | "transfer2"
+  | "transfer3"
+  | "holdRelease"
+  | "mark"
+  | "restore"
   | "deliver";
+
+/** D1's rows about the artifact at a point: the restore message brings them back. */
+interface Snapshot {
+  outbox: (typeof schema.outbox.$inferSelect)[];
+  holds: (typeof schema.legalHolds.$inferSelect)[];
+  data: { generation: number; epoch: number } | null;
+}
 
 interface State {
   id: string;
@@ -76,6 +91,9 @@ interface State {
   reviewed: ReviewedQuarantine | null;
   /** The release delivers its own fences (no `releaseFence` message in the family). */
   releaseDelivers: boolean;
+  /** The owners the transfers go to, in order (the third goes back to the first). */
+  owners: string[];
+  mark: Snapshot | null;
 }
 
 interface Family {
@@ -83,6 +101,8 @@ interface Family {
   messages: Message[];
   /** Pairs [a, b]: a comes before b (what D1 itself allows). */
   before: [Message, Message][];
+  /** Orders per test, so each test stays near half a second locally. */
+  slice: number;
   setup(): Promise<State>;
 }
 
@@ -141,13 +161,13 @@ async function quarantine(id: string): Promise<void> {
 }
 
 /** A transfer in D1 as `transferArtifact` writes it: the fence under the old owner, then the move. */
-async function transferInD1(id: string) {
+async function transferInD1(id: string, toOwner?: string) {
   const handle = db();
   const [artifact] = await handle
     .select({ ownerId: schema.artifacts.ownerId })
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, id));
-  const to = `u_to_${crypto.randomUUID()}`;
+  const to = toOwner ?? `u_to_${crypto.randomUUID()}`;
   const [raise, job] = dataFenceStatements(handle, {
     which: sql`d.artifact_id = ${id}`,
     fence: sql`json_object('kind', 'transfer', 'transition', ${`transfer_${crypto.randomUUID().replaceAll("-", "")}`}, 'toOwner', ${to})`,
@@ -180,7 +200,16 @@ async function quarantineSetup(releaseDelivers: boolean): Promise<State> {
     );
     resolves[decision] = made?.id ?? 0;
   }
-  return { id, holdFence, releaseFences: [], resolves, reviewed, releaseDelivers };
+  return {
+    id,
+    holdFence,
+    releaseFences: [],
+    resolves,
+    reviewed,
+    releaseDelivers,
+    owners: [],
+    mark: null,
+  };
 }
 
 /** An object whose fences have all landed, after `held` holds (the last one left open or not). */
@@ -200,7 +229,74 @@ async function landedSetup(holds: number, leaveOpen: boolean): Promise<State> {
     resolves: { adopt: 0, erase: 0 },
     reviewed: null,
     releaseDelivers: true,
+    owners: [
+      `ws_${crypto.randomUUID().replaceAll("-", "")}`,
+      `ws_${crypto.randomUUID().replaceAll("-", "")}`,
+    ],
+    mark: null,
   };
+}
+
+/** R4-A's start: the object holds H1 at epoch 1 and D1's epoch is rewound under it. */
+async function restoreSetup(): Promise<State> {
+  const state = { ...(await landedSetup(1, true)), releaseDelivers: false };
+  await db()
+    .update(schema.artifactData)
+    .set({ epoch: 0 })
+    .where(eq(schema.artifactData.artifactId, state.id));
+  return state;
+}
+
+async function snapshot(id: string): Promise<Snapshot> {
+  const [row] = await db()
+    .select({ generation: schema.artifactData.generation, epoch: schema.artifactData.epoch })
+    .from(schema.artifactData)
+    .where(eq(schema.artifactData.artifactId, id));
+  return {
+    outbox: await db().select().from(schema.outbox).where(eq(schema.outbox.subject, id)),
+    holds: await db().select().from(schema.legalHolds).where(eq(schema.legalHolds.artifactId, id)),
+    data: row ?? null,
+  };
+}
+
+/**
+ * A D1 restore to the marked point, then the runbook: the holds exported just before it are
+ * applied again (`applyLegalHolds`) and the object is reconciled. The object and R2 are not rewound.
+ */
+async function restoreTo(id: string, point: Snapshot) {
+  const lines = (await exportLegalHolds(regionsFromEnv(env))).filter(
+    (line) => line.legalHold.artifactId === id,
+  );
+  await db().delete(schema.outbox).where(eq(schema.outbox.subject, id));
+  if (point.outbox.length > 0) await db().insert(schema.outbox).values(point.outbox);
+  const kept = point.holds.map((hold) => hold.id);
+  for (const hold of await db()
+    .select({ id: schema.legalHolds.id })
+    .from(schema.legalHolds)
+    .where(eq(schema.legalHolds.artifactId, id))) {
+    if (kept.includes(hold.id)) continue;
+    await db()
+      .delete(schema.legalHoldIdentities)
+      .where(eq(schema.legalHoldIdentities.holdId, hold.id));
+    await db().delete(schema.legalHolds).where(eq(schema.legalHolds.id, hold.id));
+  }
+  for (const hold of point.holds) {
+    await db()
+      .update(schema.legalHolds)
+      .set({ releasedAt: hold.releasedAt })
+      .where(eq(schema.legalHolds.id, hold.id));
+  }
+  if (point.data !== null) {
+    await db()
+      .update(schema.artifactData)
+      .set(point.data)
+      .where(eq(schema.artifactData.artifactId, id));
+  }
+  await applyLegalHolds(regionsFromEnv(env), lines, DATA_NOW);
+  const found = await bucketOf().get(inventoryKey(id));
+  if (found !== null) {
+    await reconcileObject(db(), objectsFor(), InventoryEntry.parse(await found.json()), DATA_NOW);
+  }
 }
 
 const FAMILIES: Family[] = [
@@ -208,12 +304,14 @@ const FAMILIES: Family[] = [
     name: "a quarantine, with the release's fence as its own message",
     messages: ["holdFence", "release", "releaseFence", "adopt", "erase", "quarantine"],
     before: [["release", "releaseFence"]],
+    slice: 1,
     setup: () => quarantineSetup(false),
   },
   {
     name: "a quarantine and a purge after the release",
     messages: ["holdFence", "release", "adopt", "erase", "quarantine", "purge"],
     before: [["release", "purge"]],
+    slice: 1,
     setup: () => quarantineSetup(true),
   },
   {
@@ -224,6 +322,7 @@ const FAMILIES: Family[] = [
       ["hold", "release2"],
     ],
     // The object at epoch 5, so after the rewind each of D1's next three fences is stale (R3-A).
+    slice: 2,
     setup: () => landedSetup(3, true),
   },
   {
@@ -235,6 +334,41 @@ const FAMILIES: Family[] = [
     ],
     // The object at epoch 2: after the rewind a stale transfer, then fences under the new owner
     // above the object's epoch (the gap this family found).
+    slice: 2,
+    setup: () => landedSetup(1, false),
+  },
+  {
+    // R4-A's shape: a corrective release written, a point marked, a new hold, then a restore to
+    // the point that brings the corrective back while `applyLegalHolds` re-opens the new hold.
+    name: "a restore that brings back a queued corrective",
+    messages: ["release", "deliver", "mark", "hold", "restore", "deliver"],
+    before: [
+      ["release", "hold"],
+      ["mark", "restore"],
+    ],
+    slice: 2,
+    setup: restoreSetup,
+  },
+  {
+    name: "two transfers around a D1 rewind",
+    messages: ["rewind", "transfer", "holdRelease", "transfer2", "deliver", "deliver"],
+    before: [
+      ["transfer", "holdRelease"],
+      ["holdRelease", "transfer2"],
+    ],
+    slice: 2,
+    setup: () => landedSetup(1, false),
+  },
+  {
+    // R4-B's shape: A to B, a hold and its release under B, B to C, then C back to B.
+    name: "three transfers around a D1 rewind",
+    messages: ["rewind", "transfer", "holdRelease", "transfer2", "transfer3", "deliver", "deliver"],
+    before: [
+      ["transfer", "holdRelease"],
+      ["holdRelease", "transfer2"],
+      ["transfer2", "transfer3"],
+    ],
+    slice: 1,
     setup: () => landedSetup(1, false),
   },
 ];
@@ -281,7 +415,21 @@ async function send(state: State, message: Message): Promise<void> {
       await releaseLegalHold(db(), { artifactId: id, now: D1_NOW + 104 });
       return;
     case "transfer":
-      return transferInD1(id);
+      return transferInD1(id, state.owners[0]);
+    case "transfer2":
+      return transferInD1(id, state.owners[1]);
+    case "transfer3":
+      return transferInD1(id, state.owners[0]);
+    case "holdRelease":
+      await place(id, D1_NOW + 105);
+      await releaseLegalHold(db(), { artifactId: id, now: D1_NOW + 106 });
+      return;
+    case "mark":
+      state.mark = await snapshot(id);
+      return;
+    case "restore":
+      if (state.mark !== null) await restoreTo(id, state.mark);
+      return;
     case "deliver":
       for (const job of await fenceIds(id)) await runById(job);
       return;
@@ -302,6 +450,23 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
     }
     // The payload is kept for as long as the object holds, whatever D1 says.
     if (held) expect(await documentsOf(id), `${step}: held data erased`).toBe(documents);
+    // The object is never free while D1 has an open hold whose fence was delivered or made
+    // obsolete (R4-A's state), unless the owners disagree (the operator's, with its finding).
+    const open = await openHold(id);
+    const control = await controlOf(id);
+    if (open !== null && control !== null && control.hold === null && !control.quarantine) {
+      const [artifact] = await db()
+        .select({ ownerId: schema.artifacts.ownerId })
+        .from(schema.artifacts)
+        .where(eq(schema.artifacts.id, id));
+      const waitingHold = (await jobsOf(db(), ["data_fence"], id)).some((job) => {
+        const fence = (job.payload as { fence: { kind: string; transition: string } }).fence;
+        return fence.kind === "hold" && fence.transition === open;
+      });
+      if (artifact?.ownerId === control.ownerId) {
+        expect(waitingHold, `${step}: D1 holds ${open} and the object is free`).toBe(true);
+      }
+    }
   };
   const step = async (label: string, act: () => Promise<unknown>, rewound = false) => {
     const before = await controlOf(id);
@@ -315,7 +480,7 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
     const { before, documents } = await step(
       message,
       () => send(state, message),
-      message === "rewind",
+      message === "rewind" || message === "restore",
     );
     // A resolution changes only the quarantine it reviewed.
     if ((message === "adopt" || message === "erase") && before?.quarantine) {
@@ -328,39 +493,25 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
     }
   }
 
-  // Quiescence: the queue runs what is left, reconciliation runs, and the operator answers a
-  // quarantine with the state it shows now; an owner disagreement stays a finding (its repair is
-  // D1's ownership rows, outside the model).
+  // Quiescence: the queue runs what is left and the operator answers a quarantine with the state
+  // it shows now. Reconciliation is not run: an owner disagreement must leave the job's own
+  // finding, and every job must end within the bounded drains.
   let now = DATA_NOW + 60_000;
   const waiting = () => jobsOf(db(), ["data_fence", "data_erase", "data_resolve"], id);
-  const reconcileNow = async () => {
-    const found = await bucketOf().get(inventoryKey(id));
-    if (found === null) return "none";
-    return reconcileObject(db(), objectsFor(), InventoryEntry.parse(await found.json()), now);
-  };
-  let ownerFinding = false;
   for (let round = 0; round < 6; round += 1) {
     await step(`drain ${round}`, () => drain({ subject: id, now }));
-    await step(`reconcile ${round}`, reconcileNow);
     const control = await controlOf(id);
-    if (control?.quarantine) {
-      if (control.quarantine.reason === "owner") ownerFinding = true;
-      else {
-        const reviewed = reviewedState(control);
-        if (reviewed === null) throw new Error("quarantined without a state");
-        const [artifact] = await db()
-          .select({ state: schema.artifacts.state })
-          .from(schema.artifacts)
-          .where(eq(schema.artifacts.id, id));
-        const decision = artifact === undefined || artifact.state === "purging" ? "erase" : "adopt";
-        await queueDataResolve(db(), id, decision, reviewed, now);
-      }
+    if (control?.quarantine && control.quarantine.reason !== "owner") {
+      const reviewed = reviewedState(control);
+      if (reviewed === null) throw new Error("quarantined without a state");
+      const [artifact] = await db()
+        .select({ state: schema.artifacts.state })
+        .from(schema.artifacts)
+        .where(eq(schema.artifacts.id, id));
+      const decision = artifact === undefined || artifact.state === "purging" ? "erase" : "adopt";
+      await queueDataResolve(db(), id, decision, reviewed, now);
     } else if ((await waiting()).length === 0) break;
     now += 10 * 60_000;
-    if (ownerFinding) {
-      await step("final drain", () => drain({ subject: id, now }));
-      break;
-    }
   }
 
   expect(await waiting(), "a data job waits forever").toEqual([]);
@@ -381,21 +532,20 @@ async function check(family: Family, order: readonly Message[]): Promise<void> {
   const agree =
     ((await openHold(id)) !== null) === (control.hold !== null) &&
     artifact.ownerId === control.ownerId;
+  const ownersDisagree = artifact.ownerId !== control.ownerId;
   expect(
-    agree || (ownerFinding && finding !== undefined),
+    agree || (ownersDisagree && finding !== undefined),
     `D1 and the object disagree (D1 hold ${await openHold(id)}, object ${control.hold?.transition ?? null}; owner ${artifact.ownerId} and ${control.ownerId}) with no finding`,
   ).toBe(true);
 }
 
-/** Orders per test: each stays near a second locally (CI is about twenty times slower). */
-const SLICE = 2;
-
 for (const family of FAMILIES) {
   const all = orders(family.messages, family.before);
   describe(`every order of ${family.name} (${all.length} orders)`, () => {
-    for (let start = 0; start < all.length; start += SLICE) {
-      it(`orders ${start + 1} to ${Math.min(start + SLICE, all.length)}`, async () => {
-        for (const order of all.slice(start, start + SLICE)) {
+    const slice = family.slice;
+    for (let start = 0; start < all.length; start += slice) {
+      it(`orders ${start + 1} to ${Math.min(start + slice, all.length)}`, async () => {
+        for (const order of all.slice(start, start + slice)) {
           try {
             await check(family, order);
           } catch (error) {
