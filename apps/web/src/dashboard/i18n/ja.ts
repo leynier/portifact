@@ -6,6 +6,17 @@ import type { Catalog } from "./en.ts";
 export const ja = {
   ...planTextJa,
   "app.title": "Portifact",
+  "sharedData.ask": "所有者に依頼",
+  "sharedData.askNamed": "{name} の管理者に依頼",
+  "sharedData.askTitle": "{name} に保存した内容について依頼",
+  "sharedData.askBody":
+    "この artifact の管理者には、データが保持する ID だけであなたを示すメールが届きます。名前やメールアドレスは伝わりません。",
+  "sharedData.askKind": "何を依頼しますか？",
+  "sharedData.askAccess": "保存した内容のコピー",
+  "sharedData.askErasure": "保存した内容の削除",
+  "sharedData.askSend": "依頼を送信",
+  "sharedData.askSent": "{name} についての依頼を送信しました",
+  "sharedData.askFailed": "依頼を送信できませんでした",
   "dataGrant.viewer.saving": "このページは入力内容を保存しています",
   "dataGrant.viewer.savingHint":
     "表示名とこの artifact 専用の ID であなたを認識します。いつでも止められます。",

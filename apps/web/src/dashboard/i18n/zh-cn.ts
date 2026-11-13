@@ -6,6 +6,17 @@ import type { Catalog } from "./en.ts";
 export const zhCN = {
   ...planTextZhCN,
   "app.title": "Portifact",
+  "sharedData.ask": "询问所有者",
+  "sharedData.askNamed": "询问 {name} 的管理者",
+  "sharedData.askTitle": "询问你在 {name} 中保存的内容",
+  "sharedData.askBody":
+    "此 artifact 的管理者会收到一封邮件，其中仅以其数据中的 ID 指代你，不会包含你的姓名或邮箱。",
+  "sharedData.askKind": "你要请求什么？",
+  "sharedData.askAccess": "我保存内容的副本",
+  "sharedData.askErasure": "删除我保存的内容",
+  "sharedData.askSend": "发送请求",
+  "sharedData.askSent": "你关于 {name} 的请求已发送",
+  "sharedData.askFailed": "请求未发送",
   "dataGrant.viewer.saving": "此页面会保存你输入的内容",
   "dataGrant.viewer.savingHint":
     "它通过你的显示名称和此 artifact 专用的 ID 识别你。你可以随时停止。",

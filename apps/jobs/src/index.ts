@@ -60,6 +60,7 @@ import { type IntegrationEnv, integrationKeysFromEnv, issueDepsFromEnv } from ".
 import {
   commentNotifierFromEnv,
   commentRetentionNotifierFromEnv,
+  dataRightsNotifierFromEnv,
   directoryNotifierFromEnv,
   domainNotifierFromEnv,
   expiryNotifierFromEnv,
@@ -369,6 +370,7 @@ export async function runQueue(
     reviewNotifier: reviewNotifierFromEnv(env, region),
     graceNotifier: graceNotifierFromEnv(env, region),
     moderationNotifier: moderationNotifierFromEnv(env, region),
+    dataRightsNotifier: dataRightsNotifierFromEnv(env, region),
   });
   const domainNotifier = domainNotifierFromEnv(env);
   const directoryNotifier = directoryNotifierFromEnv(env);

@@ -769,6 +769,7 @@ export const OUTBOX_TOPICS = [
   "data_resolve",
   "data_export",
   "data_audit",
+  "data_rights_request",
 ] as const;
 
 /**

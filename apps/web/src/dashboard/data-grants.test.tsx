@@ -159,6 +159,29 @@ describe("Data you shared", () => {
     expect(screen.queryByRole("button", { name: "Revoke Board" })).toBeNull();
   });
 
+  it("sends a request to the people who manage the artifact", async () => {
+    const server = fakeServer();
+    server.dataGrants = [
+      {
+        artifactId: ID,
+        artifactName: "Board",
+        host: HOST,
+        openGrants: 0,
+        firstGrantedAt: "2026-11-01T10:00:00.000Z",
+        lastGrantedAt: "2026-11-01T10:00:00.000Z",
+        expiresAt: null,
+      },
+    ];
+    renderDashboard("/shared-data", server);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask the people who manage Board" }));
+    const dialog = await screen.findByRole("dialog", { name: "Ask about what you saved in Board" });
+    expect(within(dialog).getByText(/never by your name or email/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Erase what I saved" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send the request" }));
+    await waitFor(() => expect(server.bodies.at(-1)).toEqual({ kind: "erasure" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
   it("says when nothing was shared", async () => {
     renderDashboard("/shared-data", fakeServer());
     expect(await screen.findByText("Nothing shared yet")).toBeTruthy();

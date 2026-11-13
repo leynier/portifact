@@ -7,6 +7,17 @@ import type { Catalog } from "./en.ts";
 export const ru = {
   ...planTextRu,
   "app.title": "Portifact",
+  "sharedData.ask": "Обратиться к владельцу",
+  "sharedData.askNamed": "Обратиться к тем, кто управляет {name}",
+  "sharedData.askTitle": "Запрос о том, что вы сохранили в {name}",
+  "sharedData.askBody":
+    "Те, кто управляет этим artifact, получат письмо, где вы названы только идентификатором из его данных, без имени и адреса почты.",
+  "sharedData.askKind": "О чём вы просите?",
+  "sharedData.askAccess": "Копию того, что я сохранил(а)",
+  "sharedData.askErasure": "Удалить то, что я сохранил(а)",
+  "sharedData.askSend": "Отправить запрос",
+  "sharedData.askSent": "Ваш запрос о {name} отправлен",
+  "sharedData.askFailed": "Запрос не отправлен",
   "dataGrant.viewer.saving": "Эта страница сохраняет то, что вы вводите",
   "dataGrant.viewer.savingHint":
     "Она знает вас по отображаемому имени и идентификатору для этого artifact. Вы можете остановить это в любой момент.",

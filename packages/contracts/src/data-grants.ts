@@ -160,3 +160,8 @@ export const DataGrantStatus = z.strictObject({
   openGrants: z.number().int().min(0),
 });
 export type DataGrantStatus = z.infer<typeof DataGrantStatus>;
+
+/** What a person asks the people who manage an artifact about the data they saved there. */
+export const DataRightsRequest = z.strictObject({ kind: z.enum(["access", "erasure"]) });
+export type DataRightsRequest = z.infer<typeof DataRightsRequest>;
+export const DataRightsRequested = z.strictObject({ requested: z.literal(true) });

@@ -6,6 +6,17 @@ import type { Catalog } from "./en.ts";
 export const ptBR = {
   ...planTextPtBR,
   "app.title": "Portifact",
+  "sharedData.ask": "Perguntar ao dono",
+  "sharedData.askNamed": "Perguntar a quem gerencia {name}",
+  "sharedData.askTitle": "Perguntar sobre o que você salvou em {name}",
+  "sharedData.askBody":
+    "Quem gerencia este artifact recebe um e-mail que identifica você só pelo ID que os dados guardam, nunca pelo seu nome ou e-mail.",
+  "sharedData.askKind": "O que você pede?",
+  "sharedData.askAccess": "Uma cópia do que salvei",
+  "sharedData.askErasure": "Apagar o que salvei",
+  "sharedData.askSend": "Enviar o pedido",
+  "sharedData.askSent": "Seu pedido sobre {name} foi enviado",
+  "sharedData.askFailed": "O pedido não foi enviado",
   "dataGrant.viewer.saving": "Esta página salva o que você digita",
   "dataGrant.viewer.savingHint":
     "Ela conhece você pelo nome de exibição e um ID para este artifact. Você pode parar a qualquer momento.",

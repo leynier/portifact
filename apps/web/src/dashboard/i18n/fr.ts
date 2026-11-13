@@ -7,6 +7,17 @@ import type { Catalog } from "./en.ts";
 export const fr = {
   ...planTextFr,
   "app.title": "Portifact",
+  "sharedData.ask": "Demander au propriétaire",
+  "sharedData.askNamed": "Demander aux personnes qui gèrent {name}",
+  "sharedData.askTitle": "Demander à propos de ce que vous avez enregistré dans {name}",
+  "sharedData.askBody":
+    "Les personnes qui gèrent cet artifact reçoivent un e-mail qui ne vous désigne que par l'identifiant que contiennent ses données, jamais par votre nom ni votre e-mail.",
+  "sharedData.askKind": "Que demandez-vous ?",
+  "sharedData.askAccess": "Une copie de ce que j'ai enregistré",
+  "sharedData.askErasure": "Effacer ce que j'ai enregistré",
+  "sharedData.askSend": "Envoyer la demande",
+  "sharedData.askSent": "Votre demande concernant {name} a été envoyée",
+  "sharedData.askFailed": "La demande n'a pas été envoyée",
   "dataGrant.viewer.saving": "Cette page enregistre ce que vous saisissez",
   "dataGrant.viewer.savingHint":
     "Elle vous connaît par votre nom affiché et un identifiant propre à cet artifact. Vous pouvez l'arrêter à tout moment.",

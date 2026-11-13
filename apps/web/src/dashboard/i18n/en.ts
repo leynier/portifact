@@ -5,6 +5,17 @@ import { planTextEn } from "../../plans/i18n/en.ts";
 export const en = {
   ...planTextEn,
   "app.title": "Portifact",
+  "sharedData.ask": "Ask the owner",
+  "sharedData.askNamed": "Ask the people who manage {name}",
+  "sharedData.askTitle": "Ask about what you saved in {name}",
+  "sharedData.askBody":
+    "The people who manage this artifact get an email that names you only by the ID its data holds, never by your name or email.",
+  "sharedData.askKind": "What do you ask for?",
+  "sharedData.askAccess": "A copy of what I saved",
+  "sharedData.askErasure": "Erase what I saved",
+  "sharedData.askSend": "Send the request",
+  "sharedData.askSent": "Your request about {name} was sent",
+  "sharedData.askFailed": "The request was not sent",
   "dataGrant.viewer.saving": "This page saves what you enter",
   "dataGrant.viewer.savingHint":
     "It knows you by your display name and an ID for this artifact. You can stop it at any time.",

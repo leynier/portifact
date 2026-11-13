@@ -22,6 +22,7 @@ import { noticeNames } from "@portifact/domain";
 import {
   commentNoticeEmail,
   commentRetentionNoticeEmail,
+  dataRightsNoticeEmail,
   directoryNoticeEmail,
   domainNoticeEmail,
   expiryNoticeEmail,
@@ -34,6 +35,7 @@ import {
 import {
   type CommentNotifier,
   type CommentRetentionNotifier,
+  type DataRightsNotifier,
   type DirectoryNotifier,
   type DomainNotifier,
   type ExpiringArtifact,
@@ -262,6 +264,38 @@ export function directoryNotifierFromEnv(
       });
       try {
         await env.EMAIL.send({ from: NOTICE_SENDER, to, ...email });
+      } catch (error) {
+        // The provider error can echo the message and the address; nothing downstream logs it.
+        if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();
+        throw new Error("email delivery failed");
+      }
+    },
+  };
+}
+
+/**
+ * A request about the data someone saved in an artifact (decision 0026), to each admin of its
+ * owner, linking the artifact's page in its space. The artifact's name only in the default
+ * region (decision 0005); the person only by their visitor ID. A service notice.
+ */
+export function dataRightsNotifierFromEnv(
+  env: Pick<NoticeEnv, "EMAIL" | "APP_ORIGIN">,
+  region: Region,
+): DataRightsNotifier {
+  return {
+    async send(notice) {
+      const space = notice.workspaceSlug
+        ? `?workspace=${encodeURIComponent(notice.workspaceSlug)}`
+        : "";
+      const email = dataRightsNoticeEmail({
+        kind: notice.kind,
+        artifactName: noticeNames(region) ? notice.artifactName : null,
+        visitorId: notice.visitorId,
+        dataUrl: `${env.APP_ORIGIN}/artifacts/${encodeURIComponent(notice.artifactId)}${space}`,
+        locale: notice.locale ?? undefined,
+      });
+      try {
+        await env.EMAIL.send({ from: NOTICE_SENDER, to: notice.to, ...email });
       } catch (error) {
         // The provider error can echo the message and the address; nothing downstream logs it.
         if (isRecipientSuppressed(error)) throw new RecipientSuppressedError();

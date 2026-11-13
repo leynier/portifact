@@ -120,6 +120,7 @@ export const ACCOUNT_SESSION_OPERATIONS = {
   revoke_data_grants: "removes",
   export_own_data: "leaving",
   read_data_grant_status: "read",
+  request_data_rights: "leaving",
   delete_own_document: "removes",
 } as const satisfies Record<string, "read" | "removes" | "narrowing" | "leaving" | "refused">;
 

@@ -1621,6 +1621,8 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     const item = server.dataGrants.find((grant) => grant.artifactId === artifactId);
     return Response.json({ artifactId, openGrants: item?.openGrants ?? 0 });
   }
+  const ask = /^\/api\/v1\/account\/data-grants\/([^/]+)\/rights-request$/.exec(path);
+  if (ask && method === "POST") return Response.json({ requested: true }, { status: 202 });
   const own = /^\/api\/v1\/account\/data-grants\/([^/]+)\/mine$/.exec(path);
   if (own && method === "GET") {
     const rows = server.ownData[decodeURIComponent(own[1] as string)] ?? [];

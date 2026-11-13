@@ -35,6 +35,8 @@ import {
   DataGrantList,
   DataGrantRevocation,
   DataGrantStatus,
+  DataRightsRequest,
+  DataRightsRequested,
   DisconnectResult,
   ERROR_STATUS,
   type ErrorCode,
@@ -72,6 +74,7 @@ import {
   readBrandLogo,
   removeBrandLogo,
   requestAccountDeletion,
+  requestDataRights,
   revokeDataGrants,
   setBrandLogo,
   setCommentNoticeMute,
@@ -719,6 +722,28 @@ export function accountRoutes(deps: AccountDeps) {
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(OwnDocumentDeletion.parse(result.value));
+    }),
+  );
+
+  // A request to the people who manage an artifact about what the person saved there: emailed to
+  // its admins by the jobs Worker, naming the person only by their visitor ID.
+  routes.post(
+    "/api/v1/account/data-grants/:artifactId/rights-request",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      const target = await ownData(c);
+      if (target === null) return error(c, "not_found", "Artifact not found.");
+      const body = await readJson(c, DataRightsRequest, 256);
+      if (!body.ok) return body.response;
+      const result = await requestDataRights(target.db, target.deps.bucket, {
+        userId: session.userId,
+        artifactId: target.artifactId,
+        region: target.region,
+        now: deps.now(),
+        kind: body.value.kind,
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(DataRightsRequested.parse(result.value), 202);
     }),
   );
 

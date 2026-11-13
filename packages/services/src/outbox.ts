@@ -36,6 +36,7 @@ import {
 } from "./comment-retention-notices.ts";
 import { runSearchIndex } from "./content-search.ts";
 import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
+import { type DataRightsNotifier, sendDataRightsNotice } from "./data-rights.ts";
 import { type DirectoryNotifier, sendDirectoryNotice } from "./directory-notices.ts";
 import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
@@ -189,6 +190,8 @@ export interface JobDeps {
   reviewNotifier?: ReviewNotifier | undefined;
   /** Sends `directory_notice` emails (decision 0017). */
   directoryNotifier?: DirectoryNotifier | undefined;
+  /** Sends `data_rights_request` emails to an artifact's admins (decision 0026). */
+  dataRightsNotifier?: DataRightsNotifier | undefined;
   /** Sends `retention_notice` emails (decision 0023). */
   retentionNotifier?: RetentionNotifier | undefined;
   /** Sends `comment_retention_notice` emails (decision 0023). */
@@ -246,6 +249,7 @@ async function runRow(
     domainNotifier,
     reviewNotifier,
     directoryNotifier,
+    dataRightsNotifier,
     retentionNotifier,
     commentRetentionNotifier,
     issues,
@@ -312,6 +316,9 @@ async function runRow(
     case "review_notice":
       if (!reviewNotifier) throw new Error("review_notice needs the review notifier");
       return runReviewNotice(db, row, now, reviewNotifier);
+    case "data_rights_request":
+      if (!dataRightsNotifier) throw new Error("data_rights_request needs its notifier");
+      return sendDataRightsNotice(db, row, now, dataRightsNotifier);
     case "directory_notice":
       if (!directoryNotifier) throw new Error("directory_notice needs the directory notifier");
       return sendDirectoryNotice(db, row, now, directoryNotifier);

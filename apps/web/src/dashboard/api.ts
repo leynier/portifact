@@ -61,6 +61,7 @@ import {
   DataGrantRevocation,
   DataGrantStatus,
   DataQueryPage,
+  DataRightsRequested,
   DisconnectResult,
   DocumentPreview,
   type DocumentPreviewRequest,
@@ -245,6 +246,8 @@ export interface DashboardApi {
   ownData(artifactId: string, after: string | null): Promise<OwnDataPage>;
   /** Deletes one document the person created. */
   deleteOwnDocument(artifactId: string, collection: string, id: string): Promise<unknown>;
+  /** Asks the people who manage an artifact about what the person saved there. */
+  requestDataRights(artifactId: string, kind: "access" | "erasure"): Promise<unknown>;
   /** Revokes the person's grants on an artifact. */
   revokeDataGrants(artifactId: string): Promise<DataGrantRevocation>;
   /** Deletes the account; the email typed again confirms it. */
@@ -894,6 +897,14 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         {
           "idempotency-key": `${String(Date.now()).padStart(13, "0")}.${crypto.randomUUID().replaceAll("-", "")}`,
         },
+      );
+    },
+    requestDataRights(artifactId, kind) {
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/rights-request`,
+        DataRightsRequested,
+        "POST",
+        { kind },
       );
     },
     revokeDataGrants(artifactId) {

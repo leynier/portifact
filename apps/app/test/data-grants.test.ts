@@ -386,6 +386,23 @@ describe("data grants on the app", () => {
     const removed = await h.request(path, dashboard(visitor.cookie, "DELETE"));
     expect(removed.status).toBe(200);
     expect(await removed.json()).toEqual({ deleted: true });
+    // A request to the people who manage it: accepted for the visitor, like a missing artifact
+    // for anyone the journal does not name.
+    const ask = (cookie: string, kind: string) =>
+      h.request(
+        `/api/v1/account/data-grants/${id}/rights-request`,
+        dashboard(cookie, "POST", { kind }),
+      );
+    const asked = await ask(visitor.cookie, "erasure");
+    expect(asked.status).toBe(202);
+    expect(await asked.json()).toEqual({ requested: true });
+    expect((await ask(stranger, "erasure")).status).toBe(404);
+    expect((await ask(visitor.cookie, "everything")).status).toBe(400);
+    const jobs = await db
+      .select({ subject: schema.outbox.subject })
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, "data_rights_request"));
+    expect(jobs).toContainEqual({ subject: id });
     expect(
       (
         await h.request(

@@ -6,6 +6,17 @@ import type { Catalog } from "./en.ts";
 export const es = {
   ...planTextEs,
   "app.title": "Portifact",
+  "sharedData.ask": "Preguntar al propietario",
+  "sharedData.askNamed": "Preguntar a quienes gestionan {name}",
+  "sharedData.askTitle": "Preguntar por lo que guardaste en {name}",
+  "sharedData.askBody":
+    "Quienes gestionan este artifact reciben un correo que te nombra solo por el ID que guardan sus datos, nunca por tu nombre ni tu correo.",
+  "sharedData.askKind": "¿Qué pides?",
+  "sharedData.askAccess": "Una copia de lo que guardé",
+  "sharedData.askErasure": "Borrar lo que guardé",
+  "sharedData.askSend": "Enviar la solicitud",
+  "sharedData.askSent": "Se envió tu solicitud sobre {name}",
+  "sharedData.askFailed": "No se envió la solicitud",
   "dataGrant.viewer.saving": "Esta página guarda lo que escribes",
   "dataGrant.viewer.savingHint":
     "Te conoce por tu nombre visible y un ID para este artifact. Puedes detenerlo cuando quieras.",
