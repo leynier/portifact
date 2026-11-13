@@ -17,7 +17,7 @@ import { ArtifactId } from "./core.ts";
 import { TurnstileToken } from "./human.ts";
 import { IdempotencyKey } from "./publishing.ts";
 
-/** The switch that turns suggestions on, on the app and jobs Workers only (never deployed yet). */
+/** The switch that turns suggestions on, on the app, jobs and content Workers (never in a deployed `wrangler.jsonc`). */
 export const SUGGESTIONS_SWITCH = "SUGGESTIONS_ENABLED";
 
 /** Limits of one submitted edit (decision 0027, "The edit model"). */

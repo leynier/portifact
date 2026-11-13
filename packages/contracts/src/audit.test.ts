@@ -178,6 +178,13 @@ describe("the catalog's exact shapes", () => {
       "policy.enforced": "policy",
       "policy.sso_suspended": "policy",
       "policy.sso_resumed": "policy",
+      "data.collection_set": "artifact",
+      "data.document_created": "artifact",
+      "data.document_replaced": "artifact",
+      "data.document_deleted": "artifact",
+      "data.documents_created": "artifact",
+      "data.documents_replaced": "artifact",
+      "data.documents_deleted": "artifact",
     });
   });
 
@@ -204,7 +211,7 @@ describe("the catalog's exact shapes", () => {
     for (const wrong of [
       { ...detail, scopes: [] },
       { ...detail, scopes: ["credentials:manage"] },
-      { ...detail, scopes: Array.from({ length: 5 }, () => "artifacts:read") },
+      { ...detail, scopes: Array.from({ length: 7 }, () => "artifacts:read") },
       { ...detail, restriction: "prefix" },
       { ...detail, days: 0 },
       { ...detail, days: 367 },

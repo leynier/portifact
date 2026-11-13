@@ -37,7 +37,7 @@ describe("contracts", () => {
     expect(LIMITS.publishesPer24h).toBe(100);
   });
 
-  it("lists the seven OAuth scopes from the plan and nothing else", () => {
+  it("lists the OAuth scopes from the plan and decision 0026, and nothing else", () => {
     expect(OAuthScope.options).toEqual([
       "artifacts:read",
       "artifacts:write",
@@ -46,6 +46,8 @@ describe("contracts", () => {
       "annotations:read",
       "annotations:write",
       "annotations:moderate",
+      "data:read",
+      "data:write",
     ]);
     expect(OAuthScope.safeParse("admin").success).toBe(false);
   });

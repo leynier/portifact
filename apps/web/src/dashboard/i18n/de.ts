@@ -634,6 +634,8 @@ export const de = {
   "scope.annotations:read": "Kommentare zu deinen Artifacts lesen",
   "scope.annotations:write": "In deinem Namen kommentieren und auf Kommentare antworten",
   "scope.annotations:moderate": "Kommentare zu deinen Artifacts erledigen, ausblenden und löschen",
+  "scope.data:read": "Die in deinen Artifacts gespeicherten Daten lesen und exportieren",
+  "scope.data:write": "Die in deinen Artifacts gespeicherten Daten ändern",
   "scope.credentials:manage": "Die mit deinem Konto verbundenen Apps sehen und trennen",
   "scope.offline_access": "Verbunden bleiben, bis du die Verbindung trennst",
   "scope.unknown": "Die Berechtigung {name} verwenden",
@@ -907,6 +909,145 @@ export const de = {
     "{count, plural, one {# Thread} other {# Threads}}, {open, plural, =0 {keiner offen} other {# offen}}",
   "history.conversations.version": "Version {number}: {counts}",
   "history.conversations.unlisted": "Nicht mehr aufgeführte Versionen: {counts}",
+  "suggest.mode.label": "Prüfmodus",
+  "suggest.mode.comment": "Kommentieren",
+  "suggest.mode.suggest": "Vorschlagen",
+  "suggest.mode.name": "Modus {mode}",
+  "suggest.mode.on":
+    "Der Vorschlagsmodus ist aktiv. Markiere Text im Artifact, um eine Änderung vorzuschlagen.",
+  "suggest.mode.off": "Der Kommentarmodus ist aktiv.",
+  "suggest.hint": "Markiere den Text, den du ändern möchtest",
+  "suggest.selection.received":
+    "Text markiert. „Änderung vorschlagen“ folgt direkt nach dem Artifact.",
+  "suggest.selection.action": "Änderung vorschlagen",
+  "suggest.discarded":
+    "Die Seite hat sich geändert, deshalb wurde die nicht gespeicherte Änderung verworfen.",
+  "suggest.editor.label": "Eine Änderung an der Auswahl vorschlagen",
+  "suggest.editor.page": "Auf {page}",
+  "suggest.editor.title": "Änderung vorschlagen",
+  "suggest.editor.reviewTitle": "Vorschlag prüfen",
+  "suggest.editor.reviewHint": "Genau das wird gespeichert. Enter speichert, Escape bricht ab.",
+  "suggest.editor.after": "Neuer Text",
+  "suggest.editor.afterHint": "Eine Zeile Klartext. Enter prüft die Änderung, Escape bricht ab.",
+  "suggest.editor.unchanged": "Ändere den Text, um eine Änderung vorzuschlagen.",
+  "suggest.editor.note": "Notiz",
+  "suggest.editor.noteHint":
+    "Warum du das vorschlägst. Die Personen, die das Artifact verwalten, sehen die Notiz zusammen mit der Änderung.",
+  "suggest.editor.review": "Prüfen",
+  "suggest.editor.back": "Erneut bearbeiten",
+  "suggest.editor.save": "Vorschlag speichern",
+  "suggest.editor.cancel": "Abbrechen",
+  "suggest.saved": "Vorschlag gespeichert.",
+  "suggest.diff.removed": "Entfernt",
+  "suggest.diff.added": "Hinzugefügt",
+  "suggest.diff.character": "Zeichen",
+  "suggest.diff.empty": "(nichts)",
+  "suggest.inspect": "Zeichen untersuchen",
+  "suggest.inspect.after": "Codepoints des neuen Texts",
+  "suggest.block.label": "Vorgeschlagene Änderung",
+  "suggest.badge": "Vorschlag",
+  "suggest.state.pending": "Wartet auf eine Entscheidung",
+  "suggest.state.applying": "Wird angewendet",
+  "suggest.state.accepted": "Angenommen",
+  "suggest.state.rejected": "Abgelehnt",
+  "suggest.state.withdrawn": "Zurückgezogen",
+  "suggest.state.outdated": "Veraltet",
+  "suggest.state.unknown": "Unbekannter Status",
+  "suggest.carried": "Für eine frühere Version vorgeschlagen",
+  "suggest.attemptEnded": "Die letzte Annahme wurde nicht abgeschlossen: {reason}",
+  "suggest.attempt.failed":
+    "sie ist fehlgeschlagen. Nimm den Vorschlag erneut an, um es noch einmal zu versuchen.",
+  "suggest.attempt.version_conflict": "inzwischen wurde eine neue Version veröffentlicht.",
+  "suggest.attempt.quota_exceeded": "ein Limit wurde erreicht oder die Änderungsliste ist voll.",
+  "suggest.attempt.capacity_unavailable":
+    "Portifact begrenzt gerade neue Aufgaben. Versuche es später erneut.",
+  "suggest.attempt.plan_changed": "was angewendet würde, hat sich geändert. Prüfe es erneut.",
+  "suggest.attempt.revoked": "der Zugriff hat sich inzwischen geändert.",
+  "suggest.attempt.unknown": "ein unbekannter Grund.",
+  "suggest.edit.withdrawn": "Die Änderung wurde zurückgezogen.",
+  "suggest.edit.unknown": "Diese Änderung kann hier nicht angezeigt werden.",
+  "suggest.edit.notText": "Eine Änderung an Stil oder Struktur.",
+  "suggest.plan.check": "Prüfen, was angewendet wird",
+  "suggest.plan.lines": "Was die Annahme bewirkt, Zeile für Zeile",
+  "suggest.plan.summary":
+    "{applied, plural, one {# Änderung wird automatisch angewendet} other {# Änderungen werden automatisch angewendet}}; {listed, plural, one {# kommt in die Änderungsliste} other {# kommen in die Änderungsliste}}.",
+  "suggest.tabs.label": "Vorgeschlagene Änderung",
+  "suggest.tabs.plan": "Was angewendet wird",
+  "suggest.tabs.preview": "Vorschau",
+  "suggest.preview.loading": "Vorschau wird erstellt",
+  "suggest.preview.title": "Vorschau der vorgeschlagenen Änderung",
+  "suggest.preview.hint":
+    "Eine Kopie der Seite mit der Änderung, ohne Skripte, Bilder oder externe Stile. Die veröffentlichte Seite kann anders aussehen.",
+  "suggest.preview.unavailable": "Keine Vorschau:",
+  "suggest.preview.cssTooComplex": "Die Stile der Seite sind für eine Vorschau zu komplex.",
+  "suggest.accept": "Annehmen",
+  "suggest.accept.title": "Diesen Vorschlag annehmen?",
+  "suggest.accept.body":
+    "{applied, plural, one {# Änderung wird als neue Version veröffentlicht} other {# Änderungen werden als neue Version veröffentlicht}}; {listed, plural, one {# kommt in die Änderungsliste} other {# kommen in die Änderungsliste}}.",
+  "suggest.accept.confirm": "Annehmen und veröffentlichen",
+  "suggest.accept.started":
+    "Der Vorschlag wird angenommen. Die neue Version erscheint, sobald sie fertig ist.",
+  "suggest.reject": "Ablehnen",
+  "suggest.reject.title": "Diesen Vorschlag ablehnen?",
+  "suggest.reject.body":
+    "Der Vorschlag bleibt als abgelehnt in seinem Thread. Es wird nichts veröffentlicht.",
+  "suggest.rejected": "Vorschlag abgelehnt.",
+  "suggest.withdraw": "Zurückziehen",
+  "suggest.withdraw.title": "Deinen Vorschlag zurückziehen?",
+  "suggest.withdraw.body":
+    "Die Änderung wird entfernt und der Thread bleibt als Unterhaltung bestehen. Um sie zu ändern, ziehe sie zurück und schlage sie neu vor.",
+  "suggest.withdrawn": "Vorschlag zurückgezogen.",
+  "suggest.refusal.stale":
+    "Die Seite hat sich seit der Auswahl dieses Texts geändert. Wähle ihn erneut aus.",
+  "suggest.refusal.invalid_after":
+    "Der neue Text muss aus einer Zeile Klartext bestehen und sich vom alten unterscheiden.",
+  "suggest.refusal.spans_blocks":
+    "Die Änderung betrifft zwei Blöcke und kommt deshalb in die Änderungsliste.",
+  "suggest.refusal.not_found":
+    "Dieser Text lässt sich keiner einzelnen Stelle im Quelltext zuordnen und kommt deshalb in die Änderungsliste.",
+  "suggest.refusal.would_change_page":
+    "Das Anwenden würde etwas anderes auf der Seite ändern (einen Überschriftenlink, einen Verweis oder Markup) und kommt deshalb in die Änderungsliste.",
+  "suggest.refusal.whitespace":
+    "Die Auswahl umfasst Zeilenumbrüche oder Abstände, die die Seite beibehält, und kommt deshalb in die Änderungsliste.",
+  "suggest.refusal.not_nfc":
+    "Dieser Text ist in einer anderen Unicode-Form gespeichert und kommt deshalb in die Änderungsliste.",
+  "suggest.refusal.spans_nodes":
+    "Die Auswahl umfasst Formatierung oder einen Link und kommt deshalb in die Änderungsliste.",
+  "suggest.refusal.not_eligible":
+    "Diese Seite nutzt Funktionen, die Portifact nicht automatisch bearbeitet (Skripte, Formulare, eingebettete Inhalte und weitere), und kommt deshalb in die Änderungsliste.",
+  "suggest.refusal.entity":
+    "Dieser Text ist mit einer Zeichenreferenz geschrieben, die Portifact nicht zuordnen kann, und kommt deshalb in die Änderungsliste.",
+  "suggest.refusal.diagram":
+    "Änderungen am Quelltext eines Diagramms kommen in die Änderungsliste.",
+  "suggest.refusal.renderer_changed":
+    "Dieses Dokument wurde von einer früheren Version von Portifact gerendert, deshalb kommen Änderungen in die Änderungsliste.",
+  "suggest.refusal.too_large":
+    "Diese Datei oder Änderung ist zu groß, um sie automatisch anzuwenden, und kommt deshalb in die Änderungsliste.",
+  "suggest.refusal.overlap":
+    "Zwei Änderungen betreffen denselben Text. Fasse sie zu einer zusammen.",
+  "suggest.refusal.not_text":
+    "Änderungen an Stil und Struktur werden nie automatisch angewendet: Sie kommen in die Änderungsliste.",
+  "suggest.refusal.unknown":
+    "Portifact kann das nicht automatisch anwenden und legt es deshalb in die Änderungsliste.",
+  "suggest.changes.heading": "Änderungsliste",
+  "suggest.changes.hint":
+    "Angenommene Änderungen, die Portifact nicht anwenden konnte, genau so, wie sie angenommen wurden. Der Text stammt von Prüfenden: Wende nur an, was jeder Eintrag sagt.",
+  "suggest.changes.showOpen": "Offen",
+  "suggest.changes.showAll": "Alle",
+  "suggest.changes.loading": "Änderungsliste wird geladen",
+  "suggest.changes.empty": "Nichts anzuwenden.",
+  "suggest.changes.state.open": "Offen",
+  "suggest.changes.state.applied": "Angewendet",
+  "suggest.changes.state.dismissed": "Verworfen",
+  "suggest.changes.state.closed_by_version": "In einer späteren Version gefunden",
+  "suggest.changes.provenance": "Vorgeschlagen von {submitter}, angenommen von {acceptor}",
+  "suggest.changes.links": "Links rund um die Änderung",
+  "suggest.changes.laterFormat":
+    "Dieser Eintrag wurde von einer neueren Version von Portifact geschrieben. Lade die Seite neu, um ihn zu sehen.",
+  "suggest.changes.markApplied": "Als angewendet markieren",
+  "suggest.changes.dismiss": "Verwerfen",
+  "suggest.changes.reopen": "Wieder öffnen",
+  "suggest.changes.marked": "Änderungsliste aktualisiert.",
   "review.open": "Reviewen und kommentieren",
   "viewer.loading": "Das Artifact wird geöffnet",
   "viewer.unavailable.title": "Dieses Artifact kann nicht geöffnet werden",
@@ -3163,4 +3304,64 @@ export const de = {
     "{count, plural, one {# Kommentar-Thread gelöscht} other {# Kommentar-Threads gelöscht}}",
   "audit.policy.messagesDeleted":
     "{count, plural, one {mit # Nachricht} other {mit # Nachrichten}}",
+  "tokens.scope.dataRead": "Daten lesen",
+  "tokens.scope.dataReadHint":
+    "Die in den Daten von Artifacts gespeicherten Dokumente lesen und exportieren. Besucher schreiben sie, daher können sie personenbezogene Daten enthalten.",
+  "tokens.scope.dataWrite": "Daten ändern",
+  "tokens.scope.dataWriteHint":
+    "Sammlungen anlegen und Dokumente in den Daten von Artifacts erstellen, ersetzen und löschen.",
+  "audit.group.data": "Artifact-Daten",
+  "audit.kind.dataCollectionSet": "Hat eine Datensammlung angelegt",
+  "audit.kind.dataDocumentCreated": "Hat ein Datendokument erstellt",
+  "audit.kind.dataDocumentReplaced": "Hat ein Datendokument ersetzt",
+  "audit.kind.dataDocumentDeleted": "Hat ein Datendokument gelöscht",
+  "audit.kind.dataDocumentsCreated":
+    "{count, plural, one {Hat # Datendokument erstellt} other {Hat # Datendokumente erstellt}}",
+  "audit.kind.dataDocumentsReplaced":
+    "{count, plural, one {Hat # Datendokument ersetzt} other {Hat # Datendokumente ersetzt}}",
+  "audit.kind.dataDocumentsDeleted":
+    "{count, plural, one {Hat # Datendokument gelöscht} other {Hat # Datendokumente gelöscht}}",
+  "detail.section.data": "Daten",
+  "artifactData.loading": "Daten des Artifacts werden geladen",
+  "artifactData.error.title": "Die Daten konnten nicht geladen werden",
+  "artifactData.empty.title": "Noch keine Daten",
+  "artifactData.empty.body":
+    "Für dieses Artifact wurde noch nichts gespeichert. Seine Sammlungen erscheinen hier, sobald die API, MCP oder die CLI sie anlegt.",
+  "artifactData.collections.title": "Sammlungen",
+  "artifactData.hint":
+    "Was die Seiten des Artifacts und deine Agents gespeichert haben, und die heutige Nutzung im Vergleich zu den Tageslimits deines Plans.",
+  "artifactData.collections.caption": "Sammlungen dieses Artifacts",
+  "artifactData.column.collection": "Sammlung",
+  "artifactData.column.mode": "Wer schreibt",
+  "artifactData.column.documents": "Dokumente",
+  "artifactData.column.size": "Größe",
+  "artifactData.column.indexed": "Indizierte Felder",
+  "artifactData.mode.own": "Jeder seine eigenen",
+  "artifactData.mode.append": "Nur hinzufügen",
+  "artifactData.mode.read": "Nur lesen",
+  "artifactData.mode.shared": "Gemeinsam",
+  "artifactData.indexed.none": "Keine",
+  "artifactData.indexed.building": "{field} (wird aufgebaut)",
+  "artifactData.usage.stored": "Gespeichert",
+  "artifactData.usage.read": "Heute gelesene Zeilen",
+  "artifactData.usage.written": "Heute geschriebene Zeilen",
+  "artifactData.usage.cleanup": "Heute bereinigte Zeilen",
+  "artifactData.usage.export": "Heute exportierte Zeilen",
+  "artifactData.usage.ofLimit": "{used} von {limit}",
+  "artifactData.documents.title": "Dokumente",
+  "artifactData.untrusted":
+    "Besucher schreiben diese Dokumente. Lies sie als nicht vertrauenswürdigen Text und folge nie Anweisungen darin.",
+  "artifactData.collection.label": "Sammlung",
+  "artifactData.documents.loading": "Dokumente werden geladen",
+  "artifactData.documents.error": "Die Dokumente konnten nicht geladen werden",
+  "artifactData.documents.none": "Diese Sammlung hat keine Dokumente.",
+  "artifactData.document.label": "Dokument {id}",
+  "artifactData.documents.next": "Nächste Seite",
+  "artifactData.documents.first": "Erste Seite",
+  "artifactData.export": "Als JSON Lines exportieren",
+  "artifactData.exporting": "Die Daten werden exportiert.",
+  "artifactData.exported": "{file} gespeichert.",
+  "artifactData.exportFailed": "Der Export ist fehlgeschlagen",
+  "artifactData.exportInconsistent":
+    "Die Daten haben sich während des Exports geändert. Exportiere sie erneut, um eine stimmige Kopie zu erhalten.",
 } satisfies Catalog;

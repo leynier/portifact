@@ -9,11 +9,15 @@
 // only for threads this viewer highlighted on that page, a `status` makes the screen ask the API instead of
 // trusting it, and the threads, their state and the ability to comment always come from the API.
 import {
+  type BridgeCapability,
   type BridgePage,
   type FrameRect,
   type HighlightResolution,
   newInstanceNonce,
+  REVIEW_PROTOCOL,
+  REVIEW_PROTOCOL_EDIT,
   type RefusalReason,
+  type ReviewProtocol,
   readBridgeMessage,
   type ViewerBody,
   viewerEnvelope,
@@ -39,9 +43,12 @@ export type BridgeState =
   | "failed";
 
 export interface BridgeEvents {
-  /** `rect` is where the selection is drawn in the frame: an untrusted placement hint. */
-  onSelection(target: AnnotationTarget | null, rect: FrameRect | null): void;
-  onElement(target: AnnotationTarget, rect: FrameRect | null): void;
+  /**
+   * `rect` is where the selection is drawn in the frame: an untrusted placement hint. `epoch` is
+   * the edit epoch the bridge echoed (protocol 3), or null.
+   */
+  onSelection(target: AnnotationTarget | null, rect: FrameRect | null, epoch: number | null): void;
+  onElement(target: AnnotationTarget, rect: FrameRect | null, epoch: number | null): void;
   /** The offered selection or element moved in the frame, or is no longer drawn (`null`). */
   onSelectionRect(rect: FrameRect | null): void;
   onRefused(reason: RefusalReason): void;
@@ -53,13 +60,23 @@ export interface BridgeEvents {
   onSelect(ids: string[]): void;
   /** The frame's page reported a status; the screen should check the API's state. */
   onStatus(): void;
+  /**
+   * The frame shows another page, another route, or its session changed (`ready`, `location`,
+   * `status`): a pending edit and its confirmation end (decision 0027, rule 9).
+   */
+  onPageChange?(): void;
 }
 
 export interface BridgeConnection {
   state: BridgeState;
   page: BridgePage | null;
   resolutions: ReadonlyMap<string, HighlightResolution>;
-  /** Sends to the current page load; dropped while not connected. */
+  /**
+   * What the connected bridge announced it can do (protocol 3), empty for a version 2 bridge.
+   * The page can forge it: it only decides what the viewer offers, never what is saved.
+   */
+  capabilities: readonly BridgeCapability[];
+  /** Sends to the current page load; dropped while not connected, and edit mode on version 2. */
   send(body: ViewerBody): void;
   /** Call from the frame's `load` event: a new page load starts a new handshake. */
   onFrameLoad(): void;
@@ -70,6 +87,11 @@ export function useBridge(
   origin: string | null,
   sessionTag: string,
   events: BridgeEvents,
+  /**
+   * Whether this viewer may use protocol 3 (edit suggestions switched on). Off, it answers only
+   * the version 2 announcement, so commenting runs exactly the protocol it ran before.
+   */
+  edit = false,
 ): BridgeConnection {
   const [state, setState] = useState<BridgeState>("connecting");
   const [page, setPage] = useState<BridgePage | null>(null);
@@ -77,6 +99,15 @@ export function useBridge(
     () => new Map(),
   );
   const nonce = useRef<string | null>(null);
+  /** The protocol of the current handshake. */
+  const protocol = useRef<ReviewProtocol>(REVIEW_PROTOCOL);
+  /**
+   * Set by a version 3 handshake until the version 2 announcement the same bridge sends right
+   * after it arrives: only that one is skipped, so a later page with a version 2 bridge still
+   * negotiates.
+   */
+  const pairedV2 = useRef(false);
+  const [capabilities, setCapabilities] = useState<readonly BridgeCapability[]>([]);
   const handlers = useRef(events);
   handlers.current = events;
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -89,10 +120,11 @@ export function useBridge(
     (body: ViewerBody) => {
       const target = frame.current?.contentWindow;
       if (!origin || !target || nonce.current === null) return;
+      if (body.type === "edit-mode" && protocol.current !== REVIEW_PROTOCOL_EDIT) return;
       if (body.type === "highlights") {
         marked.current = new Set(body.highlights.map((highlight) => highlight.id));
       }
-      target.postMessage(viewerEnvelope(nonce.current, body), origin);
+      target.postMessage(viewerEnvelope(nonce.current, body, protocol.current), origin);
     },
     [frame, origin],
   );
@@ -105,7 +137,15 @@ export function useBridge(
       if (!message) return;
       switch (message.type) {
         case "ready": {
+          if (message.v === REVIEW_PROTOCOL_EDIT && !edit) return;
+          // A bridge of protocol 3 announces itself in both versions, the newer first: the
+          // version 2 announcement that follows a version 3 handshake is the same page's.
+          if (message.v === REVIEW_PROTOCOL && pairedV2.current) {
+            pairedV2.current = false;
+            return;
+          }
           clearTimeout(timer.current);
+          handlers.current.onPageChange?.();
           if (message.sessionTag !== sessionTag) {
             nonce.current = null;
             setState("foreign");
@@ -114,8 +154,11 @@ export function useBridge(
           answered.current = true;
           const fresh = newInstanceNonce();
           nonce.current = fresh;
+          protocol.current = message.v;
+          pairedV2.current = message.v === REVIEW_PROTOCOL_EDIT;
           marked.current = new Set();
-          source?.postMessage(viewerEnvelope(fresh, { type: "init" }), origin);
+          source?.postMessage(viewerEnvelope(fresh, { type: "init" }, message.v), origin);
+          setCapabilities("capabilities" in message ? message.capabilities : []);
           setPage(message.page);
           setResolutions(new Map());
           setState("connected");
@@ -123,18 +166,33 @@ export function useBridge(
         }
         case "status":
           nonce.current = null;
+          protocol.current = REVIEW_PROTOCOL;
+          pairedV2.current = false;
           clearTimeout(timer.current);
           setState(message.status);
+          handlers.current.onPageChange?.();
           handlers.current.onStatus();
           return;
         case "location":
+          if (message.v !== protocol.current) return;
+          handlers.current.onPageChange?.();
           setPage(message.page);
           return;
         case "selection":
-          handlers.current.onSelection(message.target, message.rect ?? null);
+          if (message.v !== protocol.current) return;
+          handlers.current.onSelection(
+            message.target,
+            message.rect ?? null,
+            "epoch" in message ? (message.epoch ?? null) : null,
+          );
           return;
         case "element":
-          handlers.current.onElement(message.target, message.rect ?? null);
+          if (message.v !== protocol.current) return;
+          handlers.current.onElement(
+            message.target,
+            message.rect ?? null,
+            "epoch" in message ? (message.epoch ?? null) : null,
+          );
           return;
         case "selection-rect":
           handlers.current.onSelectionRect(message.rect);
@@ -168,7 +226,7 @@ export function useBridge(
       clearTimeout(timer.current);
       nonce.current = null;
     };
-  }, [frame, origin, sessionTag]);
+  }, [frame, origin, sessionTag, edit]);
 
   const onFrameLoad = useCallback(() => {
     // Every load must be answered from the artifact's origin: by a `ready` of the new page, or,
@@ -179,11 +237,13 @@ export function useBridge(
     answered.current = false;
     const target = frame.current?.contentWindow;
     if (origin && target && nonce.current !== null) {
-      target.postMessage(viewerEnvelope(nonce.current, { type: "ping" }), origin);
+      target.postMessage(viewerEnvelope(nonce.current, { type: "ping" }, protocol.current), origin);
     }
     timer.current = setTimeout(() => {
       if (answered.current) return;
       nonce.current = null;
+      protocol.current = REVIEW_PROTOCOL;
+      handlers.current.onPageChange?.();
       setState((current) => {
         if (current === "connecting") return "silent";
         if (current === "connected") return "lost";
@@ -192,5 +252,5 @@ export function useBridge(
     }, BRIDGE_TIMEOUT_MS);
   }, [frame, origin]);
 
-  return { state, page, resolutions, send, onFrameLoad };
+  return { state, page, resolutions, capabilities, send, onFrameLoad };
 }

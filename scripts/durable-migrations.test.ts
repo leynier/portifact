@@ -67,10 +67,13 @@ export function dataSwitchesIn(text: string): string[] {
 
 describe("the documents class's callers", () => {
   it("bind it by script_name to portifact-data, and no configuration switches artifact data on", () => {
-    const jobs = readFileSync(join(ROOT, "apps/jobs/wrangler.jsonc"), "utf8");
-    expect(jobs).toMatch(
-      /"name": "ARTIFACT_DOCUMENTS",\s*"class_name": "ArtifactDocuments",\s*"script_name": "portifact-data"/,
-    );
+    // The jobs Worker (the lifecycle and the audit relay) and the app Worker (the owner document
+    // API, delivery 5).
+    for (const caller of ["apps/jobs/wrangler.jsonc", "apps/app/wrangler.jsonc"]) {
+      expect(readFileSync(join(ROOT, caller), "utf8"), caller).toMatch(
+        /"name": "ARTIFACT_DOCUMENTS",\s*"class_name": "ArtifactDocuments",\s*"script_name": "portifact-data"/,
+      );
+    }
     for (const config of configs()) {
       expect(dataSwitchesIn(readFileSync(join(ROOT, config), "utf8")), config).toEqual([]);
     }

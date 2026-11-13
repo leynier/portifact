@@ -173,6 +173,17 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   runAcceptance: ["suggestion.accepted", "artifact.published"],
   publishFromPlan: ["suggestion.accepted", "artifact.published"],
   markChangeItem: ["change_item.marked"],
+  // Artifact data (decision 0026, delivery 5): the owner side's changes are recorded by the audit
+  // relay from the obligation the object wrote in the change's own transaction.
+  runDataAudit: [
+    "data.collection_set",
+    "data.document_created",
+    "data.document_replaced",
+    "data.document_deleted",
+    "data.documents_created",
+    "data.documents_replaced",
+    "data.documents_deleted",
+  ],
   markChangeItemOnce: ["change_item.marked"],
 };
 
@@ -347,6 +358,19 @@ reason(
     "queueDataReconcile",
     "queueDataResolve",
     "queueDataExport",
+  ],
+);
+reason(
+  "artifact data's owner side (decision 0026, delivery 5): each change writes its audit obligation in the object's own transaction and a data_audit job before it reaches the object; runDataAudit records the event once the object says the change committed (the record's durable audit states), never the adapter",
+  [
+    "declareDataCollection",
+    "buildDataIndexes",
+    "createDataDocument",
+    "replaceDataDocument",
+    "deleteDataDocument",
+    "createDataDocuments",
+    "replaceDataDocuments",
+    "deleteDataDocuments",
   ],
 );
 reason(
@@ -576,6 +600,9 @@ const READ_NAMES = new Set([
   "draftPlanOf",
   "storedPage",
   "ownDraft",
+  // Artifact data (decision 0026): describing and querying an artifact's documents.
+  "describeArtifactData",
+  "queryArtifactData",
 ]);
 const READS =
   /^(get|list|read|find|load|export|show|count|view|preview|lookup|stats|current|personal|require|owner|actor|artifact|workspace|usage|account|managed|compare|diff|hash|sha|seal|verify(Share)?Password|email|invitation|annotation|noticeView|newArtifactDefaults|platformProtection|pendingBudgetAlerts|multipartStates|openMultipartUploads|revokedShareLinks|shareLinkLabels|soleAdminOf|windowSum|webhookKeys|authorizeOn|reviewSessionTag)(?=[A-Z]|$)/;

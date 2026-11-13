@@ -52,6 +52,9 @@ import {
   CustomDomainList,
   CustomDomainRemoved,
   CustomDomainView,
+  DataDescriptionView,
+  DataExportPageView,
+  DataQueryPage,
   DisconnectResult,
   DocumentPreview,
   type DocumentPreviewRequest,
@@ -129,6 +132,7 @@ import {
 } from "@portifact/contracts";
 import { z } from "zod";
 import type { SavedFile } from "./publish/download.ts";
+import { type SuggestionsApi, suggestionsApi } from "./suggestions-api.ts";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -180,6 +184,8 @@ export interface SignInMethod {
 }
 
 export interface DashboardApi {
+  /** Edit suggestions and the change list (decision 0027), in their own client module. */
+  suggestions: SuggestionsApi;
   /** The signed-in account, or null without a session. */
   account(): Promise<Account | null>;
   signOut(): Promise<void>;
@@ -409,6 +415,17 @@ export interface DashboardApi {
   ): Promise<{ text: string; nextCursor: string | null }>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
   stats(artifactId: string, from?: string, to?: string): Promise<ArtifactStatsView>;
+  /** The artifact's data (decision 0026): its collections, today's counters and the plan's limits. */
+  artifactData(artifactId: string): Promise<DataDescriptionView>;
+  /** A page of a collection's documents, oldest first, after the cursor `after`. */
+  dataDocuments(
+    artifactId: string,
+    collection: string,
+    after?: string,
+    limit?: number,
+  ): Promise<DataQueryPage>;
+  /** One page of the data export, after the cursor `after` (`collection/id`). */
+  dataExportPage(artifactId: string, after?: string): Promise<DataExportPageView>;
   /**
    * Starts a publish; retrying with the same key returns the same upload. A new artifact goes to
    * `workspace`, or the personal space without it; a new version stays where its artifact is.
@@ -593,6 +610,7 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
   };
 
   return {
+    suggestions: suggestionsApi(call),
     async account() {
       const session = await call("/api/auth/get-session", SessionBody.nullable());
       return session
@@ -1175,6 +1193,26 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       return call(
         `/api/v1/artifacts/${encodeURIComponent(artifactId)}/stats${query}`,
         ArtifactStatsView,
+      );
+    },
+    artifactData(artifactId) {
+      return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/data`, DataDescriptionView);
+    },
+    dataDocuments(artifactId, collection, after, limit) {
+      const params = new URLSearchParams();
+      if (limit !== undefined) params.set("limit", String(limit));
+      if (after) params.set("after", after);
+      const query = params.size > 0 ? `?${params}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/data/collections/${encodeURIComponent(collection)}/documents${query}`,
+        DataQueryPage,
+      );
+    },
+    dataExportPage(artifactId, after) {
+      const query = after ? `?${new URLSearchParams({ after })}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/data/export${query}`,
+        DataExportPageView,
       );
     },
     preparePublish(request, idempotencyKey, workspace) {

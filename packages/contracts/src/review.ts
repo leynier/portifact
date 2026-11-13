@@ -73,6 +73,11 @@ export const ReviewStart = z.object({
    */
   sessionTag: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
   expiresAt: z.iso.datetime(),
+  /**
+   * Whether edit suggestions are switched on (decision 0027, `SUGGESTIONS_ENABLED`): the viewer
+   * offers Suggest mode only then. Absent from Workers that predate it.
+   */
+  suggestions: z.boolean().optional(),
 });
 export type ReviewStart = z.infer<typeof ReviewStart>;
 

@@ -38,6 +38,7 @@ import {
   networkDecision,
   normalizePath,
   pageView,
+  suggestionsEnabled,
   type TrafficCycle,
   trafficCycle,
   trafficExhausted,
@@ -124,6 +125,11 @@ export interface Env extends BudgetEnv {
    * serves exactly as before custom domains existed.
    */
   CUSTOM_DOMAINS_ENABLED?: string | undefined;
+  /**
+   * Exactly `"true"` tells the review bridge that edit suggestions are on (decision 0027), so it
+   * also speaks protocol 3; anything else injects the bridge exactly as before.
+   */
+  SUGGESTIONS_ENABLED?: string | undefined;
 }
 
 /** Whether this deployment serves custom hosts: the same condition the app decides with. */
@@ -768,6 +774,7 @@ async function serveWithBridge(
     path: file.path,
     nonce,
     sessionTag: session.sessionTag,
+    edit: suggestionsEnabled(env),
   });
 }
 
