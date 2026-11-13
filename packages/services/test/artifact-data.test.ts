@@ -42,6 +42,7 @@ import { placeLegalHold, releaseLegalHold } from "../src/legal-holds.ts";
 import { runJob } from "../src/outbox.ts";
 import { db, NOW } from "./fixtures.ts";
 import { raceBeforeBatchWith, raceBeforeStatement } from "./race.ts";
+import { recording } from "./recording.ts";
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 function artifactId(): string {
@@ -185,6 +186,17 @@ async function job(
     .returning();
   if (!row) throw new Error("no row");
   return row;
+}
+
+/** D1 holds the artifact: suspended, with an open legal hold row (its fence not delivered). */
+async function heldInD1(id: string, ownerId: string) {
+  await db()
+    .update(schema.artifacts)
+    .set({ state: "suspended" })
+    .where(eq(schema.artifacts.id, id));
+  await db()
+    .insert(schema.legalHolds)
+    .values({ id: `hold_${id}`, artifactId: id, ownerId, reason: "other", ground: "Order" });
 }
 
 const run = (
@@ -651,6 +663,17 @@ describe("data_erase", () => {
     expect((await rowOf(row.id))?.availableAt).toBe(NOW + 5);
   });
 
+  it("waits a day while D1 holds, before any object call, erasing nothing (sixth review)", async () => {
+    const memory = memoryObjects();
+    const { id, ownerId, object } = await seeded(memory);
+    await heldInD1(id, ownerId);
+    const row = await job("data_erase", id, { ownerId, generation: 0, epoch: 0 });
+    expect(await run(row, memory.data)).toBe("kept");
+    expect((await rowOf(row.id))?.availableAt).toBe(NOW + 86_400_000);
+    expect(documents(object)).toBe(1);
+    expect(object.durable.control?.erasing, "nothing prepared").toBeNull();
+  });
+
   it("retries a commit the object refused, and an intent that ended cancelled", async () => {
     const memory = memoryObjects();
     const { id, ownerId, object } = await seeded(memory);
@@ -752,6 +775,19 @@ describe("data_author_erasure", () => {
     const row = await job("data_author_erasure", id, { userId: "u_y", visitorId: visitorId() });
     expect(await run(row, memory.data)).toBe("done");
     expect(memory.of(id).durable.control).toBeNull();
+  });
+
+  it("waits a day while D1 holds, keeping the journal entry and the payload (sixth review)", async () => {
+    const memory = memoryObjects();
+    const visitor = visitorId();
+    const { id, ownerId, object } = await seeded(memory, { visitors: [visitor] });
+    await heldInD1(id, ownerId);
+    const userId = `u_${crypto.randomUUID()}`;
+    const row = await job("data_author_erasure", id, { userId, visitorId: visitor });
+    expect(await run(row, memory.data)).toBe("kept");
+    expect((await rowOf(row.id))?.availableAt).toBe(NOW + 86_400_000);
+    expect(documents(object, visitor)).toBe(1);
+    expect(await env.ARTIFACTS.get(journalKey(userId, id)), "the entry is not retired").toBeNull();
   });
 
   it("erases the visitor's documents, keeps going in later runs, and waits while held", async () => {
@@ -1288,5 +1324,40 @@ describe("storage reports", () => {
     expect(await bytesOf()).toBe(70);
     await recordStorageReport(db(), id, { generation: 2, seq: 1, bytes: 10 }, NOW);
     expect(await bytesOf()).toBe(10);
+  });
+});
+
+describe("the erasing jobs' D1 calls (sixth review)", () => {
+  it("are pinned, held in D1 and free", async () => {
+    const counts: Record<string, number> = {};
+    const measure = async (
+      name: string,
+      topic: "data_erase" | "data_author_erasure",
+      held: boolean,
+    ) => {
+      const memory = memoryObjects();
+      const visitor = visitorId();
+      const { id, ownerId } = await seeded(memory, { visitors: [visitor] });
+      if (held) await heldInD1(id, ownerId);
+      const payload =
+        topic === "data_erase"
+          ? { ownerId, generation: 0, epoch: 0 }
+          : { userId: `u_${crypto.randomUUID()}`, visitorId: visitor };
+      const row = await job(topic, id, payload);
+      const recorded = recording();
+      const outcome = await runJob(recorded.database, env.ARTIFACTS, row, NOW, {
+        data: memory.data,
+      });
+      counts[name] = recorded.count();
+      return outcome;
+    };
+    expect(await measure("eraseHeld", "data_erase", true)).toBe("kept");
+    expect(await measure("eraseFree", "data_erase", false)).toBe("done");
+    expect(await measure("authorHeld", "data_author_erasure", true)).toBe("kept");
+    expect(await measure("authorFree", "data_author_erasure", false)).toBe("done");
+    // Held: the outbox row, the hold read, the keep. Free: one hold read more than before for an
+    // author erasure (5, was 4) and two for a whole erase (8, was 6: before the prepare and the
+    // commit); runJob's own row read and acknowledgement included.
+    expect(counts).toEqual({ eraseHeld: 3, eraseFree: 8, authorHeld: 3, authorFree: 5 });
   });
 });

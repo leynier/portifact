@@ -643,6 +643,20 @@ async function afterRefusal(
   return step === "retry" ? "pending" : "stale";
 }
 
+/**
+ * An erasing job asks D1 at delivery (decision 0026, note 15): while D1 has an open hold on the
+ * artifact the job is kept, unacknowledged, until the release wakes it. The object's own hold and
+ * quarantine refusals stay the second guard; this one covers the interval in which D1 holds and
+ * the hold's fence has not landed yet (an ordinary release delivered before the next hold's fence,
+ * or a restore that re-opened a hold). A hold placed after this read is the cross-system boundary:
+ * its fence then holds the object, which refuses the erase. One read, no write.
+ */
+async function waitsForD1Hold(db: Db, row: OutboxRow, now: number): Promise<"kept" | null> {
+  if (!(await isHeld(db, row.subject ?? ""))) return null;
+  logEvent("log", "data_job_refused", { id: row.id, topic: row.topic, reason: "held" });
+  return keep(db, row, now + DATA_JOB_WAIT_MS);
+}
+
 function needs(objects: DataObjects | null | undefined, topic: string): DataObjects {
   // Thrown, not reported done: the row stays and the job runs again where the binding is.
   if (!objects) throw new Error(`${topic} needs the artifact data binding`);
@@ -927,6 +941,9 @@ export async function runDataErase(
   if (payload.notBefore !== undefined && now < payload.notBefore) {
     return keep(db, row, payload.notBefore);
   }
+  // Before any object call, so before the prepare.
+  const held = await waitsForD1Hold(db, row, now);
+  if (held !== null) return held;
   const artifactId = row.subject ?? "";
   const object = objects.object(artifactId);
   const control = await object.lifecycleControl();
@@ -961,6 +978,9 @@ export async function runDataErase(
   if (!prepared.ok) return afterRefusal(db, row, erasureRefused(prepared.code), prepared.code, now);
   let outcome = prepared.value.outcome;
   if (outcome === "prepared") {
+    // Asked again: the prepare is not the erase, and a restore can re-open a hold between them.
+    const heldBeforeCommit = await waitsForD1Hold(db, row, now);
+    if (heldBeforeCommit !== null) return heldBeforeCommit;
     const committed = await object.lifecycleErase("commit", envelope, eraseId, reason, now);
     if (!committed.ok) {
       return afterRefusal(db, row, erasureRefused(committed.code), committed.code, now);
@@ -1013,6 +1033,8 @@ export async function runDataAuthorErasure(
   const objects = needs(data, "data_author_erasure");
   const payload = AuthorErasurePayload.parse(row.payload);
   const artifactId = row.subject ?? "";
+  const held = await waitsForD1Hold(db, row, now);
+  if (held !== null) return held;
   await retireJournalEntry(bucket, payload.userId, artifactId, now);
   const object = objects.object(artifactId);
   const control = await object.lifecycleControl();
