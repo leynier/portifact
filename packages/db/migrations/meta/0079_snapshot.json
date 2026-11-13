@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "9ab1cc2b-283a-4128-997e-dbeeded850eb",
+  "id": "29a6f166-6886-49b7-a22a-7c280f42665f",
   "prevId": "0c05735d-3536-4701-abdd-555fd8f33ae8",
   "tables": {
     "abuse_reports": {
@@ -258,7 +258,7 @@
         },
         "acceptance_attempts_finished_created_idx": {
           "name": "acceptance_attempts_finished_created_idx",
-          "columns": ["created_at"],
+          "columns": ["created_at", "id"],
           "isUnique": false,
           "where": "\"acceptance_attempts\".\"state\" <> 'running'"
         },
@@ -2385,9 +2385,9 @@
           "isUnique": false,
           "where": "\"change_items\".\"thread_id\" is not null"
         },
-        "change_items_closed_idx": {
-          "name": "change_items_closed_idx",
-          "columns": ["closed_at"],
+        "change_items_closed_key_idx": {
+          "name": "change_items_closed_key_idx",
+          "columns": ["closed_at", "id"],
           "isUnique": false,
           "where": "\"change_items\".\"closed_at\" is not null"
         },
@@ -2927,10 +2927,11 @@
           "columns": ["user_id"],
           "isUnique": false
         },
-        "edit_drafts_updated_idx": {
-          "name": "edit_drafts_updated_idx",
-          "columns": ["updated_at"],
-          "isUnique": false
+        "edit_drafts_unused_idx": {
+          "name": "edit_drafts_unused_idx",
+          "columns": ["updated_at", "artifact_id", "user_id"],
+          "isUnique": false,
+          "where": "\"edit_drafts\".\"attempt_id\" is null"
         }
       },
       "foreignKeys": {

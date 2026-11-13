@@ -9,8 +9,8 @@
 //   (caches: deleted on held artifacts too, as an account deletion does), finished attempts with
 //   their claims after 30 days, closed change items 90 days after closing and drafts nobody saved
 //   for 30 days. The last three are kept on a held artifact: each walks its due rows in index
-//   order from a cursor (time and row ID), so a held row is read once per pass, never again at
-//   the head of every run.
+//   order from a cursor on the index key (time, then the row key), so a held row is read once
+//   per pass and an equal-time run is sought past, never read again at the head of every run.
 // - `pruneDraftsWithoutRole` deletes the drafts of people who no longer act for the artifact's
 //   owner, seeking the drafts from a cursor on their primary key and reading the memberships from
 //   the global database in chunks.
@@ -69,11 +69,18 @@ export async function expireAcceptAttempts(
   return { ended: overdue.length };
 }
 
-/** A retention sweep: due rows walked by `(time, rowid)` from a saved cursor. */
+/**
+ * A retention sweep: due rows walked in the order of its own partial index (migration 0079) from
+ * a saved cursor on the index's full key (the time, then the row's key columns), so a page seeks
+ * past every row an earlier page read, an equal-time run included.
+ */
 interface Sweep {
   name: string;
   table: typeof at | typeof ci | typeof dr;
-  time: SQL;
+  index: string;
+  /** The index's columns, the time first, as quoted SQL names. */
+  key: readonly string[];
+  /** The due condition, which implies the index's own `where`. */
   due: SQL;
   artifactId: SQL;
 }
@@ -82,37 +89,65 @@ const sweeps = (now: number): Sweep[] => [
   {
     name: "suggestion_attempts_retention",
     table: at,
-    time: sql`"acceptance_attempts"."created_at"`,
+    index: "acceptance_attempts_finished_created_idx",
+    key: ['"created_at"', '"id"'],
     due: sql`"acceptance_attempts"."state" <> 'running' and "acceptance_attempts"."created_at" <= ${now - SUGGESTION_LIMITS.attemptRetentionMs}`,
     artifactId: sql`"acceptance_attempts"."artifact_id"`,
   },
   {
     name: "suggestion_items_retention",
     table: ci,
-    time: sql`"change_items"."closed_at"`,
+    index: "change_items_closed_key_idx",
+    key: ['"closed_at"', '"id"'],
     due: sql`"change_items"."closed_at" is not null and "change_items"."closed_at" <= ${now - CHANGE_LIST_LIMITS.closedRetentionDays * DAY_MS}`,
     artifactId: sql`"change_items"."artifact_id"`,
   },
   {
     name: "suggestion_drafts_retention",
     table: dr,
-    time: sql`"edit_drafts"."updated_at"`,
-    due: sql`"edit_drafts"."updated_at" <= ${now - DRAFT_LIMITS.unusedDays * DAY_MS} and "edit_drafts"."attempt_id" is null`,
+    index: "edit_drafts_unused_idx",
+    key: ['"updated_at"', '"artifact_id"', '"user_id"'],
+    due: sql`"edit_drafts"."attempt_id" is null and "edit_drafts"."updated_at" <= ${now - DRAFT_LIMITS.unusedDays * DAY_MS}`,
     artifactId: sql`"edit_drafts"."artifact_id"`,
   },
 ];
 
-/** A sweep's cursor, `<time>:<rowid>`, or the start. */
-function parseCursor(text: string | undefined): [number, number] {
-  const [time, rowid] = (text ?? "").split(":").map(Number);
-  return Number.isSafeInteger(time) && Number.isSafeInteger(rowid)
-    ? [time as number, rowid as number]
-    : [-1, -1];
+type Cursor = readonly (string | number)[];
+
+/** A sweep's cursor, the JSON list of the last key read, or null for the start. */
+function parseCursor(sweep: Sweep, text: string | undefined): Cursor | null {
+  if (!text) return null;
+  try {
+    const key: unknown = JSON.parse(text);
+    return Array.isArray(key) &&
+      key.length === sweep.key.length &&
+      Number.isSafeInteger(key[0]) &&
+      key.slice(1).every((part) => typeof part === "string")
+      ? (key as Cursor)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
-/** The page of a sweep after its cursor: rowid, time and whether its artifact is free of holds. */
-export function sweepPage(db: RegionalDb, sweep: Sweep, after: [number, number], limit: number) {
-  return sql`select rowid as rowid, ${sweep.time} as time, ${notHeldSql(sweep.artifactId)} as free from ${sweep.table} where ${sweep.due} and (${sweep.time}, rowid) > (${after[0]}, ${after[1]}) order by ${sweep.time}, rowid limit ${limit}`;
+/** One row of a sweep's page: its rowid, its index key and whether its artifact has no hold. */
+interface SweepRow {
+  rowid: number;
+  key: string;
+  free: number;
+}
+
+/** The page of a sweep after its cursor, through the sweep's index. */
+export function sweepPage(sweep: Sweep, after: Cursor | null, limit: number) {
+  const columns = sql.raw(sweep.key.join(", "));
+  const seek =
+    after === null
+      ? sql``
+      : sql` and (${columns}) > (${sql.join(
+          after.map((part) => sql`${part}`),
+          sql`, `,
+        )})`;
+  return sql`select rowid as rowid, json_array(${columns}) as key, ${notHeldSql(sweep.artifactId)} as free from ${sweep.table} indexed by ${sql.raw(`"${sweep.index}"`)} where ${sweep.due}${seek} order by ${columns} limit ${limit}`;
 }
 
 /** The retention sweeps' selections, for tests that read their query plans and rows read. */
@@ -136,12 +171,10 @@ export async function pruneSuggestionRecords(
       ),
     );
   const saved = new Map(cursors.map((row) => [row.name, row.cursor]));
-  const pages: { rowid: number; time: number; free: number }[][] = [];
+  const pages: SweepRow[][] = [];
   for (const sweep of list) {
     pages.push(
-      await db.all<{ rowid: number; time: number; free: number }>(
-        sweepPage(db, sweep, parseCursor(saved.get(sweep.name)), limit),
-      ),
+      await db.all<SweepRow>(sweepPage(sweep, parseCursor(sweep, saved.get(sweep.name)), limit)),
     );
   }
   const deletes = list.map((sweep, index) => {
@@ -172,7 +205,7 @@ export async function pruneSuggestionRecords(
   for (const [index, sweep] of list.entries()) {
     const page = pages[index] ?? [];
     const last = page.at(-1);
-    const next = page.length === limit && last ? `${last.time}:${last.rowid}` : "";
+    const next = page.length === limit && last ? last.key : "";
     if (next !== (saved.get(sweep.name) ?? "")) await saveCursor(db, sweep.name, next, now);
   }
   return {

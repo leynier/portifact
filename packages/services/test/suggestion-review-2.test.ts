@@ -97,7 +97,7 @@ it("A2: draft retention must not scan an irrelevant prefix of publishing drafts"
         })),
       );
   const sweep = the(retentionSweeps(NOW).find((x) => x.name === "suggestion_drafts_retention"));
-  const q = new SQLiteAsyncDialect().sqlToQuery(sweepPage(db(), sweep, [-1, -1], 20));
+  const q = new SQLiteAsyncDialect().sqlToQuery(sweepPage(sweep, null, 20));
   const result = await env.DB.prepare(q.sql)
     .bind(...q.params)
     .all();
@@ -654,6 +654,8 @@ it("A11: 0079 indexes can be applied over populated suggestion storage with trig
       updatedAt: NOW,
     });
   const names = [
+    "change_items_closed_key_idx",
+    "edit_drafts_unused_idx",
     "acceptance_attempts_running_created_idx",
     "acceptance_attempts_running_deliveries_idx",
     "acceptance_attempts_finished_created_idx",
@@ -661,7 +663,14 @@ it("A11: 0079 indexes can be applied over populated suggestion storage with trig
   const before = await env.DB.prepare(
     "select name,sql from sqlite_master where type='trigger' order by name",
   ).all();
+  // Back to the indexes of 0077 and 0078, then 0079 as the upgrade runs it.
   for (const name of names) await env.DB.prepare(`drop index ${name}`).run();
+  await env.DB.prepare(
+    `create index "change_items_closed_idx" on "change_items" ("closed_at") where "change_items"."closed_at" is not null`,
+  ).run();
+  await env.DB.prepare(
+    `create index "edit_drafts_updated_idx" on "edit_drafts" ("updated_at")`,
+  ).run();
   const migration = the(
     env.TEST_MIGRATIONS.find((m: { name: string }) => m.name.startsWith("0079_")),
   );
@@ -674,11 +683,11 @@ it("A11: 0079 indexes can be applied over populated suggestion storage with trig
     ).results,
   ).toEqual(before.results);
   const rows = await env.DB.prepare(
-    "select name from sqlite_master where type='index' and name in (?,?,?)",
+    "select name from sqlite_master where type='index' and name in (?,?,?,?,?)",
   )
     .bind(...names)
     .all();
-  expect(rows.results).toHaveLength(3);
+  expect(rows.results).toHaveLength(5);
   expect(
     await db()
       .select()
@@ -839,12 +848,12 @@ it("A15: a retention cursor seeks past a large equal-time prefix", async () => {
         })),
       );
   const last = await env.DB.prepare(
-    "select max(rowid) as id from acceptance_attempts where artifact_id = ?",
+    "select max(id) as id from acceptance_attempts where artifact_id = ?",
   )
     .bind(doc.artifactId)
-    .first<{ id: number }>();
+    .first<{ id: string }>();
   const sweep = the(retentionSweeps(NOW).find((x) => x.name === "suggestion_attempts_retention"));
-  const q = new SQLiteAsyncDialect().sqlToQuery(sweepPage(db(), sweep, [time, the(last).id], 20));
+  const q = new SQLiteAsyncDialect().sqlToQuery(sweepPage(sweep, [time, the(last).id], 20));
   const result = await env.DB.prepare(q.sql)
     .bind(...q.params)
     .all();

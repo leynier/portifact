@@ -1780,7 +1780,10 @@ export const changeItems = sqliteTable(
   (t) => [
     index("change_items_artifact_state_idx").on(t.artifactId, t.state, t.createdAt),
     index("change_items_thread_idx").on(t.threadId).where(sql`${t.threadId} is not null`),
-    index("change_items_closed_idx").on(t.closedAt).where(sql`${t.closedAt} is not null`),
+    // The retention sweep seeks its cursor on `(closed_at, id)` (decision 0027, migration 0079).
+    index("change_items_closed_key_idx")
+      .on(t.closedAt, t.id)
+      .where(sql`${t.closedAt} is not null`),
     index("change_items_created_by_idx").on(t.createdBy).where(sql`${t.createdBy} is not null`),
     index("change_items_closed_by_idx").on(t.closedBy).where(sql`${t.closedBy} is not null`),
     index("change_items_submitted_by_idx")
@@ -1838,7 +1841,10 @@ export const editDrafts = sqliteTable(
   (t) => [
     primaryKey({ columns: [t.artifactId, t.userId] }),
     index("edit_drafts_user_idx").on(t.userId),
-    index("edit_drafts_updated_idx").on(t.updatedAt),
+    // Unused drafts only (a publishing one is never due), sought on the full key from a cursor.
+    index("edit_drafts_unused_idx")
+      .on(t.updatedAt, t.artifactId, t.userId)
+      .where(sql`${t.attemptId} is null`),
     check(
       "edit_drafts_bytes",
       sql`${t.editBytes} = length(cast(${t.edit} as blob)) and ${t.editBytes} between 2 and 131072`,
@@ -1921,7 +1927,7 @@ export const acceptanceAttempts = sqliteTable(
       .on(t.deliveries)
       .where(sql`${t.state} = 'running'`),
     index("acceptance_attempts_finished_created_idx")
-      .on(t.createdAt)
+      .on(t.createdAt, t.id)
       .where(sql`${t.state} <> 'running'`),
     index("acceptance_attempts_artifact_idx").on(t.artifactId),
     index("acceptance_attempts_thread_idx").on(t.threadId).where(sql`${t.threadId} is not null`),
