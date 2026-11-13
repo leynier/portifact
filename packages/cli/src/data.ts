@@ -54,8 +54,8 @@ const UNTRUSTED =
 const text = {
   confirmErase: (id: string) =>
     `Erase all of ${id}'s data (every document and collection) for good? Type "erase" to confirm: `,
-  confirmDeleteAuthor: (author: string) =>
-    `Delete every document ${author} created? Type "delete" to confirm: `,
+  confirmDeleteAuthor: (id: string, author: string) =>
+    `Delete every document ${author} created in ${id}'s data? Type "delete" to confirm: `,
   confirmDelete: (count: number, collection: string) =>
     `This deletes ${count === 1 ? "1 document" : `${count} documents`} of ${collection} for good, whoever wrote ${count === 1 ? "it" : "them"}. It cannot be undone.\nType "delete" to confirm: `,
   errors: {
@@ -729,7 +729,7 @@ export async function dataDeleteAuthor(
     runtime,
     options,
     "delete",
-    text.confirmDeleteAuthor(parsed.data),
+    text.confirmDeleteAuthor(artifactId, parsed.data),
     `delete-author ${artifactId} ${parsed.data}`,
   );
   const session = await openSession(io, runtime);
