@@ -3,7 +3,7 @@
 
 import type { I18n } from "@lingui/core";
 import { I18nProvider } from "@lingui/react";
-import type { AuditStreamAttempt, AuditStreamView } from "@portifact/contracts";
+import type { AuditStreamAttempt, AuditStreamView, ChangeItemView } from "@portifact/contracts";
 import {
   type AccessLogEntry,
   type AccessLogView,
@@ -559,6 +559,8 @@ export interface FakeServer {
   /** Review tab codes issued so far (POST /review/tab answers with the review's origin). */
   reviewTabs: number;
   annotations: Record<string, FakeAnnotations>;
+  /** Change lists (decision 0027) by artifact ID, one page of 2; missing ones answer 404. */
+  changes: Record<string, ChangeItemView[]>;
   /** Committed versions by artifact ID, newest first. */
   versions: Record<string, FakeVersion[]>;
   /** The text of each seeded file by SHA-256, for the comparison routes. */
@@ -694,6 +696,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     reviews: {},
     reviewTabs: 0,
     annotations: {},
+    changes: {},
     versions: {},
     uploads: [],
     storage: fakeStorage(),
@@ -1516,6 +1519,14 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   const integrations = integrationRoute(server, method, path, headers);
   if (integrations) return integrations;
+  const changes = /^\/api\/v1\/artifacts\/([^/]+)\/changes$/.exec(path);
+  if (changes && method === "GET") {
+    const items = server.changes[changes[1] as string];
+    if (!items) return apiError("not_found", 404);
+    const start = Number(url.searchParams.get("cursor") ?? 0);
+    const next = start + 2 < items.length ? String(start + 2) : null;
+    return json({ items: items.slice(start, start + 2), nextCursor: next });
+  }
   const reviewed = /^\/api\/v1\/artifacts\/([^/]+)\/(review|annotations)(\/.*)?$/.exec(path);
   if (reviewed)
     return reviewRoute(server, method, url, reviewed[1] ?? "", reviewed[2], reviewed[3]);

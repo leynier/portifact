@@ -45,6 +45,8 @@ import {
   BrandSettings,
   type BrandUpdate,
   BrowserSessionList,
+  CHANGE_LIST_LIMITS,
+  ChangeItemList,
   CommentNoticeMute,
   CommittedPublish,
   ConnectedAppList,
@@ -473,6 +475,8 @@ export interface DashboardApi {
   annotationExport(artifactId: string, version: "all" | "current"): Promise<AnnotationExport>;
   /** A page of the comment action history (owner side only). */
   annotationHistory(artifactId: string, cursor?: string): Promise<AnnotationHistoryPage>;
+  /** A page of the artifact's change list, every state (decision 0027). */
+  changeItems(artifactId: string, cursor?: string): Promise<ChangeItemList>;
   /** The threads as the file `portifact annotations export` writes, JSON or Markdown. */
   exportAnnotations(
     artifactId: string,
@@ -1268,6 +1272,11 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       const params = new URLSearchParams({ limit: String(ANNOTATION_HISTORY_PAGE.max) });
       if (cursor) params.set("cursor", cursor);
       return call(`${annotationsPath(artifactId)}/history?${params}`, AnnotationHistoryPage);
+    },
+    changeItems(artifactId, cursor) {
+      const params = new URLSearchParams({ limit: String(CHANGE_LIST_LIMITS.pageMax) });
+      if (cursor) params.set("cursor", cursor);
+      return call(`${artifactPath(artifactId)}/changes?${params}`, ChangeItemList);
     },
     async exportAnnotations(artifactId, { format, version, state }) {
       const params = new URLSearchParams({ format, version, ...(state ? { state } : {}) });

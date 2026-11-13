@@ -50,6 +50,7 @@ import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
 import { exportServiceTokens } from "./service-tokens.ts";
+import { storedEdit } from "./suggestion-view.ts";
 import { forgetIssueRequester } from "./thread-issues.ts";
 import { exportWebhooks } from "./webhooks.ts";
 import { viewerGroupIds } from "./workspace-groups.ts";
@@ -73,6 +74,14 @@ function chunks<T>(items: readonly T[]): T[][] {
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 const isoOrNull = (ms: number | null) => (ms === null ? null : iso(ms));
 
 type ThreadRow = typeof schema.annotationThreads.$inferSelect;
@@ -161,6 +170,30 @@ export async function exportAccount(
     );
   }
 
+  // Each artifact's change list (decision 0027), held artifacts left to the operator as their
+  // comments are.
+  const changeItems = new Map<string, (typeof schema.changeItems.$inferSelect)[]>();
+  for (const ids of chunks(artifactIds)) {
+    for (const row of await db
+      .select()
+      .from(schema.changeItems)
+      .where(
+        and(
+          inArray(schema.changeItems.artifactId, ids),
+          notHeldSql(sql`${schema.changeItems.artifactId}`),
+        ),
+      )
+      .orderBy(asc(schema.changeItems.createdAt), asc(schema.changeItems.id))) {
+      changeItems.set(row.artifactId, [...(changeItems.get(row.artifactId) ?? []), row]);
+    }
+  }
+  // The account's own drafts, on any artifact (decision 0027): its own words.
+  const drafts = await db
+    .select()
+    .from(schema.editDrafts)
+    .where(eq(schema.editDrafts.userId, input.userId))
+    .orderBy(asc(schema.editDrafts.updatedAt), asc(schema.editDrafts.artifactId));
+
   const customDomains = await exportOwnerDomains(db.global, input.userId, input.now);
 
   const versionIds = [...versionsByArtifact.values()].flat().map((version) => version.id);
@@ -223,6 +256,20 @@ export async function exportAccount(
     }
   }
 
+  // A suggestion's block (decision 0027): on the account's own artifacts always, elsewhere only
+  // for a suggestion the account made (its own words).
+  const suggestionOf = (thread: ThreadRow, onlyOwn: boolean) =>
+    thread.kind === "suggestion" && (!onlyOwn || thread.authorId === input.userId)
+      ? {
+          suggestion: {
+            state: thread.suggestionState as string,
+            edit: storedEdit(thread),
+            decidedAt: isoOrNull(thread.decidedAt),
+            resultVersionId: thread.resultVersionId,
+            originVersionId: thread.originVersionId,
+          },
+        }
+      : {};
   const threadView = (thread: ThreadRow, onlyOwn: boolean) => ({
     id: thread.id,
     artifactId: thread.artifactId,
@@ -242,6 +289,7 @@ export async function exportAccount(
         createdAt: iso(message.createdAt),
         editedAt: isoOrNull(message.editedAt),
       })),
+    ...suggestionOf(thread, onlyOwn),
   });
 
   return ok({
@@ -331,6 +379,18 @@ export async function exportAccount(
       threads: ownThreads
         .filter((thread) => thread.artifactId === artifact.id)
         .map((thread) => threadView(thread, false)),
+      changeItems: (changeItems.get(artifact.id) ?? []).map((item) => ({
+        id: item.id,
+        origin: item.origin,
+        threadId: item.threadId,
+        versionId: item.versionId,
+        path: item.path,
+        envelope: safeJson(item.envelope),
+        reason: item.reason,
+        state: item.state,
+        createdAt: iso(item.createdAt),
+        closedAt: isoOrNull(item.closedAt),
+      })),
     })),
     workspaces: await exportWorkspaces(db.global, input.userId),
     invitations: (await listIncomingInvitations(db.global, input)).map((invitation) => ({
@@ -338,6 +398,13 @@ export async function exportAccount(
       role: invitation.role,
       invitedBy: invitation.invitedBy,
       expiresAt: iso(invitation.expiresAt),
+    })),
+    drafts: drafts.map((draft) => ({
+      artifactId: draft.artifactId,
+      baseVersionId: draft.baseVersionId,
+      edit: safeJson(draft.edit),
+      revision: draft.revision,
+      updatedAt: iso(draft.updatedAt),
     })),
     reviewVerdicts: (
       await db
