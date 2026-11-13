@@ -224,9 +224,9 @@ describe("R4-B's jobs in every delivery order", () => {
   // The five fences R4-B queues, delivered one at a time in every order (120 orders), a bounded
   // number of times each: every job ends.
   const all = permutations([0, 1, 2, 3, 4]);
-  for (let start = 0; start < all.length; start += 8) {
-    it(`orders ${start + 1} to ${Math.min(start + 8, all.length)} end`, async () => {
-      for (const order of all.slice(start, start + 8)) {
+  for (let start = 0; start < all.length; start += 3) {
+    it(`orders ${start + 1} to ${Math.min(start + 3, all.length)} end`, async () => {
+      for (const order of all.slice(start, start + 3)) {
         const { id } = await threeTransfers();
         const jobs = await jobsOf(db(), ["data_fence"], id);
         for (let round = 0; round < 5; round += 1) {
