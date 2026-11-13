@@ -9,18 +9,24 @@ import {
   budgetLevel,
   carryForward,
   checkAnnotationCapacity,
+  checkDataCapacity,
   checkPublishCapacity,
+  DATA_WORK_PAUSED,
+  type DataWork,
+  EMPTY_METRICS,
   effectiveProtection,
   levelActions,
   NO_PROTECTION,
   overrideActions,
   type PlatformMetrics,
   PROTECTION_ACTIONS,
+  PROTECTION_STEPS,
   PROTECTION_TRAFFIC_LIMITS,
   projectionFactor,
   projectSpend,
   protectionBlock,
   REFERENCE_PRICES,
+  readMetrics,
   trafficLimited,
 } from "./budget.ts";
 
@@ -30,15 +36,7 @@ const DAY = 86_400_000;
 const START = Date.UTC(2026, 10, 1);
 const MID = Date.UTC(2026, 10, 16);
 
-const empty: PlatformMetrics = {
-  storedBytes: 0,
-  r2ClassA: null,
-  r2ClassB: null,
-  workerRequests: null,
-  d1RowsRead: null,
-  d1RowsWritten: null,
-  emails: null,
-};
+const empty: PlatformMetrics = EMPTY_METRICS;
 
 /** Metrics at mid-cycle whose only cost beyond the fixed US$9 is D1 writes worth `usd` dollars. */
 function costing(usd: number): PlatformMetrics {
@@ -74,6 +72,11 @@ describe("budget cycle and projection", () => {
         d1RowsRead: 0,
         d1RowsWritten: 0,
         emails: 0,
+        dataRequests: 0,
+        dataDuration: 0,
+        dataRowsRead: 0,
+        dataRowsWritten: 0,
+        dataStorage: 0,
       },
     });
     // Half the cycle: every counter doubles by the end.
@@ -85,6 +88,12 @@ describe("budget cycle and projection", () => {
       d1RowsRead: 25_000_000_000,
       d1RowsWritten: 50_000_000,
       emails: 3_000,
+      // The documents objects: requests and duration are billed in whole blocks of a million.
+      dataRequests: 1_000_000,
+      dataGbSeconds: 200_001,
+      dataRowsRead: 13_000_000_000,
+      dataRowsWritten: 26_000_000,
+      dataStoredBytes: 6 * GB,
     };
     const { items, totalUsd } = projectSpend(metrics, MID);
     expect(items).toEqual({
@@ -97,8 +106,16 @@ describe("budget cycle and projection", () => {
       d1RowsRead: 25,
       d1RowsWritten: 50,
       emails: 1.05,
+      dataRequests: 0.15,
+      dataDuration: 12.5,
+      dataRowsRead: 1,
+      dataRowsWritten: 2,
+      dataStorage: 0.2,
     });
-    expect(totalUsd).toBe(111.15);
+    expect(totalUsd).toBe(127);
+    // One unit past what is included is a whole block; nothing past it is nothing.
+    expect(projectSpend({ ...empty, dataRequests: 500_000 }, MID).items.dataRequests).toBe(0);
+    expect(projectSpend({ ...empty, dataRequests: 1_000_001 }, MID).items.dataRequests).toBe(0.3);
   });
 
   it("matches the plan's reference cost for 1,000 full accounts", () => {
@@ -141,14 +158,21 @@ describe("budget levels and protection", () => {
     expect(levelActions("alert50", 60)).toEqual([]);
     expect(levelActions("slow75", 80)).toEqual(["stop_new_artifacts"]);
     expect(levelActions("protect100", 100)).toEqual(["stop_new_artifacts", "block_uploads"]);
+    expect(levelActions("protect100", 105)).toEqual([
+      "stop_new_artifacts",
+      "block_uploads",
+      "pause_data_writes",
+    ]);
     expect(levelActions("protect100", 110)).toEqual([
       "stop_new_artifacts",
       "block_uploads",
+      "pause_data_writes",
       "pause_annotation_writes",
     ]);
     expect(levelActions("protect100", 125)).toEqual([
       "stop_new_artifacts",
       "block_uploads",
+      "pause_data_writes",
       "pause_annotation_writes",
       "tighten_public_traffic",
     ]);
@@ -184,6 +208,22 @@ describe("budget levels and protection", () => {
     expect(assessment.alerts).toEqual(["admission_storedBytes"]);
   });
 
+  it("pauses only data writes when the documents objects reach their admission limit", () => {
+    const data = { ...empty, dataRowsWritten: ADMISSION_LIMITS.dataRowsWritten };
+    expect(admissionReached({ ...data, dataRowsWritten: data.dataRowsWritten - 1 })).toEqual([]);
+    const assessment = assessBudget(data, Date.UTC(2026, 10, 30));
+    expect(assessment.admission).toEqual(["dataRowsWritten"]);
+    expect(assessment.actions).toEqual(["pause_data_writes"]);
+    expect(assessment.alerts).toContain("admission_dataRowsWritten");
+    // With another limit reached too, both stops apply in the plan's order.
+    const both = assessBudget(
+      { ...data, storedBytes: ADMISSION_LIMITS.storedBytes },
+      Date.UTC(2026, 10, 30),
+    );
+    expect(both.actions).toEqual(["stop_new_artifacts", "block_uploads", "pause_data_writes"]);
+    expect(ADMISSION_LIMITS.dataRowsWritten).toBe(100_000_000);
+  });
+
   it("earns every alert up to the projected spend", () => {
     expect(assessBudget(costing(10), MID).alerts).toEqual([]);
     expect(assessBudget(costing(16), MID).alerts).toEqual(["spend_25"]);
@@ -216,6 +256,29 @@ describe("carrying counters forward", () => {
     });
     expect(carryForward(current, null)).toBe(current);
   });
+
+  it("carries the documents objects' counters and stored bytes too", () => {
+    const previous = { ...empty, dataRowsWritten: 10, dataGbSeconds: 2, dataStoredBytes: 30 };
+    const current = { ...empty, dataRowsWritten: 11 };
+    expect(carryForward(current, previous)).toEqual({
+      ...empty,
+      dataRowsWritten: 11,
+      dataGbSeconds: 2,
+      dataStoredBytes: 30,
+    });
+  });
+
+  it("reads stored metrics written before a metric existed as unmeasured", () => {
+    expect(readMetrics(null)).toBeNull();
+    expect(readMetrics("x")).toBeNull();
+    expect(readMetrics({ storedBytes: "1" })).toBeNull();
+    expect(readMetrics({ storedBytes: Number.NaN })).toBeNull();
+    expect(
+      readMetrics({ storedBytes: 4, emails: 2, dataRowsRead: "9", dataRequests: Infinity }),
+    ).toEqual({ ...empty, storedBytes: 4, emails: 2 });
+    const full = { ...empty, storedBytes: 1, dataStoredBytes: 5, dataRequests: 6 };
+    expect(readMetrics(full)).toEqual(full);
+  });
 });
 
 describe("operator override", () => {
@@ -244,7 +307,7 @@ describe("operator override", () => {
     const on = { level: "protect100" as const, steps: 2, until: null };
     expect(effectiveProtection({ level: "none", actions: [] }, on, 9e15)).toEqual({
       level: "protect100",
-      actions: ["stop_new_artifacts", "block_uploads", "pause_annotation_writes"],
+      actions: ["stop_new_artifacts", "block_uploads", "pause_data_writes"],
       overridden: true,
     });
     expect(effectiveProtection({ level: "none", actions: [] }, null, 0)).toEqual(NO_PROTECTION);
@@ -273,6 +336,41 @@ describe("protection notice", () => {
 });
 
 describe("enforcement checks", () => {
+  it("pauses new data writes and connects from the data step, never reads, exports or erasure", () => {
+    const paused = [
+      "declare",
+      "index_step",
+      "create",
+      "replace",
+      "bulk_create",
+      "bulk_replace",
+      "connect",
+    ];
+    for (const work of Object.keys(DATA_WORK_PAUSED) as DataWork[]) {
+      expect(checkDataCapacity([], work), work).toEqual({ ok: true, value: true });
+      expect(checkDataCapacity(["stop_new_artifacts", "block_uploads"], work).ok, work).toBe(true);
+      const result = checkDataCapacity(["pause_data_writes"], work);
+      if (paused.includes(work)) {
+        expect(result, work).toMatchObject({ ok: false, code: "capacity_unavailable" });
+      } else {
+        expect(result, work).toEqual({ ok: true, value: true });
+      }
+    }
+    expect(
+      Object.keys(DATA_WORK_PAUSED).filter((work) => DATA_WORK_PAUSED[work as DataWork]),
+    ).toEqual(paused);
+  });
+
+  it("puts the data step at US$105, between uploads and comments", () => {
+    expect(PROTECTION_STEPS).toEqual([
+      { action: "block_uploads", fromUsd: 100 },
+      { action: "pause_data_writes", fromUsd: 105 },
+      { action: "pause_annotation_writes", fromUsd: 110 },
+      { action: "tighten_public_traffic", fromUsd: 125 },
+      { action: "limit_protected_traffic", fromUsd: 150 },
+    ]);
+  });
+
   it("refuses new artifacts from the brake and every upload from the first step", () => {
     expect(checkPublishCapacity([], true)).toEqual({ ok: true, value: true });
     expect(checkPublishCapacity(["stop_new_artifacts"], false)).toEqual({ ok: true, value: true });
@@ -297,11 +395,11 @@ describe("enforcement checks", () => {
   });
 
   it("limits public traffic before protected traffic", () => {
-    const third = PROTECTION_ACTIONS.slice(0, 4);
-    expect(trafficLimited(third, true)).toBe(true);
-    expect(trafficLimited(third, false)).toBe(false);
+    const public_ = PROTECTION_ACTIONS.slice(0, 5);
+    expect(trafficLimited(public_, true)).toBe(true);
+    expect(trafficLimited(public_, false)).toBe(false);
     expect(trafficLimited(PROTECTION_ACTIONS, false)).toBe(true);
-    expect(trafficLimited(PROTECTION_ACTIONS.slice(0, 3), true)).toBe(false);
+    expect(trafficLimited(PROTECTION_ACTIONS.slice(0, 4), true)).toBe(false);
   });
 
   it("limits public visitors tighter than protected readers, per minute", () => {

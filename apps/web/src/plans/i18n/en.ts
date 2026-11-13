@@ -34,6 +34,9 @@ export const planTextEn = {
   "plans.limit.accessLogRetentionDays": "Access log kept for",
   "plans.limit.annotationMessages": "Comments",
   "plans.value.versions": "{count} for {duration}",
+  "plans.limit.artifactData": "Artifacts with app data",
+  "plans.limit.withSoon": "{label} ({soon})",
+  "plans.value.artifactData": "{count} × {size}",
   ...(Object.fromEntries(
     Object.entries(PLAN_FEATURE_LABELS).map(([feature, label]) => [
       `plans.feature.${feature}`,

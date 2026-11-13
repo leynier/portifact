@@ -2126,7 +2126,7 @@ export const platformBudget = sqliteTable(
     check("platform_budget_single_row", sql`${t.id} = 'global'`),
     check(
       "platform_budget_override_steps",
-      sql`${t.overrideSteps} is null or ${t.overrideSteps} between 1 and 4`,
+      sql`${t.overrideSteps} is null or ${t.overrideSteps} between 1 and 5`,
     ),
   ],
 );

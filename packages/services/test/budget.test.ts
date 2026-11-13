@@ -1,6 +1,11 @@
 import { env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
-import { type PlatformMetrics, PROTECTION_ACTIONS, personalActor } from "@portifact/domain";
+import {
+  EMPTY_METRICS,
+  type PlatformMetrics,
+  PROTECTION_ACTIONS,
+  personalActor,
+} from "@portifact/domain";
 import { beforeEach, describe, expect, it } from "vitest";
 import { updateAccess } from "../src/access.ts";
 import {
@@ -13,6 +18,7 @@ import {
   setAnnotationThreadState,
 } from "../src/annotations.ts";
 import {
+  checkDataWriteCapacity,
   clearBudgetOverride,
   getBudgetState,
   listBudgetAlerts,
@@ -40,13 +46,7 @@ const MID = Date.UTC(2026, 10, 16);
 const NEXT_CYCLE = Date.UTC(2026, 11, 16);
 
 const metrics = (overrides: Partial<PlatformMetrics> = {}): PlatformMetrics => ({
-  storedBytes: 0,
-  r2ClassA: null,
-  r2ClassB: null,
-  workerRequests: null,
-  d1RowsRead: null,
-  d1RowsWritten: null,
-  emails: null,
+  ...EMPTY_METRICS,
   ...overrides,
 });
 
@@ -166,14 +166,21 @@ describe("measuring and recording the budget", () => {
 
   it("escalates protection in the plan's order as projected spend grows", async () => {
     const seen: string[][] = [];
-    for (const usd of [99, 100, 110, 125, 150]) {
+    for (const usd of [99, 100, 105, 110, 125, 150]) {
       seen.push((await measure(usd)).effective.actions);
     }
     expect(seen).toEqual([
       ["stop_new_artifacts"],
       ["stop_new_artifacts", "block_uploads"],
-      ["stop_new_artifacts", "block_uploads", "pause_annotation_writes"],
-      ["stop_new_artifacts", "block_uploads", "pause_annotation_writes", "tighten_public_traffic"],
+      ["stop_new_artifacts", "block_uploads", "pause_data_writes"],
+      ["stop_new_artifacts", "block_uploads", "pause_data_writes", "pause_annotation_writes"],
+      [
+        "stop_new_artifacts",
+        "block_uploads",
+        "pause_data_writes",
+        "pause_annotation_writes",
+        "tighten_public_traffic",
+      ],
       [...PROTECTION_ACTIONS],
     ]);
   });
@@ -206,13 +213,56 @@ describe("measuring and recording the budget", () => {
     await db().update(schema.platformBudget).set({ actions: '"x"', metrics: "{" });
     expect((await getBudgetState(db().global, MID))?.automatic.actions).toEqual([]);
   });
+
+  it("reads metrics stored before the data metrics existed as unmeasured", async () => {
+    await measure(60);
+    await db()
+      .update(schema.platformBudget)
+      .set({ metrics: JSON.stringify({ storedBytes: 7, d1RowsWritten: 3, emails: "x" }) });
+    expect((await getBudgetState(db().global, MID))?.metrics).toEqual(
+      metrics({ storedBytes: 7, d1RowsWritten: 3 }),
+    );
+  });
+
+  it("projects the documents objects' usage and carries it forward when analytics miss it", async () => {
+    // 26 million data rows written by the middle of the cycle: 52 million projected, 2 million
+    // over what is included at US$1 a million; 6 GB stored, 1 GB over at US$0.20.
+    const first = await recordBudgetMeasurement(db().global, {
+      metrics: metrics({ dataRowsWritten: 26_000_000, dataStoredBytes: 6 * GB }),
+      analytics: "ok",
+      now: MID,
+    });
+    expect(first.assessment.items).toMatchObject({ dataRowsWritten: 2, dataStorage: 0.2 });
+    expect(first.assessment.projectedUsd).toBe(11.2);
+    // Past the data admission limit, data writes pause whatever the spend.
+    const admitted = await recordBudgetMeasurement(db().global, {
+      metrics: metrics({ dataRowsWritten: 100_000_000 }),
+      analytics: "ok",
+      now: Date.UTC(2026, 10, 30, 23),
+    });
+    expect(admitted.assessment.admission).toEqual(["dataRowsWritten"]);
+    expect(admitted.effective.actions).toContain("pause_data_writes");
+    expect(admitted.newAlerts.map((alert) => alert.kind)).toContain("admission_dataRowsWritten");
+    const missed = await recordBudgetMeasurement(db().global, {
+      metrics: metrics(),
+      analytics: "failed",
+      now: Date.UTC(2026, 10, 30, 23, 1),
+    });
+    expect(missed.effective.actions).toContain("pause_data_writes");
+    expect(
+      (await getBudgetState(db().global, Date.UTC(2026, 10, 30, 23, 1)))?.metrics,
+    ).toMatchObject({
+      dataRowsWritten: 100_000_000,
+      dataStoredBytes: 6 * GB,
+    });
+  });
 });
 
 describe("operator override", () => {
   it("protects before any measurement and clears back to automatic", async () => {
     const state = await setBudgetOverride(db().global, {
       level: "protect100",
-      steps: 2,
+      steps: 3,
       until: null,
       note: "suspicious traffic",
       now: NOW,
@@ -222,14 +272,19 @@ describe("operator override", () => {
       metrics: { storedBytes: 0 },
       override: {
         level: "protect100",
-        steps: 2,
+        steps: 3,
         until: null,
         note: "suspicious traffic",
         setAt: NOW,
       },
       effective: {
         level: "protect100",
-        actions: ["stop_new_artifacts", "block_uploads", "pause_annotation_writes"],
+        actions: [
+          "stop_new_artifacts",
+          "block_uploads",
+          "pause_data_writes",
+          "pause_annotation_writes",
+        ],
         overridden: true,
       },
     });
@@ -343,7 +398,7 @@ describe("enforcement", () => {
     expect((await deleteArtifact(db(), env.ARTIFACTS, input)).ok).toBe(true);
   });
 
-  it("pauses new comments from the second step; moderation and export keep working", async () => {
+  it("pauses new comments from the third step; moderation and export keep working", async () => {
     const owner = await user();
     const site = await publishSite(owner.id);
     const reader = await user("Reader");
@@ -372,18 +427,18 @@ describe("enforcement", () => {
       },
     };
 
-    await protect("protect100", 1);
+    await protect("protect100", 2);
     const thread = await createAnnotationThread(db(), {
       ...visitor,
       versionId: site.versionId,
       target,
-      body: "Still allowed at the first step",
+      body: "Still allowed at the data step",
       humanCheck,
     });
     if (!thread.ok) throw new Error(thread.message);
     expect(verified).toEqual(["solved"]);
 
-    await protect("protect100", 2);
+    await protect("protect100", 3);
     const paused = await createAnnotationThread(db(), {
       ...visitor,
       versionId: site.versionId,
@@ -414,12 +469,32 @@ describe("enforcement", () => {
     );
   });
 
+  it("the data step refuses new data writes and connects, never reads, exports or erasure", async () => {
+    const global = db().global;
+    // No state yet: nothing is refused.
+    expect(await checkDataWriteCapacity(global, "create", NOW)).toEqual({ ok: true, value: true });
+    await protect("protect100", 1);
+    expect((await checkDataWriteCapacity(global, "create", NOW)).ok).toBe(true);
+    await protect("protect100", 2);
+    for (const work of ["declare", "create", "replace", "bulk_create", "index_step", "connect"]) {
+      expect(await checkDataWriteCapacity(global, work as "create", NOW), work).toMatchObject({
+        ok: false,
+        code: "capacity_unavailable",
+      });
+    }
+    for (const work of ["get", "query", "export_page", "remove", "erase_author_chunk", "renew"]) {
+      expect((await checkDataWriteCapacity(global, work as "get", NOW)).ok, work).toBe(true);
+    }
+    await clearBudgetOverride(global, NOW);
+    expect((await checkDataWriteCapacity(global, "connect", NOW)).ok).toBe(true);
+  });
+
   it("shows accounts a capacity block while protection limits publishing", async () => {
     const owner = await user();
     expect(
       value(await getAccountUsage(db(), { actor: personalActor(owner.id), now: NOW })).blocks,
     ).toEqual([]);
-    await protect("protect100", 2);
+    await protect("protect100", 3);
     const [block] = value(
       await getAccountUsage(db(), { actor: personalActor(owner.id), now: NOW }),
     ).blocks;

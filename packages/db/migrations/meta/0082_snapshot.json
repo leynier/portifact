@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e3cee7ac-d25d-493b-8b3e-94e445951ffd",
+  "id": "c2654d7f-bfeb-4012-a004-4774972d63d3",
   "prevId": "2c8fd52b-ce61-4d00-99fb-3abfc2f4a444",
   "tables": {
     "abuse_reports": {
@@ -3053,14 +3053,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "incarnation": {
-          "name": "incarnation",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "''"
         }
       },
       "indexes": {
@@ -4635,7 +4627,7 @@
         },
         "platform_budget_override_steps": {
           "name": "platform_budget_override_steps",
-          "value": "\"platform_budget\".\"override_steps\" is null or \"platform_budget\".\"override_steps\" between 1 and 4"
+          "value": "\"platform_budget\".\"override_steps\" is null or \"platform_budget\".\"override_steps\" between 1 and 5"
         }
       }
     },
