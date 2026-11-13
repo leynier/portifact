@@ -865,85 +865,98 @@ function ReviewSession({
   const mode = data?.annotations;
   const canComment = mode === "open" && !outdated;
 
-  const bridge = useBridge(frame, start.origin, start.sessionTag, {
-    // The page can forge any of these: a selection only offers a comment the reader still writes
-    // and saves here, and nothing the frame sends counts while a comment is open.
-    onSelection(selected, rect, epoch) {
-      if (suggest.mode !== "off") {
-        if (suggest.mode === "choosing" && epoch === suggest.epoch && selected && !suggest.offer) {
-          setHint(t("suggest.selection.received"));
+  const bridge = useBridge(
+    frame,
+    start.origin,
+    start.sessionTag,
+    {
+      // The page can forge any of these: a selection only offers a comment the reader still writes
+      // and saves here, and nothing the frame sends counts while a comment is open.
+      onSelection(selected, rect, epoch) {
+        if (suggest.mode !== "off") {
+          if (
+            suggest.mode === "choosing" &&
+            epoch === suggest.epoch &&
+            selected &&
+            !suggest.offer
+          ) {
+            setHint(t("suggest.selection.received"));
+          }
+          dispatchSuggest({ type: "selection", target: selected, rect, epoch });
+          return;
         }
-        dispatchSuggest({ type: "selection", target: selected, rect, epoch });
-        return;
-      }
-      if (drafting.current) return;
-      if (!selected || !canComment) {
-        setOffer(null);
-        return;
-      }
-      // Focus stays in the artifact; the "Comment" control follows the frame in the tab order.
-      if (!offered.current) setHint(t("review.selection.received"));
-      setOffer({ target: selected, rect, drawn: true });
+        if (drafting.current) return;
+        if (!selected || !canComment) {
+          setOffer(null);
+          return;
+        }
+        // Focus stays in the artifact; the "Comment" control follows the frame in the tab order.
+        if (!offered.current) setHint(t("review.selection.received"));
+        setOffer({ target: selected, rect, drawn: true });
+      },
+      onElement(picked, rect) {
+        if (suggest.mode !== "off") return;
+        if (!awaitingPick.current || drafting.current) return;
+        stopPicking();
+        if (!canComment) return;
+        setHint(t("review.element.received"));
+        setOffer({ target: picked, rect, drawn: true });
+      },
+      onSelectionRect(rect) {
+        if (suggest.mode !== "off") {
+          // Moves only the "Suggest edit" control while choosing; never an open editor.
+          dispatchSuggest({ type: "selection-rect", rect });
+          return;
+        }
+        // Only moves the control of what is offered; never a target, and never an open comment.
+        if (drafting.current || !offered.current) return;
+        setOfferState((current) =>
+          current ? { ...current, rect: rect ?? current.rect, drawn: rect !== null } : current,
+        );
+      },
+      onRefused(reason: RefusalReason) {
+        announce(refusalMessage(t, reason));
+      },
+      onPickEnded() {
+        stopPicking();
+      },
+      onPageChange() {
+        // A new page, a route change or the session's end: an open edit is gone, unsaved.
+        if (suggest.mode === "editing") announce(t("suggest.discarded"));
+        dispatchSuggest({ type: "page-change" });
+      },
+      onStatus() {
+        // The page can forge a status: the API says what really holds for comments.
+        void threads.refetch();
+      },
+      onSelect(ids) {
+        // Only threads this panel shows count; the hook already dropped IDs never sent to the page.
+        const known = ids.filter(
+          (id) => numbers.has(id) && shown.some((thread) => thread.id === id),
+        );
+        if (known.length === 0) {
+          setSelection((current) => (current.fromFrame ? NO_SELECTION : current));
+          return;
+        }
+        setSelection({ ids: known, fromFrame: true });
+        setSidebarOpen(true);
+        const list = known.map((id) => numbers.get(id)).join(", ");
+        // A polite announcement, not the toast: a click in the artifact must not cover the threads.
+        setHint(
+          known.length === 1
+            ? t("review.thread.activated", { number: list })
+            : t("review.thread.activatedMany", { numbers: list }),
+        );
+        // Scrolled into view after the sidebar renders; focus stays in the artifact.
+        setTimeout(() => {
+          const first = known[0];
+          const card = first ? items.current.get(first) : undefined;
+          card?.scrollIntoView?.({ block: "nearest" });
+        }, 0);
+      },
     },
-    onElement(picked, rect) {
-      if (suggest.mode !== "off") return;
-      if (!awaitingPick.current || drafting.current) return;
-      stopPicking();
-      if (!canComment) return;
-      setHint(t("review.element.received"));
-      setOffer({ target: picked, rect, drawn: true });
-    },
-    onSelectionRect(rect) {
-      if (suggest.mode !== "off") {
-        // Moves only the "Suggest edit" control while choosing; never an open editor.
-        dispatchSuggest({ type: "selection-rect", rect });
-        return;
-      }
-      // Only moves the control of what is offered; never a target, and never an open comment.
-      if (drafting.current || !offered.current) return;
-      setOfferState((current) =>
-        current ? { ...current, rect: rect ?? current.rect, drawn: rect !== null } : current,
-      );
-    },
-    onRefused(reason: RefusalReason) {
-      announce(refusalMessage(t, reason));
-    },
-    onPickEnded() {
-      stopPicking();
-    },
-    onPageChange() {
-      // A new page, a route change or the session's end: an open edit is gone, unsaved.
-      if (suggest.mode === "editing") announce(t("suggest.discarded"));
-      dispatchSuggest({ type: "page-change" });
-    },
-    onStatus() {
-      // The page can forge a status: the API says what really holds for comments.
-      void threads.refetch();
-    },
-    onSelect(ids) {
-      // Only threads this panel shows count; the hook already dropped IDs never sent to the page.
-      const known = ids.filter((id) => numbers.has(id) && shown.some((thread) => thread.id === id));
-      if (known.length === 0) {
-        setSelection((current) => (current.fromFrame ? NO_SELECTION : current));
-        return;
-      }
-      setSelection({ ids: known, fromFrame: true });
-      setSidebarOpen(true);
-      const list = known.map((id) => numbers.get(id)).join(", ");
-      // A polite announcement, not the toast: a click in the artifact must not cover the threads.
-      setHint(
-        known.length === 1
-          ? t("review.thread.activated", { number: list })
-          : t("review.thread.activatedMany", { numbers: list }),
-      );
-      // Scrolled into view after the sidebar renders; focus stays in the artifact.
-      setTimeout(() => {
-        const first = known[0];
-        const card = first ? items.current.get(first) : undefined;
-        card?.scrollIntoView?.({ block: "nearest" });
-      }, 0);
-    },
-  }, start.suggestions === true);
+    start.suggestions === true,
+  );
 
   // The frame only gets the targets of the threads of the page it shows, never bodies or names.
   const { send, state, page } = bridge;
