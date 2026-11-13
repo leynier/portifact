@@ -40,6 +40,12 @@ import {
   thread,
 } from "./suggestion-support.ts";
 
+/** A row the test needs, or a clear failure. */
+function present<T>(row: T | undefined): T {
+  if (row === undefined) throw new Error("missing row");
+  return row;
+}
+
 const MD = { type: "markdown" as const, path: "index.md" };
 const regions = () => regionsFromEnv(env);
 const t = schema.tombstones;
@@ -451,7 +457,9 @@ describe("restore markers, review of #275", () => {
           eq(schema.versionFiles.path, "index.html"),
         ),
       );
-    const body = await (await env.ARTIFACTS_EU.get(`objects/${ws.id}/${file!.sha256}`))!.text();
+    const body =
+      (await (await env.ARTIFACTS_EU.get(`objects/${ws.id}/${present(file).sha256}`))?.text()) ??
+      "";
     const input = { userId: ws.editor.id, artifactId: doc.artifactId, now: NOW };
     value(
       await saveDraft(eu, {
@@ -504,7 +512,9 @@ describe("restore markers, review of #275", () => {
           eq(schema.versionFiles.path, "index.html"),
         ),
       );
-    const body = await (await env.ARTIFACTS_EU.get(`objects/${ws.id}/${file!.sha256}`))!.text();
+    const body =
+      (await (await env.ARTIFACTS_EU.get(`objects/${ws.id}/${present(file).sha256}`))?.text()) ??
+      "";
     const view = value(
       await submitSuggestion(eu, {
         userId: author.id,
@@ -558,9 +568,9 @@ describe("restore markers, review of #275", () => {
       await writeCommentTombstones(eu, job);
     }
     const exported = await exportTombstones(regions());
-    await eu.insert(th).values(before!);
+    await eu.insert(th).values(present(before));
     await eu.insert(m).values(messages);
-    await eu.insert(dr).values(savedDraft!);
+    await eu.insert(dr).values(present(savedDraft));
     await applyTombstones({ global: db().global, all: () => [{ db: eu }] }, exported, NOW + 30);
     const [after] = await eu.select().from(th).where(eq(th.id, view.id));
     const input = {

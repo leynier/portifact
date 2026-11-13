@@ -23,7 +23,6 @@ import { purgeJobs } from "./outbox.ts";
 import { recomputeDirectoryRoles } from "./scim-groups.ts";
 import { chunked, JSON_CHUNK } from "./shapes.ts";
 import { revokedShareLinks } from "./share-links.ts";
-import { DRAFT_MARKER_SQL } from "./suggestion-markers.ts";
 import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
 const IN_CHUNK = 80;
@@ -514,6 +513,17 @@ function leftovers(kind: "account" | "workspace", oneDatabase: boolean, evidence
   return sql`(${global}${regional}${elsewhere})`;
 }
 
+/**
+ * The drafts the `edit_draft` markers name (`<artifact>:<user>:<incarnation>`, decision 0027), as
+ * `rid` and `attempt_id`: each marker is split and looked up by the draft's primary key, so the
+ * work follows the markers, never the table. Neither an artifact ID nor an account ID holds a
+ * colon, and an incarnation is base64url.
+ */
+function markedDrafts(refs: Refs): SQL {
+  const d = schema.editDrafts;
+  return sql`with mk(v) as (${refs.drafts}), parts(a, rest) as (select substr(v, 1, instr(v, ':') - 1), substr(v, instr(v, ':') + 1) from mk where instr(v, ':') > 0) select d.rowid as rid, d.attempt_id as attempt_id from parts cross join ${d} as d on d.artifact_id = parts.a and d.user_id = substr(parts.rest, 1, instr(parts.rest, ':') - 1) and d.incarnation = substr(parts.rest, instr(parts.rest, ':') + 1) where instr(parts.rest, ':') > 0`;
+}
+
 type Side = "global" | "regional" | "every";
 interface Entry {
   name: string;
@@ -643,17 +653,27 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
     // edit cleared, its bytes given back by the usage trigger) or rejected again, and the draft
     // deleted again. Only an undecided suggestion changes (a decided one stays as it is, which the
     // immutability trigger also holds), and only the draft of the marker's incarnation goes.
+    // Driven by the markers alone (the attempts' thread index, the drafts' primary key), never by
+    // every running attempt or draft. The ended attempts are returned so `applyTombstones` releases
+    // their uploads through `endAttempt`, the one way an attempt ends.
     {
       name: "suggestionAttempts",
       side: "regional",
-      build: (db, refs) =>
-        db
-          .update(schema.acceptanceAttempts)
+      build: (db, refs) => {
+        const aa = schema.acceptanceAttempts;
+        return db
+          .update(aa)
           .set({ state: "ended", reason: "revoked", updatedAt: now })
           .where(
-            sql`${schema.acceptanceAttempts.state} = 'running' and (${schema.acceptanceAttempts.threadId} in (${refs.withdrawnSuggestions}) or ${schema.acceptanceAttempts.threadId} in (${refs.rejectedSuggestions}) or exists (select 1 from ${schema.editDrafts} where ${schema.editDrafts.attemptId} = ${schema.acceptanceAttempts.id} and ${DRAFT_MARKER_SQL} in (${refs.drafts})))`,
+            sql`${aa.state} = 'running' and ${aa.id} in (select ${aa.id} from ${aa} where ${aa.threadId} in (${refs.withdrawnSuggestions}) union all select ${aa.id} from ${aa} where ${aa.threadId} in (${refs.rejectedSuggestions}) union all select marked.attempt_id from (${markedDrafts(refs)}) as marked where marked.attempt_id is not null)`,
           )
-          .returning({ id: schema.acceptanceAttempts.id }),
+          .returning({
+            id: aa.id,
+            artifactId: aa.artifactId,
+            ownerId: aa.ownerId,
+            origin: aa.origin,
+          });
+      },
     },
     {
       name: "withdrawnSuggestions",
@@ -694,7 +714,7 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
       build: (db, refs) =>
         db
           .delete(schema.editDrafts)
-          .where(sql`${DRAFT_MARKER_SQL} in (${refs.drafts})`)
+          .where(sql`rowid in (select marked.rid from (${markedDrafts(refs)}) as marked)`)
           .returning({ artifactId: schema.editDrafts.artifactId }),
     },
     // Grants of artifact data revoked before the restore (decision 0026, "The grant"): revoked
@@ -1159,7 +1179,8 @@ async function applyRegionalTombstones(
       rejectedSuggestions: part(lists.suggestion_rejected),
       drafts: part(lists.edit_draft),
     };
-    for (const [name, rows] of await runEntries(db, regional, refs)) {
+    const results = await runEntries(db, regional, refs);
+    for (const [name, rows] of results) {
       counts.set(name, (counts.get(name) ?? 0) + rows.length);
     }
   }
@@ -1227,7 +1248,8 @@ export async function applyTombstones(
   }
   if (shared) {
     // The one batch of the default region, whose database is the global one.
-    add(await runEntries(shared, restoreEntries(now, true, [...evidence]), SUBQUERIES));
+    const results = await runEntries(shared, restoreEntries(now, true, [...evidence]), SUBQUERIES);
+    add(results);
   } else {
     const entries = restoreEntries(now, false, [...evidence]).filter(
       (entry) => entry.side !== "regional",
