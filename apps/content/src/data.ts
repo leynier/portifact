@@ -10,6 +10,8 @@
 // - `grant/check`: whether the cookie was kept; the frame tells the viewer, the popup its opener.
 // - `me`, `c/<collection>[/<id>]`, `mine`: the data API, same-origin only (`apiGate`), after the
 //   reading authorization, the network policy, the traffic quota and budget protection.
+// - `live` (a WebSocket upgrade) and `live/renew`: live updates (delivery 7), the same gate and
+//   reading authorization; a connection lasts a minute unless the page renews it.
 // - `data.js`: the client script.
 //
 // The grant's claims are renewed against D1 every 60 seconds (`renewDataGrant`), so revoking,
@@ -30,6 +32,7 @@ import {
   DataQuery,
   DocumentId,
   ExportCursor,
+  LiveSocketId,
   type PageCaller,
   type PageDataCommand,
   type StorageReport,
@@ -38,11 +41,14 @@ import type { RegionalDb } from "@portifact/db";
 import { apiGate, beginGate, redeemGate } from "@portifact/domain/artifact-data";
 import {
   type DataObjects,
+  dataLiveEnabled,
   nonceDigest,
+  openLiveConnection,
   pageDataCommand,
   randomToken,
   redeemDataGrantCode,
   renewDataGrant,
+  renewLiveConnection,
 } from "@portifact/services";
 import { cookieValue, MAX_VALUE_LENGTH, seal, unseal, usableSecret } from "./cookies.ts";
 import { cspNonce } from "./inject.ts";
@@ -63,6 +69,7 @@ export interface DataEnv {
   APP_ORIGIN: string;
   READ_SESSION_SECRET?: string | undefined;
   ARTIFACT_DATA_ENABLED?: string | undefined;
+  DATA_LIVE_ENABLED?: string | undefined;
 }
 
 /** Whether a path is one of the data routes (routed before the `GET`/`HEAD` check). */
@@ -386,8 +393,8 @@ async function api(context: DataContext, secret: string, path: string): Promise<
   if (apiGate(request.headers, origin, write) === "refused") {
     return apiError("forbidden", "Only the artifact's own page may use its data.");
   }
-  if (path !== "me" && path !== "mine" && !path.startsWith("c/")) {
-    return apiError("not_found", "Not found.");
+  if (path !== "me" && path !== "mine" && path !== "live" && path !== "live/renew") {
+    if (!path.startsWith("c/")) return apiError("not_found", "Not found.");
   }
   const reader = await context.read();
   if (reader === null) return apiError("not_found", "Not found.");
@@ -395,6 +402,9 @@ async function api(context: DataContext, secret: string, path: string): Promise<
   if (refusal !== null) return refusal;
   const held = await grantOf(context, secret);
   const setCookies = [...reader.setCookies, ...held.setCookies];
+  if (path === "live" || path === "live/renew") {
+    return live(context, reader, held.claims, setCookies, path);
+  }
   if (path === "me") {
     const me: DataMe =
       held.claims === null
@@ -445,6 +455,68 @@ async function api(context: DataContext, secret: string, path: string): Promise<
       ? apiJson({ replayed: true }, 200)
       : apiJson(result.value.value, parsed.status)
     : apiError(result.code, result.message);
+  return answered(context, reader, response, setCookies);
+}
+
+// Live updates (delivery 7).
+
+/**
+ * `live` opens a connection (`GET` with `Upgrade: websocket`, the exact origin), `live/renew`
+ * (`POST` JSON `{ socket }`) keeps it another minute. The caller is the grant holder, bound to the
+ * grant's ID, or a reader, bound to reading this artifact now: renewing needs the same grant, or
+ * any current reading of the artifact plus the connection's ID, which only its own socket learned.
+ */
+async function live(
+  context: DataContext,
+  reader: DataReader,
+  claims: DataGrantClaims | null,
+  setCookies: string[],
+  path: string,
+): Promise<Response> {
+  const { request } = context;
+  const deps = { objects: context.objects, enabled: dataLiveEnabled(context.env) };
+  const caller = {
+    artifactId: context.artifactId,
+    author: claims === null ? null : claims.vid,
+    principal: claims === null ? "reader" : claims.gid,
+    limits: reader.limits,
+    now: context.now,
+  };
+  if (path === "live") {
+    if (request.method !== "GET" || request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
+      return answered(
+        context,
+        reader,
+        apiError("invalid_input", "Open a WebSocket.", 426),
+        setCookies,
+      );
+    }
+    const opened = await openLiveConnection(context.db, deps, caller);
+    if (!opened.ok) {
+      return answered(context, reader, apiError(opened.code, opened.message), setCookies);
+    }
+    context.charge(reader, 0);
+    const headers = new Headers();
+    for (const cookie of setCookies) headers.append("Set-Cookie", cookie);
+    return new Response(null, { status: 101, webSocket: opened.value.webSocket, headers });
+  }
+  if (request.method !== "POST") {
+    return answered(
+      context,
+      reader,
+      apiError("invalid_input", "Method not allowed.", 405),
+      setCookies,
+    );
+  }
+  const body = await jsonBody(request);
+  const socket = LiveSocketId.safeParse(body?.socket);
+  if (!socket.success) {
+    return answered(context, reader, apiError("invalid_input", "Name the connection."), setCookies);
+  }
+  const renewed = await renewLiveConnection(context.db, deps, { ...caller, socketId: socket.data });
+  const response = renewed.ok
+    ? apiJson(renewed.value, 200)
+    : apiError(renewed.code, renewed.message);
   return answered(context, reader, response, setCookies);
 }
 
@@ -576,7 +648,8 @@ function clientScript(request: Request): Response {
 
 /**
  * `window.portifact.data`: `me()`, `collection(name)` with `list(query)`, `get(id)`,
- * `create(body)`, `replace(id, body)` and `remove(id)`, `mine(after)`, and `allow()`, which starts
+ * `create(body)`, `replace(id, body)` and `remove(id)`, `mine(after)`, `live(collections, onChange)`
+ * (live updates, delivery 7; `close()` ends them), and `allow()`, which starts
  * the grant: in the viewer's frame it asks the viewer (which draws the control and reloads the
  * frame once granted), otherwise it opens the top-level flow in a popup, which answers on this
  * origin only, and falls back to this tab. Every write carries an
@@ -636,9 +709,63 @@ export const CLIENT_SCRIPT = `(() => {
       if (!popup) location.assign(url);
     });
   const mine = (after) => call("GET", "mine" + (after ? "?after=" + encodeURIComponent(after) : ""));
+  // Live updates: follows collections' changes over one WebSocket, renewed every 30 seconds
+  // (a connection lasts a minute), reconnecting after a deadline or a reset (4001, 4003) and
+  // stopping for good when the day's messages are spent or the author's data was erased.
+  const live = (names, onChange) => {
+    let socket = null;
+    let timer = null;
+    let closed = false;
+    let wait = 1000;
+    const stop = () => {
+      if (timer !== null) clearInterval(timer);
+      timer = null;
+    };
+    const open = () => {
+      if (closed) return;
+      const url = new URL(base + "live", location.href);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      socket = new WebSocket(url);
+      socket.addEventListener("message", (event) => {
+        let message = null;
+        try {
+          message = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (message && typeof message.connected === "string") {
+          wait = 1000;
+          const id = message.connected;
+          for (const name of names) socket.send(JSON.stringify({ subscribe: name }));
+          stop();
+          timer = setInterval(() => {
+            call("POST", "live/renew", { socket: id }).catch(() => {});
+          }, 30000);
+          return;
+        }
+        if (message && typeof message.collection === "string" && typeof message.kind === "string") {
+          onChange(message);
+        }
+      });
+      socket.addEventListener("close", (event) => {
+        stop();
+        if (closed || event.code === 4029 || event.code === 4410 || event.code === 4008) return;
+        setTimeout(open, wait);
+        wait = Math.min(wait * 2, 60000);
+      });
+    };
+    open();
+    return Object.freeze({
+      close: () => {
+        closed = true;
+        stop();
+        if (socket !== null) socket.close(1000);
+      },
+    });
+  };
   window.portifact = Object.freeze({
     ...(window.portifact || {}),
-    data: Object.freeze({ me: () => call("GET", "me"), collection, mine, allow }),
+    data: Object.freeze({ me: () => call("GET", "me"), collection, mine, allow, live }),
   });
 })();
 `;

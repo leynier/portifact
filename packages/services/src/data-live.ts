@@ -39,6 +39,8 @@ export interface LiveCaller {
   author: string | null;
   /** The grant's ID for a visitor, the read or link session's for a reader. */
   principal: string;
+  /** The owner plan's per-artifact limits when the caller already holds them (no plan read). */
+  limits?: ArtifactDataLimits | undefined;
   now: number;
 }
 
@@ -63,7 +65,7 @@ interface LiveTarget {
 async function liveTarget(
   db: RegionalDb,
   deps: LiveDeps,
-  input: { artifactId: string; now: number },
+  input: { artifactId: string; limits?: ArtifactDataLimits | undefined; now: number },
 ): Promise<Result<LiveTarget>> {
   if (!deps.enabled) return notAvailable();
   if (deps.objects === null) {
@@ -77,7 +79,8 @@ async function liveTarget(
   if (artifact?.state !== "active") return notAvailable();
   const row = await readDataRow(db, deps.objects.region, input.artifactId);
   if (row === null) return notAvailable();
-  const plan = (await ownerEntitlements(db.global, row.ownerId, input.now)).data;
+  const limits =
+    input.limits ?? (await ownerEntitlements(db.global, row.ownerId, input.now)).data.perArtifact;
   return ok({
     envelope: {
       artifactId: row.artifactId,
@@ -86,7 +89,7 @@ async function liveTarget(
       generation: row.generation,
       epoch: row.epoch,
     },
-    limits: plan.perArtifact,
+    limits,
     objects: deps.objects,
   });
 }

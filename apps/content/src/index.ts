@@ -136,6 +136,7 @@ export interface Env extends BudgetEnv {
   ARTIFACT_DOCUMENTS?: DurableObjectNamespace | undefined;
   /** Exactly `"true"` turns the page's data routes on; anything else answers them 404. */
   ARTIFACT_DATA_ENABLED?: string | undefined;
+  DATA_LIVE_ENABLED?: string | undefined;
 }
 
 /** Whether this deployment serves custom hosts: the same condition the app decides with. */

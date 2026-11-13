@@ -388,6 +388,10 @@ reason(
   ],
 );
 reason(
+  "artifact data's live updates (decision 0026, delivery 7): a connection and its renewal change no document; what a connection receives is already audited where it was written",
+  ["openLiveConnection", "renewLiveConnection"],
+);
+reason(
   "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",
   [
     "sendModerationNotice",
