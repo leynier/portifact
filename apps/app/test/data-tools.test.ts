@@ -3,7 +3,7 @@
 // error, needs the same scope, and refuses a stranger and a workspace member alike.
 import { env } from "cloudflare:workers";
 import { regionsFromEnv, schema } from "@portifact/db";
-import { createWorkspace } from "@portifact/services";
+import { createWorkspace, hashRequest } from "@portifact/services";
 import { describe, expect, it } from "vitest";
 import { DATA_TOOL_SCOPES } from "../src/mcp/data-tools.ts";
 import { TOOL_SCOPES } from "../src/mcp/tools.ts";
@@ -451,5 +451,51 @@ describe("artifact data tools", () => {
       id: "AAAAAAAAAAAAAAAA",
     });
     expect(missing.structuredContent).toMatchObject({ error: { code: "not_found" } });
+  });
+
+  it("answers a key still running as a conflict, and pages a large export with a cursor", async () => {
+    const b = await both("data-running@example.test");
+    const id = await publish(b);
+    const me = await (await b.apiCall("/api/v1/me")).json<{ userId: string }>();
+    // A claim with no answer yet: the first request with this key is still running.
+    await regionsFromEnv(env)
+      .get("default")
+      .db.insert(schema.operations)
+      .values({
+        actorId: me.userId,
+        idempotencyKey: "still-running-key",
+        operation: "data.build_indexes",
+        requestHash: await hashRequest({ artifactId: id }),
+        createdAt: Date.now(),
+      });
+    const running = await b.tool("build_data_indexes", {
+      artifactId: id,
+      idempotencyKey: "still-running-key",
+    });
+    expect(fromTool(running)).toMatchObject({
+      ok: false,
+      body: { error: { code: "version_conflict" } },
+    });
+
+    await b.tool("declare_data_collection", { artifactId: id, name: "notes", mode: "own" });
+    // A hundred bodies of 15 KiB: more than one export page's 1 MiB (written through the API,
+    // since an MCP request body is itself capped at 1 MiB).
+    const text = "x".repeat(15 * 1024);
+    const created = await b.apiCall(
+      `/api/v1/artifacts/${id}/data/collections/notes/documents/bulk`,
+      send("POST", { documents: Array.from({ length: 100 }, (_, n) => ({ n, text })) }),
+    );
+    expect(created.status).toBe(201);
+    const first = await b.tool("export_artifact_data", { artifactId: id });
+    const page = first.structuredContent as { rows: unknown[]; next: string | null };
+    expect(page.rows.length).toBeLessThan(100);
+    expect(page.next).not.toBeNull();
+    expect((first.content as { text: string }[])[0]?.text).toContain(
+      `More: call again with after "${page.next}"`,
+    );
+    const rest = await b.tool("export_artifact_data", { artifactId: id, after: page.next });
+    const second = rest.structuredContent as { rows: unknown[]; next: string | null };
+    expect(page.rows.length + second.rows.length).toBe(100);
+    expect(second.next).toBeNull();
   });
 });
