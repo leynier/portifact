@@ -328,7 +328,7 @@ export async function publishDraft(
  */
 export async function endAttempt(
   db: RegionalDb,
-  attempt: Pick<AttemptRow, "id" | "artifactId" | "ownerId" | "origin" | "versionId">,
+  attempt: Pick<AttemptRow, "id" | "artifactId" | "ownerId" | "origin">,
   reason: AttemptEndReason,
   now: number,
 ): Promise<void> {
@@ -354,10 +354,10 @@ export async function endAttempt(
       .set({ state: "ended", reason, updatedAt: now })
       .where(and(eq(at.id, attempt.id), eq(at.state, "running"))),
   ]);
-  if (attempt.versionId !== null) {
-    const { sessionId } = serverIdsOf(attempt.id);
-    await closeUploadSession(db, { ownerId: attempt.ownerId, sessionId, now }, "failed");
-  }
+  // Keyed by the attempt, so an upload prepared before a crash that kept `version_id` from being
+  // recorded is released too; with none, there is nothing to close.
+  const { sessionId } = serverIdsOf(attempt.id);
+  await closeUploadSession(db, { ownerId: attempt.ownerId, sessionId, now }, "failed");
 }
 
 // The claim and the completion

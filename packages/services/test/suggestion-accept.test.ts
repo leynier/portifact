@@ -17,7 +17,7 @@ import { expireAcceptAttempts } from "../src/suggestion-maintenance.ts";
 import { planSuggestion } from "../src/suggestion-plans.ts";
 import { submitSuggestion, withdrawSuggestion } from "../src/suggestions.ts";
 import { db, NOW, user, value } from "./fixtures.ts";
-import { raceBeforeBatchWith, raceBeforeFirstWrite } from "./race.ts";
+import { raceBeforeBatchWith, raceBeforeFirstWrite, raceBeforeStatement } from "./race.ts";
 import {
   artifactOf,
   attempts,
@@ -518,6 +518,20 @@ describe("recovery", () => {
       await runJob(db(), env.ARTIFACTS, message, NOW + SUGGESTION_LIMITS.attemptMs + 2, JOB_DEPS),
     ).toBe("done");
     expect(await versionCount(s.doc.artifactId)).toBe(1);
+  });
+
+  it("releases an upload prepared before a crash kept its version from being recorded", async () => {
+    const s = await setup();
+    value(await s.accept());
+    const [job] = await jobsOf("suggestion_accept", s.doc.artifactId);
+    const message = { id: job?.id ?? 0, topic: "suggestion_accept" as const };
+    const raced = raceBeforeStatement(/update "acceptance_attempts" set "version_id"/, crash);
+    await expect(runJob(raced, env.ARTIFACTS, message, NOW + 2_000, JOB_DEPS)).rejects.toThrow();
+    const [attempt] = await attempts(s.doc.artifactId);
+    expect(attempt?.versionId).toBeNull();
+    expect(await uploadState(attempt?.id ?? "")).toBe("uploading");
+    await expireAcceptAttempts(db(), NOW + 100 + SUGGESTION_LIMITS.attemptMs);
+    expect(await uploadState(attempt?.id ?? "")).toBe("failed");
   });
 
   it("ends the attempt when budget protection refuses the publish at the job", async () => {
