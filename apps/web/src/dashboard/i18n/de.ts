@@ -6,6 +6,11 @@ import type { Catalog } from "./en.ts";
 export const de = {
   ...planTextDe,
   "app.title": "Portifact",
+  "dataGrant.viewer.saving": "Diese Seite speichert, was du eingibst",
+  "dataGrant.viewer.savingHint":
+    "Sie kennt dich über deinen Anzeigenamen und eine ID für dieses Artifact. Du kannst das jederzeit beenden.",
+  "dataGrant.viewer.stop": "Nicht mehr in meinem Namen speichern",
+  "dataGrant.viewer.stopped": "Diese Seite speichert nicht mehr in deinem Namen",
   "sharedData.download": "Herunterladen, was ich gespeichert habe",
   "sharedData.downloadNamed": "Herunterladen, was du in {name} gespeichert hast",
   "sharedData.downloaded": "{file} gespeichert",

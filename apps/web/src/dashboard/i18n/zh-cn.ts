@@ -6,6 +6,11 @@ import type { Catalog } from "./en.ts";
 export const zhCN = {
   ...planTextZhCN,
   "app.title": "Portifact",
+  "dataGrant.viewer.saving": "此页面会保存你输入的内容",
+  "dataGrant.viewer.savingHint":
+    "它通过你的显示名称和此 artifact 专用的 ID 识别你。你可以随时停止。",
+  "dataGrant.viewer.stop": "停止以我的身份保存",
+  "dataGrant.viewer.stopped": "此页面不再以你的身份保存",
   "sharedData.download": "下载我保存的内容",
   "sharedData.downloadNamed": "下载你在 {name} 中保存的内容",
   "sharedData.downloaded": "已保存 {file}",

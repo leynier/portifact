@@ -153,3 +153,10 @@ export const OwnDataPage = z.strictObject({
 export type OwnDataPage = z.infer<typeof OwnDataPage>;
 
 export const OwnDocumentDeletion = z.strictObject({ deleted: z.literal(true) });
+
+/** Whether the person has open grants on one artifact (`GET /api/v1/account/data-grants/:id`). */
+export const DataGrantStatus = z.strictObject({
+  artifactId: z.string(),
+  openGrants: z.number().int().min(0),
+});
+export type DataGrantStatus = z.infer<typeof DataGrantStatus>;

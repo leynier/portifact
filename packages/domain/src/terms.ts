@@ -119,6 +119,7 @@ export const ACCOUNT_SESSION_OPERATIONS = {
   issue_data_grant: "refused",
   revoke_data_grants: "removes",
   export_own_data: "leaving",
+  read_data_grant_status: "read",
   delete_own_document: "removes",
 } as const satisfies Record<string, "read" | "removes" | "narrowing" | "leaving" | "refused">;
 

@@ -63,6 +63,7 @@ export const ACCOUNT_ROUTE_OPERATIONS: Readonly<Record<string, AccountSessionOpe
   "POST /api/v1/account/data-grants": "issue_data_grant",
   "DELETE /api/v1/account/data-grants/:artifactId": "revoke_data_grants",
   "GET /api/v1/account/data-grants/:artifactId/mine": "export_own_data",
+  "GET /api/v1/account/data-grants/:artifactId": "read_data_grant_status",
   "DELETE /api/v1/account/data-grants/:artifactId/documents/:collection/:id": "delete_own_document",
 };
 

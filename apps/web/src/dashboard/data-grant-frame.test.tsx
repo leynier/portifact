@@ -101,4 +101,30 @@ describe("the viewer's frame grant", () => {
     expect(frame.src).toBe("");
     expect(server.bodies).toEqual([]);
   });
+
+  it("shows an open grant and stops it from the viewer", async () => {
+    const server = fakeServer();
+    server.dataGrantControls[ID] = CONTROL;
+    server.dataGrants = [
+      {
+        artifactId: ID,
+        artifactName: "Board",
+        host: `${ID}.portifact.dev`,
+        openGrants: 1,
+        firstGrantedAt: "2026-11-01T10:00:00.000Z",
+        lastGrantedAt: "2026-11-01T10:00:00.000Z",
+        expiresAt: "2026-12-01T10:00:00.000Z",
+      },
+    ];
+    renderInDashboard(<Harness />, server);
+    expect(await screen.findByText("This page saves what you enter")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop saving as me" }));
+    await waitFor(() => expect(screen.queryByText("This page saves what you enter")).toBeNull());
+    expect(server.dataGrants[0]?.openGrants).toBe(0);
+  });
+
+  it("shows nothing when the person has no open grant", async () => {
+    setup();
+    await waitFor(() => expect(screen.queryByText("This page saves what you enter")).toBeNull());
+  });
 });

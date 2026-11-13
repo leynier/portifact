@@ -59,6 +59,7 @@ import {
   DataGrantControl,
   DataGrantList,
   DataGrantRevocation,
+  DataGrantStatus,
   DataQueryPage,
   DisconnectResult,
   DocumentPreview,
@@ -238,6 +239,8 @@ export interface DashboardApi {
   issueDataGrant(input: DataGrantCodeRequest): Promise<DataGrantCode>;
   /** "Data you shared": the artifacts the person granted. */
   dataGrants(after?: string | null): Promise<DataGrantList>;
+  /** Whether the person has open grants on an artifact (the viewer's "stop saving as me"). */
+  dataGrantStatus(artifactId: string): Promise<DataGrantStatus>;
   /** One page of the documents the person created in an artifact. */
   ownData(artifactId: string, after: string | null): Promise<OwnDataPage>;
   /** Deletes one document the person created. */
@@ -871,6 +874,9 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     dataGrants(after) {
       const query = after ? `?${new URLSearchParams({ after })}` : "";
       return call(`/api/v1/account/data-grants${query}`, DataGrantList);
+    },
+    dataGrantStatus(artifactId) {
+      return call(`/api/v1/account/data-grants/${encodeURIComponent(artifactId)}`, DataGrantStatus);
     },
     ownData(artifactId, after) {
       const query = after ? `?${new URLSearchParams({ after })}` : "";

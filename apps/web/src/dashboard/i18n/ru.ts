@@ -7,6 +7,11 @@ import type { Catalog } from "./en.ts";
 export const ru = {
   ...planTextRu,
   "app.title": "Portifact",
+  "dataGrant.viewer.saving": "Эта страница сохраняет то, что вы вводите",
+  "dataGrant.viewer.savingHint":
+    "Она знает вас по отображаемому имени и идентификатору для этого artifact. Вы можете остановить это в любой момент.",
+  "dataGrant.viewer.stop": "Не сохранять от моего имени",
+  "dataGrant.viewer.stopped": "Эта страница больше не сохраняет от вашего имени",
   "sharedData.download": "Скачать то, что я сохранил(а)",
   "sharedData.downloadNamed": "Скачать то, что вы сохранили в {name}",
   "sharedData.downloaded": "{file} сохранён",

@@ -5,6 +5,11 @@ import { planTextEn } from "../../plans/i18n/en.ts";
 export const en = {
   ...planTextEn,
   "app.title": "Portifact",
+  "dataGrant.viewer.saving": "This page saves what you enter",
+  "dataGrant.viewer.savingHint":
+    "It knows you by your display name and an ID for this artifact. You can stop it at any time.",
+  "dataGrant.viewer.stop": "Stop saving as me",
+  "dataGrant.viewer.stopped": "This page no longer saves as you",
   "sharedData.download": "Download what I saved",
   "sharedData.downloadNamed": "Download what you saved in {name}",
   "sharedData.downloaded": "Saved {file}",

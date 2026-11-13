@@ -1615,6 +1615,12 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     const control = server.dataGrantControls[decodeURIComponent(grantControl[1] as string)];
     return control ? Response.json(control) : apiError("not_found", 404);
   }
+  const status = /^\/api\/v1\/account\/data-grants\/([^/]+)$/.exec(path);
+  if (status && method === "GET") {
+    const artifactId = decodeURIComponent(status[1] as string);
+    const item = server.dataGrants.find((grant) => grant.artifactId === artifactId);
+    return Response.json({ artifactId, openGrants: item?.openGrants ?? 0 });
+  }
   const own = /^\/api\/v1\/account\/data-grants\/([^/]+)\/mine$/.exec(path);
   if (own && method === "GET") {
     const rows = server.ownData[decodeURIComponent(own[1] as string)] ?? [];

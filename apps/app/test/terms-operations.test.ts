@@ -313,6 +313,7 @@ const ACCOUNT_ROUTES: Record<string, "open" | "refused"> = {
   "POST /api/v1/account/data-grants": "refused",
   "DELETE /api/v1/account/data-grants/:artifactId": "open",
   "GET /api/v1/account/data-grants/:artifactId/mine": "open",
+  "GET /api/v1/account/data-grants/:artifactId": "open",
   "DELETE /api/v1/account/data-grants/:artifactId/documents/:collection/:id": "open",
 };
 

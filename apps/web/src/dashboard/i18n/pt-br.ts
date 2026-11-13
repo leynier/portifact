@@ -6,6 +6,11 @@ import type { Catalog } from "./en.ts";
 export const ptBR = {
   ...planTextPtBR,
   "app.title": "Portifact",
+  "dataGrant.viewer.saving": "Esta página salva o que você digita",
+  "dataGrant.viewer.savingHint":
+    "Ela conhece você pelo nome de exibição e um ID para este artifact. Você pode parar a qualquer momento.",
+  "dataGrant.viewer.stop": "Parar de salvar em meu nome",
+  "dataGrant.viewer.stopped": "Esta página não salva mais em seu nome",
   "sharedData.download": "Baixar o que salvei",
   "sharedData.downloadNamed": "Baixar o que você salvou em {name}",
   "sharedData.downloaded": "{file} salvo",

@@ -34,6 +34,7 @@ import {
   DataGrantControl,
   DataGrantList,
   DataGrantRevocation,
+  DataGrantStatus,
   DisconnectResult,
   ERROR_STATUS,
   type ErrorCode,
@@ -66,6 +67,7 @@ import {
   listBrowserSessions,
   listConnectedApps,
   listDataGrants,
+  openDataGrants,
   RecipientSuppressedError,
   readBrandLogo,
   removeBrandLogo,
@@ -610,6 +612,21 @@ export function accountRoutes(deps: AccountDeps) {
           expiresAt: iso(result.value.expiresAt),
         }),
       );
+    }),
+  );
+
+  routes.get(
+    "/api/v1/account/data-grants/:artifactId",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      const artifactId = ArtifactId.safeParse(c.req.param("artifactId"));
+      if (!artifactId.success) return error(c, "not_found", "Artifact not found.");
+      const open = await openDataGrants(await artifactDb(c.env, artifactId.data), {
+        userId: session.userId,
+        artifactId: artifactId.data,
+        now: deps.now(),
+      });
+      return c.json(DataGrantStatus.parse({ artifactId: artifactId.data, openGrants: open }));
     }),
   );
 
