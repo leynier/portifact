@@ -76,7 +76,7 @@ const DEVELOP = {
   // findings; and the cleanup of expired sign-in records, one batch.
   // And the legal holds whose release date came (`releaseDueHolds`), one batch.
   // And the leftover journal scan positions of ended account deletions (`pruneJournalCursors`,
-  // decision 0026): one read of at most 50, and no delete when none is left.
+  // decision 0026): with one database, one delete of at most 50 eligible rows, returning them.
   // Plus the prune of preview codes (decision 0027): one read of due rows (its R2 listing adds
   // no D1 call; the delete runs only when a row is due).
   runMaintenance: 74,

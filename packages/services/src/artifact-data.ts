@@ -1085,7 +1085,9 @@ export async function reconcileObject(
   if (level !== null) {
     // Holds converge by level first (the fence job's rule); only a disagreement the rule cannot
     // settle (a hold D1 does not know, a prepared erase, another owner or generation) is left to
-    // `reconcile` below, which quarantines it. A lost claim leaves the change to the job waiting.
+    // `reconcile` below, which quarantines it. `converging` means the attempt wrote nothing: a
+    // fence of that change may be waiting, or the claim was lost to a racing change; the next
+    // delivery or reconciliation compares the levels again.
     const converged = await convergeHold(db, artifactId, control, current, now, 0, level);
     if (converged === "corrective") return "converge";
     if (converged === "lost") return "converging";
