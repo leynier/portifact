@@ -96,6 +96,11 @@ describe("legal pages", () => {
       "rights needed to host",
       "30 days",
       "six months",
+      'id="suggestions"',
+      "you grant the customer that holds the artifact's personal space or workspace a non-exclusive",
+      "Accepting and rejecting require an authorized person's dashboard session",
+      "If none can be applied automatically, acceptance creates change-list items without publishing a new version",
+      "This is not a blanket waiver of moral rights",
     ]) {
       expect(terms, text).toContain(text);
     }
@@ -109,6 +114,13 @@ describe("legal pages", () => {
       "Access logs (who opened an artifact and when)",
       "__Host-pf.session_token",
       "__Host-pf_terms",
+      "<strong>Edit suggestions.</strong>",
+      "<strong>Change lists.</strong>",
+      "preview.portifact.dev",
+      "Change list items",
+      "This endpoint does not read or set cookies",
+      "a deleted-account label does not remove personal information",
+      "Eligibility or access expiry does not mean instantaneous erasure from storage",
     ]) {
       expect(privacy, text).toContain(text);
     }
@@ -140,6 +152,7 @@ describe("legal pages", () => {
       'id="annex-i"',
       'id="annex-ii"',
       'id="subprocessors"',
+      "change lists and drafts of edits",
     ]) {
       expect(dpa, text).toContain(text);
     }
