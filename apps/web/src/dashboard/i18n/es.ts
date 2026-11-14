@@ -6,6 +6,39 @@ import type { Catalog } from "./en.ts";
 export const es = {
   ...planTextEs,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Guardar datos sin cuenta",
+  "policies.anonymousData.hint":
+    "Si las páginas de los artefactos públicos del espacio de trabajo pueden guardar lo que escriben personas sin cuenta. Los editores lo siguen eligiendo en cada artefacto, tras una verificación humana. Permitirlo requiere la función de políticas en el plan del espacio de trabajo.",
+  "policies.anonymousData.forbidden": "Solo visitantes con sesión iniciada",
+  "policies.anonymousData.forbiddenHint":
+    "Las páginas solo guardan para quienes iniciaron sesión y lo permitieron.",
+  "policies.anonymousData.allowed": "También personas sin cuenta",
+  "policies.anonymousData.allowedHint":
+    "Los editores pueden abrir los datos de un artefacto público a cualquiera. Nadie se conoce por su nombre, así que modera lo que se guarda.",
+  "audit.kind.dataWritersAnyone": "Permitió que personas sin cuenta guarden datos desde la página",
+  "audit.kind.dataWritersSignedIn":
+    "Limitó guardar datos desde la página a visitantes con sesión iniciada",
+  "audit.policy.anonymousData":
+    "{value, select, true {personas sin cuenta pueden guardar datos} other {solo visitantes con sesión iniciada guardan datos}}",
+  "artifactData.writers.label": "Quién guarda desde la página",
+  "artifactData.writers.signedIn": "Visitantes con sesión iniciada",
+  "artifactData.writers.anyone": "Cualquiera, también personas sin cuenta",
+  "dataGrant.anonymous.title": "¿Permitir que {host} guarde lo que escribes, sin cuenta?",
+  "dataGrant.anonymous.learns":
+    "La página solo conoce un ID para este artefacto: ni nombre, ni correo, ni cuenta.",
+  "dataGrant.anonymous.lasts": "Esto dura {days} días en este navegador.",
+  "dataGrant.anonymous.noAccount":
+    "Sin cuenta, Portifact no puede mostrarte ni borrar después lo que guardaste. Solo la propia página puede, mientras este navegador lo conserve.",
+  "dataGrant.anonymous.signIn": "Iniciar sesión en su lugar",
+  "dataGrant.anonymous.signInTitle": "Inicia sesión para guardar",
+  "dataGrant.anonymous.closed":
+    "Este artefacto solo guarda para personas que inician sesión. Inicia sesión y vuelve a elegir guardar.",
+  "dataGrant.anonymous.humanNeeded":
+    "Completa la verificación rápida de que eres humano y la página podrá guardar lo que escribes.",
+  "dataGrant.anonymous.humanFailed":
+    "La verificación de que eres humano no se superó. Vuelve a pulsar Permitir.",
+  "dataGrant.anonymous.humanUnavailable":
+    "La verificación de que eres humano no pudo ejecutarse en este navegador. Inicia sesión para guardar.",
   "sharedData.ask": "Preguntar al propietario",
   "sharedData.askNamed": "Preguntar a quienes gestionan {name}",
   "sharedData.askTitle": "Preguntar por lo que guardaste en {name}",
@@ -3503,4 +3536,81 @@ export const es = {
   "artifactData.exportFailed": "La exportación falló",
   "artifactData.exportInconsistent":
     "Los datos cambiaron durante la exportación. Expórtalos de nuevo para tener una copia coherente.",
+  "suggest.style.pick": "Sugerir un estilo",
+  "suggest.style.pick.hint": "Elige el elemento al que cambiar el estilo",
+  "suggest.style.pick.started":
+    "Elige un elemento del artifact para sugerir un estilo, o llega a él con Tab y pulsa Enter. Escape lo detiene.",
+  "suggest.style.received": "Elemento elegido. El panel de estilo está abierto.",
+  "suggest.style.label": "Sugerir un estilo para el elemento",
+  "suggest.style.title": "Sugerir un estilo",
+  "draft.style.title": "Cambiar el estilo",
+  "suggest.style.element": "El elemento {tag} con el texto {label}",
+  "suggest.style.elementEmpty": "El elemento {tag}",
+  "suggest.style.never":
+    "Los estilos nunca se aplican automáticamente. Si se acepta, el cambio pasa a la lista de cambios, para que lo apliquen quienes gestionan el artifact o su agente.",
+  "suggest.style.changes": "Propiedades que cambiar",
+  "suggest.style.property": "Propiedad {number}",
+  "suggest.style.value": "Nuevo valor de la propiedad {number}",
+  "suggest.style.add": "Añadir una propiedad",
+  "suggest.style.remove": "Quitar la propiedad {number}",
+  "suggest.style.removeShort": "Quitar",
+  "suggest.style.invalid": "Este valor no está permitido para esta propiedad.",
+  "suggest.style.duplicate": "Esta propiedad ya está en la lista.",
+  "suggest.style.hint.color":
+    "#rgb, #rrggbb, rgb(r, g, b) o un nombre de color como navy. Sin transparencia.",
+  "suggest.style.hint.fontSize": "Píxeles enteros de 8px a 96px.",
+  "suggest.style.hint.letterSpacing": "normal, o píxeles enteros de 0px a 10px.",
+  "suggest.style.hint.borderRadius": "Píxeles enteros de 0px a 64px.",
+  "suggest.style.property.color": "Color del texto",
+  "suggest.style.property.background-color": "Color de fondo",
+  "suggest.style.property.font-size": "Tamaño del texto",
+  "suggest.style.property.font-weight": "Grosor",
+  "suggest.style.property.font-style": "Cursiva",
+  "suggest.style.property.text-align": "Alineación",
+  "suggest.style.property.text-decoration-line": "Subrayado y tachado",
+  "suggest.style.property.text-transform": "Mayúsculas",
+  "suggest.style.property.letter-spacing": "Espaciado entre letras",
+  "suggest.style.property.border-radius": "Redondeo de esquinas",
+  "suggest.style.change": "{property} a {after}",
+  "suggest.style.changeFrom": "{property} de {before} a {after}",
+  "suggest.preview.elementNotFound":
+    "El elemento no está en la página guardada (puede que lo dibujen sus scripts), así que no hay vista previa.",
+  "suggest.structure.pick": "Mover, duplicar o quitar",
+  "suggest.structure.pick.hint": "Elige el elemento que mover, duplicar o quitar",
+  "suggest.structure.pick.started":
+    "Elige un elemento del artifact para moverlo, duplicarlo o quitarlo, o llega a él con Tab y pulsa Enter. Escape lo detiene.",
+  "suggest.structure.received": "Elemento elegido. El panel de estructura está abierto.",
+  "suggest.structure.label": "Sugerir mover, duplicar o quitar el elemento",
+  "suggest.structure.title": "Sugerir un cambio de estructura",
+  "draft.structure.title": "Cambiar la estructura",
+  "suggest.structure.never":
+    "Los cambios de estructura nunca se aplican automáticamente. Si se acepta, el cambio pasa a la lista de cambios, para que lo apliquen quienes gestionan el artifact o su agente.",
+  "suggest.structure.action": "Qué hacer",
+  "suggest.structure.action.move": "Moverlo",
+  "suggest.structure.action.move.hint": "Antes o después de otro elemento de esta página.",
+  "suggest.structure.action.duplicate": "Duplicarlo",
+  "suggest.structure.action.duplicate.hint": "Una copia justo después.",
+  "suggest.structure.action.remove": "Quitarlo",
+  "suggest.structure.action.remove.hint": "El elemento y todo lo que contiene.",
+  "suggest.structure.destination.label": "Destino",
+  "suggest.structure.destination.none": "Aún no se eligió un destino.",
+  "suggest.structure.destination.pick": "Elegir el destino",
+  "suggest.structure.destination.hint": "Elige el elemento junto al que moverlo",
+  "suggest.structure.destination.started":
+    "Elige, en el artifact, el elemento junto al que moverlo. Escape lo detiene.",
+  "suggest.structure.destination.received": "Destino elegido.",
+  "suggest.structure.place": "Dónde",
+  "suggest.structure.place.before": "Antes",
+  "suggest.structure.place.after": "Después",
+  "suggest.structure.summary": "Qué cambia",
+  "suggest.structure.summary.remove": "Quitarlo, con todo lo que contiene",
+  "suggest.structure.summary.duplicate": "Duplicarlo justo después de sí mismo",
+  "suggest.structure.summary.moveBefore": "Moverlo antes de:",
+  "suggest.structure.summary.moveAfter": "Moverlo después de:",
+  "suggest.preview.structureConflict":
+    "El elemento iría dentro de sí mismo o junto a un elemento ya quitado, así que no hay vista previa.",
+  "suggest.structure.destination.choosing": "Elige el destino en el artifact.",
+  "suggest.structure.destination.stop": "Dejar de elegir",
+  "suggest.preview.tooLarge":
+    "Construir esta vista previa costaría demasiado trabajo o la haría demasiado grande, así que no hay vista previa.",
 } satisfies Catalog;

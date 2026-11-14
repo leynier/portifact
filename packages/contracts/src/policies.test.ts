@@ -185,6 +185,18 @@ describe("comment retention (decision 0023)", () => {
     });
   });
 
+  it("reads a policy stored before anonymous writers as forbidding them (decision 0026)", () => {
+    const { anonymousDataWriters: _a, ...older } = DEFAULT_POLICY;
+    expect(WorkspacePolicy.parse(older).anonymousDataWriters).toBe("forbidden");
+    expect(
+      WorkspacePolicy.parse({ ...DEFAULT_POLICY, anonymousDataWriters: "allowed" })
+        .anonymousDataWriters,
+    ).toBe("allowed");
+    expect(
+      WorkspacePolicy.safeParse({ ...DEFAULT_POLICY, anonymousDataWriters: "maybe" }).success,
+    ).toBe(false);
+  });
+
   it("defaults the comment counts of an older confirmation to zero", () => {
     expect(
       PolicyImpact.parse({

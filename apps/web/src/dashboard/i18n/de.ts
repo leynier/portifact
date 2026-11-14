@@ -6,6 +6,40 @@ import type { Catalog } from "./en.ts";
 export const de = {
   ...planTextDe,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Daten ohne Konto speichern",
+  "policies.anonymousData.hint":
+    "Ob die Seiten der öffentlichen Artefakte des Arbeitsbereichs speichern dürfen, was Personen ohne Konto eingeben. Bearbeiter entscheiden es weiterhin für jedes Artefakt, nach einer Prüfung auf einen Menschen. Das Erlauben setzt die Richtlinien-Funktion im Tarif des Arbeitsbereichs voraus.",
+  "policies.anonymousData.forbidden": "Nur angemeldete Besucher",
+  "policies.anonymousData.forbiddenHint":
+    "Seiten speichern nur für angemeldete Personen, die es erlaubt haben.",
+  "policies.anonymousData.allowed": "Auch Personen ohne Konto",
+  "policies.anonymousData.allowedHint":
+    "Bearbeiter können die Daten eines öffentlichen Artefakts für alle öffnen. Niemand ist namentlich bekannt, also moderiere, was dort gespeichert wird.",
+  "audit.kind.dataWritersAnyone":
+    "Hat Personen ohne Konto erlaubt, Daten über die Seite zu speichern",
+  "audit.kind.dataWritersSignedIn":
+    "Hat das Speichern von Daten über die Seite auf angemeldete Besucher beschränkt",
+  "audit.policy.anonymousData":
+    "{value, select, true {Personen ohne Konto dürfen Daten speichern} other {nur angemeldete Besucher speichern Daten}}",
+  "artifactData.writers.label": "Wer über die Seite speichert",
+  "artifactData.writers.signedIn": "Angemeldete Besucher",
+  "artifactData.writers.anyone": "Alle, auch Personen ohne Konto",
+  "dataGrant.anonymous.title": "{host} ohne Konto speichern lassen, was du eingibst?",
+  "dataGrant.anonymous.learns":
+    "Die Seite erfährt nur eine ID für dieses Artefakt: keinen Namen, keine E-Mail und kein Konto.",
+  "dataGrant.anonymous.lasts": "Das gilt {days} Tage in diesem Browser.",
+  "dataGrant.anonymous.noAccount":
+    "Ohne Konto kann Portifact dir später nicht zeigen oder löschen, was du gespeichert hast. Nur die Seite selbst kann das, solange dieser Browser es behält.",
+  "dataGrant.anonymous.signIn": "Stattdessen anmelden",
+  "dataGrant.anonymous.signInTitle": "Zum Speichern anmelden",
+  "dataGrant.anonymous.closed":
+    "Dieses Artefakt speichert nur für angemeldete Personen. Melde dich an und wähle dann erneut Speichern.",
+  "dataGrant.anonymous.humanNeeded":
+    "Schließe die kurze Prüfung ab, dass du ein Mensch bist, dann kann die Seite speichern, was du eingibst.",
+  "dataGrant.anonymous.humanFailed":
+    "Die Prüfung, dass du ein Mensch bist, ist fehlgeschlagen. Versuche es erneut mit Erlauben.",
+  "dataGrant.anonymous.humanUnavailable":
+    "Die Prüfung, dass du ein Mensch bist, konnte in diesem Browser nicht laufen. Melde dich zum Speichern an.",
   "sharedData.ask": "Eigentümer fragen",
   "sharedData.askNamed": "Die Verwalter von {name} fragen",
   "sharedData.askTitle": "Nach dem fragen, was du in {name} gespeichert hast",
@@ -3524,4 +3558,82 @@ export const de = {
   "artifactData.exportFailed": "Der Export ist fehlgeschlagen",
   "artifactData.exportInconsistent":
     "Die Daten haben sich während des Exports geändert. Exportiere sie erneut, um eine stimmige Kopie zu erhalten.",
+  "suggest.style.pick": "Stil vorschlagen",
+  "suggest.style.pick.hint": "Wähle das Element, dessen Stil du ändern möchtest",
+  "suggest.style.pick.started":
+    "Wähle ein Element im Artifact, um einen Stil dafür vorzuschlagen, oder gehe mit Tab dorthin und drücke Enter. Escape beendet die Auswahl.",
+  "suggest.style.received": "Element gewählt. Das Stilfeld ist geöffnet.",
+  "suggest.style.label": "Stil für das Element vorschlagen",
+  "suggest.style.title": "Stil vorschlagen",
+  "draft.style.title": "Stil ändern",
+  "suggest.style.element": "Das Element {tag} mit dem Text {label}",
+  "suggest.style.elementEmpty": "Das Element {tag}",
+  "suggest.style.never":
+    "Stile werden nie automatisch angewendet. Wird die Änderung angenommen, kommt sie in die Änderungsliste, damit die Personen, die das Artifact verwalten, oder ihr Agent sie umsetzen.",
+  "suggest.style.changes": "Zu ändernde Eigenschaften",
+  "suggest.style.property": "Eigenschaft {number}",
+  "suggest.style.value": "Neuer Wert von Eigenschaft {number}",
+  "suggest.style.add": "Eigenschaft hinzufügen",
+  "suggest.style.remove": "Eigenschaft {number} entfernen",
+  "suggest.style.removeShort": "Entfernen",
+  "suggest.style.invalid": "Dieser Wert ist für diese Eigenschaft nicht erlaubt.",
+  "suggest.style.duplicate": "Diese Eigenschaft steht schon in der Liste.",
+  "suggest.style.hint.color":
+    "#rgb, #rrggbb, rgb(r, g, b) oder ein Farbname wie navy. Ohne Transparenz.",
+  "suggest.style.hint.fontSize": "Ganze Pixel von 8px bis 96px.",
+  "suggest.style.hint.letterSpacing": "normal oder ganze Pixel von 0px bis 10px.",
+  "suggest.style.hint.borderRadius": "Ganze Pixel von 0px bis 64px.",
+  "suggest.style.property.color": "Textfarbe",
+  "suggest.style.property.background-color": "Hintergrundfarbe",
+  "suggest.style.property.font-size": "Textgröße",
+  "suggest.style.property.font-weight": "Schriftstärke",
+  "suggest.style.property.font-style": "Kursiv",
+  "suggest.style.property.text-align": "Ausrichtung",
+  "suggest.style.property.text-decoration-line": "Unterstreichung und Durchstreichung",
+  "suggest.style.property.text-transform": "Groß- und Kleinschreibung",
+  "suggest.style.property.letter-spacing": "Zeichenabstand",
+  "suggest.style.property.border-radius": "Eckenrundung",
+  "suggest.style.change": "{property} auf {after}",
+  "suggest.style.changeFrom": "{property} von {before} auf {after}",
+  "suggest.preview.elementNotFound":
+    "Das Element steht nicht in der gespeicherten Seite (vielleicht zeichnen es ihre Skripte), daher gibt es keine Vorschau.",
+  "suggest.structure.pick": "Verschieben, duplizieren oder entfernen",
+  "suggest.structure.pick.hint":
+    "Wähle das Element, das du verschieben, duplizieren oder entfernen möchtest",
+  "suggest.structure.pick.started":
+    "Wähle ein Element im Artifact, um es zu verschieben, zu duplizieren oder zu entfernen, oder gehe mit Tab dorthin und drücke Enter. Escape beendet die Auswahl.",
+  "suggest.structure.received": "Element gewählt. Das Strukturfeld ist geöffnet.",
+  "suggest.structure.label": "Verschieben, Duplizieren oder Entfernen des Elements vorschlagen",
+  "suggest.structure.title": "Strukturänderung vorschlagen",
+  "draft.structure.title": "Struktur ändern",
+  "suggest.structure.never":
+    "Strukturänderungen werden nie automatisch angewendet. Wird die Änderung angenommen, kommt sie in die Änderungsliste, damit die Personen, die das Artifact verwalten, oder ihr Agent sie umsetzen.",
+  "suggest.structure.action": "Was soll geschehen",
+  "suggest.structure.action.move": "Verschieben",
+  "suggest.structure.action.move.hint": "Vor oder nach ein anderes Element dieser Seite.",
+  "suggest.structure.action.duplicate": "Duplizieren",
+  "suggest.structure.action.duplicate.hint": "Eine Kopie direkt danach.",
+  "suggest.structure.action.remove": "Entfernen",
+  "suggest.structure.action.remove.hint": "Das Element mit allem, was es enthält.",
+  "suggest.structure.destination.label": "Ziel",
+  "suggest.structure.destination.none": "Noch kein Ziel gewählt.",
+  "suggest.structure.destination.pick": "Ziel auswählen",
+  "suggest.structure.destination.hint": "Wähle das Element, neben das es kommt",
+  "suggest.structure.destination.started":
+    "Wähle im Artifact das Element, neben das es kommt. Escape beendet die Auswahl.",
+  "suggest.structure.destination.received": "Ziel gewählt.",
+  "suggest.structure.place": "Wohin",
+  "suggest.structure.place.before": "Davor",
+  "suggest.structure.place.after": "Danach",
+  "suggest.structure.summary": "Was sich ändert",
+  "suggest.structure.summary.remove": "Entfernen, mit allem, was es enthält",
+  "suggest.structure.summary.duplicate": "Direkt dahinter duplizieren",
+  "suggest.structure.summary.moveBefore": "Verschieben vor:",
+  "suggest.structure.summary.moveAfter": "Verschieben nach:",
+  "suggest.preview.structureConflict":
+    "Das Element käme in sich selbst oder neben ein bereits entferntes Element, daher gibt es keine Vorschau.",
+  "suggest.structure.destination.choosing": "Wähle das Ziel im Artifact.",
+  "suggest.structure.destination.stop": "Auswahl beenden",
+  "suggest.preview.tooLarge":
+    "Diese Vorschau zu erstellen wäre zu aufwendig oder sie würde zu groß, daher gibt es keine Vorschau.",
 } satisfies Catalog;

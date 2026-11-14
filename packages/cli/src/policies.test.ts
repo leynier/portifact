@@ -37,6 +37,7 @@ beforeEach(async () => {
         commentRetentionDays: null,
         commentRetentionFrom: null,
         commentRetentionToken: null,
+        anonymousDataWriters: "forbidden",
       },
     },
     { slug: "readers", name: "Readers", role: "member" },
@@ -78,6 +79,7 @@ describe("portifact workspaces", () => {
       commentRetentionDays: null,
       commentRetentionFrom: null,
       commentRetentionToken: null,
+      anonymousDataWriters: "forbidden",
     });
   });
 

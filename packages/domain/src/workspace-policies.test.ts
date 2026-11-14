@@ -505,6 +505,7 @@ describe("describePolicy", () => {
         commentRetentionDays: null,
         commentRetentionFrom: null,
         commentRetentionToken: null,
+        anonymousDataWriters: "allowed",
       }),
     ).toEqual([
       "public access forbidden",
@@ -512,6 +513,7 @@ describe("describePolicy", () => {
       "readers only at a.example, b.example",
       "share links need a password",
       "share links last at most 30 days",
+      "people without an account may save data on public artifacts whose editors allow it",
     ]);
     expect(describePolicy(policy({ shareLinks: "disabled", shareLinkMaxDays: 30 }))).toEqual([
       "share links disabled",

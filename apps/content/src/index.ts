@@ -141,6 +141,7 @@ export interface Env extends BudgetEnv {
   DATA_LIVE_ENABLED?: string | undefined;
   /** Exactly `"true"` lets pages create and replace documents (decision 0026, "Switches"). */
   DATA_PAGE_WRITES_ENABLED?: string | undefined;
+  DATA_ANONYMOUS_ENABLED?: string | undefined;
   /**
    * Exactly `"true"` tells the review bridge that edit suggestions are on (decision 0027), so it
    * also speaks protocol 3; anything else injects the bridge exactly as before.

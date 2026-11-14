@@ -383,6 +383,17 @@ export type LiveCloseCode = (typeof LIVE_CLOSE)[keyof typeof LIVE_CLOSE];
 export const CollectionName = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/, "Invalid collection");
 export const FieldName = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,31}$/, "Invalid field");
 
+/**
+ * Who may write to an artifact's data from its page (decision 0026, decisions 4 and 21):
+ * `signed_in`, the default, is a signed-in visitor who can open the artifact and allowed the page;
+ * `anyone` adds people without an account on a public artifact, after the human check. `anyone`
+ * is offered in a personal space, and in a workspace only with `policies` in its plan and a policy
+ * that allows anonymous writers.
+ */
+export const DATA_WRITERS = ["signed_in", "anyone"] as const;
+export const DataWriters = z.enum(DATA_WRITERS);
+export type DataWriters = z.infer<typeof DataWriters>;
+
 export const COLLECTION_MODES = ["own", "append", "read", "shared"] as const;
 export const CollectionMode = z.enum(COLLECTION_MODES);
 export type CollectionMode = z.infer<typeof CollectionMode>;

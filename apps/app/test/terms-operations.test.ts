@@ -69,6 +69,8 @@ const ROUTES: Record<string, Class> = {
   "DELETE /api/v1/artifacts/:artifactId/data/collections/:collection/documents/:documentId": "open",
   "POST /api/v1/artifacts/:artifactId/data/erase": "open",
   "POST /api/v1/artifacts/:artifactId/data/authors/:author/delete": "open",
+  // Back to signed-in writers only narrows; opening the data to anyone acts anew (delivery 9).
+  "PUT /api/v1/artifacts/:artifactId/data/writers": "narrowing",
   "POST /api/v1/artifacts/:artifactId/review/request": "refused",
   "PATCH /api/v1/artifacts/:artifactId/review/request": "refused",
   "DELETE /api/v1/artifacts/:artifactId/review/request": "open",
@@ -156,6 +158,7 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/notices/unsubscribe": "no_person_token",
   "POST /api/v1/reports": "no_person_token",
   "POST /api/v1/share/open": "no_person_token",
+  "POST /api/v1/data/anonymous-grants": "no_person_token",
 };
 
 /** Every MCP tool outside the read scopes. */
@@ -207,6 +210,7 @@ const TOOLS: Record<string, Class> = {
   delete_data_documents: "open",
   erase_artifact_data: "open",
   delete_author_data: "open",
+  set_data_writers: "narrowing",
   mark_change_item: "refused",
 };
 

@@ -277,6 +277,46 @@ describe("artifact data on the artifact origin", () => {
     expect(removed.status).toBe(200);
   });
 
+  it("reads read collections and writes shared ones from the page (delivery 9)", async () => {
+    const id = await seed();
+    for (const declaration of [
+      { name: "menu", mode: "read" as const },
+      { name: "board", mode: "shared" as const },
+    ]) {
+      const declared = await declareDataCollection(
+        db(),
+        { objects: dataNamespaces(env, "default"), bucket: env.ARTIFACTS, enabled: true },
+        {
+          userId: OWNER,
+          artifactId: id,
+          now: NOW,
+          idempotencyKey: crypto.randomUUID(),
+          declaration,
+        },
+      );
+      if (!declared.ok) throw new Error(declared.code);
+    }
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const refused = await send(id, "c/menu", {
+      method: "POST",
+      body: { item: "x" },
+      cookie: grant,
+    });
+    expect(refused.status).toBe(403);
+    expect(JSON.parse((await send(id, "c/menu")).body)).toEqual({ documents: [], next: null });
+    const created = await send(id, "c/board", {
+      method: "POST",
+      body: { note: "hello" },
+      cookie: grant,
+    });
+    expect(created.status).toBe(201);
+    // A reader without a grant reads the shared board and never writes to it.
+    const listed = JSON.parse((await send(id, "c/board")).body);
+    expect(listed.documents).toMatchObject([{ note: "hello" }]);
+    const doc = JSON.parse(created.body);
+    expect((await send(id, `c/board/${doc._id}`, { method: "DELETE" })).status).toBe(403);
+  });
+
   it("refuses writes without a grant, and data requests from anywhere but the page itself", async () => {
     const id = await seed();
     const write = await send(id, "c/votes", { method: "POST", body: { choice: "a" } });

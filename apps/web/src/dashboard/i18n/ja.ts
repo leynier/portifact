@@ -6,6 +6,38 @@ import type { Catalog } from "./en.ts";
 export const ja = {
   ...planTextJa,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "アカウントなしでのデータ保存",
+  "policies.anonymousData.hint":
+    "ワークスペースの公開アーティファクトのページが、アカウントを持たない人の入力を保存できるかどうか。各アーティファクトで許可するかは引き続き編集者が選び、人間確認を経ます。許可するにはワークスペースのプランにポリシー機能が必要です。",
+  "policies.anonymousData.forbidden": "サインインした訪問者のみ",
+  "policies.anonymousData.forbiddenHint":
+    "サインインして許可した人のためにのみ、ページが保存します。",
+  "policies.anonymousData.allowed": "アカウントのない人も",
+  "policies.anonymousData.allowedHint":
+    "編集者は公開アーティファクトのデータを誰にでも開けます。名前で識別される人はいないため、保存内容を管理してください。",
+  "audit.kind.dataWritersAnyone": "アカウントのない人がページからデータを保存できるようにした",
+  "audit.kind.dataWritersSignedIn": "ページからのデータ保存をサインインした訪問者に限定した",
+  "audit.policy.anonymousData":
+    "{value, select, true {アカウントのない人もデータを保存できる} other {サインインした訪問者のみがデータを保存}}",
+  "artifactData.writers.label": "ページから保存できる人",
+  "artifactData.writers.signedIn": "サインインした訪問者",
+  "artifactData.writers.anyone": "誰でも (アカウントのない人を含む)",
+  "dataGrant.anonymous.title": "アカウントなしで {host} に入力内容の保存を許可しますか？",
+  "dataGrant.anonymous.learns":
+    "ページが知るのはこのアーティファクト用の ID だけです。名前、メールアドレス、アカウントは知りません。",
+  "dataGrant.anonymous.lasts": "このブラウザーで {days} 日間有効です。",
+  "dataGrant.anonymous.noAccount":
+    "アカウントがないため、Portifact は保存した内容を後で表示したり削除したりできません。このブラウザーが保持している間、ページ自体だけが行えます。",
+  "dataGrant.anonymous.signIn": "代わりにサインイン",
+  "dataGrant.anonymous.signInTitle": "保存するにはサインイン",
+  "dataGrant.anonymous.closed":
+    "このアーティファクトはサインインした人のためにのみ保存します。サインインしてから、もう一度保存を選んでください。",
+  "dataGrant.anonymous.humanNeeded":
+    "人間であることの簡単な確認を完了すると、ページが入力内容を保存できるようになります。",
+  "dataGrant.anonymous.humanFailed":
+    "人間であることの確認に失敗しました。もう一度「許可」を試してください。",
+  "dataGrant.anonymous.humanUnavailable":
+    "このブラウザーでは人間であることの確認を実行できませんでした。保存するにはサインインしてください。",
   "sharedData.ask": "所有者に依頼",
   "sharedData.askNamed": "{name} の管理者に依頼",
   "sharedData.askTitle": "{name} に保存した内容について依頼",
@@ -3434,4 +3466,81 @@ export const ja = {
   "artifactData.exportFailed": "エクスポートに失敗しました",
   "artifactData.exportInconsistent":
     "エクスポート中にデータが変わりました。一貫したコピーを得るには、もう一度エクスポートしてください。",
+  "suggest.style.pick": "スタイルを提案",
+  "suggest.style.pick.hint": "スタイルを変える要素を選んでください",
+  "suggest.style.pick.started":
+    "artifact 内の要素を選んでスタイルを提案するか、Tab で移動して Enter を押してください。Esc で終了します。",
+  "suggest.style.received": "要素を選びました。スタイルパネルが開いています。",
+  "suggest.style.label": "要素のスタイルを提案",
+  "suggest.style.title": "スタイルを提案",
+  "draft.style.title": "スタイルを変更",
+  "suggest.style.element": "テキスト {label} の {tag} 要素",
+  "suggest.style.elementEmpty": "{tag} 要素",
+  "suggest.style.never":
+    "スタイルは自動では適用されません。承認されると変更は変更リストに入り、artifact を管理する人またはそのエージェントが適用します。",
+  "suggest.style.changes": "変更するプロパティ",
+  "suggest.style.property": "プロパティ {number}",
+  "suggest.style.value": "プロパティ {number} の新しい値",
+  "suggest.style.add": "プロパティを追加",
+  "suggest.style.remove": "プロパティ {number} を削除",
+  "suggest.style.removeShort": "削除",
+  "suggest.style.invalid": "この値はこのプロパティには使えません。",
+  "suggest.style.duplicate": "このプロパティはすでに一覧にあります。",
+  "suggest.style.hint.color":
+    "#rgb、#rrggbb、rgb(r, g, b)、または navy などの色名。透明は使えません。",
+  "suggest.style.hint.fontSize": "8px から 96px までの整数のピクセル。",
+  "suggest.style.hint.letterSpacing": "normal、または 0px から 10px までの整数のピクセル。",
+  "suggest.style.hint.borderRadius": "0px から 64px までの整数のピクセル。",
+  "suggest.style.property.color": "文字色",
+  "suggest.style.property.background-color": "背景色",
+  "suggest.style.property.font-size": "文字サイズ",
+  "suggest.style.property.font-weight": "太さ",
+  "suggest.style.property.font-style": "斜体",
+  "suggest.style.property.text-align": "配置",
+  "suggest.style.property.text-decoration-line": "下線と取り消し線",
+  "suggest.style.property.text-transform": "大文字・小文字",
+  "suggest.style.property.letter-spacing": "文字間隔",
+  "suggest.style.property.border-radius": "角の丸み",
+  "suggest.style.change": "{property} を {after} に",
+  "suggest.style.changeFrom": "{property} を {before} から {after} に",
+  "suggest.preview.elementNotFound":
+    "要素が保存されたページにありません（ページのスクリプトが描いている可能性があります）。そのためプレビューはありません。",
+  "suggest.structure.pick": "移動・複製・削除",
+  "suggest.structure.pick.hint": "移動・複製・削除する要素を選んでください",
+  "suggest.structure.pick.started":
+    "artifact 内の要素を選んで移動・複製・削除するか、Tab で移動して Enter を押してください。Esc で終了します。",
+  "suggest.structure.received": "要素を選びました。構造パネルが開いています。",
+  "suggest.structure.label": "要素の移動・複製・削除を提案",
+  "suggest.structure.title": "構造の変更を提案",
+  "draft.structure.title": "構造を変更",
+  "suggest.structure.never":
+    "構造の変更は自動では適用されません。承認されると変更は変更リストに入り、artifact を管理する人またはそのエージェントが適用します。",
+  "suggest.structure.action": "操作",
+  "suggest.structure.action.move": "移動する",
+  "suggest.structure.action.move.hint": "このページの別の要素の前または後ろへ。",
+  "suggest.structure.action.duplicate": "複製する",
+  "suggest.structure.action.duplicate.hint": "すぐ後ろにコピーを置きます。",
+  "suggest.structure.action.remove": "削除する",
+  "suggest.structure.action.remove.hint": "要素とその中身すべて。",
+  "suggest.structure.destination.label": "移動先",
+  "suggest.structure.destination.none": "移動先はまだ選ばれていません。",
+  "suggest.structure.destination.pick": "移動先を選ぶ",
+  "suggest.structure.destination.hint": "隣に移動させる要素を選んでください",
+  "suggest.structure.destination.started":
+    "artifact 内で、隣に移動させる要素を選んでください。Esc で終了します。",
+  "suggest.structure.destination.received": "移動先を選びました。",
+  "suggest.structure.place": "位置",
+  "suggest.structure.place.before": "前",
+  "suggest.structure.place.after": "後ろ",
+  "suggest.structure.summary": "変更内容",
+  "suggest.structure.summary.remove": "中身ごと削除",
+  "suggest.structure.summary.duplicate": "すぐ後ろに複製",
+  "suggest.structure.summary.moveBefore": "次の前へ移動:",
+  "suggest.structure.summary.moveAfter": "次の後ろへ移動:",
+  "suggest.preview.structureConflict":
+    "要素が自分自身の中、またはすでに削除された要素の隣に入るため、プレビューはありません。",
+  "suggest.structure.destination.choosing": "artifact 内で移動先を選んでください。",
+  "suggest.structure.destination.stop": "選択をやめる",
+  "suggest.preview.tooLarge":
+    "このプレビューの作成は処理が多すぎるか、大きくなりすぎるため、プレビューはありません。",
 } satisfies Catalog;

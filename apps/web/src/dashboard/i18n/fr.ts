@@ -7,6 +7,41 @@ import type { Catalog } from "./en.ts";
 export const fr = {
   ...planTextFr,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Enregistrer des données sans compte",
+  "policies.anonymousData.hint":
+    "Si les pages des artefacts publics de l'espace de travail peuvent enregistrer ce que saisissent des personnes sans compte. Les éditeurs le choisissent toujours pour chaque artefact, après une vérification humaine. L'autoriser nécessite la fonction de règles dans l'offre de l'espace de travail.",
+  "policies.anonymousData.forbidden": "Seulement les visiteurs connectés",
+  "policies.anonymousData.forbiddenHint":
+    "Les pages n'enregistrent que pour les personnes connectées qui l'ont autorisé.",
+  "policies.anonymousData.allowed": "Aussi les personnes sans compte",
+  "policies.anonymousData.allowedHint":
+    "Les éditeurs peuvent ouvrir les données d'un artefact public à tous. Personne n'est connu par son nom : modérez ce qui y est enregistré.",
+  "audit.kind.dataWritersAnyone":
+    "A permis aux personnes sans compte d'enregistrer des données depuis la page",
+  "audit.kind.dataWritersSignedIn":
+    "A limité l'enregistrement de données depuis la page aux visiteurs connectés",
+  "audit.policy.anonymousData":
+    "{value, select, true {les personnes sans compte peuvent enregistrer des données} other {seuls les visiteurs connectés enregistrent des données}}",
+  "artifactData.writers.label": "Qui enregistre depuis la page",
+  "artifactData.writers.signedIn": "Visiteurs connectés",
+  "artifactData.writers.anyone": "Tout le monde, y compris les personnes sans compte",
+  "dataGrant.anonymous.title":
+    "Autoriser {host} à enregistrer ce que vous saisissez, sans compte ?",
+  "dataGrant.anonymous.learns":
+    "La page ne connaît qu'un identifiant pour cet artefact : ni nom, ni e-mail, ni compte.",
+  "dataGrant.anonymous.lasts": "Cela dure {days} jours dans ce navigateur.",
+  "dataGrant.anonymous.noAccount":
+    "Sans compte, Portifact ne peut pas vous montrer ni supprimer plus tard ce que vous avez enregistré. Seule la page le peut, tant que ce navigateur le conserve.",
+  "dataGrant.anonymous.signIn": "Me connecter plutôt",
+  "dataGrant.anonymous.signInTitle": "Connectez-vous pour enregistrer",
+  "dataGrant.anonymous.closed":
+    "Cet artefact n'enregistre que pour les personnes connectées. Connectez-vous, puis choisissez à nouveau d'enregistrer.",
+  "dataGrant.anonymous.humanNeeded":
+    "Effectuez la vérification rapide que vous êtes humain, puis la page pourra enregistrer ce que vous saisissez.",
+  "dataGrant.anonymous.humanFailed":
+    "La vérification que vous êtes humain a échoué. Réessayez Autoriser.",
+  "dataGrant.anonymous.humanUnavailable":
+    "La vérification que vous êtes humain n'a pas pu s'exécuter dans ce navigateur. Connectez-vous pour enregistrer.",
   "sharedData.ask": "Demander au propriétaire",
   "sharedData.askNamed": "Demander aux personnes qui gèrent {name}",
   "sharedData.askTitle": "Demander à propos de ce que vous avez enregistré dans {name}",
@@ -3542,4 +3577,81 @@ export const fr = {
   "artifactData.exportFailed": "L'export a échoué",
   "artifactData.exportInconsistent":
     "Les données ont changé pendant l'export. Exportez-les à nouveau pour obtenir une copie cohérente.",
+  "suggest.style.pick": "Suggérer un style",
+  "suggest.style.pick.hint": "Choisissez l’élément à restyler",
+  "suggest.style.pick.started":
+    "Choisissez un élément de l’artifact pour lui suggérer un style, ou atteignez-le avec Tab et appuyez sur Entrée. Échap arrête.",
+  "suggest.style.received": "Élément choisi. Le panneau de style est ouvert.",
+  "suggest.style.label": "Suggérer un style pour l’élément",
+  "suggest.style.title": "Suggérer un style",
+  "draft.style.title": "Modifier le style",
+  "suggest.style.element": "L’élément {tag} avec le texte {label}",
+  "suggest.style.elementEmpty": "L’élément {tag}",
+  "suggest.style.never":
+    "Les styles ne sont jamais appliqués automatiquement. S’il est accepté, le changement va dans la liste des modifications, pour que les personnes qui gèrent l’artifact ou leur agent l’appliquent.",
+  "suggest.style.changes": "Propriétés à modifier",
+  "suggest.style.property": "Propriété {number}",
+  "suggest.style.value": "Nouvelle valeur de la propriété {number}",
+  "suggest.style.add": "Ajouter une propriété",
+  "suggest.style.remove": "Retirer la propriété {number}",
+  "suggest.style.removeShort": "Retirer",
+  "suggest.style.invalid": "Cette valeur n’est pas autorisée pour cette propriété.",
+  "suggest.style.duplicate": "Cette propriété est déjà dans la liste.",
+  "suggest.style.hint.color":
+    "#rgb, #rrggbb, rgb(r, g, b) ou un nom de couleur comme navy. Sans transparence.",
+  "suggest.style.hint.fontSize": "Pixels entiers de 8px à 96px.",
+  "suggest.style.hint.letterSpacing": "normal, ou des pixels entiers de 0px à 10px.",
+  "suggest.style.hint.borderRadius": "Pixels entiers de 0px à 64px.",
+  "suggest.style.property.color": "Couleur du texte",
+  "suggest.style.property.background-color": "Couleur de fond",
+  "suggest.style.property.font-size": "Taille du texte",
+  "suggest.style.property.font-weight": "Graisse",
+  "suggest.style.property.font-style": "Italique",
+  "suggest.style.property.text-align": "Alignement",
+  "suggest.style.property.text-decoration-line": "Soulignement et barré",
+  "suggest.style.property.text-transform": "Casse",
+  "suggest.style.property.letter-spacing": "Espacement des lettres",
+  "suggest.style.property.border-radius": "Arrondi des coins",
+  "suggest.style.change": "{property} : {after}",
+  "suggest.style.changeFrom": "{property} de {before} à {after}",
+  "suggest.preview.elementNotFound":
+    "L’élément n’est pas dans la page enregistrée (ses scripts le dessinent peut-être) : il n’y a donc pas d’aperçu.",
+  "suggest.structure.pick": "Déplacer, dupliquer ou retirer",
+  "suggest.structure.pick.hint": "Choisissez l’élément à déplacer, dupliquer ou retirer",
+  "suggest.structure.pick.started":
+    "Choisissez un élément de l’artifact pour le déplacer, le dupliquer ou le retirer, ou atteignez-le avec Tab et appuyez sur Entrée. Échap arrête.",
+  "suggest.structure.received": "Élément choisi. Le panneau de structure est ouvert.",
+  "suggest.structure.label": "Suggérer de déplacer, dupliquer ou retirer l’élément",
+  "suggest.structure.title": "Suggérer un changement de structure",
+  "draft.structure.title": "Modifier la structure",
+  "suggest.structure.never":
+    "Les changements de structure ne sont jamais appliqués automatiquement. S’il est accepté, le changement va dans la liste des modifications, pour que les personnes qui gèrent l’artifact ou leur agent l’appliquent.",
+  "suggest.structure.action": "Que faire",
+  "suggest.structure.action.move": "Le déplacer",
+  "suggest.structure.action.move.hint": "Avant ou après un autre élément de cette page.",
+  "suggest.structure.action.duplicate": "Le dupliquer",
+  "suggest.structure.action.duplicate.hint": "Une copie juste après.",
+  "suggest.structure.action.remove": "Le retirer",
+  "suggest.structure.action.remove.hint": "L’élément et tout ce qu’il contient.",
+  "suggest.structure.destination.label": "Destination",
+  "suggest.structure.destination.none": "Aucune destination choisie pour l’instant.",
+  "suggest.structure.destination.pick": "Choisir la destination",
+  "suggest.structure.destination.hint": "Choisissez l’élément à côté duquel le déplacer",
+  "suggest.structure.destination.started":
+    "Choisissez, dans l’artifact, l’élément à côté duquel le déplacer. Échap arrête.",
+  "suggest.structure.destination.received": "Destination choisie.",
+  "suggest.structure.place": "Où",
+  "suggest.structure.place.before": "Avant",
+  "suggest.structure.place.after": "Après",
+  "suggest.structure.summary": "Ce qui change",
+  "suggest.structure.summary.remove": "Le retirer, avec tout ce qu’il contient",
+  "suggest.structure.summary.duplicate": "Le dupliquer juste après lui-même",
+  "suggest.structure.summary.moveBefore": "Le déplacer avant :",
+  "suggest.structure.summary.moveAfter": "Le déplacer après :",
+  "suggest.preview.structureConflict":
+    "L’élément irait dans lui-même ou à côté d’un élément déjà retiré : il n’y a donc pas d’aperçu.",
+  "suggest.structure.destination.choosing": "Choisissez la destination dans l’artifact.",
+  "suggest.structure.destination.stop": "Arrêter de choisir",
+  "suggest.preview.tooLarge":
+    "Construire cet aperçu demanderait trop de travail ou le rendrait trop volumineux : il n’y a donc pas d’aperçu.",
 } satisfies Catalog;

@@ -7,6 +7,39 @@ import type { Catalog } from "./en.ts";
 export const ru = {
   ...planTextRu,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Сохранение данных без аккаунта",
+  "policies.anonymousData.hint":
+    "Могут ли страницы публичных артефактов рабочего пространства сохранять то, что вводят люди без аккаунта. Редакторы по-прежнему решают это для каждого артефакта, после проверки на человека. Чтобы разрешить это, тариф рабочего пространства должен включать политики.",
+  "policies.anonymousData.forbidden": "Только вошедшие посетители",
+  "policies.anonymousData.forbiddenHint":
+    "Страницы сохраняют данные только для вошедших людей, которые это разрешили.",
+  "policies.anonymousData.allowed": "Также люди без аккаунта",
+  "policies.anonymousData.allowedHint":
+    "Редакторы могут открыть данные публичного артефакта для всех. Никто не известен по имени, поэтому модерируйте сохранённое.",
+  "audit.kind.dataWritersAnyone": "Разрешил людям без аккаунта сохранять данные со страницы",
+  "audit.kind.dataWritersSignedIn":
+    "Ограничил сохранение данных со страницы вошедшими посетителями",
+  "audit.policy.anonymousData":
+    "{value, select, true {люди без аккаунта могут сохранять данные} other {данные сохраняют только вошедшие посетители}}",
+  "artifactData.writers.label": "Кто сохраняет со страницы",
+  "artifactData.writers.signedIn": "Вошедшие посетители",
+  "artifactData.writers.anyone": "Все, включая людей без аккаунта",
+  "dataGrant.anonymous.title": "Разрешить {host} сохранять то, что вы вводите, без аккаунта?",
+  "dataGrant.anonymous.learns":
+    "Страница узнаёт только идентификатор для этого артефакта: без имени, почты и аккаунта.",
+  "dataGrant.anonymous.lasts": "Это действует {days} дн. в этом браузере.",
+  "dataGrant.anonymous.noAccount":
+    "Без аккаунта Portifact не сможет потом показать или удалить сохранённое вами. Это может только сама страница, пока этот браузер его хранит.",
+  "dataGrant.anonymous.signIn": "Войти вместо этого",
+  "dataGrant.anonymous.signInTitle": "Войдите, чтобы сохранять",
+  "dataGrant.anonymous.closed":
+    "Этот артефакт сохраняет данные только для вошедших. Войдите и снова выберите сохранение.",
+  "dataGrant.anonymous.humanNeeded":
+    "Пройдите быструю проверку, что вы человек, и страница сможет сохранять то, что вы вводите.",
+  "dataGrant.anonymous.humanFailed":
+    "Проверка, что вы человек, не пройдена. Нажмите «Разрешить» ещё раз.",
+  "dataGrant.anonymous.humanUnavailable":
+    "Проверка, что вы человек, не запустилась в этом браузере. Войдите, чтобы сохранять.",
   "sharedData.ask": "Обратиться к владельцу",
   "sharedData.askNamed": "Обратиться к тем, кто управляет {name}",
   "sharedData.askTitle": "Запрос о том, что вы сохранили в {name}",
@@ -3492,4 +3525,82 @@ export const ru = {
   "artifactData.exportFailed": "Экспорт не удался",
   "artifactData.exportInconsistent":
     "Данные изменились во время экспорта. Экспортируйте их снова, чтобы получить согласованную копию.",
+  "suggest.style.pick": "Предложить стиль",
+  "suggest.style.pick.hint": "Выберите элемент, стиль которого нужно изменить",
+  "suggest.style.pick.started":
+    "Выберите элемент в artifact, чтобы предложить для него стиль, или перейдите к нему клавишей Tab и нажмите Enter. Escape останавливает выбор.",
+  "suggest.style.received": "Элемент выбран. Панель стиля открыта.",
+  "suggest.style.label": "Предложить стиль для элемента",
+  "suggest.style.title": "Предложить стиль",
+  "draft.style.title": "Изменить стиль",
+  "suggest.style.element": "Элемент {tag} с текстом {label}",
+  "suggest.style.elementEmpty": "Элемент {tag}",
+  "suggest.style.never":
+    "Стили никогда не применяются автоматически. Если изменение примут, оно попадёт в список изменений, и его применят те, кто управляет artifact, или их агент.",
+  "suggest.style.changes": "Свойства для изменения",
+  "suggest.style.property": "Свойство {number}",
+  "suggest.style.value": "Новое значение свойства {number}",
+  "suggest.style.add": "Добавить свойство",
+  "suggest.style.remove": "Убрать свойство {number}",
+  "suggest.style.removeShort": "Убрать",
+  "suggest.style.invalid": "Это значение недопустимо для этого свойства.",
+  "suggest.style.duplicate": "Это свойство уже есть в списке.",
+  "suggest.style.hint.color":
+    "#rgb, #rrggbb, rgb(r, g, b) или название цвета, например navy. Без прозрачности.",
+  "suggest.style.hint.fontSize": "Целые пиксели от 8px до 96px.",
+  "suggest.style.hint.letterSpacing": "normal или целые пиксели от 0px до 10px.",
+  "suggest.style.hint.borderRadius": "Целые пиксели от 0px до 64px.",
+  "suggest.style.property.color": "Цвет текста",
+  "suggest.style.property.background-color": "Цвет фона",
+  "suggest.style.property.font-size": "Размер текста",
+  "suggest.style.property.font-weight": "Насыщенность",
+  "suggest.style.property.font-style": "Курсив",
+  "suggest.style.property.text-align": "Выравнивание",
+  "suggest.style.property.text-decoration-line": "Подчёркивание и зачёркивание",
+  "suggest.style.property.text-transform": "Регистр",
+  "suggest.style.property.letter-spacing": "Межбуквенный интервал",
+  "suggest.style.property.border-radius": "Скругление углов",
+  "suggest.style.change": "{property}: {after}",
+  "suggest.style.changeFrom": "{property}: с {before} на {after}",
+  "suggest.preview.elementNotFound":
+    "Элемента нет в сохранённой странице (возможно, его рисуют её скрипты), поэтому предпросмотра нет.",
+  "suggest.structure.pick": "Переместить, дублировать или убрать",
+  "suggest.structure.pick.hint":
+    "Выберите элемент, который нужно переместить, дублировать или убрать",
+  "suggest.structure.pick.started":
+    "Выберите элемент в artifact, чтобы переместить, дублировать или убрать его, или перейдите к нему клавишей Tab и нажмите Enter. Escape останавливает выбор.",
+  "suggest.structure.received": "Элемент выбран. Панель структуры открыта.",
+  "suggest.structure.label": "Предложить переместить, дублировать или убрать элемент",
+  "suggest.structure.title": "Предложить изменение структуры",
+  "draft.structure.title": "Изменить структуру",
+  "suggest.structure.never":
+    "Изменения структуры никогда не применяются автоматически. Если изменение примут, оно попадёт в список изменений, и его применят те, кто управляет artifact, или их агент.",
+  "suggest.structure.action": "Что сделать",
+  "suggest.structure.action.move": "Переместить",
+  "suggest.structure.action.move.hint": "До или после другого элемента этой страницы.",
+  "suggest.structure.action.duplicate": "Дублировать",
+  "suggest.structure.action.duplicate.hint": "Копия сразу после него.",
+  "suggest.structure.action.remove": "Убрать",
+  "suggest.structure.action.remove.hint": "Элемент и всё, что в нём.",
+  "suggest.structure.destination.label": "Куда",
+  "suggest.structure.destination.none": "Место ещё не выбрано.",
+  "suggest.structure.destination.pick": "Выбрать место",
+  "suggest.structure.destination.hint": "Выберите элемент, рядом с которым его поставить",
+  "suggest.structure.destination.started":
+    "Выберите в artifact элемент, рядом с которым его поставить. Escape останавливает выбор.",
+  "suggest.structure.destination.received": "Место выбрано.",
+  "suggest.structure.place": "Где",
+  "suggest.structure.place.before": "Перед ним",
+  "suggest.structure.place.after": "После него",
+  "suggest.structure.summary": "Что меняется",
+  "suggest.structure.summary.remove": "Убрать вместе со всем содержимым",
+  "suggest.structure.summary.duplicate": "Дублировать сразу после него",
+  "suggest.structure.summary.moveBefore": "Переместить перед:",
+  "suggest.structure.summary.moveAfter": "Переместить после:",
+  "suggest.preview.structureConflict":
+    "Элемент оказался бы внутри самого себя или рядом с уже убранным элементом, поэтому предпросмотра нет.",
+  "suggest.structure.destination.choosing": "Выберите место в artifact.",
+  "suggest.structure.destination.stop": "Прекратить выбор",
+  "suggest.preview.tooLarge":
+    "Построение этого предпросмотра потребовало бы слишком много работы или сделало бы его слишком большим, поэтому предпросмотра нет.",
 } satisfies Catalog;

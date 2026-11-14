@@ -5,6 +5,37 @@ import { planTextEn } from "../../plans/i18n/en.ts";
 export const en = {
   ...planTextEn,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Saving data without an account",
+  "policies.anonymousData.hint":
+    "Whether the pages of the workspace's public artifacts may save what people without an account enter. Editors still choose it for each artifact, behind a human check. Allowing it needs the policies feature in the workspace's plan.",
+  "policies.anonymousData.forbidden": "Only signed-in visitors",
+  "policies.anonymousData.forbiddenHint":
+    "Pages save only for people who signed in and allowed it.",
+  "policies.anonymousData.allowed": "Also people without an account",
+  "policies.anonymousData.allowedHint":
+    "Editors may open a public artifact's data to anyone. Nobody is known by name, so moderate what is saved there.",
+  "audit.kind.dataWritersAnyone": "Let people without an account save data from the page",
+  "audit.kind.dataWritersSignedIn": "Limited saving data from the page to signed-in visitors",
+  "audit.policy.anonymousData":
+    "{value, select, true {people without an account may save data} other {only signed-in visitors save data}}",
+  "artifactData.writers.label": "Who saves from the page",
+  "artifactData.writers.signedIn": "Signed-in visitors",
+  "artifactData.writers.anyone": "Anyone, including people without an account",
+  "dataGrant.anonymous.title": "Let {host} save what you enter, without an account?",
+  "dataGrant.anonymous.learns":
+    "The page learns only an ID for this artifact: no name, no email and no account.",
+  "dataGrant.anonymous.lasts": "This lasts {days} days in this browser.",
+  "dataGrant.anonymous.noAccount":
+    "Without an account, Portifact cannot show you or delete what you saved later. Only the page itself can, while this browser keeps it.",
+  "dataGrant.anonymous.signIn": "Sign in instead",
+  "dataGrant.anonymous.signInTitle": "Sign in to save",
+  "dataGrant.anonymous.closed":
+    "This artifact saves only for people who sign in. Sign in, then choose to save again.",
+  "dataGrant.anonymous.humanNeeded":
+    "Complete the quick check that you are human, then the page can save what you enter.",
+  "dataGrant.anonymous.humanFailed": "The check that you are human did not pass. Try Allow again.",
+  "dataGrant.anonymous.humanUnavailable":
+    "The check that you are human could not run in this browser. Sign in to save instead.",
   "sharedData.ask": "Ask the owner",
   "sharedData.askNamed": "Ask the people who manage {name}",
   "sharedData.askTitle": "Ask about what you saved in {name}",
@@ -3405,6 +3436,83 @@ export const en = {
   "artifactData.exportFailed": "The export failed",
   "artifactData.exportInconsistent":
     "The data changed during the export. Export it again for a consistent copy.",
+  "suggest.style.pick": "Suggest a style",
+  "suggest.style.pick.hint": "Choose the element to restyle",
+  "suggest.style.pick.started":
+    "Choose an element in the artifact to suggest a style for it, or move to it with Tab and press Enter. Escape stops.",
+  "suggest.style.received": "Element chosen. The style panel is open.",
+  "suggest.style.label": "Suggest a style for the element",
+  "suggest.style.title": "Suggest a style",
+  "draft.style.title": "Change the style",
+  "suggest.style.element": "The {tag} element with the text {label}",
+  "suggest.style.elementEmpty": "The {tag} element",
+  "suggest.style.never":
+    "Styles are never applied automatically. If accepted, the change goes to the change list, for the people who manage the artifact or their agent to apply.",
+  "suggest.style.changes": "Properties to change",
+  "suggest.style.property": "Property {number}",
+  "suggest.style.value": "New value of property {number}",
+  "suggest.style.add": "Add a property",
+  "suggest.style.remove": "Remove property {number}",
+  "suggest.style.removeShort": "Remove",
+  "suggest.style.invalid": "This value is not allowed for this property.",
+  "suggest.style.duplicate": "This property is already in the list.",
+  "suggest.style.hint.color":
+    "#rgb, #rrggbb, rgb(r, g, b) or a color name such as navy. No transparency.",
+  "suggest.style.hint.fontSize": "Whole pixels from 8px to 96px.",
+  "suggest.style.hint.letterSpacing": "normal, or whole pixels from 0px to 10px.",
+  "suggest.style.hint.borderRadius": "Whole pixels from 0px to 64px.",
+  "suggest.style.property.color": "Text color",
+  "suggest.style.property.background-color": "Background color",
+  "suggest.style.property.font-size": "Text size",
+  "suggest.style.property.font-weight": "Weight",
+  "suggest.style.property.font-style": "Italic",
+  "suggest.style.property.text-align": "Alignment",
+  "suggest.style.property.text-decoration-line": "Underline and strikethrough",
+  "suggest.style.property.text-transform": "Capitalization",
+  "suggest.style.property.letter-spacing": "Letter spacing",
+  "suggest.style.property.border-radius": "Corner rounding",
+  "suggest.style.change": "{property} to {after}",
+  "suggest.style.changeFrom": "{property} from {before} to {after}",
+  "suggest.preview.elementNotFound":
+    "The element is not in the stored page (the page's scripts may draw it), so there is no preview.",
+  "suggest.structure.pick": "Move, duplicate or remove",
+  "suggest.structure.pick.hint": "Choose the element to move, duplicate or remove",
+  "suggest.structure.pick.started":
+    "Choose an element in the artifact to move, duplicate or remove it, or move to it with Tab and press Enter. Escape stops.",
+  "suggest.structure.received": "Element chosen. The structure panel is open.",
+  "suggest.structure.label": "Suggest moving, duplicating or removing the element",
+  "suggest.structure.title": "Suggest a structure change",
+  "draft.structure.title": "Change the structure",
+  "suggest.structure.never":
+    "Structure changes are never applied automatically. If accepted, the change goes to the change list, for the people who manage the artifact or their agent to apply.",
+  "suggest.structure.action": "What to do",
+  "suggest.structure.action.move": "Move it",
+  "suggest.structure.action.move.hint": "Before or after another element of this page.",
+  "suggest.structure.action.duplicate": "Duplicate it",
+  "suggest.structure.action.duplicate.hint": "A copy right after it.",
+  "suggest.structure.action.remove": "Remove it",
+  "suggest.structure.action.remove.hint": "The element and everything inside it.",
+  "suggest.structure.destination.label": "Destination",
+  "suggest.structure.destination.none": "No destination chosen yet.",
+  "suggest.structure.destination.pick": "Pick the destination",
+  "suggest.structure.destination.hint": "Choose the element to move it next to",
+  "suggest.structure.destination.started":
+    "Choose, in the artifact, the element to move it next to. Escape stops.",
+  "suggest.structure.destination.received": "Destination chosen.",
+  "suggest.structure.place": "Where",
+  "suggest.structure.place.before": "Before it",
+  "suggest.structure.place.after": "After it",
+  "suggest.structure.summary": "What changes",
+  "suggest.structure.summary.remove": "Remove it, with everything inside it",
+  "suggest.structure.summary.duplicate": "Duplicate it right after itself",
+  "suggest.structure.summary.moveBefore": "Move it before:",
+  "suggest.structure.summary.moveAfter": "Move it after:",
+  "suggest.preview.structureConflict":
+    "The element would go into itself or next to an element already removed, so there is no preview.",
+  "suggest.structure.destination.choosing": "Choose the destination in the artifact.",
+  "suggest.structure.destination.stop": "Stop choosing",
+  "suggest.preview.tooLarge":
+    "Building this preview would take too much work or make it too large, so there is no preview.",
 } as const;
 
 export type MessageId = keyof typeof en;

@@ -306,6 +306,10 @@ export function auditSummary(event: AuditEventView): string {
       return "Erased all the artifact's data";
     case "data.author_erased":
       return `Erased a deleted account's ${d.documents} data document(s) and ${d.edits} edit(s)`;
+    case "data.writers_changed":
+      return d.writers === "anyone"
+        ? "Opened saving data from the page to people without an account"
+        : "Limited saving data from the page to signed-in visitors";
   }
 }
 
@@ -421,6 +425,13 @@ function policyParts(d: Record<string, unknown>): string[] {
       d.commentRetentionDays === null
         ? "no comment retention"
         : `comment threads deleted ${d.commentRetentionDays} days after their last activity`,
+    );
+  }
+  if (d.anonymousDataWriters !== undefined) {
+    parts.push(
+      d.anonymousDataWriters === "allowed"
+        ? "people without an account may save data"
+        : "people without an account may not save data",
     );
   }
   if (d.reason === "plan_lapsed") parts.push("because the plan no longer includes policies");

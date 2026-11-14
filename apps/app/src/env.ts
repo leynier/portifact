@@ -134,6 +134,10 @@ export interface Env extends DomainEnv {
    * before delivery 8's release checks (a scripts test refuses it).
    */
   ARTIFACT_DATA_ENABLED?: string | undefined;
+  /** Exactly `"true"` lets pages create and replace documents (decision 0026, "Switches"). */
+  DATA_PAGE_WRITES_ENABLED?: string | undefined;
+  /** Exactly `"true"` issues anonymous grants of artifact data (delivery 9); never deployed on. */
+  DATA_ANONYMOUS_ENABLED?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

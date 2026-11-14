@@ -10,6 +10,7 @@
 // (decision 0021), offered only where single sign-on is: setting it needs a provider that can
 // sign people in and the admin's own session through it, and confirms the members it cuts off.
 import {
+  type AnonymousDataPolicy,
   type ClientKind,
   DEFAULT_ACCESS_POLICIES,
   type DefaultAccessPolicy,
@@ -123,6 +124,7 @@ interface Draft {
   lifeDays: string;
   commentsLimited: boolean;
   commentDays: string;
+  anonymousDataWriters: AnonymousDataPolicy;
 }
 
 /** A shown allowlist's lines; a hidden one (not an admin, who cannot save) shows none. */
@@ -151,6 +153,7 @@ function draftOf(policy: WorkspacePolicyView["policy"]): Draft {
     lifeDays: policy.artifactMaxDays === null ? "" : String(policy.artifactMaxDays),
     commentsLimited: policy.commentRetentionDays !== null,
     commentDays: policy.commentRetentionDays === null ? "" : String(policy.commentRetentionDays),
+    anonymousDataWriters: policy.anonymousDataWriters,
   };
 }
 
@@ -248,6 +251,7 @@ export function policyOfDraft(
       commentRetentionFrom: null,
       // The server decides it (decision 0023): never the client.
       commentRetentionToken: null,
+      anonymousDataWriters: draft.anonymousDataWriters,
     },
   };
 }
@@ -410,6 +414,31 @@ function PolicyForm({ space, view }: { space: Workspace; view: WorkspacePolicyVi
               value: "forbidden",
               label: t("policies.public.forbidden"),
               description: t("policies.public.forbiddenHint"),
+            },
+          ]}
+        />
+      </Panel>
+      <Panel
+        headingLevel={2}
+        title={t("policies.anonymousData.legend")}
+        description={t("policies.anonymousData.hint")}
+      >
+        <RadioGroup<AnonymousDataPolicy>
+          legend={t("policies.anonymousData.legend")}
+          name="anonymousDataWriters"
+          value={draft.anonymousDataWriters}
+          disabled={fieldsDisabled}
+          onChange={(value) => set("anonymousDataWriters", value)}
+          options={[
+            {
+              value: "forbidden",
+              label: t("policies.anonymousData.forbidden"),
+              description: t("policies.anonymousData.forbiddenHint"),
+            },
+            {
+              value: "allowed",
+              label: t("policies.anonymousData.allowed"),
+              description: t("policies.anonymousData.allowedHint"),
             },
           ]}
         />

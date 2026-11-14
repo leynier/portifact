@@ -168,6 +168,15 @@ function Usage({ view }: { view: DataDescriptionView }) {
     <DetailList
       items={[
         {
+          // Who may write from the page (decision 0026, delivery 9).
+          term: t("artifactData.writers.label"),
+          detail: t(
+            view.writers === "anyone"
+              ? "artifactData.writers.anyone"
+              : "artifactData.writers.signedIn",
+          ),
+        },
+        {
           term: t("artifactData.usage.stored"),
           detail: t("artifactData.usage.ofLimit", {
             used: formatBytes(view.storedBytes),

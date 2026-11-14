@@ -17,7 +17,7 @@ import { ArtifactId } from "./core.ts";
 import { TurnstileToken } from "./human.ts";
 import { IdempotencyKey } from "./publishing.ts";
 
-/** The switch that turns suggestions on, on the app and jobs Workers only (never deployed yet). */
+/** The switch that turns suggestions on, on the app, jobs and content Workers (never in a deployed `wrangler.jsonc`). */
 export const SUGGESTIONS_SWITCH = "SUGGESTIONS_ENABLED";
 
 /** Limits of one submitted edit (decision 0027, "The edit model"). */
@@ -144,36 +144,48 @@ const pixels = (min: number, max: number) => (value: string) => {
   const match = /^([1-9][0-9]{0,2}|0)px$/.exec(value);
   return match !== null && Number(match[1]) >= min && Number(match[1]) <= max;
 };
-const keywords =
-  (...allowed: string[]) =>
-  (value: string) =>
-    allowed.includes(value);
+const keywords = (allowed: readonly string[]) => (value: string) => allowed.includes(value);
+
+/**
+ * The keyword values of the properties whose grammar is a closed list, in the order the viewer
+ * offers them. The other properties take a color or whole pixels.
+ */
+export const STYLE_KEYWORDS = {
+  "font-weight": ["normal", "bold", "100", "200", "300", "400", "500", "600", "700", "800", "900"],
+  "font-style": ["normal", "italic"],
+  "text-align": ["left", "right", "center", "justify", "start", "end"],
+  "text-decoration-line": ["none", "underline", "line-through", "overline"],
+  "text-transform": ["none", "uppercase", "lowercase", "capitalize"],
+} as const satisfies Record<string, readonly string[]>;
 
 /** Every property a style operation may change, with its grammar. */
 export const STYLE_PROPERTIES: Readonly<Record<string, (value: string) => boolean>> = {
   color: isColor,
   "background-color": isColor,
   "font-size": pixels(8, 96),
-  "font-weight": keywords(
-    "normal",
-    "bold",
-    "100",
-    "200",
-    "300",
-    "400",
-    "500",
-    "600",
-    "700",
-    "800",
-    "900",
-  ),
-  "font-style": keywords("normal", "italic"),
-  "text-align": keywords("left", "right", "center", "justify", "start", "end"),
-  "text-decoration-line": keywords("none", "underline", "line-through", "overline"),
-  "text-transform": keywords("none", "uppercase", "lowercase", "capitalize"),
+  "font-weight": keywords(STYLE_KEYWORDS["font-weight"]),
+  "font-style": keywords(STYLE_KEYWORDS["font-style"]),
+  "text-align": keywords(STYLE_KEYWORDS["text-align"]),
+  "text-decoration-line": keywords(STYLE_KEYWORDS["text-decoration-line"]),
+  "text-transform": keywords(STYLE_KEYWORDS["text-transform"]),
   "letter-spacing": (value) => value === "normal" || pixels(0, 10)(value),
   "border-radius": pixels(0, 64),
 };
+
+/** The properties a style operation may change, in the order the viewer offers them. */
+export const STYLE_PROPERTY_NAMES = [
+  "color",
+  "background-color",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-align",
+  "text-decoration-line",
+  "text-transform",
+  "letter-spacing",
+  "border-radius",
+] as const;
+export type StyleProperty = (typeof STYLE_PROPERTY_NAMES)[number];
 
 export type StyleRefusal = "unknown_property" | "too_long" | "not_allowed";
 

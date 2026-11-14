@@ -1,6 +1,6 @@
 # 0028 Image regions: comments on a rectangle of an image
 
-- Status: accepted; built in one delivery (`feat(annotations): comment on a region of an image`, migration `0087_image_regions`: `annotation_threads.region`), switched off until the maintainer turns `IMAGE_REGIONS_ENABLED` on.
+- Status: accepted; built in one delivery (`feat(annotations): comment on a region of an image`, migration `0088_image_regions`: `annotation_threads.region`), switched off until the maintainer turns `IMAGE_REGIONS_ENABLED` on.
 - Date: 2026-11-14
 - Feature: plan section 8 lists "regiones de imagen" as out of scope of the first version, with no design. This record defines it. It builds on the anchor model ([docs/anchors.md](../anchors.md)), review mode and inline comments ([docs/security.md](../security.md), "Review mode" and "Inline comments") and the bridge protocol of [decision 0027](0027-edit-suggestions.md) ("Protocol and rollout").
 

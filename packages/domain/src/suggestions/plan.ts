@@ -45,7 +45,8 @@ import {
   settled,
   unplaced,
 } from "./planned.ts";
-import { buildPreview } from "./preview.ts";
+import { buildPreview, previewOfEdit } from "./preview.ts";
+import { hasElementOperations } from "./preview-edits.ts";
 import { planText } from "./text-planner.ts";
 import { newWork, type Work } from "./work.ts";
 
@@ -380,16 +381,31 @@ export function admitItems(open: number, adding: number, cap: number): boolean {
 }
 
 /**
- * What the preview shows for a plan: the built preview of the new file when anything applies, or
- * an explicit unavailable state with the reasons, never the unchanged page as if it were changed.
+ * What the preview shows for a plan: the built preview of the new file when anything applies, with
+ * the edit's style and structure operations made on the built copy (their elements found on the
+ * stored file, `base`), or an explicit unavailable state with the reasons, never the unchanged
+ * page as if it were changed. Without `edit`, or with an edit of text alone, only text shows.
  */
 export function previewOfPlan(
   plan: BuiltPlan,
   renderer: DocumentRenderer,
+  edit?: { base: string; operations: readonly EditOperation[] },
 ): { state: "ready"; document: string } | { state: "unavailable"; reasons: string[] } {
-  if (plan.newSource === undefined) {
+  const elements = edit !== undefined && hasElementOperations(edit.operations);
+  if (plan.newSource === undefined && !elements) {
     return { state: "unavailable", reasons: plan.listed.map((item) => item.reason ?? "unknown") };
   }
-  const built = buildPreview(plan.kind, plan.newSource, renderer, plan.work);
+  const shown = plan.newSource ?? (edit as { base: string }).base;
+  const built =
+    edit && elements
+      ? previewOfEdit({
+          kind: plan.kind,
+          base: edit.base,
+          shown,
+          operations: edit.operations,
+          renderer,
+          work: plan.work,
+        })
+      : buildPreview(plan.kind, shown, renderer, plan.work);
   return built.state === "ready" ? built : { state: "unavailable", reasons: [built.reason] };
 }

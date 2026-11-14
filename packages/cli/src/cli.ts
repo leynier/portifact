@@ -1190,10 +1190,10 @@ An artifact shared with its workspace or an email domain becomes restricted when
       ),
     );
 
-  // Edit suggestions are switched off on the server until their release (decision 0027): the
-  // command is hidden from the help until then, and the server answers not_found.
+  // The change list of edit suggestions (decision 0027). A server without suggestions switched on
+  // answers not_found.
   const changes = program
-    .command("changes", { hidden: true })
+    .command("changes")
     .description(
       "Read and mark an artifact's change list: accepted edits Portifact could not apply",
     )
@@ -1763,6 +1763,21 @@ An artifact shared with its workspace or an email domain becomes restricted when
             yes: options.yes === true,
             json: options.json === true,
           }),
+      ),
+    );
+  data
+    .command("writers")
+    .description(
+      "Show or set who may save data from the artifact's page: signed_in or anyone (no account, public artifacts only)",
+    )
+    .argument("<id>", "artifact ID")
+    .argument("[writers]", "signed_in or anyone; omit to show the current choice")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, writers: string | undefined) =>
+        dataCommands.dataWriters(dataCommands.terminalSafe(io), runtime, id, writers, {
+          json: options.json === true,
+        }),
       ),
     );
   data

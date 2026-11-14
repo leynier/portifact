@@ -364,6 +364,14 @@ export async function transferArtifact(
         owner: sql`${from}`,
         now: input.now,
       }),
+      // Who writes from the page goes back to signed-in visitors (decision 0026, delivery 9):
+      // anonymous writing is the new owner's decision, under its own plan and policy.
+      w
+        .update(schema.artifactData)
+        .set({ writers: "signed_in" })
+        .where(
+          sql`${schema.artifactData.artifactId} = ${artifact.id} and ${schema.artifactData.writers} <> 'signed_in' and ${unchanged}`,
+        ),
       // One event for each side, on the same conditions.
       ...transferEvents(
         w,

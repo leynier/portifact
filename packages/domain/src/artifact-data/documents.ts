@@ -6,6 +6,7 @@ import {
   ARTIFACT_DATA,
   type ArtifactDataLimits,
   type ChargeClass,
+  COLLECTION_MODES,
   type CollectionDeclaration,
   type CollectionMode,
   MAX_INDEXED_FIELDS,
@@ -24,11 +25,12 @@ export type Caller =
   | { kind: "owner"; actor?: string };
 
 /**
- * The collection modes a page reaches in delivery 6 (decision 0026, "Deliveries"): `read` and
- * `shared` from the page come with delivery 9, so a page caller carries these and every other
- * mode answers as if the caller had no access to it.
+ * The collection modes a page reaches (decision 0026, "The document model"): every mode since
+ * delivery 9, which opened `read` and `shared` to pages. A page caller carries them, so a mode
+ * left out of this list answers as if the caller had no access to it, in both objects, through
+ * the API and over live updates alike.
  */
-export const PAGE_MODES: readonly CollectionMode[] = ["own", "append"];
+export const PAGE_MODES: readonly CollectionMode[] = COLLECTION_MODES;
 
 /** Whether a page caller may reach a collection of this mode at all; the owner side always may. */
 function modeReached(mode: CollectionMode, caller: Caller): boolean {
