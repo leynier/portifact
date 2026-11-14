@@ -65,6 +65,7 @@ function description(exists = true): DataDescriptionView {
     },
     live: { connections: 2, messagesToday: 40 },
     storedBytes: 2_048,
+    writers: "signed_in",
   };
 }
 
@@ -113,6 +114,20 @@ describe("the artifact's data section", () => {
     expect(region.querySelector("img")).toBeNull();
     expect(region.textContent).toContain("untrusted text");
     expect(await axeViolations(container)).toEqual([]);
+    expect(region.textContent).toContain("Who saves from the page");
+    expect(region.textContent).toContain("Signed-in visitors");
+  });
+
+  it("says when people without an account may save from the page (delivery 9)", async () => {
+    server.data[ID] = {
+      description: { ...description(), writers: "anyone" },
+      documents: { votes: [], notes: [] },
+    };
+    renderDashboard(PATH, server);
+    const region = await section();
+    await waitFor(() =>
+      expect(region.textContent).toContain("Anyone, including people without an account"),
+    );
   });
 
   it("pages through a collection and goes back to the first page", async () => {

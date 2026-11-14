@@ -6,6 +6,32 @@ import type { Catalog } from "./en.ts";
 export const zhCN = {
   ...planTextZhCN,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "无需账户保存数据",
+  "policies.anonymousData.hint":
+    "工作区的公开制品页面能否保存没有账户的人输入的内容。编辑者仍需为每个制品单独选择，并经过人机验证。允许此项需要工作区的套餐包含策略功能。",
+  "policies.anonymousData.forbidden": "仅限已登录的访问者",
+  "policies.anonymousData.forbiddenHint": "页面只为已登录并同意的人保存内容。",
+  "policies.anonymousData.allowed": "也包括没有账户的人",
+  "policies.anonymousData.allowedHint":
+    "编辑者可以向任何人开放公开制品的数据。没有人以姓名被识别，请审核保存的内容。",
+  "audit.kind.dataWritersAnyone": "允许没有账户的人从页面保存数据",
+  "audit.kind.dataWritersSignedIn": "将从页面保存数据限制为已登录的访问者",
+  "audit.policy.anonymousData":
+    "{value, select, true {没有账户的人可以保存数据} other {仅已登录的访问者可保存数据}}",
+  "artifactData.writers.label": "谁可以从页面保存",
+  "artifactData.writers.signedIn": "已登录的访问者",
+  "artifactData.writers.anyone": "任何人，包括没有账户的人",
+  "dataGrant.anonymous.title": "允许 {host} 在无账户的情况下保存你输入的内容吗？",
+  "dataGrant.anonymous.learns": "页面只知道此制品的一个 ID：不知道姓名、电子邮件，也没有账户。",
+  "dataGrant.anonymous.lasts": "在此浏览器中有效 {days} 天。",
+  "dataGrant.anonymous.noAccount":
+    "没有账户，Portifact 之后无法向你显示或删除你保存的内容。只有页面本身可以，且仅在此浏览器保留期间。",
+  "dataGrant.anonymous.signIn": "改为登录",
+  "dataGrant.anonymous.signInTitle": "登录以保存",
+  "dataGrant.anonymous.closed": "此制品只为已登录的人保存内容。请登录后再次选择保存。",
+  "dataGrant.anonymous.humanNeeded": "完成快速的人机验证后，页面即可保存你输入的内容。",
+  "dataGrant.anonymous.humanFailed": "人机验证未通过。请再次点击允许。",
+  "dataGrant.anonymous.humanUnavailable": "人机验证无法在此浏览器中运行。请登录后保存。",
   "sharedData.ask": "询问所有者",
   "sharedData.askNamed": "询问 {name} 的管理者",
   "sharedData.askTitle": "询问你在 {name} 中保存的内容",

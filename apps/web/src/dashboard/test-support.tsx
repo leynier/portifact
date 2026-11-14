@@ -17,6 +17,7 @@ import {
   type AnnotationRole,
   type AnnotationsState,
   type AnnotationThreadView,
+  type AnonymousDataGrantControl,
   type ApprovalReviewView,
   type ArtifactActivity,
   ArtifactListQuery,
@@ -626,6 +627,11 @@ export interface FakeServer {
   commentNotices: Record<string, CommentNoticeMute>;
   /** Artifact data (decision 0026): controls by artifact ID (missing ones answer 404) and grants. */
   dataGrantControls: Record<string, DataGrantControl>;
+  /**
+   * Anonymous controls by artifact ID (delivery 9): missing ones answer 404, and an anonymous
+   * code needs a `turnstileToken` starting with `solved`.
+   */
+  anonymousGrantControls: Record<string, AnonymousDataGrantControl>;
   dataGrants: DataGrantView[];
   /** The person's own documents by artifact ID (`/data-grants/:id/mine`). */
   ownData: Record<string, { collection: string; id: string; body?: string }[]>;
@@ -818,6 +824,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     logoUploads: [],
     commentNotices: {},
     dataGrantControls: {},
+    anonymousGrantControls: {},
     dataGrants: [],
     ownData: {},
     bodies: [],
@@ -1634,6 +1641,30 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       redeemUrl: `https://${control.host}/__portifact/data/grant?flow=${input.flow}&code=${code}`,
       expiresAt: new Date(Date.now() + 60_000).toISOString(),
     });
+  }
+  if (path === "/api/v1/data/anonymous-grants" && method === "POST") {
+    const input = server.bodies.at(-1) as {
+      artifactId: string;
+      flow: string;
+      turnstileToken?: string;
+    };
+    const control = server.anonymousGrantControls[input.artifactId];
+    if (!control) return apiError("not_found", 404);
+    if (!String(input.turnstileToken ?? "").startsWith("solved")) {
+      return apiError("human_verification_required", 403);
+    }
+    const code = "a".repeat(43);
+    return Response.json({
+      code,
+      redeemUrl: `https://${control.host}/__portifact/data/grant?flow=${input.flow}&code=${code}&anon=1`,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+  }
+  const anonymousControl = /^\/api\/v1\/data\/anonymous-grants\/([^/]+)\/control$/.exec(path);
+  if (anonymousControl && method === "GET") {
+    const control =
+      server.anonymousGrantControls[decodeURIComponent(anonymousControl[1] as string)];
+    return control ? Response.json(control) : apiError("not_found", 404);
   }
   const grantControl = /^\/api\/v1\/account\/data-grants\/([^/]+)\/control$/.exec(path);
   if (grantControl && method === "GET") {
@@ -2860,7 +2891,11 @@ export function renderDashboard(
  * Renders one part of the dashboard (a dialog, a list) with the dashboard's providers and the
  * fake API, outside any route, for tests of that part alone.
  */
-export function renderInDashboard(node: ReactNode, server: FakeServer) {
+export function renderInDashboard(
+  node: ReactNode,
+  server: FakeServer,
+  options: { humanCheck?: HumanCheckWidget | null } = {},
+) {
   const i18n = createI18n();
   const env = {
     api: dashboardApi({
@@ -2871,7 +2906,7 @@ export function renderInDashboard(node: ReactNode, server: FakeServer) {
     manifests: inProcessBuilder,
     storage: server.storage,
     save: () => {},
-    humanCheck: null,
+    humanCheck: options.humanCheck ?? null,
   };
   return render(
     <I18nProvider i18n={i18n}>

@@ -251,7 +251,14 @@ export function ViewerScreen() {
       </Standalone>
     );
   } else if (info.data.role === "anonymous" || !account.data) {
-    content = <AnonymousViewer info={info.data} target={target} here={here} />;
+    content = (
+      <AnonymousViewer
+        info={info.data}
+        target={target}
+        here={here}
+        signedIn={Boolean(account.data)}
+      />
+    );
   } else {
     content = <SignedInViewer info={info.data} target={target} />;
   }
@@ -596,13 +603,25 @@ function AnonymousViewer({
   info,
   target,
   here,
+  signedIn,
 }: {
   info: ViewerInfo;
   target: Target;
   here: string;
+  /** Whether a session exists: then the grant is the person's, otherwise an anonymous one. */
+  signedIn: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(startsOpen);
+  const frame = useRef<HTMLIFrameElement>(null);
+  // Artifact data (decision 0026): the page may ask to save, also for a visitor without an
+  // account where the artifact is open to anyone (delivery 9).
+  const dataGrant = useDataGrant({
+    artifactId: info.artifactId,
+    origin: info.origin,
+    frame,
+    anonymous: !signedIn,
+  });
   const sidebar =
     info.annotations === "off" ? null : (
       <>
@@ -621,7 +640,19 @@ function AnonymousViewer({
       info={info}
       target={target}
       account={{ kind: "anonymous", here }}
-      frame={<ArtifactFrame info={info} src={pageUrl(info.origin, target)} />}
+      frame={
+        <>
+          <div className="flex flex-col gap-3 p-3 empty:hidden">
+            <DataGrantPanel
+              artifactId={info.artifactId}
+              origin={info.origin}
+              grant={dataGrant}
+              signInPath={here}
+            />
+          </div>
+          <ArtifactFrame info={info} src={pageUrl(info.origin, target)} frame={frame} />
+        </>
+      }
       sidebar={sidebar}
       sidebarOpen={open}
       onSidebar={setOpen}

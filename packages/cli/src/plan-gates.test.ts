@@ -39,8 +39,9 @@ interface GatedCommand {
 }
 
 /**
- * One line per command that reaches a paid feature. `policies` has none: workspace policies are
- * changed only from the dashboard (decision 0015); their refusals are in policies.test.ts.
+ * One line per command that reaches a paid feature. Workspace policies are changed only from the
+ * dashboard (decision 0015); their refusals are in policies.test.ts. `policies` gates one command:
+ * opening a workspace artifact's data to anyone, which needs the plan's policies.
  */
 const GATED: GatedCommand[] = [
   {
@@ -186,6 +187,15 @@ const GATED: GatedCommand[] = [
     ],
     method: "POST",
     path: /^\/api\/v1\/artifacts\/[^/]+\/annotations\/threads\/[^/]+\/issue$/,
+  },
+  // Opening a workspace artifact's data to people without an account (decision 0026, delivery
+  // 9) needs `policies` in the workspace's plan.
+  {
+    feature: "policies",
+    inGrace: "refused",
+    args: (id) => ["data", "writers", id, "anyone"],
+    method: "PUT",
+    path: /^\/api\/v1\/artifacts\/[^/]+\/data\/writers$/,
   },
   // A service token of a workspace whose plan lost the feature (decision 0011) is refused on
   // every request; with PORTIFACT_TOKEN set it goes through the same error path

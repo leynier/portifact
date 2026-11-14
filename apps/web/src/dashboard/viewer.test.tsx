@@ -1818,6 +1818,38 @@ describe("the viewer's bar and visitors", () => {
     expect(await axeViolations(container)).toEqual([]);
   });
 
+  it("draws the anonymous consent control when the page of a public artifact asks (delivery 9)", async () => {
+    makePublic();
+    server.email = null;
+    server.anonymousGrantControls[ID] = {
+      artifactId: ID,
+      artifactName: "Launch plan",
+      host: `${ID}.portifact.dev`,
+      owner: { kind: "user", name: "Ada" },
+      grantDays: 7,
+    };
+    renderDashboard(PATH, server);
+    const frame = (await screen.findByTitle(
+      "Launch plan, published with Portifact",
+    )) as HTMLIFrameElement;
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "portifact:data-grant-request", to: "/" },
+          origin: ORIGIN,
+          source: frame.contentWindow as MessageEventSource,
+        }),
+      );
+    });
+    expect(
+      await screen.findByRole("heading", {
+        name: `Let ${ID}.portifact.dev save what you enter, without an account?`,
+      }),
+    ).toBeTruthy();
+    // Nothing about a person's grants is asked of a visitor without a session.
+    expect(server.requests.some((r) => r.path.includes("/account/data-grants"))).toBe(false);
+  });
+
   it("hides the sidebar from anonymous visitors while comments are off", async () => {
     makePublic();
     server.email = null;

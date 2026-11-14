@@ -1125,6 +1125,14 @@ export const artifactData = sqliteTable("artifact_data", {
   reportSeq: integer("report_seq").notNull().default(0),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at").notNull(),
+  /**
+   * Who may write from the page (decision 0026, delivery 9, `DATA_WRITERS`): `signed_in`, or
+   * `anyone`, which adds anonymous grants on a public artifact while the owner's plan and policy
+   * allow them. Reset to `signed_in` by a transfer, so the new owner decides it again.
+   */
+  writers: text("writers", { enum: ["signed_in", "anyone"] })
+    .notNull()
+    .default("signed_in"),
 });
 
 /**
@@ -1252,6 +1260,41 @@ export const dataGrantCodes = sqliteTable(
   (t) => [
     index("data_grant_codes_expires_idx").on(t.expiresAt),
     index("data_grant_codes_grant_idx").on(t.grantId),
+  ],
+);
+
+/**
+ * Anonymous grants of artifact data (decision 0026, delivery 9, "Anonymous writers"): a visitor
+ * without an account allowed a public artifact's page to save what they enter, after the human
+ * check. Nobody is behind the row: its `visitor_id` is new for each grant and never claimed in the
+ * author journal, and it holds no address. Each grant carries its one-use code (hashes of the
+ * code and of the beginning browser's nonce, bound to the host); the guarded update that sets
+ * `used_at` is the redemption. The content Worker renews the cookie's claims against this row and
+ * the artifact still open to anonymous writers every 60 seconds. Rows go with the artifact and
+ * 30 days after they ended (`pruneDataGrants`).
+ */
+export const dataAnonymousGrants = sqliteTable(
+  "data_anonymous_grants",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    visitorId: text("visitor_id").notNull(),
+    host: text("host").notNull(),
+    codeHash: text("code_hash").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    codeExpiresAt: timestamp("code_expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("data_anonymous_grants_code_idx").on(t.codeHash),
+    index("data_anonymous_grants_artifact_idx").on(t.artifactId),
+    index("data_anonymous_grants_expires_idx").on(t.expiresAt),
+    // The prune's unredeemed selection, led by its own time.
+    index("data_anonymous_grants_unused_idx").on(t.codeExpiresAt).where(sql`${t.usedAt} is null`),
   ],
 );
 

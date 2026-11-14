@@ -67,6 +67,8 @@ export const TERMS_OPEN_OPERATIONS = {
   set_access: "narrowing",
   set_comment_visibility: "narrowing",
   update_webhook: "narrowing",
+  // Back to signed-in writers only narrows; opening data to anyone is refused (delivery 9).
+  set_data_writers: "narrowing",
 } as const satisfies Record<string, "read" | "removes" | "narrowing">;
 
 export type TermsOpenOperation = keyof typeof TERMS_OPEN_OPERATIONS;

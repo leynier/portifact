@@ -12,6 +12,7 @@ import {
   CollectionName,
   DataCount,
   DataQuery,
+  DataWriters,
   DayCounters,
   DocumentId,
   ExportCursor,
@@ -32,6 +33,23 @@ export const DataCollectionView = z.object({
   building: z.number().int().min(0),
 });
 export type DataCollectionView = z.infer<typeof DataCollectionView>;
+
+/** `PUT /api/v1/artifacts/:id/data/writers`: who may write from the page. */
+export const DataWritersUpdate = z.strictObject({ writers: DataWriters });
+export type DataWritersUpdate = z.infer<typeof DataWritersUpdate>;
+
+/**
+ * Who may write from the page, as the owner side reads it: the setting, and whether anonymous
+ * writing works now. `anonymous` is `available` while the setting is `anyone` and the owner's plan
+ * and policy allow it (the artifact must also be public), `plan_required` or `policy_refused`
+ * when they do not (the setting is then kept but grants nobody), or `off` with `signed_in`.
+ */
+export const DataWritersView = z.object({
+  artifactId: ArtifactId,
+  writers: DataWriters,
+  anonymous: z.enum(["available", "off", "plan_required", "policy_refused"]),
+});
+export type DataWritersView = z.infer<typeof DataWritersView>;
 
 /** `GET /api/v1/artifacts/:id/data`: the artifact's collections and today's counters. */
 export const DataDescriptionView = z.object({
@@ -63,6 +81,8 @@ export const DataDescriptionView = z.object({
   }),
   /** The bytes the object last reported (documents and control records). */
   storedBytes: z.number().int().min(0),
+  /** Who may write from the page (delivery 9); `signed_in` before any choice. */
+  writers: DataWriters.default("signed_in"),
 });
 export type DataDescriptionView = z.infer<typeof DataDescriptionView>;
 
@@ -321,3 +341,9 @@ export const DeleteAuthorDataInput = z.object({
   ...Retry,
 });
 export type DeleteAuthorDataInput = z.infer<typeof DeleteAuthorDataInput>;
+
+/** The MCP tools of who may write from the page (delivery 9). */
+export const GetDataWritersInput = z.object(OnArtifact);
+export type GetDataWritersInput = z.infer<typeof GetDataWritersInput>;
+export const SetDataWritersInput = z.object({ ...OnArtifact, writers: DataWriters });
+export type SetDataWritersInput = z.infer<typeof SetDataWritersInput>;

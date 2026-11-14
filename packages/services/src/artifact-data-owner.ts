@@ -455,7 +455,7 @@ export async function describeArtifactData(
   const { value, found } = result.value;
   const limits = found.limits;
   const [stored] = await db
-    .select({ bytes: schema.artifactData.documentsBytes })
+    .select({ bytes: schema.artifactData.documentsBytes, writers: schema.artifactData.writers })
     .from(schema.artifactData)
     .where(eq(schema.artifactData.artifactId, input.artifactId))
     .limit(1);
@@ -485,6 +485,7 @@ export async function describeArtifactData(
       messagesToday: value?.today.live ?? 0,
     },
     storedBytes: stored?.bytes ?? 0,
+    writers: stored?.writers ?? "signed_in",
   });
 }
 

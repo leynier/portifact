@@ -5,6 +5,7 @@
 // content Worker redeems it into a sealed cookie whose claims it renews here every 60 seconds.
 // Revocation (the person, the viewer, sign-out, lost access) therefore applies within a minute.
 import {
+  type AnonymousDataGrantControl,
   DATA_GRANT,
   type DataGrantControl,
   type DataGrantView,
@@ -13,6 +14,7 @@ import {
 } from "@portifact/contracts";
 import { bothSides, hitRateLimit, type RegionalDb, schema } from "@portifact/db";
 import {
+  anonymousGrantOpen,
   devHost,
   fail,
   handoffHost,
@@ -30,12 +32,14 @@ import {
   randomToken,
   recordSessionRenewal,
 } from "./read-access.ts";
+import { ownerEntitlementsAndPolicy } from "./workspace-policies.ts";
 
 const SECOND_MS = 1000;
 const PRUNE_BATCH = 500;
 
 const g = schema.dataGrants;
 const c = schema.dataGrantCodes;
+const ag = schema.dataAnonymousGrants;
 
 /** Whether this deployment serves artifact data to pages (decision 0026, "Switches"). */
 export function artifactDataEnabled(env: { ARTIFACT_DATA_ENABLED?: string | undefined }): boolean {
@@ -548,6 +552,8 @@ export async function pruneDataGrants(
   const unredeemedBefore = now - DATA_GRANT.codeTtlSeconds * 2 * SECOND_MS;
   const grants = (select: SQL) =>
     db.delete(g).where(sql`${g.id} in (${select})`).returning({ id: g.id });
+  const anonymous = (select: SQL) =>
+    db.delete(ag).where(sql`${ag.id} in (${select})`).returning({ id: ag.id });
   const results = await db.batch([
     db
       .delete(c)
@@ -564,6 +570,257 @@ export async function pruneDataGrants(
     grants(
       sql`select ${g.id} from ${g} indexed by data_grants_unredeemed_idx where ${g.redeemedAt} is null and ${g.createdAt} <= ${unredeemedBefore} order by ${g.createdAt} limit ${limit}`,
     ),
+    // Anonymous grants (delivery 9): 30 days after they expired, or once their code could no
+    // longer redeem without having been used.
+    anonymous(
+      sql`select ${ag.id} from ${ag} indexed by data_anonymous_grants_expires_idx where ${ag.expiresAt} <= ${before} order by ${ag.expiresAt} limit ${limit}`,
+    ),
+    anonymous(
+      sql`select ${ag.id} from ${ag} indexed by data_anonymous_grants_unused_idx where ${ag.usedAt} is null and ${ag.codeExpiresAt} <= ${unredeemedBefore + DATA_GRANT.codeTtlSeconds * SECOND_MS} order by ${ag.codeExpiresAt} limit ${limit}`,
+    ),
   ]);
   return { processed: results.reduce((n, rows) => n + rows.length, 0) };
+}
+
+// Anonymous grants (decision 0026, delivery 9, "Anonymous writers"): the same consent and the
+// same one-use, browser-bound code as a person's grant, for a visitor without an account on a
+// public artifact whose owner opened its data to anyone. Nobody is behind one: its visitor ID is
+// new for each grant, never claimed in the author journal, and nothing names the visitor. The
+// human check and per-address and per-artifact issue limits stand where the account was.
+
+/**
+ * Whether this deployment issues and renews anonymous grants: `DATA_ANONYMOUS_ENABLED` exactly
+ * `"true"`, with artifact data on. Off, no new anonymous grant, and existing ones stop renewing
+ * within the claims' minute (decision 0026, "Switches").
+ */
+export function dataAnonymousEnabled(env: {
+  ARTIFACT_DATA_ENABLED?: string | undefined;
+  DATA_ANONYMOUS_ENABLED?: string | undefined;
+}): boolean {
+  return artifactDataEnabled(env) && env.DATA_ANONYMOUS_ENABLED === "true";
+}
+
+/** The artifact as anonymous writing reads it, with its owner's plan and policy. */
+async function anonymousTarget(
+  db: RegionalDb,
+  input: { artifactId: string; enabled: boolean; now: number },
+): Promise<{ name: string; ownerId: string; customHost: string | null } | null> {
+  const [row] = await db
+    .select({
+      name: schema.artifacts.name,
+      ownerId: schema.artifacts.ownerId,
+      state: schema.artifacts.state,
+      accessMode: schema.artifacts.accessMode,
+      customHost: schema.artifacts.customHost,
+      writers: schema.artifactData.writers,
+    })
+    .from(schema.artifacts)
+    .leftJoin(schema.artifactData, eq(schema.artifactData.artifactId, schema.artifacts.id))
+    .where(eq(schema.artifacts.id, input.artifactId))
+    .limit(1);
+  if (!row || !input.enabled) return null;
+  const { owner, policy } = await ownerEntitlementsAndPolicy(db.global, row.ownerId, input.now);
+  const open = anonymousGrantOpen({
+    enabled: input.enabled,
+    artifact: { state: row.state, accessMode: row.accessMode, writers: row.writers },
+    owner: { workspace: isWorkspaceId(row.ownerId), entitlements: owner, policy },
+  });
+  return open ? { name: row.name, ownerId: row.ownerId, customHost: row.customHost } : null;
+}
+
+interface AnonymousTargetInput {
+  artifactId: string;
+  /** The custom host the page runs on, or null for the `.dev` host. Untrusted input. */
+  requestedHost: string | null;
+  contentDomain: string;
+  customDomains: boolean;
+  enabled: boolean;
+  now: number;
+}
+
+/**
+ * Where an anonymous grant may go: an artifact open to anonymous writers now, on its `.dev` host
+ * or exactly its active custom host. Anything else answers like a missing artifact.
+ */
+async function anonymousGrantTarget(
+  db: RegionalDb,
+  input: AnonymousTargetInput,
+): Promise<Result<{ host: string; artifactName: string; ownerId: string }>> {
+  const target = await anonymousTarget(db, input);
+  if (target === null) return unavailable();
+  const askedHost = input.customDomains && input.requestedHost !== null;
+  const [active] =
+    askedHost && target.customHost !== null
+      ? await db.global
+          .select({ hostname: schema.customDomains.hostname })
+          .from(schema.customDomains)
+          .where(
+            and(
+              eq(schema.customDomains.hostname, target.customHost),
+              eq(schema.customDomains.state, "active"),
+              eq(schema.customDomains.artifactId, input.artifactId),
+            ),
+          )
+          .limit(1)
+      : [];
+  const host = handoffHost({
+    artifactId: input.artifactId,
+    contentDomain: input.contentDomain,
+    requested: input.requestedHost,
+    activeHost: active !== undefined ? target.customHost : null,
+  });
+  if (host === null) return unavailable();
+  return ok({ host, artifactName: target.name, ownerId: target.ownerId });
+}
+
+/** What the anonymous control shows: the artifact's host and owner. Reads only. */
+export async function anonymousDataGrantControl(
+  db: RegionalDb,
+  input: AnonymousTargetInput,
+): Promise<Result<AnonymousDataGrantControl>> {
+  const target = await anonymousGrantTarget(db, input);
+  if (!target.ok) return target;
+  const { host, artifactName, ownerId } = target.value;
+  const workspaceOwner = isWorkspaceId(ownerId);
+  const [owner] = workspaceOwner
+    ? await db.global
+        .select({ name: schema.workspaces.name })
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, ownerId))
+        .limit(1)
+    : await db.global
+        .select({ name: schema.users.name })
+        .from(schema.users)
+        .where(eq(schema.users.id, ownerId))
+        .limit(1);
+  return ok({
+    artifactId: input.artifactId,
+    artifactName,
+    host,
+    owner: { kind: workspaceOwner ? "workspace" : "user", name: owner?.name ?? "" },
+    grantDays: DATA_GRANT.anonymousGrantTtlSeconds / 86_400,
+  });
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * The visitor allowed, and the human check passed (checked by the adapter before this): limits
+ * codes per network address (`addressKey`, a hash the adapter made, never the address) and per
+ * artifact, checks the target again, then writes the grant with its one-use code in one
+ * statement. The code is returned once and stored only as a hash.
+ */
+export async function issueAnonymousDataGrantCode(
+  db: RegionalDb,
+  input: AnonymousTargetInput & { nonceHash: string; addressKey: string },
+): Promise<Result<{ code: string; host: string; expiresAt: number }>> {
+  const limited = () => fail<never>("rate_limited", "Too many requests. Try again later.");
+  // Every attempt from an address counts, so probing artifacts costs it too.
+  const byAddress = await hitRateLimit(
+    db.global.$client,
+    `data_anon:ip:${input.addressKey}`,
+    HOUR_MS,
+    input.now,
+  );
+  if (byAddress.count > DATA_GRANT.anonymousPerIpPerHour) return limited();
+  const target = await anonymousGrantTarget(db, input);
+  if (!target.ok) return target;
+  const byArtifact = await hitRateLimit(
+    db.global.$client,
+    `data_anon:artifact:${input.artifactId}`,
+    HOUR_MS,
+    input.now,
+  );
+  if (byArtifact.count > DATA_GRANT.anonymousPerArtifactPerHour) return limited();
+  const code = randomToken();
+  const codeExpiresAt = input.now + DATA_GRANT.codeTtlSeconds * SECOND_MS;
+  await db.insert(ag).values({
+    id: grantId(),
+    artifactId: input.artifactId,
+    visitorId: newVisitorId(),
+    host: target.value.host,
+    codeHash: await hashSecret(code),
+    nonceHash: input.nonceHash,
+    codeExpiresAt,
+    expiresAt: input.now + DATA_GRANT.anonymousGrantTtlSeconds * SECOND_MS,
+    createdAt: input.now,
+  });
+  return ok({ code, host: target.value.host, expiresAt: codeExpiresAt });
+}
+
+/**
+ * Redeems an anonymous code on the host it was issued for, with the nonce of the browser that
+ * began: one guarded update marks it used, so a replay or a concurrent redemption gets nothing,
+ * and the artifact must still be open to anonymous writers.
+ */
+export async function redeemAnonymousDataGrantCode(
+  db: RegionalDb,
+  input: {
+    code: string;
+    artifactId: string;
+    nonceHash: string | null;
+    host: string;
+    enabled: boolean;
+    now: number;
+  },
+): Promise<Result<LiveGrant>> {
+  const refused = fail<never>("invalid_input", "This link has expired or was already used.");
+  if (input.nonceHash === null) return refused;
+  const [row] = await db
+    .update(ag)
+    .set({ usedAt: input.now })
+    .where(
+      and(
+        eq(ag.codeHash, await hashSecret(input.code)),
+        eq(ag.artifactId, input.artifactId),
+        eq(ag.nonceHash, input.nonceHash),
+        eq(ag.host, input.host),
+        isNull(ag.usedAt),
+        gt(ag.codeExpiresAt, input.now),
+        gt(ag.expiresAt, input.now),
+      ),
+    )
+    .returning({ id: ag.id });
+  if (!row) return refused;
+  const live = await renewAnonymousDataGrant(db, {
+    grantId: row.id,
+    artifactId: input.artifactId,
+    enabled: input.enabled,
+    now: input.now,
+  });
+  return live.ok ? live : refused;
+}
+
+/**
+ * Renews an anonymous grant's claims: the grant exists for this artifact, was redeemed and has
+ * not expired, and the artifact is still open to anonymous writers (the switch, active and
+ * public, writers `anyone`, the owner's plan and policy). Read every 60 seconds; writes nothing.
+ */
+export async function renewAnonymousDataGrant(
+  db: RegionalDb,
+  input: { grantId: string; artifactId: string; enabled: boolean; now: number },
+): Promise<Result<LiveGrant>> {
+  if (!input.enabled) return unavailable();
+  const [grant] = await db
+    .select({ visitorId: ag.visitorId, expiresAt: ag.expiresAt })
+    .from(ag)
+    .where(
+      and(
+        eq(ag.id, input.grantId),
+        eq(ag.artifactId, input.artifactId),
+        isNotNull(ag.usedAt),
+        gt(ag.expiresAt, input.now),
+      ),
+    )
+    .limit(1);
+  if (!grant) return unavailable();
+  if ((await anonymousTarget(db, input)) === null) return unavailable();
+  return ok({
+    grantId: input.grantId,
+    userId: "",
+    visitorId: grant.visitorId,
+    name: "",
+    write: true,
+    expiresAt: grant.expiresAt,
+  });
 }

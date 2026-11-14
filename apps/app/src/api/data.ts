@@ -16,6 +16,7 @@ import {
   DataEraseRequest,
   DataQueryParams,
   type DataQueryParams as DataQueryParamsType,
+  DataWritersUpdate,
   dataCountOf,
   dataQueryOf,
   type ErrorCode,
@@ -38,10 +39,12 @@ import {
   eraseArtifactData,
   exportArtifactData,
   getDataDocument,
+  getDataWriters,
   type OwnerDataDeps,
   queryArtifactData,
   replaceDataDocument,
   replaceDataDocuments,
+  setDataWriters,
 } from "@portifact/services";
 import type { Hono } from "hono";
 import type { Env } from "../env.ts";
@@ -59,6 +62,11 @@ export function ownerDataDeps(env: Env, handles: RegionHandles): OwnerDataDeps {
     bucket: bucketOf(handles),
     enabled: env.ARTIFACT_DATA_ENABLED === "true",
   };
+}
+
+/** Who writes from the page is D1's alone: only the switch matters, never the object. */
+function writersDeps(env: Env) {
+  return { enabled: env.ARTIFACT_DATA_ENABLED === "true" };
 }
 
 type Result<T> = { ok: true; value: T } | { ok: false; code: ErrorCode; message: string };
@@ -204,6 +212,37 @@ export function dataRoutes(api: Hono<{ Bindings: Env }>, guarded: Guarded, now: 
       return answer(
         c,
         await exportArtifactData(region.db, deps, { userId, artifactId, now: now(), after }),
+      );
+    }),
+  );
+
+  // Who may write from the page (delivery 9). Setting a value is idempotent by itself, so the
+  // change needs no key; `anyone` is checked against the owner's plan and policy in the service.
+  api.get(
+    `${base}/writers`,
+    guarded("data:read", async (c, userId) => {
+      const { artifactId, region } = await at(c);
+      return answer(
+        c,
+        await getDataWriters(region.db, writersDeps(c.env), { userId, artifactId, now: now() }),
+      );
+    }),
+  );
+
+  api.put(
+    `${base}/writers`,
+    guarded("data:write", async (c, userId) => {
+      const body = await readJson(c, DataWritersUpdate);
+      if (!body.ok) return body.response;
+      const { artifactId, region } = await at(c);
+      return answer(
+        c,
+        await setDataWriters(region.db, writersDeps(c.env), {
+          userId,
+          artifactId,
+          now: now(),
+          writers: body.value.writers,
+        }),
       );
     }),
   );

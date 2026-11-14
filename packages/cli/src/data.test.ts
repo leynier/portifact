@@ -279,6 +279,40 @@ describe("portifact data", () => {
     expect(footer).toMatchObject({ footer: true, consistent: false, documents: 3 });
   });
 
+  it("shows and sets who may save data from the page", async () => {
+    const id = await declared();
+    const shown = await h.invoke("data", "writers", id);
+    expect(shown.code, shown.stderr).toBe(0);
+    expect(shown.stdout).toBe(
+      `Writers for ${id}: signed_in (only signed-in visitors who can open the artifact can save data).\n`,
+    );
+    const opened = await h.invoke("data", "writers", id, "anyone");
+    expect(opened.stdout).toBe(
+      `Writers set for ${id}: anyone (people without an account can save data while the artifact is public).\n`,
+    );
+    const json = await h.invoke("data", "writers", id, "--json");
+    expect(JSON.parse(json.stdout)).toEqual({
+      artifactId: id,
+      writers: "anyone",
+      anonymous: "available",
+    });
+    const put = server.requests.filter((r) => r.path.endsWith("/writers") && r.method === "PUT");
+    expect(put).toHaveLength(1);
+    expect(JSON.parse(put[0]?.body ?? "null")).toEqual({ writers: "anyone" });
+
+    const bad = await h.invoke("data", "writers", id, "everyone");
+    expect(bad.code).toBe(EXIT.usage);
+    expect(bad.stderr).toContain("Use signed_in or anyone");
+
+    server.api.data.writersRefusal = {
+      code: "policy_refused",
+      message: "The workspace's policy does not allow people without an account to save data.",
+    };
+    const refused = await h.invoke("data", "writers", id, "anyone");
+    expect(refused.code).toBe(EXIT.limit);
+    expect(refused.stderr).toContain("does not allow people without an account");
+  });
+
   it("refuses bad input before any request and answers the API's errors", async () => {
     h.signIn();
     const artifact = server.api.seed();

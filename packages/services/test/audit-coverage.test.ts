@@ -188,6 +188,8 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   // The owner's reset: the D1 batch that follows the object's committed erase records it.
   eraseArtifactData: ["data.erased"],
   runDataReset: ["data.erased"],
+  // Who may write from the page (delivery 9): D1's own setting, recorded in its batch.
+  setDataWriters: ["data.writers_changed"],
   markChangeItemOnce: ["change_item.marked"],
 };
 
@@ -256,6 +258,9 @@ reason(
     "redeemDataGrantCode",
     "revokeDataGrants",
     "pruneDataGrants",
+    // An anonymous visitor's grant (delivery 9): nobody's account, nothing an owner has.
+    "issueAnonymousDataGrantCode",
+    "redeemAnonymousDataGrantCode",
   ],
 );
 reason(
@@ -587,6 +592,8 @@ const READ_NAMES = new Set([
   // The grant's control and renewal read access and the account (decision 0026); the digest computes.
   "dataGrantControl",
   "renewDataGrant",
+  "anonymousDataGrantControl",
+  "renewAnonymousDataGrant",
   "nonceDigest",
   // Edit suggestions (decision 0027): rebuilds a replayed acceptance's answer, writes nothing.
   "replayAcceptance",

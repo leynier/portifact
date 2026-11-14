@@ -2,8 +2,10 @@
 // over the real documents object: every operation through both gives the same body and the same
 // error, needs the same scope, and refuses a stranger and a workspace member alike.
 import { env } from "cloudflare:workers";
+import { DEFAULT_POLICY } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { createWorkspace } from "@portifact/services";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { DATA_TOOL_SCOPES } from "../src/mcp/data-tools.ts";
 import { TOOL_SCOPES } from "../src/mcp/tools.ts";
@@ -83,6 +85,7 @@ describe("artifact data tools", () => {
       "describe_artifact_data",
       "export_artifact_data",
       "get_data_document",
+      "get_data_writers",
       "query_artifact_data",
     ]);
   });
@@ -583,5 +586,195 @@ describe("the owner's erase and one author's deletion", () => {
         })
       ).status,
     ).toBe(403);
+  });
+});
+
+describe("who may write from the page (delivery 9)", () => {
+  const writers = (b: Both, id: string, value?: string) =>
+    b.apiCall(
+      `/api/v1/artifacts/${id}/data/writers`,
+      value === undefined
+        ? undefined
+        : {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ writers: value }),
+          },
+    );
+
+  async function withData(b: Both, workspace?: string): Promise<string> {
+    const id = await publish(b, workspace);
+    const declared = await b.apiCall(
+      `/api/v1/artifacts/${id}/data/collections`,
+      send("POST", { name: "board", mode: "shared" }),
+    );
+    expect(declared.status).toBe(201);
+    return id;
+  }
+
+  async function workspaceOf(owner: Both, plan: "free" | "enterprise", policy?: unknown) {
+    const ownerUser = (await (await owner.apiCall("/api/v1/me")).json<{ userId: string }>()).userId;
+    const regions = regionsFromEnv(env);
+    const slug = `wr-${crypto.randomUUID().slice(0, 8)}`;
+    const created = await createWorkspace(regions.global, {
+      slug,
+      name: "Writers",
+      adminUserId: ownerUser,
+      now: Date.now(),
+    });
+    if (!created.ok) throw new Error(created.message);
+    if (plan !== "free") {
+      await regions.global.insert(schema.ownerPlans).values({
+        ownerId: created.value.id,
+        plan,
+        seats: 1,
+        grantedBy: "test",
+        updatedAt: Date.now(),
+      });
+    }
+    if (policy !== undefined) {
+      await regions.global
+        .update(schema.workspaces)
+        .set({ policy })
+        .where(eq(schema.workspaces.id, created.value.id));
+    }
+    return { slug, workspaceId: created.value.id };
+  }
+
+  async function writerEvents(id: string) {
+    return regionsFromEnv(env)
+      .get("default")
+      .db.select({ detail: schema.auditEvents.detail })
+      .from(schema.auditEvents)
+      .where(
+        and(
+          eq(schema.auditEvents.kind, "data.writers_changed"),
+          eq(schema.auditEvents.artifactId, id),
+        ),
+      );
+  }
+
+  it("reads and sets them alike through the API and MCP, and the description carries them", async () => {
+    const b = await both("data-writers@example.test");
+    const id = await withData(b);
+    const shown = await fromApi(await writers(b, id));
+    expect(shown).toEqual({
+      ok: true,
+      body: { artifactId: id, writers: "signed_in", anonymous: "off" },
+    });
+    expect(fromTool(await b.tool("get_data_writers", { artifactId: id }))).toEqual(shown);
+
+    const opened = fromTool(
+      await b.tool("set_data_writers", { artifactId: id, writers: "anyone" }),
+    );
+    expect(opened).toEqual({
+      ok: true,
+      body: { artifactId: id, writers: "anyone", anonymous: "available" },
+    });
+    expect(await fromApi(await writers(b, id, "anyone"))).toEqual(opened);
+    const described = await (await b.apiCall(`/api/v1/artifacts/${id}/data`)).json<{
+      writers: string;
+    }>();
+    expect(described.writers).toBe("anyone");
+    expect(await fromApi(await writers(b, id, "signed_in"))).toEqual({
+      ok: true,
+      body: { artifactId: id, writers: "signed_in", anonymous: "off" },
+    });
+    // One event per change; setting the same value again records nothing.
+    expect(await writerEvents(id)).toHaveLength(2);
+  });
+
+  it("asks a workspace for policies in its plan, then for its policy, and always allows narrowing", async () => {
+    const owner = await both("data-writers-ws@example.test");
+    const free = await workspaceOf(owner, "free");
+    const onFree = await withData(owner, free.slug);
+    const planRefused = await fromApi(await writers(owner, onFree, "anyone"));
+    expect(planRefused).toMatchObject({ ok: false, body: { error: { code: "plan_required" } } });
+    expect(
+      fromTool(await owner.tool("set_data_writers", { artifactId: onFree, writers: "anyone" })),
+    ).toEqual(planRefused);
+    expect((await writers(owner, onFree, "signed_in")).status).toBe(200);
+
+    const strict = await workspaceOf(owner, "enterprise");
+    const onStrict = await withData(owner, strict.slug);
+    const policyRefused = await fromApi(await writers(owner, onStrict, "anyone"));
+    expect(policyRefused).toMatchObject({
+      ok: false,
+      body: { error: { code: "policy_refused" } },
+    });
+    expect(
+      fromTool(await owner.tool("set_data_writers", { artifactId: onStrict, writers: "anyone" })),
+    ).toEqual(policyRefused);
+
+    const open = await workspaceOf(owner, "enterprise", {
+      ...DEFAULT_POLICY,
+      anonymousDataWriters: "allowed",
+    });
+    const onOpen = await withData(owner, open.slug);
+    expect(await fromApi(await writers(owner, onOpen, "anyone"))).toEqual({
+      ok: true,
+      body: { artifactId: onOpen, writers: "anyone", anonymous: "available" },
+    });
+  });
+
+  it("refuses a stranger like a missing artifact and a member as forbidden", async () => {
+    const owner = await both("data-writers-owner@example.test");
+    const stranger = await both("data-writers-stranger@example.test");
+    const member = await both("data-writers-member@example.test");
+    const ws = await workspaceOf(owner, "free");
+    const memberUser = (await (await member.apiCall("/api/v1/me")).json<{ userId: string }>())
+      .userId;
+    await regionsFromEnv(env).global.insert(schema.workspaceMembers).values({
+      workspaceId: ws.workspaceId,
+      userId: memberUser,
+      role: "member",
+      updatedAt: Date.now(),
+    });
+    const id = await withData(owner, ws.slug);
+    const missing = await fromApi(await writers(stranger, id, "signed_in"));
+    expect(missing).toEqual({
+      ok: false,
+      body: { error: { code: "not_found", message: "Artifact not found." } },
+    });
+    expect(
+      fromTool(await stranger.tool("set_data_writers", { artifactId: id, writers: "signed_in" })),
+    ).toEqual(missing);
+    const forbidden = await fromApi(await writers(member, id));
+    expect(forbidden).toMatchObject({ ok: false, body: { error: { code: "forbidden" } } });
+    expect(fromTool(await member.tool("get_data_writers", { artifactId: id }))).toEqual(forbidden);
+  });
+
+  it("answers that an artifact without data has none, and needs data:write to change", async () => {
+    const email = "data-writers-empty@example.test";
+    const b = await both(email);
+    const id = await publish(b);
+    expect(await fromApi(await writers(b, id))).toMatchObject({
+      ok: false,
+      body: { error: { code: "not_found" } },
+    });
+    const reader = await apiToken(b.h, email, "artifacts:read data:read");
+    const refused = await api(b.h, reader, `/api/v1/artifacts/${id}/data/writers`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ writers: "signed_in" }),
+    });
+    expect(refused.status).toBe(403);
+    expect((await writers(b, id, "everyone")).status).toBe(400);
+  });
+
+  it("only narrows for a token whose account has not accepted the current terms", async () => {
+    const email = "data-writers-terms@example.test";
+    const b = await both(email);
+    const id = await withData(b);
+    await env.DB.prepare("update users set terms_version = ? where email = ?")
+      .bind("2000-01-01", email)
+      .run();
+    const widen = await fromApi(await writers(b, id, "anyone"));
+    expect(widen).toMatchObject({ ok: false, body: { error: { code: "terms_not_accepted" } } });
+    // MCP adds that the agent should ask the user (terms-tokens.test.ts); the code is the same.
+    expect(
+      fromTool(await b.tool("set_data_writers", { artifactId: id, writers: "anyone" })),
+    ).toMatchObject({ ok: false, body: { error: { code: "terms_not_accepted" } } });
+    expect(await fromApi(await writers(b, id, "signed_in"))).toMatchObject({ ok: true });
   });
 });

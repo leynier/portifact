@@ -21,6 +21,7 @@ import { Hono } from "hono";
 import { hasSessionCookie, type SessionLookup } from "./api/access.ts";
 import { type AccountSessionLookup, accountRoutes } from "./api/account.ts";
 import { auditStreamRoutes } from "./api/audit-streams.ts";
+import { anonymousGrantRoutes } from "./api/data-anonymous.ts";
 import { githubOidcRoutes } from "./api/github-oidc.ts";
 import { integrationRoutes } from "./api/integrations.ts";
 import { noticeRoutes } from "./api/notices.ts";
@@ -80,7 +81,6 @@ export const DASHBOARD_ROUTES = [
   "/data",
   // Artifact data (decision 0026): "Data you shared" and the consent control's page.
   "/shared-data",
-  "/data/grant",
   "/webhooks",
   "/integrations",
   "/branding",
@@ -108,6 +108,13 @@ export const VIEWER_ROUTE = "/view/:artifactId";
  * `next` parameter.
  */
 export const INVITATION_ROUTE = "/invitations";
+
+/**
+ * The consent control's page of artifact data (decision 0026, "The grant"). Served with or
+ * without a session since delivery 9: signed out, it offers anonymous writing where the artifact's
+ * owner opened it (behind the human check) and a way to sign in, which comes back here.
+ */
+export const DATA_GRANT_ROUTE = "/data/grant";
 
 /** Static files the auth pages load. Hashed bundles under /assets/ skip the Worker. */
 const STATIC_FILES = ["/favicon.svg", "/favicon.ico"];
@@ -482,6 +489,11 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
     "/",
     shareOpenRoutes({ siteverify: (env) => depsFor(env).siteverify, now: () => Date.now() }),
   );
+  // Anonymous grants of artifact data (decision 0026, delivery 9): no credentials, switched off.
+  app.route(
+    "/",
+    anonymousGrantRoutes({ siteverify: (env) => depsFor(env).siteverify, now: () => Date.now() }),
+  );
   app.route("/", noticeRoutes({ now: () => Date.now() }));
   app.route("/", readRoutes(authFor));
   app.route(
@@ -555,6 +567,16 @@ export function createAppHost(depsFor: (env: Env) => AuthDeps) {
         artifactId,
         await viewerFrameOriginFor(c.env, c.req.raw, artifactId, sessionUserFor(c.env)),
       ),
+    );
+    page.headers.set("X-Robots-Tag", "noindex");
+    return withSiteKey(page, c.env.TURNSTILE_SITE_KEY);
+  });
+
+  app.get(DATA_GRANT_ROUTE, async (c) => {
+    c.header("Cache-Control", "no-store");
+    const page = trustedPage(
+      await c.env.ASSETS.fetch(new Request(new URL(DASHBOARD_PAGE, c.req.url))),
+      await dashboardCsp(c.env),
     );
     page.headers.set("X-Robots-Tag", "noindex");
     return withSiteKey(page, c.env.TURNSTILE_SITE_KEY);

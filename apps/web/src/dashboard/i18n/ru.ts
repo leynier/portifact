@@ -7,6 +7,39 @@ import type { Catalog } from "./en.ts";
 export const ru = {
   ...planTextRu,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Сохранение данных без аккаунта",
+  "policies.anonymousData.hint":
+    "Могут ли страницы публичных артефактов рабочего пространства сохранять то, что вводят люди без аккаунта. Редакторы по-прежнему решают это для каждого артефакта, после проверки на человека. Чтобы разрешить это, тариф рабочего пространства должен включать политики.",
+  "policies.anonymousData.forbidden": "Только вошедшие посетители",
+  "policies.anonymousData.forbiddenHint":
+    "Страницы сохраняют данные только для вошедших людей, которые это разрешили.",
+  "policies.anonymousData.allowed": "Также люди без аккаунта",
+  "policies.anonymousData.allowedHint":
+    "Редакторы могут открыть данные публичного артефакта для всех. Никто не известен по имени, поэтому модерируйте сохранённое.",
+  "audit.kind.dataWritersAnyone": "Разрешил людям без аккаунта сохранять данные со страницы",
+  "audit.kind.dataWritersSignedIn":
+    "Ограничил сохранение данных со страницы вошедшими посетителями",
+  "audit.policy.anonymousData":
+    "{value, select, true {люди без аккаунта могут сохранять данные} other {данные сохраняют только вошедшие посетители}}",
+  "artifactData.writers.label": "Кто сохраняет со страницы",
+  "artifactData.writers.signedIn": "Вошедшие посетители",
+  "artifactData.writers.anyone": "Все, включая людей без аккаунта",
+  "dataGrant.anonymous.title": "Разрешить {host} сохранять то, что вы вводите, без аккаунта?",
+  "dataGrant.anonymous.learns":
+    "Страница узнаёт только идентификатор для этого артефакта: без имени, почты и аккаунта.",
+  "dataGrant.anonymous.lasts": "Это действует {days} дн. в этом браузере.",
+  "dataGrant.anonymous.noAccount":
+    "Без аккаунта Portifact не сможет потом показать или удалить сохранённое вами. Это может только сама страница, пока этот браузер его хранит.",
+  "dataGrant.anonymous.signIn": "Войти вместо этого",
+  "dataGrant.anonymous.signInTitle": "Войдите, чтобы сохранять",
+  "dataGrant.anonymous.closed":
+    "Этот артефакт сохраняет данные только для вошедших. Войдите и снова выберите сохранение.",
+  "dataGrant.anonymous.humanNeeded":
+    "Пройдите быструю проверку, что вы человек, и страница сможет сохранять то, что вы вводите.",
+  "dataGrant.anonymous.humanFailed":
+    "Проверка, что вы человек, не пройдена. Нажмите «Разрешить» ещё раз.",
+  "dataGrant.anonymous.humanUnavailable":
+    "Проверка, что вы человек, не запустилась в этом браузере. Войдите, чтобы сохранять.",
   "sharedData.ask": "Обратиться к владельцу",
   "sharedData.askNamed": "Обратиться к тем, кто управляет {name}",
   "sharedData.askTitle": "Запрос о том, что вы сохранили в {name}",

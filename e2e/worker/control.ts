@@ -596,11 +596,13 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
   // owner's plan must include them; tests grant it with a row in owner_plans.
   if (path === "/data-collection") {
     // Artifact data (decision 0026): the owner declares a collection, as the owner API does.
-    const { ownerId, artifactId, name, mode } = input as {
+    const { ownerId, artifactId, name, mode, writers } = input as {
       ownerId: string;
       artifactId: string;
       name: string;
-      mode: "own" | "append";
+      mode: "own" | "append" | "read" | "shared";
+      /** Who writes from the page (delivery 9), set as the owner's `setDataWriters` stores it. */
+      writers?: "signed_in" | "anyone";
     };
     const db = regionsFromEnv(env).get("default").db;
     const result = await declareDataCollection(
@@ -618,6 +620,11 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
         declaration: { name, mode },
       },
     );
+    if (result.ok && writers !== undefined) {
+      await env.DB.prepare("UPDATE artifact_data SET writers = ? WHERE artifact_id = ?")
+        .bind(writers, artifactId)
+        .run();
+    }
     return Response.json(result, { status: result.ok ? 200 : 400 });
   }
   if (path === "/share-link") {

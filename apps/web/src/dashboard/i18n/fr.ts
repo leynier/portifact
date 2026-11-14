@@ -7,6 +7,41 @@ import type { Catalog } from "./en.ts";
 export const fr = {
   ...planTextFr,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Enregistrer des données sans compte",
+  "policies.anonymousData.hint":
+    "Si les pages des artefacts publics de l'espace de travail peuvent enregistrer ce que saisissent des personnes sans compte. Les éditeurs le choisissent toujours pour chaque artefact, après une vérification humaine. L'autoriser nécessite la fonction de règles dans l'offre de l'espace de travail.",
+  "policies.anonymousData.forbidden": "Seulement les visiteurs connectés",
+  "policies.anonymousData.forbiddenHint":
+    "Les pages n'enregistrent que pour les personnes connectées qui l'ont autorisé.",
+  "policies.anonymousData.allowed": "Aussi les personnes sans compte",
+  "policies.anonymousData.allowedHint":
+    "Les éditeurs peuvent ouvrir les données d'un artefact public à tous. Personne n'est connu par son nom : modérez ce qui y est enregistré.",
+  "audit.kind.dataWritersAnyone":
+    "A permis aux personnes sans compte d'enregistrer des données depuis la page",
+  "audit.kind.dataWritersSignedIn":
+    "A limité l'enregistrement de données depuis la page aux visiteurs connectés",
+  "audit.policy.anonymousData":
+    "{value, select, true {les personnes sans compte peuvent enregistrer des données} other {seuls les visiteurs connectés enregistrent des données}}",
+  "artifactData.writers.label": "Qui enregistre depuis la page",
+  "artifactData.writers.signedIn": "Visiteurs connectés",
+  "artifactData.writers.anyone": "Tout le monde, y compris les personnes sans compte",
+  "dataGrant.anonymous.title":
+    "Autoriser {host} à enregistrer ce que vous saisissez, sans compte ?",
+  "dataGrant.anonymous.learns":
+    "La page ne connaît qu'un identifiant pour cet artefact : ni nom, ni e-mail, ni compte.",
+  "dataGrant.anonymous.lasts": "Cela dure {days} jours dans ce navigateur.",
+  "dataGrant.anonymous.noAccount":
+    "Sans compte, Portifact ne peut pas vous montrer ni supprimer plus tard ce que vous avez enregistré. Seule la page le peut, tant que ce navigateur le conserve.",
+  "dataGrant.anonymous.signIn": "Me connecter plutôt",
+  "dataGrant.anonymous.signInTitle": "Connectez-vous pour enregistrer",
+  "dataGrant.anonymous.closed":
+    "Cet artefact n'enregistre que pour les personnes connectées. Connectez-vous, puis choisissez à nouveau d'enregistrer.",
+  "dataGrant.anonymous.humanNeeded":
+    "Effectuez la vérification rapide que vous êtes humain, puis la page pourra enregistrer ce que vous saisissez.",
+  "dataGrant.anonymous.humanFailed":
+    "La vérification que vous êtes humain a échoué. Réessayez Autoriser.",
+  "dataGrant.anonymous.humanUnavailable":
+    "La vérification que vous êtes humain n'a pas pu s'exécuter dans ce navigateur. Connectez-vous pour enregistrer.",
   "sharedData.ask": "Demander au propriétaire",
   "sharedData.askNamed": "Demander aux personnes qui gèrent {name}",
   "sharedData.askTitle": "Demander à propos de ce que vous avez enregistré dans {name}",
