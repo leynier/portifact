@@ -6,3 +6,4 @@ export { NormalizedText, normalizeText } from "./normalize.ts";
 export * from "./result.ts";
 export { isStableIdentifier } from "./selectors.ts";
 export * from "./text.ts";
+export * from "./region.ts";

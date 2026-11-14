@@ -12,6 +12,8 @@ import {
   contentHash,
   type DomRange,
   IGNORE_ATTRIBUTE,
+  imagePath,
+  regionBox,
 } from "@portifact/anchors";
 import { ANCHOR_SCHEMA_VERSION, type Anchor, AnnotationTarget } from "@portifact/contracts";
 import { bridgeEnvelope, readViewerMessage } from "./channel.ts";
@@ -51,6 +53,11 @@ export interface BridgeConfig {
    * the bridge announces and speaks only protocol 2, exactly as before protocol 3 existed.
    */
   edit?: boolean | undefined;
+  /**
+   * Whether image regions are switched on (the content Worker's `IMAGE_REGIONS_ENABLED`, decision
+   * 0028). Off, a picked image is reported exactly as before.
+   */
+  imageRegions?: boolean | undefined;
 }
 
 export interface BridgeTarget {
@@ -252,7 +259,14 @@ export function startBridge(
       if (target) {
         offered = element;
         const rect = frameRect(element.getBoundingClientRect());
-        send({ type: "element", target, ...(rect ? { rect } : {}), ...asked.epoch });
+        const image = config.imageRegions ? pickedImage(element) : null;
+        send({
+          type: "element",
+          target,
+          ...(rect ? { rect } : {}),
+          ...(image ? { image } : {}),
+          ...asked.epoch,
+        });
       } else refuse("too_large");
     }
     send({ type: "pick-ended" });
@@ -304,6 +318,20 @@ export function startBridge(
     }
   };
 
+  // Image regions (decision 0028)
+
+  /** The file of the version an element shows, when it is an `img` on the artifact's origin. */
+  const shownPath = (element: Element): string | null => {
+    if (!(element instanceof window.HTMLImageElement)) return null;
+    const source = element.currentSrc || element.src;
+    return source ? imagePath(source, window.location.origin) : null;
+  };
+
+  const pickedImage = (element: Element): { path: string } | null => {
+    const path = shownPath(element);
+    return path === null ? null : { path };
+  };
+
   // Highlights
 
   const stateOf = (id: string): HighlightState => {
@@ -325,15 +353,25 @@ export function startBridge(
         results.push({ id: highlight.id, confidence: "orphaned", reason: resolution.reason });
         continue;
       }
+      const region = highlight.region;
+      if (region && resolution.kind === "element") {
+        // The region belongs to one image: an element that shows another file, or none, is not it.
+        const element = resolution.element as unknown as Element;
+        if (shownPath(element) !== region.path) {
+          results.push({ id: highlight.id, confidence: "orphaned", reason: "image_changed" });
+          continue;
+        }
+      }
       results.push({ id: highlight.id, confidence: resolution.confidence });
       if (resolution.kind === "document") continue;
+      const kind = region && resolution.kind === "element" ? "region" : resolution.kind;
       const boxes =
         resolution.kind === "text"
           ? rangeBoxes(window, resolution.range)
-          : [pageBox(window, (resolution.element as unknown as Element).getBoundingClientRect())];
+          : [elementBox(window, resolution.element as unknown as Element, region)];
       const first = overlay.highlight({
         id: highlight.id,
-        kind: resolution.kind,
+        kind,
         boxes,
         state: stateOf(highlight.id),
       });
@@ -497,6 +535,23 @@ export function pageBox(window: Window, rect: DOMRectReadOnly): Box {
     y: Math.round(rect.top + window.scrollY),
     width: Math.round(rect.width),
     height: Math.round(rect.height),
+  };
+}
+
+/** An element's box in page coordinates, or the part of it a region covers. */
+function elementBox(
+  window: Window,
+  element: Element,
+  region: { x: number; y: number; width: number; height: number } | undefined,
+): Box {
+  const box = pageBox(window, element.getBoundingClientRect());
+  if (!region) return box;
+  const drawn = regionBox(region, box);
+  return {
+    x: Math.round(drawn.x),
+    y: Math.round(drawn.y),
+    width: Math.max(1, Math.round(drawn.width)),
+    height: Math.max(1, Math.round(drawn.height)),
   };
 }
 

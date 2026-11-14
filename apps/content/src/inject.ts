@@ -41,6 +41,8 @@ export interface InjectOptions {
   nonce?: string | undefined;
   /** Edit suggestions are switched on: the bridge also speaks protocol 3 (decision 0027). */
   edit?: boolean | undefined;
+  /** Image regions are switched on: the bridge reports which file a picked image shows (decision 0028). */
+  imageRegions?: boolean | undefined;
 }
 
 /**
@@ -84,6 +86,8 @@ export function injectBridge(response: Response, options: InjectOptions): Respon
         ...(renderer ? [`data-renderer="${escapeAttribute(renderer)}"`] : []),
         // Absent while switched off, so the tag is exactly the one before edit suggestions.
         ...(options.edit ? ['data-edit="true"'] : []),
+        // Absent while switched off, so the tag is exactly the one before image regions.
+        ...(options.imageRegions ? ['data-image-regions="true"'] : []),
         ...(options.nonce !== undefined ? [`nonce="${escapeAttribute(options.nonce)}"`] : []),
       ];
       end.append(`<script ${attributes.join(" ")}></script>`, { html: true });

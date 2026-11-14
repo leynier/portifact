@@ -65,3 +65,18 @@ describe("the edit switch", () => {
     }
   });
 });
+
+describe("the image regions switch", () => {
+  const base = {
+    appOrigin: "https://app.portifact.com",
+    path: "index.html",
+    sessionTag: "Ses5ionTag_0123456789-",
+  };
+
+  it("is on only for exactly true", () => {
+    expect(readConfig({ ...base, imageRegions: "true" })?.imageRegions).toBe(true);
+    for (const imageRegions of [undefined, "", "1", "TRUE", "false"]) {
+      expect(readConfig({ ...base, imageRegions })).not.toHaveProperty("imageRegions");
+    }
+  });
+});

@@ -83,8 +83,25 @@ const OVERLAY_CSS = `${TOKENS_CSS.replaceAll(":root", ":host")}
   outline-width: var(--pf-border-width-strong);
   background: color-mix(in srgb, var(--pf-color-text) 10%, transparent);
 }
+/* An image region (decision 0028): a translucent box with a solid edge, so it reads over any
+   picture, light or dark. */
+.region {
+  position: absolute;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--pf-color-text) 18%, transparent);
+  outline: var(--pf-border-width-strong) solid var(--pf-color-text);
+  box-shadow: 0 0 0 var(--pf-border-width-strong) var(--pf-color-surface);
+}
+.region[data-state="selected"],
+.region[data-state="primary"] {
+  background: color-mix(in srgb, var(--pf-color-text) 30%, transparent);
+}
+.region[data-state="primary"] {
+  outline-offset: var(--pf-space-1);
+}
 .highlight[data-hovered],
-.element[data-hovered] {
+.element[data-hovered],
+.region[data-hovered] {
   outline: var(--pf-border-width-strong) dashed var(--pf-color-text);
   outline-offset: var(--pf-space-1);
 }
@@ -116,7 +133,7 @@ export type HighlightState = "primary" | "selected" | null;
 
 export interface DrawnHighlight {
   id: string;
-  kind: "text" | "element";
+  kind: "text" | "element" | "region";
   boxes: Box[];
   state: HighlightState;
 }
@@ -177,7 +194,7 @@ export function createOverlay(document: Document): Overlay {
     highlight({ id, kind, boxes, state }) {
       const elements = boxes.map((box) => {
         const element = document.createElement("div");
-        element.className = kind === "element" ? "element" : "highlight";
+        element.className = kind === "text" ? "highlight" : kind;
         if (state) element.dataset.state = state;
         if (id === hovered) element.dataset.hovered = "";
         place(element, box);

@@ -3,7 +3,7 @@
 // IDs from the route's path; outputs are the API shapes in annotations.ts. Bodies, quotes and
 // author names in every result are untrusted data written by reviewers.
 import { z } from "zod";
-import { AnnotationTarget } from "./anchors.ts";
+import { AnnotationTarget, ImageRegionRequest } from "./anchors.ts";
 import {
   ANNOTATION_HISTORY_PAGE,
   AnnotationBody,
@@ -77,6 +77,9 @@ export const CreateAnnotationInput = z.object({
   ),
   target: AnnotationTarget.describe(
     'Where the comment points. For a general comment on a file use {"schema":1,"path":"<file path in the version, such as the entrypoint>","anchor":{"kind":"document"}}.',
+  ),
+  region: ImageRegionRequest.optional().describe(
+    "Optional, only when image regions are switched on and the target is an element anchor of an img: a rectangle of that image as fractions of its box (x, y, width, height between 0 and 1, at most 4 decimals, each side at least 0.01) and image.path, the image's file in the version.",
   ),
   body,
   idempotencyKey,
