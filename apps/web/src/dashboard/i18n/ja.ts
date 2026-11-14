@@ -6,6 +6,40 @@ import type { Catalog } from "./en.ts";
 export const ja = {
   ...planTextJa,
   "app.title": "Portifact",
+  "sharedData.ask": "所有者に依頼",
+  "sharedData.askNamed": "{name} の管理者に依頼",
+  "sharedData.askTitle": "{name} に保存した内容について依頼",
+  "sharedData.askBody":
+    "この artifact の管理者には、データが保持する ID だけであなたを示すメールが届きます。名前やメールアドレスは伝わりません。",
+  "sharedData.askKind": "何を依頼しますか？",
+  "sharedData.askAccess": "保存した内容のコピー",
+  "sharedData.askErasure": "保存した内容の削除",
+  "sharedData.askSend": "依頼を送信",
+  "sharedData.askSent": "{name} についての依頼を送信しました",
+  "sharedData.askFailed": "依頼を送信できませんでした",
+  "dataGrant.viewer.saving": "このページは入力内容を保存しています",
+  "dataGrant.viewer.savingHint":
+    "表示名とこの artifact 専用の ID であなたを認識します。いつでも止められます。",
+  "dataGrant.viewer.stop": "自分として保存するのをやめる",
+  "dataGrant.viewer.stopped": "このページはあなたとして保存しなくなりました",
+  "sharedData.download": "保存した内容をダウンロード",
+  "sharedData.downloadNamed": "{name} に保存した内容をダウンロード",
+  "sharedData.downloaded": "{file} を保存しました",
+  "sharedData.downloadFailed": "ダウンロードを完了できませんでした",
+  "sharedData.nothingSaved": "{name} には何も保存していません",
+  "sharedData.deleteMine": "保存した内容を削除",
+  "sharedData.deleteMineNamed": "{name} に保存した内容を削除",
+  "sharedData.deleteTitle": "{name} に保存した内容を削除しますか？",
+  "sharedData.deleteBody":
+    "そこで作成したドキュメントは、他の人が後から加えた編集も含めて完全に削除されます。他の人のドキュメントへのあなたの編集は、名前なしで残ります。",
+  "sharedData.deleted": "{name} に保存した内容を削除しました（{count} 件）",
+  "sharedData.deleteFailed": "削除を完了できませんでした",
+  "dataGrant.frame.granted": "このページで入力内容を保存できるようになりました",
+  "dataGrant.frame.saving": "選択を保存しています",
+  "dataGrant.frame.unavailable": "このフレームでは保存できません",
+  "dataGrant.frame.unavailableHint":
+    "このブラウザーではフレームが選択を記憶できません。artifact を別のタブで開き、そこで許可してください。",
+  "dataGrant.frame.openTab": "新しいタブで開く",
   "dataGrant.pageTitle": "入力内容の保存",
   "dataGrant.title": "{host} に入力内容の保存を許可しますか？",
   "dataGrant.ownerPerson": "{name} が公開",
@@ -1112,10 +1146,10 @@ export const ja = {
   "suggest.search.choose": "{number}番目の箇所のテキストを変更",
   "suggest.search.refused": "この箇所は変更できません。もっと短いか長いテキストで試してください。",
   "suggest.search.unavailable":
-    "検索はHTMLページで利用できます。このページでは、artifact内のテキストを選択してください。",
+    "このページは検索できません。代わりに artifact でテキストを選択してください。",
+  "suggest.search.stale":
+    "artifact に新しいバージョンがあります。検索するにはページを再読み込みしてください。",
   "draft.conflictReason": "変更したテキストは、現在のバージョンでは異なるか存在しません。",
-  "suggest.search.ownerOnly":
-    "ページ内の検索はまだレビュアーには利用できません。代わりに artifact でテキストを選択してください。",
   "review.open": "レビューしてコメント",
   "viewer.loading": "artifactを開いています",
   "viewer.unavailable.title": "このartifactは開けません",
@@ -3339,6 +3373,9 @@ export const ja = {
     "{count, plural, one {データのドキュメントを # 件置換} other {データのドキュメントを # 件置換}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {データのドキュメントを # 件削除} other {データのドキュメントを # 件削除}}",
+  "audit.kind.dataErased": "アーティファクトのデータをすべて消去",
+  "audit.kind.dataAuthorErased":
+    "削除されたアカウントのデータのドキュメント {documents, plural, one {# 件} other {# 件}}と変更 {edits, plural, one {# 件} other {# 件}}を消去",
   "detail.section.data": "データ",
   "artifactData.loading": "artifactのデータを読み込んでいます",
   "artifactData.error.title": "データを読み込めませんでした",
@@ -3365,6 +3402,8 @@ export const ja = {
   "artifactData.usage.written": "今日書き込んだ行",
   "artifactData.usage.cleanup": "今日整理した行",
   "artifactData.usage.export": "今日エクスポートした行",
+  "artifactData.usage.connections": "開いているライブ接続",
+  "artifactData.usage.live": "今日のライブメッセージ",
   "artifactData.usage.ofLimit": "{limit} 中 {used}",
   "artifactData.documents.title": "ドキュメント",
   "artifactData.untrusted":

@@ -135,6 +135,8 @@ export const AUDIT_GROUPS = {
     "data.documents_created",
     "data.documents_replaced",
     "data.documents_deleted",
+    "data.erased",
+    "data.author_erased",
   ],
   exports: [
     "audit.exported",
@@ -548,6 +550,7 @@ export function describeAuditEvent(
     "suggestion.rejected": "audit.kind.suggestionRejected",
     "suggestion.withdrawn": "audit.kind.suggestionWithdrawn",
     "data.collection_set": "audit.kind.dataCollectionSet",
+    "data.erased": "audit.kind.dataErased",
     "data.document_created": "audit.kind.dataDocumentCreated",
     "data.document_replaced": "audit.kind.dataDocumentReplaced",
     "data.document_deleted": "audit.kind.dataDocumentDeleted",
@@ -753,6 +756,11 @@ export function describeAuditEvent(
       return t("audit.kind.dataDocumentsReplaced", { count: Number(d.documents) });
     case "data.documents_deleted":
       return t("audit.kind.dataDocumentsDeleted", { count: Number(d.documents) });
+    case "data.author_erased":
+      return t("audit.kind.dataAuthorErased", {
+        documents: Number(d.documents),
+        edits: Number(d.edits),
+      });
     case "plan.granted": {
       const values = { plan: PLAN_LABELS[d.plan as PlanName], seats: Number(d.seats) };
       return typeof d.validUntil === "string"

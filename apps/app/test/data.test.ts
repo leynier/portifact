@@ -366,3 +366,38 @@ describe("PR #270 review: retries answer under current authorization", () => {
     expect((await o.call(docs(o), init)).status).toBe(404);
   });
 });
+
+describe("the owner's erase on the real object", () => {
+  it("erases, follows the generation and records data.erased, also while switched off", async () => {
+    const h = createHarness({ env: { ARTIFACT_DATA_ENABLED: undefined } });
+    const on = createHarness();
+    const o = await owner("data-erase-real@example.test", DATA, on);
+    await declare(o);
+    expect((await o.call(docs(o), json("POST", { choice: "a" }))).status).toBe(201);
+    const erased = await o.call(`${base(o)}/erase`, json("POST", { confirm: true }));
+    expect(erased.status).toBe(200);
+    expect(await erased.json()).toEqual({ erased: true, generation: 1 });
+    const [row] = await db()
+      .select()
+      .from(schema.artifactData)
+      .where(eq(schema.artifactData.artifactId, o.artifactId));
+    expect(row?.generation).toBe(1);
+    const events = await db()
+      .select()
+      .from(schema.auditEvents)
+      .where(
+        and(
+          eq(schema.auditEvents.artifactId, o.artifactId),
+          eq(schema.auditEvents.kind, "data.erased"),
+        ),
+      );
+    expect(events.map((event) => event.actorId)).toEqual([o.userId]);
+    const exported = await o.call(`${base(o)}/export`);
+    expect(await exported.json()).toMatchObject({ rows: [] });
+    // Switched off, an artifact with data is still erased.
+    const off = await owner("data-erase-off@example.test", DATA, h);
+    const answer = await off.call(`${base(off)}/erase`, json("POST", { confirm: true }));
+    expect(answer.status).toBe(200);
+    expect(await answer.json()).toEqual({ erased: true, generation: 0 });
+  });
+});

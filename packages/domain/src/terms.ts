@@ -62,6 +62,8 @@ export const TERMS_OPEN_OPERATIONS = {
   delete_webhook: "removes",
   delete_data_document: "removes",
   delete_data_documents: "removes",
+  erase_artifact_data: "removes",
+  delete_author_data: "removes",
   set_access: "narrowing",
   set_comment_visibility: "narrowing",
   update_webhook: "narrowing",
@@ -118,6 +120,10 @@ export const ACCOUNT_SESSION_OPERATIONS = {
   read_data_grant_control: "read",
   issue_data_grant: "refused",
   revoke_data_grants: "removes",
+  export_own_data: "leaving",
+  read_data_grant_status: "read",
+  request_data_rights: "leaving",
+  delete_own_document: "removes",
 } as const satisfies Record<string, "read" | "removes" | "narrowing" | "leaving" | "refused">;
 
 export type AccountSessionOperation = keyof typeof ACCOUNT_SESSION_OPERATIONS;

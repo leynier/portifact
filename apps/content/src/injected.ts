@@ -5,6 +5,7 @@
 // a request carries pass a size limit, the response expires them on the shared domain. See
 // docs/security.md, "Injected cookies".
 import { READ_COOKIE, TRANSACTION_COOKIE_PREFIX } from "./cookies.ts";
+import { GRANT_COOKIE, GRANT_TX_COOKIE } from "./data.ts";
 import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "./review.ts";
 import { SHARE_COOKIE } from "./share-session.ts";
 import { NO_BAR_COOKIE } from "./viewer.ts";
@@ -30,6 +31,9 @@ const OWN_NAMES = new Set([
   REVIEW_TAB_COOKIE,
   NO_BAR_COOKIE,
   SHARE_COOKIE,
+  // Artifact data (decision 0026): the grant and the grant's transaction.
+  GRANT_COOKIE,
+  GRANT_TX_COOKIE,
 ]);
 
 /** One of Portifact's cookies on artifact origins, by exact, case-sensitive name. */
@@ -37,9 +41,12 @@ export function isPortifactCookie(name: string): boolean {
   return OWN_NAMES.has(name) || name.startsWith(TRANSACTION_COOKIE_PREFIX);
 }
 
-/** A foreign name that imitates ours (`__host-pf_read`, `pf_review`, `pf_link`): cleared at any size. */
+/**
+ * A foreign name that imitates ours (`__host-pf_read`, `pf_review`, `pf_link`, `pf_grant`): cleared
+ * at any size.
+ */
 function imitatesPortifact(name: string): boolean {
-  return /pf_(read|review)|pf_link$/i.test(name);
+  return /pf_(read|review|grant)|pf_link$/i.test(name);
 }
 
 /** Names that can be written back in a `Set-Cookie` header unchanged. */

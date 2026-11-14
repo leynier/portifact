@@ -160,6 +160,8 @@ export interface ModeSwitchOption<T extends string> {
    */
   name?: string;
   icon?: ReactNode;
+  /** Shown but not choosable yet, such as a mode that waits for the page to connect. */
+  disabled?: boolean;
 }
 
 export interface ModeSwitchProps<T extends string> {
@@ -191,8 +193,9 @@ export function ModeSwitch<T extends string>({
           type="button"
           aria-pressed={option.value === value}
           aria-label={option.name}
+          disabled={option.disabled}
           onClick={() => onChange(option.value)}
-          className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xs px-3 text-sm font-medium text-text hover:bg-surface-hover aria-pressed:bg-surface-inverse aria-pressed:text-text-inverse"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-xs px-3 text-sm font-medium text-text hover:bg-surface-hover disabled:opacity-55 disabled:hover:bg-transparent aria-pressed:bg-surface-inverse aria-pressed:text-text-inverse"
         >
           {option.icon ? (
             <span aria-hidden="true" className="inline-flex">

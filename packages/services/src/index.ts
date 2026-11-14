@@ -10,6 +10,7 @@ export * from "./annotations-markdown.ts";
 export * from "./approval-reviews.ts";
 export * from "./artifact-data.ts";
 export * from "./artifact-data-owner.ts";
+export * from "./artifact-data-page.ts";
 export * from "./artifacts.ts";
 export * from "./audit.ts";
 export * from "./audit-streams.ts";
@@ -25,6 +26,8 @@ export * from "./comment-retention-notices.ts";
 export * from "./content-search.ts";
 export * from "./custom-domains.ts";
 export * from "./data-grants.ts";
+export * from "./data-live.ts";
+export * from "./data-rights.ts";
 export * from "./directory.ts";
 export * from "./directory-notices.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";
@@ -66,6 +69,7 @@ export {
   stagingKey,
 } from "./multipart.ts";
 export * from "./outbox.ts";
+export * from "./page-text.ts";
 export * from "./plan-grace-notices.ts";
 export * from "./plans.ts";
 export * from "./publish.ts";

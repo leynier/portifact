@@ -116,6 +116,7 @@ const groupCount = z.number().int().min(0).max(WORKSPACE_GROUPS.perArtifact);
 const enforceCount = z.number().int().min(0).max(10_000);
 const approvalCount = z.number().int().min(0).max(APPROVALS.reviewersPerRequest);
 const dataDocuments = z.number().int().min(0).max(ARTIFACT_DATA.caps.bulkDocuments);
+const authorChunk = z.number().int().min(0).max(ARTIFACT_DATA.caps.eraseChunkDocuments);
 
 /** Why a custom domain stopped serving (every path that detaches one names its reason). */
 export const DOMAIN_DETACH_REASONS = [
@@ -514,6 +515,10 @@ export const AUDIT_DETAILS = {
   "data.documents_created": z.strictObject({ documents: dataDocuments }),
   "data.documents_replaced": z.strictObject({ documents: dataDocuments }),
   "data.documents_deleted": z.strictObject({ documents: dataDocuments }),
+  /** The owner erased all the artifact's data (its documents and collections). */
+  "data.erased": empty,
+  /** A deleted account's documents and edits erased from the artifact, by the system (counts). */
+  "data.author_erased": z.strictObject({ documents: authorChunk, edits: authorChunk }),
 } as const;
 
 export type AuditKind = keyof typeof AUDIT_DETAILS;
@@ -627,6 +632,8 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "data.documents_created": "artifact",
   "data.documents_replaced": "artifact",
   "data.documents_deleted": "artifact",
+  "data.erased": "artifact",
+  "data.author_erased": "artifact",
 };
 
 /**

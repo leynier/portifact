@@ -5,6 +5,40 @@ import { planTextEn } from "../../plans/i18n/en.ts";
 export const en = {
   ...planTextEn,
   "app.title": "Portifact",
+  "sharedData.ask": "Ask the owner",
+  "sharedData.askNamed": "Ask the people who manage {name}",
+  "sharedData.askTitle": "Ask about what you saved in {name}",
+  "sharedData.askBody":
+    "The people who manage this artifact get an email that names you only by the ID its data holds, never by your name or email.",
+  "sharedData.askKind": "What do you ask for?",
+  "sharedData.askAccess": "A copy of what I saved",
+  "sharedData.askErasure": "Erase what I saved",
+  "sharedData.askSend": "Send the request",
+  "sharedData.askSent": "Your request about {name} was sent",
+  "sharedData.askFailed": "The request was not sent",
+  "dataGrant.viewer.saving": "This page saves what you enter",
+  "dataGrant.viewer.savingHint":
+    "It knows you by your display name and an ID for this artifact. You can stop it at any time.",
+  "dataGrant.viewer.stop": "Stop saving as me",
+  "dataGrant.viewer.stopped": "This page no longer saves as you",
+  "sharedData.download": "Download what I saved",
+  "sharedData.downloadNamed": "Download what you saved in {name}",
+  "sharedData.downloaded": "Saved {file}",
+  "sharedData.downloadFailed": "The download did not finish",
+  "sharedData.nothingSaved": "You saved nothing in {name}",
+  "sharedData.deleteMine": "Delete what I saved",
+  "sharedData.deleteMineNamed": "Delete what you saved in {name}",
+  "sharedData.deleteTitle": "Delete what you saved in {name}?",
+  "sharedData.deleteBody":
+    "Every document you created there is deleted for good, with later edits others made to it. Your edits to other people's documents stay, without your name.",
+  "sharedData.deleted": "Deleted what you saved in {name} ({count} documents)",
+  "sharedData.deleteFailed": "Deleting did not finish",
+  "dataGrant.frame.granted": "This page can now save what you enter",
+  "dataGrant.frame.saving": "Saving your choice",
+  "dataGrant.frame.unavailable": "Saving is not available in this frame",
+  "dataGrant.frame.unavailableHint":
+    "This browser keeps the frame from remembering your choice. Open the artifact in its own tab and allow it there.",
+  "dataGrant.frame.openTab": "Open in a new tab",
   "dataGrant.pageTitle": "Save what you enter",
   "dataGrant.title": "Let {host} save what you enter?",
   "dataGrant.ownerPerson": "Published by {name}",
@@ -1100,10 +1134,9 @@ export const en = {
   "suggest.search.choose": "Change the text at place {number}",
   "suggest.search.refused": "This place cannot be changed. Try a shorter or longer piece of text.",
   "suggest.search.unavailable":
-    "Search is available on HTML pages. On this page, select the text in the artifact.",
+    "This page cannot be searched. Select the text in the artifact instead.",
+  "suggest.search.stale": "The artifact has a newer version. Reload the page to search it.",
   "draft.conflictReason": "The text it changed is different or gone on the current version.",
-  "suggest.search.ownerOnly":
-    "Searching the page is not available to reviewers yet. Select the text in the artifact instead.",
   "review.open": "Review and comment",
   "viewer.loading": "Opening the artifact",
   "viewer.unavailable.title": "This artifact cannot be opened",
@@ -3311,6 +3344,9 @@ export const en = {
     "{count, plural, one {Replaced # data document} other {Replaced # data documents}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Deleted # data document} other {Deleted # data documents}}",
+  "audit.kind.dataErased": "Erased all of the artifact's data",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Erased # data document} other {Erased # data documents}} and {edits, plural, one {# edit} other {# edits}} of a deleted account",
   "detail.section.data": "Data",
   "artifactData.loading": "Loading the artifact's data",
   "artifactData.error.title": "The data could not be loaded",
@@ -3337,6 +3373,8 @@ export const en = {
   "artifactData.usage.written": "Rows written today",
   "artifactData.usage.cleanup": "Rows cleaned up today",
   "artifactData.usage.export": "Rows exported today",
+  "artifactData.usage.connections": "Live connections open",
+  "artifactData.usage.live": "Live messages today",
   "artifactData.usage.ofLimit": "{used} of {limit}",
   "artifactData.documents.title": "Documents",
   "artifactData.untrusted":

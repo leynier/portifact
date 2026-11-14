@@ -6,6 +6,40 @@ import type { Catalog } from "./en.ts";
 export const de = {
   ...planTextDe,
   "app.title": "Portifact",
+  "sharedData.ask": "Eigentümer fragen",
+  "sharedData.askNamed": "Die Verwalter von {name} fragen",
+  "sharedData.askTitle": "Nach dem fragen, was du in {name} gespeichert hast",
+  "sharedData.askBody":
+    "Die Verwalter dieses Artifacts erhalten eine E-Mail, die dich nur über die ID nennt, die seine Daten enthalten, nie über deinen Namen oder deine E-Mail-Adresse.",
+  "sharedData.askKind": "Worum bittest du?",
+  "sharedData.askAccess": "Eine Kopie dessen, was ich gespeichert habe",
+  "sharedData.askErasure": "Löschen, was ich gespeichert habe",
+  "sharedData.askSend": "Anfrage senden",
+  "sharedData.askSent": "Deine Anfrage zu {name} wurde gesendet",
+  "sharedData.askFailed": "Die Anfrage wurde nicht gesendet",
+  "dataGrant.viewer.saving": "Diese Seite speichert, was du eingibst",
+  "dataGrant.viewer.savingHint":
+    "Sie kennt dich über deinen Anzeigenamen und eine ID für dieses Artifact. Du kannst das jederzeit beenden.",
+  "dataGrant.viewer.stop": "Nicht mehr in meinem Namen speichern",
+  "dataGrant.viewer.stopped": "Diese Seite speichert nicht mehr in deinem Namen",
+  "sharedData.download": "Herunterladen, was ich gespeichert habe",
+  "sharedData.downloadNamed": "Herunterladen, was du in {name} gespeichert hast",
+  "sharedData.downloaded": "{file} gespeichert",
+  "sharedData.downloadFailed": "Der Download wurde nicht abgeschlossen",
+  "sharedData.nothingSaved": "Du hast in {name} nichts gespeichert",
+  "sharedData.deleteMine": "Löschen, was ich gespeichert habe",
+  "sharedData.deleteMineNamed": "Löschen, was du in {name} gespeichert hast",
+  "sharedData.deleteTitle": "Löschen, was du in {name} gespeichert hast?",
+  "sharedData.deleteBody":
+    "Jedes Dokument, das du dort erstellt hast, wird endgültig gelöscht, samt späterer Änderungen anderer. Deine Änderungen an Dokumenten anderer bleiben, ohne deinen Namen.",
+  "sharedData.deleted": "Gelöscht, was du in {name} gespeichert hast ({count} Dokumente)",
+  "sharedData.deleteFailed": "Löschen wurde nicht abgeschlossen",
+  "dataGrant.frame.granted": "Diese Seite kann jetzt speichern, was du eingibst",
+  "dataGrant.frame.saving": "Deine Wahl wird gespeichert",
+  "dataGrant.frame.unavailable": "Speichern ist in diesem Rahmen nicht verfügbar",
+  "dataGrant.frame.unavailableHint":
+    "Dieser Browser verhindert, dass sich der Rahmen deine Wahl merkt. Öffne das Artifact in einem eigenen Tab und erlaube es dort.",
+  "dataGrant.frame.openTab": "In neuem Tab öffnen",
   "dataGrant.pageTitle": "Speichern, was du eingibst",
   "dataGrant.title": "{host} erlauben, zu speichern, was du eingibst?",
   "dataGrant.ownerPerson": "Veröffentlicht von {name}",
@@ -1150,10 +1184,10 @@ export const de = {
   "suggest.search.refused":
     "Diese Stelle kann nicht geändert werden. Versuche einen kürzeren oder längeren Textabschnitt.",
   "suggest.search.unavailable":
-    "Die Suche ist auf HTML-Seiten verfügbar. Markiere auf dieser Seite den Text im Artifact.",
+    "Diese Seite kann nicht durchsucht werden. Markiere den Text stattdessen im Artifact.",
+  "suggest.search.stale":
+    "Das Artifact hat eine neuere Version. Lade die Seite neu, um sie zu durchsuchen.",
   "draft.conflictReason": "Der geänderte Text ist in der aktuellen Version anders oder fehlt.",
-  "suggest.search.ownerOnly":
-    "Die Suche im Text ist für Prüfende noch nicht verfügbar. Markiere den Text stattdessen im Artifact.",
   "review.open": "Reviewen und kommentieren",
   "viewer.loading": "Das Artifact wird geöffnet",
   "viewer.unavailable.title": "Dieses Artifact kann nicht geöffnet werden",
@@ -3427,6 +3461,9 @@ export const de = {
     "{count, plural, one {Hat # Datendokument ersetzt} other {Hat # Datendokumente ersetzt}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Hat # Datendokument gelöscht} other {Hat # Datendokumente gelöscht}}",
+  "audit.kind.dataErased": "Hat alle Daten des Artefakts gelöscht",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Hat # Datendokument} other {Hat # Datendokumente}} und {edits, plural, one {# Änderung} other {# Änderungen}} eines gelöschten Kontos gelöscht",
   "detail.section.data": "Daten",
   "artifactData.loading": "Daten des Artifacts werden geladen",
   "artifactData.error.title": "Die Daten konnten nicht geladen werden",
@@ -3453,6 +3490,8 @@ export const de = {
   "artifactData.usage.written": "Heute geschriebene Zeilen",
   "artifactData.usage.cleanup": "Heute bereinigte Zeilen",
   "artifactData.usage.export": "Heute exportierte Zeilen",
+  "artifactData.usage.connections": "Offene Live-Verbindungen",
+  "artifactData.usage.live": "Live-Nachrichten heute",
   "artifactData.usage.ofLimit": "{used} von {limit}",
   "artifactData.documents.title": "Dokumente",
   "artifactData.untrusted":

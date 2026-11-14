@@ -15,7 +15,7 @@ import {
 } from "@portifact/contracts/artifact-data";
 import { admit, namesAnotherArtifact, newControl } from "./control.ts";
 import { accept, type Decision, refuse } from "./decision.ts";
-import { checkHorizon } from "./operations.ts";
+import { checkHorizon, operationKey } from "./operations.ts";
 
 export type EraseOutcome = "prepared" | "committed" | "cancelled" | "superseded";
 
@@ -182,4 +182,22 @@ export function cancelErase(
     closeConnections: false,
     startsIntent: false,
   });
+}
+
+/**
+ * The audit obligation an owner's reset leaves in its commit's own transaction (keyed like an
+ * owner mutation's, under the generation it erased), so its `data.erased` event is recorded once
+ * by the relay or the reset's completion even after the ended intent's receipt is pruned.
+ * Lifecycle erases leave none: they record their own trail.
+ */
+export function erasedObligation(
+  envelope: DataEnvelope,
+  eraseId: string,
+  actorName: string,
+): { key: string; kind: "data.erased"; detail: Record<string, number> } {
+  return {
+    key: operationKey(actorName, envelope.generation, eraseId),
+    kind: "data.erased",
+    detail: {},
+  };
 }

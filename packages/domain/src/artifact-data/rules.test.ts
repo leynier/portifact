@@ -1459,6 +1459,7 @@ describe("live", () => {
       reserved: 0,
       reservedDay: dayOf(NOW),
       liveMessagesPerDay: ROOMY.liveMessagesPerDay,
+      modes: null,
     });
   });
 

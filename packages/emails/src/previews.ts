@@ -5,6 +5,7 @@ import { accountDeletionCodeEmail } from "./account-deletion-code.ts";
 import { budgetAlertEmail } from "./budget-alert.ts";
 import { commentNoticeEmail } from "./comment-notice.ts";
 import { commentRetentionNoticeEmail } from "./comment-retention-notice.ts";
+import { dataRightsNoticeEmail } from "./data-rights-notice.ts";
 import { directoryNoticeEmail } from "./directory-notice.ts";
 import { domainNoticeEmail } from "./domain-notice.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
@@ -314,6 +315,44 @@ export function previews(): Preview[] {
         threads: 1,
         messages: 3,
         policiesUrl: "https://app.portifact.com/policies?workspace=acme",
+        locale,
+      }),
+    })),
+    {
+      name: "data-rights-notice",
+      email: dataRightsNoticeEmail({
+        kind: "erasure",
+        artifactName: "Team retro board",
+        visitorId: "v_7Hc2kQ9xLm4pRt1vWz8aBd",
+        dataUrl: "https://app.portifact.com/artifacts/k7d2qm4xab",
+      }),
+    },
+    {
+      name: "data-rights-notice-without-names",
+      email: dataRightsNoticeEmail({
+        kind: "access",
+        artifactName: null,
+        visitorId: "v_7Hc2kQ9xLm4pRt1vWz8aBd",
+        dataUrl: "https://app.portifact.com/artifacts/k7d2qm4xab?workspace=acme",
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `data-rights-notice-${locale.toLowerCase()}`,
+      email: dataRightsNoticeEmail({
+        kind: "erasure",
+        artifactName: "Team retro board",
+        visitorId: "v_7Hc2kQ9xLm4pRt1vWz8aBd",
+        dataUrl: "https://app.portifact.com/artifacts/k7d2qm4xab",
+        locale,
+      }),
+    })),
+    ...TRANSLATED.map((locale) => ({
+      name: `data-rights-notice-without-names-${locale.toLowerCase()}`,
+      email: dataRightsNoticeEmail({
+        kind: "access",
+        artifactName: null,
+        visitorId: "v_7Hc2kQ9xLm4pRt1vWz8aBd",
+        dataUrl: "https://app.portifact.com/artifacts/k7d2qm4xab",
         locale,
       }),
     })),

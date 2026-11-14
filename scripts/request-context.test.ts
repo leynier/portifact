@@ -103,6 +103,8 @@ const CLASSIFIED: Record<string, { file: string; pattern: RegExp } | { noDatabas
   // SQLite storage: neither touches a product database.
   "apps/data/wrangler.jsonc#fetch": { noDatabase: "apps/data/src/index.ts" },
   "apps/data/wrangler.jsonc#ArtifactDocuments": { noDatabase: "apps/data/src/store.ts" },
+  // The test stack hosts the same documents class itself (decision 0026, delivery 6).
+  "e2e/wrangler.jsonc#ArtifactDocuments": { noDatabase: "apps/data/src/store.ts" },
   "apps/jobs/wrangler.jsonc#scheduled": {
     file: "apps/jobs/src/index.ts",
     pattern:

@@ -143,6 +143,8 @@ describe("job contracts", () => {
       "data_resolve",
       "data_export",
       "data_audit",
+      "data_rights_request",
+      "data_reset",
     ]);
     for (const kind of [
       "artifact",

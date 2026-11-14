@@ -6,6 +6,40 @@ import type { Catalog } from "./en.ts";
 export const ptBR = {
   ...planTextPtBR,
   "app.title": "Portifact",
+  "sharedData.ask": "Perguntar ao dono",
+  "sharedData.askNamed": "Perguntar a quem gerencia {name}",
+  "sharedData.askTitle": "Perguntar sobre o que você salvou em {name}",
+  "sharedData.askBody":
+    "Quem gerencia este artifact recebe um e-mail que identifica você só pelo ID que os dados guardam, nunca pelo seu nome ou e-mail.",
+  "sharedData.askKind": "O que você pede?",
+  "sharedData.askAccess": "Uma cópia do que salvei",
+  "sharedData.askErasure": "Apagar o que salvei",
+  "sharedData.askSend": "Enviar o pedido",
+  "sharedData.askSent": "Seu pedido sobre {name} foi enviado",
+  "sharedData.askFailed": "O pedido não foi enviado",
+  "dataGrant.viewer.saving": "Esta página salva o que você digita",
+  "dataGrant.viewer.savingHint":
+    "Ela conhece você pelo nome de exibição e um ID para este artifact. Você pode parar a qualquer momento.",
+  "dataGrant.viewer.stop": "Parar de salvar em meu nome",
+  "dataGrant.viewer.stopped": "Esta página não salva mais em seu nome",
+  "sharedData.download": "Baixar o que salvei",
+  "sharedData.downloadNamed": "Baixar o que você salvou em {name}",
+  "sharedData.downloaded": "{file} salvo",
+  "sharedData.downloadFailed": "O download não foi concluído",
+  "sharedData.nothingSaved": "Você não salvou nada em {name}",
+  "sharedData.deleteMine": "Excluir o que salvei",
+  "sharedData.deleteMineNamed": "Excluir o que você salvou em {name}",
+  "sharedData.deleteTitle": "Excluir o que você salvou em {name}?",
+  "sharedData.deleteBody":
+    "Cada documento que você criou ali é excluído para sempre, com as edições que outros fizeram depois. Suas edições em documentos de outras pessoas ficam, sem seu nome.",
+  "sharedData.deleted": "O que você salvou em {name} foi excluído ({count} documentos)",
+  "sharedData.deleteFailed": "A exclusão não foi concluída",
+  "dataGrant.frame.granted": "Esta página já pode salvar o que você digita",
+  "dataGrant.frame.saving": "Salvando sua escolha",
+  "dataGrant.frame.unavailable": "Salvar não está disponível neste quadro",
+  "dataGrant.frame.unavailableHint":
+    "Este navegador impede que o quadro lembre sua escolha. Abra o artifact em uma aba própria e permita por lá.",
+  "dataGrant.frame.openTab": "Abrir em uma nova aba",
   "dataGrant.pageTitle": "Salvar o que você digita",
   "dataGrant.title": "Permitir que {host} salve o que você digita?",
   "dataGrant.ownerPerson": "Publicado por {name}",
@@ -1127,10 +1161,10 @@ export const ptBR = {
   "suggest.search.refused":
     "Este lugar não pode ser alterado. Tente um trecho de texto mais curto ou mais longo.",
   "suggest.search.unavailable":
-    "A busca está disponível em páginas HTML. Nesta página, selecione o texto no artifact.",
+    "Não é possível buscar nesta página. Selecione o texto no artifact.",
+  "suggest.search.stale":
+    "O artifact tem uma versão mais recente. Recarregue a página para buscar nela.",
   "draft.conflictReason": "O texto alterado está diferente ou não existe na versão atual.",
-  "suggest.search.ownerOnly":
-    "A busca na página ainda não está disponível para revisores. Selecione o texto no artifact.",
   "review.open": "Revisar e comentar",
   "viewer.loading": "Abrindo o artifact",
   "viewer.unavailable.title": "Este artifact não pode ser aberto",
@@ -3371,6 +3405,9 @@ export const ptBR = {
     "{count, plural, one {Substituiu # documento de dados} other {Substituiu # documentos de dados}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Excluiu # documento de dados} other {Excluiu # documentos de dados}}",
+  "audit.kind.dataErased": "Apagou todos os dados do artefato",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Apagou # documento de dados} other {Apagou # documentos de dados}} e {edits, plural, one {# edição} other {# edições}} de uma conta excluída",
   "detail.section.data": "Dados",
   "artifactData.loading": "Carregando os dados do artifact",
   "artifactData.error.title": "Não foi possível carregar os dados",
@@ -3397,6 +3434,8 @@ export const ptBR = {
   "artifactData.usage.written": "Linhas escritas hoje",
   "artifactData.usage.cleanup": "Linhas limpas hoje",
   "artifactData.usage.export": "Linhas exportadas hoje",
+  "artifactData.usage.connections": "Conexões ao vivo abertas",
+  "artifactData.usage.live": "Mensagens ao vivo hoje",
   "artifactData.usage.ofLimit": "{used} de {limit}",
   "artifactData.documents.title": "Documentos",
   "artifactData.untrusted":

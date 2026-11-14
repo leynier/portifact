@@ -67,6 +67,8 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/artifacts/:artifactId/data/collections/:collection/documents/bulk-delete": "open",
   "PUT /api/v1/artifacts/:artifactId/data/collections/:collection/documents/:documentId": "refused",
   "DELETE /api/v1/artifacts/:artifactId/data/collections/:collection/documents/:documentId": "open",
+  "POST /api/v1/artifacts/:artifactId/data/erase": "open",
+  "POST /api/v1/artifacts/:artifactId/data/authors/:author/delete": "open",
   "POST /api/v1/artifacts/:artifactId/review/request": "refused",
   "PATCH /api/v1/artifacts/:artifactId/review/request": "refused",
   "DELETE /api/v1/artifacts/:artifactId/review/request": "open",
@@ -99,6 +101,8 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/account/delete-with-code": "no_person_token",
   "POST /api/v1/account/data-grants": "no_person_token",
   "DELETE /api/v1/account/data-grants/:artifactId": "no_person_token",
+  "DELETE /api/v1/account/data-grants/:artifactId/documents/:collection/:id": "no_person_token",
+  "POST /api/v1/account/data-grants/:artifactId/rights-request": "no_person_token",
   "POST /api/v1/account/sessions/sign-out-others": "no_person_token",
   "DELETE /api/v1/account/apps/:clientId": "no_person_token",
   "PUT /api/v1/account/branding": "no_person_token",
@@ -201,6 +205,8 @@ const TOOLS: Record<string, Class> = {
   create_data_documents: "refused",
   replace_data_documents: "refused",
   delete_data_documents: "open",
+  erase_artifact_data: "open",
+  delete_author_data: "open",
   mark_change_item: "refused",
 };
 
@@ -312,6 +318,10 @@ const ACCOUNT_ROUTES: Record<string, "open" | "refused"> = {
   "GET /api/v1/account/data-grants/:artifactId/control": "open",
   "POST /api/v1/account/data-grants": "refused",
   "DELETE /api/v1/account/data-grants/:artifactId": "open",
+  "GET /api/v1/account/data-grants/:artifactId/mine": "open",
+  "GET /api/v1/account/data-grants/:artifactId": "open",
+  "POST /api/v1/account/data-grants/:artifactId/rights-request": "open",
+  "DELETE /api/v1/account/data-grants/:artifactId/documents/:collection/:id": "open",
 };
 
 describe("account routes for sessions without the current terms", () => {

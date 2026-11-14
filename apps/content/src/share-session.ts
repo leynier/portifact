@@ -104,6 +104,8 @@ export async function authorizeLink(
   artifactId: string,
   artifact: ServableArtifact | null,
   now: number,
+  /** Claims expiring within this are renewed against D1 now (live updates' renewals). */
+  freshWithin = 0,
 ): Promise<ReadDecision | null> {
   const secret = env.READ_SESSION_SECRET;
   if (!usableSecret(secret) || !cookieUsable(request)) return null;
@@ -124,8 +126,16 @@ export async function authorizeLink(
   };
   if (!claims || claims.aid !== artifactId || claims.sexp <= now) return ended;
   if (!artifact || !hasFeature(entitlements(artifact.plan, now), "shareLinks")) return ended;
-  if (claims.exp > now) {
-    return { kind: "allow", artifact, userId: null, linkId: claims.lid, setCookies: [] };
+  if (claims.exp > now + freshWithin) {
+    const credential = { id: `link:${claims.sid}`, expiresAt: claims.exp };
+    return {
+      kind: "allow",
+      artifact,
+      userId: null,
+      linkId: claims.lid,
+      setCookies: [],
+      credential,
+    };
   }
   const renewed = await refreshShareSession(db, {
     sessionId: claims.sid,
@@ -139,6 +149,10 @@ export async function authorizeLink(
     artifact,
     userId: null,
     linkId: claims.lid,
+    credential: {
+      id: `link:${claims.sid}`,
+      expiresAt: Math.min(now + CLAIMS_TTL_SECONDS * SECOND_MS, renewed.value.expiresAt),
+    },
     setCookies: [
       await claimsCookie(
         secret,

@@ -64,12 +64,15 @@ import {
   type ExportPage,
   editorAfter,
   emptyDay,
+  erasedObligation,
   flushPending,
   growthRefusal,
+  helloMessage,
   type IndexField,
   inbound,
   indexEntries,
   type LiveAttachment,
+  liveCaller,
   liveCheck,
   liveReservation,
   type MutationActor,
@@ -94,6 +97,7 @@ import {
   passLeftMore,
   payloadChanged,
   pendingDeadline,
+  pendingObligation,
   planConnect,
   planCount,
   planExport,
@@ -2030,6 +2034,7 @@ export class DocumentsStore {
       revision: 0,
       collections: [],
       today: emptyDay(dayOf(context.now)),
+      connections: 0,
     });
     return this.#readCommand(envelope, caller, context, "describe", emptyDescription, () => {
       // Declaration order, sorted here: a sort in SQL reads every row twice.
@@ -2056,6 +2061,7 @@ export class DocumentsStore {
         revision: control.payloadRevision,
         collections,
         today: this.#dayRow(dayOf(context.now)),
+        connections: [...this.sockets.values()].filter((socket) => socket.closed === null).length,
       });
       if (!decided.ok) fail(decided);
       return decided.value;
@@ -2290,6 +2296,7 @@ export class DocumentsStore {
     envelope: DataEnvelope,
     eraseId: string,
     now: number,
+    audit: string | null = null,
   ) {
     return this.#controlCommand(now, `erase_${step}`, () => {
       const [found] = this.#read("SELECT outcome FROM pf_ended WHERE id = ?", eraseId);
@@ -2304,6 +2311,19 @@ export class DocumentsStore {
       if (!decided.ok) fail(decided);
       const result = decided.value;
       if (result.erasePayload) this.#erasePayload();
+      if (audit !== null && result.erasePayload) {
+        // An owner's reset: its audit obligation commits with it (control data, kept by the erase).
+        const obligation = erasedObligation(envelope, eraseId, audit);
+        this.#exec(
+          `INSERT INTO pf_audit (key, kind, detail, owner, state, at) VALUES (?, ?, ?, ?, 'pending', ?)
+           ON CONFLICT(key) DO NOTHING`,
+          obligation.key,
+          obligation.kind,
+          JSON.stringify(obligation.detail),
+          envelope.ownerId,
+          now,
+        );
+      }
       if (result.ended !== null) this.#endIntent(result.ended.id, result.ended.outcome, now);
       if (result.control !== null) this.#setControl(result.control);
       if (result.startsIntent) {
@@ -2319,8 +2339,8 @@ export class DocumentsStore {
     return this.#eraseStep("prepare", envelope, eraseId, now);
   }
 
-  commitErase(envelope: DataEnvelope, eraseId: string, now: number) {
-    return this.#eraseStep("commit", envelope, eraseId, now);
+  commitErase(envelope: DataEnvelope, eraseId: string, now: number, audit?: string) {
+    return this.#eraseStep("commit", envelope, eraseId, now, audit ?? null);
   }
 
   cancelErase(envelope: DataEnvelope, eraseId: string, now: number) {
@@ -2399,6 +2419,37 @@ export class DocumentsStore {
       return { value: true, wrote: true };
     });
     return (answer as { value: boolean }).value;
+  }
+
+  /**
+   * The audit obligations still pending since before `before`, oldest first, at most `limit`
+   * (the daily sweep's read, through `pf_audit_state`). Maintenance admission; writes nothing.
+   */
+  pendingObligations(
+    envelope: DataEnvelope,
+    before: number,
+    limit: number,
+    now: number,
+  ): { actor: string; generation: number; opId: string; owner: string }[] {
+    const answer = this.#controlCommand(now, "audit_pending", () => {
+      const stored = this.#readControl();
+      if (stored === null || !admit(stored, envelope, { kind: "maintenance" }).ok) {
+        return { value: [], wrote: false };
+      }
+      const rows = this.#read(
+        "SELECT key, owner FROM pf_audit WHERE state = 'pending' AND at < ? ORDER BY at LIMIT ?",
+        before,
+        limit,
+      );
+      const found = rows
+        .map((row) => pendingObligation(str(row.key), str(row.owner)))
+        .filter((item) => item !== null);
+      return { value: found, wrote: false };
+    });
+    return (
+      (answer as { value?: { actor: string; generation: number; opId: string; owner: string }[] })
+        .value ?? []
+    );
   }
 
   // Housekeeping.
@@ -2507,6 +2558,7 @@ export class DocumentsStore {
     principal: string,
     deadline: number,
     context: Context,
+    modes: readonly CollectionMode[] | null = null,
   ): Answer<string> {
     return this.#running(context.now, () => {
       const now = context.now;
@@ -2552,6 +2604,7 @@ export class DocumentsStore {
             deadline,
             now,
             limits: context.limits,
+            modes,
           });
           charged = true;
           this.#charge("connect", "growth", now, false);
@@ -2672,6 +2725,19 @@ export class DocumentsStore {
     socket.port.send(text);
   }
 
+  /** Sends a new connection its hello message (`helloMessage`), after it was accepted. */
+  hello(socketId: string, now: number): void {
+    this.#running(now, () =>
+      this.#uncharged(now, () => {
+        const socket = this.sockets.get(socketId);
+        if (socket === undefined) return;
+        const current = this.#live(socket, now);
+        if (current === null) return;
+        this.#send(socket, current, helloMessage(current), now);
+      }),
+    );
+  }
+
   message(socketId: string, text: string, now: number): void {
     this.#running(now, () => this.#uncharged(now, () => this.#message(socketId, text, now)));
   }
@@ -2694,10 +2760,7 @@ export class DocumentsStore {
       name = "";
     }
     const [row] = this.#read("SELECT mode FROM pf_collections WHERE name = ?", name);
-    const caller: Caller =
-      current.author === null
-        ? { kind: "reader" }
-        : { kind: "visitor", author: current.author, canWrite: false };
+    const caller = liveCaller(current);
     if (row === undefined || readScope(str(row.mode) as CollectionMode, caller) === "none") {
       this.#send(socket, received.attachment, JSON.stringify({ error: "not_found" }), now);
       return;

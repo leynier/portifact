@@ -13,25 +13,36 @@ import {
   type DataControl,
   type DataEnvelope,
   DataFence,
+  ERASURE_ACTOR,
   EraseStepName as EraseStep,
   ExportCursor,
+  LIVE_CONNECT_HEADER,
   LifecycleEnvelope,
+  LiveConnectRequest,
+  LivePrincipal,
+  LiveSocketId,
   DataTime as Now,
   OperationId,
   OwnerActor,
   OwnerDataCommand,
   OwnerEnvelope,
+  PageCaller,
+  PageDataCommand,
+  PENDING_OBLIGATIONS_PER_CALL,
   QuarantineReason,
   QuarantineResolutionRequest,
   RequiredErase,
   type StorageReport,
   VisitorId,
 } from "@portifact/contracts/artifact-data";
+
 import {
   LIFECYCLE_LIMITS,
   type LiveAttachment,
   mutationActorName,
+  PAGE_MODES,
   runOwnerCommand,
+  runPageCommand,
 } from "@portifact/domain/artifact-data";
 import { DocumentsStore, type Instrument, type SocketPort, type WokenSocket } from "./store.ts";
 
@@ -106,7 +117,7 @@ export function storeFor(
 export class ArtifactDocuments extends DurableObject<Env> {
   /** The store: reachable by the object's own code (and tests in its isolate), never over RPC. */
   store: DocumentsStore;
-  /** Client ends of connections this instance opened, until the upgrade route exists. */
+  /** Client ends of connections accepted and not yet handed to `fetch`'s answer. */
   readonly clients = new Map<string, WebSocket>();
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -245,6 +256,24 @@ export class ArtifactDocuments extends DurableObject<Env> {
     return runOwnerCommand(this.store, input.envelope, input.actor, input.command, input.context);
   }
 
+  // The page (decision 0026, delivery 6). The content Worker calls this after its own gates and
+  // authorization, with the envelope from D1, the caller it decided (a grant holder's visitor ID
+  // and whether they may write now, or a reader without a grant), the plan's limits and an
+  // operation ID on every mutation. The object admits, authorizes by the collection's mode and
+  // charges by the domain's rules; every argument is parsed here and an invalid one answered.
+
+  /** One page command: a read, a query, a create, replace or remove, or the visitor's own export. */
+  pageCommand(envelope: unknown, caller: unknown, command: unknown, limits: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: OwnerEnvelope.parse(envelope) satisfies DataEnvelope,
+      caller: PageCaller.parse(caller),
+      command: PageDataCommand.parse(command),
+      context: { now: Now.parse(now), limits: ArtifactDataLimits.parse(limits) },
+    }));
+    if ("refused" in input) return input.refused;
+    return runPageCommand(this.store, input.envelope, input.caller, input.command, input.context);
+  }
+
   /**
    * The audit relay's question about one owner-side operation (decision 0026, "Audit with
    * durable states"): its committed obligation, or the operation recorded aborted so a late
@@ -263,10 +292,33 @@ export class ArtifactDocuments extends DurableObject<Env> {
     return this.store.acknowledge(input.envelope, input.actor, input.opId, input.now);
   }
 
+  /**
+   * The daily sweep's read of the audit obligations still pending since before `before`
+   * (`PendingObligation`, at most `PENDING_OBLIGATIONS_PER_CALL`): writes nothing.
+   */
+  auditPending(envelope: unknown, before: unknown, now: unknown) {
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope) satisfies DataEnvelope,
+      before: Now.parse(before),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return [];
+    return this.store.pendingObligations(
+      input.envelope,
+      input.before,
+      PENDING_OBLIGATIONS_PER_CALL,
+      input.now,
+    );
+  }
+
   #settlement(envelope: unknown, actor: unknown, opId: unknown, now: unknown) {
     const input = this.#parsed(() => ({
       envelope: LifecycleEnvelope.parse(envelope) satisfies DataEnvelope,
-      actor: mutationActorName({ kind: "owner", actor: OwnerActor.parse(actor) }),
+      // An owner-side operation's actor, or an author erasure chunk's.
+      actor:
+        actor === ERASURE_ACTOR
+          ? ERASURE_ACTOR
+          : mutationActorName({ kind: "owner", actor: OwnerActor.parse(actor) }),
       opId: OperationId.parse(opId),
       now: Now.parse(now),
     }));
@@ -293,6 +345,72 @@ export class ArtifactDocuments extends DurableObject<Env> {
         },
       };
     }
+  }
+
+  // Live updates (decision 0026, delivery 7). The binding is the credential here too: only a
+  // Worker that binds this class reaches `fetch`, and it answers only a WebSocket upgrade whose
+  // parameters (`LIVE_CONNECT_HEADER`) the calling Worker decided after its own checks.
+
+  /**
+   * Opens a live connection: the store admits it (`planConnect`, charged to growth) and accepts
+   * the server end; the answer is the `101` carrying the client end, which then receives its hello
+   * message. A refusal is the store's answer as JSON with `409`; an invalid request `400`.
+   */
+  override async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+      return new Response(null, { status: 426 });
+    }
+    const input = this.#parsed(() => {
+      const raw = request.headers.get(LIVE_CONNECT_HEADER);
+      if (raw === null) throw new Error("missing");
+      return LiveConnectRequest.parse(JSON.parse(raw));
+    });
+    if ("refused" in input) return Response.json(input.refused, { status: 400 });
+    // A page reaches only `PAGE_MODES` until delivery 9, over live updates as through its API.
+    const answer = this.store.connect(
+      input.envelope,
+      input.author,
+      input.principal,
+      input.deadline,
+      { now: input.now, limits: input.limits },
+      PAGE_MODES,
+    );
+    if (!answer.ok) return Response.json(answer, { status: 409 });
+    // A connect is never replayed: it carries no operation ID.
+    const socketId = "value" in answer ? answer.value : "";
+    const client = this.clients.get(socketId);
+    this.clients.delete(socketId);
+    /* c8 ignore next */
+    if (client === undefined) throw new Error("an accepted connection has no client end");
+    this.store.hello(socketId, input.now);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /**
+   * Renews a live connection for the same principal (`renewDecision`): a new deadline and the
+   * current plan's daily message limit. False when refused or when the connection is gone.
+   */
+  liveRenew(
+    envelope: unknown,
+    socketId: unknown,
+    principal: unknown,
+    deadline: unknown,
+    limits: unknown,
+    now: unknown,
+  ): boolean {
+    const input = this.#parsed(() => ({
+      envelope: LifecycleEnvelope.parse(envelope) satisfies DataEnvelope,
+      socketId: LiveSocketId.parse(socketId),
+      principal: LivePrincipal.parse(principal),
+      deadline: Now.parse(deadline),
+      limits: ArtifactDataLimits.parse(limits),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return false;
+    return this.store.renew(input.envelope, input.socketId, input.principal, input.deadline, {
+      now: input.now,
+      limits: input.limits,
+    });
   }
 
   override async alarm(): Promise<void> {

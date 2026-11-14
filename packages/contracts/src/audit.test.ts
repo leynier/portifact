@@ -185,6 +185,8 @@ describe("the catalog's exact shapes", () => {
       "data.documents_created": "artifact",
       "data.documents_replaced": "artifact",
       "data.documents_deleted": "artifact",
+      "data.erased": "artifact",
+      "data.author_erased": "artifact",
     });
   });
 

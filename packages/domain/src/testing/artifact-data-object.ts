@@ -55,13 +55,16 @@ import {
   type ExportPage,
   editorAfter,
   emptyDay,
+  erasedObligation,
   flushPending,
   growthRefusal,
+  helloMessage,
   type IndexField,
   inbound,
   indexEntries,
   keyBefore,
   type LiveAttachment,
+  liveCaller,
   liveCheck,
   liveReservation,
   type MutationActor,
@@ -86,6 +89,7 @@ import {
   passLeftMore,
   payloadChanged,
   pendingDeadline,
+  pendingObligation,
   planConnect,
   planCount,
   planExport,
@@ -1736,6 +1740,7 @@ export class MemoryObject implements DataObject {
       revision: 0,
       collections: [],
       today: emptyDay(dayOf(context.now)),
+      connections: 0,
     });
     return this.#readCommand(envelope, caller, context, "describe", emptyDescription, () => {
       const fields = this.durable.fields;
@@ -1748,6 +1753,7 @@ export class MemoryObject implements DataObject {
         revision: control.payloadRevision,
         collections,
         today: this.#dayRow(dayOf(context.now)),
+        connections: [...this.sockets.values()].filter((socket) => socket.closed === null).length,
       });
       if (!decided.ok) fail(decided);
       return decided.value;
@@ -1971,6 +1977,7 @@ export class MemoryObject implements DataObject {
     envelope: DataEnvelope,
     eraseId: string,
     now: number,
+    audit: string | null = null,
   ) {
     return this.#control(now, `erase_${step}`, () => {
       const ended = this.durable.ended.get(eraseId)?.outcome ?? null;
@@ -1985,6 +1992,17 @@ export class MemoryObject implements DataObject {
       if (!decided.ok) fail(decided);
       const result = decided.value;
       if (result.erasePayload) this.#erasePayload();
+      if (audit !== null && result.erasePayload) {
+        const { key, ...obligation } = erasedObligation(envelope, eraseId, audit);
+        if (!this.durable.audit.has(key)) {
+          this.durable.audit.set(key, {
+            ...obligation,
+            owner: envelope.ownerId,
+            state: "pending",
+            at: now,
+          });
+        }
+      }
       if (result.ended !== null) {
         this.durable.ended.set(result.ended.id, { outcome: result.ended.outcome, at: now });
       }
@@ -2002,8 +2020,8 @@ export class MemoryObject implements DataObject {
     return this.#eraseStep("prepare", envelope, eraseId, now);
   }
 
-  commitErase(envelope: DataEnvelope, eraseId: string, now: number) {
-    return this.#eraseStep("commit", envelope, eraseId, now);
+  commitErase(envelope: DataEnvelope, eraseId: string, now: number, audit?: string) {
+    return this.#eraseStep("commit", envelope, eraseId, now, audit ?? null);
   }
 
   cancelErase(envelope: DataEnvelope, eraseId: string, now: number) {
@@ -2068,6 +2086,38 @@ export class MemoryObject implements DataObject {
       return { value: true, wrote: true };
     });
     return (answer as { value: boolean }).value;
+  }
+
+  /**
+   * The audit obligations still pending since before `before`, oldest first, at most `limit`
+   * (the daily sweep's read). Maintenance admission; writes nothing.
+   */
+  pendingObligations(
+    envelope: DataEnvelope,
+    before: number,
+    limit: number,
+    now: number,
+  ): { actor: string; generation: number; opId: string; owner: string }[] {
+    const answer = this.#control(now, "audit_pending", () => {
+      const stored = this.durable.control;
+      if (stored === null || !admit(stored, envelope, { kind: "maintenance" }).ok) {
+        return { value: [], wrote: false };
+      }
+      const rows = [...this.durable.audit.entries()]
+        .filter(([, row]) => row.state === "pending" && row.at < before)
+        .sort(([, a], [, b]) => a.at - b.at)
+        .slice(0, limit);
+      const found = rows
+        .map(([key, row]) => pendingObligation(key, row.owner))
+        .filter((item) => item !== null);
+      return { value: found, wrote: false };
+    });
+    return (answer as { value: ReturnType<typeof pendingObligation>[] }).value as {
+      actor: string;
+      generation: number;
+      opId: string;
+      owner: string;
+    }[];
   }
 
   // Housekeeping.
@@ -2182,6 +2232,7 @@ export class MemoryObject implements DataObject {
     principal: string,
     deadline: number,
     context: Context,
+    modes: readonly CollectionMode[] | null = null,
   ): Answer<string> {
     return this.#running(() => {
       const now = context.now;
@@ -2219,6 +2270,7 @@ export class MemoryObject implements DataObject {
               deadline,
               now,
               limits: context.limits,
+              modes,
             }),
             received: [],
             closed: null,
@@ -2326,6 +2378,19 @@ export class MemoryObject implements DataObject {
     socket.received.push(text);
   }
 
+  /** Sends a new connection its hello message (`helloMessage`), after it was accepted. */
+  hello(socketId: string, now: number): void {
+    this.#running(() =>
+      this.#uncharged(now, () => {
+        const socket = this.sockets.get(socketId);
+        if (socket === undefined) return;
+        const current = this.#live(socket, now);
+        if (current === null) return;
+        this.#send(socket, current, helloMessage(current), now);
+      }),
+    );
+  }
+
   message(socketId: string, text: string, now: number): void {
     this.#running(() => this.#uncharged(now, () => this.#message(socketId, text, now)));
   }
@@ -2349,10 +2414,7 @@ export class MemoryObject implements DataObject {
         name = "";
       }
       const collection = this.durable.collections.get(name);
-      const caller: Caller =
-        current.author === null
-          ? { kind: "reader" }
-          : { kind: "visitor", author: current.author, canWrite: false };
+      const caller = liveCaller(current);
       if (collection === undefined || readScope(collection.mode, caller) === "none") {
         this.#send(socket, received.attachment, JSON.stringify({ error: "not_found" }), now);
         return;

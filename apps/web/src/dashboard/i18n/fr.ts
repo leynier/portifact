@@ -7,6 +7,41 @@ import type { Catalog } from "./en.ts";
 export const fr = {
   ...planTextFr,
   "app.title": "Portifact",
+  "sharedData.ask": "Demander au propriétaire",
+  "sharedData.askNamed": "Demander aux personnes qui gèrent {name}",
+  "sharedData.askTitle": "Demander à propos de ce que vous avez enregistré dans {name}",
+  "sharedData.askBody":
+    "Les personnes qui gèrent cet artifact reçoivent un e-mail qui ne vous désigne que par l'identifiant que contiennent ses données, jamais par votre nom ni votre e-mail.",
+  "sharedData.askKind": "Que demandez-vous ?",
+  "sharedData.askAccess": "Une copie de ce que j'ai enregistré",
+  "sharedData.askErasure": "Effacer ce que j'ai enregistré",
+  "sharedData.askSend": "Envoyer la demande",
+  "sharedData.askSent": "Votre demande concernant {name} a été envoyée",
+  "sharedData.askFailed": "La demande n'a pas été envoyée",
+  "dataGrant.viewer.saving": "Cette page enregistre ce que vous saisissez",
+  "dataGrant.viewer.savingHint":
+    "Elle vous connaît par votre nom affiché et un identifiant propre à cet artifact. Vous pouvez l'arrêter à tout moment.",
+  "dataGrant.viewer.stop": "Arrêter d'enregistrer en mon nom",
+  "dataGrant.viewer.stopped": "Cette page n'enregistre plus en votre nom",
+  "sharedData.download": "Télécharger ce que j'ai enregistré",
+  "sharedData.downloadNamed": "Télécharger ce que vous avez enregistré dans {name}",
+  "sharedData.downloaded": "{file} enregistré",
+  "sharedData.downloadFailed": "Le téléchargement n'a pas abouti",
+  "sharedData.nothingSaved": "Vous n'avez rien enregistré dans {name}",
+  "sharedData.deleteMine": "Supprimer ce que j'ai enregistré",
+  "sharedData.deleteMineNamed": "Supprimer ce que vous avez enregistré dans {name}",
+  "sharedData.deleteTitle": "Supprimer ce que vous avez enregistré dans {name} ?",
+  "sharedData.deleteBody":
+    "Chaque document que vous y avez créé est supprimé définitivement, avec les modifications faites ensuite par d'autres. Vos modifications des documents d'autres personnes restent, sans votre nom.",
+  "sharedData.deleted":
+    "Ce que vous avez enregistré dans {name} a été supprimé ({count} documents)",
+  "sharedData.deleteFailed": "La suppression n'a pas abouti",
+  "dataGrant.frame.granted": "Cette page peut maintenant enregistrer ce que vous saisissez",
+  "dataGrant.frame.saving": "Enregistrement de votre choix",
+  "dataGrant.frame.unavailable": "L'enregistrement n'est pas disponible dans ce cadre",
+  "dataGrant.frame.unavailableHint":
+    "Ce navigateur empêche le cadre de retenir votre choix. Ouvrez l'artifact dans son propre onglet et autorisez-le là.",
+  "dataGrant.frame.openTab": "Ouvrir dans un nouvel onglet",
   "dataGrant.pageTitle": "Enregistrer ce que vous saisissez",
   "dataGrant.title": "Autoriser {host} à enregistrer ce que vous saisissez ?",
   "dataGrant.ownerPerson": "Publié par {name}",
@@ -1154,10 +1189,10 @@ export const fr = {
   "suggest.search.refused":
     "Cet emplacement ne peut pas être modifié. Essayez un morceau de texte plus court ou plus long.",
   "suggest.search.unavailable":
-    "La recherche est disponible sur les pages HTML. Sur cette page, sélectionnez le texte dans l’artifact.",
+    "Impossible de rechercher dans cette page. Sélectionnez plutôt le texte dans l’artifact.",
+  "suggest.search.stale":
+    "L’artifact a une version plus récente. Rechargez la page pour y rechercher.",
   "draft.conflictReason": "Le texte modifié est différent ou absent dans la version actuelle.",
-  "suggest.search.ownerOnly":
-    "La recherche dans la page n'est pas encore disponible pour les relecteurs. Sélectionnez plutôt le texte dans l'artifact.",
   "review.open": "Relire et commenter",
   "viewer.loading": "Ouverture de l’artifact",
   "viewer.unavailable.title": "Cet artifact ne peut pas être ouvert",
@@ -3445,6 +3480,9 @@ export const fr = {
     "{count, plural, one {A remplacé # document de données} other {A remplacé # documents de données}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {A supprimé # document de données} other {A supprimé # documents de données}}",
+  "audit.kind.dataErased": "A effacé toutes les données de l'artefact",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {A effacé # document de données} other {A effacé # documents de données}} et {edits, plural, one {# modification} other {# modifications}} d'un compte supprimé",
   "detail.section.data": "Données",
   "artifactData.loading": "Chargement des données de l'artifact",
   "artifactData.error.title": "Les données n'ont pas pu être chargées",
@@ -3471,6 +3509,8 @@ export const fr = {
   "artifactData.usage.written": "Lignes écrites aujourd'hui",
   "artifactData.usage.cleanup": "Lignes nettoyées aujourd'hui",
   "artifactData.usage.export": "Lignes exportées aujourd'hui",
+  "artifactData.usage.connections": "Connexions en direct ouvertes",
+  "artifactData.usage.live": "Messages en direct aujourd'hui",
   "artifactData.usage.ofLimit": "{used} sur {limit}",
   "artifactData.documents.title": "Documents",
   "artifactData.untrusted":

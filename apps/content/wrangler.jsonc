@@ -53,8 +53,18 @@
   // the fourth. One SQLite-backed Durable Object per visitor IP and kind of traffic; the limits
   // are PROTECTION_TRAFFIC_LIMITS in packages/domain. Workers Rate Limiting was replaced because
   // its counts are approximate and it did not enforce in production.
+  // ARTIFACT_DOCUMENTS: the documents objects of artifact data (decision 0026), exported by
+  // `portifact-data`, which deploys first. The page's data routes reach them only while
+  // ARTIFACT_DATA_ENABLED is "true", which no deployed configuration sets.
   "durable_objects": {
-    "bindings": [{ "name": "TRAFFIC_LIMITER", "class_name": "TrafficLimiter" }]
+    "bindings": [
+      { "name": "TRAFFIC_LIMITER", "class_name": "TrafficLimiter" },
+      {
+        "name": "ARTIFACT_DOCUMENTS",
+        "class_name": "ArtifactDocuments",
+        "script_name": "portifact-data"
+      }
+    ]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TrafficLimiter"] }],
   // Portifact's own log lines (`logEvent`) are kept. Cloudflare's invocation logs are off: they

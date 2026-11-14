@@ -46,7 +46,12 @@
       "dependsOn": ["^typecheck", "@portifact/web#build"]
     },
     "@portifact/content#test": {
-      "dependsOn": ["^typecheck", "@portifact/bridge#build", "@portifact/render#build"],
+      "dependsOn": [
+        "^typecheck",
+        "@portifact/bridge#build",
+        "@portifact/render#build",
+        "@portifact/data#build"
+      ],
       "outputs": ["coverage/**"]
     },
     "@portifact/content#typecheck": {

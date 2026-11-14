@@ -95,5 +95,11 @@
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "portifact-e2e" },
     { "binding": "ARTIFACTS_EU", "bucket_name": "portifact-e2e-eu" }
-  ]
+  ],
+  // The documents objects of artifact data (decision 0026), hosted by this Worker itself
+  // (worker/index.ts re-exports the class) instead of `portifact-data`.
+  "durable_objects": {
+    "bindings": [{ "name": "ARTIFACT_DOCUMENTS", "class_name": "ArtifactDocuments" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArtifactDocuments"] }]
 }

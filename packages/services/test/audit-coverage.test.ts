@@ -183,7 +183,11 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
     "data.documents_created",
     "data.documents_replaced",
     "data.documents_deleted",
+    "data.author_erased",
   ],
+  // The owner's reset: the D1 batch that follows the object's committed erase records it.
+  eraseArtifactData: ["data.erased"],
+  runDataReset: ["data.erased"],
   markChangeItemOnce: ["change_item.marked"],
 };
 
@@ -255,6 +259,14 @@ reason(
   ],
 );
 reason(
+  "a visitor's own documents from the page (decision 0026, delivery 6): what visitors write is not an owner's change; the object keeps its own records",
+  ["pageDataCommand", "pageOperationId"],
+);
+reason(
+  "a person's rights over what they saved (decision 0026): their own deletes and requests to the people who manage the artifact; not an owner's change, and the request's notice reaches the admins by email",
+  ["deleteOwnDocument", "requestDataRights", "sendDataRightsNotice"],
+);
+reason(
   "what a directory said about people who never got an account, once it lapsed (decision 0017)",
   ["pruneDirectoryUsers"],
 );
@@ -297,6 +309,10 @@ reason("a suggestion is a comment: its creation is outside the T10 catalog like 
 reason(
   "edit suggestions (decision 0027): starting an acceptance or a draft publish records nothing until the job completes it (suggestion.accepted); a dry run only caches a plan and the suggestion's proofs",
   ["acceptSuggestion", "publishDraft", "planSuggestion", "planDraft"],
+);
+reason(
+  "edit suggestions (decision 0027): the page text for a text change only counts in the planning windows and reads the served page",
+  ["suggestionPageText"],
 );
 reason(
   "edit suggestions (decision 0027): an attempt that ends, carries, closures by a new version and the scans change nothing an owner decided; the suggestion is pending again or the record expired",
@@ -381,7 +397,16 @@ reason(
     "createDataDocuments",
     "replaceDataDocuments",
     "deleteDataDocuments",
+    "deleteAuthorData",
   ],
+);
+reason(
+  "artifact data's live updates (decision 0026, delivery 7): a connection and its renewal change no document; what a connection receives is already audited where it was written",
+  ["openLiveConnection", "renewLiveConnection"],
+);
+reason(
+  "artifact data's audit sweep only relays obligations the object already holds to data_audit jobs; runDataAudit records them",
+  ["sweepDataAudit"],
 );
 reason(
   "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",
@@ -556,6 +581,9 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // The journal's visitor ID and the count of a person's open grants (decision 0026): reads.
+  "journalVisitorId",
+  "openDataGrants",
   // The grant's control and renewal read access and the account (decision 0026); the digest computes.
   "dataGrantControl",
   "renewDataGrant",

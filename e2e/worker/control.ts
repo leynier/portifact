@@ -16,6 +16,8 @@ import {
   createShareLink,
   createWorkspace,
   customDomainsServing,
+  dataNamespaces,
+  declareDataCollection,
   issueReviewHandoff,
   preparePublish,
   previewKey,
@@ -592,6 +594,32 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
 
   // The owner's share links, through the same services the API, MCP and dashboard call. The
   // owner's plan must include them; tests grant it with a row in owner_plans.
+  if (path === "/data-collection") {
+    // Artifact data (decision 0026): the owner declares a collection, as the owner API does.
+    const { ownerId, artifactId, name, mode } = input as {
+      ownerId: string;
+      artifactId: string;
+      name: string;
+      mode: "own" | "append";
+    };
+    const db = regionsFromEnv(env).get("default").db;
+    const result = await declareDataCollection(
+      db,
+      {
+        objects: dataNamespaces({ ...env, ARTIFACT_DATA_ENABLED: "true" }, "default"),
+        bucket: env.ARTIFACTS,
+        enabled: true,
+      },
+      {
+        userId: ownerId,
+        artifactId,
+        now,
+        idempotencyKey: crypto.randomUUID(),
+        declaration: { name, mode },
+      },
+    );
+    return Response.json(result, { status: result.ok ? 200 : 400 });
+  }
   if (path === "/share-link") {
     const { ownerId, artifactId, label, expiresAt, password, revoke, region } =
       input as ShareLinkInput;

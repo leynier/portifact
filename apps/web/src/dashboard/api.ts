@@ -61,7 +61,9 @@ import {
   DataGrantControl,
   DataGrantList,
   DataGrantRevocation,
+  DataGrantStatus,
   DataQueryPage,
+  DataRightsRequested,
   DisconnectResult,
   DocumentPreview,
   type DocumentPreviewRequest,
@@ -85,6 +87,8 @@ import {
   InvitationLookup,
   InvitationView,
   LifecycleResult,
+  OwnDataPage,
+  OwnDocumentDeletion,
   type PolicyImpact,
   PolicyPreview,
   PreparedPublish,
@@ -238,6 +242,14 @@ export interface DashboardApi {
   issueDataGrant(input: DataGrantCodeRequest): Promise<DataGrantCode>;
   /** "Data you shared": the artifacts the person granted. */
   dataGrants(after?: string | null): Promise<DataGrantList>;
+  /** Whether the person has open grants on an artifact (the viewer's "stop saving as me"). */
+  dataGrantStatus(artifactId: string): Promise<DataGrantStatus>;
+  /** One page of the documents the person created in an artifact. */
+  ownData(artifactId: string, after: string | null): Promise<OwnDataPage>;
+  /** Deletes one document the person created. */
+  deleteOwnDocument(artifactId: string, collection: string, id: string): Promise<unknown>;
+  /** Asks the people who manage an artifact about what the person saved there. */
+  requestDataRights(artifactId: string, kind: "access" | "erasure"): Promise<unknown>;
   /** Revokes the person's grants on an artifact. */
   revokeDataGrants(artifactId: string): Promise<DataGrantRevocation>;
   /** Deletes the account; the email typed again confirms it. */
@@ -869,6 +881,35 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     dataGrants(after) {
       const query = after ? `?${new URLSearchParams({ after })}` : "";
       return call(`/api/v1/account/data-grants${query}`, DataGrantList);
+    },
+    dataGrantStatus(artifactId) {
+      return call(`/api/v1/account/data-grants/${encodeURIComponent(artifactId)}`, DataGrantStatus);
+    },
+    ownData(artifactId, after) {
+      const query = after ? `?${new URLSearchParams({ after })}` : "";
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/mine${query}`,
+        OwnDataPage,
+      );
+    },
+    deleteOwnDocument(artifactId, collection, id) {
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/documents/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,
+        OwnDocumentDeletion,
+        "DELETE",
+        undefined,
+        {
+          "idempotency-key": `${String(Date.now()).padStart(13, "0")}.${crypto.randomUUID().replaceAll("-", "")}`,
+        },
+      );
+    },
+    requestDataRights(artifactId, kind) {
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/rights-request`,
+        DataRightsRequested,
+        "POST",
+        { kind },
+      );
     },
     revokeDataGrants(artifactId) {
       return call(

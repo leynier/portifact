@@ -34,6 +34,9 @@ import {
   type LifecycleEnvelope,
   type OwnerDataCommand,
   type OwnerEnvelope,
+  type PageCaller,
+  type PageDataCommand,
+  type PendingObligation,
   type QuarantineReason,
   type QuarantineResolutionRequest,
   type RequiredErase,
@@ -41,6 +44,7 @@ import {
   type SettleAnswer,
   type StorageReport,
 } from "@portifact/contracts/artifact-data";
+
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
 import { logEvent } from "@portifact/domain";
 import {
@@ -142,6 +146,14 @@ export interface DataObjectRpc {
     limits: ArtifactDataLimits,
     now: number,
   ): Promise<DataReplayable<unknown>>;
+  /** One page command (delivery 6, `artifact-data-page.ts`); the answer as RPC carries it. */
+  pageCommand(
+    envelope: OwnerEnvelope,
+    caller: PageCaller,
+    command: PageDataCommand,
+    limits: ArtifactDataLimits,
+    now: number,
+  ): Promise<DataReplayable<unknown>>;
   /** The audit relay's settlement of one owner-side operation (`data_audit`). */
   auditSettle(
     envelope: LifecycleEnvelope,
@@ -155,6 +167,26 @@ export interface DataObjectRpc {
     opId: string,
     now: number,
   ): Promise<boolean>;
+  /**
+   * A live connect (delivery 7): a WebSocket upgrade carrying `LIVE_CONNECT_HEADER`, answered
+   * `101` with the client end, or the object's refusal as JSON.
+   */
+  fetch(request: Request): Promise<Response>;
+  /** Renews a live connection for the principal that opened it. */
+  liveRenew(
+    envelope: LifecycleEnvelope,
+    socketId: string,
+    principal: string,
+    deadline: number,
+    limits: ArtifactDataLimits,
+    now: number,
+  ): Promise<boolean>;
+  /** The daily sweep's read of obligations pending since before `before`. */
+  auditPending(
+    envelope: LifecycleEnvelope,
+    before: number,
+    now: number,
+  ): Promise<PendingObligation[]>;
 }
 
 /** The objects of one region, as a job reaches them. */

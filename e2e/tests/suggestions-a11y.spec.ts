@@ -2,7 +2,8 @@
 // alone and checked on the accessibility tree the browser exposes to assistive technology: names,
 // roles and states (`toMatchAriaSnapshot`), where focus goes, and what the polite live regions
 // announce. It walks the path a person who cannot select in the frame takes: the mode switch, the
-// sidebar's text search, the editor, its review tabs and Save; then the owner's draft panel.
+// sidebar's text search, the editor, its review tabs and Save, for the owner on a site and for a
+// reviewer on a site and on a document; then the owner's draft panel.
 
 import { expect as baseExpect, type Page } from "@playwright/test";
 import {
@@ -46,8 +47,6 @@ test("Suggest mode works from the keyboard alone, with names, states and announc
   engine,
 }) => {
   test.skip(!engine.reviewWorks, "Suggest mode needs the bridge in the frame");
-  // The search reads the page's stored file, which the owner side may read; reviewers select
-  // in the frame (suggestions.spec.ts covers that path).
   const owner = await createUser("Owner");
   const { artifactId } = await publish({
     ownerId: owner.userId,
@@ -130,6 +129,72 @@ test("Suggest mode works from the keyboard alone, with names, states and announc
   await expect(block.getByText("Suggestion", { exact: true })).toBeVisible();
   await expect(block.getByText("Waiting for a decision")).toBeVisible();
 });
+
+for (const kind of ["site", "document"] as const) {
+  test(`a reviewer finds and changes text on a ${kind} from the keyboard alone`, async ({
+    page,
+    context,
+    engine,
+  }) => {
+    test.skip(!engine.reviewWorks, "Suggest mode needs the bridge in the frame");
+    // The page's text comes from the server to whoever may suggest, so a reader who may comment
+    // searches a site they may not download and a document's rendered page alike.
+    const owner = await createUser("Owner");
+    const reader = await createUser("Reader");
+    const { artifactId } = await publish({
+      ownerId: owner.userId,
+      name: NAME,
+      ...(kind === "site"
+        ? { files: { "index.html": PAGE } }
+        : {
+            type: "markdown" as const,
+            files: { "index.md": "# Notes\n\nThe quick brown cat jumps.\n" },
+          }),
+      readers: [reader.email],
+    });
+    await signIn(context, reader);
+    await openReview(page, artifactId, NAME);
+    await artifactFrame(page, artifactId);
+
+    const group = page.getByRole("group", { name: "Review mode" });
+    await group.getByRole("button", { name: "Suggest mode" }).focus();
+    await page.keyboard.press("Enter");
+    await announced(page, /Suggest mode is on/);
+    const search = page.getByRole("region", { name: "Suggest a text change" });
+    await search.getByRole("textbox", { name: "Text to find" }).focus();
+    await page.keyboard.type("brown cat");
+    await page.keyboard.press("Enter");
+    await announced(page, "1 place found.");
+    await expect(search.getByRole("list", { name: "Places with the text" })).toMatchAriaSnapshot(`
+      - list "Places with the text":
+        - listitem:
+          - paragraph:
+            - text: /The quick/
+            - mark: brown cat
+            - text: jumps.
+          - button "Change the text at place 1"
+    `);
+    await search.getByRole("button", { name: "Change the text at place 1" }).focus();
+    await page.keyboard.press("Enter");
+
+    const editor = page.getByRole("region", { name: "Suggest an edit to the selection" });
+    await expect.poll(() => focusedName(page)).toContain("New text");
+    await expect(editor.getByRole("textbox", { name: "New text" })).toHaveValue("brown cat");
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.type("brown dog");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("A dog fits better");
+    await editor.getByRole("textbox", { name: "New text" }).focus();
+    await page.keyboard.press("Enter");
+    await editor.getByRole("button", { name: "Save suggestion" }).focus();
+    await page.keyboard.press("Enter");
+    await announced(page, "Suggestion saved.");
+    const block = page.getByRole("region", { name: "Suggested edit" });
+    await expect(block.getByText("Waiting for a decision")).toBeVisible();
+    // A reviewer decides nothing.
+    await expect(block.getByRole("button", { name: "Accept" })).toHaveCount(0);
+  });
+}
 
 test("the owner's draft is reachable and announced from the keyboard", async ({
   page,

@@ -1,0 +1,1 @@
+ALTER TABLE `data_operations` ADD `target` text;

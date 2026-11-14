@@ -7,6 +7,40 @@ import type { Catalog } from "./en.ts";
 export const ru = {
   ...planTextRu,
   "app.title": "Portifact",
+  "sharedData.ask": "Обратиться к владельцу",
+  "sharedData.askNamed": "Обратиться к тем, кто управляет {name}",
+  "sharedData.askTitle": "Запрос о том, что вы сохранили в {name}",
+  "sharedData.askBody":
+    "Те, кто управляет этим artifact, получат письмо, где вы названы только идентификатором из его данных, без имени и адреса почты.",
+  "sharedData.askKind": "О чём вы просите?",
+  "sharedData.askAccess": "Копию того, что я сохранил(а)",
+  "sharedData.askErasure": "Удалить то, что я сохранил(а)",
+  "sharedData.askSend": "Отправить запрос",
+  "sharedData.askSent": "Ваш запрос о {name} отправлен",
+  "sharedData.askFailed": "Запрос не отправлен",
+  "dataGrant.viewer.saving": "Эта страница сохраняет то, что вы вводите",
+  "dataGrant.viewer.savingHint":
+    "Она знает вас по отображаемому имени и идентификатору для этого artifact. Вы можете остановить это в любой момент.",
+  "dataGrant.viewer.stop": "Не сохранять от моего имени",
+  "dataGrant.viewer.stopped": "Эта страница больше не сохраняет от вашего имени",
+  "sharedData.download": "Скачать то, что я сохранил(а)",
+  "sharedData.downloadNamed": "Скачать то, что вы сохранили в {name}",
+  "sharedData.downloaded": "{file} сохранён",
+  "sharedData.downloadFailed": "Скачивание не завершено",
+  "sharedData.nothingSaved": "Вы ничего не сохраняли в {name}",
+  "sharedData.deleteMine": "Удалить то, что я сохранил(а)",
+  "sharedData.deleteMineNamed": "Удалить то, что вы сохранили в {name}",
+  "sharedData.deleteTitle": "Удалить то, что вы сохранили в {name}?",
+  "sharedData.deleteBody":
+    "Каждый созданный вами там документ удаляется навсегда вместе с последующими правками других. Ваши правки в документах других людей останутся, без вашего имени.",
+  "sharedData.deleted": "Удалено то, что вы сохранили в {name} (документов: {count})",
+  "sharedData.deleteFailed": "Удаление не завершено",
+  "dataGrant.frame.granted": "Теперь эта страница может сохранять то, что вы вводите",
+  "dataGrant.frame.saving": "Сохраняем ваш выбор",
+  "dataGrant.frame.unavailable": "Сохранение недоступно в этой рамке",
+  "dataGrant.frame.unavailableHint":
+    "Этот браузер не даёт рамке запомнить ваш выбор. Откройте artifact в отдельной вкладке и разрешите там.",
+  "dataGrant.frame.openTab": "Открыть в новой вкладке",
   "dataGrant.pageTitle": "Сохранение введённого",
   "dataGrant.title": "Разрешить {host} сохранять то, что вы вводите?",
   "dataGrant.ownerPerson": "Опубликовал(а) {name}",
@@ -1136,10 +1170,10 @@ export const ru = {
   "suggest.search.refused":
     "Это место нельзя изменить. Попробуйте более короткий или более длинный фрагмент текста.",
   "suggest.search.unavailable":
-    "Поиск доступен на HTML-страницах. На этой странице выделите текст в artifact.",
+    "По этой странице нельзя выполнить поиск. Выделите текст в artifact.",
+  "suggest.search.stale":
+    "У artifact есть более новая версия. Перезагрузите страницу, чтобы искать в ней.",
   "draft.conflictReason": "Изменённый текст в текущей версии другой или отсутствует.",
-  "suggest.search.ownerOnly":
-    "Поиск по странице пока недоступен рецензентам. Выделите текст в artifact.",
   "review.open": "Проверить и прокомментировать",
   "viewer.loading": "Открытие artifact",
   "viewer.unavailable.title": "Этот artifact нельзя открыть",
@@ -3396,6 +3430,9 @@ export const ru = {
     "{count, plural, one {Заменил # документ данных} few {Заменил # документа данных} many {Заменил # документов данных} other {Заменил # документа данных}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Удалил # документ данных} few {Удалил # документа данных} many {Удалил # документов данных} other {Удалил # документа данных}}",
+  "audit.kind.dataErased": "Стёр все данные артефакта",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Стёр # документ данных} few {Стёр # документа данных} many {Стёр # документов данных} other {Стёр # документа данных}} и {edits, plural, one {# правку} few {# правки} many {# правок} other {# правки}} удалённой учётной записи",
   "detail.section.data": "Данные",
   "artifactData.loading": "Загрузка данных artifact",
   "artifactData.error.title": "Не удалось загрузить данные",
@@ -3422,6 +3459,8 @@ export const ru = {
   "artifactData.usage.written": "Строк записано сегодня",
   "artifactData.usage.cleanup": "Строк очищено сегодня",
   "artifactData.usage.export": "Строк экспортировано сегодня",
+  "artifactData.usage.connections": "Открытые живые подключения",
+  "artifactData.usage.live": "Живые сообщения за сегодня",
   "artifactData.usage.ofLimit": "{used} из {limit}",
   "artifactData.documents.title": "Документы",
   "artifactData.untrusted":

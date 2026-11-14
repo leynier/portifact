@@ -96,7 +96,12 @@ describe("artifact data tools", () => {
       const tool = byName.get(name);
       expect(tool?.annotations?.readOnlyHint, name).toBe(scope === "data:read");
     }
-    for (const name of ["delete_data_document", "delete_data_documents"]) {
+    for (const name of [
+      "delete_data_document",
+      "delete_data_documents",
+      "erase_artifact_data",
+      "delete_author_data",
+    ]) {
       expect(byName.get(name)?.annotations?.destructiveHint, name).toBe(true);
       expect(byName.get(name)?.inputSchema.required, name).toContain("confirm");
       expect(byName.get(name)?.description, name).toContain("Always ask the user");
@@ -476,5 +481,107 @@ describe("artifact data tools", () => {
     const second = rest.structuredContent as { rows: unknown[]; next: string | null };
     expect(page.rows.length + second.rows.length).toBe(100);
     expect(second.next).toBeNull();
+  });
+});
+
+describe("the owner's erase and one author's deletion", () => {
+  async function seeded(b: Both) {
+    const id = await publish(b);
+    const base = `/api/v1/artifacts/${id}/data`;
+    expect(
+      (await b.apiCall(`${base}/collections`, send("POST", { name: "votes", mode: "shared" })))
+        .status,
+    ).toBe(201);
+    const created = await b.apiCall(
+      `${base}/collections/votes/documents/bulk`,
+      send("POST", { documents: [{ n: 1 }, { n: 2 }] }),
+    );
+    expect(created.status).toBe(201);
+    return { id, base };
+  }
+
+  it("erases through the API and MCP alike, and asks for confirm at both", async () => {
+    const b = await both("data-erase@example.test");
+    const first = await seeded(b);
+    expect((await b.apiCall(`${first.base}/erase`, send("POST", {}))).status).toBe(400);
+    expect((await b.tool("erase_artifact_data", { artifactId: first.id })).isError).toBe(true);
+    const viaApi = await fromApi(
+      await b.apiCall(`${first.base}/erase`, send("POST", { confirm: true })),
+    );
+    expect(viaApi).toEqual({ ok: true, body: { erased: true, generation: 1 } });
+    const after = await fromApi(await b.apiCall(first.base));
+    expect(after).toMatchObject({ ok: true, body: { collections: [] } });
+
+    // The same artifact again, declared anew, erased through MCP.
+    expect(
+      (
+        await b.apiCall(
+          `${first.base}/collections`,
+          send("POST", { name: "votes", mode: "shared" }),
+        )
+      ).status,
+    ).toBe(201);
+    const viaTool = fromTool(
+      await b.tool("erase_artifact_data", { artifactId: first.id, confirm: true }),
+    );
+    expect(viaTool).toEqual({ ok: true, body: { erased: true, generation: 2 } });
+  });
+
+  it("deletes one author's documents alike, refusing an author that is not opaque", async () => {
+    const b = await both("data-author@example.test");
+    const { id, base } = await seeded(b);
+    const author = "v_AAAAAAAAAAAAAAAA";
+    const viaApi = await fromApi(
+      await b.apiCall(`${base}/authors/${author}/delete`, send("POST", { confirm: true })),
+    );
+    expect(viaApi).toEqual({ ok: true, body: { removed: 0, more: false } });
+    const viaTool = fromTool(
+      await b.tool("delete_author_data", { artifactId: id, author, confirm: true }),
+    );
+    expect(viaTool).toEqual(viaApi);
+    const bad = await b.apiCall(`${base}/authors/owner/delete`, send("POST", { confirm: true }));
+    expect(bad.status).toBe(400);
+    expect(
+      (await b.tool("delete_author_data", { artifactId: id, author: "owner", confirm: true }))
+        .isError,
+    ).toBe(true);
+    expect((await b.apiCall(`${base}/authors/${author}/delete`, send("POST", {}))).status).toBe(
+      400,
+    );
+  });
+
+  it("refuses a stranger and a reader token the same way at both", async () => {
+    const h = createHarness();
+    const owner = await both("data-erase-owner@example.test");
+    const { id } = await seeded(owner);
+    const stranger = await both("data-erase-stranger@example.test");
+    const api404 = await stranger.apiCall(
+      `/api/v1/artifacts/${id}/data/erase`,
+      send("POST", { confirm: true }),
+    );
+    expect(api404.status).toBe(404);
+    const tool404 = fromTool(
+      await stranger.tool("erase_artifact_data", { artifactId: id, confirm: true }),
+    );
+    expect(tool404).toEqual({ ok: false, body: await api404.json() });
+    const reader = await apiToken(h, "data-erase-reader@example.test", "artifacts:read data:read");
+    expect(
+      (await api(h, reader, `/api/v1/artifacts/${id}/data/erase`, send("POST", { confirm: true })))
+        .status,
+    ).toBe(403);
+    const mcpReader = await mcpTokenWith(
+      h,
+      "data-erase-reader@example.test",
+      "artifacts:read data:read",
+    );
+    expect(
+      (
+        await rawCall(h, mcpReader, "delete_author_data", {
+          artifactId: id,
+          author: "v_AAAAAAAAAAAAAAAA",
+          confirm: true,
+        })
+      ).status,
+    ).toBe(403);
   });
 });

@@ -6,6 +6,40 @@ import type { Catalog } from "./en.ts";
 export const es = {
   ...planTextEs,
   "app.title": "Portifact",
+  "sharedData.ask": "Preguntar al propietario",
+  "sharedData.askNamed": "Preguntar a quienes gestionan {name}",
+  "sharedData.askTitle": "Preguntar por lo que guardaste en {name}",
+  "sharedData.askBody":
+    "Quienes gestionan este artifact reciben un correo que te nombra solo por el ID que guardan sus datos, nunca por tu nombre ni tu correo.",
+  "sharedData.askKind": "¿Qué pides?",
+  "sharedData.askAccess": "Una copia de lo que guardé",
+  "sharedData.askErasure": "Borrar lo que guardé",
+  "sharedData.askSend": "Enviar la solicitud",
+  "sharedData.askSent": "Se envió tu solicitud sobre {name}",
+  "sharedData.askFailed": "No se envió la solicitud",
+  "dataGrant.viewer.saving": "Esta página guarda lo que escribes",
+  "dataGrant.viewer.savingHint":
+    "Te conoce por tu nombre visible y un ID para este artifact. Puedes detenerlo cuando quieras.",
+  "dataGrant.viewer.stop": "Dejar de guardar en mi nombre",
+  "dataGrant.viewer.stopped": "Esta página ya no guarda en tu nombre",
+  "sharedData.download": "Descargar lo que guardé",
+  "sharedData.downloadNamed": "Descargar lo que guardaste en {name}",
+  "sharedData.downloaded": "Guardado {file}",
+  "sharedData.downloadFailed": "La descarga no se completó",
+  "sharedData.nothingSaved": "No guardaste nada en {name}",
+  "sharedData.deleteMine": "Eliminar lo que guardé",
+  "sharedData.deleteMineNamed": "Eliminar lo que guardaste en {name}",
+  "sharedData.deleteTitle": "¿Eliminar lo que guardaste en {name}?",
+  "sharedData.deleteBody":
+    "Cada documento que creaste ahí se elimina para siempre, con las ediciones que otros le hicieron después. Tus ediciones en documentos de otras personas se quedan, sin tu nombre.",
+  "sharedData.deleted": "Se eliminó lo que guardaste en {name} ({count} documentos)",
+  "sharedData.deleteFailed": "No se pudo completar la eliminación",
+  "dataGrant.frame.granted": "Esta página ya puede guardar lo que escribes",
+  "dataGrant.frame.saving": "Guardando tu elección",
+  "dataGrant.frame.unavailable": "Guardar no está disponible en este marco",
+  "dataGrant.frame.unavailableHint":
+    "Este navegador impide que el marco recuerde tu elección. Abre el artifact en su propia pestaña y permítelo ahí.",
+  "dataGrant.frame.openTab": "Abrir en una pestaña nueva",
   "dataGrant.pageTitle": "Guardar lo que escribes",
   "dataGrant.title": "¿Permitir que {host} guarde lo que escribes?",
   "dataGrant.ownerPerson": "Publicado por {name}",
@@ -1143,10 +1177,10 @@ export const es = {
   "suggest.search.refused":
     "Este lugar no se puede cambiar. Prueba con un fragmento de texto más corto o más largo.",
   "suggest.search.unavailable":
-    "La búsqueda está disponible en páginas HTML. En esta página, selecciona el texto en el artifact.",
+    "No se puede buscar en esta página. Selecciona el texto en el artifact.",
+  "suggest.search.stale":
+    "El artifact tiene una versión más reciente. Vuelve a cargar la página para buscar en ella.",
   "draft.conflictReason": "El texto que cambiaba es distinto o ya no está en la versión actual.",
-  "suggest.search.ownerOnly":
-    "La búsqueda en la página aún no está disponible para revisores. Selecciona el texto en el artifact.",
   "review.open": "Revisar y comentar",
   "viewer.loading": "Abriendo el artifact",
   "viewer.unavailable.title": "No se puede abrir este artifact",
@@ -3407,6 +3441,9 @@ export const es = {
     "{count, plural, one {Reemplazó # documento de datos} other {Reemplazó # documentos de datos}}",
   "audit.kind.dataDocumentsDeleted":
     "{count, plural, one {Eliminó # documento de datos} other {Eliminó # documentos de datos}}",
+  "audit.kind.dataErased": "Borró todos los datos del artefacto",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {Borró # documento de datos} other {Borró # documentos de datos}} y {edits, plural, one {# edición} other {# ediciones}} de una cuenta eliminada",
   "detail.section.data": "Datos",
   "artifactData.loading": "Cargando los datos del artifact",
   "artifactData.error.title": "No se pudieron cargar los datos",
@@ -3433,6 +3470,8 @@ export const es = {
   "artifactData.usage.written": "Filas escritas hoy",
   "artifactData.usage.cleanup": "Filas limpiadas hoy",
   "artifactData.usage.export": "Filas exportadas hoy",
+  "artifactData.usage.connections": "Conexiones en vivo abiertas",
+  "artifactData.usage.live": "Mensajes en vivo hoy",
   "artifactData.usage.ofLimit": "{used} de {limit}",
   "artifactData.documents.title": "Documentos",
   "artifactData.untrusted":

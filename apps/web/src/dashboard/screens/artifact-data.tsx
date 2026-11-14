@@ -190,6 +190,14 @@ function Usage({ view }: { view: DataDescriptionView }) {
           term: t("artifactData.usage.export"),
           detail: of(view.today.export, view.limits.exportRowsPerDay),
         },
+        {
+          term: t("artifactData.usage.connections"),
+          detail: of(view.live.connections, view.limits.connectionsPerArtifact),
+        },
+        {
+          term: t("artifactData.usage.live"),
+          detail: of(view.live.messagesToday, view.limits.liveMessagesPerDay),
+        },
       ]}
     />
   );

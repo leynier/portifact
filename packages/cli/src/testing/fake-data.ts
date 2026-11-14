@@ -26,6 +26,8 @@ export interface FakeData {
   moveRevisionDuringExport: boolean;
   /** Idempotency keys of the changes received, in order. */
   keys: (string | undefined)[];
+  /** The most documents one author deletion removes before answering `more`. */
+  authorPage: number;
 }
 
 export function createFakeData(): FakeData {
@@ -35,6 +37,7 @@ export function createFakeData(): FakeData {
     exportPage: 2,
     moveRevisionDuringExport: false,
     keys: [],
+    authorPage: 500,
   };
 }
 
@@ -129,7 +132,10 @@ export function dataRoute(
         rowsWrittenPerDay: 5_000,
         cleanupRowsPerDay: 5_000,
         exportRowsPerDay: 200_000,
+        liveMessagesPerDay: 2_000,
+        connectionsPerArtifact: 10,
       },
+      live: { connections: 2, messagesToday: 40 },
       storedBytes: 0,
     };
     return { status: 200, body: described };
@@ -172,6 +178,26 @@ export function dataRoute(
     }).length;
     return { status: 200, body: { documents } };
   }
+  if (method === "POST" && rest === "/erase") {
+    collections.clear();
+    bump();
+    return { status: 200, body: { erased: true, generation: revision() } };
+  }
+  const author = /^\/authors\/([^/]+)\/delete$/.exec(rest);
+  if (method === "POST" && author) {
+    const by = decodeURIComponent(author[1] as string);
+    let removed = 0;
+    for (const c of collections.values()) {
+      for (const [id, doc] of c.documents) {
+        if (doc.by !== by) continue;
+        if (removed === data.authorPage) return { status: 200, body: { removed, more: true } };
+        c.documents.delete(id);
+        removed += 1;
+      }
+    }
+    return { status: 200, body: { removed, more: false } };
+  }
+
   if (method === "GET" && rest === "/export") {
     const after = input.url.searchParams.get("after");
     const all = [...collections]

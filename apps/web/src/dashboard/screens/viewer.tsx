@@ -90,6 +90,7 @@ import { loginUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
 import { AnnounceContext, useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useIssueChoices } from "../review/create-issue.tsx";
+import { DataGrantPanel, useDataGrant } from "../review/data-grant.tsx";
 import { DraftPanel, useDraft } from "../review/draft.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
 import { SUGGEST_OFF, type SuggestOffer, suggestReducer } from "../review/suggest-session.ts";
@@ -815,6 +816,8 @@ function ReviewSession({
   // The owner side may create issues from threads (decision 0018).
   const issueChoices = useIssueChoices(info.artifactId, info.role === "owner");
   const frame = useRef<HTMLIFrameElement>(null);
+  // Artifact data (decision 0026): the page in the frame may ask to save as the visitor.
+  const dataGrant = useDataGrant({ artifactId: info.artifactId, origin: info.origin, frame });
   const [sidebarOpen, setSidebarOpen] = useState(startsOpen);
   const [offer, setOfferState] = useState<Offer | null>(null);
   const [draft, setDraftState] = useState<Draft>(null);
@@ -1007,11 +1010,9 @@ function ReviewSession({
   // Suggesting is offered only when the API switched it on, comments are open, and the bridge
   // in the frame announced it can (protocol 3). The page can forge that announcement: it only
   // decides what this screen offers, never what is saved.
+  const suggestOffered = start.suggestions === true && canComment;
   const canSuggest =
-    start.suggestions === true &&
-    canComment &&
-    state === "connected" &&
-    bridge.capabilities.includes("edit");
+    suggestOffered && state === "connected" && bridge.capabilities.includes("edit");
   useEffect(() => {
     if (!canSuggest) dispatchSuggest({ type: "toggle", on: false });
   }, [canSuggest]);
@@ -1182,6 +1183,7 @@ function ReviewSession({
   const frameArea = (
     <>
       <div className="flex flex-col gap-3 p-3 empty:hidden">
+        <DataGrantPanel artifactId={info.artifactId} origin={info.origin} grant={dataGrant} />
         <BridgeNotice state={state} info={info} target={target} onRestart={onRestart} />
         {outdated ? (
           <Callout
@@ -1223,7 +1225,10 @@ function ReviewSession({
             aria-label={t("review.toolbar.label")}
             className="flex flex-wrap gap-2"
           >
-            {canSuggest ? (
+            {/* Drawn as soon as the API offers suggesting, its other modes enabled once the
+                bridge can take them: the switch never appears under the pointer when the page
+                connects, which would move the thread list between a press and its release. */}
+            {suggestOffered ? (
               <ModeSwitch
                 label={t("suggest.mode.label")}
                 value={suggest.mode === "off" ? "comment" : purpose}
@@ -1240,6 +1245,7 @@ function ReviewSession({
                     label: t("suggest.mode.suggest"),
                     name: t("suggest.mode.name", { mode: t("suggest.mode.suggest") }),
                     icon: <PencilLine className="size-4" />,
+                    disabled: !canSuggest,
                   },
                   // The owner side may also edit directly, into a private draft.
                   ...(ownerSide
@@ -1249,6 +1255,7 @@ function ReviewSession({
                           label: t("draft.mode.edit"),
                           name: t("suggest.mode.name", { mode: t("draft.mode.edit") }),
                           icon: <FilePen className="size-4" />,
+                          disabled: !canSuggest,
                         },
                       ]
                     : []),
@@ -1278,8 +1285,6 @@ function ReviewSession({
           <TextSearchPanel
             start={start}
             path={path}
-            // Reading a site's stored files is the owner side's: reviewers select in the frame.
-            available={ownerSide}
             onChoose={(found) => dispatchSuggest({ type: "open-target", target: found })}
           />
         ) : null}

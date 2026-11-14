@@ -54,6 +54,7 @@ import {
   type ManifestFile,
   NO_APPROVAL_REVIEW,
   type OwnerView,
+  type PageText,
   PLANS,
   type Plan,
   type PolicyImpact,
@@ -376,8 +377,8 @@ export interface FakeSuggestions {
   draftPlans: Record<string, Plan>;
   /** POST .../draft/rebase answers this (and stores its draft); missing answers 404. */
   rebased?: RebasedDraft;
-  /** The current version's files as GET .../versions/current/content reads them, by `id:path`. */
-  pages: Record<string, { contentType: string; content: string }>;
+  /** GET .../page-text answers, by `id:path`; missing ones answer 404. */
+  pageTexts: Record<string, PageText>;
   /** Every preview request body, in order. */
   previewRequests: unknown[];
 }
@@ -626,6 +627,8 @@ export interface FakeServer {
   /** Artifact data (decision 0026): controls by artifact ID (missing ones answer 404) and grants. */
   dataGrantControls: Record<string, DataGrantControl>;
   dataGrants: DataGrantView[];
+  /** The person's own documents by artifact ID (`/data-grants/:id/mine`). */
+  ownData: Record<string, { collection: string; id: string; body?: string }[]>;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** The body of GET /api/v1/grace-forecast (decision 0022), for every space. */
@@ -752,7 +755,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       previews: 0,
       drafts: {},
       draftPlans: {},
-      pages: {},
+      pageTexts: {},
       previewRequests: [],
     },
     annotations: {},
@@ -816,6 +819,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     commentNotices: {},
     dataGrantControls: {},
     dataGrants: [],
+    ownData: {},
     bodies: [],
     pageSize: 50,
     texts: new Map(),
@@ -1581,28 +1585,11 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   const integrations = integrationRoute(server, method, path, headers);
   if (integrations) return integrations;
-  const content = /^\/api\/v1\/artifacts\/([^/]+)\/versions\/current\/content$/.exec(path);
-  if (content && method === "GET") {
-    const file = server.suggestions.pages[`${content[1]}:${url.searchParams.get("path")}`];
-    if (!file) return apiError("not_found", 404);
-    const offset = Number(url.searchParams.get("offset") ?? 0);
-    // Two pages of at most 64 characters each are enough to prove the paging.
-    const chunk = file.content.slice(offset, offset + 64);
-    const next = offset + 64 < file.content.length ? offset + 64 : null;
-    return json({
-      artifactId: content[1],
-      versionId: "v1",
-      versionNumber: 1,
-      kind: "published",
-      path: url.searchParams.get("path"),
-      contentType: file.contentType,
-      size: file.content.length,
-      sha256: "a".repeat(64),
-      offset,
-      length: chunk.length,
-      nextOffset: next,
-      content: chunk,
-    });
+  const pageText = /^\/api\/v1\/artifacts\/([^/]+)\/page-text$/.exec(path);
+  if (pageText && method === "GET") {
+    const answer = server.suggestions.pageTexts[`${pageText[1]}:${url.searchParams.get("path")}`];
+    if (server.suggestions.off || !answer) return apiError("not_found", 404);
+    return json(answer);
   }
   const suggested =
     /^\/api\/v1\/artifacts\/([^/]+)\/(suggestions|previews|changes|draft)(\/.*)?$/.exec(path);
@@ -1652,6 +1639,28 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   if (grantControl && method === "GET") {
     const control = server.dataGrantControls[decodeURIComponent(grantControl[1] as string)];
     return control ? Response.json(control) : apiError("not_found", 404);
+  }
+  const status = /^\/api\/v1\/account\/data-grants\/([^/]+)$/.exec(path);
+  if (status && method === "GET") {
+    const artifactId = decodeURIComponent(status[1] as string);
+    const item = server.dataGrants.find((grant) => grant.artifactId === artifactId);
+    return Response.json({ artifactId, openGrants: item?.openGrants ?? 0 });
+  }
+  const ask = /^\/api\/v1\/account\/data-grants\/([^/]+)\/rights-request$/.exec(path);
+  if (ask && method === "POST") return Response.json({ requested: true }, { status: 202 });
+  const own = /^\/api\/v1\/account\/data-grants\/([^/]+)\/mine$/.exec(path);
+  if (own && method === "GET") {
+    const rows = server.ownData[decodeURIComponent(own[1] as string)] ?? [];
+    return Response.json({ rows, next: null, revision: 1 });
+  }
+  const ownDoc = /^\/api\/v1\/account\/data-grants\/([^/]+)\/documents\/([^/]+)\/([^/]+)$/.exec(
+    path,
+  );
+  if (ownDoc && method === "DELETE") {
+    const artifactId = decodeURIComponent(ownDoc[1] as string);
+    const id = decodeURIComponent(ownDoc[3] as string);
+    server.ownData[artifactId] = (server.ownData[artifactId] ?? []).filter((row) => row.id !== id);
+    return Response.json({ deleted: true });
   }
   const grantRevoke = /^\/api\/v1\/account\/data-grants\/([^/]+)$/.exec(path);
   if (grantRevoke && method === "DELETE") {

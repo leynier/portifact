@@ -61,9 +61,20 @@ export type ReadDecision =
       userId: string | null;
       linkId?: string;
       setCookies: string[];
+      /** The session that allowed it and how long its claims hold (read and link sessions). */
+      credential?: ReadCredential;
     }
   | { kind: "redirect"; location: string; setCookies: string[] }
   | { kind: "page"; status: number; page: Page; setCookies: string[] };
+
+/**
+ * The credential behind an allowed request: its session's kind and ID (never sent to a page)
+ * and when its claims stop being trusted, so live updates end with it (decision 0026).
+ */
+export interface ReadCredential {
+  id: string;
+  expiresAt: number;
+}
 
 /** A response that is not the artifact: a redirect in the sign-in flow or a message page. */
 export type SignInStep = Exclude<ReadDecision, { kind: "allow" }>;
@@ -141,6 +152,8 @@ export async function authorizeRead(
    * the code back here only when this is the artifact's active custom host.
    */
   customHost: string | null = null,
+  /** Claims expiring within this are renewed against D1 now (live updates' renewals). */
+  freshWithin = 0,
 ): Promise<ReadDecision> {
   if (!request.headers.has("Sec-Fetch-Site")) {
     // Fail closed without fetch metadata, and without a redirect a client could loop on.
@@ -162,8 +175,9 @@ export async function authorizeRead(
         setCookies: [clearCookie(READ_COOKIE)],
       };
     }
-    if (claims.exp > now && claims.gen === artifact.policyGeneration) {
-      return { kind: "allow", artifact, userId: claims.uid, setCookies };
+    if (claims.exp > now + freshWithin && claims.gen === artifact.policyGeneration) {
+      const credential = { id: `read:${claims.sid}`, expiresAt: claims.exp };
+      return { kind: "allow", artifact, userId: claims.uid, setCookies, credential };
     }
     const renewed = await refreshReadSession(db, { sessionId: claims.sid, artifactId, now });
     if (renewed.ok && renewed.value.userId === claims.uid) {
@@ -180,7 +194,14 @@ export async function authorizeRead(
           now,
         ),
       );
-      return { kind: "allow", artifact, userId: claims.uid, setCookies };
+      const credential = {
+        id: `read:${claims.sid}`,
+        expiresAt: Math.min(
+          now + READ_SESSION.claimsTtlSeconds * SECOND_MS,
+          renewed.value.expiresAt,
+        ),
+      };
+      return { kind: "allow", artifact, userId: claims.uid, setCookies, credential };
     }
     // Access is gone: drop the session and let the app decide again, for this or another account.
     setCookies.push(clearCookie(READ_COOKIE));
