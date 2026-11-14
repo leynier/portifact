@@ -26,14 +26,14 @@ A reviewer often needs to show, not only say: a screenshot of what they see, a m
 
 The type is what the first bytes say (`sniffAttachment`, `packages/domain/src/attachments.ts`); the name and the client's declared type are never consulted:
 
-| Type              | Bytes                                                              | Shown as                |
-| ----------------- | ------------------------------------------------------------------ | ----------------------- |
-| `image/png`       | `89 50 4E 47 0D 0A 1A 0A`                                          | image in the viewer     |
-| `image/jpeg`      | `FF D8 FF`                                                         | image in the viewer     |
-| `image/gif`       | `GIF87a` or `GIF89a`                                               | image in the viewer     |
-| `image/webp`      | `RIFF`, four bytes, `WEBP`                                         | image in the viewer     |
-| `application/pdf` | `%PDF-`                                                            | download                |
-| `text/plain`      | the whole file is strict UTF-8 without NUL, at most 1 MiB          | download                |
+| Type              | Bytes                                                     | Shown as            |
+| ----------------- | --------------------------------------------------------- | ------------------- |
+| `image/png`       | `89 50 4E 47 0D 0A 1A 0A`                                 | image in the viewer |
+| `image/jpeg`      | `FF D8 FF`                                                | image in the viewer |
+| `image/gif`       | `GIF87a` or `GIF89a`                                      | image in the viewer |
+| `image/webp`      | `RIFF`, four bytes, `WEBP`                                | image in the viewer |
+| `application/pdf` | `%PDF-`                                                   | download            |
+| `text/plain`      | the whole file is strict UTF-8 without NUL, at most 1 MiB | download            |
 
 Anything else, an empty file, or a text file over 1 MiB is refused with `invalid_input`. SVG is refused because it is a document that runs scripts when opened, and HTML, archives and office files because their only use is to be opened by something else. A file that is two things at once (a polyglot) can only ever be an `<img>` or a download, so its second meaning never runs.
 
@@ -101,18 +101,18 @@ Why: attachments are evidence a person adds while looking at the artifact; an ag
 
 ## Lifecycle, deletion and restore
 
-| Event                                                     | What happens to attachments                                                                                                    |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| The author deletes their message                          | Marker or row: the trigger or the cascade deletes the rows; each writes its `delete_objects` job                               |
-| A moderator hides a message                               | Hidden with the body; unhiding shows them again                                                                                |
-| A moderator deletes a message or a thread                 | As above                                                                                                                       |
-| Comment retention deletes threads                         | Cascade                                                                                                                        |
-| The artifact is purged (also account or workspace deletion) | Cascade from the artifact                                                                                                    |
-| An account is deleted                                     | Its messages elsewhere are erased (`eraseAuthorFromThread`), taking their files; its pending uploads are deleted in `advanceAccountDeletion` |
-| A transfer                                                | The rows' owner moves; the trigger moves the bytes in the usage, and the target's CHECK refuses a move without room              |
-| A legal hold                                              | Nothing is deleted: comments on a held artifact are kept, and the release's erasure takes their files with them; the pending prune and the operator's removal leave held artifacts out |
-| The operator removes a file                               | Its row is deleted with a `comment_attachment` window tombstone                                                                 |
-| A pending upload expires                                  | The maintenance scan deletes the row                                                                                           |
+| Event                                                       | What happens to attachments                                                                                                                                                            |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The author deletes their message                            | Marker or row: the trigger or the cascade deletes the rows; each writes its `delete_objects` job                                                                                       |
+| A moderator hides a message                                 | Hidden with the body; unhiding shows them again                                                                                                                                        |
+| A moderator deletes a message or a thread                   | As above                                                                                                                                                                               |
+| Comment retention deletes threads                           | Cascade                                                                                                                                                                                |
+| The artifact is purged (also account or workspace deletion) | Cascade from the artifact                                                                                                                                                              |
+| An account is deleted                                       | Its messages elsewhere are erased (`eraseAuthorFromThread`), taking their files; its pending uploads are deleted in `advanceAccountDeletion`                                           |
+| A transfer                                                  | The rows' owner moves; the trigger moves the bytes in the usage, and the target's CHECK refuses a move without room                                                                    |
+| A legal hold                                                | Nothing is deleted: comments on a held artifact are kept, and the release's erasure takes their files with them; the pending prune and the operator's removal leave held artifacts out |
+| The operator removes a file                                 | Its row is deleted with a `comment_attachment` window tombstone                                                                                                                        |
+| A pending upload expires                                    | The maintenance scan deletes the row                                                                                                                                                   |
 
 A D1 Time Travel restore rewinds rows, not R2:
 
@@ -144,21 +144,21 @@ The table is regional (`TABLE_HOMES`), the bytes are in the owner's region's buc
 
 ## Switched off
 
-Without `ATTACHMENTS_ENABLED="true"` on the app Worker: the upload and download routes and the MCP tool answer `not_found`, a thread or reply naming files is `invalid_input`, views carry no `attachments`, the viewer's lookup says `attachments: false` so it shows no control, and the policies stay as they are. The jobs Worker deletes files whatever the switch, so cleanup never depends on it. The legal pages describe the feature only in the last pull request of the stack, which also decides about `TERMS_VERSION`.
+Without `ATTACHMENTS_ENABLED="true"` on the app Worker nothing can be added: the upload route answers `not_found`, a thread or reply naming files is `invalid_input`, the viewer's lookup says `attachments: false` so it shows no control, the MCP tool is not registered (the tool list stays as it is) and the policies stay as they are. Reading never depends on the switch: files exist only if it was on, and switching it off must never hide evidence a person already posted, so views keep listing them and the download route keeps answering (the CLI command stays hidden from the help until release). The jobs Worker deletes files whatever the switch, so cleanup never depends on it either. The legal pages describe the feature only in the last pull request of the stack, which also decides about `TERMS_VERSION`.
 
 ## Threat model
 
-| Threat                                                   | Answer                                                                                                                         |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| A file runs script on a Portifact origin                 | It is never served from `portifact.com` or `portifact.dev`; R2 sends it as a download; the viewer shows only allowed images as `blob:` images |
-| A renamed or mislabeled file                             | Types come from the bytes; the download name gets the bytes' extension                                                         |
-| Other bytes than the ones checked                        | The upload URL signs size and SHA-256; the attach rechecks both against R2 before its batch                                     |
-| A reader reads a file of a thread they cannot see        | The download runs the thread's scope and the body's visibility; a hidden file answers like a missing one                        |
-| Someone fills the owner's storage                        | Files count in comment bytes only, never publishing storage; per-person and per-artifact upload limits; the owner's moderation |
-| A file outlives its comment                              | Triggers on every row deletion write its R2 deletion; restore markers delete restored rows again; reconciliation finds orphans |
-| A screenshot captures more than intended                 | The browser's own prompt and indicator; one frame; shown before posting; nothing sent until the person posts                   |
-| An agent spams files                                     | Adding is session only                                                                                                         |
-| A link leaks                                             | It names one object, expires in 5 minutes and is never logged                                                                  |
+| Threat                                            | Answer                                                                                                                                        |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| A file runs script on a Portifact origin          | It is never served from `portifact.com` or `portifact.dev`; R2 sends it as a download; the viewer shows only allowed images as `blob:` images |
+| A renamed or mislabeled file                      | Types come from the bytes; the download name gets the bytes' extension                                                                        |
+| Other bytes than the ones checked                 | The upload URL signs size and SHA-256; the attach rechecks both against R2 before its batch                                                   |
+| A reader reads a file of a thread they cannot see | The download runs the thread's scope and the body's visibility; a hidden file answers like a missing one                                      |
+| Someone fills the owner's storage                 | Files count in comment bytes only, never publishing storage; per-person and per-artifact upload limits; the owner's moderation                |
+| A file outlives its comment                       | Triggers on every row deletion write its R2 deletion; restore markers delete restored rows again; reconciliation finds orphans                |
+| A screenshot captures more than intended          | The browser's own prompt and indicator; one frame; shown before posting; nothing sent until the person posts                                  |
+| An agent spams files                              | Adding is session only                                                                                                                        |
+| A link leaks                                      | It names one object, expires in 5 minutes and is never logged                                                                                 |
 
 ## Rejected
 
