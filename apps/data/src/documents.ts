@@ -366,7 +366,7 @@ export class ArtifactDocuments extends DurableObject<Env> {
       return LiveConnectRequest.parse(JSON.parse(raw));
     });
     if ("refused" in input) return Response.json(input.refused, { status: 400 });
-    // A page reaches only `PAGE_MODES` until delivery 9, over live updates as through its API.
+    // A page reaches only `PAGE_MODES`, over live updates as through its API.
     const answer = this.store.connect(
       input.envelope,
       input.author,

@@ -1,5 +1,5 @@
 // The page's commands (decision 0026, delivery 6) through the in-memory reference: the dispatch,
-// the caller rules by mode and the modes a page reaches before delivery 9.
+// the caller rules by mode and the modes a page reaches.
 import type { CollectionMode, PageCaller } from "@portifact/contracts/artifact-data";
 import { describe, expect, it } from "vitest";
 import {
@@ -74,17 +74,27 @@ describe("page commands", () => {
     expect(run(noTerms, { kind: "remove", collection: "own", id: created._id }).ok).toBe(true);
   });
 
-  it("reaches only own and append collections before delivery 9", () => {
-    expect(PAGE_MODES).toEqual(["own", "append"]);
+  it("reaches read and shared collections since delivery 9", () => {
+    expect([...PAGE_MODES].sort()).toEqual(["append", "own", "read", "shared"]);
     const { run, ok } = setup();
-    for (const collection of ["read", "shared"]) {
-      expect(run(ALICE, { kind: "create", collection, body: { a: 1 } }).ok).toBe(false);
-      // Out of reach reads like an empty collection, exactly as a reader of an `own` one.
-      expect(ok(run(READER, { kind: "query", query: { collection } }, false))).toEqual({
-        documents: [],
-        next: null,
-      });
-    }
+    // A read collection: the page reads what the owner side wrote and never writes.
+    expect(run(ALICE, { kind: "create", collection: "read", body: { a: 1 } })).toMatchObject({
+      ok: false,
+      code: "forbidden",
+    });
+    // A shared one: any writer changes anyone's document; a reader only reads.
+    const created = ok<{ _id: string }>(
+      run(ALICE, { kind: "create", collection: "shared", body: { a: 1 } }),
+    );
+    expect(
+      ok(run(BOB, { kind: "replace", collection: "shared", id: created._id, body: { a: 2 } })),
+    ).toMatchObject({ a: 2, _editedBy: visitorId("bob") });
+    expect(
+      ok<{ documents: unknown[] }>(
+        run(READER, { kind: "query", query: { collection: "shared" } }, false),
+      ).documents,
+    ).toHaveLength(1);
+    expect(run(BOB, { kind: "remove", collection: "shared", id: created._id }).ok).toBe(true);
     for (const mode of ["read", "shared"] as const) {
       expect(readScope(mode, OWNER)).toBe("all");
       expect(writeScope(mode, OWNER)).toBe("all");
@@ -94,7 +104,8 @@ describe("page commands", () => {
   it("gives every page caller the page modes, never the owner's reach", () => {
     expect(pageCaller(ALICE)).toEqual({ ...ALICE, modes: PAGE_MODES });
     expect(pageCaller(READER)).toEqual({ kind: "reader", modes: PAGE_MODES });
-    expect(readScope("shared", pageCaller(ALICE))).toBe("none");
+    expect(readScope("shared", pageCaller(ALICE))).toBe("all");
+    expect(writeScope("read", pageCaller(ALICE))).toBe("none");
     expect(readScope("append", pageCaller(ALICE))).toBe("all");
   });
 });

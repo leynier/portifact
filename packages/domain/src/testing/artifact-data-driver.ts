@@ -9,6 +9,7 @@ import type {
   BulkCreate,
   BulkReplace,
   CollectionDeclaration,
+  CollectionMode,
   DataCount,
   DataDescription,
   DataEnvelope,
@@ -248,6 +249,8 @@ export interface DataObject {
     principal: string,
     deadline: number,
     context: Context,
+    /** The modes the connection reaches: a page's (`PAGE_MODES`), or every mode when absent. */
+    modes?: readonly CollectionMode[] | null,
   ): MaybePromise<Answer<string>>;
   renew(
     envelope: DataEnvelope,
