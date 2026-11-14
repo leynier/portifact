@@ -138,7 +138,7 @@ function ThreadRecord({ thread, number }: { thread: AnnotationThreadView; number
             </Badge>
           )}
         </div>
-        <TargetSummary target={thread.target} />
+        <TargetSummary target={thread.target} region={thread.region} />
         <ol className="flex flex-col gap-3">
           {thread.messages.map((message) => (
             <li key={message.id} className="flex flex-col gap-1">

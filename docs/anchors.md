@@ -16,6 +16,10 @@ The bridge polls the route every 500 ms to tell the viewer, and also reads it wh
 
 `contentHash` is `contentHash()` from `packages/anchors`: SHA-256 of the UTF-8 normalized text. The bridge sets it from the page's text when it creates a target, sets `renderer` (`portifact-render@<version>`) only on pages Portifact rendered, and does not fill `source` yet.
 
+## Image regions
+
+A thread on an image may also carry a `region` beside its target ([decision 0028](decisions/0028-image-regions.md), switched off with `IMAGE_REGIONS_ENABLED`): the target stays an `element` anchor of the `img`, and the region holds a rectangle as fractions of the image element's box (`x`, `y`, `width`, `height`, four decimals, each side at least 0.01, inside the image) and the image's file in the version with its SHA-256, which the server fills from `version_files`. The geometry is `packages/anchors/src/region.ts` (`regionFromDrag`, `regionBox`, `regionKey`, `normalizeRegion`, `imagePath`), shared by the viewer and the bridge and covered by property tests. The bridge maps an image to its file only through `imagePath` on the image's `currentSrc` and the artifact's own origin. Resolution adds one rule: when the element found is not an `img` showing `region.image.path`, the thread is `orphaned` with `image_changed`. Threads of other versions say in `region.currentImage` whether the current version has the same bytes at that path, and the owner's viewer draws those marked `unchanged` on the current page.
+
 ## Normalization and offsets
 
 Quotes, context, fingerprints and positions refer to normalized text:

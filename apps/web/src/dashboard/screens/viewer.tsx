@@ -7,6 +7,14 @@
 // untrusted text and are only ever rendered as text. Anonymous visitors of a public artifact see
 // the artifact itself in the frame and are asked to sign in to read and add comments.
 import {
+  INITIAL_REGION,
+  type RegionRect,
+  regionBox,
+  regionFromDrag,
+  regionKey,
+  regionPercent,
+} from "@portifact/anchors";
+import {
   BRIDGE_LIMITS,
   type FrameRect,
   placeNear,
@@ -17,10 +25,12 @@ import {
   type AnnotationTarget,
   type AnnotationThreadView,
   type AnnotationVersionFilter,
+  type ImageRegionRequest,
   type IntegrationChoiceList,
   REVIEW_SESSION,
   type ReviewStart,
   type ReviewTabStart,
+  regionTargetAllowed,
   type ViewerInfo,
 } from "@portifact/contracts";
 import { viewerHash, viewerPath } from "@portifact/domain";
@@ -46,6 +56,7 @@ import {
   type OverlayPoint,
   type OverlaySize,
   PageHeader,
+  RegionSelector,
   Select,
   type SelectOption,
   ThemedImage,
@@ -73,6 +84,7 @@ import {
   RefreshCw,
   Send,
   Settings,
+  SquareDashedMousePointer,
   UserRound,
 } from "lucide-react";
 import {
@@ -727,6 +739,22 @@ interface Offer {
   rect: FrameRect | null;
   /** False once the bridge said it is no longer drawn, such as scrolled out of the frame. */
   drawn: boolean;
+  /**
+   * The file a picked image shows (decision 0028), when the bridge reported one: it offers "Mark a
+   * region". Untrusted, like the rest of the offer: the server checks the file.
+   */
+  image?: { path: string } | null;
+}
+
+/**
+ * Marking a region of a picked image (decision 0028): the image's box as the bridge reported it
+ * when the reader asked, frozen, and the rectangle chosen so far.
+ */
+interface RegionDraft {
+  target: AnnotationTarget;
+  box: FrameRect;
+  image: { path: string };
+  region: RegionRect;
 }
 
 /**
@@ -738,6 +766,8 @@ type Draft = {
   id: number;
   target: AnnotationTarget;
   inline: { rect: FrameRect | null } | null;
+  /** The rectangle of the image the comment is about (decision 0028). */
+  region?: ImageRegionRequest | undefined;
 } | null;
 
 /** Whether `query` matches now, following changes. */
@@ -767,6 +797,100 @@ function pillPlacement(offer: Offer, size: OverlaySize, area: OverlaySize): Over
   }
   const anchor = visibleRect(offer.rect, area);
   return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+}
+
+/**
+ * A thread of an earlier version drawn on the current page (decision 0028): a region whose image
+ * the current version still has with the same bytes. Only the owner side sees such threads.
+ */
+function drawnFromHistory(thread: AnnotationThreadView, regionsOn: boolean): boolean {
+  return regionsOn && thread.region?.currentImage === "unchanged";
+}
+
+/** What the frame gets for a thread: its target, and its region while regions are on. */
+function highlightOf(thread: AnnotationThreadView, regionsOn: boolean) {
+  const { region } = thread;
+  if (!regionsOn || !region) return { id: thread.id, target: thread.target };
+  return {
+    id: thread.id,
+    target: thread.target,
+    region: {
+      x: region.x,
+      y: region.y,
+      width: region.width,
+      height: region.height,
+      path: region.image.path,
+    },
+  };
+}
+
+/**
+ * Marking a region of a picked image (decision 0028), drawn by this page over the frame, never in
+ * the artifact: the selector covers the image's box as the bridge reported it when the reader
+ * asked, and the actions float beside the rectangle. Nothing the frame sends meanwhile moves it.
+ */
+function RegionLayer({
+  draft,
+  onChange,
+  onConfirm,
+  onCancel,
+}: {
+  draft: RegionDraft;
+  onChange(region: RegionRect): void;
+  onConfirm(): void;
+  onCancel(): void;
+}) {
+  const t = useT();
+  const { box, region } = draft;
+  const edges = regionPercent(region);
+  const drawn = regionBox(region, box);
+  return (
+    <>
+      <RegionSelector
+        box={box}
+        region={region}
+        label={t("region.label", { path: draft.image.path })}
+        instructions={t("region.instructions")}
+        status={t("region.status", edges)}
+        onDraw={(from, to) => {
+          const next = regionFromDrag(from, to, {
+            x: 0,
+            y: 0,
+            width: box.width,
+            height: box.height,
+          });
+          if (next) onChange(next);
+        }}
+        onKey={(key, shift) => {
+          const next = regionKey(region, key, shift);
+          if (next) onChange(next);
+          return next !== null;
+        }}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />
+      <Floating
+        place={(size, area) => {
+          const anchor = visibleRect(drawn, area);
+          return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : { x: 8, y: 8 };
+        }}
+      >
+        <div className="flex gap-2">
+          <Button
+            intent="floating"
+            size="sm"
+            icon={<MessageSquarePlus className="size-4" />}
+            onClick={onConfirm}
+          >
+            {t("region.confirm")}
+          </Button>
+          <Button size="sm" onClick={onCancel}>
+            {t("review.composer.cancel")}
+          </Button>
+        </div>
+      </Floating>
+    </>
+  );
 }
 
 /** The "Suggest edit" control is placed exactly like the "Comment" one. */
@@ -848,10 +972,17 @@ function ReviewSession({
   const setDraft = (
     next: AnnotationTarget | null,
     inline: { rect: FrameRect | null } | null = null,
+    region?: ImageRegionRequest,
   ) => {
     drafting.current = next !== null;
     setUnplaced(false);
-    setDraftState(next ? { id: ++draftIds.current, target: next, inline } : null);
+    setDraftState(next ? { id: ++draftIds.current, target: next, inline, region } : null);
+  };
+  // While a region is being marked, the frame cannot change the offer or open a comment either.
+  const [regionDraft, setRegionDraftState] = useState<RegionDraft | null>(null);
+  const setRegionDraft = (next: RegionDraft | null) => {
+    drafting.current = next !== null;
+    setRegionDraftState(next);
   };
   const stopPicking = () => {
     awaitingPick.current = false;
@@ -869,6 +1000,7 @@ function ReviewSession({
   const shown = (threads.data?.threads ?? []).filter((thread) => matchesFilter(thread, filter));
 
   const data = threads.data;
+  const regionsOn = start.imageRegions === true;
   const outdated = data !== undefined && data.currentVersionId !== start.versionId;
   const mode = data?.annotations;
   const canComment = mode === "open" && !outdated;
@@ -905,13 +1037,16 @@ function ReviewSession({
         if (!offered.current) setHint(t("review.selection.received"));
         setOffer({ target: selected, rect, drawn: true });
       },
-      onElement(picked, rect) {
+      onElement(picked, rect, _epoch, image) {
         if (suggest.mode !== "off") return;
         if (!awaitingPick.current || drafting.current) return;
         stopPicking();
         if (!canComment) return;
-        setHint(t("review.element.received"));
-        setOffer({ target: picked, rect, drawn: true });
+        // A region needs the switch, an image target and its box to draw over (decision 0028).
+        const regionable =
+          regionsOn && image !== null && rect !== null && regionTargetAllowed(picked);
+        setHint(t(regionable ? "region.element.received" : "review.element.received"));
+        setOffer({ target: picked, rect, drawn: true, image: regionable ? image : null });
       },
       onSelectionRect(rect) {
         if (suggest.mode !== "off") {
@@ -972,7 +1107,7 @@ function ReviewSession({
   // The frame only gets the targets of the threads of the page it shows, never bodies or names.
   const { send, state, page } = bridge;
   const highlighted = shown
-    .filter((thread) => thread.current)
+    .filter((thread) => thread.current || drawnFromHistory(thread, regionsOn))
     .filter((thread) => thread.target.anchor.kind !== "document")
     .filter((thread) => thread.target.path === page?.path)
     .slice(0, BRIDGE_LIMITS.highlightsMax);
@@ -988,7 +1123,7 @@ function ReviewSession({
     const ids = new Set(highlighted.map((thread) => thread.id));
     send({
       type: "highlights",
-      highlights: highlighted.map((thread) => ({ id: thread.id, target: thread.target })),
+      highlights: highlighted.map((thread) => highlightOf(thread, regionsOn)),
       selected: selection.ids.filter((id) => ids.has(id)),
     });
   }, [highlightKey]);
@@ -1004,6 +1139,7 @@ function ReviewSession({
     if (state === "connected") return;
     stopPicking();
     setOffer(null);
+    setRegionDraft(null);
     dispatchSuggest({ type: "page-change" });
   }, [state]);
 
@@ -1068,6 +1204,40 @@ function ReviewSession({
     if (!offer) return;
     setDraft(offer.target, { rect: offer.drawn ? offer.rect : null });
     setOffer(null);
+  };
+  const startRegion = () => {
+    if (!offer?.image || !offer.rect) return;
+    setRegionDraft({
+      target: offer.target,
+      box: offer.rect,
+      image: offer.image,
+      region: INITIAL_REGION,
+    });
+    setOffer(null);
+    announce(t("region.started"));
+  };
+  const cancelRegion = () => {
+    setRegionDraft(null);
+    send({ type: "clear-selection" });
+    frame.current?.focus();
+  };
+  const confirmRegion = () => {
+    if (!regionDraft) return;
+    const { target, box, image, region } = regionDraft;
+    const drawn = regionBox(region, box);
+    setRegionDraftState(null);
+    setDraft(
+      target,
+      {
+        rect: {
+          x: Math.round(drawn.x),
+          y: Math.round(drawn.y),
+          width: Math.round(drawn.width),
+          height: Math.round(drawn.height),
+        },
+      },
+      { ...region, image },
+    );
   };
   const togglePick = () => {
     const next = !picking;
@@ -1134,20 +1304,43 @@ function ReviewSession({
       </FloatingPanel>
     </Floating>
   ) : null;
+  const regionLayer =
+    canComment && regionDraft ? (
+      <RegionLayer
+        draft={regionDraft}
+        onChange={(region) => setRegionDraftState({ ...regionDraft, region })}
+        onConfirm={confirmRegion}
+        onCancel={cancelRegion}
+      />
+    ) : null;
   const layer = suggestLayer ? (
     suggestLayer
+  ) : regionLayer ? (
+    regionLayer
   ) : canComment && (offer || draft?.inline) ? (
     <>
       {offer && !draft ? (
         <Floating place={(size, area) => pillPlacement(offer, size, area)}>
-          <Button
-            intent="floating"
-            size="sm"
-            icon={<MessageSquarePlus className="size-4" />}
-            onClick={startInline}
-          >
-            {t("review.selection.comment")}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              intent="floating"
+              size="sm"
+              icon={<MessageSquarePlus className="size-4" />}
+              onClick={startInline}
+            >
+              {t("review.selection.comment")}
+            </Button>
+            {offer.image ? (
+              <Button
+                intent="floating"
+                size="sm"
+                icon={<SquareDashedMousePointer className="size-4" />}
+                onClick={startRegion}
+              >
+                {t("region.mark")}
+              </Button>
+            ) : null}
+          </div>
         </Floating>
       ) : null}
       {draft?.inline ? (
@@ -1168,6 +1361,7 @@ function ReviewSession({
               start={start}
               owner={data?.role === "owner"}
               target={draft.target}
+              region={draft.region}
               humanNeeded={humanNeeded}
               onDone={(thread) => {
                 closeDraft();
@@ -1553,6 +1747,7 @@ function useCreateThread(
   target: AnnotationTarget,
   humanNeeded: boolean,
   onDone: (thread: AnnotationThreadView) => void,
+  region?: ImageRegionRequest,
 ) {
   const t = useT();
   const announce = useAnnounce();
@@ -1567,6 +1762,7 @@ function useCreateThread(
           {
             versionId: start.versionId,
             target,
+            ...(region ? { region } : {}),
             body,
             ...(token === undefined ? {} : { turnstileToken: token }),
           },
@@ -1673,6 +1869,7 @@ function InlineComposer({
   start,
   owner,
   target: initialTarget,
+  region: initialRegion,
   humanNeeded,
   onDone,
 }: {
@@ -1680,12 +1877,15 @@ function InlineComposer({
   /** Who can read a new thread differs: every reader sees the owner's threads. */
   owner: boolean;
   target: AnnotationTarget;
+  /** The rectangle of the image the comment is about (decision 0028). */
+  region?: ImageRegionRequest | undefined;
   humanNeeded: boolean;
   onDone(thread: AnnotationThreadView | null): void;
 }) {
   const t = useT();
   const [target] = useState(initialTarget);
-  const { form, post, human, error } = useCreateThread(start, target, humanNeeded, onDone);
+  const [region] = useState(initialRegion);
+  const { form, post, human, error } = useCreateThread(start, target, humanNeeded, onDone, region);
   const panel = useRef<HTMLDivElement>(null);
   const cancel = useRef(() => onDone(null));
   cancel.current = () => onDone(null);
@@ -1713,7 +1913,7 @@ function InlineComposer({
   }, []);
   return (
     <div ref={panel} className="flex flex-col gap-3">
-      <TargetSummary target={target} compact />
+      <TargetSummary target={target} region={region} compact />
       {error}
       <form.AppForm>
         <form.Form label={t("review.composer.label")}>

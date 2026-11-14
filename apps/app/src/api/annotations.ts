@@ -24,7 +24,7 @@ import {
   SuggestionFieldsQuery,
   SuggestionThreadView,
 } from "@portifact/contracts";
-import { suggestionsEnabled } from "@portifact/domain";
+import { imageRegionsEnabled, suggestionsEnabled } from "@portifact/domain";
 import {
   annotationsToMarkdown,
   createAnnotationThread,
@@ -161,6 +161,7 @@ export function annotationRoutes(
             userId,
             artifactId: id,
             ...thread,
+            imageRegions: imageRegionsEnabled(c.env),
             humanCheck: humanCheck(c.env, siteverify(c.env), c.req.raw, turnstileToken),
             now: at,
           }),

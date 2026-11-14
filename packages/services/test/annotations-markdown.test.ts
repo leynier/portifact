@@ -145,3 +145,54 @@ describe("markdown export", () => {
     expect(annotationsToMarkdown(data)).toContain("- Current version: none");
   });
 });
+
+describe("image regions in the markdown export (decision 0028)", () => {
+  const imageThread = {
+    ...thread,
+    path: "index.html",
+    target: {
+      schema: 1 as const,
+      path: "index.html",
+      anchor: {
+        kind: "element" as const,
+        selectors: ["#mock"],
+        tagName: "img",
+        fingerprint: "",
+      },
+    },
+    messages: [message({})],
+  };
+  const region = {
+    x: 0.25,
+    y: 0.5,
+    width: 0.5,
+    height: 0.25,
+    image: { path: "images/`mock`.png", sha256: "a".repeat(64) },
+  };
+
+  it("describes the rectangle in percentages and the image in a code span", () => {
+    const markdown = annotationsToMarkdown(exportOf([{ ...imageThread, region }]));
+    expect(markdown).toContain(
+      "- Region: 25% to 75% across, 50% to 75% down, of ``images/`mock`.png``\n",
+    );
+  });
+
+  it("says whether a history thread's image changed in the current version", () => {
+    const changed = annotationsToMarkdown(
+      exportOf([
+        { ...imageThread, current: false, region: { ...region, currentImage: "changed" } },
+      ]),
+    );
+    expect(changed).toContain("(image changed in the current version)");
+    const unchanged = annotationsToMarkdown(
+      exportOf([
+        { ...imageThread, current: false, region: { ...region, currentImage: "unchanged" } },
+      ]),
+    );
+    expect(unchanged).toContain("(image unchanged in the current version)");
+  });
+
+  it("adds nothing to threads without a region", () => {
+    expect(annotationsToMarkdown(exportOf([imageThread]))).not.toContain("Region:");
+  });
+});

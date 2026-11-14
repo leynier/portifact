@@ -20,6 +20,7 @@
 //
 // Bodies are untrusted plain text and are never logged.
 import {
+  ANCHOR_LIMITS,
   ANNOTATION_LIMITS,
   type AnnotationAuthor,
   type AnnotationDeleteResult,
@@ -35,8 +36,11 @@ import {
   type ArtifactState,
   type CommentScope,
   DEFAULT_REGION,
+  type ImageRegion,
+  type ImageRegionRequest,
   isServiceTokenId,
   isWorkspaceId,
+  regionTargetAllowed,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   utf8Length,
 } from "@portifact/contracts";
@@ -894,10 +898,24 @@ export async function createAnnotationThread(
     target: AnnotationTarget;
     body: string;
     humanCheck: HumanCheck;
+    /** A rectangle of the image the target names (decision 0028). */
+    region?: ImageRegionRequest | undefined;
+    /** Whether image regions are switched on (`IMAGE_REGIONS_ENABLED`); off, a region is refused. */
+    imageRegions?: boolean | undefined;
   },
 ): Promise<Result<AnnotationThreadView>> {
   const targetJson = JSON.stringify(input.target);
-  const targetBytes = utf8Length(targetJson);
+  const request = input.region;
+  if (request) {
+    if (!input.imageRegions) return fail("invalid_input", "Image regions are not available.");
+    if (!regionTargetAllowed(input.target)) {
+      return fail("invalid_input", "region: Only an element target of an img can carry a region.");
+    }
+  }
+  // The stored region names the image's bytes from `version_files`, never from the client; its
+  // bytes count with the target's (decision 0028), so they are known only after the file is read.
+  let regionJson: string | null = null;
+  let targetBytes = utf8Length(targetJson);
   const bodyBytes = utf8Length(input.body);
   const threadId = crypto.randomUUID();
   const messageId = crypto.randomUUID();
@@ -910,18 +928,44 @@ export async function createAnnotationThread(
       if (!loaded.ok) return loaded;
       const writable = checkThreadWritable(input.versionId, loaded.value.artifact.currentVersionId);
       if (!writable.ok) return writable;
-      const [file] = await db
-        .select({ path: schema.versionFiles.path })
-        .from(schema.versionFiles)
+      const vf = schema.versionFiles;
+      const paths = request ? [input.target.path, request.image.path] : [input.target.path];
+      const files = await db
+        .select({ path: vf.path, sha256: vf.sha256, contentType: vf.contentType })
+        .from(vf)
         .where(
           and(
-            eq(schema.versionFiles.versionId, input.versionId),
-            eq(schema.versionFiles.kind, "published"),
-            eq(schema.versionFiles.path, input.target.path),
+            eq(vf.versionId, input.versionId),
+            eq(vf.kind, "published"),
+            inArray(vf.path, [...new Set(paths)]),
           ),
-        )
-        .limit(1);
-      if (!file) return fail("invalid_input", "target.path: No such file in this version.");
+        );
+      if (!files.some((file) => file.path === input.target.path)) {
+        return fail("invalid_input", "target.path: No such file in this version.");
+      }
+      regionJson = null;
+      targetBytes = utf8Length(targetJson);
+      if (request) {
+        const image = files.find((file) => file.path === request.image.path);
+        if (!image?.contentType.toLowerCase().startsWith("image/")) {
+          return fail("invalid_input", "region.image.path: No such image in this version.");
+        }
+        const region: ImageRegion = {
+          x: request.x,
+          y: request.y,
+          width: request.width,
+          height: request.height,
+          image: { path: request.image.path, sha256: image.sha256 },
+        };
+        regionJson = JSON.stringify(region);
+        targetBytes += utf8Length(regionJson);
+        if (targetBytes > ANCHOR_LIMITS.targetMaxBytes) {
+          return fail(
+            "invalid_input",
+            `The target and its region are larger than ${ANCHOR_LIMITS.targetMaxBytes} bytes.`,
+          );
+        }
+      }
       const limits = await checkLimits(db, loaded.value, input.userId, input.now, {
         kind: "thread",
         addedBytes: bodyBytes + targetBytes,
@@ -952,11 +996,12 @@ export async function createAnnotationThread(
         // path, state, messages, revision, change_seq, resolved_at, resolved_by, created, updated,
         // then the suggestion columns (decision 0027), empty for a comment: kind, suggestion
         // state, edit, edit bytes, edit proofs, suggestion revision, attempt, attempt reason,
-        // decided by, decided at, result version, origin version, origin target.
+        // decided by, decided at, result version, origin version, origin target, and the image
+        // region (decision 0028).
         db
           .insert(th)
           .select(
-            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${input.target.path}, 'open', 1, 1, ${claimedEventId(writeId)}, null, null, ${input.now}, ${input.now}, 'comment', null, null, 0, null, 0, null, null, null, null, null, null, null where ${claimed(writeId)}`,
+            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${input.target.path}, 'open', 1, 1, ${claimedEventId(writeId)}, null, null, ${input.now}, ${input.now}, 'comment', null, null, 0, null, 0, null, null, null, null, null, null, null, ${regionJson} where ${claimed(writeId)}`,
           ),
         insertMessage(db, {
           id: messageId,

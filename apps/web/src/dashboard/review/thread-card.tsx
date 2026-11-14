@@ -191,9 +191,11 @@ export function ThreadCard({
   const kind = thread.target.anchor.kind;
   const elsewhere = kind !== "document" && thread.target.path !== path;
   const orphaned = !elsewhere && resolution?.confidence === "orphaned";
+  // A region of an earlier version whose image is unchanged is drawn on this page too (decision 0028).
+  const placedFromHistory = thread.region?.currentImage === "unchanged";
   const showable =
     located &&
-    thread.current &&
+    (thread.current || placedFromHistory) &&
     kind !== "document" &&
     !elsewhere &&
     resolution !== undefined &&
@@ -281,7 +283,11 @@ export function ThreadCard({
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             {/* The state, for screen readers; the check, the dashed border and Reopen show it. */}
             {resolved ? <span className="sr-only">{t("review.thread.resolved")}</span> : null}
-            <TargetSummary target={thread.target} compact={selection === null} />
+            <TargetSummary
+              target={thread.target}
+              region={thread.region}
+              compact={selection === null}
+            />
             {notes ? (
               <div className="flex flex-wrap items-center gap-1.5">
                 {orphaned ? (
@@ -297,6 +303,15 @@ export function ThreadCard({
                 {thread.current ? null : (
                   <Badge emphasis="quiet">{t("review.thread.otherVersion")}</Badge>
                 )}
+                {thread.region?.currentImage ? (
+                  <Badge emphasis="quiet">
+                    {t(
+                      thread.region.currentImage === "unchanged"
+                        ? "review.thread.imageUnchanged"
+                        : "review.thread.imageChanged",
+                    )}
+                  </Badge>
+                ) : null}
               </div>
             ) : null}
           </div>

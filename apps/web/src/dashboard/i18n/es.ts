@@ -1334,6 +1334,20 @@ export const es = {
   "review.target.general": "Comentario general sobre {path}",
   "review.target.element": "Elemento {tag}",
   "review.target.quote": "Texto citado",
+  "region.element.received":
+    "Imagen seleccionada en el artifact. Usa el botón Comentar o Marcar una región después del artifact.",
+  "region.mark": "Marcar una región",
+  "region.started":
+    "Marca una región de la imagen. Arrastra sobre ella, o mueve el rectángulo con las flechas y cambia su tamaño con Mayús y las flechas. Intro comenta, Escape cancela.",
+  "region.label": "Región de {path}",
+  "region.instructions":
+    "Arrastra sobre la imagen para dibujar un rectángulo. Las flechas lo mueven y Mayús con las flechas cambia su tamaño. Intro comenta, Escape cancela.",
+  "region.status": "De {left}% a {right}% a lo ancho, de {top}% a {bottom}% a lo alto.",
+  "region.confirm": "Comentar esta región",
+  "review.target.region":
+    "Región de {path}, de {left}% a {right}% a lo ancho, de {top}% a {bottom}% a lo alto",
+  "review.thread.imageUnchanged": "La imagen sigue igual",
+  "review.thread.imageChanged": "La imagen cambió",
   "review.thread.title": "Hilo {number}",
   "review.thread.titlePrefix": "Hilo ",
   "review.thread.more": "Más acciones para el hilo {number}",

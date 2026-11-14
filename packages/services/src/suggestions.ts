@@ -157,11 +157,12 @@ export async function submitSuggestion(
         ),
         // Columns in schema order (see `createAnnotationThread`), then the suggestion columns:
         // kind, suggestion state, edit, edit bytes, edit proofs, suggestion revision, attempt,
-        // attempt reason, decided by, decided at, result version, origin version, origin target.
+        // attempt reason, decided by, decided at, result version, origin version, origin target,
+        // and the image region (decision 0028), which a suggestion never has.
         db
           .insert(th)
           .select(
-            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${target.path}, 'open', 1, 1, ${annotationParts.claimedEventId(writeId)}, null, null, ${input.now}, ${input.now}, 'suggestion', 'pending', ${editJson}, ${editBytes}, null, 1, null, null, null, null, null, null, null where ${claimed}`,
+            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${target.path}, 'open', 1, 1, ${annotationParts.claimedEventId(writeId)}, null, null, ${input.now}, ${input.now}, 'suggestion', 'pending', ${editJson}, ${editBytes}, null, 1, null, null, null, null, null, null, null, null where ${claimed}`,
           ),
         annotationParts.insertMessage(db, {
           id: messageId,

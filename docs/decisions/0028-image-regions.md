@@ -1,6 +1,6 @@
 # 0028 Image regions: comments on a rectangle of an image
 
-- Status: accepted; built in one delivery (`feat(annotations): comment on a region of an image`), switched off until the maintainer turns `IMAGE_REGIONS_ENABLED` on.
+- Status: accepted; built in one delivery (`feat(annotations): comment on a region of an image`, migration `0087_image_regions`: `annotation_threads.region`), switched off until the maintainer turns `IMAGE_REGIONS_ENABLED` on.
 - Date: 2026-11-14
 - Feature: plan section 8 lists "regiones de imagen" as out of scope of the first version, with no design. This record defines it. It builds on the anchor model ([docs/anchors.md](../anchors.md)), review mode and inline comments ([docs/security.md](../security.md), "Review mode" and "Inline comments") and the bridge protocol of [decision 0027](0027-edit-suggestions.md) ("Protocol and rollout").
 
@@ -15,7 +15,7 @@ A reviewer looking at a mockup wants to say "this button is too small" and point
 3. **Drawn by the viewer while choosing, by the bridge when shown.** The rectangle is chosen in a layer the viewer draws over the frame (`FrameOverlay`), with the pointer or the keyboard; the bridge only reports the picked image and later draws the stored rectangle in its closed shadow root, like every highlight.
 4. **Threads stay with their version.** A republish moves a region thread to the owner's history like any thread. The thread view of a history thread says whether the current version still has the same image bytes at that path, and the owner's viewer draws such threads on the current page: that is how a region survives a republish when the image is unchanged.
 5. **Same rules as every comment.** Creating a region thread is creating a thread: the same authorization, comment scope, human check, rate limits and quotas, with the region's bytes counted in the thread's target bytes.
-6. **Switched off.** Nothing about regions is reachable without `IMAGE_REGIONS_ENABLED="true"` on the app Worker (the API accepts `region`, the viewer offers it) and the content Worker (the bridge reports an image). Never in a deployed `wrangler.jsonc`.
+6. **Switched off.** Nothing about regions is reachable without `IMAGE_REGIONS_ENABLED="true"` on the app Worker (the API accepts `region`, the viewer offers it) and the content Worker (the bridge reports an image). Never in a deployed `wrangler.jsonc`. Only creating is gated: a region stored while the switch was on stays in thread views and exports after it is turned off, and the viewer then draws the thread as an outline of the whole image.
 
 ## Behavior
 
@@ -44,11 +44,11 @@ Released clients parse `AnnotationThreadView` with `z.object`, which strips unkn
 
 The bridge resolves the element anchor exactly as today ([docs/anchors.md](../anchors.md), "Confidence"), then:
 
-| Element found                                                                | Result                                        |
-| ---------------------------------------------------------------------------- | --------------------------------------------- |
-| An `img` whose `currentSrc` maps to `region.image.path`                      | The element's confidence; the region is drawn |
+| Element found                                                                | Result                                         |
+| ---------------------------------------------------------------------------- | ---------------------------------------------- |
+| An `img` whose `currentSrc` maps to `region.image.path`                      | The element's confidence; the region is drawn  |
 | An element that is not an `img`, or an `img` showing another file or nothing | `orphaned` with the new reason `image_changed` |
-| None, or several                                                             | `orphaned` (`not_found`, `ambiguous`)         |
+| None, or several                                                             | `orphaned` (`not_found`, `ambiguous`)          |
 
 Within one version the path decides the bytes, so the bridge never fetches or hashes the image. Across versions the server decides: for a thread of another version than the current one, the thread view sets `region.currentImage` to `unchanged` when the current version has a published file at `region.image.path` with the stored SHA-256, and to `changed` otherwise (including a file that is gone). The owner's viewer (the only role that sees other versions' threads) draws history region threads marked `unchanged` on the current page, and lists `changed` ones without a location. A current thread carries no `currentImage`.
 

@@ -1324,6 +1324,20 @@ export const ru = {
   "review.target.general": "Общий комментарий к {path}",
   "review.target.element": "Элемент {tag}",
   "review.target.quote": "Цитата",
+  "region.element.received":
+    "Изображение в artifact выбрано. Нажмите кнопку «Комментировать» или «Отметить область» после artifact.",
+  "region.mark": "Отметить область",
+  "region.started":
+    "Отметьте область изображения. Проведите по нему мышью или двигайте прямоугольник стрелками, а размер меняйте стрелками с Shift. Enter оставляет комментарий, Escape отменяет.",
+  "region.label": "Область {path}",
+  "region.instructions":
+    "Проведите по изображению, чтобы нарисовать прямоугольник. Стрелки двигают его, стрелки с Shift меняют размер. Enter оставляет комментарий, Escape отменяет.",
+  "region.status": "По ширине от {left}% до {right}%, по высоте от {top}% до {bottom}%.",
+  "region.confirm": "Комментировать область",
+  "review.target.region":
+    "Область {path}, по ширине от {left}% до {right}%, по высоте от {top}% до {bottom}%",
+  "review.thread.imageUnchanged": "Изображение то же",
+  "review.thread.imageChanged": "Изображение изменилось",
   "review.thread.title": "Ветка {number}",
   "review.thread.titlePrefix": "Ветка ",
   "review.thread.more": "Другие действия с веткой {number}",

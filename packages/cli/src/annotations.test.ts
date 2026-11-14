@@ -159,6 +159,65 @@ describe("portifact annotations create", () => {
     expect(requests("GET", /\/versions\//)).toHaveLength(0);
   });
 
+  it("sends a region file with an element target of an image", async () => {
+    const artifact = reviewed();
+    const target = {
+      schema: 1,
+      path: "about.html",
+      anchor: { kind: "element", selectors: ["#mock"], tagName: "img", fingerprint: "" },
+    };
+    const region = { x: 0.1, y: 0.2, width: 0.3, height: 0.4, image: { path: "mock.png" } };
+    const result = await h.invoke(
+      "annotations",
+      "create",
+      artifact.id,
+      "--body-file",
+      await bodyFile("This button"),
+      "--target",
+      await bodyFile(JSON.stringify(target), "target.json"),
+      "--region",
+      await bodyFile(JSON.stringify(region), "region.json"),
+    );
+    const sent = requests("POST", /\/threads$/).map((r) => JSON.parse(r.body));
+    expect(sent.at(-1)).toMatchObject({ target, region });
+    expect(result.code, result.stderr).toBe(0);
+  });
+
+  it("refuses a region without a target or outside the image before posting", async () => {
+    const artifact = reviewed();
+    const comment = await bodyFile("ok");
+    const region = { x: 0.9, y: 0, width: 0.3, height: 0.1, image: { path: "mock.png" } };
+    const target = await bodyFile(
+      JSON.stringify({
+        schema: 1,
+        path: "about.html",
+        anchor: { kind: "element", selectors: ["#mock"], tagName: "img", fingerprint: "" },
+      }),
+      "target.json",
+    );
+    const cases: [string[], string][] = [
+      [["--region", await bodyFile(JSON.stringify(region), "r1.json")], "--region needs --target"],
+      [
+        ["--target", target, "--region", await bodyFile(JSON.stringify(region), "r2.json")],
+        "The region is not valid: The rectangle must lie inside the image",
+      ],
+      [["--target", target, "--region", await bodyFile("{", "r3.json")], "is not valid JSON"],
+    ];
+    for (const [flags, message] of cases) {
+      const result = await h.invoke(
+        "annotations",
+        "create",
+        artifact.id,
+        "--body-file",
+        comment,
+        ...flags,
+      );
+      expect(result.code, message).toBe(2);
+      expect(result.stderr, message).toContain(message);
+    }
+    expect(requests("POST", /\/threads$/)).toHaveLength(0);
+  });
+
   it("refuses invalid targets, bodies and flags before posting", async () => {
     const artifact = reviewed();
     const comment = await bodyFile("ok");
@@ -836,6 +895,38 @@ describe("text formatting", () => {
     expect(output).toContain("(hidden by the owner)");
     expect(output).toContain("(no name)");
     expect(output).toContain("(deleted, edited)");
+  });
+
+  it("shows an image region with its image, and whether the image changed since", () => {
+    const thread = {
+      ...base,
+      target: {
+        schema: 1 as const,
+        path: "index.html",
+        anchor: {
+          kind: "element" as const,
+          selectors: ["#mock"],
+          tagName: "img",
+          fingerprint: "",
+        },
+      },
+      region: {
+        x: 0.25,
+        y: 0.5,
+        width: 0.5,
+        height: 0.25,
+        image: { path: "images/mock\u202e.png", sha256: "a".repeat(64) },
+      },
+      messages: [],
+    };
+    const current = formatThread(thread);
+    expect(current).toContain('Region: 25% to 75% across, 50% to 75% down, of "images/mock.png"\n');
+    const changed = formatThread({
+      ...thread,
+      region: { ...thread.region, currentImage: "changed" },
+    });
+    expect(changed).toContain("(image changed in the current version)");
+    expect(formatThread({ ...thread, region: undefined })).not.toContain("Region:");
   });
 
   it("keeps line feeds and tabs and drops other control and direction characters", () => {

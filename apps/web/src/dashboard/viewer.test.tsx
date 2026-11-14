@@ -2075,3 +2075,171 @@ describe("issues from threads in the viewer (decision 0018)", () => {
     expect(server.requests.some((r) => r.path.startsWith("/api/v1/integrations"))).toBe(true);
   });
 });
+
+describe("image regions (decision 0028)", () => {
+  const IMAGE_TARGET: AnnotationTarget = {
+    schema: 1,
+    path: "index.html",
+    anchor: { kind: "element", selectors: ["#mock"], tagName: "img", fingerprint: "" },
+  };
+  const IMAGE_RECT = { x: 100, y: 80, width: 400, height: 200 };
+  const regionStatus = () => screen.getByText(/^From \d+% to \d+% across/);
+  const lastMarkers = () =>
+    sent()
+      .map((s) => s.message)
+      .filter((message) => message.type === "highlights")
+      .at(-1)
+      ?.highlights.map((highlight) => highlight.id);
+
+  async function pickImage(nonce: string, image: Record<string, unknown> | undefined) {
+    fireEvent.click(screen.getByRole("button", { name: "Select an element" }));
+    fromBridge(nonce, {
+      type: "element",
+      target: IMAGE_TARGET,
+      rect: IMAGE_RECT,
+      ...(image ? { image } : {}),
+    });
+    fromBridge(nonce, { type: "pick-ended" });
+    return pill();
+  }
+
+  it("marks a region of a picked image with the keyboard and comments on it", async () => {
+    server.reviews[ID] = { ...START, imageRegions: true };
+    await open();
+    const nonce = await connect();
+    await pickImage(nonce, { path: "images/mock.png" });
+    fireEvent.click(screen.getByRole("button", { name: "Mark a region" }));
+    const surface = screen.getByRole("group", { name: "Region of images/mock.png" });
+    expect(document.activeElement).toBe(surface);
+    expect(surface.style.transform).toBe("translate(100px, 80px)");
+    expect(regionStatus().textContent).toBe("From 25% to 75% across, 25% to 75% down.");
+    // The frame cannot change what is being marked, or open a comment meanwhile.
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT });
+    fireEvent.keyDown(surface, { key: "ArrowRight" });
+    fireEvent.keyDown(surface, { key: "ArrowDown", shiftKey: true });
+    expect(regionStatus().textContent).toBe("From 27% to 77% across, 25% to 77% down.");
+    fireEvent.keyDown(surface, { key: "Enter" });
+    const form = await screen.findByRole("form", { name: "New comment" });
+    expect(
+      within(form.closest("section") as HTMLElement).getByText(
+        "Region of images/mock.png, 27% to 77% across, 25% to 77% down",
+      ),
+    ).toBeTruthy();
+    fireEvent.change(within(form).getByRole("textbox", { name: "Comment" }), {
+      target: { value: "This button is too small" },
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    await screen.findByText("3 comment threads");
+    expect(server.bodies.at(-1)).toMatchObject({
+      target: IMAGE_TARGET,
+      region: { x: 0.27, y: 0.25, width: 0.5, height: 0.52, image: { path: "images/mock.png" } },
+    });
+    // The new thread is drawn as a region of its image.
+    await waitFor(() => {
+      const last = sent()
+        .map((s) => s.message)
+        .filter((m) => m.type === "highlights")
+        .at(-1) as Extract<ViewerMessage, { type: "highlights" }> | undefined;
+      expect(last?.highlights.find((h) => h.id === "t3")?.region).toEqual({
+        x: 0.27,
+        y: 0.25,
+        width: 0.5,
+        height: 0.52,
+        path: "images/mock.png",
+      });
+    });
+  });
+
+  it("cancels marking with Escape and goes back to the artifact", async () => {
+    server.reviews[ID] = { ...START, imageRegions: true };
+    await open();
+    const nonce = await connect();
+    await pickImage(nonce, { path: "images/mock.png" });
+    fireEvent.click(screen.getByRole("button", { name: "Mark a region" }));
+    fireEvent.keyDown(screen.getByRole("group", { name: "Region of images/mock.png" }), {
+      key: "Escape",
+    });
+    expect(screen.queryByRole("group", { name: /^Region of/ })).toBeNull();
+    expect(screen.queryByRole("form", { name: "New comment" })).toBeNull();
+    expect(sent().at(-1)?.message).toMatchObject({ type: "clear-selection" });
+    expect(document.activeElement?.tagName).toBe("IFRAME");
+  });
+
+  it("offers no region while switched off, whatever the frame says", async () => {
+    await open();
+    const nonce = await connect();
+    await pickImage(nonce, { path: "images/mock.png" });
+    expect(screen.queryByRole("button", { name: "Mark a region" })).toBeNull();
+  });
+
+  it("offers no region for an element that is not an image or without its file", async () => {
+    server.reviews[ID] = { ...START, imageRegions: true };
+    await open();
+    const nonce = await connect();
+    await pickImage(nonce, undefined);
+    expect(screen.queryByRole("button", { name: "Mark a region" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Select an element" }));
+    fromBridge(nonce, {
+      type: "element",
+      target: ELEMENT_TARGET,
+      rect: RECT,
+      image: { path: "images/mock.png" },
+    });
+    fromBridge(nonce, { type: "pick-ended" });
+    await pill();
+    expect(screen.queryByRole("button", { name: "Mark a region" })).toBeNull();
+  });
+
+  it("draws earlier versions' regions whose image is unchanged, and lists the rest", async () => {
+    server.reviews[ID] = { ...START, imageRegions: true };
+    await seedVersion(server, ID, [{ path: "index.html", text: "<p>old</p>" }], { id: "v0" });
+    await seedVersion(server, ID, [{ path: "index.html", text: "<p>new</p>" }], { id: "v1" });
+    const region = (currentImage: "unchanged" | "changed") => ({
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.4,
+      image: { path: "images/mock.png", sha256: "b".repeat(64) },
+      currentImage,
+    });
+    for (const [id, currentImage] of [
+      ["r1", "unchanged"],
+      ["r2", "changed"],
+    ] as const) {
+      server.annotations[ID]?.threads.push({
+        ...fakeThread(id, {
+          versionId: "v0",
+          current: false,
+          target: IMAGE_TARGET,
+          region: region(currentImage),
+          createdAt: "2026-11-01T12:00:00.000Z",
+        }),
+        seq: id === "r1" ? 5 : 6,
+      });
+    }
+    await open();
+    const nonce = await connect();
+    choose("Version", "All versions");
+    // Threads go in creation order: the earlier version's region first.
+    await waitFor(() => expect(lastMarkers()).toEqual(["r1", "t1"]));
+    fromBridge(nonce, {
+      type: "resolved",
+      results: [
+        { id: "r1", confidence: "exact" },
+        { id: "t1", confidence: "exact" },
+      ],
+    });
+    const unchanged = await screen.findByText("Same image now");
+    expect(
+      within(unchanged.closest("article") as HTMLElement).getByRole("button", {
+        name: "Show in the artifact",
+      }),
+    ).toBeTruthy();
+    const changed = screen.getByText("Image changed since").closest("article") as HTMLElement;
+    expect(within(changed).queryByRole("button", { name: "Show in the artifact" })).toBeNull();
+    expect(within(changed).queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(
+      screen.getAllByText("Region of images/mock.png, 10% to 40% across, 20% to 60% down"),
+    ).toHaveLength(2);
+  });
+});

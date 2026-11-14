@@ -1338,6 +1338,21 @@ export const de = {
   "review.target.general": "Allgemeiner Kommentar zu {path}",
   "review.target.element": "Element {tag}",
   "review.target.quote": "Zitierter Text",
+  "region.element.received":
+    "Bild im Artifact ausgewählt. Nutze nach dem Artifact die Schaltfläche Kommentieren oder Bereich markieren.",
+  "region.mark": "Bereich markieren",
+  "region.started":
+    "Markiere einen Bereich des Bildes. Ziehe darüber, oder verschiebe das Rechteck mit den Pfeiltasten und ändere seine Größe mit Umschalt und den Pfeiltasten. Eingabe kommentiert, Escape bricht ab.",
+  "region.label": "Bereich von {path}",
+  "region.instructions":
+    "Ziehe über das Bild, um ein Rechteck zu zeichnen. Die Pfeiltasten verschieben es, Umschalt mit den Pfeiltasten ändert seine Größe. Eingabe kommentiert, Escape bricht ab.",
+  "region.status":
+    "Von {left} % bis {right} % in der Breite, von {top} % bis {bottom} % in der Höhe.",
+  "region.confirm": "Diesen Bereich kommentieren",
+  "review.target.region":
+    "Bereich von {path}, {left} % bis {right} % in der Breite, {top} % bis {bottom} % in der Höhe",
+  "review.thread.imageUnchanged": "Bild unverändert",
+  "review.thread.imageChanged": "Bild inzwischen geändert",
   "review.thread.title": "Thread {number}",
   "review.thread.titlePrefix": "Thread ",
   "review.thread.more": "Weitere Aktionen für Thread {number}",

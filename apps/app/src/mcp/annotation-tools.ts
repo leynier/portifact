@@ -27,6 +27,7 @@ import {
   UNTRUSTED_ANNOTATIONS_NOTICE,
 } from "@portifact/contracts";
 import type { RegionalDb } from "@portifact/db";
+import { imageRegionsEnabled } from "@portifact/domain";
 import {
   annotationsToMarkdown,
   createAnnotationThread,
@@ -288,6 +289,7 @@ export function registerAnnotationTools(
             userId: context.userId,
             artifactId,
             ...request,
+            imageRegions: imageRegionsEnabled(context.env),
             humanCheck: context.humanCheck,
             now: at,
           }),

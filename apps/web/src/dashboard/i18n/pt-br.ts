@@ -1318,6 +1318,20 @@ export const ptBR = {
   "review.target.general": "Comentário geral em {path}",
   "review.target.element": "Elemento {tag}",
   "review.target.quote": "Texto citado",
+  "region.element.received":
+    "Imagem selecionada no artifact. Use o botão Comentar ou Marcar uma região depois do artifact.",
+  "region.mark": "Marcar uma região",
+  "region.started":
+    "Marque uma região da imagem. Arraste sobre ela, ou mova o retângulo com as setas e mude o tamanho com Shift e as setas. Enter comenta, Esc cancela.",
+  "region.label": "Região de {path}",
+  "region.instructions":
+    "Arraste sobre a imagem para desenhar um retângulo. As setas o movem e Shift com as setas muda o tamanho. Enter comenta, Esc cancela.",
+  "region.status": "De {left}% a {right}% na largura, de {top}% a {bottom}% na altura.",
+  "region.confirm": "Comentar esta região",
+  "review.target.region":
+    "Região de {path}, de {left}% a {right}% na largura, de {top}% a {bottom}% na altura",
+  "review.thread.imageUnchanged": "Imagem igual",
+  "review.thread.imageChanged": "Imagem alterada",
   "review.thread.title": "Conversa {number}",
   "review.thread.titlePrefix": "Conversa ",
   "review.thread.more": "Mais ações da conversa {number}",

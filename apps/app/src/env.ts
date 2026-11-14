@@ -117,6 +117,13 @@ export interface Env extends DomainEnv {
    */
   SUGGESTIONS_ENABLED?: string | undefined;
   /**
+   * Exactly `"true"` turns image regions on (decision 0028, `imageRegionsEnabled` in the domain):
+   * the annotations API and MCP accept a thread's `region` and the viewer offers "Mark a region".
+   * The content Worker takes the same value for the bridge. Never in a `wrangler.jsonc` before the
+   * checks in docs/releasing.md ("Image regions") pass.
+   */
+  IMAGE_REGIONS_ENABLED?: string | undefined;
+  /**
    * The documents objects of artifact data (decision 0026), exported by `portifact-data`. The
    * owner document API reaches them only through `dataNamespaces` in packages/services.
    */

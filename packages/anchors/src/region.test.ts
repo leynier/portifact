@@ -2,8 +2,8 @@ import { IMAGE_REGION_LIMITS, ImageRegionRequest } from "@portifact/contracts";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
-  imagePath,
   INITIAL_REGION,
+  imagePath,
   moveRegion,
   normalizeRegion,
   REGION_STEP,
@@ -252,13 +252,17 @@ describe("regionKey", () => {
   it("always gives a valid region", () => {
     const keys = fc.constantFrom("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown");
     fc.assert(
-      fc.property(region, fc.array(fc.tuple(keys, fc.boolean()), { maxLength: 80 }), (r, presses) => {
-        let current = r;
-        for (const [key, shift] of presses) {
-          current = regionKey(current, key, shift) as RegionRect;
-          expect(valid(current)).toBe(true);
-        }
-      }),
+      fc.property(
+        region,
+        fc.array(fc.tuple(keys, fc.boolean()), { maxLength: 80 }),
+        (r, presses) => {
+          let current = r;
+          for (const [key, shift] of presses) {
+            current = regionKey(current, key, shift) as RegionRect;
+            expect(valid(current)).toBe(true);
+          }
+        },
+      ),
     );
   });
 });

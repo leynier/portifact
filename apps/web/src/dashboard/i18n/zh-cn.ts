@@ -1204,6 +1204,19 @@ export const zhCN = {
   "review.target.general": "对 {path} 的整体评论",
   "review.target.element": "元素 {tag}",
   "review.target.quote": "引用的文本",
+  "region.element.received":
+    "已在 artifact 中选中图片。请使用 artifact 后面的“评论”或“标记区域”按钮。",
+  "region.mark": "标记区域",
+  "region.started":
+    "标记图片的一个区域。在图片上拖动，或用方向键移动矩形、用 Shift 加方向键调整大小。按 Enter 评论，按 Escape 取消。",
+  "region.label": "{path} 的区域",
+  "region.instructions":
+    "在图片上拖动以画出矩形。方向键移动它，Shift 加方向键调整大小。按 Enter 评论，按 Escape 取消。",
+  "region.status": "横向 {left}% 到 {right}%，纵向 {top}% 到 {bottom}%。",
+  "region.confirm": "评论此区域",
+  "review.target.region": "{path} 的区域，横向 {left}% 到 {right}%，纵向 {top}% 到 {bottom}%",
+  "review.thread.imageUnchanged": "图片未变",
+  "review.thread.imageChanged": "图片已更改",
   "review.thread.title": "讨论串 {number}",
   "review.thread.titlePrefix": "讨论串 ",
   "review.thread.more": "讨论串 {number} 的更多操作",

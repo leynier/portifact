@@ -48,7 +48,16 @@ export interface BridgeEvents {
    * the edit epoch the bridge echoed (protocol 3), or null.
    */
   onSelection(target: AnnotationTarget | null, rect: FrameRect | null, epoch: number | null): void;
-  onElement(target: AnnotationTarget, rect: FrameRect | null, epoch: number | null): void;
+  /**
+   * `image` is the file a picked `img` shows (decision 0028), only while image regions are on;
+   * untrusted, it only offers "Mark a region".
+   */
+  onElement(
+    target: AnnotationTarget,
+    rect: FrameRect | null,
+    epoch: number | null,
+    image: { path: string } | null,
+  ): void;
   /** The offered selection or element moved in the frame, or is no longer drawn (`null`). */
   onSelectionRect(rect: FrameRect | null): void;
   onRefused(reason: RefusalReason): void;
@@ -192,6 +201,7 @@ export function useBridge(
             message.target,
             message.rect ?? null,
             "epoch" in message ? (message.epoch ?? null) : null,
+            message.image ?? null,
           );
           return;
         case "selection-rect":

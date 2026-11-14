@@ -1837,6 +1837,10 @@ An artifact shared with its workspace or an email domain becomes restricted when
     .argument("<id>", "artifact ID")
     .requiredOption("--body-file <file>", "UTF-8 text file with the comment")
     .option("--target <file>", "JSON file with where the comment points (an annotation target)")
+    .option(
+      "--region <file>",
+      "JSON file with a rectangle of the target's image, when image regions are on",
+    )
     .option("--path <path>", "file to comment on as a whole (default: the main page)")
     .option("--version <id>", "version the target was made for; it must still be current")
     .option("--json", "Print the result as JSON")
@@ -1848,6 +1852,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           options: {
             bodyFile: string;
             target?: string;
+            region?: string;
             path?: string;
             version?: string;
             json?: boolean;
@@ -1857,6 +1862,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
           annotationCommands.create(io, runtime, id, {
             bodyFile: options.bodyFile,
             target: options.target,
+            region: options.region,
             path: options.path,
             version: options.version,
             json: options.json === true,

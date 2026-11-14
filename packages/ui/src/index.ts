@@ -149,6 +149,12 @@ export {
   type VisualViewportBox,
 } from "./patterns/frame-overlay.tsx";
 export {
+  RegionSelector,
+  type RegionSelectorBox,
+  type RegionSelectorProps,
+  type RegionSelectorRect,
+} from "./patterns/region-selector.tsx";
+export {
   GUIDE_QUERY,
   PageSection,
   type PageSectionLink,

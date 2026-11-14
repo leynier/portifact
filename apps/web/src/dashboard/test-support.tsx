@@ -2653,6 +2653,18 @@ function reviewRoute(
         target: body?.target as AnnotationThreadView["target"],
         path: (body?.target as { path?: string } | undefined)?.path ?? "",
         versionId: body?.versionId as string,
+        // Like the Worker: a region gets the image's SHA-256 from the version (decision 0028).
+        ...(body?.region
+          ? {
+              region: {
+                ...(body.region as Omit<NonNullable<AnnotationThreadView["region"]>, "image">),
+                image: {
+                  path: (body.region as { image: { path: string } }).image.path,
+                  sha256: "a".repeat(64),
+                },
+              },
+            }
+          : {}),
         messages: [
           fakeMessage({
             own: true,

@@ -903,7 +903,8 @@ describe("edit epochs (pf268)", () => {
 });
 
 describe("image regions (decision 0028)", () => {
-  const MOCK = '<main><img id="mock" src="images/mock.png" alt="Mockup"><p id="note">Note</p></main>';
+  const MOCK =
+    '<main><img id="mock" src="images/mock.png" alt="Mockup"><p id="note">Note</p></main>';
   const imageTarget: AnnotationTarget = {
     schema: 1,
     path: "index.html",
@@ -914,7 +915,9 @@ describe("image regions (decision 0028)", () => {
   /** Lays the image out at 100,200 with a 400 by 200 box. */
   function layOutImage() {
     const image = document.querySelector("#mock") as HTMLElement;
-    return vi.spyOn(image, "getBoundingClientRect").mockReturnValue(new DOMRect(100, 200, 400, 200));
+    return vi
+      .spyOn(image, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(100, 200, 400, 200));
   }
 
   async function pick(element: Element) {
@@ -981,7 +984,11 @@ describe("image regions (decision 0028)", () => {
     start(MOCK);
     const restore = layOutImage();
     fromViewer({ type: "init" });
-    fromViewer({ type: "highlights", selected: [], highlights: [{ id: "r1", target: imageTarget, region }] });
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [{ id: "r1", target: imageTarget, region }],
+    });
     clickAt(150, 220);
     expect(sentOf("select")).toHaveLength(0);
     clickAt(250, 320);

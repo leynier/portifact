@@ -18,7 +18,7 @@ import {
   ReviewTabStart,
   ViewerInfo,
 } from "@portifact/contracts";
-import { suggestionsEnabled, viewerFrameOrigin } from "@portifact/domain";
+import { imageRegionsEnabled, suggestionsEnabled, viewerFrameOrigin } from "@portifact/domain";
 import {
   brandLogoUrl,
   customDomainsServing,
@@ -66,6 +66,7 @@ export function reviewRoutes(deps: ReviewDeps) {
         sessionTag: value.sessionTag,
         expiresAt: new Date(value.expiresAt).toISOString(),
         suggestions: suggestionsEnabled(c.env),
+        imageRegions: imageRegionsEnabled(c.env),
       }),
     );
   });
