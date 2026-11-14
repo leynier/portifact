@@ -13,7 +13,7 @@ import {
   type RegionalDb,
   schema,
 } from "@portifact/db";
-import { and, asc, eq, gt, inArray, lt, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, like, lt, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { WITHDRAWN } from "./annotations.ts";
 import { eraseAuditEventsOf } from "./audit.ts";
@@ -27,7 +27,6 @@ import { endAttempt } from "./suggestion-accept.ts";
 import { deleteOrphanSsoIdentities } from "./workspaces.ts";
 
 const IN_CHUNK = 80;
-const OBJECT_PREFIX = "objects/";
 /** An R2 object younger than this without a row may be an upload or a delete in flight. */
 export const ORPHAN_GRACE_MS = 24 * 60 * 60_000;
 
@@ -58,9 +57,46 @@ export async function reconcileStorage(
   listLimit = 100,
 ): Promise<ReconcileResult> {
   const rows = await checkRows(db, bucket, now, rowLimit);
-  const listed = await checkListing(db, bucket, now, listLimit);
-  return { ...rows, ...listed };
+  const listed = await checkListing(db, bucket, now, listLimit, OBJECT_LISTING);
+  // Comment attachments (decision 0028) have their own prefix and pass; their counts add to the
+  // objects' (a file uploaded after a restore point has bytes and no row).
+  const files = await checkListing(db, bucket, now, listLimit, ATTACHMENT_LISTING);
+  return {
+    ...rows,
+    listedObjects: listed.listedObjects + files.listedObjects,
+    orphans: listed.orphans + files.orphans,
+  };
 }
+
+interface Listing {
+  prefix: string;
+  cursor: string;
+  /** The listed keys some row still names. */
+  referenced(db: Db, keys: string[]): Promise<string[]>;
+}
+
+const OBJECT_LISTING: Listing = {
+  prefix: "objects/",
+  cursor: "storage_objects",
+  async referenced(db, keys) {
+    const rows = await db
+      .select({ r2Key: schema.objects.r2Key })
+      .from(schema.objects)
+      .where(inArray(schema.objects.r2Key, keys));
+    return rows.map((row) => row.r2Key);
+  },
+};
+
+const ATTACHMENT_LISTING: Listing = {
+  prefix: "attachments/",
+  cursor: "storage_attachments",
+  async referenced(db, keys) {
+    const ca = schema.commentAttachments;
+    const named = sql<string>`'attachments/' || ${ca.artifactId} || '/' || ${ca.id}`;
+    const rows = await db.select({ key: named }).from(ca).where(inArray(named, keys));
+    return rows.map((row) => row.key);
+  },
+};
 
 async function cursorFor(db: Db, name: string, now: number) {
   const [row] = await db
@@ -82,6 +118,8 @@ async function saveCursor(
   next: string,
   kinds: FindingKind[],
   now: number,
+  /** Only findings under this prefix: each listing's pass drops only its own. */
+  prefix?: string,
 ) {
   if (next === "") {
     await db
@@ -90,6 +128,7 @@ async function saveCursor(
         and(
           inArray(schema.storageFindings.kind, kinds),
           lt(schema.storageFindings.lastSeenAt, state.passStartedAt),
+          prefix === undefined ? undefined : like(schema.storageFindings.r2Key, `${prefix}%`),
         ),
       );
   }
@@ -168,21 +207,18 @@ async function checkRows(db: Db, bucket: R2Bucket, now: number, limit: number) {
   };
 }
 
-async function checkListing(db: Db, bucket: R2Bucket, now: number, limit: number) {
-  const state = await cursorFor(db, "storage_objects", now);
+async function checkListing(db: Db, bucket: R2Bucket, now: number, limit: number, source: Listing) {
+  const state = await cursorFor(db, source.cursor, now);
   const listing = await bucket.list({
-    prefix: OBJECT_PREFIX,
+    prefix: source.prefix,
     limit,
     ...(state.cursor ? { cursor: state.cursor } : {}),
   });
   const keys = listing.objects.map((object) => object.key);
   const referenced = new Set<string>();
   for (let i = 0; i < keys.length; i += IN_CHUNK) {
-    for (const row of await db
-      .select({ r2Key: schema.objects.r2Key })
-      .from(schema.objects)
-      .where(inArray(schema.objects.r2Key, keys.slice(i, i + IN_CHUNK)))) {
-      referenced.add(row.r2Key);
+    for (const key of await source.referenced(db, keys.slice(i, i + IN_CHUNK))) {
+      referenced.add(key);
     }
   }
   const orphans = listing.objects.filter(
@@ -199,7 +235,7 @@ async function checkListing(db: Db, bucket: R2Bucket, now: number, limit: number
   );
   await clear(db, ["orphan"], [...referenced]);
   const next = listing.truncated ? listing.cursor : "";
-  await saveCursor(db, state, next, ["orphan"], now);
+  await saveCursor(db, state, next, ["orphan"], now, source.prefix);
   return { listedObjects: keys.length, orphans: orphans.length };
 }
 
@@ -308,6 +344,8 @@ export interface ApplyTombstonesResult {
   commentThreads: number;
   /** Messages deleted before the restore that it brought back, deleted again. */
   commentMessages: number;
+  /** Comment attachments the operator removed before the restore, removed again. */
+  attachments: number;
   /** Email preferences turned off before the restore that it turned back on, off again. */
   noticeOptOuts: number;
   /** Suggestions withdrawn before the restore that it brought back undecided, withdrawn again. */
@@ -349,6 +387,7 @@ const REGIONAL_KINDS = [
   "suggestion_rejected",
   "edit_draft",
   "data_grant",
+  "comment_attachment",
 ] as const;
 type RegionalKind = (typeof REGIONAL_KINDS)[number];
 
@@ -423,6 +462,8 @@ interface Refs {
   rejectedSuggestions: SQL;
   /** `<artifact>:<user>:<incarnation>`. */
   drafts: SQL;
+  /** Comment attachments the operator removed (decision 0028). */
+  attachments: SQL;
 }
 
 const t = schema.tombstones;
@@ -451,6 +492,7 @@ const SUBQUERIES: Refs = {
   withdrawnSuggestions: sql`select ${t.id} from ${t} where ${t.kind} = 'suggestion_withdrawn'`,
   rejectedSuggestions: sql`select ${t.id} from ${t} where ${t.kind} = 'suggestion_rejected'`,
   drafts: sql`select ${t.id} from ${t} where ${t.kind} = 'edit_draft'`,
+  attachments: sql`select ${t.id} from ${t} where ${t.kind} = 'comment_attachment'`,
 };
 
 /** A JSON list as the body of an `in (...)` subquery. */
@@ -628,6 +670,17 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
           .delete(schema.annotationThreads)
           .where(sql`${schema.annotationThreads.id} in (${refs.commentThreads})`)
           .returning({ id: schema.annotationThreads.id }),
+    },
+    // Comment attachments the operator removed (decision 0028): the rows go again, and their
+    // delete trigger writes the R2 deletion again (the job keeps nothing no row names).
+    {
+      name: "attachments",
+      side: "regional",
+      build: (db, refs) =>
+        db
+          .delete(schema.commentAttachments)
+          .where(sql`${schema.commentAttachments.id} in (${refs.attachments})`)
+          .returning({ id: schema.commentAttachments.id }),
     },
     // Messages deleted while their thread stayed: the "message deleted" marker again, never the
     // text. The `annotation_usage` triggers give the bytes back.
@@ -1194,6 +1247,7 @@ async function applyRegionalTombstones(
       withdrawnSuggestions: part(lists.suggestion_withdrawn),
       rejectedSuggestions: part(lists.suggestion_rejected),
       drafts: part(lists.edit_draft),
+      attachments: part(lists.comment_attachment),
     };
     const results = await runEntries(db, regional, refs);
     for (const [name, rows] of results) {
@@ -1299,6 +1353,7 @@ export async function applyTombstones(
     members: count("members"),
     commentThreads: count("commentThreads"),
     commentMessages: count("commentMessages"),
+    attachments: count("attachments"),
     withdrawnSuggestions: count("withdrawnSuggestions"),
     rejectedSuggestions: count("rejectedSuggestions"),
     drafts: count("drafts"),

@@ -11,6 +11,7 @@ import {
   AnnotationThreadState,
   AnnotationVersionFilter,
 } from "./annotations.ts";
+import { AttachmentId } from "./attachments.ts";
 import { AnnotationsState, ArtifactId } from "./core.ts";
 import { ANNOTATION_LIMITS } from "./limits.ts";
 import { IdempotencyKey } from "./publishing.ts";
@@ -69,6 +70,13 @@ export type ThreadRef = z.infer<typeof ThreadRef>;
 
 export const MessageRef = z.object({ artifactId, messageId });
 export type MessageRef = z.infer<typeof MessageRef>;
+
+/** One file on a comment (decision 0028), by its ID as thread views list it. */
+export const AttachmentRef = z.object({
+  artifactId,
+  attachmentId: AttachmentId.describe("The attachment ID, as a message's attachments list it."),
+});
+export type AttachmentRef = z.infer<typeof AttachmentRef>;
 
 export const CreateAnnotationInput = z.object({
   artifactId,

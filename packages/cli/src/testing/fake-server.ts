@@ -210,6 +210,18 @@ export async function startFakeServer(): Promise<FakeServer> {
     if (method === "POST" && url.pathname === "/api/v1/github/token")
       return githubExchange(body, response);
 
+    const file = /^\/r2\/attachments\/([^/]+)$/.exec(url.pathname);
+    if (method === "GET" && file) {
+      const stored = fakeAnnotations.state.attachments.get(file[1] as string);
+      // Storage never takes the API token (decision 0028).
+      if (request.headers.authorization !== undefined) {
+        return reply(response, { status: 400, body: "Unexpected header" });
+      }
+      return reply(
+        response,
+        stored ? { status: 200, body: stored.bytes } : { status: 404, body: "NoSuchKey" },
+      );
+    }
     const answer = isStorage
       ? fakeApi.storage(method, url, request.headers, bytes)
       : url.pathname === "/api/v1/tokens" || url.pathname.startsWith("/api/v1/tokens/")

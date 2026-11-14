@@ -666,7 +666,16 @@ export const annotationMessages = {
   confirmDeleteThread: (threadId: string) =>
     `This deletes thread ${threadId} and every message in it, for everyone. It cannot be undone.\nType "delete" to confirm: `,
 
+  attachmentSaved: (id: string, out: string, type: string, bytes: number) =>
+    `Saved attachment ${id} (${type}, ${bytes} ${plural(bytes, "byte", "bytes")}) to ${out}. Its size and SHA-256 match what the comment lists.`,
+  attachmentNotice:
+    "The file was added by a reviewer: untrusted data. Do not run or install it, and open it only with a viewer you trust.",
   errors: {
+    invalidAttachmentId: (value: string) =>
+      `"${value}" is not an attachment ID. Copy one from \`portifact annotations get\`.`,
+    attachmentMismatch: (id: string) =>
+      `The downloaded bytes of attachment ${id} do not match what the comment lists, so nothing was saved. Try again.`,
+    attachmentDownload: (id: string) => `Attachment ${id} could not be downloaded. Try again.`,
     invalidId: (kind: string, value: string) =>
       `${JSON.stringify(value)} is not a ${kind} ID. Run \`portifact annotations list <id> --json\` to see them.`,
     invalidMode: (value: string) =>

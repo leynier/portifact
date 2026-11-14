@@ -18,7 +18,12 @@ import {
   ReviewTabStart,
   ViewerInfo,
 } from "@portifact/contracts";
-import { imageRegionsEnabled, suggestionsEnabled, viewerFrameOrigin } from "@portifact/domain";
+import {
+  attachmentsEnabled,
+  imageRegionsEnabled,
+  suggestionsEnabled,
+  viewerFrameOrigin,
+} from "@portifact/domain";
 import {
   brandLogoUrl,
   customDomainsServing,
@@ -150,6 +155,7 @@ export function reviewRoutes(deps: ReviewDeps) {
             height: brand.logo.height,
           },
         },
+        attachments: attachmentsEnabled(c.env),
       }),
     );
   });

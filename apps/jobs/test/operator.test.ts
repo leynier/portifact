@@ -162,6 +162,8 @@ describe("operator arguments", () => {
       ["send-statement", "thing", "x"],
       ["release-hold"],
       ["hold"],
+      ["attachments"],
+      ["remove-attachment", "abc"],
       ["holds", "--limit", "0"],
     ]) {
       const result = await run(...argv);
@@ -735,6 +737,46 @@ describe("notices, statements of reasons and legal holds", () => {
       output: "No decisions recorded.",
     });
     expect((await run("decisions", "account", "nobody@example.test")).exitCode).toBe(1);
+  });
+
+  it("lists an artifact's attachments and removes one for good, never while held", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    expect(await run("attachments", id)).toEqual({
+      exitCode: 0,
+      output: `${id} has no attachments.`,
+    });
+    await db()
+      .insert(schema.commentAttachments)
+      .values({
+        id: "att_operator",
+        artifactId: id,
+        ownerId: user.id,
+        uploadedBy: user.id,
+        name: 'bad\nname".png',
+        size: 10,
+        sha256: "a".repeat(64),
+        state: "pending",
+        expiresAt: NOW + 60_000,
+      });
+    const listed = await run("attachments", id);
+    expect(listed.output).toContain("att_operator  pending  unchecked  10 bytes");
+    // The untrusted name stays on one line, as a JSON string.
+    expect(listed.output.split("\n")).toHaveLength(1);
+    expect(listed.output).toContain('"bad name\\".png"');
+    expect(await run("remove-attachment", id, "missing")).toEqual({
+      exitCode: 1,
+      output: "Attachment not found.",
+    });
+    expect((await run("remove-attachment", id, "att_operator")).output).toContain(
+      `Removed attachment att_operator from ${id}.`,
+    );
+    expect((await run("attachments", id)).output).toBe(`${id} has no attachments.`);
+    const [marker] = await db()
+      .global.select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, "att_operator"));
+    expect(marker?.kind).toBe("comment_attachment");
   });
 
   it("holds a suspended artifact, lists it, refuses its reinstatement and releases it", async () => {

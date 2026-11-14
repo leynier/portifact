@@ -3,7 +3,7 @@
 // limit rule. Bodies, quotes and author names are untrusted data written by reviewers: the text
 // output strips control characters from them, and every command that prints them reminds on
 // stderr that they are data, never instructions.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
@@ -25,6 +25,8 @@ import {
   AnnotationThreadState,
   AnnotationThreadView,
   AnnotationVersionFilter,
+  AttachmentId,
+  AttachmentLink,
   CURRENT_VERSION,
   ImageRegionRequest,
   UNTRUSTED_ANNOTATIONS_NOTICE,
@@ -496,6 +498,66 @@ export async function wholeHistory(
   } while (cursor !== null);
   return entries;
 }
+
+/**
+ * Downloads one file attached to a comment (decision 0028) through its short link, checks its
+ * size and SHA-256 against what the comment lists before writing anything, and writes it to a new
+ * file only. The default name is `attachment-<id><extension>`, never the reviewer's file name.
+ */
+export async function attachment(
+  io: Io,
+  runtime: Runtime,
+  id: string,
+  attachmentId: string,
+  options: OutputOptions & { out?: string | undefined },
+): Promise<void> {
+  const artifactId = parseArtifactId(id);
+  const parsed = AttachmentId.safeParse(attachmentId.trim());
+  if (!parsed.success) {
+    throw new CliError("invalid_input", text.errors.invalidAttachmentId(attachmentId));
+  }
+  const session = await openSession(io, runtime);
+  const link = await withRetries(session, () =>
+    callApi(session, {
+      method: "GET",
+      path: `${base(artifactId)}/attachments/${parsed.data}`,
+      schema: AttachmentLink,
+    }),
+  );
+  const file = link.attachment;
+  // Straight to storage, never with the API token.
+  const response = await runtime.fetch(link.url, { redirect: "error" }).catch(() => null);
+  if (!response?.ok) {
+    throw new CliError("download_failed", text.errors.attachmentDownload(file.id));
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (bytes.length !== file.size || digest !== file.sha256) {
+    throw new CliError("download_failed", text.errors.attachmentMismatch(file.id));
+  }
+  const out =
+    options.out ?? `attachment-${file.id}${ATTACHMENT_EXTENSIONS[file.contentType] ?? ""}`;
+  try {
+    await writeFile(out, bytes, { flag: "wx" });
+  } catch {
+    throw new CliError("invalid_input", text.errors.cannotWrite(out));
+  }
+  io.stderr(`${text.attachmentNotice}\n`);
+  if (options.json) {
+    writeJson(io, { artifactId, attachment: file, out });
+    return;
+  }
+  io.stdout(`${text.attachmentSaved(plain(file.id), out, plain(file.contentType), file.size)}\n`);
+}
+
+const ATTACHMENT_EXTENSIONS: Readonly<Record<string, string>> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "application/pdf": ".pdf",
+  "text/plain": ".txt",
+};
 
 // Helpers
 

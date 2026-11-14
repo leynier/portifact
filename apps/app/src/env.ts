@@ -124,6 +124,12 @@ export interface Env extends DomainEnv {
    */
   IMAGE_REGIONS_ENABLED?: string | undefined;
   /**
+   * Exactly `"true"` lets people add files and screenshots to comments (decision 0029,
+   * `attachmentsEnabled` in the domain). Reading files already stored never depends on it; never
+   * in a `wrangler.jsonc` before the legal pages describe attachments.
+   */
+  ATTACHMENTS_ENABLED?: string | undefined;
+  /**
    * The documents objects of artifact data (decision 0026), exported by `portifact-data`. The
    * owner document API reaches them only through `dataNamespaces` in packages/services.
    */

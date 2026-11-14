@@ -296,6 +296,10 @@ reason("readers, visitors and reviewers, not the owner side: the access log cove
   "redeemPreviewCode",
 ]);
 reason("comments are not in the audit log's scope (T10); their text never is", [
+  // An upload that holds nothing until a comment names it, and the scan of those never named
+  // (decision 0028).
+  "prepareAttachment",
+  "pruneAttachmentUploads",
   "createAnnotationThread",
   "replyToAnnotationThread",
   "editAnnotationMessage",
@@ -431,6 +435,8 @@ reason("operator moderation and platform controls, kept by the operator tool's o
   "reinstateAccount",
   "suspendBrand",
   "reinstateBrand",
+  // Comment attachments (decision 0028): recorded in the artifact's lifecycle_events.
+  "removeAttachment",
   "setBudgetOverride",
   "clearBudgetOverride",
   "suppressEmail",

@@ -35,6 +35,7 @@ import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { eraseApprovalAuthor } from "./approval-reviews.ts";
 import { deleteJournalCursor, scheduleAuthorErasures } from "./artifact-data.ts";
+import { deletePendingUploadsOf } from "./attachments.ts";
 import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
 import { deleteOwnerAuditStreams, exportAuditStreams } from "./audit-streams.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
@@ -927,6 +928,9 @@ function regionalDeletion(
     db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, userId)),
     db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, userId)),
     closeJobs(db, "comment_notice", userId, sql`1`),
+    // Uploads the account started and never attached (decision 0028); their bytes go by the
+    // rows' delete trigger. Attached files go with the account's messages.
+    deletePendingUploadsOf(db, userId),
     // Review emails sent to the account and those waiting for it (decision 0013, "Emails").
     db.delete(schema.reviewNotices).where(eq(schema.reviewNotices.recipientId, userId)),
     closeJobs(db, "review_notice", userId, sql`1`),

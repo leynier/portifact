@@ -2039,6 +2039,31 @@ An artifact shared with its workspace or an email domain becomes restricted when
       ),
     );
 
+  // Comment attachments (decision 0028) are switched off until the legal pages describe them, so
+  // the command is hidden from the help until then.
+  annotations
+    .command("attachment", { hidden: true })
+    .description("Download one file attached to a comment, checked against what the comment lists")
+    .argument("<id>", "artifact ID")
+    .argument("<attachment-id>", "attachment ID, as `annotations get` lists it")
+    .option("--out <file>", "new file to write; it must not exist (default attachment-<id>.<ext>)")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute(
+        (
+          io,
+          runtime,
+          options: { out?: string; json?: boolean },
+          id: string,
+          attachmentId: string,
+        ) =>
+          annotationCommands.attachment(io, runtime, id, attachmentId, {
+            out: options.out,
+            json: options.json === true,
+          }),
+      ),
+    );
+
   annotations
     .command("history")
     .description(

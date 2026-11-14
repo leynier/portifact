@@ -30,6 +30,14 @@ async function triggers(db: D1Database): Promise<Map<string, string>> {
 }
 
 describe("upgrading a populated database", () => {
+  const LATER_TRIGGERS = new Set([
+    "comment_attachments_usage_attach",
+    "comment_attachments_usage_delete",
+    "comment_attachments_usage_owner",
+    "comment_attachments_release",
+    "annotation_messages_attachments_deleted",
+  ]);
+
   it("keeps ordinary threads and every earlier trigger, and adds the suggestion triggers", async () => {
     const db = env.MIGRATION_DB;
     const all = env.TEST_MIGRATIONS;
@@ -63,7 +71,10 @@ describe("upgrading a populated database", () => {
 
     await applyD1Migrations(db, all);
 
-    const after = await triggers(db);
+    const all_ = await triggers(db);
+    // Later features add triggers of their own tables (comment attachments, migration 0088,
+    // checked in comment-attachments-schema.test.ts); this test is about the suggestion ones.
+    const after = new Map([...all_].filter(([name]) => !LATER_TRIGGERS.has(name)));
     // Every trigger of the database before keeps its name and definition; the new ones are exactly
     // the suggestion triggers, those of rebuilt usage included.
     const changed = [...before]

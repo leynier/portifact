@@ -14,7 +14,12 @@ import {
 import { isLocale } from "@portifact/contracts/locales";
 import { THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { baseEnv, withRequestContext } from "@portifact/db";
-import { needsTermsAcceptance, suggestionsEnabled, viewerFrameOrigin } from "@portifact/domain";
+import {
+  attachmentsEnabled,
+  needsTermsAcceptance,
+  suggestionsEnabled,
+  viewerFrameOrigin,
+} from "@portifact/domain";
 import { DOCUMENT_STYLESHEET } from "@portifact/render";
 import { customDomainsServing, getViewerArtifact } from "@portifact/services";
 import { Hono } from "hono";
@@ -207,9 +212,23 @@ export function dashboardPolicy(
 }
 
 export async function dashboardCsp(
-  env: Pick<Env, "R2_ACCOUNT_ID" | "R2_BUCKET_EU" | "CONTENT_DOMAIN">,
+  env: Pick<Env, "R2_ACCOUNT_ID" | "R2_BUCKET_EU" | "CONTENT_DOMAIN" | "ATTACHMENTS_ENABLED">,
 ): Promise<string> {
-  return dashboardPolicy(storageOrigins(env), await documentStylesheetSource(), env.CONTENT_DOMAIN);
+  return withAttachmentImages(
+    env,
+    dashboardPolicy(storageOrigins(env), await documentStylesheetSource(), env.CONTENT_DOMAIN),
+  );
+}
+
+/**
+ * While comment attachments are on (decision 0028), images on comments are shown as `blob:`
+ * URLs the page builds from bytes it fetched from storage and checked (size and SHA-256), so
+ * `img-src` adds `blob:` and no storage or user host.
+ */
+function withAttachmentImages(env: Pick<Env, "ATTACHMENTS_ENABLED">, policy: string): string {
+  return attachmentsEnabled(env)
+    ? policy.replace("img-src 'self'", "img-src 'self' blob:")
+    : policy;
 }
 
 /**
@@ -221,18 +240,26 @@ export async function dashboardCsp(
  * may read it; the logo comes from the same origin.
  */
 export async function viewerCsp(
-  env: Pick<Env, "R2_ACCOUNT_ID" | "R2_BUCKET_EU" | "CONTENT_DOMAIN" | "SUGGESTIONS_ENABLED">,
+  env: Pick<
+    Env,
+    | "R2_ACCOUNT_ID"
+    | "R2_BUCKET_EU"
+    | "CONTENT_DOMAIN"
+    | "SUGGESTIONS_ENABLED"
+    | "ATTACHMENTS_ENABLED"
+  >,
   artifactId: string,
   frameOrigin = `https://${artifactId}.${env.CONTENT_DOMAIN}`,
 ): Promise<string> {
   // The owner's logo on a branded bar comes from that same artifact origin
   // (`/__portifact/brand/<sha256>`), so `img-src` adds exactly it and no host an owner chose.
-  const policy = dashboardPolicy(
+  const branded = dashboardPolicy(
     storageOrigins(env),
     await documentStylesheetSource(),
     env.CONTENT_DOMAIN,
     frameOrigin,
   ).replace("img-src 'self'", `img-src 'self' ${frameOrigin}`);
+  const policy = withAttachmentImages(env, branded);
   // While edit suggestions are on, the viewer also frames their built previews (decision 0027,
   // "Previews"), always with an empty sandbox; the reserved preview host only, never an artifact.
   if (!suggestionsEnabled(env)) return policy;

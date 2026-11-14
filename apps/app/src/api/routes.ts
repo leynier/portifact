@@ -417,7 +417,7 @@ export function apiRoutes(deps: ApiDeps) {
   );
   api.delete("/api/v1/artifacts/:artifactId", lifecycle(deleteArtifact, "artifacts:delete"));
 
-  api.route("/", annotationRoutes(guarded, deps.now, deps.siteverify));
+  api.route("/", annotationRoutes(guarded, deps.now, deps.siteverify, deps.presigner));
   api.route("/", suggestionRoutes(guarded, deps.now, deps.siteverify));
   versionRoutes(api, guarded, deps);
   documentRoutes(api, guarded, deps.now);

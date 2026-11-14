@@ -8,6 +8,7 @@ import {
   type AnnotationHistoryEntry,
   type AnnotationsState,
   type AnnotationThreadView,
+  type AttachmentView,
   CreateThreadRequest,
   EditMessageRequest,
   IdempotencyKey,
@@ -33,6 +34,11 @@ export interface FakeAnnotationState {
   bodies: unknown[];
   /** The comment action history by artifact, oldest first, as GET .../history pages it. */
   history: Map<string, AnnotationHistoryEntry[]>;
+  /**
+   * Files on comments (decision 0028) by ID: what GET .../attachments/:id lists and the bytes the
+   * fake storage serves at its link (`/r2/attachments/<id>`, only without credentials).
+   */
+  attachments: Map<string, { artifactId: string; view: AttachmentView; bytes: Buffer }>;
 }
 
 const PATH = /^\/artifacts\/([^/]+)\/annotations(?:\/(.+))?$/;
@@ -66,6 +72,7 @@ export function createFakeAnnotations(
     outOfScope: new Set(),
     bodies: [],
     history: new Map(),
+    attachments: new Map(),
   };
 
   const iso = () => new Date(clock()).toISOString();
@@ -269,6 +276,22 @@ export function createFakeAnnotations(
       const entries = all.slice(from, from + limit);
       const next = from + limit < all.length ? String(from + limit) : null;
       return { status: 200, body: { artifactId: artifact.id, entries, nextCursor: next } };
+    }
+
+    const attached = /^attachments\/([^/]+)$/.exec(rest);
+    if (method === "GET" && attached) {
+      const file = state.attachments.get(attached[1] as string);
+      if (!file || file.artifactId !== artifact.id) {
+        return error("not_found", "Attachment not found.");
+      }
+      return {
+        status: 200,
+        body: {
+          attachment: file.view,
+          url: `${url.origin}/r2/attachments/${file.view.id}`,
+          expiresAt: new Date(clock() + 300_000).toISOString(),
+        },
+      };
     }
 
     if (method === "POST" && rest === "threads") {
