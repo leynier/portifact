@@ -78,6 +78,7 @@ export function reasonMessage(t: T, reason: string): string {
   if (isRefusal(reason)) return t(`suggest.refusal.${reason}`);
   if (reason === "css_too_complex") return t("suggest.preview.cssTooComplex");
   if (reason === "element_not_found") return t("suggest.preview.elementNotFound");
+  if (reason === "preview_too_large") return t("suggest.preview.tooLarge");
   return t("suggest.refusal.unknown");
 }
 

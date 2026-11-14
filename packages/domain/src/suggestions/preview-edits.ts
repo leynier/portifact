@@ -18,6 +18,7 @@ import {
   parseHtml,
   unwrap,
 } from "./html-dom.ts";
+import { metered, SELECTOR_LIMITS } from "./selector-match.ts";
 import type { Work } from "./work.ts";
 
 /** A place in a parsed page: the child indexes from the document down to the element. */
@@ -32,8 +33,11 @@ export interface StyleEdit {
 
 export type ElementEdit = StyleEdit;
 
-/** Why a preview of element operations cannot be built. */
-export type ElementPreviewRefusal = "element_not_found";
+/**
+ * Why a preview of element operations cannot be built: an element is not on the stored page, or
+ * finding the elements would pass the selector budget (`SELECTOR_LIMITS`).
+ */
+export type ElementPreviewRefusal = "element_not_found" | "preview_too_large";
 
 function pathOf(node: P5Node): number[] {
   const path: number[] = [];
@@ -77,7 +81,13 @@ export function locateElementEdits(
   const anchors = new AnchorDocument(adapt(body) as AnchorElement);
   const edits: ElementEdit[] = [];
   for (const operation of elementOperations(operations)) {
-    const resolved = anchors.resolveElement(operation.target.anchor as ElementAnchor);
+    // Metered: the anchors query through the DOM surface. They swallow a query's exception and
+    // read it as no match, so the budget is checked after each resolution and a resolution over
+    // it is refused, never taken as an answer.
+    const resolved = metered(work, () =>
+      anchors.resolveElement(operation.target.anchor as ElementAnchor),
+    );
+    if (work.selectorSteps > SELECTOR_LIMITS.steps) return "preview_too_large";
     if (resolved.confidence !== "exact") return "element_not_found";
     const path = pathOf(unwrap(resolved.element));
     if (operation.kind === "style") {

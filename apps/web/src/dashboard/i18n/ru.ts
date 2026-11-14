@@ -3517,4 +3517,6 @@ export const ru = {
   "suggest.style.changeFrom": "{property}: с {before} на {after}",
   "suggest.preview.elementNotFound":
     "Элемента нет в сохранённой странице (возможно, его рисуют её скрипты), поэтому предпросмотра нет.",
+  "suggest.preview.tooLarge":
+    "Построение этого предпросмотра потребовало бы слишком много работы или сделало бы его слишком большим, поэтому предпросмотра нет.",
 } satisfies Catalog;

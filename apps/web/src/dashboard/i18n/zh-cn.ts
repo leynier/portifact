@@ -3186,4 +3186,5 @@ export const zhCN = {
   "suggest.style.changeFrom": "{property} 从 {before} 改为 {after}",
   "suggest.preview.elementNotFound":
     "保存的页面中没有该元素（可能由页面的脚本绘制），因此没有预览。",
+  "suggest.preview.tooLarge": "构建此预览的工作量过大或结果过大，因此没有预览。",
 } satisfies Catalog;

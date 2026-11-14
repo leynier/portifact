@@ -3460,4 +3460,6 @@ export const ja = {
   "suggest.style.changeFrom": "{property} を {before} から {after} に",
   "suggest.preview.elementNotFound":
     "要素が保存されたページにありません（ページのスクリプトが描いている可能性があります）。そのためプレビューはありません。",
+  "suggest.preview.tooLarge":
+    "このプレビューの作成は処理が多すぎるか、大きくなりすぎるため、プレビューはありません。",
 } satisfies Catalog;

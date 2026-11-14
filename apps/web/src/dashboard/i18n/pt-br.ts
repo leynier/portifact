@@ -3492,4 +3492,6 @@ export const ptBR = {
   "suggest.style.changeFrom": "{property} de {before} para {after}",
   "suggest.preview.elementNotFound":
     "O elemento não está na página armazenada (os scripts dela podem desenhá-lo), então não há prévia.",
+  "suggest.preview.tooLarge":
+    "Construir esta prévia exigiria trabalho demais ou a deixaria grande demais, então não há prévia.",
 } satisfies Catalog;

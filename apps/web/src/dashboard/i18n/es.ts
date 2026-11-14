@@ -3528,4 +3528,6 @@ export const es = {
   "suggest.style.changeFrom": "{property} de {before} a {after}",
   "suggest.preview.elementNotFound":
     "El elemento no está en la página guardada (puede que lo dibujen sus scripts), así que no hay vista previa.",
+  "suggest.preview.tooLarge":
+    "Construir esta vista previa costaría demasiado trabajo o la haría demasiado grande, así que no hay vista previa.",
 } satisfies Catalog;

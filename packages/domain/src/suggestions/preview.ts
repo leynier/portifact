@@ -330,8 +330,15 @@ export function previewable(kind: FileKind, source: string): boolean {
     : new TextEncoder().encode(source).length <= PLAN_LIMITS.documentBytes;
 }
 
-/** Why a page has no preview: its CSS is over its bounds, or an element an edit names is not on it. */
-export const PREVIEW_REASONS = ["css_too_complex", "element_not_found"] as const;
+/**
+ * Why a page has no preview: its CSS is over its bounds, an element an edit names is not on it, or
+ * building it would pass the preview's work or size budget.
+ */
+export const PREVIEW_REASONS = [
+  "css_too_complex",
+  "element_not_found",
+  "preview_too_large",
+] as const;
 export type PreviewReason = (typeof PREVIEW_REASONS)[number];
 
 /** A built preview, or why there is none for this page. */

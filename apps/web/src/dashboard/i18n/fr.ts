@@ -3567,4 +3567,6 @@ export const fr = {
   "suggest.style.changeFrom": "{property} de {before} à {after}",
   "suggest.preview.elementNotFound":
     "L’élément n’est pas dans la page enregistrée (ses scripts le dessinent peut-être) : il n’y a donc pas d’aperçu.",
+  "suggest.preview.tooLarge":
+    "Construire cet aperçu demanderait trop de travail ou le rendrait trop volumineux : il n’y a donc pas d’aperçu.",
 } satisfies Catalog;

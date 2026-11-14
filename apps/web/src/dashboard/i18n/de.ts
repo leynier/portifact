@@ -3548,4 +3548,6 @@ export const de = {
   "suggest.style.changeFrom": "{property} von {before} auf {after}",
   "suggest.preview.elementNotFound":
     "Das Element steht nicht in der gespeicherten Seite (vielleicht zeichnen es ihre Skripte), daher gibt es keine Vorschau.",
+  "suggest.preview.tooLarge":
+    "Diese Vorschau zu erstellen wäre zu aufwendig oder sie würde zu groß, daher gibt es keine Vorschau.",
 } satisfies Catalog;

@@ -3431,6 +3431,8 @@ export const en = {
   "suggest.style.changeFrom": "{property} from {before} to {after}",
   "suggest.preview.elementNotFound":
     "The element is not in the stored page (the page's scripts may draw it), so there is no preview.",
+  "suggest.preview.tooLarge":
+    "Building this preview would take too much work or make it too large, so there is no preview.",
 } as const;
 
 export type MessageId = keyof typeof en;
