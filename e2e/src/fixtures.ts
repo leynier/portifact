@@ -279,6 +279,25 @@ export async function routeStorage(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Puts bytes in the stack's bucket at `key`, as a presigned PUT would (with their SHA-256), for
+ * tests that need a stored object without uploading it from the browser (WebKit cannot, see
+ * `routeStorage`).
+ */
+export async function storeObject(key: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const query = new URLSearchParams({ key, bucket: "portifact-e2e" });
+  const response = await fetch(`${controlUrl()}/storage?${query}`, {
+    method: "PUT",
+    headers: {
+      "content-length": String(bytes.byteLength),
+      "x-amz-checksum-sha256": btoa(String.fromCharCode(...digest)),
+    },
+    body: bytes,
+  });
+  if (!response.ok) throw new Error(`storing ${key} failed: ${response.status}`);
+}
+
 export async function signIn(context: BrowserContext, user: User): Promise<void> {
   await context.addCookies([
     {

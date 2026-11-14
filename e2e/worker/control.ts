@@ -234,14 +234,17 @@ async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Resp
   if (!bucket) return new Response("Unknown bucket", { status: 400 });
   // A presigned download: the object as R2 holds it.
   if (request.method === "GET") {
-    const object = key.startsWith("objects/") ? await bucket.get(key) : null;
+    // Published objects, and comment attachments (decision 0028), as R2 serves them.
+    const readable = key.startsWith("objects/") || key.startsWith("attachments/");
+    const object = readable ? await bucket.get(key) : null;
     return object ? new Response(object.body) : new Response("Not found", { status: 404 });
   }
   const size = Number(request.headers.get("content-length"));
   const uploadId = url.searchParams.get("uploadId");
   if (uploadId !== null) return partPut(request, bucket, key, uploadId, url, size);
   const checksum = request.headers.get("x-amz-checksum-sha256") ?? "";
-  if (request.method !== "PUT" || !key.startsWith("objects/") || !request.body) {
+  const writable = key.startsWith("objects/") || key.startsWith("attachments/");
+  if (request.method !== "PUT" || !writable || !request.body) {
     return new Response("Bad request", { status: 400 });
   }
   if (!Number.isSafeInteger(size) || size < 0 || checksum === "") {

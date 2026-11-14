@@ -103,6 +103,12 @@ import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
 import { loginUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
 import { AnnounceContext, useAnnounce, useDashboard, useT } from "../context.tsx";
+import {
+  AttachmentControls,
+  AttachmentsContext,
+  useAttachmentsEnabled,
+  useAttachmentUploads,
+} from "../review/attachments.tsx";
 import { useIssueChoices } from "../review/create-issue.tsx";
 import { DataGrantPanel, useDataGrant } from "../review/data-grant.tsx";
 import { DraftPanel, useDraft } from "../review/draft.tsx";
@@ -278,7 +284,9 @@ export function ViewerScreen() {
   }
   return (
     <AnnounceContext.Provider value={announce}>
-      {content}
+      <AttachmentsContext.Provider value={info.data?.attachments === true}>
+        {content}
+      </AttachmentsContext.Provider>
       <Toast message={announcement} dismissLabel={t("shell.dismiss")} />
     </AnnounceContext.Provider>
   );
@@ -1921,8 +1929,9 @@ function useCreateThread(
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const human = useHumanCheck(humanNeeded);
+  const uploads = useAttachmentUploads(start.artifactId);
   const post = useMutation({
-    mutationFn: (body: string) =>
+    mutationFn: ({ body, attachments }: { body: string; attachments: string[] }) =>
       human.post((key, token) =>
         api.createThread(
           start.artifactId,
@@ -1932,12 +1941,14 @@ function useCreateThread(
             ...(region ? { region } : {}),
             body,
             ...(token === undefined ? {} : { turnstileToken: token }),
+            ...(attachments.length > 0 ? { attachments } : {}),
           },
           key,
         ),
       ),
     onSuccess: async (thread) => {
       if (!thread) return;
+      uploads.clear();
       applyThread(queryClient, start.artifactId, thread);
       announce(t("review.composer.posted"));
       onDone(thread);
@@ -1948,15 +1959,19 @@ function useCreateThread(
     defaultValues: { body: "" },
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
-    onSubmit: ({ value }) =>
-      post.mutateAsync(value.body).then(
+    onSubmit: ({ value }) => {
+      // Files still uploading (or failed) keep the comment from going out without them.
+      const attachments = uploads.toPost();
+      if (attachments === null) return;
+      return post.mutateAsync({ body: value.body, attachments }).then(
         () => {},
         () => {},
-      ),
+      );
+    },
   });
   const error =
     post.isError && !humanRefusal(post.error) ? <ActionError error={post.error} /> : null;
-  return { form, post, human, error };
+  return { form, post, human, error, uploads };
 }
 
 /** Who can read a new thread: every reader sees the owner's threads; a reader's, the owner. */
@@ -1980,7 +1995,8 @@ function Composer({
   const t = useT();
   // Frozen when the composer opens: nothing the frame sends later can retarget the comment.
   const [target] = useState(initialTarget);
-  const { form, post, human, error } = useCreateThread(start, target, humanNeeded, onDone);
+  const { form, post, human, error, uploads } = useCreateThread(start, target, humanNeeded, onDone);
+  const attaching = useAttachmentsEnabled();
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border-strong p-3">
       <TargetSummary target={target} />
@@ -1997,6 +2013,7 @@ function Composer({
                 />
               )}
             </form.AppField>
+            {attaching ? <AttachmentControls uploads={uploads} /> : null}
             {human.field}
             <div className="flex flex-wrap gap-2">
               <form.SubmitButton icon={<Send className="size-4" />} busy={post.isPending}>
@@ -2052,7 +2069,14 @@ function InlineComposer({
   const t = useT();
   const [target] = useState(initialTarget);
   const [region] = useState(initialRegion);
-  const { form, post, human, error } = useCreateThread(start, target, humanNeeded, onDone, region);
+  const { form, post, human, error, uploads } = useCreateThread(
+    start,
+    target,
+    humanNeeded,
+    onDone,
+    region,
+  );
+  const attaching = useAttachmentsEnabled();
   const panel = useRef<HTMLDivElement>(null);
   const cancel = useRef(() => onDone(null));
   cancel.current = () => onDone(null);
@@ -2096,6 +2120,7 @@ function InlineComposer({
                 />
               )}
             </form.AppField>
+            {attaching ? <AttachmentControls uploads={uploads} compact /> : null}
             {human.field}
             <div className="flex flex-wrap justify-end gap-2">
               <Button size="sm" onClick={() => onDone(null)}>

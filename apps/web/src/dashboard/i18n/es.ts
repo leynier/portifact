@@ -1355,6 +1355,28 @@ export const es = {
   "review.composer.invalid":
     "El comentario es demasiado largo o contiene caracteres no permitidos.",
   "review.composer.posted": "Comentario publicado.",
+  "review.attach.file": "Adjuntar un archivo",
+  "review.attach.screenshot": "Adjuntar una captura de pantalla",
+  "review.attach.hint":
+    "Imágenes (PNG, JPEG, GIF o WebP), PDF o texto plano, de hasta 10 MB cada uno y 4 por comentario. Quien pueda leer el comentario puede abrirlos.",
+  "review.attach.list": "Archivos para adjuntar",
+  "review.attach.preview": "Vista previa de {name}",
+  "review.attach.remove": "Quitar {name}",
+  "review.attach.added": "{name} está listo para publicar.",
+  "review.attach.screenshotName": "captura",
+  "review.attach.state.uploading": "Subiendo",
+  "review.attach.state.ready": "Listo",
+  "review.attach.state.failed": "No se pudo subir",
+  "review.attach.problem.tooMany": "Un comentario puede llevar como máximo 4 archivos.",
+  "review.attach.problem.tooLarge": "{name} pesa más de 10 MB.",
+  "review.attach.problem.empty": "{name} está vacío.",
+  "review.attach.problem.captureFailed": "No se tomó la captura de pantalla.",
+  "review.attach.problem.wait":
+    "Espera a que se suban todos los archivos o quita los que fallaron.",
+  "review.attachments.label": "Archivos adjuntos",
+  "review.attachments.download": "Descargar {name}",
+  "review.attachments.loading": "Cargando {name}",
+  "review.attachments.unavailable": "No se pudo cargar {name}.",
   "review.humanCheck.body":
     "Una verificación rápida de que eres humano antes de publicar tu comentario. Se publica en cuanto termina la verificación.",
   "review.humanCheck.needed":

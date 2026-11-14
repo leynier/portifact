@@ -1337,6 +1337,27 @@ export const ptBR = {
   "review.composer.invalid":
     "O comentário é longo demais ou contém caracteres que não são permitidos.",
   "review.composer.posted": "Comentário publicado.",
+  "review.attach.file": "Anexar um arquivo",
+  "review.attach.screenshot": "Anexar uma captura de tela",
+  "review.attach.hint":
+    "Imagens (PNG, JPEG, GIF ou WebP), PDF ou texto simples, de até 10 MB cada e 4 por comentário. Quem pode ler o comentário pode abri-los.",
+  "review.attach.list": "Arquivos para anexar",
+  "review.attach.preview": "Prévia de {name}",
+  "review.attach.remove": "Remover {name}",
+  "review.attach.added": "{name} está pronto para publicar.",
+  "review.attach.screenshotName": "captura",
+  "review.attach.state.uploading": "Enviando",
+  "review.attach.state.ready": "Pronto",
+  "review.attach.state.failed": "Falha no envio",
+  "review.attach.problem.tooMany": "Um comentário pode ter no máximo 4 arquivos.",
+  "review.attach.problem.tooLarge": "{name} tem mais de 10 MB.",
+  "review.attach.problem.empty": "{name} está vazio.",
+  "review.attach.problem.captureFailed": "A captura de tela não foi feita.",
+  "review.attach.problem.wait": "Aguarde o envio de todos os arquivos ou remova os que falharam.",
+  "review.attachments.label": "Arquivos anexados",
+  "review.attachments.download": "Baixar {name}",
+  "review.attachments.loading": "Carregando {name}",
+  "review.attachments.unavailable": "Não foi possível carregar {name}.",
   "review.humanCheck.body":
     "Uma verificação rápida de que você é humano antes de publicar seu comentário. Ele é publicado assim que a verificação terminar.",
   "review.humanCheck.needed":

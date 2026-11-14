@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { ATTACHMENT_LIMITS } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
@@ -105,5 +106,22 @@ describe("keys and the switch", () => {
     expect(attachmentsEnabled({ ATTACHMENTS_ENABLED: "true" })).toBe(true);
     expect(attachmentsEnabled({ ATTACHMENTS_ENABLED: "TRUE" })).toBe(false);
     expect(attachmentsEnabled({})).toBe(false);
+  });
+});
+
+describe("the attachments switch in deployed configuration", () => {
+  it("is in no deployed Worker configuration", () => {
+    for (const app of ["app", "content", "jobs", "web", "data"]) {
+      let config: string;
+      try {
+        config = readFileSync(
+          new URL(`../../../apps/${app}/wrangler.jsonc`, import.meta.url),
+          "utf8",
+        );
+      } catch {
+        continue;
+      }
+      expect(config, app).not.toContain("ATTACHMENTS_ENABLED");
+    }
   });
 });
