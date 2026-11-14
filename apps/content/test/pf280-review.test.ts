@@ -272,7 +272,9 @@ describe("PR 280 review reproductions", () => {
   });
 
   it.each(["read", "shared"] as const)(
-    "B2: live must not expose the deferred %s mode",
+    // Delivery 9 opened `read` and `shared` to pages: the reproduction now proves that a page
+    // connection reaches them, through the same scope rules as the page's API.
+    "B2: live reaches the %s mode once pages do (delivery 9)",
     async (mode) => {
       const id = await seed();
       const deps = {
@@ -307,10 +309,10 @@ describe("PR 280 review reproductions", () => {
         });
         expect(created.ok).toBe(true);
         await new Promise((resolve) => setTimeout(resolve, 100));
-        expect({
-          subscription,
-          changes: client.received.filter((message) => message.collection === "later"),
-        }).toEqual({ subscription: { error: "not_found" }, changes: [] });
+        expect(subscription).not.toHaveProperty("error");
+        expect(client.received.filter((message) => message.collection === "later")).toMatchObject([
+          { kind: "created" },
+        ]);
       } finally {
         socket.close(1000);
       }
