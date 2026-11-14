@@ -3564,4 +3564,6 @@ export const es = {
     "El elemento iría dentro de sí mismo o junto a un elemento ya quitado, así que no hay vista previa.",
   "suggest.structure.destination.choosing": "Elige el destino en el artifact.",
   "suggest.structure.destination.stop": "Dejar de elegir",
+  "suggest.preview.tooLarge":
+    "Construir esta vista previa costaría demasiado trabajo o la haría demasiado grande, así que no hay vista previa.",
 } satisfies Catalog;

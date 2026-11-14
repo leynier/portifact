@@ -333,12 +333,14 @@ export function previewable(kind: FileKind, source: string): boolean {
 
 /**
  * Why a page has no preview: its CSS is over its bounds, an element an edit names is not on it, or
- * a move goes into its own element or next to a removed one.
+ * a move goes into its own element or next to a removed one, or building it would pass the
+ * preview's work or size budget.
  */
 export const PREVIEW_REASONS = [
   "css_too_complex",
   "element_not_found",
   "structure_conflict",
+  "preview_too_large",
 ] as const;
 export type PreviewReason = (typeof PREVIEW_REASONS)[number];
 

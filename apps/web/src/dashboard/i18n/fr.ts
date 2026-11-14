@@ -3603,4 +3603,6 @@ export const fr = {
     "L’élément irait dans lui-même ou à côté d’un élément déjà retiré : il n’y a donc pas d’aperçu.",
   "suggest.structure.destination.choosing": "Choisissez la destination dans l’artifact.",
   "suggest.structure.destination.stop": "Arrêter de choisir",
+  "suggest.preview.tooLarge":
+    "Construire cet aperçu demanderait trop de travail ou le rendrait trop volumineux : il n’y a donc pas d’aperçu.",
 } satisfies Catalog;

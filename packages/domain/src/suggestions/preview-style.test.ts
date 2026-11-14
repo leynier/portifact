@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { elementTargetOf, parseDocument, RENDERER } from "../testing/suggestions/pages.ts";
 import { previewOfEdit } from "./preview.ts";
 import { locateElementEdits } from "./preview-edits.ts";
+import { SELECTOR_LIMITS } from "./selector-match.ts";
 import { newWork } from "./work.ts";
 
 const PAGE =
@@ -179,5 +180,26 @@ describe("style operations on built previews", () => {
     });
     expect(built.state).toBe("ready");
     expect(work).toMatchObject({ parses: 2, indexes: 1 });
+  });
+});
+
+describe("element resolution has a budget (review of pull request #287, P1)", () => {
+  it("gives no preview, never a guess, when finding the elements is over its budget", async () => {
+    const page = `<!doctype html><html><head></head><body>${"<div>".repeat(20)}<p id="t">Text</p>${"</div>".repeat(20)}</body></html>`;
+    const op = await styleOf("html", page, "#t", [
+      { property: "color", before: null, after: "red" },
+    ]);
+    const work = newWork();
+    work.selectorSteps = SELECTOR_LIMITS.steps;
+    expect(
+      previewOfEdit({
+        kind: "html",
+        base: page,
+        shown: page,
+        operations: [op],
+        renderer: RENDERER,
+        work,
+      }),
+    ).toEqual({ state: "unavailable", reason: "preview_too_large" });
   });
 });

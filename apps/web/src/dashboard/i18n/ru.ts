@@ -3554,4 +3554,6 @@ export const ru = {
     "Элемент оказался бы внутри самого себя или рядом с уже убранным элементом, поэтому предпросмотра нет.",
   "suggest.structure.destination.choosing": "Выберите место в artifact.",
   "suggest.structure.destination.stop": "Прекратить выбор",
+  "suggest.preview.tooLarge":
+    "Построение этого предпросмотра потребовало бы слишком много работы или сделало бы его слишком большим, поэтому предпросмотра нет.",
 } satisfies Catalog;

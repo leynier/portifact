@@ -3467,6 +3467,8 @@ export const en = {
     "The element would go into itself or next to an element already removed, so there is no preview.",
   "suggest.structure.destination.choosing": "Choose the destination in the artifact.",
   "suggest.structure.destination.stop": "Stop choosing",
+  "suggest.preview.tooLarge":
+    "Building this preview would take too much work or make it too large, so there is no preview.",
 } as const;
 
 export type MessageId = keyof typeof en;

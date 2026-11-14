@@ -3496,4 +3496,6 @@ export const ja = {
     "要素が自分自身の中、またはすでに削除された要素の隣に入るため、プレビューはありません。",
   "suggest.structure.destination.choosing": "artifact 内で移動先を選んでください。",
   "suggest.structure.destination.stop": "選択をやめる",
+  "suggest.preview.tooLarge":
+    "このプレビューの作成は処理が多すぎるか、大きくなりすぎるため、プレビューはありません。",
 } satisfies Catalog;

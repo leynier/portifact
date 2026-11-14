@@ -3,7 +3,12 @@ import type { Element as DomElement } from "happy-dom";
 import { describe, expect, it } from "vitest";
 import { parseDocument } from "../testing/suggestions/pages.ts";
 import { find, type P5Element, type P5Node, parseHtml, walk } from "./html-dom.ts";
-import { parseSelector, querySelectorAll } from "./selector-match.ts";
+import {
+  parseSelector,
+  querySelectorAll,
+  SELECTOR_LIMITS,
+  SelectorBudgetExceeded,
+} from "./selector-match.ts";
 import { newWork } from "./work.ts";
 
 const PAGE = `<!doctype html><html><head><title>t</title></head><body>
@@ -112,5 +117,54 @@ describe("the selector matcher reads the anchors' grammar as browsers do", () =>
     const root = find(parsed, "body") as P5Element;
     expect(querySelectorAll(root, "#end")).toHaveLength(1);
     expect([...walk(root)].length).toBeGreaterThan(20_000);
+  });
+});
+
+describe("the selector matcher's work is bounded and metered (review of pull request #287, P1)", () => {
+  const nested = (depth: number) =>
+    parseHtml(`<body>${"<div>".repeat(depth)}x${"</div>".repeat(depth)}</body>`, newWork())
+      .document;
+  // Valid in the anchors' grammar: one compound that matches nothing, then 20 descendant ones.
+  const ADVERSARIAL = [".absent", ...Array.from({ length: 20 }, () => "div")].join(" ");
+
+  it("matches a selector that would backtrack exponentially in linear, metered work", () => {
+    const document = nested(20);
+    const work = newWork();
+    expect(parseSelector(ADVERSARIAL)).not.toBeNull();
+    expect(querySelectorAll(find(document, "body") as P5Element, ADVERSARIAL, work)).toEqual([]);
+    // Each (element, compound) pair is decided once: 21 elements by 21 compounds at most, plus
+    // the walk; the naive matcher read tags 3,145,726 times here.
+    expect(work.selectorSteps).toBeGreaterThan(0);
+    expect(work.selectorSteps).toBeLessThan(2_000);
+  });
+
+  it("still finds what a descendant chain names, on a deep page", () => {
+    const document = nested(5_000);
+    const work = newWork();
+    const found = querySelectorAll(find(document, "body") as P5Element, "body div div > div", work);
+    expect(found).toHaveLength(4_998);
+    expect(work.selectorSteps).toBeLessThan(5_000 * 4 * 3);
+  });
+
+  it("stops at its budget and says so through the meter", () => {
+    const document = nested(200);
+    const work = newWork();
+    work.selectorSteps = SELECTOR_LIMITS.steps - 10;
+    expect(() => querySelectorAll(find(document, "body") as P5Element, "div div", work)).toThrow(
+      SelectorBudgetExceeded,
+    );
+    expect(work.selectorSteps).toBeGreaterThan(SELECTOR_LIMITS.steps);
+  });
+
+  it("reads :nth-of-type from sibling indexes computed once per parent", () => {
+    const many = parseHtml(
+      `<body><ul>${"<li>x</li>".repeat(2_000)}</ul></body>`,
+      newWork(),
+    ).document;
+    const work = newWork();
+    const found = querySelectorAll(find(many, "body") as P5Element, "li:nth-of-type(1999)", work);
+    expect(found).toHaveLength(1);
+    // A per-element sibling scan would cost about two million steps here.
+    expect(work.selectorSteps).toBeLessThan(10_000);
   });
 });

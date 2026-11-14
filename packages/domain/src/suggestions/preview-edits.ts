@@ -18,6 +18,7 @@ import {
   parseHtml,
   unwrap,
 } from "./html-dom.ts";
+import { metered, SELECTOR_LIMITS } from "./selector-match.ts";
 import type { Work } from "./work.ts";
 
 /** A place in a parsed page: the child indexes from the document down to the element. */
@@ -44,10 +45,14 @@ export interface StructureEdit {
 export type ElementEdit = StyleEdit | StructureEdit;
 
 /**
- * Why a preview of element operations cannot be built: an element is not on the stored page, or
- * a move goes into the element itself or a removed element.
+ * Why a preview of element operations cannot be built: an element is not on the stored page, a
+ * move goes into the element itself or a removed element, or finding the elements would pass the
+ * selector budget (`SELECTOR_LIMITS`).
  */
-export type ElementPreviewRefusal = "element_not_found" | "structure_conflict";
+export type ElementPreviewRefusal =
+  | "element_not_found"
+  | "structure_conflict"
+  | "preview_too_large";
 
 /** Whether `node` is `ancestor` or inside it. */
 function within(node: P5Node, ancestor: P5Node): boolean {
@@ -96,13 +101,17 @@ export function locateElementEdits(
   work.indexes++;
   const anchors = new AnchorDocument(adapt(body) as AnchorElement);
   const edits: ElementEdit[] = [];
-  const exact = (anchor: ElementAnchor): P5Node | null => {
-    const resolved = anchors.resolveElement(anchor);
-    return resolved.confidence === "exact" ? unwrap(resolved.element) : null;
+  // Metered: the anchors query through the DOM surface. They swallow a query's exception and
+  // read it as no match, so the budget is checked after each resolution and a resolution over it
+  // is refused, never taken as an answer.
+  const exact = (anchor: ElementAnchor): P5Node | ElementPreviewRefusal => {
+    const resolved = metered(work, () => anchors.resolveElement(anchor));
+    if (work.selectorSteps > SELECTOR_LIMITS.steps) return "preview_too_large";
+    return resolved.confidence === "exact" ? unwrap(resolved.element) : "element_not_found";
   };
   for (const operation of elementOperations(operations)) {
     const element = exact(operation.target.anchor as ElementAnchor);
-    if (!element) return "element_not_found";
+    if (typeof element === "string") return element;
     const path = pathOf(element);
     if (operation.kind === "structure") {
       if (operation.action !== "move") {
@@ -110,7 +119,7 @@ export function locateElementEdits(
         continue;
       }
       const destination = exact(operation.destination.target.anchor as ElementAnchor);
-      if (!destination) return "element_not_found";
+      if (typeof destination === "string") return destination;
       // An element cannot go next to itself or into itself.
       if (within(destination, element)) return "structure_conflict";
       edits.push({

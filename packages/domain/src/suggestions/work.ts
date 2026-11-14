@@ -12,6 +12,11 @@ export interface Work {
   decodes: number;
   /** Long attribute values hashed (synchronously) for identity evidence. */
   hashes: number;
+  /**
+   * Selector work for previews of element operations: each compound of a selector decided for
+   * one element, each node a query walks and each sibling counted for `:nth-of-type`.
+   */
+  selectorSteps: number;
 }
 
 export const newWork = (): Work => ({
@@ -21,4 +26,5 @@ export const newWork = (): Work => ({
   maps: 0,
   decodes: 0,
   hashes: 0,
+  selectorSteps: 0,
 });

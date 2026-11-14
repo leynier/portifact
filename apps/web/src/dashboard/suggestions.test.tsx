@@ -1469,7 +1469,10 @@ describe("Suggest a style (decision 0027, delivery 3)", () => {
   });
 
   it("says why a style has no preview", async () => {
-    server.suggestions.preview = { state: "unavailable", reasons: ["element_not_found"] };
+    server.suggestions.preview = {
+      state: "unavailable",
+      reasons: ["element_not_found", "preview_too_large"],
+    };
     await open();
     const { nonce } = await connect();
     await suggestMode();
@@ -1485,6 +1488,11 @@ describe("Suggest a style (decision 0027, delivery 3)", () => {
     expect(
       await within(panel).findByText(
         "The element is not in the stored page (the page's scripts may draw it), so there is no preview.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(panel).getByText(
+        "Building this preview would take too much work or make it too large, so there is no preview.",
       ),
     ).toBeTruthy();
   });

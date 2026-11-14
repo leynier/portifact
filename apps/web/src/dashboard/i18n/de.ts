@@ -3585,4 +3585,6 @@ export const de = {
     "Das Element käme in sich selbst oder neben ein bereits entferntes Element, daher gibt es keine Vorschau.",
   "suggest.structure.destination.choosing": "Wähle das Ziel im Artifact.",
   "suggest.structure.destination.stop": "Auswahl beenden",
+  "suggest.preview.tooLarge":
+    "Diese Vorschau zu erstellen wäre zu aufwendig oder sie würde zu groß, daher gibt es keine Vorschau.",
 } satisfies Catalog;

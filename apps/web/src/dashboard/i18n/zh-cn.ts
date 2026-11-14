@@ -3220,4 +3220,5 @@ export const zhCN = {
   "suggest.preview.structureConflict": "该元素会进入自身内部或已移除元素的旁边，因此没有预览。",
   "suggest.structure.destination.choosing": "在 artifact 中选择目标位置。",
   "suggest.structure.destination.stop": "停止选择",
+  "suggest.preview.tooLarge": "构建此预览的工作量过大或结果过大，因此没有预览。",
 } satisfies Catalog;

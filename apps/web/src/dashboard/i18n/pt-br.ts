@@ -3528,4 +3528,6 @@ export const ptBR = {
     "O elemento iria para dentro de si mesmo ou ao lado de um elemento já removido, então não há prévia.",
   "suggest.structure.destination.choosing": "Escolha o destino no artifact.",
   "suggest.structure.destination.stop": "Parar de escolher",
+  "suggest.preview.tooLarge":
+    "Construir esta prévia exigiria trabalho demais ou a deixaria grande demais, então não há prévia.",
 } satisfies Catalog;
