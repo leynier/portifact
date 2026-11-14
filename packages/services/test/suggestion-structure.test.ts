@@ -156,6 +156,76 @@ describe("structure suggestions", () => {
   });
 });
 
+describe("structure previews are bounded (review of pull request #288)", () => {
+  it("refuses duplicates that would copy earlier copies, issuing nothing", async () => {
+    // 16 nested sections duplicated from the innermost outward: a 339-byte page would become
+    // 131,070 elements and 2.69 MB without the copy budget.
+    const page = `<!doctype html><html><head><title>T</title></head><body>${Array.from(
+      { length: 16 },
+      (_, i) => `<section id="s${i + 1}">`,
+    ).join("")}x${"</section>".repeat(16)}</body></html>`;
+    const owner = await person("Owner");
+    const sessionId = await session(owner.id);
+    const { artifactId, versionId } = await publishFile(owner.id, "html", page);
+    await openArtifact(artifactId);
+    const operations: EditOperation[] = Array.from({ length: 16 }, (_, i) => ({
+      kind: "structure",
+      action: "duplicate",
+      target: elementTarget("html", `#s${16 - i}`, "section", "x"),
+    }));
+    const { plan } = await suggestionWithPlan({
+      kind: "html",
+      source: page,
+      artifactId,
+      versionId,
+      ownerId: owner.id,
+      authorId: owner.id,
+      viewerId: owner.id,
+      operations,
+    });
+    expect(await issue({ owner, sessionId, artifactId, plan })).toEqual({
+      ok: true,
+      value: { state: "unavailable", reasons: ["preview_too_large"] },
+    });
+    expect(await codeRows(artifactId)).toEqual([]);
+  });
+
+  it("refuses a move next to an element inside a removed section", async () => {
+    const page =
+      '<!doctype html><html><head><title>T</title></head><body><section id="box"><p id="a">Alpha</p></section><p id="b">Beta</p></body></html>';
+    const owner = await person("Owner");
+    const sessionId = await session(owner.id);
+    const { artifactId, versionId } = await publishFile(owner.id, "html", page);
+    await openArtifact(artifactId);
+    const { plan } = await suggestionWithPlan({
+      kind: "html",
+      source: page,
+      artifactId,
+      versionId,
+      ownerId: owner.id,
+      authorId: owner.id,
+      viewerId: owner.id,
+      operations: [
+        {
+          kind: "structure",
+          action: "remove",
+          target: elementTarget("html", "#box", "section", "Alpha"),
+        },
+        {
+          kind: "structure",
+          action: "move",
+          target: elementTarget("html", "#b", "p", "Beta"),
+          destination: { target: elementTarget("html", "#a", "p", "Alpha"), place: "after" },
+        },
+      ],
+    });
+    expect(await issue({ owner, sessionId, artifactId, plan })).toEqual({
+      ok: true,
+      value: { state: "unavailable", reasons: ["structure_conflict"] },
+    });
+  });
+});
+
 describe("accepting a structure suggestion", () => {
   it("publishes nothing and lists the move exactly as the owner saw it", async () => {
     const owner = await user("Owner");

@@ -141,23 +141,83 @@ export function locateElementEdits(
   return edits;
 }
 
-/** A copy of a parsed node and everything under it, outside the tree. */
+/**
+ * What duplicates may add to one preview, all operations together (review of pull request #288):
+ * duplicating nested elements from the innermost outward copies earlier copies, so each copy is
+ * measured before it is made and the preview is refused (`preview_too_large`) past these.
+ */
+export const PREVIEW_COPY_LIMITS = { nodes: 10_000, bytes: 256 * 1024 } as const;
+
+/** The copies one preview made so far, against `PREVIEW_COPY_LIMITS`. */
+export interface CopyBudget {
+  nodes: number;
+  bytes: number;
+}
+
+export const newCopyBudget = (): CopyBudget => ({ nodes: 0, bytes: 0 });
+
+/** About the bytes a node writes in a preview, without its children. */
+function nodeBytes(node: P5Node): number {
+  if ("tagName" in node) {
+    return (
+      node.tagName.length * 2 +
+      5 +
+      node.attrs.reduce((total, attr) => total + attr.name.length + attr.value.length + 4, 0)
+    );
+  }
+  const value = (node as { value?: string; data?: string }).value ?? "";
+  return value.length;
+}
+
+/**
+ * Whether copying `node` stays within the budget, counted before anything is allocated and
+ * stopping as soon as it would pass; the budget is taken only when it fits.
+ */
+function takeCopy(node: P5Node, budget: CopyBudget): boolean {
+  let nodes = budget.nodes;
+  let bytes = budget.bytes;
+  const stack: P5Node[] = [node];
+  while (stack.length > 0) {
+    const at = stack.pop() as P5Node;
+    nodes += 1;
+    bytes += nodeBytes(at);
+    if (nodes > PREVIEW_COPY_LIMITS.nodes || bytes > PREVIEW_COPY_LIMITS.bytes) return false;
+    for (const child of childrenOf(at)) stack.push(child);
+  }
+  budget.nodes = nodes;
+  budget.bytes = bytes;
+  return true;
+}
+
+/** A copy of a parsed node and everything under it, outside the tree, made iteratively. */
 function copyOf(node: P5Node): P5Node {
-  if (!("tagName" in node)) {
-    return { ...node, parentNode: null } as P5Node;
+  const shallow = (source: P5Node): P5Node =>
+    "tagName" in source
+      ? ({
+          ...source,
+          attrs: source.attrs.map((attr) => ({ ...attr })),
+          childNodes: [],
+          parentNode: null,
+        } as P5Node)
+      : ({ ...source, parentNode: null } as P5Node);
+  const root = shallow(node);
+  const stack: [P5Node, P5Node][] = [[node, root]];
+  while (stack.length > 0) {
+    const [source, copy] = stack.pop() as [P5Node, P5Node];
+    for (const child of childrenOf(source)) {
+      const childCopy = shallow(child);
+      (childCopy as { parentNode: P5Node | null }).parentNode = copy;
+      (copy as P5Element).childNodes.push(childCopy as P5Element["childNodes"][number]);
+      stack.push([child, childCopy]);
+    }
   }
-  const element: P5Element = {
-    ...node,
-    attrs: node.attrs.map((attr) => ({ ...attr })),
-    childNodes: [],
-    parentNode: null,
-  };
-  for (const child of node.childNodes as P5Node[]) {
-    const copy = copyOf(child);
-    (copy as { parentNode: P5Node | null }).parentNode = element;
-    element.childNodes.push(copy as P5Element["childNodes"][number]);
-  }
-  return element;
+  return root;
+}
+
+/** Whether `node` is still in the preview's document: not removed, nor inside a removed element. */
+function connected(node: P5Node, document: P5Document): boolean {
+  for (let at: P5Node | null = node; at; at = parentOf(at)) if (at === document) return true;
+  return false;
 }
 
 function detach(node: P5Node): void {
@@ -177,27 +237,33 @@ function insertNextTo(node: P5Node, reference: P5Node, place: "before" | "after"
 
 /**
  * Makes a structure operation on the parsed copy, with its elements found before any operation
- * ran; false when it cannot (a move into its own element, or next to an element already removed),
- * so the preview is refused rather than shown partly.
+ * ran. Refused rather than shown partly: `structure_conflict` when an element or a move's
+ * destination is no longer in the document (an earlier operation removed it or what holds it) or
+ * a move goes into its own element, `preview_too_large` when a duplicate would pass the copy
+ * budget.
  */
 export function applyStructure(
   edit: StructureEdit,
   element: P5Element,
   destination: P5Element | null,
-): boolean {
+  document: P5Document,
+  budget: CopyBudget,
+): "structure_conflict" | "preview_too_large" | null {
+  if (!connected(element, document)) return "structure_conflict";
   if (edit.kind === "remove") {
-    if (!parentOf(element)) return false;
     detach(element);
-    return true;
+    return null;
   }
   if (edit.kind === "duplicate") {
-    if (!parentOf(element)) return false;
+    if (!takeCopy(element, budget)) return "preview_too_large";
     insertNextTo(copyOf(element), element, "after");
-    return true;
+    return null;
   }
-  if (!destination || !edit.destination || !parentOf(destination)) return false;
-  if (within(destination, element)) return false;
+  if (!destination || !edit.destination || !connected(destination, document)) {
+    return "structure_conflict";
+  }
+  if (within(destination, element)) return "structure_conflict";
   detach(element);
   insertNextTo(element, destination, edit.destination.place);
-  return true;
+  return null;
 }

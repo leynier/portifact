@@ -158,3 +158,54 @@ describe("structure operations on built previews", () => {
     expect(work).toMatchObject({ parses: 2, indexes: 1 });
   });
 });
+
+describe("structure previews stay bounded and connected (review of pull request #288)", () => {
+  /** 16 nested sections, each with an ID, innermost holding text. */
+  const NESTED = `<!doctype html><html><head></head><body>${Array.from(
+    { length: 16 },
+    (_, i) => `<section id="s${i + 1}">`,
+  ).join("")}x${"</section>".repeat(16)}</body></html>`;
+
+  it("refuses duplicates that would copy earlier copies without bound (P1)", async () => {
+    const ops: EditOperation[] = [];
+    for (let i = 16; i >= 1; i--) {
+      ops.push(await structure("duplicate", `#s${i}`, undefined, NESTED));
+    }
+    const started = Date.now();
+    expect(preview(ops, NESTED)).toEqual({ state: "unavailable", reason: "preview_too_large" });
+    // Refused before the copies are made, not after building 131,070 elements.
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("still duplicates within the copy budget", async () => {
+    const ops: EditOperation[] = [];
+    for (let i = 16; i >= 13; i--) {
+      ops.push(await structure("duplicate", `#s${i}`, undefined, NESTED));
+    }
+    const built = ready(preview(ops, NESTED));
+    expect(parseDocument(built).querySelectorAll("section").length).toBeGreaterThan(16);
+  });
+
+  it("refuses a move next to an element inside a removed subtree (P2)", async () => {
+    const ops = [
+      await structure("remove", "#box"),
+      await structure("move", "#two", { selector: "#inner", place: "after" }),
+    ];
+    expect(preview(ops)).toEqual({ state: "unavailable", reason: "structure_conflict" });
+  });
+
+  it("refuses to move or duplicate an element already removed, never bringing it back (P2)", async () => {
+    expect(
+      preview([
+        await structure("remove", "#one"),
+        await structure("move", "#one", { selector: "#title", place: "before" }),
+      ]),
+    ).toEqual({ state: "unavailable", reason: "structure_conflict" });
+    expect(
+      preview([await structure("remove", "#box"), await structure("duplicate", "#inner")]),
+    ).toEqual({ state: "unavailable", reason: "structure_conflict" });
+    expect(
+      preview([await structure("remove", "#box"), await structure("remove", "#inner")]),
+    ).toEqual({ state: "unavailable", reason: "structure_conflict" });
+  });
+});

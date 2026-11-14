@@ -31,6 +31,7 @@ import {
   elementAt,
   hasElementOperations,
   locateElementEdits,
+  newCopyBudget,
 } from "./preview-edits.ts";
 import { newWork, type Work } from "./work.ts";
 
@@ -396,10 +397,12 @@ function applyEdits(document: P5Document, edits: readonly ElementEdit[]): Previe
     if (!element || (edit.kind === "move" && !destination)) return "element_not_found";
     found.push({ element, destination });
   }
+  const budget = newCopyBudget();
   for (const [index, edit] of edits.entries()) {
     const { element, destination } = found[index] as (typeof found)[number];
     if (edit.kind !== "style") {
-      if (!applyStructure(edit, element, destination)) return "structure_conflict";
+      const refused = applyStructure(edit, element, destination, document, budget);
+      if (refused) return refused;
       continue;
     }
     const attr = element.attrs.find((each) => each.name === "style" && !each.namespace);
