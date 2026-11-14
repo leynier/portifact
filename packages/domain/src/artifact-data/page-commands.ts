@@ -1,7 +1,7 @@
 // Which method of a documents object a page command runs (decision 0026, delivery 6): one
 // dispatch, shared by the real object (`pageCommand` in apps/data) and the in-memory reference, so
 // both answer the page through the same methods and the same caller rules. The caller carries
-// `PAGE_MODES`, so a page reaches only `own` and `append` collections until delivery 9.
+// `PAGE_MODES`: every mode since delivery 9, decided by the same scope rules as the owner side's.
 import type {
   ArtifactDataLimits,
   DataEnvelope,

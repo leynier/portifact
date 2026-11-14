@@ -34,7 +34,7 @@ export interface LiveAttachment {
   reservedDay: number;
   liveMessagesPerDay: number;
   /**
-   * The collection modes the connection reaches: a page's (`PAGE_MODES`) until delivery 9, or
+   * The collection modes the connection reaches: a page's (`PAGE_MODES`), or
    * null for the object's own callers (every mode). Kept in the attachment, so it survives
    * hibernation.
    */
