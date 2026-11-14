@@ -849,6 +849,46 @@ describe("a restore", () => {
   });
 });
 
+describe("anonymous writers after a restore (review of #291)", () => {
+  it("withdraws a restored permission the export does not keep, whatever else it holds back", async () => {
+    const [missing, listed, held] = [await team(), await team(), await team()];
+    const allowed = policy({ anonymousDataWriters: "allowed" });
+    // An admin allowed anonymous writers, then forbade them again: the row stores no policy, so
+    // the export does not list the workspace.
+    value(await save(missing, allowed));
+    value(await save(missing, policy(), { revision: 1 }));
+    value(await save(listed, allowed));
+    value(await save(held, policy({ publicAccess: "forbidden" })));
+    const exported = (await exportWorkspacePolicies(db().global)).filter((item) =>
+      [missing.id, listed.id, held.id].includes(item.workspaceId),
+    );
+    expect(exported.map((item) => item.workspaceId)).not.toContain(missing.id);
+    // The restore brings back `allowed` on two of them; one line also lifts public access.
+    for (const [t, restored] of [
+      [missing, allowed],
+      [held, policy({ publicAccess: "forbidden", anonymousDataWriters: "allowed" })],
+    ] as const) {
+      await db()
+        .update(schema.workspaces)
+        .set({ policy: restored })
+        .where(eq(schema.workspaces.id, t.id));
+    }
+    const file = exported.map((item) =>
+      item.workspaceId === held.id ? { ...item, policy: policy() } : item,
+    );
+    const result = await applyWorkspacePolicies(db().global, file, NOW + DAY);
+    if (!result.ok) throw new Error(result.message);
+    expect(result.anonymousCleared).toEqual([missing.id]);
+    expect(result.lifting).toEqual([{ workspaceId: held.id, fields: ["publicAccess"] }]);
+    expect((await storedPolicy(missing))?.policy).toBeNull();
+    // Held back for lifting public access, yet the permission it no longer grants is withdrawn.
+    expect((await storedPolicy(held))?.policy).toEqual(policy({ publicAccess: "forbidden" }));
+    expect((await storedPolicy(listed))?.policy).toEqual(allowed);
+    const again = await applyWorkspacePolicies(db().global, file, NOW + DAY);
+    expect(again).toMatchObject({ ok: true, anonymousCleared: [] });
+  });
+});
+
 describe("cost on the write path", () => {
   function recording() {
     const trips: string[][] = [];

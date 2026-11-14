@@ -1660,6 +1660,12 @@ export async function runOperator(
           ...result.retentionCleared.map((id) => `  ${id}`),
         );
       }
+      if (result.anonymousCleared.length > 0) {
+        lines.push(
+          `${result.anonymousCleared.length} of them allowed anonymous writers of artifact data again (the restore brought back a permission an admin had withdrawn after the restore point); it was withdrawn again, keeping every other setting:`,
+          ...result.anonymousCleared.map((id) => `  ${id}`),
+        );
+      }
       if (result.commentHeld.length > 0) {
         lines.push(
           `${result.commentHeld.length} workspace(s) kept their comment retention because the file's is stricter (shorter, new, or taking effect earlier); apply-policies never tightens deletion, so an admin sets it again from the Policies page if it is wanted:`,

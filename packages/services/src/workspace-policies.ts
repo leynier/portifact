@@ -1700,6 +1700,12 @@ export type ApplyPoliciesResult =
        */
       retentionCleared: string[];
       /**
+       * Workspaces the file does not list whose policy allowed anonymous writers of artifact data
+       * (decision 0026): forbidding them again stores no policy, so a missing workspace had them
+       * forbidden at export, and the restored permission was withdrawn.
+       */
+      anonymousCleared: string[];
+      /**
        * Workspaces whose file holds a stricter comment retention than the stored one (shorter, a
        * new one, or taking effect earlier): apply-policies never tightens deletion (decision
        * 0023), so their comment retention was left as it is and the rest applied.
@@ -1800,6 +1806,12 @@ function retentionLoosening(
       };
     }
   }
+  // Anonymous writers of artifact data (decision 0026, delivery 9) are a permission: a restored
+  // `allowed` the file does not keep (forbidden there, or the workspace missing because its
+  // forbidding stored no policy) is withdrawn like a restored retention, whatever else is held.
+  if (current.anonymousDataWriters === "allowed" && file?.anonymousDataWriters !== "allowed") {
+    next = { ...next, anonymousDataWriters: "forbidden" };
+  }
   return next === current ? null : next;
 }
 
@@ -1879,7 +1891,9 @@ const APPLY_ATTEMPTS = 3;
  * Retention is the other way round (decision 0023): there, the restored value is the dangerous
  * one, because it archives or deletes. A file's longer or removed maximum life and comment
  * retention are always applied, alone when the rest of the item is held back for any reason, and a
- * workspace the file does not list loses a restored one.
+ * workspace the file does not list loses a restored one. The same holds for the one permission a
+ * policy grants, anonymous writers of artifact data (decision 0026): a restored `allowed` the file
+ * does not keep is always withdrawn.
  *
  * It never writes a comment retention guard record (decision 0023, "Restores"): it writes the
  * exported policies, tokens included, as it writes the rest. A workspace whose exported token is
@@ -1904,6 +1918,7 @@ export async function applyWorkspacePolicies(
   const lifting: { workspaceId: string; fields: PolicyField[] }[] = [];
   const ssoUnusable: string[] = [];
   const retentionCleared: string[] = [];
+  const anonymousCleared: string[] = [];
   const commentHeld: string[] = [];
 
   /**
@@ -1999,10 +2014,12 @@ export async function applyWorkspacePolicies(
       // Unreadable: nothing can be applied to it (and its comment retention cannot agree).
       continue;
     }
-    const item = { workspaceId: row.id, policy };
-    if (item.policy.artifactMaxDays === null && item.policy.commentRetentionDays === null) continue;
-    if ((await applyItem(item.workspaceId, null)) === "loosened") {
-      retentionCleared.push(item.workspaceId);
+    const retention = policy.artifactMaxDays !== null || policy.commentRetentionDays !== null;
+    const anonymous = policy.anonymousDataWriters === "allowed";
+    if (!retention && !anonymous) continue;
+    if ((await applyItem(row.id, null)) === "loosened") {
+      if (retention) retentionCleared.push(row.id);
+      if (anonymous) anonymousCleared.push(row.id);
     }
   }
   return {
@@ -2013,6 +2030,7 @@ export async function applyWorkspacePolicies(
     lifting,
     ssoUnusable,
     retentionCleared,
+    anonymousCleared,
     commentHeld,
   };
 }
