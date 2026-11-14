@@ -1372,12 +1372,15 @@ export const fr = {
   "review.attach.file": "Joindre un fichier",
   "review.attach.screenshot": "Joindre une capture d'écran",
   "review.attach.hint":
-    "Images (PNG, JPEG, GIF ou WebP), PDF ou texte brut, jusqu'à 10 Mo chacun et 4 par commentaire. Toute personne qui peut lire le commentaire peut les ouvrir.",
+    "Images (PNG, JPEG, GIF ou WebP), PDF ou texte brut, jusqu'à 10 Mo chacun et 4 par commentaire. Toute personne qui peut lire le commentaire peut les ouvrir. Un fichier est envoyé dès que vous le choisissez, avant de publier.",
   "review.attach.list": "Fichiers à joindre",
   "review.attach.preview": "Aperçu de {name}",
   "review.attach.remove": "Retirer {name}",
   "review.attach.added": "{name} est prêt à être publié.",
   "review.attach.screenshotName": "capture",
+  "review.attach.captureWarning":
+    "Choisir un écran envoie la capture tout de suite, avant de publier. Vérifiez d'abord ce que vous partagez : retirer l'aperçu n'efface pas l'envoi immédiatement. Ne montrez les données d'autres personnes que si vous en avez le droit.",
+  "review.attach.captureContinue": "Continuer",
   "review.attach.state.uploading": "Envoi en cours",
   "review.attach.state.ready": "Prêt",
   "review.attach.state.failed": "Échec de l'envoi",

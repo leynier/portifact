@@ -250,6 +250,14 @@ test("a screenshot is one frame of the browser's screen capture, shown before it
 
   const sidebar = await openComposer(page, artifactId);
   await sidebar.getByRole("button", { name: "Attach a screenshot" }).click();
+  // The warning comes first: capture uploads at once, before the comment is posted.
+  await expect(sidebar.getByText(/uploads the capture right away, before you post/)).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __captures: { count: number } }).__captures.count,
+    ),
+  ).toBe(0);
+  await sidebar.getByRole("button", { name: "Continue" }).click();
   await expect(
     sidebar.getByRole("img", { name: /^Preview of screenshot\.(png|jpg)$/ }),
   ).toBeVisible();

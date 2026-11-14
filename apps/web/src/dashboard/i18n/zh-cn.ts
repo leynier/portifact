@@ -1225,12 +1225,15 @@ export const zhCN = {
   "review.attach.file": "附加文件",
   "review.attach.screenshot": "附加屏幕截图",
   "review.attach.hint":
-    "图片（PNG、JPEG、GIF 或 WebP）、PDF 或纯文本，每个最大 10 MB，每条评论最多 4 个。能阅读该评论的人都能打开它们。",
+    "图片（PNG、JPEG、GIF 或 WebP）、PDF 或纯文本，每个最大 10 MB，每条评论最多 4 个。能阅读该评论的人都能打开它们。 文件一经选择就会上传，早于你发布评论。",
   "review.attach.list": "要附加的文件",
   "review.attach.preview": "{name} 的预览",
   "review.attach.remove": "移除 {name}",
   "review.attach.added": "{name} 已可发布。",
   "review.attach.screenshotName": "screenshot",
+  "review.attach.captureWarning":
+    "选择屏幕后，截图会立即上传，早于你发布评论。请先检查要分享的内容：移除预览并不会立即删除上传。只有在你有权这样做时才展示他人的数据。",
+  "review.attach.captureContinue": "继续",
   "review.attach.state.uploading": "正在上传",
   "review.attach.state.ready": "就绪",
   "review.attach.state.failed": "上传失败",

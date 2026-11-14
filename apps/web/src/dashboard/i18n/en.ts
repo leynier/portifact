@@ -1307,12 +1307,15 @@ export const en = {
   "review.attach.file": "Attach a file",
   "review.attach.screenshot": "Attach a screenshot",
   "review.attach.hint":
-    "Images (PNG, JPEG, GIF or WebP), PDF or plain text, up to 10 MB each and 4 per comment. Everyone who can read the comment can open them.",
+    "Images (PNG, JPEG, GIF or WebP), PDF or plain text, up to 10 MB each and 4 per comment. Everyone who can read the comment can open them. A file is uploaded as soon as you choose it, before you post.",
   "review.attach.list": "Files to attach",
   "review.attach.preview": "Preview of {name}",
   "review.attach.remove": "Remove {name}",
   "review.attach.added": "{name} is ready to post.",
   "review.attach.screenshotName": "screenshot",
+  "review.attach.captureWarning":
+    "Choosing a screen uploads the capture right away, before you post. Check what you share first: removing the preview does not erase the upload at once. Show other people's data only if you may.",
+  "review.attach.captureContinue": "Continue",
   "review.attach.state.uploading": "Uploading",
   "review.attach.state.ready": "Ready",
   "review.attach.state.failed": "Upload failed",

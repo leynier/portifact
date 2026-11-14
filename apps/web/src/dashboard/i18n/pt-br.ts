@@ -1340,12 +1340,15 @@ export const ptBR = {
   "review.attach.file": "Anexar um arquivo",
   "review.attach.screenshot": "Anexar uma captura de tela",
   "review.attach.hint":
-    "Imagens (PNG, JPEG, GIF ou WebP), PDF ou texto simples, de até 10 MB cada e 4 por comentário. Quem pode ler o comentário pode abri-los.",
+    "Imagens (PNG, JPEG, GIF ou WebP), PDF ou texto simples, de até 10 MB cada e 4 por comentário. Quem pode ler o comentário pode abri-los. Um arquivo é enviado assim que você o escolhe, antes de publicar.",
   "review.attach.list": "Arquivos para anexar",
   "review.attach.preview": "Prévia de {name}",
   "review.attach.remove": "Remover {name}",
   "review.attach.added": "{name} está pronto para publicar.",
   "review.attach.screenshotName": "captura",
+  "review.attach.captureWarning":
+    "Ao escolher uma tela, a captura é enviada na hora, antes de publicar. Confira primeiro o que você compartilha: remover a prévia não apaga o envio imediatamente. Mostre dados de outras pessoas só se puder.",
+  "review.attach.captureContinue": "Continuar",
   "review.attach.state.uploading": "Enviando",
   "review.attach.state.ready": "Pronto",
   "review.attach.state.failed": "Falha no envio",

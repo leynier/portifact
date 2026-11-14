@@ -203,6 +203,14 @@ describe("adding files", () => {
     vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getDisplayMedia } });
     renderWith(<Composer />);
     fireEvent.click(screen.getByRole("button", { name: "Attach a screenshot" }));
+    // A warning first: the capture uploads at once, so nothing is asked of the browser yet.
+    expect(screen.getByText(/uploads the capture right away, before you post/)).toBeTruthy();
+    expect(getDisplayMedia).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText(/uploads the capture right away/)).toBeNull();
+    expect(getDisplayMedia).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Attach a screenshot" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     expect((await screen.findByRole("alert")).textContent).toBe("The screenshot was not taken.");
     expect(getDisplayMedia).toHaveBeenCalledOnce();
     expect(fakes.requests).toHaveLength(0);

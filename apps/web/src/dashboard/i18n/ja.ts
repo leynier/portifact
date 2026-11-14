@@ -1325,12 +1325,15 @@ export const ja = {
   "review.attach.file": "ファイルを添付",
   "review.attach.screenshot": "スクリーンショットを添付",
   "review.attach.hint":
-    "画像（PNG、JPEG、GIF、WebP）、PDF、プレーンテキスト。1 ファイル 10 MB まで、1 コメントにつき 4 件まで。コメントを読める人は誰でも開けます。",
+    "画像（PNG、JPEG、GIF、WebP）、PDF、プレーンテキスト。1 ファイル 10 MB まで、1 コメントにつき 4 件まで。コメントを読める人は誰でも開けます。 ファイルは選んだ時点で、投稿する前にアップロードされます。",
   "review.attach.list": "添付するファイル",
   "review.attach.preview": "{name} のプレビュー",
   "review.attach.remove": "{name} を削除",
   "review.attach.added": "{name} を投稿できます。",
   "review.attach.screenshotName": "screenshot",
+  "review.attach.captureWarning":
+    "画面を選ぶと、投稿する前にキャプチャがすぐにアップロードされます。共有する内容を先に確認してください。プレビューを削除してもアップロードはすぐには消えません。他人のデータは、許される場合にのみ表示してください。",
+  "review.attach.captureContinue": "続ける",
   "review.attach.state.uploading": "アップロード中",
   "review.attach.state.ready": "準備完了",
   "review.attach.state.failed": "アップロードに失敗しました",

@@ -1358,12 +1358,15 @@ export const es = {
   "review.attach.file": "Adjuntar un archivo",
   "review.attach.screenshot": "Adjuntar una captura de pantalla",
   "review.attach.hint":
-    "Imágenes (PNG, JPEG, GIF o WebP), PDF o texto plano, de hasta 10 MB cada uno y 4 por comentario. Quien pueda leer el comentario puede abrirlos.",
+    "Imágenes (PNG, JPEG, GIF o WebP), PDF o texto plano, de hasta 10 MB cada uno y 4 por comentario. Quien pueda leer el comentario puede abrirlos. Un archivo se sube en cuanto lo eliges, antes de publicar.",
   "review.attach.list": "Archivos para adjuntar",
   "review.attach.preview": "Vista previa de {name}",
   "review.attach.remove": "Quitar {name}",
   "review.attach.added": "{name} está listo para publicar.",
   "review.attach.screenshotName": "captura",
+  "review.attach.captureWarning":
+    "Al elegir una pantalla, la captura se sube enseguida, antes de publicar. Revisa primero lo que compartes: quitar la vista previa no borra la subida de inmediato. Muestra datos de otras personas solo si puedes hacerlo.",
+  "review.attach.captureContinue": "Continuar",
   "review.attach.state.uploading": "Subiendo",
   "review.attach.state.ready": "Listo",
   "review.attach.state.failed": "No se pudo subir",

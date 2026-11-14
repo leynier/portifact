@@ -266,7 +266,11 @@ export function AttachmentControls({
   const onFiles = async (chosen: File[]) => {
     for (const file of chosen) await uploads.add(file, file.name);
   };
+  // Capture uploads the moment it completes (decision 0028), so the person is warned first and
+  // the browser's prompt opens only from the Continue below.
+  const [confirming, setConfirming] = useState(false);
   const screenshot = async () => {
+    setConfirming(false);
     setCapturing(true);
     try {
       const shot = await captureScreenshot();
@@ -302,13 +306,27 @@ export function AttachmentControls({
             size={size}
             icon={<Camera className="size-4" />}
             busy={capturing}
-            onClick={() => void screenshot()}
-            disabled={full}
+            onClick={() => setConfirming(true)}
+            disabled={full || confirming}
           >
             {t("review.attach.screenshot")}
           </Button>
         ) : null}
       </div>
+      {confirming ? (
+        <fieldset className="flex flex-col gap-2 rounded-md border border-border-strong p-3 text-sm">
+          <legend className="sr-only">{t("review.attach.screenshot")}</legend>
+          <p>{t("review.attach.captureWarning")}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" intent="primary" autoFocus onClick={() => void screenshot()}>
+              {t("review.attach.captureContinue")}
+            </Button>
+            <Button size="sm" onClick={() => setConfirming(false)}>
+              {t("review.composer.cancel")}
+            </Button>
+          </div>
+        </fieldset>
+      ) : null}
       {message ? (
         <p role="alert" className="text-sm font-medium">
           {message}

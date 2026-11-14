@@ -1363,12 +1363,15 @@ export const de = {
   "review.attach.file": "Datei anhängen",
   "review.attach.screenshot": "Bildschirmfoto anhängen",
   "review.attach.hint":
-    "Bilder (PNG, JPEG, GIF oder WebP), PDF oder reiner Text, je bis zu 10 MB und 4 pro Kommentar. Alle, die den Kommentar lesen können, können sie öffnen.",
+    "Bilder (PNG, JPEG, GIF oder WebP), PDF oder reiner Text, je bis zu 10 MB und 4 pro Kommentar. Alle, die den Kommentar lesen können, können sie öffnen. Eine Datei wird hochgeladen, sobald du sie wählst, noch vor dem Veröffentlichen.",
   "review.attach.list": "Anzuhängende Dateien",
   "review.attach.preview": "Vorschau von {name}",
   "review.attach.remove": "{name} entfernen",
   "review.attach.added": "{name} ist bereit zum Veröffentlichen.",
   "review.attach.screenshotName": "bildschirmfoto",
+  "review.attach.captureWarning":
+    "Wenn du einen Bildschirm wählst, wird die Aufnahme sofort hochgeladen, noch vor dem Veröffentlichen. Prüfe zuerst, was du teilst: Das Entfernen der Vorschau löscht den Upload nicht sofort. Zeige Daten anderer nur, wenn du darfst.",
+  "review.attach.captureContinue": "Weiter",
   "review.attach.state.uploading": "Wird hochgeladen",
   "review.attach.state.ready": "Bereit",
   "review.attach.state.failed": "Hochladen fehlgeschlagen",
