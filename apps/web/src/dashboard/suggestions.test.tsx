@@ -1586,3 +1586,246 @@ describe("Suggest a style (decision 0027, delivery 3)", () => {
     ).toBeTruthy();
   });
 });
+
+const DESTINATION_TARGET = {
+  schema: 1 as const,
+  path: "index.html",
+  anchor: {
+    kind: "element" as const,
+    selectors: ["#title"],
+    tagName: "h1",
+    fingerprint: "Launch plan",
+  },
+};
+
+describe("Move, duplicate or remove (decision 0027, delivery 4)", () => {
+  const lastMode = () =>
+    sent()
+      .filter((m) => m.type === "edit-mode")
+      .at(-1) as { epoch: number; active: boolean; kind: string } | undefined;
+
+  async function openStructure(nonce: string) {
+    fireEvent.click(await screen.findByRole("button", { name: "Move, duplicate or remove" }));
+    await waitFor(() => expect(lastMode()).toMatchObject({ active: true, kind: "structure" }));
+    const epoch = (lastMode() as { epoch: number }).epoch;
+    fromBridge(nonce, { type: "element", target: ELEMENT_TARGET, rect: RECT, epoch });
+    fromBridge(nonce, { type: "pick-ended" });
+    return screen.findByRole("region", {
+      name: "Suggest moving, duplicating or removing the element",
+    });
+  }
+
+  it("moves an element after a destination picked in its own epoch, and saves exactly that", async () => {
+    const { container } = await open();
+    const { nonce } = await connect();
+    await suggestMode();
+    let panel = await openStructure(nonce);
+    expect(within(panel).getByRole("radio", { name: "Move it" })).toHaveProperty("checked", true);
+    expect(within(panel).getByText("No destination chosen yet.")).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: "Review" })).toHaveProperty("disabled", true);
+    const openedEpoch = (lastMode() as { epoch: number }).epoch;
+    fireEvent.click(within(panel).getByRole("button", { name: "Pick the destination" }));
+    await waitFor(() => expect(lastMode()).toMatchObject({ active: true, kind: "structure" }));
+    const destinationEpoch = (lastMode() as { epoch: number }).epoch;
+    expect(destinationEpoch).toBeGreaterThan(openedEpoch);
+    // The panel steps aside so the whole frame can be clicked; a prompt stays in its corner.
+    const prompt = await screen.findByText("Choose the destination in the artifact.");
+    expect(
+      within(prompt.closest("section") as HTMLElement).getByRole("button", {
+        name: "Stop choosing",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("radio", { name: "Move it" })).toBeNull();
+    // The element itself, or one of an earlier epoch, is no destination.
+    fromBridge(nonce, {
+      type: "element",
+      target: ELEMENT_TARGET,
+      rect: RECT,
+      epoch: destinationEpoch,
+    });
+    fromBridge(nonce, {
+      type: "element",
+      target: DESTINATION_TARGET,
+      rect: RECT,
+      epoch: openedEpoch,
+    });
+    expect(screen.getByText("Choose the destination in the artifact.")).toBeTruthy();
+    fromBridge(nonce, {
+      type: "element",
+      target: DESTINATION_TARGET,
+      rect: { x: 0, y: 0, width: 10, height: 10 },
+      epoch: destinationEpoch,
+    });
+    fromBridge(nonce, { type: "pick-ended" });
+    // Back to the panel, with what was chosen kept (the state lives in the session).
+    panel = await screen.findByRole("region", {
+      name: "Suggest moving, duplicating or removing the element",
+    });
+    await waitFor(() =>
+      expect(wholeText(panel, "p", "The h1 element with the text Launch plan")).toHaveLength(1),
+    );
+    fireEvent.click(within(panel).getByRole("radio", { name: "Before it" }));
+    fireEvent.change(within(panel).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Lead first" },
+    });
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(container)).toEqual([]);
+    Object.defineProperty(HTMLIFrameElement.prototype, "contentWindow", {
+      configurable: true,
+      get: () => frameWindow,
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Review" }));
+    await within(panel).findByRole("heading", { name: "Check your suggestion" });
+    expect(within(panel).getByText("Move it before:")).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("button", { name: "Save suggestion" }));
+    await screen.findByText("Suggestion saved.");
+    expect(server.bodies).toContainEqual({
+      versionId: "v1",
+      body: "Lead first",
+      edit: {
+        operations: [
+          {
+            kind: "structure",
+            action: "move",
+            target: ELEMENT_TARGET,
+            destination: {
+              target: { ...DESTINATION_TARGET, anchor: { ...DESTINATION_TARGET.anchor } },
+              place: "before",
+            },
+          },
+        ],
+      },
+    });
+    expect(JSON.stringify(sent())).not.toContain("Lead first");
+  });
+
+  it("duplicates or removes without a destination, and previews the unsaved change", async () => {
+    await open();
+    const { nonce } = await connect();
+    await suggestMode();
+    const panel = await openStructure(nonce);
+    fireEvent.click(within(panel).getByRole("radio", { name: "Remove it" }));
+    expect(within(panel).queryByRole("button", { name: "Pick the destination" })).toBeNull();
+    fireEvent.change(within(panel).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Not needed" },
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Review" }));
+    expect(await within(panel).findByText("Remove it, with everything inside it")).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+    await within(panel).findByTitle("Preview of the suggested edit");
+    expect(server.suggestions.previewRequests).toEqual([
+      {
+        unsaved: {
+          versionId: "v1",
+          as: "suggestion",
+          edit: { operations: [{ kind: "structure", action: "remove", target: ELEMENT_TARGET }] },
+        },
+      },
+    ]);
+    fireEvent.click(within(panel).getByRole("button", { name: "Edit again" }));
+    fireEvent.click(within(panel).getByRole("radio", { name: "Duplicate it" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Review" }));
+    expect(await within(panel).findByText("Duplicate it right after itself")).toBeTruthy();
+  });
+
+  it("ends the destination pick on Escape in the frame, and the whole edit on a new page", async () => {
+    await open();
+    const { nonce } = await connect();
+    await suggestMode();
+    const panel = await openStructure(nonce);
+    fireEvent.click(within(panel).getByRole("button", { name: "Pick the destination" }));
+    await waitFor(() => expect(lastMode()).toMatchObject({ active: true }));
+    fromBridge(nonce, { type: "pick-ended" });
+    await waitFor(() => expect(lastMode()).toMatchObject({ active: false }));
+    const back = await screen.findByRole("button", { name: "Pick the destination" });
+    expect(back.getAttribute("aria-pressed")).toBe("false");
+    // "Stop choosing" ends the pick from the viewer too.
+    fireEvent.click(back);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop choosing" }));
+    await waitFor(() => expect(lastMode()).toMatchObject({ active: false }));
+    await screen.findByRole("button", { name: "Pick the destination" });
+    deliver({ channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL_EDIT, type: "status", status: "ended" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", {
+          name: "Suggest moving, duplicating or removing the element",
+        }),
+      ).toBeNull(),
+    );
+  });
+
+  it("shows a structure suggestion in its thread and a structure item on the change list", async () => {
+    const edit = {
+      operations: [
+        {
+          kind: "structure",
+          action: "move",
+          target: ELEMENT_TARGET,
+          destination: { target: DESTINATION_TARGET, place: "after" },
+        },
+      ],
+    };
+    server.annotations[ID] = {
+      mode: "open",
+      role: "owner",
+      currentVersionId: "v1",
+      threads: [
+        {
+          ...fakeThread("t1", {
+            target: ELEMENT_TARGET,
+            messages: [fakeMessage({ body: "Move" })],
+          }),
+          seq: 1,
+          kind: "suggestion",
+          suggestion: fakeSuggestion("t1", { edit, revision: 1 }),
+        },
+      ],
+      deleted: [],
+      seq: 1,
+    };
+    const base = plan().listed[0] as ShownEnvelope;
+    server.suggestions.changes[ID] = [
+      item("open", {
+        reason: "not_text",
+        envelope: {
+          ...base,
+          reason: "not_text",
+          operation: {
+            kind: "structure",
+            action: "remove",
+            element: { tag: "p", label: "Hello brave new world" },
+            destination: null,
+          },
+          provenance: { submittedBy: "Bea", acceptedBy: "Ada" },
+        },
+      }),
+    ];
+    await open();
+    const block = await screen.findByRole("region", { name: "Suggested edit" });
+    expect(within(block).getByText("Move it after:")).toBeTruthy();
+    expect(wholeText(block, "li", "The h1 element with the text Launch plan")).toHaveLength(1);
+    fireEvent.click(screen.getByText("Change list"));
+    const card = (await screen.findByText("Suggested by", { exact: false })).closest("li");
+    if (!card) throw new Error("no item");
+    expect(within(card).getByText("Remove it, with everything inside it")).toBeTruthy();
+  });
+
+  it("adds a structure change to the owner's draft", async () => {
+    await open();
+    const { nonce } = await connect();
+    fireEvent.click(within(await modeSwitch()).getByRole("button", { name: "Edit mode" }));
+    await waitFor(() => expect(lastMode()).toMatchObject({ active: true }));
+    const panel = await openStructure(nonce);
+    expect(within(panel).getByRole("heading", { name: "Change the structure" })).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("radio", { name: "Duplicate it" }));
+    fireEvent.click(within(panel).getByRole("button", { name: "Review" }));
+    fireEvent.click(await within(panel).findByRole("button", { name: "Add to draft" }));
+    await screen.findByText("Added to your draft.");
+    expect(server.bodies).toContainEqual({
+      baseVersionId: "v1",
+      edit: { operations: [{ kind: "structure", action: "duplicate", target: ELEMENT_TARGET }] },
+      baseRevision: null,
+      baseIncarnation: null,
+    });
+  });
+});

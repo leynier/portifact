@@ -3550,6 +3550,43 @@ export const ru = {
   "suggest.style.changeFrom": "{property}: с {before} на {after}",
   "suggest.preview.elementNotFound":
     "Элемента нет в сохранённой странице (возможно, его рисуют её скрипты), поэтому предпросмотра нет.",
+  "suggest.structure.pick": "Переместить, дублировать или убрать",
+  "suggest.structure.pick.hint":
+    "Выберите элемент, который нужно переместить, дублировать или убрать",
+  "suggest.structure.pick.started":
+    "Выберите элемент в artifact, чтобы переместить, дублировать или убрать его, или перейдите к нему клавишей Tab и нажмите Enter. Escape останавливает выбор.",
+  "suggest.structure.received": "Элемент выбран. Панель структуры открыта.",
+  "suggest.structure.label": "Предложить переместить, дублировать или убрать элемент",
+  "suggest.structure.title": "Предложить изменение структуры",
+  "draft.structure.title": "Изменить структуру",
+  "suggest.structure.never":
+    "Изменения структуры никогда не применяются автоматически. Если изменение примут, оно попадёт в список изменений, и его применят те, кто управляет artifact, или их агент.",
+  "suggest.structure.action": "Что сделать",
+  "suggest.structure.action.move": "Переместить",
+  "suggest.structure.action.move.hint": "До или после другого элемента этой страницы.",
+  "suggest.structure.action.duplicate": "Дублировать",
+  "suggest.structure.action.duplicate.hint": "Копия сразу после него.",
+  "suggest.structure.action.remove": "Убрать",
+  "suggest.structure.action.remove.hint": "Элемент и всё, что в нём.",
+  "suggest.structure.destination.label": "Куда",
+  "suggest.structure.destination.none": "Место ещё не выбрано.",
+  "suggest.structure.destination.pick": "Выбрать место",
+  "suggest.structure.destination.hint": "Выберите элемент, рядом с которым его поставить",
+  "suggest.structure.destination.started":
+    "Выберите в artifact элемент, рядом с которым его поставить. Escape останавливает выбор.",
+  "suggest.structure.destination.received": "Место выбрано.",
+  "suggest.structure.place": "Где",
+  "suggest.structure.place.before": "Перед ним",
+  "suggest.structure.place.after": "После него",
+  "suggest.structure.summary": "Что меняется",
+  "suggest.structure.summary.remove": "Убрать вместе со всем содержимым",
+  "suggest.structure.summary.duplicate": "Дублировать сразу после него",
+  "suggest.structure.summary.moveBefore": "Переместить перед:",
+  "suggest.structure.summary.moveAfter": "Переместить после:",
+  "suggest.preview.structureConflict":
+    "Элемент оказался бы внутри самого себя или рядом с уже убранным элементом, поэтому предпросмотра нет.",
+  "suggest.structure.destination.choosing": "Выберите место в artifact.",
+  "suggest.structure.destination.stop": "Прекратить выбор",
   "suggest.preview.tooLarge":
     "Построение этого предпросмотра потребовало бы слишком много работы или сделало бы его слишком большим, поэтому предпросмотра нет.",
 } satisfies Catalog;

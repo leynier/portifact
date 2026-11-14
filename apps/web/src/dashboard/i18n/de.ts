@@ -3582,6 +3582,43 @@ export const de = {
   "suggest.style.changeFrom": "{property} von {before} auf {after}",
   "suggest.preview.elementNotFound":
     "Das Element steht nicht in der gespeicherten Seite (vielleicht zeichnen es ihre Skripte), daher gibt es keine Vorschau.",
+  "suggest.structure.pick": "Verschieben, duplizieren oder entfernen",
+  "suggest.structure.pick.hint":
+    "Wähle das Element, das du verschieben, duplizieren oder entfernen möchtest",
+  "suggest.structure.pick.started":
+    "Wähle ein Element im Artifact, um es zu verschieben, zu duplizieren oder zu entfernen, oder gehe mit Tab dorthin und drücke Enter. Escape beendet die Auswahl.",
+  "suggest.structure.received": "Element gewählt. Das Strukturfeld ist geöffnet.",
+  "suggest.structure.label": "Verschieben, Duplizieren oder Entfernen des Elements vorschlagen",
+  "suggest.structure.title": "Strukturänderung vorschlagen",
+  "draft.structure.title": "Struktur ändern",
+  "suggest.structure.never":
+    "Strukturänderungen werden nie automatisch angewendet. Wird die Änderung angenommen, kommt sie in die Änderungsliste, damit die Personen, die das Artifact verwalten, oder ihr Agent sie umsetzen.",
+  "suggest.structure.action": "Was soll geschehen",
+  "suggest.structure.action.move": "Verschieben",
+  "suggest.structure.action.move.hint": "Vor oder nach ein anderes Element dieser Seite.",
+  "suggest.structure.action.duplicate": "Duplizieren",
+  "suggest.structure.action.duplicate.hint": "Eine Kopie direkt danach.",
+  "suggest.structure.action.remove": "Entfernen",
+  "suggest.structure.action.remove.hint": "Das Element mit allem, was es enthält.",
+  "suggest.structure.destination.label": "Ziel",
+  "suggest.structure.destination.none": "Noch kein Ziel gewählt.",
+  "suggest.structure.destination.pick": "Ziel auswählen",
+  "suggest.structure.destination.hint": "Wähle das Element, neben das es kommt",
+  "suggest.structure.destination.started":
+    "Wähle im Artifact das Element, neben das es kommt. Escape beendet die Auswahl.",
+  "suggest.structure.destination.received": "Ziel gewählt.",
+  "suggest.structure.place": "Wohin",
+  "suggest.structure.place.before": "Davor",
+  "suggest.structure.place.after": "Danach",
+  "suggest.structure.summary": "Was sich ändert",
+  "suggest.structure.summary.remove": "Entfernen, mit allem, was es enthält",
+  "suggest.structure.summary.duplicate": "Direkt dahinter duplizieren",
+  "suggest.structure.summary.moveBefore": "Verschieben vor:",
+  "suggest.structure.summary.moveAfter": "Verschieben nach:",
+  "suggest.preview.structureConflict":
+    "Das Element käme in sich selbst oder neben ein bereits entferntes Element, daher gibt es keine Vorschau.",
+  "suggest.structure.destination.choosing": "Wähle das Ziel im Artifact.",
+  "suggest.structure.destination.stop": "Auswahl beenden",
   "suggest.preview.tooLarge":
     "Diese Vorschau zu erstellen wäre zu aufwendig oder sie würde zu groß, daher gibt es keine Vorschau.",
 } satisfies Catalog;

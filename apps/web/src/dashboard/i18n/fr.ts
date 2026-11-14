@@ -3602,6 +3602,42 @@ export const fr = {
   "suggest.style.changeFrom": "{property} de {before} à {after}",
   "suggest.preview.elementNotFound":
     "L’élément n’est pas dans la page enregistrée (ses scripts le dessinent peut-être) : il n’y a donc pas d’aperçu.",
+  "suggest.structure.pick": "Déplacer, dupliquer ou retirer",
+  "suggest.structure.pick.hint": "Choisissez l’élément à déplacer, dupliquer ou retirer",
+  "suggest.structure.pick.started":
+    "Choisissez un élément de l’artifact pour le déplacer, le dupliquer ou le retirer, ou atteignez-le avec Tab et appuyez sur Entrée. Échap arrête.",
+  "suggest.structure.received": "Élément choisi. Le panneau de structure est ouvert.",
+  "suggest.structure.label": "Suggérer de déplacer, dupliquer ou retirer l’élément",
+  "suggest.structure.title": "Suggérer un changement de structure",
+  "draft.structure.title": "Modifier la structure",
+  "suggest.structure.never":
+    "Les changements de structure ne sont jamais appliqués automatiquement. S’il est accepté, le changement va dans la liste des modifications, pour que les personnes qui gèrent l’artifact ou leur agent l’appliquent.",
+  "suggest.structure.action": "Que faire",
+  "suggest.structure.action.move": "Le déplacer",
+  "suggest.structure.action.move.hint": "Avant ou après un autre élément de cette page.",
+  "suggest.structure.action.duplicate": "Le dupliquer",
+  "suggest.structure.action.duplicate.hint": "Une copie juste après.",
+  "suggest.structure.action.remove": "Le retirer",
+  "suggest.structure.action.remove.hint": "L’élément et tout ce qu’il contient.",
+  "suggest.structure.destination.label": "Destination",
+  "suggest.structure.destination.none": "Aucune destination choisie pour l’instant.",
+  "suggest.structure.destination.pick": "Choisir la destination",
+  "suggest.structure.destination.hint": "Choisissez l’élément à côté duquel le déplacer",
+  "suggest.structure.destination.started":
+    "Choisissez, dans l’artifact, l’élément à côté duquel le déplacer. Échap arrête.",
+  "suggest.structure.destination.received": "Destination choisie.",
+  "suggest.structure.place": "Où",
+  "suggest.structure.place.before": "Avant",
+  "suggest.structure.place.after": "Après",
+  "suggest.structure.summary": "Ce qui change",
+  "suggest.structure.summary.remove": "Le retirer, avec tout ce qu’il contient",
+  "suggest.structure.summary.duplicate": "Le dupliquer juste après lui-même",
+  "suggest.structure.summary.moveBefore": "Le déplacer avant :",
+  "suggest.structure.summary.moveAfter": "Le déplacer après :",
+  "suggest.preview.structureConflict":
+    "L’élément irait dans lui-même ou à côté d’un élément déjà retiré : il n’y a donc pas d’aperçu.",
+  "suggest.structure.destination.choosing": "Choisissez la destination dans l’artifact.",
+  "suggest.structure.destination.stop": "Arrêter de choisir",
   "suggest.preview.tooLarge":
     "Construire cet aperçu demanderait trop de travail ou le rendrait trop volumineux : il n’y a donc pas d’aperçu.",
 } satisfies Catalog;

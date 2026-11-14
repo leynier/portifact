@@ -3523,6 +3523,42 @@ export const ptBR = {
   "suggest.style.changeFrom": "{property} de {before} para {after}",
   "suggest.preview.elementNotFound":
     "O elemento não está na página armazenada (os scripts dela podem desenhá-lo), então não há prévia.",
+  "suggest.structure.pick": "Mover, duplicar ou remover",
+  "suggest.structure.pick.hint": "Escolha o elemento a mover, duplicar ou remover",
+  "suggest.structure.pick.started":
+    "Escolha um elemento do artifact para movê-lo, duplicá-lo ou removê-lo, ou chegue até ele com Tab e pressione Enter. Esc interrompe.",
+  "suggest.structure.received": "Elemento escolhido. O painel de estrutura está aberto.",
+  "suggest.structure.label": "Sugerir mover, duplicar ou remover o elemento",
+  "suggest.structure.title": "Sugerir uma alteração de estrutura",
+  "draft.structure.title": "Alterar a estrutura",
+  "suggest.structure.never":
+    "Alterações de estrutura nunca são aplicadas automaticamente. Se for aceita, a alteração vai para a lista de alterações, para que quem gerencia o artifact ou seu agente a aplique.",
+  "suggest.structure.action": "O que fazer",
+  "suggest.structure.action.move": "Movê-lo",
+  "suggest.structure.action.move.hint": "Antes ou depois de outro elemento desta página.",
+  "suggest.structure.action.duplicate": "Duplicá-lo",
+  "suggest.structure.action.duplicate.hint": "Uma cópia logo depois dele.",
+  "suggest.structure.action.remove": "Removê-lo",
+  "suggest.structure.action.remove.hint": "O elemento e tudo o que ele contém.",
+  "suggest.structure.destination.label": "Destino",
+  "suggest.structure.destination.none": "Nenhum destino escolhido ainda.",
+  "suggest.structure.destination.pick": "Escolher o destino",
+  "suggest.structure.destination.hint": "Escolha o elemento ao lado do qual movê-lo",
+  "suggest.structure.destination.started":
+    "Escolha, no artifact, o elemento ao lado do qual movê-lo. Esc interrompe.",
+  "suggest.structure.destination.received": "Destino escolhido.",
+  "suggest.structure.place": "Onde",
+  "suggest.structure.place.before": "Antes",
+  "suggest.structure.place.after": "Depois",
+  "suggest.structure.summary": "O que muda",
+  "suggest.structure.summary.remove": "Removê-lo, com tudo o que ele contém",
+  "suggest.structure.summary.duplicate": "Duplicá-lo logo depois de si mesmo",
+  "suggest.structure.summary.moveBefore": "Movê-lo antes de:",
+  "suggest.structure.summary.moveAfter": "Movê-lo depois de:",
+  "suggest.preview.structureConflict":
+    "O elemento iria para dentro de si mesmo ou ao lado de um elemento já removido, então não há prévia.",
+  "suggest.structure.destination.choosing": "Escolha o destino no artifact.",
+  "suggest.structure.destination.stop": "Parar de escolher",
   "suggest.preview.tooLarge":
     "Construir esta prévia exigiria trabalho demais ou a deixaria grande demais, então não há prévia.",
 } satisfies Catalog;

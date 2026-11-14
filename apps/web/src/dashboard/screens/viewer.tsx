@@ -69,6 +69,7 @@ import {
   LogIn,
   MessageSquare,
   MessageSquarePlus,
+  Move,
   Paintbrush,
   PencilLine,
   RefreshCw,
@@ -94,6 +95,7 @@ import { useIssueChoices } from "../review/create-issue.tsx";
 import { DataGrantPanel, useDataGrant } from "../review/data-grant.tsx";
 import { DraftPanel, useDraft } from "../review/draft.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
+import { StructureEditor } from "../review/structure-editor.tsx";
 import { StyleEditor } from "../review/style-editor.tsx";
 import {
   editModeOf,
@@ -945,14 +947,20 @@ function ReviewSession({
       },
       onElement(picked, rect, epoch) {
         if (suggest.mode !== "off") {
-          // Counts only while picking for a style, for the current epoch; the reducer decides.
-          if (
-            suggest.mode === "choosing" &&
-            suggest.pick !== null &&
+          // Counts only while picking an element or a destination, for the current epoch; the
+          // reducer decides. The hint only says what the reducer will take.
+          const element = picked.anchor.kind === "element";
+          if (suggest.mode === "choosing" && suggest.pick && epoch === suggest.epoch && element) {
+            setHint(
+              t(suggest.pick === "style" ? "suggest.style.received" : "suggest.structure.received"),
+            );
+          } else if (
+            suggest.mode === "structuring" &&
+            suggest.choosing &&
             epoch === suggest.epoch &&
-            picked.anchor.kind === "element"
+            element
           ) {
-            setHint(t("suggest.style.received"));
+            setHint(t("suggest.structure.destination.received"));
           }
           dispatchSuggest({ type: "element", target: picked, rect, epoch });
           return;
@@ -1078,13 +1086,26 @@ function ReviewSession({
       epoch: suggest.epoch,
       active: editMode.active,
       kind: editMode.kind,
-      hint: editMode.kind === "style" ? t("suggest.style.pick.hint") : t("suggest.hint"),
+      hint:
+        editMode.kind === "style"
+          ? t("suggest.style.pick.hint")
+          : editMode.kind === "structure"
+            ? t(
+                suggest.mode === "structuring"
+                  ? "suggest.structure.destination.hint"
+                  : "suggest.structure.pick.hint",
+              )
+            : t("suggest.hint"),
     });
   }, [suggestKey]);
-  const stylePicking = suggest.mode === "choosing" && suggest.pick === "style";
-  const toggleStylePick = () => {
-    dispatchSuggest({ type: "pick", kind: stylePicking ? null : "style" });
-    if (!stylePicking) announce(t("suggest.style.pick.started"));
+  const elementPick = suggest.mode === "choosing" ? suggest.pick : null;
+  const togglePickFor = (kind: "style" | "structure") => {
+    dispatchSuggest({ type: "pick", kind: elementPick === kind ? null : kind });
+    if (elementPick !== kind) {
+      announce(
+        t(kind === "style" ? "suggest.style.pick.started" : "suggest.structure.pick.started"),
+      );
+    }
   };
   const setMode = (mode: "comment" | "suggest" | "edit") => {
     const on = mode !== "comment";
@@ -1181,6 +1202,50 @@ function ReviewSession({
     >
       <FloatingPanel label={t("suggest.style.label")} sheet={sheet}>
         <StyleEditor
+          start={start}
+          state={suggest}
+          dispatch={dispatchSuggest}
+          humanNeeded={humanNeeded}
+          onClose={closeEditor}
+          draft={purpose === "edit" && ownerSide ? ownerDraft : undefined}
+        />
+      </FloatingPanel>
+    </Floating>
+  ) : suggest.mode === "structuring" && suggest.choosing ? (
+    // While the destination is picked, the panel steps aside so the whole frame can be clicked:
+    // only a prompt in the frame's corner stays, with a way to stop.
+    <Floating
+      place={(size, area) => {
+        const corner = { x: area.width - size.width - 12, y: area.height - size.height - 12 };
+        return corner.x >= 0 && corner.y >= 0 ? corner : { x: 0, y: 0 };
+      }}
+    >
+      <FloatingPanel label={t("suggest.structure.label")}>
+        <p className="text-sm">{t("suggest.structure.destination.choosing")}</p>
+        <div>
+          <Button
+            size="sm"
+            onClick={() => dispatchSuggest({ type: "destination-pick", on: false })}
+          >
+            {t("suggest.structure.destination.stop")}
+          </Button>
+        </div>
+      </FloatingPanel>
+    </Floating>
+  ) : suggest.mode === "structuring" ? (
+    <Floating
+      key={`${suggest.opened}`}
+      sheet={sheet}
+      place={(size, area) => {
+        const anchor = suggest.rect ? visibleRect(suggest.rect, area) : null;
+        return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+      }}
+      onPlaced={(placed) => {
+        if (!placed) setUnplaced(true);
+      }}
+    >
+      <FloatingPanel label={t("suggest.structure.label")} sheet={sheet}>
+        <StructureEditor
           start={start}
           state={suggest}
           dispatch={dispatchSuggest}
@@ -1362,15 +1427,24 @@ function ReviewSession({
           </div>
         ) : null}
         {suggest.mode !== "off" ? (
-          <div>
+          <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               icon={<Paintbrush className="size-4" />}
-              aria-pressed={stylePicking}
+              aria-pressed={elementPick === "style"}
               disabled={!canSuggest || suggest.mode !== "choosing"}
-              onClick={toggleStylePick}
+              onClick={() => togglePickFor("style")}
             >
               {t("suggest.style.pick")}
+            </Button>
+            <Button
+              size="sm"
+              icon={<Move className="size-4" />}
+              aria-pressed={elementPick === "structure"}
+              disabled={!canSuggest || suggest.mode !== "choosing"}
+              onClick={() => togglePickFor("structure")}
+            >
+              {t("suggest.structure.pick")}
             </Button>
           </div>
         ) : null}

@@ -40,6 +40,7 @@ import { Check, CircleCheck, PencilLine, Undo2, X } from "lucide-react";
 import { type Dispatch, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useHumanCheck } from "./human-check.tsx";
+import { StructureSummary } from "./structure-editor.tsx";
 import { ElementName, elementOf, StyleChanges } from "./style-editor.tsx";
 import { editOf, type SuggestAction, type SuggestState } from "./suggest-session.ts";
 import { ActionError, bodyError, humanRefusal } from "./thread-card.tsx";
@@ -78,6 +79,7 @@ export function reasonMessage(t: T, reason: string): string {
   if (isRefusal(reason)) return t(`suggest.refusal.${reason}`);
   if (reason === "css_too_complex") return t("suggest.preview.cssTooComplex");
   if (reason === "element_not_found") return t("suggest.preview.elementNotFound");
+  if (reason === "structure_conflict") return t("suggest.preview.structureConflict");
   if (reason === "preview_too_large") return t("suggest.preview.tooLarge");
   return t("suggest.refusal.unknown");
 }
@@ -404,6 +406,22 @@ export function OperationSummary({
         </p>
         <StyleChanges changes={operation.changes} />
       </div>
+    );
+  }
+  if (operation.kind === "structure" && operation.target.anchor.kind === "element") {
+    const destination =
+      operation.action === "move" && operation.destination.target.anchor.kind === "element"
+        ? {
+            element: elementOf(operation.destination.target.anchor),
+            place: operation.destination.place,
+          }
+        : null;
+    return (
+      <StructureSummary
+        action={operation.action}
+        element={elementOf(operation.target.anchor)}
+        destination={destination}
+      />
     );
   }
   return <p className="text-sm">{t("suggest.edit.notText")}</p>;
@@ -791,7 +809,11 @@ function ChangeItem({ artifactId, item }: { artifactId: string; item: ChangeItem
               <StyleChanges changes={envelope.data.operation.changes} />
             </div>
           ) : (
-            <p className="text-sm">{t("suggest.edit.notText")}</p>
+            <StructureSummary
+              action={envelope.data.operation.action}
+              element={envelope.data.operation.element}
+              destination={envelope.data.operation.destination}
+            />
           )}
           <p className="text-sm text-text-muted">
             <TypedSentence
