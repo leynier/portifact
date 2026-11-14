@@ -1190,10 +1190,10 @@ An artifact shared with its workspace or an email domain becomes restricted when
       ),
     );
 
-  // Edit suggestions are switched off on the server until their release (decision 0027): the
-  // command is hidden from the help until then, and the server answers not_found.
+  // The change list of edit suggestions (decision 0027). A server without suggestions switched on
+  // answers not_found.
   const changes = program
-    .command("changes", { hidden: true })
+    .command("changes")
     .description(
       "Read and mark an artifact's change list: accepted edits Portifact could not apply",
     )
