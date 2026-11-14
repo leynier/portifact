@@ -121,6 +121,29 @@ export function textOperation(
   };
 }
 
+/**
+ * A style operation on the element `selector` finds, with the tag and text the bridge records
+ * (`fingerprint`, the element's normalized text): an element anchor written by hand, since the
+ * tests run without a DOM.
+ */
+export function styleOperation(
+  kind: FileKind,
+  selector: string,
+  tagName: string,
+  fingerprint: string,
+  changes: { property: string; after: string }[],
+): EditOperation {
+  return {
+    kind: "style",
+    target: {
+      schema: ANCHOR_SCHEMA_VERSION,
+      path: PATHS[kind],
+      anchor: { kind: "element", selectors: [selector], tagName, fingerprint },
+    },
+    changes: changes.map((change) => ({ ...change, before: null })),
+  };
+}
+
 export interface SuggestionInput {
   kind: FileKind;
   source: string;

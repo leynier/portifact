@@ -69,6 +69,7 @@ import {
   LogIn,
   MessageSquare,
   MessageSquarePlus,
+  Paintbrush,
   PencilLine,
   RefreshCw,
   Send,
@@ -93,7 +94,13 @@ import { useIssueChoices } from "../review/create-issue.tsx";
 import { DataGrantPanel, useDataGrant } from "../review/data-grant.tsx";
 import { DraftPanel, useDraft } from "../review/draft.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
-import { SUGGEST_OFF, type SuggestOffer, suggestReducer } from "../review/suggest-session.ts";
+import { StyleEditor } from "../review/style-editor.tsx";
+import {
+  editModeOf,
+  SUGGEST_OFF,
+  type SuggestOffer,
+  suggestReducer,
+} from "../review/suggest-session.ts";
 import { ChangeList, SuggestEditor } from "../review/suggestions.tsx";
 import { TextSearchPanel } from "../review/text-search-panel.tsx";
 import { ActionError, bodyError, humanRefusal, ThreadCard } from "../review/thread-card.tsx";
@@ -905,8 +912,20 @@ function ReviewSession({
         if (!offered.current) setHint(t("review.selection.received"));
         setOffer({ target: selected, rect, drawn: true });
       },
-      onElement(picked, rect) {
-        if (suggest.mode !== "off") return;
+      onElement(picked, rect, epoch) {
+        if (suggest.mode !== "off") {
+          // Counts only while picking for a style, for the current epoch; the reducer decides.
+          if (
+            suggest.mode === "choosing" &&
+            suggest.pick !== null &&
+            epoch === suggest.epoch &&
+            picked.anchor.kind === "element"
+          ) {
+            setHint(t("suggest.style.received"));
+          }
+          dispatchSuggest({ type: "element", target: picked, rect, epoch });
+          return;
+        }
         if (!awaitingPick.current || drafting.current) return;
         stopPicking();
         if (!canComment) return;
@@ -930,6 +949,7 @@ function ReviewSession({
       },
       onPickEnded() {
         stopPicking();
+        dispatchSuggest({ type: "pick-ended" });
       },
       onPageChange() {
         // A new page, a route change or the session's end: an open edit is gone, unsaved.
@@ -1016,19 +1036,25 @@ function ReviewSession({
   useEffect(() => {
     if (!canSuggest) dispatchSuggest({ type: "toggle", on: false });
   }, [canSuggest]);
-  // The frame learns only the mode and the epoch: never what is typed.
-  const suggestKey = `${suggest.mode}:${suggest.epoch}:${state}`;
+  // The frame learns only the mode, what is chosen and the epoch: never what is typed.
+  const editMode = editModeOf(suggest);
+  const suggestKey = `${suggest.mode}:${suggest.epoch}:${editMode.kind}:${state}`;
   // suggestKey summarizes what the effect sends, so it runs only when that changes.
   useEffect(() => {
     if (state !== "connected" || suggest.epoch === 0) return;
     send({
       type: "edit-mode",
       epoch: suggest.epoch,
-      active: suggest.mode === "choosing",
-      kind: "text",
-      hint: t("suggest.hint"),
+      active: editMode.active,
+      kind: editMode.kind,
+      hint: editMode.kind === "style" ? t("suggest.style.pick.hint") : t("suggest.hint"),
     });
   }, [suggestKey]);
+  const stylePicking = suggest.mode === "choosing" && suggest.pick === "style";
+  const toggleStylePick = () => {
+    dispatchSuggest({ type: "pick", kind: stylePicking ? null : "style" });
+    if (!stylePicking) announce(t("suggest.style.pick.started"));
+  };
   const setMode = (mode: "comment" | "suggest" | "edit") => {
     const on = mode !== "comment";
     if (on && suggest.mode !== "off") {
@@ -1109,6 +1135,29 @@ function ReviewSession({
       >
         {t("suggest.selection.action")}
       </Button>
+    </Floating>
+  ) : suggest.mode === "styling" ? (
+    <Floating
+      key={`${suggest.epoch}`}
+      sheet={sheet}
+      place={(size, area) => {
+        const anchor = suggest.rect ? visibleRect(suggest.rect, area) : null;
+        return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+      }}
+      onPlaced={(placed) => {
+        if (!placed) setUnplaced(true);
+      }}
+    >
+      <FloatingPanel label={t("suggest.style.label")} sheet={sheet}>
+        <StyleEditor
+          start={start}
+          state={suggest}
+          dispatch={dispatchSuggest}
+          humanNeeded={humanNeeded}
+          onClose={closeEditor}
+          draft={purpose === "edit" && ownerSide ? ownerDraft : undefined}
+        />
+      </FloatingPanel>
     </Floating>
   ) : suggest.mode === "editing" ? (
     <Floating
@@ -1279,6 +1328,19 @@ function ReviewSession({
                 {t("review.pick")}
               </Button>
             ) : null}
+          </div>
+        ) : null}
+        {suggest.mode !== "off" ? (
+          <div>
+            <Button
+              size="sm"
+              icon={<Paintbrush className="size-4" />}
+              aria-pressed={stylePicking}
+              disabled={!canSuggest || suggest.mode !== "choosing"}
+              onClick={toggleStylePick}
+            >
+              {t("suggest.style.pick")}
+            </Button>
           </div>
         ) : null}
         {suggest.mode !== "off" ? (

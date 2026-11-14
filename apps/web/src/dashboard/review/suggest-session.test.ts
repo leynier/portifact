@@ -1,11 +1,13 @@
 import type { AnnotationTarget } from "@portifact/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  editModeOf,
   editOf,
   oneLine,
   SUGGEST_OFF,
   type SuggestAction,
   type SuggestState,
+  styleRowProblem,
   suggestReducer,
   type TextTarget,
 } from "./suggest-session.ts";
@@ -44,7 +46,7 @@ const offer = (epoch: number | null, target: AnnotationTarget | null = TARGET): 
 describe("Suggest mode's session", () => {
   it("offers only a text selection that echoes the current epoch", () => {
     const choosing = run(on);
-    expect(choosing).toEqual({ mode: "choosing", epoch: 1, offer: null });
+    expect(choosing).toEqual({ mode: "choosing", epoch: 1, offer: null, pick: null });
     expect(suggestReducer(choosing, offer(null))).toBe(choosing);
     expect(suggestReducer(choosing, offer(2))).toBe(choosing);
     expect(suggestReducer(choosing, offer(1, ELEMENT))).toEqual({ ...choosing, offer: null });
@@ -115,6 +117,7 @@ describe("Suggest mode's session", () => {
         mode: "choosing",
         epoch: 2,
         offer: null,
+        pick: null,
       });
     }
     // An offer of the old epoch no longer counts.
@@ -172,5 +175,121 @@ describe("Suggest mode's session", () => {
 
   it("makes a selection across blocks one line", () => {
     expect(oneLine("a\nb\r\nc\rd")).toBe("a b c d");
+  });
+});
+
+describe("Suggest mode's style panel", () => {
+  const element = {
+    schema: 1 as const,
+    path: "index.html",
+    anchor: { kind: "element" as const, selectors: ["#x"], tagName: "p", fingerprint: "Hi" },
+  };
+  const choosingState = () => suggestReducer(SUGGEST_OFF, { type: "toggle", on: true });
+  const picking = () => suggestReducer(choosingState(), { type: "pick", kind: "style" });
+  const styling = () => {
+    const state = picking();
+    return suggestReducer(state, {
+      type: "element",
+      target: element,
+      rect: null,
+      epoch: state.epoch,
+    });
+  };
+
+  it("picks in a new epoch and opens the panel only on an element of that epoch", () => {
+    const before = choosingState();
+    const state = picking();
+    expect(state).toMatchObject({ mode: "choosing", pick: "style", epoch: before.epoch + 1 });
+    expect(editModeOf(state)).toEqual({ active: true, kind: "style" });
+    expect(
+      suggestReducer(state, { type: "element", target: element, rect: null, epoch: before.epoch }),
+    ).toBe(state);
+    expect(
+      suggestReducer(state, { type: "element", target: TARGET, rect: null, epoch: state.epoch }),
+    ).toBe(state);
+    // Not picking: an element of the epoch opens nothing.
+    expect(
+      suggestReducer(before, { type: "element", target: element, rect: null, epoch: before.epoch }),
+    ).toBe(before);
+    expect(styling()).toMatchObject({
+      mode: "styling",
+      changes: [{ property: "color", after: "" }],
+    });
+    expect(editModeOf(styling())).toEqual({ active: false, kind: "text" });
+  });
+
+  it("goes back to selecting text when the pick ends, and offers no text while picking", () => {
+    const state = picking();
+    expect(
+      suggestReducer(state, { type: "selection", target: TARGET, rect: null, epoch: state.epoch }),
+    ).toBe(state);
+    const ended = suggestReducer(state, { type: "pick-ended" });
+    expect(ended).toMatchObject({ mode: "choosing", pick: null, epoch: state.epoch + 1 });
+    // A pick-ended outside a pick changes nothing.
+    expect(suggestReducer(ended, { type: "pick-ended" })).toBe(ended);
+    expect(suggestReducer(styling(), { type: "pick-ended" }).mode).toBe("styling");
+  });
+
+  it("holds one to eight rows, each a property not chosen yet, and builds the edit only when all are valid", () => {
+    let state = styling();
+    expect(editOf(state)).toBeNull();
+    state = suggestReducer(state, { type: "style", index: 0, change: { after: "red" } });
+    expect(editOf(state)?.operations[0]).toEqual({
+      kind: "style",
+      target: element,
+      changes: [{ property: "color", before: null, after: "red" }],
+    });
+    expect(suggestReducer(state, { type: "style-remove", index: 0 })).toBe(state);
+    for (let i = 0; i < 10; i++) state = suggestReducer(state, { type: "style-add" });
+    if (state.mode !== "styling") throw new Error("not styling");
+    expect(state.changes.map((row) => row.property)).toEqual([
+      "color",
+      "background-color",
+      "font-size",
+      "font-weight",
+      "font-style",
+      "text-align",
+      "text-decoration-line",
+      "text-transform",
+    ]);
+    expect(editOf(state)).toBeNull();
+    state = suggestReducer(state, {
+      type: "style",
+      index: 1,
+      change: { property: "color", after: "blue" },
+    });
+    if (state.mode !== "styling") throw new Error("not styling");
+    expect(styleRowProblem(state.changes, 0)).toBeNull();
+    expect(styleRowProblem(state.changes, 1)).toBe("duplicate");
+    expect(styleRowProblem(state.changes, 2)).toBe("invalid");
+    expect(styleRowProblem(state.changes, 9)).toBeNull();
+    state = suggestReducer(state, { type: "style-remove", index: 1 });
+    if (state.mode !== "styling") throw new Error("not styling");
+    expect(state.changes).toHaveLength(7);
+  });
+
+  it("reviews only a valid style, keeps the note and ends with the page", () => {
+    let state = styling();
+    expect(suggestReducer(state, { type: "review" })).toBe(state);
+    state = suggestReducer(state, { type: "style", index: 0, change: { after: "#fff" } });
+    state = suggestReducer(state, { type: "note", note: "Lighter" });
+    state = suggestReducer(state, { type: "review" });
+    expect(state).toMatchObject({ mode: "styling", reviewing: true, note: "Lighter" });
+    expect(suggestReducer(state, { type: "back" })).toMatchObject({ reviewing: false });
+    // Changing a row leaves the review.
+    expect(
+      suggestReducer(state, { type: "style", index: 0, change: { after: "#000" } }),
+    ).toMatchObject({ reviewing: false });
+    const ended = suggestReducer(state, { type: "page-change" });
+    expect(ended).toMatchObject({ mode: "choosing", pick: null, epoch: state.epoch + 1 });
+    // Style actions do nothing outside the panel.
+    for (const action of [
+      { type: "style", index: 0, change: { after: "red" } },
+      { type: "style-add" },
+      { type: "style-remove", index: 0 },
+      { type: "pick", kind: "style" },
+    ] as const) {
+      expect(suggestReducer(SUGGEST_OFF, action)).toBe(SUGGEST_OFF);
+    }
   });
 });

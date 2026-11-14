@@ -66,3 +66,68 @@ describe("the owner's draft", () => {
     expect(one && removeFromDraft(one, 0)).toBeNull();
   });
 });
+
+describe("styles in the owner's draft", () => {
+  const styled = (fingerprint: string, changes: [string, string][], x = 0) => ({
+    kind: "style" as const,
+    target: {
+      schema: 1 as const,
+      path: "index.md",
+      anchor: {
+        kind: "element" as const,
+        selectors: ["main > p"],
+        tagName: "p",
+        fingerprint,
+        rect: { x, y: 0, width: 10, height: 10 },
+      },
+    },
+    changes: changes.map(([property, after]) => ({ property, before: null, after })),
+  });
+
+  it("merges a new style of the same element into its operation, the new values winning", () => {
+    const first = addToDraft(
+      null,
+      styled("Hello", [
+        ["color", "red"],
+        ["font-style", "italic"],
+      ]),
+    );
+    if (!first.ok) throw new Error("refused");
+    // Picked again: the box moved, the element is the same.
+    const second = addToDraft(first.edit, styled("Hello", [["color", "navy"]], 40));
+    if (!second.ok) throw new Error("refused");
+    expect(second.edit.operations).toHaveLength(1);
+    const [only] = second.edit.operations;
+    expect(only?.kind === "style" ? only.changes.map((c) => [c.property, c.after]) : null).toEqual([
+      ["font-style", "italic"],
+      ["color", "navy"],
+    ]);
+    // Another element is another operation, beside the text ones.
+    const third = addToDraft(second.edit, styled("Other", [["color", "red"]]));
+    const fourth = third.ok ? addToDraft(third.edit, op(0, "cat", "dog")) : third;
+    expect(fourth.ok && fourth.edit.operations.map((o) => o.kind)).toEqual([
+      "style",
+      "style",
+      "text",
+    ]);
+  });
+
+  it("refuses a merge over eight properties", () => {
+    const properties: [string, string][] = [
+      ["color", "red"],
+      ["background-color", "white"],
+      ["font-size", "12px"],
+      ["font-weight", "bold"],
+      ["font-style", "italic"],
+      ["text-align", "left"],
+      ["text-transform", "none"],
+      ["letter-spacing", "1px"],
+    ];
+    const first = addToDraft(null, styled("Hello", properties));
+    if (!first.ok) throw new Error("refused");
+    expect(addToDraft(first.edit, styled("Hello", [["border-radius", "4px"]]))).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+  });
+});

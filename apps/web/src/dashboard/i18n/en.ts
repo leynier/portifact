@@ -3392,6 +3392,47 @@ export const en = {
   "artifactData.exportFailed": "The export failed",
   "artifactData.exportInconsistent":
     "The data changed during the export. Export it again for a consistent copy.",
+  "suggest.style.pick": "Suggest a style",
+  "suggest.style.pick.hint": "Choose the element to restyle",
+  "suggest.style.pick.started":
+    "Choose an element in the artifact to suggest a style for it, or move to it with Tab and press Enter. Escape stops.",
+  "suggest.style.received": "Element chosen. The style panel is open.",
+  "suggest.style.label": "Suggest a style for the element",
+  "suggest.style.title": "Suggest a style",
+  "draft.style.title": "Change the style",
+  "suggest.style.element": "The {tag} element with the text {label}",
+  "suggest.style.elementEmpty": "The {tag} element",
+  "suggest.style.never":
+    "Styles are never applied automatically. If accepted, the change goes to the change list, for the people who manage the artifact or their agent to apply.",
+  "suggest.style.changes": "Properties to change",
+  "suggest.style.property": "Property {number}",
+  "suggest.style.value": "New value of property {number}",
+  "suggest.style.add": "Add a property",
+  "suggest.style.remove": "Remove property {number}",
+  "suggest.style.removeShort": "Remove",
+  "suggest.style.invalid": "This value is not allowed for this property.",
+  "suggest.style.duplicate": "This property is already in the list.",
+  "suggest.style.hint.color":
+    "#rgb, #rrggbb, rgb(r, g, b) or a color name such as navy. No transparency.",
+  "suggest.style.hint.fontSize": "Whole pixels from 8px to 96px.",
+  "suggest.style.hint.letterSpacing": "normal, or whole pixels from 0px to 10px.",
+  "suggest.style.hint.borderRadius": "Whole pixels from 0px to 64px.",
+  "suggest.style.property.color": "Text color",
+  "suggest.style.property.background-color": "Background color",
+  "suggest.style.property.font-size": "Text size",
+  "suggest.style.property.font-weight": "Weight",
+  "suggest.style.property.font-style": "Italic",
+  "suggest.style.property.text-align": "Alignment",
+  "suggest.style.property.text-decoration-line": "Underline and strikethrough",
+  "suggest.style.property.text-transform": "Capitalization",
+  "suggest.style.property.letter-spacing": "Letter spacing",
+  "suggest.style.property.border-radius": "Corner rounding",
+  "suggest.style.change": "{property} to {after}",
+  "suggest.style.changeFrom": "{property} from {before} to {after}",
+  "suggest.preview.elementNotFound":
+    "The element is not in the stored page (the page's scripts may draw it), so there is no preview.",
+  "suggest.preview.tooLarge":
+    "Building this preview would take too much work or make it too large, so there is no preview.",
 } as const;
 
 export type MessageId = keyof typeof en;

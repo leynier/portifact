@@ -9,6 +9,7 @@ import {
   type ChangeItemView,
   type DraftEdit,
   Edit,
+  type EditOperation,
   type Plan,
   type PreviewRequest,
   type PreviewResponse,
@@ -17,7 +18,6 @@ import {
   type ReviewStart,
   ShownEnvelope,
   type SuggestionView,
-  type TextOperation,
 } from "@portifact/contracts";
 import { tokens } from "@portifact/domain/suggestion-display";
 import {
@@ -40,6 +40,7 @@ import { Check, CircleCheck, PencilLine, Undo2, X } from "lucide-react";
 import { type Dispatch, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { useHumanCheck } from "./human-check.tsx";
+import { ElementName, elementOf, StyleChanges } from "./style-editor.tsx";
 import { editOf, type SuggestAction, type SuggestState } from "./suggest-session.ts";
 import { ActionError, bodyError, humanRefusal } from "./thread-card.tsx";
 import { applySuggestion, applyThread, threadsQuery } from "./use-threads.ts";
@@ -76,6 +77,8 @@ const isRefusal = (reason: string): reason is RefusalReason =>
 export function reasonMessage(t: T, reason: string): string {
   if (isRefusal(reason)) return t(`suggest.refusal.${reason}`);
   if (reason === "css_too_complex") return t("suggest.preview.cssTooComplex");
+  if (reason === "element_not_found") return t("suggest.preview.elementNotFound");
+  if (reason === "preview_too_large") return t("suggest.preview.tooLarge");
   return t("suggest.refusal.unknown");
 }
 
@@ -116,9 +119,9 @@ export function SuggestEditor({
    */
   draft?:
     | {
-        add(operation: TextOperation): Promise<boolean>;
+        add(operation: EditOperation): Promise<boolean>;
         /** The whole draft with `operation` added, as a preview of it would plan it. */
-        editWith(operation: TextOperation): DraftEdit | null;
+        editWith(operation: EditOperation): DraftEdit | null;
       }
     | undefined;
   /** The editor closed: saved (with the new thread's ID) or cancelled. */
@@ -139,7 +142,7 @@ export function SuggestEditor({
   const toDraft = useMutation({
     mutationFn: (value: Edit) => {
       const [operation] = value.operations;
-      if (!draft || operation?.kind !== "text") return Promise.resolve(false);
+      if (!draft || !operation) return Promise.resolve(false);
       return draft.add(operation);
     },
     onSuccess: (added) => {
@@ -328,18 +331,18 @@ export function SuggestEditor({
  * The built preview of an edit not saved yet (decision 0027, "Previews"): a suggestion's edit, or
  * the owner's whole draft with this change. Nothing is stored; a new code each time it is shown.
  */
-function UnsavedPreview({
+export function UnsavedPreview({
   start,
   edit,
   draft,
 }: {
   start: ReviewStart;
   edit: Edit;
-  draft?: { editWith(operation: TextOperation): DraftEdit | null } | undefined;
+  draft?: { editWith(operation: EditOperation): DraftEdit | null } | undefined;
 }) {
   const t = useT();
   const [operation] = edit.operations;
-  const draftEdit = draft && operation?.kind === "text" ? draft.editWith(operation) : null;
+  const draftEdit = draft && operation ? draft.editWith(operation) : null;
   if (draft && !draftEdit) {
     return <p className="text-sm">{t("draft.refused.invalid")}</p>;
   }
@@ -368,19 +371,42 @@ function EditSummary({ edit }: { edit: unknown }) {
       {parsed.data.operations.map((operation, index) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: operations keep their order
         <li key={index}>
-          {operation.kind === "text" && operation.target.anchor.kind === "text" ? (
-            <EditDiff
-              before={tokens(operation.target.anchor.quote.exact)}
-              after={tokens(operation.after)}
-              labels={labels}
-            />
-          ) : (
-            <p className="text-sm">{t("suggest.edit.notText")}</p>
-          )}
+          <OperationSummary operation={operation} labels={labels} />
         </li>
       ))}
     </ul>
   );
+}
+
+/** What one operation changes: the text's diff, or the element and its style. */
+export function OperationSummary({
+  operation,
+  labels,
+}: {
+  operation: EditOperation;
+  labels: ReturnType<typeof useDiffLabels>;
+}) {
+  const t = useT();
+  if (operation.kind === "text" && operation.target.anchor.kind === "text") {
+    return (
+      <EditDiff
+        before={tokens(operation.target.anchor.quote.exact)}
+        after={tokens(operation.after)}
+        labels={labels}
+      />
+    );
+  }
+  if (operation.kind === "style" && operation.target.anchor.kind === "element") {
+    return (
+      <div className="flex flex-col gap-1 text-sm">
+        <p>
+          <ElementName element={elementOf(operation.target.anchor)} />
+        </p>
+        <StyleChanges changes={operation.changes} />
+      </div>
+    );
+  }
+  return <p className="text-sm">{t("suggest.edit.notText")}</p>;
 }
 
 /** How many operations apply and are listed, and why the listed ones are. */
@@ -676,7 +702,7 @@ const FIELD_MARKS = ["\uE000", "\uE001", "\uE002"] as const;
  * and their order, and each field is drawn as its own typed, direction-isolated text, so a
  * hidden or bidirectional character in a name never acts on the sentence.
  */
-function TypedSentence<K extends string>({
+export function TypedSentence<K extends string>({
   message,
   fields,
 }: {
@@ -757,6 +783,13 @@ function ChangeItem({ artifactId, item }: { artifactId: string; item: ChangeItem
               after={tokens(envelope.data.operation.after)}
               labels={labels}
             />
+          ) : envelope.data.operation.kind === "style" ? (
+            <div className="flex flex-col gap-1 text-sm">
+              <p>
+                <ElementName element={envelope.data.operation.element} />
+              </p>
+              <StyleChanges changes={envelope.data.operation.changes} />
+            </div>
           ) : (
             <p className="text-sm">{t("suggest.edit.notText")}</p>
           )}
