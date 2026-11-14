@@ -1308,3 +1308,273 @@ describe("previews of unsaved edits, rebasing and the text search (decision 0027
     expect(within(search).queryByRole("list", { name: "Places with the text" })).toBeNull();
   });
 });
+
+const ELEMENT_TARGET = {
+  schema: 1 as const,
+  path: "index.html",
+  anchor: {
+    kind: "element" as const,
+    selectors: ["#lead"],
+    tagName: "p",
+    fingerprint: "Hello brave new world",
+  },
+};
+
+/** The element of `tag` whose whole text is `text`, where typed fields split it into parts. */
+const wholeText = (scope: HTMLElement, tag: string, text: string) =>
+  within(scope).getAllByText(
+    (_, element) => element?.tagName === tag.toUpperCase() && element.textContent === text,
+  );
+
+describe("Suggest a style (decision 0027, delivery 3)", () => {
+  const lastMode = () =>
+    sent()
+      .filter((m) => m.type === "edit-mode")
+      .at(-1) as { epoch: number; active: boolean; kind: string } | undefined;
+
+  async function pickStyle() {
+    fireEvent.click(await screen.findByRole("button", { name: "Suggest a style" }));
+    await waitFor(() => expect(lastMode()).toMatchObject({ active: true, kind: "style" }));
+    return (lastMode() as { epoch: number }).epoch;
+  }
+
+  async function openStyle(nonce: string) {
+    const epoch = await pickStyle();
+    fromBridge(nonce, { type: "element", target: ELEMENT_TARGET, rect: RECT, epoch });
+    fromBridge(nonce, { type: "pick-ended" });
+    return screen.findByRole("region", { name: "Suggest a style for the element" });
+  }
+
+  async function chooseOption(scope: HTMLElement, name: string, option: string) {
+    fireEvent.click(within(scope).getByRole("combobox", { name }));
+    fireEvent.click(await screen.findByRole("option", { name: option }));
+  }
+
+  it("picks an element, checks each value against the allowlist and saves the exact style", async () => {
+    const { container } = await open();
+    const { nonce } = await connect();
+    await suggestMode();
+    const panel = await openStyle(nonce);
+    expect(wholeText(panel, "p", "The p element with the text Hello brave new world")).toHaveLength(
+      1,
+    );
+    const value = within(panel).getByRole("textbox", { name: "New value of property 1" });
+    fireEvent.change(value, { target: { value: "red;background:url(x)" } });
+    expect(within(panel).getByText("This value is not allowed for this property.")).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: "Review" })).toHaveProperty("disabled", true);
+    fireEvent.change(value, { target: { value: "Navy" } });
+    expect(within(panel).queryByText("This value is not allowed for this property.")).toBeNull();
+    fireEvent.click(within(panel).getByRole("button", { name: "Add a property" }));
+    await chooseOption(panel, "Property 2", "Weight");
+    await chooseOption(panel, "New value of property 2", "bold");
+    fireEvent.change(within(panel).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Calmer" },
+    });
+    Reflect.deleteProperty(HTMLIFrameElement.prototype, "contentWindow");
+    expect(await axeViolations(container)).toEqual([]);
+    Object.defineProperty(HTMLIFrameElement.prototype, "contentWindow", {
+      configurable: true,
+      get: () => frameWindow,
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Review" }));
+    await within(panel).findByRole("heading", { name: "Check your suggestion" });
+    const changes = within(panel).getByRole("list", { name: "Properties to change" });
+    expect(changes.textContent).toContain("Text color to navy");
+    expect(changes.textContent).toContain("Weight to bold");
+    fireEvent.click(within(panel).getByRole("button", { name: "Save suggestion" }));
+    await screen.findByText("Suggestion saved.");
+    expect(server.bodies).toContainEqual({
+      versionId: "v1",
+      body: "Calmer",
+      edit: {
+        operations: [
+          {
+            kind: "style",
+            target: ELEMENT_TARGET,
+            changes: [
+              { property: "color", before: null, after: "navy" },
+              { property: "font-weight", before: null, after: "bold" },
+            ],
+          },
+        ],
+      },
+    });
+    // The frame learned only the mode, the kind and the epoch.
+    expect(JSON.stringify(sent())).not.toContain("navy");
+    expect(JSON.stringify(sent())).not.toContain("Calmer");
+  });
+
+  it("takes an element only while picking for a style, for the current epoch", async () => {
+    await open();
+    const { nonce } = await connect();
+    const first = await suggestMode();
+    // Not picking: an element opens nothing.
+    fromBridge(nonce, { type: "element", target: ELEMENT_TARGET, rect: RECT, epoch: first });
+    const epoch = await pickStyle();
+    expect(epoch).toBeGreaterThan(first);
+    // An element of the earlier epoch, or a text selection, opens nothing either.
+    fromBridge(nonce, { type: "element", target: ELEMENT_TARGET, rect: RECT, epoch: first });
+    fromBridge(nonce, { type: "selection", target: TEXT_TARGET, rect: RECT, epoch });
+    expect(screen.queryByRole("region", { name: "Suggest a style for the element" })).toBeNull();
+    expect(floating("Suggest edit")).toBeNull();
+    // Escape in the frame ends the pick: back to selecting text, in a new epoch.
+    fromBridge(nonce, { type: "pick-ended" });
+    await waitFor(() => expect(lastMode()).toMatchObject({ active: true, kind: "text" }));
+    expect((lastMode() as { epoch: number }).epoch).toBeGreaterThan(epoch);
+    expect(
+      screen.getByRole("button", { name: "Suggest a style" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+
+  it("previews the unsaved style, refuses a repeated property and closes on Escape", async () => {
+    await open();
+    const { nonce } = await connect();
+    await suggestMode();
+    const panel = await openStyle(nonce);
+    fireEvent.change(within(panel).getByRole("textbox", { name: "New value of property 1" }), {
+      target: { value: "#123456" },
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Add a property" }));
+    await chooseOption(panel, "Property 2", "Text color");
+    expect(within(panel).getByText("This property is already in the list.")).toBeTruthy();
+    fireEvent.click(within(panel).getByRole("button", { name: "Remove property 2" }));
+    fireEvent.change(within(panel).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Darker" },
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Review" }));
+    fireEvent.click(await within(panel).findByRole("tab", { name: "Preview" }));
+    await within(panel).findByTitle("Preview of the suggested edit");
+    expect(server.suggestions.previewRequests).toEqual([
+      {
+        unsaved: {
+          versionId: "v1",
+          as: "suggestion",
+          edit: {
+            operations: [
+              {
+                kind: "style",
+                target: ELEMENT_TARGET,
+                changes: [{ property: "color", before: null, after: "#123456" }],
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    fireEvent.keyDown(within(panel).getByRole("tab", { name: "Preview" }), { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "Suggest a style for the element" })).toBeNull(),
+    );
+    expect(server.requests.some((r) => r.path.endsWith("/suggestions"))).toBe(false);
+  });
+
+  it("says why a style has no preview", async () => {
+    server.suggestions.preview = { state: "unavailable", reasons: ["element_not_found"] };
+    await open();
+    const { nonce } = await connect();
+    await suggestMode();
+    const panel = await openStyle(nonce);
+    fireEvent.change(within(panel).getByRole("textbox", { name: "New value of property 1" }), {
+      target: { value: "red" },
+    });
+    fireEvent.change(within(panel).getByRole("textbox", { name: "Note" }), {
+      target: { value: "Red" },
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "Review" }));
+    fireEvent.click(await within(panel).findByRole("tab", { name: "Preview" }));
+    expect(
+      await within(panel).findByText(
+        "The element is not in the stored page (the page's scripts may draw it), so there is no preview.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("adds a style to the owner's draft, with no note", async () => {
+    await open();
+    const { nonce } = await connect();
+    fireEvent.click(within(await modeSwitch()).getByRole("button", { name: "Edit mode" }));
+    await waitFor(() => expect(lastMode()).toMatchObject({ active: true }));
+    const panel = await openStyle(nonce);
+    expect(within(panel).getByRole("heading", { name: "Change the style" })).toBeTruthy();
+    expect(within(panel).queryByRole("textbox", { name: "Note" })).toBeNull();
+    await chooseOption(panel, "Property 1", "Alignment");
+    await chooseOption(panel, "New value of property 1", "center");
+    fireEvent.click(within(panel).getByRole("button", { name: "Review" }));
+    fireEvent.click(await within(panel).findByRole("button", { name: "Add to draft" }));
+    await screen.findByText("Added to your draft.");
+    expect(server.bodies).toContainEqual({
+      baseVersionId: "v1",
+      edit: {
+        operations: [
+          {
+            kind: "style",
+            target: ELEMENT_TARGET,
+            changes: [{ property: "text-align", before: null, after: "left" }],
+          },
+        ].map((op) => ({ ...op, changes: [{ ...op.changes[0], after: "center" }] })),
+      },
+      baseRevision: null,
+      baseIncarnation: null,
+    });
+    const draft = screen.getByRole("region", { name: "Your draft" });
+    expect(wholeText(draft, "li", "Alignment to center")).toHaveLength(1);
+  });
+
+  it("shows a style suggestion in its thread and a style item on the change list", async () => {
+    const edit = {
+      operations: [
+        {
+          kind: "style",
+          target: ELEMENT_TARGET,
+          changes: [{ property: "border-radius", before: null, after: "8px" }],
+        },
+      ],
+    };
+    server.annotations[ID] = {
+      mode: "open",
+      role: "owner",
+      currentVersionId: "v1",
+      threads: [
+        {
+          ...fakeThread("t1", {
+            target: ELEMENT_TARGET,
+            messages: [fakeMessage({ body: "Round" })],
+          }),
+          seq: 1,
+          kind: "suggestion",
+          suggestion: fakeSuggestion("t1", { edit, revision: 1 }),
+        },
+      ],
+      deleted: [],
+      seq: 1,
+    };
+    const base = plan().listed[0] as ShownEnvelope;
+    server.suggestions.changes[ID] = [
+      item("open", {
+        reason: "not_text",
+        envelope: {
+          ...base,
+          reason: "not_text",
+          operation: {
+            kind: "style",
+            element: { tag: "p", label: "Hello brave new world" },
+            changes: [{ property: "border-radius", before: null, after: "8px" }],
+          },
+          provenance: { submittedBy: "Bea", acceptedBy: "Ada" },
+        },
+      }),
+    ];
+    await open();
+    const block = await screen.findByRole("region", { name: "Suggested edit" });
+    expect(wholeText(block, "li", "Corner rounding to 8px")).toHaveLength(1);
+    fireEvent.click(screen.getByText("Change list"));
+    const sentence = (await screen.findByText("Suggested by", { exact: false })).closest("li");
+    if (!sentence) throw new Error("no item");
+    expect(wholeText(sentence, "li", "Corner rounding to 8px")).toHaveLength(1);
+    expect(
+      within(sentence).getByText(
+        "Style and structure changes are never applied automatically: they go to the change list.",
+      ),
+    ).toBeTruthy();
+  });
+});

@@ -73,11 +73,19 @@ export {
   buildPreview,
   PREVIEW_CSS_LIMITS,
   PREVIEW_POLICY,
+  PREVIEW_REASONS,
+  type PreviewReason,
   type PreviewResult,
   previewable,
   previewHeaders,
+  previewOfEdit,
   withoutMotion,
 } from "./preview.ts";
+export {
+  type ElementEdit,
+  hasElementOperations,
+  locateElementEdits,
+} from "./preview-edits.ts";
 export {
   type Carriable,
   type Carry,
@@ -86,5 +94,6 @@ export {
   MARKER_BATCH_MAX,
 } from "./relocate.ts";
 export { pageHtml, type RenderedPage, renderedPage, servedPageText } from "./rendered.ts";
+export { parseSelector, querySelectorAll } from "./selector-match.ts";
 export { planText, TEXT_IDENTITY } from "./text-planner.ts";
 export { newWork, type Work } from "./work.ts";

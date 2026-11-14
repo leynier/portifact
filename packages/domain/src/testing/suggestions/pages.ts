@@ -2,7 +2,7 @@
 // located through `packages/anchors` over the page's body, as the bridge does in a browser. The
 // independent checker uses only this module: nothing here imports planner code.
 import { AnchorDocument, type AnchorElement } from "@portifact/anchors";
-import type { FileKind } from "@portifact/contracts";
+import type { ElementAnchor, FileKind } from "@portifact/contracts";
 import { DOCUMENT_RENDERER, renderStoredDocument, type SourceBlock } from "@portifact/render";
 import { type Document, Window } from "happy-dom";
 
@@ -81,4 +81,23 @@ export function editAt(text: string, before: string, after: string, occurrence =
   if (index < 0) throw new Error(`"${before}" is not on the page`);
   const start = Array.from(text.slice(0, index)).length;
   return { start, end: start + Array.from(before).length, before, after };
+}
+
+/**
+ * The element target the bridge would build for the element `selector` finds on a stored file's
+ * page (an HTML file, or a document's stored rendering), with happy-dom and `packages/anchors`.
+ */
+export async function elementTargetOf(
+  kind: FileKind,
+  source: string,
+  selector: string,
+  path = "index.html",
+): Promise<{ schema: 1; path: string; anchor: ElementAnchor }> {
+  const document = parseDocument(await pageOf(kind, source));
+  const element = document.querySelector(selector);
+  if (!element) throw new Error(`"${selector}" is not on the page`);
+  const anchors = new AnchorDocument(document.body as unknown as AnchorElement);
+  const created = anchors.createElementAnchor(element as unknown as AnchorElement);
+  if (!created.ok) throw new Error(`no anchor for "${selector}": ${created.reason}`);
+  return { schema: 1, path, anchor: created.value };
 }

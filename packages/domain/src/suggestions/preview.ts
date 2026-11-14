@@ -7,10 +7,30 @@
 // and a style that stops animations, then the file's own inline styles, which the policy keeps
 // from loading anything. The preview origin also sends the policy as a header and the viewer
 // frames it with an empty `sandbox`.
-import { type DocumentRenderer, type FileKind, PLAN_LIMITS } from "@portifact/contracts";
+import {
+  type DocumentRenderer,
+  type EditOperation,
+  type FileKind,
+  PLAN_LIMITS,
+} from "@portifact/contracts";
 import { generate, ident, parse, walk } from "css-tree";
-import { childrenOf, HTML_NS, isElement, isText, type P5Node, parseHtml } from "./html-dom.ts";
+import {
+  childrenOf,
+  HTML_NS,
+  isElement,
+  isText,
+  type P5Document,
+  type P5Element,
+  type P5Node,
+  parseHtml,
+} from "./html-dom.ts";
 import { escapeHtml } from "./html-planner.ts";
+import {
+  type ElementEdit,
+  elementAt,
+  hasElementOperations,
+  locateElementEdits,
+} from "./preview-edits.ts";
 import { newWork, type Work } from "./work.ts";
 
 /** The one policy of every preview document, sent as a header and repeated in the document. */
@@ -310,10 +330,69 @@ export function previewable(kind: FileKind, source: string): boolean {
     : new TextEncoder().encode(source).length <= PLAN_LIMITS.documentBytes;
 }
 
+/** Why a page has no preview: its CSS is over its bounds, or an element an edit names is not on it. */
+export const PREVIEW_REASONS = ["css_too_complex", "element_not_found"] as const;
+export type PreviewReason = (typeof PREVIEW_REASONS)[number];
+
 /** A built preview, or why there is none for this page. */
 export type PreviewResult =
   | { state: "ready"; document: string }
-  | { state: "unavailable"; reason: "css_too_complex" };
+  | { state: "unavailable"; reason: PreviewReason };
+
+/**
+ * `style` declarations for a preview: the element's own declarations of other properties kept,
+ * those of the changed properties dropped, and each change written once, `!important` so the
+ * page's own rules do not hide it in the preview. Read by the CSS parser, as `withoutMotion` reads
+ * inline styles; a style it cannot read gives no preview.
+ */
+function styled(current: string, declarations: StyleDeclarations): string {
+  const changed = new Set(declarations.map((declaration) => declaration.property));
+  let kept = "";
+  if (current.trim() !== "") {
+    if (cssDepth(current) > PREVIEW_CSS_LIMITS.depth) throw new CssTooComplex();
+    try {
+      const ast = parse(current, {
+        context: "declarationList",
+        parseValue: false,
+        parseCustomProperty: false,
+      });
+      walk(ast, {
+        visit: "Declaration",
+        enter(node, item, list) {
+          if (changed.has(ident.decode(node.property).toLowerCase())) list.remove(item);
+        },
+      });
+      kept = generate(ast);
+    } catch {
+      throw new CssTooComplex();
+    }
+  }
+  const written = declarations.map(({ property, value }) => `${property}:${value}!important`);
+  return [kept, ...written].filter((part) => part !== "").join(";");
+}
+
+type StyleDeclarations = Extract<ElementEdit, { kind: "style" }>["declarations"];
+
+/**
+ * Makes the edits to the parsed page. Every element is found first, by its path on the page the
+ * edits were located on (a text edit changes no element), and only then is anything changed.
+ */
+function applyEdits(document: P5Document, edits: readonly ElementEdit[]): boolean {
+  const elements: P5Element[] = [];
+  for (const edit of edits) {
+    const element = elementAt(document, edit.path);
+    if (!element) return false;
+    elements.push(element);
+  }
+  edits.forEach((edit, index) => {
+    const element = elements[index] as P5Element;
+    const attr = element.attrs.find((each) => each.name === "style" && !each.namespace);
+    const value = styled(attr?.value ?? "", edit.declarations);
+    if (attr) attr.value = value;
+    else element.attrs.push({ name: "style", value });
+  });
+  return true;
+}
 
 /**
  * The preview document for a file of any kind, under the one preview policy, or `unavailable` when
@@ -325,11 +404,13 @@ export function buildPreview(
   source: string,
   renderer: DocumentRenderer,
   work: Work = newWork(),
+  edits: readonly ElementEdit[] = [],
 ): PreviewResult {
   if (kind !== "html") work.renders++;
   const document = parseHtml(pageOf(kind, source, renderer), work).document;
   let written: { body: string; styles: string[] };
   try {
+    if (!applyEdits(document, edits)) return { state: "unavailable", reason: "element_not_found" };
     written = write(document);
   } catch (error) {
     if (error instanceof CssTooComplex) return { state: "unavailable", reason: "css_too_complex" };
@@ -349,6 +430,32 @@ export function buildPreview(
       "</html>",
     ].join(""),
   };
+}
+
+/**
+ * The preview of an edit's style and structure operations, on the page built from `shown` (the
+ * stored file, or the plan's new file when text applies): their elements are found on the page
+ * built from `base`, the stored file, where the person picked them, and a page without one of them
+ * exactly gives no preview (`element_not_found`). An edit without such operations is simply the
+ * preview of `shown`.
+ */
+export function previewOfEdit(input: {
+  kind: FileKind;
+  base: string;
+  shown: string;
+  operations: readonly EditOperation[];
+  renderer: DocumentRenderer;
+  work?: Work;
+}): PreviewResult {
+  const work = input.work ?? newWork();
+  const { kind, renderer } = input;
+  if (!hasElementOperations(input.operations)) {
+    return buildPreview(kind, input.shown, renderer, work);
+  }
+  if (kind !== "html") work.renders++;
+  const located = locateElementEdits(pageOf(kind, input.base, renderer), input.operations, work);
+  if (typeof located === "string") return { state: "unavailable", reason: located };
+  return buildPreview(kind, input.shown, renderer, work, located);
 }
 
 /** The headers the preview origin sends with every preview document. */

@@ -43,6 +43,7 @@ import {
   draftPlanOf,
   draftSubject,
   ownDraft,
+  type SubjectPlan,
   suggestionPlanOf,
   unsavedPlanOf,
 } from "./suggestion-plans.ts";
@@ -209,8 +210,8 @@ export async function issuePreviewCode(
   if (!admitted.ok) return admitted;
 
   if (standing.artifact.currentVersionId !== binding.versionId) return planChanged();
-  // Nothing applies: the plan says why, and nothing is read or built.
-  if (plan.output === null) return ok(unavailable(plan));
+  // Nothing applies or shows: the plan says why, and nothing is read or built.
+  if (!shows(plan)) return ok(unavailable(plan));
   // Rebuilt by the one plan builder the suggestion services use (`suggestionPlanOf`: the stored
   // files read within their bounds, a carried suggestion at its carried positions, a stored byte
   // order mark kept), so a plan and its preview hash alike.
@@ -226,6 +227,7 @@ export async function issuePreviewCode(
     ownerId: standing.artifact.ownerId,
     threadId: thread.id,
     plan: built.value.plan,
+    edit: editOf(built.value),
     still: sql`exists (select 1 from ${t} where ${t.id} = ${thread.id} and ${t.artifactId} = ${artifactId}
             and ${t.suggestionState} = 'pending' and ${t.suggestionRevision} = ${binding.revision})`,
     subject: {
@@ -235,6 +237,22 @@ export async function issuePreviewCode(
     },
   });
 }
+
+/**
+ * Whether a plan has anything to preview: a new file, or style and structure operations, which a
+ * preview makes on the built copy of the stored page (never applied to a file).
+ */
+const shows = (plan: Pick<Plan, "output" | "listed">): boolean =>
+  plan.output !== null || plan.listed.some((envelope) => envelope.operation.kind !== "text");
+
+/**
+ * What the built copy is made from besides the plan: the stored page the edit's elements are found
+ * on and the operations, or nothing when the page was not read (over its limit or not UTF-8).
+ */
+const editOf = (built: SubjectPlan) =>
+  built.page.decoded && !built.page.oversized
+    ? { base: built.page.source, operations: built.operations }
+    : undefined;
 
 /** A plan's refusal reasons, when nothing of it applies. */
 const unavailable = (plan: Pick<Plan, "listed">): IssuedPreview => ({
@@ -265,7 +283,7 @@ async function issueDraft(
   if (!admitted.ok) return admitted;
   if (loaded.artifact.currentVersionId !== binding.versionId) return planChanged();
   if (draft.baseVersionId !== binding.versionId) return planChanged();
-  if (plan.output === null) return ok(unavailable(plan));
+  if (!shows(plan)) return ok(unavailable(plan));
   const built = await draftPlanOf(db, bucket, {
     artifact: loaded.artifact,
     draft,
@@ -277,6 +295,7 @@ async function issueDraft(
     ownerId: loaded.artifact.ownerId,
     threadId: null,
     plan: built.value.plan,
+    edit: editOf(built.value),
     still: sql`exists (select 1 from ${d} where ${d.artifactId} = ${artifactId} and ${d.userId} = ${userId}
             and ${d.revision} = ${draft.revision} and ${d.incarnation} = ${draft.incarnation}
             and ${d.attemptId} is null)`,
@@ -328,11 +347,12 @@ async function issueUnsaved(
     contentDomain: input.contentDomain,
   });
   if (!built.ok) return built;
-  if (built.value.plan.output === null) return ok(unavailable(built.value.plan));
+  if (!shows(built.value.plan)) return ok(unavailable(built.value.plan));
   return storeCode(db, bucket, input, {
     ownerId: loaded.artifact.ownerId,
     threadId: null,
     plan: built.value.plan,
+    edit: editOf(built.value),
     still: sql`1`,
     subject: { subject: "unsaved", versionId: unsaved.versionId, as: unsaved.as },
   });
@@ -353,12 +373,13 @@ async function storeCode(
     ownerId: string;
     threadId: string | null;
     plan: Parameters<typeof previewOfPlan>[0];
+    edit: Parameters<typeof previewOfPlan>[2];
     still: SQL;
     subject: DocumentSubject;
   },
 ): Promise<Result<IssuedPreview>> {
   const { userId, artifactId, now } = input;
-  const preview = previewOfPlan(target.plan, DOCUMENT_RENDERER);
+  const preview = previewOfPlan(target.plan, DOCUMENT_RENDERER, target.edit);
   if (preview.state === "unavailable") return ok(preview);
   const code = newCode();
   const codeSha256 = await sha256Hex(code);

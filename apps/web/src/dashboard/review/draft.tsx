@@ -6,6 +6,7 @@ import {
   type DraftEdit,
   DraftEdit as DraftEditSchema,
   type DraftView,
+  type EditOperation,
   REFUSAL_REASONS,
   type ReviewStart,
   TextOperation,
@@ -28,6 +29,7 @@ import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { addToDraft, removeFromDraft } from "./draft-edit.ts";
 import {
   attemptMessage,
+  OperationSummary,
   PlanSummary,
   PreviewPanel,
   reasonMessage,
@@ -57,9 +59,9 @@ export interface DraftState {
    * Adds an operation (replacing the one on the same text) and saves the whole draft. Answers
    * false and announces why when it is refused.
    */
-  add(operation: TextOperation): Promise<boolean>;
+  add(operation: EditOperation): Promise<boolean>;
   /** The whole draft with `operation` added, or null when it could not take it. */
-  editWith(operation: TextOperation): DraftEdit | null;
+  editWith(operation: EditOperation): DraftEdit | null;
 }
 
 /** The caller's draft on the artifact, and saving it at the revision and incarnation held. */
@@ -245,34 +247,28 @@ export function DraftPanel({
             </p>
           ) : null}
           <ol aria-label={t("draft.changes")} className="flex flex-col gap-2">
-            {edit.operations.map((operation, index) =>
-              operation.kind === "text" && operation.target.anchor.kind === "text" ? (
-                // biome-ignore lint/suspicious/noArrayIndexKey: the draft's operations keep their order
-                <li key={index} className="flex flex-col gap-1">
-                  <EditDiff
-                    before={tokens(operation.target.anchor.quote.exact)}
-                    after={tokens(operation.after)}
-                    labels={labels}
-                  />
-                  {draft.publishing ? null : (
-                    <div>
-                      <Button
-                        size="sm"
-                        intent="ghost"
-                        icon={<X className="size-4" />}
-                        aria-label={t("draft.remove", { number: index + 1 })}
-                        onClick={() => {
-                          plan.reset();
-                          void state.save(removeFromDraft(edit, index));
-                        }}
-                      >
-                        {t("draft.removeShort")}
-                      </Button>
-                    </div>
-                  )}
-                </li>
-              ) : null,
-            )}
+            {edit.operations.map((operation, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the draft's operations keep their order
+              <li key={index} className="flex flex-col gap-1">
+                <OperationSummary operation={operation} labels={labels} />
+                {draft.publishing ? null : (
+                  <div>
+                    <Button
+                      size="sm"
+                      intent="ghost"
+                      icon={<X className="size-4" />}
+                      aria-label={t("draft.remove", { number: index + 1 })}
+                      onClick={() => {
+                        plan.reset();
+                        void state.save(removeFromDraft(edit, index));
+                      }}
+                    >
+                      {t("draft.removeShort")}
+                    </Button>
+                  </div>
+                )}
+              </li>
+            ))}
           </ol>
           {plan.isError ? <ActionError error={plan.error} /> : null}
           {publish.isError ? <ActionError error={publish.error} /> : null}
