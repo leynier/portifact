@@ -30,10 +30,30 @@ export interface StyleEdit {
   declarations: readonly { property: string; value: string }[];
 }
 
-export type ElementEdit = StyleEdit;
+/**
+ * What a structure operation does to the built copy: its element moved before or after another
+ * element, copied right after itself, or removed. Never new markup.
+ */
+export interface StructureEdit {
+  kind: "move" | "duplicate" | "remove";
+  path: NodePath;
+  /** A move's destination and on which side of it the element goes. */
+  destination: { path: NodePath; place: "before" | "after" } | null;
+}
 
-/** Why a preview of element operations cannot be built. */
-export type ElementPreviewRefusal = "element_not_found";
+export type ElementEdit = StyleEdit | StructureEdit;
+
+/**
+ * Why a preview of element operations cannot be built: an element is not on the stored page, or
+ * a move goes into the element itself or a removed element.
+ */
+export type ElementPreviewRefusal = "element_not_found" | "structure_conflict";
+
+/** Whether `node` is `ancestor` or inside it. */
+function within(node: P5Node, ancestor: P5Node): boolean {
+  for (let at: P5Node | null = node; at; at = parentOf(at)) if (at === ancestor) return true;
+  return false;
+}
 
 function pathOf(node: P5Node): number[] {
   const path: number[] = [];
@@ -76,11 +96,29 @@ export function locateElementEdits(
   work.indexes++;
   const anchors = new AnchorDocument(adapt(body) as AnchorElement);
   const edits: ElementEdit[] = [];
+  const exact = (anchor: ElementAnchor): P5Node | null => {
+    const resolved = anchors.resolveElement(anchor);
+    return resolved.confidence === "exact" ? unwrap(resolved.element) : null;
+  };
   for (const operation of elementOperations(operations)) {
-    const resolved = anchors.resolveElement(operation.target.anchor as ElementAnchor);
-    if (resolved.confidence !== "exact") return "element_not_found";
-    const path = pathOf(unwrap(resolved.element));
-    if (operation.kind === "style") {
+    const element = exact(operation.target.anchor as ElementAnchor);
+    if (!element) return "element_not_found";
+    const path = pathOf(element);
+    if (operation.kind === "structure") {
+      if (operation.action !== "move") {
+        edits.push({ kind: operation.action, path, destination: null });
+        continue;
+      }
+      const destination = exact(operation.destination.target.anchor as ElementAnchor);
+      if (!destination) return "element_not_found";
+      // An element cannot go next to itself or into itself.
+      if (within(destination, element)) return "structure_conflict";
+      edits.push({
+        kind: "move",
+        path,
+        destination: { path: pathOf(destination), place: operation.destination.place },
+      });
+    } else if (operation.kind === "style") {
       edits.push({
         kind: "style",
         path,
@@ -92,4 +130,65 @@ export function locateElementEdits(
     }
   }
   return edits;
+}
+
+/** A copy of a parsed node and everything under it, outside the tree. */
+function copyOf(node: P5Node): P5Node {
+  if (!("tagName" in node)) {
+    return { ...node, parentNode: null } as P5Node;
+  }
+  const element: P5Element = {
+    ...node,
+    attrs: node.attrs.map((attr) => ({ ...attr })),
+    childNodes: [],
+    parentNode: null,
+  };
+  for (const child of node.childNodes as P5Node[]) {
+    const copy = copyOf(child);
+    (copy as { parentNode: P5Node | null }).parentNode = element;
+    element.childNodes.push(copy as P5Element["childNodes"][number]);
+  }
+  return element;
+}
+
+function detach(node: P5Node): void {
+  const parent = parentOf(node);
+  if (!parent) return;
+  const siblings = childrenOf(parent);
+  siblings.splice(siblings.indexOf(node), 1);
+  (node as { parentNode: P5Node | null }).parentNode = null;
+}
+
+function insertNextTo(node: P5Node, reference: P5Node, place: "before" | "after"): void {
+  const parent = parentOf(reference) as P5Node;
+  const siblings = childrenOf(parent);
+  siblings.splice(siblings.indexOf(reference) + (place === "after" ? 1 : 0), 0, node);
+  (node as { parentNode: P5Node | null }).parentNode = parent;
+}
+
+/**
+ * Makes a structure operation on the parsed copy, with its elements found before any operation
+ * ran; false when it cannot (a move into its own element, or next to an element already removed),
+ * so the preview is refused rather than shown partly.
+ */
+export function applyStructure(
+  edit: StructureEdit,
+  element: P5Element,
+  destination: P5Element | null,
+): boolean {
+  if (edit.kind === "remove") {
+    if (!parentOf(element)) return false;
+    detach(element);
+    return true;
+  }
+  if (edit.kind === "duplicate") {
+    if (!parentOf(element)) return false;
+    insertNextTo(copyOf(element), element, "after");
+    return true;
+  }
+  if (!destination || !edit.destination || !parentOf(destination)) return false;
+  if (within(destination, element)) return false;
+  detach(element);
+  insertNextTo(element, destination, edit.destination.place);
+  return true;
 }

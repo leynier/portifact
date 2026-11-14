@@ -293,3 +293,95 @@ describe("Suggest mode's style panel", () => {
     }
   });
 });
+
+describe("Suggest mode's structure panel", () => {
+  const element = {
+    schema: 1 as const,
+    path: "index.html",
+    anchor: { kind: "element" as const, selectors: ["#x"], tagName: "p", fingerprint: "Hi" },
+  };
+  const other = { ...element, anchor: { ...element.anchor, selectors: ["#y"], fingerprint: "Yo" } };
+  const structuring = () => {
+    const on = suggestReducer(SUGGEST_OFF, { type: "toggle", on: true });
+    const picking = suggestReducer(on, { type: "pick", kind: "structure" });
+    return suggestReducer(picking, {
+      type: "element",
+      target: element,
+      rect: null,
+      epoch: picking.epoch,
+    });
+  };
+
+  it("opens on a structure pick, moving by default, with no edit until a destination", () => {
+    const state = structuring();
+    expect(state).toMatchObject({ mode: "structuring", action: "move", destination: null });
+    expect(editOf(state)).toBeNull();
+    expect(suggestReducer(state, { type: "review" })).toBe(state);
+  });
+
+  it("takes a destination only while picking it, in its epoch, and never the element itself", () => {
+    const state = structuring();
+    if (state.mode !== "structuring") throw new Error("not structuring");
+    // Not picking: an element of the epoch is no destination.
+    expect(
+      suggestReducer(state, { type: "element", target: other, rect: null, epoch: state.epoch }),
+    ).toBe(state);
+    const choosing = suggestReducer(state, { type: "destination-pick", on: true });
+    expect(choosing).toMatchObject({ choosing: true, epoch: state.epoch + 1, opened: state.epoch });
+    expect(editModeOf(choosing)).toEqual({ active: true, kind: "structure" });
+    for (const [target, epoch] of [
+      [element, choosing.epoch],
+      [other, state.epoch],
+    ] as const) {
+      expect(suggestReducer(choosing, { type: "element", target, rect: null, epoch })).toBe(
+        choosing,
+      );
+    }
+    const chosen = suggestReducer(choosing, {
+      type: "element",
+      target: other,
+      rect: null,
+      epoch: choosing.epoch,
+    });
+    expect(chosen).toMatchObject({ choosing: false, destination: other });
+    const before = suggestReducer(chosen, { type: "place", place: "before" });
+    expect(editOf(before)?.operations[0]).toEqual({
+      kind: "structure",
+      action: "move",
+      target: element,
+      destination: { target: other, place: "before" },
+    });
+    // Escape in the frame ends the pick in a new epoch, the panel stays.
+    const ended = suggestReducer(choosing, { type: "pick-ended" });
+    expect(ended).toMatchObject({
+      mode: "structuring",
+      choosing: false,
+      epoch: choosing.epoch + 1,
+    });
+  });
+
+  it("duplicates and removes with no destination, and only a move picks one", () => {
+    const remove = suggestReducer(structuring(), { type: "structure-action", action: "remove" });
+    expect(editOf(remove)?.operations[0]).toEqual({
+      kind: "structure",
+      action: "remove",
+      target: element,
+    });
+    expect(suggestReducer(remove, { type: "destination-pick", on: true })).toBe(remove);
+    const duplicate = suggestReducer(remove, { type: "structure-action", action: "duplicate" });
+    expect(editOf(duplicate)?.operations[0]).toMatchObject({ action: "duplicate" });
+    const reviewing = suggestReducer(suggestReducer(duplicate, { type: "note", note: "Twice" }), {
+      type: "review",
+    });
+    expect(reviewing).toMatchObject({ reviewing: true, note: "Twice" });
+    expect(suggestReducer(reviewing, { type: "back" })).toMatchObject({ reviewing: false });
+    expect(suggestReducer(reviewing, { type: "page-change" }).mode).toBe("choosing");
+    for (const action of [
+      { type: "structure-action", action: "remove" },
+      { type: "destination-pick", on: true },
+      { type: "place", place: "before" },
+    ] as const) {
+      expect(suggestReducer(SUGGEST_OFF, action)).toBe(SUGGEST_OFF);
+    }
+  });
+});

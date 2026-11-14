@@ -28,7 +28,9 @@ export type ElementTarget = AnnotationTarget & {
 };
 
 /** What an element is picked for. */
-export type ElementPick = "style";
+export type ElementPick = "style" | "structure";
+
+export type StructureAction = "move" | "duplicate" | "remove";
 
 /** One property of a style suggestion as the panel holds it, before it is checked. */
 export interface StyleRow {
@@ -54,6 +56,21 @@ export type SuggestState =
       offer: SuggestOffer | null;
       /** Picking an element in the frame (for a style), instead of selecting text. */
       pick: ElementPick | null;
+    }
+  | {
+      mode: "structuring";
+      epoch: number;
+      /** The epoch the panel opened in: a destination pick starts new epochs, not a new panel. */
+      opened: number;
+      target: ElementTarget;
+      rect: FrameRect | null;
+      action: StructureAction;
+      destination: ElementTarget | null;
+      place: "before" | "after";
+      /** Picking the destination of a move in the frame (exactly one element). */
+      choosing: boolean;
+      note: string;
+      reviewing: boolean;
     }
   | {
       mode: "styling";
@@ -100,6 +117,10 @@ export type SuggestAction =
   | { type: "style"; index: number; change: Partial<StyleRow> }
   | { type: "style-add" }
   | { type: "style-remove"; index: number }
+  | { type: "structure-action"; action: StructureAction }
+  /** Starts (or stops) picking a move's destination: a new epoch, the panel stays. */
+  | { type: "destination-pick"; on: boolean }
+  | { type: "place"; place: "before" | "after" }
   /**
    * The person activated the control drawn for `offer`: the editor opens on that offer, the one
    * they saw, never on whatever the frame offered since (a page can replace it at the click).
@@ -142,8 +163,24 @@ export function suggestReducer(state: SuggestState, action: SuggestAction): Sugg
     case "pick":
       return state.mode === "choosing" ? choosing(state, action.kind) : state;
     case "element":
+      if (state.mode === "structuring") return destinationOf(state, action);
       if (state.mode !== "choosing" || state.pick === null) return state;
       if (action.epoch !== state.epoch || !isElement(action.target)) return state;
+      if (state.pick === "structure") {
+        return {
+          mode: "structuring",
+          epoch: state.epoch,
+          opened: state.epoch,
+          target: action.target,
+          rect: action.rect,
+          action: "move",
+          destination: null,
+          place: "after",
+          choosing: false,
+          note: "",
+          reviewing: false,
+        };
+      }
       return {
         mode: "styling",
         epoch: state.epoch,
@@ -154,7 +191,21 @@ export function suggestReducer(state: SuggestState, action: SuggestAction): Sugg
         reviewing: false,
       };
     case "pick-ended":
+      if (state.mode === "structuring" && state.choosing) {
+        return { ...state, choosing: false, epoch: state.epoch + 1 };
+      }
       return state.mode === "choosing" && state.pick !== null ? choosing(state) : state;
+    case "structure-action":
+      return state.mode === "structuring"
+        ? { ...state, action: action.action, choosing: false, reviewing: false }
+        : state;
+    case "destination-pick":
+      if (state.mode !== "structuring" || state.action !== "move") return state;
+      return { ...state, choosing: action.on, epoch: state.epoch + 1, reviewing: false };
+    case "place":
+      return state.mode === "structuring"
+        ? { ...state, place: action.place, reviewing: false }
+        : state;
     case "style":
       if (state.mode !== "styling") return state;
       return {
@@ -207,15 +258,18 @@ export function suggestReducer(state: SuggestState, action: SuggestAction): Sugg
     case "type":
       return state.mode === "editing" ? { ...state, after: action.after, reviewing: false } : state;
     case "note":
-      return state.mode === "editing" || state.mode === "styling"
+      return state.mode === "editing" || state.mode === "styling" || state.mode === "structuring"
         ? { ...state, note: action.note }
         : state;
     case "review":
-      return (state.mode === "editing" || state.mode === "styling") && editOf(state)
+      return (state.mode === "editing" ||
+        state.mode === "styling" ||
+        (state.mode === "structuring" && !state.choosing)) &&
+        editOf(state)
         ? { ...state, reviewing: true }
         : state;
     case "back":
-      return state.mode === "editing" || state.mode === "styling"
+      return state.mode === "editing" || state.mode === "styling" || state.mode === "structuring"
         ? { ...state, reviewing: false }
         : state;
     case "cancel":
@@ -239,6 +293,36 @@ function editing(state: SuggestState, target: TextTarget, rect: FrameRect | null
 
 /** The editor is one line: line breaks of a selection crossing blocks become spaces. */
 export const oneLine = (text: string): string => text.replace(/\r\n?|\n/g, " ");
+
+/** The same element, by what the bridge recorded for it (its box is only a hint). */
+const sameElement = (a: ElementTarget, b: ElementTarget) =>
+  JSON.stringify([
+    a.path,
+    a.route ?? null,
+    a.anchor.selectors,
+    a.anchor.tagName,
+    a.anchor.fingerprint,
+  ]) ===
+  JSON.stringify([
+    b.path,
+    b.route ?? null,
+    b.anchor.selectors,
+    b.anchor.tagName,
+    b.anchor.fingerprint,
+  ]);
+
+/**
+ * A move's destination from a picked element: only while picking it, for the current epoch, and
+ * never the element itself. The panel and its target do not move.
+ */
+function destinationOf(
+  state: Extract<SuggestState, { mode: "structuring" }>,
+  action: Extract<SuggestAction, { type: "element" }>,
+): SuggestState {
+  if (!state.choosing || action.epoch !== state.epoch || !isElement(action.target)) return state;
+  if (sameElement(action.target, state.target)) return state;
+  return { ...state, destination: action.target, choosing: false };
+}
 
 /** A property not chosen yet, for a new row. */
 function nextRow(rows: readonly StyleRow[]): StyleRow {
@@ -277,6 +361,19 @@ export function editOf(state: SuggestState): Edit | null {
         after: row.after,
       })),
     };
+  } else if (state.mode === "structuring") {
+    if (state.action !== "move") {
+      operation = { kind: "structure", action: state.action, target: state.target };
+    } else if (state.destination) {
+      operation = {
+        kind: "structure",
+        action: "move",
+        target: state.target,
+        destination: { target: state.destination, place: state.place },
+      };
+    } else {
+      return null;
+    }
   } else {
     return null;
   }
@@ -286,6 +383,7 @@ export function editOf(state: SuggestState): Edit | null {
 
 /** What the frame is told about edit mode: whether the person is choosing, and what for. */
 export function editModeOf(state: SuggestState): { active: boolean; kind: EditKind } {
+  if (state.mode === "structuring" && state.choosing) return { active: true, kind: "structure" };
   if (state.mode !== "choosing") return { active: false, kind: "text" };
   return { active: true, kind: state.pick ?? "text" };
 }

@@ -144,6 +144,20 @@ export function styleOperation(
   };
 }
 
+/** An element anchor written by hand, as `styleOperation` writes it. */
+export function elementTarget(
+  kind: FileKind,
+  selector: string,
+  tagName: string,
+  fingerprint: string,
+) {
+  return {
+    schema: ANCHOR_SCHEMA_VERSION as 1,
+    path: PATHS[kind],
+    anchor: { kind: "element" as const, selectors: [selector], tagName, fingerprint },
+  };
+}
+
 export interface SuggestionInput {
   kind: FileKind;
   source: string;

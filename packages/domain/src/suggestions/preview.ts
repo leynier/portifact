@@ -26,6 +26,7 @@ import {
 } from "./html-dom.ts";
 import { escapeHtml } from "./html-planner.ts";
 import {
+  applyStructure,
   type ElementEdit,
   elementAt,
   hasElementOperations,
@@ -330,8 +331,15 @@ export function previewable(kind: FileKind, source: string): boolean {
     : new TextEncoder().encode(source).length <= PLAN_LIMITS.documentBytes;
 }
 
-/** Why a page has no preview: its CSS is over its bounds, or an element an edit names is not on it. */
-export const PREVIEW_REASONS = ["css_too_complex", "element_not_found"] as const;
+/**
+ * Why a page has no preview: its CSS is over its bounds, an element an edit names is not on it, or
+ * a move goes into its own element or next to a removed one.
+ */
+export const PREVIEW_REASONS = [
+  "css_too_complex",
+  "element_not_found",
+  "structure_conflict",
+] as const;
 export type PreviewReason = (typeof PREVIEW_REASONS)[number];
 
 /** A built preview, or why there is none for this page. */
@@ -377,21 +385,27 @@ type StyleDeclarations = Extract<ElementEdit, { kind: "style" }>["declarations"]
  * Makes the edits to the parsed page. Every element is found first, by its path on the page the
  * edits were located on (a text edit changes no element), and only then is anything changed.
  */
-function applyEdits(document: P5Document, edits: readonly ElementEdit[]): boolean {
-  const elements: P5Element[] = [];
+function applyEdits(document: P5Document, edits: readonly ElementEdit[]): PreviewReason | null {
+  const found: { element: P5Element; destination: P5Element | null }[] = [];
   for (const edit of edits) {
     const element = elementAt(document, edit.path);
-    if (!element) return false;
-    elements.push(element);
+    const destination =
+      edit.kind !== "style" && edit.destination ? elementAt(document, edit.destination.path) : null;
+    if (!element || (edit.kind === "move" && !destination)) return "element_not_found";
+    found.push({ element, destination });
   }
-  edits.forEach((edit, index) => {
-    const element = elements[index] as P5Element;
+  for (const [index, edit] of edits.entries()) {
+    const { element, destination } = found[index] as (typeof found)[number];
+    if (edit.kind !== "style") {
+      if (!applyStructure(edit, element, destination)) return "structure_conflict";
+      continue;
+    }
     const attr = element.attrs.find((each) => each.name === "style" && !each.namespace);
     const value = styled(attr?.value ?? "", edit.declarations);
     if (attr) attr.value = value;
     else element.attrs.push({ name: "style", value });
-  });
-  return true;
+  }
+  return null;
 }
 
 /**
@@ -410,7 +424,8 @@ export function buildPreview(
   const document = parseHtml(pageOf(kind, source, renderer), work).document;
   let written: { body: string; styles: string[] };
   try {
-    if (!applyEdits(document, edits)) return { state: "unavailable", reason: "element_not_found" };
+    const refused = applyEdits(document, edits);
+    if (refused) return { state: "unavailable", reason: refused };
     written = write(document);
   } catch (error) {
     if (error instanceof CssTooComplex) return { state: "unavailable", reason: "css_too_complex" };

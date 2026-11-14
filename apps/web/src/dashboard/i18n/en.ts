@@ -3431,6 +3431,42 @@ export const en = {
   "suggest.style.changeFrom": "{property} from {before} to {after}",
   "suggest.preview.elementNotFound":
     "The element is not in the stored page (the page's scripts may draw it), so there is no preview.",
+  "suggest.structure.pick": "Move, duplicate or remove",
+  "suggest.structure.pick.hint": "Choose the element to move, duplicate or remove",
+  "suggest.structure.pick.started":
+    "Choose an element in the artifact to move, duplicate or remove it, or move to it with Tab and press Enter. Escape stops.",
+  "suggest.structure.received": "Element chosen. The structure panel is open.",
+  "suggest.structure.label": "Suggest moving, duplicating or removing the element",
+  "suggest.structure.title": "Suggest a structure change",
+  "draft.structure.title": "Change the structure",
+  "suggest.structure.never":
+    "Structure changes are never applied automatically. If accepted, the change goes to the change list, for the people who manage the artifact or their agent to apply.",
+  "suggest.structure.action": "What to do",
+  "suggest.structure.action.move": "Move it",
+  "suggest.structure.action.move.hint": "Before or after another element of this page.",
+  "suggest.structure.action.duplicate": "Duplicate it",
+  "suggest.structure.action.duplicate.hint": "A copy right after it.",
+  "suggest.structure.action.remove": "Remove it",
+  "suggest.structure.action.remove.hint": "The element and everything inside it.",
+  "suggest.structure.destination.label": "Destination",
+  "suggest.structure.destination.none": "No destination chosen yet.",
+  "suggest.structure.destination.pick": "Pick the destination",
+  "suggest.structure.destination.hint": "Choose the element to move it next to",
+  "suggest.structure.destination.started":
+    "Choose, in the artifact, the element to move it next to. Escape stops.",
+  "suggest.structure.destination.received": "Destination chosen.",
+  "suggest.structure.place": "Where",
+  "suggest.structure.place.before": "Before it",
+  "suggest.structure.place.after": "After it",
+  "suggest.structure.summary": "What changes",
+  "suggest.structure.summary.remove": "Remove it, with everything inside it",
+  "suggest.structure.summary.duplicate": "Duplicate it right after itself",
+  "suggest.structure.summary.moveBefore": "Move it before:",
+  "suggest.structure.summary.moveAfter": "Move it after:",
+  "suggest.preview.structureConflict":
+    "The element would go into itself or next to an element already removed, so there is no preview.",
+  "suggest.structure.destination.choosing": "Choose the destination in the artifact.",
+  "suggest.structure.destination.stop": "Stop choosing",
 } as const;
 
 export type MessageId = keyof typeof en;
