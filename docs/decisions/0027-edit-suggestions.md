@@ -1,6 +1,6 @@
 # 0027 Edit suggestions: changing an artifact by editing it in the viewer
 
-- Status: proposed (design). Deliveries 2 and 3 are being built as stacked pull requests, switched off; see "Implementation notes". Revised twice on 2026-11-12 after two adversarial design reviews of pull request #247: the maintainer's decisions on each are in "Decisions taken", and "Answers to the first review" and "Answers to the second review" map every finding to the section that answers it. This is the last design round: the deliveries start from this record, each with its own review.
+- Status: accepted. Delivery 2 (text) is built as stacked pull requests; its last pull request describes it in the legal pages (version 2026-11-20), the skill and the documents, and it is switched on by the checklist in [releasing.md](../releasing.md), "Suggestions". Delivery 3 (style) is being built, switched off with the rest. See "Implementation notes". Revised twice on 2026-11-12 after two adversarial design reviews of pull request #247: the maintainer's decisions on each are in "Decisions taken", and "Answers to the first review" and "Answers to the second review" map every finding to the section that answers it. This is the last design round: the deliveries start from this record, each with its own review.
 - Date: 2026-11-12
 - Issue: [#195](https://github.com/leynier/portifact/issues/195), "support annotations with DOM edition directly". The maintainer's decisions in its description, and those taken after the review, are fixed; this record turns them into a design.
 - Spike: [`spikes/edit-suggestions`](../../spikes/edit-suggestions), "What the spike proved" below.
@@ -357,7 +357,7 @@ Terms, "Comments": a suggestion is a comment, and by suggesting you let the peop
 
 ## Deliveries
 
-Each ships behind `SUGGESTIONS_ENABLED="true"` on the app and jobs Workers, never in a deployed `wrangler.jsonc` before its release checks pass.
+Each ships behind `SUGGESTIONS_ENABLED="true"` on the app and jobs Workers (and, since Suggest mode, the content Worker, which tells the injected bridge to speak protocol 3), never in a deployed `wrangler.jsonc` before its release checks pass.
 
 1. **This record and its spike.**
 2. **Text, one release unit.** Migrations, contracts, protocol 3 with dual-version readers (in the rollout order above), Suggest mode, built previews and the `preview.portifact.dev` host in the content Worker (its route already covers `*.portifact.dev`; the reserved host is handled before any artifact lookup), plans and confirmation, `publishFromPlan`, the jobs and recovery, carry and closure, the change list (API, MCP, CLI), withdrawal, the draft, the legal texts and `TERMS_VERSION`, the skill and the documents. It may be reviewed as stacked pull requests, but the switch is turned on only when the whole unit works. Release checks: the e2e suite in every project (suggesting with the keyboard, a hostile artifact that forges offers and observes the DOM during an edit and sees no typed text, the built preview with no request leaving its frame, accepting Markdown and inert HTML, a scripted page going to the change list), the spike's browser differential promoted to the e2e suite with WebKit and malformed HTML added, crash tests for every recovery row, and a screen reader pass.
@@ -545,6 +545,13 @@ Decisions taken while building the page text for "Suggest a text change" (pull r
 - **Who gets it is who may suggest.** The authorization of submitting a suggestion (`participate`): a stranger, a token or a reader without commenting gets what a missing artifact gives; a held or suspended artifact is refused like any comment write. Only the current version and only a page a suggestion can be made on (`checkEditablePage`).
 - **Nothing more than the frame shows.** Only the shown text: never markup, attributes, comments, scripts, styles or text the anchors skip.
 - **Bounded like planning.** The stored size is checked before any byte is read (`readStoredPage`); a page over the planning limits answers `unavailable` with `too_large`, one that does not decode `not_eligible`, a document without a readable stored rendering `renderer_changed`. Every request counts in the planning windows (`admitPlanning`), so a search costs what a dry run costs.
+
+Decisions taken in the delivery's last pull request (the legal pages, the skill and the documents):
+
+- **`TERMS_VERSION` is raised** (2026-11-20, set to the day the switch goes on): the Terms add a licence for suggested text, so every person who suggests has accepted it, since a session without the current version counts as none. The change only adds a feature, so it takes effect at once ([legal.md](../legal.md), "Changing the texts", step 3). The Acceptable Use Policy names suggested edits in its rule against steering someone's agent, a clarification.
+- **Not a plan feature.** Suggestions are free on every plan, so `AVAILABLE_PLAN_FEATURES` and the pricing section do not change; suggestions count in the Comments row.
+- **The export register describes the code after pull request #272**: artifact records carry suggestion notes and the change list in every state; the account export carries the edit, state, decision time and resulting version of its holder's own suggestions and of every suggestion on its artifacts, their change items and its own drafts; who decided a suggestion is returned on request. The restore sentences describe pull request #275's markers and say what they do not cover (`docs/legal.md`, "Keep in sync").
+- **`portifact changes` is in the CLI's help.** A server without the switch answers it `not_found`, so the release that ships this pull request is followed by switching on.
 
 Decisions taken while building the style delivery (pull request "add style suggestions"):
 
