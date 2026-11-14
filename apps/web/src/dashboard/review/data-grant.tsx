@@ -5,13 +5,21 @@
 // asks the app for a code bound to it and sends the frame to redeem it. Where the browser refuses
 // the partitioned cookie the frame says so, and the viewer offers the artifact in a top-level tab,
 // where the page starts the grant itself. Messages count only from the frame's own window and the
-// artifact's exact origin, and each only in the step that expects it.
+// artifact's exact origin, and each only in the step that expects it. A visitor without an account
+// (delivery 9) gets the anonymous control with the human check where the artifact is open to
+// anyone, and is asked to sign in otherwise.
 import { Button, buttonClasses, Callout, LoadingState } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, ExternalLink, Unplug } from "lucide-react";
+import { CircleAlert, ExternalLink, LogIn, Unplug } from "lucide-react";
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { loginUrl } from "../../auth/query.ts";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
-import { ConsentControl, dataGrantControlQuery } from "../screens/data-grant.tsx";
+import {
+  anonymousGrantControlQuery,
+  ConsentControl,
+  dataGrantControlQuery,
+} from "../screens/data-grant.tsx";
+import { AnonymousConsentControl, anonymousFailure } from "./anonymous-grant.tsx";
 
 type Phase =
   | { kind: "idle" }
@@ -31,10 +39,16 @@ export function useDataGrant({
   artifactId,
   origin,
   frame,
+  anonymous = false,
 }: {
   artifactId: string;
   origin: string;
   frame: RefObject<HTMLIFrameElement | null>;
+  /**
+   * A visitor without an account (delivery 9): the anonymous control and code, with the human
+   * check's token taken on Allow and sent once with the code's request.
+   */
+  anonymous?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const phaseRef = useRef(phase);
@@ -43,9 +57,22 @@ export function useDataGrant({
   const announce = useAnnounce();
   const t = useT();
   const queryClient = useQueryClient();
+  const token = useRef<string | null>(null);
   const issue = useMutation({
-    mutationFn: (nonceHash: string) =>
-      api.issueDataGrant({ artifactId, nonceHash, host: null, flow: "frame" }),
+    mutationFn: (nonceHash: string) => {
+      if (!anonymous) {
+        return api.issueDataGrant({ artifactId, nonceHash, host: null, flow: "frame" });
+      }
+      const turnstileToken = token.current ?? "";
+      token.current = null;
+      return api.issueAnonymousDataGrant({
+        artifactId,
+        nonceHash,
+        host: null,
+        flow: "frame",
+        turnstileToken,
+      });
+    },
     onSuccess: (code) => {
       setPhase({ kind: "redeeming" });
       if (frame.current) frame.current.src = code.redeemUrl;
@@ -91,8 +118,10 @@ export function useDataGrant({
     return () => window.removeEventListener("message", listener);
   }, [origin, frame, issue, announce, t, queryClient, artifactId]);
 
-  const allow = () => {
+  const allow = (turnstileToken?: string) => {
     if (phase.kind !== "asking") return;
+    token.current = turnstileToken ?? null;
+    issue.reset();
     setPhase({ kind: "beginning", to: phase.to });
     if (frame.current) {
       frame.current.src = `${origin}/__portifact/data/grant/begin?${new URLSearchParams({
@@ -101,7 +130,14 @@ export function useDataGrant({
       })}`;
     }
   };
-  return { phase, allow, decline: () => setPhase({ kind: "idle" }), failed: issue.isError };
+  return {
+    phase,
+    allow,
+    decline: () => setPhase({ kind: "idle" }),
+    failed: issue.isError,
+    error: issue.error,
+    anonymous,
+  };
 }
 
 export const dataGrantStatusQuery = (artifactId: string) =>
@@ -155,10 +191,13 @@ export function DataGrantPanel({
   artifactId,
   origin,
   grant,
+  signInPath = "/",
 }: {
   artifactId: string;
   origin: string;
   grant: ReturnType<typeof useDataGrant>;
+  /** Where signing in comes back to, for a visitor without an account. */
+  signInPath?: string;
 }) {
   const t = useT();
   const { api } = useDashboard();
@@ -166,18 +205,30 @@ export function DataGrantPanel({
   const control = useQuery({
     queryKey: dataGrantControlQuery(artifactId, null),
     queryFn: () => api.dataGrantControl(artifactId, null),
-    enabled: asking,
+    enabled: asking && !grant.anonymous,
+    retry: false,
+  });
+  const anonymousControl = useQuery({
+    queryKey: anonymousGrantControlQuery(artifactId, null),
+    queryFn: () => api.anonymousDataGrantControl(artifactId, null),
+    enabled: asking && grant.anonymous,
     retry: false,
   });
   const { phase } = grant;
   if (phase.kind === "idle") {
-    return grant.failed ? (
-      <Callout tone="error" title={t("dataGrant.failed")} icon={<CircleAlert className="size-5" />}>
-        {t("dataGrant.unavailableHint")}
-      </Callout>
-    ) : (
-      <OpenGrantNotice artifactId={artifactId} />
-    );
+    if (grant.failed) {
+      return (
+        <Callout
+          tone="error"
+          title={t("dataGrant.failed")}
+          icon={<CircleAlert className="size-5" />}
+        >
+          {grant.anonymous ? anonymousFailure(t, grant.error) : t("dataGrant.unavailableHint")}
+        </Callout>
+      );
+    }
+    // "Data you shared" is a person's: a visitor without an account has nothing to stop here.
+    return grant.anonymous ? null : <OpenGrantNotice artifactId={artifactId} />;
   }
   if (phase.kind === "beginning" || phase.kind === "redeeming") {
     return <LoadingState label={t("dataGrant.frame.saving")} />;
@@ -203,6 +254,44 @@ export function DataGrantPanel({
       </Callout>
     );
   }
+  if (grant.anonymous) {
+    // The page's request is only a hint: an artifact not open to people without an account asks
+    // them to sign in instead.
+    if (anonymousControl.isError) {
+      return (
+        <Callout
+          title={t("dataGrant.anonymous.signInTitle")}
+          icon={<LogIn className="size-5" />}
+          action={
+            <div className="flex flex-wrap gap-2">
+              <a href={loginUrl(signInPath)} className={buttonClasses({ intent: "primary" })}>
+                <LogIn aria-hidden="true" className="size-4" />
+                {t("dataGrant.anonymous.signIn")}
+              </a>
+              <Button intent="secondary" onClick={grant.decline}>
+                {t("dataGrant.notNow")}
+              </Button>
+            </div>
+          }
+        >
+          {t("dataGrant.anonymous.closed")}
+        </Callout>
+      );
+    }
+    if (!anonymousControl.data) return <LoadingState label={t("dataGrant.loading")} />;
+    return (
+      <div className="rounded-lg border border-border bg-canvas p-4 shadow-sm">
+        <AnonymousConsentControl
+          control={anonymousControl.data}
+          busy={false}
+          failure={null}
+          signInHref={loginUrl(signInPath)}
+          onAllow={(token) => grant.allow(token)}
+          onDecline={grant.decline}
+        />
+      </div>
+    );
+  }
   if (control.isError) {
     return (
       <Callout
@@ -225,7 +314,7 @@ export function DataGrantPanel({
       <ConsentControl
         control={control.data}
         busy={false}
-        onAllow={grant.allow}
+        onAllow={() => grant.allow()}
         onDecline={grant.decline}
       />
     </div>

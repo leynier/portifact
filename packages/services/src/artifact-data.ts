@@ -409,11 +409,11 @@ export async function registerDataObject(
     return true;
   }
   // Columns in schema order: artifact, generation, epoch, documents' bytes, report generation,
-  // report sequence, created, updated.
+  // report sequence, created, updated, writers.
   await db
     .insert(d)
     .select(
-      sql`select ${artifactId}, 0, 0, 0, 0, 0, ${now}, ${now} where (select count(*) from ${d} od join ${a} oa on oa.id = od.artifact_id where oa.owner_id = ${limit.ownerId} and oa.state not in ('purging', 'deleted') and od.artifact_id <> ${artifactId}) < ${limit.dataArtifacts}`,
+      sql`select ${artifactId}, 0, 0, 0, 0, 0, ${now}, ${now}, 'signed_in' where (select count(*) from ${d} od join ${a} oa on oa.id = od.artifact_id where oa.owner_id = ${limit.ownerId} and oa.state not in ('purging', 'deleted') and od.artifact_id <> ${artifactId}) < ${limit.dataArtifacts}`,
     )
     .onConflictDoNothing();
   const [row] = await db

@@ -15,13 +15,16 @@ import {
 } from "@portifact/ui";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
-import { CircleAlert, ShieldCheck } from "lucide-react";
+import { CircleAlert, LogIn, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import wordmark from "../../../../../assets/brand/wordmark.svg";
 import wordmarkDark from "../../../../../assets/brand/wordmark-dark.svg";
+import { loginUrl } from "../../auth/query.ts";
 import { useDashboard, useT } from "../context.tsx";
+import { AnonymousConsentControl } from "../review/anonymous-grant.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { errorMessage } from "./artifact-list.tsx";
+import { ACCOUNT_QUERY } from "./shell.tsx";
 
 /** What the grant page reads from its address; anything malformed counts as missing. */
 export interface DataGrantSearch {
@@ -45,6 +48,9 @@ export function parseDataGrantSearch(search: Record<string, unknown>): DataGrant
 
 export const dataGrantControlQuery = (artifactId: string, host: string | null) =>
   ["data-grant-control", artifactId, host] as const;
+
+export const anonymousGrantControlQuery = (artifactId: string, host: string | null) =>
+  ["anonymous-grant-control", artifactId, host] as const;
 
 /**
  * The control: the facts the person decides on, then "Allow" and "Not now". `onAllow` asks the app
@@ -120,10 +126,21 @@ export function DataGrantScreen() {
   const artifact = search.artifact;
   const nonce = search.nonce;
   const host = search.host ?? null;
+  const complete = artifact !== undefined && nonce !== undefined;
+  // Served with or without a session (delivery 9): signed out, the control is the anonymous one.
+  const account = useQuery({ queryKey: ACCOUNT_QUERY, queryFn: () => api.account() });
+  const signedIn = account.data !== undefined && account.data !== null;
+  const signedOut = account.data === null;
   const control = useQuery({
     queryKey: dataGrantControlQuery(artifact ?? "", host),
     queryFn: () => api.dataGrantControl(artifact as string, host),
-    enabled: artifact !== undefined && nonce !== undefined,
+    enabled: complete && signedIn,
+    retry: false,
+  });
+  const anonymous = useQuery({
+    queryKey: anonymousGrantControlQuery(artifact ?? "", host),
+    queryFn: () => api.anonymousDataGrantControl(artifact as string, host),
+    enabled: complete && signedOut,
     retry: false,
   });
   const allow = useMutation({
@@ -136,21 +153,58 @@ export function DataGrantScreen() {
       }),
     onSuccess: (code) => leave(code.redeemUrl),
   });
+  const allowAnonymous = useMutation({
+    mutationFn: (turnstileToken: string) =>
+      api.issueAnonymousDataGrant({
+        artifactId: artifact as string,
+        nonceHash: nonce as string,
+        host,
+        flow: "top" satisfies DataGrantFlow,
+        turnstileToken,
+      }),
+    onSuccess: (code) => leave(code.redeemUrl),
+  });
+  const shownHost = control.data?.host ?? anonymous.data?.host;
   const decline = () => {
     if (window.opener) window.close();
-    else if (control.data) leave(`https://${control.data.host}/`);
+    else if (shownHost) leave(`https://${shownHost}/`);
   };
+  const here = `/data/grant?${new URLSearchParams({
+    ...(artifact ? { artifact } : {}),
+    ...(nonce ? { nonce } : {}),
+    ...(search.host ? { host: search.host } : {}),
+  })}`;
 
+  const unavailable = (
+    <Callout
+      tone="error"
+      title={t("dataGrant.unavailable")}
+      icon={<CircleAlert className="size-5" />}
+      action={
+        signedOut && complete ? (
+          <a href={loginUrl(here)} className={buttonClasses({ intent: "secondary" })}>
+            <LogIn aria-hidden="true" className="size-4" />
+            {t("dataGrant.anonymous.signIn")}
+          </a>
+        ) : undefined
+      }
+    >
+      {signedOut && complete ? t("dataGrant.anonymous.closed") : t("dataGrant.unavailableHint")}
+    </Callout>
+  );
   let body: ReactNode;
-  if (artifact === undefined || nonce === undefined || control.isError) {
+  if (!complete || control.isError || anonymous.isError) {
+    body = unavailable;
+  } else if (anonymous.data) {
     body = (
-      <Callout
-        tone="error"
-        title={t("dataGrant.unavailable")}
-        icon={<CircleAlert className="size-5" />}
-      >
-        {t("dataGrant.unavailableHint")}
-      </Callout>
+      <AnonymousConsentControl
+        control={anonymous.data}
+        busy={allowAnonymous.isPending}
+        failure={allowAnonymous.error}
+        signInHref={loginUrl(here)}
+        onAllow={(token) => allowAnonymous.mutate(token)}
+        onDecline={decline}
+      />
     );
   } else if (!control.data) {
     body = <LoadingState label={t("dataGrant.loading")} />;

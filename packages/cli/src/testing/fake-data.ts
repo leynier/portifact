@@ -7,6 +7,8 @@ import type {
   DataCollectionView,
   DataDescriptionView,
   DataExportPageView,
+  DataWriters,
+  DataWritersView,
 } from "@portifact/contracts";
 
 type Reply = { status: number; body?: unknown };
@@ -28,6 +30,10 @@ export interface FakeData {
   keys: (string | undefined)[];
   /** The most documents one author deletion removes before answering `more`. */
   authorPage: number;
+  /** Who may write from the page, per artifact (delivery 9). */
+  writers: Map<string, DataWriters>;
+  /** The refusal a writers change answers instead, when set. */
+  writersRefusal: { code: "plan_required" | "policy_refused"; message: string } | null;
 }
 
 export function createFakeData(): FakeData {
@@ -38,6 +44,8 @@ export function createFakeData(): FakeData {
     moveRevisionDuringExport: false,
     keys: [],
     authorPage: 500,
+    writers: new Map(),
+    writersRefusal: null,
   };
 }
 
@@ -137,8 +145,24 @@ export function dataRoute(
       },
       live: { connections: 2, messagesToday: 40 },
       storedBytes: 0,
+      writers: data.writers.get(artifactId) ?? "signed_in",
     };
     return { status: 200, body: described };
+  }
+  if (rest === "/writers" && (method === "GET" || method === "PUT")) {
+    if (method === "PUT") {
+      if (data.writersRefusal) {
+        return { status: 403, body: { error: data.writersRefusal } };
+      }
+      data.writers.set(artifactId, (body() as { writers: DataWriters }).writers);
+    }
+    const writers = data.writers.get(artifactId) ?? "signed_in";
+    const answer: DataWritersView = {
+      artifactId,
+      writers,
+      anonymous: writers === "anyone" ? "available" : "off",
+    };
+    return { status: 200, body: answer };
   }
   if (method === "POST" && rest === "/collections") {
     const declared = body() as {

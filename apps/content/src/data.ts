@@ -42,13 +42,16 @@ import type { RegionalDb } from "@portifact/db";
 import { apiGate, beginGate, redeemGate } from "@portifact/domain/artifact-data";
 import {
   type DataObjects,
+  dataAnonymousEnabled,
   dataLiveEnabled,
   nonceDigest,
   openLiveConnection,
   pageDataCommand,
   pageWritesEnabled,
   randomToken,
+  redeemAnonymousDataGrantCode,
   redeemDataGrantCode,
+  renewAnonymousDataGrant,
   renewDataGrant,
   renewLiveConnection,
 } from "@portifact/services";
@@ -74,6 +77,8 @@ export interface DataEnv {
   DATA_LIVE_ENABLED?: string | undefined;
   /** Exactly `"true"` lets pages create and replace documents; off, only reads and deletes. */
   DATA_PAGE_WRITES_ENABLED?: string | undefined;
+  /** Exactly `"true"` redeems and renews anonymous grants (delivery 9); off, they end. */
+  DATA_ANONYMOUS_ENABLED?: string | undefined;
 }
 
 /** Whether a path is one of the data routes (routed before the `GET`/`HEAD` check). */
@@ -204,7 +209,15 @@ async function grantOf(
   const flow: Flow = claims.part ? "frame" : "top";
   if (claims.gexp <= now) return { claims: null, setCookies: [clearGrant(flow)] };
   if (claims.exp > now + freshWithin) return { claims, setCookies: [] };
-  const renewed = await renewDataGrant(context.db, { grantId: claims.gid, artifactId, now });
+  // An anonymous grant renews against its own row and the artifact still open to anyone.
+  const renewed = claims.anon
+    ? await renewAnonymousDataGrant(context.db, {
+        grantId: claims.gid,
+        artifactId,
+        enabled: dataAnonymousEnabled(context.env),
+        now,
+      })
+    : await renewDataGrant(context.db, { grantId: claims.gid, artifactId, now });
   if (!renewed.ok) return { claims: null, setCookies: [clearGrant(flow)] };
   const next: DataGrantClaims = {
     ...claims,
@@ -300,13 +313,22 @@ async function redeem(context: DataContext, secret: string): Promise<Response> {
   if (!code?.success || tx === null || tx.flow !== flow) {
     return answered(context, reader, unavailable(), reader.setCookies);
   }
-  const redeemed = await redeemDataGrantCode(context.db, {
+  // The app names an anonymous code (delivery 9) in its redirect; the name only picks where the
+  // code is looked up, and the code redeems nowhere else.
+  const anonymous = url.searchParams.get("anon") === "1";
+  const redemption = {
     code: code.data,
     artifactId,
     nonceHash: await nonceDigest(tx.nonce),
     host: context.host,
     now,
-  });
+  };
+  const redeemed = anonymous
+    ? await redeemAnonymousDataGrantCode(context.db, {
+        ...redemption,
+        enabled: dataAnonymousEnabled(context.env),
+      })
+    : await redeemDataGrantCode(context.db, redemption);
   if (!redeemed.ok) {
     return answered(context, reader, unavailable(), [...reader.setCookies, clearTransaction(flow)]);
   }
@@ -321,6 +343,7 @@ async function redeem(context: DataContext, secret: string): Promise<Response> {
     exp: Math.min(now + DATA_GRANT.claimsTtlSeconds * SECOND_MS, grant.expiresAt),
     gexp: grant.expiresAt,
     part: flow === "frame",
+    ...(anonymous ? { anon: true as const } : {}),
   };
   const checkUrl = `${DATA_PREFIX}grant/check?${new URLSearchParams({ flow, to: tx.path })}`;
   return answered(context, reader, redirect(checkUrl), [
@@ -470,6 +493,7 @@ async function api(context: DataContext, secret: string, path: string): Promise<
             granted: true,
             visitor: { id: held.claims.vid, name: held.claims.name },
             write: held.claims.w,
+            ...(held.claims.anon ? { anonymous: true } : {}),
           };
     return answered(context, reader, apiJson(me, 200), setCookies);
   }

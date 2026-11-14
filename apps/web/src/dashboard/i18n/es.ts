@@ -6,6 +6,39 @@ import type { Catalog } from "./en.ts";
 export const es = {
   ...planTextEs,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Guardar datos sin cuenta",
+  "policies.anonymousData.hint":
+    "Si las páginas de los artefactos públicos del espacio de trabajo pueden guardar lo que escriben personas sin cuenta. Los editores lo siguen eligiendo en cada artefacto, tras una verificación humana. Permitirlo requiere la función de políticas en el plan del espacio de trabajo.",
+  "policies.anonymousData.forbidden": "Solo visitantes con sesión iniciada",
+  "policies.anonymousData.forbiddenHint":
+    "Las páginas solo guardan para quienes iniciaron sesión y lo permitieron.",
+  "policies.anonymousData.allowed": "También personas sin cuenta",
+  "policies.anonymousData.allowedHint":
+    "Los editores pueden abrir los datos de un artefacto público a cualquiera. Nadie se conoce por su nombre, así que modera lo que se guarda.",
+  "audit.kind.dataWritersAnyone": "Permitió que personas sin cuenta guarden datos desde la página",
+  "audit.kind.dataWritersSignedIn":
+    "Limitó guardar datos desde la página a visitantes con sesión iniciada",
+  "audit.policy.anonymousData":
+    "{value, select, true {personas sin cuenta pueden guardar datos} other {solo visitantes con sesión iniciada guardan datos}}",
+  "artifactData.writers.label": "Quién guarda desde la página",
+  "artifactData.writers.signedIn": "Visitantes con sesión iniciada",
+  "artifactData.writers.anyone": "Cualquiera, también personas sin cuenta",
+  "dataGrant.anonymous.title": "¿Permitir que {host} guarde lo que escribes, sin cuenta?",
+  "dataGrant.anonymous.learns":
+    "La página solo conoce un ID para este artefacto: ni nombre, ni correo, ni cuenta.",
+  "dataGrant.anonymous.lasts": "Esto dura {days} días en este navegador.",
+  "dataGrant.anonymous.noAccount":
+    "Sin cuenta, Portifact no puede mostrarte ni borrar después lo que guardaste. Solo la propia página puede, mientras este navegador lo conserve.",
+  "dataGrant.anonymous.signIn": "Iniciar sesión en su lugar",
+  "dataGrant.anonymous.signInTitle": "Inicia sesión para guardar",
+  "dataGrant.anonymous.closed":
+    "Este artefacto solo guarda para personas que inician sesión. Inicia sesión y vuelve a elegir guardar.",
+  "dataGrant.anonymous.humanNeeded":
+    "Completa la verificación rápida de que eres humano y la página podrá guardar lo que escribes.",
+  "dataGrant.anonymous.humanFailed":
+    "La verificación de que eres humano no se superó. Vuelve a pulsar Permitir.",
+  "dataGrant.anonymous.humanUnavailable":
+    "La verificación de que eres humano no pudo ejecutarse en este navegador. Inicia sesión para guardar.",
   "sharedData.ask": "Preguntar al propietario",
   "sharedData.askNamed": "Preguntar a quienes gestionan {name}",
   "sharedData.askTitle": "Preguntar por lo que guardaste en {name}",

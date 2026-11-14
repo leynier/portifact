@@ -21,6 +21,8 @@ import {
   type AnnotationsState,
   AnnotationThreadView,
   type AnnotationVersionFilter,
+  type AnonymousDataGrantCodeRequest,
+  AnonymousDataGrantControl,
   ApiError,
   type ApprovalChangeInput,
   type ApprovalRequestInput,
@@ -240,6 +242,16 @@ export interface DashboardApi {
   dataGrantControl(artifactId: string, host: string | null): Promise<DataGrantControl>;
   /** The person allowed: a one-use code bound to the beginning browser's nonce. */
   issueDataGrant(input: DataGrantCodeRequest): Promise<DataGrantCode>;
+  /**
+   * What the anonymous consent control shows (decision 0026, delivery 9): no session needed;
+   * `not_found` unless the artifact is open to people without an account.
+   */
+  anonymousDataGrantControl(
+    artifactId: string,
+    host: string | null,
+  ): Promise<AnonymousDataGrantControl>;
+  /** A visitor without an account allowed, with a solved human check: a one-use code. */
+  issueAnonymousDataGrant(input: AnonymousDataGrantCodeRequest): Promise<DataGrantCode>;
   /** "Data you shared": the artifacts the person granted. */
   dataGrants(after?: string | null): Promise<DataGrantList>;
   /** Whether the person has open grants on an artifact (the viewer's "stop saving as me"). */
@@ -877,6 +889,16 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     },
     issueDataGrant(input) {
       return call("/api/v1/account/data-grants", DataGrantCode, "POST", input);
+    },
+    anonymousDataGrantControl(artifactId, host) {
+      const query = host === null ? "" : `?${new URLSearchParams({ host })}`;
+      return call(
+        `/api/v1/data/anonymous-grants/${encodeURIComponent(artifactId)}/control${query}`,
+        AnonymousDataGrantControl,
+      );
+    },
+    issueAnonymousDataGrant(input) {
+      return call("/api/v1/data/anonymous-grants", DataGrantCode, "POST", input);
     },
     dataGrants(after) {
       const query = after ? `?${new URLSearchParams({ after })}` : "";

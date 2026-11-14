@@ -6,6 +6,38 @@ import type { Catalog } from "./en.ts";
 export const ja = {
   ...planTextJa,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "アカウントなしでのデータ保存",
+  "policies.anonymousData.hint":
+    "ワークスペースの公開アーティファクトのページが、アカウントを持たない人の入力を保存できるかどうか。各アーティファクトで許可するかは引き続き編集者が選び、人間確認を経ます。許可するにはワークスペースのプランにポリシー機能が必要です。",
+  "policies.anonymousData.forbidden": "サインインした訪問者のみ",
+  "policies.anonymousData.forbiddenHint":
+    "サインインして許可した人のためにのみ、ページが保存します。",
+  "policies.anonymousData.allowed": "アカウントのない人も",
+  "policies.anonymousData.allowedHint":
+    "編集者は公開アーティファクトのデータを誰にでも開けます。名前で識別される人はいないため、保存内容を管理してください。",
+  "audit.kind.dataWritersAnyone": "アカウントのない人がページからデータを保存できるようにした",
+  "audit.kind.dataWritersSignedIn": "ページからのデータ保存をサインインした訪問者に限定した",
+  "audit.policy.anonymousData":
+    "{value, select, true {アカウントのない人もデータを保存できる} other {サインインした訪問者のみがデータを保存}}",
+  "artifactData.writers.label": "ページから保存できる人",
+  "artifactData.writers.signedIn": "サインインした訪問者",
+  "artifactData.writers.anyone": "誰でも (アカウントのない人を含む)",
+  "dataGrant.anonymous.title": "アカウントなしで {host} に入力内容の保存を許可しますか？",
+  "dataGrant.anonymous.learns":
+    "ページが知るのはこのアーティファクト用の ID だけです。名前、メールアドレス、アカウントは知りません。",
+  "dataGrant.anonymous.lasts": "このブラウザーで {days} 日間有効です。",
+  "dataGrant.anonymous.noAccount":
+    "アカウントがないため、Portifact は保存した内容を後で表示したり削除したりできません。このブラウザーが保持している間、ページ自体だけが行えます。",
+  "dataGrant.anonymous.signIn": "代わりにサインイン",
+  "dataGrant.anonymous.signInTitle": "保存するにはサインイン",
+  "dataGrant.anonymous.closed":
+    "このアーティファクトはサインインした人のためにのみ保存します。サインインしてから、もう一度保存を選んでください。",
+  "dataGrant.anonymous.humanNeeded":
+    "人間であることの簡単な確認を完了すると、ページが入力内容を保存できるようになります。",
+  "dataGrant.anonymous.humanFailed":
+    "人間であることの確認に失敗しました。もう一度「許可」を試してください。",
+  "dataGrant.anonymous.humanUnavailable":
+    "このブラウザーでは人間であることの確認を実行できませんでした。保存するにはサインインしてください。",
   "sharedData.ask": "所有者に依頼",
   "sharedData.askNamed": "{name} の管理者に依頼",
   "sharedData.askTitle": "{name} に保存した内容について依頼",

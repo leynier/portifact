@@ -21,6 +21,7 @@ import {
   DataErased,
   DataExportPageView,
   DataQueryPage,
+  DataWritersView,
   DeclareDataCollectionInput,
   DeleteAuthorDataInput,
   DeleteDataDocumentInput,
@@ -33,11 +34,13 @@ import {
   type ErrorCode,
   ExportDataInput,
   GetDataDocumentInput,
+  GetDataWritersInput,
   type OAuthScope,
   parseExportCursor,
   QueryDataInput,
   ReplaceDataDocumentInput,
   ReplaceDataDocumentsInput,
+  SetDataWritersInput,
 } from "@portifact/contracts";
 import {
   buildDataIndexes,
@@ -52,10 +55,12 @@ import {
   eraseArtifactData,
   exportArtifactData,
   getDataDocument,
+  getDataWriters,
   queryArtifactData,
   replaceDataDocument,
   replaceDataDocuments,
   type StoredResponse,
+  setDataWriters,
 } from "@portifact/services";
 import { z } from "zod";
 import { ownerDataDeps } from "../api/data.ts";
@@ -78,6 +83,8 @@ export const DATA_TOOL_SCOPES: [string, OAuthScope][] = [
   ["delete_data_documents", "data:write"],
   ["erase_artifact_data", "data:write"],
   ["delete_author_data", "data:write"],
+  ["get_data_writers", "data:read"],
+  ["set_data_writers", "data:write"],
 ];
 
 /** Every tool that returns documents says what they are. */
@@ -542,6 +549,57 @@ export function registerDataTools(register: RegisterTool, context: ToolContext):
       if (!result.ok) return failure(result.code, result.message);
       const body = DataErased.parse(result.body);
       return success(`Erased all of ${artifactId}'s data.`, body);
+    },
+  );
+
+  // Who may write from the page (delivery 9): the same services as GET/PUT .../data/writers.
+  const writersDeps = { enabled: context.env.ARTIFACT_DATA_ENABLED === "true" };
+  const writersSummary = (view: DataWritersView) =>
+    `Writers of ${view.artifactId}: ${view.writers} (anonymous writing ${view.anonymous.replaceAll("_", " ")}).`;
+
+  register(
+    "get_data_writers",
+    {
+      title: "Show who may save data from an artifact's page",
+      description: `Show who may save data from an artifact's page: writers is signed_in (signed-in visitors who can open the artifact, after they allow the page) or anyone (also people without an account, on a public artifact, after a human check). anonymous says whether anonymous writing works now: available, off, plan_required (a workspace whose plan lacks policies) or policy_refused (the workspace's policy does not allow it). ${WHO}`,
+      inputSchema: GetDataWritersInput,
+      outputSchema: DataWritersView,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async (args: GetDataWritersInput) => {
+      const { db } = await at(args.artifactId);
+      const result = await getDataWriters(db, writersDeps, {
+        ...input(args.artifactId),
+        now: context.now(),
+      });
+      if (!result.ok) return failure(result.code, result.message);
+      return success(writersSummary(result.value), result.value);
+    },
+  );
+
+  register(
+    "set_data_writers",
+    {
+      title: "Set who may save data from an artifact's page",
+      description: `Set who may save data from an artifact's page. anyone lets people without an account save data on a public artifact after a human check: it widens who writes, so always ask the user first. signed_in narrows it back to signed-in visitors who can open the artifact and is always allowed. In a workspace, anyone needs the policies feature in the plan (plan_required) and a workspace policy that allows anonymous writers (policy_refused); a personal space decides alone. The artifact must already hold data. ${WHO}`,
+      inputSchema: SetDataWritersInput,
+      outputSchema: DataWritersView,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async (args: SetDataWritersInput) => {
+      const { db } = await at(args.artifactId);
+      const result = await setDataWriters(db, writersDeps, {
+        ...input(args.artifactId),
+        now: context.now(),
+        writers: args.writers,
+      });
+      if (!result.ok) return failure(result.code, result.message);
+      return success(writersSummary(result.value), result.value);
     },
   );
 

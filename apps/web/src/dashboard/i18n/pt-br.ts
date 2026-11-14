@@ -6,6 +6,37 @@ import type { Catalog } from "./en.ts";
 export const ptBR = {
   ...planTextPtBR,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Salvar dados sem conta",
+  "policies.anonymousData.hint":
+    "Se as páginas dos artefatos públicos do espaço de trabalho podem salvar o que pessoas sem conta digitam. Os editores ainda escolhem isso em cada artefato, após uma verificação humana. Permitir exige o recurso de políticas no plano do espaço de trabalho.",
+  "policies.anonymousData.forbidden": "Somente visitantes conectados",
+  "policies.anonymousData.forbiddenHint": "As páginas só salvam para quem entrou e permitiu.",
+  "policies.anonymousData.allowed": "Também pessoas sem conta",
+  "policies.anonymousData.allowedHint":
+    "Os editores podem abrir os dados de um artefato público a qualquer pessoa. Ninguém é identificado pelo nome, então modere o que é salvo.",
+  "audit.kind.dataWritersAnyone": "Permitiu que pessoas sem conta salvem dados pela página",
+  "audit.kind.dataWritersSignedIn": "Limitou salvar dados pela página a visitantes conectados",
+  "audit.policy.anonymousData":
+    "{value, select, true {pessoas sem conta podem salvar dados} other {somente visitantes conectados salvam dados}}",
+  "artifactData.writers.label": "Quem salva pela página",
+  "artifactData.writers.signedIn": "Visitantes conectados",
+  "artifactData.writers.anyone": "Qualquer pessoa, inclusive sem conta",
+  "dataGrant.anonymous.title": "Permitir que {host} salve o que você digita, sem conta?",
+  "dataGrant.anonymous.learns":
+    "A página conhece apenas um ID para este artefato: sem nome, sem e-mail e sem conta.",
+  "dataGrant.anonymous.lasts": "Isso dura {days} dias neste navegador.",
+  "dataGrant.anonymous.noAccount":
+    "Sem conta, o Portifact não pode mostrar nem apagar depois o que você salvou. Só a própria página pode, enquanto este navegador mantiver isso.",
+  "dataGrant.anonymous.signIn": "Entrar em vez disso",
+  "dataGrant.anonymous.signInTitle": "Entre para salvar",
+  "dataGrant.anonymous.closed":
+    "Este artefato só salva para pessoas que entram. Entre e escolha salvar de novo.",
+  "dataGrant.anonymous.humanNeeded":
+    "Conclua a verificação rápida de que você é humano e a página poderá salvar o que você digita.",
+  "dataGrant.anonymous.humanFailed":
+    "A verificação de que você é humano não passou. Tente Permitir de novo.",
+  "dataGrant.anonymous.humanUnavailable":
+    "A verificação de que você é humano não pôde rodar neste navegador. Entre para salvar.",
   "sharedData.ask": "Perguntar ao dono",
   "sharedData.askNamed": "Perguntar a quem gerencia {name}",
   "sharedData.askTitle": "Perguntar sobre o que você salvou em {name}",

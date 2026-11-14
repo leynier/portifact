@@ -6,6 +6,40 @@ import type { Catalog } from "./en.ts";
 export const de = {
   ...planTextDe,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Daten ohne Konto speichern",
+  "policies.anonymousData.hint":
+    "Ob die Seiten der öffentlichen Artefakte des Arbeitsbereichs speichern dürfen, was Personen ohne Konto eingeben. Bearbeiter entscheiden es weiterhin für jedes Artefakt, nach einer Prüfung auf einen Menschen. Das Erlauben setzt die Richtlinien-Funktion im Tarif des Arbeitsbereichs voraus.",
+  "policies.anonymousData.forbidden": "Nur angemeldete Besucher",
+  "policies.anonymousData.forbiddenHint":
+    "Seiten speichern nur für angemeldete Personen, die es erlaubt haben.",
+  "policies.anonymousData.allowed": "Auch Personen ohne Konto",
+  "policies.anonymousData.allowedHint":
+    "Bearbeiter können die Daten eines öffentlichen Artefakts für alle öffnen. Niemand ist namentlich bekannt, also moderiere, was dort gespeichert wird.",
+  "audit.kind.dataWritersAnyone":
+    "Hat Personen ohne Konto erlaubt, Daten über die Seite zu speichern",
+  "audit.kind.dataWritersSignedIn":
+    "Hat das Speichern von Daten über die Seite auf angemeldete Besucher beschränkt",
+  "audit.policy.anonymousData":
+    "{value, select, true {Personen ohne Konto dürfen Daten speichern} other {nur angemeldete Besucher speichern Daten}}",
+  "artifactData.writers.label": "Wer über die Seite speichert",
+  "artifactData.writers.signedIn": "Angemeldete Besucher",
+  "artifactData.writers.anyone": "Alle, auch Personen ohne Konto",
+  "dataGrant.anonymous.title": "{host} ohne Konto speichern lassen, was du eingibst?",
+  "dataGrant.anonymous.learns":
+    "Die Seite erfährt nur eine ID für dieses Artefakt: keinen Namen, keine E-Mail und kein Konto.",
+  "dataGrant.anonymous.lasts": "Das gilt {days} Tage in diesem Browser.",
+  "dataGrant.anonymous.noAccount":
+    "Ohne Konto kann Portifact dir später nicht zeigen oder löschen, was du gespeichert hast. Nur die Seite selbst kann das, solange dieser Browser es behält.",
+  "dataGrant.anonymous.signIn": "Stattdessen anmelden",
+  "dataGrant.anonymous.signInTitle": "Zum Speichern anmelden",
+  "dataGrant.anonymous.closed":
+    "Dieses Artefakt speichert nur für angemeldete Personen. Melde dich an und wähle dann erneut Speichern.",
+  "dataGrant.anonymous.humanNeeded":
+    "Schließe die kurze Prüfung ab, dass du ein Mensch bist, dann kann die Seite speichern, was du eingibst.",
+  "dataGrant.anonymous.humanFailed":
+    "Die Prüfung, dass du ein Mensch bist, ist fehlgeschlagen. Versuche es erneut mit Erlauben.",
+  "dataGrant.anonymous.humanUnavailable":
+    "Die Prüfung, dass du ein Mensch bist, konnte in diesem Browser nicht laufen. Melde dich zum Speichern an.",
   "sharedData.ask": "Eigentümer fragen",
   "sharedData.askNamed": "Die Verwalter von {name} fragen",
   "sharedData.askTitle": "Nach dem fragen, was du in {name} gespeichert hast",

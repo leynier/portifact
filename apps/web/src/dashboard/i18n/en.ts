@@ -5,6 +5,37 @@ import { planTextEn } from "../../plans/i18n/en.ts";
 export const en = {
   ...planTextEn,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Saving data without an account",
+  "policies.anonymousData.hint":
+    "Whether the pages of the workspace's public artifacts may save what people without an account enter. Editors still choose it for each artifact, behind a human check. Allowing it needs the policies feature in the workspace's plan.",
+  "policies.anonymousData.forbidden": "Only signed-in visitors",
+  "policies.anonymousData.forbiddenHint":
+    "Pages save only for people who signed in and allowed it.",
+  "policies.anonymousData.allowed": "Also people without an account",
+  "policies.anonymousData.allowedHint":
+    "Editors may open a public artifact's data to anyone. Nobody is known by name, so moderate what is saved there.",
+  "audit.kind.dataWritersAnyone": "Let people without an account save data from the page",
+  "audit.kind.dataWritersSignedIn": "Limited saving data from the page to signed-in visitors",
+  "audit.policy.anonymousData":
+    "{value, select, true {people without an account may save data} other {only signed-in visitors save data}}",
+  "artifactData.writers.label": "Who saves from the page",
+  "artifactData.writers.signedIn": "Signed-in visitors",
+  "artifactData.writers.anyone": "Anyone, including people without an account",
+  "dataGrant.anonymous.title": "Let {host} save what you enter, without an account?",
+  "dataGrant.anonymous.learns":
+    "The page learns only an ID for this artifact: no name, no email and no account.",
+  "dataGrant.anonymous.lasts": "This lasts {days} days in this browser.",
+  "dataGrant.anonymous.noAccount":
+    "Without an account, Portifact cannot show you or delete what you saved later. Only the page itself can, while this browser keeps it.",
+  "dataGrant.anonymous.signIn": "Sign in instead",
+  "dataGrant.anonymous.signInTitle": "Sign in to save",
+  "dataGrant.anonymous.closed":
+    "This artifact saves only for people who sign in. Sign in, then choose to save again.",
+  "dataGrant.anonymous.humanNeeded":
+    "Complete the quick check that you are human, then the page can save what you enter.",
+  "dataGrant.anonymous.humanFailed": "The check that you are human did not pass. Try Allow again.",
+  "dataGrant.anonymous.humanUnavailable":
+    "The check that you are human could not run in this browser. Sign in to save instead.",
   "sharedData.ask": "Ask the owner",
   "sharedData.askNamed": "Ask the people who manage {name}",
   "sharedData.askTitle": "Ask about what you saved in {name}",

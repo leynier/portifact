@@ -26,6 +26,8 @@ import {
   DataErased,
   DataExportPageView,
   DataQueryPage,
+  DataWriters,
+  DataWritersView,
   DocumentId,
   FieldName,
 } from "@portifact/contracts";
@@ -69,6 +71,8 @@ const text = {
     invalidCreated: (value: string) =>
       `${JSON.stringify(value)} is not a creation filter. Use --created gt:<ms>, gte, lt or lte.`,
     invalidLimit: `--limit takes a number from 1 to ${ARTIFACT_DATA.caps.pageDocuments}.`,
+    invalidWriters: (value: string) =>
+      `${JSON.stringify(value)} is not a choice of writers. Use signed_in or anyone.`,
     invalidMode: (value: string) =>
       `${JSON.stringify(value)} is not a collection mode. Use own, append, read or shared.`,
     bodyNeeded: "Pass the document as --body '<json>' or --file <path>.",
@@ -750,4 +754,59 @@ export async function dataDeleteAuthor(
   }
   if (options.json) writeJson(io, { removed });
   else io.stdout(`Deleted ${removed} document(s) by ${parsed.data}.\n`);
+}
+
+// Who may write from the page (decision 0026, delivery 9).
+
+const ANONYMOUS_STATE: Readonly<Record<DataWritersView["anonymous"], string>> = {
+  available: "people without an account can save data while the artifact is public",
+  off: "only signed-in visitors who can open the artifact can save data",
+  plan_required:
+    "anonymous writing is chosen but does not work: the workspace's plan does not include policies",
+  policy_refused:
+    "anonymous writing is chosen but does not work: the workspace's policy does not allow it",
+};
+
+/**
+ * Shows who may write to an artifact's data from its page, or changes it: `signed_in` (signed-in
+ * visitors who can open it, the default) or `anyone` (also people without an account on a public
+ * artifact, after a human check). Opening it to anyone widens who writes; it deletes nothing, so
+ * it asks for no confirmation, and it says what changed.
+ */
+export async function dataWriters(
+  io: Io,
+  runtime: Runtime,
+  id: string,
+  writers: string | undefined,
+  options: OutputOptions,
+): Promise<void> {
+  const artifactId = parseArtifactId(id);
+  let chosen: DataWriters | undefined;
+  if (writers !== undefined) {
+    const parsed = DataWriters.safeParse(writers);
+    if (!parsed.success) throw new CliError("invalid_input", text.errors.invalidWriters(writers));
+    chosen = parsed.data;
+  }
+  const session = await openSession(io, runtime);
+  const body =
+    chosen === undefined
+      ? await callApi(session, {
+          method: "GET",
+          path: `${base(artifactId)}/writers`,
+          schema: DataWritersView,
+        })
+      : await withRetries(session, () =>
+          callApi(session, {
+            method: "PUT",
+            path: `${base(artifactId)}/writers`,
+            body: { writers: chosen },
+            schema: DataWritersView,
+          }),
+        );
+  if (options.json) {
+    writeJson(io, body);
+    return;
+  }
+  const verb = chosen === undefined ? "Writers" : "Writers set";
+  io.stdout(`${verb} for ${artifactId}: ${body.writers} (${ANONYMOUS_STATE[body.anonymous]}).\n`);
 }

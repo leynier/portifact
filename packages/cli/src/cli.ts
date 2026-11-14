@@ -1766,6 +1766,21 @@ An artifact shared with its workspace or an email domain becomes restricted when
       ),
     );
   data
+    .command("writers")
+    .description(
+      "Show or set who may save data from the artifact's page: signed_in or anyone (no account, public artifacts only)",
+    )
+    .argument("<id>", "artifact ID")
+    .argument("[writers]", "signed_in or anyone; omit to show the current choice")
+    .option("--json", "Print the result as JSON")
+    .action(
+      execute((io, runtime, options: { json?: boolean }, id: string, writers: string | undefined) =>
+        dataCommands.dataWriters(dataCommands.terminalSafe(io), runtime, id, writers, {
+          json: options.json === true,
+        }),
+      ),
+    );
+  data
     .command("export")
     .description("Write every document and collection as a JSON Lines file")
     .argument("<id>", "artifact ID")

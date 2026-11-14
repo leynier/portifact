@@ -433,6 +433,7 @@ describe("plain words for every kind", () => {
     "data.documents_deleted": { documents: 100 },
     "data.erased": {},
     "data.author_erased": { documents: 4, edits: 2 },
+    "data.writers_changed": { writers: "anyone" },
   };
   const expected: Record<AuditKind, string> = {
     "artifact.published": "Published version 3",
@@ -528,6 +529,7 @@ describe("plain words for every kind", () => {
     "data.documents_deleted": "Deleted 100 data document(s)",
     "data.erased": "Erased all the artifact's data",
     "data.author_erased": "Erased a deleted account's 4 data document(s) and 2 edit(s)",
+    "data.writers_changed": "Opened saving data from the page to people without an account",
   };
 
   it.each(AUDIT_KINDS)("%s", (kind) => {
@@ -627,6 +629,25 @@ describe("plain words for every kind", () => {
     ).toBe(
       "Applied the workspace's policies: 4 artifact expiry(ies) brought forward by the maximum life, 2 artifact expiry(ies) given back",
     );
+  });
+
+  it("says whether people without an account may save data (decision 0026)", () => {
+    const changed = (anonymousDataWriters: "allowed" | "forbidden") =>
+      auditSummary(
+        event(0, {
+          kind: "policy.changed",
+          detail: { fields: ["anonymousDataWriters"], anonymousDataWriters, confirmed: false },
+        }),
+      );
+    expect(changed("allowed")).toBe(
+      "Changed the workspace's policies: people without an account may save data",
+    );
+    expect(changed("forbidden")).toBe(
+      "Changed the workspace's policies: people without an account may not save data",
+    );
+    expect(
+      auditSummary(event(0, { kind: "data.writers_changed", detail: { writers: "signed_in" } })),
+    ).toBe("Limited saving data from the page to signed-in visitors");
   });
 
   it("says what comment retention changed and deleted (decision 0023)", () => {

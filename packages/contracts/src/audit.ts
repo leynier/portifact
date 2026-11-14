@@ -5,7 +5,7 @@
 // never free text, comment text, artifact content, tokens, secrets, URLs or full addresses.
 import { z } from "zod";
 import { APPROVALS } from "./approval-reviews.ts";
-import { ARTIFACT_DATA } from "./artifact-data.ts";
+import { ARTIFACT_DATA, DataWriters } from "./artifact-data.ts";
 import { AuditStreamAutoPause, AuditStreamStart } from "./audit-streams.ts";
 import { AccessMode, CommentVisibility } from "./core.ts";
 import {
@@ -30,6 +30,7 @@ import { LIMITS } from "./limits.ts";
 import { GraceEndReason, GraceStartReason, PlanName } from "./plans.ts";
 import {
   AllowedClient,
+  AnonymousDataPolicy,
   DefaultAccessPolicy,
   POLICY_FIELDS,
   PublicAccessPolicy,
@@ -434,6 +435,8 @@ export const AUDIT_DETAILS = {
       .optional(),
     /** When that comment retention takes effect (milliseconds); null when removed (0023). */
     commentRetentionFrom: z.int().min(0).nullable().optional(),
+    /** Whether anonymous writers of artifact data are allowed after the change (0026). */
+    anonymousDataWriters: AnonymousDataPolicy.optional(),
     /**
      * Members the provider could not serve that the admin confirmed when requiring single
      * sign-on: a count only.
@@ -519,6 +522,8 @@ export const AUDIT_DETAILS = {
   "data.erased": empty,
   /** A deleted account's documents and edits erased from the artifact, by the system (counts). */
   "data.author_erased": z.strictObject({ documents: authorChunk, edits: authorChunk }),
+  /** Who may write from the page changed (delivery 9): signed-in visitors, or anyone. */
+  "data.writers_changed": z.strictObject({ writers: DataWriters }),
 } as const;
 
 export type AuditKind = keyof typeof AUDIT_DETAILS;
@@ -634,6 +639,7 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "data.documents_deleted": "artifact",
   "data.erased": "artifact",
   "data.author_erased": "artifact",
+  "data.writers_changed": "artifact",
 };
 
 /**

@@ -20,6 +20,13 @@ export const DATA_GRANT = {
   codesPerMinute: 10,
   /** Ended grants and their codes are deleted this long after they ended. */
   endedKeepMs: 30 * 86_400_000,
+  /**
+   * Anonymous grants (decision 0026, "Anonymous writers"): how long one lasts (no app session
+   * bounds it), and how many codes one network address and one artifact may be issued an hour.
+   */
+  anonymousGrantTtlSeconds: 7 * 86_400,
+  anonymousPerIpPerHour: 10,
+  anonymousPerArtifactPerHour: 300,
 } as const;
 
 /** A grant's ID: `dg_` and 16 random bytes in base64url. */
@@ -96,6 +103,29 @@ export const DataGrantRevocation = z.strictObject({
 });
 export type DataGrantRevocation = z.infer<typeof DataGrantRevocation>;
 
+/**
+ * What the anonymous control shows (`GET /api/v1/data/anonymous-grants/:artifactId/control`, no
+ * credentials): the artifact's host and owner and how long the grant lasts. Answered only while
+ * anonymous writing is open on the artifact, like a missing artifact otherwise.
+ */
+export const AnonymousDataGrantControl = z.strictObject({
+  artifactId: ArtifactId,
+  artifactName: z.string(),
+  host: z.string(),
+  owner: z.strictObject({ kind: z.enum(["user", "workspace"]), name: z.string() }),
+  grantDays: z.number().int().positive(),
+});
+export type AnonymousDataGrantControl = z.infer<typeof AnonymousDataGrantControl>;
+
+/**
+ * Asking for an anonymous code (`POST /api/v1/data/anonymous-grants`, no credentials, same origin
+ * only): the code request plus the solved human check's token.
+ */
+export const AnonymousDataGrantCodeRequest = DataGrantCodeRequest.extend({
+  turnstileToken: z.string().min(1).max(2048),
+});
+export type AnonymousDataGrantCodeRequest = z.infer<typeof AnonymousDataGrantCodeRequest>;
+
 /** Sealed claims in the `__Host-pf_grant` cookie of one artifact host. Times in ms. */
 export const DataGrantClaims = z.strictObject({
   v: z.literal(1),
@@ -113,6 +143,11 @@ export const DataGrantClaims = z.strictObject({
   gexp: z.number().int().nonnegative(),
   /** Set in the viewer's frame: a partitioned cookie, never honored on a top-level page. */
   part: z.boolean(),
+  /**
+   * An anonymous grant (delivery 9): no account behind it, renewed against the anonymous grant's
+   * row and the artifact still open to anonymous writers. Absent on a person's grant.
+   */
+  anon: z.literal(true).optional(),
 });
 export type DataGrantClaims = z.infer<typeof DataGrantClaims>;
 
@@ -136,6 +171,8 @@ export const DataMe = z.union([
     visitor: z.strictObject({ id: z.string(), name: z.string() }),
     /** Whether the page may write as the visitor now (the current terms accepted). */
     write: z.boolean(),
+    /** A visitor without an account (delivery 9): the name is empty. */
+    anonymous: z.boolean().optional(),
   }),
 ]);
 export type DataMe = z.infer<typeof DataMe>;

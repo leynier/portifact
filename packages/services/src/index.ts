@@ -28,6 +28,7 @@ export * from "./custom-domains.ts";
 export * from "./data-grants.ts";
 export * from "./data-live.ts";
 export * from "./data-rights.ts";
+export * from "./data-writers.ts";
 export * from "./directory.ts";
 export * from "./directory-notices.ts";
 export { type PreviewInput, previewDocument } from "./documents.ts";

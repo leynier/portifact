@@ -46,7 +46,7 @@ import { api, apiToken, callTool, connect, mcpToken, type ToolResult } from "./m
 
 const NOW = Date.parse("2026-11-02T09:00:00Z");
 const SCOPES =
-  "artifacts:read artifacts:write artifacts:share artifacts:delete annotations:read annotations:write annotations:moderate offline_access";
+  "artifacts:read artifacts:write artifacts:share artifacts:delete annotations:read annotations:write annotations:moderate data:read data:write offline_access";
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -625,6 +625,30 @@ const GATED: GatedOperation[] = [
   // route, MCP tool or CLI command: the gate is `requireFeature` on the workspace's plan, and its
   // body is checked through the session in workspace-policies.test.ts.
   probe("policies"),
+  // Opening a workspace artifact's data to people without an account (decision 0026, delivery 9)
+  // needs `policies` in the workspace's plan, checked before the policy itself (which refuses with
+  // `policy_refused` until an admin allows it). The artifact holds data, as a declaration leaves.
+  {
+    feature: "policies",
+    name: "open an artifact's data to anyone",
+    space: "workspace",
+    run: async (who, id) => {
+      await db()
+        .insert(schema.artifactData)
+        .values({ artifactId: id, updatedAt: NOW })
+        .onConflictDoNothing();
+      const response = await who.apiCall(`/api/v1/artifacts/${id}/data/writers`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ writers: "anyone" }),
+      });
+      const result = await who.tool("set_data_writers", { artifactId: id, writers: "anyone" });
+      return {
+        api: { status: response.status, body: await response.json<unknown>() },
+        mcp: { ok: result.isError !== true, body: result.structuredContent },
+      };
+    },
+  },
 ];
 
 /**
@@ -893,6 +917,7 @@ const IN_GRACE: Record<string, "held" | "refused"> = {
   "integrations: connect an issue integration": "refused",
   "integrations: start a Slack connection": "refused",
   "policies: test-only probe": "refused",
+  "policies: open an artifact's data to anyone": "refused",
 };
 
 const graceKey = (op: GatedOperation) => `${op.feature}: ${op.name}`;

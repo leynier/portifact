@@ -137,6 +137,7 @@ export const AUDIT_GROUPS = {
     "data.documents_deleted",
     "data.erased",
     "data.author_erased",
+    "data.writers_changed",
   ],
   exports: [
     "audit.exported",
@@ -761,6 +762,10 @@ export function describeAuditEvent(
         documents: Number(d.documents),
         edits: Number(d.edits),
       });
+    case "data.writers_changed":
+      return t(
+        d.writers === "anyone" ? "audit.kind.dataWritersAnyone" : "audit.kind.dataWritersSignedIn",
+      );
     case "plan.granted": {
       const values = { plan: PLAN_LABELS[d.plan as PlanName], seats: Number(d.seats) };
       return typeof d.validUntil === "string"
@@ -834,6 +839,12 @@ function policyChanges(t: T, d: Record<string, unknown>, locale: string | undefi
       d.commentRetentionDays === null
         ? t("audit.policy.commentsNone")
         : t("audit.policy.comments", { days: Number(d.commentRetentionDays) }),
+    );
+  }
+  // Anonymous writers of artifact data (decision 0026, delivery 9).
+  if (d.anonymousDataWriters !== undefined) {
+    parts.push(
+      t("audit.policy.anonymousData", { value: String(d.anonymousDataWriters === "allowed") }),
     );
   }
   if (d.reason === "plan_lapsed") parts.push(t("audit.policy.planLapsed"));
