@@ -101,6 +101,8 @@ describe("expiryNotifierFromEnv", () => {
 
 describe("expiry notices end to end", () => {
   it("schedules on the run and emails the owner once from the queue", async () => {
+    // The queue consumer reads the real clock, so this test runs at the real time.
+    const now = Date.now();
     const ownerId = `u_${crypto.randomUUID()}`;
     const email = `${ownerId}@example.test`;
     await db()
@@ -110,8 +112,8 @@ describe("expiry notices end to end", () => {
         name: "Ada",
         email,
         emailVerified: true,
-        createdAt: new Date(NOW - 60 * DAY),
-        updatedAt: new Date(NOW),
+        createdAt: new Date(now - 60 * DAY),
+        updatedAt: new Date(now),
       });
     await db()
       .insert(schema.artifacts)
@@ -121,13 +123,13 @@ describe("expiry notices end to end", () => {
         type: "site",
         name: "Launch plan",
         state: "active",
-        expiresAt: NOW + 2 * DAY,
+        expiresAt: now + 2 * DAY,
       });
 
-    expect(await runScheduled(env, NOW)).toMatchObject({ expiryNotices: 1 });
+    expect(await runScheduled(env, now)).toMatchObject({ expiryNotices: 1 });
     const [job] = await db().select().from(schema.outbox).where(eq(schema.outbox.subject, ownerId));
     expect(job?.topic).toBe("expiry_notice");
-    expect(job?.dispatchedAt).toBe(NOW);
+    expect(job?.dispatchedAt).toBe(now);
 
     const { binding, sent } = fakeEmail();
     const testEnv: Env = { ...env, EMAIL: binding };
@@ -135,7 +137,7 @@ describe("expiry notices end to end", () => {
       const batch = createMessageBatch("portifact-jobs", [
         {
           id,
-          timestamp: new Date(NOW),
+          timestamp: new Date(now),
           attempts: 1,
           body: { id: job?.id, topic: "expiry_notice" },
         },
@@ -150,6 +152,6 @@ describe("expiry notices end to end", () => {
     expect(
       await db().select().from(schema.outbox).where(eq(schema.outbox.subject, ownerId)),
     ).toEqual([]);
-    expect(await runScheduled(testEnv, NOW + DAY)).toMatchObject({ expiryNotices: 0 });
+    expect(await runScheduled(testEnv, now + DAY)).toMatchObject({ expiryNotices: 0 });
   });
 });
