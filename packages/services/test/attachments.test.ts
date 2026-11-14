@@ -6,7 +6,11 @@ import { type RegionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { attachmentKey } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
-import { advanceAccountDeletion, requestAccountDeletion } from "../src/account-data.ts";
+import {
+  advanceAccountDeletion,
+  exportAccount,
+  requestAccountDeletion,
+} from "../src/account-data.ts";
 import {
   createAnnotationThread,
   deleteOwnAnnotationMessage,
@@ -20,7 +24,9 @@ import {
   listArtifactAttachments,
   prepareAttachment,
   pruneAttachmentUploads,
+  reinstateAttachment,
   removeAttachment,
+  withholdAttachment,
 } from "../src/attachments.ts";
 import { applyTombstones, exportTombstones, reconcileStorage } from "../src/backups.ts";
 import { runJob } from "../src/outbox.ts";
@@ -35,6 +41,12 @@ const DOC: AnnotationTarget = { schema: 1, path: "index.html", anchor: { kind: "
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
 const HTML = new TextEncoder().encode("<!doctype html><script>alert(1)</script>");
 const BINARY_HTML = new Uint8Array([...HTML, 0, 0xff]);
+const STATEMENT = {
+  facts: "A rights holder's notice says the image copies their photo.",
+  ground: "Copyright infringement under the Acceptable Use Policy.",
+  source: "notice" as const,
+  withhold: false,
+};
 
 function artifactId(): string {
   let id = "";
@@ -67,6 +79,7 @@ interface World {
   id: string;
   owner: string;
   reader: string;
+  ownerEmail: string;
   readerEmail: string;
   other: string;
   stranger: string;
@@ -130,6 +143,7 @@ async function world(): Promise<World> {
     id,
     owner: owner.id,
     reader: reader.id,
+    ownerEmail: owner.email,
     readerEmail: reader.email,
     other: other.id,
     stranger: stranger.id,
@@ -479,42 +493,158 @@ describe("comment attachments", () => {
     expect(await rowOf(kept.id)).toBeDefined();
   });
 
-  it("lets the operator remove a file for good, through a restore, never while held", async () => {
+  it("lets the operator withhold a file at once, tell its people, reinstate it, and remove it for good only after the counter-notice wait", async () => {
     const w = await world();
     const file = await uploaded(w, w.reader);
     const thread = await start(w, w.reader, [file.id]);
     if (!thread.ok) throw new Error("thread");
-    expect((await listArtifactAttachments(db(), w.id)).map((row) => row.id)).toEqual([file.id]);
+    const ref = { artifactId: w.id, attachmentId: file.id };
+    // Nothing is deleted before the file was withheld and its wait is over.
+    expect(await removeAttachment(db(), { ...ref, now: NOW })).toMatchObject({
+      code: "invalid_input",
+    });
+    const withheld = await withholdAttachment(db(), {
+      ...ref,
+      reason: "copyright",
+      statement: STATEMENT,
+      now: NOW,
+    });
+    expect(withheld.ok).toBe(true);
+    if (!withheld.ok) return;
+    expect(
+      await withholdAttachment(db(), {
+        ...ref,
+        reason: "copyright",
+        statement: STATEMENT,
+        now: NOW,
+      }),
+    ).toMatchObject({ code: "invalid_input" });
+    // From that moment nobody views or downloads it, the owner included; it stays stored.
+    for (const userId of [w.owner, w.reader]) {
+      expect(
+        await getAttachmentFile(db(), {
+          userId,
+          artifactId: w.id,
+          attachmentId: file.id,
+          now: NOW,
+        }),
+      ).toMatchObject({ code: "not_found" });
+    }
+    const seen = await getAnnotationThread(db(), {
+      userId: w.owner,
+      artifactId: w.id,
+      threadId: thread.value.id,
+      now: NOW,
+    });
+    expect(seen.ok && seen.value.messages[0]?.attachments).toBeUndefined();
+    expect(await env.ARTIFACTS.head(file.key)).not.toBeNull();
+    expect(await rowOf(file.id)).toMatchObject({ withheldReason: "copyright" });
+    const [listed] = await listArtifactAttachments(db(), w.id);
+    expect(listed).toMatchObject({ id: file.id, withheldAt: NOW, withheldReason: "copyright" });
+
+    // The statement of reasons goes to the person who attached it and to the owner.
+    const sent: { to: string; target: string; attachmentId: string | null }[] = [];
+    const notifier = {
+      async send(notice: { to: string; target: string; attachmentId: string | null }) {
+        sent.push({ to: notice.to, target: notice.target, attachmentId: notice.attachmentId });
+      },
+    };
+    const [job] = await db()
+      .select()
+      .from(schema.outbox)
+      .where(
+        and(
+          eq(schema.outbox.topic, "moderation_notice"),
+          eq(schema.outbox.subject, withheld.value.decisionId),
+        ),
+      );
+    expect(job).toBeDefined();
+    expect(
+      await runJob(db(), env.ARTIFACTS, { id: job?.id ?? 0, topic: "moderation_notice" }, NOW, {
+        moderationNotifier: notifier,
+      }),
+    ).toBe("done");
+    expect(sent.map((notice) => notice.to).sort()).toEqual([w.ownerEmail, w.readerEmail].sort());
+    expect(
+      sent.every((notice) => notice.target === "attachment" && notice.attachmentId === file.id),
+    ).toBe(true);
+
+    // A review or counter-notice that stands gives it back, with a statement too.
+    const back = await reinstateAttachment(db(), { ...ref, statement: STATEMENT, now: NOW + DAY });
+    expect(back.ok).toBe(true);
+    expect(
+      (
+        await getAttachmentFile(db(), {
+          userId: w.reader,
+          artifactId: w.id,
+          attachmentId: file.id,
+          now: NOW,
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      await reinstateAttachment(db(), { ...ref, statement: STATEMENT, now: NOW }),
+    ).toMatchObject({ code: "invalid_input" });
+
+    // Withheld again: removal waits for the counter-notice period, then deletes for good.
+    await withholdAttachment(db(), {
+      ...ref,
+      reason: "copyright",
+      statement: STATEMENT,
+      now: NOW + 2 * DAY,
+    });
     const restoredRow = await rowOf(file.id);
     if (!restoredRow) throw new Error("row");
-    expect(
-      await removeAttachment(db(), { artifactId: w.id, attachmentId: file.id, now: NOW }),
-    ).toEqual({
+    const due = NOW + 2 * DAY + ATTACHMENT_LIMITS.removalWaitMs;
+    expect(await removeAttachment(db(), { ...ref, now: due - 1 })).toMatchObject({
+      code: "invalid_input",
+    });
+    expect(await removeAttachment(db(), { ...ref, now: due })).toEqual({
       ok: true,
       value: { artifactId: w.id },
     });
     expect(await rowOf(file.id)).toBeUndefined();
+    const trail = await db()
+      .select({ event: schema.lifecycleEvents.event })
+      .from(schema.lifecycleEvents)
+      .where(eq(schema.lifecycleEvents.artifactId, w.id));
+    expect(trail.map((row) => row.event)).toEqual(
+      expect.arrayContaining([
+        "attachment_withheld",
+        "attachment_reinstated",
+        "attachment_removed",
+      ]),
+    );
     const markers = await exportTombstones(regionsFromEnv(env));
-    expect(markers).toContainEqual({ kind: "comment_attachment", id: file.id, deletedAt: NOW });
+    expect(markers).toContainEqual({ kind: "comment_attachment", id: file.id, deletedAt: due });
     // A restore brings the row back; re-applying the markers deletes it again.
     await db().insert(schema.commentAttachments).values(restoredRow);
-    await applyTombstones(regionsFromEnv(env), markers, NOW + 1);
+    await applyTombstones(regionsFromEnv(env), markers, due + 1);
     expect(await rowOf(file.id)).toBeUndefined();
-    expect(
-      await removeAttachment(db(), { artifactId: w.id, attachmentId: file.id, now: NOW }),
-    ).toMatchObject({
-      code: "not_found",
-    });
+    expect(await removeAttachment(db(), { ...ref, now: due })).toMatchObject({ code: "not_found" });
+  });
 
+  it("withholds a held artifact's file but never removes it while the hold lasts", async () => {
     const held = await world();
-    const heldFile = await uploaded(held, held.reader);
+    const file = await uploaded(held, held.reader);
+    const thread = await start(held, held.reader, [file.id]);
+    if (!thread.ok) throw new Error("thread");
     await hold(held);
+    const ref = { artifactId: held.id, attachmentId: file.id };
     expect(
-      await removeAttachment(db(), { artifactId: held.id, attachmentId: heldFile.id, now: NOW }),
-    ).toMatchObject({
-      code: "forbidden",
-    });
-    expect(await rowOf(heldFile.id)).toBeDefined();
+      (
+        await withholdAttachment(db(), {
+          ...ref,
+          reason: "malware",
+          statement: STATEMENT,
+          now: NOW,
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      await removeAttachment(db(), { ...ref, now: NOW + ATTACHMENT_LIMITS.removalWaitMs }),
+    ).toMatchObject({ code: "forbidden" });
+    expect(await rowOf(file.id)).toBeDefined();
   });
 
   it("deletes an account's pending uploads with the account, and its attached files with its messages", async () => {
@@ -588,6 +718,26 @@ describe("comment attachments", () => {
       createdAt: NOW,
       updatedAt: NOW,
     });
+    await eu.insert(schema.annotationThreads).values({
+      id: "th_eu",
+      artifactId: id,
+      versionId: "v",
+      ownerId: owner.id,
+      authorId: owner.id,
+      target: "{}",
+      targetBytes: 2,
+      path: "index.html",
+      updatedAt: NOW,
+    });
+    await eu.insert(schema.annotationMessages).values({
+      id: "m_eu",
+      threadId: "th_eu",
+      artifactId: id,
+      ownerId: owner.id,
+      authorId: owner.id,
+      body: "x",
+      bodyBytes: 1,
+    });
     await eu.insert(schema.commentAttachments).values({
       id: "att_eu",
       artifactId: id,
@@ -599,8 +749,26 @@ describe("comment attachments", () => {
       state: "pending",
       expiresAt: NOW + 60_000,
     });
+    // Attached as the comment's batch would (the usage trigger counts it), then withheld.
+    await eu
+      .update(schema.commentAttachments)
+      .set({
+        state: "attached",
+        threadId: "th_eu",
+        messageId: "m_eu",
+        contentType: "image/png",
+        expiresAt: null,
+        attachedAt: NOW,
+        withheldAt: NOW,
+        withheldReason: "malware",
+      })
+      .where(eq(schema.commentAttachments.id, "att_eu"));
     expect(
-      await removeAttachment(eu, { artifactId: id, attachmentId: "att_eu", now: NOW }),
+      await removeAttachment(eu, {
+        artifactId: id,
+        attachmentId: "att_eu",
+        now: NOW + ATTACHMENT_LIMITS.removalWaitMs,
+      }),
     ).toEqual({ ok: true, value: { artifactId: id } });
     expect(
       await eu
@@ -613,6 +781,26 @@ describe("comment attachments", () => {
       .from(schema.tombstones)
       .where(eq(schema.tombstones.id, "att_eu"));
     expect(marker?.kind).toBe("comment_attachment");
+  });
+
+  it("lists a person's files with their messages in the account export, on their artifacts and elsewhere", async () => {
+    const w = await world();
+    const file = await uploaded(w, w.reader);
+    expect((await start(w, w.reader, [file.id])).ok).toBe(true);
+    const metadata = {
+      id: file.id,
+      name: "shot.png",
+      contentType: "image/png",
+      size: PNG.length,
+      sha256: file.sha256,
+    };
+    const reader = await exportAccount(db(), { userId: w.reader, now: NOW });
+    if (!reader.ok) throw new Error("export");
+    expect(reader.value.commentsElsewhere[0]?.messages[0]?.attachments).toEqual([metadata]);
+    const owner = await exportAccount(db(), { userId: w.owner, now: NOW });
+    if (!owner.ok) throw new Error("export");
+    const onTheirs = owner.value.artifacts.find((artifact) => artifact.id === w.id);
+    expect(onTheirs?.threads[0]?.messages[0]?.attachments).toEqual([metadata]);
   });
 
   it("reports attachment bytes without a row as orphans", async () => {

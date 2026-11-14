@@ -437,6 +437,8 @@ reason("operator moderation and platform controls, kept by the operator tool's o
   "reinstateBrand",
   // Comment attachments (decision 0028): recorded in the artifact's lifecycle_events.
   "removeAttachment",
+  "withholdAttachment",
+  "reinstateAttachment",
   "setBudgetOverride",
   "clearBudgetOverride",
   "suppressEmail",

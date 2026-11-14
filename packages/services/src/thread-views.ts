@@ -13,7 +13,7 @@ import type {
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
 import { type AnnotationRole, ERASED_ACCOUNT, messageBodyVisible } from "@portifact/domain";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { suggestionView } from "./suggestion-view.ts";
 import {
   type ThreadIssueRecord,
@@ -81,7 +81,10 @@ export async function threadViews(
           sha256: ca.sha256,
         })
         .from(ca)
-        .where(and(inArray(ca.threadId, ids), eq(ca.state, "attached")))
+        .where(
+          // A file the operator withholds is listed to nobody until reinstated (decision 0028).
+          and(inArray(ca.threadId, ids), eq(ca.state, "attached"), isNull(ca.withheldAt)),
+        )
         .orderBy(asc(ca.attachedAt), asc(ca.id)),
     ]);
     messages.push(...rows);

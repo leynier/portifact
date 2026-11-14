@@ -1028,7 +1028,9 @@ export const moderationDecisions = sqliteTable(
   "moderation_decisions",
   {
     id: text("id").primaryKey(),
-    targetKind: text("target_kind", { enum: ["artifact", "account", "brand"] }).notNull(),
+    targetKind: text("target_kind", {
+      enum: ["artifact", "account", "brand", "attachment"],
+    }).notNull(),
     targetId: text("target_id").notNull(),
     /** The owner whose people are told: the account, or the workspace. */
     ownerId: text("owner_id").notNull(),
@@ -1520,6 +1522,12 @@ export const commentAttachments = sqliteTable(
     /** When a pending upload stops being usable; null once attached. */
     expiresAt: timestamp("expires_at"),
     attachedAt: timestamp("attached_at"),
+    /**
+     * Set while the operator withholds the file (decision 0028, "Abuse and the operator"): shown
+     * to and downloadable by nobody, kept in storage until reinstated or removed for good.
+     */
+    withheldAt: timestamp("withheld_at"),
+    withheldReason: text("withheld_reason", { enum: ABUSE_REASONS }),
   },
   (t) => [
     index("comment_attachments_message_idx").on(t.messageId),

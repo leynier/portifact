@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { ATTACHMENT_LIMITS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -164,6 +165,10 @@ describe("operator arguments", () => {
       ["hold"],
       ["attachments"],
       ["remove-attachment", "abc"],
+      ["withhold-attachment", "abc", "att"],
+      ["withhold-attachment", "abc", "att", "--reason", "spam"],
+      ["reinstate-attachment", "abc"],
+      ["decisions", "attachment", "abc"],
       ["holds", "--limit", "0"],
     ]) {
       const result = await run(...argv);
@@ -739,12 +744,32 @@ describe("notices, statements of reasons and legal holds", () => {
     expect((await run("decisions", "account", "nobody@example.test")).exitCode).toBe(1);
   });
 
-  it("lists an artifact's attachments and removes one for good, never while held", async () => {
+  it("lists an artifact's attachments, withholds one with a statement, reinstates it and removes it for good after the wait", async () => {
     const user = await owner();
     const id = await artifact(user.id);
     expect(await run("attachments", id)).toEqual({
       exitCode: 0,
       output: `${id} has no attachments.`,
+    });
+    await db().insert(schema.annotationThreads).values({
+      id: "th_operator",
+      artifactId: id,
+      versionId: "v",
+      ownerId: user.id,
+      authorId: user.id,
+      target: "{}",
+      targetBytes: 2,
+      path: "index.html",
+      updatedAt: NOW,
+    });
+    await db().insert(schema.annotationMessages).values({
+      id: "m_operator",
+      threadId: "th_operator",
+      artifactId: id,
+      ownerId: user.id,
+      authorId: user.id,
+      body: "x",
+      bodyBytes: 1,
     });
     await db()
       .insert(schema.commentAttachments)
@@ -759,8 +784,19 @@ describe("notices, statements of reasons and legal holds", () => {
         state: "pending",
         expiresAt: NOW + 60_000,
       });
+    await db()
+      .update(schema.commentAttachments)
+      .set({
+        state: "attached",
+        threadId: "th_operator",
+        messageId: "m_operator",
+        contentType: "image/png",
+        expiresAt: null,
+        attachedAt: NOW,
+      })
+      .where(eq(schema.commentAttachments.id, "att_operator"));
     const listed = await run("attachments", id);
-    expect(listed.output).toContain("att_operator  pending  unchecked  10 bytes");
+    expect(listed.output).toContain("att_operator  attached image/png  10 bytes");
     // The untrusted name stays on one line, as a JSON string.
     expect(listed.output.split("\n")).toHaveLength(1);
     expect(listed.output).toContain('"bad name\\".png"');
@@ -768,9 +804,33 @@ describe("notices, statements of reasons and legal holds", () => {
       exitCode: 1,
       output: "Attachment not found.",
     });
-    expect((await run("remove-attachment", id, "att_operator")).output).toContain(
-      `Removed attachment att_operator from ${id}.`,
+    // Never deleted before it was withheld.
+    expect((await run("remove-attachment", id, "att_operator")).exitCode).toBe(1);
+    expect(
+      (await run("withhold-attachment", id, "att_operator", "--reason", "copyright", ...WHY))
+        .output,
+    ).toMatch(
+      new RegExp(
+        `^Withheld attachment att_operator on ${id} \\(dec_\\w+\\)\\. ${RECORDED.replace(/[().]/g, "\\$&")}$`,
+      ),
     );
+    expect((await run("attachments", id)).output).toContain("withheld ");
+    const decisions = await run("decisions", "attachment", `${id}/att_operator`);
+    expect(decisions.output).toContain("suspend");
+    expect((await run("reinstate-attachment", id, "att_operator", ...LIFT)).output).toContain(
+      `Reinstated attachment att_operator on ${id}`,
+    );
+    await run("withhold-attachment", id, "att_operator", "--reason", "copyright", ...WHY);
+    // The counter-notice wait is not over at NOW.
+    expect((await run("remove-attachment", id, "att_operator")).output).toContain(
+      "A counter-notice can still reinstate this file",
+    );
+    const later = await runOperator(
+      db(),
+      ["remove-attachment", id, "att_operator"],
+      NOW + ATTACHMENT_LIMITS.removalWaitMs,
+    );
+    expect(later.output).toContain(`Removed attachment att_operator from ${id} for good.`);
     expect((await run("attachments", id)).output).toBe(`${id} has no attachments.`);
     const [marker] = await db()
       .global.select()

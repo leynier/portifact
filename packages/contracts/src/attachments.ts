@@ -40,6 +40,12 @@ export const ATTACHMENT_LIMITS = {
   uploadsPerPersonPerDay: 60,
   uploadsPerArtifactPerDay: 300,
   nameMaxCodePoints: 200,
+  /**
+   * How long a file the operator withholds waits before it may be removed for good: longer than
+   * a copyright counter-notice's restoration (10 to 14 business days after it arrives), so one
+   * sent after the statement can still reinstate it (decision 0028, "Abuse and the operator").
+   */
+  removalWaitMs: 30 * 24 * 60 * 60 * 1000,
 } as const;
 
 /** Lowercase hex SHA-256; its own copy so this module imports nothing that imports it back. */

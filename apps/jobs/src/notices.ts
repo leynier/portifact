@@ -454,7 +454,7 @@ export function moderationNotifierFromEnv(
         ? `?workspace=${encodeURIComponent(notice.workspaceSlug)}`
         : "";
       const page =
-        notice.target === "artifact"
+        notice.target === "artifact" || notice.target === "attachment"
           ? `/artifacts/${encodeURIComponent(notice.artifactId ?? "")}`
           : notice.target === "brand"
             ? "/branding"
@@ -463,6 +463,7 @@ export function moderationNotifierFromEnv(
         action: notice.action,
         target: notice.target,
         artifactId: notice.artifactId ?? undefined,
+        attachmentId: notice.attachmentId ?? undefined,
         artifactName: noticeNames(region) ? notice.artifactName : null,
         reason: notice.reason,
         source: notice.source,

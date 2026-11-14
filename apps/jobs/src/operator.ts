@@ -104,6 +104,7 @@ import {
   reconcileCustomDomains,
   reinstateAccount,
   reinstateArtifact,
+  reinstateAttachment,
   reinstateBrand,
   releaseGuardForPlan,
   releaseLegalHold,
@@ -120,6 +121,7 @@ import {
   unblockHostname,
   updateHoldRelease,
   type WorkspaceDetail,
+  withholdAttachment,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
 
@@ -146,7 +148,7 @@ Commands:
   brand <owner: user-id|email|workspace-id>
   suspend-brand <owner> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--withhold-notice]
   reinstate-brand <owner> --facts <text> [--source notice|review] [--withhold-notice]
-  decisions artifact|account|brand <id|email>   (statements of reasons and who they were sent to)
+  decisions artifact|account|brand <id|email>, or decisions attachment <artifact-id>/<attachment-id>   (statements of reasons and who they were sent to)
   send-statement artifact|account|brand <id|email> [--facts <text> --ground <text> [--source notice|review]]
                                (sends the withheld statement of an open suspension, or records and sends a new one)
   hold-artifact <artifact-id> --ground <text> [--until <date>]   (a suspended artifact only)
@@ -154,7 +156,10 @@ Commands:
   holds [--all] [--limit N]
   hold <artifact-id>           (an open hold's ground and the people it keeps, with their emails)
   attachments <artifact-id>    (the files on its comments: metadata only, never bytes or links)
-  remove-attachment <artifact-id> <attachment-id>   (removes one file for good; refused while held)
+  withhold-attachment <artifact-id> <attachment-id> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--withhold-notice]
+                               (nobody views or downloads it; the uploader and the managers get the statement)
+  reinstate-attachment <artifact-id> <attachment-id> --facts <text> [--source notice|review] [--withhold-notice]
+  remove-attachment <artifact-id> <attachment-id>   (deletes a withheld file for good once its 14 days are over; refused while held)
   storage-report [--limit N]
   data-reconcile [--region <region>]   (after a restore and apply-tombstones: the region's documents
                                objects against D1, then the author erasures from the journal)
@@ -1241,12 +1246,28 @@ export async function runOperator(
     }
     case "decisions": {
       const [kind, who] = args;
-      if ((kind !== "artifact" && kind !== "account" && kind !== "brand") || !who) {
-        return usage("decisions needs artifact, account or brand and an ID or email.");
+      if (
+        (kind !== "artifact" && kind !== "account" && kind !== "brand" && kind !== "attachment") ||
+        !who
+      ) {
+        return usage(
+          "decisions needs artifact, account, brand or attachment and an ID or email (an attachment as <artifact-id>/<attachment-id>).",
+        );
       }
-      const targetId = kind === "artifact" ? who : await userIdFor(global, who);
+      // A file is named with its artifact, whose region holds the decision.
+      const [fileArtifact, fileId] = kind === "attachment" ? who.split("/") : [];
+      if (kind === "attachment" && (!fileArtifact || !fileId)) {
+        return usage("decisions attachment needs <artifact-id>/<attachment-id>.");
+      }
+      const targetId =
+        kind === "artifact" ? who : kind === "attachment" ? fileId : await userIdFor(global, who);
       if (!targetId) return { exitCode: 1, output: "Account not found." };
-      const where = kind === "artifact" ? await artifactDb(targetId) : db;
+      const where =
+        kind === "artifact"
+          ? await artifactDb(targetId)
+          : kind === "attachment"
+            ? await artifactDb(fileArtifact as string)
+            : db;
       const decisions = await listDecisions(where, kind, targetId);
       if (decisions.length === 0) return { exitCode: 0, output: "No decisions recorded." };
       // The operator's own text, as JSON strings on their lines; the sends are the proof.
@@ -1351,9 +1372,54 @@ export async function runOperator(
         output: rows
           .map(
             (row) =>
-              `${row.id}  ${row.state.padEnd(8)} ${row.contentType ?? "unchecked"}  ${row.size} bytes  ${iso(row.createdAt)}  message ${row.messageId ?? "none"}  ${JSON.stringify(oneLine(row.name))}`,
+              `${row.id}  ${row.state.padEnd(8)} ${row.contentType ?? "unchecked"}  ${row.size} bytes  ${iso(row.createdAt)}  message ${row.messageId ?? "none"}${row.withheldAt === null ? "" : `  withheld ${iso(row.withheldAt)} (${row.withheldReason ?? "no reason"})`}  ${JSON.stringify(oneLine(row.name))}`,
           )
           .join("\n"),
+      };
+    }
+    case "withhold-attachment": {
+      const [artifactId, attachmentId] = args;
+      const reason = reasonOption();
+      if (!artifactId || !attachmentId || !reason.success) {
+        return usage(
+          "withhold-attachment needs an artifact ID, an attachment ID and a valid --reason.",
+        );
+      }
+      const statement = statementOption(true);
+      if (typeof statement === "string") return usage(statement);
+      const noReport = await reportMissing();
+      if (noReport) return { exitCode: 1, output: noReport };
+      const result = await withholdAttachment(await artifactDb(artifactId), {
+        artifactId,
+        attachmentId,
+        reason: reason.data,
+        statement,
+        reportId: options.get("report") || undefined,
+        now,
+      });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      return {
+        exitCode: 0,
+        output: `Withheld attachment ${attachmentId} on ${artifactId} (${result.value.decisionId}). ${noticeLine(statement.withhold)}`,
+      };
+    }
+    case "reinstate-attachment": {
+      const [artifactId, attachmentId] = args;
+      if (!artifactId || !attachmentId) {
+        return usage("reinstate-attachment needs an artifact ID and an attachment ID.");
+      }
+      const statement = statementOption(false);
+      if (typeof statement === "string") return usage(statement);
+      const result = await reinstateAttachment(await artifactDb(artifactId), {
+        artifactId,
+        attachmentId,
+        statement,
+        now,
+      });
+      if (!result.ok) return { exitCode: 1, output: result.message };
+      return {
+        exitCode: 0,
+        output: `Reinstated attachment ${attachmentId} on ${artifactId} (${result.value.decisionId}). ${noticeLine(statement.withhold)}`,
       };
     }
     case "remove-attachment": {
@@ -1369,7 +1435,7 @@ export async function runOperator(
       if (!result.ok) return { exitCode: 1, output: result.message };
       return {
         exitCode: 0,
-        output: `Removed attachment ${attachmentId} from ${artifactId}. Its bytes are deleted by the next job run, and a restore removes it again.`,
+        output: `Removed attachment ${attachmentId} from ${artifactId} for good. Its bytes are deleted by the next job run, and a restore removes it again.`,
       };
     }
     case "holds": {

@@ -6,7 +6,12 @@
 // Who may read a file is exactly who may read its message's body: the annotations `read`
 // authorization, the thread through `findThread` (comment scope and the version a reader sees)
 // and `messageBodyVisible`. Anything else answers like a missing file.
-import { ATTACHMENT_LIMITS, type AttachmentType, type AttachmentView } from "@portifact/contracts";
+import {
+  type AbuseReason,
+  ATTACHMENT_LIMITS,
+  type AttachmentType,
+  type AttachmentView,
+} from "@portifact/contracts";
 import { bothSides, type Db, hitRateLimit, type RegionalDb, schema } from "@portifact/db";
 import {
   attachmentKey,
@@ -16,10 +21,11 @@ import {
   ok,
   type Result,
 } from "@portifact/domain";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, type SQL, sql } from "drizzle-orm";
 import { type AnnotationActor, annotationParts } from "./annotations.ts";
 import { platformProtection } from "./budget.ts";
 import { isHeld, notHeldSql } from "./legal-holds.ts";
+import { type DecisionStatement, decisionStatements, newDecisionId } from "./moderation-notices.ts";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const missingAttachment = () => fail<never>("not_found", "Attachment not found.");
@@ -71,11 +77,11 @@ export async function prepareAttachment(
   const a = loaded.artifact;
   const guard = sql`${parts.artifactGuard(loaded, "participate", input.now)} and (select count(*) from ${ca} where ${ca.uploadedBy} = ${input.userId} and ${ca.state} = 'pending' and ${ca.expiresAt} > ${input.now}) < ${ATTACHMENT_LIMITS.pendingPerPerson}`;
   // Columns in schema order: id, artifact, owner, thread, message, uploader, name, size, sha256,
-  // type, state, created, expires, attached.
+  // type, state, created, expires, attached, withheld at, withheld reason.
   const inserted = await db
     .insert(ca)
     .select(
-      sql`select ${id}, ${a.id}, ${a.ownerId}, null, null, ${input.userId}, ${input.name}, ${input.size}, ${input.sha256}, null, 'pending', ${input.now}, ${expiresAt}, null where ${guard}`,
+      sql`select ${id}, ${a.id}, ${a.ownerId}, null, null, ${input.userId}, ${input.name}, ${input.size}, ${input.sha256}, null, 'pending', ${input.now}, ${expiresAt}, null, null, null where ${guard}`,
     )
     .returning({ id: ca.id });
   if (inserted.length === 0) {
@@ -134,6 +140,8 @@ export async function getAttachmentFile(
         eq(ca.id, input.attachmentId),
         eq(ca.artifactId, loaded.artifact.id),
         eq(ca.state, "attached"),
+        // A file the operator withholds is read by nobody until reinstated.
+        isNull(ca.withheldAt),
       ),
     )
     .limit(1);
@@ -205,28 +213,163 @@ export async function listArtifactAttachments(db: RegionalDb, artifactId: string
       threadId: ca.threadId,
       messageId: ca.messageId,
       createdAt: ca.createdAt,
+      withheldAt: ca.withheldAt,
+      withheldReason: ca.withheldReason,
     })
     .from(ca)
     .where(eq(ca.artifactId, artifactId))
     .orderBy(asc(ca.createdAt), asc(ca.id));
 }
 
+/** The operator's reference to one file, and when the decision is taken. */
+export interface AttachmentRef {
+  artifactId: string;
+  attachmentId: string;
+  now: number;
+}
+
+async function attachedFile(db: RegionalDb, input: AttachmentRef) {
+  const ca = schema.commentAttachments;
+  const [row] = await db
+    .select({
+      ownerId: ca.ownerId,
+      artifactId: ca.artifactId,
+      withheldAt: ca.withheldAt,
+    })
+    .from(ca)
+    .where(
+      and(
+        eq(ca.id, input.attachmentId),
+        eq(ca.artifactId, input.artifactId),
+        eq(ca.state, "attached"),
+      ),
+    )
+    .limit(1);
+  return row;
+}
+
+function trail(db: Db, input: AttachmentRef, event: string, condition: SQL) {
+  // Columns in schema order: id, artifact, actor, channel, event, details, at.
+  return db
+    .insert(schema.lifecycleEvents)
+    .select(
+      sql`select null, ${input.artifactId}, null, 'system', ${event}, ${JSON.stringify({ attachmentId: input.attachmentId })}, ${input.now} where ${condition}`,
+    );
+}
+
 /**
- * The operator removes one file (illegal content that is not the owner's to judge): the row goes
- * with a `comment_attachment` tombstone, so a restore deletes it again, and the artifact's
- * operational trail records it. Refused while a legal hold keeps the artifact.
+ * The operator withholds one file (decision 0028, "Abuse and the operator"): from that moment
+ * nobody views or downloads it, and the person who attached it and the people who manage the
+ * artifact get the statement of reasons (`decisionStatements`, `moderation_notice`) unless the
+ * law requires silence. Nothing is deleted: a review or a counter-notice can reinstate it, and
+ * only `removeAttachment`, after `ATTACHMENT_LIMITS.removalWaitMs`, deletes it for good.
+ */
+export async function withholdAttachment(
+  db: RegionalDb,
+  input: AttachmentRef & {
+    reason: AbuseReason;
+    statement: DecisionStatement;
+    reportId?: string | null | undefined;
+  },
+): Promise<Result<{ decisionId: string }>> {
+  const row = await attachedFile(db, input);
+  if (!row) return missingAttachment();
+  if (row.withheldAt !== null) return fail("invalid_input", "That file is already withheld.");
+  const ca = schema.commentAttachments;
+  const open = sql`exists (select 1 from ${ca} where ${ca.id} = ${input.attachmentId} and ${ca.withheldAt} is null)`;
+  const decisionId = newDecisionId();
+  await db.batch([
+    trail(db, input, "attachment_withheld", open),
+    ...decisionStatements(
+      db,
+      decisionId,
+      {
+        targetKind: "attachment",
+        targetId: input.attachmentId,
+        ownerId: row.ownerId,
+        action: "suspend",
+        reason: input.reason,
+        suspensionId: null,
+        reportId: input.reportId ?? null,
+        now: input.now,
+      },
+      input.statement,
+      open,
+    ),
+    db
+      .update(ca)
+      .set({ withheldAt: input.now, withheldReason: input.reason })
+      .where(and(eq(ca.id, input.attachmentId), isNull(ca.withheldAt))),
+  ]);
+  return ok({ decisionId });
+}
+
+/**
+ * The operator gives a withheld file back (a review or a counter-notice that stands): it is
+ * shown again to whoever can read its comment, with a statement that says so.
+ */
+export async function reinstateAttachment(
+  db: RegionalDb,
+  input: AttachmentRef & { statement: DecisionStatement },
+): Promise<Result<{ decisionId: string }>> {
+  const row = await attachedFile(db, input);
+  if (!row) return missingAttachment();
+  if (row.withheldAt === null) return fail("invalid_input", "That file is not withheld.");
+  const ca = schema.commentAttachments;
+  const withheld = sql`exists (select 1 from ${ca} where ${ca.id} = ${input.attachmentId} and ${ca.withheldAt} = ${row.withheldAt})`;
+  const decisionId = newDecisionId();
+  await db.batch([
+    trail(db, input, "attachment_reinstated", withheld),
+    ...decisionStatements(
+      db,
+      decisionId,
+      {
+        targetKind: "attachment",
+        targetId: input.attachmentId,
+        ownerId: row.ownerId,
+        action: "reinstate",
+        reason: null,
+        suspensionId: null,
+        reportId: null,
+        now: input.now,
+      },
+      input.statement,
+      withheld,
+    ),
+    db
+      .update(ca)
+      .set({ withheldAt: null, withheldReason: null })
+      .where(and(eq(ca.id, input.attachmentId), eq(ca.withheldAt, row.withheldAt))),
+  ]);
+  return ok({ decisionId });
+}
+
+/**
+ * Deletes a withheld file for good, once a counter-notice could no longer reinstate it: only a
+ * file withheld at least `ATTACHMENT_LIMITS.removalWaitMs` ago, never while a legal hold keeps
+ * the artifact. The row goes with a `comment_attachment` tombstone, so a restore deletes it again,
+ * and its bytes go by the row's delete trigger. The statement was given when it was withheld.
  */
 export async function removeAttachment(
   db: RegionalDb,
-  input: { artifactId: string; attachmentId: string; now: number },
+  input: AttachmentRef,
 ): Promise<Result<{ artifactId: string }>> {
   const ca = schema.commentAttachments;
-  const [row] = await db
-    .select({ artifactId: ca.artifactId })
-    .from(ca)
-    .where(and(eq(ca.id, input.attachmentId), eq(ca.artifactId, input.artifactId)))
-    .limit(1);
+  const row = await attachedFile(db, input);
   if (!row) return missingAttachment();
+  if (row.withheldAt === null) {
+    return fail(
+      "invalid_input",
+      "Withhold the file first; it can be removed once its wait is over.",
+    );
+  }
+  const wait = row.withheldAt + ATTACHMENT_LIMITS.removalWaitMs;
+  if (input.now < wait) {
+    return fail(
+      "invalid_input",
+      `A counter-notice can still reinstate this file; it can be removed from ${new Date(wait).toISOString()}.`,
+    );
+  }
   if (await isHeld(db, row.artifactId)) {
     return fail("forbidden", "A legal hold keeps this artifact; release it first.");
   }
@@ -235,17 +378,13 @@ export async function removeAttachment(
       .insert(schema.tombstones)
       .values({ kind: "comment_attachment", id: input.attachmentId, deletedAt: input.now })
       .onConflictDoNothing();
-  const regional = (x: RegionalDb | NonNullable<ReturnType<typeof bothSides>>) =>
+  const stillWithheld = sql`exists (select 1 from ${ca} where ${ca.id} = ${input.attachmentId} and ${ca.withheldAt} = ${row.withheldAt})`;
+  const regional = (x: Db) =>
     [
-      x.insert(schema.lifecycleEvents).values({
-        artifactId: row.artifactId,
-        actorId: null,
-        channel: "system",
-        event: "attachment_removed",
-        details: { attachmentId: input.attachmentId },
-        at: input.now,
-      }),
-      x.delete(ca).where(eq(ca.id, input.attachmentId)),
+      trail(x, input, "attachment_removed", stillWithheld),
+      x
+        .delete(ca)
+        .where(and(eq(ca.id, input.attachmentId), eq(ca.withheldAt, row.withheldAt as number))),
     ] as const;
   const both = bothSides(db);
   if (both) {
