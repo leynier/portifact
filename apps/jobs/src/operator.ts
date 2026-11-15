@@ -90,6 +90,7 @@ import {
   listBlockedHostnames,
   listBudgetAlerts,
   listDataFindings,
+  listDataRightsRequests,
   listDecisions,
   listEmailSuppressions,
   listLegalHolds,
@@ -114,6 +115,8 @@ import {
   removeAttachment,
   removeOwnerPlan,
   resolveAbuseReport,
+  resolveDataRightsRequest,
+  retryDataRightsRequest,
   sendSuspensionStatement,
   setBudgetOverride,
   setOwnerPlan,
@@ -175,6 +178,10 @@ Commands:
                                erase is refused while D1 or the object holds)
   data-export <artifact-id> [--region <region>]   (the object's documents to the region's bucket,
                                also under a hold or a quarantine)
+  data-rights-requests [--limit N] [--region <region>]   (rights requests nobody could be emailed
+                               about, and those still waiting a day later)
+  data-rights-resolve <request-id> [--retry] [--region <region>]   (marks it handled another way, or
+                               with --retry emails the managers again once a suppression is lifted)
   export-tombstones --out <file> [--region all|<region>]   (with more than one region: all, or a region with its own database)
   apply-tombstones [--file <file>] [--region all|<region>]
   budget
@@ -1562,6 +1569,45 @@ export async function runOperator(
               `${f.artifactId}  ${f.action}${f.reason ? ` (${f.reason})` : ""}${f.state ? `  state ${f.state}` : ""}  first ${new Date(f.firstSeenAt).toISOString()}  last ${new Date(f.lastSeenAt).toISOString()}`,
           )
           .join("\n"),
+      };
+    }
+    case "data-rights-requests": {
+      const limit = Number(options.get("limit") ?? 100);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+        return usage("--limit must be 1 to 500.");
+      }
+      const requests = await listDataRightsRequests(db, now, limit);
+      if (requests.length === 0) return { exitCode: 0, output: "No rights requests to handle." };
+      return {
+        exitCode: 0,
+        output: requests
+          .map(
+            (r) =>
+              `${r.id}  ${r.artifactId}  ${r.kind}  ${r.state}${r.reason ? ` (${r.reason})` : ""}  visitor ${r.visitorId}  made ${new Date(r.createdAt).toISOString()}`,
+          )
+          .join("\n"),
+      };
+    }
+    case "data-rights-resolve": {
+      const [requestId] = args;
+      if (!requestId) return usage("data-rights-resolve needs a request ID.");
+      const retry = options.has("retry");
+      const changed = retry
+        ? await retryDataRightsRequest(db, requestId, now)
+        : await resolveDataRightsRequest(db, requestId, now);
+      if (!changed) {
+        return {
+          exitCode: 1,
+          output: retry
+            ? `No undeliverable rights request ${requestId} in region ${regionName}.`
+            : `No pending or undeliverable rights request ${requestId} in region ${regionName}.`,
+        };
+      }
+      return {
+        exitCode: 0,
+        output: retry
+          ? `Rights request ${requestId} queued to be emailed again.`
+          : `Rights request ${requestId} marked resolved.`,
       };
     }
     case "data-resolve": {

@@ -88,7 +88,8 @@ const DEVELOP = {
   // check in one batch (its R2 listing adds no D1 call; nothing is due here).
   // One more for the scan of grants whose app session ended: its cursor and first page in one
   // batch.
-  runMaintenance: 87,
+  // One more for the prune of settled rights requests and own erasures (decision 0026): one batch.
+  runMaintenance: 88,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads

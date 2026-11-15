@@ -126,6 +126,7 @@ export const ACCOUNT_SESSION_OPERATIONS = {
   read_data_grant_status: "read",
   request_data_rights: "leaving",
   delete_own_document: "removes",
+  erase_own_data: "removes",
 } as const satisfies Record<string, "read" | "removes" | "narrowing" | "leaving" | "refused">;
 
 export type AccountSessionOperation = keyof typeof ACCOUNT_SESSION_OPERATIONS;

@@ -18,6 +18,7 @@ import {
   endSignedOutDataGrants,
   exportTombstones,
   issueDataGrantCode,
+  journalVisitorId,
   listDataGrants,
   nonceDigest,
   pruneDataGrants,
@@ -306,7 +307,7 @@ describe("data grants", () => {
     await redeem(await issued());
     // A code that never redeemed is not a grant.
     await issued(READER, "o".repeat(43));
-    const { items, next } = await listDataGrants(db(), {
+    const { items, next } = await listDataGrants(db(), env.ARTIFACTS, {
       userId: READER,
       contentDomain: "portifact.dev",
       now: NOW + 2000,
@@ -321,10 +322,79 @@ describe("data grants", () => {
         firstGrantedAt: new Date(NOW).toISOString(),
         lastGrantedAt: new Date(NOW).toISOString(),
         expiresAt: new Date(NOW + DATA_GRANT.grantTtlSeconds * 1000).toISOString(),
+        erasure: null,
       },
     ]);
     expect(
-      await listDataGrants(db(), { userId: STRANGER, contentDomain: "portifact.dev", now: NOW }),
+      await listDataGrants(db(), env.ARTIFACTS, {
+        userId: STRANGER,
+        contentDomain: "portifact.dev",
+        now: NOW,
+      }),
+    ).toEqual({ items: [], next: null });
+  });
+
+  it("keeps listing what the person saved after their ended grants are pruned, never once retired", async () => {
+    await redeem(await issued());
+    await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 2000 });
+    await pruneDataGrants(db(), NOW + 2000 + DATA_GRANT.endedKeepMs);
+    expect(
+      await db().select().from(schema.dataGrants).where(eq(schema.dataGrants.userId, READER)),
+    ).toEqual([]);
+    const later = NOW + 2000 + DATA_GRANT.endedKeepMs + 1000;
+    const listed = await listDataGrants(db(), env.ARTIFACTS, {
+      userId: READER,
+      contentDomain: "portifact.dev",
+      now: later,
+    });
+    expect(listed).toEqual({
+      items: [
+        {
+          artifactId: ID,
+          artifactName: "Board",
+          host: HOST,
+          openGrants: 0,
+          firstGrantedAt: new Date(NOW).toISOString(),
+          lastGrantedAt: new Date(NOW).toISOString(),
+          expiresAt: null,
+          erasure: null,
+        },
+      ],
+      next: null,
+    });
+    // The person's erasure there shows with the artifact.
+    await db()
+      .insert(schema.dataOwnErasures)
+      .values({
+        artifactId: ID,
+        visitorId: (await journalVisitorId(env.ARTIFACTS, READER, ID)) as string,
+        state: "running",
+        writeId: "w".repeat(32),
+        requestKey: "k".repeat(32),
+        documents: 7,
+        edits: 1,
+        requestedAt: later,
+      });
+    const withErasure = await listDataGrants(db(), env.ARTIFACTS, {
+      userId: READER,
+      contentDomain: "portifact.dev",
+      now: later,
+    });
+    expect(withErasure.items[0]?.erasure).toEqual({
+      state: "running",
+      documents: 7,
+      edits: 1,
+      requestedAt: new Date(later).toISOString(),
+      finishedAt: null,
+    });
+    // A journal entry the account deletion retired lists nothing.
+    await retireJournalEntry(env.ARTIFACTS, READER, ID, later);
+    expect(
+      await listDataGrants(db(), env.ARTIFACTS, {
+        userId: READER,
+        contentDomain: "portifact.dev",
+        now: later,
+      }),
     ).toEqual({ items: [], next: null });
   });
 
@@ -442,11 +512,15 @@ describe("review of #271: shared-data completeness", () => {
           redeemedAt: NOW,
           createdAt: NOW + n,
         });
+      await env.ARTIFACTS.put(
+        journalKey(READER, id),
+        JSON.stringify({ visitorId: "v_123456789012345678901234", firstGrantAt: NOW + n }),
+      );
     }
     const seen: string[] = [];
     let after: string | null = null;
     for (let page = 0; page < 10; page++) {
-      const result = await listDataGrants(db(), {
+      const result = await listDataGrants(db(), env.ARTIFACTS, {
         userId: READER,
         contentDomain: "portifact.dev",
         now: NOW + 1000,
@@ -690,5 +764,59 @@ describe("grants ended by signing out", () => {
     expect(markers).toHaveLength(1);
     await env.DB_EU.exec("DELETE FROM data_grants");
     await env.DB_EU.exec("DELETE FROM artifacts");
+  });
+});
+
+describe("review of #303: the listing reads only the person's own erasures", () => {
+  beforeEach(() => seed());
+
+  it("reads the person's erasure row by its key, whatever other visitors' rows there are", async () => {
+    await redeem(await issued());
+    const visitorId = (await journalVisitorId(env.ARTIFACTS, READER, ID)) as string;
+    // 400 other visitors' erasures on the same artifact, and the person's own.
+    await env.DB.prepare(
+      `with recursive n(x) as (values(1) union all select x + 1 from n where x < 400)
+       insert into data_own_erasures
+         (artifact_id, visitor_id, state, write_id, request_key, documents, edits, requested_at)
+       select ?, 'v_other' || printf('%020d', x), 'running', 'w', 'k', 0, 0, ? from n`,
+    )
+      .bind(ID, NOW)
+      .run();
+    await db()
+      .insert(schema.dataOwnErasures)
+      .values({
+        artifactId: ID,
+        visitorId,
+        state: "running",
+        writeId: "w".repeat(32),
+        requestKey: "k".repeat(32),
+        documents: 3,
+        edits: 0,
+        requestedAt: NOW,
+      });
+    let reads = 0;
+    const measured = aliasBinding(
+      new Proxy(env.DB, {
+        get(target, key) {
+          if (key === "batch") {
+            return async (statements: D1PreparedStatement[]) => {
+              const result = await target.batch(statements);
+              reads += result.reduce((n, row) => n + row.meta.rows_read, 0);
+              return result;
+            };
+          }
+          const value = Reflect.get(target, key, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      env.DB,
+    );
+    const listed = await listDataGrants(regionalDb(measured, globalDb(measured)), env.ARTIFACTS, {
+      userId: READER,
+      contentDomain: "portifact.dev",
+      now: NOW + 1000,
+    });
+    expect(listed.items[0]?.erasure).toMatchObject({ state: "running", documents: 3 });
+    expect(reads).toBeLessThan(40);
   });
 });

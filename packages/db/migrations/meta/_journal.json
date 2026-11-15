@@ -673,6 +673,13 @@
       "when": 1794779023522,
       "tag": "0095_journal_deletions",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "6",
+      "when": 1794782471439,
+      "tag": "0096_data_rights_requests",
+      "breakpoints": true
     }
   ]
 }

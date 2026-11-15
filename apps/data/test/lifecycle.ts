@@ -176,6 +176,7 @@ const MUTATING = new Set([
   "lifecycleFence",
   "lifecycleErase",
   "lifecycleEraseAuthor",
+  "lifecycleEraseOwn",
   "lifecycleQuarantine",
   "lifecycleResolve",
 ]);
@@ -290,7 +291,7 @@ export async function dataRowOf(id: string, region: "default" | "eu" = "default"
   return row ?? null;
 }
 
-function envelopeOf(
+export function envelopeOf(
   id: string,
   ownerId: string,
   numbers: { generation: number; epoch: number },
@@ -359,6 +360,20 @@ export async function withData(
   return { id, ownerId, region };
 }
 
+/** A visitor saves one more document at `at` (after an erasure's request, in the schedules). */
+export async function saveAt(id: string, ownerId: string, visitor: string, at: number) {
+  await inside(id, (object) => {
+    const made = object.store.create(
+      envelopeOf(id, ownerId, { generation: 0, epoch: 0 }, "default"),
+      { kind: "visitor", author: visitor, canWrite: true },
+      "notes",
+      { later: true },
+      { now: at, limits: LIFECYCLE_LIMITS },
+    );
+    if (!made.ok) throw new Error(`visitor create: ${made.code}`);
+  });
+}
+
 /** Documents in the object, optionally only those a visitor created. */
 export async function documentsOf(id: string, author?: string): Promise<number> {
   return inside(id, (object) => {
@@ -405,6 +420,7 @@ const DATA_TOPICS = [
   "data_reconcile",
   "data_resolve",
   "data_export",
+  "data_own_erasure",
 ] as const;
 
 /**

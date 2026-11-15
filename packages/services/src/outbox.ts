@@ -23,6 +23,7 @@ import {
   runDataErase,
   runDataExport,
   runDataFence,
+  runDataOwnErasure,
   runDataReconcile,
   runDataResolve,
 } from "./artifact-data.ts";
@@ -400,6 +401,8 @@ async function runRow(
       return runDataAudit(db, data, row, now);
     case "data_reset":
       return runDataReset(db, data, row, now);
+    case "data_own_erasure":
+      return runDataOwnErasure(db, data, row, now);
   }
 }
 

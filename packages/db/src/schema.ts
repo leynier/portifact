@@ -781,6 +781,7 @@ export const OUTBOX_TOPICS = [
   "data_audit",
   "data_rights_request",
   "data_reset",
+  "data_own_erasure",
 ] as const;
 
 /**
@@ -1296,6 +1297,97 @@ export const dataGrantCodes = sqliteTable(
   (t) => [
     index("data_grant_codes_expires_idx").on(t.expiresAt),
     index("data_grant_codes_grant_idx").on(t.grantId),
+  ],
+);
+
+/**
+ * A person's request to the people who manage an artifact about what they saved there (decision
+ * 0026, "Moderation and law"), named only by their visitor ID. Kept until it reached someone:
+ * `pending` while the `data_rights_request` job (subject: the request's ID) still has admins to
+ * email, waiting out a spent email cycle; `delivered` once one got it; `undeliverable` when every
+ * admin was suppressed or there was none, listed for the operator (`data-rights-requests`) until
+ * they handle it another way and mark it `resolved`. Delivered and resolved rows go 30 days later
+ * (`pruneDataRightsRequests`); the rest stay.
+ */
+export const dataRightsRequests = sqliteTable(
+  "data_rights_requests",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    visitorId: text("visitor_id").notNull(),
+    kind: text("kind", { enum: ["access", "erasure"] }).notNull(),
+    state: text("state", {
+      enum: ["pending", "delivered", "undeliverable", "resolved"],
+    }).notNull(),
+    /** Why nobody got it: `suppressed` (every admin's address) or `no_recipient`. */
+    reason: text("reason"),
+    recipients: integer("recipients").notNull().default(0),
+    createdAt: createdAt(),
+    /** When it was delivered, found undeliverable or resolved. */
+    settledAt: timestamp("settled_at"),
+  },
+  (t) => [
+    index("data_rights_requests_state_idx").on(t.state, t.settledAt),
+    index("data_rights_requests_artifact_idx").on(t.artifactId),
+  ],
+);
+
+/**
+ * Each admin a rights request is emailed to. A send is `claimed` (with the claiming run's `token`)
+ * before the provider is called and `sent` only after the provider accepted it, so a claim is
+ * never counted as a delivery. A claim younger than `DATA_RIGHTS_CLAIM_LEASE_MS` is a send in
+ * flight, which keeps the request from settling; an older one is uncertain (the run died around
+ * the send) and is claimed again and resent. Rows stay until the request is pruned, so a late run
+ * never emails an admin already told.
+ */
+export const dataRightsRequestSends = sqliteTable(
+  "data_rights_request_sends",
+  {
+    requestId: text("request_id")
+      .notNull()
+      .references(() => dataRightsRequests.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    state: text("state", { enum: ["claimed", "sent"] }).notNull(),
+    token: text("token").notNull(),
+    claimedAt: timestamp("claimed_at").notNull(),
+    sentAt: timestamp("sent_at"),
+  },
+  (t) => [primaryKey({ columns: [t.requestId, t.userId] })],
+);
+
+/**
+ * A person's erasure of everything they saved in one artifact (decision 0026, "A person's
+ * rights"), keyed by the visitor ID the author journal names them by there, never the account: the
+ * `data_own_erasure` job (subject: the artifact) asks the documents object for bounded chunks,
+ * protected work that no allowance or budget step stops, until none is left. `write_id` is the
+ * request that started the current run, which its job carries. "Data you shared" shows the state;
+ * finished rows go 30 days later (`pruneDataRightsRequests`).
+ */
+export const dataOwnErasures = sqliteTable(
+  "data_own_erasures",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    visitorId: text("visitor_id").notNull(),
+    /** `failed` only when the object refused it as no job can fix (a defect); asking again restarts. */
+    state: text("state", { enum: ["running", "done", "failed"] }).notNull(),
+    writeId: text("write_id").notNull(),
+    /**
+     * The key of the confirmed action that started this run (the dashboard's Idempotency-Key): a
+     * retried request with it answers this erasure instead of starting another one.
+     */
+    requestKey: text("request_key").notNull(),
+    documents: integer("documents").notNull().default(0),
+    edits: integer("edits").notNull().default(0),
+    requestedAt: timestamp("requested_at").notNull(),
+    finishedAt: timestamp("finished_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.visitorId] }),
+    index("data_own_erasures_finished_idx").on(t.state, t.finishedAt),
   ],
 );
 

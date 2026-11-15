@@ -46,8 +46,19 @@ export const ptBR = {
   "sharedData.askAccess": "Uma cópia do que salvei",
   "sharedData.askErasure": "Apagar o que salvei",
   "sharedData.askSend": "Enviar o pedido",
-  "sharedData.askSent": "Seu pedido sobre {name} foi enviado",
   "sharedData.askFailed": "O pedido não foi enviado",
+  "sharedData.askReceived":
+    "Recebemos seu pedido sobre {name}. Quem o gerencia receberá um e-mail o quanto antes",
+  "sharedData.downloadContinue": "Continuar o download",
+  "sharedData.downloadContinueNamed": "Continuar o download do que você salvou em {name}",
+  "sharedData.downloadRestart": "Recomeçar",
+  "sharedData.downloadRestartNamed": "Recomeçar o download de {name}",
+  "sharedData.downloadPaused": "Download pausado",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {# documento baixado até agora.} other {# documentos baixados até agora.}} A cota de hoje para seus dados neste artefato acabou. Continue amanhã, depois da meia-noite UTC, e o download segue de onde parou.",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {# documento baixado até agora.} other {# documentos baixados até agora.}} O restante não foi baixado. Continue, e o download segue de onde parou.",
+  "sharedData.downloadedAll": "Tudo o que você salvou em {name} foi baixado ({count} documentos)",
   "dataGrant.viewer.saving": "Esta página salva o que você digita",
   "dataGrant.viewer.savingHint":
     "Ela conhece você pelo nome de exibição e um ID para este artifact. Você pode parar a qualquer momento.",
@@ -63,8 +74,15 @@ export const ptBR = {
   "sharedData.deleteTitle": "Excluir o que você salvou em {name}?",
   "sharedData.deleteBody":
     "Cada documento que você criou ali é excluído para sempre, com as edições que outros fizeram depois. Suas edições em documentos de outras pessoas ficam, sem seu nome.",
-  "sharedData.deleted": "O que você salvou em {name} foi excluído ({count} documentos)",
   "sharedData.deleteFailed": "A exclusão não foi concluída",
+  "sharedData.eraseStarted":
+    "Excluindo o que você salvou em {name}. Continua mesmo se você fechar esta página.",
+  "sharedData.erasing":
+    "{count, plural, one {Excluindo o que você salvou: # documento até agora} other {Excluindo o que você salvou: # documentos até agora}}",
+  "sharedData.erased":
+    "{count, plural, one {O que você salvou foi excluído em {date} (# documento)} other {O que você salvou foi excluído em {date} (# documentos)}}",
+  "sharedData.eraseFailed":
+    "A exclusão do que você salvou não foi concluída. Você pode pedir de novo.",
   "dataGrant.frame.granted": "Esta página já pode salvar o que você digita",
   "dataGrant.frame.saving": "Salvando sua escolha",
   "dataGrant.frame.unavailable": "Salvar não está disponível neste quadro",

@@ -6,6 +6,7 @@ export * from "./artifact-data-fixtures.ts";
 export * from "./artifact-data-object.ts";
 export * from "./artifact-data-suites/acceptance.ts";
 export * from "./artifact-data-suites/model-check.ts";
+export * from "./artifact-data-suites/own-erasure.ts";
 export * from "./artifact-data-suites/page-modes.ts";
 export * from "./artifact-data-suites/properties.ts";
 export * from "./artifact-data-suites/review-254.ts";
