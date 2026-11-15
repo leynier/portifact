@@ -112,7 +112,7 @@ Every bug fix starts with a failing test that reproduces the bug.
 
 ## Coverage
 
-Coverage uses the Istanbul provider, which works inside the Workers pool. Thresholds are enforced in CI and in `bun run test`. Each package writes a `json-summary` report; after every merge into `develop`, CI aggregates them with `scripts/coverage-badge.ts` and publishes the result to the `badges` branch, which feeds the coverage badge in the readme.
+Coverage uses the Istanbul provider, which works inside the Workers pool. Thresholds are enforced in CI and in `bun run test`. Each package writes a `json-summary` report; after every merge into `develop`, CI's test groups upload them and the `coverage-badge` job aggregates them with `scripts/coverage-badge.ts` and publishes the result to the `badges` branch, which feeds the coverage badge in the readme.
 
 | Scope                                                                                     | Lines | Branches |
 | ----------------------------------------------------------------------------------------- | ----- | -------- |

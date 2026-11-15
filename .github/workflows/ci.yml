@@ -41,36 +41,31 @@ jobs:
           MODE: ${{ github.base_ref == 'main' && 'full' || 'diff' }}
         run: bun scripts/ci-scope-main.ts "$BASE_SHA" "$HEAD_SHA" "$MODE"
 
+  # The jobs behind `quality` (quality.yml): `suite / check` and one `suite / test (<group>)` per
+  # package group, in parallel. `quality` itself only gathers them, so the required check keeps
+  # its name and fails when any of them fails.
+  suite:
+    name: suite
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.quality != 'false') }}
+    uses: ./.github/workflows/quality.yml
+    with:
+      coverage: ${{ github.event_name == 'push' }}
+
   quality:
     name: quality
-    needs: changes
+    needs: [changes, suite]
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.quality != 'false') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run test
-      - run: shellcheck scripts/*.sh action/*.sh
-      - run: node scripts/check-release-notes.mjs
-      - name: Validate the app Worker bundle
-        working-directory: apps/app
-        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/app-worker"
-      - name: Validate the content Worker bundle
-        working-directory: apps/content
-        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/content-worker"
-      - name: Validate the jobs Worker bundle
-        working-directory: apps/jobs
-        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/jobs-worker"
-      - name: Validate the data Worker bundle
-        working-directory: apps/data
-        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/data-worker"
+      - name: Every check and test group passed
+        env:
+          RESULT: ${{ needs.suite.result }}
+        run: |
+          if [ "$RESULT" != success ]; then
+            echo "The quality jobs ended with '$RESULT'." >&2
+            exit 1
+          fi
 
   # Playwright end to end in Chromium, Firefox and WebKit (e2e/, docs/testing.md), with the
   # browsers' system libraries installed, so WebKit runs here even though it needs libraries
@@ -208,6 +203,7 @@ jobs:
         if: ${{ needs.changes.result != 'success' || needs.changes.outputs.secrets_history != 'false' }}
         run: gitleaks git --no-banner --redact --verbose --log-opts="HEAD" .
 
+  # Publishes the coverage the test groups measured, instead of running every test again.
   coverage-badge:
     name: coverage-badge
     if: github.event_name == 'push'
@@ -222,11 +218,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
-      - uses: actions/setup-node@v7
+      - uses: actions/download-artifact@v8
         with:
-          node-version: 24
-      - run: bun install --frozen-lockfile
-      - run: bun run test
+          pattern: coverage-*
+          merge-multiple: true
       - name: Publish coverage to the badges branch
         run: |
           bun scripts/coverage-badge.ts > "$RUNNER_TEMP/coverage.json"
