@@ -553,7 +553,7 @@ export interface DashboardApi {
     turnstileToken?: string,
     attachments?: readonly string[],
   ): Promise<AnnotationThreadView>;
-  /** Starts one comment attachment upload (decision 0028); the bytes go to the returned URL. */
+  /** Starts one comment attachment upload (decision 0029); the bytes go to the returned URL. */
   prepareAttachment(
     artifactId: string,
     request: PrepareAttachmentRequest,

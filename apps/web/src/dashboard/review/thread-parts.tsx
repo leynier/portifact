@@ -80,7 +80,7 @@ export function MessageContent({
 }: {
   message: AnnotationMessageView;
   actions?: ReactNode;
-  /** The artifact the message is on, to fetch its files (decision 0028). */
+  /** The artifact the message is on, to fetch its files (decision 0029). */
   artifactId?: string;
 }) {
   const t = useT();

@@ -1,4 +1,4 @@
-// Comment attachments and screenshots in the viewer (decision 0028). Chosen files and captures
+// Comment attachments and screenshots in the viewer (decision 0029). Chosen files and captures
 // stay in this browser until the person posts the comment; only then does each go straight to
 // storage through the presigned PUT the API returns. A screenshot is one frame of the browser's own screen capture, taken in this page:
 // no script ever reads the artifact's frame. Files on messages are untrusted: an image is shown
@@ -84,7 +84,7 @@ export interface PendingFile {
 type Problem = "tooMany" | "tooLarge" | "empty" | "captureFailed" | "uploadFailed" | null;
 
 /**
- * The files of one comment being written (decision 0028): kept in this browser, removable,
+ * The files of one comment being written (decision 0029): kept in this browser, removable,
  * and uploaded only when the person posts (`upload`), so a file removed or a comment abandoned
  * never leaves the browser. Slots are taken synchronously, so a selection of many files at once
  * keeps the first four.
@@ -310,7 +310,7 @@ export function AttachmentControls({
   const onFiles = (chosen: File[]) => {
     for (const file of chosen) uploads.add(file, file.name);
   };
-  // A capture shows everything on what the person shares (decision 0028), so they are warned
+  // A capture shows everything on what the person shares (decision 0029), so they are warned
   // first and the browser's prompt opens only from the Continue below.
   const [confirming, setConfirming] = useState(false);
   const screenshot = async () => {

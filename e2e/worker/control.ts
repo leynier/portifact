@@ -234,7 +234,7 @@ async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Resp
   if (!bucket) return new Response("Unknown bucket", { status: 400 });
   // A presigned download: the object as R2 holds it.
   if (request.method === "GET") {
-    // Published objects, and comment attachments (decision 0028), as R2 serves them.
+    // Published objects, and comment attachments (decision 0029), as R2 serves them.
     const readable = key.startsWith("objects/") || key.startsWith("attachments/");
     const object = readable ? await bucket.get(key) : null;
     return object ? new Response(object.body) : new Response("Not found", { status: 404 });

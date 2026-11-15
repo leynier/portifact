@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// The viewer's comment attachments (decision 0028): adding files and screenshots, the limits the
+// The viewer's comment attachments (decision 0029): adding files and screenshots, the limits the
 // page checks before asking the API, and showing and saving files only after their bytes match
 // what the message lists.
 

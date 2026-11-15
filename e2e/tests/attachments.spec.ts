@@ -1,4 +1,4 @@
-// Comment attachments and screenshots end to end (decision 0028): a file attached from the
+// Comment attachments and screenshots end to end (decision 0029): a file attached from the
 // viewer's composer stays in the browser until Post, then goes straight to storage, shows on the thread as a checked image and downloads
 // with the name its bytes allow; a reader who cannot see the thread cannot get the file; and a
 // screenshot is one frame of the browser's screen capture, taken in the viewer page.
