@@ -1069,6 +1069,27 @@ export const moderationNoticeSends = sqliteTable(
 );
 
 /**
+ * The artifact data authors an operator decision about an artifact names (docs/operations.md,
+ * "Reports"): the signed-in people whose documents caused the restriction, by the visitor ID a
+ * document carries (`visitor`) or by their account (`account`), recorded in the decision's batch.
+ * The `moderation_notice` job tells each one the author journal names in the artifact; anyone else
+ * (an anonymous writer, a mistaken name, an erased author) is told nothing. Account deletion
+ * deletes the `account` rows; the rows go with their decision.
+ */
+export const moderationDecisionAuthors = sqliteTable(
+  "moderation_decision_authors",
+  {
+    decisionId: text("decision_id").notNull(),
+    kind: text("kind", { enum: ["visitor", "account"] }).notNull(),
+    author: text("author").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.decisionId, t.kind, t.author] }),
+    index("moderation_decision_authors_account_idx").on(t.author).where(sql`${t.kind} = 'account'`),
+  ],
+);
+
+/**
  * Legal holds (docs/operations.md, "Legal holds"): an artifact the operator must preserve for an
  * authority. While a hold is open (`released_at` null) the artifact stays suspended, nothing
  * deletes it, moves it or prunes its versions, and its content is served to nobody, its owner
