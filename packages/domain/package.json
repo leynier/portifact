@@ -24,7 +24,7 @@
     "@portifact/anchors": "workspace:*",
     "@portifact/contracts": "workspace:*",
     "css-tree": "catalog:",
-    "parse5": "8.1.0"
+    "parse5": "8.1.1"
   },
   "devDependencies": {
     "@portifact/render": "workspace:*",

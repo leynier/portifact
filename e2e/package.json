@@ -12,8 +12,8 @@
     "shots": "playwright test -c shots/playwright.config.ts"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.0.0",
-    "@playwright/test": "~1.64.1",
+    "@cloudflare/workers-types": "^5.20261112.1",
+    "@playwright/test": "~1.65.0",
     "@portifact/contracts": "workspace:*",
     "@portifact/db": "workspace:*",
     "@portifact/domain": "workspace:*",
