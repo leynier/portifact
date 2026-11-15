@@ -29,7 +29,7 @@ export const de = {
     "Die Seite erfährt nur eine ID für dieses Artefakt: keinen Namen, keine E-Mail und kein Konto.",
   "dataGrant.anonymous.lasts": "Das gilt {days} Tage in diesem Browser.",
   "dataGrant.anonymous.noAccount":
-    "Ohne Konto kann Portifact dir später nicht zeigen oder löschen, was du gespeichert hast. Nur die Seite selbst kann das, solange dieser Browser es behält.",
+    "Ohne Konto führt Portifact keinen Verlauf, den du selbst öffnen kannst. Die Seite kann dir zeigen, was du gespeichert hast, solange diese Erlaubnis gilt. Du kannst dich auch an die Personen wenden, die dieses Artifact verwalten, oder an privacy@portifact.com; Portifact hilft, wo es prüfen kann, welche Daten dich betreffen.",
   "dataGrant.anonymous.signIn": "Stattdessen anmelden",
   "dataGrant.anonymous.signInTitle": "Zum Speichern anmelden",
   "dataGrant.anonymous.closed":
@@ -94,6 +94,13 @@ export const de = {
   "dataGrant.unavailable": "Diese Anfrage kann nicht verwendet werden",
   "dataGrant.unavailableHint": "Öffne das Artifact erneut und wähle dort das Speichern.",
   "dataGrant.failed": "Erlauben wurde nicht abgeschlossen",
+  "dataGrant.legal.terms": "Nutzungsbedingungen",
+  "dataGrant.legal.acceptableUse": "Richtlinie zur zulässigen Nutzung",
+  "dataGrant.legal.privacy": "Datenschutzerklärung",
+  "dataGrant.legal.notice":
+    "Portifact hostet diese Seite und zeigt dieses Steuerelement an. Die {privacy} erklärt, was Portifact speichert. Der Link öffnet sich in einem neuen Tab.",
+  "dataGrant.legal.statement":
+    "Wenn du Erlauben wählst, bestätigst du, dass du mindestens 18 Jahre alt bist, und stimmst für das, was du hier speicherst, den {terms} und der {acceptableUse} zu. Die Links öffnen sich in einem neuen Tab.",
   "sharedData.title": "Geteilte Daten",
   "sharedData.description":
     "Artifact-Seiten, die dich kennen und speichern dürfen, was du eingibst. Ein Widerruf wirkt innerhalb einer Minute; Gespeichertes bleibt beim Artifact.",

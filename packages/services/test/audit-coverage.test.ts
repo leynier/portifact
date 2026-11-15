@@ -258,6 +258,8 @@ reason(
     "redeemDataGrantCode",
     "revokeDataGrants",
     "pruneDataGrants",
+    // Records when a grant ended with its app session; only its pruning clock changes.
+    "endSignedOutDataGrants",
     // An anonymous visitor's grant (delivery 9): nobody's account, nothing an owner has.
     "issueAnonymousDataGrantCode",
     "redeemAnonymousDataGrantCode",
@@ -387,6 +389,7 @@ reason(
     "eraseReason",
     "permanentlyDeleted",
     "pruneJournalCursors",
+    "pruneJournalEntries",
     "retireJournalEntry",
     "scheduleAuthorErasures",
     "wakeDataJobs",

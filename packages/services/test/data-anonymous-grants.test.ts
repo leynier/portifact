@@ -146,6 +146,48 @@ describe("anonymous grants", () => {
     }
   });
 
+  it("records the terms on Allow and clears the code's material once it redeems", async () => {
+    const issued = await issue();
+    if (!issued.ok) throw new Error(issued.code);
+    const [before] = await db().select().from(schema.dataAnonymousGrants);
+    expect(before).toMatchObject({ termsVersion: TERMS_VERSION, usedAt: null });
+    expect(before?.codeHash).toEqual(expect.any(String));
+    expect(before?.nonceHash).toEqual(expect.any(String));
+    const live = await redeem(issued.value.code);
+    if (!live.ok) throw new Error(live.code);
+    const [after] = await db().select().from(schema.dataAnonymousGrants);
+    expect(after).toMatchObject({ codeHash: null, nonceHash: null, usedAt: NOW });
+    // The live grant stays and renews; the cleared code redeems nothing.
+    expect((await redeem(issued.value.code)).ok).toBe(false);
+    const renewed = await renewAnonymousDataGrant(db(), {
+      grantId: live.value.grantId,
+      artifactId: ID,
+      enabled: true,
+      now: NOW + 60_000,
+    });
+    expect(renewed).toMatchObject({ ok: true, value: { write: true } });
+  });
+
+  it("renews without write once the terms the visitor agreed to are not the current ones", async () => {
+    const issued = await issue();
+    if (!issued.ok) throw new Error(issued.code);
+    const live = await redeem(issued.value.code);
+    if (!live.ok) throw new Error(live.code);
+    for (const termsVersion of ["2020-01-01", null]) {
+      await db()
+        .update(schema.dataAnonymousGrants)
+        .set({ termsVersion })
+        .where(eq(schema.dataAnonymousGrants.id, live.value.grantId));
+      const renewed = await renewAnonymousDataGrant(db(), {
+        grantId: live.value.grantId,
+        artifactId: ID,
+        enabled: true,
+        now: NOW + 60_000,
+      });
+      expect(renewed).toMatchObject({ ok: true, value: { write: false } });
+    }
+  });
+
   it("refuses a late code and an unredeemed grant", async () => {
     const issued = await issue();
     if (!issued.ok) throw new Error(issued.code);

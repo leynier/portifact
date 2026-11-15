@@ -67,6 +67,7 @@ import {
   inbound,
   indexEntries,
   issuedAt,
+  journalDeletable,
   journalKey,
   journalPrunable,
   keyBefore,
@@ -1801,6 +1802,17 @@ describe("journal and grants", () => {
     expect(
       journalPrunable({ ...entry, retiredAt: NOW }, NOW + ARTIFACT_DATA.journalRetiredMs),
     ).toBe(true);
+  });
+
+  it("deletes a prunable entry only when no erasure waits and no hold keeps it", () => {
+    const old = { ...entry, retiredAt: NOW };
+    const at = NOW + ARTIFACT_DATA.journalRetiredMs;
+    const free = { erasurePending: false, held: false };
+    expect(journalDeletable(old, at, free)).toBe(true);
+    expect(journalDeletable(old, at - 1, free)).toBe(false);
+    expect(journalDeletable(entry, at * 10, free)).toBe(false);
+    expect(journalDeletable(old, at, { erasurePending: true, held: false })).toBe(false);
+    expect(journalDeletable(old, at, { erasurePending: false, held: true })).toBe(false);
   });
 
   it("gates the API, the start and the redemption by fetch metadata", () => {

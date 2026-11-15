@@ -1284,9 +1284,10 @@ export const dataGrantCodes = sqliteTable(
  * check. Nobody is behind the row: its `visitor_id` is new for each grant and never claimed in the
  * author journal, and it holds no address. Each grant carries its one-use code (hashes of the
  * code and of the beginning browser's nonce, bound to the host); the guarded update that sets
- * `used_at` is the redemption. The content Worker renews the cookie's claims against this row and
- * the artifact still open to anonymous writers every 60 seconds. Rows go with the artifact and
- * 30 days after they ended (`pruneDataGrants`).
+ * `used_at` is the redemption, and clears both hashes, as the prune does once a code expired
+ * unused. It also records the terms version the visitor agreed to. The content Worker renews the
+ * cookie's claims against this row and the artifact still open to anonymous writers every 60
+ * seconds. Rows go with the artifact and 30 days after they ended (`pruneDataGrants`).
  */
 export const dataAnonymousGrants = sqliteTable(
   "data_anonymous_grants",
@@ -1297,11 +1298,18 @@ export const dataAnonymousGrants = sqliteTable(
       .references(() => artifacts.id, { onDelete: "cascade" }),
     visitorId: text("visitor_id").notNull(),
     host: text("host").notNull(),
-    codeHash: text("code_hash").notNull(),
-    nonceHash: text("nonce_hash").notNull(),
+    /** The one-use code's hash; cleared (null) at redemption and once the code expired unused. */
+    codeHash: text("code_hash"),
+    /** The beginning browser's nonce hash; cleared with `code_hash`. */
+    nonceHash: text("nonce_hash"),
     codeExpiresAt: timestamp("code_expires_at").notNull(),
     usedAt: timestamp("used_at"),
     expiresAt: timestamp("expires_at").notNull(),
+    /**
+     * The `TERMS_VERSION` the visitor agreed to by choosing Allow; a renewal grants write only while
+     * it is the current one. Null for grants issued before it was recorded: read only.
+     */
+    termsVersion: text("terms_version"),
     createdAt: createdAt(),
   },
   (t) => [

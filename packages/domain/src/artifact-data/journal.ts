@@ -37,3 +37,21 @@ export function retired(existing: JournalEntry | null, now: number): JournalEntr
 export function journalPrunable(entry: JournalEntry, now: number): boolean {
   return entry.retiredAt !== undefined && now - entry.retiredAt >= ARTIFACT_DATA.journalRetiredMs;
 }
+
+/** What still needs an entry past its retention, read from D1 by the caller. */
+export interface JournalNeeds {
+  /** A `data_author_erasure` job for the account and artifact is still waiting. */
+  erasurePending: boolean;
+  /** The artifact has an open legal hold. */
+  held: boolean;
+}
+
+/**
+ * Whether the cleanup (the maintenance scan, a reconciliation) deletes an entry: a prunable one,
+ * unless its author erasure still waits (the job re-retires the entry from it, and a restore's
+ * reconciliation re-derives the erasure from its visitor ID) or its artifact is held (a hold keeps
+ * what names the artifact's people until its release).
+ */
+export function journalDeletable(entry: JournalEntry, now: number, needs: JournalNeeds): boolean {
+  return journalPrunable(entry, now) && !needs.erasurePending && !needs.held;
+}

@@ -19,7 +19,9 @@ import {
   DataFencePayload,
   DataReconcilePayload,
   DataResolvePayload,
+  DEFAULT_REGION,
   isWorkspaceId,
+  type Region,
 } from "@portifact/contracts";
 import {
   type ArtifactDataLimits,
@@ -46,7 +48,7 @@ import {
 } from "@portifact/contracts/artifact-data";
 
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
-import { logEvent } from "@portifact/domain";
+import { errorLabel, logEvent } from "@portifact/domain";
 import {
   controlEnvelope,
   erasureRefused,
@@ -64,7 +66,9 @@ import {
   inventoryRetired,
   JOURNAL_PREFIX,
   type JobStep,
+  type JournalNeeds,
   type JournalScan,
+  journalDeletable,
   journalKey,
   journalPrefixOf,
   journalPrunable,
@@ -677,6 +681,143 @@ export async function pruneJournalCursors(db: RegionalDb, now: number): Promise<
 export function deleteJournalCursor(db: Db, userId: string, condition: ReturnType<typeof sql>) {
   const c = schema.maintenanceCursors;
   return db.delete(c).where(and(eq(c.name, scanName(userId)), condition));
+}
+
+/**
+ * What still needs the journal entries of `items` past their retention (`journalDeletable`): the
+ * `data_author_erasure` jobs waiting for each account and artifact, and the artifacts' open
+ * holds. One batch of two reads, the artifact IDs bound as one JSON list; none without items.
+ */
+async function journalNeeds(
+  db: Db,
+  items: { userId: string; artifactId: string }[],
+): Promise<(item: { userId: string; artifactId: string }) => JournalNeeds> {
+  if (items.length === 0) return () => ({ erasurePending: false, held: false });
+  const o = schema.outbox;
+  const h = schema.legalHolds;
+  const artifacts = JSON.stringify([...new Set(items.map((item) => item.artifactId))]);
+  const [pending, held] = await db.batch([
+    db
+      .select({
+        artifactId: o.subject,
+        userId: sql<string>`json_extract(${o.payload}, '$.userId')`,
+      })
+      .from(o)
+      .where(
+        sql`${o.topic} = 'data_author_erasure' and ${o.subject} in (select value from json_each(${artifacts}))`,
+      ),
+    db
+      .select({ artifactId: h.artifactId })
+      .from(h)
+      .where(
+        sql`${h.releasedAt} is null and ${h.artifactId} in (select value from json_each(${artifacts}))`,
+      ),
+  ]);
+  const waiting = new Set(pending.map((row) => `${row.userId}/${row.artifactId}`));
+  const holds = new Set(held.map((row) => row.artifactId));
+  return (item) => ({
+    erasurePending: waiting.has(`${item.userId}/${item.artifactId}`),
+    held: holds.has(item.artifactId),
+  });
+}
+
+/** Journal keys one cleanup run lists, so it reads and deletes at most this many entries. */
+export const JOURNAL_CLEANUP_PAGE = 100;
+/** Where the journal cleanup resumes (no `:`, so the scan position janitor never takes it). */
+export const JOURNAL_CLEANUP_CURSOR = "data_journal_cleanup";
+
+/** What the journal cleanup did in one run. */
+export interface JournalCleanup {
+  deleted: number;
+  kept: number;
+  failed: number;
+  /** A `data_reconcile` job was waiting in the region, so the run did nothing. */
+  paused: boolean;
+}
+
+/**
+ * The scheduled cleanup of the author journal in one region (decision 0026, "Author erasure"):
+ * a page of `JOURNAL_CLEANUP_PAGE` keys per run, from where the last run stopped
+ * (`maintenance_cursors`, read in one batch with the pause check), wrapping to the start when a
+ * pass ends. Only entries the listing marks retired are read, and one is deleted only when
+ * `journalDeletable` agrees: past `journalRetiredMs` after retirement, with no `data_author_erasure`
+ * job waiting for its account and artifact and no open hold on the artifact (two reads per page,
+ * the IDs as one JSON list). While a `data_reconcile` job waits in the region the run does
+ * nothing, since a restore's reconciliation re-derives erasures from retired entries. R2 deletes
+ * first, then the cursor: a crash between lists the same page again, and deleting a gone key is a
+ * no-op. Failures are logged and counted, never thrown, so the other scans still run.
+ */
+export async function pruneJournalEntries(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  now: number,
+  region: Region = DEFAULT_REGION,
+): Promise<JournalCleanup> {
+  const run: JournalCleanup = { deleted: 0, kept: 0, failed: 0, paused: false };
+  try {
+    const o = schema.outbox;
+    const [saved, reconciling] = await db.batch([
+      cursorRead(db, JOURNAL_CLEANUP_CURSOR),
+      db.select({ id: o.id }).from(o).where(eq(o.topic, "data_reconcile")).limit(1),
+    ]);
+    if (reconciling.length > 0) {
+      run.paused = true;
+      return run;
+    }
+    const started = saved[0]?.cursor ?? "";
+    const listed = await bucket.list({
+      prefix: JOURNAL_PREFIX,
+      limit: JOURNAL_CLEANUP_PAGE,
+      include: ["customMetadata"],
+      ...(started === "" ? {} : { startAfter: started }),
+    });
+    const due: { key: string; userId: string; artifactId: string; entry: JournalEntry }[] = [];
+    for (const object of listed.objects) {
+      // Retirement writes this mark with the entry, so live entries are never read.
+      if (object.customMetadata?.retired !== "1") continue;
+      const subject = journalSubject(object.key);
+      if (subject === null) continue;
+      try {
+        const found = await readJson(bucket, object.key, (value) =>
+          JournalEntrySchema.safeParse(value),
+        );
+        if (found === null) continue;
+        if (!found.value.success) {
+          run.failed += 1;
+          logEvent("warn", "data_journal_unreadable", { region });
+          continue;
+        }
+        if (journalPrunable(found.value.data, now)) {
+          due.push({ key: object.key, ...subject, entry: found.value.data });
+        }
+      } catch (error) {
+        run.failed += 1;
+        logEvent("warn", "data_journal_unreadable", { region, error: errorLabel(error) });
+      }
+    }
+    const needs = await journalNeeds(db, due);
+    for (const item of due) {
+      if (!journalDeletable(item.entry, now, needs(item))) {
+        run.kept += 1;
+        continue;
+      }
+      try {
+        await bucket.delete(item.key);
+        run.deleted += 1;
+      } catch (error) {
+        run.failed += 1;
+        logEvent("warn", "data_journal_cleanup_failed", { region, error: errorLabel(error) });
+      }
+    }
+    const last = listed.objects.at(-1)?.key ?? null;
+    // A truncated page with no key in it (R2 may answer one when metadata is included) stays put.
+    const resume = listed.truncated ? (last ?? started) : null;
+    await resumeAt(db, JOURNAL_CLEANUP_CURSOR, started, resume, now);
+  } catch (error) {
+    run.failed += 1;
+    logEvent("error", "data_journal_cleanup_failed", { region, error: errorLabel(error) });
+  }
+  return run;
 }
 
 // The jobs.
@@ -1359,7 +1500,8 @@ async function raiseRow(
  * A `data_reconcile` job, one per region after a restore: walks the region's inventory, a page per
  * run (`reconcileObject`, pruning entries past their retention), then the journal, re-deriving
  * the author erasures a rewound outbox lost from the retired entries (decision 0026: "never from a
- * rewound outbox") and pruning those past theirs. Resumes from the key it reached.
+ * rewound outbox") and pruning those past theirs that `journalDeletable` lets go (no erasure
+ * waiting, no open hold). Resumes from the key it reached.
  */
 export async function runDataReconcile(
   db: RegionalDb,
@@ -1402,7 +1544,10 @@ export async function runDataReconcile(
         continue;
       }
       const entry = found.value.data;
-      if (journalPrunable(entry, now)) {
+      if (
+        journalPrunable(entry, now) &&
+        journalDeletable(entry, now, (await journalNeeds(db, [subject]))(subject))
+      ) {
         await bucket.delete(object.key);
         continue;
       }
