@@ -242,14 +242,13 @@ test("a screenshot is one frame of the browser's screen capture, shown before it
           const stream = canvas.captureStream(10);
           // Keep frames coming while the page reads one.
           const timer = setInterval(draw, 50);
-          for (const track of stream.getTracks()) {
-            const stop = track.stop.bind(track);
-            track.stop = () => {
-              captures.stopped += 1;
-              clearInterval(timer);
-              stop();
-            };
-          }
+          // Counted on the prototype: WebKit does not keep a method set on a track object.
+          const stop = MediaStreamTrack.prototype.stop;
+          MediaStreamTrack.prototype.stop = function (this: MediaStreamTrack) {
+            captures.stopped += 1;
+            clearInterval(timer);
+            stop.call(this);
+          };
           return stream;
         },
       },
