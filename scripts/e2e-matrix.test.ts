@@ -12,14 +12,35 @@ function playwrightProjects(config: string): string[] {
 }
 
 function matrixProjects(workflow: string): string[] {
-  return [...workflow.matchAll(/^\s+- project: (\S+)$/gm)].map((match) => match[1] as string);
+  const list = workflow.match(/^\s+project: \[([^\]]+)\]$/m)?.[1] ?? "";
+  return list
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+function browserEntries(workflow: string): string[] {
+  return [...workflow.matchAll(/^\s+- project: (\S+)\n\s+browser: \S+$/gm)].map(
+    (match) => match[1] as string,
+  );
 }
 
 describe("the e2e matrix in ci.yml", () => {
   it("has exactly one job per Playwright project", () => {
     const projects = playwrightProjects(read("e2e/playwright.config.ts"));
     expect(projects.length).toBeGreaterThan(0);
-    expect(matrixProjects(read(".github/workflows/ci.yml")).sort()).toEqual([...projects].sort());
+    const workflow = read(".github/workflows/ci.yml");
+    expect(matrixProjects(workflow).sort()).toEqual([...projects].sort());
+    // Every project needs its browser, or the job installs none and the run fails late.
+    expect(browserEntries(workflow).sort()).toEqual([...projects].sort());
+  });
+
+  it("splits every project into the shards it runs", () => {
+    const workflow = read(".github/workflows/ci.yml");
+    expect(workflow).toMatch(/^\s+shard: \[1, 2\]$/m);
+    expect(workflow).toContain(
+      "bun run test:e2e -- --project=${{ matrix.project }} --shard=${{ matrix.shard }}/2",
+    );
   });
 });
 

@@ -1,0 +1,96 @@
+name: quality
+
+# Lint, typecheck, unit and Worker tests and the bundle dry runs, called by ci.yml (as the jobs
+# behind the required `quality` check) and by release.yml before a release. The tests are split
+# into parallel jobs by package: run as one `turbo run test`, every package's Vitest pool shared
+# one runner's four CPUs and the job took about 23 minutes, most of it the four largest suites
+# slowing each other down. The `rest` group excludes exactly the packages the other groups name
+# (scripts/ci-shards.test.ts checks it), so a new package always runs somewhere.
+on:
+  workflow_call:
+    inputs:
+      coverage:
+        description: Upload each test group's coverage summaries as `coverage-<group>` artifacts.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: shellcheck scripts/*.sh action/*.sh
+      - run: node scripts/check-release-notes.mjs
+      - name: Validate the app Worker bundle
+        working-directory: apps/app
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/app-worker"
+      - name: Validate the content Worker bundle
+        working-directory: apps/content
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/content-worker"
+      - name: Validate the jobs Worker bundle
+        working-directory: apps/jobs
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/jobs-worker"
+      - name: Validate the data Worker bundle
+        working-directory: apps/data
+        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/data-worker"
+
+  test:
+    name: test (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: services
+            filter: --filter=@portifact/services
+          - group: data
+            filter: --filter=@portifact/data
+          - group: app
+            filter: --filter=@portifact/app
+          - group: web
+            filter: --filter=@portifact/web
+          - group: workers
+            filter: --filter=@portifact/content --filter=@portifact/jobs --filter=@portifact/db
+          - group: rest
+            filter: --filter=!@portifact/services --filter=!@portifact/data --filter=!@portifact/app --filter=!@portifact/web --filter=!@portifact/content --filter=!@portifact/jobs --filter=!@portifact/db
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      # Unquoted on purpose: the filter holds several arguments.
+      - run: bun run test $FILTER
+        env:
+          FILTER: ${{ matrix.filter }}
+      # Only the summaries scripts/coverage-badge.ts reads, copied with their paths so the
+      # badge job can merge every group's artifact back into one tree.
+      - name: Collect coverage summaries
+        if: ${{ inputs.coverage }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/coverage"
+          find apps packages -mindepth 3 -maxdepth 3 -path '*/coverage/coverage-summary.json' \
+            -exec cp --parents {} "$RUNNER_TEMP/coverage" \;
+      - name: Keep coverage summaries
+        if: ${{ inputs.coverage }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.group }}
+          path: ${{ runner.temp }}/coverage/
+          retention-days: 1
+          if-no-files-found: error
