@@ -5,6 +5,8 @@
 // visitor's rights class, so they need neither write permission, the current terms, an open
 // grant nor read access to the artifact: the documents are the person's. Nothing here reads or
 // changes anyone else's documents, and a person the journal does not name has nothing to export.
+
+import type { OwnErasureView } from "@portifact/contracts";
 import {
   JournalEntry as JournalEntrySchema,
   type PageDataCommand,
@@ -13,7 +15,7 @@ import type { LocaleCode } from "@portifact/contracts/locales";
 import { hitRateLimit, type RegionalDb, schema } from "@portifact/db";
 import { checkNoticeCapacity, fail, logEvent, ok, type Result } from "@portifact/domain";
 import { journalKey } from "@portifact/domain/artifact-data";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
 import { ownerRecipients } from "./actors.ts";
 import { type DataObjects, readDataRow } from "./artifact-data.ts";
@@ -92,7 +94,12 @@ async function asVisitor(
   return result;
 }
 
-/** One page of the documents the person created in the artifact, as the export stores them. */
+/**
+ * One page of the documents the person created in the artifact, as the export stores them. Each
+ * page is charged to the person's own rights allowance, which a large export spends within a day;
+ * the next page is then refused `rate_limited` until the allowance comes back, and the export
+ * resumes from its cursor.
+ */
 export async function exportOwnData(
   db: RegionalDb,
   deps: DataRightsDeps,
@@ -124,17 +131,116 @@ export async function deleteOwnDocument(
   return answer.ok ? ok({ deleted: true }) : answer;
 }
 
+/** Erasures one person may start in one artifact a day (each runs to the end on its own). */
+export const OWN_ERASURES_PER_DAY = 5;
+
+type OwnErasureRow = typeof schema.dataOwnErasures.$inferSelect;
+
+/** An erasure row as "Data you shared" shows it. */
+export function ownErasureView(row: OwnErasureRow): OwnErasureView {
+  return {
+    state: row.state,
+    documents: row.documents,
+    edits: row.edits,
+    requestedAt: new Date(row.requestedAt).toISOString(),
+    finishedAt: row.finishedAt === null ? null : new Date(row.finishedAt).toISOString(),
+  };
+}
+
+/**
+ * The person asks to delete everything they saved in the artifact (decision 0026, "A person's
+ * rights"): the documents they created, with later edits others made to them, and their name on
+ * their edits to other people's documents. It is not their single-document delete: the
+ * `data_own_erasure` job runs it on the documents object in bounded chunks of protected work, so
+ * neither their daily rights allowance nor the artifact's budget or a capacity pause stops it, and
+ * it finishes within the hour for any dataset a plan allows. Only a person the journal names may
+ * ask; a running erasure answers as it is, without starting another, and a request carrying the
+ * key of the action that started the current erasure (`requestKey`, the dashboard's
+ * Idempotency-Key, once per confirmed action) answers that erasure, running or finished, so a
+ * retried request never starts a second deletion. The erasure reaches only what was saved or
+ * edited at or before the request (`before`, which the documents object applies). The row and its
+ * job are written in one batch, the job only when this request's `write_id` holds the row.
+ */
+export async function requestOwnErasure(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  input: DataRightsInput & { requestKey: string },
+): Promise<Result<OwnErasureView>> {
+  const visitorId = await journalVisitorId(bucket, input.userId, input.artifactId);
+  if (visitorId === null) return nothing();
+  if ((await readDataRow(db, input.region, input.artifactId)) === null) return nothing();
+  const e = schema.dataOwnErasures;
+  const key = and(eq(e.artifactId, input.artifactId), eq(e.visitorId, visitorId));
+  const [existing] = await db.select().from(e).where(key).limit(1);
+  if (existing?.requestKey === input.requestKey || existing?.state === "running") {
+    return ok(ownErasureView(existing));
+  }
+  const hits = await hitRateLimit(
+    db.global.$client,
+    `own_erasure:${input.userId}:${input.artifactId}`,
+    DAY_MS,
+    input.now,
+  );
+  if (hits.count > OWN_ERASURES_PER_DAY) {
+    return fail("rate_limited", "You asked for this several times today. Try again tomorrow.");
+  }
+  const writeId = crypto.randomUUID().replaceAll("-", "");
+  const payload = JSON.stringify({ visitorId, writeId, before: input.now });
+  await db.batch([
+    db
+      .insert(e)
+      .values({
+        artifactId: input.artifactId,
+        visitorId,
+        state: "running",
+        writeId,
+        requestKey: input.requestKey,
+        documents: 0,
+        edits: 0,
+        requestedAt: input.now,
+        finishedAt: null,
+      })
+      .onConflictDoUpdate({
+        target: [e.artifactId, e.visitorId],
+        set: {
+          state: "running",
+          writeId,
+          requestKey: input.requestKey,
+          documents: 0,
+          edits: 0,
+          requestedAt: input.now,
+          finishedAt: null,
+        },
+        setWhere: sql`${e.state} <> 'running'`,
+      }),
+    db
+      .insert(schema.outbox)
+      .select(
+        sql`select null, 'data_own_erasure', ${payload}, ${input.now}, null, 0, ${input.now}, ${input.artifactId}, null where exists (select 1 from ${e} where ${e.artifactId} = ${input.artifactId} and ${e.visitorId} = ${visitorId} and ${e.writeId} = ${writeId})`,
+      ),
+  ]);
+  const [row] = await db.select().from(e).where(key).limit(1);
+  if (!row) return nothing();
+  return ok(ownErasureView(row));
+}
+
 export type DataRightsKind = "access" | "erasure";
 
 /** Requests one person may send about one artifact a day. */
 export const DATA_RIGHTS_REQUESTS_PER_DAY = 3;
 const DAY_MS = 86_400_000;
 
+/** Delivered and resolved requests are kept this long, then pruned. */
+export const DATA_RIGHTS_KEEP_MS = 30 * DAY_MS;
+
 /**
  * The person asks the people who manage an artifact for a copy of, or the erasure of, what they
  * saved there (decision 0026, "Moderation and law"). Only a person the journal names in the
- * artifact may ask; a few requests a day per person and artifact. Writes one `data_rights_request`
- * job in the artifact's region, which names the person only by their visitor ID.
+ * artifact may ask; a few requests a day per person and artifact. Writes the request, which names
+ * the person only by their visitor ID, and its `data_rights_request` job in one batch in the
+ * artifact's region. The answer means the request was received and kept, not that anyone was
+ * emailed yet: the job delivers it, waiting out a spent email cycle, and a request nobody can be
+ * emailed about stays for the operator.
  */
 export async function requestDataRights(
   db: RegionalDb,
@@ -163,14 +269,29 @@ export async function requestDataRights(
   if (hits.count > DATA_RIGHTS_REQUESTS_PER_DAY) {
     return fail("rate_limited", "You sent this request already today. Try again tomorrow.");
   }
-  await db.insert(schema.outbox).values({
-    topic: "data_rights_request",
-    payload: { visitorId, kind: input.kind },
-    availableAt: input.now,
-    createdAt: input.now,
-    subject: input.artifactId,
-  });
+  const id = `dr_${crypto.randomUUID().replaceAll("-", "")}`;
+  await db.batch([
+    db.insert(schema.dataRightsRequests).values({
+      id,
+      artifactId: input.artifactId,
+      visitorId,
+      kind: input.kind,
+      state: "pending",
+      createdAt: input.now,
+    }),
+    rightsJob(db, id, input.now),
+  ]);
   return ok({ requested: true });
+}
+
+function rightsJob(db: RegionalDb, requestId: string, now: number) {
+  return db.insert(schema.outbox).values({
+    topic: "data_rights_request",
+    payload: {},
+    availableAt: now,
+    createdAt: now,
+    subject: requestId,
+  });
 }
 
 /** Sends the email; the jobs Worker renders it, naming the artifact only where its region may. */
@@ -186,21 +307,90 @@ export interface DataRightsNotifier {
   }): Promise<void>;
 }
 
-function rightsPayload(payload: unknown): { visitorId: string; kind: DataRightsKind } | null {
-  const value = (typeof payload === "string" ? JSON.parse(payload) : payload) as {
-    visitorId?: unknown;
-    kind?: unknown;
-  } | null;
-  if (typeof value?.visitorId !== "string") return null;
-  if (value.kind !== "access" && value.kind !== "erasure") return null;
-  return { visitorId: value.visitorId, kind: value.kind };
+type Skip = "gone" | "capacity" | "suppressed" | "undeliverable";
+
+// Only the reason: never the address, the visitor ID or the artifact.
+function skipped(reason: Skip): void {
+  logEvent("log", "data_rights_notice_skipped", { reason });
 }
 
 /**
- * Runs a `data_rights_request` job: claims its row by deleting it, then emails each admin of the
- * artifact's owner (`ownerRecipients`), skipping suppressed addresses and stopping at the notice
- * capacity. A send that fails after another admin got it is dropped, never retried, like expiry
- * notices; one failing first puts the row back.
+ * How long a claimed send counts as in flight. A claim older than this is uncertain (the run that
+ * made it died around the provider call): it is claimed again and resent, never counted as sent.
+ */
+export const DATA_RIGHTS_CLAIM_LEASE_MS = 5 * 60_000;
+
+/** A job written before requests had rows: its subject is the artifact, its payload the request. */
+function legacyRequest(payload: unknown): { visitorId: string; kind: DataRightsKind } | null {
+  let value: unknown = payload;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  const fields = value as { visitorId?: unknown; kind?: unknown } | null;
+  if (typeof fields?.visitorId !== "string") return null;
+  if (fields.kind !== "access" && fields.kind !== "erasure") return null;
+  return { visitorId: fields.visitorId, kind: fields.kind };
+}
+
+/**
+ * Turns a job in the earlier shape into a request row and a job of the current shape, in one
+ * batch whose writes are keyed by the old row, so a retry adds nothing twice; the old job is then
+ * done. Nothing is dropped: the new job sends it as any request.
+ */
+async function adoptLegacyRequest(
+  db: RegionalDb,
+  row: typeof schema.outbox.$inferSelect,
+  legacy: { visitorId: string; kind: DataRightsKind },
+): Promise<JobOutcome> {
+  const artifactId = row.subject ?? "";
+  const [artifact] = await db
+    .select({ id: schema.artifacts.id })
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, artifactId))
+    .limit(1);
+  if (!artifact) {
+    skipped("gone");
+    return "stale";
+  }
+  const id = `dr_legacy_${row.id}`;
+  const o = schema.outbox;
+  await db.batch([
+    db
+      .insert(schema.dataRightsRequests)
+      .values({
+        id,
+        artifactId,
+        visitorId: legacy.visitorId,
+        kind: legacy.kind,
+        state: "pending",
+        createdAt: row.createdAt,
+      })
+      .onConflictDoNothing(),
+    db
+      .insert(o)
+      .select(
+        sql`select null, 'data_rights_request', '{}', ${row.availableAt}, null, 0, ${row.createdAt}, ${id}, null where not exists (select 1 from ${o} where ${o.topic} = 'data_rights_request' and ${o.subject} = ${id})`,
+      ),
+  ]);
+  return "done";
+}
+
+/**
+ * Runs a `data_rights_request` job: emails each admin of the artifact's owner (`ownerRecipients`)
+ * not emailed yet. Each send is claimed in `data_rights_request_sends` (only while the request is
+ * pending) before the provider is called and marked `sent` only after the provider accepted it;
+ * a failed send gives its claim back. A claim another run holds within the lease is a send in
+ * flight: this run skips it and stays `pending` instead of settling. An older claim is uncertain
+ * and is claimed again and resent, so a run that died around a send never loses the notice nor
+ * counts it as delivered (an admin may get it twice then, never zero times). A spent notice
+ * capacity leaves the job `pending`; a failed send throws, so the job runs again. Once every
+ * admin was tried and no send is in flight, the request is `delivered` (a send is `sent`) or
+ * `undeliverable` (every address suppressed, or no admin), kept for the operator; the send rows
+ * stay until the request is pruned, so a late run never emails an admin already told.
  */
 export async function sendDataRightsNotice(
   db: RegionalDb,
@@ -208,20 +398,26 @@ export async function sendDataRightsNotice(
   now: number,
   notifier: DataRightsNotifier,
 ): Promise<JobOutcome> {
-  const claimed = await db
-    .delete(schema.outbox)
-    .where(eq(schema.outbox.id, row.id))
-    .returning({ id: schema.outbox.id });
-  if (claimed.length === 0) return "done";
-  const request = rightsPayload(row.payload);
-  const artifactId = row.subject ?? "";
+  const r = schema.dataRightsRequests;
+  const s = schema.dataRightsRequestSends;
+  const [request] = await db
+    .select()
+    .from(r)
+    .where(eq(r.id, row.subject ?? ""))
+    .limit(1);
+  if (!request) {
+    const legacy = legacyRequest(row.payload);
+    if (legacy !== null) return adoptLegacyRequest(db, row, legacy);
+  }
+  // Settled meanwhile, or gone with its artifact.
+  if (!request || request.state !== "pending") return "stale";
   const [artifact] = await db
     .select({ name: schema.artifacts.name, ownerId: schema.artifacts.ownerId })
     .from(schema.artifacts)
-    .where(eq(schema.artifacts.id, artifactId))
+    .where(eq(schema.artifacts.id, request.artifactId))
     .limit(1);
-  if (request === null || !artifact) {
-    logEvent("log", "data_rights_notice_skipped", { reason: "gone" });
+  if (!artifact) {
+    skipped("gone");
     return "stale";
   }
   const global = db.global;
@@ -230,49 +426,217 @@ export async function sendDataRightsNotice(
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, artifact.ownerId))
     .limit(1);
-  let sent = 0;
-  for (const userId of await ownerRecipients(global, artifact.ownerId)) {
-    if (!checkNoticeCapacity(await emailsSentInCycle(global, now)).ok) {
-      logEvent("log", "data_rights_notice_skipped", { reason: "capacity" });
-      break;
-    }
+  const sends = await db.select().from(s).where(eq(s.requestId, request.id));
+  const told = new Set(sends.filter((send) => send.state === "sent").map((send) => send.userId));
+  const stale = now - DATA_RIGHTS_CLAIM_LEASE_MS;
+  let inFlight = false;
+  const recipients = await ownerRecipients(global, artifact.ownerId);
+  for (const userId of recipients) {
+    if (told.has(userId)) continue;
     const [person] = await global
       .select({ email: schema.users.email })
       .from(schema.users)
       .where(eq(schema.users.id, userId))
       .limit(1);
-    if (!person || (await isEmailSuppressed(global, person.email, now))) continue;
+    if (!person) continue;
+    if (await isEmailSuppressed(global, person.email, now)) {
+      skipped("suppressed");
+      continue;
+    }
+    if (!checkNoticeCapacity(await emailsSentInCycle(global, now)).ok) {
+      // Kept for a later delivery, which emails only the admins not told yet.
+      skipped("capacity");
+      return "pending";
+    }
+    const token = crypto.randomUUID();
+    const claimed = await db
+      .insert(s)
+      .select(
+        sql`select ${request.id}, ${userId}, 'claimed', ${token}, ${now}, null where exists (select 1 from ${r} where ${r.id} = ${request.id} and ${r.state} = 'pending')`,
+      )
+      .onConflictDoUpdate({
+        target: [s.requestId, s.userId],
+        set: { token, claimedAt: now },
+        setWhere: sql`${s.state} = 'claimed' and ${s.claimedAt} <= ${stale}`,
+      })
+      .returning({ token: s.token });
+    if (claimed[0]?.token !== token) {
+      const [held] = await db
+        .select({ state: s.state })
+        .from(s)
+        .where(and(eq(s.requestId, request.id), eq(s.userId, userId)))
+        .limit(1);
+      if (!held) return "stale";
+      if (held.state === "claimed") inFlight = true;
+      continue;
+    }
+    const mine = and(eq(s.requestId, request.id), eq(s.userId, userId), eq(s.token, token));
     try {
       await notifier.send({
         to: person.email,
         kind: request.kind,
-        artifactId,
+        artifactId: request.artifactId,
         artifactName: artifact.name,
         visitorId: request.visitorId,
         workspaceSlug: workspace?.slug ?? null,
         locale: (await loadSettings(global, userId)).locale,
       });
     } catch (error) {
+      await db.delete(s).where(mine);
       if (error instanceof RecipientSuppressedError) {
         await suppressEmail(global, { email: person.email, reason: "provider", now });
+        skipped("suppressed");
         continue;
       }
-      if (sent > 0) {
-        logEvent("log", "data_rights_notice_skipped", { reason: "partial" });
-        return "done";
-      }
-      await db.insert(schema.outbox).values({
-        topic: "data_rights_request",
-        payload: request,
-        availableAt: now,
-        createdAt: row.createdAt,
-        subject: artifactId,
-        attempts: row.attempts,
-      });
       throw error;
     }
+    await db.update(s).set({ state: "sent", sentAt: now }).where(mine);
     await recordEmailsSent(global, now);
-    sent += 1;
+    told.add(userId);
   }
+  // Another run's send is under way: it, or a later delivery, settles the request.
+  if (inFlight) return "pending";
+  const [count] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(s)
+    .where(and(eq(s.requestId, request.id), eq(s.state, "sent")));
+  const sent = Number(count?.count ?? 0);
+  const settled = await db
+    .update(r)
+    .set({
+      state: sent > 0 ? "delivered" : "undeliverable",
+      reason: sent > 0 ? null : recipients.length === 0 ? "no_recipient" : "suppressed",
+      recipients: sent,
+      settledAt: now,
+    })
+    .where(
+      and(
+        eq(r.id, request.id),
+        eq(r.state, "pending"),
+        // Never while a send claimed after this run's count may still land.
+        sql`not exists (select 1 from ${s} where ${s.requestId} = ${request.id} and ${s.state} = 'claimed' and ${s.claimedAt} > ${stale})`,
+      ),
+    )
+    .returning({ id: r.id });
+  if (settled.length === 0) return "pending";
+  if (sent === 0) skipped("undeliverable");
   return "done";
+}
+
+/** A rights request as the operator tool lists it: no address, only the visitor ID. */
+export interface DataRightsRequestView {
+  id: string;
+  artifactId: string;
+  kind: DataRightsKind;
+  state: "pending" | "undeliverable";
+  reason: string | null;
+  visitorId: string;
+  createdAt: number;
+}
+
+/**
+ * The requests the operator must look at in one region: every `undeliverable` one, and those
+ * still `pending` a day after they were made (the email cycle is spent, or sends keep failing),
+ * oldest first.
+ */
+export async function listDataRightsRequests(
+  db: RegionalDb,
+  now: number,
+  limit = 50,
+): Promise<DataRightsRequestView[]> {
+  const r = schema.dataRightsRequests;
+  const rows = await db
+    .select({
+      id: r.id,
+      artifactId: r.artifactId,
+      kind: r.kind,
+      state: r.state,
+      reason: r.reason,
+      visitorId: r.visitorId,
+      createdAt: r.createdAt,
+    })
+    .from(r)
+    .where(
+      or(eq(r.state, "undeliverable"), and(eq(r.state, "pending"), lte(r.createdAt, now - DAY_MS))),
+    )
+    .orderBy(asc(r.createdAt), asc(r.id))
+    .limit(Math.min(Math.max(1, limit), 500));
+  return rows as DataRightsRequestView[];
+}
+
+/**
+ * The operator handled a request another way (for example by writing to the managers) and marks
+ * it `resolved`; a pending one's job then ends without emailing. False when the request is not
+ * there or already delivered or resolved.
+ */
+export async function resolveDataRightsRequest(
+  db: RegionalDb,
+  id: string,
+  now: number,
+): Promise<boolean> {
+  const r = schema.dataRightsRequests;
+  const done = await db
+    .update(r)
+    .set({ state: "resolved", settledAt: now })
+    .where(and(eq(r.id, id), inArray(r.state, ["pending", "undeliverable"])))
+    .returning({ id: r.id });
+  return done.length > 0;
+}
+
+/**
+ * Tries an `undeliverable` request again, after the operator lifted a suppression or the owner
+ * gained an admin: back to `pending` with a new job, in one batch conditioned on the state read.
+ */
+export async function retryDataRightsRequest(
+  db: RegionalDb,
+  id: string,
+  now: number,
+): Promise<boolean> {
+  const r = schema.dataRightsRequests;
+  const undeliverable = and(eq(r.id, id), eq(r.state, "undeliverable"));
+  const [found] = await db.select({ id: r.id }).from(r).where(undeliverable).limit(1);
+  if (!found) return false;
+  const [, retried] = await db.batch([
+    db
+      .insert(schema.outbox)
+      .select(
+        sql`select null, 'data_rights_request', '{}', ${now}, null, 0, ${now}, ${id}, null where exists (select 1 from ${r} where ${r.id} = ${id} and ${r.state} = 'undeliverable')`,
+      ),
+    db
+      .update(r)
+      .set({ state: "pending", reason: null, settledAt: null })
+      .where(undeliverable)
+      .returning({ id: r.id }),
+  ]);
+  return retried.length > 0;
+}
+
+/**
+ * Deletes, at most `limit` of each per run, delivered and resolved requests and finished own
+ * erasures `DATA_RIGHTS_KEEP_MS` after they settled, each through its `(state, time)` index, in
+ * one batch. Pending and undeliverable requests and running erasures stay.
+ */
+export async function pruneDataRightsRequests(
+  db: RegionalDb,
+  now: number,
+  limit = 500,
+): Promise<{ processed: number }> {
+  const r = schema.dataRightsRequests;
+  const e = schema.dataOwnErasures;
+  const before = now - DATA_RIGHTS_KEEP_MS;
+  const [requests, erasures] = await db.batch([
+    db
+      .delete(r)
+      .where(
+        sql`${r.id} in (select ${r.id} from ${r} where ${r.state} in ('delivered', 'resolved') and ${r.settledAt} <= ${before} limit ${limit})`,
+      )
+      .returning({ id: r.id }),
+    db
+      .delete(e)
+      .where(
+        sql`rowid in (select rowid from ${e} where ${e.state} in ('done', 'failed') and ${e.finishedAt} <= ${before} limit ${limit})`,
+      )
+      .returning({ id: e.artifactId }),
+  ]);
+  return { processed: requests.length + erasures.length };
 }

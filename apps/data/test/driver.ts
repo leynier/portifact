@@ -280,6 +280,8 @@ export class RealObject implements DataObject {
   bulkRemove: DataObject["bulkRemove"] = (...args) => this.run((s) => s.bulkRemove(...args));
   eraseAuthorChunk: DataObject["eraseAuthorChunk"] = (...args) =>
     this.run((s) => s.eraseAuthorChunk(...args));
+  eraseOwnChunk: DataObject["eraseOwnChunk"] = (...args) =>
+    this.run((s) => s.eraseOwnChunk(...args));
   get: DataObject["get"] = (...args) => this.run((s) => s.get(...args));
   createMany: DataObject["createMany"] = (envelope, caller, collection, body, context, times) =>
     this.run((s) => {

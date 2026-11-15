@@ -47,8 +47,19 @@ export const ja = {
   "sharedData.askAccess": "保存した内容のコピー",
   "sharedData.askErasure": "保存した内容の削除",
   "sharedData.askSend": "依頼を送信",
-  "sharedData.askSent": "{name} についての依頼を送信しました",
   "sharedData.askFailed": "依頼を送信できませんでした",
+  "sharedData.askReceived":
+    "{name} についての依頼を受け付けました。管理者にはできるだけ早くメールで届けます",
+  "sharedData.downloadContinue": "ダウンロードを続ける",
+  "sharedData.downloadContinueNamed": "ダウンロードを続ける: {name} に保存した内容",
+  "sharedData.downloadRestart": "最初からやり直す",
+  "sharedData.downloadRestartNamed": "最初からやり直す: {name} のダウンロード",
+  "sharedData.downloadPaused": "ダウンロードを一時停止しました",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {これまでに # 件をダウンロードしました。} other {これまでに # 件をダウンロードしました。}} このアーティファクトでのあなたのデータの本日の上限に達しました。明日の UTC 午前 0 時以降に続けると、止まったところから再開します。",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {これまでに # 件をダウンロードしました。} other {これまでに # 件をダウンロードしました。}} 残りはダウンロードできませんでした。続けると、止まったところから再開します。",
+  "sharedData.downloadedAll": "{name} に保存した内容をすべてダウンロードしました（{count} 件）",
   "dataGrant.viewer.saving": "このページは入力内容を保存しています",
   "dataGrant.viewer.savingHint":
     "表示名とこの artifact 専用の ID であなたを認識します。いつでも止められます。",
@@ -64,8 +75,14 @@ export const ja = {
   "sharedData.deleteTitle": "{name} に保存した内容を削除しますか？",
   "sharedData.deleteBody":
     "そこで作成したドキュメントは、他の人が後から加えた編集も含めて完全に削除されます。他の人のドキュメントへのあなたの編集は、名前なしで残ります。",
-  "sharedData.deleted": "{name} に保存した内容を削除しました（{count} 件）",
   "sharedData.deleteFailed": "削除を完了できませんでした",
+  "sharedData.eraseStarted":
+    "{name} に保存した内容を削除しています。このページを閉じても続きます。",
+  "sharedData.erasing":
+    "{count, plural, one {保存した内容を削除中: これまでに # 件} other {保存した内容を削除中: これまでに # 件}}",
+  "sharedData.erased":
+    "{count, plural, one {{date} に保存した内容を削除しました（# 件）} other {{date} に保存した内容を削除しました（# 件）}}",
+  "sharedData.eraseFailed": "保存した内容の削除を完了できませんでした。もう一度依頼できます。",
   "dataGrant.frame.granted": "このページで入力内容を保存できるようになりました",
   "dataGrant.frame.saving": "選択を保存しています",
   "dataGrant.frame.unavailable": "このフレームでは保存できません",

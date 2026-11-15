@@ -43,6 +43,7 @@ import {
   type ErrorDetail,
   OwnDataPage,
   OwnDocumentDeletion,
+  OwnErasureView,
   SignOutOthersResult,
   WorkspaceParam,
 } from "@portifact/contracts";
@@ -75,6 +76,7 @@ import {
   removeBrandLogo,
   requestAccountDeletion,
   requestDataRights,
+  requestOwnErasure,
   revokeDataGrants,
   setBrandLogo,
   setCommentNoticeMute,
@@ -553,7 +555,7 @@ export function accountRoutes(deps: AccountDeps) {
       const now = deps.now();
       for (let index = from; index < regions.length; index++) {
         const handles = regions[index] as (typeof regions)[number];
-        const page = await listDataGrants(handles.db, {
+        const page = await listDataGrants(handles.db, bucketOf(handles), {
           userId: session.userId,
           contentDomain: c.env.CONTENT_DOMAIN,
           now,
@@ -751,6 +753,31 @@ export function accountRoutes(deps: AccountDeps) {
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(DataRightsRequested.parse(result.value), 202);
+    }),
+  );
+
+  // Deleting everything the person saved in an artifact: a job the server runs to the end in
+  // bounded steps, so the request survives the page. Answers the erasure's state.
+  routes.post(
+    "/api/v1/account/data-grants/:artifactId/erasure",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      const target = await ownData(c);
+      if (target === null) return error(c, "not_found", "Artifact not found.");
+      // One key per confirmed action: a retried request answers that erasure, never a new one.
+      const requestKey = c.req.header("Idempotency-Key") ?? "";
+      if (!/^[A-Za-z0-9._-]{16,128}$/.test(requestKey)) {
+        return error(c, "invalid_input", "An Idempotency-Key header is required.");
+      }
+      const result = await requestOwnErasure(target.db, target.deps.bucket, {
+        userId: session.userId,
+        artifactId: target.artifactId,
+        region: target.region,
+        now: deps.now(),
+        requestKey,
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(OwnErasureView.parse(result.value), 202);
     }),
   );
 

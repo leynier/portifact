@@ -49,6 +49,7 @@ import {
   jobsOf,
   journalOf,
   reviewedOf,
+  saveAt,
   visitorId,
   withData,
 } from "./lifecycle.ts";
@@ -260,6 +261,104 @@ schedule("an account's erasure in an artifact (data_author_erasure)", {
   act: (crash, state) => drain({ subject: state.id, crash }),
   settle: (state) => drain({ subject: state.id }),
   observe: authorState,
+});
+
+interface OwnErasure {
+  id: string;
+  visitor: string;
+}
+
+const ERASURE_WRITE = "e".repeat(32);
+
+// The counts on the row are what the job saw: after a crash between a chunk and its D1 write the
+// retry finds those documents already gone, so only the state and the documents are compared.
+const ownErasureState = async (state: OwnErasure) => ({
+  mine: await documentsOf(state.id, state.visitor),
+  all: await documentsOf(state.id),
+  barrier: await inside(state.id, (object) => object.store.inspect("pf_barriers").length),
+  row: (
+    await db()
+      .select({ state: schema.dataOwnErasures.state })
+      .from(schema.dataOwnErasures)
+      .where(eq(schema.dataOwnErasures.artifactId, state.id))
+  )[0]?.state,
+  jobs: (await jobsOf(db(), ["data_own_erasure"], state.id)).length,
+});
+
+/** A running erasure requested at DATA_NOW, its job, and one document saved after the request. */
+async function ownErasure(): Promise<OwnErasure & { ownerId: string }> {
+  const visitor = visitorId();
+  const { id, ownerId } = await withData({ visitors: [visitor, visitorId()] });
+  await saveAt(id, ownerId, visitor, DATA_NOW + 5_000);
+  await db()
+    .insert(schema.dataOwnErasures)
+    .values({
+      artifactId: id,
+      visitorId: visitor,
+      state: "running",
+      writeId: ERASURE_WRITE,
+      requestKey: "k".repeat(32),
+      requestedAt: DATA_NOW,
+    });
+  await db()
+    .insert(schema.outbox)
+    .values({
+      topic: "data_own_erasure",
+      payload: { visitorId: visitor, writeId: ERASURE_WRITE, before: DATA_NOW },
+      availableAt: DATA_NOW,
+      subject: id,
+    });
+  return { id, visitor, ownerId };
+}
+
+schedule("a person's erasure of what they saved (data_own_erasure)", {
+  // The chunk, the storage report, the row marked done, the acknowledgement. Every crash ends
+  // with the document saved after the request still there.
+  steps: ["object:lifecycleEraseOwn", "d1:run", "d1:run", "d1:run"],
+  setup: ownErasure,
+  act: (crash, state) => drain({ subject: state.id, crash }),
+  settle: (state) => drain({ subject: state.id }),
+  observe: ownErasureState,
+});
+
+describe("a person's erasure, interleaved (data_own_erasure)", () => {
+  it("a delivery that runs after the erasure finished erases nothing saved since", async () => {
+    const state = await ownErasure();
+    const [job] = await jobsOf(db(), ["data_own_erasure"], state.id);
+    if (!job) throw new Error("no job");
+    await drain({ subject: state.id });
+    expect(await documentsOf(state.id, state.visitor)).toBe(1);
+    // The same message delivered late (the queue delivers at least once) runs its chunk again.
+    await db().insert(schema.outbox).values(job);
+    await db()
+      .update(schema.dataOwnErasures)
+      .set({ state: "running", finishedAt: null })
+      .where(eq(schema.dataOwnErasures.artifactId, state.id));
+    await saveAt(state.id, state.ownerId, state.visitor, DATA_NOW + 9_000);
+    await drain({ subject: state.id });
+    expect(await documentsOf(state.id, state.visitor)).toBe(2);
+  });
+
+  it("a request a restore revived reaches only what was saved before it", async () => {
+    const state = await ownErasure();
+    const [job] = await jobsOf(db(), ["data_own_erasure"], state.id);
+    const [row] = await db()
+      .select()
+      .from(schema.dataOwnErasures)
+      .where(eq(schema.dataOwnErasures.artifactId, state.id));
+    if (!job || !row) throw new Error("no request");
+    await drain({ subject: state.id });
+    await saveAt(state.id, state.ownerId, state.visitor, DATA_NOW + 9_000);
+    // A D1 rewind brings back the running row and its job; the object was not rewound.
+    await db()
+      .update(schema.dataOwnErasures)
+      .set(row)
+      .where(eq(schema.dataOwnErasures.artifactId, state.id));
+    await db().insert(schema.outbox).values(job);
+    await drain({ subject: state.id });
+    expect(await documentsOf(state.id, state.visitor)).toBe(2);
+    expect((await ownErasureState(state)).row).toBe("done");
+  });
 });
 
 schedule("an account deletion's journal step (scheduleAuthorErasures)", {

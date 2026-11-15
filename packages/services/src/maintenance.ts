@@ -35,6 +35,7 @@ import { enforceCommentRetention } from "./comment-retention.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "./content-search.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { endSignedOutDataGrants, pruneDataGrants } from "./data-grants.ts";
+import { pruneDataRightsRequests } from "./data-rights.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
@@ -975,6 +976,8 @@ export async function runRegionalMaintenance(
     // Grants whose app session ended (sign-out) start their 30 days from that end.
     signedOutGrants: (await endSignedOutDataGrants(db, now)).ended,
     dataGrants: (await pruneDataGrants(db, now)).processed,
+    // Rights requests 30 days after they were delivered or resolved (decision 0026).
+    dataRightsRequests: (await pruneDataRightsRequests(db, now)).processed,
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
@@ -1043,6 +1046,8 @@ export async function runMaintenance(
     // Grants whose app session ended (sign-out) start their 30 days from that end.
     signedOutGrants: (await endSignedOutDataGrants(db, now)).ended,
     dataGrants: (await pruneDataGrants(db, now)).processed,
+    // Rights requests 30 days after they were delivered or resolved (decision 0026).
+    dataRightsRequests: (await pruneDataRightsRequests(db, now)).processed,
     // Artifact group rows whose group is gone grant nothing; the scan removes them (decision 0014):
     // one read of at most 500 rows, at most 6 global reads of 90 group IDs and at most 14 writes
     // of 40 rows.

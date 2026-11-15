@@ -92,6 +92,7 @@ import {
   LifecycleResult,
   OwnDataPage,
   OwnDocumentDeletion,
+  OwnErasureView,
   type PolicyImpact,
   PolicyPreview,
   type PrepareAttachmentRequest,
@@ -261,6 +262,11 @@ export interface DashboardApi {
   dataGrantStatus(artifactId: string): Promise<DataGrantStatus>;
   /** One page of the documents the person created in an artifact. */
   ownData(artifactId: string, after: string | null): Promise<OwnDataPage>;
+  /**
+   * Starts the erasure of everything the person saved in an artifact; answers its state. `key`
+   * is the confirmed action's own, the same for its retries.
+   */
+  eraseOwnData(artifactId: string, key: string): Promise<OwnErasureView>;
   /** Deletes one document the person created. */
   deleteOwnDocument(artifactId: string, collection: string, id: string): Promise<unknown>;
   /** Asks the people who manage an artifact about what the person saved there. */
@@ -934,6 +940,15 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         {
           "idempotency-key": `${String(Date.now()).padStart(13, "0")}.${crypto.randomUUID().replaceAll("-", "")}`,
         },
+      );
+    },
+    eraseOwnData(artifactId, key) {
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/erasure`,
+        OwnErasureView,
+        "POST",
+        {},
+        { "idempotency-key": key },
       );
     },
     requestDataRights(artifactId, kind) {

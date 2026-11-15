@@ -121,6 +121,7 @@ const COMMANDS = [
   "bulkReplace",
   "bulkRemove",
   "eraseAuthorChunk",
+  "eraseOwnChunk",
   "createMany",
   "get",
   "getMany",

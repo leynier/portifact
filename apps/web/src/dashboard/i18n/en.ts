@@ -45,8 +45,19 @@ export const en = {
   "sharedData.askAccess": "A copy of what I saved",
   "sharedData.askErasure": "Erase what I saved",
   "sharedData.askSend": "Send the request",
-  "sharedData.askSent": "Your request about {name} was sent",
   "sharedData.askFailed": "The request was not sent",
+  "sharedData.askReceived":
+    "Your request about {name} was received. The people who manage it are emailed as soon as possible",
+  "sharedData.downloadContinue": "Continue download",
+  "sharedData.downloadContinueNamed": "Continue downloading what you saved in {name}",
+  "sharedData.downloadRestart": "Start over",
+  "sharedData.downloadRestartNamed": "Start over downloading what you saved in {name}",
+  "sharedData.downloadPaused": "Download paused",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {# document downloaded so far.} other {# documents downloaded so far.}} Today's allowance for your data in this artifact is used up. Continue tomorrow, after midnight UTC, and the download picks up where it stopped.",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {# document downloaded so far.} other {# documents downloaded so far.}} The rest did not download. Continue, and the download picks up where it stopped.",
+  "sharedData.downloadedAll": "Downloaded everything you saved in {name} ({count} documents)",
   "dataGrant.viewer.saving": "This page saves what you enter",
   "dataGrant.viewer.savingHint":
     "It knows you by your display name and an ID for this artifact. You can stop it at any time.",
@@ -62,8 +73,14 @@ export const en = {
   "sharedData.deleteTitle": "Delete what you saved in {name}?",
   "sharedData.deleteBody":
     "Every document you created there is deleted for good, with later edits others made to it. Your edits to other people's documents stay, without your name.",
-  "sharedData.deleted": "Deleted what you saved in {name} ({count} documents)",
   "sharedData.deleteFailed": "Deleting did not finish",
+  "sharedData.eraseStarted":
+    "Deleting what you saved in {name}. It goes on if you close this page.",
+  "sharedData.erasing":
+    "{count, plural, one {Deleting what you saved: # document so far} other {Deleting what you saved: # documents so far}}",
+  "sharedData.erased":
+    "{count, plural, one {Deleted what you saved on {date} (# document)} other {Deleted what you saved on {date} (# documents)}}",
+  "sharedData.eraseFailed": "Deleting what you saved did not finish. You can ask again.",
   "dataGrant.frame.granted": "This page can now save what you enter",
   "dataGrant.frame.saving": "Saving your choice",
   "dataGrant.frame.unavailable": "Saving is not available in this frame",
