@@ -508,6 +508,7 @@ export const DATA_WORK_PAUSED: Readonly<Record<DataWork, boolean>> = {
   remove: false,
   bulk_remove: false,
   erase_author_chunk: false,
+  erase_own_chunk: false,
   get: false,
   query: false,
   count: false,

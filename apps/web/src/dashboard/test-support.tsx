@@ -1682,6 +1682,21 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     const item = server.dataGrants.find((grant) => grant.artifactId === artifactId);
     return Response.json({ artifactId, openGrants: item?.openGrants ?? 0 });
   }
+  const erase = /^\/api\/v1\/account\/data-grants\/([^/]+)\/erasure$/.exec(path);
+  if (erase && method === "POST") {
+    const artifactId = decodeURIComponent(erase[1] as string);
+    const erasure = {
+      state: "running" as const,
+      documents: 0,
+      edits: 0,
+      requestedAt: new Date().toISOString(),
+      finishedAt: null,
+    };
+    server.dataGrants = server.dataGrants.map((item) =>
+      item.artifactId === artifactId ? { ...item, erasure } : item,
+    );
+    return Response.json(erasure, { status: 202 });
+  }
   const ask = /^\/api\/v1\/account\/data-grants\/([^/]+)\/rights-request$/.exec(path);
   if (ask && method === "POST") return Response.json({ requested: true }, { status: 202 });
   const own = /^\/api\/v1\/account\/data-grants\/([^/]+)\/mine$/.exec(path);

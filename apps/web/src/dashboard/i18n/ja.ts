@@ -60,12 +60,6 @@ export const ja = {
   "sharedData.downloadPausedError":
     "{count, plural, one {これまでに # 件をダウンロードしました。} other {これまでに # 件をダウンロードしました。}} 残りはダウンロードできませんでした。続けると、止まったところから再開します。",
   "sharedData.downloadedAll": "{name} に保存した内容をすべてダウンロードしました（{count} 件）",
-  "sharedData.deleteContinue": "削除を続ける",
-  "sharedData.deletePaused": "削除を一時停止しました",
-  "sharedData.deletePausedAllowance":
-    "{count, plural, one {これまでに # 件を削除しました。} other {これまでに # 件を削除しました。}} このアーティファクトでのあなたのデータの本日の上限に達しました。明日の UTC 午前 0 時以降に続けると、止まったところから再開します。",
-  "sharedData.deletePausedError":
-    "{count, plural, one {これまでに # 件を削除しました。} other {これまでに # 件を削除しました。}} 残りは削除できませんでした。続けると、止まったところから再開します。",
   "dataGrant.viewer.saving": "このページは入力内容を保存しています",
   "dataGrant.viewer.savingHint":
     "表示名とこの artifact 専用の ID であなたを認識します。いつでも止められます。",
@@ -81,8 +75,14 @@ export const ja = {
   "sharedData.deleteTitle": "{name} に保存した内容を削除しますか？",
   "sharedData.deleteBody":
     "そこで作成したドキュメントは、他の人が後から加えた編集も含めて完全に削除されます。他の人のドキュメントへのあなたの編集は、名前なしで残ります。",
-  "sharedData.deleted": "{name} に保存した内容を削除しました（{count} 件）",
   "sharedData.deleteFailed": "削除を完了できませんでした",
+  "sharedData.eraseStarted":
+    "{name} に保存した内容を削除しています。このページを閉じても続きます。",
+  "sharedData.erasing":
+    "{count, plural, one {保存した内容を削除中: これまでに # 件} other {保存した内容を削除中: これまでに # 件}}",
+  "sharedData.erased":
+    "{count, plural, one {{date} に保存した内容を削除しました（# 件）} other {{date} に保存した内容を削除しました（# 件）}}",
+  "sharedData.eraseFailed": "保存した内容の削除を完了できませんでした。もう一度依頼できます。",
   "dataGrant.frame.granted": "このページで入力内容を保存できるようになりました",
   "dataGrant.frame.saving": "選択を保存しています",
   "dataGrant.frame.unavailable": "このフレームでは保存できません",

@@ -10,6 +10,7 @@ import { MemoryObject } from "@portifact/domain/testing/artifact-data";
 import { and, eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import {
+  AUTHOR_CHUNKS_PER_RUN,
   claimVisitorId,
   DATA_RIGHTS_KEEP_MS,
   type DataObjects,
@@ -21,11 +22,14 @@ import {
   isEmailSuppressed,
   journalVisitorId,
   listDataRightsRequests,
+  OWN_ERASURES_PER_DAY,
   pageDataCommand,
+  placeLegalHold,
   pruneDataRightsRequests,
   RecipientSuppressedError,
   recordEmailsSent,
   requestDataRights,
+  requestOwnErasure,
   resolveDataRightsRequest,
   retireJournalEntry,
   retryDataRightsRequest,
@@ -557,46 +561,230 @@ describe("a person's own export and deletes over the plan's limits", () => {
     expect(new Set([...first.rows, ...rest.rows].map((row) => row.id)).size).toBe(501);
   });
 
-  it("deletes 501 documents on Free in small batches, continuing on later days, without exporting first", async () => {
+  /** Runs the erasure's jobs as the jobs Worker does, until none is left; answers how many runs. */
+  async function runErasure(deps: { objects: DataObjects }, artifactId: string, now: number) {
+    let runs = 0;
+    for (; runs < 1000; runs++) {
+      const [job] = await db()
+        .select()
+        .from(schema.outbox)
+        .where(
+          and(eq(schema.outbox.topic, "data_own_erasure"), eq(schema.outbox.subject, artifactId)),
+        );
+      if (!job) return runs;
+      await runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic }, now + runs * 60_000, {
+        data: deps.objects,
+      });
+    }
+    throw new Error("the erasure did not end");
+  }
+
+  const erasureRow = async (artifactId: string) =>
+    (
+      await db()
+        .select()
+        .from(schema.dataOwnErasures)
+        .where(eq(schema.dataOwnErasures.artifactId, artifactId))
+    )[0];
+
+  it("erases 501 documents on Free in one job, after the person's allowance is spent", async () => {
     const { deps, artifactId, visitor, day } = await many(501);
     const base = { userId: visitor.id, artifactId, region: "default" };
-    let now = day;
-    let deleted = 0;
-    let days = 0;
-    while (days < 40) {
-      const batch = await exportOwnData(db(), deps, { ...base, now, after: null, take: 20 });
-      let refused = !batch.ok;
-      if (batch.ok) {
-        const rows = (batch.value as { rows: { collection: string; id: string }[] }).rows;
-        if (rows.length === 0) break;
-        for (const row of rows) {
-          now += 1_100;
-          const removed = await deleteOwnDocument(db(), deps, {
-            ...base,
-            now,
-            collection: row.collection,
-            id: row.id,
-            idempotencyKey: null,
-          });
-          if (!removed.ok) {
-            expect(removed).toMatchObject({ code: "rate_limited" });
-            refused = true;
-            break;
-          }
-          deleted += 1;
-        }
-      }
-      if (refused) {
-        // Spent for today: the batches continue from the first remaining document tomorrow.
-        days += 1;
-        now = (Math.floor(now / DAY) + 1) * DAY;
-      }
-    }
-    expect(deleted).toBe(501);
-    expect(days).toBeGreaterThan(0);
-    const left = value(await exportOwnData(db(), deps, { ...base, now, after: null })) as {
-      rows: unknown[];
-    };
+    // The day's rights allowance is spent by an export page: deleting one by one now waits.
+    value(await exportOwnData(db(), deps, { ...base, now: day, after: null }));
+    expect(await exportOwnData(db(), deps, { ...base, now: day + 1, after: null })).toMatchObject({
+      ok: false,
+      code: "rate_limited",
+    });
+    const started = value(await requestOwnErasure(db(), deps.bucket, { ...base, now: day + 2 }));
+    expect(started).toMatchObject({ state: "running", documents: 0, finishedAt: null });
+    // Asking again while it runs answers the same erasure and queues nothing more.
+    value(await requestOwnErasure(db(), deps.bucket, { ...base, now: day + 3 }));
+    const jobs = await db()
+      .select()
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, "data_own_erasure"));
+    expect(jobs.filter((job) => job.subject === artifactId)).toHaveLength(1);
+    expect(await runErasure(deps, artifactId, day + 4)).toBe(1);
+    expect(await erasureRow(artifactId)).toMatchObject({ state: "done", documents: 501 });
+    const left = value(
+      await exportOwnData(db(), deps, { ...base, now: day + DAY, after: null }),
+    ) as { rows: unknown[] };
     expect(left.rows).toEqual([]);
+    // Not terminal: the person may save there again and erase again.
+    expect((await requestOwnErasure(db(), deps.bucket, { ...base, now: day + DAY })).ok).toBe(true);
   }, 120_000);
+
+  it("runs in bounded runs of chunks, so the largest dataset any plan allows ends within hours", async () => {
+    // Each run sends at most AUTHOR_CHUNKS_PER_RUN chunks of 500 and the relay sends the next run
+    // within a minute: the runs a plan's largest dataset needs, at one a minute.
+    for (const plan of Object.values(PLANS)) {
+      const most = plan.data.perArtifact.documentsPerCollection * plan.data.perArtifact.collections;
+      const runs = Math.ceil(most / (AUTHOR_CHUNKS_PER_RUN * 500));
+      expect(runs, `${most} documents`).toBeLessThanOrEqual(120);
+    }
+    // And the job keeps to it: 4,100 documents over three collections take two runs.
+    const { deps, artifactId, owner } = await setup();
+    for (const name of ["a", "b"]) {
+      value(
+        await declareDataCollection(
+          db(),
+          { objects: deps.objects, bucket: env.ARTIFACTS, enabled: true },
+          {
+            userId: owner.id,
+            artifactId,
+            now: NOW,
+            idempotencyKey: crypto.randomUUID(),
+            declaration: { name, mode: "own" },
+          },
+        ),
+      );
+    }
+    const person = await user("Bulk");
+    const author = value(await claimVisitorId(env.ARTIFACTS, person.id, artifactId, NOW));
+    const roomy = {
+      ...PLANS.team.data.perArtifact,
+      writesPerAuthorPerMinute: 1_000_000,
+      readsPerCallerPerMinute: 1_000_000,
+      rowsWrittenPerDay: 1_000_000_000,
+      documentsPerCollection: 1_000_000,
+      bytesPerArtifact: 1_000_000_000,
+    };
+    for (let n = 0; n < 4_100; n++) {
+      const { result } = await pageDataCommand(
+        db(),
+        { objects: deps.objects, pageWrites: true },
+        {
+          artifactId,
+          region: "default",
+          limits: roomy,
+          caller: { kind: "visitor", author, canWrite: true },
+          command: {
+            kind: "create",
+            collection: ["votes", "a", "b"][n % 3] as string,
+            body: { n },
+          },
+          idempotencyKey: null,
+          now: NOW + 1000,
+        },
+      );
+      value(result);
+    }
+    value(
+      await requestOwnErasure(db(), deps.bucket, {
+        userId: person.id,
+        artifactId,
+        region: "default",
+        now: NOW + 2000,
+      }),
+    );
+    expect(await runErasure(deps, artifactId, NOW + 3000)).toBe(2);
+    expect(await erasureRow(artifactId)).toMatchObject({ state: "done", documents: 4_100 });
+  }, 120_000);
+
+  it("waits while the artifact is held, and refuses someone the journal does not name", async () => {
+    const { deps, artifactId, write } = await setup();
+    const visitor = await user("Visitor");
+    await write(visitor.id, "a");
+    const stranger = await user("Stranger");
+    expect(
+      await requestOwnErasure(db(), deps.bucket, input(stranger.id, artifactId)),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    value(await requestOwnErasure(db(), deps.bucket, input(visitor.id, artifactId)));
+    await db()
+      .update(schema.artifacts)
+      .set({ state: "suspended" })
+      .where(eq(schema.artifacts.id, artifactId));
+    value(
+      await placeLegalHold(db(), { artifactId, ground: "Order", releaseAt: null, now: NOW + 3000 }),
+    );
+    const [job] = await db()
+      .select()
+      .from(schema.outbox)
+      .where(
+        and(eq(schema.outbox.topic, "data_own_erasure"), eq(schema.outbox.subject, artifactId)),
+      );
+    if (!job) throw new Error("no job");
+    expect(
+      await runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic }, NOW + 5000, {
+        data: deps.objects,
+      }),
+    ).toBe("kept");
+    expect(await erasureRow(artifactId)).toMatchObject({ state: "running", documents: 0 });
+  });
+
+  it("marks an erasure the object refuses for good as failed, ends a superseded job, and starts again", async () => {
+    const { deps, artifactId, write } = await setup();
+    const visitor = await user("Visitor");
+    await write(visitor.id, "a");
+    value(await requestOwnErasure(db(), deps.bucket, input(visitor.id, artifactId)));
+    const [job] = await db()
+      .select()
+      .from(schema.outbox)
+      .where(
+        and(eq(schema.outbox.topic, "data_own_erasure"), eq(schema.outbox.subject, artifactId)),
+      );
+    if (!job) throw new Error("no job");
+    // A job another request superseded touches nothing.
+    const stale = { ...job, payload: { ...(job.payload as object), writeId: "f".repeat(32) } };
+    await db()
+      .update(schema.outbox)
+      .set({ payload: stale.payload })
+      .where(eq(schema.outbox.id, job.id));
+    expect(
+      await runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic }, NOW + 2000, {
+        data: deps.objects,
+      }),
+    ).toBe("stale");
+    // The object refuses with a code no retry fixes: the erasure ends as failed.
+    await db()
+      .insert(schema.outbox)
+      .values({ ...job, id: undefined, dispatchedAt: null });
+    const [again] = await db()
+      .select()
+      .from(schema.outbox)
+      .where(
+        and(eq(schema.outbox.topic, "data_own_erasure"), eq(schema.outbox.subject, artifactId)),
+      );
+    if (!again) throw new Error("no job");
+    const refusing: DataObjects = {
+      ...deps.objects,
+      object: (id) =>
+        ({
+          ...deps.objects.object(id),
+          lifecycleEraseOwn: async () => ({
+            ok: false,
+            code: "forbidden",
+            message: "another artifact",
+            storage: { bytes: 0, generation: 0, seq: 0 },
+          }),
+        }) as never,
+    };
+    await runJob(db(), env.ARTIFACTS, { id: again.id, topic: again.topic }, NOW + 3000, {
+      data: refusing,
+    });
+    expect(await erasureRow(artifactId)).toMatchObject({ state: "failed" });
+    const restarted = value(
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(visitor.id, artifactId),
+        now: NOW + 4000,
+      }),
+    );
+    expect(restarted).toMatchObject({ state: "running", documents: 0 });
+    await runErasure(deps, artifactId, NOW + 5000);
+    expect(await erasureRow(artifactId)).toMatchObject({ state: "done", documents: 1 });
+  });
+
+  it("limits how often a person starts one in a day", async () => {
+    const { deps, artifactId, write } = await setup();
+    const visitor = await user("Visitor");
+    await write(visitor.id, "a");
+    for (let n = 0; n < OWN_ERASURES_PER_DAY; n++) {
+      value(await requestOwnErasure(db(), deps.bucket, input(visitor.id, artifactId)));
+      await runErasure(deps, artifactId, NOW + 2000);
+    }
+    expect(await requestOwnErasure(db(), deps.bucket, input(visitor.id, artifactId))).toMatchObject(
+      { ok: false, code: "rate_limited" },
+    );
+  });
 });

@@ -2,6 +2,7 @@
 // in-memory reference object, as apps/data's `ArtifactDocuments` serves them over the store.
 import { ERASURE_ACTOR, PENDING_OBLIGATIONS_PER_CALL } from "@portifact/contracts/artifact-data";
 import {
+  LIFECYCLE_LIMITS,
   mutationActorName,
   runOwnerCommand,
   runPageCommand,
@@ -20,11 +21,17 @@ export function ownerRpc(
   | "auditAcknowledge"
   | "auditPending"
   | "lifecycleControl"
+  | "lifecycleEraseOwn"
 > {
   const name = (actor: string) =>
     actor === ERASURE_ACTOR ? actor : mutationActorName({ kind: "owner", actor });
   return {
     lifecycleControl: async () => memory.durable.control,
+    lifecycleEraseOwn: async (envelope, visitor, opId, now) =>
+      memory.eraseOwnChunk({ ...envelope, opId }, visitor, 500, {
+        now,
+        limits: LIFECYCLE_LIMITS,
+      }),
     ownerCommand: async (envelope, actor, command, limits, now) =>
       runOwnerCommand(memory, envelope, actor, command, { now, limits }) as never,
     pageCommand: async (envelope, caller, command, limits, now) =>

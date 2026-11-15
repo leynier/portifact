@@ -64,12 +64,6 @@ export const de = {
     "{count, plural, one {Bisher # Dokument heruntergeladen.} other {Bisher # Dokumente heruntergeladen.}} Der Rest wurde nicht heruntergeladen. Setze fort, dann macht der Download dort weiter, wo er aufgehört hat.",
   "sharedData.downloadedAll":
     "Alles heruntergeladen, was du in {name} gespeichert hast ({count} Dokumente)",
-  "sharedData.deleteContinue": "Löschen fortsetzen",
-  "sharedData.deletePaused": "Löschen angehalten",
-  "sharedData.deletePausedAllowance":
-    "{count, plural, one {Bisher # Dokument gelöscht.} other {Bisher # Dokumente gelöscht.}} Dein heutiges Kontingent für deine Daten in diesem Artefakt ist aufgebraucht. Setze morgen nach Mitternacht UTC fort, dann macht das Löschen dort weiter, wo es aufgehört hat.",
-  "sharedData.deletePausedError":
-    "{count, plural, one {Bisher # Dokument gelöscht.} other {Bisher # Dokumente gelöscht.}} Der Rest wurde nicht gelöscht. Setze fort, dann macht das Löschen dort weiter, wo es aufgehört hat.",
   "dataGrant.viewer.saving": "Diese Seite speichert, was du eingibst",
   "dataGrant.viewer.savingHint":
     "Sie kennt dich über deinen Anzeigenamen und eine ID für dieses Artifact. Du kannst das jederzeit beenden.",
@@ -85,8 +79,15 @@ export const de = {
   "sharedData.deleteTitle": "Löschen, was du in {name} gespeichert hast?",
   "sharedData.deleteBody":
     "Jedes Dokument, das du dort erstellt hast, wird endgültig gelöscht, samt späterer Änderungen anderer. Deine Änderungen an Dokumenten anderer bleiben, ohne deinen Namen.",
-  "sharedData.deleted": "Gelöscht, was du in {name} gespeichert hast ({count} Dokumente)",
   "sharedData.deleteFailed": "Löschen wurde nicht abgeschlossen",
+  "sharedData.eraseStarted":
+    "Was du in {name} gespeichert hast, wird gelöscht. Es geht weiter, auch wenn du diese Seite schließt.",
+  "sharedData.erasing":
+    "{count, plural, one {Was du gespeichert hast, wird gelöscht: bisher # Dokument} other {Was du gespeichert hast, wird gelöscht: bisher # Dokumente}}",
+  "sharedData.erased":
+    "{count, plural, one {Am {date} gelöscht, was du gespeichert hast (# Dokument)} other {Am {date} gelöscht, was du gespeichert hast (# Dokumente)}}",
+  "sharedData.eraseFailed":
+    "Das Löschen dessen, was du gespeichert hast, wurde nicht abgeschlossen. Du kannst es erneut anfordern.",
   "dataGrant.frame.granted": "Diese Seite kann jetzt speichern, was du eingibst",
   "dataGrant.frame.saving": "Deine Wahl wird gespeichert",
   "dataGrant.frame.unavailable": "Speichern ist in diesem Rahmen nicht verfügbar",

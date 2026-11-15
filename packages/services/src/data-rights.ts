@@ -5,6 +5,8 @@
 // visitor's rights class, so they need neither write permission, the current terms, an open
 // grant nor read access to the artifact: the documents are the person's. Nothing here reads or
 // changes anyone else's documents, and a person the journal does not name has nothing to export.
+
+import type { OwnErasureView } from "@portifact/contracts";
 import {
   JournalEntry as JournalEntrySchema,
   type PageDataCommand,
@@ -93,23 +95,21 @@ async function asVisitor(
 }
 
 /**
- * One page of the documents the person created in the artifact, as the export stores them: at
- * most `take` (500, the cap, by default). Each page is charged to the person's own rights
- * allowance, which a large export spends within a day; the next page is then refused
- * `rate_limited` until the allowance comes back, and the export resumes from its cursor.
+ * One page of the documents the person created in the artifact, as the export stores them. Each
+ * page is charged to the person's own rights allowance, which a large export spends within a day;
+ * the next page is then refused `rate_limited` until the allowance comes back, and the export
+ * resumes from its cursor.
  */
 export async function exportOwnData(
   db: RegionalDb,
   deps: DataRightsDeps,
-  input: DataRightsInput & { after: { collection: string; id: string } | null; take?: number },
+  input: DataRightsInput & { after: { collection: string; id: string } | null },
 ): Promise<Result<unknown>> {
   const answer = await asVisitor(
     db,
     deps,
     input,
-    input.take === undefined
-      ? { kind: "export_mine", after: input.after }
-      : { kind: "export_mine", after: input.after, take: input.take },
+    { kind: "export_mine", after: input.after },
     null,
   );
   return answer.ok ? ok(answer.value.value) : answer;
@@ -129,6 +129,91 @@ export async function deleteOwnDocument(
     input.idempotencyKey,
   );
   return answer.ok ? ok({ deleted: true }) : answer;
+}
+
+/** Erasures one person may start in one artifact a day (each runs to the end on its own). */
+export const OWN_ERASURES_PER_DAY = 5;
+
+type OwnErasureRow = typeof schema.dataOwnErasures.$inferSelect;
+
+/** An erasure row as "Data you shared" shows it. */
+export function ownErasureView(row: OwnErasureRow): OwnErasureView {
+  return {
+    state: row.state,
+    documents: row.documents,
+    edits: row.edits,
+    requestedAt: new Date(row.requestedAt).toISOString(),
+    finishedAt: row.finishedAt === null ? null : new Date(row.finishedAt).toISOString(),
+  };
+}
+
+/**
+ * The person asks to delete everything they saved in the artifact (decision 0026, "A person's
+ * rights"): the documents they created, with later edits others made to them, and their name on
+ * their edits to other people's documents. It is not their single-document delete: the
+ * `data_own_erasure` job runs it on the documents object in bounded chunks of protected work, so
+ * neither their daily rights allowance nor the artifact's budget or a capacity pause stops it, and
+ * it finishes within the hour for any dataset a plan allows. Only a person the journal names may
+ * ask; a running erasure answers as it is, without starting another. The row and its job are
+ * written in one batch, the job only when this request's `write_id` holds the row.
+ */
+export async function requestOwnErasure(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  input: DataRightsInput,
+): Promise<Result<OwnErasureView>> {
+  const visitorId = await journalVisitorId(bucket, input.userId, input.artifactId);
+  if (visitorId === null) return nothing();
+  if ((await readDataRow(db, input.region, input.artifactId)) === null) return nothing();
+  const e = schema.dataOwnErasures;
+  const key = and(eq(e.artifactId, input.artifactId), eq(e.visitorId, visitorId));
+  const [existing] = await db.select().from(e).where(key).limit(1);
+  if (existing?.state === "running") return ok(ownErasureView(existing));
+  const hits = await hitRateLimit(
+    db.global.$client,
+    `own_erasure:${input.userId}:${input.artifactId}`,
+    DAY_MS,
+    input.now,
+  );
+  if (hits.count > OWN_ERASURES_PER_DAY) {
+    return fail("rate_limited", "You asked for this several times today. Try again tomorrow.");
+  }
+  const writeId = crypto.randomUUID().replaceAll("-", "");
+  const payload = JSON.stringify({ visitorId, writeId });
+  await db.batch([
+    db
+      .insert(e)
+      .values({
+        artifactId: input.artifactId,
+        visitorId,
+        state: "running",
+        writeId,
+        documents: 0,
+        edits: 0,
+        requestedAt: input.now,
+        finishedAt: null,
+      })
+      .onConflictDoUpdate({
+        target: [e.artifactId, e.visitorId],
+        set: {
+          state: "running",
+          writeId,
+          documents: 0,
+          edits: 0,
+          requestedAt: input.now,
+          finishedAt: null,
+        },
+        setWhere: sql`${e.state} <> 'running'`,
+      }),
+    db
+      .insert(schema.outbox)
+      .select(
+        sql`select null, 'data_own_erasure', ${payload}, ${input.now}, null, 0, ${input.now}, ${input.artifactId}, null where exists (select 1 from ${e} where ${e.artifactId} = ${input.artifactId} and ${e.visitorId} = ${visitorId} and ${e.writeId} = ${writeId})`,
+      ),
+  ]);
+  const [row] = await db.select().from(e).where(key).limit(1);
+  if (!row) return nothing();
+  return ok(ownErasureView(row));
 }
 
 export type DataRightsKind = "access" | "erasure";
@@ -431,8 +516,9 @@ export async function retryDataRightsRequest(
 }
 
 /**
- * Deletes, at most `limit` per run, delivered and resolved requests `DATA_RIGHTS_KEEP_MS` after
- * they settled, through the `(state, settled_at)` index. Pending and undeliverable ones stay.
+ * Deletes, at most `limit` of each per run, delivered and resolved requests and finished own
+ * erasures `DATA_RIGHTS_KEEP_MS` after they settled, each through its `(state, time)` index, in
+ * one batch. Pending and undeliverable requests and running erasures stay.
  */
 export async function pruneDataRightsRequests(
   db: RegionalDb,
@@ -440,12 +526,21 @@ export async function pruneDataRightsRequests(
   limit = 500,
 ): Promise<{ processed: number }> {
   const r = schema.dataRightsRequests;
+  const e = schema.dataOwnErasures;
   const before = now - DATA_RIGHTS_KEEP_MS;
-  const gone = await db
-    .delete(r)
-    .where(
-      sql`${r.id} in (select ${r.id} from ${r} where ${r.state} in ('delivered', 'resolved') and ${r.settledAt} <= ${before} limit ${limit})`,
-    )
-    .returning({ id: r.id });
-  return { processed: gone.length };
+  const [requests, erasures] = await db.batch([
+    db
+      .delete(r)
+      .where(
+        sql`${r.id} in (select ${r.id} from ${r} where ${r.state} in ('delivered', 'resolved') and ${r.settledAt} <= ${before} limit ${limit})`,
+      )
+      .returning({ id: r.id }),
+    db
+      .delete(e)
+      .where(
+        sql`rowid in (select rowid from ${e} where ${e.state} in ('done', 'failed') and ${e.finishedAt} <= ${before} limit ${limit})`,
+      )
+      .returning({ id: e.artifactId }),
+  ]);
+  return { processed: requests.length + erasures.length };
 }

@@ -10,6 +10,7 @@ import {
   dataGrantControl,
   exportTombstones,
   issueDataGrantCode,
+  journalVisitorId,
   listDataGrants,
   nonceDigest,
   pruneDataGrants,
@@ -313,6 +314,7 @@ describe("data grants", () => {
         firstGrantedAt: new Date(NOW).toISOString(),
         lastGrantedAt: new Date(NOW).toISOString(),
         expiresAt: new Date(NOW + DATA_GRANT.grantTtlSeconds * 1000).toISOString(),
+        erasure: null,
       },
     ]);
     expect(
@@ -347,9 +349,34 @@ describe("data grants", () => {
           firstGrantedAt: new Date(NOW).toISOString(),
           lastGrantedAt: new Date(NOW).toISOString(),
           expiresAt: null,
+          erasure: null,
         },
       ],
       next: null,
+    });
+    // The person's erasure there shows with the artifact.
+    await db()
+      .insert(schema.dataOwnErasures)
+      .values({
+        artifactId: ID,
+        visitorId: (await journalVisitorId(env.ARTIFACTS, READER, ID)) as string,
+        state: "running",
+        writeId: "w".repeat(32),
+        documents: 7,
+        edits: 1,
+        requestedAt: later,
+      });
+    const withErasure = await listDataGrants(db(), env.ARTIFACTS, {
+      userId: READER,
+      contentDomain: "portifact.dev",
+      now: later,
+    });
+    expect(withErasure.items[0]?.erasure).toEqual({
+      state: "running",
+      documents: 7,
+      edits: 1,
+      requestedAt: new Date(later).toISOString(),
+      finishedAt: null,
     });
     // A journal entry the account deletion retired lists nothing.
     await retireJournalEntry(env.ARTIFACTS, READER, ID, later);

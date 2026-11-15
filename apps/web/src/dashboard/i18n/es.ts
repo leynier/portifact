@@ -61,12 +61,6 @@ export const es = {
   "sharedData.downloadPausedError":
     "{count, plural, one {# documento descargado hasta ahora.} other {# documentos descargados hasta ahora.}} El resto no se descargó. Continúa y la descarga seguirá donde se detuvo.",
   "sharedData.downloadedAll": "Se descargó todo lo que guardaste en {name} ({count} documentos)",
-  "sharedData.deleteContinue": "Continuar eliminando",
-  "sharedData.deletePaused": "Eliminación en pausa",
-  "sharedData.deletePausedAllowance":
-    "{count, plural, one {# documento eliminado hasta ahora.} other {# documentos eliminados hasta ahora.}} Se agotó la asignación de hoy para tus datos en este artefacto. Continúa mañana, después de la medianoche UTC, y la eliminación seguirá donde se detuvo.",
-  "sharedData.deletePausedError":
-    "{count, plural, one {# documento eliminado hasta ahora.} other {# documentos eliminados hasta ahora.}} El resto no se eliminó. Continúa y la eliminación seguirá donde se detuvo.",
   "dataGrant.viewer.saving": "Esta página guarda lo que escribes",
   "dataGrant.viewer.savingHint":
     "Te conoce por tu nombre visible y un ID para este artifact. Puedes detenerlo cuando quieras.",
@@ -82,8 +76,15 @@ export const es = {
   "sharedData.deleteTitle": "¿Eliminar lo que guardaste en {name}?",
   "sharedData.deleteBody":
     "Cada documento que creaste ahí se elimina para siempre, con las ediciones que otros le hicieron después. Tus ediciones en documentos de otras personas se quedan, sin tu nombre.",
-  "sharedData.deleted": "Se eliminó lo que guardaste en {name} ({count} documentos)",
   "sharedData.deleteFailed": "No se pudo completar la eliminación",
+  "sharedData.eraseStarted":
+    "Se está eliminando lo que guardaste en {name}. Continúa aunque cierres esta página.",
+  "sharedData.erasing":
+    "{count, plural, one {Eliminando lo que guardaste: # documento hasta ahora} other {Eliminando lo que guardaste: # documentos hasta ahora}}",
+  "sharedData.erased":
+    "{count, plural, one {Lo que guardaste se eliminó el {date} (# documento)} other {Lo que guardaste se eliminó el {date} (# documentos)}}",
+  "sharedData.eraseFailed":
+    "La eliminación de lo que guardaste no se completó. Puedes pedirla de nuevo.",
   "dataGrant.frame.granted": "Esta página ya puede guardar lo que escribes",
   "dataGrant.frame.saving": "Guardando tu elección",
   "dataGrant.frame.unavailable": "Guardar no está disponible en este marco",

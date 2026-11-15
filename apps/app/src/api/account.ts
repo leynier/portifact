@@ -43,15 +43,11 @@ import {
   type ErrorDetail,
   OwnDataPage,
   OwnDocumentDeletion,
+  OwnErasureView,
   SignOutOthersResult,
   WorkspaceParam,
 } from "@portifact/contracts";
-import {
-  ARTIFACT_DATA,
-  CollectionName,
-  DocumentId,
-  ExportCursor,
-} from "@portifact/contracts/artifact-data";
+import { CollectionName, DocumentId, ExportCursor } from "@portifact/contracts/artifact-data";
 import { accountSessionUsableWithoutCurrentTerms } from "@portifact/domain";
 import {
   accountSuspensionView,
@@ -80,6 +76,7 @@ import {
   removeBrandLogo,
   requestAccountDeletion,
   requestDataRights,
+  requestOwnErasure,
   revokeDataGrants,
   setBrandLogo,
   setCommentNoticeMute,
@@ -689,22 +686,12 @@ export function accountRoutes(deps: AccountDeps) {
       if (after !== null && (at <= 0 || !after.success)) {
         return error(c, "invalid_input", "Invalid cursor.");
       }
-      // A smaller page, for deleting in batches the person's daily allowance fits.
-      const rawTake = c.req.query("take");
-      const take = rawTake === undefined ? undefined : Number(rawTake);
-      if (
-        take !== undefined &&
-        (!/^[0-9]{1,3}$/.test(rawTake ?? "") || take < 1 || take > ARTIFACT_DATA.caps.exportRows)
-      ) {
-        return error(c, "invalid_input", "Invalid page size.");
-      }
       const result = await exportOwnData(target.db, target.deps, {
         userId: session.userId,
         artifactId: target.artifactId,
         region: target.region,
         now: deps.now(),
         after: after === null ? null : (after.data ?? null),
-        ...(take === undefined ? {} : { take }),
       });
       if (!result.ok) return error(c, result.code, result.message);
       const page = result.value as {
@@ -766,6 +753,25 @@ export function accountRoutes(deps: AccountDeps) {
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(DataRightsRequested.parse(result.value), 202);
+    }),
+  );
+
+  // Deleting everything the person saved in an artifact: a job the server runs to the end in
+  // bounded steps, so the request survives the page. Answers the erasure's state.
+  routes.post(
+    "/api/v1/account/data-grants/:artifactId/erasure",
+    sessionOnly(async (c, session) => {
+      if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
+      const target = await ownData(c);
+      if (target === null) return error(c, "not_found", "Artifact not found.");
+      const result = await requestOwnErasure(target.db, target.deps.bucket, {
+        userId: session.userId,
+        artifactId: target.artifactId,
+        region: target.region,
+        now: deps.now(),
+      });
+      if (!result.ok) return error(c, result.code, result.message);
+      return c.json(OwnErasureView.parse(result.value), 202);
     }),
   );
 

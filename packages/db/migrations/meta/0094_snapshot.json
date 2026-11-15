@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d1137fc7-2370-4aae-a838-e830e236f87d",
+  "id": "ca6e599f-a64d-41d2-8d12-3349f6eca5ba",
   "prevId": "8a44e6e9-18cb-470c-a33b-3c7beb741fa5",
   "tables": {
     "abuse_reports": {
@@ -3503,6 +3503,95 @@
         "data_operations_actor_id_idempotency_key_pk": {
           "columns": ["actor_id", "idempotency_key"],
           "name": "data_operations_actor_id_idempotency_key_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "data_own_erasures": {
+      "name": "data_own_erasures",
+      "columns": {
+        "artifact_id": {
+          "name": "artifact_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "visitor_id": {
+          "name": "visitor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "write_id": {
+          "name": "write_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "documents": {
+          "name": "documents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "edits": {
+          "name": "edits",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "data_own_erasures_finished_idx": {
+          "name": "data_own_erasures_finished_idx",
+          "columns": ["state", "finished_at"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "data_own_erasures_artifact_id_artifacts_id_fk": {
+          "name": "data_own_erasures_artifact_id_artifacts_id_fk",
+          "tableFrom": "data_own_erasures",
+          "tableTo": "artifacts",
+          "columnsFrom": ["artifact_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "data_own_erasures_artifact_id_visitor_id_pk": {
+          "columns": ["artifact_id", "visitor_id"],
+          "name": "data_own_erasures_artifact_id_visitor_id_pk"
         }
       },
       "uniqueConstraints": {},

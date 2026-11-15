@@ -92,6 +92,7 @@ import {
   type OperationKind,
   operationKey,
   outbound,
+  ownChunkLeavesMore,
   type PendingReads,
   pageOf,
   passLeftMore,
@@ -1872,6 +1873,89 @@ export class DocumentsStore {
     );
   }
 
+  /**
+   * A person's own erasure chunk (`erase_own_chunk`, protected work): up to `take` documents the
+   * author created are deleted and up to `take` they last edited lose their name, through the
+   * same bounded selections as an author erasure, but no barrier is written and the author's
+   * records stay, so they may save again.
+   */
+  eraseOwnChunk(
+    envelope: DataEnvelope,
+    author: string,
+    requested: number,
+    context: Context,
+  ): Answer<{ documents: number; edits: number; more: boolean }> {
+    const take = chunkSize(requested);
+    const request = ["erase_own", author, take];
+    const actor: MutationActor = { kind: "erasure" };
+    const notices: { mode: CollectionMode; doc: Doc; kind: "deleted" | "updated" }[] = [];
+    return this.#mutation(
+      "erase_own_chunk",
+      envelope,
+      actor,
+      context,
+      request,
+      { author },
+      (plan) => {
+        const modes = new Map<string, CollectionMode>();
+        const modeOf = (name: string) => {
+          let mode = modes.get(name);
+          if (mode === undefined) {
+            mode = this.#collectionMode(name);
+            modes.set(name, mode);
+          }
+          return mode;
+        };
+        const created = this.#exec(
+          `SELECT ${DOC_COLUMNS} FROM pf_documents WHERE author = ? ORDER BY collection, id LIMIT ?`,
+          author,
+          take,
+        ).map(docOf);
+        for (const doc of created) {
+          const mode = modeOf(doc.collection);
+          const seq = this.#deleteDoc(doc, mode);
+          notices.push({ mode, doc: { ...doc, seq }, kind: "deleted" });
+        }
+        const edited = this.#exec(
+          `SELECT ${DOC_COLUMNS} FROM pf_documents WHERE editor = ? ORDER BY collection, id LIMIT ?`,
+          author,
+          take,
+        ).map(docOf);
+        for (const doc of edited) {
+          const mode = modeOf(doc.collection);
+          doc.editor = ERASED_EDITOR;
+          doc.seq = this.#advance(sequenceScope(mode, doc.collection, doc.author));
+          this.#exec(
+            "UPDATE pf_documents SET editor = ?, seq = ? WHERE collection = ? AND id = ?",
+            ERASED_EDITOR,
+            doc.seq,
+            doc.collection,
+            doc.id,
+          );
+          notices.push({ mode, doc: { ...doc }, kind: "updated" });
+        }
+        const more = ownChunkLeavesMore({ documents: created.length, edits: edited.length }, take);
+        const result = { documents: created.length, edits: edited.length, more };
+        this.#record(plan, actor, requestHash(request), "own_erased", author, context.now, {
+          documents: created.length,
+          edits: edited.length,
+          more: more ? 1 : 0,
+        });
+        return {
+          value: result,
+          documents: created.length + edited.length,
+          declared: false,
+          detail: { documents: created.length, edits: edited.length },
+        };
+      },
+      () => {
+        for (const notice of notices) {
+          this.#notify(notice.mode, notice.doc, notice.kind, context.now);
+        }
+      },
+    );
+  }
+
   // Reads.
 
   #readCommand<T>(
@@ -2159,18 +2243,13 @@ export class DocumentsStore {
     caller: Caller,
     after: ExportCursor | null,
     context: Context,
-    requested?: number,
   ): Answer<ExportPage> {
     if (caller.kind !== "visitor") {
       return this.#running(context.now, () =>
         this.#answer(() => fail({ code: "forbidden", message: "a grant holder's own export" })),
       );
     }
-    // A smaller page when asked, never a larger one than the cap.
-    const take = Math.min(
-      requested ?? ARTIFACT_DATA.caps.exportRows,
-      ARTIFACT_DATA.caps.exportRows,
-    );
+    const take = ARTIFACT_DATA.caps.exportRows;
     return this.#exportCommand(envelope, "visitor", caller.author, after, take, context);
   }
 

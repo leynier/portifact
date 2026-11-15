@@ -281,6 +281,7 @@ it("RPC surface: only the lifecycle, owner, page and audit methods and the platf
       "lifecycleControl",
       "lifecycleErase",
       "lifecycleEraseAuthor",
+      "lifecycleEraseOwn",
       "lifecycleExport",
       "lifecycleFence",
       "lifecycleQuarantine",

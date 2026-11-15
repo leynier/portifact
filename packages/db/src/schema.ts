@@ -781,6 +781,7 @@ export const OUTBOX_TOPICS = [
   "data_audit",
   "data_rights_request",
   "data_reset",
+  "data_own_erasure",
 ] as const;
 
 /**
@@ -1347,6 +1348,35 @@ export const dataRightsRequestSends = sqliteTable(
     sentAt: timestamp("sent_at").notNull(),
   },
   (t) => [primaryKey({ columns: [t.requestId, t.userId] })],
+);
+
+/**
+ * A person's erasure of everything they saved in one artifact (decision 0026, "A person's
+ * rights"), keyed by the visitor ID the author journal names them by there, never the account: the
+ * `data_own_erasure` job (subject: the artifact) asks the documents object for bounded chunks,
+ * protected work that no allowance or budget step stops, until none is left. `write_id` is the
+ * request that started the current run, which its job carries. "Data you shared" shows the state;
+ * finished rows go 30 days later (`pruneDataRightsRequests`).
+ */
+export const dataOwnErasures = sqliteTable(
+  "data_own_erasures",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    visitorId: text("visitor_id").notNull(),
+    /** `failed` only when the object refused it as no job can fix (a defect); asking again restarts. */
+    state: text("state", { enum: ["running", "done", "failed"] }).notNull(),
+    writeId: text("write_id").notNull(),
+    documents: integer("documents").notNull().default(0),
+    edits: integer("edits").notNull().default(0),
+    requestedAt: timestamp("requested_at").notNull(),
+    finishedAt: timestamp("finished_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.visitorId] }),
+    index("data_own_erasures_finished_idx").on(t.state, t.finishedAt),
+  ],
 );
 
 /**

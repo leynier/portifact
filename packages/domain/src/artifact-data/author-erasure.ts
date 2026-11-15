@@ -59,6 +59,16 @@ export function chunkLeavesMore(work: ChunkWork, take: number): boolean {
 }
 
 /**
+ * Whether a person's own erasure chunk (`erase_own_chunk`) must be followed by another: it deletes
+ * created documents and unattributes edits, each up to `take`, and leaves the author's records
+ * (operations, rates, rights) alone, so only those two parts count. It is not terminal: no barrier
+ * is written, and the chunk that finds less than `take` of both ends it.
+ */
+export function ownChunkLeavesMore(work: { documents: number; edits: number }, take: number) {
+  return work.documents >= take || work.edits >= take;
+}
+
+/**
  * The terminal condition, checked in the completing chunk's transaction: no document is created
  * or last edited by the author and no rights row of theirs is left. Then the chunk deletes any
  * remaining sequence and count of the author and marks the barrier complete.

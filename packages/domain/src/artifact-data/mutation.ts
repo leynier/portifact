@@ -48,7 +48,13 @@ export type MutationKind =
   | "bulk_create"
   | "bulk_replace"
   | "bulk_remove"
-  | "erase_author_chunk";
+  | "erase_author_chunk"
+  /**
+   * A person's own erasure (decision 0026, "A person's rights"): the documents they created
+   * deleted and their edits unattributed, in bounded chunks, by the job for them. Unlike an
+   * author erasure it sets no barrier, so they may save again afterwards.
+   */
+  | "erase_own_chunk";
 
 /** Who runs a mutation: a caller, or the erasure job. */
 export type MutationActor = Caller | { kind: "erasure" };
@@ -144,6 +150,7 @@ function authorizeCaller(
   }
   switch (request.kind) {
     case "erase_author_chunk":
+    case "erase_own_chunk":
       return actor.kind === "erasure" ? { collection: null } : refuse("forbidden", "erasure only");
     case "declare":
     case "index_step":
@@ -245,6 +252,9 @@ function chargeOf(
     case "bulk_remove":
     case "erase_author_chunk":
       return "cleanup";
+    // A person's erasure is never stopped by their daily allowance or the artifact's budget.
+    case "erase_own_chunk":
+      return "protected";
     default:
       return "growth";
   }
@@ -396,6 +406,7 @@ const AUDIT_KINDS: Record<MutationKind, string> = {
   bulk_replace: "data.documents_replaced",
   bulk_remove: "data.documents_deleted",
   erase_author_chunk: "data.author_erased",
+  erase_own_chunk: "",
 };
 
 /**
@@ -408,6 +419,8 @@ export function auditObligation(
   detail: Record<string, number | boolean>,
 ): { kind: string; detail: Record<string, number | boolean> } | null {
   if (actor.kind !== "owner" && actor.kind !== "erasure") return null;
+  // A person deleting what they saved is their right, not an owner's change, like their deletes.
+  if (kind === "erase_own_chunk") return null;
   return { kind: AUDIT_KINDS[kind], detail };
 }
 

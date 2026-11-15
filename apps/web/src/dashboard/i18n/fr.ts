@@ -66,12 +66,6 @@ export const fr = {
     "{count, plural, one {# document téléchargé jusqu'ici.} other {# documents téléchargés jusqu'ici.}} Le reste n'a pas été téléchargé. Reprenez, et le téléchargement continuera là où il s'est arrêté.",
   "sharedData.downloadedAll":
     "Tout ce que vous avez enregistré dans {name} a été téléchargé ({count} documents)",
-  "sharedData.deleteContinue": "Reprendre la suppression",
-  "sharedData.deletePaused": "Suppression en pause",
-  "sharedData.deletePausedAllowance":
-    "{count, plural, one {# document supprimé jusqu'ici.} other {# documents supprimés jusqu'ici.}} Le quota du jour pour vos données dans cet artefact est épuisé. Reprenez demain, après minuit UTC, et la suppression continuera là où elle s'est arrêtée.",
-  "sharedData.deletePausedError":
-    "{count, plural, one {# document supprimé jusqu'ici.} other {# documents supprimés jusqu'ici.}} Le reste n'a pas été supprimé. Reprenez, et la suppression continuera là où elle s'est arrêtée.",
   "dataGrant.viewer.saving": "Cette page enregistre ce que vous saisissez",
   "dataGrant.viewer.savingHint":
     "Elle vous connaît par votre nom affiché et un identifiant propre à cet artifact. Vous pouvez l'arrêter à tout moment.",
@@ -87,9 +81,15 @@ export const fr = {
   "sharedData.deleteTitle": "Supprimer ce que vous avez enregistré dans {name} ?",
   "sharedData.deleteBody":
     "Chaque document que vous y avez créé est supprimé définitivement, avec les modifications faites ensuite par d'autres. Vos modifications des documents d'autres personnes restent, sans votre nom.",
-  "sharedData.deleted":
-    "Ce que vous avez enregistré dans {name} a été supprimé ({count} documents)",
   "sharedData.deleteFailed": "La suppression n'a pas abouti",
+  "sharedData.eraseStarted":
+    "Suppression de ce que vous avez enregistré dans {name}. Elle continue même si vous fermez cette page.",
+  "sharedData.erasing":
+    "{count, plural, one {Suppression de ce que vous avez enregistré : # document jusqu'ici} other {Suppression de ce que vous avez enregistré : # documents jusqu'ici}}",
+  "sharedData.erased":
+    "{count, plural, one {Ce que vous avez enregistré a été supprimé le {date} (# document)} other {Ce que vous avez enregistré a été supprimé le {date} (# documents)}}",
+  "sharedData.eraseFailed":
+    "La suppression de ce que vous avez enregistré n'a pas abouti. Vous pouvez la redemander.",
   "dataGrant.frame.granted": "Cette page peut maintenant enregistrer ce que vous saisissez",
   "dataGrant.frame.saving": "Enregistrement de votre choix",
   "dataGrant.frame.unavailable": "L'enregistrement n'est pas disponible dans ce cadre",

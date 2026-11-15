@@ -25,6 +25,7 @@ import {
 } from "@portifact/domain";
 import { claimOutcome, journalKey } from "@portifact/domain/artifact-data";
 import { and, eq, gt, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
+import { ownErasureView } from "./data-rights.ts";
 import {
   appSessionSignIn,
   checkReadAccess,
@@ -521,14 +522,18 @@ export async function listDataGrants(
         if (!entry.success || entry.data.retiredAt !== undefined) return null;
         const artifactId = ArtifactId.safeParse(key.slice(prefix.length));
         if (entry.data.visitorId === null || !artifactId.success) return null;
-        return { artifactId: artifactId.data, firstGrantAt: entry.data.firstGrantAt };
+        return {
+          artifactId: artifactId.data,
+          visitorId: entry.data.visitorId,
+          firstGrantAt: entry.data.firstGrantAt,
+        };
       }),
     )
   ).filter((entry) => entry !== null);
   if (entries.length === 0) return { items: [], next };
   const ids = entries.map((entry) => entry.artifactId);
   const live = sql`${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now}`;
-  const [names, grants] = await db.batch([
+  const [names, grants, erasures] = await db.batch([
     db
       .select({ id: schema.artifacts.id, name: schema.artifacts.name })
       .from(schema.artifacts)
@@ -544,7 +549,12 @@ export async function listDataGrants(
       .from(g)
       .where(and(eq(g.userId, input.userId), inArray(g.artifactId, ids), isNotNull(g.redeemedAt)))
       .groupBy(g.artifactId),
+    // The person's erasures there, by the visitor ID each entry names (matched below).
+    db.select().from(schema.dataOwnErasures).where(inArray(schema.dataOwnErasures.artifactId, ids)),
   ]);
+  const erasureOf = new Map(
+    erasures.map((row) => [`${row.artifactId}\u0000${row.visitorId}`, ownErasureView(row)]),
+  );
   const nameOf = new Map(names.map((row) => [row.id, row.name]));
   const grantOf = new Map(grants.map((row) => [row.artifactId, row]));
   return {
@@ -562,6 +572,7 @@ export async function listDataGrants(
           grant?.expiresAt === null || grant?.expiresAt === undefined
             ? null
             : new Date(Number(grant.expiresAt)).toISOString(),
+        erasure: erasureOf.get(`${entry.artifactId}\u0000${entry.visitorId}`) ?? null,
       };
     }),
     next,

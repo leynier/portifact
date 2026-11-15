@@ -1,3 +1,17 @@
+CREATE TABLE `data_own_erasures` (
+	`artifact_id` text NOT NULL,
+	`visitor_id` text NOT NULL,
+	`state` text NOT NULL,
+	`write_id` text NOT NULL,
+	`documents` integer DEFAULT 0 NOT NULL,
+	`edits` integer DEFAULT 0 NOT NULL,
+	`requested_at` integer NOT NULL,
+	`finished_at` integer,
+	PRIMARY KEY(`artifact_id`, `visitor_id`),
+	FOREIGN KEY (`artifact_id`) REFERENCES `artifacts`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `data_own_erasures_finished_idx` ON `data_own_erasures` (`state`,`finished_at`);--> statement-breakpoint
 CREATE TABLE `data_rights_request_sends` (
 	`request_id` text NOT NULL,
 	`user_id` text NOT NULL,

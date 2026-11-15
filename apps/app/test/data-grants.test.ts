@@ -50,6 +50,10 @@ describe("data grants on the app", () => {
       ["/api/v1/account/data-grants", "GET"],
       ["/api/v1/account/data-grants/k7d2qm4xab/control", "GET"],
       ["/api/v1/account/data-grants/k7d2qm4xab", "DELETE"],
+      ["/api/v1/account/data-grants/k7d2qm4xab/mine", "GET"],
+      ["/api/v1/account/data-grants/k7d2qm4xab/erasure", "POST"],
+      ["/api/v1/account/data-grants/k7d2qm4xab/rights-request", "POST"],
+      ["/api/v1/account/data-grants/k7d2qm4xab/documents/votes/aaaaaaaaaaaaaaaa", "DELETE"],
     ] as const) {
       expect((await h.request(path, dashboard(cookie, method))).status).toBe(404);
     }
@@ -231,6 +235,9 @@ describe("data grants on the app", () => {
     for (const [path, method] of [
       ["/api/v1/account/data-grants/NOT-AN-ID/control", "GET"],
       ["/api/v1/account/data-grants/NOT-AN-ID", "DELETE"],
+      ["/api/v1/account/data-grants/NOT-AN-ID/mine", "GET"],
+      ["/api/v1/account/data-grants/NOT-AN-ID/erasure", "POST"],
+      ["/api/v1/account/data-grants/NOT-AN-ID/rights-request", "POST"],
     ] as const) {
       expect((await h.request(path, dashboard(cookie, method))).status).toBe(404);
     }
@@ -381,24 +388,6 @@ describe("data grants on the app", () => {
     const body = await page.json<{ rows: { id: string }[]; next: string | null }>();
     expect(body.rows.map((row) => row.id)).toEqual([docId]);
     expect(body.next).toBeNull();
-    // A smaller page, as "Data you shared" deletes in batches; never a malformed or larger one.
-    const small = await h.request(
-      `/api/v1/account/data-grants/${id}/mine?take=1`,
-      dashboard(visitor.cookie),
-    );
-    expect((await small.json<{ rows: { id: string }[] }>()).rows.map((row) => row.id)).toEqual([
-      docId,
-    ]);
-    for (const take of ["0", "501", "1.5", "x"]) {
-      expect(
-        (
-          await h.request(
-            `/api/v1/account/data-grants/${id}/mine?take=${take}`,
-            dashboard(visitor.cookie),
-          )
-        ).status,
-      ).toBe(400);
-    }
 
     // Someone else has nothing there, and cannot delete the visitor's document.
     const stranger = await h.signIn("rights-stranger@example.test");
@@ -422,6 +411,13 @@ describe("data grants on the app", () => {
     expect(await asked.json()).toEqual({ requested: true });
     expect((await ask(stranger, "erasure")).status).toBe(404);
     expect((await ask(visitor.cookie, "everything")).status).toBe(400);
+    // Deleting everything they saved there: an erasure the server runs, for the person only.
+    const erase = (cookie: string) =>
+      h.request(`/api/v1/account/data-grants/${id}/erasure`, dashboard(cookie, "POST", {}));
+    const erasing = await erase(visitor.cookie);
+    expect(erasing.status).toBe(202);
+    expect(await erasing.json()).toMatchObject({ state: "running", documents: 0 });
+    expect((await erase(stranger)).status).toBe(404);
     // Kept as a request with its job, which names the request.
     const [request] = await db
       .select()

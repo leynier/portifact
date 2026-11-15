@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 // The consent control of artifact data and "Data you shared" (decision 0026, "The grant").
-import type { DataGrantControl } from "@portifact/contracts";
+import type { DataGrantControl, DataGrantView } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -81,6 +81,7 @@ describe("Data you shared", () => {
         firstGrantedAt: "2026-11-01T10:00:00.000Z",
         lastGrantedAt: "2026-11-10T10:00:00.000Z",
         expiresAt: "2026-12-10T10:00:00.000Z",
+        erasure: null,
       },
       {
         artifactId: "p3n5wq7yzc",
@@ -90,6 +91,7 @@ describe("Data you shared", () => {
         firstGrantedAt: "2026-10-01T10:00:00.000Z",
         lastGrantedAt: "2026-10-01T10:00:00.000Z",
         expiresAt: null,
+        erasure: null,
       },
     ];
     const view = renderDashboard("/shared-data", server);
@@ -116,6 +118,7 @@ describe("Data you shared", () => {
       firstGrantedAt: "2026-11-01T10:00:00.000Z",
       lastGrantedAt: `2026-11-0${n + 1}T10:00:00.000Z`,
       expiresAt: "2026-12-10T10:00:00.000Z",
+      erasure: null,
     }));
     renderDashboard("/shared-data", server);
     expect(await screen.findByText("Board a")).toBeTruthy();
@@ -136,6 +139,7 @@ describe("Data you shared", () => {
         firstGrantedAt: "2026-11-01T10:00:00.000Z",
         lastGrantedAt: "2026-11-01T10:00:00.000Z",
         expiresAt: null,
+        erasure: null,
       },
     ];
     server.ownData[ID] = [
@@ -154,7 +158,14 @@ describe("Data you shared", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete what you saved in Board" }));
     const dialog = await screen.findByRole("dialog", { name: "Delete what you saved in Board?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete what I saved" }));
-    await waitFor(() => expect(server.ownData[ID]).toEqual([]));
+    // The server erases it on its own: the list shows the erasure running and keeps it shown.
+    expect(await screen.findByText("Deleting what you saved: 0 documents so far")).toBeTruthy();
+    expect(server.requests.some((r) => r.path.endsWith(`/data-grants/${ID}/erasure`))).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Delete what you saved in Board" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
     // A closed grant offers no Revoke, but the person's documents stay theirs to take or delete.
     expect(screen.queryByRole("button", { name: "Revoke Board" })).toBeNull();
   });
@@ -171,6 +182,7 @@ describe("Data you shared", () => {
         firstGrantedAt: "2026-11-01T10:00:00.000Z",
         lastGrantedAt: "2026-11-01T10:00:00.000Z",
         expiresAt: null,
+        erasure: null,
       },
     ];
     // 501 documents and an allowance of 500 charged rows, as on Free: one page a day.
@@ -223,6 +235,7 @@ describe("Data you shared", () => {
         firstGrantedAt: "2026-11-01T10:00:00.000Z",
         lastGrantedAt: "2026-11-01T10:00:00.000Z",
         expiresAt: null,
+        erasure: null,
       },
     ];
     server.ownData[ID] = [{ collection: "votes", id: "a".repeat(16), body: '{"choice":"a"}' }];
@@ -237,47 +250,47 @@ describe("Data you shared", () => {
     expect(view.saved[0]?.fileName).toBe("Board-my-data.jsonl");
   });
 
-  it("deletes in small batches, pauses when the allowance is spent and continues without exporting everything", async () => {
-    localStorage.clear();
+  it("shows an erasure that ended, or failed, after the page was closed", async () => {
     const server = fakeServer();
+    const grant = (erasure: DataGrantView["erasure"]): DataGrantView => ({
+      artifactId: ID,
+      artifactName: "Board",
+      host: HOST,
+      openGrants: 0,
+      firstGrantedAt: "2026-11-01T10:00:00.000Z",
+      lastGrantedAt: "2026-11-01T10:00:00.000Z",
+      expiresAt: null,
+      erasure,
+    });
     server.dataGrants = [
-      {
-        artifactId: ID,
-        artifactName: "Board",
-        host: HOST,
-        openGrants: 0,
-        firstGrantedAt: "2026-11-01T10:00:00.000Z",
-        lastGrantedAt: "2026-11-01T10:00:00.000Z",
-        expiresAt: null,
-      },
+      grant({
+        state: "done",
+        documents: 3,
+        edits: 0,
+        requestedAt: "2026-11-02T10:00:00.000Z",
+        finishedAt: "2026-11-02T10:05:00.000Z",
+      }),
     ];
-    server.ownData[ID] = Array.from({ length: 45 }, (_, n) => ({
-      collection: "votes",
-      id: String(n).padStart(16, "0"),
-    }));
-    // The first batch reads 20 (21 charged), then 9 deletes spend the rest.
-    server.ownDataAllowance = 30;
     renderDashboard("/shared-data", server);
-    fireEvent.click(await screen.findByRole("button", { name: "Delete what you saved in Board" }));
-    const dialog = await screen.findByRole("dialog", { name: "Delete what you saved in Board?" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Delete what I saved" }));
-    expect(await within(dialog).findByText("Deleting paused")).toBeTruthy();
-    expect(within(dialog).getByText(/9 documents deleted so far/)).toBeTruthy();
-    expect(server.ownData[ID]).toHaveLength(36);
-    const pages = server.requests.filter((request) => request.path.includes("/mine"));
-    expect(pages.map((request) => request.path)).toEqual([
-      `/api/v1/account/data-grants/${ID}/mine?take=20`,
-    ]);
-
-    server.ownDataAllowance = 1000;
-    fireEvent.click(within(dialog).getByRole("button", { name: "Continue deleting" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(server.ownData[ID]).toEqual([]);
+    expect(await screen.findByText(/Deleted what you saved on .* \(3 documents\)/)).toBeTruthy();
+    // A finished erasure may be asked for again.
     expect(
-      server.requests
-        .filter((request) => request.path.includes("/mine"))
-        .every((request) => request.path.endsWith("?take=20")),
-    ).toBe(true);
+      screen
+        .getByRole("button", { name: "Delete what you saved in Board" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    cleanup();
+    server.dataGrants = [
+      grant({
+        state: "failed",
+        documents: 1,
+        edits: 0,
+        requestedAt: "2026-11-02T10:00:00.000Z",
+        finishedAt: "2026-11-02T10:01:00.000Z",
+      }),
+    ];
+    renderDashboard("/shared-data", server);
+    expect(await screen.findByText(/did not finish\. You can ask again/)).toBeTruthy();
   });
 
   it("says a download failed when nothing came", async () => {
@@ -292,6 +305,7 @@ describe("Data you shared", () => {
         firstGrantedAt: "2026-11-01T10:00:00.000Z",
         lastGrantedAt: "2026-11-01T10:00:00.000Z",
         expiresAt: null,
+        erasure: null,
       },
     ];
     server.fail("GET", `/api/v1/account/data-grants/${ID}/mine`, { status: 500 });
@@ -314,6 +328,7 @@ describe("Data you shared", () => {
         firstGrantedAt: "2026-11-01T10:00:00.000Z",
         lastGrantedAt: "2026-11-01T10:00:00.000Z",
         expiresAt: null,
+        erasure: null,
       },
     ];
     renderDashboard("/shared-data", server);

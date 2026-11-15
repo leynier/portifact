@@ -140,6 +140,13 @@ export interface DataObject {
     requested: number,
     context: Context,
   ): MaybePromise<Answer<{ documents: number; edits: number; more: boolean }>>;
+  /** A person's own erasure chunk: no barrier, so they may save again afterwards. */
+  eraseOwnChunk(
+    envelope: DataEnvelope,
+    author: string,
+    requested: number,
+    context: Context,
+  ): MaybePromise<Answer<{ documents: number; edits: number; more: boolean }>>;
   get(
     envelope: DataEnvelope,
     caller: Caller,

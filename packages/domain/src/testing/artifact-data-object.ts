@@ -84,6 +84,7 @@ import {
   type OperationKind,
   operationKey,
   outbound,
+  ownChunkLeavesMore,
   type PendingReads,
   pageOf,
   passLeftMore,
@@ -1553,6 +1554,74 @@ export class MemoryObject implements DataObject {
     );
   }
 
+  /**
+   * A person's own erasure chunk (`erase_own_chunk`, protected work): up to `take` documents the
+   * author created are deleted and up to `take` they last edited lose their name, as in an author
+   * erasure, but no barrier is written and the author's records stay, so they may save again.
+   */
+  eraseOwnChunk(
+    envelope: DataEnvelope,
+    author: string,
+    requested: number,
+    context: Context,
+  ): Answer<{ documents: number; edits: number; more: boolean }> {
+    const take = chunkSize(requested);
+    const request = ["erase_own", author, take];
+    const actor: MutationActor = { kind: "erasure" };
+    const notices: { mode: CollectionMode; doc: Doc; kind: "deleted" | "updated" }[] = [];
+    return this.#mutation(
+      "erase_own_chunk",
+      envelope,
+      actor,
+      context,
+      request,
+      { author },
+      (plan) => {
+        const d = this.durable;
+        const byKey = <K>(a: [K, unknown], b: [K, unknown]) =>
+          String(a[0]) < String(b[0]) ? -1 : 1;
+        const created = this.#select(d.documents, (_key, doc) => doc.author === author, {
+          order: byKey,
+          limit: take,
+        }).map(([, doc]) => doc);
+        for (const doc of created) {
+          const mode = (d.collections.get(doc.collection) as Collection).mode;
+          const seq = this.#deleteDoc(doc);
+          notices.push({ mode, doc: { ...doc, seq }, kind: "deleted" });
+        }
+        const edited = this.#select(d.documents, (_key, doc) => doc.editor === author, {
+          order: byKey,
+          limit: take,
+        }).map(([, doc]) => doc);
+        for (const found of edited) {
+          const doc = this.#own(d.documents, key2(found.collection, found.id)) as Doc;
+          const mode = (d.collections.get(doc.collection) as Collection).mode;
+          doc.editor = ERASED_EDITOR;
+          doc.seq = this.#advance(sequenceScope(mode, doc.collection, doc.author));
+          notices.push({ mode, doc: { ...doc }, kind: "updated" });
+        }
+        const more = ownChunkLeavesMore({ documents: created.length, edits: edited.length }, take);
+        const result = { documents: created.length, edits: edited.length, more };
+        this.#record(plan, actor, requestHash(request), "own_erased", author, context.now, {
+          documents: created.length,
+          edits: edited.length,
+          more: more ? 1 : 0,
+        });
+        return {
+          value: result,
+          documents: created.length + edited.length,
+          declared: false,
+          detail: { documents: created.length, edits: edited.length },
+        };
+      },
+      () => {
+        for (const notice of notices) {
+          this.#notify(notice.mode, notice.doc, notice.kind, context.now);
+        }
+      },
+    );
+  }
+
   // Reads.
 
   #readCommand<T>(
@@ -1839,18 +1908,13 @@ export class MemoryObject implements DataObject {
     caller: Caller,
     after: ExportCursor | null,
     context: Context,
-    requested?: number,
   ): Answer<ExportPage> {
     if (caller.kind !== "visitor") {
       return this.#answer(() =>
         fail({ code: "forbidden", message: "a grant holder's own export" }),
       );
     }
-    // A smaller page when asked, never a larger one than the cap.
-    const take = Math.min(
-      requested ?? ARTIFACT_DATA.caps.exportRows,
-      ARTIFACT_DATA.caps.exportRows,
-    );
+    const take = ARTIFACT_DATA.caps.exportRows;
     return this.#exportCommand(envelope, "visitor", caller.author, after, take, context);
   }
 

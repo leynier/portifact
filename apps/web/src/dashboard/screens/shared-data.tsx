@@ -3,7 +3,7 @@
 // revoke them. Revoking applies within a minute everywhere the grant was used. What the person
 // saved stays with the artifact; deleting or exporting it is the person's right on the artifact's
 // own page. Names and hosts are untrusted text, rendered as text only.
-import type { DataGrantView } from "@portifact/contracts";
+import type { DataGrantView, OwnErasureView } from "@portifact/contracts";
 import {
   Button,
   Callout,
@@ -29,6 +29,8 @@ import { useDocumentTitle } from "../use-document-title.ts";
 import { errorMessage } from "./artifact-list.tsx";
 
 export const DATA_GRANTS_QUERY = ["data-grants"] as const;
+/** How often the list is read again while one of its erasures runs. */
+const ERASURE_POLL_MS = 10_000;
 
 export function SharedDataScreen() {
   const t = useT();
@@ -39,6 +41,13 @@ export function SharedDataScreen() {
     queryFn: ({ pageParam }) => api.dataGrants(pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next,
+    // While an erasure runs the list is read again, so its count and its end show.
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) =>
+        page.items.some((item) => item.erasure?.state === "running"),
+      )
+        ? ERASURE_POLL_MS
+        : false,
   });
   const items = grants.data?.pages.flatMap((page) => page.items) ?? [];
   return (
@@ -124,13 +133,6 @@ function GrantTable({ items }: { items: DataGrantView[] }) {
 
 /** Pages one download reads at most per click: far above what one day's allowance pays for. */
 const MAX_PAGES = 200;
-/**
- * Documents one delete batch reads: a small page costs little of the person's daily allowance,
- * so most of it goes to the deletes themselves.
- */
-const DELETE_BATCH = 20;
-/** Batches one delete reads at most per click. */
-const MAX_DELETE_BATCHES = 100;
 
 /** Where a paused download continues: the next page's cursor, the next part and what came so far. */
 interface DownloadResume {
@@ -175,10 +177,11 @@ type Pause = { reason: "allowance" | "error"; count: number } | null;
 
 /**
  * What the person saved in the artifact: download it as JSON Lines (their own documents, as
- * stored, untrusted text) or delete it, whether or not a grant is still open. Both are charged to
- * the person's own daily allowance in the artifact, which a large dataset spends: a download then
- * saves what it got as a part and continues from its cursor on the next click (kept in this
- * browser), and deleting goes in small batches and continues from the first remaining document.
+ * stored, untrusted text) or delete it, whether or not a grant is still open. The download is
+ * charged to the person's own daily allowance in the artifact, which a large dataset spends: it
+ * then saves what it got as a part and continues from its cursor on the next click (kept in this
+ * browser). Deleting is an erasure the server runs to the end on its own (`erasure` on the item),
+ * so it goes on when the page closes and no allowance stops it.
  */
 function OwnData({ item }: { item: DataGrantView }) {
   const t = useT();
@@ -187,7 +190,6 @@ function OwnData({ item }: { item: DataGrantView }) {
   const [confirming, setConfirming] = useState(false);
   const [resume, setResume] = useState<DownloadResume | null>(() => readResume(item.artifactId));
   const [downloadPause, setDownloadPause] = useState<Pause>(null);
-  const [deletePause, setDeletePause] = useState<Pause>(null);
   const name = item.artifactName ?? item.host;
   const base = safeFileName(name);
   const keep = (next: DownloadResume | null) => {
@@ -264,56 +266,15 @@ function OwnData({ item }: { item: DataGrantView }) {
     setDownloadPause(null);
     download.reset();
   };
+  const queryClient = useQueryClient();
+  const erasure = item.erasure;
+  const erasing = erasure?.state === "running";
   const remove = useMutation({
-    mutationFn: async () => {
-      let count = 0;
-      let failure: unknown = null;
-      let done = false;
-      try {
-        for (let batch = 0; batch < MAX_DELETE_BATCHES; batch++) {
-          // Always from the start: what was deleted is gone, so the first page is what is left.
-          const page = await api.ownData(item.artifactId, null, DELETE_BATCH);
-          if (page.rows.length === 0) {
-            done = true;
-            break;
-          }
-          for (const row of page.rows) {
-            await api.deleteOwnDocument(item.artifactId, row.collection, row.id);
-            count += 1;
-          }
-        }
-      } catch (error) {
-        failure = error;
-      }
-      // Nothing deleted and nothing paused: an ordinary failure, unless it is the allowance.
-      if (!done && count === 0 && deletePause === null && !allowanceSpent(failure))
-        throw failure ?? new Error("nothing came back");
-      return { count, failure, done };
-    },
-    onError: () => setDeletePause(null),
-    onSuccess: ({ count, failure, done }) => {
-      const total = (deletePause?.count ?? 0) + count;
-      if (done) {
-        setConfirming(false);
-        setDeletePause(null);
-        announce(t("sharedData.deleted", { name, count: total }));
-        return;
-      }
-      const pause: Pause = {
-        reason: allowanceSpent(failure) ? "allowance" : "error",
-        count: total,
-      };
-      setDeletePause(pause);
-      announce(
-        t(
-          pause.reason === "allowance"
-            ? "sharedData.deletePausedAllowance"
-            : "sharedData.deletePausedError",
-          {
-            count: total,
-          },
-        ),
-      );
+    mutationFn: () => api.eraseOwnData(item.artifactId),
+    onSuccess: () => {
+      setConfirming(false);
+      announce(t("sharedData.eraseStarted", { name }));
+      void queryClient.invalidateQueries({ queryKey: DATA_GRANTS_QUERY });
     },
   });
   return (
@@ -343,11 +304,13 @@ function OwnData({ item }: { item: DataGrantView }) {
       <Button
         intent="danger"
         icon={<Trash2 className="size-4" />}
+        disabled={erasing}
         onClick={() => setConfirming(true)}
         aria-label={t("sharedData.deleteMineNamed", { name })}
       >
         {t("sharedData.deleteMine")}
       </Button>
+      {erasure ? <ErasureState erasure={erasure} /> : null}
       {downloadPause ? (
         <Callout
           tone="info"
@@ -373,7 +336,7 @@ function OwnData({ item }: { item: DataGrantView }) {
       <ConfirmDialog
         open={confirming}
         title={t("sharedData.deleteTitle", { name })}
-        confirmLabel={t(deletePause ? "sharedData.deleteContinue" : "sharedData.deleteMine")}
+        confirmLabel={t("sharedData.deleteMine")}
         cancelLabel={t("sharedData.cancel")}
         confirmIcon={<Trash2 className="size-4" />}
         tone="danger"
@@ -382,20 +345,7 @@ function OwnData({ item }: { item: DataGrantView }) {
         onCancel={() => setConfirming(false)}
       >
         {t("sharedData.deleteBody")}
-        {deletePause ? (
-          <Callout
-            tone="info"
-            title={t("sharedData.deletePaused")}
-            icon={<CircleAlert className="size-5" />}
-          >
-            {t(
-              deletePause.reason === "allowance"
-                ? "sharedData.deletePausedAllowance"
-                : "sharedData.deletePausedError",
-              { count: deletePause.count },
-            )}
-          </Callout>
-        ) : remove.isError ? (
+        {remove.isError ? (
           <Callout
             tone="error"
             title={t("sharedData.deleteFailed")}
@@ -406,6 +356,26 @@ function OwnData({ item }: { item: DataGrantView }) {
         ) : null}
       </ConfirmDialog>
     </>
+  );
+}
+
+/** Where the person's erasure in the artifact stands: running with its count, finished or failed. */
+function ErasureState({ erasure }: { erasure: OwnErasureView }) {
+  const t = useT();
+  const date = useFormatDate();
+  const text =
+    erasure.state === "running"
+      ? t("sharedData.erasing", { count: erasure.documents })
+      : erasure.state === "done"
+        ? t("sharedData.erased", {
+            date: date(erasure.finishedAt ?? erasure.requestedAt),
+            count: erasure.documents,
+          })
+        : t("sharedData.eraseFailed");
+  return (
+    <p className="text-sm text-text-muted" role="status">
+      {text}
+    </p>
   );
 }
 

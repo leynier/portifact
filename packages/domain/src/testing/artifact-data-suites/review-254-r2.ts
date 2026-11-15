@@ -446,6 +446,11 @@ export function review254R2Suite(make: MakeObject): void {
       );
       value(await o.exportMine(e, author, null, DENSE));
       value(await o.eraseAuthorChunk(op(e), visitorId("dense"), 500, DENSE));
+      // A person's own erasure with a full chunk of documents with eight values.
+      const own = visitor("owndense");
+      for (let i = 0; i < ARTIFACT_DATA.caps.eraseChunkDocuments; i++)
+        value(await o.create(op(e), own, "c1", full(i), DENSE));
+      value(await o.eraseOwnChunk(op(e), visitorId("owndense"), 500, DENSE));
       for (const item of (await o.view()).checked) seen.add(item.kind);
       // Pruning: six full retained classes (F08's shape).
       const pruned = (await fixture()).o;

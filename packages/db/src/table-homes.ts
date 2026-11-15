@@ -100,6 +100,7 @@ export const TABLE_HOMES = {
   data_grant_codes: "regional",
   data_rights_requests: "regional",
   data_rights_request_sends: "regional",
+  data_own_erasures: "regional",
   annotation_threads: "regional",
   annotation_messages: "regional",
   comment_attachments: "regional",

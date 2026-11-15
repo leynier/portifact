@@ -252,6 +252,56 @@ schedule("an account's erasure in an artifact (data_author_erasure)", {
   observe: authorState,
 });
 
+interface OwnErasure {
+  id: string;
+  visitor: string;
+}
+
+const ERASURE_WRITE = "e".repeat(32);
+
+// The counts on the row are what the job saw: after a crash between a chunk and its D1 write the
+// retry finds those documents already gone, so only the state and the documents are compared.
+const ownErasureState = async (state: OwnErasure) => ({
+  mine: await documentsOf(state.id, state.visitor),
+  all: await documentsOf(state.id),
+  barrier: await inside(state.id, (object) => object.store.inspect("pf_barriers").length),
+  row: (
+    await db()
+      .select({ state: schema.dataOwnErasures.state })
+      .from(schema.dataOwnErasures)
+      .where(eq(schema.dataOwnErasures.artifactId, state.id))
+  )[0]?.state,
+  jobs: (await jobsOf(db(), ["data_own_erasure"], state.id)).length,
+});
+
+schedule("a person's erasure of what they saved (data_own_erasure)", {
+  // The chunk, the storage report, the row marked done, the acknowledgement.
+  steps: ["object:lifecycleEraseOwn", "d1:run", "d1:run", "d1:run"],
+  async setup() {
+    const visitor = visitorId();
+    const { id } = await withData({ visitors: [visitor, visitorId()] });
+    await db().insert(schema.dataOwnErasures).values({
+      artifactId: id,
+      visitorId: visitor,
+      state: "running",
+      writeId: ERASURE_WRITE,
+      requestedAt: DATA_NOW,
+    });
+    await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "data_own_erasure",
+        payload: { visitorId: visitor, writeId: ERASURE_WRITE },
+        availableAt: DATA_NOW,
+        subject: id,
+      });
+    return { id, visitor };
+  },
+  act: (crash, state) => drain({ subject: state.id, crash }),
+  settle: (state) => drain({ subject: state.id }),
+  observe: ownErasureState,
+});
+
 schedule("an account deletion's journal step (scheduleAuthorErasures)", {
   // The job, the retirement, the scan's cursor.
   steps: ["d1:run", "r2:put", "d1:batch"],

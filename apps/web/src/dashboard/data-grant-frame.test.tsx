@@ -114,6 +114,7 @@ describe("the viewer's frame grant", () => {
         firstGrantedAt: "2026-11-01T10:00:00.000Z",
         lastGrantedAt: "2026-11-01T10:00:00.000Z",
         expiresAt: "2026-12-01T10:00:00.000Z",
+        erasure: null,
       },
     ];
     renderInDashboard(<Harness />, server);

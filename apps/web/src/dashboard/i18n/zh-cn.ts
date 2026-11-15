@@ -53,12 +53,6 @@ export const zhCN = {
   "sharedData.downloadPausedError":
     "{count, plural, one {目前已下载 # 个文档。} other {目前已下载 # 个文档。}} 其余内容未能下载。继续后，下载会从停止的地方接着进行。",
   "sharedData.downloadedAll": "已下载你在 {name} 中保存的全部内容（{count} 个文档）",
-  "sharedData.deleteContinue": "继续删除",
-  "sharedData.deletePaused": "删除已暂停",
-  "sharedData.deletePausedAllowance":
-    "{count, plural, one {目前已删除 # 个文档。} other {目前已删除 # 个文档。}} 你在此制品中数据的今日额度已用完。请在明天 UTC 午夜之后继续，删除会从停止的地方接着进行。",
-  "sharedData.deletePausedError":
-    "{count, plural, one {目前已删除 # 个文档。} other {目前已删除 # 个文档。}} 其余内容未能删除。继续后，删除会从停止的地方接着进行。",
   "dataGrant.viewer.saving": "此页面会保存你输入的内容",
   "dataGrant.viewer.savingHint":
     "它通过你的显示名称和此 artifact 专用的 ID 识别你。你可以随时停止。",
@@ -74,8 +68,13 @@ export const zhCN = {
   "sharedData.deleteTitle": "删除你在 {name} 中保存的内容？",
   "sharedData.deleteBody":
     "你在其中创建的每个文档都将被永久删除，包括他人之后的编辑。你对他人文档的编辑会保留，但不再显示你的名字。",
-  "sharedData.deleted": "已删除你在 {name} 中保存的内容（{count} 个文档）",
   "sharedData.deleteFailed": "删除未完成",
+  "sharedData.eraseStarted": "正在删除你在 {name} 中保存的内容。即使关闭此页面也会继续。",
+  "sharedData.erasing":
+    "{count, plural, one {正在删除你保存的内容：目前已删除 # 个文档} other {正在删除你保存的内容：目前已删除 # 个文档}}",
+  "sharedData.erased":
+    "{count, plural, one {已于 {date} 删除你保存的内容（# 个文档）} other {已于 {date} 删除你保存的内容（# 个文档）}}",
+  "sharedData.eraseFailed": "删除你保存的内容未能完成。你可以再次请求。",
   "dataGrant.frame.granted": "此页面现在可以保存你输入的内容",
   "dataGrant.frame.saving": "正在保存你的选择",
   "dataGrant.frame.unavailable": "此框架中无法保存",

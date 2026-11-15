@@ -176,6 +176,7 @@ const MUTATING = new Set([
   "lifecycleFence",
   "lifecycleErase",
   "lifecycleEraseAuthor",
+  "lifecycleEraseOwn",
   "lifecycleQuarantine",
   "lifecycleResolve",
 ]);
@@ -405,6 +406,7 @@ const DATA_TOPICS = [
   "data_reconcile",
   "data_resolve",
   "data_export",
+  "data_own_erasure",
 ] as const;
 
 /**

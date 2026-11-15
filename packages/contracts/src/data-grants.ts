@@ -75,6 +75,19 @@ export const DataGrantControl = z.strictObject({
 export type DataGrantControl = z.infer<typeof DataGrantControl>;
 
 /** One artifact the person shared data with, for "Data you shared". */
+/**
+ * A person's erasure of everything they saved in one artifact (`data_own_erasures`): running
+ * until the job's last chunk found nothing left; the counts are what it deleted and unattributed.
+ */
+export const OwnErasureView = z.strictObject({
+  state: z.enum(["running", "done", "failed"]),
+  documents: z.number().int().min(0),
+  edits: z.number().int().min(0),
+  requestedAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+export type OwnErasureView = z.infer<typeof OwnErasureView>;
+
 export const DataGrantView = z.strictObject({
   artifactId: ArtifactId,
   artifactName: z.string().nullable(),
@@ -84,6 +97,8 @@ export const DataGrantView = z.strictObject({
   firstGrantedAt: z.iso.datetime(),
   lastGrantedAt: z.iso.datetime(),
   expiresAt: z.iso.datetime().nullable(),
+  /** The person's erasure there, running or finished in the last 30 days, or null. */
+  erasure: OwnErasureView.nullable(),
 });
 export type DataGrantView = z.infer<typeof DataGrantView>;
 
