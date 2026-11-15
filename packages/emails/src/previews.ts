@@ -468,6 +468,33 @@ export function previews(): Preview[] {
       }),
     },
     {
+      name: "moderation-artifact-suspended-data-author",
+      email: moderationNoticeEmail({
+        ...suspension,
+        audience: "data_author",
+        dashboardUrl: "https://app.portifact.com/shared-data",
+      }),
+    },
+    {
+      name: "moderation-artifact-suspended-data-author-without-names",
+      email: moderationNoticeEmail({
+        ...suspension,
+        audience: "data_author",
+        artifactName: null,
+        dashboardUrl: "https://app.portifact.com/shared-data",
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `moderation-artifact-suspended-data-author-${locale.toLowerCase()}`,
+      email: moderationNoticeEmail({
+        ...suspension,
+        audience: "data_author",
+        artifactName: null,
+        dashboardUrl: "https://app.portifact.com/shared-data",
+        locale,
+      }),
+    })),
+    {
       name: "moderation-artifact-reinstated",
       email: moderationNoticeEmail({
         ...suspension,

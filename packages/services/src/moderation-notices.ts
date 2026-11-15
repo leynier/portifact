@@ -2,8 +2,9 @@
 // decision about an artifact, an account or a brand writes a `moderation_decisions` row in the
 // batch of the change it explains, on that change's own condition, with a `moderation_notice` job
 // unless the operator withheld the email where the law requires silence. The job emails the people
-// affected (the account of a personal space, or a workspace's admins), records each send in
-// `moderation_notice_sends` (the operator's proof), and marks the decision `sent` or
+// affected (the account of a personal space, or a workspace's admins, and for an artifact the
+// signed-in authors of its data the operator named, resolved through the author journal), records
+// each send in `moderation_notice_sends` (the operator's proof), and marks the decision `sent` or
 // `no_recipient`. Resolving a report that came with an email writes a `report_outcome` job the same
 // way. Both are service notices: no opt-out, refused for suppressed addresses, counted with the
 // email budget, and on the sign-in codes' rung (`checkModerationNoticeCapacity`), waiting for the
@@ -13,6 +14,7 @@ import {
   type AccountSuspensionView,
   type DecisionSource,
   REPORT_LIMITS,
+  STATEMENT_LIMITS,
   type StatementText,
   type SuspensionStatement,
 } from "@portifact/contracts";
@@ -30,6 +32,7 @@ import { and, desc, eq, gte, inArray, isNull, type SQL, sql } from "drizzle-orm"
 import type { BatchItem } from "drizzle-orm/batch";
 import { loadSettings } from "./account-settings.ts";
 import { ownerRecipients } from "./actors.ts";
+import { journalVisitorId } from "./data-rights.ts";
 import {
   emailsSentInCycle,
   isEmailSuppressed,
@@ -45,7 +48,19 @@ export interface DecisionStatement extends Partial<StatementText> {
   source: DecisionSource;
   /** True where the law requires silence: the decision is recorded and nobody is emailed. */
   withhold: boolean;
+  /**
+   * For a decision about an artifact because of its data (decision 0026): the signed-in authors
+   * whose documents caused it, by the visitor ID a document carries or by their account. They are
+   * recorded with the decision and told by its job, each only while the author journal names them
+   * in the artifact. At most `STATEMENT_LIMITS.dataAuthorsMax`.
+   */
+  dataAuthors?: readonly DataAuthorName[] | undefined;
 }
+
+/** How the operator names an author of an artifact's data. */
+export type DataAuthorName =
+  | { kind: "visitor"; visitorId: string }
+  | { kind: "account"; userId: string };
 
 /** What a suspension, a lift or a statement of reasons is about. */
 export type RestrictionTarget = "artifact" | "account" | "brand";
@@ -87,7 +102,8 @@ export function decisionStatements(
     .select(
       sql`select ${id}, ${record.targetKind}, ${record.targetId}, ${record.ownerId}, ${record.action}, ${record.reason}, ${record.suspensionId}, ${record.reportId}, ${statement.source}, ${statement.facts}, ${statement.ground ?? null}, ${notice}, 0, null, ${record.now} where ${condition}`,
     );
-  if (statement.withhold) return [decision];
+  const authors = dataAuthorStatements(db, id, record, statement.dataAuthors ?? [], condition);
+  if (statement.withhold) return [decision, ...authors];
   const payload = JSON.stringify({ decisionId: id });
   // Columns in schema order: id, topic, payload, available, dispatched, attempts, created,
   // subject, generation.
@@ -96,7 +112,53 @@ export function decisionStatements(
     .select(
       sql`select null, 'moderation_notice', ${payload}, ${record.now}, null, 0, ${record.now}, ${id}, null where ${condition}`,
     );
-  return [decision, job];
+  return [decision, ...authors, job];
+}
+
+/**
+ * The named data authors of a decision, inserted on its condition, so a withheld statement keeps
+ * them for `send-statement`. A reinstatement also names the authors the suspension it lifts
+ * named, so whoever was told of the restriction is told it ended.
+ */
+function dataAuthorStatements(
+  db: Db,
+  id: string,
+  record: DecisionRecord,
+  named: readonly DataAuthorName[],
+  condition: SQL,
+): BatchItem<"sqlite">[] {
+  if (named.length > STATEMENT_LIMITS.dataAuthorsMax) {
+    throw new Error("too many data authors for one decision");
+  }
+  if (named.length > 0 && record.targetKind !== "artifact") {
+    throw new Error("only a decision about an artifact names data authors");
+  }
+  const inherits =
+    record.targetKind === "artifact" &&
+    record.action === "reinstate" &&
+    record.suspensionId !== null;
+  if (named.length === 0 && !inherits) return [];
+  const t = schema.moderationDecisionAuthors;
+  const d = schema.moderationDecisions;
+  const rows = JSON.stringify(
+    named.map((author) =>
+      author.kind === "visitor"
+        ? { kind: "visitor", author: author.visitorId }
+        : { kind: "account", author: author.userId },
+    ),
+  );
+  const fromInput = sql`select ${id} as decision_id, json_extract(value, '$.kind') as kind, json_extract(value, '$.author') as author from json_each(${rows})`;
+  const fromSuspension = inherits
+    ? sql` union select ${id}, ${t.kind}, ${t.author} from ${t} join ${d} on ${d.id} = ${t.decisionId} where ${d.suspensionId} = ${record.suspensionId} and ${d.action} = 'suspend'`
+    : sql``;
+  // Columns in schema order: decision, kind, author. The union drops a name given twice.
+  return [
+    db
+      .insert(t)
+      .select(
+        sql`select decision_id, kind, author from (${fromInput}${fromSuspension}) where ${condition}`,
+      ),
+  ];
 }
 
 /** The open restriction a statement is about: its owner, category and suspension. */
@@ -249,8 +311,10 @@ export interface ModerationNotice {
   attachmentId: string | null;
   /** The artifact's name; the notifier drops it outside the default region (decision 0005). */
   artifactName: string | null;
-  /** The workspace's slug, for the dashboard link; null for a personal space. */
+  /** The workspace's slug, for the dashboard link; null for a personal space or a data author. */
   workspaceSlug: string | null;
+  /** A person who manages it, or a signed-in author of the artifact's data the operator named. */
+  audience: "manager" | "data_author";
   reason: AbuseReason | null;
   source: DecisionSource;
   facts: string;
@@ -262,7 +326,7 @@ export interface ModerationNotifier {
   send(notice: ModerationNotice): Promise<void>;
 }
 
-type Skip = "suppressed" | "capacity" | "no_email" | "recipient_cap" | "no_key";
+type Skip = "suppressed" | "capacity" | "no_email" | "recipient_cap" | "no_key" | "no_author";
 
 // Only the reason: never the address, the decision's text or the artifact.
 function skippedNotice(reason: Skip): void {
@@ -280,6 +344,7 @@ function skippedOutcome(reason: Skip): void {
  */
 export async function sendModerationNotice(
   db: RegionalDb,
+  bucket: R2Bucket,
   row: typeof schema.outbox.$inferSelect,
   now: number,
   notifier: ModerationNotifier,
@@ -313,7 +378,7 @@ export async function sendModerationNotice(
             .limit(1)
         )[0]
       : undefined;
-  const recipients =
+  const managers =
     decision.targetKind === "account"
       ? [decision.ownerId]
       : [
@@ -324,6 +389,17 @@ export async function sendModerationNotice(
         ];
   const artifactId =
     decision.targetKind === "artifact" ? decision.targetId : (file?.artifactId ?? null);
+  // Someone who both manages the artifact and wrote in its data reads the managers' email.
+  const authors =
+    decision.targetKind === "artifact"
+      ? (await dataAuthorRecipients(db, bucket, decision.id, decision.targetId)).filter(
+          (userId) => !managers.includes(userId),
+        )
+      : [];
+  const recipients = [
+    ...managers.map((userId) => ({ userId, audience: "manager" as const })),
+    ...authors.map((userId) => ({ userId, audience: "data_author" as const })),
+  ];
   const artifact =
     artifactId === null
       ? undefined
@@ -335,7 +411,7 @@ export async function sendModerationNotice(
             .limit(1)
         )[0];
   const slug = await workspaceSlug(global, decision.ownerId);
-  for (const userId of recipients) {
+  for (const { userId, audience } of recipients) {
     if (already.has(userId)) continue;
     const [user] = await global
       .select({ email: schema.users.email })
@@ -370,7 +446,9 @@ export async function sendModerationNotice(
         artifactId,
         attachmentId: decision.targetKind === "attachment" ? decision.targetId : null,
         artifactName: artifact?.name ?? null,
-        workspaceSlug: slug,
+        // A data author is not in the space: their link is their own "Data you shared".
+        workspaceSlug: audience === "manager" ? slug : null,
+        audience,
         reason: decision.reason,
         source: decision.source,
         facts: decision.facts,
@@ -399,6 +477,51 @@ export async function sendModerationNotice(
     .set({ notice: sent > 0 ? "sent" : "no_recipient", recipients: sent, notifiedAt: now })
     .where(and(eq(d.id, decision.id), eq(d.notice, "pending")));
   return "done";
+}
+
+/**
+ * The accounts a decision's named data authors resolve to: each one the author journal names in
+ * the artifact, by the visitor ID named (found through the artifact's grants, then checked in the
+ * journal) or as the account named. Anonymous writers have no account and resolve to nobody, and
+ * so does an author whose entry is retired (their account is being deleted).
+ */
+async function dataAuthorRecipients(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  decisionId: string,
+  artifactId: string,
+): Promise<string[]> {
+  const t = schema.moderationDecisionAuthors;
+  const named = await db
+    .select({ kind: t.kind, author: t.author })
+    .from(t)
+    .where(eq(t.decisionId, decisionId));
+  if (named.length === 0) return [];
+  const visitors = named.filter((n) => n.kind === "visitor").map((n) => n.author);
+  const g = schema.dataGrants;
+  const candidates =
+    visitors.length === 0
+      ? []
+      : await db
+          .selectDistinct({ userId: g.userId, visitorId: g.visitorId })
+          .from(g)
+          .where(and(eq(g.artifactId, artifactId), inArray(g.visitorId, visitors)));
+  const found: string[] = [];
+  const claims = [
+    ...candidates.map((c) => ({ userId: c.userId, visitorId: c.visitorId as string | null })),
+    ...named
+      .filter((n) => n.kind === "account")
+      .map((n) => ({ userId: n.author, visitorId: null })),
+  ];
+  for (const claim of claims) {
+    if (found.includes(claim.userId)) continue;
+    const journal = await journalVisitorId(bucket, claim.userId, artifactId);
+    if (journal === null) continue;
+    if (claim.visitorId !== null && journal !== claim.visitorId) continue;
+    found.push(claim.userId);
+  }
+  if (found.length < named.length) skippedNotice("no_author");
+  return found;
 }
 
 async function workspaceSlug(global: GlobalDb, ownerId: string): Promise<string | null> {
@@ -521,8 +644,24 @@ export async function listDecisions(db: Db, targetKind: DecisionTarget, targetId
               decisions.map((decision) => decision.id),
             ),
           );
+  const t = schema.moderationDecisionAuthors;
+  const authors =
+    decisions.length === 0
+      ? []
+      : await db
+          .select()
+          .from(t)
+          .where(
+            inArray(
+              t.decisionId,
+              decisions.map((decision) => decision.id),
+            ),
+          );
   return decisions.map((decision) => ({
     ...decision,
+    dataAuthors: authors
+      .filter((author) => author.decisionId === decision.id)
+      .map(({ kind, author }) => ({ kind, author })),
     sends: sends.filter((send) => send.decisionId === decision.id),
   }));
 }

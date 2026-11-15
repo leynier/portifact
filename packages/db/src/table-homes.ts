@@ -88,6 +88,7 @@ export const TABLE_HOMES = {
   suspensions: "regional",
   moderation_decisions: "regional",
   moderation_notice_sends: "regional",
+  moderation_decision_authors: "regional",
   legal_holds: "regional",
   legal_hold_identities: "regional",
   // Artifact data (decision 0026): with the artifact; the objects live in its region too.

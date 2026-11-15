@@ -64,6 +64,7 @@ export async function pruneGoneHistory(
   const ids = sql`select value from json_each(${JSON.stringify(gone)})`;
   const d = schema.moderationDecisions;
   const ns = schema.moderationNoticeSends;
+  const da = schema.moderationDecisionAuthors;
   const h = schema.legalHolds;
   const a2 = sql`"artifacts"`;
   // The operator's decisions go with what they are about: a year old, about an artifact or a brand
@@ -89,6 +90,11 @@ export async function pruneGoneHistory(
       .delete(ns)
       .where(
         sql`rowid in (select rowid from ${ns} where not exists (select 1 from ${d} where ${d.id} = ${ns.decisionId}) limit ${caps.rows})`,
+      ),
+    db
+      .delete(da)
+      .where(
+        sql`rowid in (select rowid from ${da} where not exists (select 1 from ${d} where ${d.id} = ${da.decisionId}) limit ${caps.rows})`,
       ),
     // A released hold's record stays a year after its release, then goes; it kept no address
     // since the release.
@@ -157,6 +163,7 @@ export async function eraseAccountTraces(
   const ci = schema.changeItems;
   const aa = schema.acceptanceAttempts;
   const ed = schema.editDrafts;
+  const da = schema.moderationDecisionAuthors;
   // With one database the batch runs on the handle that also writes the drafts' restore markers.
   const shared = bothSides(regional);
   const db: Db = shared ?? regional;
@@ -240,6 +247,14 @@ export async function eraseAccountTraces(
     // Each draft with the marker that keeps it gone through a restore (decision 0027).
     draftMarker(db, shared !== null, drafts, now),
     db.delete(ed).where(drafts).returning({ id: ed.userId }),
+    // An operator decision that named the account as an author of an artifact's data forgets it
+    // (its journal entry is retired, so nobody would be told anyway).
+    db
+      .delete(da)
+      .where(
+        sql`rowid in (select rowid from ${da} where ${da.kind} = 'account' and ${da.author} = ${userId} limit ${limit})`,
+      )
+      .returning({ id: da.decisionId }),
   ])) as unknown[];
   return {
     more: results.some((rows) => Array.isArray(rows) && rows.length >= limit),

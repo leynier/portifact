@@ -137,8 +137,11 @@ export function reportedHost(value: string): string | null {
   }
 }
 
-/** Bounds of the operator's text in a statement of reasons (code points). */
-export const STATEMENT_LIMITS = { factsMax: 2_000, groundMax: 500 } as const;
+/**
+ * Bounds of a statement of reasons: the operator's text (code points), and how many authors of an
+ * artifact's data one decision may name.
+ */
+export const STATEMENT_LIMITS = { factsMax: 2_000, groundMax: 500, dataAuthorsMax: 50 } as const;
 
 /**
  * The operator's part of a statement of reasons: the facts relied on and the ground (the law or
