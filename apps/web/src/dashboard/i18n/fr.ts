@@ -1381,6 +1381,20 @@ export const fr = {
   "review.target.general": "Commentaire général sur {path}",
   "review.target.element": "Élément {tag}",
   "review.target.quote": "Texte cité",
+  "region.element.received":
+    "Image sélectionnée dans l’artifact. Utilisez le bouton Commenter ou Marquer une zone après l’artifact.",
+  "region.mark": "Marquer une zone",
+  "region.started":
+    "Marquez une zone de l’image. Faites glisser dessus, ou déplacez le rectangle avec les flèches et redimensionnez-le avec Maj et les flèches. Entrée commente, Échap annule.",
+  "region.label": "Zone de {path}",
+  "region.instructions":
+    "Faites glisser sur l’image pour dessiner un rectangle. Les flèches le déplacent, Maj avec les flèches le redimensionne. Entrée commente, Échap annule.",
+  "region.status": "De {left} % à {right} % en largeur, de {top} % à {bottom} % en hauteur.",
+  "region.confirm": "Commenter cette zone",
+  "review.target.region":
+    "Zone de {path}, de {left} % à {right} % en largeur, de {top} % à {bottom} % en hauteur",
+  "review.thread.imageUnchanged": "Image inchangée",
+  "review.thread.imageChanged": "Image modifiée depuis",
   "review.thread.title": "Fil {number}",
   "review.thread.titlePrefix": "Fil ",
   "review.thread.more": "Plus d’actions pour le fil {number}",

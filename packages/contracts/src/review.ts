@@ -78,6 +78,11 @@ export const ReviewStart = z.object({
    * offers Suggest mode only then. Absent from Workers that predate it.
    */
   suggestions: z.boolean().optional(),
+  /**
+   * Whether image regions are switched on (decision 0028, `IMAGE_REGIONS_ENABLED`): the viewer
+   * offers "Mark a region" and sends regions to the frame only then. Absent from older Workers.
+   */
+  imageRegions: z.boolean().optional(),
 });
 export type ReviewStart = z.infer<typeof ReviewStart>;
 

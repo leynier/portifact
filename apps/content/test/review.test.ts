@@ -184,6 +184,8 @@ interface Send {
   secret?: string | undefined;
   /** The content Worker's `SUGGESTIONS_ENABLED` (decision 0027). */
   suggestions?: string;
+  /** The content Worker's `IMAGE_REGIONS_ENABLED` (decision 0028). */
+  imageRegions?: string;
   /** Receives the openings the request records in the owner's access log. */
   logOpening?: LogOpening;
   /** Receives the page views the request counts for the owner's analytics. */
@@ -198,10 +200,11 @@ function send(path: string, options: Send = {}) {
     headers,
   });
   const withSecret = "secret" in options ? { ...env, READ_SESSION_SECRET: options.secret } : env;
-  const testEnv =
-    options.suggestions === undefined
-      ? withSecret
-      : { ...withSecret, SUGGESTIONS_ENABLED: options.suggestions };
+  const testEnv = {
+    ...withSecret,
+    ...(options.suggestions === undefined ? {} : { SUGGESTIONS_ENABLED: options.suggestions }),
+    ...(options.imageRegions === undefined ? {} : { IMAGE_REGIONS_ENABLED: options.imageRegions }),
+  };
   return handle(
     request,
     testEnv,
@@ -345,6 +348,19 @@ describe("review delivery", () => {
     for (const suggestions of ["false", "1"]) {
       const off = await (await send("/", { cookie, suggestions })).text();
       expect(off).not.toContain("data-edit");
+    }
+  });
+
+  it("tells the bridge to report images only while image regions are on", async () => {
+    const cookie = await openReview();
+    const on = await (await send("/", { cookie, imageRegions: "true" })).text();
+    expect(on).toMatch(
+      /data-session-tag="[A-Za-z0-9_-]{22}" data-image-regions="true"><\/script>$/,
+    );
+    // Off (any other value), the script tag is exactly the one before image regions.
+    for (const imageRegions of ["false", "TRUE", ""]) {
+      const off = await (await send("/", { cookie, imageRegions })).text();
+      expect(off).not.toContain("data-image-regions");
     }
   });
 

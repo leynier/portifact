@@ -52,13 +52,14 @@ function deliver(data: unknown, origin = VIEWER, source: unknown = parent) {
 const fromViewer = (body: ViewerBody, nonce = NONCE, version: ReviewProtocol = REVIEW_PROTOCOL) =>
   deliver(viewerEnvelope(nonce, body, version));
 
-function start(html: string, path = "index.html", edit = false) {
+function start(html: string, path = "index.html", edit = false, imageRegions = false) {
   document.body.innerHTML = html;
   bridge = startBridge(window as unknown as BridgeWindow, parent, {
     appOrigin: VIEWER,
     path,
     sessionTag: SESSION_TAG,
     ...(edit ? { edit: true } : {}),
+    ...(imageRegions ? { imageRegions: true } : {}),
   });
   return bridge;
 }
@@ -898,5 +899,135 @@ describe("edit epochs (pf268)", () => {
     document.dispatchEvent(new Event("selectionchange"));
     await settle(SELECTION_SETTLE_MS);
     expect(sentOf("selection").at(-1)).toMatchObject({ target: null, epoch: 1 });
+  });
+});
+
+describe("image regions (decision 0028)", () => {
+  const MOCK =
+    '<main><img id="mock" src="images/mock.png" alt="Mockup"><p id="note">Note</p></main>';
+  const imageTarget: AnnotationTarget = {
+    schema: 1,
+    path: "index.html",
+    anchor: { kind: "element", selectors: ["#mock"], tagName: "img", fingerprint: "" },
+  };
+  const region = { x: 0.25, y: 0.5, width: 0.5, height: 0.25, path: "images/mock.png" };
+
+  /** Lays the image out at 100,200 with a 400 by 200 box. */
+  function layOutImage() {
+    const image = document.querySelector("#mock") as HTMLElement;
+    return vi
+      .spyOn(image, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(100, 200, 400, 200));
+  }
+
+  async function pick(element: Element) {
+    fromViewer({ type: "pick", active: true, hint: "Click an element" });
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await settle(0);
+    return sentOf("element").at(-1);
+  }
+
+  const regionsOf = () => [...(bridge?.overlay.querySelectorAll<HTMLElement>(".region") ?? [])];
+
+  it("reports which file a picked image shows while switched on", async () => {
+    start(MOCK, "index.html", false, true);
+    fromViewer({ type: "init" });
+    const picked = await pick(document.querySelector("#mock") as Element);
+    expect(picked?.image).toEqual({ path: "images/mock.png" });
+    expect(picked?.target.anchor).toMatchObject({ kind: "element", tagName: "img" });
+    // Any other element carries no image.
+    expect((await pick(document.querySelector("#note") as Element))?.image).toBeUndefined();
+  });
+
+  it("reports a picked image exactly as before while switched off", async () => {
+    start(MOCK);
+    fromViewer({ type: "init" });
+    const picked = await pick(document.querySelector("#mock") as Element);
+    expect(picked).toBeDefined();
+    expect(picked && "image" in picked).toBe(false);
+  });
+
+  it("offers no region for an image from another origin or a data URL", async () => {
+    start(
+      '<img id="far" src="https://elsewhere.example/a.png" alt=""><img id="inline" src="data:image/png;base64,AAAA" alt="">',
+      "index.html",
+      false,
+      true,
+    );
+    fromViewer({ type: "init" });
+    expect((await pick(document.querySelector("#far") as Element))?.image).toBeUndefined();
+    expect((await pick(document.querySelector("#inline") as Element))?.image).toBeUndefined();
+  });
+
+  it("draws a region over its part of the image, and reports it found", async () => {
+    start(MOCK);
+    const restore = layOutImage();
+    fromViewer({ type: "init" });
+    fromViewer({
+      type: "highlights",
+      selected: ["r1"],
+      highlights: [{ id: "r1", target: imageTarget, region }],
+    });
+    expect(sentOf("resolved").at(-1)?.results).toEqual([{ id: "r1", confidence: "exact" }]);
+    const [box] = regionsOf();
+    expect(box?.style.left).toBe("200px");
+    expect(box?.style.top).toBe("300px");
+    expect(box?.style.width).toBe("200px");
+    expect(box?.style.height).toBe("50px");
+    expect(box?.dataset.state).toBe("primary");
+    // Drawn as a region, not as the outline of the whole element.
+    expect(bridge?.overlay.querySelector(".element")).toBeNull();
+    restore.mockRestore();
+  });
+
+  it("selects a region thread on a click inside it, and not elsewhere on the image", async () => {
+    start(MOCK);
+    const restore = layOutImage();
+    fromViewer({ type: "init" });
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [{ id: "r1", target: imageTarget, region }],
+    });
+    clickAt(150, 220);
+    expect(sentOf("select")).toHaveLength(0);
+    clickAt(250, 320);
+    expect(sentOf("select").at(-1)?.ids).toEqual(["r1"]);
+    restore.mockRestore();
+  });
+
+  it("orphans a region whose element shows another file or is not an image", async () => {
+    start('<main><img id="mock" src="images/other.png" alt=""><p id="note">Note</p></main>');
+    fromViewer({ type: "init" });
+    const onNote: AnnotationTarget = {
+      ...imageTarget,
+      anchor: { kind: "element", selectors: ["#note"], tagName: "p", fingerprint: "Note" },
+    };
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [
+        { id: "r1", target: imageTarget, region },
+        { id: "r2", target: onNote, region },
+        { id: "e1", target: imageTarget },
+      ],
+    });
+    expect(sentOf("resolved").at(-1)?.results).toEqual([
+      { id: "r1", confidence: "orphaned", reason: "image_changed" },
+      { id: "r2", confidence: "orphaned", reason: "image_changed" },
+      { id: "e1", confidence: "exact" },
+    ]);
+    expect(regionsOf()).toHaveLength(0);
+  });
+
+  it("drops a whole highlights message whose region leaves the image", async () => {
+    start(MOCK);
+    fromViewer({ type: "init" });
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [{ id: "r1", target: imageTarget, region: { ...region, x: 0.75 } }],
+    });
+    expect(sentOf("resolved")).toHaveLength(0);
   });
 });

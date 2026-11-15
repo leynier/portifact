@@ -1333,6 +1333,19 @@ export const ja = {
   "review.target.general": "{path}への一般的なコメント",
   "review.target.element": "要素{tag}",
   "review.target.quote": "引用テキスト",
+  "region.element.received":
+    "artifact 内の画像を選択しました。artifact の後にある「コメント」または「範囲を指定」ボタンを使ってください。",
+  "region.mark": "範囲を指定",
+  "region.started":
+    "画像の範囲を指定してください。画像の上をドラッグするか、矢印キーで四角形を動かし、Shift と矢印キーで大きさを変えます。Enter でコメント、Escape でキャンセルします。",
+  "region.label": "{path} の範囲",
+  "region.instructions":
+    "画像の上をドラッグして四角形を描きます。矢印キーで動かし、Shift と矢印キーで大きさを変えます。Enter でコメント、Escape でキャンセルします。",
+  "region.status": "横 {left}% から {right}%、縦 {top}% から {bottom}%。",
+  "region.confirm": "この範囲にコメント",
+  "review.target.region": "{path} の範囲、横 {left}% から {right}%、縦 {top}% から {bottom}%",
+  "review.thread.imageUnchanged": "画像は同じ",
+  "review.thread.imageChanged": "画像は変更済み",
   "review.thread.title": "スレッド{number}",
   "review.thread.titlePrefix": "スレッド",
   "review.thread.more": "スレッド{number}のその他の操作",

@@ -1,6 +1,12 @@
 // Read-only pieces of a thread shared by the review viewer and the history's earlier
 // conversations. Quotes, names and bodies are untrusted text and are only rendered as text.
-import type { AnnotationMessageView, AnnotationTarget } from "@portifact/contracts";
+import { regionPercent } from "@portifact/anchors";
+import type {
+  AnnotationMessageView,
+  AnnotationTarget,
+  ImageRegionRequest,
+  ImageRegionView,
+} from "@portifact/contracts";
 import { Avatar, Badge } from "@portifact/ui";
 import { EyeOff } from "lucide-react";
 import type { ReactNode } from "react";
@@ -12,13 +18,24 @@ import { useFormatDate, useRelativeTime, useT } from "../context.tsx";
  */
 export function TargetSummary({
   target,
+  region,
   compact = false,
 }: {
   target: AnnotationTarget;
+  /** The rectangle of the image the thread is about (decision 0028), if it has one. */
+  region?: ImageRegionRequest | ImageRegionView | undefined;
   compact?: boolean;
 }) {
   const t = useT();
   const { anchor } = target;
+  if (region) {
+    // The path and the numbers are untrusted data, rendered as text.
+    return (
+      <p className="text-sm text-text-muted break-words">
+        {t("review.target.region", { path: region.image.path, ...regionPercent(region) })}
+      </p>
+    );
+  }
   if (anchor.kind === "document") {
     return (
       <p className="text-sm text-text-muted">{t("review.target.general", { path: target.path })}</p>

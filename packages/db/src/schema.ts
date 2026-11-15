@@ -1407,6 +1407,12 @@ export const annotationThreads = sqliteTable(
     /** Where a carried suggestion was made: its first version and target, kept on every carry. */
     originVersionId: text("origin_version_id"),
     originTarget: text("origin_target"),
+    /**
+     * `ImageRegion` JSON (decision 0028): a rectangle of the image the element target names, with
+     * the image's file and its SHA-256 from `version_files`. Null for every other thread. Its bytes
+     * are counted in `target_bytes`, so the usage triggers count it with the target.
+     */
+    region: text("region"),
   },
   (t) => [
     index("annotation_threads_artifact_version_state_idx").on(

@@ -6,7 +6,11 @@ import {
   AnnotationTarget,
   codePointLength,
   ElementAnchor,
+  ImageRegion,
+  ImageRegionRequest,
+  ImageRegionView,
   isSafeSelector,
+  regionTargetAllowed,
   TextAnchor,
   TextPosition,
   TextQuote,
@@ -315,5 +319,75 @@ describe("AnchorPath and AnchorRoute", () => {
     `/${"a".repeat(ANCHOR_LIMITS.routeMaxLength)}`,
   ])("refuses route %j", (route) => {
     expect(AnchorRoute.safeParse(route).success).toBe(false);
+  });
+});
+
+describe("image regions (decision 0028)", () => {
+  const rect = { x: 0.25, y: 0.5, width: 0.5, height: 0.25 };
+  const sha256 = "a".repeat(64);
+
+  it("accepts a rectangle inside the image with the image's file", () => {
+    expect(ImageRegionRequest.safeParse({ ...rect, image: { path: "img/mock.png" } }).success).toBe(
+      true,
+    );
+    expect(
+      ImageRegion.safeParse({ ...rect, image: { path: "img/mock.png", sha256 } }).success,
+    ).toBe(true);
+    expect(
+      ImageRegionRequest.safeParse({ x: 0, y: 0, width: 1, height: 1, image: { path: "a.png" } })
+        .success,
+    ).toBe(true);
+  });
+
+  it("refuses rectangles outside the image, too small, too precise or not numbers", () => {
+    const image = { path: "a.png" };
+    for (const bad of [
+      { ...rect, x: 0.6 },
+      { ...rect, y: 0.8 },
+      { ...rect, width: 0.005 },
+      { ...rect, height: 0 },
+      { ...rect, x: -0.1 },
+      { ...rect, x: 0.12345 },
+      { ...rect, width: 1.5 },
+      { ...rect, x: Number.NaN },
+    ]) {
+      expect(ImageRegionRequest.safeParse({ ...bad, image }).success, JSON.stringify(bad)).toBe(
+        false,
+      );
+    }
+  });
+
+  it("refuses a client's hash, unknown keys and bad paths in a request, and bad hashes when stored", () => {
+    expect(
+      ImageRegionRequest.safeParse({ ...rect, image: { path: "a.png", sha256 } }).success,
+    ).toBe(false);
+    expect(ImageRegionRequest.safeParse({ ...rect, image: { path: "a.png" }, z: 1 }).success).toBe(
+      false,
+    );
+    expect(ImageRegionRequest.safeParse({ ...rect, image: { path: "../a.png" } }).success).toBe(
+      false,
+    );
+    expect(ImageRegion.safeParse({ ...rect, image: { path: "a.png", sha256: "A1" } }).success).toBe(
+      false,
+    );
+  });
+
+  it("lets threads show a region with whether the current image is the same", () => {
+    const view = { ...rect, image: { path: "a.png", sha256 }, currentImage: "unchanged" };
+    expect(ImageRegionView.parse(view)).toEqual(view);
+    expect(ImageRegionView.safeParse({ ...view, currentImage: "gone" }).success).toBe(false);
+  });
+
+  it("allows a region only on an element anchor of an img", () => {
+    const element = (tagName: string): AnnotationTarget => ({
+      schema: 1,
+      path: "index.html",
+      anchor: { kind: "element", selectors: ["#mock"], tagName, fingerprint: "" },
+    });
+    expect(regionTargetAllowed(element("img"))).toBe(true);
+    expect(regionTargetAllowed(element("div"))).toBe(false);
+    expect(
+      regionTargetAllowed({ schema: 1, path: "index.html", anchor: { kind: "document" } }),
+    ).toBe(false);
   });
 });

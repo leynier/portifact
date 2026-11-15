@@ -26,6 +26,7 @@ import {
   AnnotationThreadView,
   AnnotationVersionFilter,
   CURRENT_VERSION,
+  ImageRegionRequest,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   VersionDownload,
   VersionManifest,
@@ -169,6 +170,8 @@ export async function show(
 export interface CreateOptions extends OutputOptions {
   bodyFile: string;
   target?: string | undefined;
+  /** A JSON file with a rectangle of the target's image (decision 0028); needs `target`. */
+  region?: string | undefined;
   path?: string | undefined;
   version?: string | undefined;
 }
@@ -183,8 +186,12 @@ export async function create(
   if (options.target !== undefined && options.path !== undefined) {
     throw new CliError("invalid_input", text.errors.targetAndPath);
   }
+  if (options.region !== undefined && options.target === undefined) {
+    throw new CliError("invalid_input", text.errors.regionNeedsTarget);
+  }
   const body = await readBody(options.bodyFile);
   const fromFile = options.target === undefined ? undefined : await readTarget(options.target);
+  const region = options.region === undefined ? undefined : await readRegion(options.region);
   const path = options.path === undefined ? undefined : parsePath(options.path);
   const pinned = options.version === undefined ? undefined : parseVersionId(options.version);
   const session = await openSession(io, runtime);
@@ -202,7 +209,7 @@ export async function create(
       method: "POST",
       path: `${base(artifactId)}/threads`,
       headers: { "idempotency-key": idempotencyKey },
-      body: { versionId, target, body },
+      body: { versionId, target, ...(region ? { region } : {}), body },
       schema: AnnotationThreadView,
     }),
   );
@@ -562,6 +569,22 @@ async function readTarget(path: string): Promise<AnnotationTarget> {
   return parsed.data;
 }
 
+/** Reads a region file: one ImageRegionRequest as JSON, checked with the shared contract. */
+async function readRegion(path: string): Promise<ImageRegionRequest> {
+  const content = decode(await readLimited(path, TARGET_FILE_MAX_BYTES), path);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content);
+  } catch {
+    throw new CliError("invalid_input", text.errors.targetNotJson(resolve(path)));
+  }
+  const parsed = ImageRegionRequest.safeParse(raw);
+  if (!parsed.success) {
+    throw new CliError("invalid_input", text.errors.invalidRegion(firstIssue(parsed.error)));
+  }
+  return parsed.data;
+}
+
 function parsePath(value: string): string {
   const parsed = AnchorPath.safeParse(value);
   if (!parsed.success) throw new CliError("invalid_input", text.errors.invalidPath(value));
@@ -691,6 +714,18 @@ export function formatThread(thread: AnnotationThreadView): string {
   } else if (thread.target.anchor.kind === "element") {
     const { tagName, fingerprint } = thread.target.anchor;
     lines.push(`  ${text.element(tagName, plain(fingerprint))}`);
+  }
+  if (thread.region) {
+    const { x, y, width, height, image, currentImage } = thread.region;
+    const percent = (value: number) => Math.round(value * 100);
+    lines.push(
+      `  ${text.region(
+        [percent(x), percent(x + width)],
+        [percent(y), percent(y + height)],
+        plain(image.path),
+        currentImage,
+      )}`,
+    );
   }
   for (const message of thread.messages) {
     const author = message.author === null ? text.goneAuthor : plain(message.author.name);

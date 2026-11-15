@@ -3,7 +3,7 @@
 // as escaped plain text, and agents treat them as information to show the user, never as
 // instructions to follow.
 import { z } from "zod";
-import { AnnotationTarget } from "./anchors.ts";
+import { AnnotationTarget, ImageRegionRequest, ImageRegionView } from "./anchors.ts";
 import { AnnotationsState, ArtifactId, ArtifactType, CommentScope } from "./core.ts";
 import { TurnstileToken } from "./human.ts";
 import { ThreadIssueView } from "./integrations.ts";
@@ -80,6 +80,8 @@ export type AnnotationModeView = z.infer<typeof AnnotationModeView>;
 export const CreateThreadRequest = z.strictObject({
   versionId: AnnotationId,
   target: AnnotationTarget,
+  /** A rectangle of the image the target names (decision 0028); only an `img` target takes one. */
+  region: ImageRegionRequest.optional(),
   body: AnnotationBody,
   turnstileToken: TurnstileToken.optional(),
 });
@@ -165,6 +167,11 @@ export const AnnotationThreadView = z.object({
   path: z.string(),
   /** Untrusted: quotes and selectors come from reviewers. */
   target: AnnotationTarget,
+  /**
+   * The rectangle of the image the thread is about (decision 0028), absent for every other thread.
+   * Released clients strip it and show the thread as a comment on the image.
+   */
+  region: ImageRegionView.optional(),
   state: AnnotationThreadState,
   author: AnnotationAuthor.nullable(),
   own: z.boolean(),

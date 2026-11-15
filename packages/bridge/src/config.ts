@@ -7,7 +7,7 @@ const RENDERER = /^[a-z0-9][a-z0-9.@/+_-]{0,63}$/;
 
 /** Validated settings, or null when any is missing or malformed. */
 export function readConfig(data: Record<string, string | undefined>): BridgeConfig | null {
-  const { appOrigin, path, renderer, sessionTag, edit } = data;
+  const { appOrigin, path, renderer, sessionTag, edit, imageRegions } = data;
   if (!appOrigin || !path || !SessionTag.safeParse(sessionTag).success) return null;
   let origin: string;
   try {
@@ -24,5 +24,7 @@ export function readConfig(data: Record<string, string | undefined>): BridgeConf
     ...(renderer === undefined ? {} : { renderer }),
     // Only the exact value turns protocol 3 on; anything else leaves the bridge on protocol 2.
     ...(edit === "true" ? { edit: true } : {}),
+    // Only the exact value lets the bridge report which file a picked image shows (decision 0028).
+    ...(imageRegions === "true" ? { imageRegions: true } : {}),
   };
 }

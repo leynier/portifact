@@ -5,7 +5,13 @@
 // message by itself (a selection only offers a comment that the user writes and confirms), and
 // it never sends tokens, email addresses or thread bodies to the frame: only the targets needed
 // to highlight each thread's text, and short labels.
-import { AnchorPath, AnchorRoute, AnnotationTarget } from "@portifact/contracts";
+import {
+  AnchorPath,
+  AnchorRoute,
+  AnnotationTarget,
+  IMAGE_REGION_LIMITS,
+  ImageRegionRequest,
+} from "@portifact/contracts";
 import { z } from "zod";
 
 /** Identifies Portifact review messages among whatever else a page posts. */
@@ -89,8 +95,42 @@ export type RefusalReason = z.infer<typeof RefusalReason>;
 export const HighlightResolution = z.strictObject({
   id: HighlightId,
   confidence: z.enum(["exact", "fuzzy", "orphaned"]),
-  reason: z.enum(["not_found", "ambiguous", "route_mismatch"]).optional(),
+  /** `image_changed` (decision 0028): the element no longer shows the region's image. */
+  reason: z.enum(["not_found", "ambiguous", "route_mismatch", "image_changed"]).optional(),
 });
+
+/**
+ * The image a picked `img` shows, as a file of the version (decision 0028), sent with `element`
+ * only while image regions are on. Untrusted: it only offers "Mark a region", and the server checks
+ * the file.
+ */
+export const PickedImage = z.strictObject({ path: AnchorPath });
+export type PickedImage = z.infer<typeof PickedImage>;
+
+/**
+ * A highlight's image region (decision 0028): the rectangle as fractions of the image's box and the
+ * file the image must show, sent only while image regions are on.
+ */
+export const HighlightRegion = z
+  .strictObject({
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+    width: z.number().min(IMAGE_REGION_LIMITS.minExtent).max(1),
+    height: z.number().min(IMAGE_REGION_LIMITS.minExtent).max(1),
+    path: AnchorPath,
+  })
+  .refine(
+    (value) =>
+      ImageRegionRequest.safeParse({
+        x: value.x,
+        y: value.y,
+        width: value.width,
+        height: value.height,
+        image: { path: value.path },
+      }).success,
+    { message: "Invalid region" },
+  );
+export type HighlightRegion = z.infer<typeof HighlightRegion>;
 export type HighlightResolution = z.infer<typeof HighlightResolution>;
 
 const envelope = { channel: z.literal(REVIEW_CHANNEL), v: z.literal(REVIEW_PROTOCOL) };
@@ -136,6 +176,7 @@ export const BridgeMessage = z.discriminatedUnion("type", [
     type: z.literal("element"),
     target: AnnotationTarget,
     rect: FrameRect.optional(),
+    image: PickedImage.optional(),
   }),
   /**
    * The reported selection or picked element moved in the frame (the page scrolled or was
@@ -171,6 +212,7 @@ export type BridgeMessage = z.infer<typeof BridgeMessage>;
 export const Highlight = z.strictObject({
   id: HighlightId,
   target: AnnotationTarget,
+  region: HighlightRegion.optional(),
 });
 export type Highlight = z.infer<typeof Highlight>;
 
@@ -251,6 +293,7 @@ export const BridgeMessageV3 = z.discriminatedUnion("type", [
     type: z.literal("element"),
     target: AnnotationTarget,
     rect: FrameRect.optional(),
+    image: PickedImage.optional(),
     epoch: EditEpoch.optional(),
   }),
   z.strictObject({ ...bound3, type: z.literal("selection-rect"), rect: FrameRect.nullable() }),

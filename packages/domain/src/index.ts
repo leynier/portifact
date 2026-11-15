@@ -30,6 +30,7 @@ export * from "./groups.ts";
 export * from "./history.ts";
 export * from "./html-text.ts";
 export * from "./ids.ts";
+export * from "./image-regions-switch.ts";
 export * from "./integrations.ts";
 export * from "./ip-ranges.ts";
 export * from "./lifecycle.ts";

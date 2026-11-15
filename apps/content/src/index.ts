@@ -33,6 +33,7 @@ import {
   effectiveState,
   entitlements,
   hasFeature,
+  imageRegionsEnabled,
   isArtifactId,
   isLoggedLinkOpening,
   isLoggedOpening,
@@ -146,6 +147,8 @@ export interface Env extends BudgetEnv {
    * also speaks protocol 3; anything else injects the bridge exactly as before.
    */
   SUGGESTIONS_ENABLED?: string | undefined;
+  /** Exactly `"true"`: the bridge reports which file a picked image shows (decision 0028). */
+  IMAGE_REGIONS_ENABLED?: string | undefined;
 }
 
 /** Whether this deployment serves custom hosts: the same condition the app decides with. */
@@ -965,6 +968,7 @@ async function serveWithBridge(
     nonce,
     sessionTag: session.sessionTag,
     edit: suggestionsEnabled(env),
+    imageRegions: imageRegionsEnabled(env),
   });
 }
 

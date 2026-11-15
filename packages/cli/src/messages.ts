@@ -616,6 +616,15 @@ export const annotationMessages = {
   quote: (exact: string) => `Quote: ${JSON.stringify(exact)}`,
   element: (tagName: string, fingerprint: string) =>
     `Element: <${tagName}> ${JSON.stringify(fingerprint)}`,
+  region: (
+    across: [number, number],
+    down: [number, number],
+    image: string,
+    currentImage: "unchanged" | "changed" | undefined,
+  ) =>
+    `Region: ${across[0]}% to ${across[1]}% across, ${down[0]}% to ${down[1]}% down, of ${JSON.stringify(image)}${
+      currentImage === undefined ? "" : ` (image ${currentImage} in the current version)`
+    }`,
   goneAuthor: "(deleted account)",
   historyEmpty: (id: string) => `${id} has no comment history yet.`,
   historyLine: (at: string, kind: string, thread: string, message: string | null, actor: string) =>
@@ -671,6 +680,9 @@ export const annotationMessages = {
     invalidPath: (value: string) =>
       `${JSON.stringify(value)} is not a file path inside the artifact, like \`index.html\` or \`docs/plan.md\`.`,
     targetAndPath: "Pass either --target or --path, not both.",
+    regionNeedsTarget:
+      "--region needs --target: a region is a rectangle of the image an element target of an img names.",
+    invalidRegion: (issue: string) => `The region is not valid: ${issue}`,
     unreadable: (path: string) => `Could not read the file ${path}.`,
     fileTooLarge: (path: string, max: number) =>
       `${path} is larger than ${formatBytes(max)}, more than a comment or target can hold.`,

@@ -47,6 +47,7 @@ function describeTarget(thread: AnnotationThreadView): string[] {
       `- Target: element ${codeSpan(anchor.tagName)} at ${codeSpan(anchor.selectors[0] ?? "")}`,
     );
     if (anchor.fingerprint) lines.push("- Element text:", "", fenced(anchor.fingerprint), "");
+    if (thread.region) lines.push(`- ${regionLine(thread.region)}`);
   } else {
     lines.push(
       `- Target: text at ${anchor.position.start}-${anchor.position.end}`,
@@ -57,6 +58,21 @@ function describeTarget(thread: AnnotationThreadView): string[] {
     );
   }
   return lines;
+}
+
+const percent = (value: number) => Math.round(value * 100);
+
+/** An image region (decision 0028) in words: its edges in percentages and the image's file. */
+export function regionLine(region: NonNullable<AnnotationThreadView["region"]>): string {
+  const across = `${percent(region.x)}% to ${percent(region.x + region.width)}% across`;
+  const down = `${percent(region.y)}% to ${percent(region.y + region.height)}% down`;
+  const changed =
+    region.currentImage === "changed"
+      ? " (image changed in the current version)"
+      : region.currentImage === "unchanged"
+        ? " (image unchanged in the current version)"
+        : "";
+  return `Region: ${across}, ${down}, of ${codeSpan(region.image.path)}${changed}`;
 }
 
 function messageLines(message: AnnotationMessageView, index: number): string[] {

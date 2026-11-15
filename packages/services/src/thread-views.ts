@@ -6,11 +6,13 @@ import type {
   AnnotationMessageView,
   AnnotationTarget,
   AnnotationThreadView,
+  ImageRegion,
+  ImageRegionView,
   SuggestionThreadView,
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
 import { type AnnotationRole, ERASED_ACCOUNT, messageBodyVisible } from "@portifact/domain";
-import { asc, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { suggestionView } from "./suggestion-view.ts";
 import {
   type ThreadIssueRecord,
@@ -73,6 +75,7 @@ export async function threadViews(
       issues.set(row.threadId, list);
     }
   }
+  const regions = await regionViews(db, context, threads);
   // The erased account (`ERASED_ACCOUNT`) names nobody: it is never looked up.
   const authorIds = [
     ...new Set([...threads.map((t) => t.authorId), ...messages.map((x) => x.authorId)]),
@@ -107,6 +110,7 @@ export async function threadViews(
     current: thread.versionId === context.currentVersionOf(thread.artifactId),
     path: thread.path,
     target: JSON.parse(thread.target) as AnnotationTarget,
+    ...(regions.has(thread.id) ? { region: regions.get(thread.id) as ImageRegionView } : {}),
     state: thread.state,
     author: authors.get(thread.authorId) ?? null,
     own: thread.authorId === viewerId,
@@ -131,4 +135,63 @@ export async function threadViews(
         }
       : {}),
   }));
+}
+
+/**
+ * Each region thread's region (decision 0028). A thread of another version than the current one
+ * also says whether the current version still has the same bytes at the image's path, read for all
+ * of them at once: one query per chunk of (current version, path) pairs, and none without such a
+ * thread.
+ */
+async function regionViews(
+  db: RegionalDb,
+  context: ThreadViewContext,
+  threads: readonly ThreadRow[],
+): Promise<Map<string, ImageRegionView>> {
+  const views = new Map<string, ImageRegionView>();
+  const history: { threadId: string; versionId: string; region: ImageRegion }[] = [];
+  for (const thread of threads) {
+    if (thread.region === null) continue;
+    const region = JSON.parse(thread.region) as ImageRegion;
+    views.set(thread.id, region);
+    const current = context.currentVersionOf(thread.artifactId);
+    if (current !== null && current !== thread.versionId) {
+      history.push({ threadId: thread.id, versionId: current, region });
+    } else if (current === null) {
+      // No current version (archived or gone): nothing to compare with, so the image changed.
+      views.set(thread.id, { ...region, currentImage: "changed" });
+    }
+  }
+  if (history.length === 0) return views;
+  const vf = schema.versionFiles;
+  const key = (versionId: string, path: string) => JSON.stringify([versionId, path]);
+  const pairs = [
+    ...new Map(history.map((h) => [key(h.versionId, h.region.image.path), h] as const)).values(),
+  ];
+  const found = new Map<string, string>();
+  // Two parameters per pair, so half a chunk keeps each statement under D1's 100.
+  for (let i = 0; i < pairs.length; i += IN_CHUNK / 2) {
+    const rows = await db
+      .select({ versionId: vf.versionId, path: vf.path, sha256: vf.sha256 })
+      .from(vf)
+      .where(
+        and(
+          eq(vf.kind, "published"),
+          or(
+            ...pairs
+              .slice(i, i + IN_CHUNK / 2)
+              .map((p) => and(eq(vf.versionId, p.versionId), eq(vf.path, p.region.image.path))),
+          ),
+        ),
+      );
+    for (const row of rows) found.set(key(row.versionId, row.path), row.sha256);
+  }
+  for (const h of history) {
+    const sha = found.get(key(h.versionId, h.region.image.path));
+    views.set(h.threadId, {
+      ...h.region,
+      currentImage: sha === h.region.image.sha256 ? "unchanged" : "changed",
+    });
+  }
+  return views;
 }

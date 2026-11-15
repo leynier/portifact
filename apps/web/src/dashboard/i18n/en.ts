@@ -1315,6 +1315,19 @@ export const en = {
   "review.target.general": "General comment on {path}",
   "review.target.element": "Element {tag}",
   "review.target.quote": "Quoted text",
+  "region.element.received":
+    "Image selected in the artifact. Use the Comment or Mark a region button after the artifact.",
+  "region.mark": "Mark a region",
+  "region.started":
+    "Mark a region of the image. Drag over it, or move the rectangle with the arrow keys and resize it with Shift and the arrow keys. Enter comments on it, Escape cancels.",
+  "region.label": "Region of {path}",
+  "region.instructions":
+    "Drag over the image to draw a rectangle. The arrow keys move it, Shift with the arrow keys resizes it. Enter comments on it, Escape cancels.",
+  "region.status": "From {left}% to {right}% across, {top}% to {bottom}% down.",
+  "region.confirm": "Comment on this region",
+  "review.target.region": "Region of {path}, {left}% to {right}% across, {top}% to {bottom}% down",
+  "review.thread.imageUnchanged": "Same image now",
+  "review.thread.imageChanged": "Image changed since",
   "review.thread.title": "Thread {number}",
   "review.thread.titlePrefix": "Thread ",
   "review.thread.more": "More actions for thread {number}",
