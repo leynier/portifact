@@ -99,7 +99,7 @@ describe("legal pages", () => {
       'id="suggestions"',
       "you grant the customer that holds the artifact's personal space or workspace a non-exclusive",
       "Accepting and rejecting require an authorized person's dashboard session",
-      "If none can be applied automatically, acceptance creates change-list items without publishing a new version",
+      "If there are only change-list items, successful acceptance records those items without publishing a version",
       "This is not a blanket waiver of moral rights",
     ]) {
       expect(terms, text).toContain(text);
@@ -166,7 +166,7 @@ describe("legal pages", () => {
       "grants no unrelated redistribution rights",
       "stay in your browser until you post the comment and are uploaded only then",
       "Changing access does not invalidate issued links",
-      "This version replaces the version of November 13, 2026 and takes effect on November 15, 2026.",
+      "The version of November 15, 2026 added files and screenshots on comments",
       "<code>portifact export</code> downloads every file",
       "up to 4 files to a comment or reply",
       "each up to 10 MB (1 MB for text)",
@@ -197,6 +197,73 @@ describe("legal pages", () => {
     );
   });
 
+  it("describes artifact data as the product handles it (decision 0026)", () => {
+    const terms = read("terms");
+    expect(terms).not.toContain("servers or databases for your content");
+    for (const text of [
+      'id="artifact-data"',
+      "This version replaces the version of November 15, 2026 and takes effect on November 16, 2026.",
+      "It belongs to the artifact, not to a version.",
+      "never their email address or account ID",
+      "The permission lasts up to 30 days in that browser",
+      "a revocation takes effect within a minute",
+      "Saving needs the current version of these terms",
+      "A service token reaches it only with the data scopes an admin grants the token",
+      "renewed every minute by the same sign-in or permission that opened it",
+      "Artifact data does not count in the space's storage quota",
+      "we may pause new writes and new live connections, never reads, exports or deletions",
+      "these terms instruct us, on the customer's behalf",
+      "which lasts up to 7 days in that browser",
+      "Each permission gets a new ID",
+      "Artifacts that can hold artifact data</th>",
+      "Artifact data of one artifact</th>",
+      "<code>portifact data export</code>",
+      "Documents you saved in other people's artifacts</th>",
+      'Not part of the "Download your data" page or <code>portifact export</code>',
+      "Artifact data is not deleted when a plan ends, is removed or is lowered",
+    ]) {
+      expect(terms, text).toContain(text);
+    }
+    const privacy = read("privacy");
+    for (const text of [
+      "About artifact data</h3>",
+      "This version replaces the version of November 15, 2026 and takes effect on November 16, 2026.",
+      "never your account ID or email address from us",
+      "no account, name, email or network address",
+      "under a hash of the address, never the address itself",
+      "What visitors save from the page is not recorded in the audit log.",
+      "Artifact data is not in these database backups and is not restored from them",
+      "revoked permissions to save artifact data",
+      "Permissions to save artifact data</th>",
+      "Records linking an account to its ID in an artifact's data</th>",
+      "with a hint for western North America",
+      "Choosing Allow before a page saves what you enter is a choice you make in the product",
+      "see the artifacts whose pages you allowed to save what you enter",
+    ]) {
+      expect(privacy, text).toContain(text);
+    }
+    const dpa = read("dpa");
+    for (const text of [
+      "the data their pages save (artifact data",
+      "For artifact data, your instructions also include these",
+      "visitors who save data in its artifacts, including people without an account",
+      "Stores each artifact's data in its own SQLite database",
+      "Cloudflare's storage for artifact data can keep earlier states for up to 30 days",
+    ]) {
+      expect(dpa, text).toContain(text);
+    }
+    const aup = read("acceptable-use");
+    for (const text of [
+      'id="artifact-data"',
+      "everything saved in an artifact's data",
+      "Do not collect data from visitors without telling them.",
+      "Do not ask visitors for passwords, sign-in codes, payment card details or other credentials",
+      "to track people across sites or artifacts",
+    ]) {
+      expect(aup, text).toContain(text);
+    }
+  });
+
   it("links the Data Processing Addendum from the Terms and the Privacy Policy", () => {
     expect(read("terms")).toContain('<a href="/dpa">Data Processing Addendum</a>');
     expect(read("privacy")).toContain('href="/dpa#subprocessors"');
@@ -217,6 +284,8 @@ describe("legal pages", () => {
       "__Host-pf_review",
       "__Host-pf_review_tab",
       "__Host-pf_nobar",
+      "__Host-pf_grant",
+      "__Host-pf_grant_tx",
     ]) {
       expect(privacy, cookie).toContain(cookie);
     }
