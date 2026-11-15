@@ -59,12 +59,15 @@ test("option cards choose on a press anywhere, and each settings group saves on 
   await signIn(context, owner);
   await page.goto(`${APP_ORIGIN}/artifacts/${artifactId}`);
   const nav = page.getByRole("navigation", { name: "Artifact sections" });
+  // The stack switches artifact data on, so the owner gets its section once its request answers;
+  // waiting for it keeps the check from passing only because it ran first.
   await expect(nav.getByRole("link")).toHaveText([
     "Overview",
     "Sharing",
     "Comments",
     "Reviews",
     "Activity",
+    "Data",
     "Space",
     "Danger zone",
   ]);
