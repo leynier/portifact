@@ -22,6 +22,7 @@ import {
   AttachmentControls,
   AttachmentsContext,
   attachmentName,
+  captureScreenshot,
   MessageAttachments,
   savedName,
   useAttachmentUploads,
@@ -249,6 +250,32 @@ describe("adding files", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("The screenshot was not taken.");
     expect(getDisplayMedia).toHaveBeenCalledOnce();
     expect(fakes.requests).toHaveLength(0);
+  });
+
+  it("gives up on a capture that never plays and stops its tracks", async () => {
+    const stop = vi.fn();
+    const stream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      mediaDevices: { getDisplayMedia: vi.fn().mockResolvedValue(stream) },
+    });
+    // A browser that cannot play the stream leaves play() pending forever.
+    const play = vi.fn(() => new Promise<void>(() => {}));
+    const createElement = document.createElement.bind(document);
+    const create = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tag: string) =>
+        tag === "video"
+          ? ({ play, videoWidth: 0, addEventListener: vi.fn() } as unknown as HTMLVideoElement)
+          : createElement(tag),
+      );
+    try {
+      await expect(captureScreenshot(20)).resolves.toBeNull();
+      expect(play).toHaveBeenCalledOnce();
+      expect(stop).toHaveBeenCalledOnce();
+    } finally {
+      create.mockRestore();
+    }
   });
 });
 

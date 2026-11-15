@@ -242,14 +242,13 @@ test("a screenshot is one frame of the browser's screen capture, shown before it
           const stream = canvas.captureStream(10);
           // Keep frames coming while the page reads one.
           const timer = setInterval(draw, 50);
-          for (const track of stream.getTracks()) {
-            const stop = track.stop.bind(track);
-            track.stop = () => {
-              captures.stopped += 1;
-              clearInterval(timer);
-              stop();
-            };
-          }
+          // Counted on the prototype: WebKit does not keep a method set on a track object.
+          const stop = MediaStreamTrack.prototype.stop;
+          MediaStreamTrack.prototype.stop = function (this: MediaStreamTrack) {
+            captures.stopped += 1;
+            clearInterval(timer);
+            stop.call(this);
+          };
           return stream;
         },
       },
@@ -266,6 +265,20 @@ test("a screenshot is one frame of the browser's screen capture, shown before it
     ),
   ).toBe(0);
   await sidebar.getByRole("button", { name: "Continue" }).click();
+  if (browserName === "webkit") {
+    // Headless WebKit never plays a canvas stream in a video element, so no frame comes: the
+    // capture gives up, says so, stops its tracks and offers the button again.
+    await expect(sidebar.getByRole("alert")).toHaveText("The screenshot was not taken.", {
+      timeout: 15_000,
+    });
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { __captures: { count: number; stopped: number } }).__captures,
+      ),
+    ).toEqual({ count: 1, stopped: 1 });
+    await expect(sidebar.getByRole("button", { name: "Attach a screenshot" })).toBeEnabled();
+    return;
+  }
   await expect(
     sidebar.getByRole("img", { name: /^Preview of screenshot\.(png|jpg)$/ }),
   ).toBeVisible();
@@ -275,7 +288,6 @@ test("a screenshot is one frame of the browser's screen capture, shown before it
   // One capture, and its tracks stopped once the frame was taken.
   expect(captures).toEqual({ count: 1, stopped: 1 });
   await expect(sidebar.getByText(/Uploaded when you post/)).toBeVisible();
-  if (browserName === "webkit") return;
   await sidebar.getByRole("textbox", { name: "Comment" }).fill("What I see");
   await sidebar.getByRole("button", { name: "Post comment" }).click();
   await expect(sidebar.getByRole("img", { name: /^screenshot\.(png|jpg)$/ })).toBeVisible();

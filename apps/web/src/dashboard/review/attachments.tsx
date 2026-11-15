@@ -245,11 +245,17 @@ export function canCaptureScreen(): boolean {
   );
 }
 
+/** How long a capture may take to give a frame before it counts as failed. */
+export const CAPTURE_FRAME_TIMEOUT_MS = 5_000;
+
 /**
  * One frame of what the person chooses to share, as PNG (JPEG when a PNG would be too large),
- * taken in this page; every track stops at once. Null when the person cancels.
+ * taken in this page; every track stops at once. Null when the person cancels or no frame comes
+ * within `timeoutMs`: a stream that never plays must not leave the composer waiting.
  */
-export async function captureScreenshot(): Promise<Blob | null> {
+export async function captureScreenshot(
+  timeoutMs = CAPTURE_FRAME_TIMEOUT_MS,
+): Promise<Blob | null> {
   let stream: MediaStream;
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({
@@ -261,32 +267,43 @@ export async function captureScreenshot(): Promise<Blob | null> {
   } catch {
     return null;
   }
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const video = document.createElement("video");
-    video.muted = true;
-    video.playsInline = true;
-    video.srcObject = stream;
-    await video.play();
-    if (video.videoWidth === 0) {
-      await new Promise<void>((resolve) => {
-        video.addEventListener("loadeddata", () => resolve(), { once: true });
-        setTimeout(resolve, 2_000);
-      });
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const context = canvas.getContext("2d");
-    if (!context || canvas.width === 0 || canvas.height === 0) return null;
-    context.drawImage(video, 0, 0);
-    const encode = (type: string, quality?: number) =>
-      new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
-    const png = await encode("image/png");
-    if (png && png.size <= ATTACHMENT_LIMITS.fileMaxBytes) return png;
-    return encode("image/jpeg", 0.85);
+    const timedOut = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), timeoutMs);
+    });
+    return await Promise.race([frameOf(stream), timedOut]);
+  } catch {
+    return null;
   } finally {
+    clearTimeout(timer);
     for (const track of stream.getTracks()) track.stop();
   }
+}
+
+async function frameOf(stream: MediaStream): Promise<Blob | null> {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = stream;
+  await video.play();
+  if (video.videoWidth === 0) {
+    await new Promise<void>((resolve) => {
+      video.addEventListener("loadeddata", () => resolve(), { once: true });
+      setTimeout(resolve, 2_000);
+    });
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const context = canvas.getContext("2d");
+  if (!context || canvas.width === 0 || canvas.height === 0) return null;
+  context.drawImage(video, 0, 0);
+  const encode = (type: string, quality?: number) =>
+    new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, type, quality));
+  const png = await encode("image/png");
+  if (png && png.size <= ATTACHMENT_LIMITS.fileMaxBytes) return png;
+  return encode("image/jpeg", 0.85);
 }
 
 function formatSize(bytes: number): string {
