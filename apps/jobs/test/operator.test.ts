@@ -242,6 +242,68 @@ describe("operator commands", () => {
     expect((await run("reinstate-artifact", "zzzzzzzzzz", ...LIFT)).exitCode).toBe(1);
   });
 
+  it("names the authors of an artifact's data in the decision, and refuses names it cannot keep", async () => {
+    const user = await owner();
+    const writer = await owner();
+    const id = await artifact(user.id);
+    const visitor = `v_${"a".repeat(22)}`;
+    const suspended = await run(
+      "suspend-artifact",
+      id,
+      "--reason",
+      "harassment",
+      ...WHY,
+      "--data-author",
+      `${visitor}, ${writer.email.toUpperCase()},${visitor}`,
+    );
+    expect(suspended.exitCode).toBe(0);
+    const listed = (await run("decisions", "artifact", id)).output;
+    expect(listed).toContain(`  author  visitor ${visitor} (artifact data)`);
+    expect(listed).toContain(`  author  account ${writer.id} (artifact data)`);
+    // A reinstatement names the suspension's authors itself.
+    expect((await run("reinstate-artifact", id, ...LIFT)).exitCode).toBe(0);
+    const decisions = await db()
+      .select()
+      .from(schema.moderationDecisionAuthors)
+      .innerJoin(
+        schema.moderationDecisions,
+        eq(schema.moderationDecisions.id, schema.moderationDecisionAuthors.decisionId),
+      )
+      .where(eq(schema.moderationDecisions.targetId, id));
+    expect(decisions.filter((row) => row.moderation_decisions.action === "reinstate")).toHaveLength(
+      2,
+    );
+    for (const [names, message] of [
+      ["v_short", "Not a visitor ID: v_short"],
+      ["nobody@example.test", "No account for --data-author nobody@example.test."],
+      ["u_missing", "No account for --data-author u_missing."],
+      [" , ", "--data-author needs visitor IDs, user IDs or emails."],
+      [
+        Array.from({ length: 51 }, (_, i) => `v_${String(i).padStart(22, "b")}`).join(","),
+        "--data-author names at most 50 authors.",
+      ],
+    ] as const) {
+      const refused = await run(
+        "suspend-artifact",
+        await artifact(user.id),
+        "--reason",
+        "spam",
+        ...WHY,
+        "--data-author",
+        names,
+      );
+      expect(refused.exitCode, names).toBe(2);
+      expect(refused.output).toContain(message);
+    }
+    // Only a new statement about an artifact names data authors.
+    for (const argv of [
+      ["send-statement", "artifact", id, "--data-author", visitor],
+      ["send-statement", "account", user.id, ...WHY, "--data-author", visitor],
+    ]) {
+      expect((await run(...argv)).output).toContain("--data-author goes with a new statement");
+    }
+  });
+
   it("suspends and reinstates an account by email or ID", async () => {
     const user = await owner();
     const id = await artifact(user.id);

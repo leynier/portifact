@@ -9,9 +9,12 @@ import { SIGN_IN_EMAILS_PER_CYCLE } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { actorOn } from "../src/actors.ts";
+import { retireJournalEntry } from "../src/artifact-data.ts";
 import { getArtifact } from "../src/artifacts.ts";
 import { getBrandSettings, reinstateBrand, suspendBrand } from "../src/branding.ts";
+import { claimVisitorId } from "../src/data-grants.ts";
 import { recordEmailsSent, suppressEmail } from "../src/email.ts";
+import { eraseAccountTraces, pruneGoneHistory } from "../src/history-retention.ts";
 import { keyedHash } from "../src/keyed-hash.ts";
 import {
   listAbuseReports,
@@ -87,6 +90,25 @@ async function decisionsOf(kind: "artifact" | "account" | "brand", id: string) {
   return listDecisions(db(), kind, id);
 }
 
+/** A signed-in author of the artifact's data: their journal entry, and a grant like the page's. */
+async function dataAuthor(artifactId: string, name = "Writer") {
+  const person = await user(name);
+  const visitorId = value(await claimVisitorId(env.ARTIFACTS, person.id, artifactId, NOW));
+  await db()
+    .insert(schema.dataGrants)
+    .values({
+      id: `dg_${crypto.randomUUID()}`,
+      artifactId,
+      userId: person.id,
+      visitorId,
+      authSessionId: `s_${crypto.randomUUID()}`,
+      host: `${artifactId}.portifact.dev`,
+      expiresAt: NOW + 3_600_000,
+      redeemedAt: NOW,
+    });
+  return { ...person, visitorId };
+}
+
 describe("the statement of reasons", () => {
   it("is recorded with the suspension and emailed once to the account, with what the pages promise", async () => {
     const owner = await user();
@@ -123,6 +145,7 @@ describe("the statement of reasons", () => {
         attachmentId: null,
         artifactName: "Plan",
         workspaceSlug: null,
+        audience: "manager",
         reason: "phishing",
         source: "notice",
         facts: STATEMENT.facts,
@@ -336,6 +359,200 @@ describe("the statement of reasons", () => {
       }),
     );
     expect((await decisionsOf("account", owner.id))[0]).toMatchObject({ action: "reinstate" });
+  });
+});
+
+describe("the authors of an artifact's data", () => {
+  it("tells the signed-in authors the operator named, through the journal, and nobody else", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    const byVisitor = await dataAuthor(artifactId);
+    const byAccount = await dataAuthor(artifactId);
+    // The owner also wrote in the page: they read the managers' email, once.
+    const ownerVisitor = value(await claimVisitorId(env.ARTIFACTS, owner.id, artifactId, NOW));
+    // Someone the journal does not name in this artifact, an anonymous writer's visitor ID, and a
+    // visitor ID that belongs to an author of another artifact are told nothing.
+    const stranger = await user();
+    const elsewhere = await publishSite(owner.id);
+    const other = await dataAuthor(elsewhere.artifactId);
+    value(
+      await suspendArtifact(db(), {
+        artifactId,
+        reason: "harassment",
+        statement: {
+          ...STATEMENT,
+          dataAuthors: [
+            { kind: "visitor", visitorId: byVisitor.visitorId },
+            { kind: "account", userId: byAccount.id },
+            { kind: "visitor", visitorId: ownerVisitor },
+            { kind: "account", userId: stranger.id },
+            { kind: "visitor", visitorId: `v_${"z".repeat(22)}` },
+            { kind: "visitor", visitorId: other.visitorId },
+          ],
+        },
+        now: NOW,
+      }),
+    );
+    const [decision] = await decisionsOf("artifact", artifactId);
+    expect(decision?.dataAuthors).toHaveLength(6);
+    const sent = notifiers();
+    expect(await runJobsAbout(decision?.id ?? "", sent.deps)).toEqual(["done"]);
+    const byTo = new Map(sent.moderation.map((notice) => [notice.to, notice]));
+    expect([...byTo.keys()].sort()).toEqual([owner.email, byVisitor.email, byAccount.email].sort());
+    expect(byTo.get(owner.email)).toMatchObject({ audience: "manager" });
+    for (const author of [byVisitor, byAccount]) {
+      expect(byTo.get(author.email)).toMatchObject({
+        audience: "data_author",
+        target: "artifact",
+        artifactId,
+        workspaceSlug: null,
+        facts: STATEMENT.facts,
+        ground: STATEMENT.ground,
+      });
+    }
+    const [after] = await decisionsOf("artifact", artifactId);
+    expect(after).toMatchObject({ notice: "sent", recipients: 3 });
+    expect(after?.sends.map((row) => row.userId).sort()).toEqual(
+      [owner.id, byVisitor.id, byAccount.id].sort(),
+    );
+  });
+
+  it("keeps the names through a withheld statement, tells them of the reinstatement and skips retired and suppressed authors", async () => {
+    const owner = await user();
+    const slug = `d-${crypto.randomUUID().slice(0, 8)}`;
+    const ws = value(
+      await createWorkspace(db().global, { slug, name: "Team", adminUserId: owner.id, now: NOW }),
+    );
+    const { artifactId } = await publishSite(owner.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: ws.id })
+      .where(eq(schema.artifacts.id, artifactId));
+    const author = await dataAuthor(artifactId);
+    const leaving = await dataAuthor(artifactId);
+    const bounced = await dataAuthor(artifactId);
+    value(
+      await suspendArtifact(db(), {
+        artifactId,
+        reason: "private_information",
+        statement: {
+          ...STATEMENT,
+          withhold: true,
+          dataAuthors: [author, leaving, bounced].map((a) => ({
+            kind: "visitor" as const,
+            visitorId: a.visitorId,
+          })),
+        },
+        now: NOW,
+      }),
+    );
+    // Silence: nothing is sent while the statement is withheld.
+    expect(await jobsAbout((await decisionsOf("artifact", artifactId))[0]?.id ?? "")).toEqual([]);
+    const released = value(
+      await sendSuspensionStatement(db(), {
+        targetKind: "artifact",
+        targetId: artifactId,
+        now: NOW + 1,
+      }),
+    );
+    await retireJournalEntry(env.ARTIFACTS, leaving.id, artifactId, NOW + 1);
+    await suppressEmail(db().global, { email: bounced.email, reason: "hard_bounce", now: NOW });
+    const first = notifiers();
+    expect(await runJobsAbout(released.decisionId, first.deps)).toEqual(["done"]);
+    expect(first.moderation.map((notice) => [notice.to, notice.audience]).sort()).toEqual(
+      [
+        [owner.email, "manager"],
+        [author.email, "data_author"],
+      ].sort(),
+    );
+    // A data author's email never carries the workspace, which they are not in.
+    expect(first.moderation.find((n) => n.to === author.email)?.workspaceSlug).toBeNull();
+    expect(first.moderation.find((n) => n.to === owner.email)?.workspaceSlug).toBe(slug);
+
+    // The reinstatement tells the people the suspension named, without naming them again.
+    value(
+      await reinstateArtifact(db(), {
+        artifactId,
+        statement: { facts: "The page was fixed.", source: "review", withhold: false },
+        now: NOW + 2,
+      }),
+    );
+    const [lifted] = await decisionsOf("artifact", artifactId);
+    expect(lifted).toMatchObject({ action: "reinstate" });
+    expect(lifted?.dataAuthors).toHaveLength(3);
+    const second = notifiers();
+    expect(await runJobsAbout(lifted?.id ?? "", second.deps)).toEqual(["done"]);
+    expect(second.moderation.map((notice) => notice.to).sort()).toEqual(
+      [owner.email, author.email].sort(),
+    );
+    expect(second.moderation.find((n) => n.to === author.email)).toMatchObject({
+      action: "reinstate",
+      audience: "data_author",
+    });
+  });
+
+  it("is refused for decisions about anything but an artifact, and beyond the limit", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    await expect(
+      suspendAccount(db(), {
+        userId: owner.id,
+        reason: "spam",
+        statement: { ...STATEMENT, dataAuthors: [{ kind: "account", userId: owner.id }] },
+        now: NOW,
+      }),
+    ).rejects.toThrow("only a decision about an artifact names data authors");
+    await expect(
+      suspendArtifact(db(), {
+        artifactId,
+        reason: "spam",
+        statement: {
+          ...STATEMENT,
+          dataAuthors: Array.from({ length: 51 }, (_, i) => ({
+            kind: "visitor" as const,
+            visitorId: `v_${String(i).padStart(22, "c")}`,
+          })),
+        },
+        now: NOW,
+      }),
+    ).rejects.toThrow("too many data authors");
+    // Neither left anything behind.
+    expect(await decisionsOf("artifact", artifactId)).toEqual([]);
+    expect(await decisionsOf("account", owner.id)).toEqual([]);
+  });
+
+  it("forgets an account named as an author when it is deleted, and goes with its decision", async () => {
+    const owner = await user();
+    const { artifactId } = await publishSite(owner.id);
+    const author = await dataAuthor(artifactId);
+    value(
+      await suspendArtifact(db(), {
+        artifactId,
+        reason: "spam",
+        statement: {
+          ...STATEMENT,
+          dataAuthors: [
+            { kind: "account", userId: author.id },
+            { kind: "visitor", visitorId: author.visitorId },
+          ],
+        },
+        now: NOW,
+      }),
+    );
+    await eraseAccountTraces(db(), author.id, NOW);
+    const [decision] = await decisionsOf("artifact", artifactId);
+    expect(decision?.dataAuthors).toEqual([{ kind: "visitor", author: author.visitorId }]);
+    // Rows whose decision is gone are pruned with the decisions' history.
+    await db()
+      .delete(schema.moderationDecisions)
+      .where(eq(schema.moderationDecisions.id, decision?.id ?? ""));
+    await pruneGoneHistory(db(), NOW);
+    expect(
+      await db()
+        .select()
+        .from(schema.moderationDecisionAuthors)
+        .where(eq(schema.moderationDecisionAuthors.decisionId, decision?.id ?? "")),
+    ).toEqual([]);
   });
 });
 
