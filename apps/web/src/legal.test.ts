@@ -166,7 +166,7 @@ describe("legal pages", () => {
       "grants no unrelated redistribution rights",
       "stay in your browser until you post the comment and are uploaded only then",
       "Changing access does not invalidate issued links",
-      "This version takes effect on December 21, 2026. Attachment uploads stay off until then.",
+      "This version replaces the version of November 13, 2026 and takes effect on November 15, 2026.",
       "<code>portifact export</code> downloads every file",
       "up to 4 files to a comment or reply",
       "each up to 10 MB (1 MB for text)",

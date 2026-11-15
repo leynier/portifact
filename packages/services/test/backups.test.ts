@@ -220,7 +220,8 @@ describe("tombstones after a restore", () => {
       artifactId: purged.artifactId,
       now: NOW,
     });
-    // Live by the real clock, which the marker trigger reads, whatever day the test runs.
+    // Migration 0071's trigger compares the expiry with the database's real clock, not `NOW`, so
+    // the session must still be live by that clock for its deletion to write a marker.
     const leavingSession = await session(leaving.id, NOW, Date.now() + 7 * DAY);
     await requestAccountDeletion(regionsFromEnv(env), {
       userId: leaving.id,

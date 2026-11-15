@@ -31,11 +31,7 @@ export async function user(name = "Someone"): Promise<{ id: string; email: strin
   return { id, email };
 }
 
-/**
- * A dashboard session signed in at `createdAt`. Pass `expiresAt` when the database's own clock
- * judges it (the restore marker triggers of migration 0071 compare with the real time, so a
- * session expiring a week after the fixed `NOW` stops counting as live a week after `NOW`).
- */
+/** A dashboard session signed in at `createdAt`, expiring at `expiresAt` (a week after `NOW`). */
 export async function session(
   userId: string,
   createdAt = NOW,
