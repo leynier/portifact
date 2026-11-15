@@ -2039,10 +2039,9 @@ An artifact shared with its workspace or an email domain becomes restricted when
       ),
     );
 
-  // Comment attachments (decision 0029) are switched off until the legal pages describe them, so
-  // the command is hidden from the help until then.
+  // Comment attachments (decision 0029): reading and downloading a file a comment holds.
   annotations
-    .command("attachment", { hidden: true })
+    .command("attachment")
     .description("Download one file attached to a comment, checked against what the comment lists")
     .argument("<id>", "artifact ID")
     .argument("<attachment-id>", "attachment ID, as `annotations get` lists it")
