@@ -46,6 +46,12 @@ export const ATTACHMENT_LIMITS = {
    * sent after the statement can still reinstate it (decision 0028, "Abuse and the operator").
    */
   removalWaitMs: 30 * 24 * 60 * 60 * 1000,
+  /**
+   * When a deleted file's bytes are deleted a second time: after any upload link signed for it
+   * can no longer start a request (15 minutes, `UPLOAD_URL_TTL_SECONDS` in the app), with a margin,
+   * so a replayed PUT cannot leave bytes behind with no row and no job.
+   */
+  finalCleanupDelayMs: 20 * 60 * 1000,
 } as const;
 
 /** Lowercase hex SHA-256; its own copy so this module imports nothing that imports it back. */

@@ -679,7 +679,9 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
       build: (db, refs) =>
         db
           .delete(schema.commentAttachments)
-          .where(sql`${schema.commentAttachments.id} in (${refs.attachments})`)
+          .where(
+            sql`${schema.commentAttachments.id} in (${refs.attachments}) and ${notHeldSql(sql`${schema.commentAttachments.artifactId}`)}`,
+          )
           .returning({ id: schema.commentAttachments.id }),
     },
     // Messages deleted while their thread stayed: the "message deleted" marker again, never the

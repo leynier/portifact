@@ -36,6 +36,7 @@ describe("upgrading a populated database", () => {
     "comment_attachments_usage_owner",
     "comment_attachments_release",
     "annotation_messages_attachments_deleted",
+    "comment_attachments_held_not_deleted",
   ]);
 
   it("keeps ordinary threads and every earlier trigger, and adds the suggestion triggers", async () => {

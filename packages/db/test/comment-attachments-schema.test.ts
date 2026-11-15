@@ -89,7 +89,11 @@ async function deletedKeys() {
     .select({ payload: schema.outbox.payload })
     .from(schema.outbox)
     .where(eq(schema.outbox.topic, "delete_objects"));
-  return rows.flatMap((row) => (row.payload as { keys: string[] }).keys).sort();
+  const keys = rows.flatMap((row) => (row.payload as { keys: string[] }).keys).sort();
+  // Every deleted row schedules its key twice: at once and after its upload link expired.
+  const once = [...new Set(keys)];
+  expect(keys).toEqual(once.flatMap((key) => [key, key]));
+  return once;
 }
 
 async function rowIds() {
@@ -196,6 +200,34 @@ describe("comment attachments", () => {
       `attachments/${ARTIFACT}/a2`,
       `attachments/${ARTIFACT}/a3`,
     ]);
+  });
+
+  it("schedules the second deletion after any upload link expired, and refuses deleting a held artifact's file", async () => {
+    await pending("a1");
+    await db().delete(schema.commentAttachments);
+    const jobs = await db()
+      .select({ available: schema.outbox.availableAt })
+      .from(schema.outbox)
+      .where(eq(schema.outbox.topic, "delete_objects"))
+      .orderBy(schema.outbox.availableAt);
+    expect(jobs).toHaveLength(2);
+    expect((jobs[1]?.available ?? 0) - (jobs[0]?.available ?? 0)).toBe(20 * 60 * 1000);
+
+    await pending("a2");
+    await db()
+      .update(schema.artifacts)
+      .set({ state: "suspended", suspensionReason: "malware" })
+      .where(eq(schema.artifacts.id, ARTIFACT));
+    await env.DB.prepare(
+      "INSERT INTO legal_holds (id, artifact_id, owner_id, reason, ground) VALUES ('hold_att', ?, ?, 'malware', 'g')",
+    )
+      .bind(ARTIFACT, OWNER)
+      .run();
+    await rejects(
+      db().delete(schema.commentAttachments).where(eq(schema.commentAttachments.id, "a2")),
+      /legal_hold/,
+    );
+    await env.DB.exec("DELETE FROM legal_holds WHERE id = 'hold_att'");
   });
 
   it("moves an attached file's bytes with a transfer", async () => {

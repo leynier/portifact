@@ -3,11 +3,17 @@
 // download link for people's tokens and the same answer from the MCP tool. The services' rules are
 // tested in packages/services; these tests prove the wiring, the boundaries and the parity.
 import { env } from "cloudflare:workers";
-import { AnnotationThreadView, AttachmentLink, PreparedAttachment } from "@portifact/contracts";
+import {
+  AnnotationThreadView,
+  ATTACHMENT_LIMITS,
+  AttachmentLink,
+  PreparedAttachment,
+} from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { attachmentKey } from "@portifact/domain";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
+import { UPLOAD_URL_TTL_SECONDS } from "../src/api/presign.ts";
 import { publishSite, type TokenClient, tokenClient } from "./api-client.ts";
 import { createHarness, type Harness, ORIGIN } from "./harness.ts";
 import { callTool, connect, mcpToken } from "./mcp-helpers.ts";
@@ -192,6 +198,12 @@ describe("attachment routes", () => {
       body: { name: "a.png", size: 10, sha256: "a".repeat(64), contentType: "image/png" },
     });
     expect(extra.status).toBe(400);
+  });
+});
+
+describe("upload links and the final cleanup", () => {
+  it("deletes a removed file's bytes a second time only after any upload link expired", () => {
+    expect(ATTACHMENT_LIMITS.finalCleanupDelayMs).toBeGreaterThan(UPLOAD_URL_TTL_SECONDS * 1000);
   });
 });
 

@@ -193,10 +193,18 @@ export async function pruneAttachmentUploads(
   return deleted.length;
 }
 
-/** A person's pending uploads, deleted with their account (`uploaded_by` has no foreign key). */
+/**
+ * A person's pending uploads, deleted with their account (`uploaded_by` has no foreign key),
+ * except on an artifact a legal hold keeps: those stay until the hold is released and the prune
+ * takes them.
+ */
 export function deletePendingUploadsOf(db: Db, userId: string) {
   const ca = schema.commentAttachments;
-  return db.delete(ca).where(and(eq(ca.uploadedBy, userId), eq(ca.state, "pending")));
+  return db
+    .delete(ca)
+    .where(
+      and(eq(ca.uploadedBy, userId), eq(ca.state, "pending"), notHeldSql(sql`${ca.artifactId}`)),
+    );
 }
 
 /** An artifact's files as the operator lists them: metadata only, never bytes or links. */
@@ -370,29 +378,37 @@ export async function removeAttachment(
       `A counter-notice can still reinstate this file; it can be removed from ${new Date(wait).toISOString()}.`,
     );
   }
-  if (await isHeld(db, row.artifactId)) {
-    return fail("forbidden", "A legal hold keeps this artifact; release it first.");
-  }
-  const tombstone = (x: Db) =>
-    x
-      .insert(schema.tombstones)
-      .values({ kind: "comment_attachment", id: input.attachmentId, deletedAt: input.now })
-      .onConflictDoNothing();
-  const stillWithheld = sql`exists (select 1 from ${ca} where ${ca.id} = ${input.attachmentId} and ${ca.withheldAt} = ${row.withheldAt})`;
-  const regional = (x: Db) =>
-    [
-      trail(x, input, "attachment_removed", stillWithheld),
-      x
-        .delete(ca)
-        .where(and(eq(ca.id, input.attachmentId), eq(ca.withheldAt, row.withheldAt as number))),
-    ] as const;
+  const held = () =>
+    fail<never>("forbidden", "A legal hold keeps this artifact; release it first.");
+  if (await isHeld(db, row.artifactId)) return held();
+  // Every statement holds to the live state: still withheld as read, and no hold placed since
+  // (`notHeldSql`); the database refuses the delete of a held artifact's file anyway.
+  const live = sql`exists (select 1 from ${ca} where ${ca.id} = ${input.attachmentId} and ${ca.withheldAt} = ${row.withheldAt}) and ${notHeldSql(sql`${input.artifactId}`)}`;
   const both = bothSides(db);
-  if (both) {
-    await both.batch([tombstone(both), ...regional(both)]);
-  } else {
-    // Global first, then the region: the tombstone outlives a failure in between.
-    await tombstone(db.global);
-    await db.batch([...regional(db)]);
+  const x: Db = both ?? db;
+  // The marker that keeps it gone through a restore, on the same condition: with one database the
+  // tombstone itself, with a separate regional one a `comment_tombstones` job that writes it.
+  const marker = both
+    ? // Columns in schema order: kind, id, deleted at.
+      both
+        .insert(schema.tombstones)
+        .select(sql`select 'comment_attachment', ${input.attachmentId}, ${input.now} where ${live}`)
+        .onConflictDoNothing()
+    : // Columns in schema order: id, topic, payload, available, dispatched, attempts, created,
+      // subject, generation.
+      db
+        .insert(schema.outbox)
+        .select(
+          sql`select null, 'comment_tombstones', json_object('ids', json('[]'), 'markers', json_array(json_object('kind', 'comment_attachment', 'id', ${input.attachmentId})), 'at', ${input.now}), ${input.now}, null, 0, ${input.now}, ${input.artifactId}, null where ${live}`,
+        );
+  const results = (await x.batch([
+    marker,
+    trail(x, input, "attachment_removed", live),
+    x.delete(ca).where(sql`${ca.id} = ${input.attachmentId} and ${live}`).returning({ id: ca.id }),
+  ])) as unknown[];
+  if ((results.at(-1) as { id: string }[]).length === 0) {
+    if (await isHeld(db, row.artifactId)) return held();
+    return fail("version_conflict", "The file changed meanwhile. List it again and retry.");
   }
   return ok({ artifactId: row.artifactId });
 }

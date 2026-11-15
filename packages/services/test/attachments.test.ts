@@ -2,7 +2,7 @@
 // file, deletion by triggers, the prune, the operator's removal and the restore.
 import { env } from "cloudflare:test";
 import { type AnnotationTarget, ATTACHMENT_LIMITS } from "@portifact/contracts";
-import { type RegionalDb, regionsFromEnv, schema } from "@portifact/db";
+import { globalDb, type RegionalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
 import { attachmentKey } from "@portifact/domain";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -624,6 +624,52 @@ describe("comment attachments", () => {
     expect(await removeAttachment(db(), { ...ref, now: due })).toMatchObject({ code: "not_found" });
   });
 
+  it("loses the removal to a hold or a reinstatement that lands between its check and its batch", async () => {
+    for (const race of ["hold", "reinstated"] as const) {
+      const w = await world();
+      const file = await uploaded(w, w.reader);
+      const thread = await start(w, w.reader, [file.id]);
+      if (!thread.ok) throw new Error("thread");
+      const ref = { artifactId: w.id, attachmentId: file.id };
+      await withholdAttachment(db(), {
+        ...ref,
+        reason: "copyright",
+        statement: STATEMENT,
+        now: NOW,
+      });
+      const real = db();
+      // The other change commits right before the removal's batch reaches the database.
+      const d1 = new Proxy(env.DB, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver);
+          if (property !== "batch") return typeof value === "function" ? value.bind(target) : value;
+          return async (statements: D1PreparedStatement[]) => {
+            if (race === "hold") await hold(w);
+            else {
+              await real
+                .update(schema.commentAttachments)
+                .set({ withheldAt: null, withheldReason: null })
+                .where(eq(schema.commentAttachments.id, file.id));
+            }
+            return target.batch(statements);
+          };
+        },
+      });
+      const racing = regionalDb(d1, globalDb(d1));
+      const result = await removeAttachment(racing, {
+        ...ref,
+        now: NOW + ATTACHMENT_LIMITS.removalWaitMs,
+      });
+      expect(result).toMatchObject({ code: race === "hold" ? "forbidden" : "version_conflict" });
+      expect(await rowOf(file.id)).toBeDefined();
+      const markers = await real.global
+        .select()
+        .from(schema.tombstones)
+        .where(eq(schema.tombstones.id, file.id));
+      expect(markers).toEqual([]);
+    }
+  });
+
   it("withholds a held artifact's file but never removes it while the hold lasts", async () => {
     const held = await world();
     const file = await uploaded(held, held.reader);
@@ -705,7 +751,7 @@ describe("comment attachments", () => {
     ).toMatchObject({ code: "rate_limited" });
   });
 
-  it("removes a file of a region with its own database: the tombstone first, then the region", async () => {
+  it("removes a file of a region with its own database, its marker through a job of that region's batch", async () => {
     const eu = regionsFromEnv(env).get("eu").db;
     const owner = await user();
     const id = artifactId();
@@ -776,6 +822,18 @@ describe("comment attachments", () => {
         .from(schema.commentAttachments)
         .where(eq(schema.commentAttachments.id, "att_eu")),
     ).toEqual([]);
+    // The marker rides the regional batch as a `comment_tombstones` job, which writes it globally.
+    const [job] = await eu
+      .select()
+      .from(schema.outbox)
+      .where(and(eq(schema.outbox.topic, "comment_tombstones"), eq(schema.outbox.subject, id)));
+    expect(job).toBeDefined();
+    await runJob(
+      eu,
+      env.ARTIFACTS_EU,
+      { id: job?.id ?? 0, topic: "comment_tombstones", region: "eu" },
+      NOW,
+    );
     const [marker] = await eu.global
       .select()
       .from(schema.tombstones)
@@ -801,6 +859,56 @@ describe("comment attachments", () => {
     if (!owner.ok) throw new Error("export");
     const onTheirs = owner.value.artifacts.find((artifact) => artifact.id === w.id);
     expect(onTheirs?.threads[0]?.messages[0]?.attachments).toEqual([metadata]);
+  });
+
+  it("keeps a held artifact's pending uploads when their uploader's account is deleted", async () => {
+    const w = await world();
+    const pending = await uploaded(w, w.reader);
+    await hold(w);
+    const [reader] = await db()
+      .global.select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, w.reader));
+    const deleted = await requestAccountDeletion(regionsFromEnv(env), {
+      userId: w.reader,
+      sessionId: await session(w.reader, NOW),
+      confirmEmail: reader?.email ?? "",
+      now: NOW,
+    });
+    expect(deleted.ok).toBe(true);
+    expect(await rowOf(pending.id)).toBeDefined();
+    expect(await env.ARTIFACTS.head(pending.key)).not.toBeNull();
+  });
+
+  it("refuses in the database to delete a held artifact's file, whatever path tries", async () => {
+    const w = await world();
+    const file = await uploaded(w, w.reader);
+    await hold(w);
+    await expect(
+      db().delete(schema.commentAttachments).where(eq(schema.commentAttachments.id, file.id)),
+    ).rejects.toThrow();
+    expect(await rowOf(file.id)).toBeDefined();
+  });
+
+  it("schedules a second deletion of a file's bytes after its upload link can no longer be used", async () => {
+    const w = await world();
+    const file = await uploaded(w, w.reader);
+    await db().delete(schema.commentAttachments).where(eq(schema.commentAttachments.id, file.id));
+    const jobs = await db()
+      .select()
+      .from(schema.outbox)
+      .where(and(eq(schema.outbox.topic, "delete_objects"), eq(schema.outbox.subject, w.owner)));
+    const mine = jobs.filter((job) => (job.payload as { keys: string[] }).keys.includes(file.key));
+    expect(mine).toHaveLength(2);
+    const [first, last] = mine.sort((x, y) => x.availableAt - y.availableAt);
+    expect((last?.availableAt ?? 0) - (first?.availableAt ?? 0)).toBe(
+      ATTACHMENT_LIMITS.finalCleanupDelayMs,
+    );
+    // A replayed upload after the first deletion is gone after the second.
+    await runJob(db(), env.ARTIFACTS, { id: first?.id ?? 0, topic: "delete_objects" }, NOW);
+    await env.ARTIFACTS.put(file.key, PNG);
+    await runJob(db(), env.ARTIFACTS, { id: last?.id ?? 0, topic: "delete_objects" }, NOW);
+    expect(await env.ARTIFACTS.head(file.key)).toBeNull();
   });
 
   it("reports attachment bytes without a row as orphans", async () => {
