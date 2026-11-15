@@ -14,19 +14,12 @@ import {
   type AnnotationTarget,
   type AnnotationThreadView,
   Edit,
-  type SuggestionProofs,
-  type SuggestionState,
   type SuggestionView,
   utf8Length,
 } from "@portifact/contracts";
-import { type RegionalDb, schema } from "@portifact/db";
+import { bothSides, type Db, type RegionalDb, schema } from "@portifact/db";
 import { fail, ok, type Result } from "@portifact/domain";
-import {
-  checkDecide,
-  checkWithdraw,
-  plannableKind,
-  plannedOn,
-} from "@portifact/domain/suggestions";
+import { checkDecide, checkWithdraw, plannableKind } from "@portifact/domain/suggestions";
 import { and, eq, sql } from "drizzle-orm";
 import {
   type AnnotationActor,
@@ -36,6 +29,10 @@ import {
   WITHDRAWN,
 } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
+import { decisionMarker } from "./suggestion-markers.ts";
+import { suggestionView as view } from "./suggestion-view.ts";
+
+export { storedEdit, storedProofs } from "./suggestion-view.ts";
 
 const th = schema.annotationThreads;
 
@@ -44,38 +41,37 @@ const notASuggestion = () => fail<never>("not_found", "Suggestion not found.");
 
 type ThreadRow = typeof th.$inferSelect;
 
-/** The stored proofs of a suggestion, or null when it has none (or they cannot be read). */
-export function storedProofs(row: Pick<ThreadRow, "editProofs">): SuggestionProofs | null {
-  if (row.editProofs === null) return null;
-  try {
-    return JSON.parse(row.editProofs) as SuggestionProofs;
-  } catch {
-    return null;
+/**
+ * Whether `path` is a page of `versionId` a plan can be built for (a document's original or an
+ * HTML page): the one check of where an edit may be made, for suggestions and drafts.
+ */
+export async function checkEditablePage(
+  db: RegionalDb,
+  artifactType: Parameters<typeof plannableKind>[0],
+  versionId: string,
+  path: string,
+): Promise<Result<true>> {
+  const [file] = await db
+    .select({
+      path: schema.versionFiles.path,
+      contentType: schema.versionFiles.contentType,
+      entrypoint: schema.versions.entrypoint,
+    })
+    .from(schema.versionFiles)
+    .innerJoin(schema.versions, eq(schema.versions.id, schema.versionFiles.versionId))
+    .where(
+      and(
+        eq(schema.versionFiles.versionId, versionId),
+        eq(schema.versionFiles.kind, "published"),
+        eq(schema.versionFiles.path, path),
+      ),
+    )
+    .limit(1);
+  if (!file) return fail("invalid_input", "target.path: No such file in this version.");
+  if (plannableKind(artifactType, file, file.entrypoint) === null) {
+    return fail("invalid_input", "target.path: Suggestions are made on pages and documents.");
   }
-}
-
-/** The submitted edit of a suggestion still holding one. */
-export function storedEdit(row: Pick<ThreadRow, "edit">): Edit | null {
-  if (row.edit === null) return null;
-  const parsed = Edit.safeParse(JSON.parse(row.edit));
-  return parsed.success ? parsed.data : null;
-}
-
-function view(row: ThreadRow): SuggestionView {
-  const edit = storedEdit(row);
-  return {
-    threadId: row.id,
-    artifactId: row.artifactId,
-    versionId: row.versionId,
-    state: row.suggestionState as SuggestionState,
-    edit,
-    revision: row.suggestionRevision,
-    attemptReason: row.attemptReason,
-    decidedAt: row.decidedAt,
-    resultVersionId: row.resultVersionId,
-    originVersionId: row.originVersionId,
-    planned: plannedOn(storedProofs(row), row.versionId),
-  };
+  return ok(true);
 }
 
 /** A suggestion the caller sees, or a missing thread's answer. */
@@ -132,27 +128,8 @@ export async function submitSuggestion(
       if (artifact.currentVersionId !== input.versionId) {
         return fail("version_conflict", "Suggest on the current version of the artifact.");
       }
-      const [file] = await db
-        .select({
-          path: schema.versionFiles.path,
-          contentType: schema.versionFiles.contentType,
-          entrypoint: schema.versions.entrypoint,
-        })
-        .from(schema.versionFiles)
-        .innerJoin(schema.versions, eq(schema.versions.id, schema.versionFiles.versionId))
-        .where(
-          and(
-            eq(schema.versionFiles.versionId, input.versionId),
-            eq(schema.versionFiles.kind, "published"),
-            eq(schema.versionFiles.path, target.path),
-          ),
-        )
-        .limit(1);
-      if (!file) return fail("invalid_input", "target.path: No such file in this version.");
-      // Only a page a plan can be built for: a document's original or an HTML page.
-      if (plannableKind(artifact.type, file, file.entrypoint) === null) {
-        return fail("invalid_input", "target.path: Suggestions are made on pages and documents.");
-      }
+      const page = await checkEditablePage(db, artifact.type, input.versionId, target.path);
+      if (!page.ok) return page;
       const limits = await annotationParts.checkLimits(db, loaded.value, input.userId, input.now, {
         kind: "thread",
         addedBytes: bodyBytes + targetBytes + editBytes,
@@ -180,11 +157,12 @@ export async function submitSuggestion(
         ),
         // Columns in schema order (see `createAnnotationThread`), then the suggestion columns:
         // kind, suggestion state, edit, edit bytes, edit proofs, suggestion revision, attempt,
-        // attempt reason, decided by, decided at, result version, origin version, origin target.
+        // attempt reason, decided by, decided at, result version, origin version, origin target,
+        // and the image region (decision 0028), which a suggestion never has.
         db
           .insert(th)
           .select(
-            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${target.path}, 'open', 1, 1, ${annotationParts.claimedEventId(writeId)}, null, null, ${input.now}, ${input.now}, 'suggestion', 'pending', ${editJson}, ${editBytes}, null, 1, null, null, null, null, null, null, null where ${claimed}`,
+            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${target.path}, 'open', 1, 1, ${annotationParts.claimedEventId(writeId)}, null, null, ${input.now}, ${input.now}, 'suggestion', 'pending', ${editJson}, ${editBytes}, null, 1, null, null, null, null, null, null, null, null where ${claimed}`,
           ),
         annotationParts.insertMessage(db, {
           id: messageId,
@@ -280,9 +258,15 @@ export async function rejectSuggestion(
     (loaded, thread) => checkDecide(loaded.role, thread.suggestionState),
     "moderate",
     async (loaded, guard) => {
-      const [, updated] = await db.batch([
+      // With one database the whole batch runs on the handle that also writes the tombstone.
+      const shared = bothSides(db);
+      const x: Db = shared ?? db;
+      const thread = { id: input.threadId, artifactId: loaded.artifact.id };
+      const [, , updated] = await x.batch([
+        // What keeps it rejected through a restore (decision 0027), on the decision's guard.
+        decisionMarker(x, shared !== null, "suggestion_rejected", thread, guard, input.now),
         auditEvent(
-          db,
+          x,
           {
             ownerId: loaded.artifact.ownerId,
             kind: "suggestion.rejected",
@@ -294,7 +278,7 @@ export async function rejectSuggestion(
           },
           guard,
         ),
-        db
+        x
           .update(th)
           .set({
             suggestionState: "rejected",
@@ -327,9 +311,14 @@ export async function withdrawSuggestion(
     "delete_own",
     async (loaded, guard) => {
       const owned = sql`${guard} and exists (select 1 from ${th} where ${th.id} = ${input.threadId} and ${th.authorId} = ${input.userId})`;
-      const [, updated] = await db.batch([
+      const shared = bothSides(db);
+      const x: Db = shared ?? db;
+      const thread = { id: input.threadId, artifactId: loaded.artifact.id };
+      const [, , updated] = await x.batch([
+        // What keeps it withdrawn through a restore (decision 0027), on the withdrawal's guard.
+        decisionMarker(x, shared !== null, "suggestion_withdrawn", thread, owned, input.now),
         auditEvent(
-          db,
+          x,
           {
             ownerId: loaded.artifact.ownerId,
             kind: "suggestion.withdrawn",
@@ -341,7 +330,7 @@ export async function withdrawSuggestion(
           },
           owned,
         ),
-        db
+        x
           .update(th)
           .set({ ...WITHDRAWN, updatedAt: input.now })
           .where(and(eq(th.id, input.threadId), owned))

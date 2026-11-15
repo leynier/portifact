@@ -171,8 +171,8 @@ describe("a deleted account's traces on edit suggestions", () => {
     }
     await hold(held.artifactId, owner.id);
 
-    expect(await eraseAccountTraces(db(), gone.id, 1)).toEqual({ more: true });
-    expect(await eraseAccountTraces(db(), gone.id)).toEqual({ more: false });
+    expect(await eraseAccountTraces(db(), gone.id, NOW, 1)).toEqual({ more: true });
+    expect(await eraseAccountTraces(db(), gone.id, NOW)).toEqual({ more: false });
 
     const decided = async (artifactId: string) =>
       (
@@ -457,7 +457,7 @@ describe("people of a real envelope (review of #252, finding 3)", () => {
     });
     expect(renderEnvelope(first).join("\n")).toContain("suggested by Actual Reviewer");
 
-    await eraseAccountTraces(db(), reviewer.id);
+    await eraseAccountTraces(db(), reviewer.id, NOW);
     const erased = await shown("ci_real", names);
     expect(erased.provenance).toEqual({ submittedBy: DELETED_ACCOUNT, acceptedBy: "Actual Owner" });
     expect(renderEnvelope(erased).join("\n")).toContain(`suggested by ${DELETED_ACCOUNT}`);
@@ -476,7 +476,7 @@ describe("people of a real envelope (review of #252, finding 3)", () => {
     });
     await hold(site.artifactId, owner.id);
     await applyTombstones(db(), [{ kind: "account", id: reviewer.id, deletedAt: NOW }], NOW);
-    await eraseAccountTraces(db(), reviewer.id);
+    await eraseAccountTraces(db(), reviewer.id, NOW);
     const submitter = async () =>
       (
         await db()

@@ -18,7 +18,13 @@ import { axeViolations } from "@portifact/ui/testing";
 import { describe, expect, it } from "vitest";
 import { SITE_PAGES, type SitePage } from "../i18n/site.ts";
 import { renderSiteHtml } from "../i18n/site-build.ts";
-import { featureName, formatPlanLimit, PLAN_LIMIT_ROWS, type PlanLimitRow } from "./format.ts";
+import {
+  featureName,
+  formatPlanData,
+  formatPlanLimit,
+  PLAN_LIMIT_ROWS,
+  type PlanLimitRow,
+} from "./format.ts";
 import { PLAN_TEXT } from "./i18n/catalogs.ts";
 
 const WEB = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -33,7 +39,7 @@ const rendered = new Map<LocaleCode, Document>(
 );
 const page = (code: LocaleCode) => rendered.get(code) as Document;
 
-const cell = (document: Document, plan: PlanName, row: PlanLimitRow) =>
+const cell = (document: Document, plan: PlanName, row: PlanLimitRow | "artifactData") =>
   document.querySelector(`td[data-plan="${plan}"][data-limit="${row}"]`)?.textContent ?? "";
 
 const UNITS: Record<string, number> = { kB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 };
@@ -90,6 +96,23 @@ describe("the pricing section's numbers", () => {
           );
         }
       }
+    }
+  });
+
+  it("show artifact data from PLANS, as coming soon, in every language", () => {
+    for (const code of LOCALE_CODES) {
+      const document = page(code);
+      for (const plan of PLAN_NAMES) {
+        expect(cell(document, plan, "artifactData"), `${code} ${plan}`).toBe(
+          formatPlanData(plan, code, PLAN_TEXT[code]),
+        );
+      }
+    }
+    const english = page("en");
+    for (const plan of PLAN_NAMES) {
+      const [count, size] = cell(english, plan, "artifactData").split(" × ");
+      expect(Number(count), plan).toBe(PLANS[plan].data.artifacts);
+      expect(englishValue(size ?? ""), plan).toBe(PLANS[plan].data.perArtifact.bytesPerArtifact);
     }
   });
 
@@ -157,7 +180,8 @@ describe.each(LOCALE_CODES)("the %s pricing section", (code) => {
     expect(section?.outerHTML).not.toContain("data-i18n");
     const table = section?.querySelector("table");
     expect(table?.querySelector("caption")?.textContent).toBe(text["plans.table.caption"]);
-    expect(table?.querySelectorAll('th[scope="row"]')).toHaveLength(PLAN_LIMIT_ROWS.length);
+    // One row per limit, then artifact data's.
+    expect(table?.querySelectorAll('th[scope="row"]')).toHaveLength(PLAN_LIMIT_ROWS.length + 1);
     expect(table?.querySelectorAll('th[scope="col"]')).toHaveLength(PLAN_NAMES.length + 1);
     window.document.documentElement.lang = code;
     window.document.body.innerHTML = `<main>${section?.outerHTML ?? ""}</main>`;

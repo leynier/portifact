@@ -289,8 +289,8 @@ describe("refusals at the route", () => {
       await override(1);
       expect(await s.accept()).toMatchObject({ ok: false, code: "capacity_unavailable" });
       expect((await n.accept()).ok).toBe(true);
-      // Annotation writes paused as well.
-      await override(2);
+      // Annotation writes paused as well (the third step, after the data step).
+      await override(3);
       expect(await m.accept()).toMatchObject({ ok: false, code: "capacity_unavailable" });
     } finally {
       await clearBudgetOverride(db().global, NOW);

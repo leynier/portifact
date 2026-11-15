@@ -2,16 +2,25 @@
 // exact expected origin and window, fits the size limit, matches the schema and, after the
 // handshake, carries this instance's nonce. Anything else is dropped without an answer, so a
 // sibling frame or another window learns nothing by probing.
-import type { z } from "zod";
+import { z } from "zod";
 import {
+  type AnyBridgeMessage,
+  type AnyViewerMessage,
   BRIDGE_LIMITS,
   type BridgeBody,
   BridgeMessage,
+  BridgeMessageV3,
   REVIEW_CHANNEL,
   REVIEW_PROTOCOL,
+  type ReviewProtocol,
   type ViewerBody,
   ViewerMessage,
+  ViewerMessageV3,
 } from "./protocol.ts";
+
+/** Either version of each side's messages; a message is read by the schema of its own `v`. */
+const AnyBridge = z.union([BridgeMessage, BridgeMessageV3]);
+const AnyViewer = z.union([ViewerMessage, ViewerMessageV3]);
 
 /** The parts of a MessageEvent that decide whether to trust it. */
 export interface IncomingEvent {
@@ -64,8 +73,13 @@ function accept<T extends { type: string; nonce?: string }>(
 export function readBridgeMessage(
   event: IncomingEvent,
   expected: Expectation,
-): BridgeMessage | null {
-  const message = accept(BridgeMessage, BRIDGE_LIMITS.bridgeMessageMaxBytes, event, expected);
+): AnyBridgeMessage | null {
+  const message = accept<AnyBridgeMessage>(
+    AnyBridge,
+    BRIDGE_LIMITS.bridgeMessageMaxBytes,
+    event,
+    expected,
+  );
   if (!message) return null;
   if (message.type === "ready" || message.type === "status") return message;
   return expected.nonce !== null && message.nonce === expected.nonce ? message : null;
@@ -78,21 +92,37 @@ export function readBridgeMessage(
 export function readViewerMessage(
   event: IncomingEvent,
   expected: Expectation,
-): ViewerMessage | null {
-  const message = accept(ViewerMessage, BRIDGE_LIMITS.viewerMessageMaxBytes, event, expected);
+): AnyViewerMessage | null {
+  const message = accept<AnyViewerMessage>(
+    AnyViewer,
+    BRIDGE_LIMITS.viewerMessageMaxBytes,
+    event,
+    expected,
+  );
   if (!message) return null;
   if (expected.nonce === null) return message.type === "init" ? message : null;
   return message.nonce === expected.nonce ? message : null;
 }
 
-/** Wraps a bridge message body in the envelope with the instance nonce. */
-export function bridgeEnvelope(nonce: string, body: BridgeBody): BridgeMessage {
-  return { channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, nonce, ...body } as BridgeMessage;
+/**
+ * Wraps a bridge message body in the envelope of `version` with the instance nonce. A body only
+ * protocol 3 knows is sent only on a protocol 3 handshake (the other side would drop it anyway).
+ */
+export function bridgeEnvelope(
+  nonce: string,
+  body: BridgeBody,
+  version: ReviewProtocol = REVIEW_PROTOCOL,
+): AnyBridgeMessage {
+  return { channel: REVIEW_CHANNEL, v: version, nonce, ...body } as AnyBridgeMessage;
 }
 
-/** Wraps a viewer message body in the envelope with the instance nonce. */
-export function viewerEnvelope(nonce: string, body: ViewerBody): ViewerMessage {
-  return { channel: REVIEW_CHANNEL, v: REVIEW_PROTOCOL, nonce, ...body } as ViewerMessage;
+/** Wraps a viewer message body in the envelope of `version` with the instance nonce. */
+export function viewerEnvelope(
+  nonce: string,
+  body: ViewerBody,
+  version: ReviewProtocol = REVIEW_PROTOCOL,
+): AnyViewerMessage {
+  return { channel: REVIEW_CHANNEL, v: version, nonce, ...body } as AnyViewerMessage;
 }
 
 /** A fresh instance nonce: 16 random bytes in base64url. */

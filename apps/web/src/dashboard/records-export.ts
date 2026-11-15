@@ -12,6 +12,7 @@ import {
 import {
   collectArtifactRecords,
   collectSpaceRecords,
+  isSkipped,
   type RecordPart,
   recordsRetryLater,
 } from "@portifact/domain";
@@ -38,6 +39,15 @@ async function part<T>(read: () => Promise<T>): Promise<RecordPart<T>> {
     if (skipped) return { skipped };
     throw error;
   }
+}
+
+/**
+ * The change list's part: where edit suggestions are switched off its route does not exist, so
+ * its `not_found` (the artifact itself was just read) is recorded as `unavailable`.
+ */
+async function changeListPart<T>(read: () => Promise<T>): Promise<RecordPart<T>> {
+  const got = await part(read);
+  return isSkipped(got) && got.skipped === "not_found" ? { skipped: "unavailable" } : got;
 }
 
 function jsonFile(fileName: string, value: unknown): SavedFile {
@@ -70,6 +80,7 @@ export async function artifactRecordsFile(
         stats: (range) => part(() => api.stats(artifactId, range?.from, range?.to)),
         comments: (version) => part(() => api.annotationExport(artifactId, version)),
         commentHistory: (cursor) => part(() => api.annotationHistory(artifactId, cursor)),
+        changeItems: (cursor) => changeListPart(() => api.changeItems(artifactId, cursor)),
       },
       now,
     ),

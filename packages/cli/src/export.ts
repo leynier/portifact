@@ -31,11 +31,15 @@ import {
   ArtifactRecords,
   ArtifactStatsView,
   ArtifactSummary,
+  AttachmentLink,
   AUDIT_EXPORT_CURSOR_HEADER,
+  CHANGE_LIST_LIMITS,
+  ChangeItemList,
   type DownloadKind,
   type DownloadLink,
   EXPORT_MANIFEST_FILE,
   EXPORT_MANIFEST_FORMAT,
+  type ExportedAttachment,
   type ExportedFile,
   type ExportedLog,
   type ExportedRecordFile,
@@ -58,6 +62,7 @@ import {
   exportPathSegments,
   exportVersionFolder,
   isGitSegment,
+  isSkipped,
   type RecordPart,
   recordsRetryLater,
 } from "@portifact/domain";
@@ -317,12 +322,17 @@ async function writeExport(
       accessLog = { skipped: accessLogs };
     }
     let records: ExportedRecordFile;
+    let attachments: ExportedAttachment[] = [];
     if (skipped === "not_found") {
       records = { skipped: "not_found" };
     } else {
       const written = await exportArtifactRecords(session, folder, item.artifact.id, journal);
       recordsLater ||= written.retryLater;
       records = written.file;
+      attachments = await exportAttachments(session, folder, item.artifact.id, written.records);
+      recordsLater ||= attachments.some(
+        (attachment) => "skipped" in attachment && attachment.skipped === "rate_limited",
+      );
     }
     manifest.artifacts.push({
       id: item.artifact.id,
@@ -330,6 +340,7 @@ async function writeExport(
       versions: exported,
       accessLog,
       records,
+      ...(attachments.length > 0 ? { attachments } : {}),
       ...(skipped ? { skipped } : {}),
     });
   }
@@ -528,7 +539,7 @@ async function fetchToFile(
   folder: SafeFolder,
   path: string,
   segments: string[],
-  link: () => DownloadLink,
+  link: () => Pick<DownloadLink, "url" | "size" | "sha256" | "expiresAt">,
   renew: () => Promise<void>,
 ): Promise<void> {
   const expected = link();
@@ -731,6 +742,15 @@ async function recordPart<T>(read: () => Promise<T>): Promise<RecordPart<T>> {
   }
 }
 
+/**
+ * The change list's part: where edit suggestions are switched off the route does not exist, so
+ * its `not_found` (the artifact itself was just read) is recorded as `unavailable`.
+ */
+async function changeListPart<T>(read: () => Promise<T>): Promise<RecordPart<T>> {
+  const part = await recordPart(read);
+  return isSkipped(part) && part.skipped === "not_found" ? { skipped: "unavailable" } : part;
+}
+
 const DASHBOARD_ONLY = async (): Promise<SkippedRecord> => ({ skipped: "dashboard_only" });
 
 /**
@@ -744,11 +764,13 @@ async function exportArtifactRecords(
   folder: SafeFolder,
   artifactId: string,
   journal: RecordsJournal,
-): Promise<{ file: ExportedRecordFile; retryLater: boolean }> {
+): Promise<{ file: ExportedRecordFile; retryLater: boolean; records: ArtifactRecords | null }> {
   const file = `artifacts/${artifactId}/records.json`;
   const kept = journal.records[artifactId];
   if (kept && (await folder.holds(file.split("/"), kept.size, kept.sha256))) {
-    return { file: { file }, retryLater: false };
+    const text = await folder.readText(file.split("/"));
+    const parsed = text === null ? null : ArtifactRecords.safeParse(JSON.parse(text));
+    return { file: { file }, retryLater: false, records: parsed?.success ? parsed.data : null };
   }
   const get = <T>(path: string, schema: ZodType<T>) =>
     withRetries(session, () =>
@@ -760,7 +782,7 @@ async function exportArtifactRecords(
   } catch (error) {
     const skipped = skipReason(error);
     if (!skipped) throw error;
-    return { file: { skipped }, retryLater: skipped === "rate_limited" };
+    return { file: { skipped }, retryLater: skipped === "rate_limited", records: null };
   }
   const records = await collectArtifactRecords(
     artifact,
@@ -786,6 +808,13 @@ async function exportArtifactRecords(
             AnnotationHistoryPage,
           ),
         ),
+      changeItems: (cursor) =>
+        changeListPart(() =>
+          get(
+            `/changes?${new URLSearchParams({ limit: String(CHANGE_LIST_LIMITS.pageMax), ...(cursor === undefined ? {} : { cursor }) })}`,
+            ChangeItemList,
+          ),
+        ),
     },
     session.runtime.now(),
   );
@@ -803,7 +832,73 @@ async function exportArtifactRecords(
       await folder.writeText([RECORDS_JOURNAL], `${JSON.stringify(journal)}\n`);
     }
   }
-  return { file: { file }, retryLater };
+  return { file: { file }, retryLater, records };
+}
+
+const ATTACHMENT_EXTENSIONS: Readonly<Record<string, string>> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "application/pdf": ".pdf",
+  "text/plain": ".txt",
+};
+
+/**
+ * The files on the comments an artifact's records list (decision 0029), each downloaded into
+ * `artifacts/<id>/attachments/<attachment id><extension>` through its short link and counted only
+ * once its bytes at their place have the size and SHA-256 the comment lists. Never named after
+ * the reviewer's file name. A file deleted or withheld meanwhile is recorded as skipped.
+ */
+async function exportAttachments(
+  session: Session,
+  folder: SafeFolder,
+  artifactId: string,
+  records: ArtifactRecords | null,
+): Promise<ExportedAttachment[]> {
+  if (records === null || "skipped" in records.comments) return [];
+  const files = records.comments.threads.flatMap((thread) =>
+    thread.messages.flatMap((message) => message.attachments ?? []),
+  );
+  const exported: ExportedAttachment[] = [];
+  const link = (id: string) =>
+    withRetries(session, () =>
+      callApi(session, {
+        method: "GET",
+        path: `/artifacts/${artifactId}/annotations/attachments/${encodeURIComponent(id)}`,
+        schema: AttachmentLink,
+      }),
+    );
+  for (const attachment of files) {
+    const file = `artifacts/${artifactId}/attachments/${attachment.id}${ATTACHMENT_EXTENSIONS[attachment.contentType] ?? ""}`;
+    const segments = file.split("/");
+    try {
+      if (!(await folder.holds(segments, attachment.size, attachment.sha256))) {
+        let current = await link(attachment.id);
+        await fetchToFile(
+          session,
+          folder,
+          file,
+          segments,
+          () => ({
+            url: current.url,
+            expiresAt: current.expiresAt,
+            size: attachment.size,
+            sha256: attachment.sha256,
+          }),
+          async () => {
+            current = await link(attachment.id);
+          },
+        );
+      }
+      exported.push({ id: attachment.id, file, size: attachment.size, sha256: attachment.sha256 });
+    } catch (error) {
+      const skipped = skipReason(error);
+      if (skipped === null) throw error;
+      exported.push({ id: attachment.id, skipped });
+    }
+  }
+  return exported;
 }
 
 /** The space's `space.json`: what bearer routes read, the rest marked `dashboard_only`. */

@@ -53,8 +53,10 @@ import {
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { errorMessage } from "../screens/artifact-list.tsx";
+import { AttachmentControls, useAttachmentsEnabled, useAttachmentUploads } from "./attachments.tsx";
 import { CreateIssueDialog, usableConnections } from "./create-issue.tsx";
 import { useHumanCheck } from "./human-check.tsx";
+import { SuggestionBlock, suggestionOf, undecided } from "./suggestions.tsx";
 import { MessageContent, TargetSummary } from "./thread-parts.tsx";
 import { applyThread, dropThread, type ThreadsState, threadsQuery } from "./use-threads.ts";
 
@@ -182,14 +184,19 @@ export function ThreadCard({
   });
 
   const owner = state.role === "owner";
+  const suggestion = suggestionOf(thread);
   const writable = state.annotations === "open" && thread.current;
-  const canResolve = owner ? state.annotations !== "off" : thread.own && writable;
+  // An undecided suggestion is accepted, rejected or withdrawn, never resolved.
+  const canResolve =
+    !undecided(suggestion) && (owner ? state.annotations !== "off" : thread.own && writable);
   const kind = thread.target.anchor.kind;
   const elsewhere = kind !== "document" && thread.target.path !== path;
   const orphaned = !elsewhere && resolution?.confidence === "orphaned";
+  // A region of an earlier version whose image is unchanged is drawn on this page too (decision 0028).
+  const placedFromHistory = thread.region?.currentImage === "unchanged";
   const showable =
     located &&
-    thread.current &&
+    (thread.current || placedFromHistory) &&
     kind !== "document" &&
     !elsewhere &&
     resolution !== undefined &&
@@ -277,7 +284,11 @@ export function ThreadCard({
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             {/* The state, for screen readers; the check, the dashed border and Reopen show it. */}
             {resolved ? <span className="sr-only">{t("review.thread.resolved")}</span> : null}
-            <TargetSummary target={thread.target} compact={selection === null} />
+            <TargetSummary
+              target={thread.target}
+              region={thread.region}
+              compact={selection === null}
+            />
             {notes ? (
               <div className="flex flex-wrap items-center gap-1.5">
                 {orphaned ? (
@@ -293,6 +304,15 @@ export function ThreadCard({
                 {thread.current ? null : (
                   <Badge emphasis="quiet">{t("review.thread.otherVersion")}</Badge>
                 )}
+                {thread.region?.currentImage ? (
+                  <Badge emphasis="quiet">
+                    {t(
+                      thread.region.currentImage === "unchanged"
+                        ? "review.thread.imageUnchanged"
+                        : "review.thread.imageChanged",
+                    )}
+                  </Badge>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -324,6 +344,15 @@ export function ThreadCard({
           </div>
         </div>
         <div className="flex flex-col gap-3 px-3 pt-3 pb-3">
+          {suggestion && !folded ? (
+            <SuggestionBlock
+              artifactId={artifactId}
+              threadId={thread.id}
+              suggestion={suggestion}
+              owner={owner}
+              own={thread.own && thread.current}
+            />
+          ) : null}
           {toggle.isError ? <ActionError error={toggle.error} /> : null}
           {remove.isError ? <ActionError error={remove.error} /> : null}
           {resolved && selection === null ? (
@@ -561,6 +590,7 @@ function MessageItem({
   return (
     <li className="group/message flex flex-col gap-2">
       <MessageContent
+        artifactId={artifactId}
         message={message}
         actions={
           items.length > 0 ? (
@@ -614,11 +644,14 @@ function ReplyForm({
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const human = useHumanCheck(humanNeeded);
+  const uploads = useAttachmentUploads(artifactId);
+  const attaching = useAttachmentsEnabled();
   const reply = useMutation({
-    mutationFn: (body: string) =>
-      human.post((key, token) => api.reply(artifactId, threadId, body, key, token)),
+    mutationFn: ({ body, attachments }: { body: string; attachments: string[] }) =>
+      human.post((key, token) => api.reply(artifactId, threadId, body, key, token, attachments)),
     onSuccess: (thread) => {
       if (!thread) return;
+      uploads.clear();
       applyThread(queryClient, artifactId, thread);
       announce(t("review.reply.posted"));
       onDone();
@@ -628,11 +661,16 @@ function ReplyForm({
     defaultValues: { body: "" },
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
-    onSubmit: ({ value }) =>
-      reply.mutateAsync(value.body).then(
+    onSubmit: async ({ value }) => {
+      // Files leave the browser only now, when the person posts; a file that does not go through
+      // keeps the comment from going out without it.
+      const attachments = await uploads.upload();
+      if (attachments === null) return;
+      await reply.mutateAsync({ body: value.body, attachments }).then(
         () => {},
         () => {},
-      ),
+      );
+    },
   });
   return (
     <div className="flex flex-col gap-2">
@@ -652,6 +690,7 @@ function ReplyForm({
                 />
               )}
             </form.AppField>
+            {attaching ? <AttachmentControls uploads={uploads} compact /> : null}
             {human.field}
             <div className="flex flex-wrap justify-end gap-2">
               <Button size="sm" onClick={onDone}>

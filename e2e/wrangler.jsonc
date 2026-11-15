@@ -41,6 +41,10 @@
     // Edit suggestions (decision 0027) for the preview origin's tests; the deployed Workers leave
     // it unset until the text delivery's release checks pass (docs/releasing.md, "Suggestions").
     "SUGGESTIONS_ENABLED": "true",
+    // Image regions (decision 0028); the deployed Workers leave it unset.
+    "IMAGE_REGIONS_ENABLED": "true",
+    // Comment attachments (decision 0029); the deployed Workers leave it unset.
+    "ATTACHMENTS_ENABLED": "true",
     "SSO_KEY": "e2e-only-sso-sealing-key-0123456789abcdef",
     // SCIM provisioning, driven by the test as the directory; the deployed app Worker leaves it
     // unset (decision 0017).
@@ -95,5 +99,11 @@
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "portifact-e2e" },
     { "binding": "ARTIFACTS_EU", "bucket_name": "portifact-e2e-eu" }
-  ]
+  ],
+  // The documents objects of artifact data (decision 0026), hosted by this Worker itself
+  // (worker/index.ts re-exports the class) instead of `portifact-data`.
+  "durable_objects": {
+    "bindings": [{ "name": "ARTIFACT_DOCUMENTS", "class_name": "ArtifactDocuments" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ArtifactDocuments"] }]
 }

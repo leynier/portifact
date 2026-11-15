@@ -575,6 +575,83 @@
       "when": 1794568096744,
       "tag": "0081_suggestion_scan_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "6",
+      "when": 1794571646667,
+      "tag": "0082_budget_data_step",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "6",
+      "when": 1794576201233,
+      "tag": "0083_draft_incarnation",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "6",
+      "when": 1794578205717,
+      "tag": "0084_data_owner_api",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "6",
+      "when": 1794579856648,
+      "tag": "0085_data_grants",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "6",
+      "when": 1794585726789,
+      "tag": "0086_data_erase_target",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "6",
+      "when": 1794691799714,
+      "tag": "0087_data_anonymous_writers",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "6",
+      "when": 1794700282159,
+      "tag": "0088_image_regions",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "6",
+      "when": 1794702290331,
+      "tag": "0089_comment_attachments",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "6",
+      "when": 1794702296565,
+      "tag": "0090_comment_attachments_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "6",
+      "when": 1794702324502,
+      "tag": "0091_comment_attachments_withheld",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "6",
+      "when": 1794702335555,
+      "tag": "0092_comment_attachments_holds",
+      "breakpoints": true
     }
   ]
 }

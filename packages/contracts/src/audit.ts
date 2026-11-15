@@ -5,6 +5,7 @@
 // never free text, comment text, artifact content, tokens, secrets, URLs or full addresses.
 import { z } from "zod";
 import { APPROVALS } from "./approval-reviews.ts";
+import { ARTIFACT_DATA, DataWriters } from "./artifact-data.ts";
 import { AuditStreamAutoPause, AuditStreamStart } from "./audit-streams.ts";
 import { AccessMode, CommentVisibility } from "./core.ts";
 import {
@@ -29,6 +30,7 @@ import { LIMITS } from "./limits.ts";
 import { GraceEndReason, GraceStartReason, PlanName } from "./plans.ts";
 import {
   AllowedClient,
+  AnonymousDataPolicy,
   DefaultAccessPolicy,
   POLICY_FIELDS,
   PublicAccessPolicy,
@@ -114,6 +116,8 @@ const empty = z.strictObject({});
 const groupCount = z.number().int().min(0).max(WORKSPACE_GROUPS.perArtifact);
 const enforceCount = z.number().int().min(0).max(10_000);
 const approvalCount = z.number().int().min(0).max(APPROVALS.reviewersPerRequest);
+const dataDocuments = z.number().int().min(0).max(ARTIFACT_DATA.caps.bulkDocuments);
+const authorChunk = z.number().int().min(0).max(ARTIFACT_DATA.caps.eraseChunkDocuments);
 
 /** Why a custom domain stopped serving (every path that detaches one names its reason). */
 export const DOMAIN_DETACH_REASONS = [
@@ -431,6 +435,8 @@ export const AUDIT_DETAILS = {
       .optional(),
     /** When that comment retention takes effect (milliseconds); null when removed (0023). */
     commentRetentionFrom: z.int().min(0).nullable().optional(),
+    /** Whether anonymous writers of artifact data are allowed after the change (0026). */
+    anonymousDataWriters: AnonymousDataPolicy.optional(),
     /**
      * Members the provider could not serve that the admin confirmed when requiring single
      * sign-on: a count only.
@@ -500,6 +506,24 @@ export const AUDIT_DETAILS = {
   "audit_stream.removed": z.strictObject({ host: DnsName }),
   /** The platform paused it: failures for days, a lapsed plan, a URL or key that no longer works. */
   "audit_stream.paused": z.strictObject({ host: DnsName, reason: AuditStreamAutoPause }),
+  /**
+   * Artifact data (decision 0026, delivery 5): the owner side's changes to an artifact's
+   * documents, relayed from the object's audit obligations by the `data_audit` job. Counts only,
+   * never a collection's name, a document's ID or its content.
+   */
+  "data.collection_set": empty,
+  "data.document_created": empty,
+  "data.document_replaced": empty,
+  "data.document_deleted": empty,
+  "data.documents_created": z.strictObject({ documents: dataDocuments }),
+  "data.documents_replaced": z.strictObject({ documents: dataDocuments }),
+  "data.documents_deleted": z.strictObject({ documents: dataDocuments }),
+  /** The owner erased all the artifact's data (its documents and collections). */
+  "data.erased": empty,
+  /** A deleted account's documents and edits erased from the artifact, by the system (counts). */
+  "data.author_erased": z.strictObject({ documents: authorChunk, edits: authorChunk }),
+  /** Who may write from the page changed (delivery 9): signed-in visitors, or anyone. */
+  "data.writers_changed": z.strictObject({ writers: DataWriters }),
 } as const;
 
 export type AuditKind = keyof typeof AUDIT_DETAILS;
@@ -606,6 +630,16 @@ export const AUDIT_TARGETS: Readonly<Record<AuditKind, AuditTargetType>> = {
   "audit_stream.changed": "audit_stream",
   "audit_stream.removed": "audit_stream",
   "audit_stream.paused": "audit_stream",
+  "data.collection_set": "artifact",
+  "data.document_created": "artifact",
+  "data.document_replaced": "artifact",
+  "data.document_deleted": "artifact",
+  "data.documents_created": "artifact",
+  "data.documents_replaced": "artifact",
+  "data.documents_deleted": "artifact",
+  "data.erased": "artifact",
+  "data.author_erased": "artifact",
+  "data.writers_changed": "artifact",
 };
 
 /**

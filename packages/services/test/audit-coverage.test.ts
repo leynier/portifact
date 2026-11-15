@@ -173,6 +173,24 @@ const RECORDED: Record<string, readonly AuditKind[]> = {
   runAcceptance: ["suggestion.accepted", "artifact.published"],
   publishFromPlan: ["suggestion.accepted", "artifact.published"],
   markChangeItem: ["change_item.marked"],
+  // Artifact data (decision 0026, delivery 5): the owner side's changes are recorded by the audit
+  // relay from the obligation the object wrote in the change's own transaction.
+  runDataAudit: [
+    "data.collection_set",
+    "data.document_created",
+    "data.document_replaced",
+    "data.document_deleted",
+    "data.documents_created",
+    "data.documents_replaced",
+    "data.documents_deleted",
+    "data.author_erased",
+  ],
+  // The owner's reset: the D1 batch that follows the object's committed erase records it.
+  eraseArtifactData: ["data.erased"],
+  runDataReset: ["data.erased"],
+  // Who may write from the page (delivery 9): D1's own setting, recorded in its batch.
+  setDataWriters: ["data.writers_changed"],
+  markChangeItemOnce: ["change_item.marked"],
 };
 
 /** Changes that record no event, and why. */
@@ -233,6 +251,27 @@ reason("statements for a settings change's own batch, which records scim.changed
   "roleMappingStatements",
 ]);
 reason(
+  "a visitor's own grant of artifact data (decision 0026): the person's consent in one browser, not something an owner has; the person lists and revokes it themselves",
+  [
+    "claimVisitorId",
+    "issueDataGrantCode",
+    "redeemDataGrantCode",
+    "revokeDataGrants",
+    "pruneDataGrants",
+    // An anonymous visitor's grant (delivery 9): nobody's account, nothing an owner has.
+    "issueAnonymousDataGrantCode",
+    "redeemAnonymousDataGrantCode",
+  ],
+);
+reason(
+  "a visitor's own documents from the page (decision 0026, delivery 6): what visitors write is not an owner's change; the object keeps its own records",
+  ["pageDataCommand", "pageOperationId"],
+);
+reason(
+  "a person's rights over what they saved (decision 0026): their own deletes and requests to the people who manage the artifact; not an owner's change, and the request's notice reaches the admins by email",
+  ["deleteOwnDocument", "requestDataRights", "sendDataRightsNotice"],
+);
+reason(
   "what a directory said about people who never got an account, once it lapsed (decision 0017)",
   ["pruneDirectoryUsers"],
 );
@@ -257,6 +296,10 @@ reason("readers, visitors and reviewers, not the owner side: the access log cove
   "redeemPreviewCode",
 ]);
 reason("comments are not in the audit log's scope (T10); their text never is", [
+  // An upload that holds nothing until a comment names it, and the scan of those never named
+  // (decision 0029).
+  "prepareAttachment",
+  "pruneAttachmentUploads",
   "createAnnotationThread",
   "replyToAnnotationThread",
   "editAnnotationMessage",
@@ -265,12 +308,20 @@ reason("comments are not in the audit log's scope (T10); their text never is", [
   "setAnnotationThreadState",
   "eraseAuthorFromThread",
 ]);
+reason(
+  "edit suggestions (decision 0027): the owner's draft is private to its author until published, and publishing it records suggestion.accepted",
+  ["saveDraft", "discardDraft", "rebaseDraft", "removeDraftBatch"],
+);
 reason("a suggestion is a comment: its creation is outside the T10 catalog like any comment", [
   "submitSuggestion",
 ]);
 reason(
   "edit suggestions (decision 0027): starting an acceptance or a draft publish records nothing until the job completes it (suggestion.accepted); a dry run only caches a plan and the suggestion's proofs",
   ["acceptSuggestion", "publishDraft", "planSuggestion", "planDraft"],
+);
+reason(
+  "edit suggestions (decision 0027): the page text for a text change only counts in the planning windows and reads the served page",
+  ["suggestionPageText"],
 );
 reason(
   "edit suggestions (decision 0027): an attempt that ends, carries, closures by a new version and the scans change nothing an owner decided; the suggestion is pending again or the record expired",
@@ -345,6 +396,28 @@ reason(
   ],
 );
 reason(
+  "artifact data's owner side (decision 0026, delivery 5): each change writes its audit obligation in the object's own transaction and a data_audit job before it reaches the object; runDataAudit records the event once the object says the change committed (the record's durable audit states), never the adapter",
+  [
+    "declareDataCollection",
+    "buildDataIndexes",
+    "createDataDocument",
+    "replaceDataDocument",
+    "deleteDataDocument",
+    "createDataDocuments",
+    "replaceDataDocuments",
+    "deleteDataDocuments",
+    "deleteAuthorData",
+  ],
+);
+reason(
+  "artifact data's live updates (decision 0026, delivery 7): a connection and its renewal change no document; what a connection receives is already audited where it was written",
+  ["openLiveConnection", "renewLiveConnection"],
+);
+reason(
+  "artifact data's audit sweep only relays obligations the object already holds to data_audit jobs; runDataAudit records them",
+  ["sweepDataAudit"],
+);
+reason(
   "statements of reasons and report outcomes: emails about operator decisions, recorded in moderation_decisions, moderation_notice_sends and abuse_reports",
   [
     "sendModerationNotice",
@@ -362,6 +435,10 @@ reason("operator moderation and platform controls, kept by the operator tool's o
   "reinstateAccount",
   "suspendBrand",
   "reinstateBrand",
+  // Comment attachments (decision 0029): recorded in the artifact's lifecycle_events.
+  "removeAttachment",
+  "withholdAttachment",
+  "reinstateAttachment",
   "setBudgetOverride",
   "clearBudgetOverride",
   "suppressEmail",
@@ -517,6 +594,19 @@ reason("scheduled jobs and their consequences of changes already recorded", [
  * `resolve`, `open`, `sign`).
  */
 const READ_NAMES = new Set([
+  // The journal's visitor ID and the count of a person's open grants (decision 0026): reads.
+  "journalVisitorId",
+  "openDataGrants",
+  // The grant's control and renewal read access and the account (decision 0026); the digest computes.
+  "dataGrantControl",
+  "renewDataGrant",
+  "anonymousDataGrantControl",
+  "renewAnonymousDataGrant",
+  "nonceDigest",
+  // Edit suggestions (decision 0027): rebuilds a replayed acceptance's answer, writes nothing.
+  "replayAcceptance",
+  // Budget protection's data step (decision 0026): reads the platform's protection only.
+  "checkDataWriteCapacity",
   // D1's hold level for the data convergence rule (decision 0026): one read of `legal_holds`.
   "holdLevel",
   // The grace forecast's counts (decision 0022), shared by its route and the grace emails.
@@ -567,6 +657,9 @@ const READ_NAMES = new Set([
   "draftPlanOf",
   "storedPage",
   "ownDraft",
+  // Artifact data (decision 0026): describing and querying an artifact's documents.
+  "describeArtifactData",
+  "queryArtifactData",
 ]);
 const READS =
   /^(get|list|read|find|load|export|show|count|view|preview|lookup|stats|current|personal|require|owner|actor|artifact|workspace|usage|account|managed|compare|diff|hash|sha|seal|verify(Share)?Password|email|invitation|annotation|noticeView|newArtifactDefaults|platformProtection|pendingBudgetAlerts|multipartStates|openMultipartUploads|revokedShareLinks|shareLinkLabels|soleAdminOf|windowSum|webhookKeys|authorizeOn|reviewSessionTag)(?=[A-Z]|$)/;

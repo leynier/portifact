@@ -300,6 +300,32 @@ describe("audit log page", () => {
     expect(rows[2]?.textContent).toContain("service tokens only from 1 network");
   });
 
+  it("says who may save artifact data from the page, and the policy that allows anyone (decision 0026)", async () => {
+    server.workspaces.acme = workspace("acme", "admin", { name: "Acme" });
+    server.audit.acme = [
+      event({
+        at: at(1),
+        kind: "policy.changed",
+        target: { type: "policy", id: "ws_1" },
+        artifact: null,
+        detail: {
+          fields: ["anonymousDataWriters"],
+          anonymousDataWriters: "allowed",
+          confirmed: false,
+        },
+      }),
+      event({ at: at(2), kind: "data.writers_changed", detail: { writers: "anyone" } }),
+      event({ at: at(3), kind: "data.writers_changed", detail: { writers: "signed_in" } }),
+    ];
+    renderDashboard("/audit?workspace=acme", server);
+    const rows = within(await table()).getAllByRole("row");
+    expect(rows[1]?.textContent).toContain("people without an account may save data");
+    expect(rows[2]?.textContent).toContain("Let people without an account save data from the page");
+    expect(rows[3]?.textContent).toContain(
+      "Limited saving data from the page to signed-in visitors",
+    );
+  });
+
   it("filters by kind of change, person and period from keyboard reachable controls", async () => {
     server.audit[""] = EVENTS;
     renderDashboard("/audit", server);

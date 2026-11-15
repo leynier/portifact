@@ -205,4 +205,38 @@ describe("audit streams through the dashboard session", () => {
     );
     expect(revokeOnly.status).toBe(400);
   });
+
+  it("answers a malformed or unknown stream, a bad slug and a signed-out cookie like nothing there", async () => {
+    const h = createHarness();
+    const email = "streams-missing@example.test";
+    const session = await sessionOf(h, email);
+    await onEnterprise(await userIdOf(h, email));
+    const unknown = `as_${"0".repeat(32)}`;
+    const routes: [string, string, unknown?][] = [
+      ["PATCH", "", { label: "x" }],
+      ["DELETE", ""],
+      ["POST", "/test"],
+      ["GET", "/deliveries"],
+    ];
+    for (const [method, suffix, body] of routes) {
+      for (const id of ["not-a-stream", unknown]) {
+        const response = await session(`/api/v1/audit/streams/${id}${suffix}`, {
+          method,
+          headers: { "content-type": "application/json" },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+        expect(response.status, `${method} ${id}${suffix}`).toBe(404);
+      }
+    }
+    const badSlug = await session("/api/v1/audit/streams?workspace=Not%20A%20Slug");
+    expect(badSlug.status).toBe(404);
+    const stale = await h.request("/api/v1/audit/streams", {
+      headers: {
+        cookie: "__Secure-better-auth.session_token=stale.value",
+        "sec-fetch-site": "same-origin",
+        origin: ORIGIN,
+      },
+    });
+    expect(stale.status).toBe(401);
+  });
 });

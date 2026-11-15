@@ -48,6 +48,7 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/domains/:hostname/verify": "refused",
   "DELETE /api/v1/domains/:hostname": "open",
   // Comments and reviews.
+  "POST /api/v1/artifacts/:artifactId/annotations/attachments": "refused",
   "POST /api/v1/artifacts/:artifactId/annotations/threads": "refused",
   "POST /api/v1/artifacts/:artifactId/annotations/threads/:threadId/messages": "refused",
   "POST /api/v1/artifacts/:artifactId/annotations/threads/:threadId/resolve": "refused",
@@ -58,10 +59,25 @@ const ROUTES: Record<string, Class> = {
   "DELETE /api/v1/artifacts/:artifactId/annotations/messages/:messageId": "open",
   "DELETE /api/v1/artifacts/:artifactId/annotations/threads/:threadId": "open",
   "PUT /api/v1/artifacts/:artifactId/annotations/mode": "refused",
+  // Artifact data (decision 0026): writes wait for the terms, deletes only remove.
+  "POST /api/v1/artifacts/:artifactId/data/collections": "refused",
+  "POST /api/v1/artifacts/:artifactId/data/indexes/build": "refused",
+  "POST /api/v1/artifacts/:artifactId/data/collections/:collection/documents": "refused",
+  "POST /api/v1/artifacts/:artifactId/data/collections/:collection/documents/bulk": "refused",
+  "PUT /api/v1/artifacts/:artifactId/data/collections/:collection/documents/bulk": "refused",
+  "POST /api/v1/artifacts/:artifactId/data/collections/:collection/documents/bulk-delete": "open",
+  "PUT /api/v1/artifacts/:artifactId/data/collections/:collection/documents/:documentId": "refused",
+  "DELETE /api/v1/artifacts/:artifactId/data/collections/:collection/documents/:documentId": "open",
+  "POST /api/v1/artifacts/:artifactId/data/erase": "open",
+  "POST /api/v1/artifacts/:artifactId/data/authors/:author/delete": "open",
+  // Back to signed-in writers only narrows; opening the data to anyone acts anew (delivery 9).
+  "PUT /api/v1/artifacts/:artifactId/data/writers": "narrowing",
   "POST /api/v1/artifacts/:artifactId/review/request": "refused",
   "PATCH /api/v1/artifacts/:artifactId/review/request": "refused",
   "DELETE /api/v1/artifacts/:artifactId/review/request": "open",
   "POST /api/v1/artifacts/:artifactId/review/verdict": "refused",
+  // Edit suggestions (decision 0027): marking a change item acts anew; the rest is the viewer's.
+  "PATCH /api/v1/artifacts/:artifactId/changes/:itemId": "refused",
   // Channels out of the account (the CLI's credentials:manage token).
   "POST /api/v1/webhooks": "refused",
   "PATCH /api/v1/webhooks/:webhookId": "narrowing",
@@ -72,10 +88,24 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/artifacts/:artifactId/review": "no_person_token",
   "POST /api/v1/artifacts/:artifactId/review/tab": "no_person_token",
   "POST /api/v1/artifacts/:artifactId/previews": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions/:threadId/plan": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions/:threadId/accept": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions/:threadId/reject": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/suggestions/:threadId/withdraw": "no_person_token",
+  "PUT /api/v1/artifacts/:artifactId/draft": "no_person_token",
+  "DELETE /api/v1/artifacts/:artifactId/draft": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/draft/plan": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/draft/publish": "no_person_token",
+  "POST /api/v1/artifacts/:artifactId/draft/rebase": "no_person_token",
   "PATCH /api/v1/account/settings": "no_person_token",
   "POST /api/v1/account/delete": "no_person_token",
   "POST /api/v1/account/deletion-code": "no_person_token",
   "POST /api/v1/account/delete-with-code": "no_person_token",
+  "POST /api/v1/account/data-grants": "no_person_token",
+  "DELETE /api/v1/account/data-grants/:artifactId": "no_person_token",
+  "DELETE /api/v1/account/data-grants/:artifactId/documents/:collection/:id": "no_person_token",
+  "POST /api/v1/account/data-grants/:artifactId/rights-request": "no_person_token",
   "POST /api/v1/account/sessions/sign-out-others": "no_person_token",
   "DELETE /api/v1/account/apps/:clientId": "no_person_token",
   "PUT /api/v1/account/branding": "no_person_token",
@@ -129,6 +159,7 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/notices/unsubscribe": "no_person_token",
   "POST /api/v1/reports": "no_person_token",
   "POST /api/v1/share/open": "no_person_token",
+  "POST /api/v1/data/anonymous-grants": "no_person_token",
 };
 
 /** Every MCP tool outside the read scopes. */
@@ -170,6 +201,18 @@ const TOOLS: Record<string, Class> = {
   create_issue_from_thread: "refused",
   request_review: "refused",
   submit_review: "refused",
+  declare_data_collection: "refused",
+  build_data_indexes: "refused",
+  create_data_document: "refused",
+  replace_data_document: "refused",
+  delete_data_document: "open",
+  create_data_documents: "refused",
+  replace_data_documents: "refused",
+  delete_data_documents: "open",
+  erase_artifact_data: "open",
+  delete_author_data: "open",
+  set_data_writers: "narrowing",
+  mark_change_item: "refused",
 };
 
 const KIND_OF: Record<"read" | "removes" | "narrowing", Class> = {
@@ -276,6 +319,14 @@ const ACCOUNT_ROUTES: Record<string, "open" | "refused"> = {
   "POST /api/v1/account/delete": "open",
   "POST /api/v1/account/deletion-code": "open",
   "POST /api/v1/account/delete-with-code": "open",
+  "GET /api/v1/account/data-grants": "open",
+  "GET /api/v1/account/data-grants/:artifactId/control": "open",
+  "POST /api/v1/account/data-grants": "refused",
+  "DELETE /api/v1/account/data-grants/:artifactId": "open",
+  "GET /api/v1/account/data-grants/:artifactId/mine": "open",
+  "GET /api/v1/account/data-grants/:artifactId": "open",
+  "POST /api/v1/account/data-grants/:artifactId/rights-request": "open",
+  "DELETE /api/v1/account/data-grants/:artifactId/documents/:collection/:id": "open",
 };
 
 describe("account routes for sessions without the current terms", () => {

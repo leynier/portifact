@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AnnotationThreadView, UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
@@ -157,6 +158,65 @@ describe("portifact annotations create", () => {
     expect(withTarget.stdout).toContain('Quote: "About"');
     // The entrypoint is only looked up when nothing says where the comment goes.
     expect(requests("GET", /\/versions\//)).toHaveLength(0);
+  });
+
+  it("sends a region file with an element target of an image", async () => {
+    const artifact = reviewed();
+    const target = {
+      schema: 1,
+      path: "about.html",
+      anchor: { kind: "element", selectors: ["#mock"], tagName: "img", fingerprint: "" },
+    };
+    const region = { x: 0.1, y: 0.2, width: 0.3, height: 0.4, image: { path: "mock.png" } };
+    const result = await h.invoke(
+      "annotations",
+      "create",
+      artifact.id,
+      "--body-file",
+      await bodyFile("This button"),
+      "--target",
+      await bodyFile(JSON.stringify(target), "target.json"),
+      "--region",
+      await bodyFile(JSON.stringify(region), "region.json"),
+    );
+    const sent = requests("POST", /\/threads$/).map((r) => JSON.parse(r.body));
+    expect(sent.at(-1)).toMatchObject({ target, region });
+    expect(result.code, result.stderr).toBe(0);
+  });
+
+  it("refuses a region without a target or outside the image before posting", async () => {
+    const artifact = reviewed();
+    const comment = await bodyFile("ok");
+    const region = { x: 0.9, y: 0, width: 0.3, height: 0.1, image: { path: "mock.png" } };
+    const target = await bodyFile(
+      JSON.stringify({
+        schema: 1,
+        path: "about.html",
+        anchor: { kind: "element", selectors: ["#mock"], tagName: "img", fingerprint: "" },
+      }),
+      "target.json",
+    );
+    const cases: [string[], string][] = [
+      [["--region", await bodyFile(JSON.stringify(region), "r1.json")], "--region needs --target"],
+      [
+        ["--target", target, "--region", await bodyFile(JSON.stringify(region), "r2.json")],
+        "The region is not valid: The rectangle must lie inside the image",
+      ],
+      [["--target", target, "--region", await bodyFile("{", "r3.json")], "is not valid JSON"],
+    ];
+    for (const [flags, message] of cases) {
+      const result = await h.invoke(
+        "annotations",
+        "create",
+        artifact.id,
+        "--body-file",
+        comment,
+        ...flags,
+      );
+      expect(result.code, message).toBe(2);
+      expect(result.stderr, message).toContain(message);
+    }
+    expect(requests("POST", /\/threads$/)).toHaveLength(0);
   });
 
   it("refuses invalid targets, bodies and flags before posting", async () => {
@@ -838,6 +898,38 @@ describe("text formatting", () => {
     expect(output).toContain("(deleted, edited)");
   });
 
+  it("shows an image region with its image, and whether the image changed since", () => {
+    const thread = {
+      ...base,
+      target: {
+        schema: 1 as const,
+        path: "index.html",
+        anchor: {
+          kind: "element" as const,
+          selectors: ["#mock"],
+          tagName: "img",
+          fingerprint: "",
+        },
+      },
+      region: {
+        x: 0.25,
+        y: 0.5,
+        width: 0.5,
+        height: 0.25,
+        image: { path: "images/mock\u202e.png", sha256: "a".repeat(64) },
+      },
+      messages: [],
+    };
+    const current = formatThread(thread);
+    expect(current).toContain('Region: 25% to 75% across, 50% to 75% down, of "images/mock.png"\n');
+    const changed = formatThread({
+      ...thread,
+      region: { ...thread.region, currentImage: "changed" },
+    });
+    expect(changed).toContain("(image changed in the current version)");
+    expect(formatThread({ ...thread, region: undefined })).not.toContain("Region:");
+  });
+
   it("keeps line feeds and tabs and drops other control and direction characters", () => {
     expect(plain("a\u0000b\nc\td\u2028e\u2066f\u0085")).toBe("ab\nc\tdef");
   });
@@ -897,5 +989,78 @@ describe("annotations history", () => {
     expect(result.code).not.toBe(0);
     expect(result.stdout).not.toContain("\u001b");
     expect(result.stderr).not.toContain("\u001b[2J");
+  });
+});
+
+describe("portifact annotations attachment", () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 5]);
+
+  function attach(artifact: FakeArtifact, bytes = PNG, sha256?: string) {
+    const id = "att_1";
+    server.annotations.attachments.set(id, {
+      artifactId: artifact.id,
+      view: {
+        id,
+        name: "../../evil.html",
+        contentType: "image/png",
+        size: PNG.length,
+        sha256: sha256 ?? createHash("sha256").update(PNG).digest("hex"),
+      },
+      bytes,
+    });
+    return id;
+  }
+
+  it("downloads a file, checks it and writes a new file, never under the reviewer's name", async () => {
+    const artifact = reviewed();
+    const id = attach(artifact);
+    const folder = await h.files("downloads", {});
+    const out = join(folder, "shot.png");
+    const result = await h.invoke("annotations", "attachment", artifact.id, id, "--out", out);
+    expect(result.code, result.stderr).toBe(0);
+    expect(await readFile(out)).toEqual(PNG);
+    expect(result.stdout).toContain(`Saved attachment ${id} (image/png, 10 bytes) to ${out}`);
+    expect(result.stderr).toContain("untrusted data");
+    // The storage link was fetched without the API token (the fake refuses one).
+    expect(requests("GET", /^\/r2\/attachments\//)).toHaveLength(1);
+    const again = await h.invoke(
+      "annotations",
+      "attachment",
+      artifact.id,
+      id,
+      "--out",
+      out,
+      "--json",
+    );
+    expect(again.code).toBe(2);
+    expect(json(again)).toMatchObject({ error: { code: "invalid_input" } });
+  });
+
+  it("writes nothing when the bytes differ from what the comment lists", async () => {
+    const artifact = reviewed();
+    const id = attach(artifact, Buffer.from([1, 2, 3]));
+    const folder = await h.files("downloads", {});
+    const out = join(folder, "shot.png");
+    const result = await h.invoke(
+      "annotations",
+      "attachment",
+      artifact.id,
+      id,
+      "--out",
+      out,
+      "--json",
+    );
+    expect(result.code).not.toBe(0);
+    expect(json(result)).toMatchObject({ error: { code: "download_failed" } });
+    await expect(readFile(out)).rejects.toThrow();
+  });
+
+  it("answers a file it cannot see as not found, and refuses a bad ID before any request", async () => {
+    const artifact = reviewed();
+    const missing = await h.invoke("annotations", "attachment", artifact.id, "nope", "--json");
+    expect(json(missing)).toMatchObject({ error: { code: "not_found" } });
+    const bad = await h.invoke("annotations", "attachment", artifact.id, "a/b", "--json");
+    expect(bad.code).toBe(2);
+    expect(requests("GET", /attachments\/a/)).toHaveLength(0);
   });
 });

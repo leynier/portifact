@@ -220,7 +220,9 @@ describe("tombstones after a restore", () => {
       artifactId: purged.artifactId,
       now: NOW,
     });
-    const leavingSession = await session(leaving.id);
+    // Migration 0071's trigger compares the expiry with the database's real clock, not `NOW`, so
+    // the session must still be live by that clock for its deletion to write a marker.
+    const leavingSession = await session(leaving.id, NOW, Date.now() + 7 * DAY);
     await requestAccountDeletion(regionsFromEnv(env), {
       userId: leaving.id,
       sessionId: leavingSession,
@@ -265,8 +267,13 @@ describe("tombstones after a restore", () => {
       members: 0,
       commentThreads: 0,
       commentMessages: 0,
+      attachments: 0,
+      withdrawnSuggestions: 0,
+      rejectedSuggestions: 0,
+      drafts: 0,
       noticeOptOuts: 0,
       noticeMutes: 0,
+      dataGrants: 0,
       sessions: expect.any(Number),
       oauthTokens: 0,
       oauthGrants: 0,
@@ -336,8 +343,13 @@ describe("tombstones after a restore", () => {
       members: 0,
       commentThreads: 0,
       commentMessages: 0,
+      attachments: 0,
+      withdrawnSuggestions: 0,
+      rejectedSuggestions: 0,
+      drafts: 0,
       noticeOptOuts: 0,
       noticeMutes: 0,
+      dataGrants: 0,
       sessions: expect.any(Number),
       oauthTokens: 0,
       oauthGrants: 0,

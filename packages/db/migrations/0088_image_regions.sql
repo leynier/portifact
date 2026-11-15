@@ -1,0 +1,1 @@
+ALTER TABLE `annotation_threads` ADD `region` text;

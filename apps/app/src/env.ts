@@ -116,6 +116,34 @@ export interface Env extends DomainEnv {
    * never in a `wrangler.jsonc` before the checks in docs/releasing.md ("Suggestions") pass.
    */
   SUGGESTIONS_ENABLED?: string | undefined;
+  /**
+   * Exactly `"true"` turns image regions on (decision 0028, `imageRegionsEnabled` in the domain):
+   * the annotations API and MCP accept a thread's `region` and the viewer offers "Mark a region".
+   * The content Worker takes the same value for the bridge. Never in a `wrangler.jsonc` before the
+   * checks in docs/releasing.md ("Image regions") pass.
+   */
+  IMAGE_REGIONS_ENABLED?: string | undefined;
+  /**
+   * Exactly `"true"` lets people add files and screenshots to comments (decision 0029,
+   * `attachmentsEnabled` in the domain). Reading files already stored never depends on it; never
+   * in a `wrangler.jsonc` before the legal pages describe attachments.
+   */
+  ATTACHMENTS_ENABLED?: string | undefined;
+  /**
+   * The documents objects of artifact data (decision 0026), exported by `portifact-data`. The
+   * owner document API reaches them only through `dataNamespaces` in packages/services.
+   */
+  ARTIFACT_DOCUMENTS?: DurableObjectNamespace | undefined;
+  /**
+   * Exactly `"true"` turns the owner document API on (decision 0026, "Switches"); off, every data
+   * route but the export answers 404 and nothing creates an object. Never in a `wrangler.jsonc`
+   * before delivery 8's release checks (a scripts test refuses it).
+   */
+  ARTIFACT_DATA_ENABLED?: string | undefined;
+  /** Exactly `"true"` lets pages create and replace documents (decision 0026, "Switches"). */
+  DATA_PAGE_WRITES_ENABLED?: string | undefined;
+  /** Exactly `"true"` issues anonymous grants of artifact data (delivery 9); never deployed on. */
+  DATA_ANONYMOUS_ENABLED?: string | undefined;
   /** Turnstile secret for siteverify. Without it every human check fails closed (turnstile.ts). */
   TURNSTILE_SECRET_KEY?: string | undefined;
 }

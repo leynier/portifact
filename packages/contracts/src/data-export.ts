@@ -18,6 +18,7 @@ import { ScimOverview } from "./scim.ts";
 import { ServiceTokenList } from "./service-tokens.ts";
 import { ShareLinkList } from "./share-links.ts";
 import { SsoSettings } from "./sso.ts";
+import { ChangeItemView } from "./suggestions.ts";
 import { DownloadKind } from "./versions.ts";
 import { WebhookList } from "./webhooks.ts";
 import { InvitationList, WorkspaceMemberList, WorkspaceView } from "./workspaces.ts";
@@ -141,6 +142,11 @@ export const ArtifactRecords = z.strictObject({
   comments: part(AnnotationExport),
   /** `GET /api/v1/artifacts/:id/annotations/history`, every page. */
   commentHistory: part(z.array(AnnotationHistoryEntry)),
+  /**
+   * `GET /api/v1/artifacts/:id/changes`, every item in every state, every page: the owner
+   * side's change list (decision 0027); `unavailable` where edit suggestions are switched off.
+   */
+  changeList: part(z.array(ChangeItemView)),
 });
 export type ArtifactRecords = z.infer<typeof ArtifactRecords>;
 
@@ -190,6 +196,22 @@ export const ExportedRecordFile = z.union([
 ]);
 export type ExportedRecordFile = z.infer<typeof ExportedRecordFile>;
 
+/**
+ * A file on a comment (decision 0029) that `portifact export` downloaded into the artifact's
+ * `attachments/` folder, checked against the size and SHA-256 its comment lists, or why it is
+ * not there (`not_found`: deleted or withheld meanwhile).
+ */
+export const ExportedAttachment = z.union([
+  z.strictObject({
+    id: z.string().min(1),
+    file: z.string().min(1),
+    size: z.number().int().nonnegative(),
+    sha256,
+  }),
+  z.strictObject({ id: z.string().min(1), skipped: ExportSkipReason }),
+]);
+export type ExportedAttachment = z.infer<typeof ExportedAttachment>;
+
 export const ExportManifest = z.strictObject({
   format: z.literal(EXPORT_MANIFEST_FORMAT),
   /** The workspace's slug, or `personal`. */
@@ -205,6 +227,8 @@ export const ExportManifest = z.strictObject({
       accessLog: ExportedLog,
       /** `records.json`: settings, access, share links, review, analytics, comments and history. */
       records: ExportedRecordFile,
+      /** The files on the comments `records.json` lists, downloaded (decision 0029). */
+      attachments: z.array(ExportedAttachment).optional(),
       /** Set when the artifact (or the rest of its versions) could not be exported, and why. */
       skipped: ExportSkipReason.optional(),
     }),

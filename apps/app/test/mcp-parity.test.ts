@@ -2469,7 +2469,7 @@ describe("API and MCP parity under budget protection", () => {
     expect(fromTool(await b.tool("set_annotations", { artifactId: id, mode: "open" })).ok).toBe(
       true,
     );
-    await protect("protect100", 2);
+    await protect("protect100", 3);
     const viaApi = await fromApi(
       await b.apiCall(`/api/v1/artifacts/${id}/annotations/threads`, {
         method: "POST",

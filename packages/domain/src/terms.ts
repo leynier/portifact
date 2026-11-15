@@ -27,10 +27,15 @@ export function needsTermsAcceptance(
  * Every operation of the read scopes stays open: reading and downloading is how a person takes
  * their data out (`portifact export`, `pull`, `annotations export`). It has no time limit and
  * covers everything those scopes reach, access logs and other people's comments on the account's
- * artifacts included; this is deliberate. Every operation of these two scopes only reads; a new
+ * artifacts included; this is deliberate. Every operation of these scopes only reads (`data:read`
+ * reads and exports an artifact's documents, decision 0026); a new
  * operation that changes anything must not take one of them.
  */
-export const TERMS_EXEMPT_SCOPES: readonly OAuthScope[] = ["artifacts:read", "annotations:read"];
+export const TERMS_EXEMPT_SCOPES: readonly OAuthScope[] = [
+  "artifacts:read",
+  "annotations:read",
+  "data:read",
+];
 
 /**
  * The operations of other scopes that stay open, by name (the MCP tool's name; API routes are
@@ -55,9 +60,15 @@ export const TERMS_OPEN_OPERATIONS = {
   cancel_review: "removes",
   cancel_upload: "removes",
   delete_webhook: "removes",
+  delete_data_document: "removes",
+  delete_data_documents: "removes",
+  erase_artifact_data: "removes",
+  delete_author_data: "removes",
   set_access: "narrowing",
   set_comment_visibility: "narrowing",
   update_webhook: "narrowing",
+  // Back to signed-in writers only narrows; opening data to anyone is refused (delivery 9).
+  set_data_writers: "narrowing",
 } as const satisfies Record<string, "read" | "removes" | "narrowing">;
 
 export type TermsOpenOperation = keyof typeof TERMS_OPEN_OPERATIONS;
@@ -106,6 +117,15 @@ export const ACCOUNT_SESSION_OPERATIONS = {
   delete_account: "leaving",
   request_account_deletion_code: "leaving",
   delete_account_with_code: "leaving",
+  // Grants of artifact data (decision 0026): giving one acts anew, listing and revoking never.
+  list_data_grants: "read",
+  read_data_grant_control: "read",
+  issue_data_grant: "refused",
+  revoke_data_grants: "removes",
+  export_own_data: "leaving",
+  read_data_grant_status: "read",
+  request_data_rights: "leaving",
+  delete_own_document: "removes",
 } as const satisfies Record<string, "read" | "removes" | "narrowing" | "leaving" | "refused">;
 
 export type AccountSessionOperation = keyof typeof ACCOUNT_SESSION_OPERATIONS;

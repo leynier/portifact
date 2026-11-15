@@ -1,5 +1,5 @@
 // The switch of edit suggestions (decision 0027, "Deliveries"): exactly `"true"` in
-// `SUGGESTIONS_ENABLED` on the app and jobs Workers. Off, nothing about suggestions is reachable.
+// `SUGGESTIONS_ENABLED` on the app and jobs Workers (and the content Worker, for the bridge). Off, nothing about suggestions is reachable.
 // Never set in a deployed `wrangler.jsonc` before the whole text delivery and its release checks
 // are done (docs/releasing.md, "Suggestions").
 import { SUGGESTIONS_SWITCH } from "@portifact/contracts";

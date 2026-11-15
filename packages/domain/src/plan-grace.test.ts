@@ -384,7 +384,10 @@ describe("the previous release's rule", () => {
     });
     fc.assert(
       fc.property(fc.option(record), (value) => {
-        expect(entitlements(value, NOW)).toEqual(developEntitlements(value, NOW));
+        // Artifact data's limits (decision 0026) came later and are not part of that rule.
+        const { data, ...rest } = entitlements(value, NOW);
+        expect(rest).toEqual(developEntitlements(value, NOW));
+        expect(data.artifacts).toBeGreaterThan(0);
       }),
       { numRuns: 5_000 },
     );

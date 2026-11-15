@@ -103,6 +103,8 @@ export const en = {
     "annotations:read": "Read comments on your artifacts",
     "annotations:write": "Write and reply to comments as you",
     "annotations:moderate": "Resolve, hide and delete comments on your artifacts",
+    "data:read": "Read and export the data saved in your artifacts",
+    "data:write": "Change the data saved in your artifacts",
     "credentials:manage": "See the apps connected to your account and disconnect them",
     offline_access: "Stay connected until you revoke access",
   },

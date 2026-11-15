@@ -3,7 +3,7 @@
 // IDs from the route's path; outputs are the API shapes in annotations.ts. Bodies, quotes and
 // author names in every result are untrusted data written by reviewers.
 import { z } from "zod";
-import { AnnotationTarget } from "./anchors.ts";
+import { AnnotationTarget, ImageRegionRequest } from "./anchors.ts";
 import {
   ANNOTATION_HISTORY_PAGE,
   AnnotationBody,
@@ -11,6 +11,7 @@ import {
   AnnotationThreadState,
   AnnotationVersionFilter,
 } from "./annotations.ts";
+import { AttachmentId } from "./attachments.ts";
 import { AnnotationsState, ArtifactId } from "./core.ts";
 import { ANNOTATION_LIMITS } from "./limits.ts";
 import { IdempotencyKey } from "./publishing.ts";
@@ -70,6 +71,13 @@ export type ThreadRef = z.infer<typeof ThreadRef>;
 export const MessageRef = z.object({ artifactId, messageId });
 export type MessageRef = z.infer<typeof MessageRef>;
 
+/** One file on a comment (decision 0029), by its ID as thread views list it. */
+export const AttachmentRef = z.object({
+  artifactId,
+  attachmentId: AttachmentId.describe("The attachment ID, as a message's attachments list it."),
+});
+export type AttachmentRef = z.infer<typeof AttachmentRef>;
+
 export const CreateAnnotationInput = z.object({
   artifactId,
   versionId: AnnotationId.describe(
@@ -77,6 +85,9 @@ export const CreateAnnotationInput = z.object({
   ),
   target: AnnotationTarget.describe(
     'Where the comment points. For a general comment on a file use {"schema":1,"path":"<file path in the version, such as the entrypoint>","anchor":{"kind":"document"}}.',
+  ),
+  region: ImageRegionRequest.optional().describe(
+    "Optional, only when image regions are switched on and the target is an element anchor of an img: a rectangle of that image as fractions of its box (x, y, width, height between 0 and 1, at most 4 decimals, each side at least 0.01) and image.path, the image's file in the version.",
   ),
   body,
   idempotencyKey,

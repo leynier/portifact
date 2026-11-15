@@ -259,7 +259,7 @@ describe("connected apps", () => {
     expect(cli.textContent).toContain("Last used 2 hours ago");
     expect(cli.textContent).toContain("Access expires Dec 1, 2026");
     expect(claude.textContent).toContain("Third-party app");
-    expect(claude.textContent).toContain("2 of 7 permissions");
+    expect(claude.textContent).toContain("2 of 9 permissions");
     expect(claude.textContent).toContain("Connects to Portifact MCP");
     expect(claude.textContent).toContain("Does not expire");
     // The exact time stays available on the relative one.
@@ -309,8 +309,8 @@ describe("connected apps", () => {
       ((await within(apps).findByRole("heading", { name })).closest("li") as HTMLElement)
         .textContent;
     expect(await summary("Reader")).toContain("Read only");
-    expect(await summary("Writer")).toContain("1 of 7 permissions");
-    expect(await summary("Idle")).toContain("0 of 7 permissions");
+    expect(await summary("Writer")).toContain("1 of 9 permissions");
+    expect(await summary("Idle")).toContain("0 of 9 permissions");
   });
 
   it("says how to connect another app with the CLI command and the MCP server URL", async () => {

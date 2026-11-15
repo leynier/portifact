@@ -33,20 +33,28 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/action/**",
+        "$TURBO_ROOT$/.github/workflows/**",
+        "$TURBO_ROOT$/e2e/playwright.config.ts",
+        "$TURBO_ROOT$/spikes/artifact-data-grant/playwright.config.ts",
         "$TURBO_ROOT$/docs/github-actions.md",
         "$TURBO_ROOT$/packages/cli/package.json"
       ],
       "outputs": ["coverage/**"]
     },
     "@portifact/app#test": {
-      "dependsOn": ["^typecheck", "@portifact/web#build"],
+      "dependsOn": ["^typecheck", "@portifact/web#build", "@portifact/data#build"],
       "outputs": ["coverage/**"]
     },
     "@portifact/app#typecheck": {
       "dependsOn": ["^typecheck", "@portifact/web#build"]
     },
     "@portifact/content#test": {
-      "dependsOn": ["^typecheck", "@portifact/bridge#build", "@portifact/render#build"],
+      "dependsOn": [
+        "^typecheck",
+        "@portifact/bridge#build",
+        "@portifact/render#build",
+        "@portifact/data#build"
+      ],
       "outputs": ["coverage/**"]
     },
     "@portifact/content#typecheck": {

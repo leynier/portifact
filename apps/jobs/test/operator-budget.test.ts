@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
+import { EMPTY_METRICS, type PlatformMetrics } from "@portifact/domain";
 import { recordBudgetMeasurement } from "@portifact/services";
 import { beforeEach, describe, expect, it } from "vitest";
 import { OPERATOR_USAGE, runOperator } from "../src/operator.ts";
@@ -9,16 +10,12 @@ const db = () => regionsFromEnv(env).get("default").db;
 const MID = Date.UTC(2026, 10, 16);
 const run = (...argv: string[]) => runOperator(db(), argv, MID);
 
-async function measure(usd: number) {
+async function measure(usd: number, data: Partial<PlatformMetrics> = {}) {
   await recordBudgetMeasurement(db().global, {
     metrics: {
-      storedBytes: 0,
-      r2ClassA: null,
-      r2ClassB: null,
-      workerRequests: null,
-      d1RowsRead: null,
+      ...EMPTY_METRICS,
       d1RowsWritten: (50_000_000 + (usd - 9) * 1e6) / 2,
-      emails: null,
+      ...data,
     },
     analytics: "off",
     now: MID,
@@ -37,7 +34,7 @@ describe("operator budget commands", () => {
       ["budget-override", "panic", "--note", "x"],
       ["budget-override", "protect100"],
       ["budget-override", "protect100", "--note", " "],
-      ["budget-override", "protect100", "--note", "x", "--steps", "5"],
+      ["budget-override", "protect100", "--note", "x", "--steps", "6"],
       ["budget-override", "protect100", "--note", "x", "--steps", "1.5"],
       ["budget-override", "none", "--note", "x", "--hours", "0"],
       ["budget-override", "none", "--note", "x", "--hours", "800"],
@@ -58,16 +55,28 @@ describe("operator budget commands", () => {
     expect((await run("budget-override", "clear")).output).toBe("No budget state.");
   });
 
+  it("shows artifact data's share of the projection and its metrics", async () => {
+    // 25.5 million data rows at mid-cycle: 51 million projected, one million over, US$1.
+    await measure(60, { dataRowsWritten: 25_500_000, dataGbSeconds: 12.5 });
+    const shown = await run("budget");
+    expect(shown.output).toContain("projected   US$61.00");
+    expect(shown.output).toContain("data        US$1.00 of the projection");
+    expect(shown.output).toContain("  dataRowsWritten  25500000");
+    expect(shown.output).toContain("  dataGbSeconds    12.5");
+  });
+
   it("shows the state, metrics and this cycle's alerts", async () => {
     await measure(60);
     const shown = await run("budget");
     expect(shown.exitCode).toBe(0);
     expect(shown.output).toContain("measured    2026-11-16T00:00:00.000Z (analytics off)");
     expect(shown.output).toContain("projected   US$60.00");
+    expect(shown.output).toContain("data        US$0.00 of the projection");
+    expect(shown.output).toContain("  dataStoredBytes  unmeasured");
     expect(shown.output).toContain("automatic   alert50: none (since 2026-11-16T00:00:00.000Z)");
     expect(shown.output).toContain("effective   alert50: none");
-    expect(shown.output).toContain("  d1RowsWritten  50500000");
-    expect(shown.output).toContain("  r2ClassB       unmeasured");
+    expect(shown.output).toContain("  d1RowsWritten    50500000");
+    expect(shown.output).toContain("  r2ClassB         unmeasured");
     expect(shown.output).toContain("2026-11-16T00:00:00.000Z  spend_25  US$60.00  not emailed");
 
     const alerts = await run("budget-alerts", "--limit", "1");
@@ -98,7 +107,7 @@ describe("operator budget commands", () => {
       "override    protect100 (3 step(s)), until 2026-11-16T02:00:00.000Z, set 2026-11-16T00:00:00.000Z: traffic spike",
     );
     expect(set.output).toContain(
-      "effective   protect100: stop_new_artifacts, block_uploads, pause_annotation_writes, tighten_public_traffic (override)",
+      "effective   protect100: stop_new_artifacts, block_uploads, pause_data_writes, pause_annotation_writes (override)",
     );
 
     const lifted = await run("budget-override", "none", "--note", "false alarm");

@@ -315,12 +315,15 @@ describe("the parse5 adapter", () => {
       tagName: string;
       getAttribute(name: string): string | null;
       data: string;
-      querySelectorAll(): ArrayLike<unknown>;
+      querySelectorAll(selector: string): ArrayLike<unknown>;
     };
     expect(element.tagName).toBe("P");
     expect(element.getAttribute("id")).toBe("a");
     expect(element.data).toBe("");
-    expect(element.querySelectorAll()).toHaveLength(0);
+    // Queries read only the anchors' selector grammar, below the element they start from.
+    expect(element.querySelectorAll("p")).toHaveLength(0);
+    expect((body as unknown as typeof element).querySelectorAll("p")).toHaveLength(1);
+    expect((body as unknown as typeof element).querySelectorAll("p, a")).toHaveLength(0);
     expect(
       (comment as unknown as { getAttribute(name: string): string | null }).getAttribute("x"),
     ).toBeNull();

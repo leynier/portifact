@@ -96,6 +96,11 @@ describe("legal pages", () => {
       "rights needed to host",
       "30 days",
       "six months",
+      'id="suggestions"',
+      "you grant the customer that holds the artifact's personal space or workspace a non-exclusive",
+      "Accepting and rejecting require an authorized person's dashboard session",
+      "If none can be applied automatically, acceptance creates change-list items without publishing a new version",
+      "This is not a blanket waiver of moral rights",
     ]) {
       expect(terms, text).toContain(text);
     }
@@ -109,6 +114,13 @@ describe("legal pages", () => {
       "Access logs (who opened an artifact and when)",
       "__Host-pf.session_token",
       "__Host-pf_terms",
+      "<strong>Edit suggestions.</strong>",
+      "<strong>Change lists.</strong>",
+      "preview.portifact.dev",
+      "Change list items",
+      "This endpoint does not read or set cookies",
+      "a deleted-account label does not remove personal information",
+      "Eligibility or access expiry does not mean instantaneous erasure from storage",
     ]) {
       expect(privacy, text).toContain(text);
     }
@@ -140,9 +152,49 @@ describe("legal pages", () => {
       'id="annex-i"',
       'id="annex-ii"',
       'id="subprocessors"',
+      "change lists and drafts of edits",
     ]) {
       expect(dpa, text).toContain(text);
     }
+  });
+
+  it("describes files and screenshots on comments as the product handles them (decision 0029)", () => {
+    const terms = read("terms");
+    for (const text of [
+      "Ownership of files and screenshots attached to comments remains with the respective rights holders",
+      "attaching a file permits authorized recipients to view, download and retain it",
+      "grants no unrelated redistribution rights",
+      "stay in your browser until you post the comment and are uploaded only then",
+      "Changing access does not invalidate issued links",
+      "This version replaces the version of November 13, 2026 and takes effect on November 15, 2026.",
+      "<code>portifact export</code> downloads every file",
+      "up to 4 files to a comment or reply",
+      "each up to 10 MB (1 MB for text)",
+      "from its contents, not its name",
+      "Files can be added only from the dashboard",
+      "Files attached to comments</th>",
+    ]) {
+      expect(terms, text).toContain(text);
+    }
+    const privacy = read("privacy");
+    for (const text of [
+      "<strong>Files on comments.</strong>",
+      "If an upload is not posted with its comment within an hour",
+      "we never capture your screen or the artifact ourselves",
+      "a file you remove or a comment you abandon is never uploaded",
+      "We cannot recall copies already downloaded.",
+      "Recorded deletions are reapplied during restore, subject to the backup limitations below.",
+      "Unreferenced attachment objects are removed after reconciliation.",
+      "Files on comments</th>",
+    ]) {
+      expect(privacy, text).toContain(text);
+    }
+    expect(read("dpa")).toContain("files and screenshots attached to them");
+    expect(read("dpa")).toContain("of files attached to comments");
+    expect(read("acceptable-use")).toContain("every comment and every file attached to one");
+    expect(read("acceptable-use")).toContain(
+      "a small file or a single screenshot is not an exception",
+    );
   });
 
   it("links the Data Processing Addendum from the Terms and the Privacy Policy", () => {

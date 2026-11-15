@@ -96,6 +96,8 @@ const messages = {
     "annotations:read": "阅读你的 artifact 上的评论",
     "annotations:write": "以你的身份撰写和回复评论",
     "annotations:moderate": "解决、隐藏和删除你的 artifact 上的评论",
+    "data:read": "读取和导出你的 artifact 中保存的数据",
+    "data:write": "更改你的 artifact 中保存的数据",
     "credentials:manage": "查看关联到你账号的应用并断开它们",
     offline_access: "保持连接，直到你撤销访问权限",
   },

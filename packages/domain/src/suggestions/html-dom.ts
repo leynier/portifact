@@ -6,6 +6,7 @@
 // bridge, which anchors the page's `body`.
 import { type AnchorElement, type AnchorNode, isSkipped } from "@portifact/anchors";
 import { type DefaultTreeAdapterMap, parse } from "parse5";
+import { querySelectorAll } from "./selector-match.ts";
 import type { Work } from "./work.ts";
 
 export type P5Node = DefaultTreeAdapterMap["node"];
@@ -101,9 +102,10 @@ class AdaptedNode implements AnchorElement {
     return isElement(this.node) ? attribute(this.node, name) : null;
   }
 
-  querySelectorAll(): ArrayLike<AnchorElement> {
-    // Element anchors are not resolved on the server: the planners only resolve text.
-    return [];
+  querySelectorAll(selector: string): ArrayLike<AnchorElement> {
+    // Element anchors are resolved only for previews of style and structure operations, with the
+    // anchors' own restricted grammar (`selector-match.ts`); the planners only resolve text.
+    return querySelectorAll(this.node, selector).map(adapt);
   }
 }
 

@@ -12,6 +12,7 @@ import {
   type JobMessage,
 } from "@portifact/contracts";
 import { type AccessDb, type Db, type Region, type RegionalDb, schema } from "@portifact/db";
+import { isAttachmentKey } from "@portifact/domain";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
@@ -25,6 +26,7 @@ import {
   runDataReconcile,
   runDataResolve,
 } from "./artifact-data.ts";
+import { runDataAudit, runDataReset } from "./artifact-data-owner.ts";
 import { type AuditStreamDeps, deliverAuditStream } from "./audit-streams.ts";
 import type { DomainDeps } from "./cloudflare-hostnames.ts";
 import { type CommentNotifier, sendCommentNotice } from "./comment-notices.ts";
@@ -35,6 +37,7 @@ import {
 } from "./comment-retention-notices.ts";
 import { runSearchIndex } from "./content-search.ts";
 import { domainDbsOf, runDeleteHostname } from "./custom-domains.ts";
+import { type DataRightsNotifier, sendDataRightsNotice } from "./data-rights.ts";
 import { type DirectoryNotifier, sendDirectoryNotice } from "./directory-notices.ts";
 import { type DomainNotifier, sendDomainNotice } from "./domain-notices.ts";
 import { type ExpiryNotifier, sendExpiryNotice } from "./expiry-notices.ts";
@@ -188,6 +191,8 @@ export interface JobDeps {
   reviewNotifier?: ReviewNotifier | undefined;
   /** Sends `directory_notice` emails (decision 0017). */
   directoryNotifier?: DirectoryNotifier | undefined;
+  /** Sends `data_rights_request` emails to an artifact's admins (decision 0026). */
+  dataRightsNotifier?: DataRightsNotifier | undefined;
   /** Sends `retention_notice` emails (decision 0023). */
   retentionNotifier?: RetentionNotifier | undefined;
   /** Sends `comment_retention_notice` emails (decision 0023). */
@@ -245,6 +250,7 @@ async function runRow(
     domainNotifier,
     reviewNotifier,
     directoryNotifier,
+    dataRightsNotifier,
     retentionNotifier,
     commentRetentionNotifier,
     issues,
@@ -311,6 +317,9 @@ async function runRow(
     case "review_notice":
       if (!reviewNotifier) throw new Error("review_notice needs the review notifier");
       return runReviewNotice(db, row, now, reviewNotifier);
+    case "data_rights_request":
+      if (!dataRightsNotifier) throw new Error("data_rights_request needs its notifier");
+      return sendDataRightsNotice(db, row, now, dataRightsNotifier);
     case "directory_notice":
       if (!directoryNotifier) throw new Error("directory_notice needs the directory notifier");
       return sendDirectoryNotice(db, row, now, directoryNotifier);
@@ -387,6 +396,10 @@ async function runRow(
       return runDataResolve(db, bucket, data, row, now);
     case "data_export":
       return runDataExport(db, bucket, data, row, now);
+    case "data_audit":
+      return runDataAudit(db, data, row, now);
+    case "data_reset":
+      return runDataReset(db, data, row, now);
   }
 }
 
@@ -430,6 +443,15 @@ async function deleteUnreferencedKeys(db: Db, bucket: R2Bucket, keys: string[]) 
       const b = schema.ownerBrands;
       const named = sql<string>`'brands/' || ${b.ownerId} || '/' || ${b.logoSha256}`;
       for (const row of await db.select({ key: named }).from(b).where(inArray(named, logos))) {
+        kept.add(row.key);
+      }
+    }
+    // A comment attachment's key is kept while a row names it again (a restore, decision 0029).
+    const files = chunk.filter(isAttachmentKey);
+    if (files.length > 0) {
+      const ca = schema.commentAttachments;
+      const named = sql<string>`'attachments/' || ${ca.artifactId} || '/' || ${ca.id}`;
+      for (const row of await db.select({ key: named }).from(ca).where(inArray(named, files))) {
         kept.add(row.key);
       }
     }

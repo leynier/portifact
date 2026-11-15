@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // portifact export (decision 0022, second delivery): a space's every retained version, sources,
 // access logs, audit log and a manifest, into a folder; resumable, verified, never outside it.
 
@@ -185,6 +186,8 @@ describe("portifact export", () => {
       approvalReview: { artifactId: doc.id, role: "owner" },
       comments: { artifact: { id: doc.id }, threads: [] },
       commentHistory: [],
+      // Edit suggestions switched off on the server: the change list's route does not exist.
+      changeList: { skipped: "unavailable" },
     });
     expect(manifest.artifacts.find((a) => a.id === doc.id)?.records).toEqual({
       file: `artifacts/${doc.id}/records.json`,
@@ -508,6 +511,129 @@ describe("portifact export", () => {
       JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
     );
     expect(reader.commentHistory).toEqual({ skipped: "forbidden" });
+  });
+
+  it("downloads the files on comments into the artifact's folder, checked, and names what it could not get (decision 0029)", async () => {
+    h.signIn();
+    const { doc } = space();
+    const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9]);
+    const digest = createHash("sha256").update(PNG).digest("hex");
+    const view = (id: string, name: string) => ({
+      id,
+      name,
+      contentType: "image/png",
+      size: PNG.length,
+      sha256: digest,
+    });
+    server.annotations.threads.set("th_files", {
+      artifactId: doc.id,
+      seq: 1,
+      id: "th_files",
+      versionId: doc.currentVersionId ?? "v1",
+      current: true,
+      path: "index.md",
+      target: { schema: 1, path: "index.md", anchor: { kind: "document" } },
+      state: "open",
+      author: { id: "u_ada", name: "Ada", image: null },
+      own: false,
+      byOwner: false,
+      revision: 1,
+      createdAt: "2026-11-01T00:00:00.000Z",
+      updatedAt: "2026-11-01T00:00:00.000Z",
+      resolvedAt: null,
+      messages: [
+        {
+          id: "m_files",
+          author: { id: "u_ada", name: "Ada", image: null },
+          own: false,
+          state: "visible",
+          body: "See the screenshot",
+          revision: 1,
+          createdAt: "2026-11-01T00:00:00.000Z",
+          editedAt: null,
+          attachments: [view("att_ok", "../../evil.html"), view("att_gone", "gone.png")],
+        },
+      ],
+    });
+    server.annotations.attachments.set("att_ok", {
+      artifactId: doc.id,
+      view: view("att_ok", "../../evil.html"),
+      bytes: PNG,
+    });
+    const out = join(h.workspace, "export");
+    expect((await h.invoke("export", out)).code).toBe(0);
+    // Under its ID and the type's extension, never the reviewer's name, with the listed bytes.
+    expect(await readFile(join(out, "artifacts", doc.id, "attachments", "att_ok.png"))).toEqual(
+      PNG,
+    );
+    const manifest = ExportManifest.parse(await manifestOf(out));
+    const entry = manifest.artifacts.find((artifact) => artifact.id === doc.id);
+    expect(entry?.attachments).toEqual([
+      {
+        id: "att_ok",
+        file: `artifacts/${doc.id}/attachments/att_ok.png`,
+        size: PNG.length,
+        sha256: digest,
+      },
+      { id: "att_gone", skipped: "not_found" },
+    ]);
+    // A second run keeps the verified file and asks for no new link.
+    const linksBefore = server.requests.filter((r) =>
+      r.path.endsWith("/attachments/att_ok"),
+    ).length;
+    expect((await h.invoke("export", out)).code).toBe(0);
+    expect(server.requests.filter((r) => r.path.endsWith("/attachments/att_ok")).length).toBe(
+      linksBefore,
+    );
+    // Bytes that do not match what the comment lists are never kept.
+    await rm(join(out, "artifacts", doc.id, "attachments", "att_ok.png"));
+    server.annotations.attachments.set("att_ok", {
+      artifactId: doc.id,
+      view: view("att_ok", "x"),
+      bytes: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+    });
+    const bad = await h.invoke("export", out, "--json");
+    expect(bad.code).toBe(1);
+    expect(JSON.parse(bad.stdout)).toMatchObject({ error: { code: "download_failed" } });
+    expect(existsSync(join(out, "artifacts", doc.id, "attachments", "att_ok.png"))).toBe(false);
+  });
+
+  it("writes every page of an artifact's change list into its records, or why it is missing", async () => {
+    h.signIn();
+    const { doc } = space();
+    const items = Array.from({ length: 150 }, (_, i) => ({
+      id: `chg_${i}`,
+      artifactId: doc.id,
+      origin: "suggestion",
+      threadId: null,
+      versionId: "ver_1",
+      path: "index.md",
+      route: null,
+      envelope: { format: 2 },
+      reason: "spans_nodes",
+      state: i % 2 === 0 ? "open" : "applied",
+      createdAt: i,
+      closedAt: null,
+      closedVersionId: null,
+      revision: 1,
+    }));
+    server.changes.items.set(doc.id, items);
+    const out = join(h.workspace, "export");
+    expect((await h.invoke("export", out)).code).toBe(0);
+    const records = ArtifactRecords.parse(
+      JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
+    );
+    expect(records.changeList).toEqual(items);
+    const pages = server.requests.filter((r) => r.path === `/api/v1/artifacts/${doc.id}/changes`);
+    expect(pages).toHaveLength(2);
+
+    // A reader: the list is the owner side's.
+    server.changes.forbidden.add(doc.id);
+    expect((await h.invoke("export", out)).code).toBe(0);
+    const reader = ArtifactRecords.parse(
+      JSON.parse(await readFile(join(out, "artifacts", doc.id, "records.json"), "utf8")),
+    );
+    expect(reader.changeList).toEqual({ skipped: "forbidden" });
   });
 
   it("exports a workspace's records that bearer routes read and names the dashboard for the rest", async () => {

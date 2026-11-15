@@ -27,7 +27,7 @@ import {
   threadInScope,
   versionRetention,
 } from "@portifact/domain";
-import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, notInArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
@@ -35,6 +35,7 @@ import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { eraseApprovalAuthor } from "./approval-reviews.ts";
 import { deleteJournalCursor, scheduleAuthorErasures } from "./artifact-data.ts";
+import { deletePendingUploadsOf } from "./attachments.ts";
 import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
 import { deleteOwnerAuditStreams, exportAuditStreams } from "./audit-streams.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
@@ -50,6 +51,8 @@ import { releaseOrphans } from "./maintenance.ts";
 import { accountDeletionJob, closeJobs, purgeJobs } from "./outbox.ts";
 import { ownerEntitlements, planView } from "./plans.ts";
 import { exportServiceTokens } from "./service-tokens.ts";
+import { draftMarker } from "./suggestion-markers.ts";
+import { storedEdit } from "./suggestion-view.ts";
 import { forgetIssueRequester } from "./thread-issues.ts";
 import { exportWebhooks } from "./webhooks.ts";
 import { viewerGroupIds } from "./workspace-groups.ts";
@@ -73,6 +76,14 @@ function chunks<T>(items: readonly T[]): T[][] {
 }
 
 const iso = (ms: number) => new Date(ms).toISOString();
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 const isoOrNull = (ms: number | null) => (ms === null ? null : iso(ms));
 
 type ThreadRow = typeof schema.annotationThreads.$inferSelect;
@@ -85,7 +96,15 @@ type MessageRow = typeof schema.annotationMessages.$inferSelect;
  */
 export async function exportAccount(
   db: RegionalDb,
-  input: { userId: string; now: number },
+  input: {
+    userId: string;
+    now: number;
+    /**
+     * Every region's handle, for what the account keeps in any region (its drafts); only `db`
+     * when absent.
+     */
+    regions?: readonly RegionalDb[];
+  },
 ): Promise<Result<AccountExport>> {
   // The account, its sign-in methods and its history of accepted terms, in one round trip.
   const [[user], methods, acceptances] = await db.global.batch([
@@ -161,6 +180,45 @@ export async function exportAccount(
     );
   }
 
+  // Each artifact's change list (decision 0027), held artifacts left to the operator as their
+  // comments are.
+  const changeItems = new Map<string, (typeof schema.changeItems.$inferSelect)[]>();
+  for (const ids of chunks(artifactIds)) {
+    for (const row of await db
+      .select()
+      .from(schema.changeItems)
+      .where(
+        and(
+          inArray(schema.changeItems.artifactId, ids),
+          notHeldSql(sql`${schema.changeItems.artifactId}`),
+        ),
+      )
+      .orderBy(asc(schema.changeItems.createdAt), asc(schema.changeItems.id))) {
+      changeItems.set(row.artifactId, [...(changeItems.get(row.artifactId) ?? []), row]);
+    }
+  }
+  // The account's own drafts, on any artifact of any region (decision 0027): its own words. A
+  // held artifact's draft is kept for the hold and read by nobody but the operator, like its
+  // comments. Every region holding the account's drafts is read; a handle repeated over the
+  // same database is read twice and its rows kept once.
+  const drafts = new Map<string, typeof schema.editDrafts.$inferSelect>();
+  for (const handle of input.regions ?? [db]) {
+    for (const row of await handle
+      .select()
+      .from(schema.editDrafts)
+      .where(
+        and(
+          eq(schema.editDrafts.userId, input.userId),
+          notHeldSql(sql`${schema.editDrafts.artifactId}`),
+        ),
+      )) {
+      drafts.set(`${row.artifactId}:${row.userId}`, row);
+    }
+  }
+  const ownDrafts = [...drafts.values()].sort(
+    (a, b) => a.updatedAt - b.updatedAt || a.artifactId.localeCompare(b.artifactId),
+  );
+
   const customDomains = await exportOwnerDomains(db.global, input.userId, input.now);
 
   const versionIds = [...versionsByArtifact.values()].flat().map((version) => version.id);
@@ -212,6 +270,33 @@ export async function exportAccount(
       messages.set(row.threadId, [...(messages.get(row.threadId) ?? []), row]);
     }
   }
+  // Files on those messages (decision 0029), as thread views list them: attached and not withheld.
+  const attachedFiles = new Map<
+    string,
+    { id: string; name: string; contentType: string; size: number; sha256: string }[]
+  >();
+  const ca = schema.commentAttachments;
+  for (const ids of chunks([...ownThreads, ...elsewhere].map((thread) => thread.id))) {
+    for (const row of await db
+      .select({
+        id: ca.id,
+        messageId: ca.messageId,
+        name: ca.name,
+        contentType: ca.contentType,
+        size: ca.size,
+        sha256: ca.sha256,
+      })
+      .from(ca)
+      .where(and(inArray(ca.threadId, ids), eq(ca.state, "attached"), isNull(ca.withheldAt)))
+      .orderBy(asc(ca.attachedAt), asc(ca.id))) {
+      if (row.messageId === null || row.contentType === null) continue;
+      const { messageId, contentType, ...file } = row;
+      attachedFiles.set(messageId, [
+        ...(attachedFiles.get(messageId) ?? []),
+        { ...file, contentType },
+      ]);
+    }
+  }
   const authorIds = [...new Set([...messages.values()].flat().map((message) => message.authorId))];
   const names = new Map<string, string>();
   for (const ids of chunks(authorIds)) {
@@ -223,6 +308,20 @@ export async function exportAccount(
     }
   }
 
+  // A suggestion's block (decision 0027): on the account's own artifacts always, elsewhere only
+  // for a suggestion the account made (its own words).
+  const suggestionOf = (thread: ThreadRow, onlyOwn: boolean) =>
+    thread.kind === "suggestion" && (!onlyOwn || thread.authorId === input.userId)
+      ? {
+          suggestion: {
+            state: thread.suggestionState as string,
+            edit: storedEdit(thread),
+            decidedAt: isoOrNull(thread.decidedAt),
+            resultVersionId: thread.resultVersionId,
+            originVersionId: thread.originVersionId,
+          },
+        }
+      : {};
   const threadView = (thread: ThreadRow, onlyOwn: boolean) => ({
     id: thread.id,
     artifactId: thread.artifactId,
@@ -241,7 +340,9 @@ export async function exportAccount(
         body: message.body,
         createdAt: iso(message.createdAt),
         editedAt: isoOrNull(message.editedAt),
+        ...(attachedFiles.has(message.id) ? { attachments: attachedFiles.get(message.id) } : {}),
       })),
+    ...suggestionOf(thread, onlyOwn),
   });
 
   return ok({
@@ -331,6 +432,18 @@ export async function exportAccount(
       threads: ownThreads
         .filter((thread) => thread.artifactId === artifact.id)
         .map((thread) => threadView(thread, false)),
+      changeItems: (changeItems.get(artifact.id) ?? []).map((item) => ({
+        id: item.id,
+        origin: item.origin,
+        threadId: item.threadId,
+        versionId: item.versionId,
+        path: item.path,
+        envelope: safeJson(item.envelope),
+        reason: item.reason,
+        state: item.state,
+        createdAt: iso(item.createdAt),
+        closedAt: isoOrNull(item.closedAt),
+      })),
     })),
     workspaces: await exportWorkspaces(db.global, input.userId),
     invitations: (await listIncomingInvitations(db.global, input)).map((invitation) => ({
@@ -338,6 +451,13 @@ export async function exportAccount(
       role: invitation.role,
       invitedBy: invitation.invitedBy,
       expiresAt: iso(invitation.expiresAt),
+    })),
+    drafts: ownDrafts.map((draft) => ({
+      artifactId: draft.artifactId,
+      baseVersionId: draft.baseVersionId,
+      edit: safeJson(draft.edit),
+      revision: draft.revision,
+      updatedAt: iso(draft.updatedAt),
     })),
     reviewVerdicts: (
       await db
@@ -550,14 +670,14 @@ async function deleteAccountNow(
       input,
       email,
       userExists,
-      both ? regionalDeletion(both, input.userId, input.now, true) : [],
+      both ? regionalDeletion(both, input.userId, input.now, true, true) : [],
     );
   } catch (error) {
     if (causeIncludes(error, "sole_workspace_admin")) return refuseSoleAdmin();
     throw error;
   }
   for (const { db } of separateRegions(regions)) {
-    await retried(() => db.batch(regionalDeletion(db, input.userId, input.now, true)));
+    await retried(() => db.batch(regionalDeletion(db, input.userId, input.now, true, false)));
   }
   return ok({ deleted: true });
 }
@@ -813,12 +933,22 @@ async function deletionBatch(
  * keyed by the account without a foreign key, and a job that erases its openings from the
  * region's access log. Idempotent, so the request and every run of the job repeat it.
  */
+/** An account's drafts its deletion removes: those on artifacts no hold keeps. */
+function ownDrafts(userId: string): SQL {
+  return and(
+    eq(schema.editDrafts.userId, userId),
+    notHeldSql(sql`${schema.editDrafts.artifactId}`),
+  ) as SQL;
+}
+
 function regionalDeletion(
   db: Db,
   userId: string,
   now: number,
   /** The request writes the job that erases its openings; the job's runs leave it to the finish. */
   eraseOpenings: boolean,
+  /** Whether `db` writes both databases: the drafts' restore markers go straight in. */
+  shared: boolean,
 ): [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] {
   return [
     ...claimArtifacts(db, userId, now),
@@ -826,6 +956,9 @@ function regionalDeletion(
     db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, userId)),
     db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, userId)),
     closeJobs(db, "comment_notice", userId, sql`1`),
+    // Uploads the account started and never attached (decision 0029); their bytes go by the
+    // rows' delete trigger. Attached files go with the account's messages.
+    deletePendingUploadsOf(db, userId),
     // Review emails sent to the account and those waiting for it (decision 0013, "Emails").
     db.delete(schema.reviewNotices).where(eq(schema.reviewNotices.recipientId, userId)),
     closeJobs(db, "review_notice", userId, sql`1`),
@@ -861,14 +994,10 @@ function regionalDeletion(
     // Its edit drafts, cached plans and preview codes (decision 0027): keyed by user with no
     // foreign key. A draft on a held artifact stays until the hold's release erases it
     // (`eraseAccountTraces`); plans and codes are caches nobody but the account could use.
-    db
-      .delete(schema.editDrafts)
-      .where(
-        and(
-          eq(schema.editDrafts.userId, userId),
-          notHeldSql(sql`${schema.editDrafts.artifactId}`),
-        ) as SQL,
-      ),
+    // Each with the marker that keeps it gone through a restore of its region alone (decision
+    // 0027), which the account's own tombstone does not reach.
+    draftMarker(db, shared, ownDrafts(userId), now),
+    db.delete(schema.editDrafts).where(ownDrafts(userId)),
     db.delete(schema.suggestionPlans).where(eq(schema.suggestionPlans.userId, userId)),
     db.delete(schema.previewCodes).where(eq(schema.previewCodes.userId, userId)),
     // Its read and review codes and sessions: users are global, so no foreign key removes them.
@@ -876,6 +1005,8 @@ function regionalDeletion(
     db.delete(schema.readSessions).where(eq(schema.readSessions.userId, userId)),
     db.delete(schema.reviewHandoffs).where(eq(schema.reviewHandoffs.userId, userId)),
     db.delete(schema.reviewSessions).where(eq(schema.reviewSessions.userId, userId)),
+    // Its grants of artifact data (decision 0026) and, by cascade, their codes.
+    db.delete(schema.dataGrants).where(eq(schema.dataGrants.userId, userId)),
     // The account's openings of other people's artifacts are in the region's access log.
     eraseAccessEventsJob(db, "user", userId, eraseOpenings ? sql`1` : sql`0`, now),
   ];
@@ -998,14 +1129,15 @@ export async function advanceAccountDeletion(
     // What the account wrote in other people's artifacts' data (decision 0026, "Author erasure"):
     // its journal entries in this region get their erasure jobs and are retired.
     if (bucket && (await scheduleAuthorErasures(db, bucket, userId, now)).more) pending = true;
-    await db.batch(regionalDeletion(db, userId, now, false));
+    const both = bothSides(db);
+    await (both ?? db).batch(regionalDeletion(both ?? db, userId, now, false, both !== null));
     const threads = await threadsToErase(db, userId, threadsPerAccount);
     for (const threadId of threads) {
       await eraseAuthorFromThread(db, { authorId: userId, threadId, now });
     }
     if (threads.length > 0) pending = true;
     // Once its comments are erased, what stays with other people's artifacts forgets the account.
-    else if ((await eraseAccountTraces(db, userId)).more) pending = true;
+    else if ((await eraseAccountTraces(db, userId, now)).more) pending = true;
     const [left] = await db
       .select({ count: sql<number>`count(*)` })
       .from(schema.artifacts)
@@ -1038,6 +1170,9 @@ export async function advanceAccountDeletion(
         .delete(schema.trafficCounters)
         .where(and(eq(schema.trafficCounters.ownerId, userId), nothingLeft)),
       db.delete(schema.operations).where(and(eq(schema.operations.actorId, userId), nothingLeft)),
+      db
+        .delete(schema.dataOperations)
+        .where(and(eq(schema.dataOperations.actorId, userId), nothingLeft)),
       db
         .delete(schema.annotationUsage)
         .where(and(eq(schema.annotationUsage.ownerId, userId), nothingLeft)),

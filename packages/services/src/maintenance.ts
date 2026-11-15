@@ -27,12 +27,14 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
 import { dataEraseJob, pruneJournalCursors } from "./artifact-data.ts";
+import { pruneAttachmentUploads } from "./attachments.ts";
 import { auditEvent, pruneAuditEvents } from "./audit.ts";
 import { pruneAuthRecords } from "./auth-records.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
 import { enforceCommentRetention } from "./comment-retention.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "./content-search.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
+import { pruneDataGrants } from "./data-grants.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
@@ -967,6 +969,8 @@ export async function runRegionalMaintenance(
     // Account journal scan positions left after their deletion ended (decision 0026).
     journalCursors: await pruneJournalCursors(db, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
+    // Grant codes past their minute and grants of artifact data 30 days after they ended.
+    dataGrants: (await pruneDataGrants(db, now)).processed,
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
@@ -981,6 +985,8 @@ export async function runRegionalMaintenance(
     threadIssues: await requeueThreadIssues(db, now),
     // Slack connections started and never completed (decision 0025): one delete.
     pendingConnections: await prunePendingConnections(db, now),
+    // Comment attachment uploads nobody attached within their hour (decision 0029): one delete.
+    attachmentUploads: await pruneAttachmentUploads(db, now),
     // Edit suggestions (decision 0027): overdue acceptances end, records past their time go, and
     // drafts of people who no longer act for the owner are deleted.
     acceptAttempts: (await expireAcceptAttempts(db, now)).ended,
@@ -1027,6 +1033,8 @@ export async function runMaintenance(
     // Expired sign-in records and unused app registrations (global; docs/operations.md).
     authRecords: await pruneAuthRecords(db.global, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
+    // Grant codes past their minute and grants of artifact data 30 days after they ended.
+    dataGrants: (await pruneDataGrants(db, now)).processed,
     // Artifact group rows whose group is gone grant nothing; the scan removes them (decision 0014):
     // one read of at most 500 rows, at most 6 global reads of 90 group IDs and at most 14 writes
     // of 40 rows.
@@ -1071,6 +1079,8 @@ export async function runMaintenance(
     // Slack connections started and never completed, after 24 hours (decision 0025): one delete
     // of at most a few rows per owner, with no tombstone (they hold no credential).
     pendingConnections: await prunePendingConnections(db, now),
+    // Comment attachment uploads nobody attached within their hour (decision 0029): one delete.
+    attachmentUploads: await pruneAttachmentUploads(db, now),
     // Preview codes of edit suggestions and their cached documents (decision 0027).
     previewCodes: await prunePreviewCodes(db, bucket, now),
     // Workspace policies (decision 0015): brings back in line what a request that read a policy

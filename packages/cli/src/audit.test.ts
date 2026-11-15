@@ -424,6 +424,16 @@ describe("plain words for every kind", () => {
     "audit_stream.changed": { host: "siem.example.com", url: true, secret: true, revoked: true },
     "audit_stream.removed": { host: "siem.example.com" },
     "audit_stream.paused": { host: "siem.example.com", reason: "failures" },
+    "data.collection_set": {},
+    "data.document_created": {},
+    "data.document_replaced": {},
+    "data.document_deleted": {},
+    "data.documents_created": { documents: 3 },
+    "data.documents_replaced": { documents: 2 },
+    "data.documents_deleted": { documents: 100 },
+    "data.erased": {},
+    "data.author_erased": { documents: 4, edits: 2 },
+    "data.writers_changed": { writers: "anyone" },
   };
   const expected: Record<AuditKind, string> = {
     "artifact.published": "Published version 3",
@@ -510,6 +520,16 @@ describe("plain words for every kind", () => {
     "audit_stream.removed": "Removed the audit stream to siem.example.com",
     "audit_stream.paused":
       "Paused the audit stream to siem.example.com (the endpoint kept failing)",
+    "data.collection_set": "Declared a data collection",
+    "data.document_created": "Created a data document",
+    "data.document_replaced": "Replaced a data document",
+    "data.document_deleted": "Deleted a data document",
+    "data.documents_created": "Created 3 data document(s)",
+    "data.documents_replaced": "Replaced 2 data document(s)",
+    "data.documents_deleted": "Deleted 100 data document(s)",
+    "data.erased": "Erased all the artifact's data",
+    "data.author_erased": "Erased a deleted account's 4 data document(s) and 2 edit(s)",
+    "data.writers_changed": "Opened saving data from the page to people without an account",
   };
 
   it.each(AUDIT_KINDS)("%s", (kind) => {
@@ -609,6 +629,25 @@ describe("plain words for every kind", () => {
     ).toBe(
       "Applied the workspace's policies: 4 artifact expiry(ies) brought forward by the maximum life, 2 artifact expiry(ies) given back",
     );
+  });
+
+  it("says whether people without an account may save data (decision 0026)", () => {
+    const changed = (anonymousDataWriters: "allowed" | "forbidden") =>
+      auditSummary(
+        event(0, {
+          kind: "policy.changed",
+          detail: { fields: ["anonymousDataWriters"], anonymousDataWriters, confirmed: false },
+        }),
+      );
+    expect(changed("allowed")).toBe(
+      "Changed the workspace's policies: people without an account may save data",
+    );
+    expect(changed("forbidden")).toBe(
+      "Changed the workspace's policies: people without an account may not save data",
+    );
+    expect(
+      auditSummary(event(0, { kind: "data.writers_changed", detail: { writers: "signed_in" } })),
+    ).toBe("Limited saving data from the page to signed-in visitors");
   });
 
   it("says what comment retention changed and deleted (decision 0023)", () => {

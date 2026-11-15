@@ -73,6 +73,16 @@ export const ReviewStart = z.object({
    */
   sessionTag: z.string().regex(/^[A-Za-z0-9_-]{22}$/),
   expiresAt: z.iso.datetime(),
+  /**
+   * Whether edit suggestions are switched on (decision 0027, `SUGGESTIONS_ENABLED`): the viewer
+   * offers Suggest mode only then. Absent from Workers that predate it.
+   */
+  suggestions: z.boolean().optional(),
+  /**
+   * Whether image regions are switched on (decision 0028, `IMAGE_REGIONS_ENABLED`): the viewer
+   * offers "Mark a region" and sends regions to the frame only then. Absent from older Workers.
+   */
+  imageRegions: z.boolean().optional(),
 });
 export type ReviewStart = z.infer<typeof ReviewStart>;
 
@@ -118,5 +128,7 @@ export const ViewerInfo = z.object({
    * owner whose plan lacks `branding`, or a brand the operator suspended.
    */
   brand: ViewerBrand.nullable(),
+  /** Whether people may add files and screenshots to comments (decision 0029). */
+  attachments: z.boolean().optional(),
 });
 export type ViewerInfo = z.infer<typeof ViewerInfo>;

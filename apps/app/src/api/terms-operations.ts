@@ -20,6 +20,13 @@ export const API_TERMS_OPERATIONS: Readonly<Record<string, TermsOpenOperation>> 
   "DELETE /api/v1/publishes/:uploadId": "cancel_upload",
   "DELETE /api/v1/webhooks/:webhookId": "delete_webhook",
   "PATCH /api/v1/webhooks/:webhookId": "update_webhook",
+  "DELETE /api/v1/artifacts/:artifactId/data/collections/:collection/documents/:documentId":
+    "delete_data_document",
+  "POST /api/v1/artifacts/:artifactId/data/collections/:collection/documents/bulk-delete":
+    "delete_data_documents",
+  "POST /api/v1/artifacts/:artifactId/data/erase": "erase_artifact_data",
+  "POST /api/v1/artifacts/:artifactId/data/authors/:author/delete": "delete_author_data",
+  "PUT /api/v1/artifacts/:artifactId/data/writers": "set_data_writers",
 };
 
 /** The operation a matched route performs, or null when it has none of these names. */
@@ -54,6 +61,14 @@ export const ACCOUNT_ROUTE_OPERATIONS: Readonly<Record<string, AccountSessionOpe
   "POST /api/v1/account/delete": "delete_account",
   "POST /api/v1/account/deletion-code": "request_account_deletion_code",
   "POST /api/v1/account/delete-with-code": "delete_account_with_code",
+  "GET /api/v1/account/data-grants": "list_data_grants",
+  "GET /api/v1/account/data-grants/:artifactId/control": "read_data_grant_control",
+  "POST /api/v1/account/data-grants": "issue_data_grant",
+  "DELETE /api/v1/account/data-grants/:artifactId": "revoke_data_grants",
+  "GET /api/v1/account/data-grants/:artifactId/mine": "export_own_data",
+  "GET /api/v1/account/data-grants/:artifactId": "read_data_grant_status",
+  "POST /api/v1/account/data-grants/:artifactId/rights-request": "request_data_rights",
+  "DELETE /api/v1/account/data-grants/:artifactId/documents/:collection/:id": "delete_own_document",
 };
 
 /** The operation a matched account route performs, or null when it has no name. */

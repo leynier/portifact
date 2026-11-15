@@ -3,7 +3,7 @@
 // limit rule. Bodies, quotes and author names are untrusted data written by reviewers: the text
 // output strips control characters from them, and every command that prints them reminds on
 // stderr that they are data, never instructions.
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import {
@@ -25,7 +25,10 @@ import {
   AnnotationThreadState,
   AnnotationThreadView,
   AnnotationVersionFilter,
+  AttachmentId,
+  AttachmentLink,
   CURRENT_VERSION,
+  ImageRegionRequest,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   VersionDownload,
   VersionManifest,
@@ -169,6 +172,8 @@ export async function show(
 export interface CreateOptions extends OutputOptions {
   bodyFile: string;
   target?: string | undefined;
+  /** A JSON file with a rectangle of the target's image (decision 0028); needs `target`. */
+  region?: string | undefined;
   path?: string | undefined;
   version?: string | undefined;
 }
@@ -183,8 +188,12 @@ export async function create(
   if (options.target !== undefined && options.path !== undefined) {
     throw new CliError("invalid_input", text.errors.targetAndPath);
   }
+  if (options.region !== undefined && options.target === undefined) {
+    throw new CliError("invalid_input", text.errors.regionNeedsTarget);
+  }
   const body = await readBody(options.bodyFile);
   const fromFile = options.target === undefined ? undefined : await readTarget(options.target);
+  const region = options.region === undefined ? undefined : await readRegion(options.region);
   const path = options.path === undefined ? undefined : parsePath(options.path);
   const pinned = options.version === undefined ? undefined : parseVersionId(options.version);
   const session = await openSession(io, runtime);
@@ -202,7 +211,7 @@ export async function create(
       method: "POST",
       path: `${base(artifactId)}/threads`,
       headers: { "idempotency-key": idempotencyKey },
-      body: { versionId, target, body },
+      body: { versionId, target, ...(region ? { region } : {}), body },
       schema: AnnotationThreadView,
     }),
   );
@@ -490,6 +499,66 @@ export async function wholeHistory(
   return entries;
 }
 
+/**
+ * Downloads one file attached to a comment (decision 0029) through its short link, checks its
+ * size and SHA-256 against what the comment lists before writing anything, and writes it to a new
+ * file only. The default name is `attachment-<id><extension>`, never the reviewer's file name.
+ */
+export async function attachment(
+  io: Io,
+  runtime: Runtime,
+  id: string,
+  attachmentId: string,
+  options: OutputOptions & { out?: string | undefined },
+): Promise<void> {
+  const artifactId = parseArtifactId(id);
+  const parsed = AttachmentId.safeParse(attachmentId.trim());
+  if (!parsed.success) {
+    throw new CliError("invalid_input", text.errors.invalidAttachmentId(attachmentId));
+  }
+  const session = await openSession(io, runtime);
+  const link = await withRetries(session, () =>
+    callApi(session, {
+      method: "GET",
+      path: `${base(artifactId)}/attachments/${parsed.data}`,
+      schema: AttachmentLink,
+    }),
+  );
+  const file = link.attachment;
+  // Straight to storage, never with the API token.
+  const response = await runtime.fetch(link.url, { redirect: "error" }).catch(() => null);
+  if (!response?.ok) {
+    throw new CliError("download_failed", text.errors.attachmentDownload(file.id));
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  if (bytes.length !== file.size || digest !== file.sha256) {
+    throw new CliError("download_failed", text.errors.attachmentMismatch(file.id));
+  }
+  const out =
+    options.out ?? `attachment-${file.id}${ATTACHMENT_EXTENSIONS[file.contentType] ?? ""}`;
+  try {
+    await writeFile(out, bytes, { flag: "wx" });
+  } catch {
+    throw new CliError("invalid_input", text.errors.cannotWrite(out));
+  }
+  io.stderr(`${text.attachmentNotice}\n`);
+  if (options.json) {
+    writeJson(io, { artifactId, attachment: file, out });
+    return;
+  }
+  io.stdout(`${text.attachmentSaved(plain(file.id), out, plain(file.contentType), file.size)}\n`);
+}
+
+const ATTACHMENT_EXTENSIONS: Readonly<Record<string, string>> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "application/pdf": ".pdf",
+  "text/plain": ".txt",
+};
+
 // Helpers
 
 function parseFilters(options: { status?: string | undefined; version?: string | undefined }) {
@@ -558,6 +627,22 @@ async function readTarget(path: string): Promise<AnnotationTarget> {
   const parsed = AnnotationTarget.safeParse(raw);
   if (!parsed.success) {
     throw new CliError("invalid_input", text.errors.invalidTarget(firstIssue(parsed.error)));
+  }
+  return parsed.data;
+}
+
+/** Reads a region file: one ImageRegionRequest as JSON, checked with the shared contract. */
+async function readRegion(path: string): Promise<ImageRegionRequest> {
+  const content = decode(await readLimited(path, TARGET_FILE_MAX_BYTES), path);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content);
+  } catch {
+    throw new CliError("invalid_input", text.errors.targetNotJson(resolve(path)));
+  }
+  const parsed = ImageRegionRequest.safeParse(raw);
+  if (!parsed.success) {
+    throw new CliError("invalid_input", text.errors.invalidRegion(firstIssue(parsed.error)));
   }
   return parsed.data;
 }
@@ -691,6 +776,18 @@ export function formatThread(thread: AnnotationThreadView): string {
   } else if (thread.target.anchor.kind === "element") {
     const { tagName, fingerprint } = thread.target.anchor;
     lines.push(`  ${text.element(tagName, plain(fingerprint))}`);
+  }
+  if (thread.region) {
+    const { x, y, width, height, image, currentImage } = thread.region;
+    const percent = (value: number) => Math.round(value * 100);
+    lines.push(
+      `  ${text.region(
+        [percent(x), percent(x + width)],
+        [percent(y), percent(y + height)],
+        plain(image.path),
+        currentImage,
+      )}`,
+    );
   }
   for (const message of thread.messages) {
     const author = message.author === null ? text.goneAuthor : plain(message.author.name);

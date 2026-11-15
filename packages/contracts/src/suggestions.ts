@@ -7,8 +7,17 @@
 // change to what a format-1 envelope or plan means bumps its `format`.
 import { z } from "zod";
 import { AnnotationTarget, codePointLength } from "./anchors.ts";
+import {
+  AnnotationBody,
+  AnnotationId,
+  AnnotationPage,
+  AnnotationThreadView,
+} from "./annotations.ts";
+import { ArtifactId } from "./core.ts";
+import { TurnstileToken } from "./human.ts";
+import { IdempotencyKey } from "./publishing.ts";
 
-/** The switch that turns suggestions on, on the app and jobs Workers only (never deployed yet). */
+/** The switch that turns suggestions on, on the app, jobs and content Workers (never in a deployed `wrangler.jsonc`). */
 export const SUGGESTIONS_SWITCH = "SUGGESTIONS_ENABLED";
 
 /** Limits of one submitted edit (decision 0027, "The edit model"). */
@@ -25,10 +34,13 @@ export const EDIT_LIMITS = {
 export const DRAFT_LIMITS = {
   operationsMax: 100,
   editMaxBytes: 128 * 1024,
-  /** Drafts one person keeps at once, across artifacts. */
+  /** Drafts one person keeps at once in each region (the regional trigger), across artifacts. */
   perUser: 20,
   /** A draft nobody saved for this long is deleted. */
   unusedDays: 30,
+  /** Saves one person makes in a window (decision 0027, "Costs and limits"). */
+  savesPerUser: 120,
+  savesWindowMs: 10 * 60_000,
 } as const;
 
 /** Bounds of a patch plan, enforced inside the planners (decision 0027, "Budget"). */
@@ -68,6 +80,9 @@ export const CHANGE_LIST_LIMITS = {
   closedRetentionDays: 90,
   /** Node-local context the two sides of a closure proof need together, in UTF-16 units. */
   closureMinContextUnits: 8,
+  /** Items one page of the list returns by default and at most. */
+  pageDefault: 50,
+  pageMax: 100,
 } as const;
 
 /** Suggestions carried in one run of the carry job; the rest continue in the next. */
@@ -129,36 +144,48 @@ const pixels = (min: number, max: number) => (value: string) => {
   const match = /^([1-9][0-9]{0,2}|0)px$/.exec(value);
   return match !== null && Number(match[1]) >= min && Number(match[1]) <= max;
 };
-const keywords =
-  (...allowed: string[]) =>
-  (value: string) =>
-    allowed.includes(value);
+const keywords = (allowed: readonly string[]) => (value: string) => allowed.includes(value);
+
+/**
+ * The keyword values of the properties whose grammar is a closed list, in the order the viewer
+ * offers them. The other properties take a color or whole pixels.
+ */
+export const STYLE_KEYWORDS = {
+  "font-weight": ["normal", "bold", "100", "200", "300", "400", "500", "600", "700", "800", "900"],
+  "font-style": ["normal", "italic"],
+  "text-align": ["left", "right", "center", "justify", "start", "end"],
+  "text-decoration-line": ["none", "underline", "line-through", "overline"],
+  "text-transform": ["none", "uppercase", "lowercase", "capitalize"],
+} as const satisfies Record<string, readonly string[]>;
 
 /** Every property a style operation may change, with its grammar. */
 export const STYLE_PROPERTIES: Readonly<Record<string, (value: string) => boolean>> = {
   color: isColor,
   "background-color": isColor,
   "font-size": pixels(8, 96),
-  "font-weight": keywords(
-    "normal",
-    "bold",
-    "100",
-    "200",
-    "300",
-    "400",
-    "500",
-    "600",
-    "700",
-    "800",
-    "900",
-  ),
-  "font-style": keywords("normal", "italic"),
-  "text-align": keywords("left", "right", "center", "justify", "start", "end"),
-  "text-decoration-line": keywords("none", "underline", "line-through", "overline"),
-  "text-transform": keywords("none", "uppercase", "lowercase", "capitalize"),
+  "font-weight": keywords(STYLE_KEYWORDS["font-weight"]),
+  "font-style": keywords(STYLE_KEYWORDS["font-style"]),
+  "text-align": keywords(STYLE_KEYWORDS["text-align"]),
+  "text-decoration-line": keywords(STYLE_KEYWORDS["text-decoration-line"]),
+  "text-transform": keywords(STYLE_KEYWORDS["text-transform"]),
   "letter-spacing": (value) => value === "normal" || pixels(0, 10)(value),
   "border-radius": pixels(0, 64),
 };
+
+/** The properties a style operation may change, in the order the viewer offers them. */
+export const STYLE_PROPERTY_NAMES = [
+  "color",
+  "background-color",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-align",
+  "text-decoration-line",
+  "text-transform",
+  "letter-spacing",
+  "border-radius",
+] as const;
+export type StyleProperty = (typeof STYLE_PROPERTY_NAMES)[number];
 
 export type StyleRefusal = "unknown_property" | "too_long" | "not_allowed";
 
@@ -768,8 +795,28 @@ export const PreviewCode = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 /** The reserved preview host on a content domain: never an artifact ID (`ArtifactId`). */
 export const previewHost = (contentDomain: string) => `${PREVIEW_CODES.hostLabel}.${contentDomain}`;
 
-/** What the viewer asks for: a preview of the plan it holds by digest. */
-export const PreviewRequest = z.strictObject({ digest: Sha256 });
+/**
+ * An edit not saved yet, previewed as it would be planned (decision 0027, "Previews"): a
+ * suggestion's edit on the artifact's current version (`as: "suggestion"`, whoever may comment)
+ * or the owner's whole draft with the operation being typed (`as: "draft"`, the owner side).
+ * Nothing is stored: no thread, item, draft or plan. The edit is validated by `Edit` or
+ * `DraftEdit` in the service, so a refusal names the rule it broke.
+ */
+export const UnsavedEdit = z.strictObject({
+  versionId: AnnotationId,
+  as: z.enum(["suggestion", "draft"]),
+  edit: z.unknown(),
+});
+export type UnsavedEdit = z.infer<typeof UnsavedEdit>;
+
+/**
+ * What the viewer asks for: a preview of a plan it holds by digest (a suggestion's, or its own
+ * draft's), or of an edit it has not saved.
+ */
+export const PreviewRequest = z.union([
+  z.strictObject({ digest: Sha256 }),
+  z.strictObject({ unsaved: UnsavedEdit }),
+]);
 export type PreviewRequest = z.infer<typeof PreviewRequest>;
 
 /**
@@ -782,3 +829,170 @@ export const PreviewResponse = z.discriminatedUnion("state", [
   z.object({ state: z.literal("unavailable"), reasons: z.array(Token) }),
 ]);
 export type PreviewResponse = z.infer<typeof PreviewResponse>;
+
+// Route bodies (decision 0027, the adapters). Requests are strict; answers stay tolerant.
+
+/**
+ * Submitting a suggestion on the artifact's current version (session only): the edit, and the
+ * reviewer's note as the thread's first message. The edit is validated by `Edit` in the service,
+ * so a refusal names the rule it broke.
+ */
+export const SubmitSuggestionRequest = z.strictObject({
+  versionId: AnnotationId,
+  edit: z.unknown(),
+  body: AnnotationBody,
+  turnstileToken: TurnstileToken.optional(),
+});
+export type SubmitSuggestionRequest = z.infer<typeof SubmitSuggestionRequest>;
+
+/** Rejecting or withdrawing a suggestion, at the suggestion revision the caller saw. */
+export const DecideSuggestionRequest = z.strictObject({
+  revision: z.number().int().nonnegative(),
+});
+export type DecideSuggestionRequest = z.infer<typeof DecideSuggestionRequest>;
+
+/** `?fields=suggestion` on the annotation thread routes adds `kind` and `suggestion`. */
+export const SuggestionFieldsQuery = z.object({ fields: z.literal("suggestion").optional() });
+
+/** A thread view with its kind and, for a suggestion, the suggestion (`?fields=suggestion`). */
+export const SuggestionThreadView = AnnotationThreadView.extend({
+  kind: Token,
+  suggestion: SuggestionView.nullable(),
+});
+export type SuggestionThreadView = z.infer<typeof SuggestionThreadView>;
+
+/** The annotation list with `?fields=suggestion`. */
+export const SuggestionAnnotationPage = AnnotationPage.extend({
+  threads: z.array(SuggestionThreadView),
+});
+export type SuggestionAnnotationPage = z.infer<typeof SuggestionAnnotationPage>;
+
+/** A draft's incarnation token as it travels: 22 base64url characters. */
+export const DraftIncarnation = z.string().regex(/^[A-Za-z0-9_-]{22}$/);
+
+/**
+ * Saving one's own draft (session only): the whole edit, on the artifact's current version, at
+ * the draft revision the caller holds (null for a new draft). The viewer coalesces repeated
+ * edits of the same text into one operation before sending.
+ */
+export const SaveDraftRequest = z
+  .strictObject({
+    baseVersionId: AnnotationId,
+    edit: DraftEdit,
+    baseRevision: z.number().int().min(1).nullable(),
+    /** The draft's `incarnation` the caller holds, null with `baseRevision` for a new draft. */
+    baseIncarnation: DraftIncarnation.nullable(),
+  })
+  .refine((body) => (body.baseRevision === null) === (body.baseIncarnation === null), {
+    message: "baseRevision and baseIncarnation are both null for a new draft, or both set",
+    path: ["baseIncarnation"],
+  });
+export type SaveDraftRequest = z.infer<typeof SaveDraftRequest>;
+
+/** One's own draft on an artifact. Its edit is the author's own text. */
+export const DraftView = z.object({
+  artifactId: z.string(),
+  baseVersionId: z.string(),
+  edit: z.unknown(),
+  revision: z.number().int().min(1),
+  /**
+   * This draft's incarnation: a token set when it was created and never reused, sent back with
+   * the revision on the next save, so a discarded draft's tab cannot overwrite its replacement.
+   */
+  incarnation: z.string(),
+  /** Whether a publish of it is running (its job decides). */
+  publishing: z.boolean(),
+  /** Why the last publish ended without completing. */
+  attemptReason: Token.nullable(),
+  updatedAt: z.number().int(),
+});
+export type DraftView = z.infer<typeof DraftView>;
+
+/** Listing the change list: one state or all, oldest first, paged by cursor. */
+export const ChangeItemListQuery = z.object({
+  state: ChangeItemState.optional(),
+  cursor: z.string().max(128).optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(CHANGE_LIST_LIMITS.pageMax)
+    .default(CHANGE_LIST_LIMITS.pageDefault),
+});
+export type ChangeItemListQuery = z.infer<typeof ChangeItemListQuery>;
+
+// MCP tools of the change list (decision 0027, "What an agent is told")
+
+const toolArtifactId = ArtifactId.describe(
+  "The artifact ID, as list_artifacts or get_artifact return it, or as it appears in the artifact's URL.",
+);
+
+export const ListChangeItemsInput = z.object({
+  artifactId: toolArtifactId,
+  state: ChangeItemState.optional().describe(
+    'Only items in this state: "open" (the default to work on), "applied", "dismissed" or "closed_by_version". Omit it for every item.',
+  ),
+  cursor: z.string().max(128).optional().describe("nextCursor from the previous page."),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(CHANGE_LIST_LIMITS.pageMax)
+    .default(CHANGE_LIST_LIMITS.pageDefault)
+    .describe("Items per page, 1 to 100."),
+});
+export type ListChangeItemsInput = z.infer<typeof ListChangeItemsInput>;
+
+export const MarkChangeItemInput = MarkChangeItem.extend({
+  artifactId: toolArtifactId,
+  itemId: z.string().min(1).max(64).describe("The item ID, as list_change_items returns it."),
+  state: MarkChangeItem.shape.state.describe(
+    '"applied" once the published page shows the change, "dismissed" when the user decided not to make it, or "open" to reopen an item.',
+  ),
+  baseRevision: MarkChangeItem.shape.baseRevision.describe(
+    "The item's revision as list_change_items returned it; a newer one means someone changed it meanwhile.",
+  ),
+  idempotencyKey: IdempotencyKey.describe(
+    "A unique string (8 to 128 letters, digits, '.', '_', ':' or '-') for this change. Retrying with the same key and arguments returns the first result.",
+  ),
+});
+export type MarkChangeItemInput = z.infer<typeof MarkChangeItemInput>;
+
+/** Rebasing one's own draft onto the artifact's current version, at what the author holds. */
+export const RebaseDraftRequest = z.strictObject({
+  baseRevision: z.number().int().min(1),
+  baseIncarnation: DraftIncarnation,
+});
+export type RebaseDraftRequest = z.infer<typeof RebaseDraftRequest>;
+
+/**
+ * A rebased draft: the operations carried by the verified relocation, on the current version
+ * (null when none was carried and the draft was removed), and each operation that could not be
+ * carried with why, for the author to drop or make again. Untrusted text: the author's own.
+ */
+export const RebasedDraft = z.object({
+  draft: DraftView.nullable(),
+  conflicts: z.array(z.object({ operation: z.unknown(), reason: Token })),
+});
+export type RebasedDraft = z.infer<typeof RebasedDraft>;
+
+/**
+ * The text of a page of the artifact's current version, for "Suggest a text change" (decision
+ * 0027, "Suggesting"): the normalized text the anchors read on the served page, in which the
+ * viewer finds a place and builds the same text target a selection gives. Only what the page
+ * shows, never the file. `unavailable` when the page is over the planning limits or cannot be
+ * read as a page.
+ */
+export const PageTextQuery = z.object({ path: z.string().min(1).max(1_024) });
+export type PageTextQuery = z.infer<typeof PageTextQuery>;
+
+export const PageText = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("ready"),
+    versionId: z.string(),
+    path: z.string(),
+    text: z.string(),
+  }),
+  z.object({ state: z.literal("unavailable"), reason: Token }),
+]);
+export type PageText = z.infer<typeof PageText>;

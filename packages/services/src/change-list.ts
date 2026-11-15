@@ -12,6 +12,8 @@ import {
   type ChangeItemState,
   type ChangeItemView,
   Envelope,
+  ERROR_STATUS,
+  type ErrorCode,
   type MarkChangeItem,
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
@@ -24,6 +26,7 @@ import {
   annotationParts,
 } from "./annotations.ts";
 import { auditEvent } from "./audit.ts";
+import { type IdempotentRequest, runIdempotent } from "./idempotency.ts";
 import { openItemsSql } from "./suggestion-versions.ts";
 
 const ci = schema.changeItems;
@@ -147,6 +150,22 @@ export async function listChangeItems(
   });
 }
 
+/** One item of the artifact's change list. */
+export async function getChangeItem(
+  db: RegionalDb,
+  input: AnnotationActor & { itemId: string },
+): Promise<Result<ChangeItemView>> {
+  const loaded = await ownerSide(db, input);
+  if (!loaded.ok) return loaded;
+  const [item] = await db
+    .select()
+    .from(ci)
+    .where(and(eq(ci.id, input.itemId), eq(ci.artifactId, loaded.value.artifact.id)))
+    .limit(1);
+  if (!item) return fail("not_found", "Change item not found.");
+  return ok(itemView(item, await names(db, [item.submittedBy, item.createdBy])));
+}
+
 /**
  * Marks an item applied, dismissed or open again, based on the revision the caller holds. A
  * person or their agent marks; reopening needs room in the list. Never refused by budget
@@ -234,4 +253,37 @@ export async function markChangeItem(
     return fail("version_conflict", "The item changed meanwhile. Reload and try again.");
   }
   return ok(itemView(changed, await names(db, [changed.submittedBy, changed.createdBy])));
+}
+
+export type MarkOnce =
+  | { kind: "done"; result: Result<ChangeItemView> }
+  | { kind: "mismatch" }
+  | { kind: "in_progress" };
+
+/**
+ * Marks an item once per idempotency key. The envelope holds reviewers' text, so the stored
+ * response is only the item's ID (or the refusal): a replay reads the item again under the
+ * caller's current authorization, never returning text they may no longer read.
+ */
+export async function markChangeItemOnce(
+  db: RegionalDb,
+  request: IdempotentRequest,
+  input: AnnotationActor & MarkChangeItem & { itemId: string },
+): Promise<MarkOnce> {
+  const outcome = await runIdempotent(db, request, async () => {
+    const marked = await markChangeItem(db, input);
+    return marked.ok
+      ? { status: 200, body: { itemId: marked.value.id } }
+      : {
+          status: ERROR_STATUS[marked.code],
+          body: { error: { code: marked.code, message: marked.message } },
+        };
+  });
+  if (outcome.kind === "mismatch" || outcome.kind === "in_progress") return outcome;
+  const { status, body } = outcome.response;
+  if (status === 200) {
+    return { kind: "done", result: await getChangeItem(db, { ...input, now: request.now }) };
+  }
+  const refused = (body as { error: { code: ErrorCode; message: string } }).error;
+  return { kind: "done", result: fail(refused.code, refused.message) };
 }

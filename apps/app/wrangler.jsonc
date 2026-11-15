@@ -69,6 +69,19 @@
       "migrations_dir": "../../packages/db/access-migrations"
     }
   ],
+  // The documents objects of decision 0026, exported by `portifact-data` (deployed before this
+  // Worker). The owner document API (delivery 5) calls them for an artifact's admins and editors;
+  // nothing reaches them while ARTIFACT_DATA_ENABLED is unset, except the owner's export of an
+  // object that exists.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ARTIFACT_DOCUMENTS",
+        "class_name": "ArtifactDocuments",
+        "script_name": "portifact-data"
+      }
+    ]
+  },
   "r2_buckets": [
     { "binding": "ARTIFACTS", "bucket_name": "portifact-artifacts" },
     { "binding": "ARTIFACTS_EU", "bucket_name": "portifact-artifacts-eu", "jurisdiction": "eu" }

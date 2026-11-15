@@ -21,7 +21,9 @@ import {
   REFUSAL_MESSAGES,
   REFUSAL_REASONS,
   ShownEnvelope,
+  STYLE_KEYWORDS,
   STYLE_PROPERTIES,
+  STYLE_PROPERTY_NAMES,
   SUGGESTION_LIMITS,
   SUGGESTIONS_SWITCH,
   Token,
@@ -170,6 +172,14 @@ describe("the style allowlist", () => {
     for (const [property, value] of ALLOWED)
       expect(checkStyle(property, value), `${property}: ${value}`).toBe(true);
     expect(Object.keys(STYLE_PROPERTIES)).toHaveLength(10);
+  });
+
+  it("lists every property once for the panel, with keyword lists the grammar accepts", () => {
+    expect([...STYLE_PROPERTY_NAMES].sort()).toEqual(Object.keys(STYLE_PROPERTIES).sort());
+    for (const [property, values] of Object.entries(STYLE_KEYWORDS)) {
+      for (const value of values) expect(checkStyle(property, value)).toBe(true);
+      expect(checkStyle(property, "inherit")).toBe("not_allowed");
+    }
   });
 });
 

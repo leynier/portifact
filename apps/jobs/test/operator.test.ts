@@ -1,4 +1,5 @@
 import { env } from "cloudflare:test";
+import { ATTACHMENT_LIMITS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -162,6 +163,12 @@ describe("operator arguments", () => {
       ["send-statement", "thing", "x"],
       ["release-hold"],
       ["hold"],
+      ["attachments"],
+      ["remove-attachment", "abc"],
+      ["withhold-attachment", "abc", "att"],
+      ["withhold-attachment", "abc", "att", "--reason", "spam"],
+      ["reinstate-attachment", "abc"],
+      ["decisions", "attachment", "abc"],
       ["holds", "--limit", "0"],
     ]) {
       const result = await run(...argv);
@@ -337,7 +344,7 @@ describe("operator backup commands", () => {
       // Other tests in this file write artifacts without directory rows, so the count varies.
       output: expect.stringMatching(
         new RegExp(
-          `^Applied tombstones: ${markerLines} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, 0 share link\\(s\\) revoked again, 0 service token\\(s\\) deleted again, 0 group\\(s\\) and 0 group membership\\(s\\) removed again, 0 single sign-on provider\\(s\\) removed again, 0 membership\\(s\\) ended again, 0 invitation\\(s\\) withdrawn again, 0 comment thread\\(s\\) and 0 message\\(s\\) deleted again, 0 email preference\\(s\\) turned off again, 0 notice mute\\(s\\) set again, \\d+ session\\(s\\) ended again, \\d+ app token\\(s\\) revoked again, \\d+ app consent\\(s\\) withdrawn again, 0 issue connection\\(s\\) removed again, [1-9]\\d* artifact directory row\\(s\\) rebuilt, 0 legal hold\\(s\\) put back \\(0 artifact\\(s\\) suspended again\\)\\. The jobs Worker purges them on its next runs\\.$`,
+          `^Applied tombstones: ${markerLines} restored, 1 artifact\\(s\\) claimed for purging, 1 account\\(s\\) and 0 workspace\\(s\\) deleted again, 0 share link\\(s\\) revoked again, 0 service token\\(s\\) deleted again, 0 group\\(s\\) and 0 group membership\\(s\\) removed again, 0 single sign-on provider\\(s\\) removed again, 0 membership\\(s\\) ended again, 0 invitation\\(s\\) withdrawn again, 0 comment thread\\(s\\) and 0 message\\(s\\) deleted again, 0 suggestion\\(s\\) withdrawn and 0 rejected again, 0 draft\\(s\\) removed again, 0 email preference\\(s\\) turned off again, 0 notice mute\\(s\\) set again, 0 data grant\\(s\\) revoked again, \\d+ session\\(s\\) ended again, \\d+ app token\\(s\\) revoked again, \\d+ app consent\\(s\\) withdrawn again, 0 issue connection\\(s\\) removed again, [1-9]\\d* artifact directory row\\(s\\) rebuilt, 0 legal hold\\(s\\) put back \\(0 artifact\\(s\\) suspended again\\)\\. The jobs Worker purges them on its next runs\\.$`,
         ),
       ),
     });
@@ -348,7 +355,7 @@ describe("operator backup commands", () => {
     expect(
       (await runOperator(db(), ["apply-tombstones", "--file", "t.jsonl"], NOW, files)).output,
     ).toBe(
-      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) and 0 workspace(s) deleted again, 0 share link(s) revoked again, 0 service token(s) deleted again, 0 group(s) and 0 group membership(s) removed again, 0 single sign-on provider(s) removed again, 0 membership(s) ended again, 0 invitation(s) withdrawn again, 0 comment thread(s) and 0 message(s) deleted again, 0 email preference(s) turned off again, 0 notice mute(s) set again, 0 session(s) ended again, 0 app token(s) revoked again, 0 app consent(s) withdrawn again, 0 issue connection(s) removed again, 0 artifact directory row(s) rebuilt, 0 legal hold(s) put back (0 artifact(s) suspended again). The jobs Worker purges them on its next runs.",
+      "Applied tombstones: 0 restored, 0 artifact(s) claimed for purging, 0 account(s) and 0 workspace(s) deleted again, 0 share link(s) revoked again, 0 service token(s) deleted again, 0 group(s) and 0 group membership(s) removed again, 0 single sign-on provider(s) removed again, 0 membership(s) ended again, 0 invitation(s) withdrawn again, 0 comment thread(s) and 0 message(s) deleted again, 0 suggestion(s) withdrawn and 0 rejected again, 0 draft(s) removed again, 0 email preference(s) turned off again, 0 notice mute(s) set again, 0 data grant(s) revoked again, 0 session(s) ended again, 0 app token(s) revoked again, 0 app consent(s) withdrawn again, 0 issue connection(s) removed again, 0 artifact directory row(s) rebuilt, 0 legal hold(s) put back (0 artifact(s) suspended again). The jobs Worker purges them on its next runs.",
     );
     expect((await run("apply-tombstones")).exitCode).toBe(0);
   });
@@ -735,6 +742,101 @@ describe("notices, statements of reasons and legal holds", () => {
       output: "No decisions recorded.",
     });
     expect((await run("decisions", "account", "nobody@example.test")).exitCode).toBe(1);
+  });
+
+  it("lists an artifact's attachments, withholds one with a statement, reinstates it and removes it for good after the wait", async () => {
+    const user = await owner();
+    const id = await artifact(user.id);
+    expect(await run("attachments", id)).toEqual({
+      exitCode: 0,
+      output: `${id} has no attachments.`,
+    });
+    await db().insert(schema.annotationThreads).values({
+      id: "th_operator",
+      artifactId: id,
+      versionId: "v",
+      ownerId: user.id,
+      authorId: user.id,
+      target: "{}",
+      targetBytes: 2,
+      path: "index.html",
+      updatedAt: NOW,
+    });
+    await db().insert(schema.annotationMessages).values({
+      id: "m_operator",
+      threadId: "th_operator",
+      artifactId: id,
+      ownerId: user.id,
+      authorId: user.id,
+      body: "x",
+      bodyBytes: 1,
+    });
+    await db()
+      .insert(schema.commentAttachments)
+      .values({
+        id: "att_operator",
+        artifactId: id,
+        ownerId: user.id,
+        uploadedBy: user.id,
+        name: 'bad\nname".png',
+        size: 10,
+        sha256: "a".repeat(64),
+        state: "pending",
+        expiresAt: NOW + 60_000,
+      });
+    await db()
+      .update(schema.commentAttachments)
+      .set({
+        state: "attached",
+        threadId: "th_operator",
+        messageId: "m_operator",
+        contentType: "image/png",
+        expiresAt: null,
+        attachedAt: NOW,
+      })
+      .where(eq(schema.commentAttachments.id, "att_operator"));
+    const listed = await run("attachments", id);
+    expect(listed.output).toContain("att_operator  attached image/png  10 bytes");
+    // The untrusted name stays on one line, as a JSON string.
+    expect(listed.output.split("\n")).toHaveLength(1);
+    expect(listed.output).toContain('"bad name\\".png"');
+    expect(await run("remove-attachment", id, "missing")).toEqual({
+      exitCode: 1,
+      output: "Attachment not found.",
+    });
+    // Never deleted before it was withheld.
+    expect((await run("remove-attachment", id, "att_operator")).exitCode).toBe(1);
+    expect(
+      (await run("withhold-attachment", id, "att_operator", "--reason", "copyright", ...WHY))
+        .output,
+    ).toMatch(
+      new RegExp(
+        `^Withheld attachment att_operator on ${id} \\(dec_\\w+\\)\\. ${RECORDED.replace(/[().]/g, "\\$&")}$`,
+      ),
+    );
+    expect((await run("attachments", id)).output).toContain("withheld ");
+    const decisions = await run("decisions", "attachment", `${id}/att_operator`);
+    expect(decisions.output).toContain("suspend");
+    expect((await run("reinstate-attachment", id, "att_operator", ...LIFT)).output).toContain(
+      `Reinstated attachment att_operator on ${id}`,
+    );
+    await run("withhold-attachment", id, "att_operator", "--reason", "copyright", ...WHY);
+    // The counter-notice wait is not over at NOW.
+    expect((await run("remove-attachment", id, "att_operator")).output).toContain(
+      "A counter-notice can still reinstate this file",
+    );
+    const later = await runOperator(
+      db(),
+      ["remove-attachment", id, "att_operator"],
+      NOW + ATTACHMENT_LIMITS.removalWaitMs,
+    );
+    expect(later.output).toContain(`Removed attachment att_operator from ${id} for good.`);
+    expect((await run("attachments", id)).output).toBe(`${id} has no attachments.`);
+    const [marker] = await db()
+      .global.select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, "att_operator"));
+    expect(marker?.kind).toBe("comment_attachment");
   });
 
   it("holds a suspended artifact, lists it, refuses its reinstatement and releases it", async () => {

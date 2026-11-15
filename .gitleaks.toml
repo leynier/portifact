@@ -60,3 +60,14 @@ targetRules = ["generic-api-key"]
 condition = "AND"
 paths = ['''^apps/web/src/(dashboard|auth)/i18n/[a-z-]+\.ts$''']
 regexes = ['''^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9_]+){2,}$''']
+
+# One commit of PR #270 (artifact data's owner API) wrote a test-only idempotency key next to
+# `idempotencyKey,` in `apps/app/test/data.test.ts`, which the generic-api-key rule reads as a
+# credential; a later commit builds it at run time. The pull request is squash-merged, so this
+# commit never reaches `develop`; only that commit, that file and that rule are dropped.
+[[allowlists]]
+description = "A test-only idempotency key in one commit of PR #270, not carried into develop"
+targetRules = ["generic-api-key"]
+condition = "AND"
+commits = ["d8be5ab3ef7441b480adc9dad4d31720ecacd9a4"]
+paths = ['''^apps/app/test/data\.test\.ts$''']

@@ -218,8 +218,8 @@ describe("a deleted account's traces on other people's artifacts", () => {
       at: NOW,
     });
 
-    expect(await eraseAccountTraces(db(), gone.id, 1)).toEqual({ more: true });
-    expect(await eraseAccountTraces(db(), gone.id)).toEqual({ more: false });
+    expect(await eraseAccountTraces(db(), gone.id, NOW, 1)).toEqual({ more: true });
+    expect(await eraseAccountTraces(db(), gone.id, NOW)).toEqual({ more: false });
 
     const [thread] = await db()
       .select()

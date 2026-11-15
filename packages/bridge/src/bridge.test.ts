@@ -12,7 +12,13 @@ import {
   startBridge,
 } from "./bridge.ts";
 import { viewerEnvelope } from "./channel.ts";
-import { type BridgeMessage, REVIEW_PROTOCOL, type ViewerBody } from "./protocol.ts";
+import {
+  type AnyBridgeMessage as BridgeMessage,
+  REVIEW_PROTOCOL,
+  REVIEW_PROTOCOL_EDIT,
+  type ReviewProtocol,
+  type ViewerBody,
+} from "./protocol.ts";
 
 const VIEWER = "https://app.portifact.com";
 const NONCE = "abcdefghijklmnopqrstuv";
@@ -43,14 +49,17 @@ function deliver(data: unknown, origin = VIEWER, source: unknown = parent) {
   window.dispatchEvent(event);
 }
 
-const fromViewer = (body: ViewerBody, nonce = NONCE) => deliver(viewerEnvelope(nonce, body));
+const fromViewer = (body: ViewerBody, nonce = NONCE, version: ReviewProtocol = REVIEW_PROTOCOL) =>
+  deliver(viewerEnvelope(nonce, body, version));
 
-function start(html: string, path = "index.html") {
+function start(html: string, path = "index.html", edit = false, imageRegions = false) {
   document.body.innerHTML = html;
   bridge = startBridge(window as unknown as BridgeWindow, parent, {
     appOrigin: VIEWER,
     path,
     sessionTag: SESSION_TAG,
+    ...(edit ? { edit: true } : {}),
+    ...(imageRegions ? { imageRegions: true } : {}),
   });
   return bridge;
 }
@@ -132,7 +141,7 @@ afterEach(() => {
 });
 
 describe("handshake", () => {
-  it("announces itself to the viewer's exact origin and waits for a nonce", () => {
+  it("announces only version 2 while edit suggestions are off, exactly as before", () => {
     start("<p>Hello</p>");
     expect(parent.sent).toEqual([
       {
@@ -145,6 +154,26 @@ describe("handshake", () => {
           sessionTag: SESSION_TAG,
         },
       },
+    ]);
+    // A version 3 init is not answered either: the switch is off.
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    expect(parent.sent).toHaveLength(1);
+  });
+
+  it("announces itself in both protocol versions, the newer first, while edits are on", () => {
+    start("<p>Hello</p>", "index.html", true);
+    const ready = {
+      channel: "portifact-review",
+      type: "ready",
+      page: { path: "index.html", route: "/" },
+      sessionTag: SESSION_TAG,
+    };
+    expect(parent.sent).toEqual([
+      {
+        origin: VIEWER,
+        message: { ...ready, v: REVIEW_PROTOCOL_EDIT, capabilities: ["edit"] },
+      },
+      { origin: VIEWER, message: { ...ready, v: REVIEW_PROTOCOL } },
     ]);
   });
 
@@ -754,5 +783,251 @@ describe("routes", () => {
     expect(currentRoute({ pathname: "/a/b", hash: "#c" })).toBe("/a/b#c");
     expect(currentRoute({ pathname: "/a b", hash: "" })).toBeUndefined();
     expect(currentRoute({ pathname: `/${"a".repeat(3000)}`, hash: "" })).toBeUndefined();
+  });
+});
+
+describe("protocol 3 (edit suggestions)", () => {
+  const EPOCH = 7;
+  const editMode = (active: boolean, kind: "text" | "style" = "text", epoch = EPOCH) =>
+    fromViewer(
+      { type: "edit-mode", epoch, active, kind, hint: "Select the text to change" },
+      NONCE,
+      REVIEW_PROTOCOL_EDIT,
+    );
+
+  it("speaks the version the viewer's init used, and ignores the other one after it", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    fromViewer({ type: "ping" });
+    fromViewer({ type: "ping" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    expect(sentOf("location").map((m) => m.v)).toEqual([REVIEW_PROTOCOL_EDIT]);
+    expect(sentOf("pong").map((m) => m.v)).toEqual([REVIEW_PROTOCOL_EDIT]);
+  });
+
+  it("keeps speaking version 2 to a viewer that started with it, and ignores edit mode", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" });
+    editMode(true);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    const [selection] = sentOf("selection");
+    expect(selection?.v).toBe(REVIEW_PROTOCOL);
+    expect(selection).not.toHaveProperty("epoch");
+    expect(bridge?.overlay.querySelector('[role="status"]')).toBeNull();
+  });
+
+  it("echoes the edit epoch on selections while edit mode is on, and not after", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    editMode(true);
+    expect(bridge?.overlay.querySelector('[role="status"]')?.textContent).toBe(
+      "Select the text to change",
+    );
+    select(textOf("p"), 6, textOf("p"), 11);
+    await settle(SELECTION_SETTLE_MS);
+    editMode(false);
+    expect(bridge?.overlay.querySelector('[role="status"]')).toBeNull();
+    select(textOf("p"), 0, textOf("p"), 11);
+    await settle(SELECTION_SETTLE_MS);
+    expect(sentOf("selection").map((m) => ("epoch" in m ? m.epoch : null))).toEqual([
+      null,
+      EPOCH,
+      null,
+    ]);
+  });
+
+  it("picks an element for a style edit and echoes the epoch on it", async () => {
+    start('<main><button id="buy" type="button">Buy now</button></main>', "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    editMode(true, "style");
+    document
+      .querySelector("#buy")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await settle(0);
+    const [element] = sentOf("element");
+    expect(element).toMatchObject({ v: REVIEW_PROTOCOL_EDIT, epoch: EPOCH });
+  });
+});
+
+describe("edit epochs (pf268)", () => {
+  const mode = (epoch: number, active = true) =>
+    fromViewer(
+      { type: "edit-mode", epoch, active, kind: "text", hint: "Select text" },
+      NONCE,
+      REVIEW_PROTOCOL_EDIT,
+    );
+
+  it("does not relabel an in-flight old selection with the new epoch", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    mode(1);
+    const original = digestSpy.getMockImplementation();
+    if (!original) throw new Error("missing digest implementation");
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    digestSpy.mockImplementationOnce(async (...args) => {
+      await held;
+      return original(...args);
+    });
+    select(textOf("p"), 0, textOf("p"), 5);
+    await vi.advanceTimersByTimeAsync(SELECTION_SETTLE_MS);
+    // Leave that choosing period, then make a different selection in the new one.
+    fromViewer({ type: "clear-selection" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    mode(1, false);
+    mode(2);
+    select(textOf("p"), 6, textOf("p"), 11);
+    await settle(SELECTION_SETTLE_MS);
+    release();
+    await settle(0);
+    const current = sentOf("selection").filter((m) => "epoch" in m && m.epoch === 2);
+    expect(
+      current.map((m) => (m.target?.anchor.kind === "text" ? m.target.anchor.quote.exact : null)),
+    ).toEqual(["world"]);
+  });
+
+  it("labels a cleared selection with its epoch so the viewer can withdraw it", async () => {
+    start("<p>Hello world</p>", "index.html", true);
+    fromViewer({ type: "init" }, NONCE, REVIEW_PROTOCOL_EDIT);
+    mode(1);
+    select(textOf("p"), 0, textOf("p"), 5);
+    await settle(SELECTION_SETTLE_MS);
+    window.getSelection()?.removeAllRanges();
+    document.dispatchEvent(new Event("selectionchange"));
+    await settle(SELECTION_SETTLE_MS);
+    expect(sentOf("selection").at(-1)).toMatchObject({ target: null, epoch: 1 });
+  });
+});
+
+describe("image regions (decision 0028)", () => {
+  const MOCK =
+    '<main><img id="mock" src="images/mock.png" alt="Mockup"><p id="note">Note</p></main>';
+  const imageTarget: AnnotationTarget = {
+    schema: 1,
+    path: "index.html",
+    anchor: { kind: "element", selectors: ["#mock"], tagName: "img", fingerprint: "" },
+  };
+  const region = { x: 0.25, y: 0.5, width: 0.5, height: 0.25, path: "images/mock.png" };
+
+  /** Lays the image out at 100,200 with a 400 by 200 box. */
+  function layOutImage() {
+    const image = document.querySelector("#mock") as HTMLElement;
+    return vi
+      .spyOn(image, "getBoundingClientRect")
+      .mockReturnValue(new DOMRect(100, 200, 400, 200));
+  }
+
+  async function pick(element: Element) {
+    fromViewer({ type: "pick", active: true, hint: "Click an element" });
+    element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await settle(0);
+    return sentOf("element").at(-1);
+  }
+
+  const regionsOf = () => [...(bridge?.overlay.querySelectorAll<HTMLElement>(".region") ?? [])];
+
+  it("reports which file a picked image shows while switched on", async () => {
+    start(MOCK, "index.html", false, true);
+    fromViewer({ type: "init" });
+    const picked = await pick(document.querySelector("#mock") as Element);
+    expect(picked?.image).toEqual({ path: "images/mock.png" });
+    expect(picked?.target.anchor).toMatchObject({ kind: "element", tagName: "img" });
+    // Any other element carries no image.
+    expect((await pick(document.querySelector("#note") as Element))?.image).toBeUndefined();
+  });
+
+  it("reports a picked image exactly as before while switched off", async () => {
+    start(MOCK);
+    fromViewer({ type: "init" });
+    const picked = await pick(document.querySelector("#mock") as Element);
+    expect(picked).toBeDefined();
+    expect(picked && "image" in picked).toBe(false);
+  });
+
+  it("offers no region for an image from another origin or a data URL", async () => {
+    start(
+      '<img id="far" src="https://elsewhere.example/a.png" alt=""><img id="inline" src="data:image/png;base64,AAAA" alt="">',
+      "index.html",
+      false,
+      true,
+    );
+    fromViewer({ type: "init" });
+    expect((await pick(document.querySelector("#far") as Element))?.image).toBeUndefined();
+    expect((await pick(document.querySelector("#inline") as Element))?.image).toBeUndefined();
+  });
+
+  it("draws a region over its part of the image, and reports it found", async () => {
+    start(MOCK);
+    const restore = layOutImage();
+    fromViewer({ type: "init" });
+    fromViewer({
+      type: "highlights",
+      selected: ["r1"],
+      highlights: [{ id: "r1", target: imageTarget, region }],
+    });
+    expect(sentOf("resolved").at(-1)?.results).toEqual([{ id: "r1", confidence: "exact" }]);
+    const [box] = regionsOf();
+    expect(box?.style.left).toBe("200px");
+    expect(box?.style.top).toBe("300px");
+    expect(box?.style.width).toBe("200px");
+    expect(box?.style.height).toBe("50px");
+    expect(box?.dataset.state).toBe("primary");
+    // Drawn as a region, not as the outline of the whole element.
+    expect(bridge?.overlay.querySelector(".element")).toBeNull();
+    restore.mockRestore();
+  });
+
+  it("selects a region thread on a click inside it, and not elsewhere on the image", async () => {
+    start(MOCK);
+    const restore = layOutImage();
+    fromViewer({ type: "init" });
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [{ id: "r1", target: imageTarget, region }],
+    });
+    clickAt(150, 220);
+    expect(sentOf("select")).toHaveLength(0);
+    clickAt(250, 320);
+    expect(sentOf("select").at(-1)?.ids).toEqual(["r1"]);
+    restore.mockRestore();
+  });
+
+  it("orphans a region whose element shows another file or is not an image", async () => {
+    start('<main><img id="mock" src="images/other.png" alt=""><p id="note">Note</p></main>');
+    fromViewer({ type: "init" });
+    const onNote: AnnotationTarget = {
+      ...imageTarget,
+      anchor: { kind: "element", selectors: ["#note"], tagName: "p", fingerprint: "Note" },
+    };
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [
+        { id: "r1", target: imageTarget, region },
+        { id: "r2", target: onNote, region },
+        { id: "e1", target: imageTarget },
+      ],
+    });
+    expect(sentOf("resolved").at(-1)?.results).toEqual([
+      { id: "r1", confidence: "orphaned", reason: "image_changed" },
+      { id: "r2", confidence: "orphaned", reason: "image_changed" },
+      { id: "e1", confidence: "exact" },
+    ]);
+    expect(regionsOf()).toHaveLength(0);
+  });
+
+  it("drops a whole highlights message whose region leaves the image", async () => {
+    start(MOCK);
+    fromViewer({ type: "init" });
+    fromViewer({
+      type: "highlights",
+      selected: [],
+      highlights: [{ id: "r1", target: imageTarget, region: { ...region, x: 0.75 } }],
+    });
+    expect(sentOf("resolved")).toHaveLength(0);
   });
 });

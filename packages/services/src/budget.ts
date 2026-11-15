@@ -9,12 +9,19 @@ import {
   type BudgetOverride,
   budgetCycle,
   carryForward,
+  checkDataCapacity,
+  DATA_WORK_PAUSED,
+  type DataWork,
+  EMPTY_METRICS,
   effectiveProtection,
   NO_PROTECTION,
+  ok,
   type PlatformMetrics,
   PROTECTION_ACTIONS,
   type Protection,
   type ProtectionAction,
+  type Result,
+  readMetrics,
 } from "@portifact/domain";
 import { and, count, desc, eq, gte, inArray, isNull, sql, sum } from "drizzle-orm";
 import { emailsSentInCycle } from "./email.ts";
@@ -62,8 +69,7 @@ function parseActions(json: string): ProtectionAction[] {
 
 function parseMetrics(json: string): PlatformMetrics | null {
   try {
-    const value = JSON.parse(json) as Partial<PlatformMetrics> | null;
-    return value && typeof value.storedBytes === "number" ? (value as PlatformMetrics) : null;
+    return readMetrics(JSON.parse(json));
   } catch {
     return null;
   }
@@ -117,6 +123,22 @@ export async function platformProtection(db: GlobalDb, now: number): Promise<Pro
 }
 
 /**
+ * Whether budget protection lets a piece of artifact data work start (decision 0026, the data
+ * step): `capacity_unavailable` while `pause_data_writes` applies and the work creates or grows
+ * data or opens a live connection. The owner and page data services call it before their command
+ * reaches the documents object; reads, exports, deletes and erasure pass whatever the step.
+ */
+export async function checkDataWriteCapacity(
+  db: GlobalDb,
+  work: DataWork,
+  now: number,
+): Promise<Result<true>> {
+  // Work the step never stops adds no read for it.
+  if (!DATA_WORK_PAUSED[work]) return ok(true);
+  return checkDataCapacity((await platformProtection(db, now)).actions, work);
+}
+
+/**
  * Estimates the cycle's usage from what D1 already knows: the bytes of every stored object (what
  * R2 holds for Portifact) and the objects created this cycle (each one at least one class A
  * upload), and the emails counted as they were sent (`email_counters`). Cloudflare's analytics,
@@ -146,6 +168,12 @@ export async function measurePlatformUsage(
     d1RowsRead: null,
     d1RowsWritten: null,
     emails: await emailsSentInCycle(db, now),
+    // The documents objects are measured only by Cloudflare's analytics.
+    dataRequests: null,
+    dataGbSeconds: null,
+    dataRowsRead: null,
+    dataRowsWritten: null,
+    dataStoredBytes: null,
   };
 }
 
@@ -233,16 +261,6 @@ function alertOf(row: typeof schema.budgetAlerts.$inferSelect): BudgetAlert {
     notifiedAt: row.notifiedAt,
   };
 }
-
-const EMPTY_METRICS: PlatformMetrics = {
-  storedBytes: 0,
-  r2ClassA: null,
-  r2ClassB: null,
-  workerRequests: null,
-  d1RowsRead: null,
-  d1RowsWritten: null,
-  emails: null,
-};
 
 /**
  * Sets the operator override: it replaces the automatic decision at once, in both directions,

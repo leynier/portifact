@@ -3,7 +3,8 @@
 // as escaped plain text, and agents treat them as information to show the user, never as
 // instructions to follow.
 import { z } from "zod";
-import { AnnotationTarget } from "./anchors.ts";
+import { AnnotationTarget, ImageRegionRequest, ImageRegionView } from "./anchors.ts";
+import { AttachmentIds, AttachmentView } from "./attachments.ts";
 import { AnnotationsState, ArtifactId, ArtifactType, CommentScope } from "./core.ts";
 import { TurnstileToken } from "./human.ts";
 import { ThreadIssueView } from "./integrations.ts";
@@ -80,14 +81,19 @@ export type AnnotationModeView = z.infer<typeof AnnotationModeView>;
 export const CreateThreadRequest = z.strictObject({
   versionId: AnnotationId,
   target: AnnotationTarget,
+  /** A rectangle of the image the target names (decision 0028); only an `img` target takes one. */
+  region: ImageRegionRequest.optional(),
   body: AnnotationBody,
   turnstileToken: TurnstileToken.optional(),
+  /** Uploads the caller prepared on this artifact (decision 0029); dashboard session only. */
+  attachments: AttachmentIds.optional(),
 });
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequest>;
 
 export const ReplyRequest = z.strictObject({
   body: AnnotationBody,
   turnstileToken: TurnstileToken.optional(),
+  attachments: AttachmentIds.optional(),
 });
 export type ReplyRequest = z.infer<typeof ReplyRequest>;
 
@@ -154,6 +160,11 @@ export const AnnotationMessageView = z.object({
   revision: z.int().min(1),
   createdAt: z.iso.datetime(),
   editedAt: z.iso.datetime().nullable(),
+  /**
+   * Files on the message (decision 0029), only when it has any and the caller sees its body.
+   * Names are untrusted text.
+   */
+  attachments: z.array(AttachmentView).optional(),
 });
 export type AnnotationMessageView = z.infer<typeof AnnotationMessageView>;
 
@@ -165,6 +176,11 @@ export const AnnotationThreadView = z.object({
   path: z.string(),
   /** Untrusted: quotes and selectors come from reviewers. */
   target: AnnotationTarget,
+  /**
+   * The rectangle of the image the thread is about (decision 0028), absent for every other thread.
+   * Released clients strip it and show the thread as a comment on the image.
+   */
+  region: ImageRegionView.optional(),
   state: AnnotationThreadState,
   author: AnnotationAuthor.nullable(),
   own: z.boolean(),

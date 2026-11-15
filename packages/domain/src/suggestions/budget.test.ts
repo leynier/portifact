@@ -33,7 +33,15 @@ describe("work stays flat as operations grow", () => {
       const work = newWork();
       const built = await plan("markdown", source, editsFor(text, count, blocks.length), { work });
       expect(built.applied).toHaveLength(count);
-      expect(work).toEqual({ parses: 2, renders: 2, indexes: 1, maps: 0, decodes: 0, hashes: 0 });
+      expect(work).toEqual({
+        parses: 2,
+        renders: 2,
+        indexes: 1,
+        maps: 0,
+        decodes: 0,
+        hashes: 0,
+        selectorSteps: 0,
+      });
     }
   });
 
@@ -54,6 +62,7 @@ describe("work stays flat as operations grow", () => {
         maps: count,
         decodes: 0,
         hashes: 0,
+        selectorSteps: 0,
       });
     }
   });
@@ -66,7 +75,15 @@ describe("work stays flat as operations grow", () => {
       expect(
         (await plan("text", source, editsFor(text, count, 200), { work })).applied,
       ).toHaveLength(count);
-      expect(work).toEqual({ parses: 0, renders: 2, indexes: 0, maps: 1, decodes: 0, hashes: 0 });
+      expect(work).toEqual({
+        parses: 0,
+        renders: 2,
+        indexes: 0,
+        maps: 1,
+        decodes: 0,
+        hashes: 0,
+        selectorSteps: 0,
+      });
     }
   });
 
@@ -109,6 +126,14 @@ describe("the limits refuse before any work", () => {
     expect(
       (await planOne("html", `<p>${"x".repeat(1_048_576)}</p>`, [change], work)).listed[0]?.reason,
     ).toBe("too_large");
-    expect(work).toEqual({ parses: 0, renders: 0, indexes: 0, maps: 0, decodes: 0, hashes: 0 });
+    expect(work).toEqual({
+      parses: 0,
+      renders: 0,
+      indexes: 0,
+      maps: 0,
+      decodes: 0,
+      hashes: 0,
+      selectorSteps: 0,
+    });
   });
 });

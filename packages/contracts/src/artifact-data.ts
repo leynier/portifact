@@ -383,6 +383,17 @@ export type LiveCloseCode = (typeof LIVE_CLOSE)[keyof typeof LIVE_CLOSE];
 export const CollectionName = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/, "Invalid collection");
 export const FieldName = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,31}$/, "Invalid field");
 
+/**
+ * Who may write to an artifact's data from its page (decision 0026, decisions 4 and 21):
+ * `signed_in`, the default, is a signed-in visitor who can open the artifact and allowed the page;
+ * `anyone` adds people without an account on a public artifact, after the human check. `anyone`
+ * is offered in a personal space, and in a workspace only with `policies` in its plan and a policy
+ * that allows anonymous writers.
+ */
+export const DATA_WRITERS = ["signed_in", "anyone"] as const;
+export const DataWriters = z.enum(DATA_WRITERS);
+export type DataWriters = z.infer<typeof DataWriters>;
+
 export const COLLECTION_MODES = ["own", "append", "read", "shared"] as const;
 export const CollectionMode = z.enum(COLLECTION_MODES);
 export type CollectionMode = z.infer<typeof CollectionMode>;
@@ -602,5 +613,158 @@ export const DataDescription = z.looseObject({
   revision: Count,
   collections: z.array(CollectionInfo).max(MAX_COLLECTIONS),
   today: DayCounters,
+  /** Live connections open on the object now (delivery 7). */
+  connections: Count,
 });
 export type DataDescription = z.infer<typeof DataDescription>;
+
+/**
+ * The envelope of an owner-side command as the app Worker sends it (delivery 5): an operation ID
+ * on a mutation, never an erase reason (only the lifecycle's own paths set that).
+ */
+export const OwnerEnvelope = DataEnvelope.omit({ requiredErase: true });
+export type OwnerEnvelope = z.infer<typeof OwnerEnvelope>;
+
+/** Who acts on the owner side: the user's or the service token's ID, as the audit names it. */
+export const OwnerActor = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/, "Invalid actor");
+
+/** One owner-side command (`ownerCommand` on the documents object), parsed at the boundary. */
+export const OwnerDataCommand = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("describe") }),
+  z.strictObject({ kind: z.literal("declare"), declaration: CollectionDeclaration }),
+  z.strictObject({ kind: z.literal("index_step") }),
+  z.strictObject({
+    kind: z.literal("create"),
+    collection: CollectionName,
+    body: DocumentBody,
+  }),
+  z.strictObject({ kind: z.literal("get"), collection: CollectionName, id: DocumentId }),
+  z.strictObject({
+    kind: z.literal("replace"),
+    collection: CollectionName,
+    id: DocumentId,
+    body: DocumentBody,
+  }),
+  z.strictObject({ kind: z.literal("remove"), collection: CollectionName, id: DocumentId }),
+  z.strictObject({ kind: z.literal("bulk_create"), input: BulkCreate }),
+  z.strictObject({ kind: z.literal("bulk_replace"), input: BulkReplace }),
+  z.strictObject({
+    kind: z.literal("bulk_remove"),
+    collection: CollectionName,
+    ids: z.array(DocumentId).min(1).max(ARTIFACT_DATA.caps.bulkDocuments),
+  }),
+  z.strictObject({ kind: z.literal("query"), query: DataQuery }),
+  z.strictObject({ kind: z.literal("count"), count: DataCount }),
+  z.strictObject({ kind: z.literal("export"), after: ExportCursor.nullable() }),
+  /** A step of the owner's erase of all the artifact's data, under its erase ID (an option). */
+  z.strictObject({ kind: z.literal("erase"), step: EraseStepName, eraseId: OperationId }),
+]);
+export type OwnerDataCommand = z.infer<typeof OwnerDataCommand>;
+
+/** Owner-side commands that change data, and so carry an operation ID and an audit job. */
+export const OWNER_MUTATIONS = [
+  "declare",
+  "index_step",
+  "create",
+  "replace",
+  "remove",
+  "bulk_create",
+  "bulk_replace",
+  "bulk_remove",
+] as const satisfies readonly OwnerDataCommand["kind"][];
+
+/**
+ * An audit obligation still pending, as the daily sweep reads it (`auditPending`): enough to
+ * write its `data_audit` job again. `actor` is the user's or token's ID, or `ERASURE_ACTOR`.
+ */
+export const PendingObligation = z.looseObject({
+  actor: z.string().min(1).max(128),
+  generation: Count,
+  opId: OperationId,
+  owner: DataOwnerId,
+});
+export type PendingObligation = z.infer<typeof PendingObligation>;
+
+/** Pending obligations one sweep call answers at most. */
+export const PENDING_OBLIGATIONS_PER_CALL = 100;
+
+/**
+ * Who calls from the page (decision 0026, delivery 6), as the content Worker decided it: a grant
+ * holder by their opaque visitor ID, whether they may write now (the current terms accepted), or
+ * a reader without a grant. Never what the page says.
+ */
+export const PageCaller = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("visitor"), author: VisitorId, canWrite: z.boolean() }),
+  z.strictObject({ kind: z.literal("reader") }),
+]);
+export type PageCaller = z.infer<typeof PageCaller>;
+
+/** One command from the page (`pageCommand` on the documents object), parsed at the boundary. */
+export const PageDataCommand = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("get"), collection: CollectionName, id: DocumentId }),
+  z.strictObject({ kind: z.literal("query"), query: DataQuery }),
+  z.strictObject({ kind: z.literal("create"), collection: CollectionName, body: DocumentBody }),
+  z.strictObject({
+    kind: z.literal("replace"),
+    collection: CollectionName,
+    id: DocumentId,
+    body: DocumentBody,
+  }),
+  z.strictObject({ kind: z.literal("remove"), collection: CollectionName, id: DocumentId }),
+  z.strictObject({ kind: z.literal("export_mine"), after: ExportCursor.nullable() }),
+]);
+export type PageDataCommand = z.infer<typeof PageDataCommand>;
+
+/** Page commands that change data, and so carry an operation ID. */
+export const PAGE_MUTATIONS = [
+  "create",
+  "replace",
+  "remove",
+] as const satisfies readonly PageDataCommand["kind"][];
+
+// Live updates (decision 0026, delivery 7).
+
+/**
+ * Who holds a live connection, as the content Worker names it: a grant's ID for a visitor, a read
+ * or link session for a reader. Only the same principal renews the connection.
+ */
+export const LivePrincipal = z.string().regex(/^[A-Za-z0-9_:.-]{1,128}$/, "Invalid principal");
+export type LivePrincipal = z.infer<typeof LivePrincipal>;
+
+/** A live connection's ID: the object issues it, in the form of a document ID. */
+export const LiveSocketId = DocumentId;
+
+/**
+ * The header carrying a live connect's parameters from the calling Worker to the documents
+ * object's upgrade handler. The binding is the credential: no route reaches the object.
+ */
+export const LIVE_CONNECT_HEADER = "portifact-live-connect";
+
+/** A live connect as the calling Worker sends it in `LIVE_CONNECT_HEADER`, parsed by the object. */
+export const LiveConnectRequest = z.strictObject({
+  envelope: LifecycleEnvelope,
+  /** The grant's visitor, or null for a reader. */
+  author: VisitorId.nullable(),
+  principal: LivePrincipal,
+  deadline: DataTime,
+  limits: ArtifactDataLimits,
+  now: DataTime,
+});
+export type LiveConnectRequest = z.infer<typeof LiveConnectRequest>;
+
+/** The first message a new connection receives: its ID (for renewal) and its deadline. */
+export const LiveHello = z.strictObject({ connected: LiveSocketId, deadline: DataTime });
+export type LiveHello = z.infer<typeof LiveHello>;
+
+/** The message a page sends to follow a collection's changes. */
+export const LiveSubscribe = z.strictObject({ subscribe: CollectionName });
+
+/** A change a subscribed connection receives: no body, only what changed. */
+export const LiveChange = z.strictObject({
+  collection: CollectionName,
+  kind: z.enum(["created", "updated", "deleted"]),
+  id: DocumentId,
+  seq: Count,
+  by: z.string(),
+});
+export type LiveChange = z.infer<typeof LiveChange>;

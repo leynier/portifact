@@ -76,6 +76,8 @@ export const ROLE_ACTIONS = [
   "search",
   /** Creating issues from comment threads through the owner's connections (decision 0018). */
   "issues",
+  /** An artifact's data (decision 0026): its collections and documents, from the owner side. */
+  "data",
   // Admins only.
   /** Moving an artifact out of the owner: a workspace's content leaves only with an admin. */
   "transfer_out",

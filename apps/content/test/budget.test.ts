@@ -175,7 +175,7 @@ describe("budget protection on public delivery", () => {
   });
 
   it("serves normally while protection does not touch traffic", async () => {
-    for (const steps of [null, 1, 2]) {
+    for (const steps of [null, 1, 2, 3]) {
       await protect(steps);
       const over = refusing();
       const response = await visit({ limiters: over.namespace });
@@ -184,8 +184,8 @@ describe("budget protection on public delivery", () => {
     }
   });
 
-  it("rate limits public visitors from the third step, keyed by their IP", async () => {
-    await protect(3);
+  it("rate limits public visitors from the fourth step, keyed by their IP", async () => {
+    await protect(4);
     const ip = freshIp();
     const served = await statuses(
       Array.from({ length: PROTECTION_TRAFFIC_LIMITS.public }, () => visit({ ip })),
@@ -206,18 +206,18 @@ describe("budget protection on public delivery", () => {
   });
 
   it("keys the counter by kind of traffic and visitor IP", async () => {
-    await protect(3);
+    await protect(4);
     const over = refusing();
     await visit({ ip: "203.0.113.7", limiters: over.namespace });
     expect(over.keys).toEqual(["public:203.0.113.7"]);
     const request = new Request(`${ORIGIN}/`);
-    await protect(4);
+    await protect(5);
     await overTrafficLimit(request, { TRAFFIC_LIMITER: over.namespace }, db().global, false, NOW);
     expect(over.keys).toEqual(["public:203.0.113.7", "protected:unknown"]);
   });
 
   it("checks the traffic quota first and charges no traffic for a budget refusal", async () => {
-    await protect(3);
+    await protect(4);
     const over = refusing();
     const charges: unknown[] = [];
     expect((await visit({ limiters: over.namespace, charges })).status).toBe(429);
@@ -242,7 +242,7 @@ describe("budget protection on public delivery", () => {
   });
 
   it("refuses a visitor known to be over the limit without asking the limiter again", async () => {
-    await protect(3);
+    await protect(4);
     const over = refusing();
     const limiters = over.namespace;
     expect((await visit({ limiters })).status).toBe(429);
@@ -257,7 +257,7 @@ describe("budget protection on public delivery", () => {
   it("forgets expired refusals first, and all of them if none expired", async () => {
     // A small memory behaves like the real one; ten thousand requests take seconds per pass.
     const max = 50;
-    await protect(3);
+    await protect(4);
     resetProtectionCache({ maxRefusals: max });
     const request = (ip: string) => new Request(ORIGIN, { headers: { "CF-Connecting-IP": ip } });
     let resetAt = NOW + 1;
@@ -294,7 +294,7 @@ describe("budget protection on public delivery", () => {
     const limits = {
       TRAFFIC_LIMITER: fakeLimiters(() => ({ allowed: false, resetAt: 0 })).namespace,
     };
-    await protect(3);
+    await protect(4);
     expect(await overTrafficLimit(request, limits, db().global, true, NOW)).toBe(0);
     await db().delete(schema.platformBudget);
     expect(
@@ -325,7 +325,7 @@ describe("budget protection on public delivery", () => {
   });
 
   it("fails open and logs when the limiter fails", async () => {
-    await protect(3);
+    await protect(4);
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     const failing = fakeLimiters(() => Promise.reject("overloaded"));
     expect((await visit({ limiters: failing.namespace })).status).toBe(200);
@@ -335,7 +335,7 @@ describe("budget protection on public delivery", () => {
   });
 
   it("serves normally without the limiter bound", async () => {
-    await protect(4);
+    await protect(5);
     expect(await overTrafficLimit(new Request(ORIGIN), {}, db().global, true, NOW)).toBeNull();
     expect(await overTrafficLimit(new Request(ORIGIN), {}, db().global, false, NOW)).toBeNull();
   });
@@ -349,13 +349,13 @@ describe("budget protection on protected delivery", () => {
   // binding answered success. The limit must hold whatever that binding says.
   it("limits a protected reader at the last step, exactly, under parallel requests", async () => {
     const cookie = await readCookie();
-    await protect(3);
+    await protect(4);
     const ip = freshIp();
     expect(await statuses(Array.from({ length: 20 }, () => visit({ ip, cookie })))).toEqual({
       200: 20,
     });
 
-    await protect(4);
+    await protect(5);
     const burst = PROTECTION_TRAFFIC_LIMITS.protected + 60;
     const other = freshIp();
     expect(

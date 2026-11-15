@@ -82,7 +82,7 @@ export function BrandMark({ name, href, newTabLabel, logo, accent }: BrandMarkPr
       className={CHIP}
     >
       {content}
-      <span className="sr-only">{newTabLabel}</span>
+      <span className="sr-only"> {newTabLabel}</span>
     </a>
   );
 }

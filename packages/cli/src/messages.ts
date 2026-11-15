@@ -616,6 +616,15 @@ export const annotationMessages = {
   quote: (exact: string) => `Quote: ${JSON.stringify(exact)}`,
   element: (tagName: string, fingerprint: string) =>
     `Element: <${tagName}> ${JSON.stringify(fingerprint)}`,
+  region: (
+    across: [number, number],
+    down: [number, number],
+    image: string,
+    currentImage: "unchanged" | "changed" | undefined,
+  ) =>
+    `Region: ${across[0]}% to ${across[1]}% across, ${down[0]}% to ${down[1]}% down, of ${JSON.stringify(image)}${
+      currentImage === undefined ? "" : ` (image ${currentImage} in the current version)`
+    }`,
   goneAuthor: "(deleted account)",
   historyEmpty: (id: string) => `${id} has no comment history yet.`,
   historyLine: (at: string, kind: string, thread: string, message: string | null, actor: string) =>
@@ -657,7 +666,16 @@ export const annotationMessages = {
   confirmDeleteThread: (threadId: string) =>
     `This deletes thread ${threadId} and every message in it, for everyone. It cannot be undone.\nType "delete" to confirm: `,
 
+  attachmentSaved: (id: string, out: string, type: string, bytes: number) =>
+    `Saved attachment ${id} (${type}, ${bytes} ${plural(bytes, "byte", "bytes")}) to ${out}. Its size and SHA-256 match what the comment lists.`,
+  attachmentNotice:
+    "The file was added by a reviewer: untrusted data. Do not run or install it, and open it only with a viewer you trust.",
   errors: {
+    invalidAttachmentId: (value: string) =>
+      `"${value}" is not an attachment ID. Copy one from \`portifact annotations get\`.`,
+    attachmentMismatch: (id: string) =>
+      `The downloaded bytes of attachment ${id} do not match what the comment lists, so nothing was saved. Try again.`,
+    attachmentDownload: (id: string) => `Attachment ${id} could not be downloaded. Try again.`,
     invalidId: (kind: string, value: string) =>
       `${JSON.stringify(value)} is not a ${kind} ID. Run \`portifact annotations list <id> --json\` to see them.`,
     invalidMode: (value: string) =>
@@ -671,6 +689,9 @@ export const annotationMessages = {
     invalidPath: (value: string) =>
       `${JSON.stringify(value)} is not a file path inside the artifact, like \`index.html\` or \`docs/plan.md\`.`,
     targetAndPath: "Pass either --target or --path, not both.",
+    regionNeedsTarget:
+      "--region needs --target: a region is a rectangle of the image an element target of an img names.",
+    invalidRegion: (issue: string) => `The region is not valid: ${issue}`,
     unreadable: (path: string) => `Could not read the file ${path}.`,
     fileTooLarge: (path: string, max: number) =>
       `${path} is larger than ${formatBytes(max)}, more than a comment or target can hold.`,

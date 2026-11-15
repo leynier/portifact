@@ -12,6 +12,8 @@ import {
   contentHash,
   type DomRange,
   IGNORE_ATTRIBUTE,
+  imagePath,
+  regionBox,
 } from "@portifact/anchors";
 import { ANCHOR_SCHEMA_VERSION, type Anchor, AnnotationTarget } from "@portifact/contracts";
 import { bridgeEnvelope, readViewerMessage } from "./channel.ts";
@@ -24,13 +26,17 @@ import {
   threadsAt,
 } from "./overlay.ts";
 import {
+  BRIDGE_CAPABILITIES,
   type BridgeBody,
   BridgePage,
+  type EditKind,
   type Highlight,
   type HighlightResolution,
   REVIEW_CHANNEL,
   REVIEW_PROTOCOL,
+  REVIEW_PROTOCOL_EDIT,
   type RefusalReason,
+  type ReviewProtocol,
 } from "./protocol.ts";
 
 export interface BridgeConfig {
@@ -42,6 +48,16 @@ export interface BridgeConfig {
   renderer?: string | undefined;
   /** Tag of the review session this page was served in, echoed in `ready`. */
   sessionTag: string;
+  /**
+   * Whether edit suggestions are switched on (the content Worker's `SUGGESTIONS_ENABLED`). Off,
+   * the bridge announces and speaks only protocol 2, exactly as before protocol 3 existed.
+   */
+  edit?: boolean | undefined;
+  /**
+   * Whether image regions are switched on (the content Worker's `IMAGE_REGIONS_ENABLED`, decision
+   * 0028). Off, a picked image is reported exactly as before.
+   */
+  imageRegions?: boolean | undefined;
 }
 
 export interface BridgeTarget {
@@ -82,6 +98,15 @@ export function startBridge(
 ): Bridge {
   const { document } = window;
   let nonce: string | null = null;
+  /** The protocol version the viewer's `init` used; every message after it uses the same. */
+  let version: ReviewProtocol = REVIEW_PROTOCOL;
+  /** Edit mode (protocol 3): the epoch to echo and what the person chooses, while it is on. */
+  let editing: { epoch: number; kind: EditKind } | null = null;
+  /**
+   * Counts selection and pick work: clearing the selection, a change of edit mode and stopping
+   * start a new generation, so work begun before one is dropped when it finishes.
+   */
+  let generation = 0;
   let highlights: Highlight[] = [];
   let selected: string[] = [];
   /** What is drawn now, for hit-testing clicks. */
@@ -100,8 +125,14 @@ export function startBridge(
 
   const page = () => ({ path: config.path, ...(route === undefined ? {} : { route }) });
   const send = (body: BridgeBody) => {
-    if (nonce !== null) parent.postMessage(bridgeEnvelope(nonce, body), config.appOrigin);
+    if (nonce !== null) parent.postMessage(bridgeEnvelope(nonce, body, version), config.appOrigin);
   };
+  /**
+   * The edit epoch of now, echoed only on a protocol 3 handshake. Work that awaits captures it
+   * before it starts, so its result never carries a later period's epoch.
+   */
+  const epoch = (): { epoch?: number } =>
+    version === REVIEW_PROTOCOL_EDIT && editing !== null ? { epoch: editing.epoch } : {};
 
   const overlay = createOverlay(document);
 
@@ -143,7 +174,7 @@ export function startBridge(
   const reportSelection = async () => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-      if (reportedSelection) send({ type: "selection", target: null });
+      if (reportedSelection) send({ type: "selection", target: null, ...epoch() });
       reportedSelection = false;
       if (!(offered instanceof window.Element)) offered = null;
       return;
@@ -156,12 +187,15 @@ export function startBridge(
       if (created.reason !== "empty_selection") refuse(created.reason);
       return;
     }
+    const asked = { generation, epoch: epoch() };
     const target = await targetFor(doc, created.value);
+    // The selection was cleared, or edit mode changed, while its target was being made.
+    if (asked.generation !== generation) return;
     if (!target) return refuse("too_large");
     reportedSelection = true;
     offered = range.cloneRange();
     const rect = frameRect(range.getBoundingClientRect());
-    send({ type: "selection", target, ...(rect ? { rect } : {}) });
+    send({ type: "selection", target, ...(rect ? { rect } : {}), ...asked.epoch });
   };
 
   // Where the offered selection or element is drawn, so the viewer's "Comment" control follows
@@ -215,15 +249,24 @@ export function startBridge(
       height: box.height,
     });
     endPick();
+    const asked = { generation, epoch: epoch() };
     // The element (or the refusal) goes first: the viewer accepts an element only while it
     // waits for a pick, and `pick-ended` ends that wait.
     if (!created.ok) refuse(created.reason);
     else {
       const target = await targetFor(doc, created.value);
+      if (asked.generation !== generation) return;
       if (target) {
         offered = element;
         const rect = frameRect(element.getBoundingClientRect());
-        send({ type: "element", target, ...(rect ? { rect } : {}) });
+        const image = config.imageRegions ? pickedImage(element) : null;
+        send({
+          type: "element",
+          target,
+          ...(rect ? { rect } : {}),
+          ...(image ? { image } : {}),
+          ...asked.epoch,
+        });
       } else refuse("too_large");
     }
     send({ type: "pick-ended" });
@@ -275,6 +318,20 @@ export function startBridge(
     }
   };
 
+  // Image regions (decision 0028)
+
+  /** The file of the version an element shows, when it is an `img` on the artifact's origin. */
+  const shownPath = (element: Element): string | null => {
+    if (!(element instanceof window.HTMLImageElement)) return null;
+    const source = element.currentSrc || element.src;
+    return source ? imagePath(source, window.location.origin) : null;
+  };
+
+  const pickedImage = (element: Element): { path: string } | null => {
+    const path = shownPath(element);
+    return path === null ? null : { path };
+  };
+
   // Highlights
 
   const stateOf = (id: string): HighlightState => {
@@ -296,15 +353,25 @@ export function startBridge(
         results.push({ id: highlight.id, confidence: "orphaned", reason: resolution.reason });
         continue;
       }
+      const region = highlight.region;
+      if (region && resolution.kind === "element") {
+        // The region belongs to one image: an element that shows another file, or none, is not it.
+        const element = resolution.element as unknown as Element;
+        if (shownPath(element) !== region.path) {
+          results.push({ id: highlight.id, confidence: "orphaned", reason: "image_changed" });
+          continue;
+        }
+      }
       results.push({ id: highlight.id, confidence: resolution.confidence });
       if (resolution.kind === "document") continue;
+      const kind = region && resolution.kind === "element" ? "region" : resolution.kind;
       const boxes =
         resolution.kind === "text"
           ? rangeBoxes(window, resolution.range)
-          : [pageBox(window, (resolution.element as unknown as Element).getBoundingClientRect())];
+          : [elementBox(window, resolution.element as unknown as Element, region)];
       const first = overlay.highlight({
         id: highlight.id,
-        kind: resolution.kind,
+        kind,
         boxes,
         state: stateOf(highlight.id),
       });
@@ -337,9 +404,14 @@ export function startBridge(
       nonce,
     });
     if (!message) return;
+    // Switched off, protocol 3 does not exist for this bridge.
+    if (message.v === REVIEW_PROTOCOL_EDIT && !config.edit) return;
+    // After the handshake only messages of its version count.
+    if (message.type !== "init" && message.v !== version) return;
     switch (message.type) {
       case "init":
         nonce = message.nonce;
+        version = message.v;
         send({ type: "location", page: page() });
         return;
       case "highlights":
@@ -362,6 +434,7 @@ export function startBridge(
         focus(message.id);
         return;
       case "clear-selection":
+        generation += 1;
         window.getSelection()?.removeAllRanges();
         reportedSelection = false;
         offered = null;
@@ -369,6 +442,26 @@ export function startBridge(
       case "ping":
         send({ type: "pong" });
         return;
+      case "edit-mode":
+        setEditMode(message.active ? message : null);
+        return;
+    }
+  };
+
+  // Edit mode (decision 0027): the bridge only shows the hint and echoes the epoch on what it
+  // reports; choosing an element for style or structure is element mode. It never receives what
+  // the person types.
+  const setEditMode = (next: { epoch: number; kind: EditKind; hint: string } | null) => {
+    generation += 1;
+    editing = next ? { epoch: next.epoch, kind: next.kind } : null;
+    if (next && next.kind !== "text") {
+      picking = { hint: next.hint };
+      overlay.pick(null, next.hint);
+    } else if (next) {
+      picking = null;
+      overlay.pick(null, next.hint);
+    } else {
+      endPick();
     }
   };
 
@@ -389,20 +482,26 @@ export function startBridge(
   // Capturing, so scrolling inside any scrollable element of the page counts too.
   window.addEventListener("scroll", onMove, true);
 
-  parent.postMessage(
-    {
-      channel: REVIEW_CHANNEL,
-      v: REVIEW_PROTOCOL,
-      type: "ready",
-      page: page(),
-      sessionTag: config.sessionTag,
-    },
-    config.appOrigin,
-  );
+  // Both versions are announced, the newer first: a viewer that reads protocol 3 answers the
+  // first and ignores the second; an older viewer drops the first and answers the second.
+  for (const v of config.edit ? [REVIEW_PROTOCOL_EDIT, REVIEW_PROTOCOL] : [REVIEW_PROTOCOL]) {
+    parent.postMessage(
+      {
+        channel: REVIEW_CHANNEL,
+        v,
+        type: "ready",
+        page: page(),
+        sessionTag: config.sessionTag,
+        ...(v === REVIEW_PROTOCOL_EDIT ? { capabilities: [...BRIDGE_CAPABILITIES] } : {}),
+      },
+      config.appOrigin,
+    );
+  }
 
   return {
     overlay: overlay.root,
     stop() {
+      generation += 1;
       clearTimeout(selectionTimer);
       clearTimeout(redrawTimer);
       clearTimeout(rectTimer);
@@ -436,6 +535,23 @@ export function pageBox(window: Window, rect: DOMRectReadOnly): Box {
     y: Math.round(rect.top + window.scrollY),
     width: Math.round(rect.width),
     height: Math.round(rect.height),
+  };
+}
+
+/** An element's box in page coordinates, or the part of it a region covers. */
+function elementBox(
+  window: Window,
+  element: Element,
+  region: { x: number; y: number; width: number; height: number } | undefined,
+): Box {
+  const box = pageBox(window, element.getBoundingClientRect());
+  if (!region) return box;
+  const drawn = regionBox(region, box);
+  return {
+    x: Math.round(drawn.x),
+    y: Math.round(drawn.y),
+    width: Math.max(1, Math.round(drawn.width)),
+    height: Math.max(1, Math.round(drawn.height)),
   };
 }
 

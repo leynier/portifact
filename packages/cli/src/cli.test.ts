@@ -89,6 +89,17 @@ describe("portifact cli", () => {
       expect(access.stdout).toMatch(new RegExp(`^  ${sub} `, "m"));
     }
     expect((await invoke("delete", "--help")).stdout).toContain("-y, --yes");
+    // Comment attachments (decision 0029) are listed once the legal pages describe them.
+    const annotations = (await invoke("annotations", "--help")).stdout;
+    expect(annotations).toMatch(/attachment \[options\] <id> <attachment-id>/);
+  });
+
+  it("lists the change list in the help with its subcommands", async () => {
+    expect((await invoke("--help")).stdout).toMatch(/^ {2}changes /m);
+    const changes = await invoke("changes", "--help");
+    for (const sub of ["list", "show", "mark"]) {
+      expect(changes.stdout).toMatch(new RegExp(`^  ${sub} `, "m"));
+    }
   });
 
   it("lists tokens in the help and documents its subcommands and the revoke flag", async () => {

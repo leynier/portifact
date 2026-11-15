@@ -7,6 +7,14 @@
 // untrusted text and are only ever rendered as text. Anonymous visitors of a public artifact see
 // the artifact itself in the frame and are asked to sign in to read and add comments.
 import {
+  INITIAL_REGION,
+  type RegionRect,
+  regionBox,
+  regionFromDrag,
+  regionKey,
+  regionPercent,
+} from "@portifact/anchors";
+import {
   BRIDGE_LIMITS,
   type FrameRect,
   placeNear,
@@ -17,10 +25,12 @@ import {
   type AnnotationTarget,
   type AnnotationThreadView,
   type AnnotationVersionFilter,
+  type ImageRegionRequest,
   type IntegrationChoiceList,
   REVIEW_SESSION,
   type ReviewStart,
   type ReviewTabStart,
+  regionTargetAllowed,
   type ViewerInfo,
 } from "@portifact/contracts";
 import { viewerHash, viewerPath } from "@portifact/domain";
@@ -42,9 +52,11 @@ import {
   LoadingState,
   Menu,
   type MenuItem,
+  ModeSwitch,
   type OverlayPoint,
   type OverlaySize,
   PageHeader,
+  RegionSelector,
   Select,
   type SelectOption,
   ThemedImage,
@@ -60,6 +72,7 @@ import {
   Crosshair,
   Download,
   ExternalLink,
+  FilePen,
   Flag,
   Info,
   LayoutGrid,
@@ -67,9 +80,13 @@ import {
   LogIn,
   MessageSquare,
   MessageSquarePlus,
+  Move,
+  Paintbrush,
+  PencilLine,
   RefreshCw,
   Send,
   Settings,
+  SquareDashedMousePointer,
   UserRound,
 } from "lucide-react";
 import {
@@ -77,6 +94,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -85,8 +103,26 @@ import symbolDark from "../../../../../assets/brand/symbol-dark.svg";
 import { loginUrl } from "../../auth/query.ts";
 import { ApiFailure } from "../api.ts";
 import { AnnounceContext, useAnnounce, useDashboard, useT } from "../context.tsx";
+import {
+  AttachmentControls,
+  AttachmentsContext,
+  useAttachmentsEnabled,
+  useAttachmentUploads,
+} from "../review/attachments.tsx";
 import { useIssueChoices } from "../review/create-issue.tsx";
+import { DataGrantPanel, useDataGrant } from "../review/data-grant.tsx";
+import { DraftPanel, useDraft } from "../review/draft.tsx";
 import { useHumanCheck } from "../review/human-check.tsx";
+import { StructureEditor } from "../review/structure-editor.tsx";
+import { StyleEditor } from "../review/style-editor.tsx";
+import {
+  editModeOf,
+  SUGGEST_OFF,
+  type SuggestOffer,
+  suggestReducer,
+} from "../review/suggest-session.ts";
+import { ChangeList, SuggestEditor } from "../review/suggestions.tsx";
+import { TextSearchPanel } from "../review/text-search-panel.tsx";
 import { ActionError, bodyError, humanRefusal, ThreadCard } from "../review/thread-card.tsx";
 import { TargetSummary } from "../review/thread-parts.tsx";
 import { type BridgeState, useBridge } from "../review/use-bridge.ts";
@@ -235,13 +271,22 @@ export function ViewerScreen() {
       </Standalone>
     );
   } else if (info.data.role === "anonymous" || !account.data) {
-    content = <AnonymousViewer info={info.data} target={target} here={here} />;
+    content = (
+      <AnonymousViewer
+        info={info.data}
+        target={target}
+        here={here}
+        signedIn={Boolean(account.data)}
+      />
+    );
   } else {
     content = <SignedInViewer info={info.data} target={target} />;
   }
   return (
     <AnnounceContext.Provider value={announce}>
-      {content}
+      <AttachmentsContext.Provider value={info.data?.attachments === true}>
+        {content}
+      </AttachmentsContext.Provider>
       <Toast message={announcement} dismissLabel={t("shell.dismiss")} />
     </AnnounceContext.Provider>
   );
@@ -580,13 +625,25 @@ function AnonymousViewer({
   info,
   target,
   here,
+  signedIn,
 }: {
   info: ViewerInfo;
   target: Target;
   here: string;
+  /** Whether a session exists: then the grant is the person's, otherwise an anonymous one. */
+  signedIn: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(startsOpen);
+  const frame = useRef<HTMLIFrameElement>(null);
+  // Artifact data (decision 0026): the page may ask to save, also for a visitor without an
+  // account where the artifact is open to anyone (delivery 9).
+  const dataGrant = useDataGrant({
+    artifactId: info.artifactId,
+    origin: info.origin,
+    frame,
+    anonymous: !signedIn,
+  });
   const sidebar =
     info.annotations === "off" ? null : (
       <>
@@ -605,7 +662,19 @@ function AnonymousViewer({
       info={info}
       target={target}
       account={{ kind: "anonymous", here }}
-      frame={<ArtifactFrame info={info} src={pageUrl(info.origin, target)} />}
+      frame={
+        <>
+          <div className="flex flex-col gap-3 p-3 empty:hidden">
+            <DataGrantPanel
+              artifactId={info.artifactId}
+              origin={info.origin}
+              grant={dataGrant}
+              signInPath={here}
+            />
+          </div>
+          <ArtifactFrame info={info} src={pageUrl(info.origin, target)} frame={frame} />
+        </>
+      }
       sidebar={sidebar}
       sidebarOpen={open}
       onSidebar={setOpen}
@@ -630,7 +699,13 @@ function SignedInViewer({ info, target }: { info: ViewerInfo; target: Target }) 
   });
   // Readers have no threads while comments are off; the owner keeps the switch to turn them on.
   const comments = info.annotations !== "off" || info.role === "owner";
-  const threads = useThreads(info.artifactId, version, comments);
+  // With suggestions on, threads say their kind; they load once the review session says so.
+  const threads = useThreads(
+    info.artifactId,
+    version,
+    comments && !start.isPending,
+    start.data?.suggestions === true,
+  );
 
   if (start.isPending) {
     return (
@@ -712,6 +787,22 @@ interface Offer {
   rect: FrameRect | null;
   /** False once the bridge said it is no longer drawn, such as scrolled out of the frame. */
   drawn: boolean;
+  /**
+   * The file a picked image shows (decision 0028), when the bridge reported one: it offers "Mark a
+   * region". Untrusted, like the rest of the offer: the server checks the file.
+   */
+  image?: { path: string } | null;
+}
+
+/**
+ * Marking a region of a picked image (decision 0028): the image's box as the bridge reported it
+ * when the reader asked, frozen, and the rectangle chosen so far.
+ */
+interface RegionDraft {
+  target: AnnotationTarget;
+  box: FrameRect;
+  image: { path: string };
+  region: RegionRect;
 }
 
 /**
@@ -723,6 +814,8 @@ type Draft = {
   id: number;
   target: AnnotationTarget;
   inline: { rect: FrameRect | null } | null;
+  /** The rectangle of the image the comment is about (decision 0028). */
+  region?: ImageRegionRequest | undefined;
 } | null;
 
 /** Whether `query` matches now, following changes. */
@@ -753,6 +846,103 @@ function pillPlacement(offer: Offer, size: OverlaySize, area: OverlaySize): Over
   const anchor = visibleRect(offer.rect, area);
   return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
 }
+
+/**
+ * A thread of an earlier version drawn on the current page (decision 0028): a region whose image
+ * the current version still has with the same bytes. Only the owner side sees such threads.
+ */
+function drawnFromHistory(thread: AnnotationThreadView, regionsOn: boolean): boolean {
+  return regionsOn && thread.region?.currentImage === "unchanged";
+}
+
+/** What the frame gets for a thread: its target, and its region while regions are on. */
+function highlightOf(thread: AnnotationThreadView, regionsOn: boolean) {
+  const { region } = thread;
+  if (!regionsOn || !region) return { id: thread.id, target: thread.target };
+  return {
+    id: thread.id,
+    target: thread.target,
+    region: {
+      x: region.x,
+      y: region.y,
+      width: region.width,
+      height: region.height,
+      path: region.image.path,
+    },
+  };
+}
+
+/**
+ * Marking a region of a picked image (decision 0028), drawn by this page over the frame, never in
+ * the artifact: the selector covers the image's box as the bridge reported it when the reader
+ * asked, and the actions float beside the rectangle. Nothing the frame sends meanwhile moves it.
+ */
+function RegionLayer({
+  draft,
+  onChange,
+  onConfirm,
+  onCancel,
+}: {
+  draft: RegionDraft;
+  onChange(region: RegionRect): void;
+  onConfirm(): void;
+  onCancel(): void;
+}) {
+  const t = useT();
+  const { box, region } = draft;
+  const edges = regionPercent(region);
+  const drawn = regionBox(region, box);
+  return (
+    <>
+      <RegionSelector
+        box={box}
+        region={region}
+        label={t("region.label", { path: draft.image.path })}
+        instructions={t("region.instructions")}
+        status={t("region.status", edges)}
+        onDraw={(from, to) => {
+          const next = regionFromDrag(from, to, {
+            x: 0,
+            y: 0,
+            width: box.width,
+            height: box.height,
+          });
+          if (next) onChange(next);
+        }}
+        onKey={(key, shift) => {
+          const next = regionKey(region, key, shift);
+          if (next) onChange(next);
+          return next !== null;
+        }}
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />
+      <Floating
+        place={(size, area) => {
+          const anchor = visibleRect(drawn, area);
+          return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : { x: 8, y: 8 };
+        }}
+      >
+        <div className="flex gap-2">
+          <Button
+            intent="floating"
+            size="sm"
+            icon={<MessageSquarePlus className="size-4" />}
+            onClick={onConfirm}
+          >
+            {t("region.confirm")}
+          </Button>
+          <Button size="sm" onClick={onCancel}>
+            {t("review.composer.cancel")}
+          </Button>
+        </div>
+      </Floating>
+    </>
+  );
+}
+
+/** The "Suggest edit" control is placed exactly like the "Comment" one. */
+const suggestPill = (offer: SuggestOffer): Offer => offer;
 
 /** Which threads the panel shows, besides the version: by status and by author. */
 interface ThreadFilter {
@@ -798,6 +988,8 @@ function ReviewSession({
   // The owner side may create issues from threads (decision 0018).
   const issueChoices = useIssueChoices(info.artifactId, info.role === "owner");
   const frame = useRef<HTMLIFrameElement>(null);
+  // Artifact data (decision 0026): the page in the frame may ask to save as the visitor.
+  const dataGrant = useDataGrant({ artifactId: info.artifactId, origin: info.origin, frame });
   const [sidebarOpen, setSidebarOpen] = useState(startsOpen);
   const [offer, setOfferState] = useState<Offer | null>(null);
   const [draft, setDraftState] = useState<Draft>(null);
@@ -808,6 +1000,11 @@ function ReviewSession({
   const [unplaced, setUnplaced] = useState(false);
   const [picking, setPicking] = useState(false);
   const [selection, setSelection] = useState<ThreadSelection>(NO_SELECTION);
+  // Suggest mode (decision 0027): its own state, apart from comments. The frame only offers a
+  // selection while the person is choosing, for the current edit epoch.
+  const [suggest, dispatchSuggest] = useReducer(suggestReducer, SUGGEST_OFF);
+  /** What an edit made in the frame becomes: a suggestion, or (the owner side) a draft change. */
+  const [purpose, setPurpose] = useState<"suggest" | "edit">("suggest");
   const items = useRef(new Map<string, HTMLElement>());
   // The page shares the bridge's window and can post what the bridge posts, so these refs, not
   // the page, decide when its selection or element may fill in a comment: an element only
@@ -823,10 +1020,17 @@ function ReviewSession({
   const setDraft = (
     next: AnnotationTarget | null,
     inline: { rect: FrameRect | null } | null = null,
+    region?: ImageRegionRequest,
   ) => {
     drafting.current = next !== null;
     setUnplaced(false);
-    setDraftState(next ? { id: ++draftIds.current, target: next, inline } : null);
+    setDraftState(next ? { id: ++draftIds.current, target: next, inline, region } : null);
+  };
+  // While a region is being marked, the frame cannot change the offer or open a comment either.
+  const [regionDraft, setRegionDraftState] = useState<RegionDraft | null>(null);
+  const setRegionDraft = (next: RegionDraft | null) => {
+    drafting.current = next !== null;
+    setRegionDraftState(next);
   };
   const stopPicking = () => {
     awaitingPick.current = false;
@@ -844,76 +1048,133 @@ function ReviewSession({
   const shown = (threads.data?.threads ?? []).filter((thread) => matchesFilter(thread, filter));
 
   const data = threads.data;
+  const regionsOn = start.imageRegions === true;
   const outdated = data !== undefined && data.currentVersionId !== start.versionId;
   const mode = data?.annotations;
   const canComment = mode === "open" && !outdated;
+  const ownerSide = data?.role === "owner";
+  // The owner side's private draft (decision 0027), loaded only while suggestions are on.
+  const ownerDraft = useDraft(start, start.suggestions === true && ownerSide);
 
-  const bridge = useBridge(frame, start.origin, start.sessionTag, {
-    // The page can forge any of these: a selection only offers a comment the reader still writes
-    // and saves here, and nothing the frame sends counts while a comment is open.
-    onSelection(selected, rect) {
-      if (drafting.current) return;
-      if (!selected || !canComment) {
-        setOffer(null);
-        return;
-      }
-      // Focus stays in the artifact; the "Comment" control follows the frame in the tab order.
-      if (!offered.current) setHint(t("review.selection.received"));
-      setOffer({ target: selected, rect, drawn: true });
+  const bridge = useBridge(
+    frame,
+    start.origin,
+    start.sessionTag,
+    {
+      // The page can forge any of these: a selection only offers a comment the reader still writes
+      // and saves here, and nothing the frame sends counts while a comment is open.
+      onSelection(selected, rect, epoch) {
+        if (suggest.mode !== "off") {
+          if (
+            suggest.mode === "choosing" &&
+            epoch === suggest.epoch &&
+            selected &&
+            !suggest.offer
+          ) {
+            setHint(t("suggest.selection.received"));
+          }
+          dispatchSuggest({ type: "selection", target: selected, rect, epoch });
+          return;
+        }
+        if (drafting.current) return;
+        if (!selected || !canComment) {
+          setOffer(null);
+          return;
+        }
+        // Focus stays in the artifact; the "Comment" control follows the frame in the tab order.
+        if (!offered.current) setHint(t("review.selection.received"));
+        setOffer({ target: selected, rect, drawn: true });
+      },
+      onElement(picked, rect, epoch, image) {
+        if (suggest.mode !== "off") {
+          // Counts only while picking an element or a destination, for the current epoch; the
+          // reducer decides. The hint only says what the reducer will take.
+          const element = picked.anchor.kind === "element";
+          if (suggest.mode === "choosing" && suggest.pick && epoch === suggest.epoch && element) {
+            setHint(
+              t(suggest.pick === "style" ? "suggest.style.received" : "suggest.structure.received"),
+            );
+          } else if (
+            suggest.mode === "structuring" &&
+            suggest.choosing &&
+            epoch === suggest.epoch &&
+            element
+          ) {
+            setHint(t("suggest.structure.destination.received"));
+          }
+          dispatchSuggest({ type: "element", target: picked, rect, epoch });
+          return;
+        }
+        if (!awaitingPick.current || drafting.current) return;
+        stopPicking();
+        if (!canComment) return;
+        // A region needs the switch, an image target and its box to draw over (decision 0028).
+        const regionable =
+          regionsOn && image !== null && rect !== null && regionTargetAllowed(picked);
+        setHint(t(regionable ? "region.element.received" : "review.element.received"));
+        setOffer({ target: picked, rect, drawn: true, image: regionable ? image : null });
+      },
+      onSelectionRect(rect) {
+        if (suggest.mode !== "off") {
+          // Moves only the "Suggest edit" control while choosing; never an open editor.
+          dispatchSuggest({ type: "selection-rect", rect });
+          return;
+        }
+        // Only moves the control of what is offered; never a target, and never an open comment.
+        if (drafting.current || !offered.current) return;
+        setOfferState((current) =>
+          current ? { ...current, rect: rect ?? current.rect, drawn: rect !== null } : current,
+        );
+      },
+      onRefused(reason: RefusalReason) {
+        announce(refusalMessage(t, reason));
+      },
+      onPickEnded() {
+        stopPicking();
+        dispatchSuggest({ type: "pick-ended" });
+      },
+      onPageChange() {
+        // A new page, a route change or the session's end: an open edit is gone, unsaved.
+        if (suggest.mode === "editing") announce(t("suggest.discarded"));
+        dispatchSuggest({ type: "page-change" });
+      },
+      onStatus() {
+        // The page can forge a status: the API says what really holds for comments.
+        void threads.refetch();
+      },
+      onSelect(ids) {
+        // Only threads this panel shows count; the hook already dropped IDs never sent to the page.
+        const known = ids.filter(
+          (id) => numbers.has(id) && shown.some((thread) => thread.id === id),
+        );
+        if (known.length === 0) {
+          setSelection((current) => (current.fromFrame ? NO_SELECTION : current));
+          return;
+        }
+        setSelection({ ids: known, fromFrame: true });
+        setSidebarOpen(true);
+        const list = known.map((id) => numbers.get(id)).join(", ");
+        // A polite announcement, not the toast: a click in the artifact must not cover the threads.
+        setHint(
+          known.length === 1
+            ? t("review.thread.activated", { number: list })
+            : t("review.thread.activatedMany", { numbers: list }),
+        );
+        // Scrolled into view after the sidebar renders; focus stays in the artifact.
+        setTimeout(() => {
+          const first = known[0];
+          const card = first ? items.current.get(first) : undefined;
+          card?.scrollIntoView?.({ block: "nearest" });
+        }, 0);
+      },
     },
-    onElement(picked, rect) {
-      if (!awaitingPick.current || drafting.current) return;
-      stopPicking();
-      if (!canComment) return;
-      setHint(t("review.element.received"));
-      setOffer({ target: picked, rect, drawn: true });
-    },
-    onSelectionRect(rect) {
-      // Only moves the control of what is offered; never a target, and never an open comment.
-      if (drafting.current || !offered.current) return;
-      setOfferState((current) =>
-        current ? { ...current, rect: rect ?? current.rect, drawn: rect !== null } : current,
-      );
-    },
-    onRefused(reason: RefusalReason) {
-      announce(refusalMessage(t, reason));
-    },
-    onPickEnded() {
-      stopPicking();
-    },
-    onStatus() {
-      // The page can forge a status: the API says what really holds for comments.
-      void threads.refetch();
-    },
-    onSelect(ids) {
-      // Only threads this panel shows count; the hook already dropped IDs never sent to the page.
-      const known = ids.filter((id) => numbers.has(id) && shown.some((thread) => thread.id === id));
-      if (known.length === 0) {
-        setSelection((current) => (current.fromFrame ? NO_SELECTION : current));
-        return;
-      }
-      setSelection({ ids: known, fromFrame: true });
-      setSidebarOpen(true);
-      const list = known.map((id) => numbers.get(id)).join(", ");
-      // A polite announcement, not the toast: a click in the artifact must not cover the threads.
-      setHint(
-        known.length === 1
-          ? t("review.thread.activated", { number: list })
-          : t("review.thread.activatedMany", { numbers: list }),
-      );
-      // Scrolled into view after the sidebar renders; focus stays in the artifact.
-      setTimeout(() => {
-        const first = known[0];
-        const card = first ? items.current.get(first) : undefined;
-        card?.scrollIntoView?.({ block: "nearest" });
-      }, 0);
-    },
-  });
+    start.suggestions === true,
+  );
 
   // The frame only gets the targets of the threads of the page it shows, never bodies or names.
   const { send, state, page } = bridge;
   const highlighted = shown
-    .filter((thread) => thread.current)
+    .filter((thread) => thread.current || drawnFromHistory(thread, regionsOn))
     .filter((thread) => thread.target.anchor.kind !== "document")
     .filter((thread) => thread.target.path === page?.path)
     .slice(0, BRIDGE_LIMITS.highlightsMax);
@@ -929,7 +1190,7 @@ function ReviewSession({
     const ids = new Set(highlighted.map((thread) => thread.id));
     send({
       type: "highlights",
-      highlights: highlighted.map((thread) => ({ id: thread.id, target: thread.target })),
+      highlights: highlighted.map((thread) => highlightOf(thread, regionsOn)),
       selected: selection.ids.filter((id) => ids.has(id)),
     });
   }, [highlightKey]);
@@ -945,7 +1206,81 @@ function ReviewSession({
     if (state === "connected") return;
     stopPicking();
     setOffer(null);
+    setRegionDraft(null);
+    dispatchSuggest({ type: "page-change" });
   }, [state]);
+
+  // Suggesting is offered only when the API switched it on, comments are open, and the bridge
+  // in the frame announced it can (protocol 3). The page can forge that announcement: it only
+  // decides what this screen offers, never what is saved.
+  const suggestOffered = start.suggestions === true && canComment;
+  const canSuggest =
+    suggestOffered && state === "connected" && bridge.capabilities.includes("edit");
+  useEffect(() => {
+    if (!canSuggest) dispatchSuggest({ type: "toggle", on: false });
+  }, [canSuggest]);
+  // The frame learns only the mode, what is chosen and the epoch: never what is typed.
+  const editMode = editModeOf(suggest);
+  const suggestKey = `${suggest.mode}:${suggest.epoch}:${editMode.kind}:${state}`;
+  // suggestKey summarizes what the effect sends, so it runs only when that changes.
+  useEffect(() => {
+    if (state !== "connected" || suggest.epoch === 0) return;
+    send({
+      type: "edit-mode",
+      epoch: suggest.epoch,
+      active: editMode.active,
+      kind: editMode.kind,
+      hint:
+        editMode.kind === "style"
+          ? t("suggest.style.pick.hint")
+          : editMode.kind === "structure"
+            ? t(
+                suggest.mode === "structuring"
+                  ? "suggest.structure.destination.hint"
+                  : "suggest.structure.pick.hint",
+              )
+            : t("suggest.hint"),
+    });
+  }, [suggestKey]);
+  const elementPick = suggest.mode === "choosing" ? suggest.pick : null;
+  const togglePickFor = (kind: "style" | "structure") => {
+    dispatchSuggest({ type: "pick", kind: elementPick === kind ? null : kind });
+    if (elementPick !== kind) {
+      announce(
+        t(kind === "style" ? "suggest.style.pick.started" : "suggest.structure.pick.started"),
+      );
+    }
+  };
+  const setMode = (mode: "comment" | "suggest" | "edit") => {
+    const on = mode !== "comment";
+    if (on && suggest.mode !== "off") {
+      // Between Suggest and Edit: an open editor ends unsaved, the selection mode stays.
+      if (mode === purpose) return;
+      setPurpose(mode);
+      dispatchSuggest({ type: "cancel" });
+      announce(t(mode === "edit" ? "draft.mode.on" : "suggest.mode.on"));
+      return;
+    }
+    if (on === (suggest.mode !== "off")) return;
+    if (on) setPurpose(mode);
+    if (on) {
+      setDraft(null);
+      setOffer(null);
+      if (picking) {
+        stopPicking();
+        send({ type: "pick", active: false, hint: t("review.pick.hint") });
+      }
+    }
+    send({ type: "clear-selection" });
+    dispatchSuggest({ type: "toggle", on });
+    announce(t(!on ? "suggest.mode.off" : mode === "edit" ? "draft.mode.on" : "suggest.mode.on"));
+  };
+  const closeEditor = (threadId: string | null) => {
+    send({ type: "clear-selection" });
+    if (threadId) setSelection({ ids: [threadId], fromFrame: false });
+    // Back to the artifact the person was in.
+    else frame.current?.focus();
+  };
 
   const startGeneral = () => {
     setOffer(null);
@@ -955,6 +1290,40 @@ function ReviewSession({
     if (!offer) return;
     setDraft(offer.target, { rect: offer.drawn ? offer.rect : null });
     setOffer(null);
+  };
+  const startRegion = () => {
+    if (!offer?.image || !offer.rect) return;
+    setRegionDraft({
+      target: offer.target,
+      box: offer.rect,
+      image: offer.image,
+      region: INITIAL_REGION,
+    });
+    setOffer(null);
+    announce(t("region.started"));
+  };
+  const cancelRegion = () => {
+    setRegionDraft(null);
+    send({ type: "clear-selection" });
+    frame.current?.focus();
+  };
+  const confirmRegion = () => {
+    if (!regionDraft) return;
+    const { target, box, image, region } = regionDraft;
+    const drawn = regionBox(region, box);
+    setRegionDraftState(null);
+    setDraft(
+      target,
+      {
+        rect: {
+          x: Math.round(drawn.x),
+          y: Math.round(drawn.y),
+          width: Math.round(drawn.width),
+          height: Math.round(drawn.height),
+        },
+      },
+      { ...region, image },
+    );
   };
   const togglePick = () => {
     const next = !picking;
@@ -985,11 +1354,127 @@ function ReviewSession({
   const sheet = narrow || unplaced;
   // Drawn by this page over the frame, never inside the artifact's document, and clipped to the
   // frame's box: what the frame reports can move these controls but never out of the frame.
-  const layer =
-    canComment && (offer || draft?.inline) ? (
-      <>
-        {offer && !draft ? (
-          <Floating place={(size, area) => pillPlacement(offer, size, area)}>
+  const suggestOffer = suggest.mode === "choosing" ? suggest.offer : null;
+  const suggestLayer = suggestOffer ? (
+    <Floating place={(size, area) => pillPlacement(suggestPill(suggestOffer), size, area)}>
+      <Button
+        intent="floating"
+        size="sm"
+        icon={<PencilLine className="size-4" />}
+        onClick={() => dispatchSuggest({ type: "open", offer: suggestOffer })}
+      >
+        {t("suggest.selection.action")}
+      </Button>
+    </Floating>
+  ) : suggest.mode === "styling" ? (
+    <Floating
+      key={`${suggest.epoch}`}
+      sheet={sheet}
+      place={(size, area) => {
+        const anchor = suggest.rect ? visibleRect(suggest.rect, area) : null;
+        return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+      }}
+      onPlaced={(placed) => {
+        if (!placed) setUnplaced(true);
+      }}
+    >
+      <FloatingPanel label={t("suggest.style.label")} sheet={sheet}>
+        <StyleEditor
+          start={start}
+          state={suggest}
+          dispatch={dispatchSuggest}
+          humanNeeded={humanNeeded}
+          onClose={closeEditor}
+          draft={purpose === "edit" && ownerSide ? ownerDraft : undefined}
+        />
+      </FloatingPanel>
+    </Floating>
+  ) : suggest.mode === "structuring" && suggest.choosing ? (
+    // While the destination is picked, the panel steps aside so the whole frame can be clicked:
+    // only a prompt in the frame's corner stays, with a way to stop.
+    <Floating
+      place={(size, area) => {
+        const corner = { x: area.width - size.width - 12, y: area.height - size.height - 12 };
+        return corner.x >= 0 && corner.y >= 0 ? corner : { x: 0, y: 0 };
+      }}
+    >
+      <FloatingPanel label={t("suggest.structure.label")}>
+        <p className="text-sm">{t("suggest.structure.destination.choosing")}</p>
+        <div>
+          <Button
+            size="sm"
+            onClick={() => dispatchSuggest({ type: "destination-pick", on: false })}
+          >
+            {t("suggest.structure.destination.stop")}
+          </Button>
+        </div>
+      </FloatingPanel>
+    </Floating>
+  ) : suggest.mode === "structuring" ? (
+    <Floating
+      key={`${suggest.opened}`}
+      sheet={sheet}
+      place={(size, area) => {
+        const anchor = suggest.rect ? visibleRect(suggest.rect, area) : null;
+        return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+      }}
+      onPlaced={(placed) => {
+        if (!placed) setUnplaced(true);
+      }}
+    >
+      <FloatingPanel label={t("suggest.structure.label")} sheet={sheet}>
+        <StructureEditor
+          start={start}
+          state={suggest}
+          dispatch={dispatchSuggest}
+          humanNeeded={humanNeeded}
+          onClose={closeEditor}
+          draft={purpose === "edit" && ownerSide ? ownerDraft : undefined}
+        />
+      </FloatingPanel>
+    </Floating>
+  ) : suggest.mode === "editing" ? (
+    <Floating
+      key={`${suggest.epoch}`}
+      sheet={sheet}
+      place={(size, area) => {
+        const anchor = suggest.rect ? visibleRect(suggest.rect, area) : null;
+        return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+      }}
+      onPlaced={(placed) => {
+        if (!placed) setUnplaced(true);
+      }}
+    >
+      <FloatingPanel label={t("suggest.editor.label")} sheet={sheet}>
+        <SuggestEditor
+          start={start}
+          state={suggest}
+          dispatch={dispatchSuggest}
+          humanNeeded={humanNeeded}
+          onClose={closeEditor}
+          draft={purpose === "edit" && ownerSide ? ownerDraft : undefined}
+        />
+      </FloatingPanel>
+    </Floating>
+  ) : null;
+  const regionLayer =
+    canComment && regionDraft ? (
+      <RegionLayer
+        draft={regionDraft}
+        onChange={(region) => setRegionDraftState({ ...regionDraft, region })}
+        onConfirm={confirmRegion}
+        onCancel={cancelRegion}
+      />
+    ) : null;
+  const layer = suggestLayer ? (
+    suggestLayer
+  ) : regionLayer ? (
+    regionLayer
+  ) : canComment && (offer || draft?.inline) ? (
+    <>
+      {offer && !draft ? (
+        <Floating place={(size, area) => pillPlacement(offer, size, area)}>
+          <div className="flex gap-2">
             <Button
               intent="floating"
               size="sm"
@@ -998,41 +1483,54 @@ function ReviewSession({
             >
               {t("review.selection.comment")}
             </Button>
-          </Floating>
-        ) : null}
-        {draft?.inline ? (
-          <Floating
-            key={draft.id}
-            sheet={sheet}
-            place={(size, area) => {
-              const rect = draft.inline?.rect;
-              const anchor = rect ? visibleRect(rect, area) : null;
-              return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
-            }}
-            onPlaced={(placed) => {
-              if (!placed) setUnplaced(true);
-            }}
-          >
-            <FloatingPanel label={t("review.inline.label")} sheet={sheet}>
-              <InlineComposer
-                start={start}
-                owner={data?.role === "owner"}
-                target={draft.target}
-                humanNeeded={humanNeeded}
-                onDone={(thread) => {
-                  closeDraft();
-                  if (thread) setSelection({ ids: [thread.id], fromFrame: false });
-                }}
-              />
-            </FloatingPanel>
-          </Floating>
-        ) : null}
-      </>
-    ) : null;
+            {offer.image ? (
+              <Button
+                intent="floating"
+                size="sm"
+                icon={<SquareDashedMousePointer className="size-4" />}
+                onClick={startRegion}
+              >
+                {t("region.mark")}
+              </Button>
+            ) : null}
+          </div>
+        </Floating>
+      ) : null}
+      {draft?.inline ? (
+        <Floating
+          key={draft.id}
+          sheet={sheet}
+          place={(size, area) => {
+            const rect = draft.inline?.rect;
+            const anchor = rect ? visibleRect(rect, area) : null;
+            return anchor ? placeNear(anchor, size, area, ANCHOR_GAP) : null;
+          }}
+          onPlaced={(placed) => {
+            if (!placed) setUnplaced(true);
+          }}
+        >
+          <FloatingPanel label={t("review.inline.label")} sheet={sheet}>
+            <InlineComposer
+              start={start}
+              owner={data?.role === "owner"}
+              target={draft.target}
+              region={draft.region}
+              humanNeeded={humanNeeded}
+              onDone={(thread) => {
+                closeDraft();
+                if (thread) setSelection({ ids: [thread.id], fromFrame: false });
+              }}
+            />
+          </FloatingPanel>
+        </Floating>
+      ) : null}
+    </>
+  ) : null;
 
   const frameArea = (
     <>
       <div className="flex flex-col gap-3 p-3 empty:hidden">
+        <DataGrantPanel artifactId={info.artifactId} origin={info.origin} grant={dataGrant} />
         <BridgeNotice state={state} info={info} target={target} onRestart={onRestart} />
         {outdated ? (
           <Callout
@@ -1074,6 +1572,43 @@ function ReviewSession({
             aria-label={t("review.toolbar.label")}
             className="flex flex-wrap gap-2"
           >
+            {/* Drawn as soon as the API offers suggesting, its other modes enabled once the
+                bridge can take them: the switch never appears under the pointer when the page
+                connects, which would move the thread list between a press and its release. */}
+            {suggestOffered ? (
+              <ModeSwitch
+                label={t("suggest.mode.label")}
+                value={suggest.mode === "off" ? "comment" : purpose}
+                onChange={setMode}
+                options={[
+                  {
+                    value: "comment",
+                    label: t("suggest.mode.comment"),
+                    name: t("suggest.mode.name", { mode: t("suggest.mode.comment") }),
+                    icon: <MessageSquare className="size-4" />,
+                  },
+                  {
+                    value: "suggest",
+                    label: t("suggest.mode.suggest"),
+                    name: t("suggest.mode.name", { mode: t("suggest.mode.suggest") }),
+                    icon: <PencilLine className="size-4" />,
+                    disabled: !canSuggest,
+                  },
+                  // The owner side may also edit directly, into a private draft.
+                  ...(ownerSide
+                    ? [
+                        {
+                          value: "edit" as const,
+                          label: t("draft.mode.edit"),
+                          name: t("suggest.mode.name", { mode: t("draft.mode.edit") }),
+                          icon: <FilePen className="size-4" />,
+                          disabled: !canSuggest,
+                        },
+                      ]
+                    : []),
+                ]}
+              />
+            ) : null}
             <Button
               size="sm"
               icon={<MessageSquarePlus className="size-4" />}
@@ -1092,6 +1627,35 @@ function ReviewSession({
               </Button>
             ) : null}
           </div>
+        ) : null}
+        {suggest.mode !== "off" ? (
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              icon={<Paintbrush className="size-4" />}
+              aria-pressed={elementPick === "style"}
+              disabled={!canSuggest || suggest.mode !== "choosing"}
+              onClick={() => togglePickFor("style")}
+            >
+              {t("suggest.style.pick")}
+            </Button>
+            <Button
+              size="sm"
+              icon={<Move className="size-4" />}
+              aria-pressed={elementPick === "structure"}
+              disabled={!canSuggest || suggest.mode !== "choosing"}
+              onClick={() => togglePickFor("structure")}
+            >
+              {t("suggest.structure.pick")}
+            </Button>
+          </div>
+        ) : null}
+        {suggest.mode !== "off" ? (
+          <TextSearchPanel
+            start={start}
+            path={path}
+            onChoose={(found) => dispatchSuggest({ type: "open-target", target: found })}
+          />
         ) : null}
         {canComment && draft && !draft.inline ? (
           <Composer
@@ -1136,6 +1700,12 @@ function ReviewSession({
             onFilter={setFilter}
             authors={authors}
           />
+        ) : null}
+        {ownerSide && start.suggestions === true ? (
+          <>
+            <DraftPanel start={start} state={ownerDraft} />
+            <ChangeList artifactId={start.artifactId} />
+          </>
         ) : null}
         {data ? <CommentNoticeToggle artifactId={start.artifactId} explainPlan={false} /> : null}
       </>
@@ -1352,28 +1922,33 @@ function useCreateThread(
   target: AnnotationTarget,
   humanNeeded: boolean,
   onDone: (thread: AnnotationThreadView) => void,
+  region?: ImageRegionRequest,
 ) {
   const t = useT();
   const announce = useAnnounce();
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const human = useHumanCheck(humanNeeded);
+  const uploads = useAttachmentUploads(start.artifactId);
   const post = useMutation({
-    mutationFn: (body: string) =>
+    mutationFn: ({ body, attachments }: { body: string; attachments: string[] }) =>
       human.post((key, token) =>
         api.createThread(
           start.artifactId,
           {
             versionId: start.versionId,
             target,
+            ...(region ? { region } : {}),
             body,
             ...(token === undefined ? {} : { turnstileToken: token }),
+            ...(attachments.length > 0 ? { attachments } : {}),
           },
           key,
         ),
       ),
     onSuccess: async (thread) => {
       if (!thread) return;
+      uploads.clear();
       applyThread(queryClient, start.artifactId, thread);
       announce(t("review.composer.posted"));
       onDone(thread);
@@ -1384,15 +1959,20 @@ function useCreateThread(
     defaultValues: { body: "" },
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
-    onSubmit: ({ value }) =>
-      post.mutateAsync(value.body).then(
+    onSubmit: async ({ value }) => {
+      // Files leave the browser only now, when the person posts; a file that does not go through
+      // keeps the comment from going out without it.
+      const attachments = await uploads.upload();
+      if (attachments === null) return;
+      await post.mutateAsync({ body: value.body, attachments }).then(
         () => {},
         () => {},
-      ),
+      );
+    },
   });
   const error =
     post.isError && !humanRefusal(post.error) ? <ActionError error={post.error} /> : null;
-  return { form, post, human, error };
+  return { form, post, human, error, uploads };
 }
 
 /** Who can read a new thread: every reader sees the owner's threads; a reader's, the owner. */
@@ -1416,7 +1996,8 @@ function Composer({
   const t = useT();
   // Frozen when the composer opens: nothing the frame sends later can retarget the comment.
   const [target] = useState(initialTarget);
-  const { form, post, human, error } = useCreateThread(start, target, humanNeeded, onDone);
+  const { form, post, human, error, uploads } = useCreateThread(start, target, humanNeeded, onDone);
+  const attaching = useAttachmentsEnabled();
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border-strong p-3">
       <TargetSummary target={target} />
@@ -1433,6 +2014,7 @@ function Composer({
                 />
               )}
             </form.AppField>
+            {attaching ? <AttachmentControls uploads={uploads} /> : null}
             {human.field}
             <div className="flex flex-wrap gap-2">
               <form.SubmitButton icon={<Send className="size-4" />} busy={post.isPending}>
@@ -1472,6 +2054,7 @@ function InlineComposer({
   start,
   owner,
   target: initialTarget,
+  region: initialRegion,
   humanNeeded,
   onDone,
 }: {
@@ -1479,12 +2062,22 @@ function InlineComposer({
   /** Who can read a new thread differs: every reader sees the owner's threads. */
   owner: boolean;
   target: AnnotationTarget;
+  /** The rectangle of the image the comment is about (decision 0028). */
+  region?: ImageRegionRequest | undefined;
   humanNeeded: boolean;
   onDone(thread: AnnotationThreadView | null): void;
 }) {
   const t = useT();
   const [target] = useState(initialTarget);
-  const { form, post, human, error } = useCreateThread(start, target, humanNeeded, onDone);
+  const [region] = useState(initialRegion);
+  const { form, post, human, error, uploads } = useCreateThread(
+    start,
+    target,
+    humanNeeded,
+    onDone,
+    region,
+  );
+  const attaching = useAttachmentsEnabled();
   const panel = useRef<HTMLDivElement>(null);
   const cancel = useRef(() => onDone(null));
   cancel.current = () => onDone(null);
@@ -1512,7 +2105,7 @@ function InlineComposer({
   }, []);
   return (
     <div ref={panel} className="flex flex-col gap-3">
-      <TargetSummary target={target} compact />
+      <TargetSummary target={target} region={region} compact />
       {error}
       <form.AppForm>
         <form.Form label={t("review.composer.label")}>
@@ -1528,6 +2121,7 @@ function InlineComposer({
                 />
               )}
             </form.AppField>
+            {attaching ? <AttachmentControls uploads={uploads} compact /> : null}
             {human.field}
             <div className="flex flex-wrap justify-end gap-2">
               <Button size="sm" onClick={() => onDone(null)}>

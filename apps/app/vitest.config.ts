@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
@@ -30,6 +31,26 @@ export default defineConfig(async () => {
           // own bucket. The configuration binds the real ones; tests use these local ones.
           d1Databases: ["DB_EU", "ACCESS_DB_EU"],
           r2Buckets: ["ARTIFACTS_EU"],
+          // The data Worker the configuration binds by `script_name` (decision 0026), from its
+          // bundle (`bun run --cwd apps/data build`; turbo builds it before these tests): the owner
+          // document API reaches the real documents object, on real SQLite storage.
+          workers: [
+            {
+              name: "portifact-data",
+              modules: [
+                {
+                  type: "ESModule",
+                  path: "index.js",
+                  contents: readFileSync(
+                    fileURLToPath(new URL("../data/dist/index.js", import.meta.url).href),
+                    "utf8",
+                  ),
+                },
+              ],
+              compatibilityDate: "2026-08-01",
+              durableObjects: { DOCUMENTS: { className: "ArtifactDocuments", useSQLite: true } },
+            },
+          ],
           // highlight.js's grammars (packages/render) load from disk as plain ES modules instead
           // of through Vite: the pool sends every module Vite transformed for a test file in one
           // WebSocket message, which workerd caps at 32 MiB, and this suite's graph is close to it.
@@ -72,6 +93,9 @@ export default defineConfig(async () => {
             INTEGRATIONS_ENABLED: "true",
             SLACK_ENABLED: "true",
             INTEGRATIONS_KEY: "test-only integrations sealing key for the app suite",
+            // The owner document API is offered in tests; the deployed configuration leaves it
+            // unset (decision 0026, "Switches").
+            ARTIFACT_DATA_ENABLED: "true",
             TEST_MIGRATIONS: migrations,
             TEST_ACCESS_MIGRATIONS: accessMigrations,
           },

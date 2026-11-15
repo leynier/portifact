@@ -131,6 +131,49 @@ describe("the Service tokens page", () => {
     await waitFor(() => expect(screen.queryByText("Copy the token now")).toBeNull());
   });
 
+  it("offers the artifact data scopes as opt-in and lists them only when granted", async () => {
+    server.workspaces.acme = workspace("acme", "admin", {
+      name: "Acme",
+      serviceTokens: [
+        TOKEN,
+        {
+          ...TOKEN,
+          id: `st_${"2".repeat(32)}`,
+          label: "Data sync",
+          scopes: ["data:read", "data:write"],
+        },
+      ],
+    });
+    renderDashboard("/service-tokens?workspace=acme", server);
+    const plain = (await screen.findByRole("heading", { name: "GitHub previews" })).closest(
+      "li",
+    ) as HTMLElement;
+    expect(within(plain).getByText("Scopes: Read, Publish")).toBeTruthy();
+    const data = (await screen.findByRole("heading", { name: "Data sync" })).closest(
+      "li",
+    ) as HTMLElement;
+    expect(within(data).getByText("Scopes: Read data, Change data")).toBeTruthy();
+
+    const form = screen
+      .getByRole("button", { name: "Create token" })
+      .closest("form") as HTMLElement;
+    const read = within(form).getByRole("checkbox", { name: /^Read data/ }) as HTMLInputElement;
+    const write = within(form).getByRole("checkbox", { name: /^Change data/ }) as HTMLInputElement;
+    expect(read.checked).toBe(false);
+    expect(write.checked).toBe(false);
+    expect(form.textContent).toContain("they can hold personal data");
+    fireEvent.change(within(form).getByRole("textbox", { name: /^Label/ }), {
+      target: { value: "Exports" },
+    });
+    fireEvent.click(read);
+    fireEvent.click(within(form).getByRole("button", { name: "Create token" }));
+    await screen.findByText("Copy the token now");
+    const created = server.workspaces.acme?.serviceTokens.find(
+      (token) => token.label === "Exports",
+    );
+    expect(created?.scopes).toEqual(["artifacts:read", "artifacts:write", "data:read"]);
+  });
+
   it("says which plan includes tokens and offers no creation without it", async () => {
     server.workspaces.acme = workspace("acme", "admin", {
       name: "Acme",

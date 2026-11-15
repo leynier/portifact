@@ -6,6 +6,7 @@ import {
   ARTIFACT_DATA,
   type ArtifactDataLimits,
   type ChargeClass,
+  COLLECTION_MODES,
   type CollectionDeclaration,
   type CollectionMode,
   MAX_INDEXED_FIELDS,
@@ -19,9 +20,22 @@ import { accept, type Decision, refuse } from "./decision.ts";
  * share link); the owner side is the API, MCP and CLI of the artifact's admins and editors.
  */
 export type Caller =
-  | { kind: "visitor"; author: string; canWrite: boolean }
-  | { kind: "reader" }
+  | { kind: "visitor"; author: string; canWrite: boolean; modes?: readonly CollectionMode[] }
+  | { kind: "reader"; modes?: readonly CollectionMode[] }
   | { kind: "owner"; actor?: string };
+
+/**
+ * The collection modes a page reaches (decision 0026, "The document model"): every mode since
+ * delivery 9, which opened `read` and `shared` to pages. A page caller carries them, so a mode
+ * left out of this list answers as if the caller had no access to it, in both objects, through
+ * the API and over live updates alike.
+ */
+export const PAGE_MODES: readonly CollectionMode[] = COLLECTION_MODES;
+
+/** Whether a page caller may reach a collection of this mode at all; the owner side always may. */
+function modeReached(mode: CollectionMode, caller: Caller): boolean {
+  return caller.kind === "owner" || caller.modes === undefined || caller.modes.includes(mode);
+}
 
 export type Scope = "all" | "own" | "none";
 
@@ -39,11 +53,13 @@ export function authorOf(caller: Caller): string | null {
 }
 
 export function readScope(mode: CollectionMode, caller: Caller): Scope {
+  if (!modeReached(mode, caller)) return "none";
   if (caller.kind === "owner" || mode !== "own") return "all";
   return caller.kind === "visitor" ? "own" : "none";
 }
 
 export function writeScope(mode: CollectionMode, caller: Caller): Scope {
+  if (!modeReached(mode, caller)) return "none";
   if (caller.kind === "owner") return "all";
   if (caller.kind !== "visitor" || !caller.canWrite || mode === "read") return "none";
   return mode === "shared" ? "all" : "own";
@@ -54,6 +70,7 @@ export function writeScope(mode: CollectionMode, caller: Caller): Scope {
  * permission or the current terms; in `shared` mode any writer.
  */
 export function deleteScope(mode: CollectionMode, caller: Caller): Scope {
+  if (!modeReached(mode, caller)) return "none";
   if (caller.kind === "owner") return "all";
   if (caller.kind !== "visitor") return "none";
   return mode === "shared" && caller.canWrite ? "all" : "own";

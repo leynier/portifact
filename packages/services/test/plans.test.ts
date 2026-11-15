@@ -41,6 +41,7 @@ describe("owner entitlements", () => {
       validUntil: null,
       limits: PLANS.free.limits,
       features: [],
+      data: PLANS.free.data,
     });
   });
 

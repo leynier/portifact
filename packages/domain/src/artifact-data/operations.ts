@@ -4,7 +4,7 @@
 // body. Records are pruned `replayMs` after they were written, and an ID issued more than
 // `horizonMs` before the command's time (or more than `clockSkewMs` after it) is refused, so an
 // ID whose record was pruned can never apply again.
-import { ARTIFACT_DATA } from "@portifact/contracts/artifact-data";
+import { ARTIFACT_DATA, ERASURE_ACTOR } from "@portifact/contracts/artifact-data";
 import { accept, type Decision, refuse } from "./decision.ts";
 import { sha256Hex } from "./sha256.ts";
 
@@ -142,4 +142,24 @@ export function settleDecision(facts: SettleFacts, opId: string, now: number): S
     answer: { state: "aborted" },
     writeAborted: !facts.barred && facts.currentGeneration && !expired,
   };
+}
+
+/**
+ * A pending audit obligation's key read back for the daily sweep (decision 0026, "Audit with
+ * durable states"): who acted (the user's or token's ID behind `owner:`, or `ERASURE_ACTOR`), the
+ * generation and the operation ID, with the owner it was recorded for. A visitor's key, or one
+ * that does not parse, is not relayed and answers null.
+ */
+export function pendingObligation(
+  key: string,
+  owner: string,
+): { actor: string; generation: number; opId: string; owner: string } | null {
+  const parts = key.split("|");
+  if (parts.length !== 3) return null;
+  const [name, generationText, opId] = parts as [string, string, string];
+  const generation = Number(generationText);
+  if (!Number.isSafeInteger(generation) || generation < 0 || !OPERATION_ID.test(opId)) return null;
+  if (name === ERASURE_ACTOR) return { actor: name, generation, opId, owner };
+  if (!name.startsWith("owner:") || name.length === "owner:".length) return null;
+  return { actor: name.slice("owner:".length), generation, opId, owner };
 }

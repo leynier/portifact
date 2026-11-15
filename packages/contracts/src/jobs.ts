@@ -51,6 +51,9 @@ export const OutboxTopic = z.enum([
   "data_reconcile",
   "data_resolve",
   "data_export",
+  "data_audit",
+  "data_rights_request",
+  "data_reset",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -217,6 +220,11 @@ export const TombstoneMarker = z.strictObject({
     "session",
     "oauth_token",
     "oauth_grant",
+    "suggestion_withdrawn",
+    "suggestion_rejected",
+    "edit_draft",
+    "data_grant",
+    "comment_attachment",
   ]),
   id: z.string().min(1).max(200),
   deletedAt: z.number().int().nonnegative(),
@@ -351,3 +359,49 @@ export const DataExportPayload = z.strictObject({
   page: DataCount,
 });
 export type DataExportPayload = z.infer<typeof DataExportPayload>;
+
+/**
+ * Payload of a `data_audit` job (decision 0026, "Audit with durable states"), written before an
+ * owner-side mutation reaches the object: the envelope the mutation carried, who made it and its
+ * operation ID. The job settles the operation with the object and records its audit event, or
+ * records it aborted so a late arrival cannot commit. `subject` is the artifact.
+ */
+export const DataAuditPayload = z.strictObject({
+  ownerId: DataOwnerId,
+  generation: DataCount,
+  epoch: DataCount,
+  /**
+   * The acting user or service token, as the audit event names it, or `system:erasure` for an
+   * author erasure chunk (recorded with the system as actor).
+   */
+  actor: z.string().min(1).max(128),
+  opId: OperationId,
+});
+export type DataAuditPayload = z.infer<typeof DataAuditPayload>;
+
+/**
+ * Payload of a `data_reset` job: the owner's erase of all an artifact's data (decision 0026),
+ * written in the batch of its D1 claim and run by the request itself, the job finishing a reset a
+ * crash left prepared. The erase ID is the claim's operation ID.
+ */
+export const DataResetPayload = z.strictObject({
+  ownerId: DataOwnerId,
+  generation: DataCount,
+  epoch: DataCount,
+  actor: z.string().min(1).max(128),
+  eraseId: OperationId,
+});
+export type DataResetPayload = z.infer<typeof DataResetPayload>;
+
+/**
+ * What an owner's erase claim bound at confirmation (`data_operations.target`): the owner,
+ * generation and epoch it was authorized for, and `done`, the generation it reached once D1
+ * followed it.
+ */
+export const DataResetTarget = z.object({
+  ownerId: DataOwnerId,
+  generation: DataCount,
+  epoch: DataCount,
+  done: DataCount.optional(),
+});
+export type DataResetTarget = z.infer<typeof DataResetTarget>;

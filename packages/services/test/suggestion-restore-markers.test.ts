@@ -1,0 +1,814 @@
+// Edit suggestions through a backup restore (decision 0027, "Withdrawal, deletion and retention";
+// docs/operations.md, "Restoring a backup"): a withdrawal, a rejection and every removal of a draft
+// write a window tombstone in the batch of the change, and `applyTombstones` withdraws or rejects
+// the suggestion again and deletes the draft again when a D1 Time Travel restore brought it back,
+// never a draft its author started after (its incarnation).
+import { env } from "cloudflare:test";
+import { regionsFromEnv, schema } from "@portifact/db";
+import { and, asc, eq, type SQL } from "drizzle-orm";
+import { describe, expect, it } from "vitest";
+import { advanceAccountDeletion, requestAccountDeletion } from "../src/account-data.ts";
+import {
+  deleteOwnAnnotationMessage,
+  eraseAuthorFromThread,
+  replyToAnnotationThread,
+} from "../src/annotations.ts";
+import { applyTombstones, exportTombstones } from "../src/backups.ts";
+import { commentTombstoneMarkers, writeCommentTombstones } from "../src/comment-retention.ts";
+import { rebaseDraft } from "../src/draft-rebase.ts";
+import { discardDraft, removeDraftBatch, saveDraft } from "../src/edit-drafts.ts";
+import { runJob } from "../src/outbox.ts";
+import { acceptSuggestion, publishDraft } from "../src/suggestion-accept.ts";
+import { pruneDraftsWithoutRole, pruneSuggestionRecords } from "../src/suggestion-maintenance.ts";
+import { draftMarkerId } from "../src/suggestion-markers.ts";
+import { planDraft, planSuggestion } from "../src/suggestion-plans.ts";
+import { rejectSuggestion, submitSuggestion, withdrawSuggestion } from "../src/suggestions.ts";
+import { transferArtifact } from "../src/transfer.ts";
+import { createWorkspace } from "../src/workspaces.ts";
+import { publishIn, team } from "./comment-retention-fixtures.ts";
+import { DAY, db, grantPlan, NOW, session, user, value } from "./fixtures.ts";
+import { raceBeforeBatchWith } from "./race.ts";
+import {
+  currentText,
+  DOC,
+  DOMAIN,
+  type Doc,
+  humanCheck,
+  JOB_DEPS,
+  jobsOf,
+  publishDoc,
+  republish,
+  runJobs,
+  textOp,
+  thread,
+} from "./suggestion-support.ts";
+
+/** A row the test needs, or a clear failure. */
+function present<T>(row: T | undefined): T {
+  if (row === undefined) throw new Error("missing row");
+  return row;
+}
+
+const MD = { type: "markdown" as const, path: "index.md" };
+const regions = () => regionsFromEnv(env);
+const t = schema.tombstones;
+const th = schema.annotationThreads;
+const m = schema.annotationMessages;
+const dr = schema.editDrafts;
+
+type Kind = "suggestion_withdrawn" | "suggestion_rejected" | "edit_draft";
+
+async function marker(kind: Kind, id: string) {
+  const [row] = await db()
+    .global.select()
+    .from(t)
+    .where(and(eq(t.kind, kind), eq(t.id, id)));
+  return row;
+}
+
+/** An owner's document, a reader on its list and that reader's pending suggestion. */
+async function setup() {
+  const owner = await user("Owner");
+  const reader = await user("Reader");
+  const doc = await publishDoc(owner.id);
+  await db()
+    .insert(schema.artifactReaders)
+    .values({ artifactId: doc.artifactId, email: reader.email });
+  const view = value(
+    await submitSuggestion(db(), {
+      userId: reader.id,
+      artifactId: doc.artifactId,
+      now: NOW,
+      versionId: doc.versionId,
+      edit: { operations: [textOp(MD, DOC, "Second", "Next")] },
+      body: "Typo",
+      humanCheck,
+    }),
+  );
+  const as = (userId: string, now = NOW + 10) => ({ userId, artifactId: doc.artifactId, now });
+  return { owner, reader, doc, threadId: view.id, as };
+}
+
+/** The thread and its messages as they are now: what a restore to this moment brings back. */
+async function snapshot(threadId: string) {
+  return {
+    thread: await thread(threadId),
+    messages: await db().select().from(m).where(eq(m.threadId, threadId)),
+  };
+}
+
+/**
+ * Puts a snapshot back as a restore does, by replacing the rows (the immutability trigger refuses
+ * an update out of a decided state, which a restore never goes through).
+ */
+async function rewind(saved: Awaited<ReturnType<typeof snapshot>>) {
+  if (!saved.thread) throw new Error("no thread");
+  await db().delete(th).where(eq(th.id, saved.thread.id));
+  await db().insert(th).values(saved.thread);
+  if (saved.messages.length > 0) await db().insert(m).values(saved.messages);
+}
+
+const restore = (now = NOW + DAY) => applyTombstones(regions(), [], now);
+
+describe("a withdrawal through a restore", () => {
+  it("writes its marker with the withdrawal, and a restore withdraws the suggestion again", async () => {
+    const s = await setup();
+    const before = await snapshot(s.threadId);
+    value(
+      await withdrawSuggestion(db(), { ...s.as(s.reader.id), threadId: s.threadId, revision: 1 }),
+    );
+    expect(await marker("suggestion_withdrawn", s.threadId)).toMatchObject({ deletedAt: NOW + 10 });
+    expect((await exportTombstones(regions())).map((x) => `${x.kind}:${x.id}`)).toContain(
+      `suggestion_withdrawn:${s.threadId}`,
+    );
+    await rewind(before);
+    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "pending" });
+    expect((await restore()).withdrawnSuggestions).toBe(1);
+    expect(await thread(s.threadId)).toMatchObject({
+      suggestionState: "withdrawn",
+      edit: null,
+      editBytes: 0,
+      editProofs: null,
+    });
+    // Running it again changes nothing.
+    expect((await restore()).withdrawnSuggestions).toBe(0);
+  });
+
+  it("writes no marker for a withdrawal that is refused", async () => {
+    const s = await setup();
+    expect(
+      await withdrawSuggestion(db(), { ...s.as(s.reader.id), threadId: s.threadId, revision: 9 }),
+    ).toMatchObject({ ok: false, code: "version_conflict" });
+    expect(
+      await withdrawSuggestion(db(), { ...s.as(s.owner.id), threadId: s.threadId, revision: 1 }),
+    ).toMatchObject({ ok: false });
+    expect(await marker("suggestion_withdrawn", s.threadId)).toBeUndefined();
+  });
+
+  it("marks the withdrawal its author makes by deleting their first message", async () => {
+    const s = await setup();
+    value(
+      await replyToAnnotationThread(db(), {
+        ...s.as(s.owner.id),
+        threadId: s.threadId,
+        body: "Thanks",
+        humanCheck,
+      }),
+    );
+    const before = await snapshot(s.threadId);
+    const [first] = await db()
+      .select({ id: m.id })
+      .from(m)
+      .where(eq(m.threadId, s.threadId))
+      .orderBy(asc(m.createdAt))
+      .limit(1);
+    value(
+      await deleteOwnAnnotationMessage(db(), {
+        ...s.as(s.reader.id, NOW + 20),
+        messageId: first?.id as string,
+      }),
+    );
+    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "withdrawn" });
+    expect(await marker("suggestion_withdrawn", s.threadId)).toMatchObject({ deletedAt: NOW + 20 });
+    await rewind(before);
+    await restore();
+    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "withdrawn", edit: null });
+  });
+
+  it("marks the system's withdrawal when its author's words are erased", async () => {
+    const s = await setup();
+    value(
+      await replyToAnnotationThread(db(), {
+        ...s.as(s.owner.id),
+        threadId: s.threadId,
+        body: "A reply that keeps the thread",
+        humanCheck,
+      }),
+    );
+    expect(
+      await eraseAuthorFromThread(db(), {
+        authorId: s.reader.id,
+        threadId: s.threadId,
+        now: NOW + 30,
+      }),
+    ).toBe(true);
+    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "withdrawn" });
+    expect(await marker("suggestion_withdrawn", s.threadId)).toMatchObject({ deletedAt: NOW + 30 });
+  });
+
+  it("ends an acceptance the restore brought back running, so nothing publishes it", async () => {
+    const s = await setup();
+    const params = { ...s.as(s.owner.id), threadId: s.threadId, contentDomain: DOMAIN };
+    const plan = value(await planSuggestion(db(), env.ARTIFACTS, params));
+    value(await acceptSuggestion(db(), env.ARTIFACTS, { ...params, digest: plan.digest }));
+    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "applying" });
+    // The marker of a withdrawal made after the moment the restore went back to.
+    await db()
+      .global.insert(t)
+      .values({ kind: "suggestion_withdrawn", id: s.threadId, deletedAt: NOW });
+    expect((await restore()).withdrawnSuggestions).toBe(1);
+    expect(await thread(s.threadId)).toMatchObject({
+      suggestionState: "withdrawn",
+      attemptId: null,
+    });
+    const attempts = await db()
+      .select({ state: schema.acceptanceAttempts.state, reason: schema.acceptanceAttempts.reason })
+      .from(schema.acceptanceAttempts)
+      .where(eq(schema.acceptanceAttempts.threadId, s.threadId));
+    expect(attempts).toEqual([{ state: "ended", reason: "revoked" }]);
+    await runJobs("suggestion_accept", s.doc.artifactId);
+    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "withdrawn" });
+  });
+});
+
+describe("a rejection through a restore", () => {
+  it("writes its marker with the rejection, and a restore rejects the suggestion again", async () => {
+    const s = await setup();
+    const before = await snapshot(s.threadId);
+    value(await rejectSuggestion(db(), { ...s.as(s.owner.id), threadId: s.threadId, revision: 1 }));
+    expect(await marker("suggestion_rejected", s.threadId)).toMatchObject({ deletedAt: NOW + 10 });
+    await rewind(before);
+    expect((await restore(NOW + DAY)).rejectedSuggestions).toBe(1);
+    // The edit stays with a rejected suggestion; the restore's time stands for the decision.
+    expect(await thread(s.threadId)).toMatchObject({
+      suggestionState: "rejected",
+      decidedAt: NOW + DAY,
+      decidedBy: null,
+      edit: before.thread?.edit,
+    });
+  });
+
+  it("leaves a suggestion decided since as it is, and a refused decision writes nothing", async () => {
+    const s = await setup();
+    expect(
+      await rejectSuggestion(db(), { ...s.as(s.owner.id), threadId: s.threadId, revision: 3 }),
+    ).toMatchObject({ ok: false, code: "version_conflict" });
+    expect(await marker("suggestion_rejected", s.threadId)).toBeUndefined();
+    value(
+      await withdrawSuggestion(db(), { ...s.as(s.reader.id), threadId: s.threadId, revision: 1 }),
+    );
+    await db()
+      .global.insert(t)
+      .values({ kind: "suggestion_rejected", id: s.threadId, deletedAt: NOW });
+    expect((await restore()).rejectedSuggestions).toBe(0);
+    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "withdrawn" });
+  });
+});
+
+async function draftRow(doc: Doc, userId: string) {
+  const [row] = await db()
+    .select()
+    .from(dr)
+    .where(and(eq(dr.artifactId, doc.artifactId), eq(dr.userId, userId)));
+  return row;
+}
+
+async function save(doc: Doc, userId: string, now = NOW + 10) {
+  return value(
+    await saveDraft(db(), {
+      userId,
+      artifactId: doc.artifactId,
+      now,
+      baseVersionId: doc.versionId,
+      edit: { operations: [textOp(MD, DOC, "Second", "Next")] },
+      baseRevision: null,
+      baseIncarnation: null,
+    }),
+  );
+}
+
+describe("a removed draft through a restore", () => {
+  it("writes its marker with the discard, and a restore deletes that draft again", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    await save(doc, owner.id);
+    const before = await draftRow(doc, owner.id);
+    if (!before) throw new Error("no draft");
+    value(
+      await discardDraft(db(), { userId: owner.id, artifactId: doc.artifactId, now: NOW + 20 }),
+    );
+    const id = draftMarkerId(doc.artifactId, owner.id, before.incarnation);
+    expect(await marker("edit_draft", id)).toMatchObject({ deletedAt: NOW + 20 });
+    await db().insert(dr).values(before);
+    expect((await restore()).drafts).toBe(1);
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+  });
+
+  it("keeps a draft started after the discard: another incarnation", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    const first = await save(doc, owner.id);
+    value(
+      await discardDraft(db(), { userId: owner.id, artifactId: doc.artifactId, now: NOW + 20 }),
+    );
+    const second = await save(doc, owner.id, NOW + 30);
+    expect(second.incarnation).not.toBe(first.incarnation);
+    expect((await restore()).drafts).toBe(0);
+    expect(await draftRow(doc, owner.id)).toMatchObject({ incarnation: second.incarnation });
+  });
+
+  it("writes no marker when the removal's condition fails", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    const saved = await save(doc, owner.id);
+    const stale = and(eq(dr.artifactId, doc.artifactId), eq(dr.revision, 99)) as SQL;
+    const [, deleted] = await removeDraftBatch(db(), db(), stale, NOW);
+    expect(deleted).toEqual([]);
+    expect(
+      await marker("edit_draft", draftMarkerId(doc.artifactId, owner.id, saved.incarnation)),
+    ).toBeUndefined();
+  });
+
+  it("marks a published draft, so a restore never publishes it twice", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    await save(doc, owner.id);
+    const before = await draftRow(doc, owner.id);
+    if (!before) throw new Error("no draft");
+    const input = {
+      userId: owner.id,
+      artifactId: doc.artifactId,
+      now: NOW + 20,
+      contentDomain: DOMAIN,
+    };
+    const plan = value(await planDraft(db(), env.ARTIFACTS, input));
+    value(await publishDraft(db(), env.ARTIFACTS, { ...input, digest: plan.digest }));
+    await runJobs("draft_publish", doc.artifactId);
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    expect(
+      await marker("edit_draft", draftMarkerId(doc.artifactId, owner.id, before.incarnation)),
+    ).toBeDefined();
+    await db().insert(dr).values(before);
+    await restore();
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+  });
+
+  it("marks the drafts a transfer removes", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    const saved = await save(doc, owner.id);
+    const slug = `m-${crypto.randomUUID().slice(0, 8)}`;
+    const ws = value(
+      await createWorkspace(db().global, { slug, name: "Team", adminUserId: owner.id, now: NOW }),
+    );
+    await grantPlan(ws.id, "team", { seats: 10 });
+    value(
+      await transferArtifact(db(), env.ARTIFACTS, {
+        userId: owner.id,
+        artifactId: doc.artifactId,
+        workspace: slug,
+        now: NOW + 40,
+      }),
+    );
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    expect(
+      await marker("edit_draft", draftMarkerId(doc.artifactId, owner.id, saved.incarnation)),
+    ).toMatchObject({ deletedAt: NOW + 40 });
+  });
+
+  it("marks the drafts of people who left the owner side", async () => {
+    const owner = await user("Owner");
+    const stranger = await user("Stranger");
+    const doc = await publishDoc(owner.id);
+    const incarnation = `inc-${crypto.randomUUID()}`;
+    const edit = JSON.stringify({ operations: [textOp(MD, DOC, "Second", "Next")] });
+    await db()
+      .insert(dr)
+      .values({
+        artifactId: doc.artifactId,
+        userId: stranger.id,
+        ownerId: owner.id,
+        baseVersionId: doc.versionId,
+        edit,
+        editBytes: new TextEncoder().encode(edit).length,
+        updatedAt: NOW,
+        incarnation,
+      });
+    for (let i = 0; i < 20 && (await draftRow(doc, stranger.id)); i++) {
+      await pruneDraftsWithoutRole(db(), NOW + 50 + i);
+    }
+    expect(await draftRow(doc, stranger.id)).toBeUndefined();
+    expect(
+      await marker("edit_draft", draftMarkerId(doc.artifactId, stranger.id, incarnation)),
+    ).toBeDefined();
+  });
+});
+
+describe("restore markers in a region with its own database", () => {
+  it("go through a comment_tombstones job, and the restore deletes the EU draft again", async () => {
+    const ws = await team("eu");
+    const published = await publishIn(ws.editor.id, ws.id, "eu");
+    const eu = regions().get("eu").db;
+    const incarnation = `inc-${crypto.randomUUID()}`;
+    const edit = JSON.stringify({ operations: [textOp(MD, DOC, "Second", "Next")] });
+    const row = {
+      artifactId: published.artifactId,
+      userId: ws.editor.id,
+      ownerId: ws.id,
+      baseVersionId: published.versionId,
+      edit,
+      editBytes: new TextEncoder().encode(edit).length,
+      updatedAt: NOW,
+      incarnation,
+    };
+    await eu.insert(dr).values(row);
+    const mine = and(eq(dr.artifactId, published.artifactId), eq(dr.userId, ws.editor.id)) as SQL;
+    const [, deleted] = await removeDraftBatch(eu, eu, mine, NOW + 5);
+    expect(deleted).toHaveLength(1);
+    const id = draftMarkerId(published.artifactId, ws.editor.id, incarnation);
+    // Not in the global database yet: the regional batch wrote the job that writes it there.
+    expect(await marker("edit_draft", id)).toBeUndefined();
+    const jobs = await eu
+      .select()
+      .from(schema.outbox)
+      .where(
+        and(
+          eq(schema.outbox.topic, "comment_tombstones"),
+          eq(schema.outbox.subject, published.artifactId),
+        ),
+      );
+    expect(jobs).toHaveLength(1);
+    expect(await writeCommentTombstones(eu, jobs[0] as (typeof jobs)[number])).toBe("done");
+    expect(await marker("edit_draft", id)).toMatchObject({ deletedAt: NOW + 5 });
+    await eu.insert(dr).values(row);
+    const applied = await applyTombstones(
+      { global: db().global, all: () => [{ db: eu }] },
+      [],
+      NOW + DAY,
+    );
+    expect(applied.drafts).toBe(1);
+    expect(await eu.select().from(dr).where(eq(dr.artifactId, published.artifactId))).toEqual([]);
+  });
+});
+
+// Reproductions of the review of #275: each failed before its fix.
+describe("restore markers, review of #275", () => {
+  it("PF275 pending regional markers survive export and a regional rewind", async () => {
+    const ws = await team("eu");
+    const doc = await publishIn(ws.editor.id, ws.id, "eu");
+    const eu = regions().get("eu").db;
+    await eu
+      .update(schema.artifacts)
+      .set({ annotations: "open", expiresAt: NOW + DAY })
+      .where(eq(schema.artifacts.id, doc.artifactId));
+    const [file] = await eu
+      .select()
+      .from(schema.versionFiles)
+      .where(
+        and(
+          eq(schema.versionFiles.versionId, doc.versionId),
+          eq(schema.versionFiles.path, "index.html"),
+        ),
+      );
+    const body =
+      (await (await env.ARTIFACTS_EU.get(`objects/${ws.id}/${present(file).sha256}`))?.text()) ??
+      "";
+    const input = { userId: ws.editor.id, artifactId: doc.artifactId, now: NOW };
+    value(
+      await saveDraft(eu, {
+        ...input,
+        baseVersionId: doc.versionId,
+        baseRevision: null,
+        baseIncarnation: null,
+        edit: {
+          operations: [
+            textOp({ type: "site", path: "index.html" }, body, body.slice(3, -4), "Changed"),
+          ],
+        },
+      }),
+    );
+    const [row] = await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId));
+    if (!row) throw new Error("no draft");
+    value(await discardDraft(eu, { ...input, now: NOW + 5 }));
+    const exported = await exportTombstones(regions());
+    // Restore the region to before removal: draft is back, removal's outbox job is lost.
+    await eu
+      .delete(schema.outbox)
+      .where(
+        and(
+          eq(schema.outbox.topic, "comment_tombstones"),
+          eq(schema.outbox.subject, doc.artifactId),
+        ),
+      );
+    await eu.insert(dr).values(row);
+    await applyTombstones({ global: db().global, all: () => [{ db: eu }] }, exported, NOW + 100);
+    expect(await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId))).toEqual([]);
+  });
+  it("PF275 erased sole-author EU suggestion stays erased on a regional-only restore", async () => {
+    const ws = await team("eu");
+    const author = ws.editor;
+    const doc = await publishIn(ws.editor.id, ws.id, "eu");
+    const eu = regions().get("eu").db;
+    await eu
+      .update(schema.artifacts)
+      .set({ annotations: "open", expiresAt: NOW + DAY })
+      .where(eq(schema.artifacts.id, doc.artifactId));
+    await eu
+      .insert(schema.artifactReaders)
+      .values({ artifactId: doc.artifactId, email: author.email });
+    const [file] = await eu
+      .select()
+      .from(schema.versionFiles)
+      .where(
+        and(
+          eq(schema.versionFiles.versionId, doc.versionId),
+          eq(schema.versionFiles.path, "index.html"),
+        ),
+      );
+    const body =
+      (await (await env.ARTIFACTS_EU.get(`objects/${ws.id}/${present(file).sha256}`))?.text()) ??
+      "";
+    const view = value(
+      await submitSuggestion(eu, {
+        userId: author.id,
+        artifactId: doc.artifactId,
+        now: NOW,
+        versionId: doc.versionId,
+        edit: {
+          operations: [
+            textOp({ type: "site", path: "index.html" }, body, body.slice(3, -4), "Changed"),
+          ],
+        },
+        body: "Typo",
+        humanCheck,
+      }),
+    );
+    const [before] = await eu.select().from(th).where(eq(th.id, view.id));
+    const messages = await eu.select().from(m).where(eq(m.threadId, view.id));
+    value(
+      await saveDraft(eu, {
+        userId: author.id,
+        artifactId: doc.artifactId,
+        now: NOW,
+        baseVersionId: doc.versionId,
+        baseRevision: null,
+        baseIncarnation: null,
+        edit: {
+          operations: [
+            textOp({ type: "site", path: "index.html" }, body, body.slice(3, -4), "Draft change"),
+          ],
+        },
+      }),
+    );
+    const [savedDraft] = await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId));
+    const sessionId = await session(author.id);
+    value(
+      await requestAccountDeletion(regions(), {
+        userId: author.id,
+        sessionId,
+        confirmEmail: author.email,
+        now: NOW + 10,
+      }),
+    );
+    let status: string = "pending";
+    for (let i = 0; i < 5 && status === "pending"; i++)
+      status = await advanceAccountDeletion(regions(), author.id, NOW + 20 + i);
+    expect(status).toBe("finished");
+    expect(await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId))).toEqual([]);
+    expect(await eu.select().from(th).where(eq(th.id, view.id))).toEqual([]);
+    // Drain any regional marker jobs, so this does not depend on the export gap in finding 1.
+    for (const job of await jobsOf("comment_tombstones", doc.artifactId, eu)) {
+      await writeCommentTombstones(eu, job);
+    }
+    const exported = await exportTombstones(regions());
+    await eu.insert(th).values(present(before));
+    await eu.insert(m).values(messages);
+    await eu.insert(dr).values(present(savedDraft));
+    await applyTombstones({ global: db().global, all: () => [{ db: eu }] }, exported, NOW + 30);
+    const [after] = await eu.select().from(th).where(eq(th.id, view.id));
+    const input = {
+      userId: ws.admin.id,
+      artifactId: doc.artifactId,
+      threadId: view.id,
+      contentDomain: DOMAIN,
+      now: NOW + 40,
+    };
+    // The erased thread is gone again, so it cannot even be planned, let alone accepted.
+    expect(after).toBeUndefined();
+    expect(await eu.select().from(m).where(eq(m.threadId, view.id))).toEqual([]);
+    expect((await planSuggestion(eu, env.ARTIFACTS_EU, input)).ok).toBe(false);
+    expect(await eu.select().from(dr).where(eq(dr.artifactId, doc.artifactId))).toEqual([]);
+  });
+  it("PF275 a 30-day-pruned draft cannot publish after restore plus apply", async () => {
+    const owner = await user();
+    const doc = await publishDoc(owner.id);
+    await save(doc, owner.id, NOW);
+    const saved = await draftRow(doc, owner.id);
+    if (!saved) throw new Error("no draft");
+    // The artifact was renewed; its draft was never touched.
+    await db()
+      .update(schema.artifacts)
+      .set({ expiresAt: NOW + 60 * DAY })
+      .where(eq(schema.artifacts.id, doc.artifactId));
+    const now = NOW + 31 * DAY;
+    await pruneSuggestionRecords(db(), now);
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    const exported = await exportTombstones(regions());
+    await db().insert(dr).values(saved);
+    await applyTombstones(regions(), exported, now + 1);
+    const input = {
+      userId: owner.id,
+      artifactId: doc.artifactId,
+      now: now + 2,
+      contentDomain: DOMAIN,
+    };
+    // The pruned draft is gone again: nothing is left to plan or publish.
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    expect(await planDraft(db(), env.ARTIFACTS, input)).toMatchObject({ ok: false });
+    expect(await currentText(doc.artifactId, doc.path)).toBe(DOC);
+  });
+  it("PF275 restoring a revoked acceptance closes its prepared upload immediately", async () => {
+    const s = await setup();
+    const params = { ...s.as(s.owner.id), threadId: s.threadId, contentDomain: DOMAIN };
+    const plan = value(await planSuggestion(db(), env.ARTIFACTS, params));
+    const started = value(
+      await acceptSuggestion(db(), env.ARTIFACTS, { ...params, digest: plan.digest }),
+    );
+    const [job] = await jobsOf("suggestion_accept", s.doc.artifactId);
+    const broken = new Proxy(env.ARTIFACTS, {
+      get(target, prop) {
+        if (prop === "put")
+          return async () => {
+            throw new Error("crash before R2 write");
+          };
+        const v = Reflect.get(target, prop, target);
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    await expect(
+      runJob(
+        db(),
+        broken,
+        { id: present(job).id, topic: "suggestion_accept" },
+        NOW + 100,
+        JOB_DEPS,
+      ),
+    ).rejects.toThrow();
+    await applyTombstones(
+      regions(),
+      [{ kind: "suggestion_withdrawn", id: s.threadId, deletedAt: NOW + 200 }],
+      NOW + 300,
+    );
+    const [upload] = await db()
+      .select()
+      .from(schema.uploadSessions)
+      .where(eq(schema.uploadSessions.id, `upl_${started.attemptId.slice(4)}`));
+    expect(upload?.state).toBe("failed");
+  });
+  it("writes no rejection marker when a withdrawal wins the race", async () => {
+    const s = await setup();
+    const raced = raceBeforeBatchWith(/^insert into "tombstones"/i, async () => {
+      value(
+        await withdrawSuggestion(db(), { ...s.as(s.reader.id), threadId: s.threadId, revision: 1 }),
+      );
+    });
+    expect(
+      await rejectSuggestion(raced, { ...s.as(s.owner.id), threadId: s.threadId, revision: 1 }),
+    ).toMatchObject({ ok: false });
+    expect(await marker("suggestion_rejected", s.threadId)).toBeUndefined();
+    expect(await marker("suggestion_withdrawn", s.threadId)).toBeDefined();
+  });
+
+  it("leaves an acceptance that already finished as it is", async () => {
+    const s = await setup();
+    const params = { ...s.as(s.owner.id), threadId: s.threadId, contentDomain: DOMAIN };
+    const plan = value(await planSuggestion(db(), env.ARTIFACTS, params));
+    value(await acceptSuggestion(db(), env.ARTIFACTS, { ...params, digest: plan.digest }));
+    await runJobs("suggestion_accept", s.doc.artifactId);
+    const attempt = () =>
+      db()
+        .select()
+        .from(schema.acceptanceAttempts)
+        .where(eq(schema.acceptanceAttempts.threadId, s.threadId));
+    const finished = await attempt();
+    expect(finished).toMatchObject([{ state: "done" }]);
+    await db()
+      .global.insert(t)
+      .values({ kind: "suggestion_withdrawn", id: s.threadId, deletedAt: NOW });
+    await restore();
+    expect(await attempt()).toEqual(finished);
+    expect(await thread(s.threadId)).toMatchObject({ suggestionState: "accepted" });
+  });
+
+  it("ends a marked draft's running publish at once, before any job runs", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    await save(doc, owner.id);
+    const input = {
+      userId: owner.id,
+      artifactId: doc.artifactId,
+      now: NOW + 20,
+      contentDomain: DOMAIN,
+    };
+    const plan = value(await planDraft(db(), env.ARTIFACTS, input));
+    value(await publishDraft(db(), env.ARTIFACTS, { ...input, digest: plan.digest }));
+    const draft = present(await draftRow(doc, owner.id));
+    expect(draft.attemptId).not.toBeNull();
+    await db()
+      .global.insert(t)
+      .values({
+        kind: "edit_draft",
+        id: draftMarkerId(doc.artifactId, owner.id, draft.incarnation),
+        deletedAt: NOW,
+      });
+    await restore();
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    expect(
+      await db()
+        .select({
+          state: schema.acceptanceAttempts.state,
+          reason: schema.acceptanceAttempts.reason,
+        })
+        .from(schema.acceptanceAttempts)
+        .where(eq(schema.acceptanceAttempts.id, draft.attemptId as string)),
+    ).toEqual([{ state: "ended", reason: "revoked" }]);
+  });
+
+  it("never removes or marks a replacement draft that won the race with a discard", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    await save(doc, owner.id);
+    const replacement = `inc-${crypto.randomUUID()}`;
+    const raced = raceBeforeBatchWith(/^delete from "edit_drafts"/i, async () => {
+      // Another tab discarded the draft and started a new one: the same revision, another
+      // incarnation.
+      await db()
+        .update(dr)
+        .set({ incarnation: replacement })
+        .where(and(eq(dr.artifactId, doc.artifactId), eq(dr.userId, owner.id)));
+    });
+    expect(
+      await discardDraft(raced, { userId: owner.id, artifactId: doc.artifactId, now: NOW + 20 }),
+    ).toMatchObject({ ok: false });
+    expect(await draftRow(doc, owner.id)).toMatchObject({ incarnation: replacement, revision: 1 });
+    expect(
+      await marker("edit_draft", draftMarkerId(doc.artifactId, owner.id, replacement)),
+    ).toBeUndefined();
+  });
+  it("marks the draft a rebase that keeps nothing removes, and a restore removes it again", async () => {
+    const owner = await user("Owner");
+    const doc = await publishDoc(owner.id);
+    const held = await save(doc, owner.id);
+    const before = present(await draftRow(doc, owner.id));
+    // The target's own text changes: nothing carries, so the rebase removes the draft.
+    await republish(owner.id, doc, DOC.replace("Second", "Other"), NOW + 1_000);
+    const rebased = value(
+      await rebaseDraft(db(), env.ARTIFACTS, {
+        userId: owner.id,
+        artifactId: doc.artifactId,
+        now: NOW + 2_000,
+        baseRevision: held.revision,
+        baseIncarnation: held.incarnation,
+        contentDomain: DOMAIN,
+      }),
+    );
+    expect(rebased.draft).toBeNull();
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+    expect(
+      await marker("edit_draft", draftMarkerId(doc.artifactId, owner.id, held.incarnation)),
+    ).toMatchObject({ deletedAt: NOW + 2_000 });
+    await db().insert(dr).values(before);
+    expect((await restore()).drafts).toBe(1);
+    expect(await draftRow(doc, owner.id)).toBeUndefined();
+  });
+  it("reads a waiting job's markers once, and skips a payload that cannot be read", async () => {
+    const at = NOW + 7;
+    expect(
+      commentTombstoneMarkers(
+        JSON.stringify({
+          ids: ["t1"],
+          messages: ["m1"],
+          markers: [{ kind: "edit_draft", id: "a:u:i" }],
+          at,
+        }),
+      ),
+    ).toEqual([
+      { kind: "comment_thread", id: "t1", deletedAt: at },
+      { kind: "comment_message", id: "m1", deletedAt: at },
+      { kind: "edit_draft", id: "a:u:i", deletedAt: at },
+    ]);
+    expect(commentTombstoneMarkers({ ids: ["t2"], at })).toEqual([
+      { kind: "comment_thread", id: "t2", deletedAt: at },
+    ]);
+    expect(commentTombstoneMarkers("{")).toBeNull();
+    expect(commentTombstoneMarkers({ ids: [], at })).toBeNull();
+    // The export carries a readable waiting job's markers and passes over an unreadable one.
+    const eu = regions().get("eu").db;
+    const tag = crypto.randomUUID();
+    await eu.insert(schema.outbox).values([
+      {
+        topic: "comment_tombstones",
+        payload: JSON.stringify({ ids: [], markers: [{ kind: "edit_draft", id: tag }], at }),
+        availableAt: NOW,
+        createdAt: NOW,
+        subject: tag,
+      },
+      { topic: "comment_tombstones", payload: "{", availableAt: NOW, createdAt: NOW, subject: tag },
+    ]);
+    const exported = await exportTombstones(regions());
+    expect(exported.filter((m) => m.id === tag)).toEqual([
+      { kind: "edit_draft", id: tag, deletedAt: at },
+    ]);
+    await eu.delete(schema.outbox).where(eq(schema.outbox.subject, tag));
+  });
+});

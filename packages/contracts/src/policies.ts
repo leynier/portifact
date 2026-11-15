@@ -69,6 +69,14 @@ export const PUBLIC_ACCESS_POLICIES = ["allowed", "forbidden"] as const;
 export const PublicAccessPolicy = z.enum(PUBLIC_ACCESS_POLICIES);
 export type PublicAccessPolicy = z.infer<typeof PublicAccessPolicy>;
 
+/**
+ * Whether people without an account may write to the artifact data of the workspace's public
+ * artifacts (decision 0026, "Anonymous writers"): forbidden unless an admin allows it.
+ */
+export const ANONYMOUS_DATA_POLICIES = ["forbidden", "allowed"] as const;
+export const AnonymousDataPolicy = z.enum(ANONYMOUS_DATA_POLICIES);
+export type AnonymousDataPolicy = z.infer<typeof AnonymousDataPolicy>;
+
 /** The access modes a new artifact of the workspace may start with: never `public`. */
 export const DEFAULT_ACCESS_POLICIES = ["restricted", "workspace", "domain"] as const;
 export const DefaultAccessPolicy = z.enum(DEFAULT_ACCESS_POLICIES);
@@ -180,6 +188,14 @@ export const WorkspacePolicy = z.strictObject({
    * bucket; the scan deletes only while the two agree. Never shown, never taken from a client.
    */
   commentRetentionToken: z.string().min(1).max(64).nullable().default(null),
+  /**
+   * Anonymous writers of artifact data (decision 0026, delivery 9): `allowed` lets an editor open
+   * a public artifact's data to visitors without an account, behind the human check; the default
+   * forbids it. A permission rather than a restriction, so allowing it is the change that needs
+   * `policies` in the plan, and a lapsed plan stops it. Absent in policies stored before it
+   * existed, and stored only while allowed.
+   */
+  anonymousDataWriters: AnonymousDataPolicy.default("forbidden"),
 });
 export type WorkspacePolicy = z.infer<typeof WorkspacePolicy>;
 
@@ -216,6 +232,7 @@ export const DEFAULT_POLICY: WorkspacePolicy = {
   commentRetentionDays: null,
   commentRetentionFrom: null,
   commentRetentionToken: null,
+  anonymousDataWriters: "forbidden",
 };
 
 /** The fields of a policy, for the audit log and the dashboard. */
@@ -232,6 +249,7 @@ export const POLICY_FIELDS = [
   "ssoRequired",
   "artifactMaxDays",
   "commentRetentionDays",
+  "anonymousDataWriters",
 ] as const satisfies readonly (keyof WorkspacePolicy)[];
 export type PolicyField = (typeof POLICY_FIELDS)[number];
 
@@ -460,11 +478,32 @@ export const CommentTombstonesPayload = z
     ids: z.array(z.string().min(1).max(64)).max(WORKSPACE_POLICIES.commentDeleteBatch),
     /** Messages deleted while their thread stays (the "message deleted" marker). */
     messages: z.array(z.string().min(1).max(64)).max(1).optional(),
+    /**
+     * Edit suggestions' restore markers (decision 0027): a withdrawn or rejected suggestion by its
+     * thread ID, a removed draft as `<artifact>:<user>:<incarnation>`.
+     */
+    markers: z
+      .array(
+        z.strictObject({
+          kind: z.enum([
+            "suggestion_withdrawn",
+            "suggestion_rejected",
+            "edit_draft",
+            // A file the operator removed (decision 0029).
+            "comment_attachment",
+          ]),
+          id: z.string().min(1).max(200),
+        }),
+      )
+      .max(1)
+      .optional(),
     at: z.int().min(0),
   })
-  .refine((payload) => payload.ids.length + (payload.messages?.length ?? 0) > 0, {
-    message: "A comment_tombstones job names at least one thread or message.",
-  });
+  .refine(
+    (payload) =>
+      payload.ids.length + (payload.messages?.length ?? 0) + (payload.markers?.length ?? 0) > 0,
+    { message: "A comment_tombstones job names at least one thread, message or marker." },
+  );
 export type CommentTombstonesPayload = z.infer<typeof CommentTombstonesPayload>;
 
 /**

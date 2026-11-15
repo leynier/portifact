@@ -17,6 +17,7 @@ import {
   type AnnotationRole,
   type AnnotationsState,
   type AnnotationThreadView,
+  type AnonymousDataGrantControl,
   type ApprovalReviewView,
   type ArtifactActivity,
   ArtifactListQuery,
@@ -27,13 +28,19 @@ import {
   type BrandSettings,
   type BrandUpdate,
   type BrowserSession,
+  type ChangeItemView,
   type CommentNoticeMute,
   type CommentScope,
   type ConnectedApp,
   type CustomDomainList,
   type CustomDomainView,
+  type DataDescriptionView,
+  type DataDocumentView,
+  type DataGrantControl,
+  type DataGrantView,
   DEFAULT_POLICY,
   DocumentPreviewRequest,
+  type DraftView,
   type ErrorCode,
   type FileChange,
   GitHubTrustRuleCreate,
@@ -48,11 +55,15 @@ import {
   type ManifestFile,
   NO_APPROVAL_REVIEW,
   type OwnerView,
+  type PageText,
   PLANS,
+  type Plan,
   type PolicyImpact,
   type PreparedPublish,
+  type PreviewResponse,
   PublishRequest,
   planRequiredMessage,
+  type RebasedDraft,
   type ReviewStart,
   RollbackRequest,
   type ScimOverview,
@@ -66,6 +77,7 @@ import {
   type SingleFamilyLists,
   type SsoProviderView,
   type SsoSettings,
+  type SuggestionView,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   type UploadTarget,
   type UsageBlock,
@@ -331,7 +343,12 @@ export interface FakeAnnotations {
   /** Threads the caller no longer sees: an edit of their own message there answers no thread. */
   outOfScope?: string[];
   currentVersionId: string;
-  threads: (AnnotationThreadView & { seq: number })[];
+  threads: (AnnotationThreadView & {
+    seq: number;
+    /** A suggestion thread's kind and suggestion (decision 0027), listed with `?fields`. */
+    kind?: string;
+    suggestion?: SuggestionView | null;
+  })[];
   deleted: { id: string; seq: number }[];
   seq: number;
   /**
@@ -341,6 +358,30 @@ export interface FakeAnnotations {
   humanChecks?: number;
   /** The comment action history, oldest first, as GET .../history pages it (owner only). */
   history?: AnnotationHistoryEntry[];
+}
+
+/** What the fake suggestion routes answer. */
+export interface FakeSuggestions {
+  /** POST .../suggestions/:threadId/plan, by thread ID; missing ones answer 404. */
+  plans: Record<string, Plan>;
+  /** POST .../previews; null answers a ready preview with a new code each time. */
+  preview: PreviewResponse | null;
+  /** The change list, by artifact ID. */
+  changes: Record<string, ChangeItemView[]>;
+  /** Previews issued so far. */
+  previews: number;
+  /** Edit suggestions switched off on the server: every suggestion route answers 404. */
+  off?: boolean;
+  /** The caller's draft, by artifact ID (decision 0027, "The owner's draft"). */
+  drafts: Record<string, DraftView>;
+  /** POST .../draft/plan, by artifact ID; missing ones answer 404. */
+  draftPlans: Record<string, Plan>;
+  /** POST .../draft/rebase answers this (and stores its draft); missing answers 404. */
+  rebased?: RebasedDraft;
+  /** GET .../page-text answers, by `id:path`; missing ones answer 404. */
+  pageTexts: Record<string, PageText>;
+  /** Every preview request body, in order. */
+  previewRequests: unknown[];
 }
 
 export function fakeMessage(overrides: Partial<AnnotationMessageView> = {}): AnnotationMessageView {
@@ -558,6 +599,8 @@ export interface FakeServer {
   reviews: Record<string, ReviewStart>;
   /** Review tab codes issued so far (POST /review/tab answers with the review's origin). */
   reviewTabs: number;
+  /** The suggestion routes (decision 0027): plans by thread, previews, change lists. */
+  suggestions: FakeSuggestions;
   annotations: Record<string, FakeAnnotations>;
   /** Committed versions by artifact ID, newest first. */
   versions: Record<string, FakeVersion[]>;
@@ -582,6 +625,16 @@ export interface FakeServer {
   accountSuspension: AccountSuspensionView;
   /** Comment notices by artifact: whether the owner's plan has them and the caller's mute. */
   commentNotices: Record<string, CommentNoticeMute>;
+  /** Artifact data (decision 0026): controls by artifact ID (missing ones answer 404) and grants. */
+  dataGrantControls: Record<string, DataGrantControl>;
+  /**
+   * Anonymous controls by artifact ID (delivery 9): missing ones answer 404, and an anonymous
+   * code needs a `turnstileToken` starting with `solved`.
+   */
+  anonymousGrantControls: Record<string, AnonymousDataGrantControl>;
+  dataGrants: DataGrantView[];
+  /** The person's own documents by artifact ID (`/data-grants/:id/mine`). */
+  ownData: Record<string, { collection: string; id: string; body?: string }[]>;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** The body of GET /api/v1/grace-forecast (decision 0022), for every space. */
@@ -642,6 +695,14 @@ export interface FakeServer {
    */
   stats: Record<string, ArtifactStatsView>;
   /**
+   * Artifact data by artifact ID (decision 0026): its description, and each collection's documents
+   * in order. An artifact without an entry answers `not_found`, like artifact data switched off.
+   */
+  data: Record<
+    string,
+    { description: DataDescriptionView; documents: Record<string, DataDocumentView[]> }
+  >;
+  /**
    * Content search hits by space (`""` for the personal space): GET /api/v1/search returns the
    * hits whose snippet contains the query, in this order, after the role and plan checks.
    */
@@ -693,6 +754,16 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     viewers: {},
     reviews: {},
     reviewTabs: 0,
+    suggestions: {
+      plans: {},
+      preview: null,
+      changes: {},
+      previews: 0,
+      drafts: {},
+      draftPlans: {},
+      pageTexts: {},
+      previewRequests: [],
+    },
     annotations: {},
     versions: {},
     uploads: [],
@@ -741,6 +812,7 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
       tests: [],
     },
     stats: {},
+    data: {},
     shareLinks: {},
     approvals: {},
     approvalReply: null,
@@ -751,6 +823,10 @@ export function fakeServer(artifacts: ArtifactSummary[] = []): FakeServer {
     branding: { available: true, lowestPlan: "pro", suspended: false, brand: null },
     logoUploads: [],
     commentNotices: {},
+    dataGrantControls: {},
+    anonymousGrantControls: {},
+    dataGrants: [],
+    ownData: {},
     bodies: [],
     pageSize: 50,
     texts: new Map(),
@@ -1516,6 +1592,17 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
   }
   const integrations = integrationRoute(server, method, path, headers);
   if (integrations) return integrations;
+  const pageText = /^\/api\/v1\/artifacts\/([^/]+)\/page-text$/.exec(path);
+  if (pageText && method === "GET") {
+    const answer = server.suggestions.pageTexts[`${pageText[1]}:${url.searchParams.get("path")}`];
+    if (server.suggestions.off || !answer) return apiError("not_found", 404);
+    return json(answer);
+  }
+  const suggested =
+    /^\/api\/v1\/artifacts\/([^/]+)\/(suggestions|previews|changes|draft)(\/.*)?$/.exec(path);
+  if (suggested) {
+    return suggestionRoute(server, method, url, suggested[1] ?? "", suggested[2], suggested[3]);
+  }
   const reviewed = /^\/api\/v1\/artifacts\/([^/]+)\/(review|annotations)(\/.*)?$/.exec(path);
   if (reviewed)
     return reviewRoute(server, method, url, reviewed[1] ?? "", reviewed[2], reviewed[3]);
@@ -1536,6 +1623,86 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     const before = server.sessions.length;
     server.sessions = server.sessions.filter((s) => s.current);
     return Response.json({ signedOut: before - server.sessions.length });
+  }
+  if (path === "/api/v1/account/data-grants" && method === "GET") {
+    // Pages of two, so the screen's "Show more" is exercised.
+    const after = url.searchParams.get("after");
+    const from = after === null ? 0 : Number(after);
+    const next = from + 2 < server.dataGrants.length ? String(from + 2) : null;
+    return Response.json({ items: server.dataGrants.slice(from, from + 2), next });
+  }
+  if (path === "/api/v1/account/data-grants" && method === "POST") {
+    const input = server.bodies.at(-1) as { artifactId: string; flow: string };
+    const control = server.dataGrantControls[input.artifactId];
+    if (!control) return apiError("not_found", 404);
+    const code = "c".repeat(43);
+    return Response.json({
+      code,
+      redeemUrl: `https://${control.host}/__portifact/data/grant?flow=${input.flow}&code=${code}`,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+  }
+  if (path === "/api/v1/data/anonymous-grants" && method === "POST") {
+    const input = server.bodies.at(-1) as {
+      artifactId: string;
+      flow: string;
+      turnstileToken?: string;
+    };
+    const control = server.anonymousGrantControls[input.artifactId];
+    if (!control) return apiError("not_found", 404);
+    if (!String(input.turnstileToken ?? "").startsWith("solved")) {
+      return apiError("human_verification_required", 403);
+    }
+    const code = "a".repeat(43);
+    return Response.json({
+      code,
+      redeemUrl: `https://${control.host}/__portifact/data/grant?flow=${input.flow}&code=${code}&anon=1`,
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+  }
+  const anonymousControl = /^\/api\/v1\/data\/anonymous-grants\/([^/]+)\/control$/.exec(path);
+  if (anonymousControl && method === "GET") {
+    const control =
+      server.anonymousGrantControls[decodeURIComponent(anonymousControl[1] as string)];
+    return control ? Response.json(control) : apiError("not_found", 404);
+  }
+  const grantControl = /^\/api\/v1\/account\/data-grants\/([^/]+)\/control$/.exec(path);
+  if (grantControl && method === "GET") {
+    const control = server.dataGrantControls[decodeURIComponent(grantControl[1] as string)];
+    return control ? Response.json(control) : apiError("not_found", 404);
+  }
+  const status = /^\/api\/v1\/account\/data-grants\/([^/]+)$/.exec(path);
+  if (status && method === "GET") {
+    const artifactId = decodeURIComponent(status[1] as string);
+    const item = server.dataGrants.find((grant) => grant.artifactId === artifactId);
+    return Response.json({ artifactId, openGrants: item?.openGrants ?? 0 });
+  }
+  const ask = /^\/api\/v1\/account\/data-grants\/([^/]+)\/rights-request$/.exec(path);
+  if (ask && method === "POST") return Response.json({ requested: true }, { status: 202 });
+  const own = /^\/api\/v1\/account\/data-grants\/([^/]+)\/mine$/.exec(path);
+  if (own && method === "GET") {
+    const rows = server.ownData[decodeURIComponent(own[1] as string)] ?? [];
+    return Response.json({ rows, next: null, revision: 1 });
+  }
+  const ownDoc = /^\/api\/v1\/account\/data-grants\/([^/]+)\/documents\/([^/]+)\/([^/]+)$/.exec(
+    path,
+  );
+  if (ownDoc && method === "DELETE") {
+    const artifactId = decodeURIComponent(ownDoc[1] as string);
+    const id = decodeURIComponent(ownDoc[3] as string);
+    server.ownData[artifactId] = (server.ownData[artifactId] ?? []).filter((row) => row.id !== id);
+    return Response.json({ deleted: true });
+  }
+  const grantRevoke = /^\/api\/v1\/account\/data-grants\/([^/]+)$/.exec(path);
+  if (grantRevoke && method === "DELETE") {
+    const id = decodeURIComponent(grantRevoke[1] as string);
+    let revoked = 0;
+    server.dataGrants = server.dataGrants.map((item) => {
+      if (item.artifactId !== id) return item;
+      revoked += item.openGrants;
+      return { ...item, openGrants: 0, expiresAt: null };
+    });
+    return Response.json({ artifactId: id, revoked });
   }
   const mute = /^\/api\/v1\/account\/comment-notices\/([^/]+)$/.exec(path);
   if (mute) {
@@ -1625,6 +1792,73 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
       server.shareLinks[artifact.id] = links.filter((link) => link.id !== id);
       return json({ id, revoked: true });
     }
+  }
+  const data = /^\/api\/v1\/artifacts\/([^/]+)\/data(\/.*)?$/.exec(path);
+  if (data && method === "GET") {
+    const entry = server.data[data[1] ?? ""];
+    if (!entry) {
+      return Response.json(
+        { error: { code: "not_found", message: "Artifact data is not available." } },
+        { status: 404 },
+      );
+    }
+    const rest = data[2] ?? "";
+    if (rest === "") return json(entry.description);
+    const listing = /^\/collections\/([^/]+)\/documents$/.exec(rest);
+    if (listing) {
+      const all = entry.documents[decodeURIComponent(listing[1] ?? "")];
+      if (!all) return apiError("not_found", 404);
+      const limit = Number(url.searchParams.get("limit") ?? "100");
+      const after = url.searchParams.get("after");
+      const start = after === null ? 0 : all.findIndex((doc) => doc._id === after) + 1;
+      const documents = all.slice(start, start + limit);
+      const last = documents.at(-1);
+      return json({
+        documents,
+        next: start + limit < all.length && last ? last._id : null,
+      });
+    }
+    if (rest === "/export") {
+      const after = url.searchParams.get("after");
+      const rows = Object.entries(entry.documents)
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .flatMap(([collection, docs]) =>
+          docs.map(({ _id, _by, _editedBy, _created, _updated, _seq: _, ...body }) => ({
+            collection,
+            id: _id,
+            by: _by,
+            editedBy: _editedBy,
+            created: _created,
+            updated: _updated,
+            body: JSON.stringify(body),
+          })),
+        );
+      // One document per page, so the export reads several.
+      const start =
+        after === null ? 0 : rows.findIndex((row) => `${row.collection}/${row.id}` === after) + 1;
+      const page = rows.slice(start, start + 1);
+      const last = page.at(-1);
+      return json({
+        artifactId: data[1],
+        revision: entry.description.revision,
+        rows: page,
+        next: start + 1 < rows.length && last ? `${last.collection}/${last.id}` : null,
+        header:
+          after === null
+            ? {
+                generation: entry.description.generation,
+                revision: entry.description.revision,
+                collections: entry.description.collections.map((item) => ({
+                  name: item.name,
+                  mode: item.mode,
+                  uniqueKey: item.uniqueKey,
+                  indexed: item.indexed.map((field) => field.field),
+                })),
+              }
+            : null,
+      });
+    }
+    return apiError("not_found", 404);
   }
   const stats = /^\/api\/v1\/artifacts\/([^/]+)\/stats$/.exec(path);
   if (stats && method === "GET") {
@@ -2369,7 +2603,10 @@ function reviewRoute(
     thread.seq = store.seq;
     thread.revision += 1;
   };
-  const view = ({ seq: _seq, ...thread }: FakeAnnotations["threads"][number]) => thread;
+  // Threads say their kind only when asked (`?fields=suggestion`), like the Worker.
+  const fields = url.searchParams.get("fields") === "suggestion";
+  const view = ({ seq: _seq, kind, suggestion, ...thread }: FakeAnnotations["threads"][number]) =>
+    fields ? { ...thread, kind: kind ?? "comment", suggestion: suggestion ?? null } : thread;
   const posting =
     method === "POST" && (rest === "/threads" || /^\/threads\/[^/]+\/messages$/.test(rest));
   if (posting && (store.humanChecks ?? 0) > 0) {
@@ -2447,6 +2684,18 @@ function reviewRoute(
         target: body?.target as AnnotationThreadView["target"],
         path: (body?.target as { path?: string } | undefined)?.path ?? "",
         versionId: body?.versionId as string,
+        // Like the Worker: a region gets the image's SHA-256 from the version (decision 0028).
+        ...(body?.region
+          ? {
+              region: {
+                ...(body.region as Omit<NonNullable<AnnotationThreadView["region"]>, "image">),
+                image: {
+                  path: (body.region as { image: { path: string } }).image.path,
+                  sha256: "a".repeat(64),
+                },
+              },
+            }
+          : {}),
         messages: [
           fakeMessage({
             own: true,
@@ -2654,7 +2903,11 @@ export function renderDashboard(
  * Renders one part of the dashboard (a dialog, a list) with the dashboard's providers and the
  * fake API, outside any route, for tests of that part alone.
  */
-export function renderInDashboard(node: ReactNode, server: FakeServer) {
+export function renderInDashboard(
+  node: ReactNode,
+  server: FakeServer,
+  options: { humanCheck?: HumanCheckWidget | null } = {},
+) {
   const i18n = createI18n();
   const env = {
     api: dashboardApi({
@@ -2665,7 +2918,7 @@ export function renderInDashboard(node: ReactNode, server: FakeServer) {
     manifests: inProcessBuilder,
     storage: server.storage,
     save: () => {},
-    humanCheck: null,
+    humanCheck: options.humanCheck ?? null,
   };
   return render(
     <I18nProvider i18n={i18n}>
@@ -3085,4 +3338,172 @@ function auditStreamRoute(server: FakeServer, url: URL, method: string): Respons
     stream: next,
     secret: change.rotateSecret ? "whsec_rotated-stream-secret-for-tests" : null,
   });
+}
+
+/** The suggestion and change list routes, with the rules the viewer depends on. */
+function suggestionRoute(
+  server: FakeServer,
+  method: string,
+  url: URL,
+  id: string,
+  kind: string | undefined,
+  rest = "",
+): Response {
+  const store = server.annotations[id];
+  const fake = server.suggestions;
+  if (fake.off) return apiError("not_found", 404);
+  const body = server.bodies.at(-1) as Record<string, unknown> | undefined;
+  if (kind === "previews" && method === "POST") {
+    fake.previews += 1;
+    fake.previewRequests.push(body);
+    return Response.json(
+      fake.preview ?? {
+        state: "ready",
+        url: `https://preview.portifact.dev/p/${String(fake.previews).padStart(43, "p")}`,
+        expiresAt: NOW,
+      },
+    );
+  }
+  if (kind === "draft") {
+    const draft = fake.drafts[id];
+    if (rest === "" && method === "GET") return draft ? Response.json(draft) : missing();
+    if (rest === "" && method === "DELETE") {
+      delete fake.drafts[id];
+      return new Response(null, { status: 204 });
+    }
+    if (rest === "" && method === "PUT") {
+      // Like the Worker: a save names the revision and incarnation it was made on.
+      if ((body?.baseRevision ?? null) !== (draft?.revision ?? null)) {
+        return apiError("version_conflict", 409);
+      }
+      if ((body?.baseIncarnation ?? null) !== (draft?.incarnation ?? null)) {
+        return apiError("version_conflict", 409);
+      }
+      const saved: DraftView = {
+        artifactId: id,
+        baseVersionId: String(body?.baseVersionId),
+        edit: body?.edit,
+        revision: (draft?.revision ?? 0) + 1,
+        incarnation: draft?.incarnation ?? "i".repeat(22),
+        publishing: false,
+        attemptReason: null,
+        updatedAt: 0,
+      };
+      fake.drafts[id] = saved;
+      return Response.json(saved);
+    }
+    if (rest === "/rebase" && method === "POST") {
+      if (!draft || !fake.rebased) return missing();
+      if (body?.baseRevision !== draft.revision) return apiError("version_conflict", 409);
+      if (fake.rebased.draft) fake.drafts[id] = fake.rebased.draft;
+      else delete fake.drafts[id];
+      return Response.json(fake.rebased);
+    }
+    if (rest === "/plan" && method === "POST") {
+      const plan = fake.draftPlans[id];
+      return plan && draft ? Response.json(plan) : missing();
+    }
+    if (rest === "/publish" && method === "POST") {
+      if (!draft || body?.digest !== fake.draftPlans[id]?.digest) {
+        return apiError("invalid_input", 400);
+      }
+      draft.publishing = true;
+      return Response.json({ attemptId: "att_d", state: "applying" }, { status: 202 });
+    }
+    return missing();
+  }
+  if (kind === "changes") {
+    const items = fake.changes[id] ?? [];
+    if (method === "GET" && rest === "") {
+      const state = url.searchParams.get("state");
+      return Response.json({
+        items: items.filter((item) => state === null || item.state === state),
+        nextCursor: null,
+      });
+    }
+    const item = items.find((i) => i.id === rest.slice(1));
+    if (method === "PATCH" && item) {
+      if (body?.baseRevision !== item.revision) return apiError("version_conflict", 409);
+      item.state = String(body?.state);
+      item.revision += 1;
+      return Response.json(item);
+    }
+    return missing();
+  }
+  if (!store) return missing();
+  if (rest === "" && method === "POST") {
+    store.seq += 1;
+    const edit = body?.edit as { operations: { target: AnnotationThreadView["target"] }[] };
+    const target = edit.operations[0]?.target as AnnotationThreadView["target"];
+    const thread = {
+      ...fakeThread(`t${store.seq}`, {
+        own: true,
+        author: { id: "u-ada", name: "Ada", image: null },
+        target,
+        path: target.path,
+        versionId: body?.versionId as string,
+        messages: [
+          fakeMessage({
+            own: true,
+            author: { id: "u-ada", name: "Ada", image: null },
+            body: String(body?.body),
+          }),
+        ],
+      }),
+      seq: store.seq,
+      kind: "suggestion",
+      suggestion: fakeSuggestion(`t${store.seq}`, { edit, versionId: body?.versionId as string }),
+    };
+    store.threads.push(thread);
+    // Like the Worker: the thread view with its kind and suggestion.
+    const { seq: _seq, ...view } = thread;
+    return Response.json(view, { status: 201 });
+  }
+  const match = /^\/([^/]+)(?:\/(plan|accept|reject|withdraw))?$/.exec(rest);
+  const thread = match && store.threads.find((t) => t.id === match[1] && t.kind === "suggestion");
+  const suggestion = thread?.suggestion;
+  if (!match || !thread || !suggestion) return missing();
+  const action = match[2];
+  if (action === "plan" && method === "POST") {
+    const plan = fake.plans[thread.id];
+    return plan ? Response.json(plan) : missing();
+  }
+  if (action === "accept" && method === "POST") {
+    if (body?.digest !== fake.plans[thread.id]?.digest) return apiError("invalid_input", 400);
+    // Like the Worker: entering `applying` changes no thread revision, so the list's cursor
+    // does not move and the viewer shows the new state from the answer.
+    suggestion.state = "applying";
+    return Response.json({ attemptId: "att_1", state: "applying" }, { status: 202 });
+  }
+  if ((action === "reject" || action === "withdraw") && method === "POST") {
+    if (body?.revision !== suggestion.revision) return apiError("version_conflict", 409);
+    suggestion.state = action === "reject" ? "rejected" : "withdrawn";
+    if (action === "withdraw") suggestion.edit = null;
+    suggestion.revision += 1;
+    store.seq += 1;
+    thread.seq = store.seq;
+    return Response.json(suggestion);
+  }
+  if (!action && method === "GET") return Response.json(suggestion);
+  return missing();
+}
+
+export function fakeSuggestion(
+  threadId: string,
+  overrides: Partial<SuggestionView> = {},
+): SuggestionView {
+  return {
+    threadId,
+    artifactId: "a",
+    versionId: "v1",
+    state: "pending",
+    edit: null,
+    revision: 0,
+    attemptReason: null,
+    decidedAt: null,
+    resultVersionId: null,
+    originVersionId: null,
+    planned: false,
+    ...overrides,
+  };
 }

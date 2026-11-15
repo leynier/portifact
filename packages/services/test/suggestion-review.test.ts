@@ -454,7 +454,7 @@ it("R16: protection stops a no-version acceptance as annotation work, a version 
   const { setBudgetOverride, clearBudgetOverride } = await import("../src/budget.ts");
   await setBudgetOverride(db().global, {
     level: "protect100",
-    steps: 2,
+    steps: 3,
     until: null,
     note: null,
     now: NOW,

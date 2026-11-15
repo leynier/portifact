@@ -64,6 +64,7 @@ export function storedPolicy(policy: WorkspacePolicy): Partial<WorkspacePolicy> 
     commentRetentionDays,
     commentRetentionFrom,
     commentRetentionToken,
+    anonymousDataWriters,
     ...rest
   } = policy;
   return {
@@ -81,6 +82,8 @@ export function storedPolicy(policy: WorkspacePolicy): Partial<WorkspacePolicy> 
         }),
     // "SSO required" too (decision 0021): stored only while set.
     ...(ssoRequired ? { ssoRequired } : {}),
+    // Anonymous writers of artifact data (decision 0026) too: stored only while allowed.
+    ...(anonymousDataWriters === "allowed" ? { anonymousDataWriters } : {}),
     ...(ipAllowlist === null ? {} : { ipAllowlist }),
     ...(tokenIpAllowlist === null ? {} : { tokenIpAllowlist }),
     ...(sessionMaxHours === null ? {} : { sessionMaxHours }),
@@ -259,6 +262,9 @@ export function changedFields(current: WorkspacePolicy, next: WorkspacePolicy): 
   ) {
     fields.push("commentRetentionDays");
   }
+  if (current.anonymousDataWriters !== next.anonymousDataWriters) {
+    fields.push("anonymousDataWriters");
+  }
   return fields;
 }
 
@@ -317,6 +323,10 @@ function loosens(field: PolicyField, current: WorkspacePolicy, next: WorkspacePo
         (current.commentRetentionDays !== null &&
           next.commentRetentionDays > current.commentRetentionDays)
       );
+    // A permission, not a restriction (decision 0026): allowing anonymous writers is the change
+    // that needs the plan and that `apply-policies` holds back; forbidding them never does.
+    case "anonymousDataWriters":
+      return next.anonymousDataWriters === "forbidden";
   }
 }
 
@@ -597,6 +607,9 @@ export function policyChangeDetail(
           commentRetentionFrom: next.commentRetentionFrom,
         }
       : {}),
+    ...(fields.includes("anonymousDataWriters")
+      ? { anonymousDataWriters: next.anonymousDataWriters }
+      : {}),
     confirmed,
   };
 }
@@ -640,6 +653,11 @@ export function describePolicy(policy: WorkspacePolicy | WorkspacePolicyShown): 
         : ` (from ${new Date(policy.artifactMaxDaysFrom).toISOString().slice(0, 10)})`;
     lines.push(
       `artifacts are archived ${policy.artifactMaxDays} days after their last publish or restore, and cannot be pinned${from}`,
+    );
+  }
+  if (policy.anonymousDataWriters === "allowed") {
+    lines.push(
+      "people without an account may save data on public artifacts whose editors allow it",
     );
   }
   if (policy.commentRetentionDays !== null) {
@@ -1020,6 +1038,9 @@ export function liftedFields(current: WorkspacePolicy, next: WorkspacePolicy): P
       // The same for comment retention, where re-applying would delete for good.
       case "commentRetentionDays":
         return false;
+      // A permission (decision 0026): allowing anonymous writers is what a file would lift.
+      case "anonymousDataWriters":
+        return next.anonymousDataWriters === "allowed";
       default:
         return loosens(field, current, next);
     }

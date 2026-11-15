@@ -1146,7 +1146,7 @@ describe("a held artifact's history", () => {
         .from(schema.suspensions)
         .where(eq(schema.suspensions.targetId, held.artifactId)),
     ).toHaveLength(1);
-    await eraseAccountTraces(db(), actor.id);
+    await eraseAccountTraces(db(), actor.id, NOW);
     const [kept] = await db()
       .select()
       .from(le)

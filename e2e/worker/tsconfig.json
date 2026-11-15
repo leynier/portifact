@@ -4,5 +4,6 @@
     // node: for the content Worker's node:zlib import (nodejs_compat), as in apps/content.
     "types": ["@cloudflare/workers-types", "node"]
   },
-  "include": ["."]
+  // The documents class this Worker hosts reads the data Worker's own `Env` type.
+  "include": [".", "../../apps/data/src/env.d.ts"]
 }

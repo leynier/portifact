@@ -1,0 +1,1 @@
+ALTER TABLE `edit_drafts` ADD `incarnation` text DEFAULT '' NOT NULL;

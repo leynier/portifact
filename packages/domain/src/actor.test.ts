@@ -44,6 +44,7 @@ const MATRIX: Record<RoleAction, Record<WorkspaceRole, boolean>> = {
   approvals: { admin: true, editor: true, member: false },
   search: { admin: true, editor: true, member: false },
   issues: { admin: true, editor: true, member: false },
+  data: { admin: true, editor: true, member: false },
   members: { admin: true, editor: false, member: false },
   plan: { admin: true, editor: false, member: false },
   policies: { admin: true, editor: false, member: false },
@@ -72,6 +73,7 @@ const TOKEN_ALLOWED: readonly RoleAction[] = [
   "usage",
   "approvals",
   "search",
+  "data",
 ];
 
 describe("role by action", () => {

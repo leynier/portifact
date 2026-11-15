@@ -247,6 +247,34 @@ export const ExportMessage = z.object({
   body: z.string().nullable(),
   createdAt: Iso,
   editedAt: IsoOrNull,
+  /**
+   * The files on the message (decision 0029), only when it has any: the name the person gave,
+   * the type read from the bytes, the size and the SHA-256. The bytes are downloaded through the
+   * attachment link (`portifact annotations attachment`, or `portifact export`).
+   */
+  attachments: z
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        contentType: z.string(),
+        size: z.int(),
+        sha256: z.string(),
+      }),
+    )
+    .optional(),
+});
+
+/**
+ * The suggestion a thread holds (decision 0027): its state and the submitted edit (null once
+ * withdrawn), untrusted reviewer text. States and reasons are lowercase tokens.
+ */
+export const ExportSuggestion = z.object({
+  state: z.string(),
+  edit: z.unknown().nullable(),
+  decidedAt: IsoOrNull,
+  resultVersionId: z.string().nullable(),
+  originVersionId: z.string().nullable(),
 });
 
 export const ExportThread = z.object({
@@ -258,6 +286,34 @@ export const ExportThread = z.object({
   state: z.enum(["open", "resolved"]),
   createdAt: Iso,
   messages: z.array(ExportMessage),
+  /** Present only on a suggestion's thread. */
+  suggestion: ExportSuggestion.optional(),
+});
+
+/**
+ * A change-list item of one of the account's artifacts (decision 0027, "The change list"): the
+ * canonical envelope the owner side accepted, untrusted reviewer text, names of nobody.
+ */
+export const ExportChangeItem = z.object({
+  id: z.string(),
+  origin: z.string(),
+  threadId: z.string().nullable(),
+  versionId: z.string(),
+  path: z.string(),
+  envelope: z.unknown(),
+  reason: z.string().nullable(),
+  state: z.string(),
+  createdAt: Iso,
+  closedAt: IsoOrNull,
+});
+
+/** One of the account's drafts (decision 0027, "The owner's draft"): its own words. */
+export const ExportDraft = z.object({
+  artifactId: z.string(),
+  baseVersionId: z.string(),
+  edit: z.unknown(),
+  revision: z.number().int(),
+  updatedAt: Iso,
 });
 
 /** A share link of an exported artifact: never its token or the token's hash. */
@@ -296,6 +352,8 @@ export const ExportArtifact = z.object({
   purgeAt: IsoOrNull,
   versions: z.array(ExportVersion),
   threads: z.array(ExportThread),
+  /** Accepted changes Portifact could not apply, every state. */
+  changeItems: z.array(ExportChangeItem),
   shareLinks: z.array(ExportShareLink),
   customDomains: z.array(ExportCustomDomain),
 });
@@ -414,6 +472,8 @@ export const AccountExport = z.object({
   commentsElsewhere: z.array(
     ExportThread.extend({ state: ExportThread.shape.state.optional(), createdAt: Iso.optional() }),
   ),
+  /** The account's own drafts of edits, on any artifact it may edit (decision 0027). */
+  drafts: z.array(ExportDraft),
   /** Verdicts the account gave in approval reviews (decision 0013), with its notes. */
   reviewVerdicts: z.array(
     z.object({

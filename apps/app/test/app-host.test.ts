@@ -1,7 +1,7 @@
 import { SELF } from "cloudflare:test";
 import { THEME_SCRIPT, THEME_SCRIPT_HASH } from "@portifact/contracts/theme";
 import { describe, expect, it } from "vitest";
-import { LOGIN_CSP, PAGE_CSP, withHumanCheck } from "../src/app-host.ts";
+import { dashboardCsp, LOGIN_CSP, PAGE_CSP, viewerCsp, withHumanCheck } from "../src/app-host.ts";
 import { createHarness, json, ORIGIN, SESSION_COOKIE } from "./harness.ts";
 
 const ARTIFACT_ORIGIN = "https://k7d2qm4xab.portifact.dev";
@@ -246,5 +246,37 @@ describe("session cookie", () => {
     const forged = cookie.replace("__Host-", "__host-");
     const session = await h.request("/api/auth/get-session", { headers: { cookie: forged } });
     expect(await session.json()).toBeNull();
+  });
+});
+
+describe("the viewer page's policy", () => {
+  const env = {
+    R2_ACCOUNT_ID: "account",
+    R2_BUCKET_EU: undefined,
+    CONTENT_DOMAIN: "portifact.dev",
+  } as unknown as Parameters<typeof viewerCsp>[0];
+
+  it("frames only the artifact's origin while suggestions are off", async () => {
+    const policy = await viewerCsp(env, "k7d2qm4xab");
+    expect(policy).toContain(`frame-src ${ARTIFACT_ORIGIN} `);
+    expect(policy).not.toContain("preview.portifact.dev");
+  });
+
+  it("also frames the preview origin while suggestions are on, and nothing else", async () => {
+    const policy = await viewerCsp({ ...env, SUGGESTIONS_ENABLED: "true" }, "k7d2qm4xab");
+    expect(policy).toContain(`frame-src ${ARTIFACT_ORIGIN} https://preview.portifact.dev `);
+    // Images still come only from the artifact's origin (the owner's logo), never the previews.
+    expect(policy).toContain(`img-src 'self' ${ARTIFACT_ORIGIN}`);
+    expect(policy.match(/preview\.portifact\.dev/g)).toHaveLength(1);
+  });
+
+  it("shows comment images as blob: URLs only while attachments are on (decision 0029)", async () => {
+    expect(await viewerCsp(env, "k7d2qm4xab")).not.toContain("blob:");
+    expect(await dashboardCsp(env)).not.toContain("blob:");
+    const on = { ...env, ATTACHMENTS_ENABLED: "true" };
+    expect(await viewerCsp(on, "k7d2qm4xab")).toContain(`img-src 'self' blob: ${ARTIFACT_ORIGIN};`);
+    expect(await dashboardCsp(on)).toContain("img-src 'self' blob:;");
+    // Nothing else widens: storage is reached only by `connect-src`, as for downloads.
+    expect((await dashboardCsp(on)).match(/blob:/g)).toHaveLength(1);
   });
 });

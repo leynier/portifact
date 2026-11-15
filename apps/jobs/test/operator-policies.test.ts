@@ -3,7 +3,7 @@
 import { env } from "cloudflare:test";
 import { createDb, regionsFromEnv, schema } from "@portifact/db";
 import { policyOf } from "@portifact/domain";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { OPERATOR_USAGE, runOperator } from "../src/operator.ts";
 
@@ -28,6 +28,7 @@ const POLICY = {
   commentRetentionDays: null,
   commentRetentionFrom: null,
   commentRetentionToken: null,
+  anonymousDataWriters: "forbidden",
 };
 
 async function workspace(policy: unknown) {
@@ -90,6 +91,84 @@ describe("operator policy commands", () => {
     expect(policyOf(row?.policy)).toEqual(POLICY);
   });
 
+  // Review of #291 (P1): forbidding anonymous writers again with otherwise default policies
+  // stores no policy, so the export does not list the workspace; a restore that brings back the
+  // older `allowed` must not leave the permission on.
+  it("withdraws anonymous writers the restore brought back to a workspace the file does not list", async () => {
+    const allowed = { ...POLICY, ipAllowlist: null, anonymousDataWriters: "allowed" };
+    const forbidden = await workspace(null);
+    const keptAllowed = await workspace(allowed);
+    const written = new Map<string, string>();
+    const files = {
+      read: async (path: string) => written.get(path) ?? "",
+      write: async (path: string, text: string) => {
+        written.set(path, text);
+      },
+    };
+    await runOperator(db(), ["export-policies", "--out", "p.jsonl"], NOW, files);
+    expect(written.get("p.jsonl")).not.toContain(forbidden);
+    // The restore brings back the policy an admin had before forbidding them again.
+    await db()
+      .update(schema.workspaces)
+      .set({ policy: allowed, policyRevision: 1 })
+      .where(eq(schema.workspaces.id, forbidden));
+    const applied = await runOperator(
+      all(),
+      ["apply-policies", "--file", "p.jsonl"],
+      NOW + 1,
+      files,
+    );
+    expect(applied.exitCode).toBe(0);
+    expect(applied.output).toContain("anonymous writers");
+    expect(applied.output).toContain(`  ${forbidden}`);
+    const policies = await db()
+      .select({ id: schema.workspaces.id, policy: schema.workspaces.policy })
+      .from(schema.workspaces)
+      .where(inArray(schema.workspaces.id, [forbidden, keptAllowed]));
+    const of = (id: string) => policyOf(policies.find((row) => row.id === id)?.policy);
+    // Withdrawn, every other setting kept; the exported workspace keeps what it allowed.
+    expect(of(forbidden)).toEqual({ ...allowed, anonymousDataWriters: "forbidden" });
+    expect(of(keptAllowed).anonymousDataWriters).toBe("allowed");
+    const [event] = await db()
+      .select({ actorType: schema.auditEvents.actorType, detail: schema.auditEvents.detail })
+      .from(schema.auditEvents)
+      .where(
+        and(
+          eq(schema.auditEvents.ownerId, forbidden),
+          eq(schema.auditEvents.kind, "policy.changed"),
+        ),
+      );
+    expect(event?.actorType).toBe("operator");
+    expect(event?.detail).toMatchObject({
+      anonymousDataWriters: "forbidden",
+    });
+    // Running it again changes nothing.
+    const again = await runOperator(all(), ["apply-policies", "--file", "p.jsonl"], NOW + 2, files);
+    expect(again.output).not.toContain("anonymous writers");
+  });
+
+  it("withdraws anonymous writers the file forbids even when the rest of its line is held back", async () => {
+    const id = await workspace({ ...POLICY, ipAllowlist: null, anonymousDataWriters: "allowed" });
+    const line = JSON.stringify({
+      workspaceId: id,
+      // Lifting public access is held back without --allow-lifting; forbidding writers is not.
+      policy: { ...POLICY, ipAllowlist: null, publicAccess: "allowed" },
+    });
+    const result = await runOperator(all(), ["apply-policies", "--file", "p"], NOW, {
+      read: async () => `${line}\n`,
+      write: async () => {},
+    });
+    expect(result.output).toContain("would lift a restriction");
+    const [row] = await db()
+      .select({ policy: schema.workspaces.policy })
+      .from(schema.workspaces)
+      .where(eq(schema.workspaces.id, id));
+    expect(policyOf(row?.policy)).toMatchObject({
+      publicAccess: "forbidden",
+      anonymousDataWriters: "forbidden",
+    });
+  });
+
   it("refuses a bad line and needs its paths", async () => {
     const files = {
       read: async () => '{"workspaceId":"ws_1","policy":{}}\n',
@@ -120,6 +199,7 @@ describe("operator policy commands", () => {
       commentRetentionDays: _comments,
       commentRetentionFrom: _commentsFrom,
       commentRetentionToken: _token,
+      anonymousDataWriters: _anonymous,
       ...older
     } = POLICY;
     const id = await workspace(older);
@@ -131,7 +211,7 @@ describe("operator policy commands", () => {
       },
     });
     expect(written.get("p.jsonl")).toContain(
-      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null, ssoRequired: false, artifactMaxDays: null, artifactMaxDaysFrom: null, commentRetentionDays: null, commentRetentionFrom: null, commentRetentionToken: null })}}`,
+      `{"workspaceId":"${id}","policy":${JSON.stringify({ ...older, ipAllowlist: null, tokenIpAllowlist: null, sessionMaxHours: null, allowedClients: null, ssoRequired: false, artifactMaxDays: null, artifactMaxDaysFrom: null, commentRetentionDays: null, commentRetentionFrom: null, commentRetentionToken: null, anonymousDataWriters: "forbidden" })}}`,
     );
   });
 });

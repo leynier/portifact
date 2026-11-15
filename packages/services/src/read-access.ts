@@ -148,6 +148,9 @@ export async function appSessionLive(
 const unavailable = () =>
   fail<never>("not_found", "This artifact does not exist or your account cannot open it.");
 
+/** The owner `checkReadAccess` reads against for a missing artifact: no account or workspace. */
+const UNSERVABLE_OWNER = "unservable";
+
 /** SHA-256 of a code or nonce, in hex. Only hashes of one-use secrets are stored. */
 export async function hashSecret(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
@@ -189,16 +192,23 @@ export async function checkReadAccess(
     .from(schema.artifacts)
     .where(eq(schema.artifacts.id, input.artifactId))
     .limit(1);
-  if (!artifact?.currentVersionId) return unavailable();
-  const state = effectiveState(
-    {
-      state: artifact.state,
-      expiresAt: artifact.expiresAt === null ? null : new Date(artifact.expiresAt),
-      archivedAt: artifact.archivedAt === null ? null : new Date(artifact.archivedAt),
-    },
-    new Date(input.now),
-  );
-  if (state !== "active") return unavailable();
+  // A missing or unservable artifact takes the same reads as a refused one (the account, the
+  // plan, the reader list, the actor), against a placeholder owner nobody acts for, so the reads
+  // never tell the two apart; only the answer at the end decides.
+  const servable =
+    artifact?.currentVersionId != null &&
+    effectiveState(
+      {
+        state: artifact.state,
+        expiresAt: artifact.expiresAt === null ? null : new Date(artifact.expiresAt),
+        archivedAt: artifact.archivedAt === null ? null : new Date(artifact.archivedAt),
+      },
+      new Date(input.now),
+    ) === "active";
+  const subject =
+    artifact && servable
+      ? artifact
+      : { ownerId: UNSERVABLE_OWNER, accessMode: "restricted" as const, policyGeneration: 0 };
 
   // The account and the owner's plan (the `domain` mode depends on it) are global: one batch of
   // the global database, the round trip the account's read already took.
@@ -208,12 +218,11 @@ export async function checkReadAccess(
       .from(schema.users)
       .where(eq(schema.users.id, input.userId))
       .limit(1),
-    ownerPlanQuery(db.global, artifact.ownerId),
+    ownerPlanQuery(db.global, subject.ownerId),
   ]);
-  if (!user) return unavailable();
 
   const readers =
-    artifact.accessMode === "restricted"
+    subject.accessMode === "restricted"
       ? (
           await db
             .select({ email: schema.artifactReaders.email })
@@ -221,8 +230,9 @@ export async function checkReadAccess(
             .where(eq(schema.artifactReaders.artifactId, input.artifactId))
         ).map((row) => row.email)
       : [];
+  if (!user || !artifact || !servable) return unavailable();
   const verifiedEmails = user.emailVerified ? [user.email.toLowerCase()] : [];
-  const resolved = await actorOn(db.global, input.userId, artifact.ownerId);
+  const resolved = await actorOn(db.global, input.userId, subject.ownerId);
   // A person a request policy refuses on the workspace (decision 0020) reads nothing of it
   // through their account; a public artifact is for everyone, so it reads as for anyone.
   if (!resolved.ok && artifact.accessMode !== "public") return resolved;

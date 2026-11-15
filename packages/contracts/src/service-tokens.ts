@@ -44,14 +44,17 @@ export const ServiceTokenRole = z.enum(SERVICE_TOKEN_ROLES);
 export type ServiceTokenRole = z.infer<typeof ServiceTokenRole>;
 
 /**
- * Scopes a token may hold: the artifact scopes only. Never the annotation scopes (comments need
- * a person) and never `credentials:manage`.
+ * Scopes a token may hold: the artifact scopes and the artifact data scopes (decision 0026, which
+ * an admin grants per token; a token created before them has neither). Never the annotation
+ * scopes (comments need a person) and never `credentials:manage`.
  */
 export const SERVICE_TOKEN_SCOPES = [
   "artifacts:read",
   "artifacts:write",
   "artifacts:share",
   "artifacts:delete",
+  "data:read",
+  "data:write",
 ] as const;
 export const ServiceTokenScope = z.enum(SERVICE_TOKEN_SCOPES);
 export type ServiceTokenScope = z.infer<typeof ServiceTokenScope>;

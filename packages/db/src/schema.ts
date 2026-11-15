@@ -33,6 +33,16 @@ export const ABUSE_REASONS = [
 ] as const;
 
 /** Edit suggestions (decision 0027), as in @portifact/contracts. */
+/** What a comment attachment may be (decision 0029); equal to `ATTACHMENT_TYPES` in contracts. */
+export const ATTACHMENT_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "text/plain",
+] as const;
+
 export const SUGGESTION_THREAD_KINDS = ["comment", "suggestion"] as const;
 export const SUGGESTION_STATES = [
   "pending",
@@ -768,6 +778,9 @@ export const OUTBOX_TOPICS = [
   "data_reconcile",
   "data_resolve",
   "data_export",
+  "data_audit",
+  "data_rights_request",
+  "data_reset",
 ] as const;
 
 /**
@@ -871,7 +884,12 @@ export const tombstones = sqliteTable(
      * refresh token deleted or revoked and `oauth_grant` a consent deleted (an app disconnected):
      * these are pruned after the Time Travel window (`WINDOW_TOMBSTONE_KINDS`,
      * docs/operations.md, "Restoring a backup"). The directory's `workspace_member` and
-     * `workspace_invitation` tombstones are pruned with them (decision 0017).
+     * `workspace_invitation` tombstones are pruned with them (decision 0017). Edit suggestions
+     * (decision 0027) add `suggestion_withdrawn` and `suggestion_rejected` (a thread ID: a restore
+     * withdraws or rejects it again) and `edit_draft` (`<artifact>:<user>:<incarnation>`: a restore
+     * deletes that draft again, never one created after it), pruned with the same window.
+     * `comment_attachment` marks a file the operator removed (decision 0029), by its ID, pruned
+     * with the same window.
      */
     kind: text("kind", {
       enum: [
@@ -900,6 +918,11 @@ export const tombstones = sqliteTable(
         "session",
         "oauth_token",
         "oauth_grant",
+        "suggestion_withdrawn",
+        "suggestion_rejected",
+        "edit_draft",
+        "data_grant",
+        "comment_attachment",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1005,7 +1028,9 @@ export const moderationDecisions = sqliteTable(
   "moderation_decisions",
   {
     id: text("id").primaryKey(),
-    targetKind: text("target_kind", { enum: ["artifact", "account", "brand"] }).notNull(),
+    targetKind: text("target_kind", {
+      enum: ["artifact", "account", "brand", "attachment"],
+    }).notNull(),
     targetId: text("target_id").notNull(),
     /** The owner whose people are told: the account, or the workspace. */
     ownerId: text("owner_id").notNull(),
@@ -1115,7 +1140,48 @@ export const artifactData = sqliteTable("artifact_data", {
   reportSeq: integer("report_seq").notNull().default(0),
   createdAt: createdAt(),
   updatedAt: timestamp("updated_at").notNull(),
+  /**
+   * Who may write from the page (decision 0026, delivery 9, `DATA_WRITERS`): `signed_in`, or
+   * `anyone`, which adds anonymous grants on a public artifact while the owner's plan and policy
+   * allow them. Reset to `signed_in` by a transfer, so the new owner decides it again.
+   */
+  writers: text("writers", { enum: ["signed_in", "anyone"] })
+    .notNull()
+    .default("signed_in"),
 });
+
+/**
+ * The owner side's data operations (decision 0026, delivery 5): one per caller and idempotency
+ * key, holding the operation ID the object records the change under (its issue time included),
+ * so a retry after a lost answer sends the same ID and the object applies the change once. It
+ * holds no body and no answer: a retry is authorized again and answered from the object. Written
+ * by one guarded statement on the artifact's owner, state, hold and data numbers, which is the
+ * D1 claim every owner-side change makes before it reaches the object; pruned after a day.
+ */
+export const dataOperations = sqliteTable(
+  "data_operations",
+  {
+    actorId: text("actor_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    opId: text("op_id").notNull(),
+    requestHash: text("request_hash").notNull(),
+    createdAt: createdAt(),
+    /**
+     * An owner's erase only: the target its confirmation authorized (`{ ownerId, generation,
+     * epoch }`, JSON), bound once at the claim so every retry and the `data_reset` job act on it
+     * alone, and `done` (the generation the erase reached) once D1 followed it.
+     */
+    target: text("target"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.actorId, t.idempotencyKey] }),
+    index("data_operations_created_idx").on(t.createdAt),
+    index("data_operations_artifact_idx").on(t.artifactId),
+  ],
+);
 
 /** What the data reconciliation decided about an object, for the operator (`data-findings`). */
 export const DATA_FINDING_ACTIONS = [
@@ -1148,6 +1214,104 @@ export const dataFindings = sqliteTable("data_findings", {
   firstSeenAt: timestamp("first_seen_at").notNull(),
   lastSeenAt: timestamp("last_seen_at").notNull(),
 });
+
+/**
+ * Grants of artifact data (decision 0026, "The grant"): one person's consent, in one browser, that
+ * an artifact's page may know them by `visitor_id` (claimed in the author journal, the same for
+ * every grant of the person on the artifact) and their display name and write as them. The
+ * content Worker renews its cookie's claims against this row every 60 seconds, so revoking it,
+ * signing out of the app session that gave it (`auth_session_id`, global, no foreign key) or
+ * losing access ends it within that time. A revocation writes a `data_grant` window tombstone, so
+ * a restore never revives it. Rows go 30 days after they ended (`pruneDataGrants`).
+ */
+export const dataGrants = sqliteTable(
+  "data_grants",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** The account; no foreign key (users are global). Account deletion deletes the rows. */
+    userId: text("user_id").notNull(),
+    visitorId: text("visitor_id").notNull(),
+    authSessionId: text("auth_session_id").notNull(),
+    /** The host the grant was issued for: the `.dev` host or the active custom host. */
+    host: text("host").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    revokedAt: timestamp("revoked_at"),
+    /** Set once a code redeemed: a grant whose code never redeemed gives nothing. */
+    redeemedAt: timestamp("redeemed_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("data_grants_user_artifact_idx").on(t.userId, t.artifactId),
+    index("data_grants_artifact_idx").on(t.artifactId),
+    index("data_grants_expires_idx").on(t.expiresAt),
+    // The prune's other two selections (`pruneDataGrants`), each led by its own time.
+    index("data_grants_revoked_idx").on(t.revokedAt).where(sql`${t.revokedAt} is not null`),
+    index("data_grants_unredeemed_idx").on(t.createdAt).where(sql`${t.redeemedAt} is null`),
+  ],
+);
+
+/**
+ * One-use codes that carry a grant from the app's control to the artifact origin: only the
+ * SHA-256 of the code and of the beginning browser's nonce are stored, bound to the host. The
+ * guarded update that sets `used_at` is the redemption.
+ */
+export const dataGrantCodes = sqliteTable(
+  "data_grant_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    grantId: text("grant_id")
+      .notNull()
+      .references(() => dataGrants.id, { onDelete: "cascade" }),
+    artifactId: text("artifact_id").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    host: text("host").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("data_grant_codes_expires_idx").on(t.expiresAt),
+    index("data_grant_codes_grant_idx").on(t.grantId),
+  ],
+);
+
+/**
+ * Anonymous grants of artifact data (decision 0026, delivery 9, "Anonymous writers"): a visitor
+ * without an account allowed a public artifact's page to save what they enter, after the human
+ * check. Nobody is behind the row: its `visitor_id` is new for each grant and never claimed in the
+ * author journal, and it holds no address. Each grant carries its one-use code (hashes of the
+ * code and of the beginning browser's nonce, bound to the host); the guarded update that sets
+ * `used_at` is the redemption. The content Worker renews the cookie's claims against this row and
+ * the artifact still open to anonymous writers every 60 seconds. Rows go with the artifact and
+ * 30 days after they ended (`pruneDataGrants`).
+ */
+export const dataAnonymousGrants = sqliteTable(
+  "data_anonymous_grants",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    visitorId: text("visitor_id").notNull(),
+    host: text("host").notNull(),
+    codeHash: text("code_hash").notNull(),
+    nonceHash: text("nonce_hash").notNull(),
+    codeExpiresAt: timestamp("code_expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    expiresAt: timestamp("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("data_anonymous_grants_code_idx").on(t.codeHash),
+    index("data_anonymous_grants_artifact_idx").on(t.artifactId),
+    index("data_anonymous_grants_expires_idx").on(t.expiresAt),
+    // The prune's unredeemed selection, led by its own time.
+    index("data_anonymous_grants_unused_idx").on(t.codeExpiresAt).where(sql`${t.usedAt} is null`),
+  ],
+);
 
 /**
  * Accounts being deleted. The request deletes the user (and with it every session, token and
@@ -1258,6 +1422,12 @@ export const annotationThreads = sqliteTable(
     /** Where a carried suggestion was made: its first version and target, kept on every carry. */
     originVersionId: text("origin_version_id"),
     originTarget: text("origin_target"),
+    /**
+     * `ImageRegion` JSON (decision 0028): a rectangle of the image the element target names, with
+     * the image's file and its SHA-256 from `version_files`. Null for every other thread. Its bytes
+     * are counted in `target_bytes`, so the usage triggers count it with the target.
+     */
+    region: text("region"),
   },
   (t) => [
     index("annotation_threads_artifact_version_state_idx").on(
@@ -1316,6 +1486,69 @@ export const annotationMessages = sqliteTable(
     index("annotation_messages_author_idx").on(t.authorId),
     check("annotation_messages_body_bytes", sql`${t.bodyBytes} between 0 and 8192`),
     check("annotation_messages_deleted_body", sql`(${t.state} = 'deleted') = (${t.body} is null)`),
+  ],
+);
+
+/**
+ * Files on comments (decision 0029). A row is `pending` from the upload's start until a new thread
+ * or reply names it, then `attached` to that message for good. Its R2 key is derived
+ * (`attachmentKey`: `attachments/<artifact>/<id>`). Triggers (`comment_attachments` migration)
+ * count an attached row's size in its owner's `annotation_usage.bytes`, move it with a transfer,
+ * write a `delete_objects` job for the key whenever a row is deleted, and delete a message's rows
+ * when it becomes a deleted marker; the foreign keys take them with their message, thread and
+ * artifact. `uploaded_by` has no foreign key (users are global); an attached row's uploader is its
+ * message's author, and account deletion deletes the account's pending rows.
+ */
+export const commentAttachments = sqliteTable(
+  "comment_attachments",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** The artifact's owner, whose comment storage an attached file uses. */
+    ownerId: text("owner_id").notNull(),
+    threadId: text("thread_id").references(() => annotationThreads.id, { onDelete: "cascade" }),
+    messageId: text("message_id").references(() => annotationMessages.id, { onDelete: "cascade" }),
+    uploadedBy: text("uploaded_by").notNull(),
+    /** Untrusted text chosen by the uploader. */
+    name: text("name").notNull(),
+    size: integer("size").notNull(),
+    sha256: text("sha256").notNull(),
+    /** What the bytes showed when the file was attached; null while pending. */
+    contentType: text("content_type", { enum: ATTACHMENT_TYPES }),
+    state: text("state", { enum: ["pending", "attached"] }).notNull(),
+    createdAt: createdAt(),
+    /** When a pending upload stops being usable; null once attached. */
+    expiresAt: timestamp("expires_at"),
+    attachedAt: timestamp("attached_at"),
+    /**
+     * Set while the operator withholds the file (decision 0029, "Abuse and the operator"): shown
+     * to and downloadable by nobody, kept in storage until reinstated or removed for good.
+     */
+    withheldAt: timestamp("withheld_at"),
+    withheldReason: text("withheld_reason", { enum: ABUSE_REASONS }),
+  },
+  (t) => [
+    index("comment_attachments_message_idx").on(t.messageId),
+    index("comment_attachments_thread_idx").on(t.threadId),
+    index("comment_attachments_artifact_idx").on(t.artifactId),
+    // A person's pending uploads, counted against their cap and deleted with their account.
+    index("comment_attachments_uploader_idx")
+      .on(t.uploadedBy, t.expiresAt)
+      .where(sql`${t.state} = 'pending'`),
+    // Expired pending uploads, oldest first, for the prune.
+    index("comment_attachments_pending_idx").on(t.expiresAt).where(sql`${t.state} = 'pending'`),
+    check("comment_attachments_size", sql`${t.size} between 1 and 10485760`),
+    check("comment_attachments_sha256", sql`length(${t.sha256}) = 64`),
+    check(
+      "comment_attachments_type",
+      sql`${t.contentType} is null or ${t.contentType} in ('image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain')`,
+    ),
+    check(
+      "comment_attachments_state",
+      sql`(${t.state} = 'pending' and ${t.threadId} is null and ${t.messageId} is null and ${t.contentType} is null and ${t.expiresAt} is not null and ${t.attachedAt} is null) or (${t.state} = 'attached' and ${t.threadId} is not null and ${t.messageId} is not null and ${t.contentType} is not null and ${t.expiresAt} is null and ${t.attachedAt} is not null)`,
+    ),
   ],
 );
 
@@ -1894,6 +2127,12 @@ export const editDrafts = sqliteTable(
     attemptReason: text("attempt_reason", { enum: ACCEPTANCE_END_REASONS }),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at").notNull(),
+    /**
+     * A random token of this draft's incarnation, set when the row is created and never reused:
+     * a save names it with the revision, so a tab holding a discarded draft never overwrites the
+     * one that replaced it, whose revision starts at 1 again (migration 0083).
+     */
+    incarnation: text("incarnation").notNull().default(""),
   },
   (t) => [
     primaryKey({ columns: [t.artifactId, t.userId] }),
@@ -2120,7 +2359,7 @@ export const platformBudget = sqliteTable(
     check("platform_budget_single_row", sql`${t.id} = 'global'`),
     check(
       "platform_budget_override_steps",
-      sql`${t.overrideSteps} is null or ${t.overrideSteps} between 1 and 4`,
+      sql`${t.overrideSteps} is null or ${t.overrideSteps} between 1 and 5`,
     ),
   ],
 );

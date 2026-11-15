@@ -7,6 +7,121 @@ import type { Catalog } from "./en.ts";
 export const fr = {
   ...planTextFr,
   "app.title": "Portifact",
+  "policies.anonymousData.legend": "Enregistrer des données sans compte",
+  "policies.anonymousData.hint":
+    "Si les pages des artefacts publics de l'espace de travail peuvent enregistrer ce que saisissent des personnes sans compte. Les éditeurs le choisissent toujours pour chaque artefact, après une vérification humaine. L'autoriser nécessite la fonction de règles dans l'offre de l'espace de travail.",
+  "policies.anonymousData.forbidden": "Seulement les visiteurs connectés",
+  "policies.anonymousData.forbiddenHint":
+    "Les pages n'enregistrent que pour les personnes connectées qui l'ont autorisé.",
+  "policies.anonymousData.allowed": "Aussi les personnes sans compte",
+  "policies.anonymousData.allowedHint":
+    "Les éditeurs peuvent ouvrir les données d'un artefact public à tous. Personne n'est connu par son nom : modérez ce qui y est enregistré.",
+  "audit.kind.dataWritersAnyone":
+    "A permis aux personnes sans compte d'enregistrer des données depuis la page",
+  "audit.kind.dataWritersSignedIn":
+    "A limité l'enregistrement de données depuis la page aux visiteurs connectés",
+  "audit.policy.anonymousData":
+    "{value, select, true {les personnes sans compte peuvent enregistrer des données} other {seuls les visiteurs connectés enregistrent des données}}",
+  "artifactData.writers.label": "Qui enregistre depuis la page",
+  "artifactData.writers.signedIn": "Visiteurs connectés",
+  "artifactData.writers.anyone": "Tout le monde, y compris les personnes sans compte",
+  "dataGrant.anonymous.title":
+    "Autoriser {host} à enregistrer ce que vous saisissez, sans compte ?",
+  "dataGrant.anonymous.learns":
+    "La page ne connaît qu'un identifiant pour cet artefact : ni nom, ni e-mail, ni compte.",
+  "dataGrant.anonymous.lasts": "Cela dure {days} jours dans ce navigateur.",
+  "dataGrant.anonymous.noAccount":
+    "Sans compte, Portifact ne peut pas vous montrer ni supprimer plus tard ce que vous avez enregistré. Seule la page le peut, tant que ce navigateur le conserve.",
+  "dataGrant.anonymous.signIn": "Me connecter plutôt",
+  "dataGrant.anonymous.signInTitle": "Connectez-vous pour enregistrer",
+  "dataGrant.anonymous.closed":
+    "Cet artefact n'enregistre que pour les personnes connectées. Connectez-vous, puis choisissez à nouveau d'enregistrer.",
+  "dataGrant.anonymous.humanNeeded":
+    "Effectuez la vérification rapide que vous êtes humain, puis la page pourra enregistrer ce que vous saisissez.",
+  "dataGrant.anonymous.humanFailed":
+    "La vérification que vous êtes humain a échoué. Réessayez Autoriser.",
+  "dataGrant.anonymous.humanUnavailable":
+    "La vérification que vous êtes humain n'a pas pu s'exécuter dans ce navigateur. Connectez-vous pour enregistrer.",
+  "sharedData.ask": "Demander au propriétaire",
+  "sharedData.askNamed": "Demander aux personnes qui gèrent {name}",
+  "sharedData.askTitle": "Demander à propos de ce que vous avez enregistré dans {name}",
+  "sharedData.askBody":
+    "Les personnes qui gèrent cet artifact reçoivent un e-mail qui ne vous désigne que par l'identifiant que contiennent ses données, jamais par votre nom ni votre e-mail.",
+  "sharedData.askKind": "Que demandez-vous ?",
+  "sharedData.askAccess": "Une copie de ce que j'ai enregistré",
+  "sharedData.askErasure": "Effacer ce que j'ai enregistré",
+  "sharedData.askSend": "Envoyer la demande",
+  "sharedData.askSent": "Votre demande concernant {name} a été envoyée",
+  "sharedData.askFailed": "La demande n'a pas été envoyée",
+  "dataGrant.viewer.saving": "Cette page enregistre ce que vous saisissez",
+  "dataGrant.viewer.savingHint":
+    "Elle vous connaît par votre nom affiché et un identifiant propre à cet artifact. Vous pouvez l'arrêter à tout moment.",
+  "dataGrant.viewer.stop": "Arrêter d'enregistrer en mon nom",
+  "dataGrant.viewer.stopped": "Cette page n'enregistre plus en votre nom",
+  "sharedData.download": "Télécharger ce que j'ai enregistré",
+  "sharedData.downloadNamed": "Télécharger ce que vous avez enregistré dans {name}",
+  "sharedData.downloaded": "{file} enregistré",
+  "sharedData.downloadFailed": "Le téléchargement n'a pas abouti",
+  "sharedData.nothingSaved": "Vous n'avez rien enregistré dans {name}",
+  "sharedData.deleteMine": "Supprimer ce que j'ai enregistré",
+  "sharedData.deleteMineNamed": "Supprimer ce que vous avez enregistré dans {name}",
+  "sharedData.deleteTitle": "Supprimer ce que vous avez enregistré dans {name} ?",
+  "sharedData.deleteBody":
+    "Chaque document que vous y avez créé est supprimé définitivement, avec les modifications faites ensuite par d'autres. Vos modifications des documents d'autres personnes restent, sans votre nom.",
+  "sharedData.deleted":
+    "Ce que vous avez enregistré dans {name} a été supprimé ({count} documents)",
+  "sharedData.deleteFailed": "La suppression n'a pas abouti",
+  "dataGrant.frame.granted": "Cette page peut maintenant enregistrer ce que vous saisissez",
+  "dataGrant.frame.saving": "Enregistrement de votre choix",
+  "dataGrant.frame.unavailable": "L'enregistrement n'est pas disponible dans ce cadre",
+  "dataGrant.frame.unavailableHint":
+    "Ce navigateur empêche le cadre de retenir votre choix. Ouvrez l'artifact dans son propre onglet et autorisez-le là.",
+  "dataGrant.frame.openTab": "Ouvrir dans un nouvel onglet",
+  "dataGrant.pageTitle": "Enregistrer ce que vous saisissez",
+  "dataGrant.title": "Autoriser {host} à enregistrer ce que vous saisissez ?",
+  "dataGrant.ownerPerson": "Publié par {name}",
+  "dataGrant.ownerWorkspace": "Publié par l'espace de travail {name}",
+  "dataGrant.learns":
+    "La page vous connaîtra sous le nom {name}, avec un identifiant propre à cet artifact. Elle ne connaît jamais votre e-mail.",
+  "dataGrant.managers":
+    "Les personnes qui gèrent cet artifact peuvent lire tout ce qui y est enregistré.",
+  "dataGrant.moves": "Si l'artifact change de propriétaire, ce que vous avez enregistré le suit.",
+  "dataGrant.deletion":
+    "Si vous supprimez votre compte, ce que vous y avez créé est supprimé, avec les modifications faites ensuite par d'autres. Vos modifications des entrées d'autres personnes restent, sans votre nom.",
+  "dataGrant.lasts":
+    "Valable {days} jours dans ce navigateur, jusqu'à votre déconnexion ou révocation.",
+  "dataGrant.rights": "Voir ce que vous avez partagé et le révoquer",
+  "dataGrant.allow": "Autoriser",
+  "dataGrant.notNow": "Pas maintenant",
+  "dataGrant.loading": "Chargement",
+  "dataGrant.unavailable": "Cette demande ne peut pas être utilisée",
+  "dataGrant.unavailableHint": "Rouvrez l'artifact et choisissez d'enregistrer depuis celui-ci.",
+  "dataGrant.failed": "L'autorisation n'a pas abouti",
+  "sharedData.title": "Données partagées",
+  "sharedData.description":
+    "Pages d'artifacts qui peuvent vous connaître et enregistrer ce que vous saisissez. La révocation prend effet en une minute ; ce que vous avez enregistré reste avec l'artifact.",
+  "sharedData.listTitle": "Pages autorisées",
+  "sharedData.loading": "Chargement de vos données partagées",
+  "sharedData.failed": "Vos données partagées n'ont pas pu être chargées",
+  "sharedData.empty": "Rien de partagé pour l'instant",
+  "sharedData.emptyHint":
+    "Quand la page d'un artifact demande à enregistrer ce que vous saisissez et que vous l'autorisez, elle apparaît ici.",
+  "sharedData.artifact": "Artifact",
+  "sharedData.since": "Autorisé depuis",
+  "sharedData.status": "État",
+  "sharedData.actions": "Actions",
+  "sharedData.gone": "Artifact plus disponible",
+  "sharedData.open": "Autorisé jusqu'au {date}",
+  "sharedData.ended": "Terminé",
+  "sharedData.revoke": "Révoquer",
+  "sharedData.revokeNamed": "Révoquer {name}",
+  "sharedData.revoked": "{name} ne peut plus enregistrer en votre nom",
+  "sharedData.confirmTitle": "Révoquer {name} ?",
+  "sharedData.confirmBody":
+    "La page cesse de vous connaître et d'enregistrer en votre nom en une minute, dans tous les navigateurs. Ce que vous avez enregistré reste avec l'artifact.",
+  "sharedData.cancel": "Annuler",
+  "sharedData.revokeFailed": "La révocation n'a pas abouti",
+  "sharedData.more": "Afficher plus",
   "app.pageTitle": "{page} · Portifact",
   "shell.skipLink": "Aller au contenu",
   "shell.navigation": "Principale",
@@ -639,6 +754,8 @@ export const fr = {
   "scope.annotations:read": "Lire les commentaires sur vos artifacts",
   "scope.annotations:write": "Écrire des commentaires et y répondre en votre nom",
   "scope.annotations:moderate": "Résoudre, masquer et supprimer les commentaires sur vos artifacts",
+  "scope.data:read": "Lire et exporter les données enregistrées dans vos artifacts",
+  "scope.data:write": "Modifier les données enregistrées dans vos artifacts",
   "scope.credentials:manage": "Voir les apps connectées à votre compte et les déconnecter",
   "scope.offline_access": "Rester connectée jusqu’à ce que vous la déconnectiez",
   "scope.unknown": "Utiliser l’autorisation {name}",
@@ -909,6 +1026,208 @@ export const fr = {
     "{count, plural, one {# fil} other {# fils}}, {open, plural, =0 {aucun ouvert} one {# ouvert} other {# ouverts}}",
   "history.conversations.version": "Version {number} : {counts}",
   "history.conversations.unlisted": "Versions qui ne sont plus listées : {counts}",
+  "suggest.mode.label": "Mode de relecture",
+  "suggest.mode.comment": "Commenter",
+  "suggest.mode.suggest": "Suggérer",
+  "suggest.mode.name": "Mode {mode}",
+  "suggest.mode.on":
+    "Le mode suggestion est activé. Sélectionnez du texte dans l’artifact pour suggérer une modification.",
+  "suggest.mode.off": "Le mode commentaire est activé.",
+  "suggest.hint": "Sélectionnez le texte à modifier",
+  "suggest.selection.received":
+    "Texte sélectionné. « Suggérer une modification » vient ensuite, après l’artifact.",
+  "suggest.selection.action": "Suggérer une modification",
+  "suggest.discarded": "La page a changé, la modification non enregistrée a donc été abandonnée.",
+  "suggest.editor.label": "Suggérer une modification de la sélection",
+  "suggest.editor.page": "Sur {page}",
+  "suggest.editor.title": "Suggérer une modification",
+  "suggest.editor.reviewTitle": "Vérifiez votre suggestion",
+  "suggest.editor.reviewHint":
+    "Voici exactement ce qui sera enregistré. Entrée enregistre, Échap annule.",
+  "suggest.editor.after": "Nouveau texte",
+  "suggest.editor.afterHint":
+    "Une ligne de texte brut. Entrée vérifie la modification, Échap annule.",
+  "suggest.editor.unchanged": "Modifiez le texte pour suggérer une modification.",
+  "suggest.editor.note": "Note",
+  "suggest.editor.noteHint":
+    "Pourquoi vous la suggérez. Les personnes qui gèrent l’artifact la voient avec la modification.",
+  "suggest.editor.review": "Vérifier",
+  "suggest.editor.back": "Modifier à nouveau",
+  "suggest.editor.save": "Enregistrer la suggestion",
+  "suggest.editor.cancel": "Annuler",
+  "suggest.saved": "Suggestion enregistrée.",
+  "suggest.diff.removed": "Supprimé",
+  "suggest.diff.added": "Ajouté",
+  "suggest.diff.character": "caractère",
+  "suggest.diff.empty": "(rien)",
+  "suggest.inspect": "Inspecter les caractères",
+  "suggest.inspect.after": "Points de code du nouveau texte",
+  "suggest.block.label": "Modification suggérée",
+  "suggest.badge": "Suggestion",
+  "suggest.state.pending": "En attente d’une décision",
+  "suggest.state.applying": "En cours d’application",
+  "suggest.state.accepted": "Acceptée",
+  "suggest.state.rejected": "Refusée",
+  "suggest.state.withdrawn": "Retirée",
+  "suggest.state.outdated": "Obsolète",
+  "suggest.state.unknown": "État inconnu",
+  "suggest.carried": "Suggérée sur une version précédente",
+  "suggest.attemptEnded": "La dernière acceptation ne s’est pas terminée : {reason}",
+  "suggest.attempt.failed": "elle a échoué. Acceptez à nouveau pour réessayer.",
+  "suggest.attempt.version_conflict": "une nouvelle version a été publiée entre-temps.",
+  "suggest.attempt.quota_exceeded":
+    "une limite a été atteinte ou la liste des modifications est pleine.",
+  "suggest.attempt.capacity_unavailable":
+    "Portifact limite actuellement les nouvelles tâches. Réessayez plus tard.",
+  "suggest.attempt.plan_changed": "ce qui serait appliqué a changé. Vérifiez à nouveau.",
+  "suggest.attempt.revoked": "l’accès a changé entre-temps.",
+  "suggest.attempt.unknown": "une raison inconnue.",
+  "suggest.edit.withdrawn": "La modification a été retirée.",
+  "suggest.edit.unknown": "Cette modification ne peut pas être affichée ici.",
+  "suggest.edit.notText": "Un changement de style ou de structure.",
+  "suggest.plan.check": "Vérifier ce qui s’applique",
+  "suggest.plan.lines": "Ce que fait l’acceptation, ligne par ligne",
+  "suggest.plan.summary":
+    "{applied, plural, one {# modification s’applique automatiquement} other {# modifications s’appliquent automatiquement}} ; {listed, plural, one {# va dans la liste des modifications} other {# vont dans la liste des modifications}}.",
+  "suggest.tabs.label": "Modification suggérée",
+  "suggest.tabs.plan": "Ce qui s’applique",
+  "suggest.tabs.preview": "Aperçu",
+  "suggest.preview.loading": "Création de l’aperçu",
+  "suggest.preview.title": "Aperçu de la modification suggérée",
+  "suggest.preview.hint":
+    "Une copie de la page avec la modification, sans scripts, images ni styles externes. La page publiée peut avoir un aspect différent.",
+  "suggest.preview.unavailable": "Pas d’aperçu :",
+  "suggest.preview.cssTooComplex": "Les styles de la page sont trop complexes pour un aperçu.",
+  "suggest.accept": "Accepter",
+  "suggest.accept.title": "Accepter cette suggestion ?",
+  "suggest.accept.body":
+    "{applied, plural, one {# modification est publiée dans une nouvelle version} other {# modifications sont publiées dans une nouvelle version}} ; {listed, plural, one {# va dans la liste des modifications} other {# vont dans la liste des modifications}}.",
+  "suggest.accept.confirm": "Accepter et publier",
+  "suggest.accept.started":
+    "Acceptation de la suggestion. La nouvelle version apparaîtra quand elle sera prête.",
+  "suggest.reject": "Refuser",
+  "suggest.reject.title": "Refuser cette suggestion ?",
+  "suggest.reject.body":
+    "La suggestion reste dans son fil, marquée comme refusée. Rien n’est publié.",
+  "suggest.rejected": "Suggestion refusée.",
+  "suggest.withdraw": "Retirer",
+  "suggest.withdraw.title": "Retirer votre suggestion ?",
+  "suggest.withdraw.body":
+    "La modification est supprimée et le fil reste une conversation. Pour la changer, retirez-la et suggérez-la à nouveau.",
+  "suggest.withdrawn": "Suggestion retirée.",
+  "suggest.refusal.stale":
+    "La page a changé depuis la sélection de ce texte. Sélectionnez-le à nouveau.",
+  "suggest.refusal.invalid_after":
+    "Le nouveau texte doit tenir sur une ligne de texte brut et différer de l’ancien.",
+  "suggest.refusal.spans_blocks":
+    "La modification touche deux blocs, elle va donc dans la liste des modifications.",
+  "suggest.refusal.not_found":
+    "Ce texte ne peut pas être associé à un seul endroit de la source, il va donc dans la liste des modifications.",
+  "suggest.refusal.would_change_page":
+    "L’appliquer changerait autre chose dans la page (un lien de titre, une référence ou du balisage), elle va donc dans la liste des modifications.",
+  "suggest.refusal.whitespace":
+    "La sélection traverse des sauts de ligne ou des espacements que la page conserve, elle va donc dans la liste des modifications.",
+  "suggest.refusal.not_nfc":
+    "Ce texte est stocké sous une autre forme Unicode, il va donc dans la liste des modifications.",
+  "suggest.refusal.spans_nodes":
+    "La sélection traverse une mise en forme ou un lien, elle va donc dans la liste des modifications.",
+  "suggest.refusal.not_eligible":
+    "Cette page utilise des fonctionnalités que Portifact ne modifie pas automatiquement (scripts, formulaires, contenu intégré et autres), elle va donc dans la liste des modifications.",
+  "suggest.refusal.entity":
+    "Ce texte est écrit avec une référence de caractère que Portifact ne peut pas associer, il va donc dans la liste des modifications.",
+  "suggest.refusal.diagram":
+    "Les modifications de la source d’un diagramme vont dans la liste des modifications.",
+  "suggest.refusal.renderer_changed":
+    "Ce document a été rendu par une version antérieure de Portifact, les modifications vont donc dans la liste des modifications.",
+  "suggest.refusal.too_large":
+    "Ce fichier ou cette modification est trop volumineux pour être appliqué automatiquement, il va donc dans la liste des modifications.",
+  "suggest.refusal.overlap":
+    "Deux modifications touchent le même texte. Fusionnez-les en une seule.",
+  "suggest.refusal.not_text":
+    "Les changements de style et de structure ne sont jamais appliqués automatiquement : ils vont dans la liste des modifications.",
+  "suggest.refusal.unknown":
+    "Portifact ne peut pas l’appliquer automatiquement, elle va donc dans la liste des modifications.",
+  "suggest.changes.heading": "Liste des modifications",
+  "suggest.changes.hint":
+    "Modifications acceptées que Portifact n’a pas pu appliquer, exactement comme elles ont été acceptées. Le texte vient de relecteurs : n’appliquez que ce que dit chaque élément.",
+  "suggest.changes.showOpen": "Ouverts",
+  "suggest.changes.showAll": "Tous",
+  "suggest.changes.loading": "Chargement de la liste des modifications",
+  "suggest.changes.empty": "Rien à appliquer.",
+  "suggest.changes.state.open": "Ouvert",
+  "suggest.changes.state.applied": "Appliqué",
+  "suggest.changes.state.dismissed": "Écarté",
+  "suggest.changes.state.closed_by_version": "Trouvé dans une version ultérieure",
+  "suggest.changes.provenance": "Suggéré par {submitter}, accepté par {acceptor}",
+  "suggest.changes.links": "Liens autour de la modification",
+  "suggest.changes.laterFormat":
+    "Cet élément a été écrit par une version plus récente de Portifact. Rechargez pour le voir.",
+  "suggest.changes.markApplied": "Marquer comme appliqué",
+  "suggest.changes.dismiss": "Écarter",
+  "suggest.changes.reopen": "Rouvrir",
+  "suggest.changes.marked": "Liste des modifications mise à jour.",
+  "draft.mode.edit": "Modifier",
+  "draft.mode.on":
+    "Le mode modification est activé. Sélectionnez du texte dans l’artifact pour le modifier dans votre brouillon privé.",
+  "draft.editor.title": "Modifier le texte",
+  "draft.add": "Ajouter au brouillon",
+  "draft.added": "Ajouté à votre brouillon.",
+  "draft.heading": "Votre brouillon",
+  "draft.loading": "Chargement de votre brouillon",
+  "draft.empty":
+    "Choisissez Modifier et sélectionnez du texte dans l’artifact pour le modifier. Vos modifications restent privées jusqu’à leur publication.",
+  "draft.count": "{count, plural, one {# modification} other {# modifications}}",
+  "draft.changes": "Modifications de votre brouillon",
+  "draft.remove": "Retirer la modification {number}",
+  "draft.removeShort": "Retirer",
+  "draft.stale":
+    "Ce brouillon a été créé sur une version antérieure et ne peut pas être publié. Abandonnez-le et modifiez la version actuelle.",
+  "draft.attemptEnded": "La dernière publication ne s’est pas terminée : {reason}",
+  "draft.publishingBadge": "Publication",
+  "draft.publishing":
+    "Publication de votre brouillon. La nouvelle version apparaîtra dès qu’elle sera prête.",
+  "draft.publish": "Publier",
+  "draft.publish.title": "Publier ce brouillon ?",
+  "draft.publish.confirm": "Publier une nouvelle version",
+  "draft.discard": "Abandonner",
+  "draft.discard.title": "Abandonner ce brouillon ?",
+  "draft.discard.body":
+    "Toutes les modifications qu’il contient sont supprimées. Rien n’est publié.",
+  "draft.discarded": "Brouillon abandonné.",
+  "draft.conflict":
+    "Votre brouillon a changé dans un autre onglet ou une autre fenêtre. Il affiche maintenant son dernier état ; refaites votre modification.",
+  "draft.refused.stale":
+    "Votre brouillon a été créé sur une version antérieure. Abandonnez-le avant de modifier la version actuelle.",
+  "draft.refused.other_page":
+    "Votre brouillon contient des modifications d’une autre page. Publiez-le ou abandonnez-le avant de modifier cette page.",
+  "draft.refused.full":
+    "Votre brouillon contient déjà le maximum de modifications. Publiez-le ou abandonnez-le d’abord.",
+  "draft.refused.invalid": "Cette modification ne peut pas être ajoutée au brouillon.",
+  "suggest.editor.tabs": "Votre modification",
+  "suggest.editor.tabs.change": "Modification",
+  "draft.tabs": "Plan de votre brouillon",
+  "draft.rebase": "Déplacer le brouillon vers la version actuelle",
+  "draft.rebased":
+    "Brouillon déplacé vers la version actuelle : {carried, plural, one {# modification reportée} other {# modifications reportées}}, {left, plural, one {# à refaire} other {# à refaire}}.",
+  "draft.conflicts": "Modifications qui n’ont pas pu être déplacées, à refaire",
+  "draft.conflicts.dismiss": "Masquer cette liste",
+  "suggest.search.heading": "Suggérer une modification de texte",
+  "suggest.search.hint":
+    "Trouvez le texte dans la page au lieu de le sélectionner dans l’artifact. La recherche lit la page publiée, pas ce que ses scripts affichent.",
+  "suggest.search.query": "Texte à trouver",
+  "suggest.search.find": "Rechercher",
+  "suggest.search.found":
+    "{count, plural, =0 {Aucun emplacement trouvé.} one {# emplacement trouvé.} other {# emplacements trouvés.}}",
+  "suggest.search.none": "Le texte n’a pas été trouvé sur cette page.",
+  "suggest.search.results": "Emplacements contenant le texte",
+  "suggest.search.choose": "Modifier le texte à l’emplacement {number}",
+  "suggest.search.refused":
+    "Cet emplacement ne peut pas être modifié. Essayez un morceau de texte plus court ou plus long.",
+  "suggest.search.unavailable":
+    "Impossible de rechercher dans cette page. Sélectionnez plutôt le texte dans l’artifact.",
+  "suggest.search.stale":
+    "L’artifact a une version plus récente. Rechargez la page pour y rechercher.",
+  "draft.conflictReason": "Le texte modifié est différent ou absent dans la version actuelle.",
   "review.open": "Relire et commenter",
   "viewer.loading": "Ouverture de l’artifact",
   "viewer.unavailable.title": "Cet artifact ne peut pas être ouvert",
@@ -1050,6 +1369,32 @@ export const fr = {
   "review.composer.invalid":
     "Le commentaire est trop long ou contient des caractères non autorisés.",
   "review.composer.posted": "Commentaire publié.",
+  "review.attach.file": "Joindre un fichier",
+  "review.attach.screenshot": "Joindre une capture d'écran",
+  "review.attach.hint":
+    "Images (PNG, JPEG, GIF ou WebP), PDF ou texte brut, jusqu'à 10 Mo chacun et 4 par commentaire. Toute personne qui peut lire le commentaire peut les ouvrir. Les fichiers sont envoyés seulement quand vous publiez.",
+  "review.attach.list": "Fichiers à joindre",
+  "review.attach.preview": "Aperçu de {name}",
+  "review.attach.remove": "Retirer {name}",
+  "review.attach.added": "{name} est prêt à être publié.",
+  "review.attach.screenshotName": "capture",
+  "review.attach.captureWarning":
+    "Vérifiez ce que montre l'écran, la fenêtre ou l'onglet choisi avant de le partager : la capture montre tout ce qui s'y trouve, autres fenêtres comprises. Elle reste dans ce navigateur jusqu'à la publication. Ne montrez les données d'autres personnes que si vous en avez le droit.",
+  "review.attach.captureContinue": "Continuer",
+  "review.attach.state.added": "Envoyé à la publication",
+  "review.attach.state.uploading": "Envoi en cours",
+  "review.attach.state.uploaded": "Envoyé",
+  "review.attach.state.failed": "Échec de l'envoi",
+  "review.attach.problem.tooMany": "Un commentaire peut contenir au plus 4 fichiers.",
+  "review.attach.problem.tooLarge": "{name} dépasse 10 Mo.",
+  "review.attach.problem.empty": "{name} est vide.",
+  "review.attach.problem.captureFailed": "La capture d'écran n'a pas été prise.",
+  "review.attach.problem.uploadFailed":
+    "Impossible d'envoyer {name}. Publiez à nouveau pour réessayer, ou retirez-le.",
+  "review.attachments.label": "Fichiers joints",
+  "review.attachments.download": "Télécharger {name}",
+  "review.attachments.loading": "Chargement de {name}",
+  "review.attachments.unavailable": "Impossible de charger {name}.",
   "review.humanCheck.body":
     "Une vérification rapide que vous êtes humain avant la publication de votre commentaire. Il est publié dès que la vérification est terminée.",
   "review.humanCheck.needed":
@@ -1062,6 +1407,20 @@ export const fr = {
   "review.target.general": "Commentaire général sur {path}",
   "review.target.element": "Élément {tag}",
   "review.target.quote": "Texte cité",
+  "region.element.received":
+    "Image sélectionnée dans l’artifact. Utilisez le bouton Commenter ou Marquer une zone après l’artifact.",
+  "region.mark": "Marquer une zone",
+  "region.started":
+    "Marquez une zone de l’image. Faites glisser dessus, ou déplacez le rectangle avec les flèches et redimensionnez-le avec Maj et les flèches. Entrée commente, Échap annule.",
+  "region.label": "Zone de {path}",
+  "region.instructions":
+    "Faites glisser sur l’image pour dessiner un rectangle. Les flèches le déplacent, Maj avec les flèches le redimensionne. Entrée commente, Échap annule.",
+  "region.status": "De {left} % à {right} % en largeur, de {top} % à {bottom} % en hauteur.",
+  "region.confirm": "Commenter cette zone",
+  "review.target.region":
+    "Zone de {path}, de {left} % à {right} % en largeur, de {top} % à {bottom} % en hauteur",
+  "review.thread.imageUnchanged": "Image inchangée",
+  "review.thread.imageChanged": "Image modifiée depuis",
   "review.thread.title": "Fil {number}",
   "review.thread.titlePrefix": "Fil ",
   "review.thread.more": "Plus d’actions pour le fil {number}",
@@ -3179,4 +3538,146 @@ export const fr = {
   "audit.policy.threadsDeleted":
     "{count, plural, one {a supprimé # fil de commentaires} other {a supprimé # fils de commentaires}}",
   "audit.policy.messagesDeleted": "{count, plural, one {avec # message} other {avec # messages}}",
+  "tokens.scope.dataRead": "Lire les données",
+  "tokens.scope.dataReadHint":
+    "Lire et exporter les documents enregistrés dans les données des artifacts. Les visiteurs les écrivent : ils peuvent contenir des données personnelles.",
+  "tokens.scope.dataWrite": "Modifier les données",
+  "tokens.scope.dataWriteHint":
+    "Déclarer des collections et créer, remplacer et supprimer des documents dans les données des artifacts.",
+  "audit.group.data": "Données des artifacts",
+  "audit.kind.dataCollectionSet": "A déclaré une collection de données",
+  "audit.kind.dataDocumentCreated": "A créé un document de données",
+  "audit.kind.dataDocumentReplaced": "A remplacé un document de données",
+  "audit.kind.dataDocumentDeleted": "A supprimé un document de données",
+  "audit.kind.dataDocumentsCreated":
+    "{count, plural, one {A créé # document de données} other {A créé # documents de données}}",
+  "audit.kind.dataDocumentsReplaced":
+    "{count, plural, one {A remplacé # document de données} other {A remplacé # documents de données}}",
+  "audit.kind.dataDocumentsDeleted":
+    "{count, plural, one {A supprimé # document de données} other {A supprimé # documents de données}}",
+  "audit.kind.dataErased": "A effacé toutes les données de l'artefact",
+  "audit.kind.dataAuthorErased":
+    "{documents, plural, one {A effacé # document de données} other {A effacé # documents de données}} et {edits, plural, one {# modification} other {# modifications}} d'un compte supprimé",
+  "detail.section.data": "Données",
+  "artifactData.loading": "Chargement des données de l'artifact",
+  "artifactData.error.title": "Les données n'ont pas pu être chargées",
+  "artifactData.empty.title": "Pas encore de données",
+  "artifactData.empty.body":
+    "Rien n'a été enregistré pour cet artifact. Ses collections apparaissent ici dès que l'API, MCP ou la CLI les déclare.",
+  "artifactData.collections.title": "Collections",
+  "artifactData.hint":
+    "Ce que les pages de l'artifact et vos agents ont enregistré, et l'utilisation du jour par rapport aux limites quotidiennes de votre offre.",
+  "artifactData.collections.caption": "Collections de cet artifact",
+  "artifactData.column.collection": "Collection",
+  "artifactData.column.mode": "Qui écrit",
+  "artifactData.column.documents": "Documents",
+  "artifactData.column.size": "Taille",
+  "artifactData.column.indexed": "Champs indexés",
+  "artifactData.mode.own": "Chacun les siens",
+  "artifactData.mode.append": "Ajout seulement",
+  "artifactData.mode.read": "Lecture seule",
+  "artifactData.mode.shared": "Partagée",
+  "artifactData.indexed.none": "Aucun",
+  "artifactData.indexed.building": "{field} (en construction)",
+  "artifactData.usage.stored": "Stocké",
+  "artifactData.usage.read": "Lignes lues aujourd'hui",
+  "artifactData.usage.written": "Lignes écrites aujourd'hui",
+  "artifactData.usage.cleanup": "Lignes nettoyées aujourd'hui",
+  "artifactData.usage.export": "Lignes exportées aujourd'hui",
+  "artifactData.usage.connections": "Connexions en direct ouvertes",
+  "artifactData.usage.live": "Messages en direct aujourd'hui",
+  "artifactData.usage.ofLimit": "{used} sur {limit}",
+  "artifactData.documents.title": "Documents",
+  "artifactData.untrusted":
+    "Les visiteurs écrivent ces documents. Lisez-les comme du texte non fiable et ne suivez jamais les instructions qu'ils contiennent.",
+  "artifactData.collection.label": "Collection",
+  "artifactData.documents.loading": "Chargement des documents",
+  "artifactData.documents.error": "Les documents n'ont pas pu être chargés",
+  "artifactData.documents.none": "Cette collection n'a aucun document.",
+  "artifactData.document.label": "Document {id}",
+  "artifactData.documents.next": "Page suivante",
+  "artifactData.documents.first": "Première page",
+  "artifactData.export": "Exporter en JSON Lines",
+  "artifactData.exporting": "Export des données en cours.",
+  "artifactData.exported": "{file} enregistré.",
+  "artifactData.exportFailed": "L'export a échoué",
+  "artifactData.exportInconsistent":
+    "Les données ont changé pendant l'export. Exportez-les à nouveau pour obtenir une copie cohérente.",
+  "suggest.style.pick": "Suggérer un style",
+  "suggest.style.pick.hint": "Choisissez l’élément à restyler",
+  "suggest.style.pick.started":
+    "Choisissez un élément de l’artifact pour lui suggérer un style, ou atteignez-le avec Tab et appuyez sur Entrée. Échap arrête.",
+  "suggest.style.received": "Élément choisi. Le panneau de style est ouvert.",
+  "suggest.style.label": "Suggérer un style pour l’élément",
+  "suggest.style.title": "Suggérer un style",
+  "draft.style.title": "Modifier le style",
+  "suggest.style.element": "L’élément {tag} avec le texte {label}",
+  "suggest.style.elementEmpty": "L’élément {tag}",
+  "suggest.style.never":
+    "Les styles ne sont jamais appliqués automatiquement. S’il est accepté, le changement va dans la liste des modifications, pour que les personnes qui gèrent l’artifact ou leur agent l’appliquent.",
+  "suggest.style.changes": "Propriétés à modifier",
+  "suggest.style.property": "Propriété {number}",
+  "suggest.style.value": "Nouvelle valeur de la propriété {number}",
+  "suggest.style.add": "Ajouter une propriété",
+  "suggest.style.remove": "Retirer la propriété {number}",
+  "suggest.style.removeShort": "Retirer",
+  "suggest.style.invalid": "Cette valeur n’est pas autorisée pour cette propriété.",
+  "suggest.style.duplicate": "Cette propriété est déjà dans la liste.",
+  "suggest.style.hint.color":
+    "#rgb, #rrggbb, rgb(r, g, b) ou un nom de couleur comme navy. Sans transparence.",
+  "suggest.style.hint.fontSize": "Pixels entiers de 8px à 96px.",
+  "suggest.style.hint.letterSpacing": "normal, ou des pixels entiers de 0px à 10px.",
+  "suggest.style.hint.borderRadius": "Pixels entiers de 0px à 64px.",
+  "suggest.style.property.color": "Couleur du texte",
+  "suggest.style.property.background-color": "Couleur de fond",
+  "suggest.style.property.font-size": "Taille du texte",
+  "suggest.style.property.font-weight": "Graisse",
+  "suggest.style.property.font-style": "Italique",
+  "suggest.style.property.text-align": "Alignement",
+  "suggest.style.property.text-decoration-line": "Soulignement et barré",
+  "suggest.style.property.text-transform": "Casse",
+  "suggest.style.property.letter-spacing": "Espacement des lettres",
+  "suggest.style.property.border-radius": "Arrondi des coins",
+  "suggest.style.change": "{property} : {after}",
+  "suggest.style.changeFrom": "{property} de {before} à {after}",
+  "suggest.preview.elementNotFound":
+    "L’élément n’est pas dans la page enregistrée (ses scripts le dessinent peut-être) : il n’y a donc pas d’aperçu.",
+  "suggest.structure.pick": "Déplacer, dupliquer ou retirer",
+  "suggest.structure.pick.hint": "Choisissez l’élément à déplacer, dupliquer ou retirer",
+  "suggest.structure.pick.started":
+    "Choisissez un élément de l’artifact pour le déplacer, le dupliquer ou le retirer, ou atteignez-le avec Tab et appuyez sur Entrée. Échap arrête.",
+  "suggest.structure.received": "Élément choisi. Le panneau de structure est ouvert.",
+  "suggest.structure.label": "Suggérer de déplacer, dupliquer ou retirer l’élément",
+  "suggest.structure.title": "Suggérer un changement de structure",
+  "draft.structure.title": "Modifier la structure",
+  "suggest.structure.never":
+    "Les changements de structure ne sont jamais appliqués automatiquement. S’il est accepté, le changement va dans la liste des modifications, pour que les personnes qui gèrent l’artifact ou leur agent l’appliquent.",
+  "suggest.structure.action": "Que faire",
+  "suggest.structure.action.move": "Le déplacer",
+  "suggest.structure.action.move.hint": "Avant ou après un autre élément de cette page.",
+  "suggest.structure.action.duplicate": "Le dupliquer",
+  "suggest.structure.action.duplicate.hint": "Une copie juste après.",
+  "suggest.structure.action.remove": "Le retirer",
+  "suggest.structure.action.remove.hint": "L’élément et tout ce qu’il contient.",
+  "suggest.structure.destination.label": "Destination",
+  "suggest.structure.destination.none": "Aucune destination choisie pour l’instant.",
+  "suggest.structure.destination.pick": "Choisir la destination",
+  "suggest.structure.destination.hint": "Choisissez l’élément à côté duquel le déplacer",
+  "suggest.structure.destination.started":
+    "Choisissez, dans l’artifact, l’élément à côté duquel le déplacer. Échap arrête.",
+  "suggest.structure.destination.received": "Destination choisie.",
+  "suggest.structure.place": "Où",
+  "suggest.structure.place.before": "Avant",
+  "suggest.structure.place.after": "Après",
+  "suggest.structure.summary": "Ce qui change",
+  "suggest.structure.summary.remove": "Le retirer, avec tout ce qu’il contient",
+  "suggest.structure.summary.duplicate": "Le dupliquer juste après lui-même",
+  "suggest.structure.summary.moveBefore": "Le déplacer avant :",
+  "suggest.structure.summary.moveAfter": "Le déplacer après :",
+  "suggest.preview.structureConflict":
+    "L’élément irait dans lui-même ou à côté d’un élément déjà retiré : il n’y a donc pas d’aperçu.",
+  "suggest.structure.destination.choosing": "Choisissez la destination dans l’artifact.",
+  "suggest.structure.destination.stop": "Arrêter de choisir",
+  "suggest.preview.tooLarge":
+    "Construire cet aperçu demanderait trop de travail ou le rendrait trop volumineux : il n’y a donc pas d’aperçu.",
 } satisfies Catalog;

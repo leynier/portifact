@@ -73,7 +73,7 @@ function entryPoints(config: string): string[] {
   const source = main ? read(`${dir}/${main}`) : "";
   const handlers = handlersIn(source);
   // A class this Worker exports; a binding with `script_name` is another Worker's class (the
-  // jobs Worker's `ARTIFACT_DOCUMENTS`, decision 0026), classified with that Worker.
+  // jobs and app Workers' `ARTIFACT_DOCUMENTS`, decision 0026), classified with that Worker.
   const classes = [...text.matchAll(/\{[^{}]*"class_name"\s*:\s*"([^"]+)"[^{}]*\}/g)]
     .filter((match) => !match[0].includes('"script_name"'))
     .map((match) => match[1] as string);
@@ -103,6 +103,8 @@ const CLASSIFIED: Record<string, { file: string; pattern: RegExp } | { noDatabas
   // SQLite storage: neither touches a product database.
   "apps/data/wrangler.jsonc#fetch": { noDatabase: "apps/data/src/index.ts" },
   "apps/data/wrangler.jsonc#ArtifactDocuments": { noDatabase: "apps/data/src/store.ts" },
+  // The test stack hosts the same documents class itself (decision 0026, delivery 6).
+  "e2e/wrangler.jsonc#ArtifactDocuments": { noDatabase: "apps/data/src/store.ts" },
   "apps/jobs/wrangler.jsonc#scheduled": {
     file: "apps/jobs/src/index.ts",
     pattern:
@@ -214,11 +216,14 @@ describe("the credential on the request context", () => {
     }
   });
 
-  it("is recorded by a preview redemption before the thread check decides the role", () => {
+  it("is recorded by a preview redemption before the check that decides the role", () => {
     // The preview origin (decision 0027) authenticates the person by the dashboard session the
-    // code was issued to, read with its sign-in time and method in the same statement.
-    expect(read("packages/services/src/suggestion-previews.ts")).toMatch(
-      /recordSessionRenewal\(handles\.db, row\.userId, \{[\s\S]{0,160}?\}\);\s+const subject = await previewSubject\(/,
+    // code was issued to, read with its sign-in time and method in the same statement, and
+    // records it before `stillShown` asks the thread or own-work rule (which decides the role);
+    // only the cached document's read (its metadata names the subject) comes between.
+    const source = read("packages/services/src/suggestion-previews.ts");
+    expect(source).toMatch(
+      /recordSessionRenewal\(handles\.db, row\.userId, \{[\s\S]{0,160}?\}\);\s+const object = await bucket\.get\(row\.r2Key\);[\s\S]{0,400}?await stillShown\(handles\.db,/,
     );
   });
 

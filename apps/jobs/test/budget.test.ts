@@ -83,13 +83,18 @@ describe("budget run", () => {
     });
     expect(protect).toMatchObject({
       level: "protect100",
-      actions: ["stop_new_artifacts", "block_uploads", "pause_annotation_writes"],
+      actions: [
+        "stop_new_artifacts",
+        "block_uploads",
+        "pause_data_writes",
+        "pause_annotation_writes",
+      ],
       newAlerts: ["spend_75", "spend_100"],
       notified: 2,
     });
     expect(sent[1]?.text).toMatch(/- spend_75 at US\$111\.\d\d \(2026-11-16T00:30:00\.000Z\)/);
     expect(sent[1]?.text).toContain(
-      "Protection in effect: stop_new_artifacts, block_uploads, pause_annotation_writes.",
+      "Protection in effect: stop_new_artifacts, block_uploads, pause_data_writes, pause_annotation_writes.",
     );
   });
 
@@ -176,7 +181,8 @@ describe("scheduled budget run", () => {
     const fetcher = vi.fn(async () => Response.json({ data: { viewer: { accounts: [{}] } } }));
     const configured = { ...env, CF_ANALYTICS_TOKEN: "t", CF_ACCOUNT_ID: "a" };
     expect(await runScheduledBudget(configured, MID, fetcher)).toMatchObject({ analytics: "ok" });
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    // The platform's query, then the data Worker's requests (no namespace ran, so no usage query).
+    expect(fetcher).toHaveBeenCalledTimes(2);
     expect(await runScheduledBudget(env, MID)).toMatchObject({ analytics: "off" });
     expect(logs).toHaveBeenCalledWith(expect.stringContaining('"event":"budget"'));
   });

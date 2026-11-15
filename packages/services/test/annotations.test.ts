@@ -2375,7 +2375,7 @@ describe("the comment action history", () => {
     const w = await world();
     await started(w, w.reader);
     await db().global.delete(schema.users).where(eq(schema.users.id, w.reader));
-    expect(await eraseAccountTraces(db(), w.reader)).toEqual({ more: false });
+    expect(await eraseAccountTraces(db(), w.reader, NOW)).toEqual({ more: false });
     const page = await history(w, w.owner);
     if (!page.ok) throw new Error(page.code);
     expect(page.value.entries.map((e) => e.actor)).toEqual([null]);
@@ -2874,3 +2874,167 @@ describe("idempotent thread writes", () => {
     });
   });
 });
+
+describe("image regions (decision 0028)", () => {
+  const IMG: AnnotationTarget = {
+    schema: 1,
+    path: "index.html",
+    anchor: { kind: "element", selectors: ["#mock"], tagName: "img", fingerprint: "" },
+  };
+  const RECT = { x: 0.25, y: 0.5, width: 0.5, height: 0.25 };
+  const SHA = "b".repeat(64);
+
+  async function addImage(
+    versionId: string,
+    ownerId: string,
+    sha = SHA,
+    contentType = "image/png",
+  ) {
+    await db().insert(schema.versionFiles).values({
+      versionId,
+      kind: "published",
+      path: "img/mock.png",
+      ownerId,
+      sha256: sha,
+      size: 100,
+      contentType,
+    });
+  }
+
+  function mark(
+    w: World,
+    extra: { target?: AnnotationTarget; path?: string; on?: boolean; versionId?: string } = {},
+  ) {
+    return createAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: w.reader,
+      artifactId: w.id,
+      versionId: extra.versionId ?? w.version,
+      target: extra.target ?? IMG,
+      body: "This button is too small",
+      now: NOW,
+      region: { ...RECT, image: { path: extra.path ?? "img/mock.png" } },
+      imageRegions: extra.on ?? true,
+    });
+  }
+
+  it("stores the rectangle with the image's SHA-256 from the version and counts its bytes", async () => {
+    const w = await world({ comments: "everyone" });
+    await addImage(w.version, w.owner);
+    const result = await mark(w);
+    expect(code(result)).toBe("ok");
+    if (!result.ok) return;
+    expect(result.value.region).toEqual({ ...RECT, image: { path: "img/mock.png", sha256: SHA } });
+    const [row] = await db()
+      .select({
+        region: schema.annotationThreads.region,
+        bytes: schema.annotationThreads.targetBytes,
+      })
+      .from(schema.annotationThreads)
+      .where(eq(schema.annotationThreads.id, result.value.id));
+    const regionBytes = new TextEncoder().encode(row?.region ?? "").length;
+    expect(row?.bytes).toBe(new TextEncoder().encode(JSON.stringify(IMG)).length + regionBytes);
+    // The owner's annotation bytes count the region through the usage triggers.
+    const usage = await usageOf(w.owner);
+    expect(usage.bytes).toBe((row?.bytes ?? 0) + utf8("This button is too small"));
+    // Every reader of the thread sees the region; a current thread says nothing about the image.
+    const listed = await list(w, w.owner);
+    expect(listed.ok && listed.value.threads[0]?.region).toEqual(result.value.region);
+  });
+
+  it("refuses a region while switched off, or on a target that is not an img", async () => {
+    const w = await world();
+    await addImage(w.version, w.owner);
+    expect(code(await mark(w, { on: false }))).toBe("invalid_input");
+    const div: AnnotationTarget = {
+      ...IMG,
+      anchor: { kind: "element", selectors: ["#box"], tagName: "div", fingerprint: "" },
+    };
+    expect(code(await mark(w, { target: div }))).toBe("invalid_input");
+    expect(code(await mark(w, { target: DOC }))).toBe("invalid_input");
+    expect(await threadCount(w.id)).toBe(0);
+  });
+
+  it("refuses an image path that is not a published image of the version", async () => {
+    const w = await world();
+    await addImage(w.version, w.owner, SHA, "text/plain");
+    expect(code(await mark(w))).toBe("invalid_input");
+    expect(code(await mark(w, { path: "img/missing.png" }))).toBe("invalid_input");
+    expect(code(await mark(w, { path: "index.html" }))).toBe("invalid_input");
+    expect(await threadCount(w.id)).toBe(0);
+  });
+
+  it("refuses a target that with its region passes the target limit", async () => {
+    const w = await world();
+    await addImage(w.version, w.owner);
+    const big: AnnotationTarget = {
+      ...IMG,
+      anchor: {
+        kind: "element",
+        selectors: ["#mock"],
+        tagName: "img",
+        fingerprint: "x".repeat(8000),
+      },
+    };
+    const result = await mark(w, { target: big });
+    expect(code(result)).toBe("invalid_input");
+    expect(result.ok ? "" : result.message).toContain("8192");
+  });
+
+  it("gives a stranger the same answer with or without a region", async () => {
+    const w = await world();
+    await addImage(w.version, w.owner);
+    const withRegion = await createAnnotationThread(db(), {
+      humanCheck: HUMAN,
+      userId: w.stranger,
+      artifactId: w.id,
+      versionId: w.version,
+      target: IMG,
+      body: "Hi",
+      now: NOW,
+      region: { ...RECT, image: { path: "img/mock.png" } },
+      imageRegions: true,
+    });
+    const without = await start(w, w.stranger, "Hi", NOW, IMG);
+    expect(code(withRegion)).toBe(code(without));
+    expect(code(withRegion)).not.toBe("ok");
+  });
+
+  it("says whether a later version still has the same image bytes", async () => {
+    const w = await world({ comments: "everyone" });
+    await addImage(w.version, w.owner);
+    const created = await mark(w);
+    if (!created.ok) throw new Error("creating the region thread failed");
+    const publish = async (number: number, sha: string | null) => {
+      const next = await addVersion(w.id, w.owner, number);
+      if (sha) await addImage(next, w.owner, sha);
+      await db()
+        .update(schema.artifacts)
+        .set({ currentVersionId: next })
+        .where(eq(schema.artifacts.id, w.id));
+    };
+    const regionNow = async () => {
+      const listed = await list(w, w.owner, { version: "all" });
+      if (!listed.ok) throw new Error("listing failed");
+      return listed.value.threads.find((t) => t.id === created.value.id)?.region?.currentImage;
+    };
+    await publish(2, SHA);
+    expect(await regionNow()).toBe("unchanged");
+    await publish(3, "c".repeat(64));
+    expect(await regionNow()).toBe("changed");
+    await publish(4, null);
+    expect(await regionNow()).toBe("changed");
+  });
+});
+
+function utf8(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+async function threadCount(artifact: string): Promise<number> {
+  const rows = await db()
+    .select({ id: schema.annotationThreads.id })
+    .from(schema.annotationThreads)
+    .where(eq(schema.annotationThreads.artifactId, artifact));
+  return rows.length;
+}

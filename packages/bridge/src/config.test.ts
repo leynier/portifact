@@ -50,3 +50,33 @@ describe("bridge settings", () => {
     }
   });
 });
+
+describe("the edit switch", () => {
+  const base = {
+    appOrigin: "https://app.portifact.com",
+    path: "index.html",
+    sessionTag: "Ses5ionTag_0123456789-",
+  };
+
+  it("turns protocol 3 on only for the exact value the content Worker writes", () => {
+    expect(readConfig({ ...base, edit: "true" })?.edit).toBe(true);
+    for (const edit of [undefined, "", "1", "TRUE", "false"]) {
+      expect(readConfig({ ...base, edit })).not.toHaveProperty("edit");
+    }
+  });
+});
+
+describe("the image regions switch", () => {
+  const base = {
+    appOrigin: "https://app.portifact.com",
+    path: "index.html",
+    sessionTag: "Ses5ionTag_0123456789-",
+  };
+
+  it("is on only for exactly true", () => {
+    expect(readConfig({ ...base, imageRegions: "true" })?.imageRegions).toBe(true);
+    for (const imageRegions of [undefined, "", "1", "TRUE", "false"]) {
+      expect(readConfig({ ...base, imageRegions })).not.toHaveProperty("imageRegions");
+    }
+  });
+});

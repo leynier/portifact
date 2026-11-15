@@ -20,6 +20,7 @@
 //
 // Bodies are untrusted plain text and are never logged.
 import {
+  ANCHOR_LIMITS,
   ANNOTATION_LIMITS,
   type AnnotationAuthor,
   type AnnotationDeleteResult,
@@ -35,8 +36,11 @@ import {
   type ArtifactState,
   type CommentScope,
   DEFAULT_REGION,
+  type ImageRegion,
+  type ImageRegionRequest,
   isServiceTokenId,
   isWorkspaceId,
+  regionTargetAllowed,
   UNTRUSTED_ANNOTATIONS_NOTICE,
   utf8Length,
 } from "@portifact/contracts";
@@ -80,12 +84,21 @@ import { checkSuggestionThreadState, firstMessageDeletion } from "@portifact/dom
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actorAndPlanOn, actorOn, ownerSide } from "./actors.ts";
+import {
+  type AttachmentRequest,
+  attachedBytes,
+  attachmentsGuard,
+  attachStatement,
+  type VerifiedAttachment,
+  verifyAttachments,
+} from "./attachment-writes.ts";
 import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
 import { heldRefusal, isHeld } from "./legal-holds.ts";
 import { ownerPlanRecord } from "./plans.ts";
 import { endAttempt } from "./suggestion-accept.ts";
+import { decisionMarker } from "./suggestion-markers.ts";
 import { type ThreadViewContext, threadViews } from "./thread-views.ts";
 import { markWebhookEvent } from "./webhook-activity.ts";
 import { policyDomains } from "./workspace-domains.ts";
@@ -160,6 +173,8 @@ export interface AnnotationListInput extends AnnotationActor {
   limit: number;
   version: AnnotationVersionFilter;
   state?: AnnotationThreadState | undefined;
+  /** `?fields=suggestion`: each thread's kind and suggestion block. */
+  suggestionFields?: boolean | undefined;
 }
 
 const missingArtifact = () => fail<never>("not_found", "Artifact not found.");
@@ -891,15 +906,32 @@ export async function createAnnotationThread(
     target: AnnotationTarget;
     body: string;
     humanCheck: HumanCheck;
+    /** A rectangle of the image the target names (decision 0028). */
+    region?: ImageRegionRequest | undefined;
+    /** Whether image regions are switched on (`IMAGE_REGIONS_ENABLED`); off, a region is refused. */
+    imageRegions?: boolean | undefined;
+    /** Files to attach (decision 0029); the adapter decides whether the caller may. */
+    attachments?: AttachmentRequest | undefined;
   },
 ): Promise<Result<AnnotationThreadView>> {
   const targetJson = JSON.stringify(input.target);
-  const targetBytes = utf8Length(targetJson);
+  const request = input.region;
+  if (request) {
+    if (!input.imageRegions) return fail("invalid_input", "Image regions are not available.");
+    if (!regionTargetAllowed(input.target)) {
+      return fail("invalid_input", "region: Only an element target of an img can carry a region.");
+    }
+  }
+  // The stored region names the image's bytes from `version_files`, never from the client; its
+  // bytes count with the target's (decision 0028), so they are known only after the file is read.
+  let regionJson: string | null = null;
+  let targetBytes = utf8Length(targetJson);
   const bodyBytes = utf8Length(input.body);
   const threadId = crypto.randomUUID();
   const messageId = crypto.randomUUID();
   const writeId = crypto.randomUUID();
   const checkHuman = humanGate(db, input.userId, input.humanCheck);
+  let files: VerifiedAttachment[] = [];
 
   return guardedWrite(
     async () => {
@@ -907,21 +939,50 @@ export async function createAnnotationThread(
       if (!loaded.ok) return loaded;
       const writable = checkThreadWritable(input.versionId, loaded.value.artifact.currentVersionId);
       if (!writable.ok) return writable;
-      const [file] = await db
-        .select({ path: schema.versionFiles.path })
-        .from(schema.versionFiles)
+      const verified = await attachmentsOf(db, input);
+      if (!verified.ok) return verified;
+      files = verified.value;
+      const vf = schema.versionFiles;
+      const paths = request ? [input.target.path, request.image.path] : [input.target.path];
+      const pageFiles = await db
+        .select({ path: vf.path, sha256: vf.sha256, contentType: vf.contentType })
+        .from(vf)
         .where(
           and(
-            eq(schema.versionFiles.versionId, input.versionId),
-            eq(schema.versionFiles.kind, "published"),
-            eq(schema.versionFiles.path, input.target.path),
+            eq(vf.versionId, input.versionId),
+            eq(vf.kind, "published"),
+            inArray(vf.path, [...new Set(paths)]),
           ),
-        )
-        .limit(1);
-      if (!file) return fail("invalid_input", "target.path: No such file in this version.");
+        );
+      if (!pageFiles.some((file) => file.path === input.target.path)) {
+        return fail("invalid_input", "target.path: No such file in this version.");
+      }
+      regionJson = null;
+      targetBytes = utf8Length(targetJson);
+      if (request) {
+        const image = pageFiles.find((file) => file.path === request.image.path);
+        if (!image?.contentType.toLowerCase().startsWith("image/")) {
+          return fail("invalid_input", "region.image.path: No such image in this version.");
+        }
+        const region: ImageRegion = {
+          x: request.x,
+          y: request.y,
+          width: request.width,
+          height: request.height,
+          image: { path: request.image.path, sha256: image.sha256 },
+        };
+        regionJson = JSON.stringify(region);
+        targetBytes += utf8Length(regionJson);
+        if (targetBytes > ANCHOR_LIMITS.targetMaxBytes) {
+          return fail(
+            "invalid_input",
+            `The target and its region are larger than ${ANCHOR_LIMITS.targetMaxBytes} bytes.`,
+          );
+        }
+      }
       const limits = await checkLimits(db, loaded.value, input.userId, input.now, {
         kind: "thread",
-        addedBytes: bodyBytes + targetBytes,
+        addedBytes: bodyBytes + targetBytes + attachedBytes(files),
       });
       if (!limits.ok) return limits;
       const human = await checkHuman(loaded.value);
@@ -930,7 +991,7 @@ export async function createAnnotationThread(
     async (loaded) => {
       const a = loaded.artifact;
       const th = schema.annotationThreads;
-      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${a.id} and ${schema.artifacts.currentVersionId} = ${input.versionId}) and ${rateGuard(input.userId, a.id, input.now)} and (select count(*) from ${th} where ${th.artifactId} = ${a.id}) < ${ANNOTATION_LIMITS.threadsPerArtifact}`;
+      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${a.id} and ${schema.artifacts.currentVersionId} = ${input.versionId}) and ${rateGuard(input.userId, a.id, input.now)} and (select count(*) from ${th} where ${th.artifactId} = ${a.id}) < ${ANNOTATION_LIMITS.threadsPerArtifact} and ${attachmentsGuard(files, { userId: input.userId, artifactId: a.id, now: input.now })}`;
       return runClaimed(db, [
         claim(
           db,
@@ -949,11 +1010,12 @@ export async function createAnnotationThread(
         // path, state, messages, revision, change_seq, resolved_at, resolved_by, created, updated,
         // then the suggestion columns (decision 0027), empty for a comment: kind, suggestion
         // state, edit, edit bytes, edit proofs, suggestion revision, attempt, attempt reason,
-        // decided by, decided at, result version, origin version, origin target.
+        // decided by, decided at, result version, origin version, origin target, and the image
+        // region (decision 0028).
         db
           .insert(th)
           .select(
-            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${input.target.path}, 'open', 1, 1, ${claimedEventId(writeId)}, null, null, ${input.now}, ${input.now}, 'comment', null, null, 0, null, 0, null, null, null, null, null, null, null where ${claimed(writeId)}`,
+            sql`select ${threadId}, ${a.id}, ${input.versionId}, ${a.ownerId}, ${input.userId}, ${targetJson}, ${targetBytes}, ${input.target.path}, 'open', 1, 1, ${claimedEventId(writeId)}, null, null, ${input.now}, ${input.now}, 'comment', null, null, 0, null, 0, null, null, null, null, null, null, null, ${regionJson} where ${claimed(writeId)}`,
           ),
         insertMessage(db, {
           id: messageId,
@@ -965,6 +1027,12 @@ export async function createAnnotationThread(
           now: input.now,
           writeId,
         }),
+        ...attachIfAny(
+          db,
+          files,
+          { threadId, messageId, userId: input.userId, now: input.now },
+          writeId,
+        ),
         ...noticeMark(db, loaded, writeId, {
           threadId,
           actorId: input.userId,
@@ -975,6 +1043,25 @@ export async function createAnnotationThread(
     },
     (loaded) => threadResult(db, loaded, input.userId, threadId),
   );
+}
+
+/** The named uploads, checked against R2 (decision 0029); none when the write names none. */
+async function attachmentsOf(
+  db: RegionalDb,
+  input: AnnotationActor & { attachments?: AttachmentRequest | undefined },
+): Promise<Result<VerifiedAttachment[]>> {
+  if (!input.attachments || input.attachments.ids.length === 0) return ok([]);
+  return verifyAttachments(db, input.attachments, input);
+}
+
+/** Attaches the checked files to the new message, on the claim. */
+function attachIfAny(
+  db: RegionalDb,
+  files: readonly VerifiedAttachment[],
+  target: { threadId: string; messageId: string; userId: string; now: number },
+  writeId: string,
+): BatchItem<"sqlite">[] {
+  return files.length === 0 ? [] : [attachStatement(db, files, target, claimed(writeId))];
 }
 
 function insertMessage(
@@ -1002,12 +1089,19 @@ function insertMessage(
 /** Adds a reply to a thread of the current version. */
 export async function replyToAnnotationThread(
   db: RegionalDb,
-  input: AnnotationActor & { threadId: string; body: string; humanCheck: HumanCheck },
+  input: AnnotationActor & {
+    threadId: string;
+    body: string;
+    humanCheck: HumanCheck;
+    /** Files to attach (decision 0029); the adapter decides whether the caller may. */
+    attachments?: AttachmentRequest | undefined;
+  },
 ): Promise<Result<AnnotationThreadView>> {
   const bodyBytes = utf8Length(input.body);
   const messageId = crypto.randomUUID();
   const writeId = crypto.randomUUID();
   const checkHuman = humanGate(db, input.userId, input.humanCheck);
+  let files: VerifiedAttachment[] = [];
   return guardedWrite(
     async () => {
       const loaded = await authorize(db, input, "participate");
@@ -1019,12 +1113,15 @@ export async function replyToAnnotationThread(
         loaded.value.artifact.currentVersionId,
       );
       if (!writable.ok) return writable;
+      const verified = await attachmentsOf(db, input);
+      if (!verified.ok) return verified;
+      files = verified.value;
       const limits = await checkLimits(
         db,
         loaded.value,
         input.userId,
         input.now,
-        { kind: "reply", addedBytes: bodyBytes },
+        { kind: "reply", addedBytes: bodyBytes + attachedBytes(files) },
         thread.messageCount,
       );
       if (!limits.ok) return limits;
@@ -1033,7 +1130,7 @@ export async function replyToAnnotationThread(
     },
     (loaded) => {
       const a = loaded.artifact;
-      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(input.threadId)} and ${scopeGuard(loaded, input.threadId)} and ${rateGuard(input.userId, a.id, input.now)}`;
+      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(input.threadId)} and ${scopeGuard(loaded, input.threadId)} and ${rateGuard(input.userId, a.id, input.now)} and ${attachmentsGuard(files, { userId: input.userId, artifactId: a.id, now: input.now })}`;
       return runClaimed(db, [
         claim(
           db,
@@ -1058,6 +1155,12 @@ export async function replyToAnnotationThread(
           now: input.now,
           writeId,
         }),
+        ...attachIfAny(
+          db,
+          files,
+          { threadId: input.threadId, messageId, userId: input.userId, now: input.now },
+          writeId,
+        ),
         touchThread(db, input.threadId, writeId, input.now, {
           messageCount: sql`${schema.annotationThreads.messageCount} + 1`,
         }),
@@ -1224,6 +1327,7 @@ async function firstMessageId(db: RegionalDb, threadId: string): Promise<string 
  */
 function withdrawalStatements(
   x: Db,
+  shared: boolean,
   loaded: Authorized,
   threadId: string,
   writeId: string,
@@ -1232,6 +1336,15 @@ function withdrawalStatements(
   const th = schema.annotationThreads;
   const pending = sql`exists (select 1 from ${th} where ${th.id} = ${threadId} and ${th.suggestionState} = 'pending')`;
   return [
+    // What keeps it withdrawn through a restore (decision 0027).
+    decisionMarker(
+      x,
+      shared,
+      "suggestion_withdrawn",
+      { id: threadId, artifactId: loaded.artifact.id },
+      sql`${claimed(writeId)} and ${pending}`,
+      input.now,
+    ),
     auditEvent(
       x,
       {
@@ -1365,7 +1478,9 @@ async function removeMessage(
           .update(m)
           .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
           .where(and(eq(m.id, input.messageId), claimed(writeId))),
-        ...(withdraws ? withdrawalStatements(x, loaded, found.thread.id, writeId, input) : []),
+        ...(withdraws
+          ? withdrawalStatements(x, shared !== null, loaded, found.thread.id, writeId, input)
+          : []),
         touchThread(x, found.thread.id, writeId, input.now),
       ]);
     },
@@ -1489,11 +1604,11 @@ export async function deleteAnnotationThread(
 /** One thread with its messages, if the caller can see it. */
 export async function getAnnotationThread(
   db: RegionalDb,
-  input: AnnotationActor & { threadId: string },
+  input: AnnotationActor & { threadId: string; suggestionFields?: boolean | undefined },
 ): Promise<Result<AnnotationThreadView>> {
   const loaded = await authorize(db, input, "read");
   if (!loaded.ok) return loaded;
-  return threadResult(db, loaded.value, input.userId, input.threadId);
+  return threadResult(db, loaded.value, input.userId, input.threadId, input.suggestionFields);
 }
 
 async function threadResult(
@@ -1501,10 +1616,11 @@ async function threadResult(
   loaded: Authorized,
   viewerId: string,
   threadId: string,
+  suggestionFields = false,
 ): Promise<Result<AnnotationThreadView>> {
   const thread = await findThread(db, loaded, threadId);
   if (!thread) return missingThread();
-  const [view] = await threadViews(db, viewContext(loaded), viewerId, [thread]);
+  const [view] = await threadViews(db, viewContext(loaded, suggestionFields), viewerId, [thread]);
   return ok(view as AnnotationThreadView);
 }
 
@@ -1643,7 +1759,12 @@ export async function listAnnotations(
     humanCheck:
       loaded.role === "participant" &&
       needsHumanCheck(loaded.role, await commentsOnOthersArtifacts(db, input.userId)),
-    threads: await threadViews(db, viewContext(loaded), input.userId, page.filter(matches)),
+    threads: await threadViews(
+      db,
+      viewContext(loaded, input.suggestionFields),
+      input.userId,
+      page.filter(matches),
+    ),
     removed: [...removed],
     cursor: encodeAnnotationCursor(upper),
     hasMore,
@@ -1750,11 +1871,12 @@ export async function listAnnotationHistory(
 // Views
 
 /** How the caller sees the threads of one loaded artifact. */
-function viewContext(loaded: Authorized): ThreadViewContext {
+function viewContext(loaded: Authorized, suggestionFields = false): ThreadViewContext {
   return {
     role: loaded.role,
     ownerSide: loaded.ownerSide,
     currentVersionOf: () => loaded.artifact.currentVersionId,
+    suggestionFields,
   };
 }
 
@@ -1806,6 +1928,9 @@ export async function eraseAuthorFromThread(
   );
 
   const writeId = crypto.randomUUID();
+  // With one database the whole batch runs on the handle that also writes the tombstone.
+  const shared = bothSides(db);
+  const x: Db = shared ?? db;
   const guard = sql`exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.revision} = ${thread.revision})`;
   const event: Claim = {
     artifactId: thread.artifactId,
@@ -1817,12 +1942,12 @@ export async function eraseAuthorFromThread(
   };
   const statements: Batch = visibleLeft
     ? [
-        claim(db, writeId, event, guard),
+        claim(x, writeId, event, guard),
         ...chunks(remove).map((ids) =>
-          db.delete(m).where(and(inArray(m.id, ids), claimed(writeId))),
+          x.delete(m).where(and(inArray(m.id, ids), claimed(writeId))),
         ),
         ...chunks(mark).map((ids) =>
-          db
+          x
             .update(m)
             .set({ state: "deleted", body: null, bodyBytes: 0, revision: sql`${m.revision} + 1` })
             .where(and(inArray(m.id, ids), claimed(writeId))),
@@ -1831,7 +1956,7 @@ export async function eraseAuthorFromThread(
         // deletion and retention"): withdrawn, its edit cleared, the thread kept as a conversation.
         // An acceptance still running for it is ended first, so its job's claim loses and
         // nothing returns the edit to pending; an acceptance whose commit already won stays.
-        db
+        x
           .update(schema.acceptanceAttempts)
           .set({ state: "ended", reason: "revoked", updatedAt: input.now })
           .where(
@@ -1848,7 +1973,17 @@ export async function eraseAuthorFromThread(
             ownerId: schema.acceptanceAttempts.ownerId,
             origin: schema.acceptanceAttempts.origin,
           }),
-        db
+        // What keeps it withdrawn through a restore (decision 0027); after the attempt's end,
+        // whose result is read by position below.
+        decisionMarker(
+          x,
+          shared !== null,
+          "suggestion_withdrawn",
+          thread,
+          sql`${claimed(writeId)} and exists (select 1 from ${th} where ${th.id} = ${thread.id} and ${th.kind} = 'suggestion' and ${th.suggestionState} in ('pending', 'applying') and ${th.authorId} = ${input.authorId})`,
+          input.now,
+        ),
+        x
           .update(th)
           .set({ ...WITHDRAWN, attemptId: null })
           .where(
@@ -1860,15 +1995,24 @@ export async function eraseAuthorFromThread(
               claimed(writeId),
             ),
           ),
-        touchThread(db, thread.id, writeId, input.now, {
+        touchThread(x, thread.id, writeId, input.now, {
           messageCount: sql`(select count(*) from ${m} where ${m.threadId} = ${thread.id})`,
         }),
       ]
     : [
-        claim(db, writeId, event, guard),
-        db.delete(th).where(and(eq(th.id, thread.id), claimed(writeId))),
+        claim(x, writeId, event, guard),
+        // What keeps the erased thread gone through a restore of its region alone, which the
+        // account's own tombstone does not reach (it re-deletes only what the account owned).
+        deletionMarker(
+          x,
+          shared !== null,
+          writeId,
+          { kind: "thread", id: thread.id, artifactId: thread.artifactId },
+          input.now,
+        ),
+        x.delete(th).where(and(eq(th.id, thread.id), claimed(writeId))),
       ];
-  const outcome = await db.batch(statements);
+  const outcome = await x.batch(statements);
   const [first] = outcome as [{ id: number }[]];
   if (visibleLeft) {
     // The ended acceptance's upload is released at once, through the ending path every attempt

@@ -16,6 +16,8 @@ import {
   createShareLink,
   createWorkspace,
   customDomainsServing,
+  dataNamespaces,
+  declareDataCollection,
   issueReviewHandoff,
   preparePublish,
   previewKey,
@@ -232,14 +234,17 @@ async function storagePut(request: Request, env: E2eEnv, url: URL): Promise<Resp
   if (!bucket) return new Response("Unknown bucket", { status: 400 });
   // A presigned download: the object as R2 holds it.
   if (request.method === "GET") {
-    const object = key.startsWith("objects/") ? await bucket.get(key) : null;
+    // Published objects, and comment attachments (decision 0029), as R2 serves them.
+    const readable = key.startsWith("objects/") || key.startsWith("attachments/");
+    const object = readable ? await bucket.get(key) : null;
     return object ? new Response(object.body) : new Response("Not found", { status: 404 });
   }
   const size = Number(request.headers.get("content-length"));
   const uploadId = url.searchParams.get("uploadId");
   if (uploadId !== null) return partPut(request, bucket, key, uploadId, url, size);
   const checksum = request.headers.get("x-amz-checksum-sha256") ?? "";
-  if (request.method !== "PUT" || !key.startsWith("objects/") || !request.body) {
+  const writable = key.startsWith("objects/") || key.startsWith("attachments/");
+  if (request.method !== "PUT" || !writable || !request.body) {
     return new Response("Bad request", { status: 400 });
   }
   if (!Number.isSafeInteger(size) || size < 0 || checksum === "") {
@@ -592,6 +597,39 @@ export async function control(request: Request, env: E2eEnv): Promise<Response> 
 
   // The owner's share links, through the same services the API, MCP and dashboard call. The
   // owner's plan must include them; tests grant it with a row in owner_plans.
+  if (path === "/data-collection") {
+    // Artifact data (decision 0026): the owner declares a collection, as the owner API does.
+    const { ownerId, artifactId, name, mode, writers } = input as {
+      ownerId: string;
+      artifactId: string;
+      name: string;
+      mode: "own" | "append" | "read" | "shared";
+      /** Who writes from the page (delivery 9), set as the owner's `setDataWriters` stores it. */
+      writers?: "signed_in" | "anyone";
+    };
+    const db = regionsFromEnv(env).get("default").db;
+    const result = await declareDataCollection(
+      db,
+      {
+        objects: dataNamespaces({ ...env, ARTIFACT_DATA_ENABLED: "true" }, "default"),
+        bucket: env.ARTIFACTS,
+        enabled: true,
+      },
+      {
+        userId: ownerId,
+        artifactId,
+        now,
+        idempotencyKey: crypto.randomUUID(),
+        declaration: { name, mode },
+      },
+    );
+    if (result.ok && writers !== undefined) {
+      await env.DB.prepare("UPDATE artifact_data SET writers = ? WHERE artifact_id = ?")
+        .bind(writers, artifactId)
+        .run();
+    }
+    return Response.json(result, { status: result.ok ? 200 : 400 });
+  }
   if (path === "/share-link") {
     const { ownerId, artifactId, label, expiresAt, password, revoke, region } =
       input as ShareLinkInput;

@@ -90,7 +90,14 @@ describe("getAccountUsage", () => {
   it("reports an account that never published as empty, with the plan's limits", async () => {
     const usage = value(await getAccountUsage(db(), { actor: personalActor(OWNER), now: NOW }));
     expect(usage).toEqual({
-      plan: { plan: "free", seats: 1, validUntil: null, limits: PLANS.free.limits, features: [] },
+      plan: {
+        plan: "free",
+        seats: 1,
+        validUntil: null,
+        limits: PLANS.free.limits,
+        features: [],
+        data: PLANS.free.data,
+      },
       activeArtifacts: { used: 0, limit: 50 },
       storage: { used: 0, reserved: 0, limit: 2_500_000_000 },
       publishesLast24h: { used: 0, limit: 100 },

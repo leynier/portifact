@@ -1100,6 +1100,7 @@ it.each(["sha256", "size", "renderedSha256", "blockMapSha256"] as const)(
         artifact: loaded.artifact,
         w: the(bothSides(db())),
         holds: sql`1`,
+        shared: true,
         token: crypto.randomUUID(),
         now: NOW + 2000,
       }),

@@ -47,7 +47,11 @@ export interface DecisionStatement extends Partial<StatementText> {
   withhold: boolean;
 }
 
-export type DecisionTarget = "artifact" | "account" | "brand";
+/** What a suspension, a lift or a statement of reasons is about. */
+export type RestrictionTarget = "artifact" | "account" | "brand";
+
+/** What a decision may be about: a restriction's target, or a file on a comment (decision 0029). */
+export type DecisionTarget = RestrictionTarget | "attachment";
 
 export interface DecisionRecord {
   targetKind: DecisionTarget;
@@ -98,7 +102,7 @@ export function decisionStatements(
 /** The open restriction a statement is about: its owner, category and suspension. */
 async function openRestriction(
   db: RegionalDb,
-  targetKind: DecisionTarget,
+  targetKind: RestrictionTarget,
   targetId: string,
 ): Promise<{
   ownerId: string;
@@ -159,7 +163,7 @@ async function openRestriction(
 export async function sendSuspensionStatement(
   db: RegionalDb,
   input: {
-    targetKind: DecisionTarget;
+    targetKind: RestrictionTarget;
     targetId: string;
     statement?: Omit<DecisionStatement, "withhold"> | undefined;
     now: number;
@@ -241,6 +245,8 @@ export interface ModerationNotice {
   action: "suspend" | "reinstate";
   target: DecisionTarget;
   artifactId: string | null;
+  /** The file, for a decision about a comment attachment (decision 0029). */
+  attachmentId: string | null;
   /** The artifact's name; the notifier drops it outside the default region (decision 0005). */
   artifactName: string | null;
   /** The workspace's slug, for the dashboard link; null for a personal space. */
@@ -292,20 +298,42 @@ export async function sendModerationNotice(
       (sent) => sent.userId,
     ),
   );
-  const recipients =
-    decision.targetKind === "account"
-      ? [decision.ownerId]
-      : await ownerRecipients(global, decision.ownerId);
-  const artifact =
-    decision.targetKind === "artifact"
+  // A file on a comment (decision 0029): the person who attached it is told too, besides the
+  // people who manage the artifact.
+  const file =
+    decision.targetKind === "attachment"
       ? (
           await db
-            .select({ name: schema.artifacts.name })
-            .from(schema.artifacts)
-            .where(eq(schema.artifacts.id, decision.targetId))
+            .select({
+              artifactId: schema.commentAttachments.artifactId,
+              uploadedBy: schema.commentAttachments.uploadedBy,
+            })
+            .from(schema.commentAttachments)
+            .where(eq(schema.commentAttachments.id, decision.targetId))
             .limit(1)
         )[0]
       : undefined;
+  const recipients =
+    decision.targetKind === "account"
+      ? [decision.ownerId]
+      : [
+          ...new Set([
+            ...(await ownerRecipients(global, decision.ownerId)),
+            ...(file ? [file.uploadedBy] : []),
+          ]),
+        ];
+  const artifactId =
+    decision.targetKind === "artifact" ? decision.targetId : (file?.artifactId ?? null);
+  const artifact =
+    artifactId === null
+      ? undefined
+      : (
+          await db
+            .select({ name: schema.artifacts.name })
+            .from(schema.artifacts)
+            .where(eq(schema.artifacts.id, artifactId))
+            .limit(1)
+        )[0];
   const slug = await workspaceSlug(global, decision.ownerId);
   for (const userId of recipients) {
     if (already.has(userId)) continue;
@@ -339,7 +367,8 @@ export async function sendModerationNotice(
         locale: (await loadSettings(global, userId)).locale,
         action: decision.action,
         target: decision.targetKind,
-        artifactId: decision.targetKind === "artifact" ? decision.targetId : null,
+        artifactId,
+        attachmentId: decision.targetKind === "attachment" ? decision.targetId : null,
         artifactName: artifact?.name ?? null,
         workspaceSlug: slug,
         reason: decision.reason,

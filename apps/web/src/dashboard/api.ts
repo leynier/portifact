@@ -21,6 +21,8 @@ import {
   type AnnotationsState,
   AnnotationThreadView,
   type AnnotationVersionFilter,
+  type AnonymousDataGrantCodeRequest,
+  AnonymousDataGrantControl,
   ApiError,
   type ApprovalChangeInput,
   type ApprovalRequestInput,
@@ -30,6 +32,7 @@ import {
   type ArtifactListFilters,
   ArtifactStatsView,
   ArtifactSummary,
+  AttachmentLink,
   AUDIT_EXPORT_CURSOR_HEADER,
   type AuditExportFormat,
   type AuditKind,
@@ -45,6 +48,8 @@ import {
   BrandSettings,
   type BrandUpdate,
   BrowserSessionList,
+  CHANGE_LIST_LIMITS,
+  ChangeItemList,
   CommentNoticeMute,
   CommittedPublish,
   ConnectedAppList,
@@ -52,6 +57,16 @@ import {
   CustomDomainList,
   CustomDomainRemoved,
   CustomDomainView,
+  DataDescriptionView,
+  DataExportPageView,
+  DataGrantCode,
+  type DataGrantCodeRequest,
+  DataGrantControl,
+  DataGrantList,
+  DataGrantRevocation,
+  DataGrantStatus,
+  DataQueryPage,
+  DataRightsRequested,
   DisconnectResult,
   DocumentPreview,
   type DocumentPreviewRequest,
@@ -75,8 +90,12 @@ import {
   InvitationLookup,
   InvitationView,
   LifecycleResult,
+  OwnDataPage,
+  OwnDocumentDeletion,
   type PolicyImpact,
   PolicyPreview,
+  type PrepareAttachmentRequest,
+  PreparedAttachment,
   PreparedPublish,
   type PublishRequest,
   ReviewStart,
@@ -129,6 +148,7 @@ import {
 } from "@portifact/contracts";
 import { z } from "zod";
 import type { SavedFile } from "./publish/download.ts";
+import { type SuggestionsApi, suggestionsApi } from "./suggestions-api.ts";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -180,6 +200,8 @@ export interface SignInMethod {
 }
 
 export interface DashboardApi {
+  /** Edit suggestions and the change list (decision 0027), in their own client module. */
+  suggestions: SuggestionsApi;
   /** The signed-in account, or null without a session. */
   account(): Promise<Account | null>;
   signOut(): Promise<void>;
@@ -219,6 +241,32 @@ export interface DashboardApi {
   commentNoticeMute(artifactId: string): Promise<CommentNoticeMute>;
   /** Mutes or unmutes the artifact's comment notices for the caller. */
   setCommentNoticeMute(artifactId: string, muted: boolean): Promise<CommentNoticeMute>;
+  /** What the consent control of artifact data shows (decision 0026, "The grant"). */
+  dataGrantControl(artifactId: string, host: string | null): Promise<DataGrantControl>;
+  /** The person allowed: a one-use code bound to the beginning browser's nonce. */
+  issueDataGrant(input: DataGrantCodeRequest): Promise<DataGrantCode>;
+  /**
+   * What the anonymous consent control shows (decision 0026, delivery 9): no session needed;
+   * `not_found` unless the artifact is open to people without an account.
+   */
+  anonymousDataGrantControl(
+    artifactId: string,
+    host: string | null,
+  ): Promise<AnonymousDataGrantControl>;
+  /** A visitor without an account allowed, with a solved human check: a one-use code. */
+  issueAnonymousDataGrant(input: AnonymousDataGrantCodeRequest): Promise<DataGrantCode>;
+  /** "Data you shared": the artifacts the person granted. */
+  dataGrants(after?: string | null): Promise<DataGrantList>;
+  /** Whether the person has open grants on an artifact (the viewer's "stop saving as me"). */
+  dataGrantStatus(artifactId: string): Promise<DataGrantStatus>;
+  /** One page of the documents the person created in an artifact. */
+  ownData(artifactId: string, after: string | null): Promise<OwnDataPage>;
+  /** Deletes one document the person created. */
+  deleteOwnDocument(artifactId: string, collection: string, id: string): Promise<unknown>;
+  /** Asks the people who manage an artifact about what the person saved there. */
+  requestDataRights(artifactId: string, kind: "access" | "erasure"): Promise<unknown>;
+  /** Revokes the person's grants on an artifact. */
+  revokeDataGrants(artifactId: string): Promise<DataGrantRevocation>;
   /** Deletes the account; the email typed again confirms it. */
   deleteAccount(confirmEmail: string): Promise<AccountDeletionResult>;
   /** A space's quotas, this month's traffic and what blocks it now. */
@@ -409,6 +457,17 @@ export interface DashboardApi {
   ): Promise<{ text: string; nextCursor: string | null }>;
   /** Views per UTC day from `from` (YYYY-MM-DD) to today; on the owner's plan with analytics. */
   stats(artifactId: string, from?: string, to?: string): Promise<ArtifactStatsView>;
+  /** The artifact's data (decision 0026): its collections, today's counters and the plan's limits. */
+  artifactData(artifactId: string): Promise<DataDescriptionView>;
+  /** A page of a collection's documents, oldest first, after the cursor `after`. */
+  dataDocuments(
+    artifactId: string,
+    collection: string,
+    after?: string,
+    limit?: number,
+  ): Promise<DataQueryPage>;
+  /** One page of the data export, after the cursor `after` (`collection/id`). */
+  dataExportPage(artifactId: string, after?: string): Promise<DataExportPageView>;
   /**
    * Starts a publish; retrying with the same key returns the same upload. A new artifact goes to
    * `workspace`, or the personal space without it; a new version stays where its artifact is.
@@ -473,6 +532,8 @@ export interface DashboardApi {
   annotationExport(artifactId: string, version: "all" | "current"): Promise<AnnotationExport>;
   /** A page of the comment action history (owner side only). */
   annotationHistory(artifactId: string, cursor?: string): Promise<AnnotationHistoryPage>;
+  /** A page of the artifact's change list, every state (decision 0027). */
+  changeItems(artifactId: string, cursor?: string): Promise<ChangeItemList>;
   /** The threads as the file `portifact annotations export` writes, JSON or Markdown. */
   exportAnnotations(
     artifactId: string,
@@ -490,7 +551,15 @@ export interface DashboardApi {
     body: string,
     idempotencyKey: string,
     turnstileToken?: string,
+    attachments?: readonly string[],
   ): Promise<AnnotationThreadView>;
+  /** Starts one comment attachment upload (decision 0029); the bytes go to the returned URL. */
+  prepareAttachment(
+    artifactId: string,
+    request: PrepareAttachmentRequest,
+  ): Promise<PreparedAttachment>;
+  /** A short download link of one file on a comment, for whoever sees its message. */
+  attachmentLink(artifactId: string, attachmentId: string): Promise<AttachmentLink>;
   setThreadState(
     artifactId: string,
     threadId: string,
@@ -593,6 +662,7 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
   };
 
   return {
+    suggestions: suggestionsApi(call),
     async account() {
       const session = await call("/api/auth/get-session", SessionBody.nullable());
       return session
@@ -819,6 +889,66 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       return call(
         inSpace(`/api/v1/webhooks/${encodeURIComponent(webhookId)}/deliveries`, workspace),
         WebhookDeliveries,
+      );
+    },
+    dataGrantControl(artifactId, host) {
+      const query = host === null ? "" : `?${new URLSearchParams({ host })}`;
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/control${query}`,
+        DataGrantControl,
+      );
+    },
+    issueDataGrant(input) {
+      return call("/api/v1/account/data-grants", DataGrantCode, "POST", input);
+    },
+    anonymousDataGrantControl(artifactId, host) {
+      const query = host === null ? "" : `?${new URLSearchParams({ host })}`;
+      return call(
+        `/api/v1/data/anonymous-grants/${encodeURIComponent(artifactId)}/control${query}`,
+        AnonymousDataGrantControl,
+      );
+    },
+    issueAnonymousDataGrant(input) {
+      return call("/api/v1/data/anonymous-grants", DataGrantCode, "POST", input);
+    },
+    dataGrants(after) {
+      const query = after ? `?${new URLSearchParams({ after })}` : "";
+      return call(`/api/v1/account/data-grants${query}`, DataGrantList);
+    },
+    dataGrantStatus(artifactId) {
+      return call(`/api/v1/account/data-grants/${encodeURIComponent(artifactId)}`, DataGrantStatus);
+    },
+    ownData(artifactId, after) {
+      const query = after ? `?${new URLSearchParams({ after })}` : "";
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/mine${query}`,
+        OwnDataPage,
+      );
+    },
+    deleteOwnDocument(artifactId, collection, id) {
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/documents/${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,
+        OwnDocumentDeletion,
+        "DELETE",
+        undefined,
+        {
+          "idempotency-key": `${String(Date.now()).padStart(13, "0")}.${crypto.randomUUID().replaceAll("-", "")}`,
+        },
+      );
+    },
+    requestDataRights(artifactId, kind) {
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/rights-request`,
+        DataRightsRequested,
+        "POST",
+        { kind },
+      );
+    },
+    revokeDataGrants(artifactId) {
+      return call(
+        `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}`,
+        DataGrantRevocation,
+        "DELETE",
       );
     },
     commentNoticeMute(artifactId) {
@@ -1177,6 +1307,26 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         ArtifactStatsView,
       );
     },
+    artifactData(artifactId) {
+      return call(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/data`, DataDescriptionView);
+    },
+    dataDocuments(artifactId, collection, after, limit) {
+      const params = new URLSearchParams();
+      if (limit !== undefined) params.set("limit", String(limit));
+      if (after) params.set("after", after);
+      const query = params.size > 0 ? `?${params}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/data/collections/${encodeURIComponent(collection)}/documents${query}`,
+        DataQueryPage,
+      );
+    },
+    dataExportPage(artifactId, after) {
+      const query = after ? `?${new URLSearchParams({ after })}` : "";
+      return call(
+        `/api/v1/artifacts/${encodeURIComponent(artifactId)}/data/export${query}`,
+        DataExportPageView,
+      );
+    },
     preparePublish(request, idempotencyKey, workspace) {
       return call(inSpace("/api/v1/publishes", workspace), PreparedPublish, "POST", request, {
         "idempotency-key": idempotencyKey,
@@ -1269,6 +1419,11 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
       if (cursor) params.set("cursor", cursor);
       return call(`${annotationsPath(artifactId)}/history?${params}`, AnnotationHistoryPage);
     },
+    changeItems(artifactId, cursor) {
+      const params = new URLSearchParams({ limit: String(CHANGE_LIST_LIMITS.pageMax) });
+      if (cursor) params.set("cursor", cursor);
+      return call(`${artifactPath(artifactId)}/changes?${params}`, ChangeItemList);
+    },
     async exportAnnotations(artifactId, { format, version, state }) {
       const params = new URLSearchParams({ format, version, ...(state ? { state } : {}) });
       const path = `${annotationsPath(artifactId)}/export?${params}`;
@@ -1293,13 +1448,31 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         "idempotency-key": idempotencyKey,
       });
     },
-    reply(artifactId, threadId, body, idempotencyKey, turnstileToken) {
+    reply(artifactId, threadId, body, idempotencyKey, turnstileToken, attachments) {
       return call(
         `${annotationsPath(artifactId)}/threads/${encodeURIComponent(threadId)}/messages`,
         AnnotationThreadView,
         "POST",
-        turnstileToken === undefined ? { body } : { body, turnstileToken },
+        {
+          body,
+          ...(turnstileToken === undefined ? {} : { turnstileToken }),
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        },
         { "idempotency-key": idempotencyKey },
+      );
+    },
+    prepareAttachment(artifactId, request) {
+      return call(
+        `${annotationsPath(artifactId)}/attachments`,
+        PreparedAttachment,
+        "POST",
+        request,
+      );
+    },
+    attachmentLink(artifactId, attachmentId) {
+      return call(
+        `${annotationsPath(artifactId)}/attachments/${encodeURIComponent(attachmentId)}`,
+        AttachmentLink,
       );
     },
     setThreadState(artifactId, threadId, state) {

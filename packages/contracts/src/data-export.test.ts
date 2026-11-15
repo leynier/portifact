@@ -130,6 +130,7 @@ const artifactRecords = {
       at: "2026-11-01T00:00:00.000Z",
     },
   ],
+  changeList: { skipped: "unavailable" },
 };
 
 const nothing = { skipped: "dashboard_only" };
@@ -170,6 +171,13 @@ describe("the records files", () => {
         commentHistory: [{ ...artifactRecords.commentHistory[0], body: "words" }],
       }).success,
     ).toBe(false);
+    // The change list is an array of the route's items, or why it is missing.
+    expect(ArtifactRecords.safeParse({ ...artifactRecords, changeList: [] }).success).toBe(true);
+    expect(
+      ArtifactRecords.safeParse({ ...artifactRecords, changeList: [{ id: "x" }] }).success,
+    ).toBe(false);
+    const { changeList: _, ...withoutChanges } = artifactRecords;
+    expect(ArtifactRecords.safeParse(withoutChanges).success).toBe(false);
   });
 
   it("hold a space's parts, null where a personal space has none", () => {

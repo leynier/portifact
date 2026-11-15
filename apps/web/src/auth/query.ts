@@ -42,6 +42,9 @@ const NEXT_PATHS = [
   // (decision 0021) and bring them back.
   /^\/(publish|usage|plan|groups|policies|audit|service-tokens|webhooks|integrations|branding|settings|profile|apps)$/,
   /^\/artifacts\/[A-Za-z0-9_-]+\/(publish|edit|history)$/,
+  // Artifact data (decision 0026): the consent control keeps its request through sign-in.
+  /^\/data\/grant$/,
+  /^\/shared-data$/,
 ];
 
 /**

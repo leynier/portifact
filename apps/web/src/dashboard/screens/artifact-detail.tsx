@@ -43,6 +43,7 @@ import { AccessLog } from "./access-log.tsx";
 import { CommentSettings, SharingSettings } from "./access-settings.tsx";
 import { Analytics } from "./analytics.tsx";
 import { ApprovalReviewPanel, ApprovalStatusBadge } from "./approval-review.tsx";
+import { ArtifactData, dataSectionShown, useArtifactData } from "./artifact-data.tsx";
 import { ARTIFACTS_QUERY, errorMessage } from "./artifact-list.tsx";
 import { BackToList } from "./not-found.tsx";
 import { SpaceBadge } from "./space-parts.tsx";
@@ -220,15 +221,19 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
     </Button>
   );
 
+  const data = useArtifactData(artifact.id);
   const servable = artifact.state === "active";
   const editable = artifact.state === "active" || artifact.state === "draft";
 
+  // Artifact data (decision 0026): shown only while the API serves it to this person.
+  const showData = dataSectionShown(data);
   const sections = [
     { id: "overview", label: t("detail.section.overview") },
     { id: "sharing", label: t("detail.section.sharing") },
     { id: "comments", label: t("detail.section.comments") },
     { id: "reviews", label: t("detail.section.reviews") },
     { id: "activity", label: t("detail.section.activity") },
+    ...(showData ? [{ id: "data", label: t("detail.section.data") }] : []),
     { id: "space", label: t("detail.section.space") },
     { id: "danger", label: t("detail.section.danger") },
   ];
@@ -430,6 +435,12 @@ function ArtifactDetail({ artifact }: { artifact: ArtifactSummary }) {
             <AccessLog artifact={artifact} />
           </div>
         </PageSection>
+
+        {showData ? (
+          <PageSection id="data" title={t("detail.section.data")}>
+            <ArtifactData artifactId={artifact.id} name={artifact.name} />
+          </PageSection>
+        ) : null}
 
         <PageSection id="space" title={t("detail.section.space")}>
           <TransferArtifact artifact={artifact} />

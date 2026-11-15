@@ -74,10 +74,30 @@ describe("the statement of reasons", () => {
     expect(lifted.text).not.toContain("Category");
   });
 
+  it("tells a file's people it is withheld, kept and may be deleted after 30 days (decision 0029)", () => {
+    const file = moderationNoticeEmail({ ...base, target: "attachment", attachmentId: "att_1" });
+    expect(file.subject).toBe("We withheld a file on a comment");
+    expect(file.text).toContain('the file att_1 attached to a comment on the artifact "Q3 plan"');
+    expect(file.text).toContain("It is kept, not deleted");
+    expect(file.text).toContain("30 days after this email at the earliest");
+    expect(file.text).toContain("File: att_1");
+    expect(file.text).toContain("ID: k7d2qm4xab");
+    const back = moderationNoticeEmail({
+      ...base,
+      target: "attachment",
+      attachmentId: "att_1",
+      action: "reinstate",
+      ground: null,
+      reason: null,
+    });
+    expect(back.subject).toBe("A file on a comment is no longer withheld");
+    expect(back.text).toContain("can view and download it again");
+  });
+
   it("is written in every language, for every target and action", () => {
     for (const locale of LOCALE_CODES) {
       const t = MODERATION_NOTICE_TEXT[locale];
-      for (const target of ["artifact", "account", "brand"] as const) {
+      for (const target of ["artifact", "account", "brand", "attachment"] as const) {
         for (const action of ["suspend", "reinstate"] as const) {
           const email = moderationNoticeEmail({ ...base, locale, target, action });
           const subjects = action === "suspend" ? t.suspendSubject : t.liftSubject;

@@ -224,3 +224,81 @@ export const AnnotationTarget = z
     { message: `Target is larger than ${ANCHOR_LIMITS.targetMaxBytes} bytes` },
   );
 export type AnnotationTarget = z.infer<typeof AnnotationTarget>;
+
+// Image regions (decision 0028): a rectangle of an image, beside a thread's element target.
+
+export const IMAGE_REGION_LIMITS = {
+  /** The smallest side of a rectangle, as a fraction of the image's box. */
+  minExtent: 0.01,
+  /** Fractions are kept to four decimals: finer than a pixel of any image a page shows. */
+  decimals: 4,
+} as const;
+
+/** The switch's name on the app and content Workers (decision 0028). */
+export const IMAGE_REGIONS_SWITCH = "IMAGE_REGIONS_ENABLED";
+
+const REGION_SCALE = 10 ** IMAGE_REGION_LIMITS.decimals;
+/** Tolerance for sums of fractions with four decimals each, in floating point. */
+const REGION_EPSILON = 1e-9;
+
+const hasDecimals = (value: number) =>
+  Math.abs(Math.round(value * REGION_SCALE) - value * REGION_SCALE) < 1e-6;
+
+const fraction = z
+  .number()
+  .min(0)
+  .max(1)
+  .refine(hasDecimals, { message: `At most ${IMAGE_REGION_LIMITS.decimals} decimals` });
+const side = fraction.refine((value) => value >= IMAGE_REGION_LIMITS.minExtent, {
+  message: `A side must be at least ${IMAGE_REGION_LIMITS.minExtent} of the image`,
+});
+
+const rectangle = {
+  /** Left edge, as a fraction of the image's width (0 is its left edge). */
+  x: fraction,
+  /** Top edge, as a fraction of the image's height (0 is its top edge). */
+  y: fraction,
+  width: side,
+  height: side,
+};
+
+const insideImage = (value: { x: number; y: number; width: number; height: number }) =>
+  value.x + value.width <= 1 + REGION_EPSILON && value.y + value.height <= 1 + REGION_EPSILON;
+const insideMessage = { message: "The rectangle must lie inside the image" };
+
+/** The SHA-256 of a file's bytes, lowercase hex. */
+const Sha256 = z.string().regex(/^[0-9a-f]{64}$/, "Invalid SHA-256");
+
+/**
+ * What a client sends with a new thread: the rectangle and the file the image shows, as a path in
+ * the version. The server checks the file and fills its SHA-256.
+ */
+export const ImageRegionRequest = z
+  .strictObject({ ...rectangle, image: z.strictObject({ path: AnchorPath }) })
+  .refine(insideImage, insideMessage);
+export type ImageRegionRequest = z.infer<typeof ImageRegionRequest>;
+
+/** A stored region: the rectangle, the image's file and that file's SHA-256 in the version. */
+export const ImageRegion = z
+  .strictObject({ ...rectangle, image: z.strictObject({ path: AnchorPath, sha256: Sha256 }) })
+  .refine(insideImage, insideMessage);
+export type ImageRegion = z.infer<typeof ImageRegion>;
+
+/**
+ * A region as threads show it. `currentImage`, only on a thread of another version than the
+ * current one, says whether the current version still has the same bytes at the image's path.
+ */
+export const ImageRegionView = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  image: z.object({ path: z.string(), sha256: z.string() }),
+  currentImage: z.enum(["unchanged", "changed"]).optional(),
+});
+export type ImageRegionView = z.infer<typeof ImageRegionView>;
+
+/** Whether a target can carry a region: an element anchor of an `img`. */
+export function regionTargetAllowed(target: AnnotationTarget): boolean {
+  return target.anchor.kind === "element" && target.anchor.tagName === "img";
+}

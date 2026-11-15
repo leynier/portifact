@@ -36,7 +36,16 @@ export interface Presigner {
     size: number,
     now: number,
   ): Promise<PresignedUpload>;
-  presignGet(key: string, now: number): Promise<PresignedDownload>;
+  presignGet(key: string, now: number, options?: DownloadOptions): Promise<PresignedDownload>;
+}
+
+/**
+ * What a download link makes R2 answer: the `Content-Disposition` (always an attachment) and,
+ * for a comment attachment (decision 0029), the type its bytes showed.
+ */
+export interface DownloadOptions {
+  disposition?: string;
+  contentType?: string;
 }
 
 /**
@@ -112,11 +121,12 @@ export function r2Presigner(credentials: R2Credentials): Presigner {
       });
       return { url: signed.url, headers, expiresAt: now + UPLOAD_URL_TTL_SECONDS * 1000 };
     },
-    async presignGet(key, now) {
+    async presignGet(key, now, options) {
       const url = objectUrl(key);
       url.searchParams.set("X-Amz-Expires", String(DOWNLOAD_URL_TTL_SECONDS));
       // Served as an opaque download, whatever the stored content type, if opened in a browser.
-      url.searchParams.set("response-content-disposition", "attachment");
+      url.searchParams.set("response-content-disposition", options?.disposition ?? "attachment");
+      if (options?.contentType) url.searchParams.set("response-content-type", options.contentType);
       const signed = await client.sign(url.toString(), {
         method: "GET",
         aws: { signQuery: true, datetime: amzDate(now) },

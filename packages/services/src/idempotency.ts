@@ -1,6 +1,7 @@
 // Idempotency for retryable mutations (plan section 6): the first request with a key runs and
 // its response is stored; a retry with the same key and body gets the stored response, and the
 // same key with a different body is refused. Keys are scoped to the acting user.
+import { ARTIFACT_DATA } from "@portifact/contracts/artifact-data";
 import { type Db, schema } from "@portifact/db";
 import { and, eq, lt, sql } from "drizzle-orm";
 
@@ -99,14 +100,25 @@ export async function runIdempotent(
  */
 export async function pruneOperations(db: Db, now: number, limit = 500): Promise<number> {
   const operations = schema.operations;
-  // The table has a composite key, so the bounded set is chosen by rowid.
-  const removed = await db
-    .delete(operations)
-    .where(
-      sql`rowid in (select rowid from ${operations} where ${lt(operations.createdAt, now - IDEMPOTENCY_TTL_MS)} limit ${limit})`,
-    )
-    .returning({ key: operations.idempotencyKey });
-  return removed.length;
+  // Artifact data's owner-side claims (decision 0026) keep only an operation ID, kept as long as
+  // the object answers a retry from its own record (`replayMs`). One batch, one call for both.
+  const claims = schema.dataOperations;
+  // The tables have composite keys, so the bounded sets are chosen by rowid.
+  const [removed, claimsRemoved] = await db.batch([
+    db
+      .delete(operations)
+      .where(
+        sql`rowid in (select rowid from ${operations} where ${lt(operations.createdAt, now - IDEMPOTENCY_TTL_MS)} limit ${limit})`,
+      )
+      .returning({ key: operations.idempotencyKey }),
+    db
+      .delete(claims)
+      .where(
+        sql`rowid in (select rowid from ${claims} where ${lt(claims.createdAt, now - ARTIFACT_DATA.replayMs)} limit ${limit})`,
+      )
+      .returning({ key: claims.idempotencyKey }),
+  ]);
+  return removed.length + claimsRemoved.length;
 }
 
 /** Hex SHA-256 of a request body, for `requestHash`. */

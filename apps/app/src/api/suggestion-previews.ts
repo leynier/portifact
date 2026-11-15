@@ -1,9 +1,10 @@
 // POST /api/v1/artifacts/:artifactId/previews: a one-use URL on the preview origin for a stored
-// plan of an edit suggestion (decision 0027, "Previews"). Behind `SUGGESTIONS_ENABLED`; a dashboard
+// plan of an edit suggestion or of one's own draft, or for an edit not saved yet (decision 0027,
+// "Previews"). Behind `SUGGESTIONS_ENABLED`; a dashboard
 // helper for the viewer, so only the dashboard's session from the app's own pages may ask (the
 // code is bound to that session), never a bearer token, and there is no MCP tool or CLI command.
 // Who may get a code is decided only by the service (`issuePreviewCode`).
-import { ArtifactId, PreviewRequest, PreviewResponse } from "@portifact/contracts";
+import { ArtifactId, DRAFT_LIMITS, PreviewRequest, PreviewResponse } from "@portifact/contracts";
 import { suggestionsEnabled } from "@portifact/domain";
 import { issuePreviewCode } from "@portifact/services";
 import type { Hono } from "hono";
@@ -41,7 +42,8 @@ export function suggestionPreviewRoutes(
       if (!ArtifactId.safeParse(artifactId).success) {
         return error(c, "not_found", "Artifact not found.");
       }
-      const body = await readJson(c, PreviewRequest, 1_024);
+      // A digest, or an unsaved edit no larger than a draft's.
+      const body = await readJson(c, PreviewRequest, DRAFT_LIMITS.editMaxBytes + 4 * 1024);
       if (!body.ok) return body.response;
       const handles = await artifactRegion(c.env, artifactId);
       if (!handles.bucket) return error(c, "capacity_unavailable", "Previews are unavailable.");
@@ -49,7 +51,7 @@ export function suggestionPreviewRoutes(
         userId,
         sessionId: session.sessionId,
         artifactId,
-        digest: body.value.digest,
+        ...body.value,
         now: deps.now(),
         contentDomain: c.env.CONTENT_DOMAIN,
       });

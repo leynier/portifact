@@ -185,7 +185,10 @@ export interface SentEmail {
  * The last email the app sent to `to`, waiting briefly for it to arrive. Reading it gives back the
  * per-IP sign-in code budget: every browser of the stack shares one address, and the code limit
  * per IP (`OTP_LIMITS.perIp`, 20 an hour) would otherwise run out across the projects of a run,
- * leaving the last one (WebKit in CI) refused with 429 and no email to read.
+ * leaving the last one (WebKit in CI) refused with 429 and no email to read. The other per-IP
+ * budgets a code spends (`ENDPOINT_LIMITS`: accepting the terms, the human check and entering
+ * the code, 30 in 10 minutes; and the account deletion code's sending and attempts) are given back
+ * with it, so repeating a spec never runs out.
  */
 export async function lastEmail(to: string): Promise<SentEmail> {
   const deadline = Date.now() + 10_000;
@@ -199,7 +202,11 @@ export async function lastEmail(to: string): Promise<SentEmail> {
       }
     }
   } finally {
-    await sql("delete from rate_limits where key like 'otp:ip:%'");
+    await sql(
+      `delete from rate_limits where key like 'otp:ip:%' or key like '/accept-terms:ip:%'
+        or key like '/verify-human:ip:%' or key like '/sign-in/email-otp:ip:%'
+        or key like 'delete-code:ip:%' or key like 'delete-code-attempt:ip:%'`,
+    );
   }
 }
 
@@ -272,6 +279,25 @@ export async function routeStorage(page: Page): Promise<void> {
   });
 }
 
+/**
+ * Puts bytes in the stack's bucket at `key`, as a presigned PUT would (with their SHA-256), for
+ * tests that need a stored object without uploading it from the browser (WebKit cannot, see
+ * `routeStorage`).
+ */
+export async function storeObject(key: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const query = new URLSearchParams({ key, bucket: "portifact-e2e" });
+  const response = await fetch(`${controlUrl()}/storage?${query}`, {
+    method: "PUT",
+    headers: {
+      "content-length": String(bytes.byteLength),
+      "x-amz-checksum-sha256": btoa(String.fromCharCode(...digest)),
+    },
+    body: bytes,
+  });
+  if (!response.ok) throw new Error(`storing ${key} failed: ${response.status}`);
+}
+
 export async function signIn(context: BrowserContext, user: User): Promise<void> {
   await context.addCookies([
     {
@@ -326,6 +352,21 @@ export async function openDisclosure(summary: Locator): Promise<void> {
     }
     await expect(details).toHaveAttribute("open", "", { timeout: 1_000 });
   }).toPass();
+}
+
+/**
+ * Asks for a suggestion's plan and waits for its summary. A suggestion's block re-renders while
+ * the thread list refetches after the review starts, and a click on the replaced button is lost,
+ * so the click is repeated until the summary shows (the button is gone once it does).
+ */
+export async function checkWhatApplies(container: Locator, summary: RegExp): Promise<void> {
+  const result = container.getByText(summary);
+  await expect(async () => {
+    if (!(await result.isVisible())) {
+      await container.getByRole("button", { name: "Check what applies" }).click({ timeout: 2_000 });
+    }
+    await expect(result).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 20_000 });
 }
 
 interface Fixtures {

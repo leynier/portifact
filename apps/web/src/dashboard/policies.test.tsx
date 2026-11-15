@@ -80,6 +80,23 @@ describe("the Policies page", () => {
     await waitFor(() => expect(server.workspaces.acme?.policyRevision).toBe(1));
   });
 
+  it("lets an admin allow anonymous writers of artifact data (decision 0026)", async () => {
+    acme("admin");
+    renderDashboard("/policies?workspace=acme", server);
+    const group = await screen.findByRole("group", { name: "Saving data without an account" });
+    expect(
+      (within(group).getByRole("radio", { name: "Only signed-in visitors" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    fireEvent.click(within(group).getByRole("radio", { name: "Also people without an account" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save policies" }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    expect(server.bodies.at(-1)).toEqual({
+      policy: { ...DEFAULT_POLICY, anonymousDataWriters: "allowed" },
+      revision: 0,
+    });
+  });
+
   it("lists what a save changes and saves only after the admin confirms", async () => {
     acme("admin");
     const workspaceState = server.workspaces.acme;
@@ -229,6 +246,7 @@ describe("policyOfDraft", () => {
     lifeDays: "",
     commentsLimited: false,
     commentDays: "",
+    anonymousDataWriters: "forbidden" as const,
   };
   it("splits domains on spaces, commas and lines and reads the days", () => {
     expect(policyOfDraft(draft)).toEqual({

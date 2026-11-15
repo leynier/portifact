@@ -82,7 +82,12 @@ export function EarlierConversations({
               <Disclosure summary={<GroupSummary group={group} />}>
                 <ol className="flex flex-col gap-4">
                   {group.threads.map((thread, index) => (
-                    <ThreadRecord key={thread.id} thread={thread} number={index + 1} />
+                    <ThreadRecord
+                      artifactId={artifactId}
+                      key={thread.id}
+                      thread={thread}
+                      number={index + 1}
+                    />
                   ))}
                 </ol>
               </Disclosure>
@@ -120,7 +125,15 @@ function GroupSummary({ group }: { group: VersionGroup }) {
     : t("history.conversations.version", { number: group.number, counts });
 }
 
-function ThreadRecord({ thread, number }: { thread: AnnotationThreadView; number: number }) {
+function ThreadRecord({
+  artifactId,
+  thread,
+  number,
+}: {
+  artifactId: string;
+  thread: AnnotationThreadView;
+  number: number;
+}) {
   const t = useT();
   const titleId = `earlier-thread-${thread.id}`;
   return (
@@ -138,11 +151,11 @@ function ThreadRecord({ thread, number }: { thread: AnnotationThreadView; number
             </Badge>
           )}
         </div>
-        <TargetSummary target={thread.target} />
+        <TargetSummary target={thread.target} region={thread.region} />
         <ol className="flex flex-col gap-3">
           {thread.messages.map((message) => (
             <li key={message.id} className="flex flex-col gap-1">
-              <MessageContent message={message} />
+              <MessageContent artifactId={artifactId} message={message} />
             </li>
           ))}
         </ol>

@@ -111,7 +111,10 @@ async function currentArtifact(
 }
 
 /** The current version's file list (published files), to tell whether other files changed. */
-async function publishedFiles(db: RegionalDb, versionId: string): Promise<Map<string, string>> {
+export async function publishedFiles(
+  db: RegionalDb,
+  versionId: string,
+): Promise<Map<string, string>> {
   const rows = await db
     .select({ path: schema.versionFiles.path, sha256: schema.versionFiles.sha256 })
     .from(schema.versionFiles)
@@ -121,7 +124,7 @@ async function publishedFiles(db: RegionalDb, versionId: string): Promise<Map<st
   return new Map(rows.map((row) => [row.path, row.sha256]));
 }
 
-function otherFilesUnchanged(
+export function otherFilesUnchanged(
   before: Map<string, string>,
   after: Map<string, string>,
   path: string,

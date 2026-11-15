@@ -5,6 +5,7 @@ import { accountDeletionCodeEmail } from "./account-deletion-code.ts";
 import { budgetAlertEmail } from "./budget-alert.ts";
 import { commentNoticeEmail } from "./comment-notice.ts";
 import { commentRetentionNoticeEmail } from "./comment-retention-notice.ts";
+import { dataRightsNoticeEmail } from "./data-rights-notice.ts";
 import { directoryNoticeEmail } from "./directory-notice.ts";
 import { domainNoticeEmail } from "./domain-notice.ts";
 import { expiryNoticeEmail } from "./expiry-notice.ts";
@@ -318,6 +319,44 @@ export function previews(): Preview[] {
       }),
     })),
     {
+      name: "data-rights-notice",
+      email: dataRightsNoticeEmail({
+        kind: "erasure",
+        artifactName: "Team retro board",
+        visitorId: "v_7Hc2kQ9xLm4pRt1vWz8aBd",
+        dataUrl: "https://app.portifact.com/artifacts/k7d2qm4xab",
+      }),
+    },
+    {
+      name: "data-rights-notice-without-names",
+      email: dataRightsNoticeEmail({
+        kind: "access",
+        artifactName: null,
+        visitorId: "v_7Hc2kQ9xLm4pRt1vWz8aBd",
+        dataUrl: "https://app.portifact.com/artifacts/k7d2qm4xab?workspace=acme",
+      }),
+    },
+    ...TRANSLATED.map((locale) => ({
+      name: `data-rights-notice-${locale.toLowerCase()}`,
+      email: dataRightsNoticeEmail({
+        kind: "erasure",
+        artifactName: "Team retro board",
+        visitorId: "v_7Hc2kQ9xLm4pRt1vWz8aBd",
+        dataUrl: "https://app.portifact.com/artifacts/k7d2qm4xab",
+        locale,
+      }),
+    })),
+    ...TRANSLATED.map((locale) => ({
+      name: `data-rights-notice-without-names-${locale.toLowerCase()}`,
+      email: dataRightsNoticeEmail({
+        kind: "access",
+        artifactName: null,
+        visitorId: "v_7Hc2kQ9xLm4pRt1vWz8aBd",
+        dataUrl: "https://app.portifact.com/artifacts/k7d2qm4xab",
+        locale,
+      }),
+    })),
+    {
       name: "directory-notice",
       email: directoryNoticeEmail({
         workspaceName: "Analytical Engines",
@@ -418,6 +457,15 @@ export function previews(): Preview[] {
     {
       name: "moderation-brand-suspended",
       email: moderationNoticeEmail({ ...suspension, target: "brand", reason: "impersonation" }),
+    },
+    {
+      name: "moderation-attachment-withheld",
+      email: moderationNoticeEmail({
+        ...suspension,
+        target: "attachment",
+        attachmentId: "att_3f2a",
+        reason: "copyright",
+      }),
     },
     {
       name: "moderation-artifact-reinstated",

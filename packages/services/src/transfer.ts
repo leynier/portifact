@@ -35,6 +35,7 @@ import { searchIndexJob } from "./content-search.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
 import { releaseOrphans } from "./maintenance.ts";
 import { ownerEntitlements } from "./plans.ts";
+import { draftMarker } from "./suggestion-markers.ts";
 import { OPEN_UPLOAD_STATES } from "./usage.ts";
 import { readerDomainSql } from "./workspace-policies.ts";
 import { missingWorkspace, workspaceBySlug } from "./workspaces.ts";
@@ -276,6 +277,19 @@ export async function transferArtifact(
         .update(schema.changeItems)
         .set({ ownerId: to })
         .where(guarded(eq(schema.changeItems.artifactId, artifact.id))),
+      // Comment attachments (decision 0029) move with their comments; their bytes follow by
+      // trigger, and the target's CHECK refuses a move without room.
+      w
+        .update(schema.commentAttachments)
+        .set({ ownerId: to })
+        .where(guarded(eq(schema.commentAttachments.artifactId, artifact.id))),
+      // Each with the marker that keeps it gone through a restore, on the same condition.
+      draftMarker(
+        w,
+        both !== null,
+        guarded(eq(schema.editDrafts.artifactId, artifact.id)),
+        input.now,
+      ),
       w.delete(schema.editDrafts).where(guarded(eq(schema.editDrafts.artifactId, artifact.id))),
       w
         .delete(schema.suggestionPlans)
@@ -356,6 +370,14 @@ export async function transferArtifact(
         owner: sql`${from}`,
         now: input.now,
       }),
+      // Who writes from the page goes back to signed-in visitors (decision 0026, delivery 9):
+      // anonymous writing is the new owner's decision, under its own plan and policy.
+      w
+        .update(schema.artifactData)
+        .set({ writers: "signed_in" })
+        .where(
+          sql`${schema.artifactData.artifactId} = ${artifact.id} and ${schema.artifactData.writers} <> 'signed_in' and ${unchanged}`,
+        ),
       // One event for each side, on the same conditions.
       ...transferEvents(
         w,

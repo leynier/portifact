@@ -678,19 +678,20 @@ describe("the rules added after the review of PR 254", () => {
     const today = { ...newControl(envelope(), NOW), day: 0 } as unknown as Parameters<
       typeof describeData
     >[1]["today"];
-    expect(describeData(a, { generation: 1, revision: 2, collections: [], today })).toEqual(
-      refuse("forbidden", "owner side only"),
-    );
+    expect(
+      describeData(a, { generation: 1, revision: 2, collections: [], today, connections: 0 }),
+    ).toEqual(refuse("forbidden", "owner side only"));
     expect(
       describeData(OWNER, {
         generation: 1,
         revision: 2,
         collections: [info("b"), info("a")],
         today,
+        connections: 3,
       }),
     ).toMatchObject({
       ok: true,
-      value: { generation: 1, revision: 2, collections: [info("a"), info("b")] },
+      value: { generation: 1, revision: 2, collections: [info("a"), info("b")], connections: 3 },
     });
     expect(
       describeCollection("c", { mode: "own", uniqueKey: "k", documents: 3, bytes: 9 }, [
