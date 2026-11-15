@@ -178,6 +178,7 @@ async function anonymousFlow(id: string, query = "anon=1") {
     customDomains: false,
     enabled: true,
     addressKey: "k".repeat(32),
+    termsVersion: TERMS_VERSION,
     now: NOW,
   });
   if (!issued.ok) throw new Error(`issue failed: ${issued.code}`);
@@ -297,6 +298,7 @@ describe("anonymous writers on the artifact origin", () => {
         customDomains: false,
         enabled: true,
         addressKey: "w".repeat(32),
+        termsVersion: TERMS_VERSION,
         now: NOW,
       });
     // No plan with `policies`: closed, like a missing artifact.

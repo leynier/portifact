@@ -450,11 +450,15 @@ export function moderationNotifierFromEnv(
 ): ModerationNotifier {
   return {
     async send(notice) {
-      const space = notice.workspaceSlug
-        ? `?workspace=${encodeURIComponent(notice.workspaceSlug)}`
-        : "";
-      const page =
-        notice.target === "artifact" || notice.target === "attachment"
+      const author = notice.audience === "data_author";
+      const space =
+        notice.workspaceSlug && !author
+          ? `?workspace=${encodeURIComponent(notice.workspaceSlug)}`
+          : "";
+      // A data author does not manage the artifact: their link is their own "Data you shared".
+      const page = author
+        ? "/shared-data"
+        : notice.target === "artifact" || notice.target === "attachment"
           ? `/artifacts/${encodeURIComponent(notice.artifactId ?? "")}`
           : notice.target === "brand"
             ? "/branding"
@@ -471,6 +475,7 @@ export function moderationNotifierFromEnv(
         ground: notice.ground,
         decidedAt: notice.decidedAt,
         dashboardUrl: `${env.APP_ORIGIN}${page}${space}`,
+        audience: notice.audience,
         locale: notice.locale ?? undefined,
       });
       try {

@@ -19,6 +19,29 @@ const CONTROL: DataGrantControl = {
   grantDays: 30,
 };
 
+/** Portifact's notice with the Privacy Policy, and the statement beside Allow that describes it. */
+function expectGrantLegal(control: HTMLElement) {
+  const link = (name: string) => within(control).getByRole("link", { name });
+  for (const [name, href] of [
+    ["Privacy Policy", "https://portifact.com/privacy"],
+    ["Terms of Service", "https://portifact.com/terms"],
+    ["Acceptable Use Policy", "https://portifact.com/acceptable-use"],
+  ] as const) {
+    expect(link(name).getAttribute("href")).toBe(href);
+    expect(link(name).getAttribute("target")).toBe("_blank");
+    expect(link(name).getAttribute("rel")).toBe("noopener");
+  }
+  expect(
+    within(control).getByText(/Portifact hosts this page and draws this control/),
+  ).toBeTruthy();
+  const allow = within(control).getByRole("button", { name: "Allow" });
+  const statement = document.getElementById(allow.getAttribute("aria-describedby") ?? "");
+  expect(statement?.textContent).toBe(
+    "By choosing Allow, you confirm that you are 18 or older and you agree to the Terms of Service and the Acceptable Use Policy for what you save here. The links open in a new tab.",
+  );
+  expect(statement && control.contains(statement)).toBe(true);
+}
+
 afterEach(cleanup);
 
 describe("the consent control page", () => {
@@ -33,6 +56,7 @@ describe("the consent control page", () => {
     expect(within(control).getByText("Published by the workspace Acme")).toBeTruthy();
     expect(within(control).getByText(/know you as Rea Der/)).toBeTruthy();
     expect(within(control).getByText(/never learns your email/)).toBeTruthy();
+    expectGrantLegal(control);
     expect(await axeViolations(view.container)).toEqual([]);
 
     fireEvent.click(within(control).getByRole("button", { name: "Allow" }));

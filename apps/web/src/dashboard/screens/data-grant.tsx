@@ -3,8 +3,10 @@
 // ID for this artifact, never the email), who reads what is saved and how long the grant lasts.
 // `ConsentControl` is the control itself, shared by the viewer (the frame flow) and the grant page
 // (`/data/grant`, the top-level tab and popup flows), which redeems the code by sending the browser
-// to the artifact's origin. Names and hosts are untrusted text, rendered as text only.
+// to the artifact's origin. Portifact's notice and the sign-in-wrap statement beside Allow come from
+// `grant-legal.tsx`. Names and hosts are untrusted text, rendered as text only.
 import type { DataGrantControl, DataGrantFlow } from "@portifact/contracts";
+import { TERMS_VERSION } from "@portifact/contracts/terms-version";
 import {
   Button,
   buttonClasses,
@@ -16,12 +18,13 @@ import {
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useSearch } from "@tanstack/react-router";
 import { CircleAlert, LogIn, ShieldCheck } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useId } from "react";
 import wordmark from "../../../../../assets/brand/wordmark.svg";
 import wordmarkDark from "../../../../../assets/brand/wordmark-dark.svg";
 import { loginUrl } from "../../auth/query.ts";
 import { useDashboard, useT } from "../context.tsx";
 import { AnonymousConsentControl } from "../review/anonymous-grant.tsx";
+import { GrantNotice, GrantTerms } from "../review/grant-legal.tsx";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { errorMessage } from "./artifact-list.tsx";
 import { ACCOUNT_QUERY } from "./shell.tsx";
@@ -68,6 +71,7 @@ export function ConsentControl({
   onDecline: () => void;
 }) {
   const t = useT();
+  const termsId = useId();
   const owner =
     control.owner.kind === "workspace"
       ? t("dataGrant.ownerWorkspace", { name: control.owner.name })
@@ -85,6 +89,7 @@ export function ConsentControl({
         <li>{t("dataGrant.deletion")}</li>
         <li>{t("dataGrant.lasts", { days: control.grantDays })}</li>
       </ul>
+      <GrantNotice />
       <p className="text-sm">
         {/* A full page load in a new tab: the viewer and the popup keep their place. */}
         <a
@@ -96,9 +101,11 @@ export function ConsentControl({
           {t("dataGrant.rights")}
         </a>
       </p>
+      <GrantTerms id={termsId} />
       <div className="flex flex-wrap gap-3">
         <Button
           intent="primary"
+          aria-describedby={termsId}
           onClick={onAllow}
           busy={busy}
           icon={<ShieldCheck className="size-4" aria-hidden="true" />}
@@ -161,6 +168,8 @@ export function DataGrantScreen() {
         host,
         flow: "top" satisfies DataGrantFlow,
         turnstileToken,
+        // The version of the notice this page showed (`GrantTerms`): another is refused.
+        termsVersion: TERMS_VERSION,
       }),
     onSuccess: (code) => leave(code.redeemUrl),
   });

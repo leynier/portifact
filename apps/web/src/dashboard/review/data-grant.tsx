@@ -8,6 +8,7 @@
 // artifact's exact origin, and each only in the step that expects it. A visitor without an account
 // (delivery 9) gets the anonymous control with the human check where the artifact is open to
 // anyone, and is asked to sign in otherwise.
+import { TERMS_VERSION } from "@portifact/contracts/terms-version";
 import { Button, buttonClasses, Callout, LoadingState } from "@portifact/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, ExternalLink, LogIn, Unplug } from "lucide-react";
@@ -71,6 +72,8 @@ export function useDataGrant({
         host: null,
         flow: "frame",
         turnstileToken,
+        // The version of the notice this page showed (`GrantTerms`): another is refused.
+        termsVersion: TERMS_VERSION,
       });
     },
     onSuccess: (code) => {

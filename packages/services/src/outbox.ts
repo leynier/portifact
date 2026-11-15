@@ -365,7 +365,7 @@ async function runRow(
     case "moderation_notice":
       // Thrown, not reported done: the row stays and the job runs again where the sender is.
       if (!moderationNotifier) throw new Error("moderation_notice needs the moderation notifier");
-      return sendModerationNotice(db, row, now, moderationNotifier);
+      return sendModerationNotice(db, bucket, row, now, moderationNotifier);
     case "legal_hold_release":
       // What a hold deferred (legal-holds.ts); the access log is on the job's own region.
       return runHoldRelease(db, access, row.subject ?? "", now);

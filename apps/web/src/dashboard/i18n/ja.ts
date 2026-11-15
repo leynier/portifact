@@ -27,7 +27,7 @@ export const ja = {
     "ページが知るのはこのアーティファクト用の ID だけです。名前、メールアドレス、アカウントは知りません。",
   "dataGrant.anonymous.lasts": "このブラウザーで {days} 日間有効です。",
   "dataGrant.anonymous.noAccount":
-    "アカウントがないため、Portifact は保存した内容を後で表示したり削除したりできません。このブラウザーが保持している間、ページ自体だけが行えます。",
+    "アカウントがない場合、Portifact はあなた自身が開ける履歴を保持しません。この許可が有効な間は、ページで保存した内容を確認できます。この artifact を管理する人や privacy@portifact.com に連絡することもできます。どのデータがあなたに関係するかを確認できる場合、Portifact が対応します。",
   "dataGrant.anonymous.signIn": "代わりにサインイン",
   "dataGrant.anonymous.signInTitle": "保存するにはサインイン",
   "dataGrant.anonymous.closed":
@@ -90,6 +90,13 @@ export const ja = {
   "dataGrant.unavailable": "このリクエストは使用できません",
   "dataGrant.unavailableHint": "artifact を開き直して、そこから保存を選んでください。",
   "dataGrant.failed": "許可を完了できませんでした",
+  "dataGrant.legal.terms": "利用規約",
+  "dataGrant.legal.acceptableUse": "利用ポリシー",
+  "dataGrant.legal.privacy": "プライバシーポリシー",
+  "dataGrant.legal.notice":
+    "このページは Portifact がホストし、この操作画面は Portifact が表示しています。Portifact が保管する内容は{privacy}に記載されています。リンクは新しいタブで開きます。",
+  "dataGrant.legal.statement":
+    "「許可する」を選ぶことで、あなたは18歳以上であることを確認し、ここに保存する内容について{terms}と{acceptableUse}に同意します。リンクは新しいタブで開きます。",
   "sharedData.title": "共有したデータ",
   "sharedData.description":
     "あなたを認識し、入力内容を保存できる artifact のページです。取り消すと 1 分以内に止まり、保存した内容は artifact に残ります。",
