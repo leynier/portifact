@@ -211,10 +211,19 @@ describe("legal pages", () => {
       "A service token reaches it only with the data scopes an admin grants the token",
       "renewed every minute by the same sign-in or permission that opened it",
       "Artifact data does not count in the space's storage quota",
-      "we may pause new writes and new live connections, never reads, exports or deletions",
-      "these terms instruct us, on the customer's behalf",
+      "we may pause new writes and new live connections; that pause never blocks reads, exports or deletions",
+      "These terms instruct us, on the customer's behalf",
       "which lasts up to 7 days in that browser",
       "Each permission gets a new ID",
+      "You cannot run SQL or custom server-side code on it",
+      "accepts these terms and confirms the visitor is 18 or older",
+      "there is no account-based self-service history",
+      "to read, reproduce, retain, export, modify and delete what they save",
+      "lists every artifact where you saved as a signed-in visitor, whether or not your permission still exists",
+      "a large download continues from where it stopped on a later day, and deletion runs in bounded batches",
+      "We keep the request until it is delivered, and retry it",
+      "by email to that visitor too",
+      "no further artifact can start holding data",
       "Artifacts that can hold artifact data</th>",
       "Artifact data of one artifact</th>",
       "<code>portifact data export</code>",
@@ -230,7 +239,13 @@ describe("legal pages", () => {
       "This version replaces the version of November 15, 2026 and takes effect on November 16, 2026.",
       "never your account ID or email address from us",
       "no account, name, email or network address",
-      "under a hash of the address, never the address itself",
+      "under a keyed identifier derived from it, never the address itself, which is pseudonymous",
+      "passed to Cloudflare Turnstile",
+      "its stored hashes are removed when it is used or by cleanup after it expires",
+      "is then deleted by a scheduled cleanup, except while it is still needed for a pending erasure",
+      "We keep the request until the email is delivered",
+      "per-visitor connection-rate counters remain",
+      "This depends on the activity, not on whether the space is personal or used for work.",
       "What visitors save from the page is not recorded in the audit log.",
       "Artifact data is not in these database backups and is not restored from them",
       "revoked permissions to save artifact data",
@@ -238,7 +253,7 @@ describe("legal pages", () => {
       "Records linking an account to its ID in an artifact's data</th>",
       "with a hint for western North America",
       "Choosing Allow before a page saves what you enter is a choice you make in the product",
-      "see the artifacts whose pages you allowed to save what you enter",
+      "see every artifact where you saved as a signed-in visitor",
     ]) {
       expect(privacy, text).toContain(text);
     }
@@ -249,6 +264,9 @@ describe("legal pages", () => {
       "visitors who save data in its artifacts, including people without an account",
       "Stores each artifact's data in its own SQLite database",
       "Cloudflare's storage for artifact data can keep earlier states for up to 30 days",
+      "whose pages collect it, since whoever determines why a page collects data acts as its controller",
+      "people whose information visitors include in what they save",
+      "we do not collect additional identity information solely to identify otherwise unidentifiable visitors",
     ]) {
       expect(dpa, text).toContain(text);
     }
@@ -259,6 +277,8 @@ describe("legal pages", () => {
       "Do not collect data from visitors without telling them.",
       "Do not ask visitors for passwords, sign-in codes, payment card details or other credentials",
       "to track people across sites or artifacts",
+      "you need not discover identifiers the page does not show",
+      "by email to that visitor too",
     ]) {
       expect(aup, text).toContain(text);
     }
