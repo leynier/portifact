@@ -1,6 +1,6 @@
-// Comment attachments and screenshots in the viewer (decision 0028). Files go straight to
-// storage through the presigned PUT the API returns; nothing is posted until the person posts the
-// comment. A screenshot is one frame of the browser's own screen capture, taken in this page:
+// Comment attachments and screenshots in the viewer (decision 0028). Chosen files and captures
+// stay in this browser until the person posts the comment; only then does each go straight to
+// storage through the presigned PUT the API returns. A screenshot is one frame of the browser's own screen capture, taken in this page:
 // no script ever reads the artifact's frame. Files on messages are untrusted: an image is shown
 // only as a `blob:` URL of bytes this page fetched and checked (size and SHA-256), and every
 // other file is only handed to the person as a download.
@@ -70,18 +70,24 @@ export interface PendingFile {
   key: string;
   name: string;
   size: number;
-  state: "uploading" | "ready" | "failed";
+  /**
+   * `added`: kept in this browser only; `uploading` and `uploaded` once the person posts;
+   * `failed` when the upload did not go through (posting again retries it).
+   */
+  state: "added" | "uploading" | "uploaded" | "failed";
   /** The attachment's ID once its bytes are stored. */
   id?: string;
   /** A local preview of an image the person chose, as a `blob:` URL; never shown for others. */
   preview?: string;
 }
 
-type Problem = "tooMany" | "tooLarge" | "empty" | "captureFailed" | "wait" | null;
+type Problem = "tooMany" | "tooLarge" | "empty" | "captureFailed" | "uploadFailed" | null;
 
 /**
- * The files of one comment being written: added, uploaded at once, removable until posted. `ids`
- * are the files ready to name; `busy` while any still uploads.
+ * The files of one comment being written (decision 0028): kept in this browser, removable,
+ * and uploaded only when the person posts (`upload`), so a file removed or a comment abandoned
+ * never leaves the browser. Slots are taken synchronously, so a selection of many files at once
+ * keeps the first four.
  */
 export function useAttachmentUploads(artifactId: string) {
   const { api, storage } = useDashboard();
@@ -89,27 +95,35 @@ export function useAttachmentUploads(artifactId: string) {
   const announce = useAnnounce();
   const [files, setFiles] = useState<PendingFile[]>([]);
   const [problem, setProblem] = useState<{ kind: Problem; name?: string }>({ kind: null });
+  // The source of truth, read synchronously: React state is a render behind within one event.
+  const entries = useRef<PendingFile[]>([]);
+  const blobs = useRef(new Map<string, Blob>());
   const controllers = useRef(new Map<string, AbortController>());
-  const previews = useRef(new Set<string>());
+
+  const publish = useCallback(() => setFiles([...entries.current]), []);
 
   useEffect(
     () => () => {
       for (const controller of controllers.current.values()) controller.abort();
-      for (const url of previews.current) URL.revokeObjectURL(url);
+      for (const file of entries.current) if (file.preview) URL.revokeObjectURL(file.preview);
     },
     [],
   );
 
-  const update = useCallback((key: string, change: Partial<PendingFile>) => {
-    setFiles((current) =>
-      current.map((file) => (file.key === key ? { ...file, ...change } : file)),
-    );
-  }, []);
+  const update = useCallback(
+    (key: string, change: Partial<PendingFile>) => {
+      entries.current = entries.current.map((file) =>
+        file.key === key ? { ...file, ...change } : file,
+      );
+      publish();
+    },
+    [publish],
+  );
 
   const add = useCallback(
-    async (blob: Blob, rawName: string) => {
+    (blob: Blob, rawName: string) => {
       const name = attachmentName(rawName, t("review.attach.screenshotName"));
-      if (files.length >= ATTACHMENT_LIMITS.perMessage) {
+      if (entries.current.length >= ATTACHMENT_LIMITS.perMessage) {
         setProblem({ kind: "tooMany" });
         return;
       }
@@ -124,16 +138,45 @@ export function useAttachmentUploads(artifactId: string) {
       setProblem({ kind: null });
       const key = crypto.randomUUID();
       const preview = blob.type.startsWith("image/") ? URL.createObjectURL(blob) : undefined;
-      if (preview) previews.current.add(preview);
-      setFiles((current) => [
-        ...current,
-        { key, name, size: blob.size, state: "uploading", ...(preview ? { preview } : {}) },
-      ]);
+      blobs.current.set(key, blob);
+      entries.current = [
+        ...entries.current,
+        { key, name, size: blob.size, state: "added", ...(preview ? { preview } : {}) },
+      ];
+      publish();
+      announce(t("review.attach.added", { name }));
+    },
+    [t, announce, publish],
+  );
+
+  const remove = useCallback(
+    (key: string) => {
+      controllers.current.get(key)?.abort();
+      const gone = entries.current.find((file) => file.key === key);
+      if (gone?.preview) URL.revokeObjectURL(gone.preview);
+      blobs.current.delete(key);
+      entries.current = entries.current.filter((file) => file.key !== key);
+      publish();
+      setProblem({ kind: null });
+    },
+    [publish],
+  );
+
+  /** Sends one kept file to storage through a fresh upload link; its ID, or null. */
+  const send = useCallback(
+    async (file: PendingFile): Promise<string | null> => {
+      const blob = blobs.current.get(file.key);
+      if (!blob) return null;
       const controller = new AbortController();
-      controllers.current.set(key, controller);
+      controllers.current.set(file.key, controller);
+      update(file.key, { state: "uploading" });
       try {
         const sha256 = await sha256OfBlob(blob);
-        const prepared = await api.prepareAttachment(artifactId, { name, size: blob.size, sha256 });
+        const prepared = await api.prepareAttachment(artifactId, {
+          name: file.name,
+          size: blob.size,
+          sha256,
+        });
         const answer = await storage.put(
           {
             sha256,
@@ -148,47 +191,48 @@ export function useAttachmentUploads(artifactId: string) {
           controller.signal,
         );
         if (answer.status < 200 || answer.status >= 300) throw new Error("storage");
-        update(key, { state: "ready", id: prepared.attachment.id });
-        announce(t("review.attach.added", { name }));
+        update(file.key, { state: "uploaded", id: prepared.attachment.id });
+        return prepared.attachment.id;
       } catch {
-        if (!controller.signal.aborted) update(key, { state: "failed" });
+        if (!controller.signal.aborted) update(file.key, { state: "failed" });
+        return null;
       } finally {
-        controllers.current.delete(key);
+        controllers.current.delete(file.key);
       }
     },
-    [api, storage, artifactId, files.length, t, announce, update],
+    [api, storage, artifactId, update],
   );
 
-  const remove = useCallback((key: string) => {
-    controllers.current.get(key)?.abort();
-    setFiles((current) => {
-      const gone = current.find((file) => file.key === key);
-      if (gone?.preview) {
-        URL.revokeObjectURL(gone.preview);
-        previews.current.delete(gone.preview);
-      }
-      return current.filter((file) => file.key !== key);
-    });
+  /**
+   * Called when the person posts: uploads every kept file not stored yet (one already uploaded by
+   * an earlier attempt is not sent again) and gives their IDs in order, or null, with the reason
+   * shown, when one did not go through.
+   */
+  const upload = useCallback(async (): Promise<string[] | null> => {
     setProblem({ kind: null });
-  }, []);
-
-  const busy = files.some((file) => file.state !== "ready");
-  const ids = files.flatMap((file) => (file.state === "ready" && file.id ? [file.id] : []));
-  /** The IDs to post, or null (with the reason shown) while some file is not ready. */
-  const toPost = (): string[] | null => {
-    if (busy) {
-      setProblem({ kind: "wait" });
-      return null;
+    const ids: string[] = [];
+    for (const file of [...entries.current]) {
+      const id = file.state === "uploaded" && file.id ? file.id : await send(file);
+      if (id === null) {
+        setProblem({ kind: "uploadFailed", name: file.name });
+        return null;
+      }
+      ids.push(id);
     }
     return ids;
-  };
-  const clear = () => {
-    for (const file of files) if (file.preview) URL.revokeObjectURL(file.preview);
-    previews.current.clear();
-    setFiles([]);
+  }, [send]);
+
+  const clear = useCallback(() => {
+    for (const file of entries.current) if (file.preview) URL.revokeObjectURL(file.preview);
+    blobs.current.clear();
+    entries.current = [];
+    publish();
     setProblem({ kind: null });
-  };
-  return { files, problem, setProblem, add, remove, toPost, clear, busy };
+  }, [publish]);
+
+  const busy = files.some((file) => file.state === "uploading");
+  const full = () => entries.current.length >= ATTACHMENT_LIMITS.perMessage;
+  return { files, problem, setProblem, add, remove, upload, clear, busy, full };
 }
 
 export type AttachmentUploads = ReturnType<typeof useAttachmentUploads>;
@@ -263,11 +307,11 @@ export function AttachmentControls({
   const [capturing, setCapturing] = useState(false);
   const size = compact ? "sm" : undefined;
   const full = uploads.files.length >= ATTACHMENT_LIMITS.perMessage;
-  const onFiles = async (chosen: File[]) => {
-    for (const file of chosen) await uploads.add(file, file.name);
+  const onFiles = (chosen: File[]) => {
+    for (const file of chosen) uploads.add(file, file.name);
   };
-  // Capture uploads the moment it completes (decision 0028), so the person is warned first and
-  // the browser's prompt opens only from the Continue below.
+  // A capture shows everything on what the person shares (decision 0028), so they are warned
+  // first and the browser's prompt opens only from the Continue below.
   const [confirming, setConfirming] = useState(false);
   const screenshot = async () => {
     setConfirming(false);
@@ -276,7 +320,7 @@ export function AttachmentControls({
       const shot = await captureScreenshot();
       if (shot) {
         const extension = shot.type === "image/jpeg" ? ".jpg" : ".png";
-        await uploads.add(shot, `${t("review.attach.screenshotName")}${extension}`);
+        uploads.add(shot, `${t("review.attach.screenshotName")}${extension}`);
       } else {
         uploads.setProblem({ kind: "captureFailed" });
       }
@@ -299,7 +343,7 @@ export function AttachmentControls({
           accept={ATTACHMENT_ACCEPT}
           multiple
           disabled={full}
-          onPick={(chosen) => void onFiles(chosen)}
+          onPick={onFiles}
         />
         {canCaptureScreen() ? (
           <Button

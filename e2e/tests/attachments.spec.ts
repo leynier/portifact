@@ -1,5 +1,5 @@
 // Comment attachments and screenshots end to end (decision 0028): a file attached from the
-// viewer's composer goes straight to storage, shows on the thread as a checked image and downloads
+// viewer's composer stays in the browser until Post, then goes straight to storage, shows on the thread as a checked image and downloads
 // with the name its bytes allow; a reader who cannot see the thread cannot get the file; and a
 // screenshot is one frame of the browser's screen capture, taken in the viewer page.
 //
@@ -124,13 +124,21 @@ test("a file attached to a comment shows as a checked image and downloads under 
   });
   await signIn(context, owner);
 
+  let uploadRequests = 0;
+  page.on("request", (request) => {
+    if (request.method() === "PUT" || request.url().includes("/annotations/attachments")) {
+      uploadRequests += 1;
+    }
+  });
   const sidebar = await openComposer(page, artifactId);
   await sidebar.getByLabel("Attach a file").setInputFiles({
     name: "report.html",
     mimeType: "text/html",
     buffer: PNG,
   });
-  await expect(sidebar.getByText(/Ready/)).toBeVisible();
+  await expect(sidebar.getByText(/Uploaded when you post/)).toBeVisible();
+  // Nothing leaves the browser before Post.
+  expect(uploadRequests).toBe(0);
   await sidebar.getByRole("textbox", { name: "Comment" }).fill("The header is red");
   await sidebar.getByRole("button", { name: "Post comment" }).click();
   await expect(sidebar.getByText("1 comment thread")).toBeVisible();
@@ -250,8 +258,8 @@ test("a screenshot is one frame of the browser's screen capture, shown before it
 
   const sidebar = await openComposer(page, artifactId);
   await sidebar.getByRole("button", { name: "Attach a screenshot" }).click();
-  // The warning comes first: capture uploads at once, before the comment is posted.
-  await expect(sidebar.getByText(/uploads the capture right away, before you post/)).toBeVisible();
+  // The warning comes first: the capture shows everything on what is shared.
+  await expect(sidebar.getByText(/stays in this browser until you post/)).toBeVisible();
   expect(
     await page.evaluate(
       () => (window as unknown as { __captures: { count: number } }).__captures.count,
@@ -266,8 +274,8 @@ test("a screenshot is one frame of the browser's screen capture, shown before it
   );
   // One capture, and its tracks stopped once the frame was taken.
   expect(captures).toEqual({ count: 1, stopped: 1 });
+  await expect(sidebar.getByText(/Uploaded when you post/)).toBeVisible();
   if (browserName === "webkit") return;
-  await expect(sidebar.getByText(/Ready/)).toBeVisible();
   await sidebar.getByRole("textbox", { name: "Comment" }).fill("What I see");
   await sidebar.getByRole("button", { name: "Post comment" }).click();
   await expect(sidebar.getByRole("img", { name: /^screenshot\.(png|jpg)$/ })).toBeVisible();

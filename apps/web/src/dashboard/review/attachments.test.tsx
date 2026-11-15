@@ -8,6 +8,7 @@ import type { AttachmentView } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dashboardApi } from "../api.ts";
 import { DashboardContext } from "../context.tsx";
@@ -120,15 +121,20 @@ function renderWith(node: React.ReactNode, attachments = true) {
   );
 }
 
-/** A composer's controls and what it would post. */
+/** A composer's controls and what it posts: the IDs `upload` gives when Post is pressed. */
 function Composer() {
   const uploads = useAttachmentUploads("art1");
-  const ids = uploads.files.flatMap((file) => (file.id ? [file.id] : []));
+  const [posted, setPosted] = useState("");
   return (
     <div>
       <AttachmentControls uploads={uploads} />
-      <output aria-label="ready ids">{ids.join(",")}</output>
-      <button type="button" onClick={() => uploads.toPost()}>
+      <output aria-label="posted ids">{posted}</output>
+      <button
+        type="button"
+        onClick={() => {
+          void uploads.upload().then((ids) => setPosted(ids === null ? "refused" : ids.join(",")));
+        }}
+      >
         Post
       </button>
     </div>
@@ -152,11 +158,38 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("adding files", () => {
-  it("uploads a chosen file straight to storage and keeps it ready to post", async () => {
+describe("files stay in the browser until Post (review item 2) and four at most (item 5)", () => {
+  it("uploads nothing when a file is chosen and then removed", async () => {
     renderWith(<Composer />);
     pick(new File([PNG], "shot.png", { type: "image/png" }));
-    expect(await screen.findByText(/Ready/)).toBeTruthy();
+    expect(await screen.findByText("shot.png")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Remove shot.png" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fakes.requests).toHaveLength(0);
+    expect(fakes.puts).toHaveLength(0);
+  });
+
+  it("keeps four of five files chosen at once, and says why", async () => {
+    renderWith(<Composer />);
+    pick(
+      ...Array.from({ length: 5 }, (_, i) => new File([PNG], `s${i}.png`, { type: "image/png" })),
+    );
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "A comment can carry at most 4 files.",
+    );
+    expect(screen.getAllByRole("button", { name: /^Remove s\d\.png$/ })).toHaveLength(4);
+  });
+});
+
+describe("adding files", () => {
+  it("keeps a chosen file in the browser and uploads it straight to storage only on Post", async () => {
+    renderWith(<Composer />);
+    pick(new File([PNG], "shot.png", { type: "image/png" }));
+    expect(await screen.findByText(/Uploaded when you post/)).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Preview of shot.png" })).toBeTruthy();
+    expect(fakes.requests).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Post" }));
+    await waitFor(() => expect(screen.getByLabelText("posted ids").textContent).toMatch(/^att_/));
     const prepare = fakes.requests.find((r) => r.method === "POST");
     expect(prepare?.body).toEqual({
       name: "shot.png",
@@ -164,10 +197,7 @@ describe("adding files", () => {
       sha256: await sha256OfBlob(new Blob([PNG])),
     });
     expect(fakes.puts).toHaveLength(1);
-    expect(screen.getByLabelText("ready ids").textContent).toMatch(/^att_/);
-    expect(screen.getByRole("img", { name: "Preview of shot.png" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Remove shot.png" }));
-    expect(screen.queryByText("shot.png")).toBeNull();
+    expect(screen.getByText(/· Uploaded$/)).toBeTruthy();
   });
 
   it("refuses an empty file, a file over 10 MB and a fifth file before asking the API", async () => {
@@ -176,21 +206,26 @@ describe("adding files", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("empty.txt is empty.");
     pick(new File([new Uint8Array(10 * 1024 * 1024 + 1)], "big.png", { type: "image/png" }));
     expect((await screen.findByRole("alert")).textContent).toBe("big.png is larger than 10 MB.");
-    expect(fakes.requests).toHaveLength(0);
     for (let i = 0; i < 4; i++) pick(new File([PNG], `s${i}.png`, { type: "image/png" }));
-    await waitFor(() => expect(screen.getAllByText(/Ready/)).toHaveLength(4));
+    await waitFor(() => expect(screen.getAllByText(/Uploaded when you post/)).toHaveLength(4));
     expect(screen.getByLabelText("Attach a file")).toHaveProperty("disabled", true);
+    expect(fakes.requests).toHaveLength(0);
   });
 
-  it("keeps a comment from going out while a file failed to upload", async () => {
+  it("keeps a comment from going out while a file failed to upload, and retries it on Post", async () => {
     fakes.putStatus = 403;
     renderWith(<Composer />);
     pick(new File([PNG], "shot.png", { type: "image/png" }));
-    expect(await screen.findByText(/Upload failed/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Post" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Post" }));
     expect((await screen.findByRole("alert")).textContent).toBe(
-      "Wait until every file is uploaded, or remove the ones that failed.",
+      "shot.png could not be uploaded. Post again to retry, or remove it.",
     );
+    expect(screen.getByLabelText("posted ids").textContent).toBe("refused");
+    expect(screen.getByText(/Upload failed/)).toBeTruthy();
+    fakes.putStatus = 200;
+    fireEvent.click(screen.getByRole("button", { name: "Post" }));
+    await waitFor(() => expect(screen.getByLabelText("posted ids").textContent).toMatch(/^att_/));
+    expect(fakes.puts).toHaveLength(2);
   });
 
   it("offers a screenshot only where the browser can capture the screen", async () => {
@@ -203,11 +238,11 @@ describe("adding files", () => {
     vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getDisplayMedia } });
     renderWith(<Composer />);
     fireEvent.click(screen.getByRole("button", { name: "Attach a screenshot" }));
-    // A warning first: the capture uploads at once, so nothing is asked of the browser yet.
-    expect(screen.getByText(/uploads the capture right away, before you post/)).toBeTruthy();
+    // A warning first: the capture shows everything on the screen, so nothing is asked yet.
+    expect(screen.getByText(/stays in this browser until you post/)).toBeTruthy();
     expect(getDisplayMedia).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(screen.queryByText(/uploads the capture right away/)).toBeNull();
+    expect(screen.queryByText(/stays in this browser until you post/)).toBeNull();
     expect(getDisplayMedia).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Attach a screenshot" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -263,7 +298,7 @@ describe("files on messages", () => {
 });
 
 describe("accessibility", () => {
-  it("has no violations with a file ready and a file on a message", async () => {
+  it("has no violations with a file kept to post and a file on a message", async () => {
     const id = "att_9";
     fakes.stored.set(`https://storage.test/attachments/${id}`, new Blob([PNG]));
     const { container } = renderWith(
@@ -284,7 +319,7 @@ describe("accessibility", () => {
       </>,
     );
     pick(new File([PNG], "draft.png", { type: "image/png" }));
-    await screen.findByText(/Ready/);
+    await screen.findByText(/Uploaded when you post/);
     await screen.findByRole("img", { name: "shot.png" });
     expect(await axeViolations(container)).toEqual([]);
   });

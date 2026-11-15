@@ -1959,11 +1959,12 @@ function useCreateThread(
     defaultValues: { body: "" },
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
-    onSubmit: ({ value }) => {
-      // Files still uploading (or failed) keep the comment from going out without them.
-      const attachments = uploads.toPost();
+    onSubmit: async ({ value }) => {
+      // Files leave the browser only now, when the person posts; a file that does not go through
+      // keeps the comment from going out without it.
+      const attachments = await uploads.upload();
       if (attachments === null) return;
-      return post.mutateAsync({ body: value.body, attachments }).then(
+      await post.mutateAsync({ body: value.body, attachments }).then(
         () => {},
         () => {},
       );

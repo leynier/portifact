@@ -661,10 +661,12 @@ function ReplyForm({
     defaultValues: { body: "" },
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
-    onSubmit: ({ value }) => {
-      const attachments = uploads.toPost();
+    onSubmit: async ({ value }) => {
+      // Files leave the browser only now, when the person posts; a file that does not go through
+      // keeps the comment from going out without it.
+      const attachments = await uploads.upload();
       if (attachments === null) return;
-      return reply.mutateAsync({ body: value.body, attachments }).then(
+      await reply.mutateAsync({ body: value.body, attachments }).then(
         () => {},
         () => {},
       );
