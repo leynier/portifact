@@ -1,4 +1,4 @@
-// Comment attachments (decision 0028): starting an upload, reading one file, the prune of uploads
+// Comment attachments (decision 0029): starting an upload, reading one file, the prune of uploads
 // nobody attached and the operator's removal. Attaching happens in the comment's own write
 // (./attachment-writes.ts); deleting bytes happens only through the `delete_objects` job the
 // rows' delete trigger writes, whatever deleted the row.
@@ -266,7 +266,7 @@ function trail(db: Db, input: AttachmentRef, event: string, condition: SQL) {
 }
 
 /**
- * The operator withholds one file (decision 0028, "Abuse and the operator"): from that moment
+ * The operator withholds one file (decision 0029, "Abuse and the operator"): from that moment
  * nobody views or downloads it, and the person who attached it and the people who manage the
  * artifact get the statement of reasons (`decisionStatements`, `moderation_notice`) unless the
  * law requires silence. Nothing is deleted: a review or a counter-notice can reinstate it, and

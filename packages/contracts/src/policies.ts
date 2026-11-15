@@ -489,7 +489,7 @@ export const CommentTombstonesPayload = z
             "suggestion_withdrawn",
             "suggestion_rejected",
             "edit_draft",
-            // A file the operator removed (decision 0028).
+            // A file the operator removed (decision 0029).
             "comment_attachment",
           ]),
           id: z.string().min(1).max(200),

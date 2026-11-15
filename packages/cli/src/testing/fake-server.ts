@@ -213,7 +213,7 @@ export async function startFakeServer(): Promise<FakeServer> {
     const file = /^\/r2\/attachments\/([^/]+)$/.exec(url.pathname);
     if (method === "GET" && file) {
       const stored = fakeAnnotations.state.attachments.get(file[1] as string);
-      // Storage never takes the API token (decision 0028).
+      // Storage never takes the API token (decision 0029).
       if (request.headers.authorization !== undefined) {
         return reply(response, { status: 400, body: "Unexpected header" });
       }

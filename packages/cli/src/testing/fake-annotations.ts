@@ -35,7 +35,7 @@ export interface FakeAnnotationState {
   /** The comment action history by artifact, oldest first, as GET .../history pages it. */
   history: Map<string, AnnotationHistoryEntry[]>;
   /**
-   * Files on comments (decision 0028) by ID: what GET .../attachments/:id lists and the bytes the
+   * Files on comments (decision 0029) by ID: what GET .../attachments/:id lists and the bytes the
    * fake storage serves at its link (`/r2/attachments/<id>`, only without credentials).
    */
   attachments: Map<string, { artifactId: string; view: AttachmentView; bytes: Buffer }>;

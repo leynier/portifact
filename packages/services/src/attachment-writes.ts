@@ -1,4 +1,4 @@
-// Attaching files to a new comment or reply (decision 0028): the checks of the bytes in R2 before
+// Attaching files to a new comment or reply (decision 0029): the checks of the bytes in R2 before
 // the comment's batch, the guard its claim adds and the statement that attaches the rows. Kept
 // apart from ./attachments.ts so the annotation writes import it without a cycle.
 import { ATTACHMENT_LIMITS, type AttachmentType } from "@portifact/contracts";

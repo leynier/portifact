@@ -41,7 +41,7 @@ export interface Presigner {
 
 /**
  * What a download link makes R2 answer: the `Content-Disposition` (always an attachment) and,
- * for a comment attachment (decision 0028), the type its bytes showed.
+ * for a comment attachment (decision 0029), the type its bytes showed.
  */
 export interface DownloadOptions {
   disposition?: string;

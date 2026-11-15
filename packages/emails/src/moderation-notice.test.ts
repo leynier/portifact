@@ -74,7 +74,7 @@ describe("the statement of reasons", () => {
     expect(lifted.text).not.toContain("Category");
   });
 
-  it("tells a file's people it is withheld, kept and may be deleted after 30 days (decision 0028)", () => {
+  it("tells a file's people it is withheld, kept and may be deleted after 30 days (decision 0029)", () => {
     const file = moderationNoticeEmail({ ...base, target: "attachment", attachmentId: "att_1" });
     expect(file.subject).toBe("We withheld a file on a comment");
     expect(file.text).toContain('the file att_1 attached to a comment on the artifact "Q3 plan"');

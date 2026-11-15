@@ -517,7 +517,7 @@ export function createPortifactServer(context: ToolContext): McpServer {
   registerIntegrationTools(register, context);
   // Edit suggestions are switched off unless the app Worker turns them on (decision 0027).
   if (suggestionsEnabled(context.env)) registerChangeTools(register, context);
-  // Comment attachments are switched off unless the app Worker turns them on (decision 0028).
+  // Comment attachments are switched off unless the app Worker turns them on (decision 0029).
   if (attachmentsEnabled(context.env)) registerAttachmentTools(register, context);
 
   return server;

@@ -248,7 +248,7 @@ export const ExportMessage = z.object({
   createdAt: Iso,
   editedAt: IsoOrNull,
   /**
-   * The files on the message (decision 0028), only when it has any: the name the person gave,
+   * The files on the message (decision 0029), only when it has any: the name the person gave,
    * the type read from the bytes, the size and the SHA-256. The bytes are downloaded through the
    * attachment link (`portifact annotations attachment`, or `portifact export`).
    */

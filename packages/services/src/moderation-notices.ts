@@ -50,7 +50,7 @@ export interface DecisionStatement extends Partial<StatementText> {
 /** What a suspension, a lift or a statement of reasons is about. */
 export type RestrictionTarget = "artifact" | "account" | "brand";
 
-/** What a decision may be about: a restriction's target, or a file on a comment (decision 0028). */
+/** What a decision may be about: a restriction's target, or a file on a comment (decision 0029). */
 export type DecisionTarget = RestrictionTarget | "attachment";
 
 export interface DecisionRecord {
@@ -245,7 +245,7 @@ export interface ModerationNotice {
   action: "suspend" | "reinstate";
   target: DecisionTarget;
   artifactId: string | null;
-  /** The file, for a decision about a comment attachment (decision 0028). */
+  /** The file, for a decision about a comment attachment (decision 0029). */
   attachmentId: string | null;
   /** The artifact's name; the notifier drops it outside the default region (decision 0005). */
   artifactName: string | null;
@@ -298,7 +298,7 @@ export async function sendModerationNotice(
       (sent) => sent.userId,
     ),
   );
-  // A file on a comment (decision 0028): the person who attached it is told too, besides the
+  // A file on a comment (decision 0029): the person who attached it is told too, besides the
   // people who manage the artifact.
   const file =
     decision.targetKind === "attachment"

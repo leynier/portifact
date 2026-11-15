@@ -221,7 +221,7 @@ export async function dashboardCsp(
 }
 
 /**
- * While comment attachments are on (decision 0028), images on comments are shown as `blob:`
+ * While comment attachments are on (decision 0029), images on comments are shown as `blob:`
  * URLs the page builds from bytes it fetched from storage and checked (size and SHA-256), so
  * `img-src` adds `blob:` and no storage or user host.
  */

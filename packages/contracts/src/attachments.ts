@@ -1,4 +1,4 @@
-// Comment attachments and screenshots (decision 0028): files on a comment or reply, judged by their
+// Comment attachments and screenshots (decision 0029): files on a comment or reply, judged by their
 // bytes, uploaded straight to R2 through a presigned PUT and read through a short presigned GET.
 // Names are untrusted text shown escaped; the bytes are untrusted data, never opened by Portifact.
 import { z } from "zod";
@@ -43,7 +43,7 @@ export const ATTACHMENT_LIMITS = {
   /**
    * How long a file the operator withholds waits before it may be removed for good: longer than
    * a copyright counter-notice's restoration (10 to 14 business days after it arrives), so one
-   * sent after the statement can still reinstate it (decision 0028, "Abuse and the operator").
+   * sent after the statement can still reinstate it (decision 0029, "Abuse and the operator").
    */
   removalWaitMs: 30 * 24 * 60 * 60 * 1000,
   /**

@@ -845,7 +845,7 @@ const ATTACHMENT_EXTENSIONS: Readonly<Record<string, string>> = {
 };
 
 /**
- * The files on the comments an artifact's records list (decision 0028), each downloaded into
+ * The files on the comments an artifact's records list (decision 0029), each downloaded into
  * `artifacts/<id>/attachments/<attachment id><extension>` through its short link and counted only
  * once its bytes at their place have the size and SHA-256 the comment lists. Never named after
  * the reviewer's file name. A file deleted or withheld meanwhile is recorded as skipped.

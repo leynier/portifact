@@ -85,7 +85,7 @@ export const CreateThreadRequest = z.strictObject({
   region: ImageRegionRequest.optional(),
   body: AnnotationBody,
   turnstileToken: TurnstileToken.optional(),
-  /** Uploads the caller prepared on this artifact (decision 0028); dashboard session only. */
+  /** Uploads the caller prepared on this artifact (decision 0029); dashboard session only. */
   attachments: AttachmentIds.optional(),
 });
 export type CreateThreadRequest = z.infer<typeof CreateThreadRequest>;
@@ -161,7 +161,7 @@ export const AnnotationMessageView = z.object({
   createdAt: z.iso.datetime(),
   editedAt: z.iso.datetime().nullable(),
   /**
-   * Files on the message (decision 0028), only when it has any and the caller sees its body.
+   * Files on the message (decision 0029), only when it has any and the caller sees its body.
    * Names are untrusted text.
    */
   attachments: z.array(AttachmentView).optional(),

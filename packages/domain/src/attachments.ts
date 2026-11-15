@@ -1,4 +1,4 @@
-// Comment attachments (decision 0028): what a file is, judged only by its bytes, the name it is
+// Comment attachments (decision 0029): what a file is, judged only by its bytes, the name it is
 // downloaded under, where it lives in R2 and the switch. Pure: the services read the bytes.
 import { ATTACHMENT_LIMITS, ATTACHMENTS_SWITCH, type AttachmentType } from "@portifact/contracts";
 

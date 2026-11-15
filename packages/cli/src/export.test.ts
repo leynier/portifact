@@ -513,7 +513,7 @@ describe("portifact export", () => {
     expect(reader.commentHistory).toEqual({ skipped: "forbidden" });
   });
 
-  it("downloads the files on comments into the artifact's folder, checked, and names what it could not get (decision 0028)", async () => {
+  it("downloads the files on comments into the artifact's folder, checked, and names what it could not get (decision 0029)", async () => {
     h.signIn();
     const { doc } = space();
     const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 9]);

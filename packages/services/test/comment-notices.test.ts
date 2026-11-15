@@ -471,7 +471,7 @@ describe("marking activity on the write path", () => {
     // The Pro write carries three more statements in its one batch: the mark, and the two
     // webhook statements (decision 0009), which match no row without a webhook.
     expect(onPro.calls.batchSizes).toEqual([(onFree.calls.batchSizes[0] ?? 0) + 3, 3]);
-    // The answer's read is one batch: messages, issues and files (decision 0028).
+    // The answer's read is one batch: messages, issues and files (decision 0029).
     expect(await pending(reader.id)).toHaveLength(1);
   });
 });

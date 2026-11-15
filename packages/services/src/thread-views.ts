@@ -6,9 +6,9 @@ import type {
   AnnotationMessageView,
   AnnotationTarget,
   AnnotationThreadView,
+  AttachmentView,
   ImageRegion,
   ImageRegionView,
-  AttachmentView,
   SuggestionThreadView,
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
@@ -62,7 +62,7 @@ export async function threadViews(
   const files = new Map<string, AttachmentView[]>();
   const ca = schema.commentAttachments;
   for (const ids of chunks(threads.map((thread) => thread.id))) {
-    // The thread's issues and files ride in the messages' call (decisions 0018 and 0028): no
+    // The thread's issues and files ride in the messages' call (decisions 0018 and 0029): no
     // round trip of their own.
     const [rows, issueRows, fileRows] = await db.batch([
       db
@@ -82,7 +82,7 @@ export async function threadViews(
         })
         .from(ca)
         .where(
-          // A file the operator withholds is listed to nobody until reinstated (decision 0028).
+          // A file the operator withholds is listed to nobody until reinstated (decision 0029).
           and(inArray(ca.threadId, ids), eq(ca.state, "attached"), isNull(ca.withheldAt)),
         )
         .orderBy(asc(ca.attachedAt), asc(ca.id)),

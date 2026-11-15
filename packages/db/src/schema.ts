@@ -33,7 +33,7 @@ export const ABUSE_REASONS = [
 ] as const;
 
 /** Edit suggestions (decision 0027), as in @portifact/contracts. */
-/** What a comment attachment may be (decision 0028); equal to `ATTACHMENT_TYPES` in contracts. */
+/** What a comment attachment may be (decision 0029); equal to `ATTACHMENT_TYPES` in contracts. */
 export const ATTACHMENT_TYPES = [
   "image/png",
   "image/jpeg",
@@ -888,7 +888,7 @@ export const tombstones = sqliteTable(
      * (decision 0027) add `suggestion_withdrawn` and `suggestion_rejected` (a thread ID: a restore
      * withdraws or rejects it again) and `edit_draft` (`<artifact>:<user>:<incarnation>`: a restore
      * deletes that draft again, never one created after it), pruned with the same window.
-     * `comment_attachment` marks a file the operator removed (decision 0028), by its ID, pruned
+     * `comment_attachment` marks a file the operator removed (decision 0029), by its ID, pruned
      * with the same window.
      */
     kind: text("kind", {
@@ -1490,7 +1490,7 @@ export const annotationMessages = sqliteTable(
 );
 
 /**
- * Files on comments (decision 0028). A row is `pending` from the upload's start until a new thread
+ * Files on comments (decision 0029). A row is `pending` from the upload's start until a new thread
  * or reply names it, then `attached` to that message for good. Its R2 key is derived
  * (`attachmentKey`: `attachments/<artifact>/<id>`). Triggers (`comment_attachments` migration)
  * count an attached row's size in its owner's `annotation_usage.bytes`, move it with a transfer,
@@ -1523,7 +1523,7 @@ export const commentAttachments = sqliteTable(
     expiresAt: timestamp("expires_at"),
     attachedAt: timestamp("attached_at"),
     /**
-     * Set while the operator withholds the file (decision 0028, "Abuse and the operator"): shown
+     * Set while the operator withholds the file (decision 0029, "Abuse and the operator"): shown
      * to and downloadable by nobody, kept in storage until reinstated or removed for good.
      */
     withheldAt: timestamp("withheld_at"),

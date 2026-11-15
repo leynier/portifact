@@ -500,7 +500,7 @@ export async function wholeHistory(
 }
 
 /**
- * Downloads one file attached to a comment (decision 0028) through its short link, checks its
+ * Downloads one file attached to a comment (decision 0029) through its short link, checks its
  * size and SHA-256 against what the comment lists before writing anything, and writes it to a new
  * file only. The default name is `attachment-<id><extension>`, never the reviewer's file name.
  */

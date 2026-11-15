@@ -2039,7 +2039,7 @@ An artifact shared with its workspace or an email domain becomes restricted when
       ),
     );
 
-  // Comment attachments (decision 0028) are switched off until the legal pages describe them, so
+  // Comment attachments (decision 0029) are switched off until the legal pages describe them, so
   // the command is hidden from the help until then.
   annotations
     .command("attachment", { hidden: true })

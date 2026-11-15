@@ -197,7 +197,7 @@ export const ExportedRecordFile = z.union([
 export type ExportedRecordFile = z.infer<typeof ExportedRecordFile>;
 
 /**
- * A file on a comment (decision 0028) that `portifact export` downloaded into the artifact's
+ * A file on a comment (decision 0029) that `portifact export` downloaded into the artifact's
  * `attachments/` folder, checked against the size and SHA-256 its comment lists, or why it is
  * not there (`not_found`: deleted or withheld meanwhile).
  */
@@ -227,7 +227,7 @@ export const ExportManifest = z.strictObject({
       accessLog: ExportedLog,
       /** `records.json`: settings, access, share links, review, analytics, comments and history. */
       records: ExportedRecordFile,
-      /** The files on the comments `records.json` lists, downloaded (decision 0028). */
+      /** The files on the comments `records.json` lists, downloaded (decision 0029). */
       attachments: z.array(ExportedAttachment).optional(),
       /** Set when the artifact (or the rest of its versions) could not be exported, and why. */
       skipped: ExportSkipReason.optional(),

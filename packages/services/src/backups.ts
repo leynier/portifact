@@ -58,7 +58,7 @@ export async function reconcileStorage(
 ): Promise<ReconcileResult> {
   const rows = await checkRows(db, bucket, now, rowLimit);
   const listed = await checkListing(db, bucket, now, listLimit, OBJECT_LISTING);
-  // Comment attachments (decision 0028) have their own prefix and pass; their counts add to the
+  // Comment attachments (decision 0029) have their own prefix and pass; their counts add to the
   // objects' (a file uploaded after a restore point has bytes and no row).
   const files = await checkListing(db, bucket, now, listLimit, ATTACHMENT_LISTING);
   return {
@@ -462,7 +462,7 @@ interface Refs {
   rejectedSuggestions: SQL;
   /** `<artifact>:<user>:<incarnation>`. */
   drafts: SQL;
-  /** Comment attachments the operator removed (decision 0028). */
+  /** Comment attachments the operator removed (decision 0029). */
   attachments: SQL;
 }
 
@@ -671,7 +671,7 @@ function restoreEntries(now: number, oneDatabase: boolean, evidence: string[]): 
           .where(sql`${schema.annotationThreads.id} in (${refs.commentThreads})`)
           .returning({ id: schema.annotationThreads.id }),
     },
-    // Comment attachments the operator removed (decision 0028): the rows go again, and their
+    // Comment attachments the operator removed (decision 0029): the rows go again, and their
     // delete trigger writes the R2 deletion again (the job keeps nothing no row names).
     {
       name: "attachments",

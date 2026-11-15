@@ -1,4 +1,4 @@
-// MCP tool of comment attachments (decision 0028): get_annotation_attachment, a short download
+// MCP tool of comment attachments (decision 0029): get_annotation_attachment, a short download
 // link for one file, through the same service, scope and answer as
 // GET /api/v1/artifacts/:id/annotations/attachments/:attachmentId. Registered only while
 // `ATTACHMENTS_ENABLED` is on. MCP never adds files: adding is the dashboard's.

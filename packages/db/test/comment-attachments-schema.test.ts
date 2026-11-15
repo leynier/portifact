@@ -1,4 +1,4 @@
-// Comment attachments (decision 0028): the triggers of migration 0088 count an attached file in
+// Comment attachments (decision 0029): the triggers of migration 0090 count an attached file in
 // its owner's comment storage, move it with a transfer, write the R2 deletion job for every row
 // deleted by any path, and delete a message's files when it becomes a deleted marker.
 import { env } from "cloudflare:test";

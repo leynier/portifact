@@ -446,7 +446,7 @@ async function deleteUnreferencedKeys(db: Db, bucket: R2Bucket, keys: string[]) 
         kept.add(row.key);
       }
     }
-    // A comment attachment's key is kept while a row names it again (a restore, decision 0028).
+    // A comment attachment's key is kept while a row names it again (a restore, decision 0029).
     const files = chunk.filter(isAttachmentKey);
     if (files.length > 0) {
       const ca = schema.commentAttachments;

@@ -19,7 +19,7 @@ export interface ModerationNoticeInput {
   target: ModerationTarget;
   /** The artifact's ID, for an artifact or a file on one of its comments. */
   artifactId?: string | undefined;
-  /** The file's ID, for a file on a comment (decision 0028). */
+  /** The file's ID, for a file on a comment (decision 0029). */
   attachmentId?: string | undefined;
   /** The artifact's name, only where a notice may name it (`noticeNames`); else the ID alone. */
   artifactName?: string | null | undefined;

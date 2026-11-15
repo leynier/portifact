@@ -985,7 +985,7 @@ export async function runRegionalMaintenance(
     threadIssues: await requeueThreadIssues(db, now),
     // Slack connections started and never completed (decision 0025): one delete.
     pendingConnections: await prunePendingConnections(db, now),
-    // Comment attachment uploads nobody attached within their hour (decision 0028): one delete.
+    // Comment attachment uploads nobody attached within their hour (decision 0029): one delete.
     attachmentUploads: await pruneAttachmentUploads(db, now),
     // Edit suggestions (decision 0027): overdue acceptances end, records past their time go, and
     // drafts of people who no longer act for the owner are deleted.
@@ -1079,7 +1079,7 @@ export async function runMaintenance(
     // Slack connections started and never completed, after 24 hours (decision 0025): one delete
     // of at most a few rows per owner, with no tombstone (they hold no credential).
     pendingConnections: await prunePendingConnections(db, now),
-    // Comment attachment uploads nobody attached within their hour (decision 0028): one delete.
+    // Comment attachment uploads nobody attached within their hour (decision 0029): one delete.
     attachmentUploads: await pruneAttachmentUploads(db, now),
     // Preview codes of edit suggestions and their cached documents (decision 0027).
     previewCodes: await prunePreviewCodes(db, bucket, now),

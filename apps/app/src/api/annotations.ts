@@ -77,7 +77,7 @@ export function annotationRoutes(
     SuggestionFieldsQuery.safeParse(c.req.query()).data?.fields === "suggestion";
 
   /**
-   * The files a new thread or reply names (decision 0028), with the bucket of the artifact's
+   * The files a new thread or reply names (decision 0029), with the bucket of the artifact's
    * region; `undefined` for none. Adding is the dashboard's: a request with an `Authorization`
    * header that names files is refused, and so is any while attachments are switched off.
    */
@@ -95,7 +95,7 @@ export function annotationRoutes(
     return { ids, bucket: bucketOf(await artifactRegion(c.env, artifactId(c))) };
   };
 
-  // Starts one upload (decision 0028): session only, refused before any token is checked; the
+  // Starts one upload (decision 0029): session only, refused before any token is checked; the
   // bytes go straight to R2 through a presigned PUT signing their size and SHA-256.
   api.post(
     `${BASE}/attachments`,
@@ -145,7 +145,7 @@ export function annotationRoutes(
     }),
   );
 
-  // One file's download link, for whoever sees its message's body (decision 0028): a presigned
+  // One file's download link, for whoever sees its message's body (decision 0029): a presigned
   // GET of 5 minutes, served by R2 as an attachment of the type its bytes showed.
   api.get(
     `${BASE}/attachments/:attachmentId`,

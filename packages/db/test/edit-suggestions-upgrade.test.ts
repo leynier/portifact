@@ -73,7 +73,7 @@ describe("upgrading a populated database", () => {
     await applyD1Migrations(db, all);
 
     const all_ = await triggers(db);
-    // Later features add triggers of their own tables (comment attachments, migration 0088,
+    // Later features add triggers of their own tables (comment attachments, migration 0090,
     // checked in comment-attachments-schema.test.ts); this test is about the suggestion ones.
     const after = new Map([...all_].filter(([name]) => !LATER_TRIGGERS.has(name)));
     // Every trigger of the database before keeps its name and definition; the new ones are exactly

@@ -800,7 +800,7 @@ describe("recording events", () => {
     // A paid write carries the comment notice mark and the two webhook statements.
     // Then the thread view's one read of its messages and issue links (decision 0018).
     expect(onBare.calls.batchSizes).toEqual([(onFree.calls.batchSizes[0] ?? 0) + 3, 3]);
-    // The answer's read is one batch: messages, issues and files (decision 0028).
+    // The answer's read is one batch: messages, issues and files (decision 0029).
     expect(await pending(webhook.id)).toHaveLength(1);
   });
 

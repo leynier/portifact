@@ -71,7 +71,7 @@ export type ThreadRef = z.infer<typeof ThreadRef>;
 export const MessageRef = z.object({ artifactId, messageId });
 export type MessageRef = z.infer<typeof MessageRef>;
 
-/** One file on a comment (decision 0028), by its ID as thread views list it. */
+/** One file on a comment (decision 0029), by its ID as thread views list it. */
 export const AttachmentRef = z.object({
   artifactId,
   attachmentId: AttachmentId.describe("The attachment ID, as a message's attachments list it."),

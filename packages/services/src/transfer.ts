@@ -277,7 +277,7 @@ export async function transferArtifact(
         .update(schema.changeItems)
         .set({ ownerId: to })
         .where(guarded(eq(schema.changeItems.artifactId, artifact.id))),
-      // Comment attachments (decision 0028) move with their comments; their bytes follow by
+      // Comment attachments (decision 0029) move with their comments; their bytes follow by
       // trigger, and the target's CHECK refuses a move without room.
       w
         .update(schema.commentAttachments)

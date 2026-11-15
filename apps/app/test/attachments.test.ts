@@ -1,4 +1,4 @@
-// The adapters of comment attachments (decision 0028): the upload route behind
+// The adapters of comment attachments (decision 0029): the upload route behind
 // `ATTACHMENTS_ENABLED`, session only; naming files on a new thread or reply, session only; the
 // download link for people's tokens and the same answer from the MCP tool. The services' rules are
 // tested in packages/services; these tests prove the wiring, the boundaries and the parity.

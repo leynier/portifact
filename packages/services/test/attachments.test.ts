@@ -1,4 +1,4 @@
-// Comment attachments (decision 0028): uploads, attaching in the comment's own batch, who reads a
+// Comment attachments (decision 0029): uploads, attaching in the comment's own batch, who reads a
 // file, deletion by triggers, the prune, the operator's removal and the restore.
 import { env } from "cloudflare:test";
 import { type AnnotationTarget, ATTACHMENT_LIMITS } from "@portifact/contracts";

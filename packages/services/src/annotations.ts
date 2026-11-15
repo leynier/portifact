@@ -1045,7 +1045,7 @@ export async function createAnnotationThread(
   );
 }
 
-/** The named uploads, checked against R2 (decision 0028); none when the write names none. */
+/** The named uploads, checked against R2 (decision 0029); none when the write names none. */
 async function attachmentsOf(
   db: RegionalDb,
   input: AnnotationActor & { attachments?: AttachmentRequest | undefined },
@@ -1093,7 +1093,7 @@ export async function replyToAnnotationThread(
     threadId: string;
     body: string;
     humanCheck: HumanCheck;
-    /** Files to attach (decision 0028); the adapter decides whether the caller may. */
+    /** Files to attach (decision 0029); the adapter decides whether the caller may. */
     attachments?: AttachmentRequest | undefined;
   },
 ): Promise<Result<AnnotationThreadView>> {

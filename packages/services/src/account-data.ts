@@ -270,7 +270,7 @@ export async function exportAccount(
       messages.set(row.threadId, [...(messages.get(row.threadId) ?? []), row]);
     }
   }
-  // Files on those messages (decision 0028), as thread views list them: attached and not withheld.
+  // Files on those messages (decision 0029), as thread views list them: attached and not withheld.
   const attachedFiles = new Map<
     string,
     { id: string; name: string; contentType: string; size: number; sha256: string }[]
@@ -956,7 +956,7 @@ function regionalDeletion(
     db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, userId)),
     db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, userId)),
     closeJobs(db, "comment_notice", userId, sql`1`),
-    // Uploads the account started and never attached (decision 0028); their bytes go by the
+    // Uploads the account started and never attached (decision 0029); their bytes go by the
     // rows' delete trigger. Attached files go with the account's messages.
     deletePendingUploadsOf(db, userId),
     // Review emails sent to the account and those waiting for it (decision 0013, "Emails").

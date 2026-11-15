@@ -270,7 +270,7 @@ describe("the viewer page's policy", () => {
     expect(policy.match(/preview\.portifact\.dev/g)).toHaveLength(1);
   });
 
-  it("shows comment images as blob: URLs only while attachments are on (decision 0028)", async () => {
+  it("shows comment images as blob: URLs only while attachments are on (decision 0029)", async () => {
     expect(await viewerCsp(env, "k7d2qm4xab")).not.toContain("blob:");
     expect(await dashboardCsp(env)).not.toContain("blob:");
     const on = { ...env, ATTACHMENTS_ENABLED: "true" };
