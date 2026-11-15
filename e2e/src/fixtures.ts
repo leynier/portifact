@@ -354,6 +354,21 @@ export async function openDisclosure(summary: Locator): Promise<void> {
   }).toPass();
 }
 
+/**
+ * Asks for a suggestion's plan and waits for its summary. A suggestion's block re-renders while
+ * the thread list refetches after the review starts, and a click on the replaced button is lost,
+ * so the click is repeated until the summary shows (the button is gone once it does).
+ */
+export async function checkWhatApplies(container: Locator, summary: RegExp): Promise<void> {
+  const result = container.getByText(summary);
+  await expect(async () => {
+    if (!(await result.isVisible())) {
+      await container.getByRole("button", { name: "Check what applies" }).click({ timeout: 2_000 });
+    }
+    await expect(result).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 20_000 });
+}
+
 interface Fixtures {
   engine: EngineProfile;
 }
