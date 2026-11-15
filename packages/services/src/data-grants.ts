@@ -12,7 +12,6 @@ import {
   isWorkspaceId,
   JournalEntry as JournalEntrySchema,
 } from "@portifact/contracts";
-import { TERMS_VERSION } from "@portifact/contracts/terms-version";
 import { bothSides, hitRateLimit, type RegionalDb, schema } from "@portifact/db";
 import {
   anonymousGrantOpen,
@@ -546,14 +545,16 @@ const SIGNED_OUT_PAGES = 5;
 const SIGNED_OUT_CURSOR = "data_grants_signed_out";
 
 /**
- * Records when grants ended by their app session ending (sign-out, or the session's own expiry)
- * as `revoked_at`, so the prune deletes them 30 days after that end rather than after their own
+ * Records when grants ended by their app session ending (sign-out deletes the row; an expired
+ * session counts once the expired-record cleanup deleted it, since a refresh can still extend a
+ * row that has expired) as `revoked_at`, so the prune deletes them 30 days after that end rather than after their own
  * expiry. Renewal already refuses them; this only starts their pruning clock. Walks the grants by
  * ID from `maintenance_cursors`, reading at most `SIGNED_OUT_PAGE` rows a page, and for each one
  * it ends writes a `data_grant` window tombstone first, as every way to end a grant does: with
  * one database in the same batch, with a separate one in the global database before the regional
- * update. The update is held to the grant still open and (with one database) its session still
- * gone; a session never comes back under the same ID, so a separate database cannot race.
+ * update. Both are held to the grant still open and its session row missing (with one database
+ * in their own statements); a session never comes back under the same ID, so a separate
+ * database cannot race.
  */
 export async function endSignedOutDataGrants(
   db: RegionalDb,
@@ -600,6 +601,9 @@ export async function endSignedOutDataGrants(
   return { ended };
 }
 
+/** True while the grant's app session row no longer exists (never merely expired). */
+const sessionMissing = sql`not exists (select 1 from "sessions" "s" where "s"."id" = "data_grants"."auth_session_id")`;
+
 async function endGrantsWithoutSession(
   db: RegionalDb,
   both: ReturnType<typeof bothSides>,
@@ -615,49 +619,52 @@ async function endGrantsWithoutSession(
     gt(g.expiresAt, now),
   );
   if (both) {
-    const gone = await both
-      .select({ id: g.id })
-      .from(g)
-      .where(and(stillOpen, sql`not ${liveAppSession(both, g.authSessionId, now)}`));
-    if (gone.length === 0) return 0;
-    const ids = gone.map((row) => row.id);
+    // The tombstone and the revocation hold to the same predicate in one batch, so a session that
+    // exists (even one a refresh is extending) never gets either.
     const [, done] = await both.batch([
       both
         .insert(schema.tombstones)
-        .values(ids.map((id) => ({ kind: "data_grant" as const, id, deletedAt: now })))
+        .select(
+          sql`select 'data_grant', "data_grants"."id", ${now} from ${g} where ${and(stillOpen, sessionMissing)}`,
+        )
         .onConflictDoNothing(),
       both
         .update(g)
         .set({ revokedAt: now })
-        .where(
-          and(
-            stillOpen,
-            inArray(g.id, ids),
-            sql`not ${liveAppSession(both, g.authSessionId, now)}`,
-          ),
-        )
+        .where(and(stillOpen, sessionMissing))
         .returning({ id: g.id }),
     ]);
     return done.length;
   }
   const sessions = [...new Set(open.map((row) => row.authSessionId))];
-  const live = await db.global
+  const present = await db.global
     .select({ id: schema.sessions.id })
     .from(schema.sessions)
-    .where(
-      and(inArray(schema.sessions.id, sessions), gt(schema.sessions.expiresAt, new Date(now))),
-    );
-  const liveIds = new Set(live.map((row) => row.id));
-  const ids = open.filter((row) => !liveIds.has(row.authSessionId)).map((row) => row.id);
-  if (ids.length === 0) return 0;
+    .where(inArray(schema.sessions.id, sessions));
+  const presentIds = new Set(present.map((row) => row.id));
+  const gone = open.filter((row) => !presentIds.has(row.authSessionId));
+  if (gone.length === 0) return 0;
+  // A missing session never comes back under its ID, so what was read stays true; the tombstone
+  // still repeats the predicate in its own statement.
+  const pairs = JSON.stringify(gone.map((row) => ({ g: row.id, s: row.authSessionId })));
   await db.global
     .insert(schema.tombstones)
-    .values(ids.map((id) => ({ kind: "data_grant" as const, id, deletedAt: now })))
+    .select(
+      sql`select 'data_grant', json_extract(value, '$.g'), ${now} from json_each(${pairs}) where not exists (select 1 from "sessions" "s" where "s"."id" = json_extract(value, '$.s'))`,
+    )
     .onConflictDoNothing();
   const done = await db
     .update(g)
     .set({ revokedAt: now })
-    .where(and(stillOpen, inArray(g.id, ids)))
+    .where(
+      and(
+        stillOpen,
+        inArray(
+          g.id,
+          gone.map((row) => row.id),
+        ),
+      ),
+    )
     .returning({ id: g.id });
   return done.length;
 }
@@ -837,9 +844,16 @@ const HOUR_MS = 3_600_000;
  */
 export async function issueAnonymousDataGrantCode(
   db: RegionalDb,
-  input: AnonymousTargetInput & { nonceHash: string; addressKey: string },
+  input: AnonymousTargetInput & { nonceHash: string; addressKey: string; termsVersion: string },
 ): Promise<Result<{ code: string; host: string; expiresAt: number }>> {
   const limited = () => fail<never>("rate_limited", "Too many requests. Try again later.");
+  // Allow agrees to the terms the prompt showed; only the current ones grant writing.
+  if (needsTermsAcceptance(input.termsVersion)) {
+    return fail(
+      "terms_not_accepted",
+      "The terms changed since this prompt opened. Reload it, read the notice and choose Allow again.",
+    );
+  }
   // Every attempt from an address counts, so probing artifacts costs it too.
   const byAddress = await hitRateLimit(
     db.global.$client,
@@ -868,8 +882,8 @@ export async function issueAnonymousDataGrantCode(
     nonceHash: input.nonceHash,
     codeExpiresAt,
     expiresAt: input.now + DATA_GRANT.anonymousGrantTtlSeconds * SECOND_MS,
-    // Choosing Allow under the sign-in-wrap notice accepts the current terms (decision 0026).
-    termsVersion: TERMS_VERSION,
+    // Choosing Allow under the sign-in-wrap notice accepts the terms it showed, checked above.
+    termsVersion: input.termsVersion,
     createdAt: input.now,
   });
   return ok({ code, host: target.value.host, expiresAt: codeExpiresAt });

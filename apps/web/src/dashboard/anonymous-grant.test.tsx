@@ -4,7 +4,9 @@
 // and the viewer's frame draw it signed out where the artifact is open to anyone, run the human
 // check only once the visitor chose Allow, after Portifact's notice and the statement beside it,
 // send its token with the code's request, and ask to sign in otherwise.
+
 import type { AnonymousDataGrantControl, DataGrantControl } from "@portifact/contracts";
+import { TERMS_VERSION } from "@portifact/contracts/terms-version";
 import { axeViolations } from "@portifact/ui/testing";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { useRef } from "react";
@@ -125,6 +127,7 @@ describe("the grant page without a session", () => {
       host: null,
       flow: "top",
       turnstileToken: "solved-token",
+      termsVersion: TERMS_VERSION,
     });
     // Nothing about the session's own grants was asked.
     expect(server.requests.some((request) => request.path.includes("/account/data-grants"))).toBe(
@@ -224,6 +227,7 @@ describe("the viewer's frame for a visitor without an account", () => {
         host: null,
         flow: "frame",
         turnstileToken: "solved-frame",
+        termsVersion: TERMS_VERSION,
       },
     ]);
   });

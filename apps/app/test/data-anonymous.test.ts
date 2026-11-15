@@ -4,6 +4,7 @@
 // missing artifact wherever anonymous writing is not open.
 import { env } from "cloudflare:workers";
 import { DATA_GRANT } from "@portifact/contracts";
+import { TERMS_VERSION } from "@portifact/contracts/terms-version";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
@@ -48,7 +49,17 @@ async function openArtifact(h: Harness, owner: string, writers: "anyone" | "sign
 const issue = (h: Harness, id: string, token = solved(), ip?: string) =>
   h.request(
     "/api/v1/data/anonymous-grants",
-    page("POST", { artifactId: id, nonceHash: NONCE_HASH, flow: "top", turnstileToken: token }, ip),
+    page(
+      "POST",
+      {
+        artifactId: id,
+        nonceHash: NONCE_HASH,
+        flow: "top",
+        turnstileToken: token,
+        termsVersion: TERMS_VERSION,
+      },
+      ip,
+    ),
   );
 
 const grantsOf = (id: string) =>
@@ -115,6 +126,7 @@ describe("anonymous grants on the app", () => {
         nonceHash: NONCE_HASH,
         flow: "top",
         turnstileToken: solved(),
+        termsVersion: TERMS_VERSION,
       }),
     });
     expect(crossSite.status).toBe(403);
@@ -156,6 +168,37 @@ describe("anonymous grants on the app", () => {
       answers.add(await issued.text());
     }
     expect(answers.size).toBe(1);
+  });
+
+  it("refuses an Allow made under terms that are no longer current", async () => {
+    const h = createHarness({ env: ON });
+    const id = await openArtifact(h, "anon-terms@example.test");
+    const stale = await h.request(
+      "/api/v1/data/anonymous-grants",
+      page("POST", {
+        artifactId: id,
+        nonceHash: NONCE_HASH,
+        flow: "top",
+        turnstileToken: solved(),
+        termsVersion: "2020-01-01",
+      }),
+    );
+    expect(stale.status).toBe(403);
+    expect(((await stale.json()) as { error: { code: string } }).error.code).toBe(
+      "terms_not_accepted",
+    );
+    // A prompt from before the version was sent at all is refused as malformed.
+    const missing = await h.request(
+      "/api/v1/data/anonymous-grants",
+      page("POST", {
+        artifactId: id,
+        nonceHash: NONCE_HASH,
+        flow: "top",
+        turnstileToken: solved(),
+      }),
+    );
+    expect(missing.status).toBe(400);
+    expect(await grantsOf(id)).toHaveLength(0);
   });
 
   it("limits codes per network address", async () => {

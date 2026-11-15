@@ -577,6 +577,60 @@ describe("grants ended by signing out", () => {
     expect((await grantRow(db(), live.value.grantId))?.revokedAt).toBeNull();
   });
 
+  for (const name of ["default", "eu"] as const) {
+    it(`${name}: never ends a grant whose session row exists, even expired, since a refresh can extend it`, async () => {
+      const database = regions().get(name).db;
+      if (name === "eu") {
+        await env.DB_EU.exec("DELETE FROM data_grants");
+        await env.DB_EU.exec("DELETE FROM maintenance_cursors");
+        await database
+          .insert(schema.artifacts)
+          .values({ id: ID, ownerId: OWNER, type: "site", name: "Board", state: "active" })
+          .onConflictDoNothing();
+      } else {
+        await env.DB.exec("DELETE FROM maintenance_cursors");
+      }
+      const grantId = `dg_${name}0000000000000000009`.slice(0, 25);
+      await database.insert(schema.dataGrants).values({
+        id: grantId,
+        artifactId: ID,
+        userId: READER,
+        visitorId: "v_123456789012345678901234",
+        authSessionId: appSession(READER),
+        host: HOST,
+        expiresAt: NOW + 10 * DAY,
+        redeemedAt: NOW - DAY,
+        createdAt: NOW - DAY,
+      });
+      // The session has expired but its row is there: a refresh may still extend it.
+      await db()
+        .update(schema.sessions)
+        .set({ expiresAt: new Date(NOW) })
+        .where(eq(schema.sessions.id, appSession(READER)));
+      expect(await endSignedOutDataGrants(database, NOW + 1000)).toEqual({ ended: 0 });
+      await db()
+        .update(schema.sessions)
+        .set({ expiresAt: new Date(NOW + 7 * DAY) })
+        .where(eq(schema.sessions.id, appSession(READER)));
+      expect((await grantRow(database, grantId))?.revokedAt).toBeNull();
+      const markers = await db()
+        .select()
+        .from(schema.tombstones)
+        .where(eq(schema.tombstones.id, grantId));
+      expect(markers).toEqual([]);
+      // Once the expired-record cleanup deleted the row, the grant ends.
+      await db()
+        .delete(schema.sessions)
+        .where(eq(schema.sessions.id, appSession(READER)));
+      expect(await endSignedOutDataGrants(database, NOW + 2000)).toEqual({ ended: 1 });
+      expect((await grantRow(database, grantId))?.revokedAt).toBe(NOW + 2000);
+      if (name === "eu") {
+        await env.DB_EU.exec("DELETE FROM data_grants");
+        await env.DB_EU.exec("DELETE FROM artifacts");
+      }
+    });
+  }
+
   it("walks the grants in capped pages and resumes where it stopped", async () => {
     await manyGrants(70);
     await db()

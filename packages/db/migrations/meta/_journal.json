@@ -666,6 +666,13 @@
       "when": 1794778247587,
       "tag": "0094_data_anonymous_grant_terms",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "6",
+      "when": 1794779023522,
+      "tag": "0095_journal_deletions",
+      "breakpoints": true
     }
   ]
 }

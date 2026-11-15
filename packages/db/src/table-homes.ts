@@ -96,6 +96,7 @@ export const TABLE_HOMES = {
   data_operations: "regional",
   data_findings: "regional",
   data_grants: "regional",
+  journal_deletions: "regional",
   data_anonymous_grants: "regional",
   data_grant_codes: "regional",
   annotation_threads: "regional",

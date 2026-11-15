@@ -1343,6 +1343,29 @@ export const dataAnonymousGrants = sqliteTable(
 );
 
 /**
+ * Claims of the author journal cleanup (decision 0026, "Author erasure"): a row per journal key
+ * being deleted, holding the entry it deletes. The claim is inserted only while nothing protects
+ * the entry (no open hold on the artifact, no `data_reconcile` job waiting), the R2 delete follows,
+ * and the finalize deletes the row only while that is still true; a protection that committed in
+ * between leaves the row, from which the entry is written back. So the D1 finalize, not the R2
+ * delete, is where the deletion happens, and a protection that wins it keeps the mapping. A row a
+ * crash left is finished by a later run (`pruneJournalEntries`).
+ */
+export const journalDeletions = sqliteTable(
+  "journal_deletions",
+  {
+    key: text("key").primaryKey(),
+    artifactId: text("artifact_id").notNull(),
+    /** The entry as it was read (JSON), written back if a protection wins. */
+    entry: text("entry").notNull(),
+    /** A per-run random token: only the run that claimed finalizes on its own path. */
+    claim: text("claim").notNull(),
+    claimedAt: timestamp("claimed_at").notNull(),
+  },
+  (t) => [index("journal_deletions_claimed_idx").on(t.claimedAt)],
+);
+
+/**
  * Accounts being deleted. The request deletes the user (and with it every session, token and
  * identity) and claims the artifacts for purging at once; the maintenance job then purges the
  * artifacts, erases the account's comments on other people's artifacts in small batches and,

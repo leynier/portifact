@@ -12,12 +12,19 @@ import type { JournalEntry } from "@portifact/contracts/artifact-data";
 import { schema } from "@portifact/db";
 import { inventoryKey, journalKey } from "@portifact/domain/artifact-data";
 import {
+  cleanJournalPage,
   dataFenceStatements,
   deleteArtifactData,
+  JOURNAL_CLAIM_STALE_MS,
+  JOURNAL_CLEANUP_CURSOR,
+  markJournalErased,
   placeLegalHold,
+  pruneJournalEntries,
+  queueDataReconcile,
   reconcileObject,
   registerDataObject,
   releaseLegalHold,
+  retireJournalEntry,
   scheduleAuthorErasures,
 } from "@portifact/services";
 import { eq, sql } from "drizzle-orm";
@@ -224,6 +231,7 @@ const authorState = async (state: Author) => ({
   mine: await documentsOf(state.id, state.visitor),
   all: await documentsOf(state.id),
   journal: (await journalOf(state.userId, state.id))?.retiredAt ?? null,
+  erased: (await journalOf(state.userId, state.id))?.erasedAt ?? null,
   barrier: await inside(state.id, (object) =>
     object.store.inspect("pf_barriers").map((row) => row.complete),
   ),
@@ -231,7 +239,9 @@ const authorState = async (state: Author) => ({
 });
 
 schedule("an account's erasure in an artifact (data_author_erasure)", {
-  steps: ["r2:put", "object:lifecycleEraseAuthor", "d1:run", "d1:run"],
+  // The retirement, the erasure, the storage report, the completion recorded in the journal
+  // (`erasedAt`, what lets the cleanup delete the entry later), the acknowledgement.
+  steps: ["r2:put", "object:lifecycleEraseAuthor", "d1:run", "r2:put", "d1:run"],
   async setup() {
     const userId = `u_${crypto.randomUUID()}`;
     const visitor = visitorId();
@@ -500,6 +510,116 @@ schedule("the operator adopting a quarantined object (data_resolve)", {
   act: (crash, id) => drain({ subject: id, crash }),
   settle: (id) => drain({ subject: id }),
   observe: reconciled,
+});
+
+// The journal cleanup (decision 0026, "Author erasure"): a claim in D1 that holds the entry, the
+// R2 delete, and a finalize in D1 that either ends the claim (the deletion) or, when a protection
+// committed in between, writes the entry back. A crash leaves a claim the next run finishes once
+// it is stale.
+const CLEANUP_NOW = DATA_NOW + 40 * 86_400_000;
+
+async function cleanupSetup() {
+  // A fresh pass: no position, no claim another schedule left, no reconciliation waiting.
+  await db()
+    .delete(schema.maintenanceCursors)
+    .where(eq(schema.maintenanceCursors.name, JOURNAL_CLEANUP_CURSOR));
+  await db().delete(schema.journalDeletions);
+  await db().delete(schema.outbox).where(eq(schema.outbox.topic, "data_reconcile"));
+  const userId = `u_${crypto.randomUUID()}`;
+  const id = artifactId();
+  await artifactRow(id, `u_${crypto.randomUUID()}`, { state: "suspended" });
+  await claimJournal(userId, id, visitorId());
+  await retireJournalEntry(bucketOf(), userId, id, DATA_NOW);
+  await markJournalErased(bucketOf(), userId, id, DATA_NOW);
+  return { userId, id };
+}
+
+const cleanupState = async (state: { userId: string; id: string }) => ({
+  journal: (await journalOf(state.userId, state.id))?.visitorId ?? null,
+  claims: (
+    await db()
+      .select()
+      .from(schema.journalDeletions)
+      .where(eq(schema.journalDeletions.artifactId, state.id))
+  ).length,
+});
+
+const cleanupRun = (handle: ReturnType<typeof db>, bucket: R2Bucket, now: number) =>
+  cleanJournalPage(handle, bucket, now, "default", {
+    deleted: 0,
+    kept: 0,
+    failed: 0,
+    paused: false,
+  });
+
+schedule("the journal cleanup (pruneJournalEntries)", {
+  // The claim, the R2 delete, the finalize.
+  steps: ["d1:batch", "r2:delete", "d1:batch"],
+  setup: cleanupSetup,
+  async act(crash) {
+    const { db: handle, bucket } = handles("default", crash);
+    return cleanupRun(handle, bucket, CLEANUP_NOW);
+  },
+  // A later run, once a left claim is stale.
+  settle: () => pruneJournalEntries(db(), bucketOf(), CLEANUP_NOW + JOURNAL_CLAIM_STALE_MS),
+  observe: cleanupState,
+});
+
+/** A step hook that commits `action` at one numbered step instead of failing there. */
+class Interject extends Crash {
+  constructor(
+    at: number,
+    when: "before" | "after",
+    private readonly action: () => Promise<unknown>,
+  ) {
+    super(at, when);
+  }
+
+  override async step<T>(label: string, run: () => Promise<T>): Promise<T> {
+    this.seen += 1;
+    this.steps.push(label);
+    if (this.seen === this.at && this.when === "before") await this.action();
+    const result = await run();
+    if (this.seen === this.at && this.when === "after") await this.action();
+    return result;
+  }
+}
+
+describe("the journal cleanup against a protection committed at each step", () => {
+  const protections = {
+    hold: (id: string) =>
+      placeLegalHold(db(), { artifactId: id, ground: "Order", releaseAt: null, now: D1_NOW }),
+    reconciliation: () => queueDataReconcile(db(), D1_NOW),
+  };
+  // The claim (1), the R2 delete (2) and the finalize (3): a protection that commits before the
+  // finalize takes effect keeps the mapping; only one committed after it comes after the deletion.
+  const points = (["hold", "reconciliation"] as const).flatMap((protection) =>
+    [1, 2, 3].flatMap((at) =>
+      (["before", "after"] as const).map((when) => ({
+        protection,
+        at,
+        when,
+        kept: !(at === 3 && when === "after"),
+      })),
+    ),
+  );
+  it.each(points)(
+    "a $protection $when step $at keeps the mapping: $kept",
+    async ({ protection, at, when, kept }) => {
+      const state = await cleanupSetup();
+      const interject = new Interject(at, when, () => protections[protection](state.id));
+      const { db: handle, bucket } = handles("default", interject);
+      await cleanupRun(handle, bucket, CLEANUP_NOW);
+      expect(await cleanupState(state)).toEqual({
+        journal: kept ? expect.stringMatching(/^v_/) : null,
+        claims: 0,
+      });
+      if (kept) {
+        const found = await bucketOf().get(journalKey(state.userId, state.id));
+        expect(found?.customMetadata?.retired).toBe("1");
+      }
+    },
+  );
 });
 
 describe("what the schedules rest on", () => {

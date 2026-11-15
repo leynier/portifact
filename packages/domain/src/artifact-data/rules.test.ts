@@ -57,6 +57,8 @@ import {
   editorAfter,
   emptyDay,
   encodeCursor,
+  erased,
+  erasureOwed,
   exportFooter,
   exportHeader,
   exportLine,
@@ -68,6 +70,7 @@ import {
   indexEntries,
   issuedAt,
   journalDeletable,
+  journalEntryDeletable,
   journalKey,
   journalPrunable,
   keyBefore,
@@ -1804,15 +1807,30 @@ describe("journal and grants", () => {
     ).toBe(true);
   });
 
-  it("deletes a prunable entry only when no erasure waits and no hold keeps it", () => {
+  it("deletes a prunable entry only once its erasure completed and nothing protects it", () => {
     const old = { ...entry, retiredAt: NOW };
+    const done = erased(old, NOW + 5);
     const at = NOW + ARTIFACT_DATA.journalRetiredMs;
-    const free = { erasurePending: false, held: false };
-    expect(journalDeletable(old, at, free)).toBe(true);
-    expect(journalDeletable(old, at - 1, free)).toBe(false);
-    expect(journalDeletable(entry, at * 10, free)).toBe(false);
-    expect(journalDeletable(old, at, { erasurePending: true, held: false })).toBe(false);
-    expect(journalDeletable(old, at, { erasurePending: false, held: true })).toBe(false);
+    const free = { held: false, reconciling: false };
+    expect(done.erasedAt).toBe(NOW + 5);
+    expect(erased(done, NOW + 9).erasedAt).toBe(NOW + 5);
+    expect(journalDeletable(done, at, free)).toBe(true);
+    // Without the proof of a completed erasure the mapping stays, however old.
+    expect(journalDeletable(old, at * 10, free)).toBe(false);
+    expect(journalEntryDeletable({ visitorId: null, firstGrantAt: NOW, retiredAt: NOW }, at)).toBe(
+      true,
+    );
+    expect(journalDeletable(done, at - 1, free)).toBe(false);
+    expect(journalDeletable({ ...entry, erasedAt: NOW }, at * 10, free)).toBe(false);
+    expect(journalDeletable(done, at, { held: true, reconciling: false })).toBe(false);
+    expect(journalDeletable(done, at, { held: false, reconciling: true })).toBe(false);
+  });
+
+  it("owes an erasure for a retired entry with an ID until it completed, at any age", () => {
+    expect(erasureOwed(entry)).toBe(false);
+    expect(erasureOwed({ ...entry, retiredAt: NOW })).toBe(true);
+    expect(erasureOwed({ visitorId: null, firstGrantAt: NOW, retiredAt: NOW })).toBe(false);
+    expect(erasureOwed(erased({ ...entry, retiredAt: NOW }, NOW))).toBe(false);
   });
 
   it("gates the API, the start and the redemption by fetch metadata", () => {

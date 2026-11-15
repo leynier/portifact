@@ -6,6 +6,7 @@
 // to the artifact's origin. Portifact's notice and the sign-in-wrap statement beside Allow come from
 // `grant-legal.tsx`. Names and hosts are untrusted text, rendered as text only.
 import type { DataGrantControl, DataGrantFlow } from "@portifact/contracts";
+import { TERMS_VERSION } from "@portifact/contracts/terms-version";
 import {
   Button,
   buttonClasses,
@@ -167,6 +168,8 @@ export function DataGrantScreen() {
         host,
         flow: "top" satisfies DataGrantFlow,
         turnstileToken,
+        // The version of the notice this page showed (`GrantTerms`): another is refused.
+        termsVersion: TERMS_VERSION,
       }),
     onSuccess: (code) => leave(code.redeemUrl),
   });

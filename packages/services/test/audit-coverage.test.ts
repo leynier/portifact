@@ -390,6 +390,8 @@ reason(
     "permanentlyDeleted",
     "pruneJournalCursors",
     "pruneJournalEntries",
+    "cleanJournalPage",
+    "markJournalErased",
     "retireJournalEntry",
     "scheduleAuthorErasures",
     "wakeDataJobs",

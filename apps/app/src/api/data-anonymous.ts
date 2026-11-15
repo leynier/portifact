@@ -150,6 +150,7 @@ export function anonymousGrantRoutes(deps: AnonymousGrantDeps) {
       contentDomain: c.env.CONTENT_DOMAIN,
       customDomains: customDomainsServing(c.env),
       enabled: true,
+      termsVersion: input.termsVersion,
       addressKey: await addressKey(
         c.env.BETTER_AUTH_SECRET,
         c.req.raw.headers.get("cf-connecting-ip"),
