@@ -220,7 +220,8 @@ describe("tombstones after a restore", () => {
       artifactId: purged.artifactId,
       now: NOW,
     });
-    const leavingSession = await session(leaving.id);
+    // Live by the real clock, which the marker trigger reads, whatever day the test runs.
+    const leavingSession = await session(leaving.id, NOW, Date.now() + 7 * DAY);
     await requestAccountDeletion(regionsFromEnv(env), {
       userId: leaving.id,
       sessionId: leavingSession,
