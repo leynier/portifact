@@ -521,6 +521,12 @@ export const JournalEntry = z.looseObject({
   visitorId: VisitorId.nullable(),
   firstGrantAt: Time,
   retiredAt: Time.optional(),
+  /**
+   * When the account's author erasure in the artifact completed (the object's barrier complete):
+   * the evidence, kept in R2 so a D1 restore cannot rewind it, that the mapping is no longer
+   * needed to erase anything.
+   */
+  erasedAt: Time.optional(),
 });
 export type JournalEntry = z.infer<typeof JournalEntry>;
 

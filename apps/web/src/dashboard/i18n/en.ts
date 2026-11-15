@@ -26,7 +26,7 @@ export const en = {
     "The page learns only an ID for this artifact: no name, no email and no account.",
   "dataGrant.anonymous.lasts": "This lasts {days} days in this browser.",
   "dataGrant.anonymous.noAccount":
-    "Without an account, Portifact cannot show you or delete what you saved later. Only the page itself can, while this browser keeps it.",
+    "Without an account, Portifact keeps no history you can open yourself. The page can show what you saved while this permission lasts. You can also contact the people who manage this artifact or privacy@portifact.com; Portifact helps where it can verify which data concerns you.",
   "dataGrant.anonymous.signIn": "Sign in instead",
   "dataGrant.anonymous.signInTitle": "Sign in to save",
   "dataGrant.anonymous.closed":
@@ -88,6 +88,13 @@ export const en = {
   "dataGrant.unavailable": "This request cannot be used",
   "dataGrant.unavailableHint": "Open the artifact again and choose to save from there.",
   "dataGrant.failed": "Allowing did not finish",
+  "dataGrant.legal.terms": "Terms of Service",
+  "dataGrant.legal.acceptableUse": "Acceptable Use Policy",
+  "dataGrant.legal.privacy": "Privacy Policy",
+  "dataGrant.legal.notice":
+    "Portifact hosts this page and draws this control. The {privacy} says what Portifact keeps. The link opens in a new tab.",
+  "dataGrant.legal.statement":
+    "By choosing Allow, you confirm that you are 18 or older and you agree to the {terms} and the {acceptableUse} for what you save here. The links open in a new tab.",
   "sharedData.title": "Data you shared",
   "sharedData.description":
     "Artifact pages that may know you and save what you enter. Revoking stops it within a minute; what you saved stays with the artifact.",

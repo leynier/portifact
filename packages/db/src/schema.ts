@@ -1305,9 +1305,10 @@ export const dataGrantCodes = sqliteTable(
  * check. Nobody is behind the row: its `visitor_id` is new for each grant and never claimed in the
  * author journal, and it holds no address. Each grant carries its one-use code (hashes of the
  * code and of the beginning browser's nonce, bound to the host); the guarded update that sets
- * `used_at` is the redemption. The content Worker renews the cookie's claims against this row and
- * the artifact still open to anonymous writers every 60 seconds. Rows go with the artifact and
- * 30 days after they ended (`pruneDataGrants`).
+ * `used_at` is the redemption, and clears both hashes, as the prune does once a code expired
+ * unused. It also records the terms version the visitor agreed to. The content Worker renews the
+ * cookie's claims against this row and the artifact still open to anonymous writers every 60
+ * seconds. Rows go with the artifact and 30 days after they ended (`pruneDataGrants`).
  */
 export const dataAnonymousGrants = sqliteTable(
   "data_anonymous_grants",
@@ -1318,11 +1319,18 @@ export const dataAnonymousGrants = sqliteTable(
       .references(() => artifacts.id, { onDelete: "cascade" }),
     visitorId: text("visitor_id").notNull(),
     host: text("host").notNull(),
-    codeHash: text("code_hash").notNull(),
-    nonceHash: text("nonce_hash").notNull(),
+    /** The one-use code's hash; cleared (null) at redemption and once the code expired unused. */
+    codeHash: text("code_hash"),
+    /** The beginning browser's nonce hash; cleared with `code_hash`. */
+    nonceHash: text("nonce_hash"),
     codeExpiresAt: timestamp("code_expires_at").notNull(),
     usedAt: timestamp("used_at"),
     expiresAt: timestamp("expires_at").notNull(),
+    /**
+     * The `TERMS_VERSION` the visitor agreed to by choosing Allow; a renewal grants write only while
+     * it is the current one. Null for grants issued before it was recorded: read only.
+     */
+    termsVersion: text("terms_version"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -1332,6 +1340,29 @@ export const dataAnonymousGrants = sqliteTable(
     // The prune's unredeemed selection, led by its own time.
     index("data_anonymous_grants_unused_idx").on(t.codeExpiresAt).where(sql`${t.usedAt} is null`),
   ],
+);
+
+/**
+ * Claims of the author journal cleanup (decision 0026, "Author erasure"): a row per journal key
+ * being deleted, holding the entry it deletes. The claim is inserted only while nothing protects
+ * the entry (no open hold on the artifact, no `data_reconcile` job waiting), the R2 delete follows,
+ * and the finalize deletes the row only while that is still true; a protection that committed in
+ * between leaves the row, from which the entry is written back. So the D1 finalize, not the R2
+ * delete, is where the deletion happens, and a protection that wins it keeps the mapping. A row a
+ * crash left is finished by a later run (`pruneJournalEntries`).
+ */
+export const journalDeletions = sqliteTable(
+  "journal_deletions",
+  {
+    key: text("key").primaryKey(),
+    artifactId: text("artifact_id").notNull(),
+    /** The entry as it was read (JSON), written back if a protection wins. */
+    entry: text("entry").notNull(),
+    /** A per-run random token: only the run that claimed finalizes on its own path. */
+    claim: text("claim").notNull(),
+    claimedAt: timestamp("claimed_at").notNull(),
+  },
+  (t) => [index("journal_deletions_claimed_idx").on(t.claimedAt)],
 );
 
 /**
