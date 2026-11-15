@@ -20,7 +20,9 @@ import {
   DataOwnErasurePayload,
   DataReconcilePayload,
   DataResolvePayload,
+  DEFAULT_REGION,
   isWorkspaceId,
+  type Region,
 } from "@portifact/contracts";
 import {
   type ArtifactDataLimits,
@@ -47,9 +49,11 @@ import {
 } from "@portifact/contracts/artifact-data";
 
 import { bothSides, type Db, type GlobalDb, type RegionalDb, schema } from "@portifact/db";
-import { logEvent } from "@portifact/domain";
+import { errorLabel, logEvent } from "@portifact/domain";
 import {
   controlEnvelope,
+  erased,
+  erasureOwed,
   erasureRefused,
   fenceObsolete,
   fenceRefused,
@@ -66,9 +70,9 @@ import {
   JOURNAL_PREFIX,
   type JobStep,
   type JournalScan,
+  journalEntryDeletable,
   journalKey,
   journalPrefixOf,
-  journalPrunable,
   journalSubject,
   nextJournalScan,
   predecessorWindow,
@@ -80,7 +84,8 @@ import {
   reviewedState,
   rowEnvelope,
 } from "@portifact/domain/artifact-data";
-import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
+import { and, eq, inArray, lte, type SQL, type SQLWrapper, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { isHeld, openHold } from "./legal-holds.ts";
 import { cursorRead, resumeAt, savedCursorSql } from "./maintenance-cursors.ts";
 
@@ -476,6 +481,31 @@ export async function retireJournalEntry(
   throw new Error("journal entry kept changing while it was retired");
 }
 
+/**
+ * Records in the account's journal entry that its author erasure in the artifact completed
+ * (`erased`), the proof the cleanup needs before deleting it (`journalEntryDeletable`). Only a
+ * retired entry with that visitor's ID is marked; conditional on what was read, retried on a race.
+ */
+export async function markJournalErased(
+  bucket: R2Bucket,
+  userId: string,
+  artifactId: string,
+  now: number,
+): Promise<void> {
+  const key = journalKey(userId, artifactId);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const found = await readJson(bucket, key, (value) => JournalEntrySchema.parse(value));
+    if (found === null || found.value.retiredAt === undefined) return;
+    if (found.value.erasedAt !== undefined) return;
+    const written = await bucket.put(key, JSON.stringify(erased(found.value, now)), {
+      onlyIf: { etagMatches: found.etag },
+      customMetadata: { retired: "1" },
+    });
+    if (written !== null) return;
+  }
+  throw new Error("journal entry kept changing while its erasure was recorded");
+}
+
 /** One `data_author_erasure` job for an account in an artifact, unless one is already waiting. */
 function authorErasureJob(
   db: Db,
@@ -684,6 +714,232 @@ export async function pruneJournalCursors(db: RegionalDb, now: number): Promise<
 export function deleteJournalCursor(db: Db, userId: string, condition: ReturnType<typeof sql>) {
   const c = schema.maintenanceCursors;
   return db.delete(c).where(and(eq(c.name, scanName(userId)), condition));
+}
+
+/** Journal keys one cleanup run lists, so it reads and claims at most this many entries. */
+export const JOURNAL_CLEANUP_PAGE = 100;
+/** Where the journal cleanup resumes (no `:`, so the scan position janitor never takes it). */
+export const JOURNAL_CLEANUP_CURSOR = "data_journal_cleanup";
+/** A claim older than this was left by a run that stopped; a later run finishes it. */
+export const JOURNAL_CLAIM_STALE_MS = 3_600_000;
+
+/** What the journal cleanup did in one run. */
+export interface JournalCleanup {
+  deleted: number;
+  /** Entries a protection won: written back, or never claimed. */
+  kept: number;
+  failed: number;
+  /** A `data_reconcile` job was waiting in the region, so the run did nothing new. */
+  paused: boolean;
+}
+
+const jd = schema.journalDeletions;
+
+/**
+ * True while nothing protects an artifact's journal entries (`JournalProtections`): no open hold
+ * on it (`legal_holds_open_artifact_idx`) and no `data_reconcile` job waiting in the region
+ * (`outbox_subject_idx`). Both existence checks read at most one row, so the claim and the
+ * finalize cost the same whatever the number of jobs or holds.
+ */
+function unprotected(artifactId: SQLWrapper | string) {
+  const h = schema.legalHolds;
+  const o = schema.outbox;
+  return sql`not exists (select 1 from ${h} where ${h.artifactId} = ${artifactId} and ${h.releasedAt} is null) and not exists (select 1 from ${o} where ${o.topic} = 'data_reconcile')`;
+}
+
+interface JournalClaim {
+  key: string;
+  artifactId: string;
+  entry: string;
+  claim: string;
+}
+
+/**
+ * Writes a claimed entry back after a protection won: only where the key is empty, or holds an
+ * entry without a visitor ID (a retirement of an erasure job that ran in between), so a newer
+ * entry with an ID is never replaced. Conditional on what was read, retried on a race.
+ */
+async function restoreJournalEntry(bucket: R2Bucket, claim: JournalClaim): Promise<void> {
+  const entry = JournalEntrySchema.parse(JSON.parse(claim.entry));
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const found = await readJson(bucket, claim.key, (value) => JournalEntrySchema.parse(value));
+    if (found !== null && (found.value.visitorId !== null || entry.visitorId === null)) return;
+    const written = await bucket.put(claim.key, JSON.stringify(entry), {
+      onlyIf: found === null ? { etagDoesNotMatch: "*" } : { etagMatches: found.etag },
+      customMetadata: { retired: "1" },
+    });
+    if (written !== null) return;
+  }
+  throw new Error("journal entry kept changing while it was written back");
+}
+
+/**
+ * Finishes claims after their R2 delete: one batch deletes each claim row only while nothing
+ * protects its artifact (the moment the entry is deleted); a row that stays was won by a
+ * protection, so its entry is written back from the row before the row goes. A row already gone
+ * was finished by another run.
+ */
+async function finishJournalClaims(
+  db: Db,
+  bucket: R2Bucket,
+  claims: JournalClaim[],
+  run: JournalCleanup,
+): Promise<void> {
+  if (claims.length === 0) return;
+  await bucket.delete(claims.map((claim) => claim.key));
+  const finished = await db.batch(
+    claims.map((claim) =>
+      db
+        .delete(jd)
+        .where(and(eq(jd.key, claim.key), eq(jd.claim, claim.claim), unprotected(claim.artifactId)))
+        .returning({ key: jd.key }),
+    ) as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+  );
+  const done = new Set(finished.flatMap((rows) => (rows as { key: string }[]).map((r) => r.key)));
+  run.deleted += done.size;
+  const open = claims.filter((claim) => !done.has(claim.key));
+  if (open.length === 0) return;
+  const standing = await db
+    .select({ key: jd.key, claim: jd.claim })
+    .from(jd)
+    .where(
+      inArray(
+        jd.key,
+        open.map((claim) => claim.key),
+      ),
+    );
+  const won = open.filter((claim) =>
+    standing.some((row) => row.key === claim.key && row.claim === claim.claim),
+  );
+  for (const claim of won) await restoreJournalEntry(bucket, claim);
+  if (won.length > 0) {
+    await db.batch(
+      won.map((claim) =>
+        db.delete(jd).where(and(eq(jd.key, claim.key), eq(jd.claim, claim.claim))),
+      ) as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+    );
+  }
+  run.kept += won.length;
+}
+
+/**
+ * One page of the journal cleanup, throwing on any storage failure (`pruneJournalEntries` turns
+ * that into a logged, counted failure). Exported for the crash schedules.
+ *
+ * The protocol (decision 0026, "Author erasure"): a key is deleted only when its entry allows it
+ * (`journalEntryDeletable`: retired, past `journalRetiredMs`, and no visitor ID or a completed
+ * erasure) and nothing protects it. The protections are decided in D1 only, never from an earlier
+ * read: (1) a claim row is inserted, holding the entry, only while no hold and no reconciliation
+ * exist; (2) the R2 key is deleted; (3) the finalize deletes the claim row only while that is
+ * still true, and otherwise writes the entry back from the row. A hold or a reconciliation that
+ * commits before the finalize keeps the mapping; one that commits after it came after the
+ * deletion. Claims a crash left (older than `JOURNAL_CLAIM_STALE_MS`) are finished first, from
+ * step 2. The page's cursor is saved last: a crash before it lists the same page again.
+ */
+export async function cleanJournalPage(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  now: number,
+  region: Region,
+  run: JournalCleanup,
+): Promise<void> {
+  const o = schema.outbox;
+  const [saved, reconciling, left] = await db.batch([
+    cursorRead(db, JOURNAL_CLEANUP_CURSOR),
+    db.select({ id: o.id }).from(o).where(eq(o.topic, "data_reconcile")).limit(1),
+    db
+      .select({ key: jd.key, artifactId: jd.artifactId, entry: jd.entry, claim: jd.claim })
+      .from(jd)
+      .where(lte(jd.claimedAt, now - JOURNAL_CLAIM_STALE_MS))
+      .orderBy(jd.claimedAt)
+      .limit(JOURNAL_CLEANUP_PAGE),
+  ]);
+  await finishJournalClaims(db, bucket, left, run);
+  if (reconciling.length > 0) {
+    run.paused = true;
+    return;
+  }
+  const started = saved[0]?.cursor ?? "";
+  const listed = await bucket.list({
+    prefix: JOURNAL_PREFIX,
+    limit: JOURNAL_CLEANUP_PAGE,
+    include: ["customMetadata"],
+    ...(started === "" ? {} : { startAfter: started }),
+  });
+  const due: JournalClaim[] = [];
+  const claim = crypto.randomUUID();
+  for (const object of listed.objects) {
+    // Retirement writes this mark with the entry, so live entries are never read.
+    if (object.customMetadata?.retired !== "1") continue;
+    const subject = journalSubject(object.key);
+    if (subject === null) continue;
+    const found = await readJson(bucket, object.key, (value) =>
+      JournalEntrySchema.safeParse(value),
+    );
+    if (found === null) continue;
+    if (!found.value.success) {
+      run.failed += 1;
+      logEvent("warn", "data_journal_unreadable", { region });
+      continue;
+    }
+    if (journalEntryDeletable(found.value.data, now)) {
+      due.push({
+        key: object.key,
+        artifactId: subject.artifactId,
+        entry: JSON.stringify(found.value.data),
+        claim,
+      });
+    }
+  }
+  if (due.length > 0) {
+    // Columns in schema order: key, artifact, entry, claim, claimed at.
+    const claimed = await db.batch(
+      due.map((item) =>
+        db
+          .insert(jd)
+          .select(
+            sql`select ${item.key}, ${item.artifactId}, ${item.entry}, ${item.claim}, ${now} where ${unprotected(item.artifactId)}`,
+          )
+          .onConflictDoNothing()
+          .returning({ key: jd.key }),
+      ) as unknown as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]],
+    );
+    const ours = new Set(claimed.flatMap((rows) => (rows as { key: string }[]).map((r) => r.key)));
+    run.kept += due.length - ours.size;
+    await finishJournalClaims(
+      db,
+      bucket,
+      due.filter((item) => ours.has(item.key)),
+      run,
+    );
+  }
+  const last = listed.objects.at(-1)?.key ?? null;
+  // A truncated page with no key in it (R2 may answer one when metadata is included) stays put.
+  const resume = listed.truncated ? (last ?? started) : null;
+  await resumeAt(db, JOURNAL_CLEANUP_CURSOR, started, resume, now);
+}
+
+/**
+ * The scheduled cleanup of the author journal in one region (decision 0026, "Author erasure"):
+ * one page of `JOURNAL_CLEANUP_PAGE` keys a run through `cleanJournalPage`, from where the last
+ * run stopped (`maintenance_cursors`, read in one batch with the pause check and the claims left
+ * by a stopped run), wrapping to the start when a pass ends. Failures are logged and counted,
+ * never thrown, so the other scans still run; the next run resumes, finishing any claim left.
+ */
+export async function pruneJournalEntries(
+  db: RegionalDb,
+  bucket: R2Bucket,
+  now: number,
+  region: Region = DEFAULT_REGION,
+): Promise<JournalCleanup> {
+  const run: JournalCleanup = { deleted: 0, kept: 0, failed: 0, paused: false };
+  try {
+    await cleanJournalPage(db, bucket, now, region, run);
+  } catch (error) {
+    run.failed += 1;
+    logEvent("error", "data_journal_cleanup_failed", { region, error: errorLabel(error) });
+  }
+  return run;
 }
 
 // The jobs.
@@ -1126,7 +1382,11 @@ export async function runDataAuthorErasure(
   const object = objects.object(artifactId);
   const control = await object.lifecycleControl();
   const current = await readDataRow(db, objects.region, artifactId);
-  if (control === null && (current === null || !objects.createsObjects)) return "done";
+  if (control === null && (current === null || !objects.createsObjects)) {
+    // No object holds anything of the artifact: nothing is left to erase.
+    await markJournalErased(bucket, payload.userId, artifactId, now);
+    return "done";
+  }
   const envelope =
     current !== null ? rowEnvelope(current) : controlEnvelope(control as DataControl);
   for (let chunk = 0; chunk < AUTHOR_CHUNKS_PER_RUN; chunk += 1) {
@@ -1138,7 +1398,12 @@ export async function runDataAuthorErasure(
     );
     if (!answer.ok) return afterRefusal(db, row, erasureRefused(answer.code), answer.code, now);
     if (current !== null) await recordStorageReport(db, artifactId, answer.storage, now);
-    if ("value" in answer && !answer.value.more) return "done";
+    if ("value" in answer && !answer.value.more) {
+      // The barrier is complete: record it in the journal before the job's row goes, so the entry
+      // is deletable only once the erasure it would re-derive is done.
+      await markJournalErased(bucket, payload.userId, artifactId, now);
+      return "done";
+    }
   }
   return keep(db, row, now);
 }
@@ -1460,7 +1725,8 @@ async function raiseRow(
  * A `data_reconcile` job, one per region after a restore: walks the region's inventory, a page per
  * run (`reconcileObject`, pruning entries past their retention), then the journal, re-deriving
  * the author erasures a rewound outbox lost from the retired entries (decision 0026: "never from a
- * rewound outbox") and pruning those past theirs. Resumes from the key it reached.
+ * rewound outbox") and pruning those past theirs that `journalDeletable` lets go (no erasure
+ * waiting, no open hold). Resumes from the key it reached.
  */
 export async function runDataReconcile(
   db: RegionalDb,
@@ -1503,11 +1769,10 @@ export async function runDataReconcile(
         continue;
       }
       const entry = found.value.data;
-      if (journalPrunable(entry, now)) {
-        await bucket.delete(object.key);
-        continue;
-      }
-      if (entry.retiredAt !== undefined && entry.visitorId !== null) {
+      // A retired entry whose erasure has not completed is the only trace of that erasure once a
+      // restore rewound its job: re-derive it, at any age. Deleting entries is the scheduled
+      // cleanup's alone (`pruneJournalEntries`), which pauses while this job waits.
+      if (erasureOwed(entry) && entry.visitorId !== null) {
         await authorErasureJob(
           db,
           subject.artifactId,

@@ -26,7 +26,7 @@ export const ptBR = {
     "A página conhece apenas um ID para este artefato: sem nome, sem e-mail e sem conta.",
   "dataGrant.anonymous.lasts": "Isso dura {days} dias neste navegador.",
   "dataGrant.anonymous.noAccount":
-    "Sem conta, o Portifact não pode mostrar nem apagar depois o que você salvou. Só a própria página pode, enquanto este navegador mantiver isso.",
+    "Sem conta, o Portifact não mantém um histórico que você mesmo possa abrir. A página pode mostrar o que você salvou enquanto esta permissão durar. Você também pode contatar as pessoas que gerenciam este artifact ou privacy@portifact.com; o Portifact ajuda quando consegue verificar quais dados dizem respeito a você.",
   "dataGrant.anonymous.signIn": "Entrar em vez disso",
   "dataGrant.anonymous.signInTitle": "Entre para salvar",
   "dataGrant.anonymous.closed":
@@ -108,6 +108,13 @@ export const ptBR = {
   "dataGrant.unavailable": "Este pedido não pode ser usado",
   "dataGrant.unavailableHint": "Abra o artifact de novo e escolha salvar por lá.",
   "dataGrant.failed": "A permissão não foi concluída",
+  "dataGrant.legal.terms": "Termos de Serviço",
+  "dataGrant.legal.acceptableUse": "Política de Uso Aceitável",
+  "dataGrant.legal.privacy": "Política de Privacidade",
+  "dataGrant.legal.notice":
+    "O Portifact hospeda esta página e exibe este controle. A {privacy} explica o que o Portifact guarda. O link abre em uma nova aba.",
+  "dataGrant.legal.statement":
+    "Ao escolher Permitir, você confirma que tem 18 anos ou mais e concorda com os {terms} e a {acceptableUse} para o que salvar aqui. Os links abrem em uma nova aba.",
   "sharedData.title": "Dados que você compartilhou",
   "sharedData.description":
     "Páginas de artifacts que podem conhecer você e salvar o que você digita. Revogar interrompe em até um minuto; o que você salvou fica com o artifact.",

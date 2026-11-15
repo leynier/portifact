@@ -25,7 +25,7 @@ export const zhCN = {
   "dataGrant.anonymous.learns": "页面只知道此制品的一个 ID：不知道姓名、电子邮件，也没有账户。",
   "dataGrant.anonymous.lasts": "在此浏览器中有效 {days} 天。",
   "dataGrant.anonymous.noAccount":
-    "没有账户，Portifact 之后无法向你显示或删除你保存的内容。只有页面本身可以，且仅在此浏览器保留期间。",
+    "没有账户时，Portifact 不会保留你可以自行查看的记录。在此授权有效期间，页面可以显示你保存的内容。你也可以联系管理此 artifact 的人或 privacy@portifact.com；在能够核实哪些数据与你有关时，Portifact 会提供帮助。",
   "dataGrant.anonymous.signIn": "改为登录",
   "dataGrant.anonymous.signInTitle": "登录以保存",
   "dataGrant.anonymous.closed": "此制品只为已登录的人保存内容。请登录后再次选择保存。",
@@ -99,6 +99,13 @@ export const zhCN = {
   "dataGrant.unavailable": "此请求无法使用",
   "dataGrant.unavailableHint": "请重新打开 artifact，并从那里选择保存。",
   "dataGrant.failed": "未能完成允许",
+  "dataGrant.legal.terms": "服务条款",
+  "dataGrant.legal.acceptableUse": "可接受使用政策",
+  "dataGrant.legal.privacy": "隐私政策",
+  "dataGrant.legal.notice":
+    "此页面由 Portifact 托管，此控件由 Portifact 显示。Portifact 保存哪些内容，请参阅{privacy}。该链接会在新标签页中打开。",
+  "dataGrant.legal.statement":
+    "选择“允许”，即表示你确认你已年满 18 周岁，并就你在此保存的内容同意{terms}和{acceptableUse}。这些链接会在新标签页中打开。",
   "sharedData.title": "你分享的数据",
   "sharedData.description":
     "可以识别你并保存你输入内容的 artifact 页面。撤销会在一分钟内生效；你保存的内容仍留在 artifact 中。",

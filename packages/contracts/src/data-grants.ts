@@ -138,6 +138,11 @@ export type AnonymousDataGrantControl = z.infer<typeof AnonymousDataGrantControl
  */
 export const AnonymousDataGrantCodeRequest = DataGrantCodeRequest.extend({
   turnstileToken: z.string().min(1).max(2048),
+  /**
+   * The `TERMS_VERSION` of the notice the visitor read before choosing Allow; the server refuses
+   * any other (`terms_not_accepted`), so a prompt opened before a terms change asks again.
+   */
+  termsVersion: z.string().min(1).max(32),
 });
 export type AnonymousDataGrantCodeRequest = z.infer<typeof AnonymousDataGrantCodeRequest>;
 

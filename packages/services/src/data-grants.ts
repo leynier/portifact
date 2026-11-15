@@ -26,6 +26,7 @@ import {
 import { claimOutcome, journalKey } from "@portifact/domain/artifact-data";
 import { and, eq, gt, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
 import { ownErasureView } from "./data-rights.ts";
+import { cursorRead, resumeAt, savedCursorSql } from "./maintenance-cursors.ts";
 import {
   appSessionSignIn,
   checkReadAccess,
@@ -579,6 +580,137 @@ export async function listDataGrants(
   };
 }
 
+/** Grants one page of `endSignedOutDataGrants` reads: three bound parameters per tombstone. */
+const SIGNED_OUT_PAGE = 30;
+/** Pages it reads per run. */
+const SIGNED_OUT_PAGES = 5;
+const SIGNED_OUT_CURSOR = "data_grants_signed_out";
+
+/**
+ * Records when grants ended by their app session ending (sign-out deletes the row; an expired
+ * session counts once the expired-record cleanup deleted it, since a refresh can still extend a
+ * row that has expired) as `revoked_at`, so the prune deletes them 30 days after that end rather than after their own
+ * expiry. Renewal already refuses them; this only starts their pruning clock. Walks the grants by
+ * ID from `maintenance_cursors`, reading at most `SIGNED_OUT_PAGE` rows a page, and for each one
+ * it ends writes a `data_grant` window tombstone first, as every way to end a grant does: with
+ * one database in the same batch, with a separate one in the global database before the regional
+ * update. Both are held to the grant still open and its session row missing (with one database
+ * in their own statements); a session never comes back under the same ID, so a separate
+ * database cannot race.
+ */
+export async function endSignedOutDataGrants(
+  db: RegionalDb,
+  now: number,
+  caps: { pageSize: number; maxPages: number } = {
+    pageSize: SIGNED_OUT_PAGE,
+    maxPages: SIGNED_OUT_PAGES,
+  },
+): Promise<{ ended: number }> {
+  const pageSize = Math.min(caps.pageSize, SIGNED_OUT_PAGE);
+  const both = bothSides(db);
+  // By primary key only, filtered here: a page reads what it returns, whatever is revoked.
+  const pageAfter = (after: SQL | string) =>
+    db
+      .select({
+        id: g.id,
+        authSessionId: g.authSessionId,
+        revokedAt: g.revokedAt,
+        expiresAt: g.expiresAt,
+      })
+      .from(g)
+      .where(gt(g.id, after))
+      .orderBy(g.id)
+      .limit(pageSize);
+  // The cursor is read in the first page's batch, so a run with nothing to do is one call.
+  const [saved, first] = await db.batch([
+    cursorRead(db, SIGNED_OUT_CURSOR),
+    pageAfter(savedCursorSql(SIGNED_OUT_CURSOR)),
+  ]);
+  const started = saved[0]?.cursor ?? "";
+  let cursor = started;
+  let ended = 0;
+  for (let page = 0; page < caps.maxPages; page++) {
+    const rows = page === 0 ? first : await pageAfter(cursor);
+    const open = rows.filter((row) => row.revokedAt === null && row.expiresAt > now);
+    if (open.length > 0) ended += await endGrantsWithoutSession(db, both, open, now);
+    if (rows.length < pageSize) {
+      await resumeAt(db, SIGNED_OUT_CURSOR, started, null, now);
+      return { ended };
+    }
+    cursor = rows.at(-1)?.id ?? cursor;
+  }
+  await resumeAt(db, SIGNED_OUT_CURSOR, started, cursor, now);
+  return { ended };
+}
+
+/** True while the grant's app session row no longer exists (never merely expired). */
+const sessionMissing = sql`not exists (select 1 from "sessions" "s" where "s"."id" = "data_grants"."auth_session_id")`;
+
+async function endGrantsWithoutSession(
+  db: RegionalDb,
+  both: ReturnType<typeof bothSides>,
+  open: { id: string; authSessionId: string }[],
+  now: number,
+): Promise<number> {
+  const stillOpen = and(
+    inArray(
+      g.id,
+      open.map((row) => row.id),
+    ),
+    isNull(g.revokedAt),
+    gt(g.expiresAt, now),
+  );
+  if (both) {
+    // The tombstone and the revocation hold to the same predicate in one batch, so a session that
+    // exists (even one a refresh is extending) never gets either.
+    const [, done] = await both.batch([
+      both
+        .insert(schema.tombstones)
+        .select(
+          sql`select 'data_grant', "data_grants"."id", ${now} from ${g} where ${and(stillOpen, sessionMissing)}`,
+        )
+        .onConflictDoNothing(),
+      both
+        .update(g)
+        .set({ revokedAt: now })
+        .where(and(stillOpen, sessionMissing))
+        .returning({ id: g.id }),
+    ]);
+    return done.length;
+  }
+  const sessions = [...new Set(open.map((row) => row.authSessionId))];
+  const present = await db.global
+    .select({ id: schema.sessions.id })
+    .from(schema.sessions)
+    .where(inArray(schema.sessions.id, sessions));
+  const presentIds = new Set(present.map((row) => row.id));
+  const gone = open.filter((row) => !presentIds.has(row.authSessionId));
+  if (gone.length === 0) return 0;
+  // A missing session never comes back under its ID, so what was read stays true; the tombstone
+  // still repeats the predicate in its own statement.
+  const pairs = JSON.stringify(gone.map((row) => ({ g: row.id, s: row.authSessionId })));
+  await db.global
+    .insert(schema.tombstones)
+    .select(
+      sql`select 'data_grant', json_extract(value, '$.g'), ${now} from json_each(${pairs}) where not exists (select 1 from "sessions" "s" where "s"."id" = json_extract(value, '$.s'))`,
+    )
+    .onConflictDoNothing();
+  const done = await db
+    .update(g)
+    .set({ revokedAt: now })
+    .where(
+      and(
+        stillOpen,
+        inArray(
+          g.id,
+          gone.map((row) => row.id),
+        ),
+      ),
+    )
+    .returning({ id: g.id });
+  return done.length;
+}
+
 /**
  * Deletes, at most `limit` of each per run, expired codes and grants 30 days after they expired,
  * were revoked, or (never redeemed) after their code could no longer redeem. Each selection runs
@@ -754,9 +886,16 @@ const HOUR_MS = 3_600_000;
  */
 export async function issueAnonymousDataGrantCode(
   db: RegionalDb,
-  input: AnonymousTargetInput & { nonceHash: string; addressKey: string },
+  input: AnonymousTargetInput & { nonceHash: string; addressKey: string; termsVersion: string },
 ): Promise<Result<{ code: string; host: string; expiresAt: number }>> {
   const limited = () => fail<never>("rate_limited", "Too many requests. Try again later.");
+  // Allow agrees to the terms the prompt showed; only the current ones grant writing.
+  if (needsTermsAcceptance(input.termsVersion)) {
+    return fail(
+      "terms_not_accepted",
+      "The terms changed since this prompt opened. Reload it, read the notice and choose Allow again.",
+    );
+  }
   // Every attempt from an address counts, so probing artifacts costs it too.
   const byAddress = await hitRateLimit(
     db.global.$client,
@@ -785,6 +924,8 @@ export async function issueAnonymousDataGrantCode(
     nonceHash: input.nonceHash,
     codeExpiresAt,
     expiresAt: input.now + DATA_GRANT.anonymousGrantTtlSeconds * SECOND_MS,
+    // Choosing Allow under the sign-in-wrap notice accepts the terms it showed, checked above.
+    termsVersion: input.termsVersion,
     createdAt: input.now,
   });
   return ok({ code, host: target.value.host, expiresAt: codeExpiresAt });
@@ -808,9 +949,10 @@ export async function redeemAnonymousDataGrantCode(
 ): Promise<Result<LiveGrant>> {
   const refused = fail<never>("invalid_input", "This link has expired or was already used.");
   if (input.nonceHash === null) return refused;
+  // The one-use code's material goes with its use: nothing left could redeem it again.
   const [row] = await db
     .update(ag)
-    .set({ usedAt: input.now })
+    .set({ usedAt: input.now, codeHash: null, nonceHash: null })
     .where(
       and(
         eq(ag.codeHash, await hashSecret(input.code)),
@@ -836,7 +978,9 @@ export async function redeemAnonymousDataGrantCode(
 /**
  * Renews an anonymous grant's claims: the grant exists for this artifact, was redeemed and has
  * not expired, and the artifact is still open to anonymous writers (the switch, active and
- * public, writers `anyone`, the owner's plan and policy). Read every 60 seconds; writes nothing.
+ * public, writers `anyone`, the owner's plan and policy). It writes only while the terms version
+ * the visitor agreed to on Allow is the current one; after a change it reads, and a new Allow
+ * agrees again. Read every 60 seconds; writes nothing.
  */
 export async function renewAnonymousDataGrant(
   db: RegionalDb,
@@ -844,7 +988,7 @@ export async function renewAnonymousDataGrant(
 ): Promise<Result<LiveGrant>> {
   if (!input.enabled) return unavailable();
   const [grant] = await db
-    .select({ visitorId: ag.visitorId, expiresAt: ag.expiresAt })
+    .select({ visitorId: ag.visitorId, expiresAt: ag.expiresAt, termsVersion: ag.termsVersion })
     .from(ag)
     .where(
       and(
@@ -862,7 +1006,8 @@ export async function renewAnonymousDataGrant(
     userId: "",
     visitorId: grant.visitorId,
     name: "",
-    write: true,
+    // Like a person's grant: write only under the terms version current now.
+    write: !needsTermsAcceptance(grant.termsVersion),
     expiresAt: grant.expiresAt,
   });
 }

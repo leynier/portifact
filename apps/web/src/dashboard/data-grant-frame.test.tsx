@@ -61,7 +61,14 @@ describe("the viewer's frame grant", () => {
     // A nonce before any Allow is ignored: nothing is issued.
     post(frame, { type: "portifact:data-grant-begin", nonceHash: NONCE_HASH });
     post(frame, { type: "portifact:data-grant-request", to: "/board" });
-    fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+    const allow = await screen.findByRole("button", { name: "Allow" });
+    // The person's control in the viewer carries the same notice and statement as the page.
+    const statement = document.getElementById(allow.getAttribute("aria-describedby") ?? "");
+    expect(statement?.textContent).toMatch(/^By choosing Allow, you confirm that you are 18/);
+    expect(screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe(
+      "https://portifact.com/privacy",
+    );
+    fireEvent.click(allow);
     expect(frame.getAttribute("src") ?? frame.src).toBe(
       `${ORIGIN}/__portifact/data/grant/begin?flow=frame&to=%2Fboard`,
     );

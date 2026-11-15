@@ -1,13 +1,21 @@
 import { env } from "cloudflare:test";
 import { DATA_GRANT, TERMS_VERSION } from "@portifact/contracts";
-import { aliasBinding, globalDb, regionalDb, regionsFromEnv, schema } from "@portifact/db";
+import {
+  aliasBinding,
+  globalDb,
+  type RegionalDb,
+  regionalDb,
+  regionsFromEnv,
+  schema,
+} from "@portifact/db";
 import { journalKey } from "@portifact/domain/artifact-data";
-import { eq } from "drizzle-orm";
+import { eq, isNull } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   applyTombstones,
   claimVisitorId,
   dataGrantControl,
+  endSignedOutDataGrants,
   exportTombstones,
   issueDataGrantCode,
   journalVisitorId,
@@ -585,5 +593,175 @@ describe("review of #271: renewal guards", () => {
     expect(
       await renewDataGrant(db(), { grantId: grant?.id ?? "", artifactId: ID, now: NOW + 1000 }),
     ).toMatchObject({ ok: false });
+  });
+});
+
+describe("grants ended by signing out", () => {
+  beforeEach(seed);
+
+  const grantRow = async (database: RegionalDb, grantId: string) => {
+    const [row] = await database
+      .select({ revokedAt: schema.dataGrants.revokedAt })
+      .from(schema.dataGrants)
+      .where(eq(schema.dataGrants.id, grantId));
+    return row;
+  };
+
+  it("start their 30 days at the scan that finds the app session gone, with a tombstone", async () => {
+    const granted = await redeem(await issued());
+    if (!granted.ok) throw new Error("redeem failed");
+    // While the session lives, nothing ends.
+    expect(await endSignedOutDataGrants(db(), NOW + 2000)).toEqual({ ended: 0 });
+    expect((await grantRow(db(), granted.value.grantId))?.revokedAt).toBeNull();
+
+    await db()
+      .delete(schema.sessions)
+      .where(eq(schema.sessions.id, appSession(READER)));
+    const signedOut = NOW + 5000;
+    expect(await endSignedOutDataGrants(db(), signedOut)).toEqual({ ended: 1 });
+    expect((await grantRow(db(), granted.value.grantId))?.revokedAt).toBe(signedOut);
+    const markers = await db()
+      .select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, granted.value.grantId));
+    expect(markers).toMatchObject([{ kind: "data_grant", deletedAt: signedOut }]);
+    // Once ended, a later scan leaves it as it was.
+    expect(await endSignedOutDataGrants(db(), signedOut + 60_000)).toEqual({ ended: 0 });
+    expect((await grantRow(db(), granted.value.grantId))?.revokedAt).toBe(signedOut);
+
+    // Pruned 30 days after the sign-out, well before 30 days after its own expiry.
+    await pruneDataGrants(db(), signedOut + DATA_GRANT.endedKeepMs - 1);
+    expect(await db().select().from(schema.dataGrants)).toHaveLength(1);
+    await pruneDataGrants(db(), signedOut + DATA_GRANT.endedKeepMs);
+    expect(await db().select().from(schema.dataGrants)).toHaveLength(0);
+  });
+
+  it("leaves grants of a live session and revoked ones alone", async () => {
+    const live = await redeem(await issued(OWNER));
+    if (!live.ok) throw new Error("redeem failed");
+    const revoked = await redeem(await issued(READER, "r".repeat(43)), "r".repeat(43));
+    if (!revoked.ok) throw new Error("redeem failed");
+    await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 2000 });
+    await db()
+      .delete(schema.sessions)
+      .where(eq(schema.sessions.id, appSession(READER)));
+    expect(await endSignedOutDataGrants(db(), NOW + 3000)).toEqual({ ended: 0 });
+    expect((await grantRow(db(), revoked.value.grantId))?.revokedAt).toBe(NOW + 2000);
+    expect((await grantRow(db(), live.value.grantId))?.revokedAt).toBeNull();
+  });
+
+  for (const name of ["default", "eu"] as const) {
+    it(`${name}: never ends a grant whose session row exists, even expired, since a refresh can extend it`, async () => {
+      const database = regions().get(name).db;
+      if (name === "eu") {
+        await env.DB_EU.exec("DELETE FROM data_grants");
+        await env.DB_EU.exec("DELETE FROM maintenance_cursors");
+        await database
+          .insert(schema.artifacts)
+          .values({ id: ID, ownerId: OWNER, type: "site", name: "Board", state: "active" })
+          .onConflictDoNothing();
+      } else {
+        await env.DB.exec("DELETE FROM maintenance_cursors");
+      }
+      const grantId = `dg_${name}0000000000000000009`.slice(0, 25);
+      await database.insert(schema.dataGrants).values({
+        id: grantId,
+        artifactId: ID,
+        userId: READER,
+        visitorId: "v_123456789012345678901234",
+        authSessionId: appSession(READER),
+        host: HOST,
+        expiresAt: NOW + 10 * DAY,
+        redeemedAt: NOW - DAY,
+        createdAt: NOW - DAY,
+      });
+      // The session has expired but its row is there: a refresh may still extend it.
+      await db()
+        .update(schema.sessions)
+        .set({ expiresAt: new Date(NOW) })
+        .where(eq(schema.sessions.id, appSession(READER)));
+      expect(await endSignedOutDataGrants(database, NOW + 1000)).toEqual({ ended: 0 });
+      await db()
+        .update(schema.sessions)
+        .set({ expiresAt: new Date(NOW + 7 * DAY) })
+        .where(eq(schema.sessions.id, appSession(READER)));
+      expect((await grantRow(database, grantId))?.revokedAt).toBeNull();
+      const markers = await db()
+        .select()
+        .from(schema.tombstones)
+        .where(eq(schema.tombstones.id, grantId));
+      expect(markers).toEqual([]);
+      // Once the expired-record cleanup deleted the row, the grant ends.
+      await db()
+        .delete(schema.sessions)
+        .where(eq(schema.sessions.id, appSession(READER)));
+      expect(await endSignedOutDataGrants(database, NOW + 2000)).toEqual({ ended: 1 });
+      expect((await grantRow(database, grantId))?.revokedAt).toBe(NOW + 2000);
+      if (name === "eu") {
+        await env.DB_EU.exec("DELETE FROM data_grants");
+        await env.DB_EU.exec("DELETE FROM artifacts");
+      }
+    });
+  }
+
+  it("walks the grants in capped pages and resumes where it stopped", async () => {
+    await manyGrants(70);
+    await db()
+      .delete(schema.sessions)
+      .where(eq(schema.sessions.id, appSession(READER)));
+    const caps = { pageSize: 30, maxPages: 1 };
+    expect(await endSignedOutDataGrants(db(), NOW + 1000, caps)).toEqual({ ended: 30 });
+    expect(await endSignedOutDataGrants(db(), NOW + 1000, caps)).toEqual({ ended: 30 });
+    expect(await endSignedOutDataGrants(db(), NOW + 1000, caps)).toEqual({ ended: 10 });
+    const open = await db()
+      .select({ id: schema.dataGrants.id })
+      .from(schema.dataGrants)
+      .where(isNull(schema.dataGrants.revokedAt));
+    expect(open).toHaveLength(0);
+    // The pass ended: the next one starts from the beginning and finds nothing left.
+    expect(await endSignedOutDataGrants(db(), NOW + 1000, caps)).toEqual({ ended: 0 });
+  });
+
+  it("works with a region whose database is not the global one", async () => {
+    const eu = regions().get("eu").db;
+    await env.DB_EU.exec("DELETE FROM data_grants");
+    await env.DB_EU.exec("DELETE FROM maintenance_cursors");
+    await eu.insert(schema.artifacts).values({
+      id: ID,
+      ownerId: OWNER,
+      type: "site",
+      name: "Board",
+      state: "active",
+      accessMode: "restricted",
+      currentVersionId: "v1",
+      expiresAt: NOW + 60 * DAY,
+    });
+    const row = (id: string, session: string) => ({
+      id,
+      artifactId: ID,
+      userId: READER,
+      visitorId: "v_123456789012345678901234",
+      authSessionId: session,
+      host: HOST,
+      expiresAt: NOW + 30 * DAY,
+      redeemedAt: NOW,
+      createdAt: NOW,
+    });
+    await eu
+      .insert(schema.dataGrants)
+      .values([
+        row("dg_eu00000000000000000001", appSession(OWNER)),
+        row("dg_eu00000000000000000002", "as_gone"),
+      ]);
+    expect(await endSignedOutDataGrants(eu, NOW + 1000)).toEqual({ ended: 1 });
+    expect((await grantRow(eu, "dg_eu00000000000000000002"))?.revokedAt).toBe(NOW + 1000);
+    expect((await grantRow(eu, "dg_eu00000000000000000001"))?.revokedAt).toBeNull();
+    const markers = await db()
+      .select()
+      .from(schema.tombstones)
+      .where(eq(schema.tombstones.id, "dg_eu00000000000000000002"));
+    expect(markers).toHaveLength(1);
+    await env.DB_EU.exec("DELETE FROM data_grants");
+    await env.DB_EU.exec("DELETE FROM artifacts");
   });
 });

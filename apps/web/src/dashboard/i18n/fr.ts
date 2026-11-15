@@ -31,7 +31,7 @@ export const fr = {
     "La page ne connaît qu'un identifiant pour cet artefact : ni nom, ni e-mail, ni compte.",
   "dataGrant.anonymous.lasts": "Cela dure {days} jours dans ce navigateur.",
   "dataGrant.anonymous.noAccount":
-    "Sans compte, Portifact ne peut pas vous montrer ni supprimer plus tard ce que vous avez enregistré. Seule la page le peut, tant que ce navigateur le conserve.",
+    "Sans compte, Portifact ne conserve aucun historique que vous pouvez ouvrir vous-même. La page peut afficher ce que vous avez enregistré tant que cette autorisation dure. Vous pouvez aussi contacter les personnes qui gèrent cet artifact ou privacy@portifact.com ; Portifact vous aide lorsqu’il peut vérifier quelles données vous concernent.",
   "dataGrant.anonymous.signIn": "Me connecter plutôt",
   "dataGrant.anonymous.signInTitle": "Connectez-vous pour enregistrer",
   "dataGrant.anonymous.closed":
@@ -116,6 +116,13 @@ export const fr = {
   "dataGrant.unavailable": "Cette demande ne peut pas être utilisée",
   "dataGrant.unavailableHint": "Rouvrez l'artifact et choisissez d'enregistrer depuis celui-ci.",
   "dataGrant.failed": "L'autorisation n'a pas abouti",
+  "dataGrant.legal.terms": "Conditions d’utilisation",
+  "dataGrant.legal.acceptableUse": "Politique d’utilisation acceptable",
+  "dataGrant.legal.privacy": "Politique de confidentialité",
+  "dataGrant.legal.notice":
+    "Portifact héberge cette page et affiche ce contrôle. La {privacy} indique ce que Portifact conserve. Le lien s’ouvre dans un nouvel onglet.",
+  "dataGrant.legal.statement":
+    "En choisissant Autoriser, vous confirmez avoir 18 ans ou plus et accepter les {terms} et la {acceptableUse} pour ce que vous enregistrez ici. Les liens s’ouvrent dans un nouvel onglet.",
   "sharedData.title": "Données partagées",
   "sharedData.description":
     "Pages d'artifacts qui peuvent vous connaître et enregistrer ce que vous saisissez. La révocation prend effet en une minute ; ce que vous avez enregistré reste avec l'artifact.",

@@ -84,8 +84,12 @@ const DEVELOP = {
   // no D1 call; the delete runs only when a row is due).
   // Plus the prune of artifact data grants (decision 0026): one batch of two deletes.
   // One more for the prune of unattached comment attachment uploads (decision 0029).
-  // One more for the prune of settled rights requests (decision 0026): one delete.
-  runMaintenance: 86,
+  // One more for the author journal cleanup (decision 0026): its cursor and the reconciliation
+  // check in one batch (its R2 listing adds no D1 call; nothing is due here).
+  // One more for the scan of grants whose app session ended: its cursor and first page in one
+  // batch.
+  // One more for the prune of settled rights requests and own erasures (decision 0026): one batch.
+  runMaintenance: 88,
   // The grace email scan alone once nothing is due: one call.
   scheduleGraceNotices: 1,
   // Of those, the one-time re-dating pass (decision 0022, `redateDatedPlans`): its first run reads

@@ -4,9 +4,11 @@
 // missing artifact wherever anonymous writing is not open.
 import { env } from "cloudflare:workers";
 import { DATA_GRANT } from "@portifact/contracts";
+import { TERMS_VERSION } from "@portifact/contracts/terms-version";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
+import { addressKey } from "../src/api/data-anonymous.ts";
 import { publishSite, tokenClient } from "./api-client.ts";
 import { createHarness, FAILED_HUMAN_TOKEN, type Harness, HUMAN_TOKEN, ORIGIN } from "./harness.ts";
 
@@ -47,7 +49,17 @@ async function openArtifact(h: Harness, owner: string, writers: "anyone" | "sign
 const issue = (h: Harness, id: string, token = solved(), ip?: string) =>
   h.request(
     "/api/v1/data/anonymous-grants",
-    page("POST", { artifactId: id, nonceHash: NONCE_HASH, flow: "top", turnstileToken: token }, ip),
+    page(
+      "POST",
+      {
+        artifactId: id,
+        nonceHash: NONCE_HASH,
+        flow: "top",
+        turnstileToken: token,
+        termsVersion: TERMS_VERSION,
+      },
+      ip,
+    ),
   );
 
 const grantsOf = (id: string) =>
@@ -114,6 +126,7 @@ describe("anonymous grants on the app", () => {
         nonceHash: NONCE_HASH,
         flow: "top",
         turnstileToken: solved(),
+        termsVersion: TERMS_VERSION,
       }),
     });
     expect(crossSite.status).toBe(403);
@@ -157,6 +170,37 @@ describe("anonymous grants on the app", () => {
     expect(answers.size).toBe(1);
   });
 
+  it("refuses an Allow made under terms that are no longer current", async () => {
+    const h = createHarness({ env: ON });
+    const id = await openArtifact(h, "anon-terms@example.test");
+    const stale = await h.request(
+      "/api/v1/data/anonymous-grants",
+      page("POST", {
+        artifactId: id,
+        nonceHash: NONCE_HASH,
+        flow: "top",
+        turnstileToken: solved(),
+        termsVersion: "2020-01-01",
+      }),
+    );
+    expect(stale.status).toBe(403);
+    expect(((await stale.json()) as { error: { code: string } }).error.code).toBe(
+      "terms_not_accepted",
+    );
+    // A prompt from before the version was sent at all is refused as malformed.
+    const missing = await h.request(
+      "/api/v1/data/anonymous-grants",
+      page("POST", {
+        artifactId: id,
+        nonceHash: NONCE_HASH,
+        flow: "top",
+        turnstileToken: solved(),
+      }),
+    );
+    expect(missing.status).toBe(400);
+    expect(await grantsOf(id)).toHaveLength(0);
+  });
+
   it("limits codes per network address", async () => {
     const h = createHarness({ env: ON });
     const id = await openArtifact(h, "anon-limit@example.test");
@@ -166,5 +210,37 @@ describe("anonymous grants on the app", () => {
     expect((await issue(h, id, solved(), "198.51.100.9")).status).toBe(429);
     // Another address is not held back by it.
     expect((await issue(h, id, solved(), "198.51.100.10")).status).toBe(200);
+  });
+
+  it("keys the per-address limit by a secret HMAC of the address, never the address", async () => {
+    const h = createHarness({ env: ON });
+    const id = await openArtifact(h, "anon-key@example.test");
+    expect((await issue(h, id, solved(), "192.0.2.77")).status).toBe(200);
+    const unkeyed = [
+      ...new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode("192.0.2.77")),
+      ),
+    ]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    const { results } = await env.DB.prepare(
+      "select key from rate_limits where key like 'data_anon:ip:%'",
+    ).all<{ key: string }>();
+    const keys = results.map((row) => row.key);
+    const expected = `data_anon:ip:${await addressKey(env.BETTER_AUTH_SECRET, "192.0.2.77")}`;
+    expect(keys).toContain(expected);
+    expect(keys.some((key) => key.includes("192.0.2.77"))).toBe(false);
+    expect(keys.some((key) => unkeyed.startsWith(key.slice("data_anon:ip:".length)))).toBe(false);
+  });
+});
+
+describe("addressKey", () => {
+  it("is a stable HMAC per secret, normalized, and differs across secrets", async () => {
+    const one = await addressKey("secret-one", "2001:DB8::1");
+    expect(one).toMatch(/^[0-9a-f]{64}$/);
+    expect(await addressKey("secret-one", " 2001:db8::1 ")).toBe(one);
+    expect(await addressKey("secret-two", "2001:db8::1")).not.toBe(one);
+    expect(await addressKey("secret-one", "2001:db8::2")).not.toBe(one);
+    expect(await addressKey("secret-one", null)).toBe(await addressKey("secret-one", "unknown"));
   });
 });
