@@ -7,6 +7,7 @@
 import type { Browser, Page } from "@playwright/test";
 import {
   artifactFrame,
+  checkWhatApplies,
   control,
   createUser,
   expect,
@@ -102,8 +103,7 @@ test("a reader suggests an edit in the frame and the owner accepts it into a new
   const ownerPage = await pageOf(browser, owner);
   await openReview(ownerPage, artifactId, NAME);
   const block = ownerPage.getByRole("region", { name: "Suggested edit" });
-  await block.getByRole("button", { name: "Check what applies" }).click();
-  await expect(block.getByText(/^1 change applies automatically/)).toBeVisible();
+  await checkWhatApplies(block, /^1 change applies automatically/);
   await block.getByRole("tab", { name: "Preview" }).click();
   const preview = block.getByTitle("Preview of the suggested edit");
   await expect(preview).toHaveAttribute("sandbox", "");
@@ -153,8 +153,7 @@ test("an edit that cannot be applied goes to the change list, where the owner ma
   await expect(page.getByText("Suggestion saved.")).toBeVisible();
 
   const block = page.getByRole("region", { name: "Suggested edit" });
-  await block.getByRole("button", { name: "Check what applies" }).click();
-  await expect(block.getByText(/^0 changes apply automatically; 1 goes/)).toBeVisible();
+  await checkWhatApplies(block, /^0 changes apply automatically; 1 goes/);
   await block.getByRole("tab", { name: "Preview" }).click();
   await expect(block.getByText("No preview:")).toBeVisible();
   await block.getByRole("button", { name: "Accept" }).click();
@@ -211,8 +210,7 @@ test("the owner edits directly into a private draft and publishes it as a new ve
 
   const panel = page.getByRole("region", { name: "Your draft" });
   await expect(panel.getByText("1 change")).toBeVisible();
-  await panel.getByRole("button", { name: "Check what applies" }).click();
-  await expect(panel.getByText(/^1 change applies automatically/)).toBeVisible();
+  await checkWhatApplies(panel, /^1 change applies automatically/);
   await panel.getByRole("button", { name: "Publish" }).click();
   await page
     .getByRole("dialog", { name: "Publish this draft?" })

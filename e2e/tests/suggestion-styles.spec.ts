@@ -6,6 +6,7 @@
 import type { Browser, Page } from "@playwright/test";
 import {
   artifactFrame,
+  checkWhatApplies,
   control,
   createUser,
   expect,
@@ -100,8 +101,7 @@ test("a reader suggests a style for an element, and the owner's acceptance lists
   const ownerPage = await pageOf(browser, owner);
   await openReview(ownerPage, artifactId, NAME);
   const block = ownerPage.getByRole("region", { name: "Suggested edit" });
-  await block.getByRole("button", { name: "Check what applies" }).click();
-  await expect(block.getByText(/^0 changes apply automatically; 1 goes/)).toBeVisible();
+  await checkWhatApplies(block, /^0 changes apply automatically; 1 goes/);
   await block.getByRole("button", { name: "Accept" }).click();
   await ownerPage
     .getByRole("dialog", { name: "Accept this suggestion?" })
