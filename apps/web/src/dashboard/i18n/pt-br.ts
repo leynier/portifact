@@ -46,8 +46,25 @@ export const ptBR = {
   "sharedData.askAccess": "Uma cópia do que salvei",
   "sharedData.askErasure": "Apagar o que salvei",
   "sharedData.askSend": "Enviar o pedido",
-  "sharedData.askSent": "Seu pedido sobre {name} foi enviado",
   "sharedData.askFailed": "O pedido não foi enviado",
+  "sharedData.askReceived":
+    "Recebemos seu pedido sobre {name}. Quem o gerencia receberá um e-mail o quanto antes",
+  "sharedData.downloadContinue": "Continuar o download",
+  "sharedData.downloadContinueNamed": "Continuar o download do que você salvou em {name}",
+  "sharedData.downloadRestart": "Recomeçar",
+  "sharedData.downloadRestartNamed": "Recomeçar o download de {name}",
+  "sharedData.downloadPaused": "Download pausado",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {# documento baixado até agora.} other {# documentos baixados até agora.}} A cota de hoje para seus dados neste artefato acabou. Continue amanhã, depois da meia-noite UTC, e o download segue de onde parou.",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {# documento baixado até agora.} other {# documentos baixados até agora.}} O restante não foi baixado. Continue, e o download segue de onde parou.",
+  "sharedData.downloadedAll": "Tudo o que você salvou em {name} foi baixado ({count} documentos)",
+  "sharedData.deleteContinue": "Continuar excluindo",
+  "sharedData.deletePaused": "Exclusão pausada",
+  "sharedData.deletePausedAllowance":
+    "{count, plural, one {# documento excluído até agora.} other {# documentos excluídos até agora.}} A cota de hoje para seus dados neste artefato acabou. Continue amanhã, depois da meia-noite UTC, e a exclusão segue de onde parou.",
+  "sharedData.deletePausedError":
+    "{count, plural, one {# documento excluído até agora.} other {# documentos excluídos até agora.}} O restante não foi excluído. Continue, e a exclusão segue de onde parou.",
   "dataGrant.viewer.saving": "Esta página salva o que você digita",
   "dataGrant.viewer.savingHint":
     "Ela conhece você pelo nome de exibição e um ID para este artifact. Você pode parar a qualquer momento.",

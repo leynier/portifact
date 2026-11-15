@@ -298,7 +298,7 @@ describe("data grants", () => {
     await redeem(await issued());
     // A code that never redeemed is not a grant.
     await issued(READER, "o".repeat(43));
-    const { items, next } = await listDataGrants(db(), {
+    const { items, next } = await listDataGrants(db(), env.ARTIFACTS, {
       userId: READER,
       contentDomain: "portifact.dev",
       now: NOW + 2000,
@@ -316,7 +316,49 @@ describe("data grants", () => {
       },
     ]);
     expect(
-      await listDataGrants(db(), { userId: STRANGER, contentDomain: "portifact.dev", now: NOW }),
+      await listDataGrants(db(), env.ARTIFACTS, {
+        userId: STRANGER,
+        contentDomain: "portifact.dev",
+        now: NOW,
+      }),
+    ).toEqual({ items: [], next: null });
+  });
+
+  it("keeps listing what the person saved after their ended grants are pruned, never once retired", async () => {
+    await redeem(await issued());
+    await revokeDataGrants(db(), { userId: READER, artifactId: ID, now: NOW + 2000 });
+    await pruneDataGrants(db(), NOW + 2000 + DATA_GRANT.endedKeepMs);
+    expect(
+      await db().select().from(schema.dataGrants).where(eq(schema.dataGrants.userId, READER)),
+    ).toEqual([]);
+    const later = NOW + 2000 + DATA_GRANT.endedKeepMs + 1000;
+    const listed = await listDataGrants(db(), env.ARTIFACTS, {
+      userId: READER,
+      contentDomain: "portifact.dev",
+      now: later,
+    });
+    expect(listed).toEqual({
+      items: [
+        {
+          artifactId: ID,
+          artifactName: "Board",
+          host: HOST,
+          openGrants: 0,
+          firstGrantedAt: new Date(NOW).toISOString(),
+          lastGrantedAt: new Date(NOW).toISOString(),
+          expiresAt: null,
+        },
+      ],
+      next: null,
+    });
+    // A journal entry the account deletion retired lists nothing.
+    await retireJournalEntry(env.ARTIFACTS, READER, ID, later);
+    expect(
+      await listDataGrants(db(), env.ARTIFACTS, {
+        userId: READER,
+        contentDomain: "portifact.dev",
+        now: later,
+      }),
     ).toEqual({ items: [], next: null });
   });
 
@@ -434,11 +476,15 @@ describe("review of #271: shared-data completeness", () => {
           redeemedAt: NOW,
           createdAt: NOW + n,
         });
+      await env.ARTIFACTS.put(
+        journalKey(READER, id),
+        JSON.stringify({ visitorId: "v_123456789012345678901234", firstGrantAt: NOW + n }),
+      );
     }
     const seen: string[] = [];
     let after: string | null = null;
     for (let page = 0; page < 10; page++) {
-      const result = await listDataGrants(db(), {
+      const result = await listDataGrants(db(), env.ARTIFACTS, {
         userId: READER,
         contentDomain: "portifact.dev",
         now: NOW + 1000,

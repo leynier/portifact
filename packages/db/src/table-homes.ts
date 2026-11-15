@@ -98,6 +98,8 @@ export const TABLE_HOMES = {
   data_grants: "regional",
   data_anonymous_grants: "regional",
   data_grant_codes: "regional",
+  data_rights_requests: "regional",
+  data_rights_request_sends: "regional",
   annotation_threads: "regional",
   annotation_messages: "regional",
   comment_attachments: "regional",

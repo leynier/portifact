@@ -41,8 +41,24 @@ export const zhCN = {
   "sharedData.askAccess": "我保存内容的副本",
   "sharedData.askErasure": "删除我保存的内容",
   "sharedData.askSend": "发送请求",
-  "sharedData.askSent": "你关于 {name} 的请求已发送",
   "sharedData.askFailed": "请求未发送",
+  "sharedData.askReceived": "已收到你关于 {name} 的请求。我们会尽快通过电子邮件通知其管理者",
+  "sharedData.downloadContinue": "继续下载",
+  "sharedData.downloadContinueNamed": "继续下载你在 {name} 中保存的内容",
+  "sharedData.downloadRestart": "重新开始",
+  "sharedData.downloadRestartNamed": "重新开始下载 {name}",
+  "sharedData.downloadPaused": "下载已暂停",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {目前已下载 # 个文档。} other {目前已下载 # 个文档。}} 你在此制品中数据的今日额度已用完。请在明天 UTC 午夜之后继续，下载会从停止的地方接着进行。",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {目前已下载 # 个文档。} other {目前已下载 # 个文档。}} 其余内容未能下载。继续后，下载会从停止的地方接着进行。",
+  "sharedData.downloadedAll": "已下载你在 {name} 中保存的全部内容（{count} 个文档）",
+  "sharedData.deleteContinue": "继续删除",
+  "sharedData.deletePaused": "删除已暂停",
+  "sharedData.deletePausedAllowance":
+    "{count, plural, one {目前已删除 # 个文档。} other {目前已删除 # 个文档。}} 你在此制品中数据的今日额度已用完。请在明天 UTC 午夜之后继续，删除会从停止的地方接着进行。",
+  "sharedData.deletePausedError":
+    "{count, plural, one {目前已删除 # 个文档。} other {目前已删除 # 个文档。}} 其余内容未能删除。继续后，删除会从停止的地方接着进行。",
   "dataGrant.viewer.saving": "此页面会保存你输入的内容",
   "dataGrant.viewer.savingHint":
     "它通过你的显示名称和此 artifact 专用的 ID 识别你。你可以随时停止。",

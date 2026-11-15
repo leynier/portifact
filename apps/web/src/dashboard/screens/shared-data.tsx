@@ -20,8 +20,9 @@ import {
   TableRow,
 } from "@portifact/ui";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Download, Mail, Trash2, Unplug } from "lucide-react";
+import { CircleAlert, Download, Mail, RotateCcw, Trash2, Unplug } from "lucide-react";
 import { useState } from "react";
+import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { safeFileName } from "../publish/download.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
@@ -121,58 +122,198 @@ function GrantTable({ items }: { items: DataGrantView[] }) {
   );
 }
 
-/** Pages one export or delete reads at most: far above what one person writes in an artifact. */
+/** Pages one download reads at most per click: far above what one day's allowance pays for. */
 const MAX_PAGES = 200;
+/**
+ * Documents one delete batch reads: a small page costs little of the person's daily allowance,
+ * so most of it goes to the deletes themselves.
+ */
+const DELETE_BATCH = 20;
+/** Batches one delete reads at most per click. */
+const MAX_DELETE_BATCHES = 100;
 
-/** Every document the person created in the artifact, page by page. */
-async function ownRows(
-  api: ReturnType<typeof useDashboard>["api"],
-  artifactId: string,
-): Promise<{ collection: string; id: string }[]> {
-  const rows: { collection: string; id: string }[] = [];
-  let after: string | null = null;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const answer: { rows: { collection: string; id: string }[]; next: string | null } =
-      await api.ownData(artifactId, after);
-    rows.push(...answer.rows);
-    if (answer.next === null) return rows;
-    after = answer.next;
-  }
-  throw new Error("Own data pagination did not finish");
+/** Where a paused download continues: the next page's cursor, the next part and what came so far. */
+interface DownloadResume {
+  after: string;
+  part: number;
+  saved: number;
 }
+
+const resumeKey = (artifactId: string) => `portifact.sharedData.download.${artifactId}`;
+
+function readResume(artifactId: string): DownloadResume | null {
+  try {
+    const raw = JSON.parse(localStorage.getItem(resumeKey(artifactId)) ?? "null") as unknown;
+    const value = raw as Partial<DownloadResume> | null;
+    if (
+      typeof value?.after === "string" &&
+      Number.isInteger(value.part) &&
+      Number.isInteger(value.saved)
+    ) {
+      return value as DownloadResume;
+    }
+  } catch {
+    // Without storage a paused download continues only until the page reloads.
+  }
+  return null;
+}
+
+function writeResume(artifactId: string, resume: DownloadResume | null): void {
+  try {
+    if (resume === null) localStorage.removeItem(resumeKey(artifactId));
+    else localStorage.setItem(resumeKey(artifactId), JSON.stringify(resume));
+  } catch {
+    // Kept in the page's state only.
+  }
+}
+
+/** Whether a failure is the person's daily allowance being spent, which comes back tomorrow. */
+const allowanceSpent = (error: unknown) =>
+  error instanceof ApiFailure && error.code === "rate_limited";
+
+type Pause = { reason: "allowance" | "error"; count: number } | null;
 
 /**
  * What the person saved in the artifact: download it as JSON Lines (their own documents, as
- * stored, untrusted text) or delete it, whether or not a grant is still open.
+ * stored, untrusted text) or delete it, whether or not a grant is still open. Both are charged to
+ * the person's own daily allowance in the artifact, which a large dataset spends: a download then
+ * saves what it got as a part and continues from its cursor on the next click (kept in this
+ * browser), and deleting goes in small batches and continues from the first remaining document.
  */
 function OwnData({ item }: { item: DataGrantView }) {
   const t = useT();
   const announce = useAnnounce();
   const { api, save } = useDashboard();
   const [confirming, setConfirming] = useState(false);
+  const [resume, setResume] = useState<DownloadResume | null>(() => readResume(item.artifactId));
+  const [downloadPause, setDownloadPause] = useState<Pause>(null);
+  const [deletePause, setDeletePause] = useState<Pause>(null);
   const name = item.artifactName ?? item.host;
+  const base = safeFileName(name);
+  const keep = (next: DownloadResume | null) => {
+    writeResume(item.artifactId, next);
+    setResume(next);
+  };
   const download = useMutation({
-    mutationFn: () => ownRows(api, item.artifactId),
-    onSuccess: (rows) => {
-      if (rows.length === 0) {
-        announce(t("sharedData.nothingSaved", { name }));
+    mutationFn: async () => {
+      const from = resume;
+      const rows: { collection: string; id: string }[] = [];
+      let after = from?.after ?? null;
+      let failure: unknown = null;
+      let finished = false;
+      try {
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const answer = await api.ownData(item.artifactId, after);
+          rows.push(...answer.rows);
+          after = answer.next;
+          if (after === null) {
+            finished = true;
+            break;
+          }
+        }
+      } catch (error) {
+        failure = error;
+      }
+      // Nothing came and nothing is kept: an ordinary failure.
+      if (!finished && rows.length === 0 && from === null)
+        throw failure ?? new Error("nothing came back");
+      return { from, rows, after, failure, finished };
+    },
+    onError: () => setDownloadPause(null),
+    onSuccess: ({ from, rows, after, failure, finished }) => {
+      const part = from?.part ?? 1;
+      const saved = (from?.saved ?? 0) + rows.length;
+      const fileName =
+        finished && part === 1 ? `${base}-my-data.jsonl` : `${base}-my-data-part-${part}.jsonl`;
+      if (rows.length > 0) {
+        const text = rows.map((row) => JSON.stringify(row)).join("\n");
+        save({ fileName, blob: new Blob([`${text}\n`], { type: "application/jsonl" }) });
+      }
+      if (finished) {
+        keep(null);
+        setDownloadPause(null);
+        announce(
+          saved === 0
+            ? t("sharedData.nothingSaved", { name })
+            : rows.length === 0
+              ? t("sharedData.downloadedAll", { name, count: saved })
+              : t("sharedData.downloaded", { file: fileName }),
+        );
         return;
       }
-      const fileName = `${safeFileName(name)}-my-data.jsonl`;
-      const text = rows.map((row) => JSON.stringify(row)).join("\n");
-      save({ fileName, blob: new Blob([`${text}\n`], { type: "application/jsonl" }) });
-      announce(t("sharedData.downloaded", { file: fileName }));
+      if (rows.length > 0 && after !== null) keep({ after, part: part + 1, saved });
+      const pause: Pause = {
+        reason: allowanceSpent(failure) ? "allowance" : "error",
+        count: saved,
+      };
+      setDownloadPause(pause);
+      announce(
+        t(
+          pause.reason === "allowance"
+            ? "sharedData.downloadPausedAllowance"
+            : "sharedData.downloadPausedError",
+          {
+            count: saved,
+          },
+        ),
+      );
     },
   });
+  const restart = () => {
+    keep(null);
+    setDownloadPause(null);
+    download.reset();
+  };
   const remove = useMutation({
     mutationFn: async () => {
-      const rows = await ownRows(api, item.artifactId);
-      for (const row of rows) await api.deleteOwnDocument(item.artifactId, row.collection, row.id);
-      return rows.length;
+      let count = 0;
+      let failure: unknown = null;
+      let done = false;
+      try {
+        for (let batch = 0; batch < MAX_DELETE_BATCHES; batch++) {
+          // Always from the start: what was deleted is gone, so the first page is what is left.
+          const page = await api.ownData(item.artifactId, null, DELETE_BATCH);
+          if (page.rows.length === 0) {
+            done = true;
+            break;
+          }
+          for (const row of page.rows) {
+            await api.deleteOwnDocument(item.artifactId, row.collection, row.id);
+            count += 1;
+          }
+        }
+      } catch (error) {
+        failure = error;
+      }
+      // Nothing deleted and nothing paused: an ordinary failure, unless it is the allowance.
+      if (!done && count === 0 && deletePause === null && !allowanceSpent(failure))
+        throw failure ?? new Error("nothing came back");
+      return { count, failure, done };
     },
-    onSuccess: (count) => {
-      setConfirming(false);
-      announce(t("sharedData.deleted", { name, count }));
+    onError: () => setDeletePause(null),
+    onSuccess: ({ count, failure, done }) => {
+      const total = (deletePause?.count ?? 0) + count;
+      if (done) {
+        setConfirming(false);
+        setDeletePause(null);
+        announce(t("sharedData.deleted", { name, count: total }));
+        return;
+      }
+      const pause: Pause = {
+        reason: allowanceSpent(failure) ? "allowance" : "error",
+        count: total,
+      };
+      setDeletePause(pause);
+      announce(
+        t(
+          pause.reason === "allowance"
+            ? "sharedData.deletePausedAllowance"
+            : "sharedData.deletePausedError",
+          {
+            count: total,
+          },
+        ),
+      );
     },
   });
   return (
@@ -182,10 +323,23 @@ function OwnData({ item }: { item: DataGrantView }) {
         icon={<Download className="size-4" />}
         busy={download.isPending}
         onClick={() => download.mutate()}
-        aria-label={t("sharedData.downloadNamed", { name })}
+        aria-label={t(resume ? "sharedData.downloadContinueNamed" : "sharedData.downloadNamed", {
+          name,
+        })}
       >
-        {t("sharedData.download")}
+        {t(resume ? "sharedData.downloadContinue" : "sharedData.download")}
       </Button>
+      {resume ? (
+        <Button
+          intent="secondary"
+          icon={<RotateCcw className="size-4" />}
+          disabled={download.isPending}
+          onClick={restart}
+          aria-label={t("sharedData.downloadRestartNamed", { name })}
+        >
+          {t("sharedData.downloadRestart")}
+        </Button>
+      ) : null}
       <Button
         intent="danger"
         icon={<Trash2 className="size-4" />}
@@ -194,7 +348,20 @@ function OwnData({ item }: { item: DataGrantView }) {
       >
         {t("sharedData.deleteMine")}
       </Button>
-      {download.isError ? (
+      {downloadPause ? (
+        <Callout
+          tone="info"
+          title={t("sharedData.downloadPaused")}
+          icon={<CircleAlert className="size-5" />}
+        >
+          {t(
+            downloadPause.reason === "allowance"
+              ? "sharedData.downloadPausedAllowance"
+              : "sharedData.downloadPausedError",
+            { count: downloadPause.count },
+          )}
+        </Callout>
+      ) : download.isError ? (
         <Callout
           tone="error"
           title={t("sharedData.downloadFailed")}
@@ -206,7 +373,7 @@ function OwnData({ item }: { item: DataGrantView }) {
       <ConfirmDialog
         open={confirming}
         title={t("sharedData.deleteTitle", { name })}
-        confirmLabel={t("sharedData.deleteMine")}
+        confirmLabel={t(deletePause ? "sharedData.deleteContinue" : "sharedData.deleteMine")}
         cancelLabel={t("sharedData.cancel")}
         confirmIcon={<Trash2 className="size-4" />}
         tone="danger"
@@ -215,7 +382,20 @@ function OwnData({ item }: { item: DataGrantView }) {
         onCancel={() => setConfirming(false)}
       >
         {t("sharedData.deleteBody")}
-        {remove.isError ? (
+        {deletePause ? (
+          <Callout
+            tone="info"
+            title={t("sharedData.deletePaused")}
+            icon={<CircleAlert className="size-5" />}
+          >
+            {t(
+              deletePause.reason === "allowance"
+                ? "sharedData.deletePausedAllowance"
+                : "sharedData.deletePausedError",
+              { count: deletePause.count },
+            )}
+          </Callout>
+        ) : remove.isError ? (
           <Callout
             tone="error"
             title={t("sharedData.deleteFailed")}
@@ -244,7 +424,7 @@ function AskOwner({ item }: { item: DataGrantView }) {
     mutationFn: () => api.requestDataRights(item.artifactId, kind),
     onSuccess: () => {
       setOpen(false);
-      announce(t("sharedData.askSent", { name }));
+      announce(t("sharedData.askReceived", { name }));
     },
   });
   return (

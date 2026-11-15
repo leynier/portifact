@@ -269,7 +269,11 @@ reason(
 );
 reason(
   "a person's rights over what they saved (decision 0026): their own deletes and requests to the people who manage the artifact; not an owner's change, and the request's notice reaches the admins by email",
-  ["deleteOwnDocument", "requestDataRights", "sendDataRightsNotice"],
+  ["deleteOwnDocument", "requestDataRights", "sendDataRightsNotice", "pruneDataRightsRequests"],
+);
+reason(
+  "the operator's handling of a rights request nobody could be emailed about (decision 0026): not an owner's change, kept on the request's own row",
+  ["resolveDataRightsRequest", "retryDataRightsRequest"],
 );
 reason(
   "what a directory said about people who never got an account, once it lapsed (decision 0017)",

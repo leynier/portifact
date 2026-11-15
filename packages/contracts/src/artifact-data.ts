@@ -711,7 +711,15 @@ export const PageDataCommand = z.discriminatedUnion("kind", [
     body: DocumentBody,
   }),
   z.strictObject({ kind: z.literal("remove"), collection: CollectionName, id: DocumentId }),
-  z.strictObject({ kind: z.literal("export_mine"), after: ExportCursor.nullable() }),
+  z.strictObject({
+    kind: z.literal("export_mine"),
+    after: ExportCursor.nullable(),
+    /**
+     * Documents on the page, at most `caps.exportRows` (the default). A smaller page costs less
+     * of the visitor's rights allowance, so "Data you shared" deletes in small batches.
+     */
+    take: z.int().min(1).max(ARTIFACT_DATA.caps.exportRows).optional(),
+  }),
 ]);
 export type PageDataCommand = z.infer<typeof PageDataCommand>;
 

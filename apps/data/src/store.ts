@@ -2159,13 +2159,18 @@ export class DocumentsStore {
     caller: Caller,
     after: ExportCursor | null,
     context: Context,
+    requested?: number,
   ): Answer<ExportPage> {
     if (caller.kind !== "visitor") {
       return this.#running(context.now, () =>
         this.#answer(() => fail({ code: "forbidden", message: "a grant holder's own export" })),
       );
     }
-    const take = ARTIFACT_DATA.caps.exportRows;
+    // A smaller page when asked, never a larger one than the cap.
+    const take = Math.min(
+      requested ?? ARTIFACT_DATA.caps.exportRows,
+      ARTIFACT_DATA.caps.exportRows,
+    );
     return this.#exportCommand(envelope, "visitor", caller.author, after, take, context);
   }
 

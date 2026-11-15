@@ -3,6 +3,7 @@
 import { env } from "cloudflare:workers";
 import { PLANS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
+import { journalKey } from "@portifact/domain/artifact-data";
 import {
   claimVisitorId,
   dataNamespaces,
@@ -312,6 +313,11 @@ describe("data grants on the app", () => {
         expiresAt: Date.now() + 86_400_000,
         redeemedAt: Date.now(),
       });
+      // "Data you shared" lists the account's author journal, which every grant claims first.
+      await env.ARTIFACTS.put(
+        journalKey(userId, id),
+        JSON.stringify({ visitorId: "v_123456789012345678901234", firstGrantAt: Date.now() }),
+      );
     }
     const seen: string[] = [];
     let after: string | null = null;
@@ -375,6 +381,24 @@ describe("data grants on the app", () => {
     const body = await page.json<{ rows: { id: string }[]; next: string | null }>();
     expect(body.rows.map((row) => row.id)).toEqual([docId]);
     expect(body.next).toBeNull();
+    // A smaller page, as "Data you shared" deletes in batches; never a malformed or larger one.
+    const small = await h.request(
+      `/api/v1/account/data-grants/${id}/mine?take=1`,
+      dashboard(visitor.cookie),
+    );
+    expect((await small.json<{ rows: { id: string }[] }>()).rows.map((row) => row.id)).toEqual([
+      docId,
+    ]);
+    for (const take of ["0", "501", "1.5", "x"]) {
+      expect(
+        (
+          await h.request(
+            `/api/v1/account/data-grants/${id}/mine?take=${take}`,
+            dashboard(visitor.cookie),
+          )
+        ).status,
+      ).toBe(400);
+    }
 
     // Someone else has nothing there, and cannot delete the visitor's document.
     const stranger = await h.signIn("rights-stranger@example.test");
@@ -398,11 +422,17 @@ describe("data grants on the app", () => {
     expect(await asked.json()).toEqual({ requested: true });
     expect((await ask(stranger, "erasure")).status).toBe(404);
     expect((await ask(visitor.cookie, "everything")).status).toBe(400);
+    // Kept as a request with its job, which names the request.
+    const [request] = await db
+      .select()
+      .from(schema.dataRightsRequests)
+      .where(eq(schema.dataRightsRequests.artifactId, id));
+    expect(request).toMatchObject({ kind: "erasure", state: "pending", visitorId: claimed.value });
     const jobs = await db
       .select({ subject: schema.outbox.subject })
       .from(schema.outbox)
       .where(eq(schema.outbox.topic, "data_rights_request"));
-    expect(jobs).toContainEqual({ subject: id });
+    expect(jobs).toContainEqual({ subject: request?.id ?? "" });
     expect(
       (
         await h.request(

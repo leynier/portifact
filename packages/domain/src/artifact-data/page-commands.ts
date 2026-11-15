@@ -22,6 +22,7 @@ export interface PageCommandTarget
     caller: Caller,
     after: ExportCursor | null,
     context: Context,
+    take?: number,
   ): unknown;
 }
 
@@ -60,6 +61,6 @@ export function runPageCommand(
     case "remove":
       return target.remove(envelope, caller, command.collection, command.id, context);
     case "export_mine":
-      return target.exportMine(envelope, caller, command.after, context);
+      return target.exportMine(envelope, caller, command.after, context, command.take);
   }
 }

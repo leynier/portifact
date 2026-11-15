@@ -259,8 +259,8 @@ export interface DashboardApi {
   dataGrants(after?: string | null): Promise<DataGrantList>;
   /** Whether the person has open grants on an artifact (the viewer's "stop saving as me"). */
   dataGrantStatus(artifactId: string): Promise<DataGrantStatus>;
-  /** One page of the documents the person created in an artifact. */
-  ownData(artifactId: string, after: string | null): Promise<OwnDataPage>;
+  /** One page of the documents the person created in an artifact, at most `take` of them. */
+  ownData(artifactId: string, after: string | null, take?: number): Promise<OwnDataPage>;
   /** Deletes one document the person created. */
   deleteOwnDocument(artifactId: string, collection: string, id: string): Promise<unknown>;
   /** Asks the people who manage an artifact about what the person saved there. */
@@ -918,8 +918,11 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
     dataGrantStatus(artifactId) {
       return call(`/api/v1/account/data-grants/${encodeURIComponent(artifactId)}`, DataGrantStatus);
     },
-    ownData(artifactId, after) {
-      const query = after ? `?${new URLSearchParams({ after })}` : "";
+    ownData(artifactId, after, take) {
+      const params = new URLSearchParams();
+      if (after) params.set("after", after);
+      if (take !== undefined) params.set("take", String(take));
+      const query = params.size > 0 ? `?${params}` : "";
       return call(
         `/api/v1/account/data-grants/${encodeURIComponent(artifactId)}/mine${query}`,
         OwnDataPage,

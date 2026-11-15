@@ -47,8 +47,25 @@ export const ja = {
   "sharedData.askAccess": "保存した内容のコピー",
   "sharedData.askErasure": "保存した内容の削除",
   "sharedData.askSend": "依頼を送信",
-  "sharedData.askSent": "{name} についての依頼を送信しました",
   "sharedData.askFailed": "依頼を送信できませんでした",
+  "sharedData.askReceived":
+    "{name} についての依頼を受け付けました。管理者にはできるだけ早くメールで届けます",
+  "sharedData.downloadContinue": "ダウンロードを続ける",
+  "sharedData.downloadContinueNamed": "{name} に保存した内容のダウンロードを続ける",
+  "sharedData.downloadRestart": "最初からやり直す",
+  "sharedData.downloadRestartNamed": "{name} のダウンロードを最初からやり直す",
+  "sharedData.downloadPaused": "ダウンロードを一時停止しました",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {これまでに # 件をダウンロードしました。} other {これまでに # 件をダウンロードしました。}} このアーティファクトでのあなたのデータの本日の上限に達しました。明日の UTC 午前 0 時以降に続けると、止まったところから再開します。",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {これまでに # 件をダウンロードしました。} other {これまでに # 件をダウンロードしました。}} 残りはダウンロードできませんでした。続けると、止まったところから再開します。",
+  "sharedData.downloadedAll": "{name} に保存した内容をすべてダウンロードしました（{count} 件）",
+  "sharedData.deleteContinue": "削除を続ける",
+  "sharedData.deletePaused": "削除を一時停止しました",
+  "sharedData.deletePausedAllowance":
+    "{count, plural, one {これまでに # 件を削除しました。} other {これまでに # 件を削除しました。}} このアーティファクトでのあなたのデータの本日の上限に達しました。明日の UTC 午前 0 時以降に続けると、止まったところから再開します。",
+  "sharedData.deletePausedError":
+    "{count, plural, one {これまでに # 件を削除しました。} other {これまでに # 件を削除しました。}} 残りは削除できませんでした。続けると、止まったところから再開します。",
   "dataGrant.viewer.saving": "このページは入力内容を保存しています",
   "dataGrant.viewer.savingHint":
     "表示名とこの artifact 専用の ID であなたを認識します。いつでも止められます。",

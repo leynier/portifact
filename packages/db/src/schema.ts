@@ -1300,6 +1300,56 @@ export const dataGrantCodes = sqliteTable(
 );
 
 /**
+ * A person's request to the people who manage an artifact about what they saved there (decision
+ * 0026, "Moderation and law"), named only by their visitor ID. Kept until it reached someone:
+ * `pending` while the `data_rights_request` job (subject: the request's ID) still has admins to
+ * email, waiting out a spent email cycle; `delivered` once one got it; `undeliverable` when every
+ * admin was suppressed or there was none, listed for the operator (`data-rights-requests`) until
+ * they handle it another way and mark it `resolved`. Delivered and resolved rows go 30 days later
+ * (`pruneDataRightsRequests`); the rest stay.
+ */
+export const dataRightsRequests = sqliteTable(
+  "data_rights_requests",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    visitorId: text("visitor_id").notNull(),
+    kind: text("kind", { enum: ["access", "erasure"] }).notNull(),
+    state: text("state", {
+      enum: ["pending", "delivered", "undeliverable", "resolved"],
+    }).notNull(),
+    /** Why nobody got it: `suppressed` (every admin's address) or `no_recipient`. */
+    reason: text("reason"),
+    recipients: integer("recipients").notNull().default(0),
+    createdAt: createdAt(),
+    /** When it was delivered, found undeliverable or resolved. */
+    settledAt: timestamp("settled_at"),
+  },
+  (t) => [
+    index("data_rights_requests_state_idx").on(t.state, t.settledAt),
+    index("data_rights_requests_artifact_idx").on(t.artifactId),
+  ],
+);
+
+/**
+ * Each admin a rights request was emailed to: claimed before the send and given back when it
+ * fails, so a retry emails only the admins not told yet.
+ */
+export const dataRightsRequestSends = sqliteTable(
+  "data_rights_request_sends",
+  {
+    requestId: text("request_id")
+      .notNull()
+      .references(() => dataRightsRequests.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    sentAt: timestamp("sent_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.requestId, t.userId] })],
+);
+
+/**
  * Anonymous grants of artifact data (decision 0026, delivery 9, "Anonymous writers"): a visitor
  * without an account allowed a public artifact's page to save what they enter, after the human
  * check. Nobody is behind the row: its `visitor_id` is new for each grant and never claimed in the

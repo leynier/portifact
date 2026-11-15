@@ -51,8 +51,27 @@ export const fr = {
   "sharedData.askAccess": "Une copie de ce que j'ai enregistré",
   "sharedData.askErasure": "Effacer ce que j'ai enregistré",
   "sharedData.askSend": "Envoyer la demande",
-  "sharedData.askSent": "Votre demande concernant {name} a été envoyée",
   "sharedData.askFailed": "La demande n'a pas été envoyée",
+  "sharedData.askReceived":
+    "Votre demande concernant {name} a été reçue. Les personnes qui le gèrent recevront un e-mail dès que possible",
+  "sharedData.downloadContinue": "Reprendre le téléchargement",
+  "sharedData.downloadContinueNamed":
+    "Reprendre le téléchargement de ce que vous avez enregistré dans {name}",
+  "sharedData.downloadRestart": "Recommencer",
+  "sharedData.downloadRestartNamed": "Recommencer le téléchargement de {name}",
+  "sharedData.downloadPaused": "Téléchargement en pause",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {# document téléchargé jusqu'ici.} other {# documents téléchargés jusqu'ici.}} Le quota du jour pour vos données dans cet artefact est épuisé. Reprenez demain, après minuit UTC, et le téléchargement continuera là où il s'est arrêté.",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {# document téléchargé jusqu'ici.} other {# documents téléchargés jusqu'ici.}} Le reste n'a pas été téléchargé. Reprenez, et le téléchargement continuera là où il s'est arrêté.",
+  "sharedData.downloadedAll":
+    "Tout ce que vous avez enregistré dans {name} a été téléchargé ({count} documents)",
+  "sharedData.deleteContinue": "Reprendre la suppression",
+  "sharedData.deletePaused": "Suppression en pause",
+  "sharedData.deletePausedAllowance":
+    "{count, plural, one {# document supprimé jusqu'ici.} other {# documents supprimés jusqu'ici.}} Le quota du jour pour vos données dans cet artefact est épuisé. Reprenez demain, après minuit UTC, et la suppression continuera là où elle s'est arrêtée.",
+  "sharedData.deletePausedError":
+    "{count, plural, one {# document supprimé jusqu'ici.} other {# documents supprimés jusqu'ici.}} Le reste n'a pas été supprimé. Reprenez, et la suppression continuera là où elle s'est arrêtée.",
   "dataGrant.viewer.saving": "Cette page enregistre ce que vous saisissez",
   "dataGrant.viewer.savingHint":
     "Elle vous connaît par votre nom affiché et un identifiant propre à cet artifact. Vous pouvez l'arrêter à tout moment.",

@@ -46,7 +46,12 @@ import {
   SignOutOthersResult,
   WorkspaceParam,
 } from "@portifact/contracts";
-import { CollectionName, DocumentId, ExportCursor } from "@portifact/contracts/artifact-data";
+import {
+  ARTIFACT_DATA,
+  CollectionName,
+  DocumentId,
+  ExportCursor,
+} from "@portifact/contracts/artifact-data";
 import { accountSessionUsableWithoutCurrentTerms } from "@portifact/domain";
 import {
   accountSuspensionView,
@@ -553,7 +558,7 @@ export function accountRoutes(deps: AccountDeps) {
       const now = deps.now();
       for (let index = from; index < regions.length; index++) {
         const handles = regions[index] as (typeof regions)[number];
-        const page = await listDataGrants(handles.db, {
+        const page = await listDataGrants(handles.db, bucketOf(handles), {
           userId: session.userId,
           contentDomain: c.env.CONTENT_DOMAIN,
           now,
@@ -684,12 +689,22 @@ export function accountRoutes(deps: AccountDeps) {
       if (after !== null && (at <= 0 || !after.success)) {
         return error(c, "invalid_input", "Invalid cursor.");
       }
+      // A smaller page, for deleting in batches the person's daily allowance fits.
+      const rawTake = c.req.query("take");
+      const take = rawTake === undefined ? undefined : Number(rawTake);
+      if (
+        take !== undefined &&
+        (!/^[0-9]{1,3}$/.test(rawTake ?? "") || take < 1 || take > ARTIFACT_DATA.caps.exportRows)
+      ) {
+        return error(c, "invalid_input", "Invalid page size.");
+      }
       const result = await exportOwnData(target.db, target.deps, {
         userId: session.userId,
         artifactId: target.artifactId,
         region: target.region,
         now: deps.now(),
         after: after === null ? null : (after.data ?? null),
+        ...(take === undefined ? {} : { take }),
       });
       if (!result.ok) return error(c, result.code, result.message);
       const page = result.value as {

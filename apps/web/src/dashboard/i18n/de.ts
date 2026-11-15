@@ -49,8 +49,27 @@ export const de = {
   "sharedData.askAccess": "Eine Kopie dessen, was ich gespeichert habe",
   "sharedData.askErasure": "Löschen, was ich gespeichert habe",
   "sharedData.askSend": "Anfrage senden",
-  "sharedData.askSent": "Deine Anfrage zu {name} wurde gesendet",
   "sharedData.askFailed": "Die Anfrage wurde nicht gesendet",
+  "sharedData.askReceived":
+    "Deine Anfrage zu {name} ist eingegangen. Die Verwaltenden erhalten so bald wie möglich eine E-Mail",
+  "sharedData.downloadContinue": "Download fortsetzen",
+  "sharedData.downloadContinueNamed":
+    "Download dessen fortsetzen, was du in {name} gespeichert hast",
+  "sharedData.downloadRestart": "Neu beginnen",
+  "sharedData.downloadRestartNamed": "Download von {name} neu beginnen",
+  "sharedData.downloadPaused": "Download angehalten",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {Bisher # Dokument heruntergeladen.} other {Bisher # Dokumente heruntergeladen.}} Dein heutiges Kontingent für deine Daten in diesem Artefakt ist aufgebraucht. Setze morgen nach Mitternacht UTC fort, dann macht der Download dort weiter, wo er aufgehört hat.",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {Bisher # Dokument heruntergeladen.} other {Bisher # Dokumente heruntergeladen.}} Der Rest wurde nicht heruntergeladen. Setze fort, dann macht der Download dort weiter, wo er aufgehört hat.",
+  "sharedData.downloadedAll":
+    "Alles heruntergeladen, was du in {name} gespeichert hast ({count} Dokumente)",
+  "sharedData.deleteContinue": "Löschen fortsetzen",
+  "sharedData.deletePaused": "Löschen angehalten",
+  "sharedData.deletePausedAllowance":
+    "{count, plural, one {Bisher # Dokument gelöscht.} other {Bisher # Dokumente gelöscht.}} Dein heutiges Kontingent für deine Daten in diesem Artefakt ist aufgebraucht. Setze morgen nach Mitternacht UTC fort, dann macht das Löschen dort weiter, wo es aufgehört hat.",
+  "sharedData.deletePausedError":
+    "{count, plural, one {Bisher # Dokument gelöscht.} other {Bisher # Dokumente gelöscht.}} Der Rest wurde nicht gelöscht. Setze fort, dann macht das Löschen dort weiter, wo es aufgehört hat.",
   "dataGrant.viewer.saving": "Diese Seite speichert, was du eingibst",
   "dataGrant.viewer.savingHint":
     "Sie kennt dich über deinen Anzeigenamen und eine ID für dieses Artifact. Du kannst das jederzeit beenden.",

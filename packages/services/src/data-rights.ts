@@ -13,7 +13,7 @@ import type { LocaleCode } from "@portifact/contracts/locales";
 import { hitRateLimit, type RegionalDb, schema } from "@portifact/db";
 import { checkNoticeCapacity, fail, logEvent, ok, type Result } from "@portifact/domain";
 import { journalKey } from "@portifact/domain/artifact-data";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import { loadSettings } from "./account-settings.ts";
 import { ownerRecipients } from "./actors.ts";
 import { type DataObjects, readDataRow } from "./artifact-data.ts";
@@ -92,17 +92,24 @@ async function asVisitor(
   return result;
 }
 
-/** One page of the documents the person created in the artifact, as the export stores them. */
+/**
+ * One page of the documents the person created in the artifact, as the export stores them: at
+ * most `take` (500, the cap, by default). Each page is charged to the person's own rights
+ * allowance, which a large export spends within a day; the next page is then refused
+ * `rate_limited` until the allowance comes back, and the export resumes from its cursor.
+ */
 export async function exportOwnData(
   db: RegionalDb,
   deps: DataRightsDeps,
-  input: DataRightsInput & { after: { collection: string; id: string } | null },
+  input: DataRightsInput & { after: { collection: string; id: string } | null; take?: number },
 ): Promise<Result<unknown>> {
   const answer = await asVisitor(
     db,
     deps,
     input,
-    { kind: "export_mine", after: input.after },
+    input.take === undefined
+      ? { kind: "export_mine", after: input.after }
+      : { kind: "export_mine", after: input.after, take: input.take },
     null,
   );
   return answer.ok ? ok(answer.value.value) : answer;
@@ -130,11 +137,17 @@ export type DataRightsKind = "access" | "erasure";
 export const DATA_RIGHTS_REQUESTS_PER_DAY = 3;
 const DAY_MS = 86_400_000;
 
+/** Delivered and resolved requests are kept this long, then pruned. */
+export const DATA_RIGHTS_KEEP_MS = 30 * DAY_MS;
+
 /**
  * The person asks the people who manage an artifact for a copy of, or the erasure of, what they
  * saved there (decision 0026, "Moderation and law"). Only a person the journal names in the
- * artifact may ask; a few requests a day per person and artifact. Writes one `data_rights_request`
- * job in the artifact's region, which names the person only by their visitor ID.
+ * artifact may ask; a few requests a day per person and artifact. Writes the request, which names
+ * the person only by their visitor ID, and its `data_rights_request` job in one batch in the
+ * artifact's region. The answer means the request was received and kept, not that anyone was
+ * emailed yet: the job delivers it, waiting out a spent email cycle, and a request nobody can be
+ * emailed about stays for the operator.
  */
 export async function requestDataRights(
   db: RegionalDb,
@@ -163,14 +176,29 @@ export async function requestDataRights(
   if (hits.count > DATA_RIGHTS_REQUESTS_PER_DAY) {
     return fail("rate_limited", "You sent this request already today. Try again tomorrow.");
   }
-  await db.insert(schema.outbox).values({
-    topic: "data_rights_request",
-    payload: { visitorId, kind: input.kind },
-    availableAt: input.now,
-    createdAt: input.now,
-    subject: input.artifactId,
-  });
+  const id = `dr_${crypto.randomUUID().replaceAll("-", "")}`;
+  await db.batch([
+    db.insert(schema.dataRightsRequests).values({
+      id,
+      artifactId: input.artifactId,
+      visitorId,
+      kind: input.kind,
+      state: "pending",
+      createdAt: input.now,
+    }),
+    rightsJob(db, id, input.now),
+  ]);
   return ok({ requested: true });
+}
+
+function rightsJob(db: RegionalDb, requestId: string, now: number) {
+  return db.insert(schema.outbox).values({
+    topic: "data_rights_request",
+    payload: {},
+    availableAt: now,
+    createdAt: now,
+    subject: requestId,
+  });
 }
 
 /** Sends the email; the jobs Worker renders it, naming the artifact only where its region may. */
@@ -186,21 +214,20 @@ export interface DataRightsNotifier {
   }): Promise<void>;
 }
 
-function rightsPayload(payload: unknown): { visitorId: string; kind: DataRightsKind } | null {
-  const value = (typeof payload === "string" ? JSON.parse(payload) : payload) as {
-    visitorId?: unknown;
-    kind?: unknown;
-  } | null;
-  if (typeof value?.visitorId !== "string") return null;
-  if (value.kind !== "access" && value.kind !== "erasure") return null;
-  return { visitorId: value.visitorId, kind: value.kind };
+type Skip = "gone" | "capacity" | "suppressed" | "undeliverable";
+
+// Only the reason: never the address, the visitor ID or the artifact.
+function skipped(reason: Skip): void {
+  logEvent("log", "data_rights_notice_skipped", { reason });
 }
 
 /**
- * Runs a `data_rights_request` job: claims its row by deleting it, then emails each admin of the
- * artifact's owner (`ownerRecipients`), skipping suppressed addresses and stopping at the notice
- * capacity. A send that fails after another admin got it is dropped, never retried, like expiry
- * notices; one failing first puts the row back.
+ * Runs a `data_rights_request` job: emails each admin of the artifact's owner (`ownerRecipients`)
+ * not emailed yet, claiming each send in `data_rights_request_sends` before it and giving it back
+ * when it fails, so a retry never emails an admin twice. A spent notice capacity leaves the job
+ * `pending`, delivered again later; a failed send throws, so the job runs again. Once every admin
+ * was tried the request is `delivered` (someone got it) or `undeliverable` (every address
+ * suppressed, or no admin), which keeps it for the operator; its send claims go then.
  */
 export async function sendDataRightsNotice(
   db: RegionalDb,
@@ -208,20 +235,22 @@ export async function sendDataRightsNotice(
   now: number,
   notifier: DataRightsNotifier,
 ): Promise<JobOutcome> {
-  const claimed = await db
-    .delete(schema.outbox)
-    .where(eq(schema.outbox.id, row.id))
-    .returning({ id: schema.outbox.id });
-  if (claimed.length === 0) return "done";
-  const request = rightsPayload(row.payload);
-  const artifactId = row.subject ?? "";
+  const r = schema.dataRightsRequests;
+  const s = schema.dataRightsRequestSends;
+  const [request] = await db
+    .select()
+    .from(r)
+    .where(eq(r.id, row.subject ?? ""))
+    .limit(1);
+  // Settled meanwhile, or gone with its artifact.
+  if (!request || request.state !== "pending") return "stale";
   const [artifact] = await db
     .select({ name: schema.artifacts.name, ownerId: schema.artifacts.ownerId })
     .from(schema.artifacts)
-    .where(eq(schema.artifacts.id, artifactId))
+    .where(eq(schema.artifacts.id, request.artifactId))
     .limit(1);
-  if (request === null || !artifact) {
-    logEvent("log", "data_rights_notice_skipped", { reason: "gone" });
+  if (!artifact) {
+    skipped("gone");
     return "stale";
   }
   const global = db.global;
@@ -230,49 +259,193 @@ export async function sendDataRightsNotice(
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, artifact.ownerId))
     .limit(1);
-  let sent = 0;
-  for (const userId of await ownerRecipients(global, artifact.ownerId)) {
-    if (!checkNoticeCapacity(await emailsSentInCycle(global, now)).ok) {
-      logEvent("log", "data_rights_notice_skipped", { reason: "capacity" });
-      break;
-    }
+  const already = new Set(
+    (await db.select({ userId: s.userId }).from(s).where(eq(s.requestId, request.id))).map(
+      (sent) => sent.userId,
+    ),
+  );
+  const recipients = await ownerRecipients(global, artifact.ownerId);
+  for (const userId of recipients) {
+    if (already.has(userId)) continue;
     const [person] = await global
       .select({ email: schema.users.email })
       .from(schema.users)
       .where(eq(schema.users.id, userId))
       .limit(1);
-    if (!person || (await isEmailSuppressed(global, person.email, now))) continue;
+    if (!person) continue;
+    if (await isEmailSuppressed(global, person.email, now)) {
+      skipped("suppressed");
+      continue;
+    }
+    if (!checkNoticeCapacity(await emailsSentInCycle(global, now)).ok) {
+      // Kept for a later delivery, which emails only the admins not told yet.
+      skipped("capacity");
+      return "pending";
+    }
+    const claimed = await db
+      .insert(s)
+      .values({ requestId: request.id, userId, sentAt: now })
+      .onConflictDoNothing()
+      .returning({ userId: s.userId });
+    if (claimed.length === 0) continue;
+    const giveBack = () =>
+      db.delete(s).where(and(eq(s.requestId, request.id), eq(s.userId, userId)));
     try {
       await notifier.send({
         to: person.email,
         kind: request.kind,
-        artifactId,
+        artifactId: request.artifactId,
         artifactName: artifact.name,
         visitorId: request.visitorId,
         workspaceSlug: workspace?.slug ?? null,
         locale: (await loadSettings(global, userId)).locale,
       });
     } catch (error) {
+      await giveBack();
       if (error instanceof RecipientSuppressedError) {
         await suppressEmail(global, { email: person.email, reason: "provider", now });
+        skipped("suppressed");
         continue;
       }
-      if (sent > 0) {
-        logEvent("log", "data_rights_notice_skipped", { reason: "partial" });
-        return "done";
-      }
-      await db.insert(schema.outbox).values({
-        topic: "data_rights_request",
-        payload: request,
-        availableAt: now,
-        createdAt: row.createdAt,
-        subject: artifactId,
-        attempts: row.attempts,
-      });
       throw error;
     }
     await recordEmailsSent(global, now);
-    sent += 1;
+    already.add(userId);
   }
+  const [count] = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(s)
+    .where(eq(s.requestId, request.id));
+  const sent = Number(count?.count ?? 0);
+  if (sent === 0) skipped("undeliverable");
+  const pending = and(eq(r.id, request.id), eq(r.state, "pending"));
+  await db.batch([
+    db
+      .update(r)
+      .set({
+        state: sent > 0 ? "delivered" : "undeliverable",
+        reason: sent > 0 ? null : recipients.length === 0 ? "no_recipient" : "suppressed",
+        recipients: sent,
+        settledAt: now,
+      })
+      .where(pending),
+    // The claims only kept a retry from emailing anyone twice: they go once it settled.
+    db
+      .delete(s)
+      .where(
+        and(
+          eq(s.requestId, request.id),
+          sql`exists (select 1 from ${r} where ${r.id} = ${request.id} and ${r.state} <> 'pending')`,
+        ),
+      ),
+  ]);
   return "done";
+}
+
+/** A rights request as the operator tool lists it: no address, only the visitor ID. */
+export interface DataRightsRequestView {
+  id: string;
+  artifactId: string;
+  kind: DataRightsKind;
+  state: "pending" | "undeliverable";
+  reason: string | null;
+  visitorId: string;
+  createdAt: number;
+}
+
+/**
+ * The requests the operator must look at in one region: every `undeliverable` one, and those
+ * still `pending` a day after they were made (the email cycle is spent, or sends keep failing),
+ * oldest first.
+ */
+export async function listDataRightsRequests(
+  db: RegionalDb,
+  now: number,
+  limit = 50,
+): Promise<DataRightsRequestView[]> {
+  const r = schema.dataRightsRequests;
+  const rows = await db
+    .select({
+      id: r.id,
+      artifactId: r.artifactId,
+      kind: r.kind,
+      state: r.state,
+      reason: r.reason,
+      visitorId: r.visitorId,
+      createdAt: r.createdAt,
+    })
+    .from(r)
+    .where(
+      or(eq(r.state, "undeliverable"), and(eq(r.state, "pending"), lte(r.createdAt, now - DAY_MS))),
+    )
+    .orderBy(asc(r.createdAt), asc(r.id))
+    .limit(Math.min(Math.max(1, limit), 500));
+  return rows as DataRightsRequestView[];
+}
+
+/**
+ * The operator handled a request another way (for example by writing to the managers) and marks
+ * it `resolved`; a pending one's job then ends without emailing. False when the request is not
+ * there or already delivered or resolved.
+ */
+export async function resolveDataRightsRequest(
+  db: RegionalDb,
+  id: string,
+  now: number,
+): Promise<boolean> {
+  const r = schema.dataRightsRequests;
+  const done = await db
+    .update(r)
+    .set({ state: "resolved", settledAt: now })
+    .where(and(eq(r.id, id), inArray(r.state, ["pending", "undeliverable"])))
+    .returning({ id: r.id });
+  return done.length > 0;
+}
+
+/**
+ * Tries an `undeliverable` request again, after the operator lifted a suppression or the owner
+ * gained an admin: back to `pending` with a new job, in one batch conditioned on the state read.
+ */
+export async function retryDataRightsRequest(
+  db: RegionalDb,
+  id: string,
+  now: number,
+): Promise<boolean> {
+  const r = schema.dataRightsRequests;
+  const undeliverable = and(eq(r.id, id), eq(r.state, "undeliverable"));
+  const [found] = await db.select({ id: r.id }).from(r).where(undeliverable).limit(1);
+  if (!found) return false;
+  const [, retried] = await db.batch([
+    db
+      .insert(schema.outbox)
+      .select(
+        sql`select null, 'data_rights_request', '{}', ${now}, null, 0, ${now}, ${id}, null where exists (select 1 from ${r} where ${r.id} = ${id} and ${r.state} = 'undeliverable')`,
+      ),
+    db
+      .update(r)
+      .set({ state: "pending", reason: null, settledAt: null })
+      .where(undeliverable)
+      .returning({ id: r.id }),
+  ]);
+  return retried.length > 0;
+}
+
+/**
+ * Deletes, at most `limit` per run, delivered and resolved requests `DATA_RIGHTS_KEEP_MS` after
+ * they settled, through the `(state, settled_at)` index. Pending and undeliverable ones stay.
+ */
+export async function pruneDataRightsRequests(
+  db: RegionalDb,
+  now: number,
+  limit = 500,
+): Promise<{ processed: number }> {
+  const r = schema.dataRightsRequests;
+  const before = now - DATA_RIGHTS_KEEP_MS;
+  const gone = await db
+    .delete(r)
+    .where(
+      sql`${r.id} in (select ${r.id} from ${r} where ${r.state} in ('delivered', 'resolved') and ${r.settledAt} <= ${before} limit ${limit})`,
+    )
+    .returning({ id: r.id });
+  return { processed: gone.length };
 }

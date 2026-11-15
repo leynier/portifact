@@ -6,6 +6,7 @@
 // Revocation (the person, the viewer, sign-out, lost access) therefore applies within a minute.
 import {
   type AnonymousDataGrantControl,
+  ArtifactId,
   DATA_GRANT,
   type DataGrantControl,
   type DataGrantView,
@@ -484,11 +485,16 @@ export const DATA_GRANT_PAGE = 50;
 
 /**
  * One page of the artifacts the person shared data with in one region, by artifact ID after
- * `after`, through the `(user_id, artifact_id)` index: one row per artifact with the grants
- * still open. `next` names the last artifact when more may follow.
+ * `after`: the account's author journal entries in the region's bucket (one per artifact the
+ * person was ever known in, listed by key), never retired ones, with their grants laid over them
+ * through the `(user_id, artifact_id)` index. The journal outlives the grants, which are pruned
+ * 30 days after they ended, so the person keeps reaching their export, deletes and requests for
+ * as long as the artifact holds what they saved. `next` names the last artifact when more may
+ * follow.
  */
 export async function listDataGrants(
   db: RegionalDb,
+  bucket: R2Bucket,
   input: {
     userId: string;
     contentDomain: string;
@@ -498,42 +504,67 @@ export async function listDataGrants(
   },
 ): Promise<{ items: DataGrantView[]; next: string | null }> {
   const limit = Math.min(Math.max(1, input.limit ?? DATA_GRANT_PAGE), DATA_GRANT_PAGE);
-  const live = sql`${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now}`;
-  const rows = await db
-    .select({
-      artifactId: g.artifactId,
-      name: sql<
-        string | null
-      >`(select ${schema.artifacts.name} from ${schema.artifacts} where ${schema.artifacts.id} = "data_grants"."artifact_id")`,
-      host: sql<string>`max(${g.host})`,
-      open: sql<number>`sum(case when ${live} then 1 else 0 end)`,
-      first: sql<number>`min(${g.createdAt})`,
-      last: sql<number>`max(${g.createdAt})`,
-      expiresAt: sql<number | null>`max(case when ${live} then ${g.expiresAt} end)`,
-    })
-    .from(g)
-    .where(
-      and(
-        eq(g.userId, input.userId),
-        isNotNull(g.redeemedAt),
-        input.after ? gt(g.artifactId, input.after) : undefined,
-      ),
+  const prefix = journalKey(input.userId, "");
+  const listed = await bucket.list({
+    prefix,
+    limit,
+    ...(input.after ? { startAfter: `${prefix}${input.after}` } : {}),
+  });
+  const keys = listed.objects.map((object) => object.key);
+  const next = listed.truncated ? (keys.at(-1)?.slice(prefix.length) ?? null) : null;
+  const entries = (
+    await Promise.all(
+      keys.map(async (key) => {
+        const found = await bucket.get(key);
+        if (found === null) return null;
+        const entry = JournalEntrySchema.safeParse(await found.json().catch(() => null));
+        if (!entry.success || entry.data.retiredAt !== undefined) return null;
+        const artifactId = ArtifactId.safeParse(key.slice(prefix.length));
+        if (entry.data.visitorId === null || !artifactId.success) return null;
+        return { artifactId: artifactId.data, firstGrantAt: entry.data.firstGrantAt };
+      }),
     )
-    .groupBy(g.artifactId)
-    .orderBy(g.artifactId)
-    .limit(limit + 1);
-  const page = rows.slice(0, limit);
+  ).filter((entry) => entry !== null);
+  if (entries.length === 0) return { items: [], next };
+  const ids = entries.map((entry) => entry.artifactId);
+  const live = sql`${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now}`;
+  const [names, grants] = await db.batch([
+    db
+      .select({ id: schema.artifacts.id, name: schema.artifacts.name })
+      .from(schema.artifacts)
+      .where(inArray(schema.artifacts.id, ids)),
+    db
+      .select({
+        artifactId: g.artifactId,
+        host: sql<string>`max(${g.host})`,
+        open: sql<number>`sum(case when ${live} then 1 else 0 end)`,
+        last: sql<number>`max(${g.createdAt})`,
+        expiresAt: sql<number | null>`max(case when ${live} then ${g.expiresAt} end)`,
+      })
+      .from(g)
+      .where(and(eq(g.userId, input.userId), inArray(g.artifactId, ids), isNotNull(g.redeemedAt)))
+      .groupBy(g.artifactId),
+  ]);
+  const nameOf = new Map(names.map((row) => [row.id, row.name]));
+  const grantOf = new Map(grants.map((row) => [row.artifactId, row]));
   return {
-    items: page.map((row) => ({
-      artifactId: row.artifactId,
-      artifactName: row.name ?? null,
-      host: row.host ?? devHost(row.artifactId, input.contentDomain),
-      openGrants: Number(row.open),
-      firstGrantedAt: new Date(Number(row.first)).toISOString(),
-      lastGrantedAt: new Date(Number(row.last)).toISOString(),
-      expiresAt: row.expiresAt === null ? null : new Date(Number(row.expiresAt)).toISOString(),
-    })),
-    next: rows.length > limit ? (page.at(-1)?.artifactId ?? null) : null,
+    items: entries.map((entry) => {
+      const grant = grantOf.get(entry.artifactId);
+      const last = Math.max(entry.firstGrantAt, Number(grant?.last ?? entry.firstGrantAt));
+      return {
+        artifactId: entry.artifactId,
+        artifactName: nameOf.get(entry.artifactId) ?? null,
+        host: grant?.host ?? devHost(entry.artifactId, input.contentDomain),
+        openGrants: Number(grant?.open ?? 0),
+        firstGrantedAt: new Date(entry.firstGrantAt).toISOString(),
+        lastGrantedAt: new Date(last).toISOString(),
+        expiresAt:
+          grant?.expiresAt === null || grant?.expiresAt === undefined
+            ? null
+            : new Date(Number(grant.expiresAt)).toISOString(),
+      };
+    }),
+    next,
   };
 }
 

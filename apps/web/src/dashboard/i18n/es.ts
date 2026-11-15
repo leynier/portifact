@@ -48,8 +48,25 @@ export const es = {
   "sharedData.askAccess": "Una copia de lo que guardé",
   "sharedData.askErasure": "Borrar lo que guardé",
   "sharedData.askSend": "Enviar la solicitud",
-  "sharedData.askSent": "Se envió tu solicitud sobre {name}",
   "sharedData.askFailed": "No se envió la solicitud",
+  "sharedData.askReceived":
+    "Recibimos tu solicitud sobre {name}. Quienes lo gestionan recibirán un correo lo antes posible",
+  "sharedData.downloadContinue": "Continuar la descarga",
+  "sharedData.downloadContinueNamed": "Continuar la descarga de lo que guardaste en {name}",
+  "sharedData.downloadRestart": "Empezar de nuevo",
+  "sharedData.downloadRestartNamed": "Empezar de nuevo la descarga de {name}",
+  "sharedData.downloadPaused": "Descarga en pausa",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {# documento descargado hasta ahora.} other {# documentos descargados hasta ahora.}} Se agotó la asignación de hoy para tus datos en este artefacto. Continúa mañana, después de la medianoche UTC, y la descarga seguirá donde se detuvo.",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {# documento descargado hasta ahora.} other {# documentos descargados hasta ahora.}} El resto no se descargó. Continúa y la descarga seguirá donde se detuvo.",
+  "sharedData.downloadedAll": "Se descargó todo lo que guardaste en {name} ({count} documentos)",
+  "sharedData.deleteContinue": "Continuar eliminando",
+  "sharedData.deletePaused": "Eliminación en pausa",
+  "sharedData.deletePausedAllowance":
+    "{count, plural, one {# documento eliminado hasta ahora.} other {# documentos eliminados hasta ahora.}} Se agotó la asignación de hoy para tus datos en este artefacto. Continúa mañana, después de la medianoche UTC, y la eliminación seguirá donde se detuvo.",
+  "sharedData.deletePausedError":
+    "{count, plural, one {# documento eliminado hasta ahora.} other {# documentos eliminados hasta ahora.}} El resto no se eliminó. Continúa y la eliminación seguirá donde se detuvo.",
   "dataGrant.viewer.saving": "Esta página guarda lo que escribes",
   "dataGrant.viewer.savingHint":
     "Te conoce por tu nombre visible y un ID para este artifact. Puedes detenerlo cuando quieras.",
