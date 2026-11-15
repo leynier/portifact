@@ -11,6 +11,7 @@ import { Avatar, Badge } from "@portifact/ui";
 import { EyeOff } from "lucide-react";
 import type { ReactNode } from "react";
 import { useFormatDate, useRelativeTime, useT } from "../context.tsx";
+import { MessageAttachments } from "./attachments.tsx";
 
 /**
  * What the thread points at: the whole page, an element or a quote. `compact` keeps a long quote
@@ -75,9 +76,12 @@ export function TargetSummary({
 export function MessageContent({
   message,
   actions,
+  artifactId,
 }: {
   message: AnnotationMessageView;
   actions?: ReactNode;
+  /** The artifact the message is on, to fetch its files (decision 0029). */
+  artifactId?: string;
 }) {
   const t = useT();
   const formatDate = useFormatDate();
@@ -117,6 +121,9 @@ export function MessageContent({
           </div>
         ) : null}
         {body}
+        {artifactId && message.attachments && message.attachments.length > 0 ? (
+          <MessageAttachments artifactId={artifactId} files={message.attachments} />
+        ) : null}
       </div>
     </div>
   );

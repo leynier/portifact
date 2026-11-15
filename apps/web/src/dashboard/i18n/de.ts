@@ -1360,6 +1360,32 @@ export const de = {
   "review.composer.empty": "Schreib einen Kommentar.",
   "review.composer.invalid": "Der Kommentar ist zu lang oder enthält nicht erlaubte Zeichen.",
   "review.composer.posted": "Kommentar gesendet.",
+  "review.attach.file": "Datei anhängen",
+  "review.attach.screenshot": "Bildschirmfoto anhängen",
+  "review.attach.hint":
+    "Bilder (PNG, JPEG, GIF oder WebP), PDF oder reiner Text, je bis zu 10 MB und 4 pro Kommentar. Alle, die den Kommentar lesen können, können sie öffnen. Dateien werden erst beim Veröffentlichen hochgeladen.",
+  "review.attach.list": "Anzuhängende Dateien",
+  "review.attach.preview": "Vorschau von {name}",
+  "review.attach.remove": "{name} entfernen",
+  "review.attach.added": "{name} ist bereit zum Veröffentlichen.",
+  "review.attach.screenshotName": "bildschirmfoto",
+  "review.attach.captureWarning":
+    "Prüfe, was der gewählte Bildschirm, das Fenster oder der Tab zeigt, bevor du ihn teilst: Das Bildschirmfoto zeigt alles darauf, auch andere Fenster. Es bleibt in diesem Browser, bis du veröffentlichst. Zeige Daten anderer nur, wenn du darfst.",
+  "review.attach.captureContinue": "Weiter",
+  "review.attach.state.added": "Wird beim Veröffentlichen hochgeladen",
+  "review.attach.state.uploading": "Wird hochgeladen",
+  "review.attach.state.uploaded": "Hochgeladen",
+  "review.attach.state.failed": "Hochladen fehlgeschlagen",
+  "review.attach.problem.tooMany": "Ein Kommentar kann höchstens 4 Dateien enthalten.",
+  "review.attach.problem.tooLarge": "{name} ist größer als 10 MB.",
+  "review.attach.problem.empty": "{name} ist leer.",
+  "review.attach.problem.captureFailed": "Das Bildschirmfoto wurde nicht aufgenommen.",
+  "review.attach.problem.uploadFailed":
+    "{name} konnte nicht hochgeladen werden. Veröffentliche erneut, um es noch einmal zu versuchen, oder entferne die Datei.",
+  "review.attachments.label": "Angehängte Dateien",
+  "review.attachments.download": "{name} herunterladen",
+  "review.attachments.loading": "{name} wird geladen",
+  "review.attachments.unavailable": "{name} konnte nicht geladen werden.",
   "review.humanCheck.body":
     "Eine kurze Prüfung, dass du ein Mensch bist, bevor dein Kommentar gesendet wird. Er wird gesendet, sobald die Prüfung abgeschlossen ist.",
   "review.humanCheck.needed":

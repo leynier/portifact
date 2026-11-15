@@ -52,6 +52,8 @@ A name is 1 to 200 code points without control characters, `/` or `\`. It is unt
 
 ## Uploading
 
+Files are uploaded only when the person posts: the viewer keeps each chosen file and screenshot in the browser until then, so a file removed or a comment abandoned never leaves it. At Post, each kept file goes through steps 1 and 2 (one already stored by an earlier attempt that failed is not sent again), and step 3 is the comment itself.
+
 1. `POST /api/v1/artifacts/:id/annotations/attachments` with `{ name, size, sha256 }`. The caller must be able to start a thread on the artifact (the annotations `participate` action, the same checks as a new comment); budget protection's pause of new comments refuses it (`checkAnnotationCapacity`); the size must fit. One insert writes a `pending` row (`comment_attachments`, regional) only while the person has fewer than 8 live pending rows; the answer is the row and a presigned `PUT` to `attachments/<artifact>/<attachment>` signing `content-length` and `x-amz-checksum-sha256`, 15 minutes. R2 refuses other bytes. No idempotency key: a retry leaves one more pending row, bounded by the cap and gone within the hour.
 2. The client sends the bytes.
 3. A new thread or reply names the files (`attachments`: up to 4 IDs, no repeats). Before its batch the service reads each object's head and first bytes (the whole file for text, at most 1 MiB): the size and SHA-256 must be the row's and the bytes an allowed type, or the write is `invalid_input` and nothing is written. Its claim's guard adds that every named row is still `pending`, uploaded by the caller, for this artifact and unexpired; the batch then turns them `attached` with the message, the thread and the type the bytes showed. The attach trigger adds the size to the owner's `annotation_usage.bytes`; past the plan's limit the CHECK fails the whole batch and the write answers `quota_exceeded`, like a comment that does not fit.
@@ -84,7 +86,7 @@ Counting in the comment bytes, not in `account_usage.stored_bytes`, is deliberat
 
 ## Screenshots
 
-The viewer's composer offers "Attach a screenshot" where `navigator.mediaDevices.getDisplayMedia` exists. It asks for one capture (`preferCurrentTab`, a hint Chromium honors; Firefox and Safari show their chooser), draws one frame on a canvas in the viewer page, stops every track at once, encodes a PNG and shows it in the composer with a Remove button. Nothing is uploaded until the person posts, and then it is an ordinary attachment.
+The viewer's composer offers "Attach a screenshot" where `navigator.mediaDevices.getDisplayMedia` exists. It asks for one capture (`preferCurrentTab`, a hint Chromium honors; Firefox and Safari show their chooser), draws one frame on a canvas in the viewer page, stops every track at once, encodes a PNG and shows it in the composer with a Remove button. Before the browser's prompt opens, the composer warns that the capture shows everything on what the person shares, other windows included, that it stays in this browser until they post, and to show other people's data only if they may; Continue opens the prompt, Cancel asks nothing. Nothing is uploaded until the person posts, and then it is an ordinary attachment.
 
 Rejected ways:
 

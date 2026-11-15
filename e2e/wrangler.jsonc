@@ -43,6 +43,8 @@
     "SUGGESTIONS_ENABLED": "true",
     // Image regions (decision 0028); the deployed Workers leave it unset.
     "IMAGE_REGIONS_ENABLED": "true",
+    // Comment attachments (decision 0029); the deployed Workers leave it unset.
+    "ATTACHMENTS_ENABLED": "true",
     "SSO_KEY": "e2e-only-sso-sealing-key-0123456789abcdef",
     // SCIM provisioning, driven by the test as the directory; the deployed app Worker leaves it
     // unset (decision 0017).

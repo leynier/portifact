@@ -1355,6 +1355,32 @@ export const es = {
   "review.composer.invalid":
     "El comentario es demasiado largo o contiene caracteres no permitidos.",
   "review.composer.posted": "Comentario publicado.",
+  "review.attach.file": "Adjuntar un archivo",
+  "review.attach.screenshot": "Adjuntar una captura de pantalla",
+  "review.attach.hint":
+    "Imágenes (PNG, JPEG, GIF o WebP), PDF o texto plano, de hasta 10 MB cada uno y 4 por comentario. Quien pueda leer el comentario puede abrirlos. Los archivos se suben solo cuando publicas.",
+  "review.attach.list": "Archivos para adjuntar",
+  "review.attach.preview": "Vista previa de {name}",
+  "review.attach.remove": "Quitar {name}",
+  "review.attach.added": "{name} está listo para publicar.",
+  "review.attach.screenshotName": "captura",
+  "review.attach.captureWarning":
+    "Revisa lo que muestra la pantalla, ventana o pestaña que elijas antes de compartirla: la captura muestra todo lo que hay en ella, incluidas otras ventanas. Se queda en este navegador hasta que publiques. Muestra datos de otras personas solo si puedes hacerlo.",
+  "review.attach.captureContinue": "Continuar",
+  "review.attach.state.added": "Se sube al publicar",
+  "review.attach.state.uploading": "Subiendo",
+  "review.attach.state.uploaded": "Subido",
+  "review.attach.state.failed": "No se pudo subir",
+  "review.attach.problem.tooMany": "Un comentario puede llevar como máximo 4 archivos.",
+  "review.attach.problem.tooLarge": "{name} pesa más de 10 MB.",
+  "review.attach.problem.empty": "{name} está vacío.",
+  "review.attach.problem.captureFailed": "No se tomó la captura de pantalla.",
+  "review.attach.problem.uploadFailed":
+    "No se pudo subir {name}. Publica de nuevo para reintentar, o quítalo.",
+  "review.attachments.label": "Archivos adjuntos",
+  "review.attachments.download": "Descargar {name}",
+  "review.attachments.loading": "Cargando {name}",
+  "review.attachments.unavailable": "No se pudo cargar {name}.",
   "review.humanCheck.body":
     "Una verificación rápida de que eres humano antes de publicar tu comentario. Se publica en cuanto termina la verificación.",
   "review.humanCheck.needed":

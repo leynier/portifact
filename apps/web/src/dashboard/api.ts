@@ -32,6 +32,7 @@ import {
   type ArtifactListFilters,
   ArtifactStatsView,
   ArtifactSummary,
+  AttachmentLink,
   AUDIT_EXPORT_CURSOR_HEADER,
   type AuditExportFormat,
   type AuditKind,
@@ -93,6 +94,8 @@ import {
   OwnDocumentDeletion,
   type PolicyImpact,
   PolicyPreview,
+  type PrepareAttachmentRequest,
+  PreparedAttachment,
   PreparedPublish,
   type PublishRequest,
   ReviewStart,
@@ -548,7 +551,15 @@ export interface DashboardApi {
     body: string,
     idempotencyKey: string,
     turnstileToken?: string,
+    attachments?: readonly string[],
   ): Promise<AnnotationThreadView>;
+  /** Starts one comment attachment upload (decision 0029); the bytes go to the returned URL. */
+  prepareAttachment(
+    artifactId: string,
+    request: PrepareAttachmentRequest,
+  ): Promise<PreparedAttachment>;
+  /** A short download link of one file on a comment, for whoever sees its message. */
+  attachmentLink(artifactId: string, attachmentId: string): Promise<AttachmentLink>;
   setThreadState(
     artifactId: string,
     threadId: string,
@@ -1437,13 +1448,31 @@ export function dashboardApi({ fetch, onUnauthenticated }: DashboardApiOptions):
         "idempotency-key": idempotencyKey,
       });
     },
-    reply(artifactId, threadId, body, idempotencyKey, turnstileToken) {
+    reply(artifactId, threadId, body, idempotencyKey, turnstileToken, attachments) {
       return call(
         `${annotationsPath(artifactId)}/threads/${encodeURIComponent(threadId)}/messages`,
         AnnotationThreadView,
         "POST",
-        turnstileToken === undefined ? { body } : { body, turnstileToken },
+        {
+          body,
+          ...(turnstileToken === undefined ? {} : { turnstileToken }),
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        },
         { "idempotency-key": idempotencyKey },
+      );
+    },
+    prepareAttachment(artifactId, request) {
+      return call(
+        `${annotationsPath(artifactId)}/attachments`,
+        PreparedAttachment,
+        "POST",
+        request,
+      );
+    },
+    attachmentLink(artifactId, attachmentId) {
+      return call(
+        `${annotationsPath(artifactId)}/attachments/${encodeURIComponent(attachmentId)}`,
+        AttachmentLink,
       );
     },
     setThreadState(artifactId, threadId, state) {

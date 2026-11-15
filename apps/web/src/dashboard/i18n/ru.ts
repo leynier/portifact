@@ -1345,6 +1345,32 @@ export const ru = {
   "review.composer.empty": "Напишите комментарий.",
   "review.composer.invalid": "Комментарий слишком длинный или содержит недопустимые символы.",
   "review.composer.posted": "Комментарий опубликован.",
+  "review.attach.file": "Прикрепить файл",
+  "review.attach.screenshot": "Прикрепить снимок экрана",
+  "review.attach.hint":
+    "Изображения (PNG, JPEG, GIF или WebP), PDF или обычный текст, до 10 МБ каждый и не более 4 на комментарий. Их может открыть любой, кто может прочитать комментарий. Файлы загружаются только при публикации.",
+  "review.attach.list": "Файлы для прикрепления",
+  "review.attach.preview": "Предпросмотр {name}",
+  "review.attach.remove": "Убрать {name}",
+  "review.attach.added": "{name} можно опубликовать.",
+  "review.attach.screenshotName": "снимок-экрана",
+  "review.attach.captureWarning":
+    "Прежде чем поделиться, проверьте, что показывает выбранный экран, окно или вкладка: на снимке будет всё, что там видно, включая другие окна. Снимок остаётся в этом браузере до публикации. Показывайте чужие данные, только если вам это разрешено.",
+  "review.attach.captureContinue": "Продолжить",
+  "review.attach.state.added": "Загрузится при публикации",
+  "review.attach.state.uploading": "Загрузка",
+  "review.attach.state.uploaded": "Загружено",
+  "review.attach.state.failed": "Не удалось загрузить",
+  "review.attach.problem.tooMany": "К комментарию можно прикрепить не более 4 файлов.",
+  "review.attach.problem.tooLarge": "{name} больше 10 МБ.",
+  "review.attach.problem.empty": "{name} пустой.",
+  "review.attach.problem.captureFailed": "Снимок экрана не сделан.",
+  "review.attach.problem.uploadFailed":
+    "Не удалось загрузить {name}. Опубликуйте ещё раз, чтобы повторить, или уберите файл.",
+  "review.attachments.label": "Прикреплённые файлы",
+  "review.attachments.download": "Скачать {name}",
+  "review.attachments.loading": "Загрузка {name}",
+  "review.attachments.unavailable": "Не удалось загрузить {name}.",
   "review.humanCheck.body":
     "Перед публикацией комментария нужна короткая проверка, что вы человек. Комментарий будет опубликован сразу после неё.",
   "review.humanCheck.needed":

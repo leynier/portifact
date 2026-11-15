@@ -1369,6 +1369,32 @@ export const fr = {
   "review.composer.invalid":
     "Le commentaire est trop long ou contient des caractères non autorisés.",
   "review.composer.posted": "Commentaire publié.",
+  "review.attach.file": "Joindre un fichier",
+  "review.attach.screenshot": "Joindre une capture d'écran",
+  "review.attach.hint":
+    "Images (PNG, JPEG, GIF ou WebP), PDF ou texte brut, jusqu'à 10 Mo chacun et 4 par commentaire. Toute personne qui peut lire le commentaire peut les ouvrir. Les fichiers sont envoyés seulement quand vous publiez.",
+  "review.attach.list": "Fichiers à joindre",
+  "review.attach.preview": "Aperçu de {name}",
+  "review.attach.remove": "Retirer {name}",
+  "review.attach.added": "{name} est prêt à être publié.",
+  "review.attach.screenshotName": "capture",
+  "review.attach.captureWarning":
+    "Vérifiez ce que montre l'écran, la fenêtre ou l'onglet choisi avant de le partager : la capture montre tout ce qui s'y trouve, autres fenêtres comprises. Elle reste dans ce navigateur jusqu'à la publication. Ne montrez les données d'autres personnes que si vous en avez le droit.",
+  "review.attach.captureContinue": "Continuer",
+  "review.attach.state.added": "Envoyé à la publication",
+  "review.attach.state.uploading": "Envoi en cours",
+  "review.attach.state.uploaded": "Envoyé",
+  "review.attach.state.failed": "Échec de l'envoi",
+  "review.attach.problem.tooMany": "Un commentaire peut contenir au plus 4 fichiers.",
+  "review.attach.problem.tooLarge": "{name} dépasse 10 Mo.",
+  "review.attach.problem.empty": "{name} est vide.",
+  "review.attach.problem.captureFailed": "La capture d'écran n'a pas été prise.",
+  "review.attach.problem.uploadFailed":
+    "Impossible d'envoyer {name}. Publiez à nouveau pour réessayer, ou retirez-le.",
+  "review.attachments.label": "Fichiers joints",
+  "review.attachments.download": "Télécharger {name}",
+  "review.attachments.loading": "Chargement de {name}",
+  "review.attachments.unavailable": "Impossible de charger {name}.",
   "review.humanCheck.body":
     "Une vérification rapide que vous êtes humain avant la publication de votre commentaire. Il est publié dès que la vérification est terminée.",
   "review.humanCheck.needed":

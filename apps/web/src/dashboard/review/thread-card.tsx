@@ -53,6 +53,7 @@ import {
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { errorMessage } from "../screens/artifact-list.tsx";
+import { AttachmentControls, useAttachmentsEnabled, useAttachmentUploads } from "./attachments.tsx";
 import { CreateIssueDialog, usableConnections } from "./create-issue.tsx";
 import { useHumanCheck } from "./human-check.tsx";
 import { SuggestionBlock, suggestionOf, undecided } from "./suggestions.tsx";
@@ -589,6 +590,7 @@ function MessageItem({
   return (
     <li className="group/message flex flex-col gap-2">
       <MessageContent
+        artifactId={artifactId}
         message={message}
         actions={
           items.length > 0 ? (
@@ -642,11 +644,14 @@ function ReplyForm({
   const queryClient = useQueryClient();
   const { api } = useDashboard();
   const human = useHumanCheck(humanNeeded);
+  const uploads = useAttachmentUploads(artifactId);
+  const attaching = useAttachmentsEnabled();
   const reply = useMutation({
-    mutationFn: (body: string) =>
-      human.post((key, token) => api.reply(artifactId, threadId, body, key, token)),
+    mutationFn: ({ body, attachments }: { body: string; attachments: string[] }) =>
+      human.post((key, token) => api.reply(artifactId, threadId, body, key, token, attachments)),
     onSuccess: (thread) => {
       if (!thread) return;
+      uploads.clear();
       applyThread(queryClient, artifactId, thread);
       announce(t("review.reply.posted"));
       onDone();
@@ -656,11 +661,16 @@ function ReplyForm({
     defaultValues: { body: "" },
     validationLogic: revalidateLogic(),
     validators: { onDynamic: ({ value }) => bodyError(t, value.body) },
-    onSubmit: ({ value }) =>
-      reply.mutateAsync(value.body).then(
+    onSubmit: async ({ value }) => {
+      // Files leave the browser only now, when the person posts; a file that does not go through
+      // keeps the comment from going out without it.
+      const attachments = await uploads.upload();
+      if (attachments === null) return;
+      await reply.mutateAsync({ body: value.body, attachments }).then(
         () => {},
         () => {},
-      ),
+      );
+    },
   });
   return (
     <div className="flex flex-col gap-2">
@@ -680,6 +690,7 @@ function ReplyForm({
                 />
               )}
             </form.AppField>
+            {attaching ? <AttachmentControls uploads={uploads} compact /> : null}
             {human.field}
             <div className="flex flex-wrap justify-end gap-2">
               <Button size="sm" onClick={onDone}>
