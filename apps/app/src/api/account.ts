@@ -764,11 +764,17 @@ export function accountRoutes(deps: AccountDeps) {
       if (!dataGrantsOn(c)) return error(c, "not_found", "Not found.");
       const target = await ownData(c);
       if (target === null) return error(c, "not_found", "Artifact not found.");
+      // One key per confirmed action: a retried request answers that erasure, never a new one.
+      const requestKey = c.req.header("Idempotency-Key") ?? "";
+      if (!/^[A-Za-z0-9._-]{16,128}$/.test(requestKey)) {
+        return error(c, "invalid_input", "An Idempotency-Key header is required.");
+      }
       const result = await requestOwnErasure(target.db, target.deps.bucket, {
         userId: session.userId,
         artifactId: target.artifactId,
         region: target.region,
         now: deps.now(),
+        requestKey,
       });
       if (!result.ok) return error(c, result.code, result.message);
       return c.json(OwnErasureView.parse(result.value), 202);

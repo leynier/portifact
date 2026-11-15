@@ -82,6 +82,7 @@ import {
   noPendingReads,
   OPERATION_ROW_BOUNDS,
   type OperationKind,
+  type OwnChunk,
   operationKey,
   outbound,
   ownChunkLeavesMore,
@@ -1555,18 +1556,24 @@ export class MemoryObject implements DataObject {
   }
 
   /**
-   * A person's own erasure chunk (`erase_own_chunk`, protected work): up to `take` documents the
-   * author created are deleted and up to `take` they last edited lose their name, as in an author
-   * erasure, but no barrier is written and the author's records stay, so they may save again.
+   * A person's own erasure chunk (`erase_own_chunk`, protected work, decision 0026, "A person's
+   * rights"): up to `take` documents the author created at or before `before` (the request's
+   * time) are deleted, collection by collection in name order, oldest first; and the author's
+   * edits after `editsAfter`, in key order, up to `take` scanned, lose their name when they were
+   * made at or before `before`. The cutoff is the object's own guarantee: a late or replayed step
+   * never touches a document saved, or an edit made, after the request. No barrier is written and
+   * the author's records stay, so they may save again.
    */
   eraseOwnChunk(
     envelope: DataEnvelope,
     author: string,
+    before: number,
+    editsAfter: ExportCursor | null,
     requested: number,
     context: Context,
-  ): Answer<{ documents: number; edits: number; more: boolean }> {
+  ): Answer<OwnChunk> {
     const take = chunkSize(requested);
-    const request = ["erase_own", author, take];
+    const request = ["erase_own", author, before, editsAfter, take];
     const actor: MutationActor = { kind: "erasure" };
     const notices: { mode: CollectionMode; doc: Doc; kind: "deleted" | "updated" }[] = [];
     return this.#mutation(
@@ -1578,40 +1585,59 @@ export class MemoryObject implements DataObject {
       { author },
       (plan) => {
         const d = this.durable;
-        const byKey = <K>(a: [K, unknown], b: [K, unknown]) =>
-          String(a[0]) < String(b[0]) ? -1 : 1;
-        const created = this.#select(d.documents, (_key, doc) => doc.author === author, {
-          order: byKey,
-          limit: take,
-        }).map(([, doc]) => doc);
+        const created: Doc[] = [];
+        for (const name of [...d.collections.keys()].sort()) {
+          if (created.length >= take) break;
+          const found = this.#select(
+            d.documents,
+            (_key, doc) =>
+              doc.collection === name && doc.author === author && doc.created <= before,
+            {
+              order: ([, a], [, b]) =>
+                a.created !== b.created ? a.created - b.created : a.id < b.id ? -1 : 1,
+              limit: take - created.length,
+            },
+          ).map(([, doc]) => doc);
+          created.push(...found);
+        }
         for (const doc of created) {
           const mode = (d.collections.get(doc.collection) as Collection).mode;
           const seq = this.#deleteDoc(doc);
           notices.push({ mode, doc: { ...doc, seq }, kind: "deleted" });
         }
-        const edited = this.#select(d.documents, (_key, doc) => doc.editor === author, {
-          order: byKey,
-          limit: take,
-        }).map(([, doc]) => doc);
-        for (const found of edited) {
+        const byKey = <K>(a: [K, unknown], b: [K, unknown]) =>
+          String(a[0]) < String(b[0]) ? -1 : 1;
+        const scanned = this.#select(
+          d.documents,
+          (_key, doc) =>
+            doc.editor === author && (editsAfter === null || keyBefore(editsAfter, doc)),
+          { order: byKey, limit: take },
+        ).map(([, doc]) => doc);
+        let edits = 0;
+        for (const found of scanned) {
+          if (found.updated > before) continue;
           const doc = this.#own(d.documents, key2(found.collection, found.id)) as Doc;
           const mode = (d.collections.get(doc.collection) as Collection).mode;
           doc.editor = ERASED_EDITOR;
           doc.seq = this.#advance(sequenceScope(mode, doc.collection, doc.author));
           notices.push({ mode, doc: { ...doc }, kind: "updated" });
+          edits += 1;
         }
-        const more = ownChunkLeavesMore({ documents: created.length, edits: edited.length }, take);
-        const result = { documents: created.length, edits: edited.length, more };
+        const last = scanned.at(-1);
+        const next =
+          scanned.length >= take && last ? { collection: last.collection, id: last.id } : null;
+        const more = ownChunkLeavesMore({ documents: created.length, edits: scanned.length }, take);
+        const result = { documents: created.length, edits, more, editsAfter: next };
         this.#record(plan, actor, requestHash(request), "own_erased", author, context.now, {
           documents: created.length,
-          edits: edited.length,
+          edits,
           more: more ? 1 : 0,
         });
         return {
           value: result,
-          documents: created.length + edited.length,
+          documents: created.length + edits,
           declared: false,
-          detail: { documents: created.length, edits: edited.length },
+          detail: { documents: created.length, edits },
         };
       },
       () => {

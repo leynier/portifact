@@ -551,7 +551,14 @@ describe("measured costs on real SQLite", () => {
     await bulkFill(own, ownBase, 520, (n) => ({ k: `k${n}` }), visitor("mine"));
     expect(
       value<{ documents: number; more: boolean }>(
-        await own.eraseOwnChunk(op(ownBase), visitorId("mine"), 500, ctx),
+        await own.eraseOwnChunk(
+          op(ownBase),
+          visitorId("mine"),
+          Date.UTC(2100, 0, 1),
+          null,
+          500,
+          ctx,
+        ),
       ),
     ).toMatchObject({ documents: 500, more: true });
     keep(

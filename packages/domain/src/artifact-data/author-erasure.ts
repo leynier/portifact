@@ -59,10 +59,22 @@ export function chunkLeavesMore(work: ChunkWork, take: number): boolean {
 }
 
 /**
+ * What one own erasure chunk did: documents deleted, edits that lost the name, whether more may be
+ * left, and where the next chunk's edit scan starts (null from the beginning).
+ */
+export interface OwnChunk {
+  documents: number;
+  edits: number;
+  more: boolean;
+  editsAfter: { collection: string; id: string } | null;
+}
+
+/**
  * Whether a person's own erasure chunk (`erase_own_chunk`) must be followed by another: it deletes
- * created documents and unattributes edits, each up to `take`, and leaves the author's records
- * (operations, rates, rights) alone, so only those two parts count. It is not terminal: no barrier
- * is written, and the chunk that finds less than `take` of both ends it.
+ * created documents and scans edits, each up to `take`, and leaves the author's records
+ * (operations, rates, rights) alone, so only those two parts count (`edits` here is the edits
+ * scanned, not only those changed). It is not terminal: no barrier is written, and the chunk that
+ * finds less than `take` of both ends it.
  */
 export function ownChunkLeavesMore(work: { documents: number; edits: number }, take: number) {
   return work.documents >= take || work.edits >= take;

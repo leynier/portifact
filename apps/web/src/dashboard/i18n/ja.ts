@@ -51,9 +51,9 @@ export const ja = {
   "sharedData.askReceived":
     "{name} についての依頼を受け付けました。管理者にはできるだけ早くメールで届けます",
   "sharedData.downloadContinue": "ダウンロードを続ける",
-  "sharedData.downloadContinueNamed": "{name} に保存した内容のダウンロードを続ける",
+  "sharedData.downloadContinueNamed": "ダウンロードを続ける: {name} に保存した内容",
   "sharedData.downloadRestart": "最初からやり直す",
-  "sharedData.downloadRestartNamed": "{name} のダウンロードを最初からやり直す",
+  "sharedData.downloadRestartNamed": "最初からやり直す: {name} のダウンロード",
   "sharedData.downloadPaused": "ダウンロードを一時停止しました",
   "sharedData.downloadPausedAllowance":
     "{count, plural, one {これまでに # 件をダウンロードしました。} other {これまでに # 件をダウンロードしました。}} このアーティファクトでのあなたのデータの本日の上限に達しました。明日の UTC 午前 0 時以降に続けると、止まったところから再開します。",

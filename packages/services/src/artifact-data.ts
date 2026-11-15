@@ -75,6 +75,7 @@ import {
   journalPrefixOf,
   journalSubject,
   nextJournalScan,
+  type OwnChunk,
   predecessorWindow,
   purgeAnswered,
   purgeEraseEpoch,
@@ -132,9 +133,11 @@ export interface DataObjectRpc {
   lifecycleEraseOwn(
     envelope: LifecycleEnvelope,
     visitorId: string,
+    before: number,
+    editsAfter: ExportCursor | null,
     opId: string,
     now: number,
-  ): Promise<DataReplayable<{ documents: number; edits: number; more: boolean }>>;
+  ): Promise<DataReplayable<OwnChunk>>;
   lifecycleQuarantine(
     envelope: LifecycleEnvelope,
     reason: QuarantineReason,
@@ -1414,6 +1417,10 @@ export async function runDataAuthorErasure(
  * (`lifecycleEraseOwn`, protected work no allowance, budget step or capacity pause stops), adds
  * their counts to the erasure's row, and gives the queue back at once while more is left, so the
  * relay sends it again within a minute: `AUTHOR_CHUNKS_PER_RUN` times 500 documents a minute.
+ * Every chunk carries the request's time (`before`), which the object applies itself: it deletes
+ * only documents created, and unattributes only edits made, at or before it, so a run that
+ * outlived its request, a second consumer or a job a restore revived never touches what the
+ * person saved afterwards. The edit scan's cursor rides the job's payload.
  * Waits while D1 holds the artifact (a held payload is never erased), ends quietly when the
  * request was superseded, and marks the row `done` once a chunk leaves nothing. Every step is safe
  * to repeat: a chunk deletes what is left, and the row moves only on the run's own `write_id`.
@@ -1427,7 +1434,8 @@ export async function runDataOwnErasure(
   const objects = needs(data, "data_own_erasure");
   const parsed = DataOwnErasurePayload.safeParse(row.payload);
   if (!parsed.success) return "stale";
-  const { visitorId, writeId } = parsed.data;
+  const { visitorId, writeId, before } = parsed.data;
+  let editsAfter = parsed.data.editsAfter ?? null;
   const artifactId = row.subject ?? "";
   const e = schema.dataOwnErasures;
   const mine = and(
@@ -1464,7 +1472,14 @@ export async function runDataOwnErasure(
   let storage: StorageReport | null = null;
   let refusal: DataRefusalCode | null = null;
   for (let chunk = 0; chunk < AUTHOR_CHUNKS_PER_RUN && more; chunk += 1) {
-    const answer = await object.lifecycleEraseOwn(envelope, visitorId, lifecycleId(now), now);
+    const answer = await object.lifecycleEraseOwn(
+      envelope,
+      visitorId,
+      before,
+      editsAfter,
+      lifecycleId(now),
+      now,
+    );
     if (!answer.ok) {
       refusal = answer.code;
       break;
@@ -1474,6 +1489,7 @@ export async function runDataOwnErasure(
       documents += answer.value.documents;
       edits += answer.value.edits;
       more = answer.value.more;
+      editsAfter = answer.value.editsAfter;
     }
   }
   if (storage !== null) await recordStorageReport(db, artifactId, storage, now);
@@ -1491,7 +1507,7 @@ export async function runDataOwnErasure(
     return "done";
   }
   await progress(db, mine, documents, edits);
-  return keep(db, row, now);
+  return keep(db, row, now, { visitorId, writeId, before, editsAfter });
 }
 
 function progress(db: RegionalDb, mine: SQL | undefined, documents: number, edits: number) {
@@ -1980,7 +1996,7 @@ export async function wakeDataJobs(db: Db, artifactId: string, now: number): Pro
     .where(
       and(
         eq(o.subject, artifactId),
-        sql`${o.topic} in ('data_fence', 'data_erase', 'data_author_erasure')`,
+        sql`${o.topic} in ('data_fence', 'data_erase', 'data_author_erasure', 'data_own_erasure')`,
         sql`${o.availableAt} > ${now}`,
       ),
     );

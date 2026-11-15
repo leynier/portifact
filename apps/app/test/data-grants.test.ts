@@ -412,8 +412,18 @@ describe("data grants on the app", () => {
     expect((await ask(stranger, "erasure")).status).toBe(404);
     expect((await ask(visitor.cookie, "everything")).status).toBe(400);
     // Deleting everything they saved there: an erasure the server runs, for the person only.
-    const erase = (cookie: string) =>
-      h.request(`/api/v1/account/data-grants/${id}/erasure`, dashboard(cookie, "POST", {}));
+    const erase = (cookie: string, key: string | null = "1700000000000.erase-action-key") => {
+      const init = dashboard(cookie, "POST", {});
+      return h.request(`/api/v1/account/data-grants/${id}/erasure`, {
+        ...init,
+        headers: {
+          ...(init.headers as Record<string, string>),
+          ...(key ? { "idempotency-key": key } : {}),
+        },
+      });
+    };
+    // One key per confirmed action is required, so a retry never starts a second erasure.
+    expect((await erase(visitor.cookie, null)).status).toBe(400);
     const erasing = await erase(visitor.cookie);
     expect(erasing.status).toBe(202);
     expect(await erasing.json()).toMatchObject({ state: "running", documents: 0 });

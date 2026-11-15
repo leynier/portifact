@@ -4,11 +4,14 @@ import type { DataGrantControl, DataGrantView } from "@portifact/contracts";
 import { axeViolations } from "@portifact/ui/testing";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { accountTag } from "./screens/shared-data.tsx";
 import { fakeServer, renderDashboard } from "./test-support.tsx";
 
 const ID = "k7d2qm4xab";
 const HOST = `${ID}.portifact.dev`;
 const NONCE = "n".repeat(43);
+/** Where a paused download of the artifact is kept for one account. */
+const RESUME = (email: string) => `portifact.sharedData.download.${accountTag(email)}.${ID}`;
 
 const CONTROL: DataGrantControl = {
   artifactId: ID,
@@ -241,12 +244,12 @@ describe("Data you shared", () => {
     expect(
       await screen.findByRole("button", { name: "Download what you saved in Board" }),
     ).toBeTruthy();
-    expect(localStorage.getItem(`portifact.sharedData.download.${ID}`)).toBeNull();
+    expect(localStorage.getItem(RESUME("ada@example.test"))).toBeNull();
   });
 
   it("starts a paused download over on request", async () => {
     localStorage.setItem(
-      `portifact.sharedData.download.${ID}`,
+      RESUME("ada@example.test"),
       JSON.stringify({ after: "votes:zzzz", part: 3, saved: 1000 }),
     );
     const server = fakeServer();
@@ -265,7 +268,7 @@ describe("Data you shared", () => {
     server.ownData[ID] = [{ collection: "votes", id: "a".repeat(16), body: '{"choice":"a"}' }];
     const view = renderDashboard("/shared-data", server);
     fireEvent.click(
-      await screen.findByRole("button", { name: "Start the download of Board over" }),
+      await screen.findByRole("button", { name: "Start over downloading what you saved in Board" }),
     );
     fireEvent.click(
       await screen.findByRole("button", { name: "Download what you saved in Board" }),
@@ -315,6 +318,100 @@ describe("Data you shared", () => {
     ];
     renderDashboard("/shared-data", server);
     expect(await screen.findByText(/did not finish\. You can ask again/)).toBeTruthy();
+  });
+
+  it("keeps a paused download to the account that paused it, and drops one kept for nobody", async () => {
+    localStorage.clear();
+    localStorage.setItem(
+      RESUME("alice@example.test"),
+      JSON.stringify({ after: "votes:zzzz", part: 2, saved: 500 }),
+    );
+    // A record from before downloads were kept per account.
+    localStorage.setItem(
+      `portifact.sharedData.download.${ID}`,
+      JSON.stringify({ after: "votes:zzzz", part: 2, saved: 500 }),
+    );
+    const server = fakeServer();
+    server.email = "bob@example.test";
+    server.dataGrants = [
+      {
+        artifactId: ID,
+        artifactName: "Board",
+        host: HOST,
+        openGrants: 0,
+        firstGrantedAt: "2026-11-01T10:00:00.000Z",
+        lastGrantedAt: "2026-11-01T10:00:00.000Z",
+        expiresAt: null,
+        erasure: null,
+      },
+    ];
+    server.ownData[ID] = [{ collection: "votes", id: "a".repeat(16), body: '{"bob":true}' }];
+    const view = renderDashboard("/shared-data", server);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Download what you saved in Board" }),
+    );
+    await waitFor(() => expect(view.saved).toHaveLength(1));
+    // Bob's own download, from the beginning; Alice's paused one is still hers.
+    expect(view.saved[0]?.fileName).toBe("Board-my-data.jsonl");
+    expect(localStorage.getItem(RESUME("alice@example.test"))).not.toBeNull();
+    expect(localStorage.getItem(`portifact.sharedData.download.${ID}`)).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Continue download/ })).toBeNull();
+  });
+
+  it("names Start over and Continue download first by their visible labels", async () => {
+    localStorage.clear();
+    localStorage.setItem(
+      RESUME("ada@example.test"),
+      JSON.stringify({ after: "votes:zzzz", part: 2, saved: 500 }),
+    );
+    const server = fakeServer();
+    server.dataGrants = [
+      {
+        artifactId: ID,
+        artifactName: "Board",
+        host: HOST,
+        openGrants: 0,
+        firstGrantedAt: "2026-11-01T10:00:00.000Z",
+        lastGrantedAt: "2026-11-01T10:00:00.000Z",
+        expiresAt: null,
+        erasure: null,
+      },
+    ];
+    renderDashboard("/shared-data", server);
+    const restart = await screen.findByRole("button", { name: /^Start over/ });
+    expect(restart.textContent).toBe("Start over");
+    const resume = screen.getByRole("button", { name: /^Continue download/ });
+    expect(resume.textContent).toBe("Continue download");
+  });
+
+  it("sends one key per confirmed erasure, the same for its retries", async () => {
+    localStorage.clear();
+    const server = fakeServer();
+    server.dataGrants = [
+      {
+        artifactId: ID,
+        artifactName: "Board",
+        host: HOST,
+        openGrants: 0,
+        firstGrantedAt: "2026-11-01T10:00:00.000Z",
+        lastGrantedAt: "2026-11-01T10:00:00.000Z",
+        expiresAt: null,
+        erasure: null,
+      },
+    ];
+    server.fail("POST", `/api/v1/account/data-grants/${ID}/erasure`, { status: 0, network: true });
+    renderDashboard("/shared-data", server);
+    fireEvent.click(await screen.findByRole("button", { name: "Delete what you saved in Board" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete what you saved in Board?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete what I saved" }));
+    expect(await within(dialog).findByText("Deleting did not finish")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete what I saved" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    const keys = server.idempotencyKeys
+      .filter((entry) => entry.path === `/api/v1/account/data-grants/${ID}/erasure`)
+      .map((entry) => entry.key);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBe(keys[1]);
   });
 
   it("says a download failed when nothing came", async () => {

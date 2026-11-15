@@ -55,7 +55,7 @@ export const ru = {
   "sharedData.downloadContinue": "Продолжить скачивание",
   "sharedData.downloadContinueNamed": "Продолжить скачивание того, что вы сохранили в {name}",
   "sharedData.downloadRestart": "Начать заново",
-  "sharedData.downloadRestartNamed": "Начать скачивание {name} заново",
+  "sharedData.downloadRestartNamed": "Начать заново скачивание {name}",
   "sharedData.downloadPaused": "Скачивание приостановлено",
   "sharedData.downloadPausedAllowance":
     "{count, plural, one {Пока скачан # документ.} few {Пока скачано # документа.} many {Пока скачано # документов.} other {Пока скачано # документа.}} Сегодняшний лимит для ваших данных в этом артефакте исчерпан. Продолжите завтра, после полуночи UTC, и скачивание продолжится с того места, где остановилось.",

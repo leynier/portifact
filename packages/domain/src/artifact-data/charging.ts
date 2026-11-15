@@ -284,8 +284,11 @@ export const OPERATION_ROW_BOUNDS = {
   erase_author_chunk:
     COMMAND_ROWS +
     ARTIFACT_DATA.caps.eraseChunkDocuments * (DOCUMENT_ROWS + EDIT_ROWS + 3 * ERASED_ROW_ROWS),
+  // The collections' list and one seek per collection, then the documents and scanned edits.
   erase_own_chunk:
-    COMMAND_ROWS + ARTIFACT_DATA.caps.eraseChunkDocuments * (DOCUMENT_ROWS + EDIT_ROWS),
+    COMMAND_ROWS +
+    2 * MAX_COLLECTIONS +
+    ARTIFACT_DATA.caps.eraseChunkDocuments * (DOCUMENT_ROWS + EDIT_ROWS),
   get: COMMAND_ROWS,
   query: COMMAND_ROWS + 2 * (ARTIFACT_DATA.caps.pageDocuments + 1),
   count: COMMAND_ROWS,

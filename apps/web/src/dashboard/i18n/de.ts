@@ -53,10 +53,9 @@ export const de = {
   "sharedData.askReceived":
     "Deine Anfrage zu {name} ist eingegangen. Die Verwaltenden erhalten so bald wie möglich eine E-Mail",
   "sharedData.downloadContinue": "Download fortsetzen",
-  "sharedData.downloadContinueNamed":
-    "Download dessen fortsetzen, was du in {name} gespeichert hast",
+  "sharedData.downloadContinueNamed": "Download fortsetzen: was du in {name} gespeichert hast",
   "sharedData.downloadRestart": "Neu beginnen",
-  "sharedData.downloadRestartNamed": "Download von {name} neu beginnen",
+  "sharedData.downloadRestartNamed": "Neu beginnen: Download von {name}",
   "sharedData.downloadPaused": "Download angehalten",
   "sharedData.downloadPausedAllowance":
     "{count, plural, one {Bisher # Dokument heruntergeladen.} other {Bisher # Dokumente heruntergeladen.}} Dein heutiges Kontingent für deine Daten in diesem Artefakt ist aufgebraucht. Setze morgen nach Mitternacht UTC fort, dann macht der Download dort weiter, wo er aufgehört hat.",

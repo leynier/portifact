@@ -19,14 +19,15 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@portifact/ui";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CircleAlert, Download, Mail, RotateCcw, Trash2, Unplug } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { safeFileName } from "../publish/download.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { errorMessage } from "./artifact-list.tsx";
+import { ACCOUNT_QUERY } from "./shell.tsx";
 
 export const DATA_GRANTS_QUERY = ["data-grants"] as const;
 /** How often the list is read again while one of its erasures runs. */
@@ -141,11 +142,31 @@ interface DownloadResume {
   saved: number;
 }
 
-const resumeKey = (artifactId: string) => `portifact.sharedData.download.${artifactId}`;
+/**
+ * A short tag of the signed-in account (FNV-1a over its lowercased address), so a paused download
+ * belongs to the account that paused it: another account in the same browser never continues it.
+ * It is a key, not a secret, and keeps the address itself out of storage.
+ */
+export function accountTag(email: string): string {
+  let hash = 0x811c9dc5;
+  for (const char of email.trim().toLowerCase()) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
 
-function readResume(artifactId: string): DownloadResume | null {
+const resumeKey = (account: string, artifactId: string) =>
+  `portifact.sharedData.download.${account}.${artifactId}`;
+
+function readResume(account: string | null, artifactId: string): DownloadResume | null {
+  if (account === null) return null;
   try {
-    const raw = JSON.parse(localStorage.getItem(resumeKey(artifactId)) ?? "null") as unknown;
+    // A record from before downloads were kept per account names nobody: it is dropped.
+    localStorage.removeItem(`portifact.sharedData.download.${artifactId}`);
+    const raw = JSON.parse(
+      localStorage.getItem(resumeKey(account, artifactId)) ?? "null",
+    ) as unknown;
     const value = raw as Partial<DownloadResume> | null;
     if (
       typeof value?.after === "string" &&
@@ -160,10 +181,11 @@ function readResume(artifactId: string): DownloadResume | null {
   return null;
 }
 
-function writeResume(artifactId: string, resume: DownloadResume | null): void {
+function writeResume(account: string | null, artifactId: string, resume: DownloadResume | null) {
+  if (account === null) return;
   try {
-    if (resume === null) localStorage.removeItem(resumeKey(artifactId));
-    else localStorage.setItem(resumeKey(artifactId), JSON.stringify(resume));
+    if (resume === null) localStorage.removeItem(resumeKey(account, artifactId));
+    else localStorage.setItem(resumeKey(account, artifactId), JSON.stringify(resume));
   } catch {
     // Kept in the page's state only.
   }
@@ -188,12 +210,15 @@ function OwnData({ item }: { item: DataGrantView }) {
   const announce = useAnnounce();
   const { api, save } = useDashboard();
   const [confirming, setConfirming] = useState(false);
-  const [resume, setResume] = useState<DownloadResume | null>(() => readResume(item.artifactId));
+  const account = useQuery({ queryKey: ACCOUNT_QUERY, queryFn: () => api.account() });
+  const owner = account.data?.email ? accountTag(account.data.email) : null;
+  const [resume, setResume] = useState<DownloadResume | null>(null);
+  useEffect(() => setResume(readResume(owner, item.artifactId)), [owner, item.artifactId]);
   const [downloadPause, setDownloadPause] = useState<Pause>(null);
   const name = item.artifactName ?? item.host;
   const base = safeFileName(name);
   const keep = (next: DownloadResume | null) => {
-    writeResume(item.artifactId, next);
+    writeResume(owner, item.artifactId, next);
     setResume(next);
   };
   const download = useMutation({
@@ -269,10 +294,14 @@ function OwnData({ item }: { item: DataGrantView }) {
   const queryClient = useQueryClient();
   const erasure = item.erasure;
   const erasing = erasure?.state === "running";
+  // One key per confirmed action, kept for its retries, so a retried request never starts a
+  // second erasure that would reach what was saved since.
+  const [eraseKey, setEraseKey] = useState<string | null>(null);
   const remove = useMutation({
-    mutationFn: () => api.eraseOwnData(item.artifactId),
+    mutationFn: (key: string) => api.eraseOwnData(item.artifactId, key),
     onSuccess: () => {
       setConfirming(false);
+      setEraseKey(null);
       announce(t("sharedData.eraseStarted", { name }));
       void queryClient.invalidateQueries({ queryKey: DATA_GRANTS_QUERY });
     },
@@ -341,7 +370,11 @@ function OwnData({ item }: { item: DataGrantView }) {
         confirmIcon={<Trash2 className="size-4" />}
         tone="danger"
         busy={remove.isPending}
-        onConfirm={() => remove.mutate()}
+        onConfirm={() => {
+          const key = eraseKey ?? `${Date.now()}.${crypto.randomUUID().replaceAll("-", "")}`;
+          setEraseKey(key);
+          remove.mutate(key);
+        }}
         onCancel={() => setConfirming(false)}
       >
         {t("sharedData.deleteBody")}

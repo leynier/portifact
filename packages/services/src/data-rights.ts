@@ -154,13 +154,17 @@ export function ownErasureView(row: OwnErasureRow): OwnErasureView {
  * `data_own_erasure` job runs it on the documents object in bounded chunks of protected work, so
  * neither their daily rights allowance nor the artifact's budget or a capacity pause stops it, and
  * it finishes within the hour for any dataset a plan allows. Only a person the journal names may
- * ask; a running erasure answers as it is, without starting another. The row and its job are
- * written in one batch, the job only when this request's `write_id` holds the row.
+ * ask; a running erasure answers as it is, without starting another, and a request carrying the
+ * key of the action that started the current erasure (`requestKey`, the dashboard's
+ * Idempotency-Key, once per confirmed action) answers that erasure, running or finished, so a
+ * retried request never starts a second deletion. The erasure reaches only what was saved or
+ * edited at or before the request (`before`, which the documents object applies). The row and its
+ * job are written in one batch, the job only when this request's `write_id` holds the row.
  */
 export async function requestOwnErasure(
   db: RegionalDb,
   bucket: R2Bucket,
-  input: DataRightsInput,
+  input: DataRightsInput & { requestKey: string },
 ): Promise<Result<OwnErasureView>> {
   const visitorId = await journalVisitorId(bucket, input.userId, input.artifactId);
   if (visitorId === null) return nothing();
@@ -168,7 +172,9 @@ export async function requestOwnErasure(
   const e = schema.dataOwnErasures;
   const key = and(eq(e.artifactId, input.artifactId), eq(e.visitorId, visitorId));
   const [existing] = await db.select().from(e).where(key).limit(1);
-  if (existing?.state === "running") return ok(ownErasureView(existing));
+  if (existing?.requestKey === input.requestKey || existing?.state === "running") {
+    return ok(ownErasureView(existing));
+  }
   const hits = await hitRateLimit(
     db.global.$client,
     `own_erasure:${input.userId}:${input.artifactId}`,
@@ -179,7 +185,7 @@ export async function requestOwnErasure(
     return fail("rate_limited", "You asked for this several times today. Try again tomorrow.");
   }
   const writeId = crypto.randomUUID().replaceAll("-", "");
-  const payload = JSON.stringify({ visitorId, writeId });
+  const payload = JSON.stringify({ visitorId, writeId, before: input.now });
   await db.batch([
     db
       .insert(e)
@@ -188,6 +194,7 @@ export async function requestOwnErasure(
         visitorId,
         state: "running",
         writeId,
+        requestKey: input.requestKey,
         documents: 0,
         edits: 0,
         requestedAt: input.now,
@@ -198,6 +205,7 @@ export async function requestOwnErasure(
         set: {
           state: "running",
           writeId,
+          requestKey: input.requestKey,
           documents: 0,
           edits: 0,
           requestedAt: input.now,
@@ -307,12 +315,82 @@ function skipped(reason: Skip): void {
 }
 
 /**
+ * How long a claimed send counts as in flight. A claim older than this is uncertain (the run that
+ * made it died around the provider call): it is claimed again and resent, never counted as sent.
+ */
+export const DATA_RIGHTS_CLAIM_LEASE_MS = 5 * 60_000;
+
+/** A job written before requests had rows: its subject is the artifact, its payload the request. */
+function legacyRequest(payload: unknown): { visitorId: string; kind: DataRightsKind } | null {
+  let value: unknown = payload;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  const fields = value as { visitorId?: unknown; kind?: unknown } | null;
+  if (typeof fields?.visitorId !== "string") return null;
+  if (fields.kind !== "access" && fields.kind !== "erasure") return null;
+  return { visitorId: fields.visitorId, kind: fields.kind };
+}
+
+/**
+ * Turns a job in the earlier shape into a request row and a job of the current shape, in one
+ * batch whose writes are keyed by the old row, so a retry adds nothing twice; the old job is then
+ * done. Nothing is dropped: the new job sends it as any request.
+ */
+async function adoptLegacyRequest(
+  db: RegionalDb,
+  row: typeof schema.outbox.$inferSelect,
+  legacy: { visitorId: string; kind: DataRightsKind },
+): Promise<JobOutcome> {
+  const artifactId = row.subject ?? "";
+  const [artifact] = await db
+    .select({ id: schema.artifacts.id })
+    .from(schema.artifacts)
+    .where(eq(schema.artifacts.id, artifactId))
+    .limit(1);
+  if (!artifact) {
+    skipped("gone");
+    return "stale";
+  }
+  const id = `dr_legacy_${row.id}`;
+  const o = schema.outbox;
+  await db.batch([
+    db
+      .insert(schema.dataRightsRequests)
+      .values({
+        id,
+        artifactId,
+        visitorId: legacy.visitorId,
+        kind: legacy.kind,
+        state: "pending",
+        createdAt: row.createdAt,
+      })
+      .onConflictDoNothing(),
+    db
+      .insert(o)
+      .select(
+        sql`select null, 'data_rights_request', '{}', ${row.availableAt}, null, 0, ${row.createdAt}, ${id}, null where not exists (select 1 from ${o} where ${o.topic} = 'data_rights_request' and ${o.subject} = ${id})`,
+      ),
+  ]);
+  return "done";
+}
+
+/**
  * Runs a `data_rights_request` job: emails each admin of the artifact's owner (`ownerRecipients`)
- * not emailed yet, claiming each send in `data_rights_request_sends` before it and giving it back
- * when it fails, so a retry never emails an admin twice. A spent notice capacity leaves the job
- * `pending`, delivered again later; a failed send throws, so the job runs again. Once every admin
- * was tried the request is `delivered` (someone got it) or `undeliverable` (every address
- * suppressed, or no admin), which keeps it for the operator; its send claims go then.
+ * not emailed yet. Each send is claimed in `data_rights_request_sends` (only while the request is
+ * pending) before the provider is called and marked `sent` only after the provider accepted it;
+ * a failed send gives its claim back. A claim another run holds within the lease is a send in
+ * flight: this run skips it and stays `pending` instead of settling. An older claim is uncertain
+ * and is claimed again and resent, so a run that died around a send never loses the notice nor
+ * counts it as delivered (an admin may get it twice then, never zero times). A spent notice
+ * capacity leaves the job `pending`; a failed send throws, so the job runs again. Once every
+ * admin was tried and no send is in flight, the request is `delivered` (a send is `sent`) or
+ * `undeliverable` (every address suppressed, or no admin), kept for the operator; the send rows
+ * stay until the request is pruned, so a late run never emails an admin already told.
  */
 export async function sendDataRightsNotice(
   db: RegionalDb,
@@ -327,6 +405,10 @@ export async function sendDataRightsNotice(
     .from(r)
     .where(eq(r.id, row.subject ?? ""))
     .limit(1);
+  if (!request) {
+    const legacy = legacyRequest(row.payload);
+    if (legacy !== null) return adoptLegacyRequest(db, row, legacy);
+  }
   // Settled meanwhile, or gone with its artifact.
   if (!request || request.state !== "pending") return "stale";
   const [artifact] = await db
@@ -344,14 +426,13 @@ export async function sendDataRightsNotice(
     .from(schema.workspaces)
     .where(eq(schema.workspaces.id, artifact.ownerId))
     .limit(1);
-  const already = new Set(
-    (await db.select({ userId: s.userId }).from(s).where(eq(s.requestId, request.id))).map(
-      (sent) => sent.userId,
-    ),
-  );
+  const sends = await db.select().from(s).where(eq(s.requestId, request.id));
+  const told = new Set(sends.filter((send) => send.state === "sent").map((send) => send.userId));
+  const stale = now - DATA_RIGHTS_CLAIM_LEASE_MS;
+  let inFlight = false;
   const recipients = await ownerRecipients(global, artifact.ownerId);
   for (const userId of recipients) {
-    if (already.has(userId)) continue;
+    if (told.has(userId)) continue;
     const [person] = await global
       .select({ email: schema.users.email })
       .from(schema.users)
@@ -367,14 +448,29 @@ export async function sendDataRightsNotice(
       skipped("capacity");
       return "pending";
     }
+    const token = crypto.randomUUID();
     const claimed = await db
       .insert(s)
-      .values({ requestId: request.id, userId, sentAt: now })
-      .onConflictDoNothing()
-      .returning({ userId: s.userId });
-    if (claimed.length === 0) continue;
-    const giveBack = () =>
-      db.delete(s).where(and(eq(s.requestId, request.id), eq(s.userId, userId)));
+      .select(
+        sql`select ${request.id}, ${userId}, 'claimed', ${token}, ${now}, null where exists (select 1 from ${r} where ${r.id} = ${request.id} and ${r.state} = 'pending')`,
+      )
+      .onConflictDoUpdate({
+        target: [s.requestId, s.userId],
+        set: { token, claimedAt: now },
+        setWhere: sql`${s.state} = 'claimed' and ${s.claimedAt} <= ${stale}`,
+      })
+      .returning({ token: s.token });
+    if (claimed[0]?.token !== token) {
+      const [held] = await db
+        .select({ state: s.state })
+        .from(s)
+        .where(and(eq(s.requestId, request.id), eq(s.userId, userId)))
+        .limit(1);
+      if (!held) return "stale";
+      if (held.state === "claimed") inFlight = true;
+      continue;
+    }
+    const mine = and(eq(s.requestId, request.id), eq(s.userId, userId), eq(s.token, token));
     try {
       await notifier.send({
         to: person.email,
@@ -386,7 +482,7 @@ export async function sendDataRightsNotice(
         locale: (await loadSettings(global, userId)).locale,
       });
     } catch (error) {
-      await giveBack();
+      await db.delete(s).where(mine);
       if (error instanceof RecipientSuppressedError) {
         await suppressEmail(global, { email: person.email, reason: "provider", now });
         skipped("suppressed");
@@ -394,36 +490,36 @@ export async function sendDataRightsNotice(
       }
       throw error;
     }
+    await db.update(s).set({ state: "sent", sentAt: now }).where(mine);
     await recordEmailsSent(global, now);
-    already.add(userId);
+    told.add(userId);
   }
+  // Another run's send is under way: it, or a later delivery, settles the request.
+  if (inFlight) return "pending";
   const [count] = await db
     .select({ count: sql<number>`count(*)` })
     .from(s)
-    .where(eq(s.requestId, request.id));
+    .where(and(eq(s.requestId, request.id), eq(s.state, "sent")));
   const sent = Number(count?.count ?? 0);
-  if (sent === 0) skipped("undeliverable");
-  const pending = and(eq(r.id, request.id), eq(r.state, "pending"));
-  await db.batch([
-    db
-      .update(r)
-      .set({
-        state: sent > 0 ? "delivered" : "undeliverable",
-        reason: sent > 0 ? null : recipients.length === 0 ? "no_recipient" : "suppressed",
-        recipients: sent,
-        settledAt: now,
-      })
-      .where(pending),
-    // The claims only kept a retry from emailing anyone twice: they go once it settled.
-    db
-      .delete(s)
-      .where(
-        and(
-          eq(s.requestId, request.id),
-          sql`exists (select 1 from ${r} where ${r.id} = ${request.id} and ${r.state} <> 'pending')`,
-        ),
+  const settled = await db
+    .update(r)
+    .set({
+      state: sent > 0 ? "delivered" : "undeliverable",
+      reason: sent > 0 ? null : recipients.length === 0 ? "no_recipient" : "suppressed",
+      recipients: sent,
+      settledAt: now,
+    })
+    .where(
+      and(
+        eq(r.id, request.id),
+        eq(r.state, "pending"),
+        // Never while a send claimed after this run's count may still land.
+        sql`not exists (select 1 from ${s} where ${s.requestId} = ${request.id} and ${s.state} = 'claimed' and ${s.claimedAt} > ${stale})`,
       ),
-  ]);
+    )
+    .returning({ id: r.id });
+  if (settled.length === 0) return "pending";
+  if (sent === 0) skipped("undeliverable");
   return "done";
 }
 

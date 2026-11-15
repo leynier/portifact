@@ -370,6 +370,7 @@ describe("data grants", () => {
         visitorId: (await journalVisitorId(env.ARTIFACTS, READER, ID)) as string,
         state: "running",
         writeId: "w".repeat(32),
+        requestKey: "k".repeat(32),
         documents: 7,
         edits: 1,
         requestedAt: later,
@@ -763,5 +764,59 @@ describe("grants ended by signing out", () => {
     expect(markers).toHaveLength(1);
     await env.DB_EU.exec("DELETE FROM data_grants");
     await env.DB_EU.exec("DELETE FROM artifacts");
+  });
+});
+
+describe("review of #303: the listing reads only the person's own erasures", () => {
+  beforeEach(() => seed());
+
+  it("reads the person's erasure row by its key, whatever other visitors' rows there are", async () => {
+    await redeem(await issued());
+    const visitorId = (await journalVisitorId(env.ARTIFACTS, READER, ID)) as string;
+    // 400 other visitors' erasures on the same artifact, and the person's own.
+    await env.DB.prepare(
+      `with recursive n(x) as (values(1) union all select x + 1 from n where x < 400)
+       insert into data_own_erasures
+         (artifact_id, visitor_id, state, write_id, request_key, documents, edits, requested_at)
+       select ?, 'v_other' || printf('%020d', x), 'running', 'w', 'k', 0, 0, ? from n`,
+    )
+      .bind(ID, NOW)
+      .run();
+    await db()
+      .insert(schema.dataOwnErasures)
+      .values({
+        artifactId: ID,
+        visitorId,
+        state: "running",
+        writeId: "w".repeat(32),
+        requestKey: "k".repeat(32),
+        documents: 3,
+        edits: 0,
+        requestedAt: NOW,
+      });
+    let reads = 0;
+    const measured = aliasBinding(
+      new Proxy(env.DB, {
+        get(target, key) {
+          if (key === "batch") {
+            return async (statements: D1PreparedStatement[]) => {
+              const result = await target.batch(statements);
+              reads += result.reduce((n, row) => n + row.meta.rows_read, 0);
+              return result;
+            };
+          }
+          const value = Reflect.get(target, key, target);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      }),
+      env.DB,
+    );
+    const listed = await listDataGrants(regionalDb(measured, globalDb(measured)), env.ARTIFACTS, {
+      userId: READER,
+      contentDomain: "portifact.dev",
+      now: NOW + 1000,
+    });
+    expect(listed.items[0]?.erasure).toMatchObject({ state: "running", documents: 3 });
+    expect(reads).toBeLessThan(40);
   });
 });

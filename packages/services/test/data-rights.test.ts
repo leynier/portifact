@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUTHOR_CHUNKS_PER_RUN,
   claimVisitorId,
+  DATA_RIGHTS_CLAIM_LEASE_MS,
   DATA_RIGHTS_KEEP_MS,
   type DataObjects,
   type DataRightsNotifier,
@@ -36,6 +37,7 @@ import {
   runJob,
   sendDataRightsNotice,
   suppressEmail,
+  wakeDataJobs,
 } from "../src/index.ts";
 import { ownerRpc } from "./data-owner-rpc.ts";
 import { db, NOW, publishSite, user, value } from "./fixtures.ts";
@@ -74,7 +76,7 @@ async function setup() {
       },
     ),
   );
-  const write = async (userId: string, choice: string) => {
+  const write = async (userId: string, choice: string, at = NOW) => {
     const visitor = value(await claimVisitorId(env.ARTIFACTS, userId, artifactId, NOW));
     const { result } = await pageDataCommand(
       db(),
@@ -86,13 +88,16 @@ async function setup() {
         caller: { kind: "visitor", author: visitor, canWrite: true },
         command: { kind: "create", collection: "votes", body: { choice } },
         idempotencyKey: null,
-        now: NOW,
+        now: at,
       },
     );
     return (value(result).value as { _id: string })._id;
   };
   return { deps, artifactId, write, owner };
 }
+
+/** A confirmed action's key, as the dashboard sends one per erasure it starts. */
+const key = () => `${Date.now()}.${crypto.randomUUID().replaceAll("-", "")}`;
 
 const input = (userId: string, artifactId: string) => ({
   userId,
@@ -262,13 +267,13 @@ describe("rights requests", () => {
     expect(await rightsJobs(artifactId)).toEqual([]);
     const [request] = await rightsRequests(artifactId);
     expect(request).toMatchObject({ state: "delivered", recipients: 1, settledAt: NOW + 2000 });
-    // The send claims go once it settled; the request keeps only the count.
+    // The delivery record stays until the request is pruned, so a late run never sends again.
     expect(
       await db()
-        .select()
+        .select({ state: schema.dataRightsRequestSends.state })
         .from(schema.dataRightsRequestSends)
         .where(eq(schema.dataRightsRequestSends.requestId, request?.id ?? "")),
-    ).toEqual([]);
+    ).toEqual([{ state: "sent" }]);
   });
 
   it("keeps a request every admin is suppressed for, for the operator to retry or resolve", async () => {
@@ -596,10 +601,12 @@ describe("a person's own export and deletes over the plan's limits", () => {
       ok: false,
       code: "rate_limited",
     });
-    const started = value(await requestOwnErasure(db(), deps.bucket, { ...base, now: day + 2 }));
+    const started = value(
+      await requestOwnErasure(db(), deps.bucket, { ...base, now: day + 2, requestKey: key() }),
+    );
     expect(started).toMatchObject({ state: "running", documents: 0, finishedAt: null });
     // Asking again while it runs answers the same erasure and queues nothing more.
-    value(await requestOwnErasure(db(), deps.bucket, { ...base, now: day + 3 }));
+    value(await requestOwnErasure(db(), deps.bucket, { ...base, now: day + 3, requestKey: key() }));
     const jobs = await db()
       .select()
       .from(schema.outbox)
@@ -612,7 +619,10 @@ describe("a person's own export and deletes over the plan's limits", () => {
     ) as { rows: unknown[] };
     expect(left.rows).toEqual([]);
     // Not terminal: the person may save there again and erase again.
-    expect((await requestOwnErasure(db(), deps.bucket, { ...base, now: day + DAY })).ok).toBe(true);
+    expect(
+      (await requestOwnErasure(db(), deps.bucket, { ...base, now: day + DAY, requestKey: key() }))
+        .ok,
+    ).toBe(true);
   }, 120_000);
 
   it("runs in bounded runs of chunks, so the largest dataset any plan allows ends within hours", async () => {
@@ -676,6 +686,7 @@ describe("a person's own export and deletes over the plan's limits", () => {
         artifactId,
         region: "default",
         now: NOW + 2000,
+        requestKey: key(),
       }),
     );
     expect(await runErasure(deps, artifactId, NOW + 3000)).toBe(2);
@@ -688,9 +699,17 @@ describe("a person's own export and deletes over the plan's limits", () => {
     await write(visitor.id, "a");
     const stranger = await user("Stranger");
     expect(
-      await requestOwnErasure(db(), deps.bucket, input(stranger.id, artifactId)),
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(stranger.id, artifactId),
+        requestKey: key(),
+      }),
     ).toMatchObject({ ok: false, code: "not_found" });
-    value(await requestOwnErasure(db(), deps.bucket, input(visitor.id, artifactId)));
+    value(
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(visitor.id, artifactId),
+        requestKey: key(),
+      }),
+    );
     await db()
       .update(schema.artifacts)
       .set({ state: "suspended" })
@@ -717,7 +736,12 @@ describe("a person's own export and deletes over the plan's limits", () => {
     const { deps, artifactId, write } = await setup();
     const visitor = await user("Visitor");
     await write(visitor.id, "a");
-    value(await requestOwnErasure(db(), deps.bucket, input(visitor.id, artifactId)));
+    value(
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(visitor.id, artifactId),
+        requestKey: key(),
+      }),
+    );
     const [job] = await db()
       .select()
       .from(schema.outbox)
@@ -768,6 +792,7 @@ describe("a person's own export and deletes over the plan's limits", () => {
       await requestOwnErasure(db(), deps.bucket, {
         ...input(visitor.id, artifactId),
         now: NOW + 4000,
+        requestKey: key(),
       }),
     );
     expect(restarted).toMatchObject({ state: "running", documents: 0 });
@@ -780,11 +805,285 @@ describe("a person's own export and deletes over the plan's limits", () => {
     const visitor = await user("Visitor");
     await write(visitor.id, "a");
     for (let n = 0; n < OWN_ERASURES_PER_DAY; n++) {
-      value(await requestOwnErasure(db(), deps.bucket, input(visitor.id, artifactId)));
+      value(
+        await requestOwnErasure(db(), deps.bucket, {
+          ...input(visitor.id, artifactId),
+          requestKey: key(),
+        }),
+      );
       await runErasure(deps, artifactId, NOW + 2000);
     }
-    expect(await requestOwnErasure(db(), deps.bucket, input(visitor.id, artifactId))).toMatchObject(
-      { ok: false, code: "rate_limited" },
+    expect(
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(visitor.id, artifactId),
+        requestKey: key(),
+      }),
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+  });
+});
+
+describe("review of #303", () => {
+  const own = (deps: { objects: DataObjects }, artifactId: string, at: number) =>
+    db()
+      .select()
+      .from(schema.outbox)
+      .where(
+        and(eq(schema.outbox.topic, "data_own_erasure"), eq(schema.outbox.subject, artifactId)),
+      )
+      .then((rows) => rows[0]);
+  const remaining = async (
+    deps: { objects: DataObjects; bucket: R2Bucket },
+    userId: string,
+    artifactId: string,
+    now: number,
+  ) =>
+    (
+      value(
+        await exportOwnData(db(), deps, { ...input(userId, artifactId), now, after: null }),
+      ) as { rows: unknown[] }
+    ).rows.length;
+
+  it("1: a run that outlived its request never erases what was saved after it", async () => {
+    const { deps, artifactId, write } = await setup();
+    const person = await user("Writer");
+    await write(person.id, "old");
+    value(
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(person.id, artifactId),
+        requestKey: key(),
+      }),
     );
+    const job = await own(deps, artifactId, NOW);
+    if (!job) throw new Error("no job");
+    let signal!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      signal = resolve;
+    });
+    let resume!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const delayed: DataObjects = {
+      ...deps.objects,
+      object(id) {
+        const object = deps.objects.object(id);
+        return {
+          ...object,
+          async lifecycleControl() {
+            signal();
+            await paused;
+            return object.lifecycleControl();
+          },
+        };
+      },
+    };
+    const first = runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic }, NOW + 2000, {
+      data: delayed,
+    });
+    await entered;
+    // A second delivery finishes the erasure while the first waits.
+    expect(
+      await runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic }, NOW + 2001, {
+        data: deps.objects,
+      }),
+    ).toBe("done");
+    // The person saves again, after the request.
+    await write(person.id, "after", NOW + 5000);
+    resume();
+    await first;
+    expect(await remaining(deps, person.id, artifactId, NOW + 6000)).toBe(1);
+  });
+
+  it("1: a finished erasure a restore revives never erases what was saved after it", async () => {
+    const { deps, artifactId, write } = await setup();
+    const person = await user("Restore");
+    await write(person.id, "before");
+    value(
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(person.id, artifactId),
+        requestKey: key(),
+      }),
+    );
+    const [saved] = await db()
+      .select()
+      .from(schema.dataOwnErasures)
+      .where(eq(schema.dataOwnErasures.artifactId, artifactId));
+    const job = await own(deps, artifactId, NOW);
+    if (!saved || !job) throw new Error("no request");
+    await runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic }, NOW + 2000, {
+      data: deps.objects,
+    });
+    await write(person.id, "after completion", NOW + 5000);
+    // A D1 rewind brings the running row and its job back.
+    await db()
+      .update(schema.dataOwnErasures)
+      .set(saved)
+      .where(eq(schema.dataOwnErasures.artifactId, artifactId));
+    await db().insert(schema.outbox).values(job);
+    await runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic }, NOW + 6000, {
+      data: deps.objects,
+    });
+    expect(await remaining(deps, person.id, artifactId, NOW + 7000)).toBe(1);
+  });
+
+  it("2: a claim left by a run that died is never counted as delivered, and is resent after the lease", async () => {
+    const { artifactId, owner } = await requested();
+    const [request] = await rightsRequests(artifactId);
+    if (!request) throw new Error("no request");
+    await db()
+      .insert(schema.dataRightsRequestSends)
+      .values({
+        requestId: request.id,
+        userId: owner.id,
+        state: "claimed",
+        token: "crashed",
+        claimedAt: NOW + 1000,
+      });
+    const { sent, notifier } = recordingNotifier();
+    // Within the lease the claim may still be in flight: nothing settles.
+    expect(await deliver(artifactId, NOW + 2000, notifier)).toBe("pending");
+    expect(sent).toEqual([]);
+    expect((await rightsRequests(artifactId))[0]).toMatchObject({ state: "pending" });
+    // After it the send is uncertain: it is claimed again and sent.
+    expect(await deliver(artifactId, NOW + 1000 + DATA_RIGHTS_CLAIM_LEASE_MS, notifier)).toBe(
+      "done",
+    );
+    expect(sent.map((notice) => notice.to)).toEqual([owner.email]);
+    expect((await rightsRequests(artifactId))[0]).toMatchObject({
+      state: "delivered",
+      recipients: 1,
+    });
+  });
+
+  it("3: overlapping deliveries email each admin once and settle once", async () => {
+    const { artifactId } = await requested();
+    await workspaceOwner(artifactId);
+    const [job] = await rightsJobs(artifactId);
+    if (!job) throw new Error("no job");
+    const emails: string[] = [];
+    let overlapped = false;
+    let inner: unknown;
+    const second: DataRightsNotifier = {
+      async send(notice) {
+        emails.push(notice.to);
+      },
+    };
+    const first: DataRightsNotifier = {
+      async send(notice) {
+        emails.push(notice.to);
+        if (!overlapped) {
+          overlapped = true;
+          inner = await sendDataRightsNotice(db(), job, NOW + 2001, second);
+        }
+      },
+    };
+    expect(await sendDataRightsNotice(db(), job, NOW + 2000, first)).toBe("done");
+    // The overlapping run saw a send in flight and left the settling to the other.
+    expect(inner).toBe("pending");
+    expect(emails).toHaveLength(2);
+    expect(new Set(emails).size).toBe(2);
+    expect((await rightsRequests(artifactId))[0]).toMatchObject({
+      state: "delivered",
+      recipients: 2,
+    });
+    // A late run after settling sends nothing.
+    expect(await sendDataRightsNotice(db(), job, NOW + 3000, second)).toBe("stale");
+    expect(emails).toHaveLength(2);
+  });
+
+  it("4: a retried request with the confirmed action's key answers that erasure, even finished", async () => {
+    const { deps, artifactId, write } = await setup();
+    const person = await user("Retry");
+    await write(person.id, "before");
+    const confirmed = key();
+    value(
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(person.id, artifactId),
+        requestKey: confirmed,
+      }),
+    );
+    const job = await own(deps, artifactId, NOW);
+    if (!job) throw new Error("no job");
+    await runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic }, NOW + 2000, {
+      data: deps.objects,
+    });
+    await write(person.id, "after", NOW + 5000);
+    // The response was lost; the dashboard retries with the same key.
+    const replayed = value(
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(person.id, artifactId),
+        now: NOW + 6000,
+        requestKey: confirmed,
+      }),
+    );
+    expect(replayed).toMatchObject({ state: "done", documents: 1 });
+    expect(await own(deps, artifactId, NOW)).toBeUndefined();
+    expect(await remaining(deps, person.id, artifactId, NOW + 7000)).toBe(1);
+  });
+
+  it("6: a job in the earlier shape becomes a request and is sent, never dropped", async () => {
+    const { artifactId, write, owner } = await setup();
+    const person = await user("Old request");
+    await write(person.id, "a");
+    const visitorId = await journalVisitorId(env.ARTIFACTS, person.id, artifactId);
+    const [job] = await db()
+      .insert(schema.outbox)
+      .values({
+        topic: "data_rights_request",
+        subject: artifactId,
+        payload: { visitorId, kind: "erasure" },
+        availableAt: NOW,
+        createdAt: NOW,
+      })
+      .returning();
+    if (!job) throw new Error("no job");
+    const { sent, notifier } = recordingNotifier();
+    const run = (id: number) =>
+      runJob(db(), env.ARTIFACTS, { id, topic: "data_rights_request" }, NOW + 2000, {
+        dataRightsNotifier: notifier,
+      });
+    expect(await run(job.id)).toBe("done");
+    const [request] = await rightsRequests(artifactId);
+    expect(request).toMatchObject({ kind: "erasure", visitorId, state: "pending" });
+    // Adopting again (a retried message) adds nothing twice.
+    await db()
+      .insert(schema.outbox)
+      .values({ ...job });
+    expect(await run(job.id)).toBe("done");
+    expect(await rightsRequests(artifactId)).toHaveLength(1);
+    const jobs = await rightsJobs(artifactId);
+    expect(jobs).toHaveLength(1);
+    expect(await run(jobs[0]?.id as number)).toBe("done");
+    expect(sent.map((notice) => notice.to)).toEqual([owner.email]);
+  });
+
+  it("7: releasing a hold makes a deferred erasure due again for the relay", async () => {
+    const { deps, artifactId, write } = await setup();
+    const person = await user("Held");
+    await write(person.id, "before");
+    value(
+      await requestOwnErasure(db(), deps.bucket, {
+        ...input(person.id, artifactId),
+        requestKey: key(),
+      }),
+    );
+    await db()
+      .update(schema.artifacts)
+      .set({ state: "suspended" })
+      .where(eq(schema.artifacts.id, artifactId));
+    value(
+      await placeLegalHold(db(), { artifactId, ground: "Order", releaseAt: null, now: NOW + 2000 }),
+    );
+    const job = await own(deps, artifactId, NOW);
+    if (!job) throw new Error("no job");
+    expect(
+      await runJob(db(), env.ARTIFACTS, { id: job.id, topic: job.topic }, NOW + 3000, {
+        data: deps.objects,
+      }),
+    ).toBe("kept");
+    // A release (and a quarantine's resolution) wake the region's held data jobs.
+    await wakeDataJobs(db(), artifactId, NOW + 4000);
+    const [due] = await db().select().from(schema.outbox).where(eq(schema.outbox.id, job.id));
+    expect(due).toMatchObject({ availableAt: NOW + 4000, dispatchedAt: null });
   });
 });

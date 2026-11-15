@@ -1335,8 +1335,12 @@ export const dataRightsRequests = sqliteTable(
 );
 
 /**
- * Each admin a rights request was emailed to: claimed before the send and given back when it
- * fails, so a retry emails only the admins not told yet.
+ * Each admin a rights request is emailed to. A send is `claimed` (with the claiming run's `token`)
+ * before the provider is called and `sent` only after the provider accepted it, so a claim is
+ * never counted as a delivery. A claim younger than `DATA_RIGHTS_CLAIM_LEASE_MS` is a send in
+ * flight, which keeps the request from settling; an older one is uncertain (the run died around
+ * the send) and is claimed again and resent. Rows stay until the request is pruned, so a late run
+ * never emails an admin already told.
  */
 export const dataRightsRequestSends = sqliteTable(
   "data_rights_request_sends",
@@ -1345,7 +1349,10 @@ export const dataRightsRequestSends = sqliteTable(
       .notNull()
       .references(() => dataRightsRequests.id, { onDelete: "cascade" }),
     userId: text("user_id").notNull(),
-    sentAt: timestamp("sent_at").notNull(),
+    state: text("state", { enum: ["claimed", "sent"] }).notNull(),
+    token: text("token").notNull(),
+    claimedAt: timestamp("claimed_at").notNull(),
+    sentAt: timestamp("sent_at"),
   },
   (t) => [primaryKey({ columns: [t.requestId, t.userId] })],
 );
@@ -1368,6 +1375,11 @@ export const dataOwnErasures = sqliteTable(
     /** `failed` only when the object refused it as no job can fix (a defect); asking again restarts. */
     state: text("state", { enum: ["running", "done", "failed"] }).notNull(),
     writeId: text("write_id").notNull(),
+    /**
+     * The key of the confirmed action that started this run (the dashboard's Idempotency-Key): a
+     * retried request with it answers this erasure instead of starting another one.
+     */
+    requestKey: text("request_key").notNull(),
     documents: integer("documents").notNull().default(0),
     edits: integer("edits").notNull().default(0),
     requestedAt: timestamp("requested_at").notNull(),

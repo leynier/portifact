@@ -3,6 +3,7 @@ CREATE TABLE `data_own_erasures` (
 	`visitor_id` text NOT NULL,
 	`state` text NOT NULL,
 	`write_id` text NOT NULL,
+	`request_key` text NOT NULL,
 	`documents` integer DEFAULT 0 NOT NULL,
 	`edits` integer DEFAULT 0 NOT NULL,
 	`requested_at` integer NOT NULL,
@@ -15,7 +16,10 @@ CREATE INDEX `data_own_erasures_finished_idx` ON `data_own_erasures` (`state`,`f
 CREATE TABLE `data_rights_request_sends` (
 	`request_id` text NOT NULL,
 	`user_id` text NOT NULL,
-	`sent_at` integer NOT NULL,
+	`state` text NOT NULL,
+	`token` text NOT NULL,
+	`claimed_at` integer NOT NULL,
+	`sent_at` integer,
 	PRIMARY KEY(`request_id`, `user_id`),
 	FOREIGN KEY (`request_id`) REFERENCES `data_rights_requests`(`id`) ON UPDATE no action ON DELETE cascade
 );

@@ -534,6 +534,7 @@ export async function listDataGrants(
   if (entries.length === 0) return { items: [], next };
   const ids = entries.map((entry) => entry.artifactId);
   const live = sql`${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now}`;
+  const oe = schema.dataOwnErasures;
   const [names, grants, erasures] = await db.batch([
     db
       .select({ id: schema.artifacts.id, name: schema.artifacts.name })
@@ -550,8 +551,14 @@ export async function listDataGrants(
       .from(g)
       .where(and(eq(g.userId, input.userId), inArray(g.artifactId, ids), isNotNull(g.redeemedAt)))
       .groupBy(g.artifactId),
-    // The person's erasures there, by the visitor ID each entry names (matched below).
-    db.select().from(schema.dataOwnErasures).where(inArray(schema.dataOwnErasures.artifactId, ids)),
+    // The person's erasures there: exactly the (artifact, visitor ID) pairs the entries name,
+    // through the primary key, never another visitor's rows.
+    db
+      .select()
+      .from(oe)
+      .where(
+        sql`(${oe.artifactId}, ${oe.visitorId}) in (select json_extract(value, '$[0]'), json_extract(value, '$[1]') from json_each(${JSON.stringify(entries.map((entry) => [entry.artifactId, entry.visitorId]))}))`,
+      ),
   ]);
   const erasureOf = new Map(
     erasures.map((row) => [`${row.artifactId}\u0000${row.visitorId}`, ownErasureView(row)]),

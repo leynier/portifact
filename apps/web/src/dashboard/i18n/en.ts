@@ -51,7 +51,7 @@ export const en = {
   "sharedData.downloadContinue": "Continue download",
   "sharedData.downloadContinueNamed": "Continue downloading what you saved in {name}",
   "sharedData.downloadRestart": "Start over",
-  "sharedData.downloadRestartNamed": "Start the download of {name} over",
+  "sharedData.downloadRestartNamed": "Start over downloading what you saved in {name}",
   "sharedData.downloadPaused": "Download paused",
   "sharedData.downloadPausedAllowance":
     "{count, plural, one {# document downloaded so far.} other {# documents downloaded so far.}} Today's allowance for your data in this artifact is used up. Continue tomorrow, after midnight UTC, and the download picks up where it stopped.",

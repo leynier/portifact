@@ -27,8 +27,8 @@ export function ownerRpc(
     actor === ERASURE_ACTOR ? actor : mutationActorName({ kind: "owner", actor });
   return {
     lifecycleControl: async () => memory.durable.control,
-    lifecycleEraseOwn: async (envelope, visitor, opId, now) =>
-      memory.eraseOwnChunk({ ...envelope, opId }, visitor, 500, {
+    lifecycleEraseOwn: async (envelope, visitor, before, editsAfter, opId, now) =>
+      memory.eraseOwnChunk({ ...envelope, opId }, visitor, before, editsAfter, 500, {
         now,
         limits: LIFECYCLE_LIMITS,
       }),
