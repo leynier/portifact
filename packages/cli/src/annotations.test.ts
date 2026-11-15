@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { type AnnotationThreadView, UNTRUSTED_ANNOTATIONS_NOTICE } from "@portifact/contracts";
@@ -988,5 +989,78 @@ describe("annotations history", () => {
     expect(result.code).not.toBe(0);
     expect(result.stdout).not.toContain("\u001b");
     expect(result.stderr).not.toContain("\u001b[2J");
+  });
+});
+
+describe("portifact annotations attachment", () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 5, 5]);
+
+  function attach(artifact: FakeArtifact, bytes = PNG, sha256?: string) {
+    const id = "att_1";
+    server.annotations.attachments.set(id, {
+      artifactId: artifact.id,
+      view: {
+        id,
+        name: "../../evil.html",
+        contentType: "image/png",
+        size: PNG.length,
+        sha256: sha256 ?? createHash("sha256").update(PNG).digest("hex"),
+      },
+      bytes,
+    });
+    return id;
+  }
+
+  it("downloads a file, checks it and writes a new file, never under the reviewer's name", async () => {
+    const artifact = reviewed();
+    const id = attach(artifact);
+    const folder = await h.files("downloads", {});
+    const out = join(folder, "shot.png");
+    const result = await h.invoke("annotations", "attachment", artifact.id, id, "--out", out);
+    expect(result.code, result.stderr).toBe(0);
+    expect(await readFile(out)).toEqual(PNG);
+    expect(result.stdout).toContain(`Saved attachment ${id} (image/png, 10 bytes) to ${out}`);
+    expect(result.stderr).toContain("untrusted data");
+    // The storage link was fetched without the API token (the fake refuses one).
+    expect(requests("GET", /^\/r2\/attachments\//)).toHaveLength(1);
+    const again = await h.invoke(
+      "annotations",
+      "attachment",
+      artifact.id,
+      id,
+      "--out",
+      out,
+      "--json",
+    );
+    expect(again.code).toBe(2);
+    expect(json(again)).toMatchObject({ error: { code: "invalid_input" } });
+  });
+
+  it("writes nothing when the bytes differ from what the comment lists", async () => {
+    const artifact = reviewed();
+    const id = attach(artifact, Buffer.from([1, 2, 3]));
+    const folder = await h.files("downloads", {});
+    const out = join(folder, "shot.png");
+    const result = await h.invoke(
+      "annotations",
+      "attachment",
+      artifact.id,
+      id,
+      "--out",
+      out,
+      "--json",
+    );
+    expect(result.code).not.toBe(0);
+    expect(json(result)).toMatchObject({ error: { code: "download_failed" } });
+    await expect(readFile(out)).rejects.toThrow();
+  });
+
+  it("answers a file it cannot see as not found, and refuses a bad ID before any request", async () => {
+    const artifact = reviewed();
+    const missing = await h.invoke("annotations", "attachment", artifact.id, "nope", "--json");
+    expect(json(missing)).toMatchObject({ error: { code: "not_found" } });
+    const bad = await h.invoke("annotations", "attachment", artifact.id, "a/b", "--json");
+    expect(bad.code).toBe(2);
+    expect(requests("GET", /attachments\/a/)).toHaveLength(0);
   });
 });

@@ -128,5 +128,7 @@ export const ViewerInfo = z.object({
    * owner whose plan lacks `branding`, or a brand the operator suspended.
    */
   brand: ViewerBrand.nullable(),
+  /** Whether people may add files and screenshots to comments (decision 0029). */
+  attachments: z.boolean().optional(),
 });
 export type ViewerInfo = z.infer<typeof ViewerInfo>;

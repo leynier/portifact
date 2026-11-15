@@ -485,7 +485,13 @@ export const CommentTombstonesPayload = z
     markers: z
       .array(
         z.strictObject({
-          kind: z.enum(["suggestion_withdrawn", "suggestion_rejected", "edit_draft"]),
+          kind: z.enum([
+            "suggestion_withdrawn",
+            "suggestion_rejected",
+            "edit_draft",
+            // A file the operator removed (decision 0029).
+            "comment_attachment",
+          ]),
           id: z.string().min(1).max(200),
         }),
       )

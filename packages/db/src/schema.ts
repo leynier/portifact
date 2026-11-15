@@ -33,6 +33,16 @@ export const ABUSE_REASONS = [
 ] as const;
 
 /** Edit suggestions (decision 0027), as in @portifact/contracts. */
+/** What a comment attachment may be (decision 0029); equal to `ATTACHMENT_TYPES` in contracts. */
+export const ATTACHMENT_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "text/plain",
+] as const;
+
 export const SUGGESTION_THREAD_KINDS = ["comment", "suggestion"] as const;
 export const SUGGESTION_STATES = [
   "pending",
@@ -878,6 +888,8 @@ export const tombstones = sqliteTable(
      * (decision 0027) add `suggestion_withdrawn` and `suggestion_rejected` (a thread ID: a restore
      * withdraws or rejects it again) and `edit_draft` (`<artifact>:<user>:<incarnation>`: a restore
      * deletes that draft again, never one created after it), pruned with the same window.
+     * `comment_attachment` marks a file the operator removed (decision 0029), by its ID, pruned
+     * with the same window.
      */
     kind: text("kind", {
       enum: [
@@ -910,6 +922,7 @@ export const tombstones = sqliteTable(
         "suggestion_rejected",
         "edit_draft",
         "data_grant",
+        "comment_attachment",
       ],
     }).notNull(),
     id: text("id").notNull(),
@@ -1015,7 +1028,9 @@ export const moderationDecisions = sqliteTable(
   "moderation_decisions",
   {
     id: text("id").primaryKey(),
-    targetKind: text("target_kind", { enum: ["artifact", "account", "brand"] }).notNull(),
+    targetKind: text("target_kind", {
+      enum: ["artifact", "account", "brand", "attachment"],
+    }).notNull(),
     targetId: text("target_id").notNull(),
     /** The owner whose people are told: the account, or the workspace. */
     ownerId: text("owner_id").notNull(),
@@ -1471,6 +1486,69 @@ export const annotationMessages = sqliteTable(
     index("annotation_messages_author_idx").on(t.authorId),
     check("annotation_messages_body_bytes", sql`${t.bodyBytes} between 0 and 8192`),
     check("annotation_messages_deleted_body", sql`(${t.state} = 'deleted') = (${t.body} is null)`),
+  ],
+);
+
+/**
+ * Files on comments (decision 0029). A row is `pending` from the upload's start until a new thread
+ * or reply names it, then `attached` to that message for good. Its R2 key is derived
+ * (`attachmentKey`: `attachments/<artifact>/<id>`). Triggers (`comment_attachments` migration)
+ * count an attached row's size in its owner's `annotation_usage.bytes`, move it with a transfer,
+ * write a `delete_objects` job for the key whenever a row is deleted, and delete a message's rows
+ * when it becomes a deleted marker; the foreign keys take them with their message, thread and
+ * artifact. `uploaded_by` has no foreign key (users are global); an attached row's uploader is its
+ * message's author, and account deletion deletes the account's pending rows.
+ */
+export const commentAttachments = sqliteTable(
+  "comment_attachments",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    /** The artifact's owner, whose comment storage an attached file uses. */
+    ownerId: text("owner_id").notNull(),
+    threadId: text("thread_id").references(() => annotationThreads.id, { onDelete: "cascade" }),
+    messageId: text("message_id").references(() => annotationMessages.id, { onDelete: "cascade" }),
+    uploadedBy: text("uploaded_by").notNull(),
+    /** Untrusted text chosen by the uploader. */
+    name: text("name").notNull(),
+    size: integer("size").notNull(),
+    sha256: text("sha256").notNull(),
+    /** What the bytes showed when the file was attached; null while pending. */
+    contentType: text("content_type", { enum: ATTACHMENT_TYPES }),
+    state: text("state", { enum: ["pending", "attached"] }).notNull(),
+    createdAt: createdAt(),
+    /** When a pending upload stops being usable; null once attached. */
+    expiresAt: timestamp("expires_at"),
+    attachedAt: timestamp("attached_at"),
+    /**
+     * Set while the operator withholds the file (decision 0029, "Abuse and the operator"): shown
+     * to and downloadable by nobody, kept in storage until reinstated or removed for good.
+     */
+    withheldAt: timestamp("withheld_at"),
+    withheldReason: text("withheld_reason", { enum: ABUSE_REASONS }),
+  },
+  (t) => [
+    index("comment_attachments_message_idx").on(t.messageId),
+    index("comment_attachments_thread_idx").on(t.threadId),
+    index("comment_attachments_artifact_idx").on(t.artifactId),
+    // A person's pending uploads, counted against their cap and deleted with their account.
+    index("comment_attachments_uploader_idx")
+      .on(t.uploadedBy, t.expiresAt)
+      .where(sql`${t.state} = 'pending'`),
+    // Expired pending uploads, oldest first, for the prune.
+    index("comment_attachments_pending_idx").on(t.expiresAt).where(sql`${t.state} = 'pending'`),
+    check("comment_attachments_size", sql`${t.size} between 1 and 10485760`),
+    check("comment_attachments_sha256", sql`length(${t.sha256}) = 64`),
+    check(
+      "comment_attachments_type",
+      sql`${t.contentType} is null or ${t.contentType} in ('image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf', 'text/plain')`,
+    ),
+    check(
+      "comment_attachments_state",
+      sql`(${t.state} = 'pending' and ${t.threadId} is null and ${t.messageId} is null and ${t.contentType} is null and ${t.expiresAt} is not null and ${t.attachedAt} is null) or (${t.state} = 'attached' and ${t.threadId} is not null and ${t.messageId} is not null and ${t.contentType} is not null and ${t.expiresAt} is null and ${t.attachedAt} is not null)`,
+    ),
   ],
 );
 

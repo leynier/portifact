@@ -27,7 +27,7 @@ import {
   threadInScope,
   versionRetention,
 } from "@portifact/domain";
-import { and, asc, eq, inArray, ne, notInArray, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, notInArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { loadSettings } from "./account-settings.ts";
@@ -35,6 +35,7 @@ import { actorOn, ownerSide } from "./actors.ts";
 import { eraseAuthorFromThread } from "./annotations.ts";
 import { eraseApprovalAuthor } from "./approval-reviews.ts";
 import { deleteJournalCursor, scheduleAuthorErasures } from "./artifact-data.ts";
+import { deletePendingUploadsOf } from "./attachments.ts";
 import { accountLeftEvents, eraseOwnerAuditEvents, exportAuditEvents } from "./audit.ts";
 import { deleteOwnerAuditStreams, exportAuditStreams } from "./audit-streams.ts";
 import { eraseOwnerBrand, exportedBrand } from "./branding.ts";
@@ -269,6 +270,33 @@ export async function exportAccount(
       messages.set(row.threadId, [...(messages.get(row.threadId) ?? []), row]);
     }
   }
+  // Files on those messages (decision 0029), as thread views list them: attached and not withheld.
+  const attachedFiles = new Map<
+    string,
+    { id: string; name: string; contentType: string; size: number; sha256: string }[]
+  >();
+  const ca = schema.commentAttachments;
+  for (const ids of chunks([...ownThreads, ...elsewhere].map((thread) => thread.id))) {
+    for (const row of await db
+      .select({
+        id: ca.id,
+        messageId: ca.messageId,
+        name: ca.name,
+        contentType: ca.contentType,
+        size: ca.size,
+        sha256: ca.sha256,
+      })
+      .from(ca)
+      .where(and(inArray(ca.threadId, ids), eq(ca.state, "attached"), isNull(ca.withheldAt)))
+      .orderBy(asc(ca.attachedAt), asc(ca.id))) {
+      if (row.messageId === null || row.contentType === null) continue;
+      const { messageId, contentType, ...file } = row;
+      attachedFiles.set(messageId, [
+        ...(attachedFiles.get(messageId) ?? []),
+        { ...file, contentType },
+      ]);
+    }
+  }
   const authorIds = [...new Set([...messages.values()].flat().map((message) => message.authorId))];
   const names = new Map<string, string>();
   for (const ids of chunks(authorIds)) {
@@ -312,6 +340,7 @@ export async function exportAccount(
         body: message.body,
         createdAt: iso(message.createdAt),
         editedAt: isoOrNull(message.editedAt),
+        ...(attachedFiles.has(message.id) ? { attachments: attachedFiles.get(message.id) } : {}),
       })),
     ...suggestionOf(thread, onlyOwn),
   });
@@ -927,6 +956,9 @@ function regionalDeletion(
     db.delete(schema.commentNotices).where(eq(schema.commentNotices.recipientId, userId)),
     db.delete(schema.commentNoticeMutes).where(eq(schema.commentNoticeMutes.userId, userId)),
     closeJobs(db, "comment_notice", userId, sql`1`),
+    // Uploads the account started and never attached (decision 0029); their bytes go by the
+    // rows' delete trigger. Attached files go with the account's messages.
+    deletePendingUploadsOf(db, userId),
     // Review emails sent to the account and those waiting for it (decision 0013, "Emails").
     db.delete(schema.reviewNotices).where(eq(schema.reviewNotices.recipientId, userId)),
     closeJobs(db, "review_notice", userId, sql`1`),

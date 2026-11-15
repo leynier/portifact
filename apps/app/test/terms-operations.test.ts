@@ -48,6 +48,7 @@ const ROUTES: Record<string, Class> = {
   "POST /api/v1/domains/:hostname/verify": "refused",
   "DELETE /api/v1/domains/:hostname": "open",
   // Comments and reviews.
+  "POST /api/v1/artifacts/:artifactId/annotations/attachments": "refused",
   "POST /api/v1/artifacts/:artifactId/annotations/threads": "refused",
   "POST /api/v1/artifacts/:artifactId/annotations/threads/:threadId/messages": "refused",
   "POST /api/v1/artifacts/:artifactId/annotations/threads/:threadId/resolve": "refused",

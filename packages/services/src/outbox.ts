@@ -12,6 +12,7 @@ import {
   type JobMessage,
 } from "@portifact/contracts";
 import { type AccessDb, type Db, type Region, type RegionalDb, schema } from "@portifact/db";
+import { isAttachmentKey } from "@portifact/domain";
 import { and, asc, eq, inArray, isNull, lte, or, type SQL, sql } from "drizzle-orm";
 import { eraseAccessEvents } from "./access-log.ts";
 import { advanceAccountDeletion } from "./account-data.ts";
@@ -442,6 +443,15 @@ async function deleteUnreferencedKeys(db: Db, bucket: R2Bucket, keys: string[]) 
       const b = schema.ownerBrands;
       const named = sql<string>`'brands/' || ${b.ownerId} || '/' || ${b.logoSha256}`;
       for (const row of await db.select({ key: named }).from(b).where(inArray(named, logos))) {
+        kept.add(row.key);
+      }
+    }
+    // A comment attachment's key is kept while a row names it again (a restore, decision 0029).
+    const files = chunk.filter(isAttachmentKey);
+    if (files.length > 0) {
+      const ca = schema.commentAttachments;
+      const named = sql<string>`'attachments/' || ${ca.artifactId} || '/' || ${ca.id}`;
+      for (const row of await db.select({ key: named }).from(ca).where(inArray(named, files))) {
         kept.add(row.key);
       }
     }

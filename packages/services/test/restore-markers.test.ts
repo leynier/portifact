@@ -404,6 +404,7 @@ describe("pruning restore markers", () => {
   it("prunes exactly these kinds after the backup window", () => {
     expect([...WINDOW_TOMBSTONE_KINDS].sort()).toEqual(
       [
+        "comment_attachment",
         "comment_message",
         "comment_notice_mute",
         "comment_thread",
@@ -457,13 +458,18 @@ describe("pruning restore markers", () => {
   it("prunes every window kind after the backup window and keeps the permanent kinds", async () => {
     const old = NOW - GROUP_TOMBSTONE_RETENTION_MS - DAY;
     const tag = crypto.randomUUID();
+    // One insert per age: D1 binds at most 100 parameters per statement.
     await global()
       .insert(t)
       .values([
         ...WINDOW_TOMBSTONE_KINDS.map((kind) => ({ kind, id: `${tag}:old`, deletedAt: old })),
-        ...WINDOW_TOMBSTONE_KINDS.map((kind) => ({ kind, id: `${tag}:recent`, deletedAt: NOW })),
         { kind: "artifact" as const, id: `${tag}:old`, deletedAt: old },
       ]);
+    await global()
+      .insert(t)
+      .values(
+        WINDOW_TOMBSTONE_KINDS.map((kind) => ({ kind, id: `${tag}:recent`, deletedAt: NOW })),
+      );
     for (let run = 0; run < 20; run++) {
       if ((await pruneGroupTombstones(global(), NOW)).deleted === 0) break;
     }

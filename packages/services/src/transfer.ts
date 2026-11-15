@@ -277,6 +277,12 @@ export async function transferArtifact(
         .update(schema.changeItems)
         .set({ ownerId: to })
         .where(guarded(eq(schema.changeItems.artifactId, artifact.id))),
+      // Comment attachments (decision 0029) move with their comments; their bytes follow by
+      // trigger, and the target's CHECK refuses a move without room.
+      w
+        .update(schema.commentAttachments)
+        .set({ ownerId: to })
+        .where(guarded(eq(schema.commentAttachments.artifactId, artifact.id))),
       // Each with the marker that keeps it gone through a restore, on the same condition.
       draftMarker(
         w,

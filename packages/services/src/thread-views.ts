@@ -6,13 +6,14 @@ import type {
   AnnotationMessageView,
   AnnotationTarget,
   AnnotationThreadView,
+  AttachmentView,
   ImageRegion,
   ImageRegionView,
   SuggestionThreadView,
 } from "@portifact/contracts";
 import { type RegionalDb, schema } from "@portifact/db";
 import { type AnnotationRole, ERASED_ACCOUNT, messageBodyVisible } from "@portifact/domain";
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { suggestionView } from "./suggestion-view.ts";
 import {
   type ThreadIssueRecord,
@@ -58,17 +59,47 @@ export async function threadViews(
   const m = schema.annotationMessages;
   const messages: MessageRow[] = [];
   const issues = new Map<string, ThreadIssueRecord[]>();
+  const files = new Map<string, AttachmentView[]>();
+  const ca = schema.commentAttachments;
   for (const ids of chunks(threads.map((thread) => thread.id))) {
-    // The thread's issues ride in the messages' call (decision 0018): no round trip of their own.
-    const [rows, issueRows] = await db.batch([
+    // The thread's issues and files ride in the messages' call (decisions 0018 and 0029): no
+    // round trip of their own.
+    const [rows, issueRows, fileRows] = await db.batch([
       db
         .select()
         .from(m)
         .where(inArray(m.threadId, ids))
         .orderBy(asc(m.createdAt), sql`${m}.rowid`),
       threadIssuesQuery(db, ids, viewerId),
+      db
+        .select({
+          id: ca.id,
+          messageId: ca.messageId,
+          name: ca.name,
+          contentType: ca.contentType,
+          size: ca.size,
+          sha256: ca.sha256,
+        })
+        .from(ca)
+        .where(
+          // A file the operator withholds is listed to nobody until reinstated (decision 0029).
+          and(inArray(ca.threadId, ids), eq(ca.state, "attached"), isNull(ca.withheldAt)),
+        )
+        .orderBy(asc(ca.attachedAt), asc(ca.id)),
     ]);
     messages.push(...rows);
+    for (const file of fileRows) {
+      if (file.messageId === null || file.contentType === null) continue;
+      const list = files.get(file.messageId) ?? [];
+      list.push({
+        id: file.id,
+        name: file.name,
+        contentType: file.contentType,
+        size: file.size,
+        sha256: file.sha256,
+      });
+      files.set(file.messageId, list);
+    }
     for (const row of issueRows) {
       const list = issues.get(row.threadId) ?? [];
       list.push(threadIssueRecord(row, viewerId));
@@ -93,15 +124,19 @@ export async function threadViews(
     threads.map((thread) => [thread.id, []]),
   );
   for (const message of messages) {
+    const visible = messageBodyVisible(context.role, viewerId, message);
+    const attached = visible ? files.get(message.id) : undefined;
     byThread.get(message.threadId)?.push({
       id: message.id,
       author: authors.get(message.authorId) ?? null,
       own: message.authorId === viewerId,
       state: message.state,
-      body: messageBodyVisible(context.role, viewerId, message) ? message.body : null,
+      body: visible ? message.body : null,
       revision: message.revision,
       createdAt: iso(message.createdAt),
       editedAt: message.editedAt === null ? null : iso(message.editedAt),
+      // Only when it has files and the caller sees its body, so a hidden message shows none.
+      ...(attached && attached.length > 0 ? { attachments: attached } : {}),
     });
   }
   return threads.map((thread) => ({

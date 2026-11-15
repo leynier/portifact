@@ -27,6 +27,7 @@ import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
 import { dataEraseJob, pruneJournalCursors } from "./artifact-data.ts";
+import { pruneAttachmentUploads } from "./attachments.ts";
 import { auditEvent, pruneAuditEvents } from "./audit.ts";
 import { pruneAuthRecords } from "./auth-records.ts";
 import { scheduleCommentNotices } from "./comment-notices.ts";
@@ -984,6 +985,8 @@ export async function runRegionalMaintenance(
     threadIssues: await requeueThreadIssues(db, now),
     // Slack connections started and never completed (decision 0025): one delete.
     pendingConnections: await prunePendingConnections(db, now),
+    // Comment attachment uploads nobody attached within their hour (decision 0029): one delete.
+    attachmentUploads: await pruneAttachmentUploads(db, now),
     // Edit suggestions (decision 0027): overdue acceptances end, records past their time go, and
     // drafts of people who no longer act for the owner are deleted.
     acceptAttempts: (await expireAcceptAttempts(db, now)).ended,
@@ -1076,6 +1079,8 @@ export async function runMaintenance(
     // Slack connections started and never completed, after 24 hours (decision 0025): one delete
     // of at most a few rows per owner, with no tombstone (they hold no credential).
     pendingConnections: await prunePendingConnections(db, now),
+    // Comment attachment uploads nobody attached within their hour (decision 0029): one delete.
+    attachmentUploads: await pruneAttachmentUploads(db, now),
     // Preview codes of edit suggestions and their cached documents (decision 0027).
     previewCodes: await prunePreviewCodes(db, bucket, now),
     // Workspace policies (decision 0015): brings back in line what a request that read a policy

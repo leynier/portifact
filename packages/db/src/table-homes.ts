@@ -99,6 +99,7 @@ export const TABLE_HOMES = {
   data_grant_codes: "regional",
   annotation_threads: "regional",
   annotation_messages: "regional",
+  comment_attachments: "regional",
   annotation_events: "regional",
   annotation_usage: "regional",
   comment_notices: "regional",

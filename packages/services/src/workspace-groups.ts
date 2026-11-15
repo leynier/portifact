@@ -677,6 +677,7 @@ export const WINDOW_TOMBSTONE_KINDS = [
   "suggestion_rejected",
   "edit_draft",
   "data_grant",
+  "comment_attachment",
 ] as const;
 
 /** Rows each kind gives a statement at most, and statements per run at most. */

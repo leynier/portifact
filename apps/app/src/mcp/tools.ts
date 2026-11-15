@@ -30,6 +30,7 @@ import {
 } from "@portifact/contracts";
 import type { RegionalDb, RegionHandles } from "@portifact/db";
 import {
+  attachmentsEnabled,
   type MultipartConfig,
   suggestionsEnabled,
   TERMS_AGENT_SENTENCE,
@@ -66,6 +67,7 @@ import {
 import { ACCESS_LOG_TOOL_SCOPES, registerAccessLogTools } from "./access-log-tools.ts";
 import { ACCESS_TOOL_SCOPES, registerAccessTools } from "./access-tools.ts";
 import { ANNOTATION_TOOL_SCOPES, registerAnnotationTools } from "./annotation-tools.ts";
+import { ATTACHMENT_TOOL_SCOPES, registerAttachmentTools } from "./attachment-tools.ts";
 import { AUDIT_TOOL_SCOPES, registerAuditTools } from "./audit-tools.ts";
 import { CHANGE_TOOL_SCOPES, registerChangeTools } from "./change-tools.ts";
 import { DATA_TOOL_SCOPES, registerDataTools } from "./data-tools.ts";
@@ -102,6 +104,7 @@ export const TOOL_SCOPES = new Map<string, OAuthScope>([
   ...DOMAIN_TOOL_SCOPES,
   ...DATA_TOOL_SCOPES,
   ...CHANGE_TOOL_SCOPES,
+  ...ATTACHMENT_TOOL_SCOPES,
   ["list_artifacts", "artifacts:read"],
   ["get_artifact", "artifacts:read"],
   ["publish_document", "artifacts:write"],
@@ -514,6 +517,8 @@ export function createPortifactServer(context: ToolContext): McpServer {
   registerIntegrationTools(register, context);
   // Edit suggestions are switched off unless the app Worker turns them on (decision 0027).
   if (suggestionsEnabled(context.env)) registerChangeTools(register, context);
+  // Comment attachments are switched off unless the app Worker turns them on (decision 0029).
+  if (attachmentsEnabled(context.env)) registerAttachmentTools(register, context);
 
   return server;
 }

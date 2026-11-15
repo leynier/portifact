@@ -459,6 +459,15 @@ export function previews(): Preview[] {
       email: moderationNoticeEmail({ ...suspension, target: "brand", reason: "impersonation" }),
     },
     {
+      name: "moderation-attachment-withheld",
+      email: moderationNoticeEmail({
+        ...suspension,
+        target: "attachment",
+        attachmentId: "att_3f2a",
+        reason: "copyright",
+      }),
+    },
+    {
       name: "moderation-artifact-reinstated",
       email: moderationNoticeEmail({
         ...suspension,

@@ -120,6 +120,7 @@ describe("the statement of reasons", () => {
         action: "suspend",
         target: "artifact",
         artifactId,
+        attachmentId: null,
         artifactName: "Plan",
         workspaceSlug: null,
         reason: "phishing",

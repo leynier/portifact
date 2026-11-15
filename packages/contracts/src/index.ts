@@ -11,6 +11,7 @@ export * from "./approval-review-tools.ts";
 export * from "./approval-reviews.ts";
 export * from "./artifact-data.ts";
 export * from "./artifact-data-api.ts";
+export * from "./attachments.ts";
 export * from "./audit.ts";
 export * from "./audit-streams.ts";
 export * from "./branding.ts";

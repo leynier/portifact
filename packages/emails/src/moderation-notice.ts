@@ -11,14 +11,16 @@ import { formatExpiry, gap } from "./expiry-notice.ts";
 import { type Block, renderEmail, textSignature } from "./layout.ts";
 import type { EmailContent } from "./message.ts";
 
-export type ModerationTarget = "artifact" | "account" | "brand";
+export type ModerationTarget = "artifact" | "account" | "brand" | "attachment";
 export type ModerationAction = "suspend" | "reinstate";
 
 export interface ModerationNoticeInput {
   action: ModerationAction;
   target: ModerationTarget;
-  /** The artifact's ID, for an artifact. */
+  /** The artifact's ID, for an artifact or a file on one of its comments. */
   artifactId?: string | undefined;
+  /** The file's ID, for a file on a comment (decision 0029). */
+  attachmentId?: string | undefined;
   /** The artifact's name, only where a notice may name it (`noticeNames`); else the ID alone. */
   artifactName?: string | null | undefined;
   reason: AbuseReason | null;
@@ -35,12 +37,15 @@ export interface ModerationNoticeInput {
 
 type ByTarget<T> = { readonly [target in ModerationTarget]: T };
 
+/** The "what" of a notice: the artifact's label and, for a file on a comment, its ID. */
+type What = (label: string, file?: string) => string;
+
 /** The notice in one language. */
 export interface ModerationNoticeText {
   suspendSubject: ByTarget<(label: string) => string>;
   liftSubject: ByTarget<(label: string) => string>;
-  suspendWhat: ByTarget<(label: string) => string>;
-  liftWhat: ByTarget<(label: string) => string>;
+  suspendWhat: ByTarget<What>;
+  liftWhat: ByTarget<What>;
   /** Territorial scope and duration of a suspension. */
   scope: string;
   category: string;
@@ -64,11 +69,13 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       artifact: (l) => `We suspended your artifact ${l}`,
       account: () => "We suspended your Portifact account",
       brand: () => "We suspended your space's brand",
+      attachment: () => "We withheld a file on a comment",
     },
     liftSubject: {
       artifact: (l) => `Your artifact ${l} is no longer suspended`,
       account: () => "Your Portifact account is no longer suspended",
       brand: () => "Your space's brand is no longer suspended",
+      attachment: () => "A file on a comment is no longer withheld",
     },
     suspendWhat: {
       artifact: (l) =>
@@ -77,6 +84,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "We suspended your account. It can no longer publish, and its artifacts are suspended with it. You can still sign in, export your data and delete your account.",
       brand: () =>
         "We suspended the brand of your space's Portifact bar. The viewer shows the default bar instead.",
+      attachment: (l, f = "") =>
+        `We withheld the file ${f} attached to a comment on the artifact ${l}. Nobody can view or download it while it is withheld; the comment itself stays. It is kept, not deleted: if you ask for a review or send a counter-notice, we look at it again. If the decision stands, we may delete the file for good 30 days after this email at the earliest.`,
     },
     liftWhat: {
       artifact: (l) =>
@@ -84,6 +93,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       account: () =>
         "We lifted the suspension of your account. It can publish again, and the artifacts suspended with it are back.",
       brand: () => "We lifted the suspension of your space's brand. The viewer shows it again.",
+      attachment: (l, f = "") =>
+        `We lifted the restriction on the file ${f} attached to a comment on the artifact ${l}. Everyone who can read the comment can view and download it again.`,
     },
     scope:
       "This applies everywhere Portifact is available. It has no end date: it lasts until we lift it, for example after a review you ask for.",
@@ -118,11 +129,13 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       artifact: (l) => `Suspendimos tu artifact ${l}`,
       account: () => "Suspendimos tu cuenta de Portifact",
       brand: () => "Suspendimos la marca de tu espacio",
+      attachment: () => "Retuvimos un archivo de un comentario",
     },
     liftSubject: {
       artifact: (l) => `Tu artifact ${l} ya no está suspendido`,
       account: () => "Tu cuenta de Portifact ya no está suspendida",
       brand: () => "La marca de tu espacio ya no está suspendida",
+      attachment: () => "Un archivo de un comentario ya no está retenido",
     },
     suspendWhat: {
       artifact: (l) =>
@@ -131,6 +144,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Suspendimos tu cuenta. Ya no puede publicar y sus artifacts quedan suspendidos con ella. Todavía puedes iniciar sesión, exportar tus datos y eliminar tu cuenta.",
       brand: () =>
         "Suspendimos la marca de la barra de Portifact de tu espacio. El visor muestra la barra predeterminada.",
+      attachment: (l, f = "") =>
+        `Retuvimos el archivo ${f} adjunto a un comentario del artifact ${l}. Nadie puede verlo ni descargarlo mientras esté retenido; el comentario sigue. Se conserva, no se borra: si pides una revisión o envías una contranotificación, lo volvemos a mirar. Si la decisión se mantiene, podemos borrar el archivo definitivamente a partir de 30 días después de este correo.`,
     },
     liftWhat: {
       artifact: (l) =>
@@ -139,6 +154,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Levantamos la suspensión de tu cuenta. Puede volver a publicar y los artifacts suspendidos con ella están de vuelta.",
       brand: () =>
         "Levantamos la suspensión de la marca de tu espacio. El visor vuelve a mostrarla.",
+      attachment: (l, f = "") =>
+        `Levantamos la restricción del archivo ${f} adjunto a un comentario del artifact ${l}. Quien pueda leer el comentario puede volver a verlo y descargarlo.`,
     },
     scope:
       "Se aplica en todos los lugares donde Portifact está disponible. No tiene fecha de fin: dura hasta que la levantemos, por ejemplo después de una revisión que pidas.",
@@ -174,11 +191,13 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       artifact: (l) => `Suspendemos seu artifact ${l}`,
       account: () => "Suspendemos sua conta do Portifact",
       brand: () => "Suspendemos a marca do seu espaço",
+      attachment: () => "Retivemos um arquivo de um comentário",
     },
     liftSubject: {
       artifact: (l) => `Seu artifact ${l} não está mais suspenso`,
       account: () => "Sua conta do Portifact não está mais suspensa",
       brand: () => "A marca do seu espaço não está mais suspensa",
+      attachment: () => "Um arquivo de um comentário não está mais retido",
     },
     suspendWhat: {
       artifact: (l) =>
@@ -187,6 +206,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Suspendemos sua conta. Ela não pode mais publicar, e seus artifacts ficam suspensos com ela. Você ainda pode entrar, exportar seus dados e excluir sua conta.",
       brand: () =>
         "Suspendemos a marca da barra do Portifact do seu espaço. O visualizador mostra a barra padrão.",
+      attachment: (l, f = "") =>
+        `Retivemos o arquivo ${f} anexado a um comentário do artifact ${l}. Ninguém pode vê-lo ou baixá-lo enquanto estiver retido; o comentário continua. Ele é guardado, não excluído: se você pedir uma revisão ou enviar uma contranotificação, analisamos de novo. Se a decisão for mantida, podemos excluir o arquivo definitivamente a partir de 30 dias após este e-mail.`,
     },
     liftWhat: {
       artifact: (l) =>
@@ -195,6 +216,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Retiramos a suspensão da sua conta. Ela pode publicar de novo, e os artifacts suspensos com ela estão de volta.",
       brand: () =>
         "Retiramos a suspensão da marca do seu espaço. O visualizador volta a mostrá-la.",
+      attachment: (l, f = "") =>
+        `Suspendemos a restrição do arquivo ${f} anexado a um comentário do artifact ${l}. Quem pode ler o comentário pode vê-lo e baixá-lo de novo.`,
     },
     scope:
       "Vale em todos os lugares onde o Portifact está disponível. Não tem data de término: dura até que a retiremos, por exemplo depois de uma revisão que você pedir.",
@@ -230,11 +253,13 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       artifact: (l) => `Nous avons suspendu votre artifact ${l}`,
       account: () => "Nous avons suspendu votre compte Portifact",
       brand: () => "Nous avons suspendu la marque de votre espace",
+      attachment: () => "Nous avons retenu un fichier d'un commentaire",
     },
     liftSubject: {
       artifact: (l) => `Votre artifact ${l} n’est plus suspendu`,
       account: () => "Votre compte Portifact n’est plus suspendu",
       brand: () => "La marque de votre espace n’est plus suspendue",
+      attachment: () => "Un fichier d'un commentaire n'est plus retenu",
     },
     suspendWhat: {
       artifact: (l) =>
@@ -243,6 +268,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Nous avons suspendu votre compte. Il ne peut plus publier, et ses artifacts sont suspendus avec lui. Vous pouvez toujours vous connecter, exporter vos données et supprimer votre compte.",
       brand: () =>
         "Nous avons suspendu la marque de la barre Portifact de votre espace. Le lecteur affiche la barre par défaut.",
+      attachment: (l, f = "") =>
+        `Nous avons retenu le fichier ${f} joint à un commentaire de l'artifact ${l}. Personne ne peut le voir ni le télécharger tant qu'il est retenu ; le commentaire reste. Il est conservé, pas supprimé : si vous demandez un réexamen ou envoyez une contre-notification, nous l'examinons à nouveau. Si la décision est maintenue, nous pourrons supprimer définitivement le fichier au plus tôt 30 jours après cet e-mail.`,
     },
     liftWhat: {
       artifact: (l) =>
@@ -251,6 +278,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Nous avons levé la suspension de votre compte. Il peut publier de nouveau, et les artifacts suspendus avec lui sont de retour.",
       brand: () =>
         "Nous avons levé la suspension de la marque de votre espace. Le lecteur l’affiche de nouveau.",
+      attachment: (l, f = "") =>
+        `Nous avons levé la restriction du fichier ${f} joint à un commentaire de l'artifact ${l}. Toute personne qui peut lire le commentaire peut à nouveau le voir et le télécharger.`,
     },
     scope:
       "Cela s’applique partout où Portifact est disponible. Il n’y a pas de date de fin : cela dure jusqu’à ce que nous la levions, par exemple après un réexamen que vous demandez.",
@@ -286,11 +315,13 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       artifact: (l) => `Wir haben Ihr Artifact ${l} gesperrt`,
       account: () => "Wir haben Ihr Portifact-Konto gesperrt",
       brand: () => "Wir haben die Marke Ihres Bereichs gesperrt",
+      attachment: () => "Wir haben eine Datei an einem Kommentar zurückgehalten",
     },
     liftSubject: {
       artifact: (l) => `Ihr Artifact ${l} ist nicht mehr gesperrt`,
       account: () => "Ihr Portifact-Konto ist nicht mehr gesperrt",
       brand: () => "Die Marke Ihres Bereichs ist nicht mehr gesperrt",
+      attachment: () => "Eine Datei an einem Kommentar wird nicht mehr zurückgehalten",
     },
     suspendWhat: {
       artifact: (l) =>
@@ -299,6 +330,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Wir haben Ihr Konto gesperrt. Es kann nicht mehr veröffentlichen, und seine Artifacts sind mit ihm gesperrt. Sie können sich weiterhin anmelden, Ihre Daten exportieren und Ihr Konto löschen.",
       brand: () =>
         "Wir haben die Marke der Portifact-Leiste Ihres Bereichs gesperrt. Der Viewer zeigt stattdessen die Standardleiste.",
+      attachment: (l, f = "") =>
+        `Wir haben die Datei ${f} an einem Kommentar zum Artifact ${l} zurückgehalten. Solange sie zurückgehalten wird, kann niemand sie ansehen oder herunterladen; der Kommentar selbst bleibt. Sie wird aufbewahrt, nicht gelöscht: Wenn du eine Überprüfung verlangst oder eine Gegendarstellung schickst, sehen wir sie uns erneut an. Bleibt es bei der Entscheidung, können wir die Datei frühestens 30 Tage nach dieser E-Mail endgültig löschen.`,
     },
     liftWhat: {
       artifact: (l) =>
@@ -307,6 +340,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Wir haben die Sperre Ihres Kontos aufgehoben. Es kann wieder veröffentlichen, und die mit ihm gesperrten Artifacts sind zurück.",
       brand: () =>
         "Wir haben die Sperre der Marke Ihres Bereichs aufgehoben. Der Viewer zeigt sie wieder.",
+      attachment: (l, f = "") =>
+        `Wir haben die Einschränkung der Datei ${f} an einem Kommentar zum Artifact ${l} aufgehoben. Alle, die den Kommentar lesen können, können sie wieder ansehen und herunterladen.`,
     },
     scope:
       "Dies gilt überall, wo Portifact verfügbar ist. Es gibt kein Enddatum: Es gilt, bis wir es aufheben, zum Beispiel nach einer Überprüfung, die Sie verlangen.",
@@ -342,11 +377,13 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       artifact: (l) => `Мы приостановили ваш артефакт ${l}`,
       account: () => "Мы приостановили ваш аккаунт Portifact",
       brand: () => "Мы приостановили бренд вашего пространства",
+      attachment: () => "Мы задержали файл в комментарии",
     },
     liftSubject: {
       artifact: (l) => `Ваш артефакт ${l} больше не приостановлен`,
       account: () => "Ваш аккаунт Portifact больше не приостановлен",
       brand: () => "Бренд вашего пространства больше не приостановлен",
+      attachment: () => "Файл в комментарии больше не задержан",
     },
     suspendWhat: {
       artifact: (l) =>
@@ -355,6 +392,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Мы приостановили ваш аккаунт. Он больше не может публиковать, а его артефакты приостановлены вместе с ним. Вы по-прежнему можете входить, экспортировать свои данные и удалить аккаунт.",
       brand: () =>
         "Мы приостановили бренд панели Portifact вашего пространства. Просмотрщик показывает стандартную панель.",
+      attachment: (l, f = "") =>
+        `Мы задержали файл ${f}, прикреплённый к комментарию к артефакту ${l}. Пока файл задержан, никто не может его просмотреть или скачать; сам комментарий остаётся. Файл хранится, а не удалён: если вы попросите пересмотреть решение или отправите встречное уведомление, мы рассмотрим его снова. Если решение останется в силе, мы можем окончательно удалить файл не ранее чем через 30 дней после этого письма.`,
     },
     liftWhat: {
       artifact: (l) =>
@@ -363,6 +402,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "Мы сняли приостановку с вашего аккаунта. Он снова может публиковать, а артефакты, приостановленные вместе с ним, вернулись.",
       brand: () =>
         "Мы сняли приостановку с бренда вашего пространства. Просмотрщик снова его показывает.",
+      attachment: (l, f = "") =>
+        `Мы сняли ограничение с файла ${f}, прикреплённого к комментарию к артефакту ${l}. Все, кто может читать комментарий, снова могут его просматривать и скачивать.`,
     },
     scope:
       "Это действует везде, где доступен Portifact. Срока окончания нет: это действует, пока мы не снимем ограничение, например после проверки по вашей просьбе.",
@@ -398,11 +439,13 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       artifact: (l) => `アーティファクト ${l} を停止しました`,
       account: () => "Portifact アカウントを停止しました",
       brand: () => "スペースのブランドを停止しました",
+      attachment: () => "コメントのファイルを保留しました",
     },
     liftSubject: {
       artifact: (l) => `アーティファクト ${l} の停止を解除しました`,
       account: () => "Portifact アカウントの停止を解除しました",
       brand: () => "スペースのブランドの停止を解除しました",
+      attachment: () => "コメントのファイルの保留を解除しました",
     },
     suspendWhat: {
       artifact: (l) =>
@@ -411,6 +454,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
         "あなたのアカウントを停止しました。公開できなくなり、そのアーティファクトもあわせて停止されます。サインイン、データのエクスポート、アカウントの削除は引き続き行えます。",
       brand: () =>
         "スペースの Portifact バーのブランドを停止しました。ビューアーには既定のバーが表示されます。",
+      attachment: (l, f = "") =>
+        `アーティファクト ${l} のコメントに添付されたファイル ${f} を保留しました。保留中は誰も表示やダウンロードができません。コメント自体は残ります。ファイルは削除されず保管されています。再審査の依頼や異議申し立てがあれば、改めて確認します。判断が維持された場合、このメールの送信から最短で 30 日後にファイルを完全に削除することがあります。`,
     },
     liftWhat: {
       artifact: (l) =>
@@ -418,6 +463,8 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       account: () =>
         "アカウントの停止を解除しました。再び公開でき、あわせて停止されていたアーティファクトも戻りました。",
       brand: () => "スペースのブランドの停止を解除しました。ビューアーに再び表示されます。",
+      attachment: (l, f = "") =>
+        `アーティファクト ${l} のコメントに添付されたファイル ${f} の制限を解除しました。コメントを読めるすべての人が、再び表示とダウンロードができます。`,
     },
     scope:
       "これは Portifact が利用できるすべての地域に適用されます。終了日はありません。あなたが求めた見直しの後など、解除するまで続きます。",
@@ -452,11 +499,13 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       artifact: (l) => `我们已暂停你的 artifact ${l}`,
       account: () => "我们已暂停你的 Portifact 账户",
       brand: () => "我们已暂停你空间的品牌",
+      attachment: () => "我们暂扣了评论中的一个文件",
     },
     liftSubject: {
       artifact: (l) => `你的 artifact ${l} 已解除暂停`,
       account: () => "你的 Portifact 账户已解除暂停",
       brand: () => "你空间的品牌已解除暂停",
+      attachment: () => "评论中的一个文件已不再被暂扣",
     },
     suspendWhat: {
       artifact: (l) =>
@@ -464,12 +513,16 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
       account: () =>
         "我们已暂停你的账户。它不能再发布内容,其 artifact 也随之暂停。你仍然可以登录、导出数据和删除账户。",
       brand: () => "我们已暂停你空间的 Portifact 栏中的品牌。查看器改为显示默认栏。",
+      attachment: (l, f = "") =>
+        `我们暂扣了制品 ${l} 的一条评论所附的文件 ${f}。暂扣期间，任何人都无法查看或下载它；评论本身保留。文件被保存而非删除：如果你申请复核或提交反通知，我们会重新审查。如果决定维持，我们最早可在本邮件发出 30 天后永久删除该文件。`,
     },
     liftWhat: {
       artifact: (l) =>
         `我们已解除 artifact ${l} 的暂停。它恢复到原来的状态;如果你的空间没有空闲的活跃名额,则回到归档。`,
       account: () => "我们已解除你账户的暂停。它可以再次发布,随之暂停的 artifact 也已恢复。",
       brand: () => "我们已解除你空间品牌的暂停。查看器会再次显示它。",
+      attachment: (l, f = "") =>
+        `我们解除了制品 ${l} 的一条评论所附文件 ${f} 的限制。所有能阅读该评论的人都可以再次查看和下载它。`,
     },
     scope:
       "这适用于 Portifact 提供服务的所有地区。没有结束日期:在我们解除之前一直有效,例如在你请求复核之后。",
@@ -522,14 +575,19 @@ function artifactLabel(input: ModerationNoticeInput): string {
 export function moderationNoticeEmail(input: ModerationNoticeInput): EmailContent {
   const locale = input.locale ?? DEFAULT_LOCALE;
   const t = MODERATION_NOTICE_TEXT[locale];
-  const label = input.target === "artifact" ? artifactLabel(input) : "";
+  const onArtifact = input.target === "artifact" || input.target === "attachment";
+  const label = onArtifact ? artifactLabel(input) : "";
   const suspend = input.action === "suspend";
   const subject = (suspend ? t.suspendSubject : t.liftSubject)[input.target](
     input.artifactId ?? "",
   );
-  const what = (suspend ? t.suspendWhat : t.liftWhat)[input.target](label);
+  const what = (suspend ? t.suspendWhat : t.liftWhat)[input.target](
+    label,
+    input.attachmentId ?? "",
+  );
   const facts = [
-    ...(input.target === "artifact" ? [{ label: "ID", value: input.artifactId ?? "" }] : []),
+    ...(onArtifact ? [{ label: "ID", value: input.artifactId ?? "" }] : []),
+    ...(input.target === "attachment" ? [{ label: "File", value: input.attachmentId ?? "" }] : []),
     ...(input.reason ? [{ label: t.category, value: t.reasons[input.reason] }] : []),
     { label: t.decided, value: formatExpiry(input.decidedAt, locale) },
   ];

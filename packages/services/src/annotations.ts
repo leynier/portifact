@@ -84,6 +84,14 @@ import { checkSuggestionThreadState, firstMessageDeletion } from "@portifact/dom
 import { and, asc, eq, gt, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { actorAndPlanOn, actorOn, ownerSide } from "./actors.ts";
+import {
+  type AttachmentRequest,
+  attachedBytes,
+  attachmentsGuard,
+  attachStatement,
+  type VerifiedAttachment,
+  verifyAttachments,
+} from "./attachment-writes.ts";
 import { auditEvent } from "./audit.ts";
 import { platformProtection } from "./budget.ts";
 import { markCommentActivity } from "./comment-activity.ts";
@@ -902,6 +910,8 @@ export async function createAnnotationThread(
     region?: ImageRegionRequest | undefined;
     /** Whether image regions are switched on (`IMAGE_REGIONS_ENABLED`); off, a region is refused. */
     imageRegions?: boolean | undefined;
+    /** Files to attach (decision 0029); the adapter decides whether the caller may. */
+    attachments?: AttachmentRequest | undefined;
   },
 ): Promise<Result<AnnotationThreadView>> {
   const targetJson = JSON.stringify(input.target);
@@ -921,6 +931,7 @@ export async function createAnnotationThread(
   const messageId = crypto.randomUUID();
   const writeId = crypto.randomUUID();
   const checkHuman = humanGate(db, input.userId, input.humanCheck);
+  let files: VerifiedAttachment[] = [];
 
   return guardedWrite(
     async () => {
@@ -928,9 +939,12 @@ export async function createAnnotationThread(
       if (!loaded.ok) return loaded;
       const writable = checkThreadWritable(input.versionId, loaded.value.artifact.currentVersionId);
       if (!writable.ok) return writable;
+      const verified = await attachmentsOf(db, input);
+      if (!verified.ok) return verified;
+      files = verified.value;
       const vf = schema.versionFiles;
       const paths = request ? [input.target.path, request.image.path] : [input.target.path];
-      const files = await db
+      const pageFiles = await db
         .select({ path: vf.path, sha256: vf.sha256, contentType: vf.contentType })
         .from(vf)
         .where(
@@ -940,13 +954,13 @@ export async function createAnnotationThread(
             inArray(vf.path, [...new Set(paths)]),
           ),
         );
-      if (!files.some((file) => file.path === input.target.path)) {
+      if (!pageFiles.some((file) => file.path === input.target.path)) {
         return fail("invalid_input", "target.path: No such file in this version.");
       }
       regionJson = null;
       targetBytes = utf8Length(targetJson);
       if (request) {
-        const image = files.find((file) => file.path === request.image.path);
+        const image = pageFiles.find((file) => file.path === request.image.path);
         if (!image?.contentType.toLowerCase().startsWith("image/")) {
           return fail("invalid_input", "region.image.path: No such image in this version.");
         }
@@ -968,7 +982,7 @@ export async function createAnnotationThread(
       }
       const limits = await checkLimits(db, loaded.value, input.userId, input.now, {
         kind: "thread",
-        addedBytes: bodyBytes + targetBytes,
+        addedBytes: bodyBytes + targetBytes + attachedBytes(files),
       });
       if (!limits.ok) return limits;
       const human = await checkHuman(loaded.value);
@@ -977,7 +991,7 @@ export async function createAnnotationThread(
     async (loaded) => {
       const a = loaded.artifact;
       const th = schema.annotationThreads;
-      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${a.id} and ${schema.artifacts.currentVersionId} = ${input.versionId}) and ${rateGuard(input.userId, a.id, input.now)} and (select count(*) from ${th} where ${th.artifactId} = ${a.id}) < ${ANNOTATION_LIMITS.threadsPerArtifact}`;
+      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and exists (select 1 from ${schema.artifacts} where ${schema.artifacts.id} = ${a.id} and ${schema.artifacts.currentVersionId} = ${input.versionId}) and ${rateGuard(input.userId, a.id, input.now)} and (select count(*) from ${th} where ${th.artifactId} = ${a.id}) < ${ANNOTATION_LIMITS.threadsPerArtifact} and ${attachmentsGuard(files, { userId: input.userId, artifactId: a.id, now: input.now })}`;
       return runClaimed(db, [
         claim(
           db,
@@ -1013,6 +1027,12 @@ export async function createAnnotationThread(
           now: input.now,
           writeId,
         }),
+        ...attachIfAny(
+          db,
+          files,
+          { threadId, messageId, userId: input.userId, now: input.now },
+          writeId,
+        ),
         ...noticeMark(db, loaded, writeId, {
           threadId,
           actorId: input.userId,
@@ -1023,6 +1043,25 @@ export async function createAnnotationThread(
     },
     (loaded) => threadResult(db, loaded, input.userId, threadId),
   );
+}
+
+/** The named uploads, checked against R2 (decision 0029); none when the write names none. */
+async function attachmentsOf(
+  db: RegionalDb,
+  input: AnnotationActor & { attachments?: AttachmentRequest | undefined },
+): Promise<Result<VerifiedAttachment[]>> {
+  if (!input.attachments || input.attachments.ids.length === 0) return ok([]);
+  return verifyAttachments(db, input.attachments, input);
+}
+
+/** Attaches the checked files to the new message, on the claim. */
+function attachIfAny(
+  db: RegionalDb,
+  files: readonly VerifiedAttachment[],
+  target: { threadId: string; messageId: string; userId: string; now: number },
+  writeId: string,
+): BatchItem<"sqlite">[] {
+  return files.length === 0 ? [] : [attachStatement(db, files, target, claimed(writeId))];
 }
 
 function insertMessage(
@@ -1050,12 +1089,19 @@ function insertMessage(
 /** Adds a reply to a thread of the current version. */
 export async function replyToAnnotationThread(
   db: RegionalDb,
-  input: AnnotationActor & { threadId: string; body: string; humanCheck: HumanCheck },
+  input: AnnotationActor & {
+    threadId: string;
+    body: string;
+    humanCheck: HumanCheck;
+    /** Files to attach (decision 0029); the adapter decides whether the caller may. */
+    attachments?: AttachmentRequest | undefined;
+  },
 ): Promise<Result<AnnotationThreadView>> {
   const bodyBytes = utf8Length(input.body);
   const messageId = crypto.randomUUID();
   const writeId = crypto.randomUUID();
   const checkHuman = humanGate(db, input.userId, input.humanCheck);
+  let files: VerifiedAttachment[] = [];
   return guardedWrite(
     async () => {
       const loaded = await authorize(db, input, "participate");
@@ -1067,12 +1113,15 @@ export async function replyToAnnotationThread(
         loaded.value.artifact.currentVersionId,
       );
       if (!writable.ok) return writable;
+      const verified = await attachmentsOf(db, input);
+      if (!verified.ok) return verified;
+      files = verified.value;
       const limits = await checkLimits(
         db,
         loaded.value,
         input.userId,
         input.now,
-        { kind: "reply", addedBytes: bodyBytes },
+        { kind: "reply", addedBytes: bodyBytes + attachedBytes(files) },
         thread.messageCount,
       );
       if (!limits.ok) return limits;
@@ -1081,7 +1130,7 @@ export async function replyToAnnotationThread(
     },
     (loaded) => {
       const a = loaded.artifact;
-      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(input.threadId)} and ${scopeGuard(loaded, input.threadId)} and ${rateGuard(input.userId, a.id, input.now)}`;
+      const guard = sql`${artifactGuard(loaded, "participate", input.now)} and ${currentThreadGuard(input.threadId)} and ${scopeGuard(loaded, input.threadId)} and ${rateGuard(input.userId, a.id, input.now)} and ${attachmentsGuard(files, { userId: input.userId, artifactId: a.id, now: input.now })}`;
       return runClaimed(db, [
         claim(
           db,
@@ -1106,6 +1155,12 @@ export async function replyToAnnotationThread(
           now: input.now,
           writeId,
         }),
+        ...attachIfAny(
+          db,
+          files,
+          { threadId: input.threadId, messageId, userId: input.userId, now: input.now },
+          writeId,
+        ),
         touchThread(db, input.threadId, writeId, input.now, {
           messageCount: sql`${schema.annotationThreads.messageCount} + 1`,
         }),

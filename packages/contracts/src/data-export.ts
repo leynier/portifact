@@ -196,6 +196,22 @@ export const ExportedRecordFile = z.union([
 ]);
 export type ExportedRecordFile = z.infer<typeof ExportedRecordFile>;
 
+/**
+ * A file on a comment (decision 0029) that `portifact export` downloaded into the artifact's
+ * `attachments/` folder, checked against the size and SHA-256 its comment lists, or why it is
+ * not there (`not_found`: deleted or withheld meanwhile).
+ */
+export const ExportedAttachment = z.union([
+  z.strictObject({
+    id: z.string().min(1),
+    file: z.string().min(1),
+    size: z.number().int().nonnegative(),
+    sha256,
+  }),
+  z.strictObject({ id: z.string().min(1), skipped: ExportSkipReason }),
+]);
+export type ExportedAttachment = z.infer<typeof ExportedAttachment>;
+
 export const ExportManifest = z.strictObject({
   format: z.literal(EXPORT_MANIFEST_FORMAT),
   /** The workspace's slug, or `personal`. */
@@ -211,6 +227,8 @@ export const ExportManifest = z.strictObject({
       accessLog: ExportedLog,
       /** `records.json`: settings, access, share links, review, analytics, comments and history. */
       records: ExportedRecordFile,
+      /** The files on the comments `records.json` lists, downloaded (decision 0029). */
+      attachments: z.array(ExportedAttachment).optional(),
       /** Set when the artifact (or the rest of its versions) could not be exported, and why. */
       skipped: ExportSkipReason.optional(),
     }),

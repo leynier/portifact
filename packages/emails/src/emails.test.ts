@@ -738,6 +738,7 @@ describe("previews", () => {
       "moderation-artifact-suspended-without-names",
       "moderation-account-suspended",
       "moderation-brand-suspended",
+      "moderation-attachment-withheld",
       "moderation-artifact-reinstated",
       ...translated.map((code) => `moderation-artifact-suspended-${code}`),
       "report-outcome-actioned",
