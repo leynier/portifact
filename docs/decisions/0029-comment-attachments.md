@@ -1,6 +1,6 @@
 # 0029 Comment attachments and screenshots
 
-- Status: accepted; built switched off (`ATTACHMENTS_ENABLED`), in stacked pull requests: this record, storage and the API, the viewer, then the legal pages, the skill and `TERMS_VERSION` for the maintainer's review.
+- Status: accepted; built switched off (`ATTACHMENTS_ENABLED`) in stacked pull requests: this record, storage and the API, the viewer, then the legal pages (version 2026-12-21, provisional, taking effect at least 30 days after it is emailed and published), the skill and the CLI's help. Switching on follows "Attachments" in [releasing.md](../releasing.md).
 - Date: 2026-11-14
 - Feature: comments (plan section 8). The plan lists attachments as outside the first version ("sin adjuntos") and gives them no design; the maintainer authorized defining and building them.
 
@@ -10,7 +10,7 @@ A reviewer often needs to show, not only say: a screenshot of what they see, a m
 
 ## Decision in short
 
-1. **A message holds up to 4 files**, each judged by its bytes, never its name or declared type: PNG, JPEG, GIF, WebP, PDF or plain UTF-8 text. Nothing else, SVG and HTML included.
+1. **A message holds up to 4 files**, each judged by its bytes, never its name or declared type: PNG, JPEG, GIF, WebP, PDF or plain UTF-8 text. Nothing else; HTML and SVG source may pass as plain text, and are downloaded as text, never rendered as active documents.
 2. **Bytes go straight to R2** through a presigned `PUT` that signs the exact size and SHA-256, like publishing. The file belongs to nobody until a comment or reply names it; the write that names it checks the bytes and attaches it in the comment's own claimed batch.
 3. **They count in the artifact owner's comment storage** (`annotation_usage.bytes`, the plan's `annotationBytes`), kept by triggers and refused by the existing CHECK constraint. No new plan limit or feature.
 4. **Who may read a file is exactly who may read its message's body** (thread in the caller's comment scope, current version for readers, hidden bodies only for the owner side and the author). Files are read through a 5-minute presigned `GET` from R2's endpoint, as a download (`Content-Disposition: attachment`, the type the bytes showed), never from `portifact.com` or an artifact origin.
@@ -35,7 +35,7 @@ The type is what the first bytes say (`sniffAttachment`, `packages/domain/src/at
 | `application/pdf` | `%PDF-`                                                   | download            |
 | `text/plain`      | the whole file is strict UTF-8 without NUL, at most 1 MiB | download            |
 
-Anything else, an empty file, or a text file over 1 MiB is refused with `invalid_input`. SVG is refused because it is a document that runs scripts when opened, and HTML, archives and office files because their only use is to be opened by something else. A file that is two things at once (a polyglot) can only ever be an `<img>` or a download, so its second meaning never runs.
+Anything else, an empty file, or a text file over 1 MiB is refused with `invalid_input`. HTML and SVG source may pass as plain text; they are downloaded as text, never rendered as active documents (the stored type is `text/plain` and the viewer shows only the four image types as images). Archives and office files are refused because their only use is to be opened by something else. A file that is two things at once (a polyglot) can only ever be an `<img>` or a download, so its second meaning never runs.
 
 ### Sizes and counts
 
@@ -86,7 +86,7 @@ Counting in the comment bytes, not in `account_usage.stored_bytes`, is deliberat
 
 ## Screenshots
 
-The viewer's composer offers "Attach a screenshot" where `navigator.mediaDevices.getDisplayMedia` exists. It asks for one capture (`preferCurrentTab`, a hint Chromium honors; Firefox and Safari show their chooser), draws one frame on a canvas in the viewer page, stops every track at once, encodes a PNG and shows it in the composer with a Remove button. Before the browser's prompt opens, the composer warns that the capture shows everything on what the person shares, other windows included, that it stays in this browser until they post, and to show other people's data only if they may; Continue opens the prompt, Cancel asks nothing. Nothing is uploaded until the person posts, and then it is an ordinary attachment.
+The viewer's composer offers "Attach a screenshot" where `navigator.mediaDevices.getDisplayMedia` exists. It asks for one capture (`preferCurrentTab`, a hint Chromium honors; Firefox and Safari show their chooser), draws one frame on a canvas in the viewer page, stops every track at once, encodes a PNG and shows it in the composer with a Remove button. Before the browser's prompt opens, the composer warns that the capture shows everything on what the person shares, other windows included, that it stays in this browser until they post, and to include other people's data only with a lawful basis and the notices it requires; Continue opens the prompt, Cancel asks nothing. Nothing is uploaded until the person posts, and then it is an ordinary attachment.
 
 Rejected ways:
 
@@ -113,7 +113,7 @@ Why: attachments are evidence a person adds while looking at the artifact; an ag
 | An account is deleted                                       | Its messages elsewhere are erased (`eraseAuthorFromThread`), taking their files; its pending uploads are deleted in `advanceAccountDeletion`                                           |
 | A transfer                                                  | The rows' owner moves; the trigger moves the bytes in the usage, and the target's CHECK refuses a move without room                                                                    |
 | A legal hold                                                | Nothing is deleted: comments on a held artifact are kept, and the release's erasure takes their files with them; the pending prune and the operator's removal leave held artifacts out |
-| The operator removes a file                                 | Its row is deleted with a `comment_attachment` window tombstone                                                                                                                        |
+| The operator restricts a file                               | Withheld at once and kept; deleted with a `comment_attachment` window tombstone only after the 30-day wait                                                                             |
 | A pending upload expires                                    | The maintenance scan deletes the row                                                                                                                                                   |
 
 A D1 Time Travel restore rewinds rows, not R2:
@@ -123,12 +123,18 @@ A D1 Time Travel restore rewinds rows, not R2:
 
 ## Abuse and the operator
 
-Reports name the artifact (the report form is unchanged); the reporter explains which comment. The people who manage the artifact can hide or delete the message. For a file that is not the owner's to judge (illegal content on someone else's artifact), the operator tool lists an artifact's files (`attachments --artifact <id> --region <name>`, metadata only) and removes one (`remove-attachment <id> --region <name>`), which deletes the row with its tombstone and records `attachment_removed` in the artifact's `lifecycle_events`. A held artifact's files are refused: the hold keeps evidence, and the artifact is already suspended, so nobody reads them.
+Reports name the artifact (the report form is unchanged); the reporter explains which comment. The people who manage the artifact can hide or delete the message. For a file that is not the owner's to judge (illegal content on someone else's artifact, a copyright notice), the operator follows the Terms' enforcement process, as for any restriction:
+
+1. `withhold-attachment <artifact-id> <attachment-id> --reason --facts --ground` restricts it at once and reversibly: thread views drop it and its link answers `not_found` for everyone, while the row and the bytes stay. The statement of reasons is a `moderation_decisions` row with target `attachment` and its `moderation_notice` job (`decisionStatements`), sent to the person who attached it and to the people who manage the artifact unless the law requires silence; the artifact's `lifecycle_events` record `attachment_withheld`.
+2. `reinstate-attachment` gives it back after a review or a counter-notice, with its own statement.
+3. `remove-attachment` deletes it for good, and only once `ATTACHMENT_LIMITS.removalWaitMs` (30 days, longer than a counter-notice's restoration of 10 to 14 business days) has passed since it was withheld: the row goes with a `comment_attachment` tombstone and `attachment_removed` is recorded. Refused while a legal hold keeps the artifact; withholding is not, since it deletes nothing.
+
+`attachments <artifact-id>` lists an artifact's files (metadata only, with whether and why each is withheld).
 
 ## Export
 
-- The account export lists the account's own messages with their attachments' metadata; the comments export (JSON) and the data records carry them through the message views. The Markdown export says how many files a message has, never their names.
-- The bytes are not in the export files: they are downloaded through the attachment link by whoever may read them, as an export's artifact files are fetched through the download links. The Terms' export register says so.
+- The account export lists the files on the account's messages (name, type, size, SHA-256); the comments export (JSON) and the data records carry them through the message views. The Markdown export does not list files.
+- `portifact export` downloads every file the records list into `artifacts/<id>/attachments/<attachment id><extension>` through its short link, counted only once its bytes at their place match the listed size and SHA-256 (through `SafeFolder`), and names a file deleted or withheld meanwhile as skipped in the manifest. The dashboard's "Download your data" page lists files without downloading them; the viewer and `portifact annotations attachment` download one at a time. The Terms' export register says exactly this.
 
 ## What never carries attachments
 
@@ -150,17 +156,17 @@ Without `ATTACHMENTS_ENABLED="true"` on the app Worker nothing can be added: the
 
 ## Threat model
 
-| Threat                                            | Answer                                                                                                                                        |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| A file runs script on a Portifact origin          | It is never served from `portifact.com` or `portifact.dev`; R2 sends it as a download; the viewer shows only allowed images as `blob:` images |
-| A renamed or mislabeled file                      | Types come from the bytes; the download name gets the bytes' extension                                                                        |
-| Other bytes than the ones checked                 | The upload URL signs size and SHA-256; the attach rechecks both against R2 before its batch                                                   |
-| A reader reads a file of a thread they cannot see | The download runs the thread's scope and the body's visibility; a hidden file answers like a missing one                                      |
-| Someone fills the owner's storage                 | Files count in comment bytes only, never publishing storage; per-person and per-artifact upload limits; the owner's moderation                |
-| A file outlives its comment                       | Triggers on every row deletion write its R2 deletion; restore markers delete restored rows again; reconciliation finds orphans                |
-| A screenshot captures more than intended          | The browser's own prompt and indicator; one frame; shown before posting; nothing sent until the person posts                                  |
-| An agent spams files                              | Adding is session only                                                                                                                        |
-| A link leaks                                      | It names one object, expires in 5 minutes and is never logged                                                                                 |
+| Threat                                            | Answer                                                                                                                                                                                              |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A file runs script on a Portifact origin          | It is never served from `portifact.com` or `portifact.dev`; R2 sends it as a download; the viewer shows only allowed images as `blob:` images                                                       |
+| A renamed or mislabeled file                      | Types come from the bytes; the download name gets the bytes' extension                                                                                                                              |
+| Other bytes than the ones checked                 | The upload URL signs size and SHA-256; the attach rechecks both against R2 before its batch                                                                                                         |
+| A reader reads a file of a thread they cannot see | The download runs the thread's scope and the body's visibility; a hidden file answers like a missing one                                                                                            |
+| Someone fills the owner's storage                 | Files count in comment bytes only, never publishing storage; per-person and per-artifact upload limits; the owner's moderation                                                                      |
+| A file outlives its comment                       | Triggers on every row deletion write its R2 deletion; restore markers delete restored rows again; reconciliation finds orphans                                                                      |
+| A screenshot captures more than intended          | The browser's own prompt and indicator; a warning before the prompt to check what it shows; one frame; kept in the browser and shown until the person posts, so a removed capture is never uploaded |
+| An agent spams files                              | Adding is session only                                                                                                                                                                              |
+| A link leaks                                      | It names one object, expires in 5 minutes and is never logged                                                                                                                                       |
 
 ## Rejected
 
