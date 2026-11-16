@@ -637,6 +637,10 @@ Run on production v0.50.1, which carries the `apiGate` fix above and reads the s
 - **Storage measured: passed.** `operator budget` printed `dataStoredBytes 270336` from the measurement of 07:30:17 UTC, the first one after v0.50.1 deployed, with `dataRequests` 30, `dataRowsRead` 362 and `dataRowsWritten` 204.
 - **Logs.** The content Worker logged nothing for the data routes; app and jobs only enum events.
 
+## Production check of live updates on a restricted artifact, 2026-11-16
+
+Run at 13:34 to 13:43 UTC on production v0.50.2, which carries the fix above, with `DATA_LIVE_ENABLED` set on the content Worker and the other switches unchanged, in Chrome 157 with a new disposable account (signed in by email code) and two throwaway personal `restricted` artifacts, all deleted afterwards (the account through Settings, its `data_author_erasure` job done). **Passed; `DATA_LIVE_ENABLED` stays on.** The board page, opened through the read entry and granted through Allow, sent Chrome's handshake to `/__portifact/data/live` with `Origin` and the `__Host-pf_read` and `__Host-pf_grant` cookies and no `Sec-Fetch-*` header and got `101`; a document written from a second tab and one from `portifact data create` arrived as `created` changes without a reload. From the sibling artifact's page Chrome sent no cookies (they are `SameSite=Lax` and the handshake is cross-site) and the server answered `403`; replayed with the reader's real cookies and no fetch metadata, the sibling's and a foreign `Origin` answered `403`, the artifact's own `101`, its own with `Sec-Fetch-Site: cross-site` `403`, no `Origin` `403` and no cookie `404`. The content Worker wrote no log line in 36 tail events.
+
 ## Claims and evidence
 
 Kinds: **P** a pure-rule or property test, **C** a call-site test through the object in workerd, **B** only a browser can show, **D** only a deployment can show. Each row says exactly what the named tests prove.
