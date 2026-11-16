@@ -17,6 +17,7 @@ import {
   discordEscape,
   eventBit,
   eventsToBits,
+  isCertificateStatus,
   nextAttemptAt,
   renderDelivery,
   signedContent,
@@ -235,6 +236,26 @@ describe("classifyAttempt", () => {
       retryable: true,
       gone: false,
     });
+  });
+
+  it("names Cloudflare's certificate answers (525, 526) as a certificate failure, retried", () => {
+    // A Worker's fetch to an endpoint whose certificate fails gets Cloudflare's 525 (handshake
+    // failed) or 526 (invalid certificate) instead of a TLS error.
+    for (const status of [525, 526]) {
+      expect(classifyAttempt({ kind: "status", status })).toEqual({
+        outcome: "failed",
+        status: null,
+        error: "certificate",
+        retryable: true,
+        gone: false,
+      });
+    }
+    for (const status of [520, 521, 522, 523, 524, 527, 530]) {
+      expect(classifyAttempt({ kind: "status", status })).toMatchObject({ status, error: null });
+    }
+    expect(isCertificateStatus(525)).toBe(true);
+    expect(isCertificateStatus(526)).toBe(true);
+    expect([200, 495, 496, 524, 527, 530].some(isCertificateStatus)).toBe(false);
   });
 
   it("marks only a 410 as gone", () => {

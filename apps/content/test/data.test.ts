@@ -17,6 +17,8 @@ import { CLIENT_SCRIPT, GRANT_COOKIE, GRANT_TX_COOKIE } from "../src/data.ts";
 import { resetDeliveryCaches } from "../src/directory.ts";
 import { handle } from "../src/index.ts";
 import { isPortifactCookie } from "../src/injected.ts";
+import { REVIEW_COOKIE, REVIEW_TAB_COOKIE } from "../src/review.ts";
+import { SHARE_COOKIE } from "../src/share-session.ts";
 
 const NOW = Date.UTC(2026, 10, 13, 12);
 const DAY = 86_400_000;
@@ -767,12 +769,18 @@ describe("artifact data on the artifact origin", () => {
 describe("live updates on the artifact origin", () => {
   const LIVE_ON = { ...ON, DATA_LIVE_ENABLED: "true" };
 
-  async function upgrade(id: string, options: { cookie?: string; origin?: string; env?: object }) {
-    const headers = new Headers({
-      ...FETCH,
-      Upgrade: "websocket",
-      Origin: options.origin ?? `https://${id}.portifact.dev`,
-    });
+  async function upgrade(
+    id: string,
+    options: {
+      cookie?: string;
+      origin?: string | null;
+      env?: object;
+      fetchMetadata?: Record<string, string>;
+    },
+  ) {
+    const headers = new Headers({ ...(options.fetchMetadata ?? FETCH), Upgrade: "websocket" });
+    const origin = options.origin === undefined ? `https://${id}.portifact.dev` : options.origin;
+    if (origin !== null) headers.set("Origin", origin);
     if (options.cookie) headers.set("Cookie", options.cookie);
     return handle(
       new Request(`https://${id}.portifact.dev/__portifact/data/live`, { headers }),
@@ -848,6 +856,114 @@ describe("live updates on the artifact origin", () => {
     );
     expect(plain.status).toBe(426);
     expect(CLIENT_SCRIPT).toContain("live/renew");
+  });
+
+  it("connects Chrome's handshake, which carries no fetch metadata, only from the artifact's origin", async () => {
+    // Chrome sends Origin and no Sec-Fetch-* header on a WebSocket handshake.
+    const id = await seed();
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const opened = await upgrade(id, { cookie: grant, fetchMetadata: {} });
+    expect(opened.status).toBe(101);
+    const { socket, hello: greeted } = await hello(opened);
+    expect(greeted.deadline).toBe(NOW + 60_000);
+    socket.close(1000);
+    const reader = await upgrade(id, { fetchMetadata: {} });
+    expect(reader.status).toBe(101);
+    (await hello(reader)).socket.close(1000);
+
+    const refused = async (options: Parameters<typeof upgrade>[1]) =>
+      (await upgrade(id, { cookie: grant, fetchMetadata: {}, ...options })).status;
+    expect(await refused({ origin: "https://evil.example" })).toBe(403);
+    expect(await refused({ origin: "https://zzzzzzzz23.portifact.dev" })).toBe(403);
+    expect(await refused({ origin: null })).toBe(403);
+    expect(await refused({ fetchMetadata: { "Sec-Fetch-Site": "same-site" } })).toBe(403);
+    expect(await refused({ fetchMetadata: { "Sec-Fetch-Site": "cross-site" } })).toBe(403);
+    // Not a handshake: a request without fetch metadata is still refused before anything else.
+    const plain = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/live`, {
+        headers: { Origin: `https://${id}.portifact.dev`, Cookie: grant },
+      }),
+      LIVE_ON as typeof env,
+      NOW,
+    );
+    expect(plain.status).toBe(403);
+    const me = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/me`, {
+        headers: { Origin: `https://${id}.portifact.dev`, Upgrade: "websocket", Cookie: grant },
+        method: "POST",
+      }),
+      LIVE_ON as typeof env,
+      NOW,
+    );
+    expect(me.status).toBe(403);
+  });
+
+  /** A restricted artifact and the session cookie of each kind a reader may hold for it. */
+  async function protectedSessions() {
+    const id = await seed("restricted");
+    await db()
+      .insert(schema.artifactReaders)
+      .values({ artifactId: id, email: `${READER}@example.com` });
+    // A share link session needs the owner's plan to include links.
+    await db()
+      .insert(schema.ownerPlans)
+      .values({ ownerId: OWNER, plan: "pro", grantedBy: "test", updatedAt: NOW });
+    resetDeliveryCaches();
+    const secret = env.READ_SESSION_SECRET;
+    const times = { exp: NOW + 10 * 60_000, sexp: NOW + DAY };
+    const review = { v: 1, sid: "r".repeat(43), aid: id, vid: `${id}-v1`, uid: READER, gen: 1 };
+    const tag = "t".repeat(22);
+    return {
+      id,
+      cookies: {
+        read: `${READ_COOKIE}=${await seal(secret, "pf_read", { v: 1, sid: "s".repeat(43), aid: id, uid: READER, gen: 1, ...times })}`,
+        reviewFrame: `${REVIEW_COOKIE}=${await seal(secret, "pf_review", { ...review, tag, ...times })}`,
+        reviewTab: `${REVIEW_TAB_COOKIE}=${await seal(secret, "pf_review_tab", { ...review, tag, ...times })}`,
+        link: `${SHARE_COOKIE}=${await seal(secret, "pf_link", { v: 1, sid: "l".repeat(43), aid: id, lid: `sl_${"a".repeat(32)}`, ...times })}`,
+      },
+    };
+  }
+
+  it("connects Chrome's handshake on a restricted artifact through each session kind, only from its origin", async () => {
+    // Production, 2026-11-16: Chrome sends no fetch metadata on a handshake, and the reading
+    // authorization refused it before the live route's own gate, so only public artifacts worked.
+    const { id, cookies } = await protectedSessions();
+    for (const [kind, cookie] of Object.entries(cookies)) {
+      const opened = await upgrade(id, { cookie, fetchMetadata: {} });
+      expect(opened.status, kind).toBe(101);
+      (await hello(opened)).socket.close(1000);
+      // Firefox's handshake, with fetch metadata, connects as before.
+      const firefox = await upgrade(id, {
+        cookie,
+        fetchMetadata: { "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "websocket" },
+      });
+      expect(firefox.status, kind).toBe(101);
+      (await hello(firefox)).socket.close(1000);
+
+      // A sibling artifact's page, another site or an opaque origin, with the visitor's cookie.
+      const refused = async (options: Parameters<typeof upgrade>[1]) =>
+        (await upgrade(id, { cookie, fetchMetadata: {}, ...options })).status;
+      expect(await refused({ origin: "https://zzzzzzzz23.portifact.dev" }), kind).toBe(403);
+      expect(await refused({ origin: "https://evil.example" }), kind).toBe(403);
+      expect(await refused({ origin: "http://" + id + ".portifact.dev" }), kind).toBe(403);
+      expect(await refused({ origin: "null" }), kind).toBe(403);
+      expect(await refused({ origin: null }), kind).toBe(403);
+      expect(await refused({ fetchMetadata: { "Sec-Fetch-Site": "same-site" } }), kind).toBe(403);
+      // Partial fetch metadata is judged by the usual checks: no Sec-Fetch-Site fails closed.
+      expect(await refused({ fetchMetadata: { "Sec-Fetch-Mode": "websocket" } }), kind).toBe(404);
+
+      // Only the live route: the same handshake to `me` does not use the session.
+      const me = await handle(
+        new Request(`https://${id}.portifact.dev/__portifact/data/me`, {
+          headers: { Origin: `https://${id}.portifact.dev`, Upgrade: "websocket", Cookie: cookie },
+        }),
+        LIVE_ON as typeof env,
+        NOW,
+      );
+      expect(me.status, kind).toBe(404);
+    }
+    // Without a session the handshake is refused like a missing artifact.
+    expect((await upgrade(id, { fetchMetadata: {} })).status).toBe(404);
   });
 
   it("answers a protected artifact's live path like a missing one without a reading session", async () => {

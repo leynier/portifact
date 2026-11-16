@@ -11,7 +11,7 @@ import type {
   DataWritersView,
 } from "@portifact/contracts";
 
-type Reply = { status: number; body?: unknown };
+type Reply = { status: number; body?: unknown; headers?: Record<string, string> };
 type ErrorOf = (code: "not_found" | "invalid_input" | "forbidden", message: string) => Reply;
 
 interface FakeCollection {
@@ -34,6 +34,8 @@ export interface FakeData {
   writers: Map<string, DataWriters>;
   /** The refusal a writers change answers instead, when set. */
   writersRefusal: { code: "plan_required" | "policy_refused"; message: string } | null;
+  /** The read limit's refusal every read and export page answers instead, when set. */
+  readRefusal: { message: string; retryAfterSeconds: number } | null;
 }
 
 export function createFakeData(): FakeData {
@@ -46,6 +48,7 @@ export function createFakeData(): FakeData {
     authorPage: 500,
     writers: new Map(),
     writersRefusal: null,
+    readRefusal: null,
   };
 }
 
@@ -76,6 +79,14 @@ export function dataRoute(
   const { error, method } = input;
   if (!input.artifactExists(artifactId)) return error("not_found", "Artifact not found.");
   if (method !== "GET") data.keys.push(input.key);
+  // The owner-side read limit (DATA_OWNER_READS): reads and export pages, never `writers`.
+  if (method === "GET" && data.readRefusal && rest !== "/writers") {
+    return {
+      status: 429,
+      body: { error: { code: "rate_limited", message: data.readRefusal.message } },
+      headers: { "retry-after": String(data.readRefusal.retryAfterSeconds) },
+    };
+  }
   let collections = data.collections.get(artifactId);
   if (!collections) {
     collections = new Map();

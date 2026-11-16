@@ -99,6 +99,8 @@ export const de = {
   "dataGrant.ownerWorkspace": "Veröffentlicht vom Workspace {name}",
   "dataGrant.learns":
     "Die Seite kennt dich als {name}, mit einer ID nur für dieses Artifact. Deine E-Mail-Adresse erfährt sie nie.",
+  "dataGrant.learnsNoName":
+    "Die Seite kennt dich nur über eine ID für dieses Artifact, ohne Namen, weil dein Konto keinen hat. Deine E-Mail-Adresse erfährt sie nie.",
   "dataGrant.managers":
     "Die Personen, die dieses Artifact verwalten, können alles lesen, was dort gespeichert wird.",
   "dataGrant.moves": "Wechselt das Artifact den Eigentümer, wandert das Gespeicherte mit.",
@@ -1748,6 +1750,7 @@ export const de = {
   "webhooks.deliveries.outcome": "Ergebnis",
   "webhooks.error.timeout": "Zeitüberschreitung",
   "webhooks.error.network": "keine Verbindung",
+  "webhooks.error.certificate": "Zertifikat nicht akzeptiert",
   "webhooks.error.redirect": "weitergeleitet, nicht gefolgt",
   "webhooks.error.invalid_url": "URL nicht erlaubt",
   "webhooks.error.daily_cap": "Tageslimit erreicht",
@@ -3298,7 +3301,7 @@ export const de = {
     "Das alte Geheimnis signiert 24 Stunden lang neben dem neuen weiter, damit Ihr Endpunkt ohne verlorene Anfrage wechseln kann.",
   "audit.stream.verify.title": "Jede Anfrage prüfen",
   "audit.stream.verify.body":
-    "Jede Anfrage trägt webhook-id, webhook-timestamp und webhook-signature, dasselbe Verfahren wie bei den Webhooks von Portifact. Berechnen Sie die Signatur über den unveränderten Body neu, lehnen Sie Zeitstempel ab, die mehr als 5 Minuten abweichen, und überspringen Sie Ereignisse, deren ID Sie schon gespeichert haben. Zeilen mit einem Feld record sind keine Ereignisse: eine Lücke oder ein Test.",
+    "Jede Anfrage trägt webhook-id, webhook-timestamp und webhook-signature, dasselbe Verfahren wie bei den Webhooks von Portifact. Berechnen Sie die Signatur über den unveränderten Body neu, lehnen Sie Zeitstempel ab, die mehr als 5 Minuten abweichen, und überspringen Sie Ereignisse, deren ID Sie schon gespeichert haben. Zeilen mit einem Feld record sind keine Ereignisse: eine Lücke oder ein Test. Prüfer, die den Body als einen einzigen JSON-Wert lesen, etwa verify() der Bibliothek standardwebhooks, werfen bei einer Anfrage mit mehr als einer Zeile einen Fehler, auch wenn die Signatur stimmt: Prüfen Sie die Signatur wie im Beispiel über den unveränderten Body und lesen Sie ihn dann Zeile für Zeile.",
   "audit.stream.verify.sample": "Signaturprüfung in Node.js",
   "audit.stream.state.active": "Aktiv",
   "audit.stream.state.paused": "Pausiert",

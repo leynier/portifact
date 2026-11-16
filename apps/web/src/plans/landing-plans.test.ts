@@ -99,7 +99,7 @@ describe("the pricing section's numbers", () => {
     }
   });
 
-  it("show artifact data from PLANS, as coming soon, in every language", () => {
+  it("show artifact data from PLANS, as included, in every language", () => {
     for (const code of LOCALE_CODES) {
       const document = page(code);
       for (const plan of PLAN_NAMES) {

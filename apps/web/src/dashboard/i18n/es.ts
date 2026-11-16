@@ -97,6 +97,8 @@ export const es = {
   "dataGrant.ownerWorkspace": "Publicado por el espacio de trabajo {name}",
   "dataGrant.learns":
     "La página te conocerá como {name}, con un ID solo para este artifact. Nunca sabrá tu correo.",
+  "dataGrant.learnsNoName":
+    "La página te conocerá solo por un ID para este artifact, sin nombre, porque tu cuenta no tiene uno. Nunca sabrá tu correo.",
   "dataGrant.managers":
     "Las personas que gestionan este artifact pueden leer todo lo que se guarde ahí.",
   "dataGrant.moves": "Si el artifact pasa a otro propietario, lo que guardaste se mueve con él.",
@@ -1738,6 +1740,7 @@ export const es = {
   "webhooks.deliveries.outcome": "Resultado",
   "webhooks.error.timeout": "se agotó el tiempo",
   "webhooks.error.network": "sin conexión",
+  "webhooks.error.certificate": "certificado no aceptado",
   "webhooks.error.redirect": "redirigido, sin seguir",
   "webhooks.error.invalid_url": "URL no permitida",
   "webhooks.error.daily_cap": "límite diario alcanzado",
@@ -3276,7 +3279,7 @@ export const es = {
     "El secreto anterior sigue firmando junto al nuevo durante 24 horas, para que tu endpoint cambie sin perder ninguna petición.",
   "audit.stream.verify.title": "Comprueba cada petición",
   "audit.stream.verify.body":
-    "Cada petición lleva webhook-id, webhook-timestamp y webhook-signature, el mismo esquema que los webhooks de Portifact. Vuelve a calcular la firma sobre el cuerpo sin modificar, rechaza marcas de tiempo con más de 5 minutos de diferencia y omite los eventos cuyo ID ya guardaste. Las líneas con un campo record no son eventos: un hueco o una prueba.",
+    "Cada petición lleva webhook-id, webhook-timestamp y webhook-signature, el mismo esquema que los webhooks de Portifact. Vuelve a calcular la firma sobre el cuerpo sin modificar, rechaza marcas de tiempo con más de 5 minutos de diferencia y omite los eventos cuyo ID ya guardaste. Las líneas con un campo record no son eventos: un hueco o una prueba. Los verificadores que leen el cuerpo como un único valor JSON, como verify() de la biblioteca standardwebhooks, fallan con una petición de más de una línea aunque la firma sea correcta: comprueba la firma sobre el cuerpo sin modificar como hace el ejemplo y luego lee el cuerpo línea a línea.",
   "audit.stream.verify.sample": "Comprobación de la firma en Node.js",
   "audit.stream.state.active": "Activo",
   "audit.stream.state.paused": "En pausa",

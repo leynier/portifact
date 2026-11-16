@@ -10,20 +10,44 @@ export interface HeaderSource {
 
 /**
  * The API gate: `Sec-Fetch-Site: same-origin` always; the exact origin on writes and WebSocket
- * handshakes; JSON on writes. No fetch metadata fails closed.
+ * handshakes; JSON on writes. No fetch metadata fails closed, except on a WebSocket handshake
+ * (a read), which Chrome sends with `Origin` and no `Sec-Fetch-*` header: there the exact origin
+ * alone decides, since a browser always sends `Origin` on a handshake and a page cannot set it.
+ * Fetch metadata that is present must still say `same-origin`.
  */
 export function apiGate(
   headers: HeaderSource,
   origin: string,
   write: boolean,
 ): "allowed" | "refused" {
-  if (headers.get("Sec-Fetch-Site") !== "same-origin") return "refused";
   const upgrade = headers.get("Upgrade")?.toLowerCase() === "websocket";
+  const site = headers.get("Sec-Fetch-Site");
+  const handshakeWithoutMetadata = upgrade && !write && site === null;
+  if (site !== "same-origin" && !handshakeWithoutMetadata) return "refused";
   if ((write || upgrade) && headers.get("Origin") !== origin) return "refused";
   if (write && !headers.get("Content-Type")?.toLowerCase().startsWith("application/json")) {
     return "refused";
   }
   return "allowed";
+}
+
+/**
+ * Whether a request is Chrome's WebSocket opening handshake from the artifact's own page: a `GET`
+ * with `Upgrade: websocket`, no fetch metadata at all and `Origin` exactly the artifact's origin.
+ * Only the live route reads such a handshake as the `same-origin` one other browsers send, so its
+ * session cookies (read, review, link) count as they would for that page's own requests. A browser
+ * always sends `Origin` on a handshake and a page cannot set it, so a sibling artifact or another
+ * site never passes; any fetch metadata present is left to the usual checks.
+ */
+export function ownOriginHandshake(method: string, headers: HeaderSource, origin: string): boolean {
+  return (
+    method === "GET" &&
+    headers.get("Upgrade")?.toLowerCase() === "websocket" &&
+    headers.get("Sec-Fetch-Site") === null &&
+    headers.get("Sec-Fetch-Mode") === null &&
+    headers.get("Sec-Fetch-Dest") === null &&
+    headers.get("Origin") === origin
+  );
 }
 
 /**

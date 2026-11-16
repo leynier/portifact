@@ -102,6 +102,8 @@ export const fr = {
   "dataGrant.ownerWorkspace": "Publié par l'espace de travail {name}",
   "dataGrant.learns":
     "La page vous connaîtra sous le nom {name}, avec un identifiant propre à cet artifact. Elle ne connaît jamais votre e-mail.",
+  "dataGrant.learnsNoName":
+    "La page ne vous connaîtra que par un identifiant propre à cet artifact, sans nom, car votre compte n'en a pas. Elle ne connaît jamais votre e-mail.",
   "dataGrant.managers":
     "Les personnes qui gèrent cet artifact peuvent lire tout ce qui y est enregistré.",
   "dataGrant.moves": "Si l'artifact change de propriétaire, ce que vous avez enregistré le suit.",
@@ -1757,6 +1759,7 @@ export const fr = {
   "webhooks.deliveries.outcome": "Résultat",
   "webhooks.error.timeout": "délai dépassé",
   "webhooks.error.network": "pas de connexion",
+  "webhooks.error.certificate": "certificat refusé",
   "webhooks.error.redirect": "redirigé, non suivi",
   "webhooks.error.invalid_url": "URL non autorisée",
   "webhooks.error.daily_cap": "limite quotidienne atteinte",
@@ -3313,7 +3316,7 @@ export const fr = {
     "L’ancien secret continue de signer à côté du nouveau pendant 24 heures, pour que votre point de terminaison bascule sans perdre de requête.",
   "audit.stream.verify.title": "Vérifiez chaque requête",
   "audit.stream.verify.body":
-    "Chaque requête porte webhook-id, webhook-timestamp et webhook-signature, le même schéma que les webhooks de Portifact. Recalculez la signature sur le corps brut, refusez les horodatages décalés de plus de 5 minutes et ignorez les événements dont vous avez déjà l’ID. Les lignes avec un champ record ne sont pas des événements : un trou ou un test.",
+    "Chaque requête porte webhook-id, webhook-timestamp et webhook-signature, le même schéma que les webhooks de Portifact. Recalculez la signature sur le corps brut, refusez les horodatages décalés de plus de 5 minutes et ignorez les événements dont vous avez déjà l’ID. Les lignes avec un champ record ne sont pas des événements : un trou ou un test. Les vérificateurs qui lisent le corps comme une seule valeur JSON, comme verify() de la bibliothèque standardwebhooks, échouent sur une requête de plus d’une ligne même quand la signature est bonne : vérifiez la signature sur le corps brut comme le fait l’exemple, puis lisez le corps ligne par ligne.",
   "audit.stream.verify.sample": "Vérification de la signature en Node.js",
   "audit.stream.state.active": "Actif",
   "audit.stream.state.paused": "En pause",

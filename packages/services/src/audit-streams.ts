@@ -1249,31 +1249,36 @@ export interface AuditStreamMaintenance {
 }
 
 /**
- * The scan of one region (run by the jobs Worker only while streams are switched on): prunes the
- * delivery log past `logDays` (one statement of at most `logPruneBatch` rows) and gives a job to
- * at most `armPerRun` active streams (or streams with a test waiting) that have none, in one
- * statement. One D1 call per region and run, whatever the number of owners or streams.
+ * The scan of one region, run by the jobs Worker every maintenance run: prunes the delivery log
+ * past `logDays` (one statement of at most `logPruneBatch` rows) whether or not streams are
+ * switched on, so the log's retention holds while delivery is off; and, only with `arm` (streams
+ * switched on), gives a job to at most `armPerRun` active streams (or streams with a test waiting)
+ * that have none, in the same batch. One D1 call per region and run, whatever the number of
+ * owners or streams.
  */
 export async function maintainAuditStreams(
   db: RegionalDb,
   now: number,
+  options: { arm: boolean } = { arm: true },
 ): Promise<AuditStreamMaintenance> {
   const cutoff = now - AUDIT_STREAM.logDays * DAY_MS;
+  const prune = db
+    .delete(sd)
+    .where(
+      inArray(
+        sd.id,
+        db
+          .select({ id: sd.id })
+          .from(sd)
+          .where(lt(sd.at, cutoff))
+          .orderBy(sd.id)
+          .limit(AUDIT_STREAM.logPruneBatch),
+      ),
+    )
+    .returning({ id: sd.id });
+  if (!options.arm) return { prunedDeliveries: (await prune).length, armed: 0 };
   const [pruned, armed] = await db.batch([
-    db
-      .delete(sd)
-      .where(
-        inArray(
-          sd.id,
-          db
-            .select({ id: sd.id })
-            .from(sd)
-            .where(lt(sd.at, cutoff))
-            .orderBy(sd.id)
-            .limit(AUDIT_STREAM.logPruneBatch),
-        ),
-      )
-      .returning({ id: sd.id }),
+    prune,
     db
       .insert(o)
       .select(

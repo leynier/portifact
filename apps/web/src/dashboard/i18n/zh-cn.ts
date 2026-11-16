@@ -87,6 +87,8 @@ export const zhCN = {
   "dataGrant.ownerWorkspace": "由工作区 {name} 发布",
   "dataGrant.learns":
     "该页面会以 {name} 识别你，并使用仅限此 artifact 的 ID。它永远不会知道你的邮箱。",
+  "dataGrant.learnsNoName":
+    "由于你的账户没有名字，该页面只会通过仅限此 artifact 的 ID 识别你，不带名字。它永远不会知道你的邮箱。",
   "dataGrant.managers": "管理此 artifact 的人可以读取保存在其中的所有内容。",
   "dataGrant.moves": "如果 artifact 转给其他所有者，你保存的内容会随之转移。",
   "dataGrant.deletion":
@@ -1569,6 +1571,7 @@ export const zhCN = {
   "webhooks.deliveries.outcome": "结果",
   "webhooks.error.timeout": "超时",
   "webhooks.error.network": "无法连接",
+  "webhooks.error.certificate": "证书未被接受",
   "webhooks.error.redirect": "被重定向，未跟随",
   "webhooks.error.invalid_url": "URL 不被允许",
   "webhooks.error.daily_cap": "已达到每日上限",
@@ -2946,7 +2949,7 @@ export const zhCN = {
     "旧密钥会在 24 小时内与新密钥一起签名，让你的端点切换时不丢失任何请求。",
   "audit.stream.verify.title": "检查每个请求",
   "audit.stream.verify.body":
-    "每个请求都带有 webhook-id、webhook-timestamp 和 webhook-signature，与 Portifact 的 Webhook 采用相同的方案。请基于原始请求体重新计算签名，拒绝相差超过 5 分钟的时间戳，并跳过已保存过 ID 的事件。带有 record 字段的行不是事件，而是缺口或测试。",
+    "每个请求都带有 webhook-id、webhook-timestamp 和 webhook-signature，与 Portifact 的 Webhook 采用相同的方案。请基于原始请求体重新计算签名，拒绝相差超过 5 分钟的时间戳，并跳过已保存过 ID 的事件。带有 record 字段的行不是事件，而是缺口或测试。把请求体当作单个 JSON 值解析的校验器（例如 standardwebhooks 库的 verify()）在请求超过一行时会抛出错误，即使签名正确。请像示例那样基于原始请求体校验签名，然后逐行读取请求体。",
   "audit.stream.verify.sample": "Node.js 中的签名检查",
   "audit.stream.state.active": "运行中",
   "audit.stream.state.paused": "已暂停",

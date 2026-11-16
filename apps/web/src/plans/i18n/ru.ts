@@ -32,7 +32,6 @@ export const planTextRu = {
   "plans.limit.annotationMessages": "Комментарии",
   "plans.value.versions": "{count} на {duration}",
   "plans.limit.artifactData": "Artifacts с данными приложения",
-  "plans.limit.withSoon": "{label} ({soon})",
   "plans.value.artifactData": "{count} × {size}",
   "plans.feature.pin": "Закрепление artifacts",
   "plans.feature.versionDiff": "Сравнение версий",

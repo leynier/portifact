@@ -328,6 +328,23 @@ export type DataAuthorDeleted = z.infer<typeof DataAuthorDeleted>;
 /** Bulk deletes of one author's documents one call makes at most (100 documents each). */
 export const AUTHOR_DELETE_PAGES = 5;
 
+/**
+ * The request limit on owner-side reads and export pages (describe, get, query, count, export;
+ * decision 0026, "Delivery 8 measurements", "Owner-side reads"), counted in `rate_limits` after
+ * authorization and before the object call. Per acting account (a person or a service token)
+ * per minute, matching the object's own per-caller read rate, so a full export of any plan (at
+ * most 160 pages of 500 rows a day) fits one minute; and per owner per 24 hours, `perDataArtifactPerDay`
+ * times the owner plan's data artifacts (Free 1,000, Pro 10,000, Team 50,000), which bounds a
+ * saturated Pro owner's month of these reads to about US$0.74 instead of about US$36. Deletes,
+ * the owner's erase, a person's rights operations and the page's commands are never counted here.
+ */
+export const DATA_OWNER_READS = {
+  perActorPerMinute: 300,
+  perDataArtifactPerDay: 1_000,
+  actorWindowMs: 60_000,
+  ownerWindowMs: 86_400_000,
+} as const;
+
 export const EraseArtifactDataInput = z.object({
   ...OnArtifact,
   confirm: z.literal(true),

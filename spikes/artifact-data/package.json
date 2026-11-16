@@ -6,7 +6,7 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json && tsc -p drill/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p drill/tsconfig.json && tsc -p measure/tsconfig.json && tsc -p measure/tsconfig.worker.json",
     "test": "vitest run --coverage",
     "drill": "node drill/runbook.ts"
   },

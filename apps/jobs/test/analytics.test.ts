@@ -5,13 +5,16 @@ import {
   BUDGET_QUERY,
   cloudflareAnalytics,
   DATA_REQUESTS_QUERY,
+  DATA_STORAGE_LOOKBACK_MS,
   DATA_STORAGE_QUERY,
   DATA_USAGE_QUERY,
   type Fetcher,
   GRAPHQL_ENDPOINT,
+  PORTIFACT_RESOURCES,
   parseBudgetData,
   parseDataRequests,
   parseDataUsage,
+  storageNamespaces,
 } from "../src/analytics.ts";
 
 const RANGE = { start: Date.UTC(2026, 10, 1), end: Date.UTC(2026, 10, 8, 12) };
@@ -79,7 +82,7 @@ const dataStorage = {
   viewer: {
     accounts: [
       {
-        durableObjectsStorageGroups: [
+        durableObjectsSqlStorageGroups: [
           { max: { storedBytes: 7_000 }, dimensions: { namespaceId: "ns-eu" } },
           { max: { storedBytes: 5_000 }, dimensions: { namespaceId: "ns-default" } },
           { max: { storedBytes: 1 }, dimensions: { namespaceId: "ns-eu" } },
@@ -141,7 +144,7 @@ describe("analytics collector", () => {
       fetcher,
     );
     // The same answer to every query: the data scripts ran no namespace, so the documents
-    // objects used nothing and only one more request is made.
+    // objects used nothing; only their storage is still asked for, as a gauge.
     expect(await collector?.collect(RANGE)).toEqual({
       r2ClassA: 150,
       r2ClassB: 1_000,
@@ -154,7 +157,7 @@ describe("analytics collector", () => {
       dataRowsRead: 0,
       dataRowsWritten: 0,
     });
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(JSON.parse(calls[1]?.init.body as string)).toEqual({
       query: DATA_REQUESTS_QUERY,
       variables: {
@@ -162,6 +165,15 @@ describe("analytics collector", () => {
         start: "2026-11-01T00:00:00.000Z",
         end: "2026-11-08T12:00:00.000Z",
         dataScripts: ["portifact-data"],
+      },
+    });
+    expect(JSON.parse(calls[2]?.init.body as string)).toEqual({
+      query: DATA_STORAGE_QUERY,
+      variables: {
+        accountTag: "acc_1",
+        start: "2026-11-08T09:00:00.000Z",
+        end: "2026-11-08T12:00:00.000Z",
+        namespaceIds: PORTIFACT_RESOURCES.dataNamespaceIds,
       },
     });
     const call = calls[0] as { url: string; init: RequestInit };
@@ -270,12 +282,87 @@ describe("analytics collector", () => {
       DATA_USAGE_QUERY,
       DATA_STORAGE_QUERY,
     ]);
-    for (const body of calls.slice(2)) {
-      expect(JSON.parse(body).variables.namespaceIds).toEqual(["ns-default", "ns-eu"]);
-    }
+    expect(JSON.parse(calls[2] as string).variables.namespaceIds).toEqual(["ns-default", "ns-eu"]);
+    // Storage: the configured namespaces too, over the trailing window.
+    expect(JSON.parse(calls[3] as string).variables).toMatchObject({
+      namespaceIds: [...PORTIFACT_RESOURCES.dataNamespaceIds, "ns-default", "ns-eu"],
+      start: new Date(RANGE.end - DATA_STORAGE_LOOKBACK_MS).toISOString(),
+    });
     expect(DATA_REQUESTS_QUERY).toContain("scriptName_in: $dataScripts");
     expect(DATA_USAGE_QUERY).toContain("namespaceId_in: $namespaceIds");
     expect(DATA_STORAGE_QUERY).toContain("namespaceId_in: $namespaceIds");
+    // The dataset and dimensions the live schema accepts (delivery 8's measurements).
+    expect(DATA_STORAGE_QUERY).toContain("durableObjectsSqlStorageGroups(");
+    expect(DATA_STORAGE_QUERY).toContain("dimensions { datetime namespaceId }");
+  });
+
+  it("measures stored bytes in a cycle no documents object ran in yet", async () => {
+    // The first minutes of December: no invocation this cycle and no sample since midnight, but
+    // the objects still store November's bytes, which the trailing window finds.
+    const start = Date.UTC(2026, 11, 1);
+    const end = start + 10 * 60_000;
+    const quiet = { viewer: { accounts: [{ durableObjectsInvocationsAdaptiveGroups: [] }] } };
+    const [configured] = PORTIFACT_RESOURCES.dataNamespaceIds;
+    const sample = {
+      viewer: {
+        accounts: [
+          {
+            durableObjectsSqlStorageGroups: [
+              { max: { storedBytes: 270_336 }, dimensions: { namespaceId: configured } },
+            ],
+          },
+        ],
+      },
+    };
+    const { queries, fetcher } = routedFetch(
+      new Map<string, unknown>([
+        [BUDGET_QUERY, answer],
+        [DATA_REQUESTS_QUERY, quiet],
+        [DATA_STORAGE_QUERY, sample],
+      ]),
+    );
+    const bodies: string[] = [];
+    const metrics = await cloudflareAnalytics({ token: TOKEN, accountId: "acc" }, (url, init) => {
+      bodies.push(init.body as string);
+      return fetcher(url, init);
+    }).collect({ start, end });
+    expect(metrics).toMatchObject({
+      dataRequests: 0,
+      dataRowsWritten: 0,
+      dataStoredBytes: 270_336,
+    });
+    // No usage query for a cycle nothing ran in.
+    expect(queries).toEqual([BUDGET_QUERY, DATA_REQUESTS_QUERY, DATA_STORAGE_QUERY]);
+    expect(JSON.parse(bodies[2] as string).variables).toEqual({
+      accountTag: "acc",
+      start: "2026-11-30T21:10:00.000Z",
+      end: "2026-12-01T00:10:00.000Z",
+      namespaceIds: [configured],
+    });
+    // Without any sample in the window it stays unmeasured, never zero.
+    const none = routedFetch(
+      new Map<string, unknown>([
+        [BUDGET_QUERY, answer],
+        [DATA_REQUESTS_QUERY, quiet],
+        [DATA_STORAGE_QUERY, { viewer: { accounts: [{ durableObjectsSqlStorageGroups: [] }] } }],
+      ]),
+    );
+    expect(
+      await cloudflareAnalytics({ token: TOKEN, accountId: "acc" }, none.fetcher).collect({
+        start,
+        end,
+      }),
+    ).not.toHaveProperty("dataStoredBytes");
+  });
+
+  it("reads storage for the configured namespaces and those that ran, once each", () => {
+    const [configured] = PORTIFACT_RESOURCES.dataNamespaceIds;
+    expect(storageNamespaces([])).toEqual([configured]);
+    expect(storageNamespaces(["ns-eu", configured as string, "ns-eu"])).toEqual([
+      configured,
+      "ns-eu",
+    ]);
+    for (const id of PORTIFACT_RESOURCES.dataNamespaceIds) expect(id).toMatch(/^[0-9a-f]{32}$/);
   });
 
   it("keeps the platform's metrics when the data queries fail, and logs only a label", async () => {
@@ -321,7 +408,7 @@ describe("analytics collector", () => {
       /ANALYTICS_ACCOUNT_NOT_VISIBLE/,
     );
     expect(
-      parseDataUsage(5, { viewer: { accounts: [{ durableObjectsStorageGroups: [] }] } }),
+      parseDataUsage(5, { viewer: { accounts: [{ durableObjectsSqlStorageGroups: [] }] } }),
     ).toEqual({});
     expect(
       parseDataUsage(5, {
@@ -329,7 +416,7 @@ describe("analytics collector", () => {
           accounts: [
             {
               durableObjectsPeriodicGroups: [{}],
-              durableObjectsStorageGroups: [{ dimensions: { namespaceId: "a" } }, {}],
+              durableObjectsSqlStorageGroups: [{ dimensions: { namespaceId: "a" } }, {}],
             },
           ],
         },

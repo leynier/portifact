@@ -111,6 +111,7 @@ function withData(env: E2eEnv): E2eEnv {
     ARTIFACT_DATA_ENABLED: "true",
     DATA_PAGE_WRITES_ENABLED: "true",
     DATA_ANONYMOUS_ENABLED: "true",
+    DATA_LIVE_ENABLED: "true",
   };
 }
 

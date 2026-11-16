@@ -32,7 +32,6 @@ export const planTextJa = {
   "plans.limit.annotationMessages": "コメント",
   "plans.value.versions": "{count}件を{duration}",
   "plans.limit.artifactData": "アプリデータを持つartifact",
-  "plans.limit.withSoon": "{label}（{soon}）",
   "plans.value.artifactData": "{count} × {size}",
   "plans.feature.pin": "artifactのピン留め",
   "plans.feature.versionDiff": "バージョンの比較",

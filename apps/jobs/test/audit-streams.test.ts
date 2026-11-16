@@ -96,8 +96,22 @@ describe("audit streams in the jobs Worker", () => {
     await runQueue(batchOf(job), { ...env, WEBHOOK_KEY: KEY }, NOW, undefined, fetcher);
     expect(fetcher).not.toHaveBeenCalled();
     expect(await jobOf(streamId)).toBeUndefined();
+    // Off, the delivery log is still pruned past its 7 days (in every region), and nothing armed.
+    const ownerId =
+      (await db().select().from(schema.auditStreams).where(eq(schema.auditStreams.id, streamId)))[0]
+        ?.ownerId ?? "";
+    await db()
+      .insert(schema.auditStreamDeliveries)
+      .values({ streamId, ownerId, at: NOW - 8 * 86_400_000, outcome: "delivered", events: 1 });
     const off = await runScheduled({ ...env, WEBHOOK_KEY: KEY }, NOW, undefined, { relay: false });
     expect(off.auditStreams.armed).toBe(0);
+    expect(off.auditStreams.prunedDeliveries).toBeGreaterThanOrEqual(1);
+    expect(
+      await db()
+        .select()
+        .from(schema.auditStreamDeliveries)
+        .where(eq(schema.auditStreamDeliveries.streamId, streamId)),
+    ).toEqual([]);
     expect(await jobOf(streamId)).toBeUndefined();
     const on = await runScheduled(
       { ...keyed, WEBHOOK_KEY: NEXT_KEY, WEBHOOK_KEY_PREVIOUS: KEY },

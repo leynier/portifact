@@ -225,6 +225,23 @@ describe("classifying an answer", () => {
     });
   });
 
+  it("names Cloudflare's certificate answers (525, 526) as a certificate failure", () => {
+    for (const status of [525, 526]) {
+      expect(classifyStreamAttempt({ kind: "status", status }, NOW)).toEqual({
+        delivered: false,
+        statusClass: null,
+        error: "certificate",
+        retryAfterMs: null,
+      });
+    }
+    for (const status of [520, 524, 527, 530]) {
+      expect(classifyStreamAttempt({ kind: "status", status }, NOW)).toMatchObject({
+        statusClass: "5xx",
+        error: "refused",
+      });
+    }
+  });
+
   it("names timeouts, certificates and unreachable endpoints", () => {
     expect(classifyStreamAttempt({ kind: "timeout" }, NOW).error).toBe("timeout");
     expect(

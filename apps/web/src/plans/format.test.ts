@@ -104,15 +104,14 @@ describe("planSummary", () => {
       PLAN_FEATURE_LABELS.versionDiff,
       PLAN_FEATURE_LABELS.shareLinks,
       PLAN_FEATURE_LABELS.commentNotices,
+      PLAN_FEATURE_LABELS.webhooks,
       PLAN_FEATURE_LABELS.analytics,
       PLAN_FEATURE_LABELS.branding,
     ]);
-    expect(pro.comingSoon).toEqual([
-      PLAN_FEATURE_LABELS.webhooks,
-      PLAN_FEATURE_LABELS.customDomains,
-    ]);
+    expect(pro.comingSoon).toEqual([PLAN_FEATURE_LABELS.customDomains]);
     expect(planSummary("team", "en", en).included).toContain(PLAN_FEATURE_LABELS.workspaces);
     expect(planSummary("enterprise", "en", en).comingSoon).toContain(PLAN_FEATURE_LABELS.sso);
+    expect(planSummary("enterprise", "en", en).included).toContain(PLAN_FEATURE_LABELS.euResidency);
   });
 
   it("describes Free by what every account can do", () => {
@@ -131,9 +130,9 @@ describe("planComparison", () => {
     }
   });
 
-  it("shows artifact data from PLANS as coming soon", () => {
+  it("shows artifact data from PLANS as included", () => {
     const data = planComparison("en", en).at(-1);
-    expect(data?.label).toBe("Artifacts with app data (Coming soon)");
+    expect(data?.label).toBe("Artifacts with app data");
     expect(data?.cells.map((cell) => cell.value)).toEqual([
       "1 × 5 MB",
       "10 × 25 MB",

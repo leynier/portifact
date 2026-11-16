@@ -93,6 +93,8 @@ export const en = {
   "dataGrant.ownerWorkspace": "Published by the workspace {name}",
   "dataGrant.learns":
     "The page will know you as {name}, with an ID for this artifact only. It never learns your email.",
+  "dataGrant.learnsNoName":
+    "The page will know you only by an ID for this artifact, with no name, because your account has none. It never learns your email.",
   "dataGrant.managers": "The people who manage this artifact can read everything saved there.",
   "dataGrant.moves": "If the artifact moves to another owner, what you saved moves with it.",
   "dataGrant.deletion":
@@ -1674,6 +1676,7 @@ export const en = {
   "webhooks.deliveries.outcome": "Outcome",
   "webhooks.error.timeout": "timed out",
   "webhooks.error.network": "no connection",
+  "webhooks.error.certificate": "certificate not accepted",
   "webhooks.error.redirect": "redirected, not followed",
   "webhooks.error.invalid_url": "URL not allowed",
   "webhooks.error.daily_cap": "daily limit reached",
@@ -3183,7 +3186,7 @@ export const en = {
     "The old secret keeps signing next to the new one for 24 hours, so your endpoint can switch without losing a request.",
   "audit.stream.verify.title": "Check each request",
   "audit.stream.verify.body":
-    "Each request carries webhook-id, webhook-timestamp and webhook-signature, the same scheme as Portifact's webhooks. Recompute the signature over the raw body, refuse timestamps more than 5 minutes off and skip events whose ID you already kept. Lines with a record field are not events: a gap or a test.",
+    "Each request carries webhook-id, webhook-timestamp and webhook-signature, the same scheme as Portifact's webhooks. Recompute the signature over the raw body, refuse timestamps more than 5 minutes off and skip events whose ID you already kept. Lines with a record field are not events: a gap or a test. Verifiers that parse the body as one JSON value, such as verify() in the standardwebhooks library, throw on a request of more than one line even when the signature is right: check the signature over the raw body as the sample does, then read the body line by line.",
   "audit.stream.verify.sample": "Signature check in Node.js",
   "audit.stream.state.active": "Active",
   "audit.stream.state.paused": "Paused",
