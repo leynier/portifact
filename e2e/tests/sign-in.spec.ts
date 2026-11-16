@@ -7,7 +7,7 @@
 import type { Page } from "@playwright/test";
 import { TERMS_VERSION } from "@portifact/contracts";
 import { axeViolations } from "../src/axe.ts";
-import { createUser, expect, lastEmail, signIn, sql, test } from "../src/fixtures.ts";
+import { createUser, expect, lastEmail, liveCookies, signIn, sql, test } from "../src/fixtures.ts";
 import { APP_HOST, APP_ORIGIN } from "../src/hosts.ts";
 import { TURNSTILE_MODE_COOKIE } from "../src/turnstile-fake.ts";
 
@@ -76,7 +76,8 @@ test("a new account signs up with an email code, accepting the terms by continui
   const account = await accountOf(email);
   expect(account?.terms_version).toBe(TERMS_VERSION);
   expect(account?.terms_accepted_at).not.toBeNull();
-  const cookies = (await page.context().cookies(APP_ORIGIN)).map((cookie) => cookie.name);
+  // The sign-in expired both cookies; Firefox may still list them, empty, until it prunes them.
+  const cookies = (await liveCookies(page.context(), APP_ORIGIN)).map((cookie) => cookie.name);
   expect(cookies).not.toContain("__Host-pf_terms");
   expect(cookies).not.toContain("__Host-pf_human");
 });

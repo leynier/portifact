@@ -9,6 +9,7 @@ import {
   contentRequests,
   createUser,
   expect,
+  liveCookies,
   publish,
   setContentClock,
   signIn,
@@ -161,7 +162,9 @@ test("signing out of the app ends artifact access within 60 seconds", async ({ p
   // for the cookie to go, or the navigation below races it and the login page cuts it off.
   await expect(page.getByRole("heading", { name: "Sign in to Portifact" })).toBeVisible();
   expect(new URL(page.url()).pathname).toBe("/login");
-  expect((await context.cookies(APP_ORIGIN)).some((c) => c.name.includes("session"))).toBe(false);
+  expect((await liveCookies(context, APP_ORIGIN)).some((c) => c.name.includes("session"))).toBe(
+    false,
+  );
 
   // Claims already issued are trusted for at most 60 seconds, and the cookie remains.
   await page.goto(`${artifactOrigin(artifactId)}/`);
@@ -177,7 +180,7 @@ test("signing out of the app ends artifact access within 60 seconds", async ({ p
     expect(loginNext(page.url())).toMatch(new RegExp(`^/read/${artifactId}\\?state=`));
     const sent = await requestsTo(artifactId, before);
     expect(sent.some((r) => r.status === 200)).toBe(false);
-    const cookies = await context.cookies(artifactOrigin(artifactId));
+    const cookies = await liveCookies(context, artifactOrigin(artifactId));
     expect(cookies.some((c) => c.name === READ_COOKIE)).toBe(false);
   } finally {
     await setContentClock(artifactId, 0);
