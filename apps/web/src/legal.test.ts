@@ -202,7 +202,7 @@ describe("legal pages", () => {
     expect(terms).not.toContain("servers or databases for your content");
     for (const text of [
       'id="artifact-data"',
-      "This version replaces the version of November 15, 2026 and takes effect on November 16, 2026.",
+      "The version of November 16, 2026, which replaced the version of November 15, 2026, added one optional feature, artifact data",
       "It belongs to the artifact, not to a version.",
       "never their email address or account ID",
       "The permission lasts up to 30 days in that browser",
@@ -238,7 +238,7 @@ describe("legal pages", () => {
     const privacy = read("privacy");
     for (const text of [
       "About artifact data</h3>",
-      "This version replaces the version of November 15, 2026 and takes effect on November 16, 2026.",
+      "The version of November 16, 2026, which replaced the version of November 15, 2026, added one optional feature, artifact data",
       "never your account ID or email address from us",
       "no account, name, email or network address",
       "under a keyed identifier derived from it, never the address itself, which is pseudonymous",
@@ -291,6 +291,52 @@ describe("legal pages", () => {
     ]) {
       expect(aup, text).toContain(text);
     }
+  });
+
+  it("describes webhooks, audit streams, GitHub federation and the EU as available (2026-11-17)", () => {
+    const section = (html: string, id: string) => {
+      const start = html.indexOf(`<section id="${id}"`);
+      return html.slice(start, html.indexOf("</section>", start));
+    };
+    const moved = [
+      "Webhooks.",
+      "Audit streams.",
+      "GitHub Actions federation.",
+      "Data kept in the EU.",
+    ];
+    for (const slug of ["terms", "privacy"]) {
+      const html = read(slug);
+      const notYet = section(html, "not-yet-available");
+      for (const name of moved) {
+        expect(notYet, `${slug}: ${name}`).not.toContain(`<strong>${name}</strong>`);
+        expect(html, `${slug}: ${name}`).toContain(`<strong>${name}</strong>`);
+      }
+      for (const name of [
+        "Custom domains.",
+        "Issue integrations.",
+        "Slack link previews.",
+        "Single sign-on.",
+      ]) {
+        expect(notYet, `${slug}: ${name}`).toContain(`<strong>${name}</strong>`);
+      }
+    }
+    const terms = read("terms");
+    expect(terms).toContain(
+      "This version replaces the version of November 16, 2026 and takes effect on November 17, 2026.",
+    );
+    expect(section(terms, "webhooks")).toContain("<strong>Audit streams.</strong>");
+    expect(section(terms, "automation")).toContain("<strong>GitHub Actions federation.</strong>");
+    expect(section(terms, "workspaces")).toContain("<strong>Data kept in the EU.</strong>");
+    const privacy = read("privacy");
+    expect(privacy).not.toContain("Keeping data in the EU is not offered yet");
+    expect(section(privacy, "location")).toContain("<strong>Data kept in the EU.</strong>");
+    expect(section(privacy, "retention")).toContain("Webhooks and audit streams</th>");
+    const dpa = read("dpa");
+    expect(section(dpa, "subprocessors")).toContain("Cloudflare's EU jurisdiction");
+    expect(section(dpa, "not-yet-available")).not.toContain("webhooks");
+    const aup = read("acceptable-use");
+    expect(section(aup, "automation")).toContain("Webhooks and audit streams may not be used");
+    expect(section(aup, "not-yet-available")).not.toContain("Webhooks");
   });
 
   it("links the Data Processing Addendum from the Terms and the Privacy Policy", () => {

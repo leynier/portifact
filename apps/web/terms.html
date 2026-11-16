@@ -31,7 +31,7 @@
 
     <main id="main" class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
       <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Terms of Service</h1>
-      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-11-16</span>. Effective <time datetime="2026-11-16">November 16, 2026</time>.</p>
+      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-11-17</span>. Effective <time datetime="2026-11-17">November 17, 2026</time>.</p>
       <p class="mt-6 leading-7">These terms are an agreement between you and the operator of Portifact. They cover the hosted service at portifact.com and portifact.dev: the website, the dashboard, the command-line tool (CLI), the remote MCP server and the API. Please read them together with the <a href="/privacy">Privacy Policy</a>, which explains what data we keep, the <a href="/acceptable-use">Acceptable Use Policy</a>, which lists what you may not publish, and the <a href="/dpa">Data Processing Addendum</a> when we process personal data on your behalf, including in a personal space used for work, whether the plan is free or paid.</p>
 
       <nav aria-labelledby="toc-heading" class="mt-10 rounded-md border border-border p-5">
@@ -53,6 +53,7 @@
           <li><a href="#policies">Workspace policies</a></li>
           <li><a href="#share-links">Share links</a></li>
           <li><a href="#branding">Branding</a></li>
+          <li><a href="#webhooks">Webhooks and audit streams</a></li>
           <li><a href="#automation">Service tokens and publish keys</a></li>
           <li><a href="#not-yet-available">Features not yet available</a></li>
           <li><a href="#acceptable-use">Acceptable use</a></li>
@@ -75,7 +76,13 @@
 
       <section id="what-changed" aria-labelledby="what-changed-heading" class="mt-12 scroll-mt-8">
         <h2 id="what-changed-heading" class="text-xl font-semibold tracking-tight">What changed in this version</h2>
-        <p class="mt-4 leading-7">This version replaces the version of November 15, 2026 and takes effect on November 16, 2026. It adds one optional feature, artifact data: an artifact's own pages can save small documents with Portifact, such as form answers, votes or lists. The rest of the Terms is unchanged. In short:</p>
+        <p class="mt-4 leading-7">This version replaces the version of November 16, 2026 and takes effect on November 17, 2026. It makes available four optional features that earlier versions described under "Features not yet available", with the same terms. The rest of the Terms is unchanged. In short:</p>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+        <li>On a plan with webhooks, the admins of a space can have Portifact send events about its artifacts to HTTPS addresses they choose, and on the Enterprise plan a workspace's admins can stream its audit log to an endpoint they run. See <a href="#webhooks">Webhooks and audit streams</a>.</li>
+        <li>On a plan with service tokens, a workspace can trust a GitHub repository so its workflow runs get short-lived credentials without a stored token. See <a href="#automation">Service tokens and publish keys</a>.</li>
+        <li>On the Enterprise plan, we can create a workspace whose stored content is kept in the European Union. See <a href="#workspaces">Workspaces</a>.</li>
+        </ul>
+        <p class="mt-4 leading-7">The version of November 16, 2026, which replaced the version of November 15, 2026, added one optional feature, artifact data: an artifact's own pages can save small documents with Portifact, such as form answers, votes or lists. Its terms are unchanged. In short:</p>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
         <li>An artifact can keep its own data. It belongs to the artifact, not to one of its versions, and is deleted when the artifact is deleted for good. These terms no longer say that Portifact runs no databases for your content. See <a href="#artifact-data">Artifact data</a>.</li>
         <li>A page learns nothing about you until you choose Allow in Portifact's own prompt. Then it learns your display name and an ID made for that artifact only, never your email address.</li>
@@ -218,7 +225,7 @@
         </table>
               </section>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-        <li><strong>Features.</strong> Pro adds pinning artifacts so they do not expire, comparing versions, share links, comment notices by email, artifact analytics and branding the Portifact bar. Team adds to Pro workspaces, service tokens, approval reviews, searching the content of artifacts and the audit log. Enterprise adds to Team workspace policies and exporting the audit log, and its limits and other terms are those we agree with you in writing. Artifact data is part of every plan, with the limits in the table; Enterprise starts from Team's, unless we agree others in writing. Some features of each plan are not available yet; they are listed under <a href="#not-yet-available">Features not yet available</a>, and the pricing page marks them as coming soon.</li>
+        <li><strong>Features.</strong> Pro adds pinning artifacts so they do not expire, comparing versions, share links, comment notices by email, webhooks, artifact analytics and branding the Portifact bar. Team adds to Pro workspaces, service tokens with GitHub Actions federation, approval reviews, searching the content of artifacts and the audit log. Enterprise adds to Team workspace policies, exporting and streaming the audit log and keeping a workspace's stored content in the European Union, and its limits and other terms are those we agree with you in writing. Artifact data is part of every plan, with the limits in the table; Enterprise starts from Team's, unless we agree others in writing. Some features of each plan are not available yet; they are listed under <a href="#not-yet-available">Features not yet available</a>, and the pricing page marks them as coming soon.</li>
         <li><strong>Getting a paid plan.</strong> To request a paid plan, write to <a href="mailto:hello@portifact.com">hello@portifact.com</a>. Portifact has no checkout and does not store payment methods. The price is the one on the pricing page when you ask, unless we agree another price in writing.</li>
         <li><strong>Before you become bound or pay,</strong> we send a written confirmation. It states the plan, the seats where the plan has them, the currency, the total including any tax we must collect, the start and end dates, the payment method and the refund terms.</li>
         <li><strong>Consumers.</strong> If you are a consumer, we also give you the withdrawal information your law requires. If you are entitled to the seller's geographical address, country or other contact details, ask for them at <a href="mailto:legal@portifact.com">legal@portifact.com</a>; we give them to you privately before the order is concluded.</li>
@@ -257,7 +264,7 @@
         <h2 id="workspaces-heading" class="text-xl font-semibold tracking-tight">Workspaces</h2>
         <p class="mt-4 leading-7">A workspace lets an organization own artifacts together. Workspaces are part of the Team and Enterprise plans, and we create them on request; you cannot create one yourself yet. The organization or person that asked for a workspace and accepted these terms for it is the workspace's customer, and its admins act for it. Each member acts in a workspace with a role:</p>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-        <li><strong>Admins</strong> manage members, invitations, roles, groups, verified email domains, service tokens, policies, branding and everything editors can do, and read the audit log.</li>
+        <li><strong>Admins</strong> manage members, invitations, roles, groups, verified email domains, service tokens, trusted GitHub repositories, policies, branding, webhooks, audit streams and everything editors can do, and read the audit log.</li>
         <li><strong>Editors</strong> publish and manage every artifact of the workspace.</li>
         <li><strong>Members</strong> read and comment on what is shared with them or with the workspace, and manage nothing.</li>
         </ul>
@@ -271,12 +278,13 @@
         <li>An artifact of a workspace can be shared with every member, or with the workspace's verified email domains: then anyone signed in with a verified address at one of those domains can open it too. Admins who verify a domain must be entitled to act for it, and the workspace is responsible for who holds addresses at its domains. We remove a domain when its DNS record is missing for three daily checks in a row or when another workspace proves control of it.</li>
         <li>The people who manage an artifact on a plan with approval reviews can ask named people to approve it or request changes. A request does not give anyone access to the artifact.</li>
         <li>On a plan with content search, the workspace's admins and editors, and its service tokens within their reach, can search the text of the workspace's active artifacts.</li>
+        <li><strong>Data kept in the EU.</strong> On the Enterprise plan, we can create a workspace on request so that its stored content is kept in the European Union, as the <a href="/privacy#location">Privacy Policy</a> describes. The region is chosen when the workspace is created and never changes, and an artifact cannot be moved between a workspace in the EU and a space outside it.</li>
         </ul>
         <h3 class="mt-6 text-base font-semibold">What the workspace customer is responsible for</h3>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
         <li>The choices of its admins, and who it makes a member, admin or editor.</li>
         <li>Telling its members, and the people it invites to read or review its artifacts, before it invites, lists or provisions them, what its admins and editors can see (every artifact of the workspace, every comment on them and who opened them, and for admins the audit log of what each member did), and having a lawful basis to process their data that way, including as an employer.</li>
-        <li>Its service tokens, its verified email domains, its groups and its policies, and the effects they have on its artifacts and comments.</li>
+        <li>Its service tokens, the GitHub repositories it trusts, its verified email domains, its groups, its policies, its webhooks and its audit streams, and the effects they have on its artifacts and comments.</li>
         <li>When we process personal data for the workspace, the <a href="/dpa">Data Processing Addendum</a> applies, and the workspace customer decides how that data is used. The same applies to a customer who uses a personal space for work.</li>
         </ul>
       </section>
@@ -312,12 +320,22 @@
         </ul>
       </section>
 
+      <section id="webhooks" aria-labelledby="webhooks-heading" class="mt-12 scroll-mt-8">
+        <h2 id="webhooks-heading" class="text-xl font-semibold tracking-tight">Webhooks and audit streams</h2>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+        <li><strong>Webhooks.</strong> On a plan with webhooks, the admins of your account or workspace can have Portifact send events about your artifacts to HTTPS addresses they choose. You are responsible for the addresses you choose and for what happens to the data once it is sent. Do not use webhooks to send requests to systems you are not allowed to use.</li>
+        <li><strong>Audit streams.</strong> On the Enterprise plan, a workspace's admins can send its audit log continuously to an HTTPS endpoint they choose and run. Once sent, the data is held by that endpoint under the customer's own terms and responsibility.</li>
+        <li>The services that receive webhooks and audit streams act under their own terms; we remain responsible for what we send them on the customer's instruction.</li>
+        </ul>
+      </section>
+
       <section id="automation" aria-labelledby="automation-heading" class="mt-12 scroll-mt-8">
         <h2 id="automation-heading" class="text-xl font-semibold tracking-tight">Service tokens and publish keys</h2>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
         <li>On a plan with service tokens, a workspace's admins can create tokens that act for the workspace from automation such as continuous integration, with the editor role, the scopes they choose and an expiry of at most 366 days. A token can be limited to the artifacts it created or to artifacts whose publish key starts with a prefix. A token reaches artifact data only with the data scopes an admin grants it: one to read and export, one to change.</li>
         <li>The workspace is responsible for everything done with its tokens and for keeping them secret. Revoke a token you no longer need or that may have leaked. A token stops when it is revoked or expires, while the plan does not include service tokens, and when the workspace is deleted.</li>
         <li>A publish key is a name you choose for an artifact, so automation can update the same artifact every time. It is kept with the artifact and freed when the artifact is deleted.</li>
+        <li><strong>GitHub Actions federation.</strong> On a plan with service tokens, a workspace's admins can trust a GitHub repository so its workflow runs get short-lived credentials without a stored token. The workspace is responsible for the repositories it trusts and for what their workflows do.</li>
         </ul>
       </section>
 
@@ -325,15 +343,11 @@
         <h2 id="not-yet-available-heading" class="text-xl font-semibold tracking-tight">Features not yet available</h2>
         <p class="mt-4 leading-7">The features below are built but not available yet. A description here does not mean the feature is provided or that any processing for it has begun, except that we already record membership removals, as the Privacy Policy describes. Before we make one available, we check that what was built matches its description, and we give any new notice the law requires. From then on, these terms apply to it, and the <a href="/privacy">Privacy Policy</a> says what data it uses. The services a customer connects through these features act under their own terms; we remain responsible for what we send them on the customer's instruction.</p>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-        <li><strong>Webhooks.</strong> On a plan with webhooks, the admins of your account or workspace can have Portifact send events about your artifacts to HTTPS addresses they choose. You are responsible for the addresses you choose and for what happens to the data once it is sent. Do not use webhooks to send requests to systems you are not allowed to use.</li>
         <li><strong>Custom domains.</strong> On a plan with custom domains, you can serve an artifact from a domain you control. You are responsible for your DNS, and you must keep the DNS record that proves you control the domain. We remove the domain, never the artifact, when the proof is missing or the domain stops pointing at Portifact for three daily checks in a row, when the plan no longer includes it (7 days after the plan ends, with an email first), when the artifact is suspended or deleted, when we block the name, or when someone else proves control of it. Cloudflare issues the certificate. We send no HSTS header on your domain. The cookies we set there only let your visitors open that artifact; other cookies your own sites set on the domain are your responsibility. The artifact keeps its Portifact address.</li>
         <li><strong>Issue integrations.</strong> On a plan with integrations, a space's admins can connect GitHub, Linear or Jira Cloud with a credential of an account of theirs, and the people who manage an artifact can create issues there from comment threads. You are responsible for the credential you connect, for following that service's terms, and for having a basis to send commenters' words to it. Issues are created as the credential's account.</li>
         <li><strong>Slack link previews.</strong> On a plan with integrations, a workspace's admins can connect a Slack app they create, so links to the workspace's public artifacts posted in their Slack show a preview. The workspace is responsible for that app and for its Slack workspace.</li>
         <li><strong>Single sign-on.</strong> On the Enterprise plan, a workspace can let its people sign in through its own identity provider for its verified email domains, and can require it. The workspace is responsible for that provider and for who it lets in. People who sign in this way join the workspace automatically while it has a free seat, as members or with the role of a pending invitation. They are not removed when the provider removes them; the workspace's admins remove them, and someone an admin removed cannot rejoin through the provider until invited again. An existing account is linked to the provider only when the provider confirms the address or the person links it while signed in. A requirement to use single sign-on pauses when the plan no longer includes single sign-on or the provider serves no verified workspace domain, and resumes when those conditions are restored. An outage or configuration error does not pause it. Removing the provider clears the requirement. Contact us if the workspace's admins are locked out.</li>
         <li><strong>Directory provisioning (SCIM).</strong> On the Enterprise plan, a workspace's directory can add people at the workspace's verified email domains to the workspace, put them in groups, give them roles through a mapping the admins configure, and remove them. A directory does not create a personal Portifact account or change its personal content or settings. Removing a person does end that account's sessions across Portifact, including sessions used for its personal space. The workspace is responsible for what its directory sends and for having a basis to provision its people.</li>
-        <li><strong>Audit streams.</strong> On the Enterprise plan, a workspace's admins can send its audit log continuously to an HTTPS endpoint they choose and run. Once sent, the data is held by that endpoint under the customer's own terms and responsibility.</li>
-        <li><strong>GitHub Actions federation.</strong> On a plan with service tokens, a workspace's admins can trust a GitHub repository so its workflow runs get short-lived credentials without a stored token. The workspace is responsible for the repositories it trusts and for what their workflows do.</li>
-        <li><strong>Data kept in the EU.</strong> On the Enterprise plan, a workspace can be created so that its stored content is kept in the European Union, as the Privacy Policy will describe. The region is chosen when the workspace is created and never changes.</li>
         </ul>
         <p class="mt-4 leading-7">If making one of these available would bring a new sub-processor or a new kind of personal data that these pages do not describe, we will publish a new version of these terms first, with the notice described under <a href="#changes">Changes to these terms</a>.</p>
       </section>

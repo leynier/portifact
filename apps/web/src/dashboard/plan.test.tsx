@@ -77,8 +77,9 @@ describe("the Plan page", () => {
       expect(within(pro).getByText("Pinning artifacts")).toBeTruthy();
       // Built but switched off in production: shown as coming soon, never as included.
       const [included, soon] = within(pro).getAllByRole("list");
-      expect(within(included as HTMLElement).queryByText("Sending webhooks")).toBeNull();
-      expect(within(soon as HTMLElement).getByText("Sending webhooks")).toBeTruthy();
+      expect(within(included as HTMLElement).queryByText("Using a custom domain")).toBeNull();
+      expect(within(soon as HTMLElement).getByText("Using a custom domain")).toBeTruthy();
+      expect(within(included as HTMLElement).getByText("Sending webhooks")).toBeTruthy();
       const table = within(all).getByRole("table", { name: "Limits of each plan" });
       // Team and Enterprise share the per-seat values.
       expect(within(table).getAllByText("30 GB per seat")).toHaveLength(2);

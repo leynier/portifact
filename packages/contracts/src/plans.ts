@@ -308,6 +308,7 @@ export const AVAILABLE_PLAN_FEATURES = [
   "versionDiff",
   "shareLinks",
   "commentNotices",
+  "webhooks",
   "analytics",
   "branding",
   "workspaces",
@@ -317,6 +318,7 @@ export const AVAILABLE_PLAN_FEATURES = [
   "audit",
   "auditExport",
   "policies",
+  "euResidency",
 ] as const satisfies readonly PlanFeature[];
 
 /** Whether a paid feature works in the product today (`AVAILABLE_PLAN_FEATURES`). */
