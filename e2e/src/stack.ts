@@ -10,9 +10,10 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createServer as createHttpsServer, request as httpsRequest } from "node:https";
-import type { AddressInfo } from "node:net";
+import type { AddressInfo, Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { connect as tlsConnect } from "node:tls";
 import { unstable_startWorker } from "wrangler";
 import {
   CONTENT_SITE,
@@ -49,6 +50,12 @@ const E2E_DIR = new URL("..", import.meta.url).pathname;
 /** Cloudflare's limit on request and response headers, 128 KB in total each. */
 const HEADER_LIMIT = 128 * 1024;
 const HOP_BY_HOP = new Set(["connection", "keep-alive", "proxy-connection", "upgrade", "host"]);
+/**
+ * A test-only query parameter on a WebSocket handshake to an artifact host: the front end drops
+ * the handshake's `Sec-Fetch-*` headers before the Worker sees them, so an engine that sends them
+ * (Firefox) also covers the handshake Chrome sends, which carries only `Origin`.
+ */
+export const DROP_FETCH_METADATA = "pf-e2e-drop-fetch-metadata";
 
 /** A Worker response as raw HTTP, so headers and bytes pass through untouched. */
 interface Raw {
@@ -212,6 +219,58 @@ export async function startStack(): Promise<Stack> {
       }
     },
   );
+  // WebSocket handshakes to artifact hosts (artifact data's live updates) are tunnelled to the
+  // Worker as raw bytes once their headers are rewritten like `forward` does.
+  front.on("upgrade", (request: IncomingMessage, client: Socket, head: Buffer) => {
+    client.on("error", () => client.destroy());
+    const host = request.headers.host ?? "";
+    if (!host.endsWith(`.${CONTENT_SITE}`)) {
+      client.end("HTTP/1.1 404 Not Found\r\n\r\n");
+      return;
+    }
+    const url = new URL(`https://${host}${request.url ?? "/"}`);
+    const drop = url.searchParams.has(DROP_FETCH_METADATA);
+    url.searchParams.delete(DROP_FETCH_METADATA);
+    const lines = [
+      `${request.method ?? "GET"} ${url.pathname}${url.search} HTTP/1.1`,
+      `Host: ${address.host}`,
+      `MF-Original-URL: ${url.href}`,
+    ];
+    for (let i = 0; i < request.rawHeaders.length; i += 2) {
+      const name = request.rawHeaders[i] ?? "";
+      const lower = name.toLowerCase();
+      if (lower === "host" || (drop && lower.startsWith("sec-fetch-"))) continue;
+      lines.push(`${name}: ${request.rawHeaders[i + 1] ?? ""}`);
+    }
+    const header = (name: string) =>
+      drop ? null : ((request.headers[name] as string | undefined) ?? null);
+    const upstream = tlsConnect(
+      {
+        host: address.hostname,
+        port: Number(address.port),
+        rejectUnauthorized: false,
+      },
+      () => {
+        upstream.write(`${lines.join("\r\n")}\r\n\r\n`);
+        if (head.length > 0) upstream.write(head);
+        upstream.once("data", (chunk: Buffer) => {
+          requests.push({
+            host,
+            path: url.pathname,
+            status: Number(chunk.toString("latin1").split(" ", 2)[1] ?? 502),
+            cookieNames: cookieNames(request.headers.cookie),
+            site: header("sec-fetch-site"),
+            mode: header("sec-fetch-mode"),
+            dest: header("sec-fetch-dest"),
+          });
+        });
+        upstream.pipe(client);
+        client.pipe(upstream);
+      },
+    );
+    upstream.on("error", () => client.destroy());
+    client.on("close", () => upstream.destroy());
+  });
   await new Promise<void>((resolve) => front.listen(0, "127.0.0.1", resolve));
   const proxy = await startProxy((front.address() as AddressInfo).port);
 

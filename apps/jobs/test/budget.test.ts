@@ -181,8 +181,9 @@ describe("scheduled budget run", () => {
     const fetcher = vi.fn(async () => Response.json({ data: { viewer: { accounts: [{}] } } }));
     const configured = { ...env, CF_ANALYTICS_TOKEN: "t", CF_ACCOUNT_ID: "a" };
     expect(await runScheduledBudget(configured, MID, fetcher)).toMatchObject({ analytics: "ok" });
-    // The platform's query, then the data Worker's requests (no namespace ran, so no usage query).
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    // The platform's query, the data Worker's requests (no namespace ran, so no usage query) and
+    // the storage gauge of the known namespaces.
+    expect(fetcher).toHaveBeenCalledTimes(3);
     expect(await runScheduledBudget(env, MID)).toMatchObject({ analytics: "off" });
     expect(logs).toHaveBeenCalledWith(expect.stringContaining('"event":"budget"'));
   });
