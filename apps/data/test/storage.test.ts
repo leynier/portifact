@@ -546,6 +546,26 @@ describe("measured costs on real SQLite", () => {
       "erase_author_chunk",
       (await erased.view()).checked.at(-1)?.cost as never,
     );
+    // A person's own erasure chunk of 500 documents (no barrier, the author's records kept).
+    const { object: own, base: ownBase } = await withCollection({ indexed: ["k"] });
+    await bulkFill(own, ownBase, 520, (n) => ({ k: `k${n}` }), visitor("mine"));
+    expect(
+      value<{ documents: number; more: boolean }>(
+        await own.eraseOwnChunk(
+          op(ownBase),
+          visitorId("mine"),
+          Date.UTC(2100, 0, 1),
+          null,
+          500,
+          ctx,
+        ),
+      ),
+    ).toMatchObject({ documents: 500, more: true });
+    keep(
+      "erase own chunk, 500 documents",
+      "erase_own_chunk",
+      (await own.view()).checked.at(-1)?.cost as never,
+    );
     // A pruning pass over six full retained classes.
     const { object: pruned } = await withCollection();
     const d = dayOf(NOW);

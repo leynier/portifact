@@ -3,6 +3,7 @@
 import { env } from "cloudflare:workers";
 import { PLANS } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
+import { journalKey } from "@portifact/domain/artifact-data";
 import {
   claimVisitorId,
   dataNamespaces,
@@ -49,6 +50,10 @@ describe("data grants on the app", () => {
       ["/api/v1/account/data-grants", "GET"],
       ["/api/v1/account/data-grants/k7d2qm4xab/control", "GET"],
       ["/api/v1/account/data-grants/k7d2qm4xab", "DELETE"],
+      ["/api/v1/account/data-grants/k7d2qm4xab/mine", "GET"],
+      ["/api/v1/account/data-grants/k7d2qm4xab/erasure", "POST"],
+      ["/api/v1/account/data-grants/k7d2qm4xab/rights-request", "POST"],
+      ["/api/v1/account/data-grants/k7d2qm4xab/documents/votes/aaaaaaaaaaaaaaaa", "DELETE"],
     ] as const) {
       expect((await h.request(path, dashboard(cookie, method))).status).toBe(404);
     }
@@ -230,6 +235,9 @@ describe("data grants on the app", () => {
     for (const [path, method] of [
       ["/api/v1/account/data-grants/NOT-AN-ID/control", "GET"],
       ["/api/v1/account/data-grants/NOT-AN-ID", "DELETE"],
+      ["/api/v1/account/data-grants/NOT-AN-ID/mine", "GET"],
+      ["/api/v1/account/data-grants/NOT-AN-ID/erasure", "POST"],
+      ["/api/v1/account/data-grants/NOT-AN-ID/rights-request", "POST"],
     ] as const) {
       expect((await h.request(path, dashboard(cookie, method))).status).toBe(404);
     }
@@ -312,6 +320,11 @@ describe("data grants on the app", () => {
         expiresAt: Date.now() + 86_400_000,
         redeemedAt: Date.now(),
       });
+      // "Data you shared" lists the account's author journal, which every grant claims first.
+      await env.ARTIFACTS.put(
+        journalKey(userId, id),
+        JSON.stringify({ visitorId: "v_123456789012345678901234", firstGrantAt: Date.now() }),
+      );
     }
     const seen: string[] = [];
     let after: string | null = null;
@@ -398,11 +411,34 @@ describe("data grants on the app", () => {
     expect(await asked.json()).toEqual({ requested: true });
     expect((await ask(stranger, "erasure")).status).toBe(404);
     expect((await ask(visitor.cookie, "everything")).status).toBe(400);
+    // Deleting everything they saved there: an erasure the server runs, for the person only.
+    const erase = (cookie: string, key: string | null = "1700000000000.erase-action-key") => {
+      const init = dashboard(cookie, "POST", {});
+      return h.request(`/api/v1/account/data-grants/${id}/erasure`, {
+        ...init,
+        headers: {
+          ...(init.headers as Record<string, string>),
+          ...(key ? { "idempotency-key": key } : {}),
+        },
+      });
+    };
+    // One key per confirmed action is required, so a retry never starts a second erasure.
+    expect((await erase(visitor.cookie, null)).status).toBe(400);
+    const erasing = await erase(visitor.cookie);
+    expect(erasing.status).toBe(202);
+    expect(await erasing.json()).toMatchObject({ state: "running", documents: 0 });
+    expect((await erase(stranger)).status).toBe(404);
+    // Kept as a request with its job, which names the request.
+    const [request] = await db
+      .select()
+      .from(schema.dataRightsRequests)
+      .where(eq(schema.dataRightsRequests.artifactId, id));
+    expect(request).toMatchObject({ kind: "erasure", state: "pending", visitorId: claimed.value });
     const jobs = await db
       .select({ subject: schema.outbox.subject })
       .from(schema.outbox)
       .where(eq(schema.outbox.topic, "data_rights_request"));
-    expect(jobs).toContainEqual({ subject: id });
+    expect(jobs).toContainEqual({ subject: request?.id ?? "" });
     expect(
       (
         await h.request(

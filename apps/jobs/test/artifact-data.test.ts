@@ -147,3 +147,69 @@ describe("the operator's data commands", () => {
     ).toBe(2);
   });
 });
+
+describe("rights requests nobody could be emailed about", () => {
+  it("lists them, retries one and marks one resolved", async () => {
+    const at = Date.UTC(2031, 0, 2);
+    const id = artifactId();
+    await db()
+      .insert(schema.artifacts)
+      .values({ id, ownerId: "u_owner", type: "site", name: "Plan", state: "active" });
+    const requestId = (suffix: string) => `dr_${id}${suffix}`;
+    await db()
+      .insert(schema.dataRightsRequests)
+      .values([
+        {
+          id: requestId("a"),
+          artifactId: id,
+          visitorId: "v_1234567890123456",
+          kind: "erasure",
+          state: "undeliverable",
+          reason: "suppressed",
+          createdAt: at,
+          settledAt: at,
+        },
+        {
+          id: requestId("b"),
+          artifactId: id,
+          visitorId: "v_1234567890123456",
+          kind: "access",
+          state: "undeliverable",
+          reason: "no_recipient",
+          createdAt: at,
+          settledAt: at,
+        },
+      ]);
+    const operator = (argv: string[]) => runOperator(regionsFromEnv(env), argv, at + 1000);
+    const listed = (await operator(["data-rights-requests"])).output;
+    expect(listed).toContain(
+      `${requestId("a")}  ${id}  erasure  undeliverable (suppressed)  visitor v_1234567890123456`,
+    );
+    expect(listed).toContain(`${requestId("b")}  ${id}  access  undeliverable (no_recipient)`);
+
+    expect(await operator(["data-rights-resolve", requestId("a"), "--retry"])).toEqual({
+      exitCode: 0,
+      output: `Rights request ${requestId("a")} queued to be emailed again.`,
+    });
+    const jobs = await db()
+      .select({ subject: schema.outbox.subject })
+      .from(schema.outbox)
+      .where(
+        and(
+          eq(schema.outbox.topic, "data_rights_request"),
+          eq(schema.outbox.subject, requestId("a")),
+        ),
+      );
+    expect(jobs).toHaveLength(1);
+    expect(await operator(["data-rights-resolve", requestId("b")])).toEqual({
+      exitCode: 0,
+      output: `Rights request ${requestId("b")} marked resolved.`,
+    });
+    expect((await operator(["data-rights-resolve", requestId("b")])).exitCode).toBe(1);
+    expect((await operator(["data-rights-resolve", requestId("b"), "--retry"])).exitCode).toBe(1);
+    // The retried one is pending again, not yet a day old: nothing left to handle.
+    expect((await operator(["data-rights-requests"])).output).toBe("No rights requests to handle.");
+    expect((await operator(["data-rights-resolve"])).exitCode).toBe(2);
+    expect((await operator(["data-rights-requests", "--limit", "0"])).exitCode).toBe(2);
+  });
+});

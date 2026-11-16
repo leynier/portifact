@@ -26,7 +26,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { eraseAccessEventsJob } from "./access-log.ts";
 import { processAccountDeletions } from "./account-data.ts";
 import { recheckApprovalReviewers } from "./approval-reviews.ts";
-import { dataEraseJob, pruneJournalCursors } from "./artifact-data.ts";
+import { dataEraseJob, pruneJournalCursors, pruneJournalEntries } from "./artifact-data.ts";
 import { pruneAttachmentUploads } from "./attachments.ts";
 import { auditEvent, pruneAuditEvents } from "./audit.ts";
 import { pruneAuthRecords } from "./auth-records.ts";
@@ -34,7 +34,8 @@ import { scheduleCommentNotices } from "./comment-notices.ts";
 import { enforceCommentRetention } from "./comment-retention.ts";
 import { dropLapsedSearchIndexes, scheduleSearchIndexing } from "./content-search.ts";
 import { domainDbsOf, releaseArtifactDomains } from "./custom-domains.ts";
-import { pruneDataGrants } from "./data-grants.ts";
+import { endSignedOutDataGrants, pruneDataGrants } from "./data-grants.ts";
+import { pruneDataRightsRequests } from "./data-rights.ts";
 import { renderDocument, renderingStatements, storeRenderings } from "./documents.ts";
 import { pruneEmailCounters, pruneEmailSuppressions } from "./email.ts";
 import { scheduleExpiryNotices } from "./expiry-notices.ts";
@@ -968,9 +969,15 @@ export async function runRegionalMaintenance(
     staleFindings: await pruneStaleFindings(db, now),
     // Account journal scan positions left after their deletion ended (decision 0026).
     journalCursors: await pruneJournalCursors(db, now),
+    // Author journal entries 31 days after retirement, a page per run (decision 0026).
+    journalEntries: await pruneJournalEntries(db, bucket, now, region),
     readSessions: (await pruneReadSessions(db, now)).processed,
     // Grant codes past their minute and grants of artifact data 30 days after they ended.
+    // Grants whose app session ended (sign-out) start their 30 days from that end.
+    signedOutGrants: (await endSignedOutDataGrants(db, now)).ended,
     dataGrants: (await pruneDataGrants(db, now)).processed,
+    // Rights requests 30 days after they were delivered or resolved (decision 0026).
+    dataRightsRequests: (await pruneDataRightsRequests(db, now)).processed,
     artifactGroups: (await pruneArtifactGroups(db, now)).removed,
     shareLinks: (await pruneShareLinks(db, now)).processed,
     reviewSessions: (await pruneReviewSessions(db, now)).processed,
@@ -1030,11 +1037,17 @@ export async function runMaintenance(
     staleFindings: await pruneStaleFindings(db, now),
     // Account journal scan positions left after their deletion ended (decision 0026).
     journalCursors: await pruneJournalCursors(db, now),
+    // Author journal entries 31 days after retirement, a page per run (decision 0026).
+    journalEntries: await pruneJournalEntries(db, bucket, now),
     // Expired sign-in records and unused app registrations (global; docs/operations.md).
     authRecords: await pruneAuthRecords(db.global, now),
     readSessions: (await pruneReadSessions(db, now)).processed,
     // Grant codes past their minute and grants of artifact data 30 days after they ended.
+    // Grants whose app session ended (sign-out) start their 30 days from that end.
+    signedOutGrants: (await endSignedOutDataGrants(db, now)).ended,
     dataGrants: (await pruneDataGrants(db, now)).processed,
+    // Rights requests 30 days after they were delivered or resolved (decision 0026).
+    dataRightsRequests: (await pruneDataRightsRequests(db, now)).processed,
     // Artifact group rows whose group is gone grant nothing; the scan removes them (decision 0014):
     // one read of at most 500 rows, at most 6 global reads of 90 group IDs and at most 14 writes
     // of 40 rows.

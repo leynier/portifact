@@ -31,8 +31,8 @@
 
     <main id="main" class="mx-auto max-w-3xl px-4 py-12 sm:px-6 sm:py-16">
       <h1 class="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">Acceptable Use Policy</h1>
-      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-11-15</span>. Effective <time datetime="2026-11-15">November 15, 2026</time>.</p>
-      <p class="mt-6 leading-7">This policy is part of the <a href="/terms">Terms of Service</a>. It applies to everything published on Portifact, every comment and every file attached to one, every review, every share link, every brand and every request sent to the service, including requests your coding agents, service tokens and automation send for you.</p>
+      <p class="mt-3 text-sm text-text-muted">Version <span data-terms-version>2026-11-16</span>. Effective <time datetime="2026-11-16">November 16, 2026</time>.</p>
+      <p class="mt-6 leading-7">This policy is part of the <a href="/terms">Terms of Service</a>. It applies to everything published on Portifact, every comment and every file attached to one, everything saved in an artifact's data, every review, every share link, every brand and every request sent to the service, including requests your coding agents, service tokens and automation send for you.</p>
 
       <nav aria-labelledby="toc-heading" class="mt-10 rounded-md border border-border p-5">
         <h2 id="toc-heading" class="text-sm font-semibold">On this page</h2>
@@ -41,6 +41,7 @@
           <li><a href="#content">Content you may not publish</a></li>
           <li><a href="#behavior">Things you may not do</a></li>
           <li><a href="#sensitive-data">Data that needs special protection</a></li>
+          <li><a href="#artifact-data">Artifact data</a></li>
           <li><a href="#share-links">Share links</a></li>
           <li><a href="#branding">Branding</a></li>
           <li><a href="#automation">Agents, tokens and automation</a></li>
@@ -53,7 +54,7 @@
 
       <section id="what-changed" aria-labelledby="what-changed-heading" class="mt-12 scroll-mt-8">
         <h2 id="what-changed-heading" class="text-xl font-semibold tracking-tight">What changed in this version</h2>
-        <p class="mt-4 leading-7">This version replaces the version of November 13, 2026, and takes effect on November 15, 2026. It says that its rules apply to files and screenshots attached to comments too, as they apply to comments, and names suggested edits among the texts that must not try to make someone else's agent take harmful actions.</p>
+        <p class="mt-4 leading-7">This version replaces the version of November 15, 2026, and takes effect on November 16, 2026. It says that its rules apply to what is saved in an artifact's data, whoever saves it, adds rules for pages that collect data from their visitors and for letting people without an account save, and says that a signed-in visitor whose saved documents we restrict gets our explanation too. The version of November 15, 2026 applied these rules to files and screenshots attached to comments and named suggested edits among the texts that must not try to make someone else's agent take harmful actions; that is unchanged.</p>
       </section>
 
       <section id="content" aria-labelledby="content-heading" class="mt-12 scroll-mt-8">
@@ -78,7 +79,7 @@
         <li>Use several accounts or other tricks to get around quotas, rate limits, the wait before new accounts can make artifacts public, a suspension or a ban.</li>
         <li>Use Portifact as a general file host or content delivery network, for example to distribute large downloads or serve assets for other sites.</li>
         <li>Attack, overload or disrupt Portifact, or try to reach artifacts, accounts or data you were not given access to. Good-faith security research that follows our security policy is welcome.</li>
-        <li>Write comments or suggested edits, attach files, or write review notes or content meant to make someone else's agent take harmful actions (prompt injection), or to collect data from the people who open an artifact without telling them.</li>
+        <li>Write comments or suggested edits, attach files, save artifact data, or write review notes or content meant to make someone else's agent take harmful actions (prompt injection), or to collect data from the people who open an artifact without telling them.</li>
         <li>Send automated requests at a volume that harms the service or other users.</li>
         <li>Resell or rebrand the hosted service as your own.</li>
         </ul>
@@ -87,6 +88,19 @@
       <section id="sensitive-data" aria-labelledby="sensitive-data-heading" class="mt-12 scroll-mt-8">
         <h2 id="sensitive-data-heading" class="text-xl font-semibold tracking-tight">Data that needs special protection</h2>
         <p class="mt-4 leading-7">Portifact is not designed for data that needs special legal protection. Do not store any of the following on Portifact without a written agreement with us: health records covered by laws such as HIPAA, payment card data, government identifiers such as passport or social security numbers, special categories of personal data (such as health, religion, sexual orientation or biometric data) at scale, or personal data of children. This applies to files and screenshots attached to comments as to anything else: a small file or a single screenshot is not an exception, and a workspace needs the written agreement the <a href="/dpa#sensitive-data">Data Processing Addendum</a> requires before any of its comments carry such data.</p>
+      </section>
+
+      <section id="artifact-data" aria-labelledby="artifact-data-heading" class="mt-12 scroll-mt-8">
+        <h2 id="artifact-data-heading" class="text-xl font-semibold tracking-tight">Artifact data</h2>
+        <p class="mt-4 leading-7">What an artifact's pages save, and what the people who manage it write there, is content under this policy, whoever saves it. If you manage an artifact whose pages save data:</p>
+        <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
+        <li>Tell your visitors on the page, before they save, what it collects, why, who reads it and how long you keep it, and collect only what that purpose needs. Do not collect data from visitors without telling them.</li>
+        <li>Do not ask visitors for passwords, sign-in codes, payment card details or other credentials, and do not collect the data under <a href="#sensitive-data">Data that needs special protection</a> without the written agreement it requires.</li>
+        <li>Do not use artifact data as a general file store or database for other sites or apps, as a relay between other systems, as a channel that sends commands to software or devices, or to track people across sites or artifacts. Do not try to find out who a visitor ID belongs to beyond what the visitor chose to tell you.</li>
+        <li>Do not spread data or visitors over several artifacts, accounts or workspaces to get around the limits.</li>
+        <li>If you let people without an account save, you moderate what they save, and you must not use it to collect spam or abuse. Choose collection modes that match what you tell visitors: in a shared collection, anyone who may save can change or delete what others saved.</li>
+        </ul>
+        <p class="mt-4 leading-7">As a visitor, do not save in an artifact's data what this policy forbids elsewhere, do not pretend to be someone else, and do not automate saving, including without an account, to flood an artifact or to get around its limits. Reports about artifact data are handled like reports about the artifact, as described under <a href="#reporting">Reporting abuse</a>.</p>
       </section>
 
       <section id="share-links" aria-labelledby="share-links-heading" class="mt-12 scroll-mt-8">
@@ -119,13 +133,13 @@
       <section id="reporting" aria-labelledby="reporting-heading" class="mt-12 scroll-mt-8">
         <h2 id="reporting-heading" class="text-xl font-semibold tracking-tight">Reporting abuse</h2>
         <p class="mt-4 leading-7">Report content that breaks this policy or the law by writing to <a href="mailto:abuse@portifact.com">abuse@portifact.com</a>, or with the <a href="https://app.portifact.com/report">report form</a>, which needs no account. Every artifact also has a report link at <code>/__portifact/report</code> on its own address, for example <code>https://abcdefghij.portifact.dev/__portifact/report</code>; Markdown and text artifacts show it as "Report this artifact" under the document, and the Portifact bar and the review viewer show it too.</p>
-        <p class="mt-4 leading-7">For a full notice about illegal content, use the report form or write to the email address, and include the exact address of the content (the full link, including the page within the artifact), why you believe it is illegal or breaks this policy, your name and email address (unless the notice concerns child sexual abuse or exploitation offences for which the law lets you leave them out; the form does not ask for your name then), and a statement that, to the best of your knowledge, the information is accurate and complete and that you send the notice in good faith. We acknowledge every notice (the form confirms that we received it), and tell you what we decided and how to ask for a review, without undue delay, by email when you gave us an address. We aim to respond within 48 hours. Please do not send us copies of illegal material; the address is enough. Copyright and trademark complaints follow the <a href="/terms#copyright">process in the Terms</a>.</p>
+        <p class="mt-4 leading-7">For a full notice about illegal content, use the report form or write to the email address, and include the exact address of the content (the full link, including the page within the artifact), why you believe it is illegal or breaks this policy, your name and email address (unless the notice concerns child sexual abuse or exploitation offences for which the law lets you leave them out; the form does not ask for your name then), and a statement that, to the best of your knowledge, the information is accurate and complete and that you send the notice in good faith. We acknowledge every notice (the form confirms that we received it), and tell you what we decided and how to ask for a review, without undue delay, by email when you gave us an address. We aim to respond within 48 hours. Do not send copies of illegal material. Give the page's exact address and describe where and when you saw it. For artifact data, include the collection and document ID if available; you need not discover identifiers the page does not show. Copyright and trademark complaints follow the <a href="/terms#copyright">process in the Terms</a>.</p>
       </section>
 
       <section id="enforcement" aria-labelledby="enforcement-heading" class="mt-12 scroll-mt-8">
         <h2 id="enforcement-heading" class="text-xl font-semibold tracking-tight">What happens when the rules are broken</h2>
         <p class="mt-4 leading-7">Depending on how serious it is, we may remove the content, suspend the artifact (which stops its share links) or a brand, limit features such as public sharing, or suspend or close the account. We can act without advance warning when people or the service are at risk, followed by the explanation described below. A person reviews each report and decides; rate limits, quotas and capacity protection are applied automatically and are not decisions about your content.</p>
-        <p class="mt-4 leading-7">A suspended artifact is unavailable through its normal viewing address and shows the same notice as a missing one. The people who manage it see the reason and our explanation in the dashboard and keep the export and deletion access described in the Terms, subject to any legally required preservation: while we must preserve an artifact, nobody can open, download, move or delete it, its managers included. When we restrict content, a feature or an account for illegality or a breach of this policy, we give the person affected a clear explanation no later than when the restriction takes effect, where we know how to contact them: by email to the account of a personal space, or to each admin of a workspace, and in the dashboard. It states what is restricted, its territorial scope and duration, the relevant facts, whether the decision followed a notice or our own review, any automated detection or decision-making used, and the legal or contractual ground and why it applies. It explains how to ask for our review and any available court or other redress. We withhold information only where the law permits. If you think we made a mistake, reply or write to <a href="mailto:abuse@portifact.com">abuse@portifact.com</a> and we will review it.</p>
+        <p class="mt-4 leading-7">A suspended artifact is unavailable through its normal viewing address and shows the same notice as a missing one. The people who manage it see the reason and our explanation in the dashboard and keep the export and deletion access described in the Terms, subject to any legally required preservation: while we must preserve an artifact, nobody can open, download, move or delete it, its managers included. When we restrict content, a feature or an account for illegality or a breach of this policy, we give the person affected a clear explanation no later than when the restriction takes effect, where we know how to contact them: by email to the account of a personal space, or to each admin of a workspace, and in the dashboard, and, when the restriction concerns documents a signed-in visitor saved in an artifact's data, by email to that visitor too. It states what is restricted, its territorial scope and duration, the relevant facts, whether the decision followed a notice or our own review, any automated detection or decision-making used, and the legal or contractual ground and why it applies. It explains how to ask for our review and any available court or other redress. We withhold information only where the law permits. If you think we made a mistake, reply or write to <a href="mailto:abuse@portifact.com">abuse@portifact.com</a> and we will review it.</p>
         <p class="mt-4 leading-7">We report suspected crimes that threaten someone's life or safety, and child sexual abuse or exploitation, to the competent authorities, and preserve the information the law requires.</p>
       </section>
 

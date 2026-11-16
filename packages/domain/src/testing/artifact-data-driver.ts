@@ -26,6 +26,7 @@ import type {
   LiveAttachment,
   MutationKind,
   OperationKind,
+  OwnChunk,
   PendingReads,
   SettleDecision,
 } from "../artifact-data/index.ts";
@@ -140,6 +141,18 @@ export interface DataObject {
     requested: number,
     context: Context,
   ): MaybePromise<Answer<{ documents: number; edits: number; more: boolean }>>;
+  /**
+   * A person's own erasure chunk: only what was saved or edited at or before `before`, no barrier,
+   * so they may save again afterwards.
+   */
+  eraseOwnChunk(
+    envelope: DataEnvelope,
+    author: string,
+    before: number,
+    editsAfter: ExportCursor | null,
+    requested: number,
+    context: Context,
+  ): MaybePromise<Answer<OwnChunk>>;
   get(
     envelope: DataEnvelope,
     caller: Caller,

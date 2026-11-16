@@ -25,7 +25,7 @@ export const zhCN = {
   "dataGrant.anonymous.learns": "页面只知道此制品的一个 ID：不知道姓名、电子邮件，也没有账户。",
   "dataGrant.anonymous.lasts": "在此浏览器中有效 {days} 天。",
   "dataGrant.anonymous.noAccount":
-    "没有账户，Portifact 之后无法向你显示或删除你保存的内容。只有页面本身可以，且仅在此浏览器保留期间。",
+    "没有账户时，Portifact 不会保留你可以自行查看的记录。在此授权有效期间，页面可以显示你保存的内容。你也可以联系管理此 artifact 的人或 privacy@portifact.com；在能够核实哪些数据与你有关时，Portifact 会提供帮助。",
   "dataGrant.anonymous.signIn": "改为登录",
   "dataGrant.anonymous.signInTitle": "登录以保存",
   "dataGrant.anonymous.closed": "此制品只为已登录的人保存内容。请登录后再次选择保存。",
@@ -41,8 +41,18 @@ export const zhCN = {
   "sharedData.askAccess": "我保存内容的副本",
   "sharedData.askErasure": "删除我保存的内容",
   "sharedData.askSend": "发送请求",
-  "sharedData.askSent": "你关于 {name} 的请求已发送",
   "sharedData.askFailed": "请求未发送",
+  "sharedData.askReceived": "已收到你关于 {name} 的请求。我们会尽快通过电子邮件通知其管理者",
+  "sharedData.downloadContinue": "继续下载",
+  "sharedData.downloadContinueNamed": "继续下载你在 {name} 中保存的内容",
+  "sharedData.downloadRestart": "重新开始",
+  "sharedData.downloadRestartNamed": "重新开始下载 {name}",
+  "sharedData.downloadPaused": "下载已暂停",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {目前已下载 # 个文档。} other {目前已下载 # 个文档。}} 你在此制品中数据的今日额度已用完。请在明天 UTC 午夜之后继续，下载会从停止的地方接着进行。",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {目前已下载 # 个文档。} other {目前已下载 # 个文档。}} 其余内容未能下载。继续后，下载会从停止的地方接着进行。",
+  "sharedData.downloadedAll": "已下载你在 {name} 中保存的全部内容（{count} 个文档）",
   "dataGrant.viewer.saving": "此页面会保存你输入的内容",
   "dataGrant.viewer.savingHint":
     "它通过你的显示名称和此 artifact 专用的 ID 识别你。你可以随时停止。",
@@ -58,8 +68,13 @@ export const zhCN = {
   "sharedData.deleteTitle": "删除你在 {name} 中保存的内容？",
   "sharedData.deleteBody":
     "你在其中创建的每个文档都将被永久删除，包括他人之后的编辑。你对他人文档的编辑会保留，但不再显示你的名字。",
-  "sharedData.deleted": "已删除你在 {name} 中保存的内容（{count} 个文档）",
   "sharedData.deleteFailed": "删除未完成",
+  "sharedData.eraseStarted": "正在删除你在 {name} 中保存的内容。即使关闭此页面也会继续。",
+  "sharedData.erasing":
+    "{count, plural, one {正在删除你保存的内容：目前已删除 # 个文档} other {正在删除你保存的内容：目前已删除 # 个文档}}",
+  "sharedData.erased":
+    "{count, plural, one {已于 {date} 删除你保存的内容（# 个文档）} other {已于 {date} 删除你保存的内容（# 个文档）}}",
+  "sharedData.eraseFailed": "删除你保存的内容未能完成。你可以再次请求。",
   "dataGrant.frame.granted": "此页面现在可以保存你输入的内容",
   "dataGrant.frame.saving": "正在保存你的选择",
   "dataGrant.frame.unavailable": "此框架中无法保存",
@@ -84,6 +99,13 @@ export const zhCN = {
   "dataGrant.unavailable": "此请求无法使用",
   "dataGrant.unavailableHint": "请重新打开 artifact，并从那里选择保存。",
   "dataGrant.failed": "未能完成允许",
+  "dataGrant.legal.terms": "服务条款",
+  "dataGrant.legal.acceptableUse": "可接受使用政策",
+  "dataGrant.legal.privacy": "隐私政策",
+  "dataGrant.legal.notice":
+    "此页面由 Portifact 托管，此控件由 Portifact 显示。Portifact 保存哪些内容，请参阅{privacy}。该链接会在新标签页中打开。",
+  "dataGrant.legal.statement":
+    "选择“允许”，即表示你确认你已年满 18 周岁，并就你在此保存的内容同意{terms}和{acceptableUse}。这些链接会在新标签页中打开。",
   "sharedData.title": "你分享的数据",
   "sharedData.description":
     "可以识别你并保存你输入内容的 artifact 页面。撤销会在一分钟内生效；你保存的内容仍留在 artifact 中。",

@@ -94,6 +94,50 @@ describe("the statement of reasons", () => {
     expect(back.text).toContain("can view and download it again");
   });
 
+  it("tells a named data author about the artifact their documents are in, not as its manager", () => {
+    const author = moderationNoticeEmail({
+      ...base,
+      audience: "data_author",
+      dashboardUrl: "https://app.portifact.com/shared-data",
+    });
+    expect(author.subject).toBe("We suspended an artifact where you saved data: k7d2qm4xab");
+    expect(author.text).toContain("because of data saved in it, including documents you saved");
+    expect(author.text).toContain("Your documents are kept, not deleted");
+    expect(author.text).toContain("See what you saved: https://app.portifact.com/shared-data");
+    expect(author.text).toContain("because you saved data in this artifact");
+    expect(author.text).not.toContain("because you manage this");
+    expect(author.text).toContain(base.facts);
+    expect(author.text).toContain("abuse@portifact.com");
+    const unnamed = moderationNoticeEmail({ ...base, audience: "data_author", artifactName: null });
+    expect(unnamed.text).not.toContain("Q3 plan");
+    const lifted = moderationNoticeEmail({
+      ...base,
+      audience: "data_author",
+      action: "reinstate",
+      ground: null,
+      reason: null,
+    });
+    expect(lifted.subject).toBe(
+      "An artifact where you saved data is no longer suspended: k7d2qm4xab",
+    );
+    expect(lifted.text).toContain("can read and save data again");
+    // Only an artifact has data authors: other targets keep the managers' text.
+    const account = moderationNoticeEmail({ ...base, audience: "data_author", target: "account" });
+    expect(account.subject).toBe("We suspended your Portifact account");
+    for (const locale of LOCALE_CODES) {
+      const t = MODERATION_NOTICE_TEXT[locale].dataAuthor;
+      for (const action of ["suspend", "reinstate"] as const) {
+        const email = moderationNoticeEmail({ ...base, locale, action, audience: "data_author" });
+        const subject = action === "suspend" ? t.suspendSubject : t.liftSubject;
+        const what = action === "suspend" ? t.suspendWhat : t.liftWhat;
+        expect(email.subject).toBe(subject("k7d2qm4xab"));
+        expect(email.text).toContain(what('"Q3 plan" (k7d2qm4xab)'));
+        expect(email.text).toContain(t.footer);
+        expect(email.html).toContain(t.openLink);
+      }
+    }
+  });
+
   it("is written in every language, for every target and action", () => {
     for (const locale of LOCALE_CODES) {
       const t = MODERATION_NOTICE_TEXT[locale];

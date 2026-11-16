@@ -6,6 +6,7 @@
 // Revocation (the person, the viewer, sign-out, lost access) therefore applies within a minute.
 import {
   type AnonymousDataGrantControl,
+  ArtifactId,
   DATA_GRANT,
   type DataGrantControl,
   type DataGrantView,
@@ -24,6 +25,8 @@ import {
 } from "@portifact/domain";
 import { claimOutcome, journalKey } from "@portifact/domain/artifact-data";
 import { and, eq, gt, inArray, isNotNull, isNull, type SQL, sql } from "drizzle-orm";
+import { ownErasureView } from "./data-rights.ts";
+import { cursorRead, resumeAt, savedCursorSql } from "./maintenance-cursors.ts";
 import {
   appSessionSignIn,
   checkReadAccess,
@@ -484,11 +487,16 @@ export const DATA_GRANT_PAGE = 50;
 
 /**
  * One page of the artifacts the person shared data with in one region, by artifact ID after
- * `after`, through the `(user_id, artifact_id)` index: one row per artifact with the grants
- * still open. `next` names the last artifact when more may follow.
+ * `after`: the account's author journal entries in the region's bucket (one per artifact the
+ * person was ever known in, listed by key), never retired ones, with their grants laid over them
+ * through the `(user_id, artifact_id)` index. The journal outlives the grants, which are pruned
+ * 30 days after they ended, so the person keeps reaching their export, deletes and requests for
+ * as long as the artifact holds what they saved. `next` names the last artifact when more may
+ * follow.
  */
 export async function listDataGrants(
   db: RegionalDb,
+  bucket: R2Bucket,
   input: {
     userId: string;
     contentDomain: string;
@@ -498,43 +506,216 @@ export async function listDataGrants(
   },
 ): Promise<{ items: DataGrantView[]; next: string | null }> {
   const limit = Math.min(Math.max(1, input.limit ?? DATA_GRANT_PAGE), DATA_GRANT_PAGE);
+  const prefix = journalKey(input.userId, "");
+  const listed = await bucket.list({
+    prefix,
+    limit,
+    ...(input.after ? { startAfter: `${prefix}${input.after}` } : {}),
+  });
+  const keys = listed.objects.map((object) => object.key);
+  const next = listed.truncated ? (keys.at(-1)?.slice(prefix.length) ?? null) : null;
+  const entries = (
+    await Promise.all(
+      keys.map(async (key) => {
+        const found = await bucket.get(key);
+        if (found === null) return null;
+        const entry = JournalEntrySchema.safeParse(await found.json().catch(() => null));
+        if (!entry.success || entry.data.retiredAt !== undefined) return null;
+        const artifactId = ArtifactId.safeParse(key.slice(prefix.length));
+        if (entry.data.visitorId === null || !artifactId.success) return null;
+        return {
+          artifactId: artifactId.data,
+          visitorId: entry.data.visitorId,
+          firstGrantAt: entry.data.firstGrantAt,
+        };
+      }),
+    )
+  ).filter((entry) => entry !== null);
+  if (entries.length === 0) return { items: [], next };
+  const ids = entries.map((entry) => entry.artifactId);
   const live = sql`${g.revokedAt} is null and ${g.redeemedAt} is not null and ${g.expiresAt} > ${input.now}`;
-  const rows = await db
-    .select({
-      artifactId: g.artifactId,
-      name: sql<
-        string | null
-      >`(select ${schema.artifacts.name} from ${schema.artifacts} where ${schema.artifacts.id} = "data_grants"."artifact_id")`,
-      host: sql<string>`max(${g.host})`,
-      open: sql<number>`sum(case when ${live} then 1 else 0 end)`,
-      first: sql<number>`min(${g.createdAt})`,
-      last: sql<number>`max(${g.createdAt})`,
-      expiresAt: sql<number | null>`max(case when ${live} then ${g.expiresAt} end)`,
-    })
-    .from(g)
+  const oe = schema.dataOwnErasures;
+  const [names, grants, erasures] = await db.batch([
+    db
+      .select({ id: schema.artifacts.id, name: schema.artifacts.name })
+      .from(schema.artifacts)
+      .where(inArray(schema.artifacts.id, ids)),
+    db
+      .select({
+        artifactId: g.artifactId,
+        host: sql<string>`max(${g.host})`,
+        open: sql<number>`sum(case when ${live} then 1 else 0 end)`,
+        last: sql<number>`max(${g.createdAt})`,
+        expiresAt: sql<number | null>`max(case when ${live} then ${g.expiresAt} end)`,
+      })
+      .from(g)
+      .where(and(eq(g.userId, input.userId), inArray(g.artifactId, ids), isNotNull(g.redeemedAt)))
+      .groupBy(g.artifactId),
+    // The person's erasures there: exactly the (artifact, visitor ID) pairs the entries name,
+    // through the primary key, never another visitor's rows.
+    db
+      .select()
+      .from(oe)
+      .where(
+        sql`(${oe.artifactId}, ${oe.visitorId}) in (select json_extract(value, '$[0]'), json_extract(value, '$[1]') from json_each(${JSON.stringify(entries.map((entry) => [entry.artifactId, entry.visitorId]))}))`,
+      ),
+  ]);
+  const erasureOf = new Map(
+    erasures.map((row) => [`${row.artifactId}\u0000${row.visitorId}`, ownErasureView(row)]),
+  );
+  const nameOf = new Map(names.map((row) => [row.id, row.name]));
+  const grantOf = new Map(grants.map((row) => [row.artifactId, row]));
+  return {
+    items: entries.map((entry) => {
+      const grant = grantOf.get(entry.artifactId);
+      const last = Math.max(entry.firstGrantAt, Number(grant?.last ?? entry.firstGrantAt));
+      return {
+        artifactId: entry.artifactId,
+        artifactName: nameOf.get(entry.artifactId) ?? null,
+        host: grant?.host ?? devHost(entry.artifactId, input.contentDomain),
+        openGrants: Number(grant?.open ?? 0),
+        firstGrantedAt: new Date(entry.firstGrantAt).toISOString(),
+        lastGrantedAt: new Date(last).toISOString(),
+        expiresAt:
+          grant?.expiresAt === null || grant?.expiresAt === undefined
+            ? null
+            : new Date(Number(grant.expiresAt)).toISOString(),
+        erasure: erasureOf.get(`${entry.artifactId}\u0000${entry.visitorId}`) ?? null,
+      };
+    }),
+    next,
+  };
+}
+
+/** Grants one page of `endSignedOutDataGrants` reads: three bound parameters per tombstone. */
+const SIGNED_OUT_PAGE = 30;
+/** Pages it reads per run. */
+const SIGNED_OUT_PAGES = 5;
+const SIGNED_OUT_CURSOR = "data_grants_signed_out";
+
+/**
+ * Records when grants ended by their app session ending (sign-out deletes the row; an expired
+ * session counts once the expired-record cleanup deleted it, since a refresh can still extend a
+ * row that has expired) as `revoked_at`, so the prune deletes them 30 days after that end rather than after their own
+ * expiry. Renewal already refuses them; this only starts their pruning clock. Walks the grants by
+ * ID from `maintenance_cursors`, reading at most `SIGNED_OUT_PAGE` rows a page, and for each one
+ * it ends writes a `data_grant` window tombstone first, as every way to end a grant does: with
+ * one database in the same batch, with a separate one in the global database before the regional
+ * update. Both are held to the grant still open and its session row missing (with one database
+ * in their own statements); a session never comes back under the same ID, so a separate
+ * database cannot race.
+ */
+export async function endSignedOutDataGrants(
+  db: RegionalDb,
+  now: number,
+  caps: { pageSize: number; maxPages: number } = {
+    pageSize: SIGNED_OUT_PAGE,
+    maxPages: SIGNED_OUT_PAGES,
+  },
+): Promise<{ ended: number }> {
+  const pageSize = Math.min(caps.pageSize, SIGNED_OUT_PAGE);
+  const both = bothSides(db);
+  // By primary key only, filtered here: a page reads what it returns, whatever is revoked.
+  const pageAfter = (after: SQL | string) =>
+    db
+      .select({
+        id: g.id,
+        authSessionId: g.authSessionId,
+        revokedAt: g.revokedAt,
+        expiresAt: g.expiresAt,
+      })
+      .from(g)
+      .where(gt(g.id, after))
+      .orderBy(g.id)
+      .limit(pageSize);
+  // The cursor is read in the first page's batch, so a run with nothing to do is one call.
+  const [saved, first] = await db.batch([
+    cursorRead(db, SIGNED_OUT_CURSOR),
+    pageAfter(savedCursorSql(SIGNED_OUT_CURSOR)),
+  ]);
+  const started = saved[0]?.cursor ?? "";
+  let cursor = started;
+  let ended = 0;
+  for (let page = 0; page < caps.maxPages; page++) {
+    const rows = page === 0 ? first : await pageAfter(cursor);
+    const open = rows.filter((row) => row.revokedAt === null && row.expiresAt > now);
+    if (open.length > 0) ended += await endGrantsWithoutSession(db, both, open, now);
+    if (rows.length < pageSize) {
+      await resumeAt(db, SIGNED_OUT_CURSOR, started, null, now);
+      return { ended };
+    }
+    cursor = rows.at(-1)?.id ?? cursor;
+  }
+  await resumeAt(db, SIGNED_OUT_CURSOR, started, cursor, now);
+  return { ended };
+}
+
+/** True while the grant's app session row no longer exists (never merely expired). */
+const sessionMissing = sql`not exists (select 1 from "sessions" "s" where "s"."id" = "data_grants"."auth_session_id")`;
+
+async function endGrantsWithoutSession(
+  db: RegionalDb,
+  both: ReturnType<typeof bothSides>,
+  open: { id: string; authSessionId: string }[],
+  now: number,
+): Promise<number> {
+  const stillOpen = and(
+    inArray(
+      g.id,
+      open.map((row) => row.id),
+    ),
+    isNull(g.revokedAt),
+    gt(g.expiresAt, now),
+  );
+  if (both) {
+    // The tombstone and the revocation hold to the same predicate in one batch, so a session that
+    // exists (even one a refresh is extending) never gets either.
+    const [, done] = await both.batch([
+      both
+        .insert(schema.tombstones)
+        .select(
+          sql`select 'data_grant', "data_grants"."id", ${now} from ${g} where ${and(stillOpen, sessionMissing)}`,
+        )
+        .onConflictDoNothing(),
+      both
+        .update(g)
+        .set({ revokedAt: now })
+        .where(and(stillOpen, sessionMissing))
+        .returning({ id: g.id }),
+    ]);
+    return done.length;
+  }
+  const sessions = [...new Set(open.map((row) => row.authSessionId))];
+  const present = await db.global
+    .select({ id: schema.sessions.id })
+    .from(schema.sessions)
+    .where(inArray(schema.sessions.id, sessions));
+  const presentIds = new Set(present.map((row) => row.id));
+  const gone = open.filter((row) => !presentIds.has(row.authSessionId));
+  if (gone.length === 0) return 0;
+  // A missing session never comes back under its ID, so what was read stays true; the tombstone
+  // still repeats the predicate in its own statement.
+  const pairs = JSON.stringify(gone.map((row) => ({ g: row.id, s: row.authSessionId })));
+  await db.global
+    .insert(schema.tombstones)
+    .select(
+      sql`select 'data_grant', json_extract(value, '$.g'), ${now} from json_each(${pairs}) where not exists (select 1 from "sessions" "s" where "s"."id" = json_extract(value, '$.s'))`,
+    )
+    .onConflictDoNothing();
+  const done = await db
+    .update(g)
+    .set({ revokedAt: now })
     .where(
       and(
-        eq(g.userId, input.userId),
-        isNotNull(g.redeemedAt),
-        input.after ? gt(g.artifactId, input.after) : undefined,
+        stillOpen,
+        inArray(
+          g.id,
+          gone.map((row) => row.id),
+        ),
       ),
     )
-    .groupBy(g.artifactId)
-    .orderBy(g.artifactId)
-    .limit(limit + 1);
-  const page = rows.slice(0, limit);
-  return {
-    items: page.map((row) => ({
-      artifactId: row.artifactId,
-      artifactName: row.name ?? null,
-      host: row.host ?? devHost(row.artifactId, input.contentDomain),
-      openGrants: Number(row.open),
-      firstGrantedAt: new Date(Number(row.first)).toISOString(),
-      lastGrantedAt: new Date(Number(row.last)).toISOString(),
-      expiresAt: row.expiresAt === null ? null : new Date(Number(row.expiresAt)).toISOString(),
-    })),
-    next: rows.length > limit ? (page.at(-1)?.artifactId ?? null) : null,
-  };
+    .returning({ id: g.id });
+  return done.length;
 }
 
 /**
@@ -712,9 +893,16 @@ const HOUR_MS = 3_600_000;
  */
 export async function issueAnonymousDataGrantCode(
   db: RegionalDb,
-  input: AnonymousTargetInput & { nonceHash: string; addressKey: string },
+  input: AnonymousTargetInput & { nonceHash: string; addressKey: string; termsVersion: string },
 ): Promise<Result<{ code: string; host: string; expiresAt: number }>> {
   const limited = () => fail<never>("rate_limited", "Too many requests. Try again later.");
+  // Allow agrees to the terms the prompt showed; only the current ones grant writing.
+  if (needsTermsAcceptance(input.termsVersion)) {
+    return fail(
+      "terms_not_accepted",
+      "The terms changed since this prompt opened. Reload it, read the notice and choose Allow again.",
+    );
+  }
   // Every attempt from an address counts, so probing artifacts costs it too.
   const byAddress = await hitRateLimit(
     db.global.$client,
@@ -743,6 +931,8 @@ export async function issueAnonymousDataGrantCode(
     nonceHash: input.nonceHash,
     codeExpiresAt,
     expiresAt: input.now + DATA_GRANT.anonymousGrantTtlSeconds * SECOND_MS,
+    // Choosing Allow under the sign-in-wrap notice accepts the terms it showed, checked above.
+    termsVersion: input.termsVersion,
     createdAt: input.now,
   });
   return ok({ code, host: target.value.host, expiresAt: codeExpiresAt });
@@ -766,9 +956,10 @@ export async function redeemAnonymousDataGrantCode(
 ): Promise<Result<LiveGrant>> {
   const refused = fail<never>("invalid_input", "This link has expired or was already used.");
   if (input.nonceHash === null) return refused;
+  // The one-use code's material goes with its use: nothing left could redeem it again.
   const [row] = await db
     .update(ag)
-    .set({ usedAt: input.now })
+    .set({ usedAt: input.now, codeHash: null, nonceHash: null })
     .where(
       and(
         eq(ag.codeHash, await hashSecret(input.code)),
@@ -794,7 +985,9 @@ export async function redeemAnonymousDataGrantCode(
 /**
  * Renews an anonymous grant's claims: the grant exists for this artifact, was redeemed and has
  * not expired, and the artifact is still open to anonymous writers (the switch, active and
- * public, writers `anyone`, the owner's plan and policy). Read every 60 seconds; writes nothing.
+ * public, writers `anyone`, the owner's plan and policy). It writes only while the terms version
+ * the visitor agreed to on Allow is the current one; after a change it reads, and a new Allow
+ * agrees again. Read every 60 seconds; writes nothing.
  */
 export async function renewAnonymousDataGrant(
   db: RegionalDb,
@@ -802,7 +995,7 @@ export async function renewAnonymousDataGrant(
 ): Promise<Result<LiveGrant>> {
   if (!input.enabled) return unavailable();
   const [grant] = await db
-    .select({ visitorId: ag.visitorId, expiresAt: ag.expiresAt })
+    .select({ visitorId: ag.visitorId, expiresAt: ag.expiresAt, termsVersion: ag.termsVersion })
     .from(ag)
     .where(
       and(
@@ -820,7 +1013,8 @@ export async function renewAnonymousDataGrant(
     userId: "",
     visitorId: grant.visitorId,
     name: "",
-    write: true,
+    // Like a person's grant: write only under the terms version current now.
+    write: !needsTermsAcceptance(grant.termsVersion),
     expiresAt: grant.expiresAt,
   });
 }

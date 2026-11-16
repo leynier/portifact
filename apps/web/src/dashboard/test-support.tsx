@@ -635,6 +635,11 @@ export interface FakeServer {
   dataGrants: DataGrantView[];
   /** The person's own documents by artifact ID (`/data-grants/:id/mine`). */
   ownData: Record<string, { collection: string; id: string; body?: string }[]>;
+  /**
+   * The person's rights allowance left today, when set: each page costs its rows plus one and
+   * each delete one, and a request once it is spent answers 429 `rate_limited`.
+   */
+  ownDataAllowance?: number;
   /** The body of GET /api/v1/usage. */
   usage: AccountUsageView;
   /** The body of GET /api/v1/grace-forecast (decision 0022), for every space. */
@@ -1677,17 +1682,51 @@ function route(server: FakeServer, method: string, url: URL, headers: Headers): 
     const item = server.dataGrants.find((grant) => grant.artifactId === artifactId);
     return Response.json({ artifactId, openGrants: item?.openGrants ?? 0 });
   }
+  const erase = /^\/api\/v1\/account\/data-grants\/([^/]+)\/erasure$/.exec(path);
+  if (erase && method === "POST") {
+    const artifactId = decodeURIComponent(erase[1] as string);
+    const erasure = {
+      state: "running" as const,
+      documents: 0,
+      edits: 0,
+      requestedAt: new Date().toISOString(),
+      finishedAt: null,
+    };
+    server.dataGrants = server.dataGrants.map((item) =>
+      item.artifactId === artifactId ? { ...item, erasure } : item,
+    );
+    return Response.json(erasure, { status: 202 });
+  }
   const ask = /^\/api\/v1\/account\/data-grants\/([^/]+)\/rights-request$/.exec(path);
   if (ask && method === "POST") return Response.json({ requested: true }, { status: 202 });
   const own = /^\/api\/v1\/account\/data-grants\/([^/]+)\/mine$/.exec(path);
   if (own && method === "GET") {
-    const rows = server.ownData[decodeURIComponent(own[1] as string)] ?? [];
-    return Response.json({ rows, next: null, revision: 1 });
+    if (server.ownDataAllowance !== undefined && server.ownDataAllowance <= 0) {
+      return apiError("rate_limited", 429);
+    }
+    const key = (row: { collection: string; id: string }) => `${row.collection}:${row.id}`;
+    const after = url.searchParams.get("after");
+    const take = Number(url.searchParams.get("take") ?? 500);
+    const rows = [...(server.ownData[decodeURIComponent(own[1] as string)] ?? [])]
+      .sort((a, b) => (key(a) < key(b) ? -1 : 1))
+      .filter((row) => after === null || key(row) > after);
+    const page = rows.slice(0, take);
+    if (server.ownDataAllowance !== undefined) server.ownDataAllowance -= page.length + 1;
+    const last = page.at(-1);
+    return Response.json({
+      rows: page,
+      next: rows.length > take && last ? key(last) : null,
+      revision: 1,
+    });
   }
   const ownDoc = /^\/api\/v1\/account\/data-grants\/([^/]+)\/documents\/([^/]+)\/([^/]+)$/.exec(
     path,
   );
   if (ownDoc && method === "DELETE") {
+    if (server.ownDataAllowance !== undefined) {
+      if (server.ownDataAllowance <= 0) return apiError("rate_limited", 429);
+      server.ownDataAllowance -= 1;
+    }
     const artifactId = decodeURIComponent(ownDoc[1] as string);
     const id = decodeURIComponent(ownDoc[3] as string);
     server.ownData[artifactId] = (server.ownData[artifactId] ?? []).filter((row) => row.id !== id);
