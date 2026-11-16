@@ -79,7 +79,7 @@ const dataStorage = {
   viewer: {
     accounts: [
       {
-        durableObjectsStorageGroups: [
+        durableObjectsSqlStorageGroups: [
           { max: { storedBytes: 7_000 }, dimensions: { namespaceId: "ns-eu" } },
           { max: { storedBytes: 5_000 }, dimensions: { namespaceId: "ns-default" } },
           { max: { storedBytes: 1 }, dimensions: { namespaceId: "ns-eu" } },
@@ -276,6 +276,9 @@ describe("analytics collector", () => {
     expect(DATA_REQUESTS_QUERY).toContain("scriptName_in: $dataScripts");
     expect(DATA_USAGE_QUERY).toContain("namespaceId_in: $namespaceIds");
     expect(DATA_STORAGE_QUERY).toContain("namespaceId_in: $namespaceIds");
+    // The dataset and dimensions the live schema accepts (delivery 8's measurements).
+    expect(DATA_STORAGE_QUERY).toContain("durableObjectsSqlStorageGroups(");
+    expect(DATA_STORAGE_QUERY).toContain("dimensions { datetime namespaceId }");
   });
 
   it("keeps the platform's metrics when the data queries fail, and logs only a label", async () => {
@@ -321,7 +324,7 @@ describe("analytics collector", () => {
       /ANALYTICS_ACCOUNT_NOT_VISIBLE/,
     );
     expect(
-      parseDataUsage(5, { viewer: { accounts: [{ durableObjectsStorageGroups: [] }] } }),
+      parseDataUsage(5, { viewer: { accounts: [{ durableObjectsSqlStorageGroups: [] }] } }),
     ).toEqual({});
     expect(
       parseDataUsage(5, {
@@ -329,7 +332,7 @@ describe("analytics collector", () => {
           accounts: [
             {
               durableObjectsPeriodicGroups: [{}],
-              durableObjectsStorageGroups: [{ dimensions: { namespaceId: "a" } }, {}],
+              durableObjectsSqlStorageGroups: [{ dimensions: { namespaceId: "a" } }, {}],
             },
           ],
         },
