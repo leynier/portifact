@@ -21,7 +21,7 @@
     "@portifact/contracts": "workspace:*",
     "@portifact/domain": "workspace:*",
     "@portifact/ui": "workspace:*",
-    "@tanstack/react-query": "^5.106.1",
+    "@tanstack/react-query": "^5.107.1",
     "@tanstack/react-router": "^1.130.0",
     "fflate": "^0.8.2",
     "lucide-react": "catalog:",
@@ -30,18 +30,18 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.0",
+    "@tailwindcss/vite": "^4.3.5",
     "@testing-library/react": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react": "^6.0.0",
+    "@vitejs/plugin-react": "^6.3.0",
     "@vitest/coverage-istanbul": "catalog:",
     "axe-core": "catalog:",
     "happy-dom": "catalog:",
     "tailwindcss": "^4.0.0",
     "typescript": "catalog:",
-    "vite": "^8.3.6",
+    "vite": "^8.3.8",
     "vitest": "catalog:"
   }
 }

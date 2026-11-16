@@ -150,4 +150,26 @@ describe("the live upgrade", () => {
     // Nothing was bound: the refusal created no object state.
     expect(await inside(id, (o) => o.store.inspect("pf_meta"))).toEqual([]);
   });
+
+  it("ignores events for a socket the runtime no longer tracks", async () => {
+    // The runtime may deliver a close (or a late message) for a socket it already let go, for
+    // example a client end collected after the object closed the server end; `getTags` throws
+    // for such a socket, which used to surface as an uncaught exception in the handler.
+    const id = artifactId();
+    const object = await withData(id);
+    const response = await object.fetch(connectRequest(id, request(id)));
+    const socket = response.webSocket;
+    if (socket === null) throw new Error("no client end");
+    await listen(socket).next(1);
+    const untracked = await inside(id, async (o) => {
+      const [, server] = Object.values(new WebSocketPair());
+      if (server === undefined) throw new Error("no server end");
+      await o.webSocketMessage(server, "{}");
+      await o.webSocketClose(server, 1006);
+      return o.store.sockets.size;
+    });
+    // The tracked connection is untouched.
+    expect(untracked).toBe(1);
+    socket.close(1000);
+  });
 });

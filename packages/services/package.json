@@ -20,11 +20,11 @@
     "@portifact/domain": "workspace:*",
     "@portifact/render": "workspace:*",
     "drizzle-orm": "^0.45.0",
-    "tldts": "^7.4.19"
+    "tldts": "^7.4.26"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.6.0",
-    "@cloudflare/workers-types": "^5.0.0",
+    "@cloudflare/vitest-plugin": "^1.8.0",
+    "@cloudflare/workers-types": "^5.20261112.1",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",

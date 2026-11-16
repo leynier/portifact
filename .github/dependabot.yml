@@ -19,6 +19,11 @@ updates:
       # release-notes-generator does not load yet; scripts/check-release-notes.mjs catches it.
       - dependency-name: conventional-changelog-conventionalcommits
         update-types: ["version-update:semver-major"]
+      # 1.65's Firefox 159 build (revision 1572) crashes the page when the page reads
+      # `ariaLabelledByElements` after Playwright's role queries did (axe-core does), which fails
+      # every Firefox e2e test that runs axe. 1.65.1 ships the same build; try again with 1.66.
+      - dependency-name: "@playwright/test"
+        versions: ["1.65.x"]
     groups:
       dependencies:
         patterns: ["*"]

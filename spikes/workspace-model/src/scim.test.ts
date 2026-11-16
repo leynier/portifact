@@ -48,14 +48,23 @@ function scimUser(email: string, active = true) {
 }
 
 describe("SCIM plugin on D1", () => {
-  it("refuses to start with the Drizzle adapter as apps/app configures it", async () => {
+  // Up to 1.7.21 the plugin threw at init; since 1.7.22 it starts, logs the error and answers
+  // every SCIM route 501, so it still cannot serve anything with the adapter apps/app uses.
+  it("answers every SCIM route 501 with the Drizzle adapter as apps/app configures it", async () => {
     const h = createHarness({
       transactions: "none",
       scimConnections: [{ workspaceId, token: SCIM_TOKEN }],
     });
-    await expect(h.raw("/scim/v2/ServiceProviderConfig", scimRequest("GET"))).rejects.toThrow(
-      /requires a database adapter with native transaction support/,
-    );
+    for (const [path, init] of [
+      ["/scim/v2/ServiceProviderConfig", scimRequest("GET")],
+      ["/scim/v2/Users", scimRequest("POST", scimUser(uniqueEmail("no-tx")))],
+    ] as const) {
+      const response = await h.raw(path, init);
+      expect(response.status).toBe(501);
+      expect(((await response.json()) as { detail: string }).detail).toMatch(
+        /requires a database adapter with native transaction support/,
+      );
+    }
   });
 
   it("cannot write through Drizzle transactions, because D1 refuses BEGIN", async () => {
