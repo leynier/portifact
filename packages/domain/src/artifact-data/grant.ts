@@ -32,6 +32,25 @@ export function apiGate(
 }
 
 /**
+ * Whether a request is Chrome's WebSocket opening handshake from the artifact's own page: a `GET`
+ * with `Upgrade: websocket`, no fetch metadata at all and `Origin` exactly the artifact's origin.
+ * Only the live route reads such a handshake as the `same-origin` one other browsers send, so its
+ * session cookies (read, review, link) count as they would for that page's own requests. A browser
+ * always sends `Origin` on a handshake and a page cannot set it, so a sibling artifact or another
+ * site never passes; any fetch metadata present is left to the usual checks.
+ */
+export function ownOriginHandshake(method: string, headers: HeaderSource, origin: string): boolean {
+  return (
+    method === "GET" &&
+    headers.get("Upgrade")?.toLowerCase() === "websocket" &&
+    headers.get("Sec-Fetch-Site") === null &&
+    headers.get("Sec-Fetch-Mode") === null &&
+    headers.get("Sec-Fetch-Dest") === null &&
+    headers.get("Origin") === origin
+  );
+}
+
+/**
  * Starting a grant (`GET /__portifact/data/grant/begin`): a `GET` navigation the artifact's own
  * page opens at the top level, or the viewer sends into its frame (`cross-site`, `iframe`). A
  * sibling's `same-site` navigation is refused.
